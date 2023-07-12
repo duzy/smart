@@ -11,8 +11,8 @@ import (
         xml_enc "encoding/xml"
         json_enc "encoding/json"
         // yaml_enc "encoding/yaml"
+        // "strconv"
         "strings"
-        "strconv"
         "bytes"
         "fmt"
         "io"
@@ -20,33 +20,26 @@ import (
 
 // Value returned by (plain) modifier.
 type Plain struct {
-        valbase
-        Name string
-        Value *String
+        Raw
+        name string
 }
+func (p *Plain) Name(_ Context) (s string) { return p.name }
 func (p *Plain) String() (s string) {
-        var value = strings.Replace(p.Value.string, "'", "\\'", -1)
-        if p.Name == "" {
+        var value = strings.Replace(p.string, "'", "\\'", -1)
+        if p.name == "" {
                 s = fmt.Sprintf("(plain '%s')", value)
         } else {
-                s = fmt.Sprintf("((plain %s) '%s')", p.Name, value)
+                s = fmt.Sprintf("((plain %s) '%s')", p.name, value)
         }
         return
 }
-func (p *Plain) Strval(_ Context) string { return p.Value.string }
-func (p *Plain) True(_ Context) bool { return strings.TrimSpace(p.Value.string) != "" }
-func (p *Plain) Integer(_ Context) (n int64, e error) { return strconv.ParseInt(p.Value.string, 10, 64) }
-func (p *Plain) Float(_ Context) (n float64, e error) { return strconv.ParseFloat(p.Value.string, 64) }
-func (p *Plain) expand(_ Context, _ facet) (val Value) {
-        val = p.Value //MakeString(p.position, p.Value)
-        return
-}
+func (p *Plain) expand(_ Context, _ facet) (val Value) { return /* &p.Raw */p }
 func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*Plain); ok {
-                if p.Name == a.Name && (p.Value == a.Value || p.Value.string == a.Value.string) {
+        if a, y := v.(*Plain); y {
+                if p.name == a.name && p.string == a.string {
                         res = cmpEqual
                 }
-        } else if v.Strval(ctx) == p.Value.string {
+        } else if v.Strval(ctx) == p.string {
                 res = cmpEqual
         }
         return
@@ -88,7 +81,7 @@ func (_ *plainInt) Evaluate(ctx Context, args ...Value) (result Value, err error
                 pos = program.recipes[0].Position()
         }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{valbase{pos}, name, MakeString(ctx.Position(), str)}
+        result = &Plain{Raw{valbase{pos}, str}, name}
         if opts.debug>0 { warn(ctx, "%v", str).debug(opts.debug) }
         return
 }
@@ -267,7 +260,7 @@ const (
    )}
  */
 func DecodeJSON(ctx Context, source string) (result Value, err error) {
-        //fmt.Fprintf(stderr, "json: %v\n", source)
+        //prompt(ctx, "json: %v\n", source)
         var (
                 pos Position = ctx.Position()
                 stack []*Group
@@ -281,7 +274,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
         LoopJSON: for {
                 if t, err = jd.Token(); err != nil { break }
                 x := len(stack)
-                //fmt.Fprintf(stderr, "%T: %v\n", t, t)
+                //prompt(ctx, "%T: %v\n", t, t)
         SwitchNodeType:
                 switch node, value = nil, nil; d := t.(type) {
                 case json_enc.Delim:
@@ -372,7 +365,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                         default:
                                 err = ErrorIllJson; break LoopJSON
                         }
-                        //fmt.Fprintf(stderr, "node: %v\n", node)
+                        //prompt(ctx, "node: %v\n", node)
                 case float64:
                         if v := Value(MakeFloat(pos, d)); x == 0 {
                                 nodes = append(nodes, v)

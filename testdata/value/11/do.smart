@@ -1,0 +1,5 @@
+project testvalues11
+
+.test.x := &(.test$1)
+.test   := $(.test.x)
+.test.v2 := foobar

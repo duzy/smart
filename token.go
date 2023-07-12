@@ -67,15 +67,21 @@ const (
 	EXC       // !    exclamation
 	QUE       // ?
 
-	ruledelim_beg
-	BAR       // |
-	COLON     // :
-	DOLON    // ::
-	ruledelim_end
-
 	AT        // @
 	STAR      // *    Single Asterisk
 	DAST      // **   Double Asterisk
+
+	PLUS  // unary +
+	MINUS // unary -
+	PCON  // path concatenation '/'
+	PERC  // percent sign '%'(REM)
+
+	ruledelim_beg
+	BAR       // |
+	COLON     // :
+	DOLON     // ::
+	SOLON     // ;:
+	ruledelim_end
 
 	// NOTE: don't change the order of closures and delegates, scanner
 	// relys upon their order.
@@ -138,17 +144,14 @@ const (
 	QUE_ASSIGN //  ?=       set if absent (defined, including empty)
 	EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
 	// TODO: more assigns like !?=  !:=  !+=
-	SCO_ASSIGN //  := ≔     simply expanded (also override)
-	DCO_ASSIGN // ::= ⩴    simply expanded (POSIX standard)
+	CO1_ASSIGN //  := ≔     delegate-expanded (also override)
+	CO2_ASSIGN // ::= ⩴    all-expanded (POSIX standard)
+	SM2_ASSIGN // ;:=       all and unexpanded-forth
+	SM1_ASSIGN // ;=        unexpanded-forth
 	SUB_ASSIGN //  -=       remove
 	SAD_ASSIGN // -+=       remove-append assign
 	SSH_ASSIGN //  -=+      remove-shift assign
 	assign_end
-
-	PLUS  // unary +
-	MINUS // unary -
-	PCON  // path concatenation '/'
-	PERC  // percent sign '%'(REM)
 	operator_end
 
 	keyword_beg
@@ -170,6 +173,7 @@ const (
 
 	constant_beg
 	UNDEF   // `undef`
+	NULL    // `null`
 	NONE    // `none`
 	BARE    // `bare`  // TODO
 	REGEX   // `regex` // TODO
@@ -241,6 +245,7 @@ var tokens = [...]string{
 	BAR:       "|",
 	COLON:     ":",
 	DOLON:     "::",
+	SOLON:     ";:",
 
 	AT:        "@",
 	STAR:      "*",
@@ -299,8 +304,10 @@ var tokens = [...]string{
 	ADD_ASSIGN: "+=",
 	QUE_ASSIGN: "?=",
 	EXC_ASSIGN: "!=",
-	SCO_ASSIGN: ":=",
-	DCO_ASSIGN: "::=",
+	CO1_ASSIGN: ":=",
+	CO2_ASSIGN: "::=",
+	SM2_ASSIGN: ";:=",
+	SM1_ASSIGN: ";=",
 	SUB_ASSIGN: "-=",
 	SAD_ASSIGN: "-+=",
 	SSH_ASSIGN: "-=+",
@@ -327,6 +334,7 @@ var tokens = [...]string{
 	DONE:       "done",
 
 	UNDEF:  "undef",
+	NULL:   "null",
 	NONE:   "none",
 	BARE:   "bare",
 	REGEX:  "regex",

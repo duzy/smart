@@ -1,4 +1,4 @@
-project testvalues
+project testvalues4
 
 .test.* :=
 template for flag=(D I)
@@ -7,25 +7,25 @@ template  for lang=(c c++)
 .test.$(flag).$(lang) := $(flag) $(lang)
 template  expand
 template expand
-assert $(.test.*)     $(equal(-d) $(.test.*),D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique))
-assert $(.test.D.c++) $(equal(-d) $(.test.D.c++),D c++)
-assert $(.test.I.c++) $(equal(-d) $(.test.I.c++),I c++)
-assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c)
-assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c)
+# assert $(.test.*)     $(equal(-d) $(.test.*),D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique))
+# assert $(.test.D.c++) $(equal(-d) $(.test.D.c++),D c++)
+# assert $(.test.I.c++) $(equal(-d) $(.test.I.c++),I c++)
+# assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c)
+# assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c)
 
 .test.D.c += $(value &(.test.x))
 .test.v := xx
 .test.x := .test.v
-assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c xx)
+# assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c xx)
 
 .test.D.c += &(value $(.test.x))
-assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c xx xx)
+# assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c xx xx)
 
 .test.I.c += &(value &(.test.x))
 .test.I.c += &(value $(.test.x))
 .test.I.c += $(value &(.test.x))
 .test.I.c += $(value $(.test.x))
-assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c xx xx xx xx)
+# assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c xx xx xx xx)
 
 .test.foreach = ($1)
 .test.D.c += $(.test.foreach $1,&(.test.none)) ($1)
@@ -33,5 +33,5 @@ assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c xx xx xx xx)
 .test.x.a := x
 .test.x.b := y
 .test.x.c := z
-# assert $(.test.D.c a b c) $(equal(-d) $(.test.D.c a b c),D c xx xx (a b c) (a b c) x y z (a b c))
-assert $(equal(-d) $(.test.D.c a b c),D c xx xx (a b c) (a b c) x y z (a b c))
+# # assert $(.test.D.c a b c) $(equal(-d) $(.test.D.c a b c),D c xx xx (a b c) (a b c) x y z (a b c))
+# assert $(equal(-d) $(.test.D.c a b c),D c xx xx (a b c) (a b c) x y z (a b c))

@@ -6,12 +6,8 @@
 
 package smart
 
-import (
-        "fmt"
-)
-
 func do_helpscreen(ctx Context) {
-        fmt.Fprintf(stderr, `Build your projects the smart way!
+        prompt(ctx, `Build your projects the smart way!
 
 Usage:
 
@@ -21,11 +17,11 @@ Usage:
 `)
         for name, _ := range ctx.Globe().flagEntries {
                 if name == "" { continue }
-                fmt.Fprintf(stderr, `
+                prompt(ctx, `
     smart -%s[(arguments)]`, name)
         }
 
-        fmt.Fprintf(stderr, `
+        prompt(ctx, `
 
 Basic:
 
@@ -47,7 +43,7 @@ Basic:
         print_help_entries(ctx)
         print_options(ctx)
 
-        fmt.Fprintf(stderr, `
+        prompt(ctx, `
 Issues:
 
     * https://github.com/extbit/smart/issues
@@ -57,20 +53,20 @@ Issues:
 }
 
 func print_flag_entries(ctx Context) {
-        fmt.Fprintf(stderr, "Defined:\n")
+        prompt(ctx, "Defined:\n")
         for name, entries := range ctx.Globe().flagEntries {
                 if len(entries) == 0 || name == "" { continue }
-                fmt.Fprintf(stderr, `
+                prompt(ctx, `
    -%s`, name)
         }
-        fmt.Fprintf(stderr, "\n\n")
+        prompt(ctx, "\n\n")
 }
 
 func print_flag_trace(ctx Context) {
         for name, entries := range ctx.Globe().flagEntries {
                 if name == "" { continue }
                 for _, entry := range entries {
-                        fmt.Fprintf(stderr, "%s: %v\n", entry.Position(), entry)
+                        prompt(ctx, "%s: %v\n", entry.Position(), entry)
                 }
         }
 }
@@ -88,17 +84,17 @@ func print_options(ctx Context) {
 
         if len(opts) == 0 { return }
 
-        fmt.Fprintf(stderr, "Configure:\n\n")
+        prompt(ctx, "Configure:\n\n")
         for _, opt := range opts {
-                fmt.Fprintf(stderr, "    %v:\n", opt.entry)
+                prompt(ctx, "    %v:\n", opt.entry)
                 for _, info := range opt.infos {
-                        fmt.Fprintf(stderr, "        %s\n", info.Strval(ctx))
+                        prompt(ctx, "        %s\n", info.Strval(ctx))
                 }
         }
 }
 
 func print_configuration(ctx Context) {
-        fmt.Fprintf(stderr, `Configuration:
+        prompt(ctx, `Configuration:
 `)
 
         var configs = make(map[*Project][]Entry)
@@ -110,13 +106,13 @@ func print_configuration(ctx Context) {
         }
 
         for project, entries := range configs {
-                fmt.Fprintf(stderr, `
+                prompt(ctx, `
     %s`, project.spec)
                 for _, entry := range entries {
-                        fmt.Fprintf(stderr, `
+                        prompt(ctx, `
         %s`, entry)
                 }
         }
 
-        fmt.Fprintf(stderr, "\n")
+        prompt(ctx, "\n")
 }

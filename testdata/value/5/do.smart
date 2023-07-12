@@ -1,0 +1,6 @@
+project testvalues5
+
+.test.z := z-$1
+.test.y := $(.test.z)
+.test.x := $(.test.y)
+.test   := $(.test.x)

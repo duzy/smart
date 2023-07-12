@@ -1,0 +1,12 @@
+project testoptional
+
+use ./foo
+
+val1 := $(name?)
+val2 := $(foo→name?)
+val3 := $(foo→baz?)
+val4 := $(fo?→bar)
+val5 := $(fo?→bar?)
+val6 := $(foreach $(foo),$($_→name))
+val7 := $(foreach $(foo),$($_→name?))
+val8 := $(foreach $(foo),$($_→bar?))

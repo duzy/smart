@@ -23,19 +23,11 @@ func TestBuildExample(t *testing.T) {
 }
 
 func TestLoadTopWork(t *testing.T) {
-        var ctx = confine("testdata/none")
+        var ctx = load_testcase(t, "testdata/none", "none")
 
         if !strings.HasSuffix(ctx.WorkDir(), "/testdata/none") {
-                t.Errorf("wrong workdir: %s", ctx.WorkDir())
-        } else if err := ctx.loadTopWork(); err != nil {
-                t.Errorf("%v", err)
-        } else if n := ctx.countErrors(); n > 0 {
-                t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
-	} else if m := ctx.globe.main; m == nil {
-		t.Errorf("nil main")
-        } else if m.name != "none" {
-		t.Errorf("wrong main: %v", m)
+                ctx.err("wrong workdir: %s", ctx.WorkDir())
         }
 
-        if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+        ctx.flush()
 }

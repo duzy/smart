@@ -155,7 +155,7 @@ func printIndentDots(indent int, a ...interface{}) {
 
 func (p *tracing) traceAt(pos Position, a ...interface{}) {
 	fmt.Fprintf(stderr, "%7d:%3d: ", pos.Line, pos.Column)
-		printIndentDots(p.indent, a...)
+	printIndentDots(p.indent, a...)
 }
 
 func (p *tracing) trace(a ...interface{}) {

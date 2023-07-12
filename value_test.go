@@ -6,272 +6,958 @@
 package smart
 
 import (
-	// "strings"
 	"testing"
+	"fmt"
 )
 
-func TestValues1(t *testing.T) {
-	var ctx = confine("testdata/value/1")
+func TestAutoContext(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
 
-	if err := ctx.loadTopWork(); err != nil {
-		t.Errorf("%v", err)
-	} else if n := ctx.countErrors(); n > 0 {
-		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
-		ctx.flushDiags()
-	} else if m := ctx.globe.main; m == nil {
-		t.Errorf("nil main")
-	} else if m.name != "testvalues" {
-		t.Errorf("wrong main: %v", m)
-	} else {
-		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
-		var get = func(name string, ii ...interface{}) (res Value) {
-			var d *def
-			if d, res = call(ctx, name, ii...); d == nil {
-				t.Errorf("%s is not def", name)
-			} else if res == nil {
-				t.Errorf("%s is nil", name)
-				res = MakeNone(d.position)
-			}
-			return
+	var tc = load_testcase(t, "testdata/value/0", "testvalues0")
+	var get = func(name string, i ...interface{}) Value { return tc.get(name, i...) }
+
+	{
+		ac := autoContext{ Context:tc, defs:make(autoDefMap) }
+		ac.args(tc, nil, []Value{ease(tc, []string{"a", "b", "c"})})
+		if Context(&ac).ac() != &ac {
+			tc.err("%v", Context(&ac))
+		} else if len(ac.defs) != 1 {
+			tc.err("%v", ac.defs)
+		} else if d, y := ac.defs["1"]; !y {
+			tc.err("1: %v", ac.defs)
+		} else if d.value == nil {
+			tc.err("%v", d)
+		} else if s := d.value.String(); s != "'a' 'b' 'c'" {
+			tc.err("%T %v -> %s", d.value, d.value, s)
+		} else if s := d.value.Strval(tc); s != "a b c" {
+			tc.err("%T %v -> %s", d.value, d.value, s)
+		} else if d := ac.get(tc, "1"); d == nil {
+			tc.err("%v", ac.defs)
+		} else if d := autoDef(&ac, "1"); d == nil {
+			tc.err("%v", ac.defs)
+		} else if v := autoVal(&ac, "1"); v == nil {
+			tc.err("%v", ac.defs)
+		} else if s := v.Strval(tc); s != "a b c" {
+			tc.err("%T %v -> %s", v, v, s)
+		} else if d, v := ac.amend(tc, "1", ease(tc, "a")); d == nil {
+			tc.err("%v", ac.defs)
+		} else if v == nil {
+			tc.err("%v", ac.defs)
+		} else if v.String() != "'a' 'b' 'c'" {
+			tc.err("%v %v", ac.defs, v)
+		} else if d.value == nil {
+			tc.err("%v %v", ac.defs, d)
+		} else if d.value.String() != "'a'" {
+			tc.err("%v %v", ac.defs, d)
 		}
-
-		var (
-			test_foo = get(".test.foo")
-		)
-		if s := test_foo.Strval(ctx); s != "-foo" {
-			t.Errorf("%T %v, %s", test_foo, test_foo, s)
-		} else if s = test_foo.String(); s != "-foo" {
-			t.Errorf("%T %v, %s", test_foo, test_foo, s)
+	}
+	{
+		ac := autoContext{ Context:tc, defs:make(autoDefMap) }
+		ac.args(tc, nil, ease(tc, []string{"a", "b", "c"}).(*List).Elems)
+		if len(ac.defs) != 3 {
+			tc.err("%v", ac.defs)
+		} else if d, y := ac.defs["1"]; !y {
+			tc.err("1: %v", ac.defs)
+		} else if d.value == nil {
+			tc.err("%v", d)
+		} else if d.value.String() == "a" {
+			tc.err("%T %v", d.value, d.value)
 		}
 	}
 
-	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+	if foo := tc.def("foo"); foo == nil {
+		tc.err("foo")
+	} else if foo.value == nil {
+		tc.err("%v", foo)
+	} else if s := foo.value.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
+		tc.err("%T %v ; %s", foo.value, foo.value, s)
+	} else if s := foo.value.Strval(tc); s != "" {
+		tc.err("%T %v ; %s", foo.value, foo.value, s)
+	} else if l, y := foo.value.(*List); !y {
+		tc.err("%T %v", foo.value, foo.value)
+	} else if len(l.Elems) != 10 {
+		tc.err("%v", l.Elems)
+	} else if !l.Elems[0].expandable(tc, expandAuto|expandDigits) {
+		tc.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if !l.Elems[0].expandable(tc, expandAuto|expandDigits|expandDelegate) {
+		tc.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if l.Elems[0].expandable(tc, expandAuto) {
+		tc.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if l.Elems[0].expandable(tc, expandDigits) {
+		tc.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if l.Elems[0].expandable(tc, expandDelegate) {
+		tc.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if l.Elems[0].expandable(tc, expandPlaceholder) {
+		tc.err("%T %v", l.Elems[0], l.Elems[0])
+	}
+
+	if foo := get("foo"); foo == nil {
+		tc.err("foo")
+	} else if s := foo.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(tc); s != "" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	}
+
+	if foo := get("foo", "1"); foo == nil {
+		tc.err("foo")
+	} else if s := foo.String(); s != "$0 1 $2 $3 $4 $5 $6 $7 $8 $9" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(tc); s != "1" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	}
+
+	if foo := get("foo", "1", "2", "3"); foo == nil {
+		tc.err("foo")
+	} else if s := foo.String(); s != "$0 1 2 3 $4 $5 $6 $7 $8 $9" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(tc); s != "1 2 3" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	}
+
+	if foo := get("foo", expandDelegate, "1"); foo == nil {
+		tc.err("foo")
+	} else if s := foo.String(); s != "$0 1 $2 $3 $4 $5 $6 $7 $8 $9" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(tc); s != "1" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	}
+
+	if foo := get("foo", expandAutoKept|expandDelegate, "1"); foo == nil {
+		tc.err("foo")
+	} else if s := foo.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(tc); s != "" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	}
+
+	if foo := get("foo", "1", "2", "3", expandAutoKept|expandDelegate); foo == nil {
+		tc.err("foo")
+	} else if s := foo.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(tc); s != "" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	}
+
+	if foo := get("foo", expandDelegate, "1"); foo == nil {
+		tc.err("foo")
+	} else if s := foo.String(); s != "$0 1 $2 $3 $4 $5 $6 $7 $8 $9" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(tc); s != "1" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	}
+
+	if foo := get("foo", expandDelegate, "1", "2", "3"); foo == nil {
+		tc.err("foo")
+	} else if s := foo.String(); s != "$0 1 2 3 $4 $5 $6 $7 $8 $9" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(tc); s != "1 2 3" {
+		tc.err("%T %v -> %s", foo, foo, s)
+	}
+
+	tc.flush()
+}
+
+func TestValues1(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var tc = load_testcase(t, "testdata/value/1", "testvalues1")
+	var get = func(name string, ii ...interface{}) (res Value) { return tc.get(name, ii...) }
+
+	if v := get(".test.foo"); v == nil {
+		tc.err(".test.foo")
+	} else if s := v.Strval(tc); s != "-foo" {
+		tc.err("%T %v -> %s", v, v, s)
+	} else if s = v.String(); s != "-foo" {
+		tc.err("%T %v -> %s", v, v, s)
+	}
+
+	tc.flush()
 }
 
 func TestValues2(t *testing.T) {
-	var ctx = confine("testdata/value/2")
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
 
-	if err := ctx.loadTopWork(); err != nil {
-		t.Errorf("%v", err)
-	} else if n := ctx.countErrors(); n > 0 {
-		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
-		ctx.flushDiags()
-	} else if m := ctx.globe.main; m == nil {
-		t.Errorf("nil main")
-	} else if m.name != "testvalues" {
-		t.Errorf("wrong main: %v", m)
-	} else {
-		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
-		var get = func(name string, ii ...interface{}) (res Value) {
-			var d *def
-			if d, res = call(ctx, name, ii...); d == nil {
-				t.Errorf("%s is not def", name)
-			} else if res == nil {
-				t.Errorf("%s is nil", name)
-				res = MakeNone(d.position)
-			}
-			return
-		}
+	var ctx = load_testcase(t, "testdata/value/2", "testvalues2")
+	var get = func(s string, i ...interface{}) Value { return ctx.get(s, i...) }
 
-		if v := get(".test.ab"); v == nil {
-			t.Errorf(".test.ab")
-		} else if s := v.String(); s != "foobar $1-$2" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobar -" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.ba"); v == nil {
-			t.Errorf(".test.ba")
-		} else if s := v.String(); s != "foobaz $2-$1" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobaz -" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.ab", "a", "b"); v == nil {
-			t.Errorf(".test.ab")
-		} else if s := v.String(); s != "foobar a-b" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobar a-b" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.ba", "a", "b"); v == nil {
-			t.Errorf(".test.ba")
-		} else if s := v.String(); s != "foobaz b-a" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobaz b-a" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test", "a", "b", "c"); v == nil {
-			t.Errorf(".test")
-		} else if s := v.String(); s != "$(value(-c) &(.test.x)) $(&(.test.x) aa,bb) foobar aa-bb" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobar aa-bb foobar aa-bb" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.1", "a", "b", "c"); v == nil {
-			t.Errorf(".test.1")
-		} else if s := v.String(); s != "foobaz $2-$1 $(.test.ba $1$1,$2$2) $3" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobaz -" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.2", "a", "b", "c"); v == nil {
-			t.Errorf(".test.2")
-		} else if s := v.String(); s != "foobar $1-$2 foobar aa-bb c" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobar - foobar aa-bb c" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
-
-		if v := get(".test.3", "a", "b", "c"); v == nil {
-			t.Errorf(".test.3")
-		} else if s := v.String(); s != "foobar $1-$2 $(.test.ab $1$1,$2$2) $(call(-c) .test.ab,$1$1,$2$2) $3" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobar -" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.4", "a", "b", "c"); v == nil {
-			t.Errorf(".test.4")
-		} else if s := v.String(); s != "foobar $1-$2 foobar aa-bb foobar aa-bb c" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobar - foobar aa-bb foobar aa-bb c" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
+	if v := get(".test.ab"); v == nil {
+		ctx.err(".test.ab")
+	} else if s := v.String(); s != "foobar $1-$2" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if s := v.Strval(ctx); s != "foobar -" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.ab", "a", "b"); v == nil {
+		ctx.err(".test.ab")
+	} else if v.String() != "foobar a-b" {
+		ctx.err("%T %v", v, v) // "foobar $1-$2"
+	} else if s := v.Strval(ctx); s != "foobar a-b" {
+		ctx.err("%T %v -> %s", v, v, s) // "foobar -"
+	}
+	if v := get(".test.ab", "a", "b", expandDelegate); v == nil {
+		ctx.err(".test.ab")
+	} else if v.String() != "foobar a-b" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar a-b" {
+		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+	if v := get(".test.ba"); v == nil {
+		ctx.err(".test.ba")
+	} else if v.String() != "foobaz $2-$1" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobaz -" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.ba", "a", "b"); v == nil {
+		ctx.err(".test.ba")
+	} else if v.String() != "foobaz b-a" {
+		ctx.err("%T %v", v, v) // "foobaz $2-$1"
+	} else if s := v.Strval(ctx); s != "foobaz b-a" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.ba", "a", "b", expandDelegate); v == nil {
+		ctx.err(".test.ba")
+	} else if s := v.String(); s != "foobaz b-a" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobaz b-a" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if v := get(".test", "a", "b", "c"); v == nil {
+		ctx.err(".test")
+	} else if s := v.String(); s != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c $(call(-c) &(.test.x),aa,bb)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c foobar aa-bb" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test", "a", "b", "c", expandClosure); v == nil {
+		ctx.err(".test")
+	} else if s := v.String(); s != "foobar $1-$2 b foobar aa-bb c foobar aa-bb" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c foobar aa-bb" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if true {
+		// TODO: test the rest part
+	} else if t := vi(ctx, v, "a", "b", "c", expandDebug|expandAuto|expandDigits); t == nil {
+		ctx.err("%T %v", v, v)
+	} else if t.String() != "foobar a-b b foobar aa-bb c foobar aa-bb" {
+		ctx.err("%T %v -> %T %v", v, v, t, t)
+	} else if s := t.Strval(ctx); s != "foobar a-b b foobar aa-bb c foobar aa-bb" {
+		ctx.err("%T %v -> %s", t, t, s)
+	}
+
+	if v := get(".test.0", "a", "b", "c"); v == nil {
+		ctx.err(".test.0")
+	} else if v.String() != "foobar $1-$2 b foobar aa-bb c" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.s1", "a", "b", "c"); v == nil {
+		ctx.err(".test.s1")
+	} else if v.String() != "'foobar $1-$2 b foobar aa-bb c'" {
+		ctx.err("%T %v ; %v", v, v, ctx.def(".test.s1"))
+	} else if s := v.Strval(ctx); s != "foobar $1-$2 b foobar aa-bb c" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.s2", "a", "b", "c"); v == nil {
+		ctx.err(".test.s2")
+	} else if v.String() != "'foobar a-b b foobar aa-bb c'" {
+		ctx.err("%T %v ; %v", v, v, ctx.def(".test.s2"))
+	} else if s := v.Strval(ctx); s != "foobar a-b b foobar aa-bb c" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if v := get(".test.1", "a", "b", "c"); v == nil {
+		ctx.err(".test.1")
+	} else if v.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.1", "a", "b", "c", expandClosure); v == nil {
+		ctx.err(".test.1")
+	} else if v.String() != "foobar $1-$2 b foobar aa-bb c" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if d := ctx.def(".test.2"); d == nil || d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "foobaz $2-$1 b foobaz $2$2-$1$1 $3" {
+		ctx.err("%v", d)
+	}
+	if v := get(".test.2", "a", "b", "cc"); v == nil {
+		ctx.err(".test.2")
+	} else if v.String() != "foobaz b-a b foobaz bb-aa cc" {
+		ctx.err("%T %v ; %v", v, v, ctx.def(".test.2"))
+	} else if s := v.Strval(ctx); s != "foobaz b-a b foobaz bb-aa cc" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.2", "a", "b", "cc"); v == nil {
+		ctx.err(".test.2")
+	} else if v.String() != "foobaz b-a b foobaz bb-aa cc" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobaz b-a b foobaz bb-aa cc" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if d := ctx.def(".test.3"); d == nil || d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) $1$1,$2$2) $3" {
+		ctx.err("%v", d) // "foobaz $2-$1 b foobaz $22-$11 $3"
+	}
+	if v := get(".test.3", "a", "b", "c"); v == nil {
+		ctx.err(".test.3")
+	} else if v.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c" {
+		ctx.err("%T %v", v, v) // foobar $1-$2 $(.test.ab $1$1,$2$2) $3
+	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.3", "a", "b", "c", expandClosure); v == nil {
+		ctx.err(".test.3")
+	} else if v.String() != "foobar $1-$2 b foobar aa-bb c" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if v := get(".test.4", "a", "b", "x"); v == nil {
+		ctx.err(".test.4")
+	} else if v.String() != "foobar a-b b foobar aa-bb c foobar aa-bb x" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar a-b b foobar aa-bb c foobar aa-bb x" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.5", "a", "b", "x"); v == nil {
+		ctx.err(".test.5")
+	} else if v.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c $(call(-c) &(.test.x),aa,bb) x" {
+		ctx.err("%T %v", v, v) // foobar $1-$2 b foobar aa-bb c foobar aa-bb x
+	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c foobar aa-bb x" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
 }
 
 func TestValues3(t *testing.T) {
-	var ctx = confine("testdata/value/3")
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
 
-	if err := ctx.loadTopWork(); err != nil {
-		t.Errorf("%v", err)
-	} else if n := ctx.countErrors(); n > 0 {
-		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
-		ctx.flushDiags()
-	} else if m := ctx.globe.main; m == nil {
-		t.Errorf("nil main")
-	} else if m.name != "testvalues" {
-		t.Errorf("wrong main: %v", m)
-	} else {
-		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
-		var get = func(name string, ii ...interface{}) (res Value) {
-			var d *def
-			if d, res = call(ctx, name, ii...); d == nil {
-				t.Errorf("%s is not def", name)
-			} else if res == nil {
-				t.Errorf("%s is nil", name)
-				res = MakeNone(d.position)
-			}
-			return
-		}
+	var ctx = load_testcase(t, "testdata/value/3", "testvalues3")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
-		if v := get(".test.x"); v == nil {
-			t.Errorf(".test.x")
-		} else if s := v.String(); s != "$(a1)-$(a2)-3" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "--3" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test", "a", "b", "c"); v == nil {
-			t.Errorf(".test")
-		} else if s := v.String(); s != "x-y-3-xyz" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.1", "a", "b", "c"); v == nil {
-			t.Errorf(".test.1")
-		} else if s := v.String(); s != "x-y-3-xyz" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
+	if d := ctx.def(".test.x"); d == nil {
+		ctx.err(".test.x")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "$(a1)-$(a2)-3" {
+		ctx.err("%T %v", d.value, d.value)
+	}
+	if v := get(".test.x"); v == nil {
+		ctx.err(".test.x")
+	} else if v.String() != "$(a1)-$(a2)-3" {
+		ctx.err("%T %v ; %v", v, v, ctx.def(".test.x"))
+	} else if s := v.Strval(ctx); s != "--3" {
+		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+	if d := ctx.def(".test.y"); d == nil {
+		ctx.err(".test.y")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "x-y-3-xyz" {
+		ctx.err("%T %v", d.value, d.value)
+	}
+	if v := get(".test.y"); v == nil {
+		ctx.err(".test.y")
+	} else if v.String() != "x-y-3-xyz" {
+		ctx.err("%T %v ; %v", v, v, ctx.def(".test.y"))
+	} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if d := ctx.def(".test.z"); d == nil {
+		ctx.err(".test.z")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)" {
+		ctx.err("%T %v", d.value, d.value)
+	}
+	if v := get(".test.z"); v == nil {
+		ctx.err(".test.z")
+	} else if v.String() != "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)" {
+		ctx.err("%T %v ; %v", v, v, ctx.def(".test.y"))
+	} else if s := v.Strval(ctx); s != "--3-" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if v := get(".test.1"); v == nil {
+		ctx.err(".test.1")
+	} else if v.String() != "x-y-3-xyz" {
+		ctx.err("%T %v ; %v", v, v, ctx.def(".test.1"))
+	} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if v := get(".test.2"); v == nil {
+		ctx.err(".test.2")
+	} else if v.String() != "x-y-3-xyz" {
+		ctx.err("%T %v ; %v", v, v, ctx.def(".test.2"))
+	} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if v := get(".test.3"); v == nil {
+		ctx.err(".test.3")
+	} else if v.String() != "x-y-3-xyz" {
+		ctx.err("%T %v ; %v", v, v, ctx.def(".test.3"))
+	} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
 }
 
 func TestValues4(t *testing.T) {
-	var ctx = confine("testdata/value/4")
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
 
-	if err := ctx.loadTopWork(); err != nil {
-		t.Errorf("%v", err)
-	} else if n := ctx.countErrors(); n > 0 {
-		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
-		ctx.flushDiags()
-	} else if m := ctx.globe.main; m == nil {
-		t.Errorf("nil main")
-	} else if m.name != "testvalues" {
-		t.Errorf("wrong main: %v", m)
-	} else {
-		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
-		var get = func(name string, ii ...interface{}) (res Value) {
-			var d *def
-			if d, res = call(ctx, name, ii...); d == nil {
-				t.Errorf("%s is not def", name)
-			} else if res == nil {
-				t.Errorf("%s is nil", name)
-				res = MakeNone(d.position)
-			}
-			return
-		}
+	var ctx = load_testcase(t, "testdata/value/4", "testvalues4")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
-		if v := get(".test.D.c"); v == nil {
-			t.Errorf(".test.D.c")
-		} else if s := v.String(); s != "D c $(value &(.test.x)) xx $(.test.foreach $1,&(.test.none)) ($1) $(foreach $1,&(.test.x.$_)) ($1)" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "D c xx xx () ()" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.D.c++"); v == nil {
-			t.Errorf(".test.D.c++")
-		} else if s := v.String(); s != "D c++" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "D c++" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.I.c"); v == nil {
-			t.Errorf(".test.I.c")
-		} else if s := v.String(); s != "I c xx xx xx xx" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "I c xx xx xx xx" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
-
-		if v := get(".test.I.c++"); v == nil {
-			t.Errorf(".test.I.c++")
-		} else if s := v.String(); s != "I c++" {
-			t.Errorf("%T %v, %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "I c++" {
-			t.Errorf("%T %v, %s", v, v, s)
-		}
+	if d := ctx.def(".test.*"); d == nil {
+		ctx.err(".test.*")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique)" {
+		ctx.err("%v", d)
+	} else if s := d.value.Strval(ctx); s != "D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique)" {
+		ctx.err("%v -> %v", d, s)
 	}
 
-	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+	if v := get(".test.D.c"); v == nil {
+		ctx.err(".test.D.c")
+	} else if v.String() != "D c $(value &(.test.x)) &(value .test.v) ($1) ($1) $(foreach $1,&(.test.x.$_)) ($1)" {
+		ctx.err("%T %v", v, v) // "D c $(value &(.test.x)) xx $(.test.foreach $1,&(.test.none)) ($1) $(foreach $1,&(.test.x.$_)) ($1)"
+	} else if s := v.Strval(ctx); s != "D c xx xx () () ()" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+	if v := get(".test.D.c", "a"); v == nil {
+		ctx.err(".test.D.c")
+	} else if v.String() != "D c $(value &(.test.x)) &(value .test.v) (a) (a) &(.test.x.a) (a)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "D c xx xx (a) (a) x (a)" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if v := get(".test.D.c++"); v == nil {
+		ctx.err(".test.D.c++")
+	} else if s := v.String(); s != "D c++" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if s := v.Strval(ctx); s != "D c++" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if v := get(".test.I.c"); v == nil {
+		ctx.err(".test.I.c")
+	} else if v.String() != "I c &(value &(.test.x)) &(value .test.v) $(value &(.test.x)) xx" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "I c xx xx xx xx" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	if v := get(".test.I.c++"); v == nil {
+		ctx.err(".test.I.c++")
+	} else if s := v.String(); s != "I c++" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if s := v.Strval(ctx); s != "I c++" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestValues5(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/5", "testvalues5")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if d := ctx.def(".test"); d == nil {
+		ctx.err(".test")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "z-$1" {
+		ctx.err("%v", d)
+	}
+
+	if v := get(".test", "a"); v == nil {
+		ctx.err(".test")
+	} else if v.String() != "z-a" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "z-a" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestValues6(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/6", "testvalues6")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if d := ctx.def(".test"); d == nil {
+		ctx.err(".test")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "z-y-x-a" {
+		ctx.err("%v", d)
+	}
+
+	if v := get(".test", "b"); v == nil {
+		ctx.err(".test")
+	} else if v.String() != "z-y-x-a" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "z-y-x-a" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestValues7(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/7", "testvalues7")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if d := ctx.def(".test"); d == nil {
+		ctx.err(".test")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "z-yx$1-yx$2" {
+		ctx.err("%v", d)
+	}
+
+	if v := get(".test", "a", "b"); v == nil {
+		ctx.err(".test")
+	} else if v.String() != "z-yxa-yxb" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "z-yxa-yxb" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestValues8(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/8", "testvalues8")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if d := ctx.def(".test"); d == nil {
+		ctx.err(".test")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "$1" {
+		ctx.err("%v", d)
+	}
+
+	if v := get(".test", "a"); v == nil {
+		ctx.err(".test")
+	} else if v.String() != "a" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "a" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestValues9(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/9", "testvalues9")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if d := ctx.def(".test"); d == nil {
+		ctx.err(".test")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "$(.test$1)" {
+		ctx.err("%v", d)
+	}
+
+	if v := get(".test", ".u"); v == nil {
+		ctx.err(".test")
+	} else if v.String() != "foobar" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestValues10(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/10", "testvalues10")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if d := ctx.def(".test"); d == nil {
+		ctx.err(".test")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "$(.test.$1)" {
+		ctx.err("%v", d)
+	}
+
+	if v := get(".test", "w"); v == nil {
+		ctx.err(".test")
+	} else if v.String() != "foobar" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestValues11(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/11", "testvalues11")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if d := ctx.def(".test"); d == nil {
+		ctx.err(".test")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "&(.test$1)" {
+		ctx.err("%v", d)
+	}
+
+	if v := get(".test", ".v2"); v == nil {
+		ctx.err(".test")
+	} else if v.String() != "&(.test.v2)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobar" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestValues12(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/12", "testvalues12")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if d := ctx.def(".test"); d == nil {
+		ctx.err(".test")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "&(.test.$1)" {
+		ctx.err("%v", d)
+	}
+
+	if v := get(".test", "w2"); v == nil {
+		ctx.err(".test")
+	} else if v.String() != "&(.test.w2)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foobaz" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestPlaceholders(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/placeholder", "testplaceholder")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if d := ctx.def("val1"); d == nil {
+		ctx.err("val1 is nil")
+	} else if s := d.value.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
+		ctx.err("%T %v -> %s", d.value, d.value, s)
+	} else if l, y := d.value.(*List); !y {
+		ctx.err("%T %v", d.value, d.value)
+	} else if len(l.Elems) != 10 {
+		ctx.err("%v", l)
+	} else { for i, v := range l.Elems { if d, y := v.(digital); !y {
+		ctx.err("%d - %T %v", i, v, v)
+	} else if d, y := d.Value.(*delegate); !y {
+		ctx.err("%d - %T %v", i, v, v)
+	} else if d.l != Token(int(DELEGATE_0)+i) {
+		ctx.err("%d - %T %v - %v", i, v, v, d.l)
+	}}}
+
+	if v := get("val1", "1", "2", "3", "4", "5", "6", "7", "8", "9", "_"); v == nil {
+		ctx.err("val1")
+	} else if v.String() != "$0 1 2 3 4 5 6 7 8 9" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "1 2 3 4 5 6 7 8 9" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if l, y := u.Value.(*List); !y {
+		ctx.err("%T %v", u.Value, u.Value)
+	} else if u, y := l.Elems[0].(unexpanded); !y {
+		ctx.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v", u.Value, u.Value)
+	} else if u, y := d.x.(unexpanded); !y {
+		ctx.err("%T %v", d.x, d.x)
+	} else if a, y := u.Value.(*auto); !y {
+		ctx.err("%T %v", u.Value, u.Value)
+	} else if a.name != "0" {
+		ctx.err("%v", a)
+	} else { for i, v := range l.Elems[1:] { if w, y := v.(*bareword); !y {
+		ctx.err("%T %v", v, v)
+	} else if w.string != fmt.Sprintf("%d", i+1) {
+		ctx.err("%T %v , %s", v, v, w.string)
+	}}}
+
+	if v := get("val2", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
+		ctx.err("val2")
+	} else if v.String() != "$(foreach a b c d e f,$_)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "a b c d e f" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", u.Value, u.Value)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v", u.Value, u.Value)
+	} else if b, y := d.x.(*builtin); !y { // optional
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if b.name != "foreach" {
+		ctx.err("%T %v ; %v", v, v, b)
+	} else if false {
+		info(of(ctx,v), "%T %v, %T", v, v, u.Value).debug(1)
+	}
+
+	if v := get("val3", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
+		ctx.err("val3")
+	} else if v.String() != "$(foreach 1 2 3 4 5 6 7 8 9,$_)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "1 2 3 4 5 6 7 8 9" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if d, y := v.(*delegate); !y {
+		ctx.err("%T %v", v, v)
+	} else if b, y := d.x.(*builtin); !y { // optional
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if b.name != "foreach" {
+		ctx.err("%T %v ; %v", v, v, b)
+	}
+
+	if v := get("val4", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
+		ctx.err("val4")
+	} else if s := v.String(); s != "a b c d e f" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if s := v.Strval(ctx); s != "a b c d e f" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if _, y := v.(*List); !y {
+		ctx.err("%T %v", v, v)
+	}
+
+	if v := get("val5", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
+		ctx.err("val5")
+	} else if s := v.String(); s != "1 2 3 4 5 6 7 8 9" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if s := v.Strval(ctx); s != "1 2 3 4 5 6 7 8 9" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if _, y := v.(*List); !y {
+		ctx.err("%T %v", v, v)
+	}
+
+	ctx.flush()
+}
+
+func TestOptional(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.silentOptionalSelection = true
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/optional", "testoptional")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+
+	if v := get("val1"); v == nil {
+		ctx.err("val1")
+	} else if v.String() != "$(name)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v", u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y { // optional
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if w, y := u.Value.(*bareword); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	} else if w.string != "name" {
+		ctx.err("%T %v , %v", v, v, w)
+	} else if false {
+		info(of(ctx,v), "%T %v, %T", v, v, u.Value).debug(1)
+	}
+
+	if v := get("val2"); v == nil {
+		ctx.err("val2")
+	} else if v.String() != ".self" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foo" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if x, y := v.(expanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if p, y := x.Value.(*self); !y {
+		ctx.err("%T %v", x.Value, x.Value)
+	} else if p.name != "foo" {
+		ctx.err("%T %v -> %v", v, v, p)
+	} else if false {
+		info(of(ctx,v), "%T %v", v, v).debug(1)
+	}
+
+	if v := get("val3"); v == nil {
+		ctx.err("val3")
+	} else if v.String() != "$(foo→baz?)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y {
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if _, y := u.Value.(*selection); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	}
+
+	if v := get("val4"); v == nil {
+		ctx.err("val4")
+	} else if v.String() != "$(fo?→bar)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y {
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if _, y := u.Value.(*selection); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	}
+
+	if v := get("val5"); v == nil {
+		ctx.err("val5")
+	} else if v.String() != "$(fo?→bar?)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y {
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if _, y := u.Value.(*selection); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	}
+
+	if d := ctx.def("val6"); d == nil {
+		ctx.err("val6")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "foo" {
+		ctx.err("%T %v", d.value, d.value)
+	}
+	if v := get("val6"); v == nil {
+		ctx.err("val6")
+	} else if v.String() != "foo" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foo" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if p, y := v.(*projectname); !y {
+		ctx.err("%T %v", v, v)
+	} else if p.name != "foo" {
+		ctx.err("%T %v ; %v", v, v, p)
+	}
+
+	if v := get("val7"); v == nil {
+		ctx.err("val7")
+	} else if v.String() != "foo" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foo" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if p, y := v.(*projectname); !y {
+		ctx.err("%T %v", v, v)
+	} else if p.name != "foo" {
+		ctx.err("%T %v ; %v", v, v, p)
+	}
+
+	if d := ctx.def("val8"); d == nil {
+		ctx.err("val8")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "$(foo→bar?)" {
+		ctx.err("%T %v", d.value, d.value)
+	}
+	if v := get("val8"); v == nil {
+		ctx.err("val8")
+	} else if v.String() != "$(foo→bar?)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v", u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y { // optional
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if _, y := u.Value.(*selection); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	}
+
+	ctx.flush()
 }
 
 func TestGlobMatch(t *testing.T) {
-	if a, b, c := globMatch("*.c", "foo.c"); !a || c != nil {
+	defer func(o commandLineOpts) { options = o } (options)
+
+	var ctx Context = &uni
+
+	if a, b, c := globMatch(ctx, "*.c", "foo.c"); !a || c != nil {
 		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
 		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
 	} else if b[0] != "foo" {
 		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
 	}
-	if a, b, c := globMatch("**.c", "foo.c"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "**.c", "foo.c"); !a || c != nil {
 		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
 		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
@@ -279,12 +965,12 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("*.c", "foo/bar.c"); a == true || c != nil {
+	if a, b, c := globMatch(ctx, "*.c", "foo/bar.c"); a == true || c != nil {
 		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
 	} else if len(b) != 0 {
 		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
 	}
-	if a, b, c := globMatch("**.c", "foo/bar.c"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "**.c", "foo/bar.c"); !a || c != nil {
 		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
 		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
@@ -292,12 +978,12 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("*", "foobar"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "*", "foobar"); !a || c != nil {
 		t.Errorf("glob(*, foobar): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
 		t.Errorf("glob(*, foobar): %v %v %v", a, b, c)
 	}
-	if a, b, c := globMatch("**", "foobar"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "**", "foobar"); !a || c != nil {
 		t.Errorf("glob(**, foobar): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
 		t.Errorf("glob(**, foobar): %v %v %v", a, b, c)
@@ -305,12 +991,12 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(**, foobar): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("*", "foobar/"); a == true || c != nil {
+	if a, b, c := globMatch(ctx, "*", "foobar/"); a == true || c != nil {
 		t.Errorf("glob(*, foobar/): %v %v %v", a, b, c)
 	} else if len(b) != 0 {
 		t.Errorf("glob(*, foobar/): %v %v %v", a, b, c)
 	}
-	if a, b, c := globMatch("**", "foobar/"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "**", "foobar/"); !a || c != nil {
 		t.Errorf("glob(**, foobar/): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
 		t.Errorf("glob(**, foobar/): %v %v %v", a, b, c)
@@ -318,7 +1004,7 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(**, foobar/): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("**", "foo/bar/"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "**", "foo/bar/"); !a || c != nil {
 		t.Errorf("glob(**, foo/bar/): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
 		t.Errorf("glob(**, foo/bar/): %v %v %v", a, b, c)
@@ -326,7 +1012,7 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(**, foo/bar/): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("**xx**", "foo/bar/xx/foo/bar"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "**xx**", "foo/bar/xx/foo/bar"); !a || c != nil {
 		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if len(b) != 2 {
 		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
@@ -336,7 +1022,7 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("**/xx/**", "foo/bar/xx/foo/bar"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "**/xx/**", "foo/bar/xx/foo/bar"); !a || c != nil {
 		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if len(b) != 2 {
 		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
@@ -346,7 +1032,7 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("**/??/**", "foo/bar/xx/foo/bar"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "**/??/**", "foo/bar/xx/foo/bar"); !a || c != nil {
 		t.Errorf("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if len(b) != 4 {
 		t.Errorf("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
@@ -360,7 +1046,7 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("**/[xyz]/**", "foo/bar/z/foo/bar"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "**/[xyz]/**", "foo/bar/z/foo/bar"); !a || c != nil {
 		t.Errorf("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
 	} else if len(b) != 3 {
 		t.Errorf("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
@@ -372,7 +1058,7 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("foo/???/bar", "foo/xyz/bar"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "foo/???/bar", "foo/xyz/bar"); !a || c != nil {
 		t.Errorf("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
 	} else if len(b) != 3 {
 		t.Errorf("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
@@ -384,7 +1070,7 @@ func TestGlobMatch(t *testing.T) {
 		t.Errorf("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
 	}
 
-	if a, b, c := globMatch("foo/[xyz]/bar", "foo/z/bar"); !a || c != nil {
+	if a, b, c := globMatch(ctx, "foo/[xyz]/bar", "foo/z/bar"); !a || c != nil {
 		t.Errorf("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
 		t.Errorf("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
@@ -394,210 +1080,127 @@ func TestGlobMatch(t *testing.T) {
 }
 
 func TestPatterns(t *testing.T) {
-	var ctx = confine("testdata/value")
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
 
-	if err := ctx.loadTopWork(); err != nil {
-		t.Errorf("%v", err)
-	} else if n := ctx.countErrors(); n > 0 {
-		t.Errorf("errors %v, base=%s", n, ctx.WorkDir())
-		ctx.flushDiags()
-	} else if m := ctx.globe.main; m == nil {
-		t.Errorf("nil main")
-	} else if m.name != "testvalues" {
-		t.Errorf("wrong main: %v", m)
-	} else {
-		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
-		var get = func(name string, ii ...interface{}) (res Value) {
-			var d *def
-			if d, res = call(ctx, name, ii...); d == nil {
-				t.Errorf("%s is not def", name)
-			} else if res == nil {
-				t.Errorf("%s is nil", name)
-				res = MakeNone(d.position)
-			}
-			return
-		}
+	var ctx = load_testcase(t, "testdata/value", "testvalues")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
-		// Globs
+	// Globs
 
-		var (
-			glob1 = get("glob1")
-			glob2 = get("glob2")
-			val1 = get("val1")
-			val2 = get("val2")
-			val3 = get("val3")
-		)
+	var (
+		glob1 = get("glob1")
+		glob2 = get("glob2")
+		val1 = get("val1")
+		val2 = get("val2")
+		val3 = get("val3")
+	)
 
-		if glob1.Strval(ctx) != "*.c" {
-			t.Errorf("glob1 is wrong: %T %v", glob1, glob1)
-		}
-
-		if glob2.Strval(ctx) != "**.c" {
-			t.Errorf("glob2 is wrong: %T %v", glob2, glob2)
-		}
-
-		if val1.Strval(ctx) != "foo.c" {
-			t.Errorf("val1 is wrong: %T %v", val1, val1)
-		}
-
-		if val2.Strval(ctx) != "foo/bar.c" {
-			t.Errorf("val2 is wrong: %T %v", val2, val2)
-		}
-
-		if val3.Strval(ctx) != "foo/bar.c" {
-			if false { t.Errorf("val3 is wrong: %T %v", val3, val3) }
-		}
-
-		if a, b, c := glob1.match(ctx, val1); !a {
-			t.Errorf("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
-		}
-		if a, b, c := glob2.match(ctx, val1); !a {
-			t.Errorf("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
-		}
-
-		if a, b, c := glob1.match(ctx, val2); a == true {
-			if false { t.Errorf("match(%v, %v): %v %v %v", glob1, val1, a, b, c) }
-		}
-		if a, b, c := glob2.match(ctx, val2); !a {
-			t.Errorf("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
-		}
-
-		if a, b, c := glob1.match(ctx, val3); a == true {
-			if false { t.Errorf("match(%v, %v): %v %v %v", glob1, val1, a, b, c) }
-		}
-		if a, b, c := glob2.match(ctx, val3); !a {
-			t.Errorf("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
-		}
-
-		// TODO: test glob.stencil(...)
-
-		// Regexps
-
-		var (
-			regexp1 = get("regexp1")
-			regexp2 = get("regexp2")
-			regexp3 = get("regexp3")
-			regexp4 = get("regexp4")
-			regexp5 = get("regexp5")
-			regexp6 = get("regexp6")
-		)
-
-		if regexp1.Strval(ctx) != `x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}` {
-			t.Errorf("regexp1 is wrong: %T %v", regexp1, regexp1)
-		}
-
-		if regexp2.Strval(ctx) != `(re) (?P<name>re) (?:re) (?im) (?sU:re) \x{10ffff} \x1f \123 \* \. \? \$` {
-			t.Errorf("regexp2 is wrong: %T %v", regexp2, regexp2)
-		}
-
-		if regexp3.Strval(ctx) != `[[:xdigit:]]*, [[:^alpha:]], [^xyz] [a-z] \A \B \b \Q**??^:[]{}\E \^ \z` {
-			t.Errorf("regexp3 is wrong: %T %v", regexp3, regexp3)
-		}
-
-		if regexp4.Strval(ctx) != `fo{2}\.c` {
-			t.Errorf("regexp4 is wrong: %T %v", regexp4, regexp4)
-		} else if a, b, c := regexp4.match(ctx, val1); !a {
-			t.Errorf("match(%v, %v): %v %v %v", regexp4, val1, a, b, c)
-		} else if s, y := b.(string); !y {
-			t.Errorf("match(%v, %v): %v %v %v", regexp4, val1, a, b, c)
-		} else if s != val1.Strval(ctx) {
-			t.Errorf("match(%v, %v): %v %v %v", regexp4, val1, a, b, c)
-		} else if len(c) != 0 {
-			t.Errorf("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		}
-
-		if regexp5.Strval(ctx) != `fo{2}/bar\.c` {
-			t.Errorf("regexp5 is wrong: %T %v", regexp5, regexp5)
-		} else if a, b, c := regexp5.match(ctx, val2); !a {
-			t.Errorf("match(%v, %v): %v %v %v", regexp5, val2, a, b, c)
-		} else if s, y := b.(string); !y {
-			t.Errorf("match(%v, %v): %v %v %v", regexp5, val2, a, b, c)
-		} else if s != val2.Strval(ctx) {
-			t.Errorf("match(%v, %v): %v %v %v", regexp5, val2, a, b, c)
-		} else if len(c) != 0 {
-			t.Errorf("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		}
-
-		if regexp6.Strval(ctx) != `fo{2}(/o{2}){3}/bar\.c` {
-			t.Errorf("regexp6 is wrong: %T %v", regexp6, regexp6)
-		} else if a, b, c := regexp6.match(ctx, val3); !a {
-			t.Errorf("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		} else if s, y := b.(string); !y {
-			t.Errorf("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		} else if s != val3.Strval(ctx) {
-			t.Errorf("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		} else if len(c) != 1 {
-			t.Errorf("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		} else if c[0] != "/oo" {
-			t.Errorf("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		}
-
-		// TODO: test regexp.stencil(...)
-
-		if v := get(".test.ab"); v == nil {
-			t.Errorf(".test.ab")
-		} else if s := v.String(); s != "foobar $1-$2" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobar -" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
-
-		if v := get(".test.ba"); v == nil {
-			t.Errorf(".test.ba")
-		} else if s := v.String(); s != "foobaz $2-$1" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobaz -" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
-
-		if v := get(".test.ab", "a", "b"); v == nil {
-			t.Errorf(".test.ab")
-		} else if s := v.String(); s != "foobar a-b" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobar a-b" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
-
-		if v := get(".test.ba", "a", "b"); v == nil {
-			t.Errorf(".test.ba")
-		} else if s := v.String(); s != "foobaz b-a" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobaz b-a" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
-
-		if v := get(".test.1", "a", "b", "c"); v == nil {
-			t.Errorf(".test.1")
-		} else if s := v.String(); s != "foobaz $2-$1 $(.test.ba $1$1,$2$2)" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobaz -" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
-
-		if v := get(".test.2", "a", "b", "c"); v == nil {
-			t.Errorf(".test.2")
-		} else if s := v.String(); s != "foobar $1-$2 $(.test.ab $1$1,$2$2) $(call(-c) .test.ab,$1$1,$2$2)" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobar -" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
-
-		if v := get(".test.3", "a", "b", "c"); v == nil {
-			t.Errorf(".test.3")
-		} else if s := v.String(); s != "foobaz $2-$1" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "foobaz -" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
-
-		if v := get(".test.4", "a", "b", "c"); v == nil {
-			t.Errorf(".test.4")
-		} else if s := v.String(); s != "x-y-3-xyz" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		} else if s := v.Strval(ctx); s != "x-y-3-xyz" {
-			t.Errorf("%T %v -> %s", v, v, s)
-		}
+	if glob1.Strval(ctx) != "*.c" {
+		ctx.err("glob1 is wrong: %T %v", glob1, glob1)
 	}
 
-	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+	if glob2.Strval(ctx) != "**.c" {
+		ctx.err("glob2 is wrong: %T %v", glob2, glob2)
+	}
+
+	if val1.Strval(ctx) != "foo.c" {
+		ctx.err("val1 is wrong: %T %v", val1, val1)
+	}
+
+	if val2.Strval(ctx) != "foo/bar.c" {
+		ctx.err("val2 is wrong: %T %v", val2, val2)
+	}
+
+	if val3.Strval(ctx) != "foo/bar.c" {
+		if false { ctx.err("val3 is wrong: %T %v", val3, val3) }
+	}
+
+	if a, b, c := glob1.match(ctx, val1); !a {
+		ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
+	}
+	if a, b, c := glob2.match(ctx, val1); !a {
+		ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
+	}
+
+	if a, b, c := glob1.match(ctx, val2); a == true {
+		if false { ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c) }
+	}
+	if a, b, c := glob2.match(ctx, val2); !a {
+		ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
+	}
+
+	if a, b, c := glob1.match(ctx, val3); a == true {
+		if false { ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c) }
+	}
+	if a, b, c := glob2.match(ctx, val3); !a {
+		ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
+	}
+
+	// TODO: test glob.stencil(...)
+
+	// Regexps
+
+	var (
+		regexp1 = get("regexp1")
+		regexp2 = get("regexp2")
+		regexp3 = get("regexp3")
+		regexp4 = get("regexp4")
+		regexp5 = get("regexp5")
+		regexp6 = get("regexp6")
+	)
+
+	if regexp1.Strval(ctx) != `x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}` {
+		ctx.err("regexp1 is wrong: %T %v", regexp1, regexp1)
+	}
+
+	if regexp2.Strval(ctx) != `(re) (?P<name>re) (?:re) (?im) (?sU:re) \x{10ffff} \x1f \123 \* \. \? \$` {
+		ctx.err("regexp2 is wrong: %T %v", regexp2, regexp2)
+	}
+
+	if regexp3.Strval(ctx) != `[[:xdigit:]]*, [[:^alpha:]], [^xyz] [a-z] \A \B \b \Q**??^:[]{}\E \^ \z` {
+		ctx.err("regexp3 is wrong: %T %v", regexp3, regexp3)
+	}
+
+	if regexp4.Strval(ctx) != `fo{2}\.c` {
+		ctx.err("regexp4 is wrong: %T %v", regexp4, regexp4)
+	} else if a, b, c := regexp4.match(ctx, val1); !a {
+		ctx.err("match(%v, %v): %v %v %v", regexp4, val1, a, b, c)
+	} else if s, y := b.(string); !y {
+		ctx.err("match(%v, %v): %v %v %v", regexp4, val1, a, b, c)
+	} else if s != val1.Strval(ctx) {
+		ctx.err("match(%v, %v): %v %v %v", regexp4, val1, a, b, c)
+	} else if len(c) != 0 {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
+	}
+
+	if regexp5.Strval(ctx) != `fo{2}/bar\.c` {
+		ctx.err("regexp5 is wrong: %T %v", regexp5, regexp5)
+	} else if a, b, c := regexp5.match(ctx, val2); !a {
+		ctx.err("match(%v, %v): %v %v %v", regexp5, val2, a, b, c)
+	} else if s, y := b.(string); !y {
+		ctx.err("match(%v, %v): %v %v %v", regexp5, val2, a, b, c)
+	} else if s != val2.Strval(ctx) {
+		ctx.err("match(%v, %v): %v %v %v", regexp5, val2, a, b, c)
+	} else if len(c) != 0 {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
+	}
+
+	if regexp6.Strval(ctx) != `fo{2}(/o{2}){3}/bar\.c` {
+		ctx.err("regexp6 is wrong: %T %v", regexp6, regexp6)
+	} else if a, b, c := regexp6.match(ctx, val3); !a {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
+	} else if s, y := b.(string); !y {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
+	} else if s != val3.Strval(ctx) {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
+	} else if len(c) != 1 {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
+	} else if c[0] != "/oo" {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
+	}
+
+	// TODO: test regexp.stencil(...)
+
+	ctx.flush()
 }

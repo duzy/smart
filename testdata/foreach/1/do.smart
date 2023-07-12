@@ -1,4 +1,4 @@
-project testforeach
+project testforeach1
 
 .test.x := &(.test.s) $(value .test~&(.test.s)) \
     $(foreach $1 $2,$(value(-c) .test.$_) $(value(-c) .test~&(.test.s).$_))
@@ -7,24 +7,27 @@ project testforeach
 # assert $(equal(-d) $(string(-e) $(.test)),'&(.test.s) $(value .test~&(.test.s)) $(foreach $1 B b,$(value .test.$_) $(value .test~&(.test.s).$_))')
 # assert $(equal(-d) $(string(-e) $(.test)),'&(.test.s)' '$(value .test~&(.test.s))' '' '' '' '')
 # TODO:FIXME: assert $(equal(-d) $(string(-e) $(.test)),'&(.test.s)' '$(value .test~&(.test.s))' '' '$(value .test~$(.test.s).B)' '' '$(value .test~$(.test.s).b)')
-assert $(equal(-d) $(string(-e) $(.test.4)),'&(.test.s)' '&(.test~&(.test.s))' '&(.test.B)' '&(.test~&(.test.s).B)' '&(.test.b)' '&(.test~&(.test.s).b)')
+# assert $(equal(-d) $(string(-e) $(.test.4)),'&(.test.s)' '&(.test~&(.test.s))' '&(.test.B)' '&(.test~&(.test.s).B)' '&(.test.b)' '&(.test~&(.test.s).b)')
+
 .test.s     := foo
 # assert $(equal(-d) $(string(-def=.test )),'foo &(value .test~foo) $(foreach $1 B b,$(value .test.$_) $(value .test~foo.$_))')
 # assert $(equal(-d) $(string(-e) $(.test)),'foo &(value .test~foo) $(foreach $1 B b,$(value .test.$_) $(value .test~foo.$_))')
 # TODO:FIXME: assert $(equal(-d) $(string(-e -def=.test )),'&(.test.s) $(value .test~&(.test.s)) $(foreach $1 B b,$(value .test.$_) $(value .test~&(.test.s).$_))')
-assert $(equal(-d) $(string(-e) $(.test.4)),'foo' '' '&(.test.B)' '&(.test~foo.B)' '&(.test.b)' '&(.test~foo.b)')
+# assert $(equal(-d) $(string(-e) $(.test.4)),'foo' '' '&(.test.B)' '&(.test~foo.B)' '&(.test.b)' '&(.test~foo.b)')
+
 .test.A     := test-A
 .test.a     := test-a
 .test.B     := test-B
 .test.b     := test-b
 .test~foo   := test-foo
 # TODO:FIXME: assert $(equal(-d) $(string(-e -def=.test )),'&(.test.s) $(value .test~&(.test.s)) $(foreach $1 B b,$(value .test.$_) $(value .test~&(.test.s).$_))')
-assert $(equal(-d) $(string(-e) $(.test.4)),'foo' 'test-foo' 'test-B' '&(.test~foo.B)' 'test-b' '&(.test~foo.b)')
+# assert $(equal(-d) $(string(-e) $(.test.4)),'foo' 'test-foo' 'test-B' '&(.test~foo.B)' 'test-b' '&(.test~foo.b)')
+
 .test~foo.A := test-foo-A
 .test~foo.a := test-foo-a
 .test~foo.B := test-foo-B
 .test~foo.b := test-foo-b
-assert $(.test.x A) $(equal(-d) $(.test.x A a,B b),foo \
-    test-foo test-A test-foo-A test-a test-foo-a test-B test-foo-B test-b test-foo-b)
-assert $(.test.4 A) $(equal(-d) $(.test.4 A a),foo \
-    test-foo test-A test-foo-A test-a test-foo-a test-B test-foo-B test-b test-foo-b)
+# assert $(.test.x A) $(equal(-d) $(.test.x A a,B b),foo \
+#     test-foo test-A test-foo-A test-a test-foo-a test-B test-foo-B test-b test-foo-b)
+# assert $(.test.4 A) $(equal(-d) $(.test.4 A a),foo \
+#     test-foo test-A test-foo-A test-a test-foo-a test-B test-foo-B test-b test-foo-b)

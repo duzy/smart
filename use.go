@@ -57,24 +57,6 @@ func (p *use) traverse(ctx Context) {
         erro(at(ctx,p.position), "cant traverse 'use' %v", p.project).debug(1)
         return
 }
-/*func (p *use) _traverse(pc *traversal) {
-        if options.traceTraversal { defer un(tt(t_traverse, pc, p)) }
-        if _, done := usePrepared[p.project]; done {
-                usePrepared[p.project] += 1
-                // FIXME: allow re-use the project
-                return
-        }
-        if entry := p.project.defaultEntry; entry != nil {
-                if p.project.opts.traveUseLoop {
-                        // FIXME: break use loop
-                } else if entry.traverse(pc); pc.hasTravestates() {
-                        // ...
-                } else {
-                        usePrepared[p.project] += 1
-                }
-        }
-        return
-}*/
 func (p *use) stamp(ctx Context) (files []*File, err error) {
         if entry := p.project.defaultEntry; entry != nil {
                 files, err = entry.stamp(ctx)
@@ -261,13 +243,6 @@ func (p *uselist) traverse(ctx Context) {
         erro(at(ctx,p.list[0].position), "cant traverse 'uselist'").debug(1)
         return
 }
-/*func (p *uselist) _traverse(pc *traversal) {
-        if options.traceTraversal { defer un(tt(t_traverse, pc, p)) }
-        for _, elem := range p.list {
-                if elem.traverse(pc); pc.hasTravestates() { break }
-        }
-        return
-}*/
 func (p *uselist) rescope(ctx Context, scope *Scope) { panic("rescoping use list") }
 func (p *uselist) append(ctx Context, proj *Project, params []Value, opts useOpts) {
         for _, elem := range p.list {
@@ -282,25 +257,24 @@ func (p *uselist) Get(ctx Context, name string) (result Value, err error) {
         var list []Value
         for _, usee := range p.list {
                 if usee.opts.noVars { continue }
-                //if _, obj := usee.project.scope.Find("use."+name); !isNil(obj) {
-                if obj := usee.project.scope.Lookup("use."+name); !isNil(obj) {
+                //if _, obj := usee.project.scope.Find("use."+name); !isNull(obj) {
+                if obj := usee.project.scope.Lookup("use."+name); !isNull(obj) {
                         list = append(list, obj)
                 }
         }
         if err != nil {
                 // failed
         } else if len(list) > 0 {
-                result = MakeListOrScalar(p.Position(), list)
+                result = ease(ctx, list)
         } else {
                 result = MakeNone(p.Position())
         }
         return
 }
 
-func (p *uselist) Call(ctx Context, _ []Value, a... Value) (result Value) {
-        if p.list == nil { return }
+func (p *uselist) invoke(ctx Context, w facet, o, a []Value) (result Value) {
         var targets []Value
-        for _, usee := range p.list {
+        if p.list != nil { for _, usee := range p.list {
                 if entry := usee.project.defaultEntry; entry != nil {
                         if usee.project.opts.traveUseLoop {
                                 // FIXME: break use loop
@@ -309,10 +283,7 @@ func (p *uselist) Call(ctx Context, _ []Value, a... Value) (result Value) {
                         }
                         targets = append(targets, entry)
                 }
-        }
-        if len(targets) > 0 {
-                result = MakeListOrScalar(p.Position(), targets)
-        }
+        }; result = ease(ctx, targets) }
         return
 }
 

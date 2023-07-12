@@ -1,0 +1,9 @@
+project testforeach3
+
+.test.x    := $(foreach $1 $2,$(addprefix std=,&(.test.$_)))
+.test.y    := $(foreach $1 $2,$(if &(.test.$_),std=&(.test.$_)))
+.test.z    := $(foreach $1 $2,$(if $(.test.$_),std=&(.test.if.$_)))
+.test.if.x := xxx
+.test.if.y := yyy
+# assert $(equal(-d) $(.test.x if.x,if.y),std=xxx std=yyy)
+# FIXME: assert $(equal(-d) $(.test.y if.x,if.y),std=xxx std=yyy)

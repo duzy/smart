@@ -86,7 +86,7 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
   var res interface{}
   matched, res, _ = pat.match(ctx, val)
 
-  if false && !matched && !(isNone(pat) || isNil(pat)) {
+  if false && !matched && !(isNone(pat) || isNull(pat)) {
     var str string // NOOP
     if n := strings.Index(str, PathSep); n < 0 { return }
 
@@ -154,7 +154,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
 
   var pos = patts[0].Position()
   for _, path := range p.locs {
-    if isNil(path) {
+    if isNull(path) {
       erro(at(ctx,pos), "nil path: name=%s",  name)
       erro(at(ctx,pos), "nil path: %v", p).debug(32)
       fail(pos, "file mapping nil path: %v", p)
@@ -314,7 +314,7 @@ func (p *Project) NewScope(pos Position, comment string) *Scope {
   return NewScope(pos, p.scope, p, comment)
 }
 
-func (p *Project) obsolete_wildcard(ctx Context, opts *wildcardOpts, patterns ...Value) (files []*File) {
+func (p *Project) wildcard(ctx *builtin_wildcard, patterns ...Value) (files []*File) {
   defer func(t0 time.Time) {
     if d := time.Now().Sub(t0); d > 1*time.Second {
       var pos = ctx.Position()
@@ -324,139 +324,10 @@ func (p *Project) obsolete_wildcard(ctx Context, opts *wildcardOpts, patterns ..
     }
   } (time.Now())
 
-ForPatterns:
-  for _, inPat := range patterns {
-    var (
-      inPatCaches = inPat.collect(ctx, &p.filemap, cacheZero)
-      inPatPatterned = inPat.patterned(ctx)
-      breakAbsRel, matched bool
-    )
-
-  ForFilemaps:
-    for _, c := range inPatCaches {
-      var m, y = c._val.(FileMap)
-      if !y || m.filemap == nil {
-        erro(ctx, "Not FileMap: %T %v", c._val, c._val).debug(1)
-        continue
-      }
-
-      for _, mapPat := range m.primePatterns(ctx) {
-        if matched, _, _ = mapPat.match(ctx, inPat); !matched {
-          if inPatPatterned { // flip matching patterns
-            if matched, _, _ = inPat.match(ctx, mapPat); matched {
-              breakAbsRel = true // using the arg glob
-              goto afterMatchedPattern // unmatched pattern
-            }
-          }
-          continue /*ForFilemaps -- FIXES: break too early */; afterMatchedPattern:
-        }
-
-        var str string
-        var mapPatPatterned = mapPat.patterned(ctx)
-        if str = mapPat.Strval(ctx); str == "" {
-          erro(ctx, "empty pattern: %v", mapPat).debug(1)
-          return
-        }
-
-        var err error
-        var names []string // glob returned file names
-        var missing = opts.includeMissing && !opts.ignoreMissing
-        if len(m.locs) == 0 {
-          if f, y := toFile(mapPat); y { files = append(files, f)
-            if n := opts.debug; n>0 { warn(ctx, "%v -> %v (exists=%v)", mapPat, f, f.exists()).debug(n) }
-            continue
-          }
-
-          if names, err = filepath.Glob(str); err != nil {
-            erro(ctx, "%v: wildcard: %v", p, err).debug(1)
-            break ForPatterns
-          }
-
-          for _, s := range names {
-            f := stat(ctx, s, "", "")
-            files = append(files, f)
-            if enable_assertions { assert(f != nil, "`%s` missing", s) }
-            if n := opts.debug; n>0 { warn(ctx, "%v -> %v (exists=%v)", mapPat, f, f.exists()).debug(n) }
-          }
-          if names == nil && !mapPatPatterned && missing {
-            files = append(files, stat(ctx, str, "", "", nil))
-          }
-
-          if breakAbsRel {
-            continue ForPatterns
-          } else {
-            continue ForFilemaps
-          }
-        }
-
-        // Check against paths for non-abs/rel patterns.
-        for _, path := range m.locs {
-          var sub = path.Strval(ctx)
-          var subfile = filepath.Join(sub, str)
-          if names, err = filepath.Glob(subfile); err != nil {
-            erro(of(ctx,path), "%v: %v: %v", p, subfile, err)
-            errostack(of(ctx,path), 6, "").debug(12)
-            break ForPatterns
-          }
-
-          // Chop off path 'sub' prefix to have shorter names
-          // Aka. trim prefix 'file.Sub+PathSep'
-          if prefix := strings.TrimSuffix(subfile, str); len(names) > 0 {
-            for _, s := range names {
-              var name = strings.TrimPrefix(s, prefix)
-              if file := stat(ctx, name, sub, prefix, nil); file == nil {
-                if n := opts.debug; n>0 { warn(ctx, "%v -> %v %v (nil)", mapPat, sub, prefix).debug(n) }
-                erro(of(ctx,m.pattern), "%v: '%v' not found in %v", p, name, path)
-                errostack(of(ctx,path), 6, "").debug(12)
-              } else if file.exists() || missing {
-                files = append(files, file)
-                if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ {
-                  warnstack(ctx, n, "%v -> %v %v+%v (exists=%v)", mapPat, sub, prefix, file, file.exists()).debug(n) }
-              } else if opts.ignoreMissing {
-                continue
-              } else if opts.errorMissing {
-                erro(of(ctx,m.pattern), "%v: '%v' not found in %v", p, name, path)
-                errostack(of(ctx,path), 6, "").debug(12)
-                if true { fail(path.Position(), "missing %v", path) }
-              }
-            }
-          } else if !mapPatPatterned && missing {
-            // If the filemap is not a pattern (e.g. foobar.cpp), we include it in the returning files
-            // Append this non-existed/missing file.
-            file := stat(ctx, mapPat.Strval(ctx), sub, prefix, nil)
-            files = append(files, file)
-            if n := opts.debug; n>0 /* && p.name == "lib.unwind" */ { warn(ctx, "%v -> %v %v+%v", mapPat, sub, prefix, file).debug(n) }
-          } else if mapPatPatterned && !path.expandable(ctx, expandClosure) && len(m.locs) == 1 {
-            if false {
-              // Just report that the pattern matches no files in the
-              // file system (if only one path specified).
-              warn(of(ctx,mapPat), "%s: %v matches no files in '%v'", p.name, m.pattern, sub)
-              warn(of(ctx,inPat), "%s: here is %v (try using flag -m, aka -include-missing)", p.name, inPat).debug(1)
-            }
-          } else if opts.errorMissing {
-            erro(of(ctx,m.pattern), "%v: '%v' not found in %v", p, mapPat, path)
-            errostack(of(ctx,path), 6, "(%T):", ctx).debug(12)
-            if true { fail(path.Position(), "missing %v", path) }
-            break ForPatterns
-          }
-        }
-      }
-    }
+  var a []fs.FileInfo
+  if ctx.includeMissing && !ctx.ignoreMissing {
+    a = []fs.FileInfo{nil}
   }
-  return
-}
-
-func (p *Project) wildcard(ctx Context, opts *wildcardOpts, patterns ...Value) (files []*File) {
-  defer func(t0 time.Time) {
-    if d := time.Now().Sub(t0); d > 1*time.Second {
-      var pos = ctx.Position()
-      prompt(ctx, "%v: slow: %d patterns, %v\n", pos, len(patterns), patterns)
-      prompt(ctx, "%v: slow: %d files\n", pos, len(files))
-      prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
-    }
-  } (time.Now())
-
-  var missing = opts.includeMissing && !opts.ignoreMissing
 
   var m sync.Mutex
   var g sync.WaitGroup
@@ -466,28 +337,27 @@ func (p *Project) wildcard(ctx Context, opts *wildcardOpts, patterns ...Value) (
     m.Unlock()
     g.Done()
   }
-
   var f0 = func(lVal, rVal Value, lPat, rPat bool, fm *FileMap) {
-    var o = *opts
+    var o = *ctx
     for _, loc := range fm.locs {
       if o.dir = loc.Strval(ctx); lPat && rPat {
         var pat Value
         if lVal.cmp(ctx, rVal) == cmpEqual { pat = lVal } else {
           pat = &compositePattern{lVal, []Value{rVal}}
         }
-        g.Add(1) ; go collect(_wildcard(ctx, &o, pat)...)
+        g.Add(1) ; go collect(o._do(pat)...)
       } else if lPat && !rPat {
-        var a []fs.FileInfo
-        if missing { a = []fs.FileInfo{nil} }
-        name := rVal.Strval(ctx)
-        file := stat(ctx, name, "", o.dir, a...)
-        g.Add(1) ; go collect(file)
+        if file := stat(ctx, rVal.Strval(ctx), "", o.dir, a...); file != nil {
+          g.Add(1) ; go collect(file)
+        } else if false {
+          erro(ctx, "nil: %v: %T %v (%s, %v)", lVal, rVal, rVal, o.dir, a).debug(1)
+        }
       } else if !lPat && rPat {
-        var a []fs.FileInfo
-        if missing { a = []fs.FileInfo{nil} }
-        name := lVal.Strval(ctx)
-        file := stat(ctx, name, o.dir, "", a...)
-        g.Add(1) ; go collect(file)
+        if file := stat(ctx, lVal.Strval(ctx), o.dir, "", a...); file != nil {
+          g.Add(1) ; go collect(file)
+        } else if false {
+          erro(ctx, "nil: %v: %T %v (%s, %v)", rVal, lVal, lVal, o.dir, a).debug(1)
+        }
       } else {
         warn(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, o.dir)
       }
@@ -694,12 +564,15 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
 
 func file(c Context, s string) *File { return c.Project().file(c, s) }
 func resolveTempFile(c Context, s string) *File { return c.Project().tempFile(c, s) }
-func resolveObject(c Context, s string) Object { return c.Project().resolveObject(c, s) }
+func resolveObject(c Context, s string) Object {
+  if scope := c.Scope(); scope != nil { if o := scope.Resolve(s); o != nil { return o }}
+  return c.Project().resolveObject(c, s)
+}
 func resolveEntries(c Context, s string, a bool) *ResolveEntries { return c.Project().resolveEntries(c, s, a) }
 func resolvePatterns(c Context, v Value, s string) []*stemmed { return c.Project().resolvePatterns(c, v, s) }
 
 func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
-  if _, obj = p.scope.Find(s); isNil(obj) {
+  if p != nil && p.scope != nil { if _, obj = p.scope.Find(s); isNull(obj) {
     if p.pluginScope != nil {
       if obj = p.pluginScope.Lookup(s); obj != nil {
         return
@@ -710,10 +583,10 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
         break
       }
     }
-    if isNil(obj) && p.configure != nil && ctx.isConfiguration() {
+    if isNull(obj) && p.configure != nil && ctx.isConfigure() {
       obj = p.configure.resolveObject(ctx, s)
     }
-  }
+  }}
   return
 }
 
@@ -767,7 +640,7 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBas
     add(cache._val.(*Rule))
   }
 
-  if p.configure != nil && ctx.isConfiguration() {
+  if p.configure != nil && ctx.isConfigure() {
     var t = p.configure.resolveEntries(ctx, name, true)
     if t != nil && t.all != nil { add(t.all...) }
   }
@@ -801,9 +674,9 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
     var t = time.Now()
     if d := t.Sub(t0); d > 1*time.Second {
       var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; d3 = t.Sub(t2) ; n int )
-      var a = autoGet(ctx, "@")
-      for sc := ctx.stemmedContext(); sc != nil; n += 1 {
-        if c := sc.inner(); c != nil { sc = c.stemmedContext() } else { break }
+      var a = autoVal(ctx, "@")
+      for sc := ctx.sc(); sc != nil; n += 1 {
+        if c := sc.inner(); c != nil { sc = c.sc() } else { break }
       }
 
       var pos = ctx.Position()
@@ -811,7 +684,7 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
       prompt(ctx, "%v: slow: %v: %v: %v %v, %d nests", pos, p, a, v, p.patterns, n).debug(4)
 
       for _, pat := range p.patterns {
-        var ( pt = pat.target ; pa = pat.argumented )
+        var ( pt = pat.target ; pa = pat.arged )
         var full, r, stems = pt.match(ctx, s)
         var m = joinMatchRes(ctx, r)
         prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
@@ -855,15 +728,15 @@ ForPatterns:
       var m = joinMatchRes(ctx, r)
 
       if true {
-        for sc := ctx.stemmedContext(); sc != nil; { // pattern loop detection
+        for sc := ctx.sc(); sc != nil; { // pattern loop detection
           if s := sc.stem.target.Strval(ctx); s == m {
             continue ForPatterns // break the loop
           }
-          if c := sc.inner(); c != nil { sc = c.stemmedContext() } else { break }
+          if c := sc.inner(); c != nil { sc = c.sc() } else { break }
         }
       }
 
-      if pa := pat.argumented; len(pa) > 0 {
+      if pa := pat.arged; len(pa) > 0 {
         var y bool
         var t1 = time.Now()
         var av = mergex(ctx, plain, pa...)
@@ -891,7 +764,7 @@ func (p *Project) resolvePatterns2(ctx Context, val Value, s string) (res []*ste
     var a, _, _ = base.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
   }
-  if p.configure != nil && ctx.isConfiguration() {
+  if p.configure != nil && ctx.isConfigure() {
     var a, _, _ = p.configure.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
   }
@@ -959,7 +832,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
 
   if cache._val == nil {
     var rule = &Rule{
-      position: target.Position(), class: GeneralRule, target: target, argumented: arged,
+      position: target.Position(), class: GeneralRule, target: target, arged: arged,
     }
 
     if patterned {
@@ -1114,14 +987,14 @@ func enter(ctx Context, dir string) (err error) {
   cd.mutex.Lock(); defer cd.mutex.Unlock()
 
   if options.traceEntering {
-    fmt.Fprintf(stderr, "entering: %v (%v)\n", dir, ctx.Project().name)
+    prompt(ctx, "entering: %v (%v)\n", dir, ctx.Project().name)
   }
 
   var wd string
   if wd, err = os.Getwd(); err != nil { return }
   if err = lockCD(dir, 0); err != nil { return }
   if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
-  ctx.autoSet("CWD", MakeString(ctx.program().position, dir))
+  autoSet(ctx, "CWD", MakeString(ctx.program().position, dir))
 
   var ( enter *enterec ; ok bool )
   if enter, ok = cd.enters[dir]; !ok {
@@ -1138,7 +1011,7 @@ func leave(ctx Context, prog *Program, stop *enterec) (err error) {
 
   var size = len(cd.stack)
   if options.traceEntering {
-    fmt.Fprintf(stderr, "leaving: %v (%v %v %v)\n", stop.dir, prog.project.name, stop.num, size)
+    prompt(ctx, "leaving: %v (%v %v %v)\n", stop.dir, prog.project.name, stop.num, size)
   }
 
   for _, enter := range cd.stack {

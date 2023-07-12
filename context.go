@@ -21,7 +21,7 @@ import (
 
 const (
   clocks = "🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧"
-  productVerTag = "dev" // dev, alpha, beta, release
+  productVerTag = "dev" // dev, alpha, beta, stable
 )
 
 var ddd bool // debug dumps for special conditions
@@ -46,6 +46,8 @@ type commandLineOpts struct {
   printFlags      bool `flags,print-flags,printflags`
 
   buildPlugins    bool `bp,bup,build-plugins,buildplugins`
+
+  silentOptionalSelection bool
 
   verbose         bool `v,verb,verbose`
   verboseBreaks   bool `vb,vbrk,verbose-breaks`
@@ -95,23 +97,22 @@ type commandLineOpts struct {
 }
 
 func (o *commandLineOpts) debugParsing(syntax string) (res bool) {
-  if ddd {
-    for _, s := range o.debugSyn {
-      if res = s == syntax; res { break }
-    }
-  }
+  if ddd { for _, s := range o.debugSyn {
+    if res = s == syntax; res { break }
+  }}
   return
 }
 
 const fullContextStringer bool = false
 
 type Context interface {
-  String() string // for debug
   Position() Position
+
+  String() string // for debug
   WorkDir() string
 
-  Globe() *Globe
   Scope() *Scope
+  Globe() *Globe
 
   aquireLock() (unlock func())
 
@@ -122,23 +123,19 @@ type Context interface {
   loader() *loader // only in load stage
   parser() *parser // only in parse stage
 
-  auto() *autoContext
-  autoGet(string) *def
-  autoSet(string, Value) (*def, Value)
-  autoArgs([]*def, []Value) ([]string, error)
+  inner() Context
+
+  ac() *autoContext
+  ic() *invocation
 
   closure() *closureContext
   closureScopes() []*Scope
   closureResolveAuto(string) (Object, bool)
 
-  inner() Context
-  spawn(Context) Context
-
-  positionContext() *positionContext
-
   Project() *Project
   projects(Context, ...*Project) []*Project
 
+  poco() *positionContext
   pc() *programContext
   program() *Program
 
@@ -146,40 +143,32 @@ type Context interface {
   dirtyOpts() *dirtyOpts
   dirty(ctx Context, args ...Value) bool
 
-  // travestates(...*travestate) *travestates
-  traversed(target Value) []Value
+  traversed(ctx Context, target Value) []Value
   traverse(ctx Context, prereqValue Value) (traves travestates)
 
+  ruleContext() *ruleContext
   entry() Entry
-  entryContext() *entryContext
 
-  stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
-
-  stemmedContext() *stemmedContext
-  stemmed() *stemmed
+  sc() *stemmedContext
   stems() []string
 
   argumented() *argumentedContext
-  argumentedSet([]Value) []Value
-  arguments() []Value
+  dia() *diaContext
 
-  isConfiguration() bool
+  // TODO: call(Context, string, facet, []Value, ...Value) Value
 
-  diagnostic() *diagContext
-  diag(diagType, string, ...interface{}) *diagPoint
-  flushDiags() int
-  countErrors() int
-  totalErrors() int
+  un(Context, Value) bool
 
+  isConfigure() bool
   appendCallerUpdated() bool
   mustExists() bool
 }
 
 func getTargetValue(ctx Context) (res Value) {
-  if val := autoGet(ctx, "@"); val == nil {
+  if val := autoVal(ctx, "@"); val == nil {
     if false { erro(ctx, "target is nil") }
   } else if vals, u, n := plain.expand(ctx, val); len(vals) == 1 {
-    res = Scalar(vals[0])
+    res = scalarize(vals[0])
   } else {
     erro(of(ctx,val), "multiple targets: %v → %v (%d,%d)", val, vals, u, n)
   }
@@ -187,7 +176,7 @@ func getTargetValue(ctx Context) (res Value) {
 }
 
 func getTargetValueString(ctx Context) (val Value, str string) {
-  if val = getTargetValue(ctx); isNil(val) {
+  if val = getTargetValue(ctx); isNull(val) {
     if false { erro(ctx, "target '%v' is nil", val) }
   } else {
     str, _ = as{val}.fullnameOrStrval(ctx)
@@ -200,6 +189,8 @@ var options = commandLineOpts{
   debugErrors: true,
   debugWarns:  true,
   debugInfos:  true,
+
+  silentOptionalSelection: false,
 
   failOnErrors: true,
   fastMode: true,
@@ -222,6 +213,8 @@ var (
   goStackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   goStackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
 )
+type skip struct{ int }
+type frames struct{ int }
 type diagPoint struct {
   dt diagType
   position Position
@@ -229,64 +222,54 @@ type diagPoint struct {
   stack []byte // see also debug.Stack()
 }
 func (d *diagPoint) debug(args ...interface{}) *diagPoint {
-  const skips = 5 // skips the standard stack lines, which is not very useful
   switch productVerTag {
   case "dev", "debug": // only print debug diags for dev and debug versions
   default: return d
   }
-  switch d.dt {
-  case diagPrompt: if !options.debugPrompt { return d }
-  case diagInfo:   if !options.debugInfos  { return d }
-  case diagWarn:   if !options.debugWarns  { return d }
-  case diagError:  if !options.debugErrors { return d }
-  }
-  if n := len(args); n  > 1 {
-    if enabled, ok := args[0].(bool); ok {
-      if enabled { args = args[1:] }  else { return d }
-    }
-  }
-
-  var (
-    ln = []byte{ '\n' }
-    v = bytes.Split(debug.Stack(), ln)
-    i, j int
-  )
-  if skips > 0 && len(v) > skips { i = skips }
-  if n := len(args); n == 1 {
-    if t, ok := args[0].(int); ok { j = t }
-  } else if n == 2 {
-    if t, ok := args[0].(int); ok { i += t }
-    if t, ok := args[1].(int); ok { j = t }
-  } else if n > 2 {
-    panic("too many debug args")
-  } else {
-    panic("needs debug args")
-  }
 
   var s string
-  switch d.dt {
-  case diagPrompt: s = "note:"
-  case diagInfo:   s = "info:"
-  case diagWarn:   s = "warning:"
+  if false { switch d.dt {
+  case diagPrompt: if !options.debugPrompt { return d } else { s = "note:" }
+  case diagInfo:   if !options.debugInfos  { return d } else { s = "info:" }
+  case diagWarn:   if !options.debugWarns  { return d } else { s = "warning:" }
+  case diagError:  if !options.debugErrors { return d } else { s = "" }
+  }} else { switch d.dt {
+  case diagPrompt: if !options.debugPrompt { return d } else { s = "note:" }
+  case diagInfo:   if !options.debugInfos  { return d } else { s = "info:" }
+  case diagWarn:   if !options.debugWarns  { return d } else { s = "info:" }
+  case diagError:  if !options.debugErrors { return d } else { s = "info:" }
+  }}
+
+  var (
+    nums []int
+    i = 5 // skips the standard stack lines, which is not useful
+    j = 0 // number of frames to dump
+  )
+  for _, a := range args { if t, y := a.(bool); y {
+    if !t { return d }
+  } else if t, y := a.(int); y {
+    nums = append(nums, t)
+  } else if t, y := a.(skip); y {
+    i += t.int
+  } else if t, y := a.(frames); y {
+    j += t.int
+  }}
+  if n := len(nums); n == 0 {
+    j += 1
+  } else if n == 1 {
+    j += nums[0]
+  } else if n == 2 {
+    i += nums[0]
+    j += nums[1]
+  } else {
+    panic("too many stack nums")
   }
 
- if false {
-    var (
-      sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
-      sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
-    )
-    if j == 1 && sm1 != nil && sm2 != nil {
-      d.stack = append(sm2[0][1], []byte(":"+s+" ")...)
-      d.stack = append(d.stack, sm1[0][1]...)
-      d.stack = append(d.stack, []byte("\n")...)
-    } else if 0 < j && i+j <= len(v) {
-      if j % 2 != 0 { j += 1 }
-      ending := []byte(" (and more frames…)\n") //[]byte("\n…more frames not displayed ……\n")
-      d.stack = append(bytes.Join(v[i:i+j], ln), ending...)
-    }
-  } else if true {
+  var ln = []byte{ '\n' }
+  var v = bytes.Split(debug.Stack(), ln)
+  if true {
     var gotPanic bool
-    for j += j % 2; 0 < j && i+1 < len(v); i, j = i+2, j-2 {
+    for ; 0 < j && i+1 < len(v); i = i+1 {
       var (
         sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
         sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
@@ -296,12 +279,13 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
       if gotPanic { se = "		<---- panic" }
       if sm1 != nil && sm2 != nil && !isPanic {
         var e string
-        if 0 < j-2 && i+3 < len(v) { e = se+"\n" } else { e = " ...\n" }
+        if 0 < j-1 && i+3 < len(v) { e = se+"\n" } else { e = " ...\n" }
         d.stack = append(d.stack, sm2[0][1]...)
         d.stack = append(d.stack, []byte(":"+s+" ")...)
         d.stack = append(d.stack, sm1[0][1]...)
         d.stack = append(d.stack, sm1[0][2]...)
         d.stack = append(d.stack, []byte(e)...)
+        j -= 1
       }
       gotPanic = isPanic
     }
@@ -311,57 +295,57 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
   return d
 }
 
-type diagContext struct {
+type diaContext struct {
   Context
   sync.Mutex
   points   []*diagPoint
   nested [][]*diagPoint
   errs int
 }
-func (diag *diagContext) inner() Context { return diag.Context }
-func (diag *diagContext) spawn(ctx Context) Context {
-  return &diagContext{ Context: diag.Context.spawn(ctx) }
-}
-func (diag *diagContext) aquireLock() (unlock func()) {
+func (diag *diaContext) inner() Context { return diag.Context }
+// func (diag *diaContext) spawn(ctx Context) Context {
+//   return &diaContext{ Context: diag.Context.spawn(ctx) }
+// }
+func (diag *diaContext) aquireLock() (unlock func()) {
     diag.Lock() ; return func() { diag.Unlock() }
 }
-func (diag *diagContext) String() string {
+func (diag *diaContext) String() string {
   if fullContextStringer {
     return fmt.Sprintf("diag{%s}", diag.Context)
   } else {
     return diag.Context.String()
   }
 }
-func (diag *diagContext) diagnostic() *diagContext { return diag }
-func (diag *diagContext) reset() {
+func (diag *diaContext) dia() *diaContext { return diag }
+func (diag *diaContext) reset() {
   diag.Lock() ; defer diag.Unlock()
   diag.points = []*diagPoint{}
 }
 
-func (diag *diagContext) add(point *diagPoint) *diagPoint {
+func (diag *diaContext) add(point *diagPoint) *diagPoint {
   diag.Lock() ; defer diag.Unlock()
   diag.points = append(diag.points, point)
   return point
 }
-func (diag *diagContext) nest(points []*diagPoint) {
+func (diag *diaContext) nest(points []*diagPoint) {
   diag.Lock() ; defer diag.Unlock()
   diag.nested = append(diag.nested, points)
 }
 
-func (diag *diagContext) diag(dt diagType, f string, args ...interface{}) *diagPoint {
+func (diag *diaContext) point(ctx Context, dt diagType, f string, args ...interface{}) *diagPoint {
   if dt != diagPrompt { f = strings.TrimSpace(f) }
-  return diag.add(&diagPoint{ dt, diag.Position(), fmt.Sprintf(f, args...), nil })
+  return diag.add(&diagPoint{ dt, ctx.Position(), fmt.Sprintf(f, args...), nil })
 }
 
-func (diag *diagContext) totalErrors() (errs int) { return diag.errs }
-func (diag *diagContext) countErrors() (errs int) { return diag.check(diagError) }
-func (diag *diagContext) check(dt diagType) (errs int) {
+func (diag *diaContext) totalErrors() (errs int) { return diag.errs }
+func (diag *diaContext) countErrors() (errs int) { return diag.check(diagError) }
+func (diag *diaContext) check(dt diagType) (errs int) {
   diag.Lock()
   for _, d := range diag.points { if d.dt == dt { errs += 1 } }
   diag.Unlock()
   return
 }
-func (diag *diagContext) flushDiags() (errs int) {
+func (diag *diaContext) flush() (errs int) {
   var flush = func(d *diagPoint, pend bool) (pended bool) {
     var (
       pos = d.position.String()
@@ -411,20 +395,28 @@ func (diag *diagContext) flushDiags() (errs int) {
   return
 }
 
-func diagnostic(ctx Context) Context { return &diagContext{ Context: ctx } }
+func diagnostic(ctx Context) Context { return &diaContext{ Context: ctx } }
 func diag(ctx Context, dt diagType, f string, a ...interface{}) (p *diagPoint) {
-  if p = ctx.diag(dt, f, a...); p != nil { p.position = ctx.Position() }
+  if p = ctx.dia().point(ctx, dt, f, a...); false && p != nil { p.position = ctx.Position() }
   return
 }
 func info(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagInfo, f, a...) }
 func warn(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagWarn, f, a...) }
 func erro(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagError, f, a...) }
 func prompt(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagPrompt, f, a...) }
+func noted(ctx Context, f string, a ...interface{}) *diagPoint {
+  if !strings.HasSuffix(f, "\n") { f += "\n" }
+  if false {
+    return prompt(ctx, "%v: "+f, append([]interface{}{ctx.Position()}, a...)...)
+  } else {
+    return prompt(ctx, ctx.Position().String()+": "+f, a...)
+  }
+}
 
 type positionContext struct { Context; position Position }
-func (pc *positionContext) positionContext() *positionContext { return pc }
-func (pc *positionContext) caller() *positionContext { return pc.Context.positionContext() }
+func (pc *positionContext) poco() *positionContext { return pc }
 func (pc *positionContext) inner() Context { return pc.Context }
+func (pc *positionContext) caller() *positionContext { return pc.Context.poco() }
 func (pc *positionContext) Position() Position { return pc.position }
 func (pc *positionContext) String() string {
   if fullContextStringer {
@@ -436,48 +428,31 @@ func (pc *positionContext) String() string {
 
 func of(ctx Context, val Value) Context { return at(ctx, val.Position()) }
 func at(ctx Context, pos Position) Context {
-  if ctx == nil { panic("nil inner context") } else
-  if p := ctx.Position(); p.IsValid() && pos.IsValid() && !p.Same(&pos) {
-    var ( wrap bool = true ; num int )
-    for c, i, y := ctx, 0, true; c != ctx.universe(); c, i = c.inner(), i+1 {
-      if _, y = c.(*positionContext); y && i > 9999 {
-        if wrap { wrap, num = false, i }
-        if true {
-          prompt(ctx, "%v: too many positions: %T\n", p, c)
-          warn(ctx, "too many positions: %v, %v, %v", i, num, ctx).debug(1)
-          ctx.flushDiags()
-        }
-      }
+  if ctx == nil { panic("nil context") } else
+  if p := ctx.Position(); p._valid() && pos._valid() && !p.Same(&pos) {
+    for c, i, n := ctx, 0, 0; c != /* ctx.universe() */nil; c, i = c.inner(), i+1 {
+      if _, y := c.(*positionContext); y { n += 1 ; if n > /* 999 */100 {
+        if false { prompt(ctx, "%v: too many positions: %T\n", p, c) }
+        warnstack(ctx, 3, "too many positions: %v/%v; %v", n, i, ctx).debug(16)
+        ctx.dia().flush()
+        return ctx
+      }}
     }
-    if wrap { ctx = &positionContext{ ctx, pos } } else {
-      warn(ctx, "too many positions: %v, %v", num, ctx).debug(128)
-      ctx.flushDiags()
-    }
-  } else if _, y := ctx.(*loader); false && y && p.Same(&pos) {
-    ctx = &positionContext{ ctx, pos }
-  } else if _, y := ctx.(*parser); false && y && p.Same(&pos) {
-    ctx = &positionContext{ ctx, pos }
+    ctx = _at(ctx, pos)
   }
   return ctx
 }
+func _at(ctx Context, pos Position) Context { return &positionContext{ ctx, pos } }
 
-type argumentedContext struct {
-  Context
-  args []Value
-}
+type argumentedContext struct { Context ; args []Value }
 func (ac *argumentedContext) inner() Context { return ac.Context }
+func (ac *argumentedContext) argumented() *argumentedContext { return ac }
 func (ac *argumentedContext) String() string {
   if fullContextStringer {
     return fmt.Sprintf(`argumented{%s}`, ac.Context)
   } else {
     return ac.Context.String()
   }
-}
-func (ac *argumentedContext) arguments() []Value { return ac.args }
-func (ac *argumentedContext) argumented() *argumentedContext { return ac }
-func (ac *argumentedContext) argumentedSet(args []Value) (prev []Value) {
-  prev, ac.args = ac.args, args
-  return
 }
 
 func executeEntry(ctx Context, entry *Rule, args ...Value) (result []Value, okay bool) {
@@ -505,7 +480,7 @@ func executeEntry(ctx Context, entry *Rule, args ...Value) (result []Value, okay
 }
 
 func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
-  if isNil(goal) {
+  if isNull(goal) {
     // TODO: report nil goal
   } else {
     var okay bool
@@ -524,7 +499,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
 func walkSmartBaseDirs(ctx Context, cwd string, vis func(string)bool) (s string) {
   s = cwd
   for s != "" {
-    file := ctx.stat(ctx, ".smart", "", s)
+    file := stat(ctx, ".smart", "", s)
     if file != nil && file.info.IsDir() && !vis(s) { break }
     if up := filepath.Dir(s); up == s {
       break
@@ -532,9 +507,7 @@ func walkSmartBaseDirs(ctx Context, cwd string, vis func(string)bool) (s string)
       s = up
     }
   }
-  if s == "" {
-    s = cwd
-  }
+  if s == "" { s = cwd }
   return
 }
 
@@ -600,17 +573,18 @@ func positionForDir(dir string) (pos Position) {
   return
 }
 
-func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
+// usage: defer assured(ctx, ...)
+func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
+  var pos = ctx.Position()
   for e := recover(); e != nil; e = recover() {
     switch t := e.(type) {
     case bailout: continue
-    case failure: erro(at(ctx,t.position), "panic: %v", t.metainfo)
-    default     : erro(ctx, "panic: %v", e)
+    case failure: erro(at(ctx,t.position), "%v [failure]", t.metainfo)
+    default: prompt(ctx, "%v [assured]\n", e)
     }
-    panics += 1
+    recovered += 1
   }
-  if panics > 0 {
-    var pos = ctx.Position()
+  if recovered > 0 {
     if !strings.HasSuffix(pos.Filename, entryFileName) {
       var s = filepath.Join(pos.Filename, entryFileName)
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
@@ -618,23 +592,20 @@ func checkFailure(ctx Context, dontCheckErrors ...bool) (panics, errs int) {
       var s = filepath.Join(pos.Filename, "build.smart")
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     }
-    errostack(at(ctx,pos), 5, "failed: got %d panics", panics).debug(128)
+    errostack(at(ctx,pos), 5, "failed, %d recovered", recovered).debug(128)
   }
-  if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
-    // okay
-  } else if errs = ctx.flushDiags(); errs > 0 && panics == 0 {
-    warn(ctx, "got %d errors (%s)", ctx.totalErrors(), ctx).debug(16)
-    if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
+  if len(dontCheckErrors) > 0 && dontCheckErrors[0] { return }
+  if errs = ctx.dia().countErrors(); errs > 0 && recovered == 0 {
+    noted(ctx, "got %d errors (total %d)", errs, ctx.dia().totalErrors()).debug(10)
+    ctx.dia().flush() // flush diagnostics
+    panic(fmt.Sprintf("%v: got %d errors, %d recovered", pos, errs, recovered))
   }
   return
 }
 
 func CommandLine() {
-  var context = &uni
-  defer checkFailure(context)
-
   if options.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
-
+  var context = &uni ; defer assured(context)
   var modulesPaths, packagePaths searchlist
   walkSmartBaseDirs(context, context.workdir, func(s string) bool {
     if baseTmpPath == "" { baseTmpPath = s }
@@ -674,14 +645,14 @@ func CommandLine() {
     if err != nil { fmt.Fprintf(stderr, "%v: %v", file, err); return }
   }
 
-  if context.countErrors() > 0 { return }
+  if context.dia().countErrors() > 0 { return }
 
   if false { loadGrepCache(context) }
 
   if err := context.loadTopWork(); err != nil {
     erro(context, "loading work failed: %v", err)
-  } else if context.flushDiags() > 0 {
-    prompt(context, "loading work got %d errors\n", context.totalErrors())
+  } else if context.dia().flush() > 0 {
+    prompt(context, "loading work got %d errors\n", context.dia().totalErrors())
   } else if options.help {
     context.help()
   } else if options.printFlags {
@@ -694,11 +665,11 @@ func CommandLine() {
     context.configure()
   } else if result, err := context.run(); err != nil {
     erro(context, "run work failed: %v", err)
-  } else if context.flushDiags() > 0 {
-    prompt(context, "run work got %d errors\n", context.totalErrors())
+  } else if context.dia().flush() > 0 {
+    prompt(context, "run work got %d errors\n", context.dia().totalErrors())
   } else if result != nil {
     for i, v := range result {
-      if s := ""; isNil(v) {
+      if s := ""; isNull(v) {
         s = "<nil>"
       } else if s = strings.TrimSpace(v.Strval(context)); s == "" {
         continue

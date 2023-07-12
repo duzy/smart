@@ -6,30 +6,32 @@
 package smart
 
 import (
-    "path/filepath"
 	"testing"
 	"os"
 )
 
 func TestConfigure(t *testing.T) {
-	var ctx = confine("testdata/configuration")
-	var wd = ctx.WorkDir()
+	var ctx = load_testcase(t, "testdata/configuration", "testconfigure")
+	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
-	if err := ctx.loadTopWork(); err != nil {
-		t.Errorf("%v", err)
-	} else if n := ctx.countErrors(); n > 0 {
-		t.Errorf("errors %v, base=%s", n, wd)
-		ctx.flushDiags()
-	} else if m := ctx.globe.main; m == nil {
-		t.Errorf("nil main")
-	} else if m.name != "testconfigure" {
-		t.Errorf("wrong main: %v", m)
-	} else if m.configure == nil {
-		t.Errorf("nil configure: %v", m)
+	if m := ctx.Project(); m.configure == nil {
+		ctx.err("%v: nil configure", m)
 	} else if o := m.configure.resolveObject(ctx, "foo"); o == nil {
-		t.Errorf("configure.foo: %v", m.configure)
-	} else if o.Strval(ctx) != m.configure.name {
-		t.Errorf("configure.foo: %v", o)
+		ctx.err("configure.foo: %v", m.configure)
+	} else if d, y := o.(*def); !y || d.value == nil {
+		ctx.err("configure.foo: %T %v", o, o)
+	} else if d.value.String() != ".self" {
+		ctx.err("configure.foo: %T %v", d.value, d.value)
+	} else if t, y := d.value.(*self); !y || t == nil {
+		ctx.err("configure.foo: %T %v", d.value, d.value)
+	} else if t.String() != ".self" {
+		ctx.err("configure.foo: %v", t)
+	} else if s := t.Strval(ctx); s != "configure" {
+		ctx.err("configure.foo: %v → %s", t, s)
+	} else if s := d.value.Strval(ctx); s != m.configure.name {
+		ctx.err("configure.foo: %T %v → %v (%v)", d.value, d.value, s, m.configure.name)
+	} else if s := d.Strval(ctx); s != m.configure.name {
+		ctx.err("configure.foo: %v → %v", d, s)
 	} else {
 		configuration.silent = true
 
@@ -40,78 +42,81 @@ func TestConfigure(t *testing.T) {
 			return
 		}
 		if FOO1 := config("FOO1"); FOO1 == nil {
-			t.Errorf("FOO1")
+			ctx.err("FOO1")
 		}
 		if FOO2 := config("FOO2"); FOO2 == nil {
-			t.Errorf("FOO2")
+			ctx.err("FOO2")
 		}
 		if FOO3 := config("FOO3"); FOO3 == nil {
-			t.Errorf("FOO3")
+			ctx.err("FOO3")
 		}
 		if FOO4 := config("FOO4"); FOO4 == nil {
-			t.Errorf("FOO4")
+			ctx.err("FOO4")
 		}
 		if FOO5 := config("FOO5"); FOO5 == nil {
-			t.Errorf("FOO5")
+			ctx.err("FOO5")
 		}
 
-		var theConfigurationSM = filepath.Join(wd, configuration_sm)
-		os.Remove(theConfigurationSM)
-		ctx.configure()
-
-		if fi, e := os.Stat(theConfigurationSM); e != nil {
-			t.Errorf("%s: %v", configuration_sm, e)
-		} else if fi == nil {
-			t.Errorf("missing %s", configuration_sm)
+		var f = m.configuration(ctx)
+		if f == nil {
+			ctx.err("%v: nil configuration", m)
 		} else {
-			os.Remove(theConfigurationSM)
+			os.Remove(f.fullname())
 		}
 
-		var ctx Context = &closureContext{ctx, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
-		var get = func(name string, ii ...interface{}) (res Value) {
-			var d *def
-			if d, res = call(ctx, name, ii...); d == nil {
-				t.Errorf("%s is not def", name)
-			} else if res == nil {
-				t.Errorf("%s is nil", name)
-				res = MakeNone(d.position)
-			}
-			return
-		}
+		ctx.universe().configure()
 
 		var (
+			// foo  = get("foo")
 			foo1 = get("FOO1")
 			foo2 = get("FOO2")
 			foo3 = get("FOO3")
 			foo4 = get("FOO4")
 			foo5 = get("FOO5")
 		)
+		// if foo == nil {
+		// 	ctx.err("foo")
+		// } else if  foo.String() != ".self" {
+		// 	ctx.err("%T %v", foo, foo)
+		// } else if s := foo.Strval(ctx); s != "configure" {
+		// 	ctx.err("%T %v -> %s", foo, foo, s)
+		// }
 		if s := foo1.Strval(ctx); s != "yes" {
-			t.Errorf("%T %v -> %s", foo1, foo1, s)
+			ctx.err("%T %v -> %s", foo1, foo1, s)
 		} else if s = foo1.String(); s != "yes{}" {
-			t.Errorf("%T %v -> %s", foo1, foo1, s)
+			ctx.err("%T %v -> %s", foo1, foo1, s)
 		}
 		if s := foo2.Strval(ctx); s != "yes" {
-			t.Errorf("%T %v -> %s", foo2, foo2, s)
+			ctx.err("%T %v -> %s", foo2, foo2, s)
 		} else if s = foo2.String(); s != "yes{}" {
-			t.Errorf("%T %v -> %s", foo2, foo2, s)
+			ctx.err("%T %v -> %s", foo2, foo2, s)
 		}
 		if s := foo3.Strval(ctx); s != "true" {
-			t.Errorf("%T %v -> %s", foo3, foo3, s)
+			ctx.err("%T %v -> %s", foo3, foo3, s)
 		} else if s = foo3.String(); s != "true{}" {
-			t.Errorf("%T %v -> %s", foo3, foo3, s)
+			ctx.err("%T %v -> %s", foo3, foo3, s)
 		}
 		if s := foo4.Strval(ctx); s != "true" {
-			t.Errorf("%T %v -> %s", foo4, foo4, s)
+			ctx.err("%T %v -> %s", foo4, foo4, s)
 		} else if s = foo4.String(); s != "true{}" {
-			t.Errorf("%T %v -> %s", foo4, foo4, s)
+			ctx.err("%T %v -> %s", foo4, foo4, s)
 		}
 		if s := foo5.Strval(ctx); s != "true" {
-			t.Errorf("%T %v -> %s", foo5, foo5, s)
+			ctx.err("%T %v -> %s", foo5, foo5, s)
 		} else if s = foo5.String(); s != "true{}" {
-			t.Errorf("%T %v -> %s", foo5, foo5, s)
+			ctx.err("%T %v -> %s", foo5, foo5, s)
+		}
+
+		if f == nil {
+			ctx.err("%v: nil configuration", m)
+		} else if fi, e := os.Stat(f.fullname()); e != nil {
+			ctx.err("%s: %v", configuration_sm, e)
+		} else if fi == nil {
+			ctx.err("missing %s", configuration_sm)
+		} else {
+			os.Remove(f.fullname())
 		}
 	}
 
-	if n := ctx.flushDiags(); n > 0 { t.Errorf("errors %d", n) }
+	ctx.flush()
 }

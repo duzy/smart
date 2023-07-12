@@ -456,8 +456,8 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
           var obj = closureResolveObject(ctx, "objects")
           erro(at(ctx,lpos), "%s", v[0].string)
           erro(at(ctx,lpos), "%s", obj)
-          if !isNil(obj) {
-            if val := obj.expand(ctx.closure().pc(), plain); !isNil(val) {
+          if !isNull(obj) {
+            if val := obj.expand(ctx.closure().pc(), plain); !isNull(val) {
               erro(at(ctx,lpos), "%s -> %v", obj.Name(ctx), val)
             }
           }
@@ -566,6 +566,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
 
 type execOpts struct {
   generalOpts
+  logFileName *fullnameOpt "l,log"
   deprecated  bool `dump,deprecate`
   dropFailed  bool `df,drop,drop-fail,drop-failure,fail-drop,remove-on-fail`
   infos       bool `sci,scan-infos`
@@ -593,7 +594,6 @@ type execOpts struct {
   promStr     string `c,cmd;m,msg`
   workDir     string `cd,change-dir,wd,workdir,work-dir,work-directory`
   tie         string `t,tie` // all, both, stdout, stderr, out, err
-  logFileName *optFullname "l,log"
 }
 
 type execResult struct {
@@ -677,8 +677,8 @@ func (p *execContext) onFirstWrote() {
   if p.printEnteringOnFirstWrote {
     printEnteringDirectory(p.Context)
 
-    // Call flushDiags to ensure printEnteringDirectory works immediately
-    if errs := p.Context.flushDiags(); errs > 0 {
+    // Call diagFlush to ensure printEnteringDirectory works immediately
+    if errs := p.Context.dia().flush(); errs > 0 {
       warn(p.Context, "exec: encountered %d errors", errs).debug(1)
     }
   }
@@ -770,7 +770,7 @@ func (p *execContext) ensureContainerRunning(containerName string) (err error) {
       if e != nil {
         break
       }
-      fmt.Fprintf(stderr, "%s", s)
+      prompt(p.Context, "%s", s)
     }
   } (stderrR)
 
@@ -920,8 +920,8 @@ func (exe *execContext) exec(cmd, opt string, err error) {
   var (
     ctx = exe.Context
     pc = ctx.pc()
+    env, envSep = pc.env(ctx)
     program = ctx.program()
-    env, envSep = program.env(ctx)
     envstr string
     logFile *os.File
   )
@@ -932,15 +932,15 @@ func (exe *execContext) exec(cmd, opt string, err error) {
     }
   }
 
-  if ctx.flushDiags() > 0 {
+  if ctx.dia().flush() > 0 {
     if str := trimPromptString(exe.targetName); filepath.IsAbs(exe.targetName) {
       var pos Position; pos.Filename, pos.Line = exe.targetName, 1
-      warn(ctx, "got %d error(s)", ctx.totalErrors())
+      warn(ctx, "got %d error(s)", ctx.dia().totalErrors())
       warn(at(ctx,pos), "cancel execution for %s", str).debug(1)
     } else {
-      warn(ctx, "got %d error(s), cancel execution for %s", ctx.totalErrors(), str).debug(1)
+      warn(ctx, "got %d error(s), cancel execution for %s", ctx.dia().totalErrors(), str).debug(1)
     }
-    if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.totalErrors()) }
+    if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.dia().totalErrors()) }
     return
   }
 
@@ -963,7 +963,7 @@ func (exe *execContext) exec(cmd, opt string, err error) {
     exe.x = nil
 
     // Stamp the target file.
-    if !exe.stamp || ctx.isConfiguration() {
+    if !exe.stamp || ctx.isConfigure() {
       // no stamp for target files
     } else if err != nil {
       var files, e = exe.target.delete(ctx)
@@ -992,7 +992,7 @@ func (exe *execContext) exec(cmd, opt string, err error) {
         prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, e)
       }
       if exe.logFileName != nil && !exe.logPos.IsValid() {
-        prompt(ctx, "%v:1: see logs for \"%s\"\n", exe.logFileName.string, exe.target)
+        prompt(ctx, "%v:1: see logs for \"%s\"\n", exe.logFileName.Strval(ctx), exe.target)
       }
       errostack(ctx, 6, `stamp "%v" failed`, exe.target).debug(10)
       return
@@ -1002,7 +1002,7 @@ func (exe *execContext) exec(cmd, opt string, err error) {
 
     if err == nil {
       // Good!
-    } else if ctx.isConfiguration() {
+    } else if ctx.isConfigure() {
       err = nil
     } else {
       erro(ctx, "shell: %v", err).debug(1)
@@ -1024,7 +1024,7 @@ func (exe *execContext) exec(cmd, opt string, err error) {
     }
   } ()
 
-  if exe.logFileName != nil { exe.log = &ExecLog{ filename: exe.logFileName.string } }
+  if exe.logFileName != nil { exe.log = &ExecLog{ filename: exe.logFileName.Strval(ctx) } }
   if exe.bufStdout || exe.retStdout { exe.Stdout.Buf = new(bytes.Buffer) }
   if exe.bufStderr || exe.retStderr { exe.Stderr.Buf = new(bytes.Buffer) }
   if exe.tieStdout { exe.Stdout.Tie = stdout }
@@ -1112,7 +1112,7 @@ type executor struct {
 }
 func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error) {
   if options.traceExecutor {
-    var t = autoGet(ctx, "@")
+    var t = autoVal(ctx, "@")
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
 
@@ -1129,7 +1129,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   if exe.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
-  }
+  } else if d := exe.debug; d>0 { defer func() {
+    warnstack(ctx, d, "%v: %v (%v)", ctx.entry(), exe.target.Value, result).debug(d)
+  }()}
 
   if !exe.prompt { exe.prompt = exe.promStr != "" }
 
@@ -1151,7 +1153,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     // no stamp required for Flags
   } else if _, ok = toFile(exe.target.Value); !ok {
     // no stamp required for non-file targets
-  } else if exe.targetName, _ = exe.target.fullnameOrStrval(ctx); ctx.isConfiguration() {
+  } else if exe.targetName, _ = exe.target.fullnameOrStrval(ctx); ctx.isConfigure() {
     // does nothing
   } else if exe.waitRes {
     // good to work without (stamp) or (wait) with the -wait flag
@@ -1181,7 +1183,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     if program.project.name == dotContainer {
       exe.container = program.project
     } else if _, containerSym := program.project.scope.Find(dotContainer); containerSym != nil {
-      if pn, _ := containerSym.(*projectName); pn != nil {
+      if pn, _ := containerSym.(*projectname); pn != nil {
         exe.container = pn.Project
       }
     }
@@ -1195,11 +1197,11 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       var ctx = closureWith(ctx, exe.container.Scope())
       if obj := exe.container.resolveObject(ctx, name); obj != nil {
         if d, _ := obj.(*def); d != nil {
-          if v := d.Call(ctx, nil); v != nil {
+          if v := d.invoke(ctx, plain, nil, nil); v != nil {
             if str = v.Strval(ctx); str == "-" {
               /*if v, err = def.DiscloseValue(exe.container); err == nil && v != nil {
                   if str, err = v.Strval(ctx); str == "" { str = "-" }
-                  fmt.Fprintf(stderr, "%v: %v (%v)\n", name, str, def)
+                  prompt(ctx, "%v: %v (%v)\n", name, str, def)
                 }*/
             }
           }
@@ -1318,7 +1320,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   if exe.vals == nil {
     result = &exe.execResult
   } else {
-    result = MakeListOrScalar(pos, exe.vals)
+    result = ease(ctx, exe.vals)
   }
   return
 }

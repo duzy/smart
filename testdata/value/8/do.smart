@@ -1,0 +1,3 @@
+project testvalues8
+
+.test := $1

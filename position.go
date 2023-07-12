@@ -18,20 +18,16 @@ import (
 	Line     int     -- line number, starting at 1
 	Column   int     -- column number, starting at 1 (byte count)
 */
-type Position struct {
-	golang.Position
-}
-
-func (p *Position) IsValid() bool {
-	return p.Filename != "" && p.Offset >= 0 && p.Line > 0 && p.Column > 0
-}
+type Position struct { golang.Position }
+func (p *Position) _valid() bool { return p.Filename != "" && p.Line > 0 }
+func (p *Position) IsValid() bool { return p._valid() && p.Column > 0 && p.Offset >= 0 }
 func (p *Position) SameLine(o *Position) bool {
 	return p == o || (p.Filename == o.Filename && p.Line == o.Line)
 }
 func (p *Position) Same(o *Position) bool {
-	return p == o || (
+	return p == o ||
 		p.Filename == o.Filename && p.Line == o.Line &&
-			p.Column == o.Column && p.Offset == o.Offset)
+		p.Column == o.Column && p.Offset == o.Offset
 }
 
 func makePosition(filename string, line, column int) (pos Position) {

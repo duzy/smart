@@ -923,13 +923,13 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 		}
 	case ':':
 		if s.ch == '=' {
-			tok = SCO_ASSIGN
+			tok = CO1_ASSIGN
 			s.next() // consume '='
 		} else if s.ch == ':' {
 			tok = DOLON
 			s.next() // consume the second ':'
 			if s.ch == '=' {
-				tok = DCO_ASSIGN
+				tok = CO2_ASSIGN
 				s.next() // consume '='
 			}
 		} else {
@@ -958,11 +958,16 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 	case '⇢': // ~>
 		tok = SELECT_PROG2
 	case '≔':
-		tok = SCO_ASSIGN
+		tok = CO1_ASSIGN
 	case '⩴':
-		tok = DCO_ASSIGN
+		tok = CO2_ASSIGN
 	case ';':
-		tok = SEMICOLON
+		if s.ch == '=' { tok = SM1_ASSIGN ; s.next() } else
+		if s.ch == ':' { tok = SOLON ; s.next()
+			if s.ch == '=' { tok = SM2_ASSIGN ; s.next() }
+		} else {
+			tok = SEMICOLON
+		}
 	case '^':
 		tok = CARET
 	case '<':

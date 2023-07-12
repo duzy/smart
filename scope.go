@@ -7,6 +7,7 @@
 package smart
 
 import (
+	"reflect"
 	"strings"
 	"bytes"
 	"sync"
@@ -183,28 +184,28 @@ func (s *Scope) FindDef(name string) (res *def) {
 	return
 }
 
-func (scope *Scope) projectName(ctx Context, name string, project *Project) (pn *projectName, alt Object) {
+func (scope *Scope) projectname(ctx Context, name string, project *Project) (pn *projectname, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
-		pn = &projectName{ project, scope }
+		pn = &projectname{ project, scope }
 		scope.replace(ctx, name, pn)
 	}
 	return
 }
 
-func (scope *Scope) scopeName(ctx Context, name string, s *Scope) (sn *scopeName, alt Object) {
+func (scope *Scope) scopename(ctx Context, name string, s *Scope) (sn *scopename, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
-		sn = &scopeName{ s, name } // TODO: scope,
+		sn = &scopename{ s, name } // TODO: scope,
 		scope.replace(ctx, name, sn)
 	}
 	return
 }
 
-func (scope *Scope) Builtin(ctx Context, name string, f BuiltinFunc) (bui *Builtin, alt Object) {
+func (scope *Scope) builtin(ctx Context, name string, f reflect.Type) (bui *builtin, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
-		bui = &Builtin{
+		bui = &builtin{
 			knownobject{
 				objbase{
 					scope: scope,
@@ -213,6 +214,21 @@ func (scope *Scope) Builtin(ctx Context, name string, f BuiltinFunc) (bui *Built
 			}, f,
 		}
 		scope.replace(ctx, name, bui)
+	}
+	return
+}
+
+func (scope *Scope) auto(ctx Context, name string) (a *auto, alt Object) {
+	var okay bool
+	scope.mutex.Lock(); defer scope.mutex.Unlock()
+	if alt, okay = scope.elems[name]; okay && alt == nil {
+		delete(scope.elems, name)
+		okay = false
+	}
+	if !okay {
+		p := ctx.Position()
+		a = &auto{knownobject{objbase{valbase{p}, scope, scope.project}, name}}
+		scope.replace(ctx, name, a)
 	}
 	return
 }

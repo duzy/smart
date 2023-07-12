@@ -41,10 +41,6 @@ ForRecipes:
             ov []Value
         )
         if a, y := name.(*argumented); y { name, ov = a.value, a.args }
-        if false && n == 1 && isTrivial(name) {
-            list = append(list, name)
-            continue
-        }
 
         ctx = at(ctx, name.Position())
 
@@ -57,8 +53,8 @@ ForRecipes:
             list = append(list, tv.Values...)
             break ForRecipes
 
-        case Caller:
-            v = tv.Call(ctx, ov, vals[1:]...)
+        case invoker:
+            v = tv.invoke(ctx, plain, ov, vals[1:])
 
         case Executer:
             var a, traves = tv.Execute(ctx, vals[1:]...)
@@ -89,12 +85,12 @@ ForRecipes:
                 if num, e := c.Integer(ctx); e != nil {
                     erro(ctx, "%v: %v", c, e).debug(1)
                 } else if str == "shell" && num != 0 {
-                    //fmt.Fprintf(stderr, "evaluate: %v\n", v)
+                    //prompt(ctx, "evaluate: %v\n", v)
                     break ForRecipes
                 }
             }
         }
     }
-    result = MakeListOrScalar(program.position, list)
+    result = ease(ctx, list)
     return
 }

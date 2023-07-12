@@ -1,4 +1,4 @@
-project testvalues
+project testvalues1
 
 #TEST: barecomp compares with flag
 .test.foo := -

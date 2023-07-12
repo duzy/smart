@@ -34,130 +34,127 @@ const (
         builtinCallable int = 0
         builtinCommand      = 1<<(iota-1)
 )
-type builtin struct {
+
+type builtin_ struct {
         Context
-        v []Value
-        w facet
+        generalOpts
 }
-type BuiltinFunc struct {
-        f func(builtin, ...Value) (Value)
-        b, n int // first n args to apply m
-        m, o facet
-}
+type builtin_a interface{ a(*invocation,facet) bool }
+type builtin_c interface{ c(*invocation,facet) interface{} }
+type builtin_x interface{ x(*invocation,facet) interface{} }
 
-var builtins = map[string]BuiltinFunc {
-        `typeof`:       BuiltinFunc{builtin.typeof, builtinCallable, 0, expandZero, expandZero},
-        `origin`:       BuiltinFunc{builtin.origin, builtinCallable, 0, expandZero, expandZero},
-        `defined`:      BuiltinFunc{builtin.defined, builtinCallable, 0, expandZero, expandZero},
+var builtin_a_t = reflect.TypeOf((*builtin_a)(nil)).Elem();
+var builtin_c_t = reflect.TypeOf((*builtin_c)(nil)).Elem();
+var builtin_x_t = reflect.TypeOf((*builtin_x)(nil)).Elem();
 
-        `position`:     BuiltinFunc{builtin._position, builtinCallable, 0, expandZero, expandZero},
-        `date`:         BuiltinFunc{builtin.date, builtinCallable, 0, expandZero, expandZero},
+var builtins = map[string]reflect.Type {
+        `typeof`:    reflect.TypeOf((*builtin_typeof)(nil)).Elem(),
+        `origin`:    reflect.TypeOf((*builtin_origin)(nil)).Elem(),
+        `defined`:   reflect.TypeOf((*builtin_defined)(nil)).Elem(),
 
-        `assert`:       BuiltinFunc{builtin.assert, builtinCallable, 0, expandZero, expandZero},
-        `debug`:        BuiltinFunc{builtin.debug, builtinCallable, 0, expandZero, expandZero},
-        `error`:        BuiltinFunc{builtin.error, builtinCallable, 0, expandZero, expandZero},
-        `warning`:      BuiltinFunc{builtin.warning, builtinCallable, 0, expandZero, expandZero},
+        `position`:  reflect.TypeOf((*builtin_position)(nil)).Elem(),
+        `date`:      reflect.TypeOf((*builtin_date)(nil)).Elem(),
+
+        `debug`:     reflect.TypeOf((*builtin_debug)(nil)).Elem(),
+        `error`:     reflect.TypeOf((*builtin_error)(nil)).Elem(),
+        `warning`:   reflect.TypeOf((*builtin_warning)(nil)).Elem(),
+        `assert`:    reflect.TypeOf((*builtin_assert)(nil)).Elem(),
+        `sure`:      reflect.TypeOf((*builtin_sure)(nil)).Elem(),
 
         // $(defor) (aka. defined-or)
-        `defor`:        BuiltinFunc{builtin.defor, builtinCallable, 0, expandZero, expandZero}, // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
-        `or`:           BuiltinFunc{builtin.or, builtinCallable, 0, expandZero, expandZero},
-        `and`:          BuiltinFunc{builtin.and, builtinCallable, 0, expandZero, expandZero},
-        `not`:          BuiltinFunc{builtin.not, builtinCallable, 0, expandZero, expandZero},
-        //`xor`:          BuiltinFunc{builtin.Xor, builtinCallable, 0, expandZero, expandZero},
+        `defor`:     reflect.TypeOf((*builtin_defor)(nil)).Elem(), // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
+        `or`:        reflect.TypeOf((*builtin_or)(nil)).Elem(),
+        `and`:       reflect.TypeOf((*builtin_and)(nil)).Elem(),
+        `not`:       reflect.TypeOf((*builtin_not)(nil)).Elem(),
+        //`xor`:       reflect.TypeOf((*builtin_xor)(nil)).Elem(),
 
-        `equal`:        BuiltinFunc{builtin.equal, builtinCallable, 0, expandZero, expandZero},
-        `equals`:       BuiltinFunc{builtin.equal, builtinCallable, 0, expandZero, expandZero},
-        `not-equal`:    BuiltinFunc{builtin.unequal, builtinCallable, 0, expandZero, expandZero},
-        `match`:        BuiltinFunc{builtin.match, builtinCallable, 0, expandZero, expandZero},
+        `equal`:     reflect.TypeOf((*builtin_equal)(nil)).Elem(),
+        `equals`:    reflect.TypeOf((*builtin_equal)(nil)).Elem(),
+        `ne`:        reflect.TypeOf((*builtin_unequal)(nil)).Elem(),
+        `not-equal`: reflect.TypeOf((*builtin_unequal)(nil)).Elem(),
+        `match`:     reflect.TypeOf((*builtin_match)(nil)).Elem(),
 
-        `greater`:      BuiltinFunc{builtin.greater, builtinCallable, 0, expandZero, expandZero},
-        `less`:         BuiltinFunc{builtin.less, builtinCallable, 0, expandZero, expandZero},
+        `greater`:   reflect.TypeOf((*builtin_greater)(nil)).Elem(),
+        `less`:      reflect.TypeOf((*builtin_less)(nil)).Elem(),
 
-        `case`:         BuiltinFunc{builtin._case, builtinCallable, 0, expandZero, expandZero},
-        `if`:           BuiltinFunc{builtin._if, builtinCallable, 0, expandZero, expandZero},
-        `ifeq`:         BuiltinFunc{builtin._ifeq, builtinCallable, 0, expandZero, expandZero},
-        `ifne`:         BuiltinFunc{builtin._ifne, builtinCallable, 0, expandZero, expandZero},
+        `case`:      reflect.TypeOf((*builtin_case)(nil)).Elem(),
+        `if`:        reflect.TypeOf((*builtin_if)(nil)).Elem(),
+        `ifeq`:      reflect.TypeOf((*builtin_ifeq)(nil)).Elem(),
+        `ifne`:      reflect.TypeOf((*builtin_ifne)(nil)).Elem(),
 
-        `foreach`:      BuiltinFunc{builtin.foreach, builtinCallable, 1, expandPlaceholders, expandUnPlaceholders},
-        `count`:        BuiltinFunc{builtin.count, builtinCallable, 0, expandZero, expandZero},
+        `foreach`:   reflect.TypeOf((*builtin_foreach)(nil)).Elem(),
+        `count`:     reflect.TypeOf((*builtin_count)(nil)).Elem(),
 
-        `call`:         BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
-        `auto`:         BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
-        `var`:          BuiltinFunc{nil, builtinCallable, 0, expandZero, expandZero},
+        `auto`:      reflect.TypeOf((*builtin_auto)(nil)).Elem(),
+        `var`:       reflect.TypeOf((*builtin_var)(nil)).Elem(),
 
-        `closure`:      BuiltinFunc{builtin._closure, builtinCallable, 0, expandZero, expandZero},
-        `env`:          BuiltinFunc{builtin.env, builtinCallable, 0, expandZero, expandZero},
-        `defs`:         BuiltinFunc{builtin.defs, builtinCallable, 0, expandZero, expandZero},
-        `sure-value`:   BuiltinFunc{builtin.sure, builtinCallable, 0, expandZero, expandZero},
-        `value`:        BuiltinFunc{builtin.value, builtinCallable, 0, expandZero, expandZero},
-        `list`:         BuiltinFunc{builtin.list, builtinCallable, 0, expandZero, expandZero},
+        `call`:      reflect.TypeOf((*builtin_call)(nil)).Elem(),
+        `closure`:   reflect.TypeOf((*builtin_closure)(nil)).Elem(),
+        `defs`:      reflect.TypeOf((*builtin_defs)(nil)).Elem(),
 
-        `shell`:        BuiltinFunc{builtin.shell, builtinCallable, 0, expandZero, expandZero},
-        `which`:        BuiltinFunc{builtin.which, builtinCallable, 0, expandZero, expandZero},
+        `env`:       reflect.TypeOf((*builtin_env)(nil)).Elem(),
+        `value`:     reflect.TypeOf((*builtin_value)(nil)).Elem(),
+        `list`:      reflect.TypeOf((*builtin_list)(nil)).Elem(),
 
-        `plus`:     BuiltinFunc{builtin.plus, builtinCallable, 0, expandZero, expandZero},
-        `minus`:    BuiltinFunc{builtin.minus, builtinCallable, 0, expandZero, expandZero},
-        `multiply`: BuiltinFunc{builtin.multiply, builtinCallable, 0, expandZero, expandZero},
-        `mul`:      BuiltinFunc{builtin.multiply, builtinCallable, 0, expandZero, expandZero},
-        `divide`:   BuiltinFunc{builtin.divide, builtinCallable, 0, expandZero, expandZero},
-        `div`:      BuiltinFunc{builtin.divide, builtinCallable, 0, expandZero, expandZero},
+        `shell`:     reflect.TypeOf((*builtin_shell)(nil)).Elem(),
+        `which`:     reflect.TypeOf((*builtin_which)(nil)).Elem(),
 
-        `quote`:                BuiltinFunc{builtin.quote, builtinCallable, 0, expandZero, expandZero},
-        `quote-join`:           BuiltinFunc{builtin.quotejoin, builtinCallable, 0, expandZero, expandZero},
-        `split-string`:         BuiltinFunc{builtin.splitstring, builtinCallable, 0, expandZero, expandZero},
-        `split-quote`:          BuiltinFunc{builtin.splitquote, builtinCallable, 0, expandZero, expandZero},
-        `split-quote-join`:     BuiltinFunc{builtin.splitquotejoin, builtinCallable, 0, expandZero, expandZero},
-        `split-join-quote`:     BuiltinFunc{builtin.splitjoinquote, builtinCallable, 0, expandZero, expandZero},
-        `unique`:               BuiltinFunc{builtin.unique, builtinCallable, 0, expandZero, expandZero},
-        `join`:                 BuiltinFunc{builtin.join, builtinCallable, 0, expandZero, expandZero}, // concat
-        `field`:                BuiltinFunc{builtin.field, builtinCallable, 0, expandZero, expandZero},
-        `fields`:               BuiltinFunc{builtin.fields, builtinCallable, 0, expandZero, expandZero},
+        `plus`:      reflect.TypeOf((*builtin_plus)(nil)).Elem(),
+        `minus`:     reflect.TypeOf((*builtin_minus)(nil)).Elem(),
+        `multiply`:  reflect.TypeOf((*builtin_multiply)(nil)).Elem(),
+        `mul`:       reflect.TypeOf((*builtin_multiply)(nil)).Elem(),
+        `divide`:    reflect.TypeOf((*builtin_divide)(nil)).Elem(),
+        `div`:       reflect.TypeOf((*builtin_divide)(nil)).Elem(),
 
-        //`usee`:       BuiltinFunc{builtin.usee, builtinCallable, 0, expandZero, expandZero},
-        `uses`:         BuiltinFunc{builtin.uses, builtinCallable, 0, expandZero, expandZero},
+        `unique`:     reflect.TypeOf((*builtin_unique)(nil)).Elem(),
+        `join`:       reflect.TypeOf((*builtin_join)(nil)).Elem(), // concat
+        `quote`:      reflect.TypeOf((*builtin_quote)(nil)).Elem(),
+        `quote-join`: reflect.TypeOf((*builtin_quotejoin)(nil)).Elem(),
 
-        `path`:         BuiltinFunc{builtin.path, builtinCallable, 0, expandZero, expandZero},
-        `bare`:         BuiltinFunc{builtin.bare, builtinCallable, 0, expandZero, expandZero}, // different from builtinBareword, for files, etc.
-        `bareword`:     BuiltinFunc{builtin.bareword, builtinCallable, 0, expandZero, expandZero},
-        `string`:       BuiltinFunc{builtin._string, builtinCallable, 0, expandZero, expandZero},
-        `strval`:       BuiltinFunc{builtin.strval, builtinCallable, 0, expandZero, expandZero},
-        `strip`:        BuiltinFunc{builtin.strip, builtinCallable, 0, expandZero, expandZero},
-        `trim`:         BuiltinFunc{builtin.trim, builtinCallable, 0, expandZero, expandZero},
-        `trim-space`:   BuiltinFunc{builtin.trimspace, builtinCallable, 0, expandZero, expandZero},
-        `trim-left`:    BuiltinFunc{builtin.trimleft, builtinCallable, 0, expandZero, expandZero},
-        `trim-right`:   BuiltinFunc{builtin.trimright, builtinCallable, 0, expandZero, expandZero},
-        `trim-prefix`:  BuiltinFunc{builtin.trimprefix, builtinCallable, 0, expandZero, expandZero},
-        `trim-suffix`:  BuiltinFunc{builtin.trimsuffix, builtinCallable, 0, expandZero, expandZero},
-        `trim-ext`:     BuiltinFunc{builtin.trimext, builtinCallable, 0, expandZero, expandZero},
+        `split-string`:      reflect.TypeOf((*builtin_splitstring)(nil)).Elem(),
+        `split-quote`:       reflect.TypeOf((*builtin_splitquote)(nil)).Elem(),
+        `split-quote-join`:  reflect.TypeOf((*builtin_splitquotejoin)(nil)).Elem(),
+        `split-join-quote`:  reflect.TypeOf((*builtin_splitjoinquote)(nil)).Elem(),
+        `field`:             reflect.TypeOf((*builtin_field)(nil)).Elem(),
+        `fields`:            reflect.TypeOf((*builtin_fields)(nil)).Elem(),
 
-        `ext`:          BuiltinFunc{builtin.ext, builtinCallable, 0, expandZero, expandZero},
+        // `usee`:       reflect.TypeOf((*builtin_usee)(nil)).Elem(),
+        `uses`:         reflect.TypeOf((*builtin_uses)(nil)).Elem(),
 
-        `addprefix`:    BuiltinFunc{builtin.addprefix, builtinCallable, 0, expandZero, expandZero},
-        `addsuffix`:    BuiltinFunc{builtin.addsuffix, builtinCallable, 0, expandZero, expandZero},
+        `path`:         reflect.TypeOf((*builtin_path)(nil)).Elem(),
+        `bare`:         reflect.TypeOf((*builtin_bare)(nil)).Elem(),
+        `bareword`:     reflect.TypeOf((*builtin_bareword)(nil)).Elem(),
+        `str`:          reflect.TypeOf((*builtin_str)(nil)).Elem(),
+        `string`:       reflect.TypeOf((*builtin_string)(nil)).Elem(),
+        `strval`:       reflect.TypeOf((*builtin_strval)(nil)).Elem(),
+        `strip`:        reflect.TypeOf((*builtin_strip)(nil)).Elem(),
+        `trim`:         reflect.TypeOf((*builtin_trim)(nil)).Elem(),
+        `trim-space`:   reflect.TypeOf((*builtin_trimspace)(nil)).Elem(),
+        `trim-left`:    reflect.TypeOf((*builtin_trimleft)(nil)).Elem(),
+        `trim-right`:   reflect.TypeOf((*builtin_trimright)(nil)).Elem(),
+        `trim-prefix`:  reflect.TypeOf((*builtin_trimprefix)(nil)).Elem(),
+        `trim-suffix`:  reflect.TypeOf((*builtin_trimsuffix)(nil)).Elem(),
+        `trim-ext`:     reflect.TypeOf((*builtin_trimext)(nil)).Elem(),
 
-        `print`:        BuiltinFunc{builtin.print, builtinCallable, 0, expandZero, expandZero},
-        `printf`:       BuiltinFunc{builtin.printf, builtinCallable, 0, expandZero, expandZero},
-        `printl`:       BuiltinFunc{builtin.printl, builtinCallable, 0, expandZero, expandZero},
-        `println`:      BuiltinFunc{builtin.println, builtinCallable, 0, expandZero, expandZero},
+        `addprefix`:    reflect.TypeOf((*builtin_addprefix)(nil)).Elem(),
+        `addsuffix`:    reflect.TypeOf((*builtin_addsuffix)(nil)).Elem(),
 
-        `uppercase`:    BuiltinFunc{builtin.uppercase, builtinCallable, 0, expandZero, expandZero},
-        `lowercase`:    BuiltinFunc{builtin.lowercase, builtinCallable, 0, expandZero, expandZero},
-        `title`:        BuiltinFunc{builtin.title, builtinCallable, 0, expandZero, expandZero},
-
-        `indent`:       BuiltinFunc{builtin.indent, builtinCallable, 0, expandZero, expandZero},
-
-        `substring`:    BuiltinFunc{builtin.substring, builtinCallable, 0, expandZero, expandZero},
+        `uppercase`:    reflect.TypeOf((*builtin_uppercase)(nil)).Elem(),
+        `lowercase`:    reflect.TypeOf((*builtin_lowercase)(nil)).Elem(),
+        `title`:        reflect.TypeOf((*builtin_title)(nil)).Elem(),
+        `indent`:       reflect.TypeOf((*builtin_indent)(nil)).Elem(),
+        `substring`:    reflect.TypeOf((*builtin_substring)(nil)).Elem(),
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-        `subst`:        BuiltinFunc{builtin.subst, builtinCallable, 0, expandZero, expandZero},
-        `patsubst`:     BuiltinFunc{builtin.patsubst, builtinCallable, 0, expandZero, expandZero},
+        `subst`:        reflect.TypeOf((*builtin_subst)(nil)).Elem(),
+        `patsubst`:     reflect.TypeOf((*builtin_patsubst)(nil)).Elem(),
 
-        `contains`:     BuiltinFunc{builtin.contains, builtinCallable, 0, expandZero, expandZero},
-        `filter`:       BuiltinFunc{builtin.filter, builtinCallable, 0, expandZero, expandZero},
-        `filter-out`:   BuiltinFunc{builtin.filterout, builtinCallable, 0, expandZero, expandZero},
+        `contains`:     reflect.TypeOf((*builtin_contains)(nil)).Elem(),
+        `filter`:       reflect.TypeOf((*builtin_filter)(nil)).Elem(),
+        `filterout`:    reflect.TypeOf((*builtin_filterout)(nil)).Elem(),
 
-        `encode-base64`:BuiltinFunc{builtin.encodebase64, builtinCallable, 0, expandZero, expandZero},
-        `decode-base64`:BuiltinFunc{builtin.decodebase64, builtinCallable, 0, expandZero, expandZero},
+        `decode-base64`:reflect.TypeOf((*builtin_decodebase64)(nil)).Elem(),
+        `encode-base64`:reflect.TypeOf((*builtin_encodebase64)(nil)).Elem(),
 
         /* TODO:
         `encode-base32`
@@ -171,103 +168,87 @@ var builtins = map[string]BuiltinFunc {
         `encode-csv`
         `decode-csv` */
 
-        // Fullname of a file or identical to the input
-        `fullname`:   BuiltinFunc{builtin.fullname, builtinCallable, 0, expandZero, expandZero},
+        `fullname`:   reflect.TypeOf((*builtin_fullname)(nil)).Elem(),
+        `ext`:        reflect.TypeOf((*builtin_ext)(nil)).Elem(),
 
-        `base`:       BuiltinFunc{builtin.base, builtinCallable, 0, expandZero, expandZero},
-        `base2`:      BuiltinFunc{builtin.base2, builtinCallable, 0, expandZero, expandZero},
-        `base3`:      BuiltinFunc{builtin.base3, builtinCallable, 0, expandZero, expandZero},
-        `base4`:      BuiltinFunc{builtin.base4, builtinCallable, 0, expandZero, expandZero},
-        `base5`:      BuiltinFunc{builtin.base5, builtinCallable, 0, expandZero, expandZero},
-        `base6`:      BuiltinFunc{builtin.base6, builtinCallable, 0, expandZero, expandZero},
-        `base7`:      BuiltinFunc{builtin.base7, builtinCallable, 0, expandZero, expandZero},
-        `base8`:      BuiltinFunc{builtin.base8, builtinCallable, 0, expandZero, expandZero},
-        `base9`:      BuiltinFunc{builtin.base9, builtinCallable, 0, expandZero, expandZero},
+        `base`:       reflect.TypeOf((*builtin_base)(nil)).Elem(),
+        `bases`:      reflect.TypeOf((*builtin_bases)(nil)).Elem(),
+        `base2`:      reflect.TypeOf((*builtin_base2)(nil)).Elem(),
+        `base3`:      reflect.TypeOf((*builtin_base3)(nil)).Elem(),
+        `base4`:      reflect.TypeOf((*builtin_base4)(nil)).Elem(),
+        `base5`:      reflect.TypeOf((*builtin_base5)(nil)).Elem(),
+        `base6`:      reflect.TypeOf((*builtin_base6)(nil)).Elem(),
+        `base7`:      reflect.TypeOf((*builtin_base7)(nil)).Elem(),
+        `base8`:      reflect.TypeOf((*builtin_base8)(nil)).Elem(),
+        `base9`:      reflect.TypeOf((*builtin_base9)(nil)).Elem(),
 
-        `dir-chop`:   BuiltinFunc{builtin.dirchop, builtinCallable, 0, expandZero, expandZero},
-        `dir`:        BuiltinFunc{builtin.dir, builtinCallable, 0, expandZero, expandZero},
-        `dir2`:       BuiltinFunc{builtin.dir2, builtinCallable, 0, expandZero, expandZero},
-        `dir3`:       BuiltinFunc{builtin.dir3, builtinCallable, 0, expandZero, expandZero},
-        `dir4`:       BuiltinFunc{builtin.dir4, builtinCallable, 0, expandZero, expandZero},
-        `dir5`:       BuiltinFunc{builtin.dir5, builtinCallable, 0, expandZero, expandZero},
-        `dir6`:       BuiltinFunc{builtin.dir6, builtinCallable, 0, expandZero, expandZero},
-        `dir7`:       BuiltinFunc{builtin.dir7, builtinCallable, 0, expandZero, expandZero},
-        `dir8`:       BuiltinFunc{builtin.dir8, builtinCallable, 0, expandZero, expandZero},
-        `dir9`:       BuiltinFunc{builtin.dir9, builtinCallable, 0, expandZero, expandZero},
-        `dirs`:       BuiltinFunc{builtin.dirs, builtinCallable, 0, expandZero, expandZero}, // do `dir` n times
+        `chopdir`:    reflect.TypeOf((*builtin_chopdir)(nil)).Elem(),
 
-        `undir`:      BuiltinFunc{builtin.undir, builtinCallable, 0, expandZero, expandZero},
-        `undir2`:     BuiltinFunc{builtin.undir2, builtinCallable, 0, expandZero, expandZero},
-        `undir3`:     BuiltinFunc{builtin.undir3, builtinCallable, 0, expandZero, expandZero},
-        `undir4`:     BuiltinFunc{builtin.undir4, builtinCallable, 0, expandZero, expandZero},
-        `undir5`:     BuiltinFunc{builtin.undir5, builtinCallable, 0, expandZero, expandZero},
-        `undir6`:     BuiltinFunc{builtin.undir6, builtinCallable, 0, expandZero, expandZero},
-        `undir7`:     BuiltinFunc{builtin.undir7, builtinCallable, 0, expandZero, expandZero},
-        `undir8`:     BuiltinFunc{builtin.undir8, builtinCallable, 0, expandZero, expandZero},
-        `undir9`:     BuiltinFunc{builtin.undir9, builtinCallable, 0, expandZero, expandZero},
-        `undirs`:     BuiltinFunc{builtin.undirs, builtinCallable, 0, expandZero, expandZero}, // do `undir` n times
+        `dir`:        reflect.TypeOf((*builtin_dir)(nil)).Elem(),
+        `dirs`:       reflect.TypeOf((*builtin_dirs)(nil)).Elem(),
+        `dir2`:       reflect.TypeOf((*builtin_dir2)(nil)).Elem(),
+        `dir3`:       reflect.TypeOf((*builtin_dir3)(nil)).Elem(),
+        `dir4`:       reflect.TypeOf((*builtin_dir4)(nil)).Elem(),
+        `dir5`:       reflect.TypeOf((*builtin_dir5)(nil)).Elem(),
+        `dir6`:       reflect.TypeOf((*builtin_dir6)(nil)).Elem(),
+        `dir7`:       reflect.TypeOf((*builtin_dir7)(nil)).Elem(),
+        `dir8`:       reflect.TypeOf((*builtin_dir8)(nil)).Elem(),
+        `dir9`:       reflect.TypeOf((*builtin_dir9)(nil)).Elem(),
 
-        `relative-dir`: BuiltinFunc{builtin.relativedir, builtinCallable, 0, expandZero, expandZero},
+        `undir`:      reflect.TypeOf((*builtin_undir)(nil)).Elem(),
+        `undirs`:     reflect.TypeOf((*builtin_undirs)(nil)).Elem(),
+        `undir2`:     reflect.TypeOf((*builtin_undir2)(nil)).Elem(),
+        `undir3`:     reflect.TypeOf((*builtin_undir3)(nil)).Elem(),
+        `undir4`:     reflect.TypeOf((*builtin_undir4)(nil)).Elem(),
+        `undir5`:     reflect.TypeOf((*builtin_undir5)(nil)).Elem(),
+        `undir6`:     reflect.TypeOf((*builtin_undir6)(nil)).Elem(),
+        `undir7`:     reflect.TypeOf((*builtin_undir7)(nil)).Elem(),
+        `undir8`:     reflect.TypeOf((*builtin_undir8)(nil)).Elem(),
+        `undir9`:     reflect.TypeOf((*builtin_undir9)(nil)).Elem(),
 
-        `file`:       BuiltinFunc{builtin.file, builtinCallable, 0, expandZero, expandZero},
-        `stat`:       BuiltinFunc{builtin._stat, builtinCallable, 0, expandZero, expandZero},// stat (deprecates file-exists)
-        `glob`:       BuiltinFunc{builtin.glob, builtinCallable, 0, expandZero, expandZero},
-        `wildcard`:   BuiltinFunc{builtin.wildcard, builtinCallable, 0, expandZero, expandZero},
+        `reldir`: reflect.TypeOf((*builtin_reldir)(nil)).Elem(),
+        `relative-dir`: reflect.TypeOf((*builtin_reldir)(nil)).Elem(),
 
-        // TODO: move these into builtin package 'io/ioutil'
-        `read-dir`:   BuiltinFunc{builtin.readdir, builtinCallable, 0, expandZero, expandZero},   // io/ioutil/ioutil.go
-        `read-file`:  BuiltinFunc{builtin.readfile, builtinCallable, 0, expandZero, expandZero},  // io/ioutil/ioutil.go
+        `file`:       reflect.TypeOf((*builtin_file)(nil)).Elem(),
+        `stat`:       reflect.TypeOf((*builtin_stat)(nil)).Elem(),// stat (deprecates file-exists)
+        `glob`:       reflect.TypeOf((*builtin_glob)(nil)).Elem(),
+        `wildcard`:   reflect.TypeOf((*builtin_wildcard)(nil)).Elem(),
 
-        `grep`:       BuiltinFunc{builtin.grep, builtinCallable, 1, expandDigits, expandUnDigits},
+        `read-dir`:   reflect.TypeOf((*builtin_readdir)(nil)).Elem(),  // io/ioutil/ioutil.go
+        `read-file`:  reflect.TypeOf((*builtin_readfile)(nil)).Elem(),  // io/ioutil/ioutil.go
 
-        `untraversed`: BuiltinFunc{builtin.untraversed, builtinCallable, 1, expandZero, expandZero},
-}
+        `grep`:       reflect.TypeOf((*builtin_grep)(nil)).Elem(),
 
-var commands = map[string]BuiltinFunc {
-        `print`:        BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
-        `printf`:       BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
-        `printl`:       BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
-        `println`:      BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
+        `untraversed`: reflect.TypeOf((*builtin_untraversed)(nil)).Elem(),
 
-        `assert`:       BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
-        `debug`:        BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
-        `error`:        BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
-        `warning`:      BuiltinFunc{nil, builtinCommand, 0, expandZero, expandZero},
+        // commands ------------------------------------------------------------------
+        `print`:        reflect.TypeOf((*builtin_print)(nil)).Elem(),
+        `printf`:       reflect.TypeOf((*builtin_printf)(nil)).Elem(),
+        `printl`:       reflect.TypeOf((*builtin_printl)(nil)).Elem(),
+        `println`:      reflect.TypeOf((*builtin_println)(nil)).Elem(),
 
-        `push-context`: BuiltinFunc{builtin.PushContext, builtinCommand, 0, expandZero, expandZero},
-        `pop-context`:  BuiltinFunc{builtin.PopContext, builtinCommand, 0, expandZero, expandZero},
+        `plain`:        reflect.TypeOf((*builtin_plain)(nil)).Elem(),
 
-        `plain`:     BuiltinFunc{builtin.plain, builtinCommand, 0, expandZero, expandZero},
+        `append`:       reflect.TypeOf((*builtin_append)(nil)).Elem(),
+        // `pop`:          reflect.TypeOf((*builtin_pop)(nil)).Elem(),
 
-        `append`:       BuiltinFunc{builtin.append, builtinCommand, 0, expandZero, expandZero},
-        // `pop`:          BuiltinFunc{builtin.Pop, builtinCommand, 0, expandZero, expandZero},
+        `write-file`:   reflect.TypeOf((*builtin_writefile)(nil)).Elem(),  // io/ioutil/ioutil.go
+        `touch-file`:   reflect.TypeOf((*builtin_readfile)(nil)).Elem(),  // io/ioutil/ioutil.go
 
-        // TODO: move these into builtin package `os'
-        `write-file`:   BuiltinFunc{builtin.writefile, builtinCommand, 0, expandZero, expandZero}, // io/ioutil/ioutil.go
-        `touch-file`:   BuiltinFunc{builtin.touchfile, builtinCommand, 0, expandZero, expandZero},
-        `mkdir`:        BuiltinFunc{builtin.mkdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
-        `chdir`:        BuiltinFunc{builtin.chdir, builtinCommand, 0, expandZero, expandZero},     // os/file.go
-        `rename`:       BuiltinFunc{builtin.rename, builtinCommand, 0, expandZero, expandZero},    // os/file.go
-        `remove`:       BuiltinFunc{builtin.remove, builtinCommand, 0, expandZero, expandZero},    // os/file_*.go
-        `truncate`:     BuiltinFunc{builtin.truncate, builtinCommand, 0, expandZero, expandZero},  // os/file_*.go
-        `link`:         BuiltinFunc{builtin.link, builtinCommand, 0, expandZero, expandZero},      // os/file_*.go
-        `symlink`:      BuiltinFunc{builtin.symlink, builtinCommand, 0, expandZero, expandZero},   // os/file_*.go
+        `push-context`: reflect.TypeOf((*builtin_pushcontext)(nil)).Elem(),
+        `pop-context`:  reflect.TypeOf((*builtin_popcontext)(nil)).Elem(),
 
-        `serve-http`:   BuiltinFunc{builtin.servehttp, builtinCommand, 0, expandZero, expandZero},
+        `mkdir`:        reflect.TypeOf((*builtin_mkdir)(nil)).Elem(),     // os/file.go
+        `chdir`:        reflect.TypeOf((*builtin_chdir)(nil)).Elem(),     // os/file.go
+        `rename`:       reflect.TypeOf((*builtin_rename)(nil)).Elem(),    // os/file.go
+        `remove`:       reflect.TypeOf((*builtin_remove)(nil)).Elem(),    // os/file_*.go
+        `truncate`:     reflect.TypeOf((*builtin_truncate)(nil)).Elem(),  // os/file_*.go
+        `link`:         reflect.TypeOf((*builtin_link)(nil)).Elem(),      // os/file_*.go
+        `symlink`:      reflect.TypeOf((*builtin_symlink)(nil)).Elem(),   // os/file_*.go
 
-        `return`:       BuiltinFunc{builtin._return, builtinCommand, 0, expandZero, expandZero},
-}
+        `serve-http`:   reflect.TypeOf((*builtin_servehttp)(nil)).Elem(),
 
-func RegisterBuiltins(m map[string]BuiltinFunc) (err error) {
-        for s, f := range m {
-                if _, existed := builtins[s]; existed {
-                        err = fmt.Errorf("Builtin '%s' already existed", s)
-                        break
-                } else {
-                        builtins[s] = f
-                }
-        }
-        return
+        `return`:       reflect.TypeOf((*builtin_return)(nil)).Elem(),
 }
 
 func EscapedString(ctx Context, v Value) (s string) {
@@ -310,7 +291,7 @@ func trimRightSpaces(s string) string {
         return strings.TrimRightFunc(s, unicode.IsSpace)
 }
 
-func set(ctx Context, val reflect.Value, v Value) {
+func _set(ctx Context, val reflect.Value, v Value) {
         switch val.Kind() {
         case reflect.Bool:
                 if t := v == nil || v.True(ctx); true { val.SetBool(t) }
@@ -331,7 +312,7 @@ func set(ctx Context, val reflect.Value, v Value) {
         case reflect.Slice:
                 if p := reflect.New(val.Type().Elem()); p.Kind() == reflect.Ptr {
                         var t = p.Elem()
-                        set(ctx, t, v)
+                        _set(ctx, t, v)
                         val.Set(reflect.Append(val, t))
                 }
         case reflect.Interface: switch val.Type().String() {
@@ -339,36 +320,19 @@ func set(ctx Context, val reflect.Value, v Value) {
         default: erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
         }
         case reflect.Ptr: switch val.Type().Elem().String() {
-        case "smart.optFullname":
-                var x Value
-                if x = v.expand(ctx, plain|expandFullName); /*isNone*/isTrivial(x) {
+        case "smart.fullnameOpt":
+                if x := v.expand(ctx, plain|expandFullName); isTrivial(x) {
                         erro(of(ctx, v), "expecting file value: %T %v", v, v).debug(1)
-                        return
-                }
-
-                var f, s, ok = as{x}.fullnameOpt(ctx)
-                if ok && s != "" {
-                        val.Set(reflect.ValueOf(&optFullname{ s, x }))
-                } else if t := file(ctx, s); t != nil {
-                        erro(of(ctx,v), "FIXME: %v: %v → %T %v → %v (%s, %v)", ctx.Project(), v, x, x, t, t.fullname(), f)
-                        errostack(ctx, 5, "").debug(32)
+                } else if o := fullnameOption(x); o.filize(ctx) != nil {
+                        val.Set(reflect.ValueOf(o))
                 } else {
-                        var f2, s2, o2 = as{x}.fullname(ctx)
-                        erro(of(ctx,v), "%v: not a file: %v → %T %v → %s → %v (%v, %v, %v)", ctx.Project(), v, x, x, s, f, f2, s2, o2)
-                        errostack(ctx, 5, "").debug(32)
-                }
-                if false {
-                        vi := val.Interface().(*optFullname)
-                        warn(of(ctx,v), "%v %v %v", ctx.Project(), v, vi.string).debug(true,1)
+                        erro(of(ctx,v), "%v: not a file: %v → %T %v", ctx.Project(), v, x, x)
+                        errostack(ctx, 5).debug(32)
                 }
         case "smart.File":
-                var x Value
-                if x = v.expand(ctx, plain); isNone(x) {
+                if x := v.expand(ctx, plain); isNone(x) {
                         erro(of(ctx,v), "expecting file value: %T %v", v, v).debug(1)
-                        return
-                }
-
-                if file, y := toFile(x); y {
+                } else if file, y := toFile(x); y {
                         val.Set(reflect.ValueOf(file))
                 } else if proj := ctx.Project(); proj == nil {
                         erro(of(ctx,x), "no current project to find file '%v'", x).debug(1)
@@ -401,12 +365,7 @@ func set(ctx Context, val reflect.Value, v Value) {
         }}
 }
 
-type optFullname struct {
-        string
-        value Value
-}
-
-func parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args... Value) (rest []Value) {
+func _parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args ...Value) (rest []Value) {
         var (
                 val = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
                 opts []string // opt names
@@ -443,7 +402,7 @@ ForArgs:
                         if flag, okay = pair.Key.(*Flag); okay { value = pair.Value }
                 } else if aa, y := arg.(*argumented); y {
                         if flag, okay = aa.value.(*Flag); okay {
-                                value = MakeListOrScalar(aa.Position(), aa.args)
+                                value = ease(ctx, aa.args)
                         }
                 }
                 if !okay || flag == nil {
@@ -452,7 +411,7 @@ ForArgs:
                 }
                 for i := 0; i < len(opts); i += 1 {
                         if _, match := flag.opt(ctx, opts[i]); match {
-                                set(ctx, val, value)
+                                _set(ctx, val, value)
                                 continue ForArgs
                         }
                 }
@@ -467,20 +426,16 @@ ForArgs:
 }
 
 // see https://go.dev/doc/tutorial/generics
-func bop[Opts interface{}] (ctx *builtin, w facet, args ...Value) (opts Opts, res []Value) {
+func bop[Opts interface{}] (ctx Context, w facet, v []Value, args ...Value) (opts Opts, res []Value) {
         // res = ctx.opts(&opts, w, args...)
-        if a := parseOpts(ctx.Context, &opts, 0, ctx.v...); len(a) > 0 {
-                for _, v := range a {
-                        erro(ctx.Context, "unknown option: %v (%T)", v, v).debug(4)
-                }
-        }
-        if args != nil {
-                if w == 0 {
-                        res = merge(args...)
-                } else {
-                        res = mergex(ctx.Context, w, args...)
-                }
-        }
+        if a := parseOpts(ctx, &opts, 0, v...); len(a) > 0 { for _, v := range a {
+                erro(ctx, "unknown option: %v (%T)", v, v).debug(4)
+        }}
+        if args != nil { if w == 0 {
+                res = merge(args...)
+        } else {
+                res = mergex(ctx, w, args...)
+        }}
         return
 }
 func mop[Opts interface{}] (ctx *modifier, w facet, args ...Value) (opts Opts, res []Value) {
@@ -488,12 +443,12 @@ func mop[Opts interface{}] (ctx *modifier, w facet, args ...Value) (opts Opts, r
         return
 }
 
-func _opts[Opts interface{}](ctx Context, w facet, args... Value) (opts Opts, res []Value) {
+func _opts[Opts interface{}](ctx Context, w facet, args ...Value) (opts Opts, res []Value) {
         res = parseOpts(ctx, &opts, w, args...)
         return
 }
 
-func parseOpts(ctx Context, iOpts interface{}, w facet, args... Value) (rest []Value) {
+func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []Value) {
         if w&^expandNone == 0 {
                 rest = merge(args...) // NOTE: set the returning args first of all!
         } else {
@@ -509,7 +464,7 @@ func parseOpts(ctx Context, iOpts interface{}, w facet, args... Value) (rest []V
                 rest = mergex(ctx, w, args...)
         }
 
-        if opts := reflect.ValueOf(iOpts); opts.Kind() != reflect.Ptr {
+        if opts.Kind() != reflect.Ptr {
                 erro(ctx, "opts must be ptr: %v", opts.Kind()).debug(10)
         } else if opts = opts.Elem(); opts.Kind() == reflect.Struct {
                 var (
@@ -520,15 +475,30 @@ func parseOpts(ctx Context, iOpts interface{}, w facet, args... Value) (rest []V
                 for i := 0; i < otyp.NumField(); i += 1 {
                         var ft = otyp.Field(i)
                         var fv = opts.Field(i)
-                        if ft.Name == "generalOpts" && fv.Kind() == reflect.Struct &&
-                                fv.Type().String() == "smart.generalOpts" {
-                                gen = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
-                                if rest = parseOpts(ctx, gen, w, rest...); gen.debug>0 {
-                                        gen.debug = gen.debug * 2
+                        if fv.Kind() != reflect.Struct {
+                                if ft.Anonymous && ft.Name == "Context" && fv.Type().String() == "smart.Context" {
+                                        if false { info(ctx, "%v %v %v %v", ft.Name, ft.Tag, fv.Type(), rest) }
+                                        continue
+                                } else {
+                                        rest = _parseOpt(ctx, ft.Tag, fv, rest...)
                                 }
-                                if false { prompt(ctx, "%v: %v ; %v -> %v", ft.Name, *gen, args, rest).debug(1) }
-                        } else {
-                                rest = parseOpt(ctx, ft.Tag, fv, rest...)
+                                if false && fv.Kind() == reflect.String && ft.Name == "dir" {
+                                        noted(ctx, "%v `%v` -> %v %v", ft.Name, ft.Tag, fv, rest).debug(1)
+                                }
+                        } else if ft.Name == "generalOpts" && fv.Type().String() == "smart.generalOpts" {
+                                if true {
+                                        rest = _parseOpts(ctx, fv.Addr(), w, rest)
+                                } else {
+                                        gen = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
+                                        rest = parseOpts(ctx, gen, w, rest...)
+                                }
+                        } else if ft.Name == "builtin_" && fv.Type().String() == "smart.builtin_" {
+                                if true {
+                                        rest = _parseOpts(ctx, fv.Addr(), w, rest)
+                                } else {
+                                        gen = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
+                                        rest = parseOpts(ctx, gen, w, rest...)
+                                }
                         }
                 }
                 if gen == nil { return }
@@ -546,11 +516,14 @@ func parseOpts(ctx Context, iOpts interface{}, w facet, args... Value) (rest []V
         }
         return
 }
+func parseOpts(ctx Context, store interface{}, w facet, args ...Value) (rest []Value) {
+        return _parseOpts(ctx, reflect.ValueOf(store), w, args)
+}
 
-func _parseHeadArgs(ctx Context, iOpts interface{}, w facet, args... Value) (head, rest []Value) {
+func _parseHeadArgs(ctx Context, store interface{}, w facet, args ...Value) (head, rest []Value) {
         if len(args) == 0 {
                 // zero args
-        } else if head = parseOpts(ctx, iOpts, w, args[0]); len(head) > 0 {
+        } else if head = parseOpts(ctx, store, w, args[0]); len(head) > 0 {
                 rest = args[1:] //mergex(ctx, w, args[1:]...)
         } else if len(args) == 1 {
                 // done
@@ -560,19 +533,23 @@ func _parseHeadArgs(ctx Context, iOpts interface{}, w facet, args... Value) (hea
         return
 }
 
-func _parseHeadArgsMerge(ctx Context, iOpts interface{}, w facet, args... Value) (res []Value) {
-        var head, rest = _parseHeadArgs(ctx, iOpts, w, args...)
+func _parseHeadArgsMerge(ctx Context, store interface{}, w facet, args ...Value) (res []Value) {
+        var head, rest = _parseHeadArgs(ctx, store, w, args...)
         res = append(head, rest...)
         return
 }
 
-func _parseHeadArgsRequired(ctx Context, iOpts interface{}, w facet, args... Value) (head, rest []Value) {
-        head, rest = _parseHeadArgs(ctx, iOpts, w, args...)
+func _parseHeadArgsRequired(ctx Context, store interface{}, w facet, args ...Value) (head, rest []Value) {
+        head, rest = _parseHeadArgs(ctx, store, w, args...)
         if len(head) == 0 || len(rest) == 0 {
                 erro(ctx, "insufficient number of arguments").debug(6)
         }
         return
 }
+
+type builtin_noop struct { builtin_ }
+func (ctx *builtin_noop) c(ic *invocation, w facet) (res interface{}) { return }
+func (ctx *builtin_noop) x(ic *invocation, w facet) (res interface{}) { return }
 
 func typeof(arg interface{}) (s string) {
         switch a := arg.(type) {
@@ -606,70 +583,58 @@ func typeof(arg interface{}) (s string) {
         return
 }
 
-func (ctx builtin) typeof(args ...Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                expand bool `x,e,ex,exp,expand`
-        }](&ctx, plain)
-
+type builtin_typeof struct { builtin_
+        expand bool `x,e,ex,exp,expand`
+}
+func (ctx *builtin_typeof) x(ic *invocation, w facet) (res interface{}) {
         var elems []Value
-        var pos = ctx.Position()
-        for _, arg := range args {
-                if opts.expand { arg = arg.expand(ctx, plain) }
+        for _, arg := range ic.a {
+                if ctx.expand { arg = arg.expand(ctx, plain) }
                 // Arguments are passed in a list:
                 //   $(fun abc)                 args: (abc)
                 //   $(fun a,b,c)               args: (a),(b),(c)
                 //   $(fun a b c,1 2 3)         args: (a b c),(1 2 3)
-                elems = append(elems, MakeBareword(pos, typeof(arg)))
+                elems = append(elems, MakeBareword(arg.Position(), typeof(arg)))
         }
-        return MakeListOrScalar(pos, elems)
+        return elems
 }
 
-func (ctx builtin) origin(aa ...Value) (res Value) {
-        var _, args = bop[struct {
-                generalOpts
-        }](&ctx, plain, aa...)
-
+type builtin_origin struct { builtin_ }
+func (ctx *builtin_origin) x(ic *invocation, w facet) (res interface{}) {
         var elems []Value
         var scope = ctx.Scope()
-        for _, arg := range args {
+        for _, arg := range ic.a {
                 var pos = arg.Position()
                 if name := arg.Strval(ctx); name == "" {
-                        elems = append(elems, MakeNil(pos))
+                        elems = append(elems, MakeNull(pos))
                 } else if def := scope.FindDef(name); def != nil {
                         elems = append(elems, MakeString(pos, def.origin.String()))
                 } else {
-                        elems = append(elems, MakeNil(pos))
+                        elems = append(elems, MakeNull(pos))
                 }
         }
-        return MakeListOrScalar(ctx.Position(), elems)
+        return elems
 }
 
-func (ctx builtin) defined(aa ...Value) (res Value) {
-        var _, args = bop[struct {
-                generalOpts
-        }](&ctx, plain, aa...)
-
+type builtin_defined struct { builtin_ }
+func (ctx *builtin_defined) x(ic *invocation, w facet) (res interface{}) {
         var elems []Value
         var pos = ctx.Position()
-        for _, arg := range args {
+        for _, arg := range ic.a {
                 var _, unresolved = arg.(unresolved)
                 elems = append(elems, MakeBoolean(pos, !unresolved))
         }
-        return MakeListOrScalar(pos, elems)
+        return elems
 }
 
-func (ctx builtin) PushContext(aa ...Value) (res Value) {
-        var _, args = bop[struct {
-                generalOpts
-        }](&ctx, plain, aa...)
-
+type builtin_pushcontext struct { builtin_ }
+func (ctx *builtin_pushcontext) c(ic *invocation, w facet) (res interface{}) {
         var (
                 scope = ctx.Scope()
-                dc = ctx.universe()
+                uc = ctx.universe()
                 m map[string]*def
         )
-        for _, arg := range args {
+        for _, arg := range ic.a {
                 var s = arg.Strval(ctx)
                 if s == "" { continue }
                 if m == nil { m = make(map[string]*def) }
@@ -680,93 +645,74 @@ func (ctx builtin) PushContext(aa ...Value) (res Value) {
                 }}
                 m[s] = t
         }
-        dc.globe.stack = append(dc.globe.stack, m)
+        uc.globe.stack = append(uc.globe.stack, m)
         return
 }
 
-func (ctx builtin) PopContext(aa ...Value) (res Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                rules []Value `r,rule,rules`
-        }](&ctx, plain, aa...)
-
-        for _, arg := range args {
+type builtin_popcontext struct { builtin_
+        rules []Value `r,rule,rules`
+}
+func (ctx *builtin_popcontext) c(ic *invocation, w facet) (res interface{}) {
+        for _, arg := range ic.a {
                 warn(ctx, "unused argument: %T %v", arg, arg).debug(1)
                 break
         }
 
         var rules []Value
-        for _, r := range opts.rules {
-                if v, y := r.(*Group); !y { rules = append(rules, v) } else {
-                       rules = append(rules, v.Elems...)
-                }
-        }
-        // if proj := ctx.Project(); proj.entries != nil {
-        //         for _, r := range rules {
-        //                 delete(proj.entries, r.Strval(ctx))
-        //         }
-        // }
+        for _, r := range ctx.rules { if v, y := r.(*Group); !y {
+                rules = append(rules, v)
+        } else {
+                rules = append(rules, v.Elems...)
+        }}
 
         var scope = ctx.Scope()
-        var dc = ctx.universe()
-        var l = len(dc.globe.stack)
+        var uc = ctx.universe()
+        var l = len(uc.globe.stack)
         if l == 0 { return }
-        for s, d := range dc.globe.stack[l-1] {
-                if d == nil { if s == "" { continue }
-                        scope.mutex.Lock()
-                        delete(scope.elems, s)
-                        scope.mutex.Unlock()
-                } else if o := scope.Lookup(d.name); o != nil { if t, ok := o.(*def); ok {
-                        *t = *d
-                }}
-        }
-        dc.globe.stack = dc.globe.stack[0:l-1]
+        for s, d := range uc.globe.stack[l-1] { if d == nil { if s == "" { continue }
+                scope.mutex.Lock()
+                delete(scope.elems, s)
+                scope.mutex.Unlock()
+        } else if o := scope.Lookup(d.name); o != nil { if t, ok := o.(*def); ok {
+                *t = *d
+        }}}
+        uc.globe.stack = uc.globe.stack[0:l-1]
         return
 }
 
-func (ctx builtin) _position(aa ...Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                filename bool `f,filename`
-                filenameQuoted bool `q,quote-filename;qf,quoted-filename`
-                line bool `l,line`
-                column bool `c,column`
-                addLine int `a,add;al,add-line`
-                addColumn int `ac,add-column`
-        }](&ctx, plain, aa...)
-
-        var (
-                pos = ctx.Position()
-                vals []Value
-        )
-        if opts.filename {
+type builtin_position struct { builtin_
+        filename bool `f,filename`
+        filenameQuoted bool `q,quote-filename;qf,quoted-filename`
+        line bool `l,line`
+        column bool `c,column`
+        addLine int `a,add;al,add-line`
+        addColumn int `ac,add-column`
+}
+func (ctx *builtin_position) x(ic *invocation, w facet) (res interface{}) {
+        var vals []Value
+        var pos = ctx.Position()
+        if ctx.filename {
                 vals = append(vals, MakeString(pos, pos.Filename))
-        } else if opts.filenameQuoted {
+        } else if ctx.filenameQuoted {
                 var s = pos.Filename //strconv.Quote(pos.Filename)
                 vals = append(vals, MakeString(pos, "\""+s+"\""))
         }
 
-        if opts.line   { vals = append(vals, MakeInt(pos, int64(pos.Line + opts.addLine))) }
-        if opts.column { vals = append(vals, MakeInt(pos, int64(pos.Column + opts.addColumn))) }
+        if ctx.line   { vals = append(vals, MakeInt(pos, int64(pos.Line + ctx.addLine))) }
+        if ctx.column { vals = append(vals, MakeInt(pos, int64(pos.Column + ctx.addColumn))) }
 
-        if len(vals) > 0 {
-                res = MakeListOrScalar(pos, vals)
-        } else {
-                res = MakeString(pos, pos.String())
-        }
-        return
+        if len(vals) == 0 { return MakeString(pos, pos.String()) }
+        if len(vals) == 1 { return vals[0] }
+        return vals
 }
 
-func (ctx builtin) date(aa ...Value) (res Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                time bool `t,tm,time,n,now`
-        }](&ctx, plain, aa...)
-
-        var pos = ctx.Position()
-        if t := time.Now(); len(args) > 0 {
+type builtin_date struct { builtin_
+        time bool `t,tm,time,n,now`
+}
+func (ctx *builtin_date) x(ic *invocation, w facet) (res interface{}) {
+        if t := time.Now(); len(ic.a) > 0 {
                 var vals []Value
-                for _, a := range args {
+                for _, a := range ic.a {
                         var s string
                         if s = a.Strval(ctx); s == "" {
                                 s = t.String()
@@ -775,38 +721,33 @@ func (ctx builtin) date(aa ...Value) (res Value) {
                         }
                         vals = append(vals, MakeString(a.Position(), s))
                 }
-                res = MakeListOrScalar(pos, vals)
-        } else if opts.time {
-                res = MakeTime(pos, t)
+                return vals
+        } else if ctx.time {
+                res = MakeTime(ctx.Position(), t)
         } else {
-                res = MakeDate(pos, t)
+                res = MakeDate(ctx.Position(), t)
         }
         return
 }
 
-func (ctx builtin) debug(aa ...Value) (res Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                s int `s,stack`
-                n int `n,num`
-        }](&ctx, plain, aa...)
-
+type builtin_debug struct { builtin_
+        s int `s,stack`
+        n int `n,num`
+}
+func (ctx *builtin_debug) x(ic *invocation, w facet) (res interface{}) {
         var s bytes.Buffer
-        for i, a := range args {
+        for i, a := range ic.a {
                 if i > 0 { fmt.Fprintf(&s, " ") }
                 fmt.Fprintf(&s, "%s", a.Strval(ctx))
         }
-        warnstack(ctx, opts.s, "%s", s.String()).debug(opts.n)
+        warnstack(ctx, ctx.s, "%s", s.String()).debug(ctx.n)
         return
 }
 
-func (ctx builtin) error(aa ...Value) (res Value) {
-        var _, args = bop[struct {
-                generalOpts
-        }](&ctx, plain, aa...)
-
+type builtin_error struct { builtin_ }
+func (ctx *builtin_error) x(ic *invocation, w facet) (res interface{}) {
         var s bytes.Buffer
-        for i, a := range args {
+        for i, a := range ic.a {
                 if i > 0 { fmt.Fprintf(&s, " ") }
                 fmt.Fprintf(&s, "%s", a.Strval(ctx))
         }
@@ -818,9 +759,10 @@ func (ctx builtin) error(aa ...Value) (res Value) {
         return
 }
 
-func (ctx builtin) warning(args... Value) (res Value) {
+type builtin_warning struct { builtin_ }
+func (ctx *builtin_warning) x(ic *invocation, w facet) (res interface{}) {
         var s bytes.Buffer
-        for i, a := range args {
+        for i, a := range ic.a {
                 if i > 0 { fmt.Fprintf(&s, " ") }
                 fmt.Fprintf(&s, "%s", a.Strval(ctx))
         }
@@ -828,44 +770,54 @@ func (ctx builtin) warning(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) assert(aa ...Value) (res Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                msg string `m,msg,message`
-        }](&ctx, expandZero, aa...)
+var builtin_assert_hook func(*builtin_assert, Value, bool) bool
 
-        var w = ctx.w
-        var d = opts.debug ; if d < 1 { d = 1 + 5 }
-        for _, a := range args {
-                var ctx = at(ctx, a.Position())
-                if a.String() == "$(match(-all) **.o,foo)" {
-                        var v = a.expand(ctx, w)
-                        warn(ctx, "%v: %v %v %T", a, v.True(ctx), v, v).debug(1)
+type builtin_assert struct { builtin_
+        msg string `m,msg,message`
+}
+func (ctx *builtin_assert) a(ic *invocation, w facet) (skip bool) { return }
+func (ctx *builtin_assert) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
+        var d = ctx.debug ; if d < 1 { d = 3 }
+
+        if ic.a == nil && builtin_assert_hook != nil && !builtin_assert_hook(ctx, nil, false) {
+                if prompt(ctx, "assert: %v\n", ic.a); ctx.warn {
+                        warnstack(ctx, d).debug(d)
+                } else {
+                        errostack(ctx, d).debug(d)
                 }
-                if v := a.expand(ctx, w); !v.True(ctx) {
-                        prompt(ctx, "assert: %T %v → %T %v\n", a, a, v, v)
-                        if opts.warn {
-                                warnstack(ctx, d, "").debug(d)
+        }
+
+        var cc = ctx.Context
+        for _, a := range ic.a { ctx.Context = at(cc, a.Position()) ; var okay = a.True(ctx)
+                if builtin_assert_hook != nil && builtin_assert_hook(ctx, a, okay) {
+                        continue
+                } else if !okay {
+                        prompt(ctx, "assert: %T %v\n", a, a)
+                        if ctx.warn {
+                                warnstack(ctx, d).debug(d)
                         } else {
                                 erro(ctx, "%v", a)
-                                errostack(ctx, d, "").debug(d)
+                                errostack(ctx, d).debug(d)
                         }
                 }
         }
-        if ctx.flushDiags() > 0 { fail(ctx.Position(), "assert failed") }
+        if ctx.dia().flush()>0 && ctx.fail { fail(cc.Position(), "assertion failed") }
         return
 }
 
-func (ctx builtin) sure(args... Value) Value {
-        for _, a := range args { if !a.True(ctx) {
+type builtin_sure struct { builtin_ }
+func (ctx *builtin_sure) x(ic *invocation, w facet) (res interface{}) {
+        for _, a := range ic.a { if !a.True(ctx) {
                 erro(of(ctx,a), "assert: %T %v", a, a).debug(1)
         }}
-        return MakeListOrScalar(ctx.Position(), args)
+        return ic.a
 }
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
-func (ctx builtin) defor(args... Value) (res Value) {
-        for _, a := range mergex(ctx, plain, args...) {
+type builtin_defor struct { builtin_ }
+func (ctx *builtin_defor) x(ic *invocation, w facet) (res interface{}) {
+        for _, a := range merge(ic.a...) {
                 var _, unresolved = a.(unresolved)
                 if unresolved { continue } else {
                         res = a
@@ -875,85 +827,72 @@ func (ctx builtin) defor(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) or(args... Value) (res Value) {
-        for _, a := range args {
-                if v := a.True(ctx); v {
-                        res = a
-                        break
-                }
-        }
+type builtin_or struct { builtin_ }
+func (ctx *builtin_or) x(ic *invocation, w facet) (res interface{}) {
+        for _, a := range ic.a { if v := a.True(ctx); v {
+                res = a
+                break
+        }}
         return
 }
 
-func (ctx builtin) and(args... Value) (res Value) {
-        for _, a := range args {
-                if v := a.True(ctx); v {
-                        res = a
-                } else {
-                        res = nil; break
-                }
-        }
+type builtin_and struct { builtin_ }
+func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
+        for _, a := range ic.a { if v := a.True(ctx); v {
+                res = a
+        } else {
+                res = nil; break
+        }}
         return
 }
 
 // $(not x y z) => (not (or x y z))
 // $(not x,y,z) => (and (not x) (not y) (not z))
-func (ctx builtin) not(args ...Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-        }](&ctx, plain)
-
+type builtin_not struct { builtin_ }
+func (ctx *builtin_not) x(ic *invocation, w facet) (res interface{}) {
         var t bool
-        for i, a := range args {
-                if opts.debug>0 { warn(ctx, "%v. %T %v", i, a, a) }
+        for i, a := range ic.a {
+                if ctx.debug>0 { warn(ctx, "%v. %T %v", i, a, a) }
                 if t = a.True(ctx); t { break }
         }
 
-        if n := opts.debug; n>0 { warnstack(ctx, 3).debug(n) }
+        if n := ctx.debug; n>0 { warnstack(ctx, 3).debug(n) }
 
-        return MakeBoolean(ctx.Position(), !t)
+        return !t
 }
 
-func (ctx builtin) unequal(args... Value) (res Value) {
-        var _, _ = bop[struct {
-                generalOpts
-        }](&ctx, plain)
-
-        if n := len(args); n != 2 {
+type builtin_unequal struct { builtin_ }
+func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
+        if n := len(ic.a); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(not-equal <value-list>,<value-list>)")
-        } else if args[0].cmp(ctx, args[1]) != cmpEqual {
+        } else if ic.a[0].cmp(ctx, ic.a[1]) != cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
         }
         return
 }
 
-func (ctx builtin) equal(args... Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-        }](&ctx, plain)
-
-        if len(args) > 0 {
-                if a := merge(args[0]); len(a) == 1 {
-                        args[0] = a[0]
+type builtin_equal struct { builtin_ }
+func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) > 0 {
+                if a := merge(ic.a[0]); len(a) == 1 {
+                        ic.a[0] = a[0]
                 } else {
-                        args[0] = MakeList(args[0].Position(), a...)
+                        ic.a[0] = MakeList(ic.a[0].Position(), a...)
                 }
         }
-
-        if len(args) != 2 {
-                erro(ctx, "wrong number of arguments: %v", args)
+        if len(ic.a) != 2 {
+                erro(ctx, "wrong number of arguments: %v", ic.a)
                 erro(ctx, "try: $(equal <value-list>,<value-list>)").debug(1)
                 return
         }
 
         var (
-                a = args[0].expand(ctx, plain)
-                b = args[1].expand(ctx, plain)
+                a = ic.a[0].expand(ctx, plain)
+                b = ic.a[1].expand(ctx, plain)
         )
         if t := a.cmp(ctx, b); t == cmpEqual {
                 res = MakeBoolean(ctx.Position(), true)
-        } else if n := opts.debug; n>0 {
-                warn(ctx, "equal: %v", t)
+        } else if n := ctx.debug; n>0 {
                 if u, y := a.(unexpanded); y {
                         warn(of(ctx,a), "equal: a: %T %v (unexpanded)", u.Value, a)
                 } else {
@@ -963,38 +902,32 @@ func (ctx builtin) equal(args... Value) (res Value) {
                         warn(of(ctx,a), "equal: b: %T %v (unexpanded)", u.Value, b)
                 } else if l, y := b.(*List); y {
                         var v = l.Elems[0]
-                        warn(of(ctx,b), "equal: b: %T %v (len=%d) ; %T %v", b, b, len(l.Elems), v, v)
+                        warn(of(ctx,b), "equal: b: %T(len=%d), %T %v", b, len(l.Elems), v, v)
                 } else {
                         warn(of(ctx,b), "equal: b: %T %v", b, b)
                 }
-                warnstack(ctx, n).debug(n)
-        } else if len(args)>2 {
-                warnstack(of(ctx,args[2]), 1, "equal: extra args specified: %v", args[2]).debug(1)
+                warnstack(ctx, n, "equal: %v", t).debug(n)
+        } else if len(ic.a)>2 {
+                warnstack(of(ctx,ic.a[2]), 1, "equal: extra args specified: %v", ic.a[2]).debug(1)
         }
         return
 }
 
-func (ctx builtin) greater(args... Value) (res Value) {
-        var _, _ = bop[struct {
-                generalOpts
-        }](&ctx, plain)
-
-        if n := len(args); n != 2 {
+type builtin_greater struct { builtin_ }
+func (ctx *builtin_greater) x(ic *invocation, w facet) (res interface{}) {
+        if n := len(ic.a); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
-        } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpGreater {
+        } else if cmp := ic.a[0].cmp(ctx, ic.a[1]); cmp == cmpGreater {
                 res = MakeBoolean(ctx.Position(), true)
         }
         return
 }
 
-func (ctx builtin) less(args... Value) (res Value) {
-        var _, _ = bop[struct {
-                generalOpts
-        }](&ctx, plain)
-
-        if n := len(args); n != 2 {
+type builtin_less struct { builtin_ }
+func (ctx *builtin_less) x(ic *invocation, w facet) (res interface{}) {
+        if n := len(ic.a); n != 2 {
                 erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
-        } else if cmp := args[0].cmp(ctx, args[1]); cmp == cmpSmaller {
+        } else if cmp := ic.a[0].cmp(ctx, ic.a[1]); cmp == cmpSmaller {
                 res = MakeBoolean(ctx.Position(), true)
         }
         return
@@ -1002,29 +935,27 @@ func (ctx builtin) less(args... Value) (res Value) {
 
 // $(match val1 val2 val3, a b c d...)
 // $(match -rx=r1 -rx=r2 -rx=r3, a b c d...)
-func (ctx builtin) match(args ...Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                regexps []*regexp.Regexp `r,re,rx,reg,regex,regexp`
-                negated bool `n,ne,neg,negated,negative,not`
-                all bool `a,all`
-        }](&ctx, plain)
-
+type builtin_match struct { builtin_
+        regexps []*regexp.Regexp `r,re,rx,reg,regex,regexp`
+        negated bool `n,ne,neg,negated,negative,not`
+        all bool `a,all`
+}
+func (ctx *builtin_match) x(ic *invocation, w facet) (res interface{}) {
         var patList, valList []Value
-        if n := len(args); n < 1 {
+        if n := len(ic.a); n < 1 {
                 erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").debug(1)
                 return
         }
 
-        if len(args) > 1 {
-                patList = mergex(ctx, plain, args[0])
-                valList = mergex(ctx, plain, args[1:]...)
+        if len(ic.a) > 1 {
+                patList = mergex(ctx, plain, ic.a[0])
+                valList = mergex(ctx, plain, ic.a[1:]...)
         } else {
-                valList = mergex(ctx, plain, args[0])
+                valList = mergex(ctx, plain, ic.a[0])
         }
-        if opts.debug > 0 {
-                var ( n = len(args) ; d = opts.debug )
-                warn(ctx, "match: %v %v %v, %d", opts.regexps, patList, valList, n).debug(d)
+        if ctx.debug > 0 {
+                var ( n = len(ic.a) ; d = ctx.debug )
+                warn(ctx, "match: %v %v %v, %d", ctx.regexps, patList, valList, n).debug(d)
         }
 
         var pos = ctx.Position()
@@ -1033,34 +964,34 @@ ForValList:
                 if isTrivial(val) { continue ForValList }
 
                 var str = val.Strval(ctx)
-                for _, rx := range opts.regexps {
+                for _, rx := range ctx.regexps {
                         var matched = rx.MatchString(str);
-                        if opts.negated { matched = !matched }
+                        if ctx.negated { matched = !matched }
                         if matched {
-                                if opts.all {
+                                if ctx.all {
                                         if res == nil { res = MakeBoolean(pos, true) }
                                 } else {
                                         return MakeBoolean(pos, true)
                                 }
-                        } else if opts.all {
+                        } else if ctx.all {
                                 return nil
                         }
                 }
                 for _, pat := range patList {
                         var matched, _, _ = pat.match(ctx, str)
-                        if opts.negated { matched = !matched }
+                        if ctx.negated { matched = !matched }
                         if matched {
-                                if opts.all {
+                                if ctx.all {
                                         if res == nil { res = MakeBoolean(pos, true) }
                                 } else {
                                         return MakeBoolean(pos, true)
                                 }
-                        } else if opts.all {
+                        } else if ctx.all {
                                 return nil
                         }
                 }
 
-                if opts.debug > 0 {
+                if ctx.debug > 0 {
                         warn(ctx, "match: %v", str)
                         warn(ctx, "match: %v %T", val, val).debug(1)
                 }
@@ -1072,8 +1003,10 @@ ForValList:
 // 2: $(case val (a 'xxx') (b 'yyy') (c 'zzz') ('if none or nil'))
 // 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
 // 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
-func (ctx builtin) _case(args... Value) (res Value) {
+type builtin_case struct { builtin_ }
+func (ctx *builtin_case) x(ic *invocation, w facet) (res interface{}) {
         var val Value
+        var args = ic.a
         if args = merge(args...); len(args) == 0 { return } else
         if _, ok := args[0].(*Group); !ok {
                 val = args[0].expand(ctx, plain)
@@ -1098,7 +1031,7 @@ func (ctx builtin) _case(args... Value) (res Value) {
                         } else if val != nil && isTrivial(val) {
                                 if isTrivial(v) {
                                         collect = true
-                                } else if f, ok := v.(*Flag); ok && isNil(f.name) {
+                                } else if f, ok := v.(*Flag); ok && isNull(f.name) {
                                         collect = true
                                 }
                         } else if val != nil && val.cmp(ctx, v) == cmpEqual {
@@ -1110,10 +1043,10 @@ func (ctx builtin) _case(args... Value) (res Value) {
 
                         var vals []Value
                         for _, v := range g.Elems[1:] {
-                                if f, ok := v.(*Flag); ok && isNil(f.name) { continue }
+                                if f, ok := v.(*Flag); ok && isNull(f.name) { continue }
                                 vals = append(vals, v)
                         }
-                        res = MakeListOrScalar(arg.Position(), vals)
+                        res = ease(ctx, vals)
                         return
                 } else {
                         erro(of(ctx,arg), "unexpected case: %T %v", arg, arg).debug(1)
@@ -1121,291 +1054,240 @@ func (ctx builtin) _case(args... Value) (res Value) {
                 }
         }
 
-        if len(def) > 0 { res = MakeListOrScalar(ctx.Position(), def) }
-        return
+        return ease(ctx, def)
 }
 
 // $(if cond, true-value, else-value, ...)
-func (ctx builtin) _if(args... Value) (res Value) {
-        if n := len(args); n > 1 {
-                if false { if v := args[0]; v.String() == "&(.test.$_)" {
-                        conds := mergex(ctx, plain, v)
-                        t := conds[0].expand(ctx, plain)
-                        s := v.Strval(ctx)
-                        info(ctx, "%v -> %T %v -> %T %v -> %s", v, conds[0], conds[0], t, t, s)
-
-                        info(ctx, "%v", autoGet(ctx,"_"))
-                        infostack(ctx, 10, "").debug(64)
-                }}
-                if args[0].expand(ctx, plain).True(ctx) {
-                        res = args[1]
-                } else if n > 1 {
-                        res = MakeListOrScalar(ctx.Position(), args[2:])
+type builtin_if struct { builtin_ }
+func (ctx *builtin_if) a(ic *invocation, w facet) (skip bool) { // NOTE: optional
+        for i, v := range ic.a { if i == 0 {
+                v = v.expand(ctx, w)
+                _, skip = v.(unexpanded)
+        } else /* if w&expandPlaceholder != 0 */ {
+                v = v.expand(ctx, /* expandPlaceholder */w)
+        } ; ic.a[i] = v }
+        return
+}
+func (ctx *builtin_if) x(ic *invocation, w facet) (res interface{}) {
+        if na := len(ic.a); na > 1 { t := ic.a[0]
+                if _, y := t.(unexpanded); y {
+                        return ctx
+                } else if t.True(ctx) {
+                        res = ic.a[1]//.expand(ctx, w)
+                } else if na > 2 {
+                        a := ic.a[2:] //a, _, _ := w.expand(ctx, ic.a[2:]...)
+                        res = ease(ctx, a)
                 }
         }
         return
 }
 
-func (ctx builtin) _ifeq(args... Value) (res Value) {
-        if n := len(args); n > 2 {
+type builtin_ifeq struct { builtin_
+        strval bool `s,sv,str,strval`
+}
+func (ctx *builtin_ifeq) x(ic *invocation, w facet) (res interface{}) {
+        if na := len(ic.a); na > 2 {
                 var (
-                        a = args[0].expand(ctx, plain)
-                        b = args[1].expand(ctx, expandDelegate  )
+                        a = ic.a[0]//.expand(ctx, plain)
+                        b = ic.a[1]//.expand(ctx, expandDelegate)
                         equal bool
                 )
-                if true {
-                        equal = a.cmp(ctx, b) == cmpEqual
-                } else {
+                if _, y := a.(unexpanded); y { return ctx }
+                if _, y := b.(unexpanded); y { return ctx }
+                if ctx.strval {
                         equal = a.Strval(ctx) == b.Strval(ctx)
+                } else {
+                        equal = a.cmp(ctx, b) == cmpEqual
                 }
                 if equal {
-                        res = args[2]
-                } else if n > 3 {
-                        res = MakeListOrScalar(ctx.Position(), args[3:])
+                        res = ic.a[2]
+                } else if na > 3 {
+                        res = ease(ctx, ic.a[3:])
                 }
         }
         return
 }
 
-func (ctx builtin) _ifne(args... Value) (res Value) {
-        if n := len(args); n > 2 {
+type builtin_ifne struct { builtin_
+        strval bool `s,sv,str,strval`
+}
+func (ctx *builtin_ifne) x(ic *invocation, w facet) (res interface{}) {
+        if na := len(ic.a); na > 2 {
                 var (
-                        a = args[0].expand(ctx, plain)
-                        b = args[1].expand(ctx, expandDelegate  )
+                        a = ic.a[0]//.expand(ctx, plain)
+                        b = ic.a[1]//.expand(ctx, expandDelegate)
                         equal bool
                 )
-                if true {
-                        equal = a.cmp(ctx, b) == cmpEqual
-                } else {
+                if _, y := a.(unexpanded); y { return ctx }
+                if _, y := b.(unexpanded); y { return ctx }
+                if ctx.strval {
                         equal = a.Strval(ctx) == b.Strval(ctx)
+                } else {
+                        equal = a.cmp(ctx, b) == cmpEqual
                 }
                 if !equal {
-                        res = args[2]
-                } else if n > 3 {
-                        res = MakeListOrScalar(ctx.Position(), args[3:])
+                        res = ic.a[2]
+                } else if na > 3 {
+                        res = ease(ctx, ic.a[3:])
                 }
         }
         return
 }
 
-func (ctx builtin) For(args... Value) (res Value) {
-        if n := len(args); n < 2 {
-                erro(ctx, "not enough arguments, try: $(for <list>,<template>)")
+// type builtin_for struct {
+//         Context
+//         generalOpts
+// }
+// func (ctx *builtin_for) x(ic *invocation, w facet) (res interface{}) {
+//         return
+// }
+
+const builtin_foreach_a_skip = false // it works true or false
+type builtin_foreach struct { builtin_
+        empty bool `empty,allow-empty`
+        unique bool `u,uni,unique`
+}
+func (ctx *builtin_foreach) String() string {
+        if true || fullContextStringer {
+                return fmt.Sprintf("foreach{%s}", ctx.Context)
+        } else {
+                return ctx.Context.String()
+        }
+}
+func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
+        if n := len(ic.a); n < 2 {
+                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, ic.a).debug(32)
+                return true
+        }
+
+        // NOTE: only expand the first arg with placeholder bit
+        a := ic.a[0].expand(ctx, w|expandPlaceholder)
+        if builtin_foreach_a_skip && w&expandUnexpandedForth == 0 { _, skip = a.(unexpanded) }
+
+        if false && w&expandDebug != 0 { if d := autoDef(ctx, "1"); ic.a[0].String() == "$1" && d != nil {
+                noted(ctx, "%T %v -> %T %v ; %v", ic.a[0], ic.a[0], a, a, d).debug(1)
+        }}
+
+        ic.a[0] = a
+        return
+}
+func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
+        var ( values, temps []Value ; db bool )
+        if false { if w&expandDebug != 0 && ic.a != nil { defer func() {
+                w.noted(ctx, ic.a[0], ic.a[1:])
+                noted(ctx, "%v %v -> %v", typeof(ic.a[0]), values, res).debug(16)
+        }(); db = true }}
+
+        if u, y := ic.a[0].(unexpanded); y {
+                if !builtin_foreach_a_skip && w&expandUnexpandedForth == 0 { return ctx }
+                values = merge(u.Value)
+        } else {
+                values = merge(ic.a[0])
+        }
+
+        if temps = ic.a[1:]; len(values) == 0 {
+                var d = ctx.debug ; if d < 1 { d = 1 }
+                errostack(ctx, 3, "$(foreach <list>,<templates>): insurficient arguments: %v", ic.a).debug(d)
                 return
+        } else if !ctx.unique {
+                // remains duplication
+        } else if t := call(ctx, "unique", w, nil, values...); !isTrivial(t) {
+                values = merge(t)
         }
-
-        var (
-                defs []*def
-                vals []Value
-                values = mergex(ctx, plain, args[0])
-        )
-
-        var scope = ctx.Globe()
-        for i := 1; i <= maxNumVarVal; i += 1 {
-                def := scope.Lookup(strconv.Itoa(i)).(*def)
-                defs = append(defs, def)
-                vals = append(vals, def.value)
-                if i-1 < len(values) {
-                        def.value = values[i-1]
-                }
-        }
-        defer func() {
-                for i, def := range defs {
-                        def.value = vals[i]
-                }
-        } ()
 
         var list []Value
-        var pos = ctx.Position()
-        for _, a := range args[1:] {
-                if values = mergex(ctx, plain, a); len(values) == 0 {
-                        list = append(list, MakeNone(pos))
-                } else if len(values) == 1 {
-                        list = append(list, values[0])
-                } else {
-                        list = append(list, MakeList(a.Position(), values...))
+        var d = ctx.debug
+        var vw = (w|expandPairVal|expandPlaceholder)&^expandPlaceholderKept
+        var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
+        for _, val := range values { cc.set(ctx, "_", val)
+                var l []Value
+                for _, a := range temps { v := scalarize(scalarize(a).expand(&cc, vw))
+                        if ctx.empty || !isTrivial(v) && !isEmpty(v) { l = append(l, v) }
+                        if db { noted(ctx, "%T %v %v -> %v %v", a, typeof(a), a, typeof(v), v) }
                 }
+                if l == nil { if ctx.empty {
+                        list = append(list, MakeNone(ctx.Position()))
+                }} else {
+                        list = append(list, /* ease(ctx, l) */l...)
+                }
+                if d>0 { warnstack(ctx, 3, "foreach: %v %v -> %v -> %v", typeof(val), val, temps, l).debug(d) }
+                if db { noted(ctx, "%v %v => %v -> %v", typeof(val), val, temps, l).debug(1) }
         }
-
-        res = MakeListOrScalar(pos, list)
-        return
+        return list
 }
 
-func (ctx builtin) foreach(args... Value) (res Value) {
-        if n := len(args); n < 2 {
-                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, args).debug(32)
-                return
-        }
-
-        var opts, values = bop[struct {
-                generalOpts
-                empty bool `empty,allow-empty`
-                unique bool `u,uni,unique`
-        }](&ctx, plain, args[0])
-
-        if len(values) == 0 {
-                var d = opts.debug ; if d < 1 { d = 1 }
-                errostack(ctx, 3, "$(foreach <list>,<template>): insurficient arguments: %v", args).debug(d)
-                return
-        } else if opts.unique {
-                var t = builtin{Context:ctx.Context}.unique(values...)
-                if isTrivial(t) {
-                        // errostack(ctx, 3, "$(foreach <list>,<template>): invalid arguments: %v", args).debug(1)
-                        // return
-                } else { values = merge(t) }
-        }
-
-        var (
-                resList []Value
-                pos = ctx.Position()
-                cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
-        )
-
-        ctx.Context = &cc
-
-        for _, val := range values {
-                if !opts.empty {
-                        switch t := val.(type) {
-                        case *Nil, *delegate, *closure:
-                                if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
-                                continue
-                        case *none:
-                                if !t.True(ctx) {
-                                        if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
-                                        continue
-                                }
-                        case *String:
-                                if t.string == "" {
-                                        if opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
-                                        continue
-                                }
-                        default:
-                                if s := val.Strval(ctx); s == "" {
-                                        if true || opts.debug>0 { warn(ctx, "empty: %T %v", val, val).debug(1) }
-                                        continue
-                                }
-                        }
-                }
-
-                cc.autoSet("_", val)
-
-                var list []Value
-                var w = plain|expandPlaceholders|expandPairVal
-                for _, a := range args[1:] {
-                        if v := a.expand(ctx, w); isTrivial(v) {
-                                // ignore
-                        } else if s, ok := v.(*String); ok && s.string == "" {
-                                // ignore
-                        } else {
-                                list = append(list, v)
-                        }
-                }
-
-                if opts.debug>0 { warnstack(ctx, 3,
-                        "foreach: %v -> %v ; %T %v -> %v -> %v",
-                        args[0], values, val, val, args[1:], list).debug(2*opts.debug) }
-
-                if n := len(list); n == 0 {
-                        resList = append(resList, MakeNone(pos))
-                } else if n == 1 {
-                        resList = append(resList, list[0])
-                } else {
-                        resList = append(resList, MakeList(list[0].Position(), list...))
-                }
-        }
-        res = MakeListOrScalar(pos, resList)
-        return
+type builtin_count struct { builtin_
+        vals []Value `v,val,value`
 }
-
-func (ctx builtin) count(args... Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                vals []Value `v,val,value`
-        }](&ctx, plain)
-
+func (ctx *builtin_count) x(ic *invocation, w facet) (res interface{}) {
         var num int64
-        for _, a := range args {
-                if opts.vals == nil && a.True(ctx) { num += 1 } else {
-                        for _, v := range opts.vals {
-                                if cmpEqual == v.cmp(ctx, a) { num += 1 }
-                                break
-                        }
-                }
-        }
-        res = MakeInt(ctx.Position(), num)
-        return
+        var vals = valvec(ctx.vals)
+        for _, a := range ic.a { if a.True(ctx) || vals.has2(ctx, a) {
+                num += 1
+        }}
+        return num
 }
 
-func (ctx builtin) env(args... Value) (res Value) {
-        var _, _ = bop[struct {
-                generalOpts
-        }](&ctx, plain)
+type builtin_env struct { builtin_ }
+func (ctx *builtin_env) x(ic *invocation, w facet) (res interface{}) {
+        var vals []Value
+        for _, a := range ic.a { if val := a.expand(ctx, expandDelegate); isTrivial(val) {
+                continue
+        } else if s := strings.TrimSpace(val.Strval(ctx)); s != "" {
+                vals = append(vals, MakeString(a.Position(), os.Getenv(s)))
+        }}
+        return vals
+}
+
+type builtin_auto struct { builtin_ }
+func (ctx *builtin_auto) a(ic *invocation, w facet) (skip bool) {
+        if n := len(ic.a); n < 2 {
+                errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, ic.a).debug(32)
+                return true
+        }
+
+        ic.a[0] = ic.a[0].expand(ctx, w)
+        return
+}
+func (ctx *builtin_auto) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) == 0 { return }
+
+        var ac = autoContext{ Context:ctx, defs:make(autoDefMap) }
+        for _, a := range merge(ic.a[0]) {
+                if p, y := a.(*Pair); y { if s := p.Key.Strval(ctx); s != "" {
+                        ac.set(ctx, s, p.Value)
+                } else { erro(ctx, "empty auto name: %T %v", p.Key, p.Key).debug(1) }}
+        }
 
         var vals []Value
-        var pos = ctx.Position()
-        for _, a := range args {
-                if val := a.expand(ctx, expandDelegate); isTrivial(val) {
-                        continue
-                } else if s := strings.TrimSpace(val.Strval(ctx)); s != "" {
-                        vals = append(vals, MakeString(pos, os.Getenv(s)))
-                }
-        }
-        return MakeListOrScalar(pos, vals)
+        for _, v := range ic.a[1:] { vals = append(vals, v.expand(&ac, w|expandAuto)) }
+        return vals
 }
 
-func (ctx builtin) _auto(p *delegate, args... Value) (res Value) {
-        if len(args) == 0 { return }
-
-        var _, _ = bop[struct {
-                generalOpts
-        }](&ctx, plain)
-
-        var scope = ctx.Scope()
-        if a := merge(args[0]); len(a) > 0 {
-                var c = autoContext{ Context:ctx, defs:make(autoDefMap) }
-                for _, t := range a {
-                        if p, y := t.(*Pair); y {
-                                if s := p.Key.Strval(ctx); s != "" {
-                                        c.defs[s] = &def{
-                                                origin: DefAuto, value: p.Value,
-                                                knownobject: knownobject{
-                                                        objbase{valbase{p.Position()}, scope, scope.project},
-                                                        s,
-                                                },
-                                        }
-                                }
-                        }
-                }
-                for i, v := range args {
-                        // TODO: expand with expandAuto, instead of w
-                        args[i] = v.expand(&c, ctx.w)
-                }
-        }
-
-        res = MakeListOrScalar(ctx.Position(), args[1:])
+type builtin_var struct { builtin_ }
+func (ctx *builtin_var) a(ic *invocation, w facet) (skip bool) {
+        noted(ctx, "%030b %v", w, ic.a).debug(6)
+        return
+}
+func (ctx *builtin_var) x(ic *invocation, w facet) (res interface{}) {
+        noted(ctx, "%030b %v", w, ic.a).debug(6)
         return
 }
 
 // $(value <name1>,<name2>...)  -- this is specially useful when <name> is a closure.
-func (ctx builtin) value(aa ...Value) (res Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                // def  []string `def,var`
-                closure bool `c,clo,closure`
-                unexp bool `ux,unexpand,unexpanded`
-                undef bool `u,un,undef`
-        }](&ctx, plain, aa...)
-
+type builtin_value struct { builtin_
+        clo bool `c,clo,closure`
+        unexp bool `ux,unexpand,unexpanded`
+        undef bool `u,un,undef`
+}
+func (ctx *builtin_value) x(ic *invocation, w facet) (res interface{}) {
         var vals []Value
-        var closure bool
-        if opts.undef {
+        if ctx.undef {
                 vals = append(vals, &undef{&none{valbase{ctx.Position()}, nil}})
         }
-
-        closure = opts.closure
-        for _, a := range args {
+        for _, a := range ic.a {
                 var (
-                        closure = closure || a.expandable(ctx, expandClosure)
+                        closure = ctx.clo || a.expandable(ctx, expandClosure)
                         name string
                         val Value
                 )
@@ -1420,163 +1302,115 @@ func (ctx builtin) value(aa ...Value) (res Value) {
                                 val = def.value // NOTE: donot do 'def.Call(ctx)'
                         }
                 }
-                if !closure && val == nil { val = autoGet(ctx,name) }
-                if opts.debug>0 { warnstack(ctx, 3, "value: %v ; %v -> %v -> %v (closure=%v)",
-                        args, a, name, val, closure).debug(2*opts.debug) }
+                if !closure && val == nil { val = autoVal(ctx,name) }
+                if d := ctx.debug; d>0 { warnstack(ctx, 3, "value: %v ; %v -> %v -> %v (closure=%v)",
+                        ic.a, a, name, val, closure).debug(2*d) }
                 if val != nil {
-                        if opts.unexp { val = unexpanded{val} }
+                        if ctx.unexp { val = unexpanded{val} }
                 } else if closure {
                         val = MakeClosure(ctx.Position(), LPAREN, unresolved{a, ctx.Project()}, nil)
                 } else if false {
                         val = MakeNone(a.Position())
                 } else {
-                        val = MakeNil(a.Position())
+                        val = MakeNull(a.Position())
                 }
                 vals = append(vals, val)
         }
         if len(vals) > 0 {
-                res = MakeListOrScalar(ctx.Position(), vals)
+                res = ease(ctx, vals)
         }
         return
 }
 
-// $(call <name>,<args>...)  -- this is specially useful when <name> is a closure.
-// NOTE: it's working differently from $(value <name>,<args>...), which is like calling
-// without arguments, and the automatics $1, $2, ... will still be available (delegated)
-// to the callee (<name>).
-func (ctx builtin) call(p *delegate, args ...Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                closure bool `c,clo,closure`
-        }](&ctx, plain)
-
-        if len(args) == 0 {
-                erro(ctx, "no name specified: %v", args[0]).debug(1)
-                return
+type builtin_call struct { builtin_
+        _closure bool `c,clo,closure`
+}
+func (ctx *builtin_call) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) == 0 { return }
+        var obj Object
+        var name = ic.a[0]
+        if _, y := name.(unexpanded); y {
+                return ctx
+        } else if s := name.Strval(ctx); ctx._closure {
+                obj = closureResolveObject(ctx, s)
+        } else {
+                obj = resolveObject(ctx, s)
         }
+        if obj == nil {
+                // var a, u, n = (w|expandAuto|expandArgs).expand(ctx, ic.a...)
+                // if true { noted(ctx, "%v ⇒ %v", a, ic.a).debug(1) }
+                // if u > 0 || n > 0 { ic.a = a }
+                return ctx
+        }
+        return invoke(ctx, obj, w, nil, ic.a[1:])
+}
 
-        var (
-                o Caller
-                name string
-                nameVal = args[0]
-                closure bool = opts.closure || nameVal.expandable(ctx, expandClosure)
-        )
-        if name = nameVal.Strval(ctx); closure {
+type builtin_closure struct { builtin_
+        required bool `required,require-def,require-defs`
+}
+func (ctx *builtin_closure) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) < 1 { return }
+
+        var vals []Value
+        outer: for _, val := range merge(ic.a[0]) {
+                var name = val.Strval(ctx)
                 for _, scope := range ctx.closureScopes() {
-                        if def := scope.FindDef(name); def != nil && !isTrivial(def.value) {
-                                o = def
-                                break
+                        if d := scope.FindDef(name); d != nil {
+                                vals = append(vals, d.invoke(ctx, w, nil, ic.a[1:]))
+                                continue outer
                         }
                 }
-        } else if def := ctx.Scope().FindDef(name); def != nil {
-                o = def
+                if ctx.required {
+                        erro(of(ctx,val), "no def '%v' (%v)", name, val).debug(1)
+                }
         }
-
-        args = args[1:]
-
-        if d, y := o.(*def); true && y {
-                res, _ = p.call(ctx, ctx.w, d, args...)
-        } else {
-                res = o.Call(ctx, ctx.v, args...)
-        }
-
-        if res != nil {
-                return
-        } else if false {
-                return MakeNone(nameVal.Position())
-        } else {
-                return MakeNil(nameVal.Position())
-        }
+        return vals
 }
 
-func (ctx builtin) _closure(args... Value) (res Value) {
-        if len(args) < 1 {
-                erro(ctx, "insufficient args: %v", args).debug(1)
-                return
-        }
-
-        var opts, _ = bop[struct {
-                generalOpts
-                required bool `required,require-def,require-defs`
-        }](&ctx, plain)
-
-        var vals []Value
-        for _, nameVal := range mergex(ctx, ctx.w, args...) {
-                var ( def *def; name string )
-                if name = nameVal.Strval(ctx); /*opts.closure*/true {
-                        for _, scope := range ctx.closureScopes() {
-                                if def = scope.FindDef(name); def != nil {
-                                        break
-                                }
-                        }
-                } else if def != nil {
-                        def = ctx.Scope().FindDef(name)
-                }
-                if def == nil {
-                        if opts.required {
-                                erro(of(ctx,nameVal), "no def '%v' (%v)", name, nameVal).debug(1)
-                        }
-                } else {
-                        vals = append(vals, def.Call(ctx, ctx.v, args[1:]...))
-                }
-        }
-        return MakeListOrScalar(ctx.Position(), vals)
+type builtin_defs struct { builtin_
+        rxs []*regexp.Regexp `r,re,rx,reg,regex,regexp`
+        not   *regexp.Regexp `nr,neg,not,ex,except,exclude`
+        n int `n,num,g`
+        rn int `rn`
 }
-
-func (ctx builtin) defs(aa ...Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                rxs []*regexp.Regexp `r,re,rx,reg,regex,regexp`
-                not   *regexp.Regexp `nr,neg,not,ex,except,exclude`
-                n int `n,num,g`
-                rn int `rn`
-        }](&ctx, plain, aa...)
-
-        var strs []string
-        var vals []Value
-ForDefs:
-        for name, _ := range ctx.Project().scope.elems {
-                if len(opts.rxs) == 0 {
-                        strs = append(strs, name)
-                        if opts.n>0 && len(strs) == opts.n {
+func (ctx *builtin_defs) x(ic *invocation, w facet) (res interface{}) {
+        var names []string
+        outer: for name, _ := range ctx.Project().scope.elems {
+                if len(ctx.rxs) == 0 {
+                        names = append(names, name)
+                        if ctx.n>0 && len(names) == ctx.n {
                                 break
                         } else {
                                 continue
                         }
                 }
-                if opts.not != nil && opts.not.MatchString(name) {
+                if ctx.not != nil && ctx.not.MatchString(name) {
                         continue
                 }
-                for _, rx := range opts.rxs {
+                for _, rx := range ctx.rxs {
                         var sm = rx.FindStringSubmatch(name)
-                        if len(sm)>0 && opts.rn<len(sm) {
-                                strs = append(strs, sm[opts.rn])
-                                if opts.n>0 && len(strs) == opts.n {
-                                        break ForDefs
+                        if len(sm)>0 && ctx.rn<len(sm) {
+                                names = append(names, sm[ctx.rn])
+                                if ctx.n>0 && len(names) == ctx.n {
+                                        break outer
                                 } else {
-                                        continue ForDefs
+                                        continue outer
                                 }
                         }
                 }
         }
-        for _, str := range strs {
-                vals = append(vals, MakeString(ctx.Position(), str))
-        }
-        return MakeListOrScalar(ctx.Position(), vals)
+        return names
 }
 
-func (ctx builtin) list(args... Value) (res Value) {
-        res = MakeListOrScalar(ctx.Position(), args)
-        return
+type builtin_list struct { builtin_ }
+func (ctx *builtin_list) x(ic *invocation, w facet) (res interface{}) {
+        return ic.a
 }
 
-func (ctx builtin) plain(aa... Value) (res Value) {
-        var /*opts*/_, args = bop[struct {
-                generalOpts
-        }](&ctx, plain, aa...)
-
+type builtin_plain struct { builtin_ }
+func (ctx *builtin_plain) x(ic *invocation, w facet) (res interface{}) {
         var scope = ctx.Scope()
-        for _, val := range args {
+        for _, val := range ic.a {
                 var _, o = scope.Find(val.Strval(ctx))
                 if d, y := o.(*def); y && d.value != nil {
                         d.value = d.value.expand(ctx, plain)
@@ -1585,13 +1419,14 @@ func (ctx builtin) plain(aa... Value) (res Value) {
         return
 }
 
-func (ctx builtin) shell(args... Value) (res Value) {
+type builtin_shell struct { builtin_ }
+func (ctx *builtin_shell) x(ic *invocation, w facet) (res interface{}) {
         var (
                 pos = ctx.Position()
                 vals []Value
                 err error
         )
-        for _, a := range args {
+        for _, a := range ic.a {
                 var bufout, buferr bytes.Buffer
                 var s = a.Strval(ctx)
                 sh := exec.Command("sh", "-c", s)
@@ -1609,16 +1444,13 @@ func (ctx builtin) shell(args... Value) (res Value) {
                 bufout.Reset()
                 buferr.Reset()
         }
-        return MakeListOrScalar(pos, vals)
+        return vals
 }
 
-func (ctx builtin) which(aa ...Value) (res Value) {
-        var _, args = bop[struct {
-                generalOpts
-        }](&ctx, plain, aa...)
-
+type builtin_which struct { builtin_ }
+func (ctx *builtin_which) x(ic *invocation, w facet) (res interface{}) {
         var vals []Value
-        for _, a := range args {
+        for _, a := range ic.a {
                 if s, err := exec.LookPath(a.Strval(ctx)); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
@@ -1626,25 +1458,23 @@ func (ctx builtin) which(aa ...Value) (res Value) {
                         vals = append(vals, MakeString(ctx.Position(), s))
                 }
         }
-        return MakeListOrScalar(ctx.Position(), vals)
+        return vals
 }
 
-func (ctx builtin) servehttp(aa ...Value) (res Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                ssl bool `s,ss,ssl`
-                host string `h,host`
-                port int `p,port`
-        }](&ctx, plain, aa...)
-
-        if opts.port == 0 { opts.port = 80 }
-        if opts.ssl {
+type builtin_servehttp struct { builtin_
+        ssl bool `s,ss,ssl`
+        host string `h,host`
+        port int `p,port`
+}
+func (ctx *builtin_servehttp) c(ic *invocation, w facet) (res interface{}) {
+        if ctx.port == 0 { ctx.port = 80 }
+        if ctx.ssl {
                 erro(ctx, "'serve-http(-ssl)' is unimplemented yet").debug(1)
                 return
         }
 
         var server = http.Server{}
-        server.Addr = fmt.Sprintf("%s:%d", opts.host, opts.port)
+        server.Addr = fmt.Sprintf("%s:%d", ctx.host, ctx.port)
         info(ctx, "serving http at %v ...", server.Addr)
 
         var root string
@@ -1661,82 +1491,70 @@ func (ctx builtin) servehttp(aa ...Value) (res Value) {
         http.HandleFunc("/-/quit", quit)
         http.HandleFunc("/-/shut", quit)
 
-        if args == nil {
+        if ic.a == nil {
                 var s = ctx.WorkDir()
                 http.Handle("/", http.FileServer(http.Dir(s)))
         } else {
-                for _, a := range args {
+                for _, a := range ic.a {
                         var s = a.Strval(ctx)
                         info(ctx, "serving files %v ...", s)
                         http.Handle("/", http.FileServer(http.Dir(s)))
                 }
         }
 
-        ctx.flushDiags() // flush
+        ctx.dia().flush() // flush
 
         var err = server.ListenAndServe()
         if err != nil && err != http.ErrServerClosed { erro(ctx, "%s", err).debug(1) }
         return
 }
 
-func (ctx builtin) append(args... Value) (result Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                auto bool `a,auto`
-                closure bool `c,closure`
-                // string bool `s,str,string`
-        }](&ctx, plain)
-
-        if len(args) < 2 {
-                erro(ctx, "insufficient number of arguments: %v", args).debug(1)
+type builtin_append struct { builtin_
+        _auto bool `a,auto`
+        _closure bool `c,closure`
+        // _string bool `s,str,string`
+}
+func (ctx *builtin_append) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) < 2 {
+                erro(ctx, "insufficient number of arguments: %v", ic.a).debug(1)
                 return
         }
 
         var names, list []Value
-        if names = mergex(ctx, plain, args[0]); len(names) == 0 {
-                warn(ctx, "append to nowhere: %T %v", args[0], args[0]).debug(1)
+        if names = merge(ic.a[0]); len(names) == 0 {
+                warn(ctx, "append to nowhere: %T %v", ic.a[0], ic.a[0]).debug(1)
                 return
         }
-        if list = mergex(ctx, plain, args[1:]...); len(list) == 0 {
-                warn(ctx, "append no values: %v", args[1:]).debug(1)
+        if list = merge(ic.a[1:]...); len(list) == 0 {
+                warn(ctx, "append no values: %v", ic.a[1:]).debug(1)
                 return
         }
 
         for _, a := range names {
+                var d *def
                 if name := a.Strval(ctx); name == "" {
                         erro(of(ctx,a), "name '%v' is empty", a).debug(1)
-                } else if opts.closure {
-                        if def := closureGet(ctx, name); def != nil {
-                                def.append(ctx, list...)
-                        } else {
-                                erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
-                        }
-                } else if opts.auto {
-                        if def := ctx.autoGet(name); def != nil {
-                                def.append(ctx, list...)
-                        } else {
-                                erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
-                        }
-                } else if o := resolveObject(ctx, name); o != nil {
-                        if d, y := o.(*def); y && d != nil { d.append(ctx, list...) } else {
-                                erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
-                        }
-                } else {
-                        erro(ctx, "%s", ctx).debug(1)
+                } else if ctx._closure { if d = closureGet(ctx, name); d == nil {
+                        erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
+                }} else if ctx._auto { if d = autoDef(ctx, name); d == nil {
+                        erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
+                }} else if o := resolveObject(ctx, name); o != nil { if d, _ = o.(*def); d == nil {
+                        erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
+                }} else {
+                        erro(ctx, "%T %v", a, a).debug(1)
                 }
+                if d != nil { d.append(ctx, list...) }
         }
         return
 }
 
-func (ctx builtin) plus(aa ...Value) (result Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                int bool `i,int,integer`
-        }](&ctx, plain, aa...)
-
-        if opts.int {
+type builtin_plus struct { builtin_
+        int bool `i,int,integer`
+}
+func (ctx *builtin_plus) x(ic *invocation, w facet) (res interface{}) {
+        if ctx.int {
                 var num int64
-                for n, a := range args {
+                for n, a := range ic.a {
                         if i, e := a.Integer(ctx); e == nil {
                                 if n == 0 { num = i } else { num += i }
                         } else {
@@ -1746,7 +1564,7 @@ func (ctx builtin) plus(aa ...Value) (result Value) {
                 return MakeInt(ctx.Position(), num)
         } else {
                 var num float64
-                for n, a := range args {
+                for n, a := range ic.a {
                         if f, e := a.Float(ctx); e == nil {
                                 if n == 0 { num = f } else { num += f }
                         } else {
@@ -1756,15 +1574,14 @@ func (ctx builtin) plus(aa ...Value) (result Value) {
                 return MakeFloat(ctx.Position(), num)
         }
 }
-func (ctx builtin) minus(aa ...Value) (result Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                int bool `i,int,integer`
-        }](&ctx, plain, aa...)
 
-        if opts.int {
+type builtin_minus struct { builtin_
+        int bool `i,int,integer`
+}
+func (ctx *builtin_minus) x(ic *invocation, w facet) (res interface{}) {
+        if ctx.int {
                 var num int64
-                for n, a := range args {
+                for n, a := range ic.a {
                         if i, e := a.Integer(ctx); e == nil {
                                 if n == 0 { num = i } else { num -= i }
                         } else {
@@ -1774,7 +1591,7 @@ func (ctx builtin) minus(aa ...Value) (result Value) {
                 return MakeInt(ctx.Position(), num)
         } else {
                 var num float64
-                for n, a := range args {
+                for n, a := range ic.a {
                         if f, e := a.Float(ctx); e == nil {
                                 if n == 0 { num = f } else { num -= f }
                         } else {
@@ -1784,81 +1601,78 @@ func (ctx builtin) minus(aa ...Value) (result Value) {
                 return MakeFloat(ctx.Position(), num)
         }
 }
-func (ctx builtin) multiply(aa ...Value) (result Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                int bool `i,int,integer`
-        }](&ctx, plain, aa...)
 
-        if opts.int {
+type builtin_multiply struct { builtin_
+        int bool `i,int,integer`
+}
+func (ctx *builtin_multiply) x(ic *invocation, w facet) (res interface{}) {
+        if ctx.int {
                 var num int64
-                for n, a := range args {
+                for n, a := range ic.a {
                         if i, e := a.Integer(ctx); e == nil {
                                 if n == 0 { num = i } else { num *= i }
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
                         }
                 }
-                return MakeInt(ctx.Position(), num)
+                return num
         } else {
                 var num float64
-                for n, a := range args {
+                for n, a := range ic.a {
                         if f, e := a.Float(ctx); e == nil {
                                 if n == 0 { num = f } else { num *= f }
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
                         }
                 }
-                return MakeFloat(ctx.Position(), num)
+                return num
         }
 }
-func (ctx builtin) divide(aa ...Value) (result Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                int bool `i,int,integer`
-        }](&ctx, plain, aa...)
 
-        if opts.int {
+type builtin_divide  struct { builtin_
+        int bool `i,int,integer`
+}
+func (ctx *builtin_divide) x(ic *invocation, w facet) (res interface{}) {
+        if ctx.int {
                 var num int64
-                for n, a := range args {
+                for n, a := range ic.a {
                         if i, e := a.Integer(ctx); e == nil {
                                 if n == 0 { num = i } else { num /= i } // FIXME: NaN
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
                         }
                 }
-                return MakeInt(ctx.Position(), num)
+                return num
         } else {
                 var num float64
-                for n, a := range args {
+                for n, a := range ic.a {
                         if f, e := a.Float(ctx); e == nil {
                                 if n == 0 { num = f } else { num /= f } // FIXME: NaN
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
                         }
                 }
-                return MakeFloat(ctx.Position(), num)
+                return num
         }
 }
 
-func (ctx builtin) unique(args ...Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                reverse bool `r,rev,reverse`
-                keepAuto bool `a,auto,keepauto,keep-auto`
-                unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`
-                plain bool `pl,pla,plain,pv,plainvalue,plain-value`
-        }](&ctx, 0)
-
-        if opts.unexpand {
+type builtin_unique struct { builtin_
+        reverse bool `r,rev,reverse`
+        keepAuto bool `a,auto,keepauto,keep-auto`
+        unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`
+        plain bool `pl,pla,plain,pv,plainvalue,plain-value`
+}
+func (ctx *builtin_unique) x(ic *invocation, w facet) (res interface{}) {
+        var args = ic.a
+        if ctx.unexpand {
                 args = merge(args...)
-        } else if opts.plain {
+        } else if ctx.plain {
                 var x = plain
-                if opts.keepAuto { x &= ^expandAuto }
+                if ctx.keepAuto { x &= ^expandAuto }
                 args = mergex(ctx, x, args...)
         } else {
                 var x = expandDelegate | expandPathStr | expandPairVal
-                if opts.keepAuto { x &= ^expandAuto }
+                if ctx.keepAuto { x &= ^expandAuto }
                 args = mergex(ctx, x, args...)
         }
 
@@ -1866,12 +1680,10 @@ func (ctx builtin) unique(args ...Value) (res Value) {
 ForArgs:
         for i, a := range args {
                 var tmp []Value
-                if opts.reverse { tmp = args[i+1:] } else { tmp = list }
-                for _, v := range tmp {
-                        if a == v || a.cmp(ctx, v) == cmpEqual {
-                                continue ForArgs
-                        }
-                }
+                if ctx.reverse { tmp = args[i+1:] } else { tmp = list }
+                for _, v := range tmp { if a == v || a.cmp(ctx, v) == cmpEqual {
+                        continue ForArgs
+                }}
 
                 if false {
                         var s = a.Strval(ctx)
@@ -1881,11 +1693,12 @@ ForArgs:
                 }
                 list = append(list, a)
         }
-        res = MakeListOrScalar(ctx.Position(), list)
-        return
+        return list
 }
 
-func (ctx builtin) join(args... Value) (res Value) {
+type builtin_join struct { builtin_ }
+func (ctx *builtin_join) x(ic *invocation, w facet) (res interface{}) {
+        var args = ic.a
         if l := len(args); l > 0 {
                 var (
                         fields []string
@@ -1906,8 +1719,9 @@ func (ctx builtin) join(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) quote(args... Value) (res Value) {
-        args = mergex(ctx, plain, args...)
+type builtin_quote struct { builtin_ }
+func (ctx *builtin_quote) x(ic *invocation, w facet) (res interface{}) {
+        var args = merge(ic.a...)
         if l := len(args); l > 0 {
                 var fields []string
                 for _, a := range args {
@@ -1920,10 +1734,10 @@ func (ctx builtin) quote(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) quotejoin(args... Value) (res Value) {
+type builtin_quotejoin struct { builtin_ }
+func (ctx *builtin_quotejoin) x(ic *invocation, w facet) (res interface{}) {
         var sep string
-        args = mergex(ctx, plain, args...)
-
+        var args = merge(ic.a...)
         if l := len(args); l > 1 {
                 sep = args[l-1].Strval(ctx)
                 args = args[:l-1]
@@ -1941,23 +1755,16 @@ func (ctx builtin) quotejoin(args... Value) (res Value) {
 }
 
 // $(split-string .,1.2.3)
-func (ctx builtin) splitstring(args... Value) (res Value) {
-        args = mergex(ctx, plain, args...)
-        if l := len(args); l > 0 {
-                var (
-                        fields []Value
-                        sep = args[0].Strval(ctx)
-                )
-                for _, a := range args[1:] {
-                        for _, s := range strings.Split(a.Strval(ctx), sep) {
-                                fields = append(fields, MakeString(a.Position(), s))
-                        }
-                }
-                res = MakeList(ctx.Position(), fields...)
-        } else {
-                res = MakeNone(ctx.Position())
+type builtin_splitstring struct { builtin_ }
+func (ctx *builtin_splitstring) x(ic *invocation, w facet) (res interface{}) {
+        var fields []Value
+        if len(ic.a) > 0 {
+                var sep = ic.a[0].Strval(ctx)
+                for _, a := range ic.a[1:] { for _, s := range strings.Split(a.Strval(ctx), sep) {
+                        fields = append(fields, MakeString(a.Position(), s))
+                }}
         }
-        return
+        return fields
 }
 
 func quotestrings(value Value) {
@@ -1988,87 +1795,86 @@ ValueType:
         return
 }
 
-// TODO: deprecate this and add -quote to builtin.SplitString
-func (ctx builtin) splitquote(args... Value) (res Value) {
-        if res = ctx.splitstring(args...); !isNil(res) {
-                quotestrings(res)
-        }
+// TODO: deprecate this and add -quote to _builtin.SplitString
+type builtin_splitquote struct { builtin_ }
+func (ctx *builtin_splitquote) x(ic *invocation, w facet) (res interface{}) {
+        res = (&builtin_splitstring{ctx.builtin_}).x(ic, w)
+        if val, y := res.(Value); y && val != nil { quotestrings(val) }
         return
 }
 
-// TODO: deprecate this and add -quote to builtin.SplitString
-func (ctx builtin) splitquotejoin(args... Value) (res Value) {
-        var sep string
-        if l := len(args); l > 1 {
-                sep = args[l-1].Strval(ctx)
-                args = args[:l-1]
-        }
-
-        var err error
-        if res = ctx.splitquote(args...); !isNil(res) {
-                if res, err = joinstrings(ctx, res, sep); err != nil {
+// TODO: deprecate this and add -quote to _builtin.SplitString
+type builtin_splitquotejoin struct { builtin_ }
+func (ctx *builtin_splitquotejoin) x(ic *invocation, w facet) (res interface{}) {
+        res = (&builtin_splitstring{ctx.builtin_}).x(ic, w)
+        if val, y := res.(Value); y && val != nil {
+                var err error
+                var sep string
+                if l := len(ic.a); l > 1 {
+                        sep = ic.a[l-1].Strval(ctx)
+                        ic.a = ic.a[:l-1]
+                }
+                if res, err = joinstrings(ctx, val, sep); err != nil {
                         erro(ctx, "%v", err).debug(1)
                 }
-        } else {
-                erro(ctx, "%v", err).debug(1)
         }
         return
 }
 
-func (ctx builtin) splitjoinquote(args... Value) (res Value) {
-        var sep string
-        if l := len(args); l > 1 {
-                sep = args[l-1].Strval(ctx)
-                args = args[:l-1]
-        }
+type builtin_splitjoinquote struct { builtin_ }
+func (ctx *builtin_splitjoinquote) x(ic *invocation, w facet) (res interface{}) {
+        res = (&builtin_splitstring{ctx.builtin_}).x(ic, w)
+        if val, y := res.(Value); y && val != nil {
+                var err error
+                var sep string
+                if l := len(ic.a); l > 1 {
+                        sep = ic.a[l-1].Strval(ctx)
+                        ic.a = ic.a[:l-1]
+                }
 
-        var (
-                v Value
-                err error
-        )
-        if v = ctx.splitstring(args...); !isNil(v) {
-                if v, err = joinstrings(ctx, v, sep); err == nil {
+                var v Value
+                if v, err = joinstrings(ctx, val, sep); err != nil {
+                        erro(ctx, "%v", err).debug(1)
+                } else {
                         res = MakeString(ctx.Position(), strconv.Quote(v.Strval(ctx)))
                 }
         }
-        if err != nil { erro(ctx, "%v", err).debug(1) }
         return
 }
 
-func (ctx builtin) field(args... Value) (res Value) {
-        var pos = ctx.Position()
-        if l := len(args); l >= 2 {
+type builtin_field struct { builtin_ }
+func (ctx *builtin_field) x(ic *invocation, w facet) (res interface{}) {
+        var fields []string
+        if l := len(ic.a); l >= 2 {
                 var (
-                        fields []string
-                        s string = args[1].Strval(ctx)
+                        s string = ic.a[1].Strval(ctx)
                         i int64
                 )
-                if n, e := args[0].Integer(ctx); e != nil {
-                        erro(ctx, "%v: %v", args[0], e).debug(1)
+                if n, e := ic.a[0].Integer(ctx); e != nil {
+                        erro(ctx, "%v: %v", ic.a[0], e).debug(1)
                         return
                 } else { i = n }
 
                 if l > 2 {
-                        fields = strings.Split(s, args[2].Strval(ctx))
+                        fields = strings.Split(s, ic.a[2].Strval(ctx))
                 } else {
                         fields = strings.Fields(s)
                 }
                 if n := int(i)-1; 0 <= n && n < len(fields) {
                         s = strings.TrimSpace(fields[n])
-                        res = MakeString(pos, s)
                 }
-        } else {
-                res = MakeNone(pos)
         }
-        return
+        return fields
 }
 
-func (ctx builtin) fields(args... Value) (res Value) {
+type builtin_fields struct { builtin_ }
+func (ctx *builtin_fields) x(ic *invocation, w facet) (res interface{}) {
         // TODO: ...
         return
 }
 
-func (ctx builtin) usee(args... Value) (result Value) {
+type builtin_usee struct { builtin_ }
+func (ctx *builtin_usee) x(ic *invocation, w facet) (res interface{}) {
         var (
                 proj = ctx.Project() //current()
                 list []Value
@@ -2079,7 +1885,7 @@ func (ctx builtin) usee(args... Value) (result Value) {
                 return
         }
 
-        for _, arg := range args {
+        for _, arg := range ic.a {
                 var v Value
                 if v, err = proj.use.Get(ctx, arg.Strval(ctx)); err != nil {
                         erro(ctx, "%v", err).debug(1)
@@ -2088,13 +1894,12 @@ func (ctx builtin) usee(args... Value) (result Value) {
                         list = append(list, v)
                 }
         }
-        if err == nil {
-                result = MakeListOrScalar(ctx.Position(), list)
-        }
+        if err == nil { res = list }
         return
 }
 
-func (ctx builtin) uses(aa ...Value) (result Value) {
+type builtin_uses struct { builtin_ }
+func (ctx *builtin_uses) x(ic *invocation, w facet) (res interface{}) {
         var proj = ctx.Project() //current()
         if proj == nil {
                 erro(ctx, "unknown current context").debug(1)
@@ -2102,12 +1907,9 @@ func (ctx builtin) uses(aa ...Value) (result Value) {
         }
 
         var found bool
-        var _, args = bop[struct {
-                generalOpts
-        }](&ctx, plain, aa...)
 
 ForArgs:
-        for _, arg := range args {
+        for _, arg := range ic.a {
                 var s = arg.Strval(ctx)
                 for _, u := range proj.use.list {
                         if found = u.project.name == s; found {
@@ -2115,32 +1917,25 @@ ForArgs:
                         }
                 }
         }
-        if found {
-                result = MakeBoolean(ctx.Position(), found)
-        }
+        if found { res = found }
         return
 }
 
-func (ctx builtin) path(args... Value) (result Value) {
-        var (
-                pos = ctx.Position()
-                list []Value
-        )
-        for _, a := range args {
-                list = append(list, MakePathStr(pos, a.Strval(ctx)))
+type builtin_path struct { builtin_ }
+func (ctx *builtin_path) x(ic *invocation, w facet) (res interface{}) {
+        var list []Value
+        for _, a := range ic.a {
+                list = append(list, MakePathStr(a.Position(), a.Strval(ctx)))
         }
-        result = MakeListOrScalar(pos, list)
-        return
+        return list
 }
 
-func (ctx builtin) bare(aa ...Value) (result Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                name   bool `n,name,file-name,non-full`
-        }](&ctx, plain, aa...)
-
+type builtin_bare struct { builtin_
+        name   bool `n,name,file-name,non-full`
+}
+func (ctx *builtin_bare) x(ic *invocation, w facet) (res interface{}) {
         var vals []Value
-        for _, a := range args {
+        for _, a := range ic.a {
                 var val Value
                 switch t := a.(type) {
                 case *String, *Compound:
@@ -2148,7 +1943,7 @@ func (ctx builtin) bare(aa ...Value) (result Value) {
                 case *File:
                         val = MakeBareword(a.Position(), t.name);
                 case fullfile:
-                        if opts.name {
+                        if ctx.name {
                                 val = MakeBareword(a.Position(), t.name);
                         } else {
                                 val = MakeBareword(a.Position(), t.Strval(ctx));
@@ -2157,13 +1952,13 @@ func (ctx builtin) bare(aa ...Value) (result Value) {
                 }
                 vals = append(vals, val)
         }
-        result = MakeListOrScalar(ctx.Position(), vals)
-        return
+        return vals
 }
 
-func (ctx builtin) bareword(args... Value) (result Value) {
+type builtin_bareword struct { builtin_ }
+func (ctx *builtin_bareword) x(ic *invocation, w facet) (res interface{}) {
         var vals []Value
-        for _, a := range mergex(ctx, plain, args...) {
+        for _, a := range ic.a {
                 var val Value
                 switch a.(type) {
                 case *bareword: val = a
@@ -2171,28 +1966,26 @@ func (ctx builtin) bareword(args... Value) (result Value) {
                 }
                 vals = append(vals, val)
         }
-        result = MakeListOrScalar(ctx.Position(), vals)
-        return
+        return vals
 }
 
-func (ctx builtin) str(strval bool, w facet, aa... Value) (result Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                expand bool `x,e,ex,exp,expand`
-                merge  bool `m,merge` // TODO: implement this merge opt
-                name   bool `n,name,file-name,non-full`
-                join []string `j,join`
-                clo  []string `clo,closure`
-                def  []string `def,var`
-        }](&ctx, plain, aa...)
-
-        if len(args)+len(opts.clo)+len(opts.def) > 0 {
+type builtin_str struct { builtin_
+        strval bool `sv,strval`
+        expand bool `x,e,ex,exp,expand`
+        merge  bool `m,merge` // TODO: implement this merge opt
+        name   bool `n,name,file-name,non-full`
+        join []string `j,join`
+        clo  []string `clo,closure`
+        def  []string `def,var`
+}
+func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a)+len(ctx.clo)+len(ctx.def) > 0 {
                 var defs []*def
-                for _, name := range opts.clo {
+                for _, name := range ctx.clo {
                         if o := closureResolveObject(ctx, name); o == nil { } else
                         if d, y := o.(*def); y && d != nil { defs = append(defs, d) }
                 }
-                for _, name := range opts.def {
+                for _, name := range ctx.def {
                         if _, o := ctx.Scope().Find(name); o == nil { } else
                         if d, y := o.(*def); y && d != nil { defs = append(defs, d) }
                 }
@@ -2201,56 +1994,59 @@ func (ctx builtin) str(strval bool, w facet, aa... Value) (result Value) {
                 for _, d := range defs {
                         var t string
                         var v = d.value
-                        if f, y := v.(fullfile); y && opts.name { v = f.File }
-                        if opts.expand && v != nil { v = v.expand(ctx, w) }
+                        if f, y := v.(fullfile); y && ctx.name { v = f.File }
+                        if ctx.expand && v != nil { v = v.expand(ctx, w) }
                         if v == nil { t = "<nil>" } else
-                        if strval { t = v.Strval(ctx) } else { t = v.String() }
-                        if opts.debug>0 { warn(ctx, "%T %v -> %v", d.value, d.value, t) }
+                        if ctx.strval { t = v.Strval(ctx) } else { t = v.String() }
+                        if ctx.debug>0 { warn(ctx, "%T %v -> %v", d.value, d.value, t) }
                         strs = append(strs, t)
                 }
-                for _, a := range args {
+                for _, a := range ic.a {
                         var t string
-                        if f, y := a.(fullfile); y && opts.name { a = f.File }
-                        if opts.expand { a = a.expand(ctx, w) }
-                        if strval { t = a.Strval(ctx) } else { t = a.String() }
-                        if opts.debug>0 { warn(ctx, "%T %v -> %v", a, a, t) }
+                        if f, y := a.(fullfile); y && ctx.name { a = f.File }
+                        if ctx.expand { a = a.expand(ctx, w) }
+                        if ctx.strval { t = a.Strval(ctx) } else { t = a.String() }
+                        if ctx.debug>0 { warn(ctx, "%T %v -> %v", a, a, t) }
                         strs = append(strs, t)
                 }
 
-                if len(opts.join)>0 {
+                if len(ctx.join)>0 {
                         var s bytes.Buffer
                         for i, t := range strs {
-                                if i > 0 { s.WriteString(opts.join[i % len(opts.join)]) }
+                                if i > 0 { s.WriteString(ctx.join[i % len(ctx.join)]) }
                                 s.WriteString(t)
                                 i += 1
                         }
-                        result = MakeString(ctx.Position(), s.String())
+                        res = s.String()
                 } else {
                         var pos = ctx.Position()
                         var vals []Value
                         for _, t := range strs {
                                 vals = append(vals, MakeString(pos, t))
                         }
-                        result = MakeListOrScalar(pos, vals)
+                        res = vals
                 }
-                if n := opts.debug; n>0 { warnstack(ctx, n, "%v", result).debug(n) }
+
+                if n := ctx.debug; n>0 { warnstack(ctx, n, "%T %v", res, res).debug(n) }
         }
         return
 }
 
-func (ctx builtin) strval(args... Value) (result Value) {
-        return ctx.str(true, ctx.w, args...)
+type builtin_string struct { builtin_ }
+func (ctx *builtin_string) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_str{builtin_:ctx.builtin_,strval:false}).x(ic, w)
 }
 
-func (ctx builtin) _string(args... Value) (result Value) {
-        return ctx.str(false, ctx.w, args...)
+type builtin_strval struct { builtin_ }
+func (ctx *builtin_strval) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_str{builtin_:ctx.builtin_,strval:true}).x(ic, w)
 }
 
-type builtinFilterOpts struct {
-        generalOpts
+type builtin_filter struct { builtin_
         stem bool `s,stem;us,use-stem`
+        neg bool
 }
-func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, values... Value) (result []Value) {
+func (ctx *builtin_filter) do(pats []Value, values... Value) (result []Value) {
         var t1 time.Time
 
         defer func(t0 time.Time) {
@@ -2265,12 +2061,12 @@ func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, v
         var filter = func(v Value) Value {
                 for _, pat := range pats {
                         if full, res, stems := pat.match(ctx, v); full {
-                                if neg { v = nil } else if opts.stem {
+                                if ctx.neg { v = nil } else if ctx.stem {
                                         var vals []Value
                                         for _, s := range stems {
                                                 vals = append(vals, MakeString(v.Position(), s))
                                         }
-                                        v = MakeListOrScalar(v.Position(), vals)
+                                        v = ease(ctx, vals)
                                 } else if true {
                                         // 'v' is just good enough
                                 } else if t, r := pat.stencil(ctx, stems); t != nil && len(r) == 0 {
@@ -2282,12 +2078,12 @@ func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, v
                                         for _, s := range a {
                                                 vals = append(vals, MakeString(v.Position(), s))
                                         }
-                                        v = MakeListOrScalar(v.Position(), vals)
+                                        v = ease(ctx, vals)
                                 }
                                 return v
                         }
                 }
-                if neg { return v } else { return nil }
+                if ctx.neg { return v } else { return nil }
         }
 
         var vals = mergex(ctx, plain, values...) ; t1 = time.Now()
@@ -2296,62 +2092,55 @@ func filterValues(ctx Context, pats []Value, opts builtinFilterOpts, neg bool, v
         }
         return
 }
-
-func (ctx builtin) filterValues1(neg bool, args... Value) (res Value) {
-        var pos = ctx.Position()
-        if len(args) > 1 {
+func (ctx *builtin_filter) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) > 1 {
                 var i int
                 var vals []Value
-                var opts, pats = bop[builtinFilterOpts](&ctx, plain, args[0])
+                var pats = merge(ic.a[0])
                 if len(pats) > 0 {
                         i = 1 // good
-                } else if pats = mergex(ctx, plain, args[1]); len(pats) == 0 {
-                        erro(ctx, "no patterns: %v", args).debug(1)
+                } else if pats = merge(ic.a[1]); len(pats) == 0 {
+                        erro(ctx, "no patterns: %v", ic.a).debug(1)
                         return
                 } else {
                         i = 2
                 }
 
-                if len(args) <= i {
-                        erro(ctx, "out of index: %d %v", i, args).debug(1)
+                if len(ic.a) <= i {
+                        erro(ctx, "out of index: %d %v", i, ic.a).debug(1)
                         return
                 }
 
-                vals = mergex(ctx, plain, args[i:]...)
-                vals = filterValues(ctx, pats, opts, neg, vals...)
-                if len(vals) > 0 { res = MakeListOrScalar(pos, vals) }
+                vals = merge(ic.a[i:]...)
+                vals = ctx.do(pats, vals...)
+                if len(vals) > 0 { res = vals }
         }
-        if res == nil { res = MakeNone(pos) }
         return
 }
 
-func (ctx builtin) filter(args... Value) (res Value) {
-        return ctx.filterValues1(false, args...) // $(filter pattern…,text)
+// $(filter-out pattern…,text)
+type builtin_filterout struct { builtin_ }
+func (ctx *builtin_filterout) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_filter{builtin_:ctx.builtin_,neg:true}).x(ic, w)
 }
 
-func (ctx builtin) filterout(args... Value) (res Value) {
-        return ctx.filterValues1(true, args...) // $(filter-out pattern…,text)
-}
-
-func (ctx builtin) substring(args... Value) (res Value) {
-        var pos = ctx.Position()
-        args = mergex(ctx, plain, args...)
-
+type builtin_substring struct { builtin_ }
+func (ctx *builtin_substring) x(ic *invocation, w facet) (res interface{}) {
         var list []Value
-        if n := len(args); n > 1 {
+        if n := len(ic.a); n > 1 {
                 var ( i1, i2 int; e error )
-                if i1, e = intVal(ctx, args[0], -1); e != nil {
+                if i1, e = intVal(ctx, ic.a[0], -1); e != nil {
                       erro(ctx, "%v", e).debug(1)
                 } else {
-                        args = args[1:]
+                        ic.a = ic.a[1:]
                 }
-                if i2, e = intVal(ctx, args[0], -1); e != nil {
+                if i2, e = intVal(ctx, ic.a[0], -1); e != nil {
                         if _, ok := e.(*strconv.NumError); !ok {
-                                erro(of(ctx,args[0]), "%v", e).debug(1)
+                                erro(of(ctx,ic.a[0]), "%v", e).debug(1)
                                 return
                         }
                 } else {
-                        args = args[1:]
+                        ic.a = ic.a[1:]
                 }
 
                 if i1 < -1 && i2 < -1 {
@@ -2363,40 +2152,47 @@ func (ctx builtin) substring(args... Value) (res Value) {
                 if a == -1 { a = b }
                 if a == -1 { return }
 
-                for _, arg := range args {
+                for _, arg := range ic.a {
                         var s = arg.Strval(ctx)
                         if i := len(s); i <= a { s = "" } else
                         if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
-                        list = append(list, MakeString(pos, s))
+                        list = append(list, MakeString(arg.Position(), s))
                 }
         }
-        res = MakeListOrScalar(pos, list)
-        return
+        return list
 }
 
 // $(subst from,to,text)
-func (ctx builtin) subst(args... Value) (res Value) {
-        var ( pos = ctx.Position(); list []Value )
-        if nargs := len(args); nargs > 2 {
+type builtin_subst struct { builtin_ }
+func (ctx *builtin_subst) x(ic *invocation, w facet) (res interface{}) {
+        var list []Value
+        if nargs := len(ic.a); nargs > 2 {
                 var (
-                        s1 = args[0].Strval(ctx)
-                        s2 = args[1].Strval(ctx)
+                        s1 = ic.a[0].Strval(ctx)
+                        s2 = ic.a[1].Strval(ctx)
                 )
-                for _, arg := range mergex(ctx, expandDelegate, args[2:]...) {
+                for _, arg := range mergex(ctx, expandDelegate, ic.a[2:]...) {
                         var s = strings.Replace(arg.Strval(ctx), s1, s2, -1)
-                        list = append(list, MakeString(pos, s))
+                        list = append(list, MakeString(arg.Position(), s))
                 }
         }
-        res = MakeListOrScalar(pos, list)
-        return
+        return list
 }
 
 // $(patsubst pattern,replacement,text)
 // TODO: supports: $(var:pattern=replacement)
 // TODO: supports: $(var:suffix=replacement)
-func (ctx builtin) patsubst(args... Value) (res Value) {
+type builtin_patsubst struct { builtin_
+        findFiles bool `find,find-file`
+        fullFiles bool `ff,fullfile,fullfiles`
+        cleanPath bool `c,clean,cleanpath`
+        noFileMap bool `nomap,no-map,nofile,nofiles,no-files,no-filemap`
+        warnDstNomap bool `warn-dst-nomap`
+        erroDstNomap bool `err-dst-nomap,error-dst-nomap`
+}
+func (ctx *builtin_patsubst) x(ic *invocation, w facet) (res interface{}) {
         // TODO: support flags -name and -full for name-only and full-name-only matching
-        if len(args) < 3 {
+        if len(ic.a) < 3 {
                 erro(ctx, "not enough arguments").debug(1)
                 return
         }
@@ -2404,18 +2200,10 @@ func (ctx builtin) patsubst(args... Value) (res Value) {
         var (
                 proj = ctx.Project()
                 closured = closureProjects(ctx)
+                srcPats = merge(ic.a[0])
                 dstPats, sources, list []Value
                 t1 time.Time
         )
-        var opts, srcPats = bop[struct{
-                generalOpts
-                findFiles bool `find,find-file`
-                fullFiles bool `ff,fullfile,fullfiles`
-                cleanPath bool `c,clean,cleanpath`
-                noFileMap bool `nomap,no-map,nofile,nofiles,no-files,no-filemap`
-                warnDstNomap bool `warn-dst-nomap`
-                erroDstNomap bool `err-dst-nomap,error-dst-nomap`
-        }](&ctx, 0, args[0])
 
         defer func(t0 time.Time) {
                 var t2 = time.Now()
@@ -2430,16 +2218,16 @@ func (ctx builtin) patsubst(args... Value) (res Value) {
         } (time.Now())
 
         if len(srcPats) == 0 {
-                if len(args) < 4 {
+                if len(ic.a) < 4 {
                         erro(ctx, "not enough arguments").debug(1)
                         return
                 }
-                srcPats = mergex(ctx, plain, args[1])
-                dstPats = mergex(ctx, plain, args[2])
-                sources = mergex(ctx, plain, args[3:]...)
+                srcPats = mergex(ctx, plain, ic.a[1])
+                dstPats = mergex(ctx, plain, ic.a[2])
+                sources = mergex(ctx, plain, ic.a[3:]...)
         } else {
-                dstPats = mergex(ctx, plain, args[1])
-                sources = mergex(ctx, plain, args[2:]...)
+                dstPats = mergex(ctx, plain, ic.a[1])
+                sources = mergex(ctx, plain, ic.a[2:]...)
         }
 
         t1 = time.Now()
@@ -2455,28 +2243,24 @@ ForSources:
                 )
                 if srcFile, ok = toFile(src); ok {
                         source = srcFile
-                } else if opts.findFiles {
+                } else if ctx.findFiles {
                         var s = src.Strval(ctx)
                         if srcFile = proj.file(ctx, s); srcFile != nil {
                                 source = srcFile
                         } else {
                                 source = s
                         }
-                } else if !opts.fullname {
+                } else if !ctx.fullname {
                         source = src
-                } else if _, s, y := (as{src}.fullnameOpt(ctx, closured...)); !y {
+                } else if o, y := (as{src}.fullnameOpt(ctx, closured...)); y {
+                        source = o.Strval(ctx)
+                } else {
                         erro(of(ctx,src), "fullname '%v' failed", src)
                         erro(ctx, "called from here", src).debug(1)
                         return
-                } else if s == "" {
-                        erro(of(ctx,src), "fullname '%v' is empty", src)
-                        erro(ctx, "called from here", src).debug(1)
-                        return
-                } else {
-                        source = s
                 }
 
-                var full = opts.fullFiles
+                var full = ctx.fullFiles
                 if !full { _, full = src.(fullfile) }
 
                 for _, srcPat = range srcPats {
@@ -2492,35 +2276,35 @@ ForSources:
         stencilTargetPats:
                 for _, dstPat := range dstPats {
                         var nameVal, ramnant = dstPat.stencil(ctx, stems)
-                        if isNil(nameVal) {
+                        if isNull(nameVal) {
                                 erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dstPat, dstPat, stems, ramnant).debug(1)
                                 return
-                        } else if opts.debug>0 {
-                                warnstack(ctx, opts.debug, "patsubst: %v: %v -> %v -> %v %v -> %v %v",
-                                        srcPat, src, source, stems, dstPat, nameVal, ramnant).debug(opts.debug)
+                        } else if ctx.debug>0 {
+                                warnstack(ctx, ctx.debug, "patsubst: %v: %v -> %v -> %v %v -> %v %v",
+                                        srcPat, src, source, stems, dstPat, nameVal, ramnant).debug(ctx.debug)
                         }
 
                         var nameStr string
                         if nameStr = nameVal.Strval(ctx); nameStr == "" {
                                 continue stencilTargetPats
-                        } else if opts.cleanPath {
+                        } else if ctx.cleanPath {
                                 nameStr = filepath.Clean(nameStr)
                         }
 
                         if srcFile != nil {
                                 var dstFile *File
-                                if !opts.noFileMap { dstFile = proj.file(ctx, nameStr) }
+                                if !ctx.noFileMap { dstFile = proj.file(ctx, nameStr) }
                                 if dstFile == nil {
                                         var a = []interface{}{
                                                 "%v: %v (%v): unmapped destination, aka files (...)",
                                                 proj, nameStr, dstPat,
                                         }
-                                        if opts.erroDstNomap {
+                                        if ctx.erroDstNomap {
                                                 var t = files(ctx, nameVal, proj)
                                                 erro(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
                                                 erro(of(ctx,srcPat), "%v: %v %v", proj, nameVal, t)
                                                 errostack(of(ctx,dstPat), 16, a...).debug(6)
-                                        } else if opts.warnDstNomap {
+                                        } else if ctx.warnDstNomap {
                                                 warn(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
                                                 warnstack(of(ctx,dstPat), 10, a...).debug(4)
                                         }
@@ -2565,161 +2349,129 @@ ForSources:
                 }
         }
 
-        if opts.debug>0 && len(list) == 0 {
+        if ctx.debug>0 && len(list) == 0 {
                 warn(ctx, "src: %v", srcPats)
                 warn(ctx, "dst: %v", dstPats)
                 warn(ctx, "val: %v", sources)
                 warn(ctx, "res: %v", list)
-                warnstack(ctx, 3, "").debug(opts.debug)
+                warnstack(ctx, 3, "").debug(ctx.debug)
         }
 
-        res = MakeListOrScalar(ctx.Position(), list)
+        res = ease(ctx, list)
         return
 }
 
-func (ctx builtin) strip(args... Value) (res Value) {
-        return ctx.trimspace(args...)
+type builtin_title struct { builtin_ }
+func (ctx *builtin_title) x(ic *invocation, w facet) (res interface{}) {
+        var list []Value
+        for _, a := range ic.a { if s := a.Strval(ctx); s != "" {
+                list = append(list, MakeString(a.Position(), strings.Title(s)))
+        }}
+        return list
 }
 
-func (ctx builtin) trimspace(args... Value) (res Value) {
-        return ctx.trim(append([]Value{MakeNone(ctx.Position())}, args...)...)
+type builtin_uppercase struct { builtin_ }
+func (ctx *builtin_uppercase) x(ic *invocation, w facet) (res interface{}) {
+        var list []Value
+        for _, a := range ic.a { if s := a.Strval(ctx); s != "" {
+                list = append(list, MakeString(a.Position(), strings.ToUpper(s)))
+        }}
+        return list
 }
 
-func (ctx builtin) title(args... Value) (res Value) {
-        var (
-                pos = ctx.Position()
-                list []Value
-        )
-        for i, a := range mergex(ctx, plain, args...) {
-                if i == 0 { pos = a.Position() }
-                if s := a.Strval(ctx); s != "" {
-                        list = append(list, MakeString(a.Position(), strings.Title(s)))
-                }
-        }
-        res = MakeListOrScalar(pos, list)
+type builtin_lowercase struct { builtin_ }
+func (ctx *builtin_lowercase) x(ic *invocation, w facet) (res interface{}) {
+        var list []Value
+        for _, a := range ic.a { if s := a.Strval(ctx); s != "" {
+                list = append(list, MakeString(a.Position(), strings.ToLower(s)))
+        }}
+        return list
+}
+
+type builtin_strip struct { builtin_ }
+func (ctx *builtin_strip) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_trimspace{ctx.builtin_}).x(ic, w)
+}
+
+type builtin_trimspace struct { builtin_ }
+func (ctx *builtin_trimspace) a(ic *invocation, w facet) (skip bool) {
+        a, _, _ := w.expand(ctx, ic.a...)
+        ic.a = append([]Value{MakeNone(ctx.Position())}, a...)
         return
 }
-
-func (ctx builtin) uppercase(args... Value) (res Value) {
-        var (
-                pos = ctx.Position()
-                list []Value
-        )
-        for i, a := range mergex(ctx, plain, args...) {
-                if i == 0 { pos = a.Position() }
-                if s := a.Strval(ctx); s != "" {
-                        list = append(list, MakeString(a.Position(), strings.ToUpper(s)))
-                }
-        }
-        res = MakeListOrScalar(pos, list)
-        return
+func (ctx *builtin_trimspace) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_trim{ctx.builtin_}).x(ic, w)
 }
 
-func (ctx builtin) lowercase(args... Value) (res Value) {
-        var (
-                pos = ctx.Position()
-                list []Value
-        )
-        for _, a := range mergex(ctx, plain, args...) {
-                if s := a.Strval(ctx); s != "" {
-                        list = append(list, MakeString(a.Position(), strings.ToLower(s)))
-                }
-        }
-        res = MakeListOrScalar(pos, list)
-        return
+type builtin_trim struct { builtin_ }
+func (ctx *builtin_trim) x(ic *invocation, w facet) (res interface{}) {
+        var cutset string
+        var list []Value
+        for i, a := range ic.a { if s := a.Strval(ctx); s != "" { if i == 0 {
+                cutset = s
+        } else if cutset == "" {
+                list = append(list, MakeString(a.Position(), strings.TrimSpace(s)))
+        } else {
+                list = append(list, MakeString(a.Position(), strings.Trim(s, cutset)))
+        }}}
+        return list
 }
 
-func (ctx builtin) trim(args... Value) (res Value) {
+type builtin_trimleft struct { builtin_ }
+func (ctx *builtin_trimleft) x(ic *invocation, w facet) (res interface{}) {
         var (
-                pos = ctx.Position()
                 cutset string
                 list []Value
         )
-        for i, a := range mergex(ctx, plain, args...) {
-                if i == 0 { pos = a.Position() }
-                if s := a.Strval(ctx); s != "" {
-                        if i == 0 {
-                                cutset = s
-                        } else if cutset == "" {
-                                list = append(list, MakeString(pos, strings.TrimSpace(s)))
-                        } else {
-                                list = append(list, MakeString(pos, strings.Trim(s, cutset)))
-                        }
-                }
-        }
-        res = MakeListOrScalar(pos, list)
-        return
+        for i, a := range ic.a { if s := a.Strval(ctx); s != "" { if i == 0 {
+                cutset = s
+        } else if cutset == "" {
+                list = append(list, MakeString(a.Position(), strings.TrimLeftFunc(s, unicode.IsSpace)))
+        } else {
+                list = append(list, MakeString(a.Position(), strings.TrimLeft(s, cutset)))
+        }}}
+        return list
 }
 
-func (ctx builtin) trimleft(args... Value) (res Value) {
+type builtin_trimright struct { builtin_ }
+func (ctx *builtin_trimright) x(ic *invocation, w facet) (res interface{}) {
         var (
-                pos = ctx.Position()
                 cutset string
                 list []Value
         )
-        for i, a := range mergex(ctx, plain, args...) {
-                if i == 0 { pos = a.Position() }
-                if s := a.Strval(ctx); s != "" {
-                        if i == 0 {
-                                cutset = s
-                        } else if cutset == "" {
-                                list = append(list, MakeString(a.Position(), strings.TrimLeftFunc(s, unicode.IsSpace)))
-                        } else {
-                                list = append(list, MakeString(a.Position(), strings.TrimLeft(s, cutset)))
-                        }
-                }
-        }
-        res = MakeListOrScalar(pos, list)
-        return
-}
-
-func (ctx builtin) trimright(args... Value) (res Value) {
-        var (
-                pos = ctx.Position()
-                cutset string
-                list []Value
-        )
-        for i, a := range mergex(ctx, plain, args...) {
-                if i == 0 { pos = a.Position() }
-                if s := a.Strval(ctx); s != "" {
-                        if i == 0 {
-                                cutset = s
-                        } else if cutset == "" {
-                                list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
-                        } else {
-                                list = append(list, MakeString(a.Position(), strings.TrimRight(s, cutset)))
-                        }
-                }
-        }
-        res = MakeListOrScalar(pos, list)
-        return
+        for i, a := range ic.a { if s := a.Strval(ctx); s != "" { if i == 0 {
+                cutset = s
+        } else if cutset == "" {
+                list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
+        } else {
+                list = append(list, MakeString(a.Position(), strings.TrimRight(s, cutset)))
+        }}}
+        return list
 }
 
 // $(trim-prefix foo%, fooxxx foo123)
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
-func (ctx builtin) trimprefix(args... Value) (res Value) {
-        if len(args) == 0 { return }
+type builtin_trimprefix struct { builtin_ }
+func (ctx *builtin_trimprefix) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) == 0 { return }
 
         var values, list []Value
-        var opts, prefixs = bop[struct{
-                generalOpts
-        }](&ctx, plain, args[0])
-
-        if len(args) == 1 {
+        var prefixs = merge(ic.a[0])
+        if len(ic.a) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
         } else {
-                values = mergex(ctx, plain, args[1:]...)
+                values = mergex(ctx, plain, ic.a[1:]...)
         }
 
         if len(values) == 0 {
                 return
         } else if len(prefixs) == 0 {
-                res = MakeListOrScalar(ctx.Position(), values)
+                res = ease(ctx, values)
                 return
         }
 
-        if opts.verbose { warn(ctx, "prefix=%v values=%v", prefixs, values) }
+        if ctx.verbose { warn(ctx, "prefix=%v values=%v", prefixs, values) }
         ForValues: for _, value := range values {
                 var (
                         pos = value.Position()
@@ -2732,7 +2484,7 @@ func (ctx builtin) trimprefix(args... Value) (res Value) {
                         // FIXME: matched cutset is empty: %-xxx- and *-xxx-
                         var full, r, stems = prefix.match(ctx, value)
                         var cutset = joinMatchRes(ctx, r)
-                        if opts.verbose /*|| (strings.Contains(s, "/.smart/modules/") && prefix.String() == "%%/.smart/modules/")*/ {
+                        if ctx.verbose /*|| (strings.Contains(s, "/.smart/modules/") && prefix.String() == "%%/.smart/modules/")*/ {
                                 warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems)
                                 warn(ctx, "prefix = %T %v", prefix, prefix)
                                 warn(ctx, "value  = %T %v", value, value)
@@ -2759,85 +2511,60 @@ func (ctx builtin) trimprefix(args... Value) (res Value) {
                 }
                 if s != "" { list = append(list, MakeString(pos, s)) }
         }
-        return MakeListOrScalar(ctx.Position(), list)
+        return list
 }
 
-func (ctx builtin) trimsuffix(args... Value) (res Value) {
+type builtin_trimsuffix struct { builtin_ }
+func (ctx *builtin_trimsuffix) x(ic *invocation, w facet) (res interface{}) {
         var (
-                pos = ctx.Position()
                 cutset, s string
                 list []Value
         )
-        for i, a := range mergex(ctx, plain, args...) {
-                if i == 0 { pos = a.Position() }
-                if s = a.Strval(ctx); s != "" {
-                        if i == 0 {
-                                cutset = s
-                        } else if cutset == "" {
-                                list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
-                        } else {
-                                list = append(list, MakeString(a.Position(), strings.TrimSuffix(s, cutset)))
-                        }
-                }
-        }
-        res = MakeListOrScalar(pos, list)
-        return
+        for i, a := range ic.a { if s = a.Strval(ctx); s != "" { if i == 0 {
+                cutset = s
+        } else if cutset == "" {
+                list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
+        } else {
+                list = append(list, MakeString(a.Position(), strings.TrimSuffix(s, cutset)))
+        }}}
+        return list
 }
 
-func (ctx builtin) trimext(aa ...Value) (res Value) {
-        var opts, args = bop[struct{
-                generalOpts
-                all bool `a,all`
-                ext []string `e,ext`
-        }](&ctx, plain, aa...)
-
-        var (
-                pos = ctx.Position()
-                list []Value
-                ext string
-        )
-        for i, a := range args {
-                if i == 0 { pos = a.Position() }
-                if s := a.Strval(ctx); s != "" {
-                        if i == 0 && len(args) > 1 {
-                                ext = s
-                        } else if ext == "" {
-                                for ext = filepath.Ext(s); ext != ""; {
-                                        s = strings.TrimSuffix(s, ext)
-                                        if opts.all { ext = filepath.Ext(s) } else { break }
-                                }
-                                list = append(list, MakeString(a.Position(), s))
-                        } else if ext == filepath.Ext(s) {
-                                list = append(list, MakeString(a.Position(), strings.TrimRight(s, ext)))
-                        }
-                }
-        }
-        res = MakeListOrScalar(pos, list)
-        return
+type builtin_trimext struct { builtin_
+        all bool `a,all`
+        ext []string `e,ext`
 }
-
-func (ctx builtin) ext(aa ...Value) (res Value) {
-        var _, args = bop[struct{
-                generalOpts
-        }](&ctx, plain, aa...)
-
+func (ctx *builtin_trimext) x(ic *invocation, w facet) (res interface{}) {
+        var ext string
         var list []Value
-        for _, a := range args {
-                list = append(list, MakeString(a.Position(), filepath.Ext(a.Strval(ctx))))
-        }
-        res = MakeListOrScalar(ctx.Position(), list)
-        return
+        for i, a := range ic.a { if s := a.Strval(ctx); s != "" {
+                if i == 0 && len(ic.a) > 1 {
+                        ext = s
+                } else if ext == "" {
+                        for ext = filepath.Ext(s); ext != ""; {
+                                s = strings.TrimSuffix(s, ext)
+                                if ctx.all { ext = filepath.Ext(s) } else { break }
+                        }
+                        list = append(list, MakeString(a.Position(), s))
+                } else if ext == filepath.Ext(s) {
+                        list = append(list, MakeString(a.Position(), strings.TrimRight(s, ext)))
+                }
+        }}
+        return list
 }
 
-func (ctx builtin) addprefix(args... Value) (res Value) {
-        if len(args) < 1 {
+type builtin_addprefix struct { builtin_ }
+func (ctx *builtin_addprefix) a(ic *invocation, w facet) (skip bool) {
+        ic.a, _, _ = w.expand(ctx, ic.a...) // NOTE: discard unexpanded-number
+        return
+}
+func (ctx *builtin_addprefix) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) < 1 {
                 erro(ctx, "not enough args, try $(addprefix 'prefix', ...)").debug(1)
                 return
         }
 
-        var _, prefixs = bop[struct{
-                generalOpts
-        }](&ctx, plain, args[0])
+        var prefixs = merge(ic.a[0])
 
         if len(prefixs) != 1 {
                 erro(ctx, "not enough args, try $(addprefix 'prefix', ...)").debug(1)
@@ -2845,7 +2572,7 @@ func (ctx builtin) addprefix(args... Value) (res Value) {
         }
 
         var list []Value
-        var vals = mergex(ctx.Context, plain, args[1:]...)
+        var vals = mergex(ctx.Context, plain, ic.a[1:]...)
 
         for _, prefix := range prefixs {
                 if !prefix.True(ctx) { continue }
@@ -2870,28 +2597,29 @@ func (ctx builtin) addprefix(args... Value) (res Value) {
                 }
         }
 
-        res = MakeListOrScalar(ctx.Position(), list)
+        res = ease(ctx, list)
         return
 }
 
-func (ctx builtin) addsuffix(args... Value) (res Value) {
-        if len(args) < 1 {
+type builtin_addsuffix struct { builtin_ }
+func (ctx *builtin_addsuffix) a(ic *invocation, w facet) (skip bool) {
+        ic.a, _, _ = w.expand(ctx, ic.a...) // NOTE: discard unexpanded-number
+        return
+}
+func (ctx *builtin_addsuffix) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) < 1 {
                 erro(ctx, "not enough args, try $(addsuffix 'suffix', ...)").debug(1)
                 return
         }
 
-        var _, suffixs = bop[struct{
-                generalOpts
-                final bool `final`
-        }](&ctx, plain, args[0])
-
+        var suffixs = merge(ic.a[0])
         if len(suffixs) != 1 {
                 erro(ctx, "not enough args, try $(addsuffix 'suffix', ...)").debug(1)
                 return
         }
 
         var list []Value
-        var vals = mergex(ctx.Context, plain, args[1:]...)
+        var vals = mergex(ctx.Context, plain, ic.a[1:]...)
 
         for _, suffix := range suffixs {
                 if !suffix.True(ctx) { continue }
@@ -2919,21 +2647,20 @@ func (ctx builtin) addsuffix(args... Value) (res Value) {
                 }
         }
 
-        res = MakeListOrScalar(ctx.Position(), list)
+        res = ease(ctx, list)
         return
 }
 
-func (ctx builtin) printf(args... Value) (res Value) {
-        if len(args) < 1 {
+type builtin_printf struct{ builtin_ }
+func (ctx *builtin_printf) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_printf) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) < 1 {
                 erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
                 return
         }
 
-        var _, vals = bop[struct{
-                generalOpts
-        }](&ctx, plain, args[0])
-
         var f string
+        var vals = merge(ic.a[0])
         if len(vals) != 1 {
                 erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
                 return
@@ -2943,10 +2670,8 @@ func (ctx builtin) printf(args... Value) (res Value) {
 
         var i int
         var a []interface{}
-        var pos = ctx.Position()
 ForArgs:
-        for n, v := range mergex(ctx, plain, args[1:]...) {
-                if n == 0 { pos = v.Position() }
+        for _, v := range merge(ic.a[1:]...) {
         ForFmt:
                 for i < len(f) {
                         if f[i] != '%' { i += 1; continue }
@@ -2993,26 +2718,24 @@ ForArgs:
                         }
                 }
         }
-        res = MakeString(pos, fmt.Sprintf(f, a...))
-        return
+        return fmt.Sprintf(f, a...)
 }
 
-func (ctx builtin) print(args... Value) (res Value) {
-        var opts, _ = bop[struct{
-                generalOpts
-                noErrs bool `noerrs,noerrors,no-errs,no-errors`
-                noWarn bool `nowarn,nowarns,no-warn,no-warns`
-        }](&ctx, plain)
-
-        var diag = ctx.diagnostic()
-        if opts.noErrs && diag.check(diagError) > 0 { return }
-        if opts.noWarn && diag.check(diagWarn) > 0 { return }
+type builtin_print struct{ builtin_
+        noErrs bool `noerrs,noerrors,no-errs,no-errors`
+        noWarn bool `nowarn,nowarns,no-warn,no-warns`
+}
+func (ctx *builtin_print) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_print) x(ic *invocation, w facet) (res interface{}) {
+        var diag = ctx.dia()
+        if ctx.noErrs && diag.check(diagError) > 0 { return }
+        if ctx.noWarn && diag.check(diagWarn) > 0 { return }
 
         var (
-                x = len(args)
+                x = len(ic.a)
                 sb bytes.Buffer
         )
-        for i, a := range mergex(ctx, ctx.w, args...) {
+        for i, a := range ic.a {
                 if a == nil { continue } else
                 if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
                 fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
@@ -3021,22 +2744,21 @@ func (ctx builtin) print(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) printl(args... Value) (res Value) {
-        var opts, _ = bop[struct{
-                generalOpts
-                noErrs bool `noerrs,noerrors,no-errs,no-errors`
-                noWarn bool `nowarn,nowarns,no-warn,no-warns`
-        }](&ctx, plain)
-
-        var diag = ctx.diagnostic()
-        if opts.noErrs && diag.check(diagError) > 0 { return }
-        if opts.noWarn && diag.check(diagWarn) > 0 { return }
+type builtin_printl struct{ builtin_
+        noErrs bool `noerrs,noerrors,no-errs,no-errors`
+        noWarn bool `nowarn,nowarns,no-warn,no-warns`
+}
+func (ctx *builtin_printl) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_printl) x(ic *invocation, w facet) (res interface{}) {
+        var diag = ctx.dia()
+        if ctx.noErrs && diag.check(diagError) > 0 { return }
+        if ctx.noWarn && diag.check(diagWarn) > 0 { return }
 
         var (
-                x = len(args)
+                x = len(ic.a)
                 sb bytes.Buffer
         )
-        for i, a := range mergex(ctx, ctx.w, args...) {
+        for i, a := range ic.a {
                 if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
                 var s = EscapedString(ctx, a)
                 fmt.Fprintf(&sb, "%s", s)
@@ -3048,22 +2770,21 @@ func (ctx builtin) printl(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) println(args... Value) (res Value) {
-        var opts, _ = bop[struct{
-                generalOpts
-                noErrs bool `noerrs,noerrors,no-errs,no-errors`
-                noWarn bool `nowarn,nowarns,no-warn,no-warns`
-        }](&ctx, plain)
-
-        var diag = ctx.diagnostic()
-        if opts.noErrs && diag.check(diagError) > 0 { return }
-        if opts.noWarn && diag.check(diagWarn) > 0 { return }
+type builtin_println struct{ builtin_
+        noErrs bool `noerrs,noerrors,no-errs,no-errors`
+        noWarn bool `nowarn,nowarns,no-warn,no-warns`
+}
+func (ctx *builtin_println) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_println) x(ic *invocation, w facet) (res interface{}) {
+        var diag = ctx.dia()
+        if ctx.noErrs && diag.check(diagError) > 0 { return }
+        if ctx.noWarn && diag.check(diagWarn) > 0 { return }
 
         var (
-                x = len(args)
+                x = len(ic.a)
                 sb bytes.Buffer
         )
-        for i, a := range mergex(ctx, ctx.w, args...) {
+        for i, a := range ic.a {
                 if a == nil { continue } else
                 if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
                 fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
@@ -3073,31 +2794,32 @@ func (ctx builtin) println(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) indent(args... Value) (res Value) {
+type builtin_indent struct { builtin_ }
+func (ctx *builtin_indent) x(ic *invocation, w facet) (res interface{}) {
         var (
                 l []Value
                 s string // indent
         )
-        if x := len(args); x > 0 {
-                if v, ok := Scalar(args[0]).(*Int); ok {
-                        args, s = args[1:], strings.Repeat(" ", int(v.int64))
+        if x := len(ic.a); x > 0 {
+                if v, ok := scalarize(ic.a[0]).(*Int); ok {
+                        ic.a, s = ic.a[1:], strings.Repeat(" ", int(v.int64))
                 } else {
                         erro(ctx, "requires integer argument (first|last)").debug(1)
                         return
                 }
         }
-        for _, a := range args {
+        for _, a := range ic.a {
                 var lines []string
                 for _, line := range strings.Split(a.Strval(ctx), "\n") {
                         lines = append(lines, s + line)
                 }
                 l = append(l, MakeString(a.Position(), strings.Join(lines, "\n")))
         }
-        res = MakeListOrScalar(ctx.Position(), l)
-        return
+        return l
 }
 
-func (ctx builtin) findstring(args... Value) (res Value) {
+type builtin_findstring struct { builtin_ }
+func (ctx *builtin_findstring) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(findstring find,text)
         return
 }
@@ -3106,21 +2828,18 @@ func (ctx builtin) findstring(args... Value) (res Value) {
 // $(contains a b c1 -or c2, v1 v2 …)          -- xx
 // $(contains a b c1 -or c2 -or c3, v1 v2 …)   -- xx
 // $(contains a b -or=(c1 c2 c3), v1 v2 …)     -- xx
-func (ctx builtin) contains(args... Value) (res Value) {
-        if len(args) < 2 {
+type builtin_contains struct { builtin_
+        match  bool `m,mat,match,p,pat,pattern`
+        string bool `s,str,string`
+}
+func (ctx *builtin_contains) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) < 2 {
                 erro(ctx, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)").debug(1)
                 return
         }
 
-        var opts, _ = bop[struct{
-                generalOpts
-                match  bool `m,mat,match,p,pat,pattern`
-                string bool `s,str,string`
-        }](&ctx, plain)
-
-        var w = ctx.w|expandPairVal
-        var vals = mergex(ctx, w, args[0])
-        var list = mergex(ctx, w, args[1:]...)
+        var vals = mergex(ctx, w|expandPairVal, ic.a[0])
+        var list = mergex(ctx, w|expandPairVal, ic.a[1:]...)
         if len(vals) == 0 || len(list) == 0 {
                 erro(ctx, "insufficient number of arguments").debug(6)
                 return
@@ -3133,82 +2852,90 @@ func (ctx builtin) contains(args... Value) (res Value) {
         // NOTE: returns true if list contains all vals in it's presented order.
 ForVals:
         for i, val := range vals {
-                if opts.string { s = val.Strval(ctx) }
+                if ctx.string { s = val.Strval(ctx) }
                 for _, elem := range list {
-                        if opts.string {
+                        if ctx.string {
                                 if elem.Strval(ctx) == s {
                                         y += 1; continue ForVals
                                 }
-                        } else if opts.match {
+                        } else if ctx.match {
                                 if full, _, _ := val.match(ctx, elem); full {
                                         y += 1; continue ForVals
                                 }
                         } else if val.cmp(ctx, elem) == cmpEqual {
                                 y += 1; continue ForVals
                         }
-                        if opts.debug>0 && !opts.string && !isNil(elem) {
+                        if ctx.debug>0 && !ctx.string && !isNull(elem) {
                                 if a, b := val.Strval(ctx), elem.Strval(ctx); a == b {
                                         warn(of(ctx,val), "wrong: %T %v <-> %T %v ; '%s', '%s'", val, val, elem, elem, a, b)
                                 }
                         }
                 }
-                if opts.debug>0 { warn(of(ctx,val), "%d. %T %v", i, val, val) }
+                if ctx.debug>0 { warn(of(ctx,val), "%d. %T %v", i, val, val) }
         }
 
         var b = (y == len(vals))
-        if opts.debug>0 && !b {
-                warn(ctx, "found %d/%d: %v", y, len(vals), list).debug(opts.debug)
+        if ctx.debug>0 && !b {
+                warn(ctx, "found %d/%d: %v", y, len(vals), list).debug(ctx.debug)
         }
         res = MakeBoolean(ctx.Position(), b)
         return
 }
 
-func (ctx builtin) sort(args... Value) (res Value) {
+type builtin_sort struct {}
+func (ctx builtin_sort) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(sort list)
         return
 }
 
-func (ctx builtin) word(args... Value) (res Value) {
+type builtin_word struct {}
+func (ctx builtin_word) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(word n,text)
         return
 }
 
-func (ctx builtin) wordlist(args... Value) (res Value) {
+type builtin_wordlist struct {}
+func (ctx builtin_wordlist) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(wordlist s,e,text)
         return
 }
 
-func (ctx builtin) words(args... Value) (res Value) {
+type builtin_words struct {}
+func (ctx builtin_words) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(words n,text)
         return
 }
 
-func (ctx builtin) firstword(args... Value) (res Value) {
+type builtin_firstword struct {}
+func (ctx builtin_firstword) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(firstword names...)
         return
 }
 
-func (ctx builtin) lastword(args... Value) (res Value) {
+type builtin_lastword struct {}
+func (ctx builtin_lastword) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(lastword names...)
         return
 }
 
-func (ctx builtin) encodebase64(args... Value) (res Value) {
-        if len(args) > 0 {
+type builtin_encodebase64 struct { builtin_ }
+func (ctx *builtin_encodebase64) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) > 0 {
                 pos := ctx.Position()
                 buf := new(bytes.Buffer)
                 enc := base64.NewEncoder(base64.StdEncoding, buf)
-                for _, a := range args { enc.Write([]byte(a.Strval(ctx))) }
+                for _, a := range ic.a { enc.Write([]byte(a.Strval(ctx))) }
                 enc.Close()
                 res = MakeString(pos, buf.String())
         }
         return
 }
 
-func (ctx builtin) decodebase64(args... Value) (res Value) {
-        if len(args) > 0 {
+type builtin_decodebase64 struct { builtin_ }
+func (ctx *builtin_decodebase64) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) > 0 {
                 var list []Value
-                for _, a := range args {
+                for _, a := range ic.a {
                         var s string = a.Strval(ctx)
                         if dat, err := base64.StdEncoding.DecodeString(s); err != nil {
                                 erro(ctx, "decode '%s' failed: %v", s, err).debug(1)
@@ -3217,48 +2944,44 @@ func (ctx builtin) decodebase64(args... Value) (res Value) {
                                 list = append(list, MakeString(a.Position(), string(dat)))
                         }
                 }
-                res = MakeListOrScalar(ctx.Position(), list)
+                res = ease(ctx, list)
         }
         return
 }
 
-func (ctx builtin) fullname(aa ...Value) (res Value) {
-        var opts, args = bop[struct{
-                generalOpts
-        }](&ctx, plain, aa...)
-
+type builtin_fullname struct { builtin_ }
+func (ctx *builtin_fullname) x(ic *invocation, w facet) (res interface{}) {
         var l []Value
         var closured = closureProjects(ctx)
-        for _, a := range args {
-                if opts.debug > 0 {
-                        if f, ok := toFile(a); ok {
-                                warn(ctx, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(opts.debug)
-                        } else {
-                                warn(ctx, "%T %v", a, a).debug(opts.debug,1)
-                        }
-                }
-                if _, s, y := (as{a}.fullnameOpt2(ctx, closured...)); y || s != "" {
-                        l = append(l, MakeString(a.Position(), s))
+        for _, a := range ic.a {
+                if ctx.debug > 0 { if f, ok := toFile(a); ok {
+                        warn(ctx, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(ctx.debug)
                 } else {
-                        l = append(l, a)
-                }
+                        warn(ctx, "%T %v", a, a).debug(ctx.debug,1)
+                }}
+                if o, y := (as{a}.fullnameOpt(ctx, closured...)); y { a = o }
+                l = append(l, a)
         }
-        res = MakeListOrScalar(ctx.Position(), l)
-        return
+        return l
 }
 
-func (ctx builtin) basex(n int, aa... Value) (res Value) {
-        var opts, args = bop[struct{
-                generalOpts
-        }](&ctx, plain, aa...)
+type builtin_ext struct { builtin_ }
+func (ctx *builtin_ext) x(ic *invocation, w facet) (res interface{}) {
+        var list []Value
+        for _, a := range ic.a {
+                list = append(list, MakeString(a.Position(), filepath.Ext(a.Strval(ctx))))
+        }
+        return list
+}
 
-        var (
-                pos = ctx.Position()
-                l []Value
-        )
-        for _, a := range args {
+type builtin_bases struct { builtin_
+        n int `n,num,size,count`
+}
+func (ctx *builtin_bases) x(ic *invocation, w facet) (res interface{}) {
+        var l []Value
+        for _, a := range ic.a {
                 var s string
-                if opts.fullname {
+                if ctx.fullname {
                         s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
                         s = a.Strval(ctx)
@@ -3266,60 +2989,132 @@ func (ctx builtin) basex(n int, aa... Value) (res Value) {
 
                 d := filepath.Dir(s)
                 s  = filepath.Base(s)
-                for i := n-1; 0 < i; i -= 1 {
+                for i := ctx.n-1; 0 < i; i -= 1 {
                         s = filepath.Join(filepath.Base(d), s)
                         d = filepath.Dir(d)
                 }
-                l = append(l, MakeString(pos, s))
+                l = append(l, MakeString(a.Position(), s))
         }
-        res = MakeListOrScalar(pos, l)
-        return
+        return l
 }
-func (ctx builtin) base(args... Value) Value { return ctx.basex(1, args...) }
-func (ctx builtin) base2(args... Value) Value { return ctx.basex(2, args...) }
-func (ctx builtin) base3(args... Value) Value { return ctx.basex(3, args...) }
-func (ctx builtin) base4(args... Value) Value { return ctx.basex(4, args...) }
-func (ctx builtin) base5(args... Value) Value { return ctx.basex(5, args...) }
-func (ctx builtin) base6(args... Value) Value { return ctx.basex(6, args...) }
-func (ctx builtin) base7(args... Value) Value { return ctx.basex(7, args...) }
-func (ctx builtin) base8(args... Value) Value { return ctx.basex(8, args...) }
-func (ctx builtin) base9(args... Value) Value { return ctx.basex(9, args...) }
 
-func (ctx builtin) dirx(n int, aa... Value) (res Value) {
-        var opts, args = bop[struct{
-                generalOpts
-        }](&ctx, plain, aa...)
+type builtin_base struct { builtin_ }
+func (ctx *builtin_base) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_bases{ctx.builtin_,1}).x(ic, w)
+}
 
-        var (
-                pos = ctx.Position()
-                l []Value
-                s string
-        )
-        for _, a := range args {
-                if opts.fullname {
+type builtin_base2 struct { builtin_ }
+func (ctx *builtin_base2) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_bases{ctx.builtin_,2}).x(ic, w)
+}
+
+type builtin_base3 struct { builtin_ }
+func (ctx *builtin_base3) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_bases{ctx.builtin_,3}).x(ic, w)
+}
+
+type builtin_base4 struct { builtin_ }
+func (ctx *builtin_base4) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_bases{ctx.builtin_,4}).x(ic, w)
+}
+
+type builtin_base5 struct { builtin_ }
+func (ctx *builtin_base5) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_bases{ctx.builtin_,5}).x(ic, w)
+}
+
+type builtin_base6 struct { builtin_ }
+func (ctx *builtin_base6) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_bases{ctx.builtin_,6}).x(ic, w)
+}
+
+type builtin_base7 struct { builtin_ }
+func (ctx *builtin_base7) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_bases{ctx.builtin_,7}).x(ic, w)
+}
+
+type builtin_base8 struct { builtin_ }
+func (ctx *builtin_base8) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_bases{ctx.builtin_,8}).x(ic, w)
+}
+
+type builtin_base9 struct { builtin_ }
+func (ctx *builtin_base9) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_bases{ctx.builtin_,9}).x(ic, w)
+}
+
+type builtin_dirs struct { builtin_
+        n int `n,num,size,count`
+}
+func (ctx *builtin_dirs) x(ic *invocation, w facet) (res interface{}) {
+        var l []Value
+        for _, a := range ic.a {
+                var s string
+                if ctx.fullname {
                         s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
                         s = a.Strval(ctx)
                 }
                 s = filepath.Dir(s)
-                for i := n-1; 0 < i; i -= 1 { s = filepath.Dir(s) }
-                l = append(l, MakePathStr(pos, s))
+                for i := ctx.n-1; 0 < i; i -= 1 { s = filepath.Dir(s) }
+                l = append(l, MakePathStr(a.Position(), s))
         }
-        res = MakeListOrScalar(pos, l)
-        return
+        return l
 }
-func (ctx builtin) undirx(n int, aa... Value) (res Value) {
-        var opts, args = bop[struct{
-                generalOpts
-        }](&ctx, plain, aa...)
 
-        var (
-                pos = ctx.Position()
-                l []Value
-                s string
-        )
-        for _, a := range args {
-                if opts.fullname {
+type builtin_dir struct { builtin_ }
+func (ctx *builtin_dir) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_dirs{ctx.builtin_,1}).x(ic, w)
+}
+
+type builtin_dir2 struct { builtin_ }
+func (ctx *builtin_dir2) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_dirs{ctx.builtin_,2}).x(ic, w)
+}
+
+type builtin_dir3 struct { builtin_ }
+func (ctx *builtin_dir3) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_dirs{ctx.builtin_,3}).x(ic, w)
+}
+
+type builtin_dir4 struct { builtin_ }
+func (ctx *builtin_dir4) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_dirs{ctx.builtin_,4}).x(ic, w)
+}
+
+type builtin_dir5 struct { builtin_ }
+func (ctx *builtin_dir5) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_dirs{ctx.builtin_,5}).x(ic, w)
+}
+
+type builtin_dir6 struct { builtin_ }
+func (ctx *builtin_dir6) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_dirs{ctx.builtin_,6}).x(ic, w)
+}
+
+type builtin_dir7 struct { builtin_ }
+func (ctx *builtin_dir7) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_dirs{ctx.builtin_,7}).x(ic, w)
+}
+
+type builtin_dir8 struct { builtin_ }
+func (ctx *builtin_dir8) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_dirs{ctx.builtin_,8}).x(ic, w)
+}
+
+type builtin_dir9 struct { builtin_ }
+func (ctx *builtin_dir9) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_dirs{ctx.builtin_,9}).x(ic, w)
+}
+
+type builtin_undirs struct { builtin_
+        n int `n,num,size,count`
+}
+func (ctx *builtin_undirs) x(ic *invocation, w facet) (res interface{}) {
+        var l []Value
+        for _, a := range ic.a {
+                var s string
+                if ctx.fullname {
                         s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
                         s = a.Strval(ctx)
@@ -3327,82 +3122,77 @@ func (ctx builtin) undirx(n int, aa... Value) (res Value) {
                 var v = strings.Split(s, PathSep)
                 if i := len(v); i == 0 {
                         // v is empty
-                } else if n < i {
-                        v = v[n:]
+                } else if ctx.n < i {
+                        v = v[ctx.n:]
                 } else {
                         v = v[i-1:] // empty
                 }
-                l = append(l, MakePathStr(pos, filepath.Join(v...)))
+                l = append(l, MakePathStr(a.Position(), filepath.Join(v...)))
         }
-        res = MakeListOrScalar(pos, l)
-        return
-}
-func (ctx builtin) dir(args... Value) (res Value) { return ctx.dirx(1, args...) }
-func (ctx builtin) dir2(args... Value) (res Value) { return ctx.dirx(2, args...) }
-func (ctx builtin) dir3(args... Value) (res Value) { return ctx.dirx(3, args...) }
-func (ctx builtin) dir4(args... Value) (res Value) { return ctx.dirx(4, args...) }
-func (ctx builtin) dir5(args... Value) (res Value) { return ctx.dirx(5, args...) }
-func (ctx builtin) dir6(args... Value) (res Value) { return ctx.dirx(6, args...) }
-func (ctx builtin) dir7(args... Value) (res Value) { return ctx.dirx(7, args...) }
-func (ctx builtin) dir8(args... Value) (res Value) { return ctx.dirx(8, args...) }
-func (ctx builtin) dir9(args... Value) (res Value) { return ctx.dirx(9, args...) }
-func (ctx builtin) dirs(args... Value) (res Value) {
-        var n int
-        if x := len(args); x > 0 {
-                if v, ok := Scalar(args[0]).(*Int); ok {
-                        args, n = args[1:], int(v.int64)
-                } else if v, ok := Scalar(args[x-1]).(*Int); ok {
-                        args, n = args[:x-1], int(v.int64)
-                } else {
-                        erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1]).debug(1)
-                        return
-                }
-        }
-        res = ctx.dirx(n, args...)
-        return
+        return l
 }
 
-func (ctx builtin) undir(args... Value) (res Value) { return ctx.undirx(1, args...) }
-func (ctx builtin) undir2(args... Value) (res Value) { return ctx.undirx(2, args...) }
-func (ctx builtin) undir3(args... Value) (res Value) { return ctx.undirx(3, args...) }
-func (ctx builtin) undir4(args... Value) (res Value) { return ctx.undirx(4, args...) }
-func (ctx builtin) undir5(args... Value) (res Value) { return ctx.undirx(5, args...) }
-func (ctx builtin) undir6(args... Value) (res Value) { return ctx.undirx(6, args...) }
-func (ctx builtin) undir7(args... Value) (res Value) { return ctx.undirx(7, args...) }
-func (ctx builtin) undir8(args... Value) (res Value) { return ctx.undirx(8, args...) }
-func (ctx builtin) undir9(args... Value) (res Value) { return ctx.undirx(9, args...) }
-func (ctx builtin) undirs(args... Value) (res Value) {
+type builtin_undir struct { builtin_ }
+func (ctx *builtin_undir) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_undirs{ctx.builtin_,1}).x(ic, w)
+}
+
+type builtin_undir2 struct { builtin_ }
+func (ctx *builtin_undir2) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_undirs{ctx.builtin_,2}).x(ic, w)
+}
+
+type builtin_undir3 struct { builtin_ }
+func (ctx *builtin_undir3) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_undirs{ctx.builtin_,3}).x(ic, w)
+}
+
+type builtin_undir4 struct { builtin_ }
+func (ctx *builtin_undir4) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_undirs{ctx.builtin_,4}).x(ic, w)
+}
+
+type builtin_undir5 struct { builtin_ }
+func (ctx *builtin_undir5) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_undirs{ctx.builtin_,5}).x(ic, w)
+}
+
+type builtin_undir6 struct { builtin_ }
+func (ctx *builtin_undir6) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_undirs{ctx.builtin_,6}).x(ic, w)
+}
+
+type builtin_undir7 struct { builtin_ }
+func (ctx *builtin_undir7) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_undirs{ctx.builtin_,7}).x(ic, w)
+}
+
+type builtin_undir8 struct { builtin_ }
+func (ctx *builtin_undir8) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_undirs{ctx.builtin_,8}).x(ic, w)
+}
+
+type builtin_undir9 struct { builtin_ }
+func (ctx *builtin_undir9) x(ic *invocation, w facet) (res interface{}) {
+        return (&builtin_undirs{ctx.builtin_,9}).x(ic, w)
+}
+
+type builtin_chopdir struct { builtin_ }
+func (ctx *builtin_chopdir) x(ic *invocation, w facet) (res interface{}) {
+        var l []Value
         var n = 0
-        if x := len(args); x > 0 {
-                if v, ok := Scalar(args[0]).(*Int); ok {
-                        args, n = args[1:], int(v.int64)
-                } else if v, ok := Scalar(args[x-1]).(*Int); ok {
-                        args, n = args[:x-1], int(v.int64)
+        if x := len(ic.a); x > 0 {
+                if v, ok := scalarize(ic.a[0]).(*Int); ok {
+                        ic.a, n = ic.a[1:], int(v.int64)
+                } else if v, ok := scalarize(ic.a[x-1]).(*Int); ok {
+                        ic.a, n = ic.a[:x-1], int(v.int64)
                 } else {
-                        erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1]).debug(1)
-                        return
-                }
-        }
-        return ctx.undirx(n, args...)
-}
-
-func (ctx builtin) dirchop(args... Value) (res Value) {
-        var (
-                l []Value
-                n = 0
-        )
-        if x := len(args); x > 0 {
-                if v, ok := Scalar(args[0]).(*Int); ok {
-                        args, n = args[1:], int(v.int64)
-                } else if v, ok := Scalar(args[x-1]).(*Int); ok {
-                        args, n = args[:x-1], int(v.int64)
-                } else {
-                        erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1]).debug(1)
+                        erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", ic.a[0], ic.a[x-1]).debug(1)
                         return
 
                 }
         }
-        for _, a := range args {
+        for _, a := range ic.a {
                 var v = strings.Split(a.Strval(ctx), PathSep)
                 if i := len(v); 0 < i {
                         if n < 0 { n = i + n }
@@ -3417,17 +3207,17 @@ func (ctx builtin) dirchop(args... Value) (res Value) {
                 }
                 l = append(l, MakeString(a.Position(), filepath.Join(v...)))
         }
-        res = MakeListOrScalar(ctx.Position(), l)
-        return
+        return l
 }
 
-func (ctx builtin) relativedir(args... Value) (res Value) {
+type builtin_reldir struct { builtin_ }
+func (ctx *builtin_reldir) x(ic *invocation, w facet) (res interface{}) {
         var (
                 err error
                 l []Value
                 t string
         )
-        for i, a := range args {
+        for i, a := range ic.a {
                 if s := a.Strval(ctx); i == 0 {
                         t = s
                 } else if s, err = filepath.Rel(t, s); err == nil {
@@ -3437,21 +3227,18 @@ func (ctx builtin) relativedir(args... Value) (res Value) {
                         return
                 }
         }
-        res = MakeListOrScalar(ctx.Position(), l)
-        return
+        return l
 }
 
-func (ctx builtin) mkdir(args... Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                all bool `a,all,p,path`
-        }](&ctx, plain)
-
-        for i, nargs := 0, len(args); i < nargs; i += 1 {
+type builtin_mkdir struct { builtin_
+        all bool `a,all,p,path`
+}
+func (ctx *builtin_mkdir) c(ic *invocation, w facet) (res interface{}) {
+        for i, nargs := 0, len(ic.a); i < nargs; i += 1 {
                 var (
-                        name string
-                        a = args[i]
+                        a = ic.a[i]
                         perm = os.FileMode(0755)
+                        name string
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
@@ -3474,13 +3261,13 @@ func (ctx builtin) mkdir(args... Value) (res Value) {
                                 break
                         }
                 default: // mkdir name perm, name perm, ...
-                        name = args[i].Strval(ctx)
+                        name = ic.a[i].Strval(ctx)
                         if i+1 < nargs {
-                                perm = permVal(ctx, args[i+1], uint32(perm))
+                                perm = permVal(ctx, ic.a[i+1], uint32(perm))
                                 i += 1
                         }
                 }
-                if opts.all {
+                if ctx.all {
                         if err := os.MkdirAll(name, perm); err != nil {
                                 erro(ctx, "%v", err).debug(1)
                                 break
@@ -3495,26 +3282,24 @@ func (ctx builtin) mkdir(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) chdir(args... Value) (res Value) {
-        if len(args) == 1 {
-                var str = args[0].Strval(ctx)
+type builtin_chdir struct { builtin_ }
+func (ctx *builtin_chdir) c(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) == 1 {
+                var str = ic.a[0].Strval(ctx)
                 if err := lockCD(str, 0); err != nil {
                         erro(ctx, "%v", err).debug(1)
                 }
         } else {
-                erro(ctx, "wrong number of arguments: %v", len(args))
+                erro(ctx, "wrong number of arguments: %v", len(ic.a))
         }
         return
 }
 
-func (ctx builtin) rename(args... Value) (res Value) {
-        var _, _ = bop[struct {
-                generalOpts
-        }](&ctx, plain)
-
-        for i, nargs := 0, len(args); i < nargs; i += 1 {
+type builtin_rename struct { builtin_ }
+func (ctx *builtin_rename) c(ic *invocation, w facet) (res interface{}) {
+        for i, nargs := 0, len(ic.a); i < nargs; i += 1 {
                 var (
-                        a = args[i]
+                        a = ic.a[i]
                         oldname, newname string
                 )
                 switch t := a.(type) {
@@ -3539,11 +3324,11 @@ func (ctx builtin) rename(args... Value) (res Value) {
                         }
                 default: // rename newname oldname  newname oldname ...
                         if i+1 < nargs {
-                                oldname = args[i+0].Strval(ctx)
-                                newname = args[i+1].Strval(ctx)
+                                oldname = ic.a[i+0].Strval(ctx)
+                                newname = ic.a[i+1].Strval(ctx)
                                 i += 1
                         } else {
-                                erro(of(ctx,t), "Wrong arguments `%v'", args).debug(1)
+                                erro(of(ctx,t), "Wrong arguments `%v'", ic.a).debug(1)
                                 break
                         }
                 }
@@ -3555,15 +3340,14 @@ func (ctx builtin) rename(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) remove(args... Value) (res Value) {
-        var opts, _ = bop[struct {
-                generalOpts
-                skip string `skip`
-                ignoreMissing bool `i,ig,ignore,ignore-missing`
-                warnNotFile bool `warn-not-file`
-                all bool `a,all,r,recursive`
-        }](&ctx, plain)
-
+type builtin_remove struct { builtin_
+        skip string `skip`
+        ignoreMissing bool `i,ig,ignore,ignore-missing`
+        warnNotFile bool `warn-not-file`
+        all bool `a,all,r,recursive`
+}
+func (ctx *builtin_remove) c(ic *invocation, w facet) (res interface{}) {
+        var opts = ctx
         var remove func(Context, Value)
         var removeFile = func(ctx Context, f *File) {
                 var err error
@@ -3600,7 +3384,7 @@ func (ctx builtin) remove(args... Value) (res Value) {
                 if opts.verbose { prompt(ctx, "removed %s\n", s) }
         }
         var removePat = func(ctx Context, pat Value) {
-                var val = builtin{ Context:ctx }.wildcard(pat)
+                var val = (&builtin_wildcard{builtin_:builtin_{Context:ctx}}).do(pat)
                 erro(ctx, "TODO: remove: %T %v -> %T %v", pat, pat, val, val).debug(1)
         }
 
@@ -3634,22 +3418,22 @@ func (ctx builtin) remove(args... Value) (res Value) {
                         errostack(ctx, 5, "not file: %v (%T)", v, v).debug(6)
                 }
         }
-        for _, a := range args {
-                var ctx = at(ctx.Context, a.Position())
+        for _, a := range ic.a { ctx := at(ctx.Context, a.Position())
                 remove(ctx, a.expand(ctx, plain))
         }
 
-        if opts.debug > 0 { warn(ctx, "%v", args).debug(1) }
-        if opts.debug > 0 && ctx.flushDiags() > 0 {
+        if opts.debug > 0 { warn(ctx, "%v", ic.a).debug(1) }
+        if opts.debug > 0 && ctx.dia().flush() > 0 {
                 errostack(ctx, 3, "remove errors").debug(1)
         }
         return
 }
 
-func (ctx builtin) truncate(args... Value) (res Value) {
-        for i, nargs := 0, len(args); i < nargs; i += 1 {
+type builtin_truncate struct { builtin_ }
+func (ctx *builtin_truncate) c(ic *invocation, w facet) (res interface{}) {
+        for i, nargs := 0, len(ic.a); i < nargs; i += 1 {
                 var (
-                        a = args[i]
+                        a = ic.a[i]
                         name string
                         size int64
                         e error
@@ -3682,13 +3466,13 @@ func (ctx builtin) truncate(args... Value) (res Value) {
                         }
                 default: // truncate name size  name size ...
                         if i+1 < nargs {
-                                name = args[i+0].Strval(ctx)
-                                if size, e = args[i+1].Integer(ctx); e != nil {
-                                        erro(ctx, "%v: %v", args[i+1], e).debug(1)
+                                name = ic.a[i+0].Strval(ctx)
+                                if size, e = ic.a[i+1].Integer(ctx); e != nil {
+                                        erro(ctx, "%v: %v", ic.a[i+1], e).debug(1)
                                 }
                                 i += 1
                         } else {
-                                erro(ctx, "Wrong arguments `%v'", args).debug(1)
+                                erro(ctx, "Wrong arguments `%v'", ic.a).debug(1)
                                 break
                         }
                 }
@@ -3700,15 +3484,12 @@ func (ctx builtin) truncate(args... Value) (res Value) {
         return
 }
 
-func (ctx builtin) link(aa ...Value) (res Value) {
-        var _, args = bop[struct{
-                generalOpts
-        }](&ctx, plain, aa...)
-
-        for i, nargs := 0, len(args); i < nargs; i += 1 {
+type builtin_link struct { builtin_ }
+func (ctx *builtin_link) c(ic *invocation, w facet) (res interface{}) {
+        for i, nargs := 0, len(ic.a); i < nargs; i += 1 {
                 var (
                         oldname, newname string
-                        a = args[i]
+                        a = ic.a[i]
                 )
                 switch t := a.(type) {
                 case *Pair: // link oldname => newname old => new
@@ -3732,11 +3513,11 @@ func (ctx builtin) link(aa ...Value) (res Value) {
                         }
                 default: // link oldname newname  oldname newname ...
                         if i+1 < nargs {
-                                oldname = args[i+0].Strval(ctx)
-                                newname = args[i+1].Strval(ctx)
+                                oldname = ic.a[i+0].Strval(ctx)
+                                newname = ic.a[i+1].Strval(ctx)
                                 i += 1
                         } else {
-                                erro(ctx, "Wrong arguments `%v'", args).debug(1)
+                                erro(ctx, "Wrong arguments `%v'", ic.a).debug(1)
                                 break
                         }
                 }
@@ -3752,25 +3533,23 @@ func (ctx builtin) link(aa ...Value) (res Value) {
 foo: foobar
 	symlink -pluv $< $@
 */
-func (ctx builtin) symlink(aa ...Value) (res Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                path     bool `p,path`
-                force    bool `force;ow,overwrite`
-                update   bool `u,update`
-                relative bool `r,rel,relative;l`
-        }](&ctx, plain, aa...)
-
+type builtin_symlink struct { builtin_
+        path     bool `p,path`
+        force    bool `force;ow,overwrite`
+        update   bool `u,update`
+        relative bool `r,rel,relative;l`
+}
+func (ctx *builtin_symlink) c(ic *invocation, w facet) (res interface{}) {
 ForArgs:
-        for i, na := 0, len(args); i < na; i += 1 {
+        for i, na := 0, len(ic.a); i < na; i += 1 {
                 var (
-                        opts = opts // make a copy
+                        opts = *ctx // make a copy
                         srcNameVal, dstNameVal Value
                         srcName   , dstName    string
                         srcDir    , dstDir     string
                         aa []Value
                 )
-                switch t := args[i].(type) {
+                switch t := ic.a[i].(type) {
                 case *Pair: // symlink srcName=dstName srcName=>dstName...
                         srcNameVal, dstNameVal = t.Key, t.Value
                 case *Group: // symlink (-u srcName dstName) (-v srcName dstName)...
@@ -3791,14 +3570,14 @@ ForArgs:
                         // symlink  new old, new old ...
                         // symlink  new old  new old ...
                         if i+1 < na {
-                                srcNameVal = args[i+0]
-                                dstNameVal = args[i+1]
+                                srcNameVal = ic.a[i+0]
+                                dstNameVal = ic.a[i+1]
                                 i += 1
                         } else {
-                                var a = autoGet(ctx,"@")
-                                var l = autoGet(ctx,"<")
-                                var r = autoGet(ctx,">")
-                                prompt(ctx, "symlink: args=%v -> %v\n", args, t)
+                                var a = autoVal(ctx,"@")
+                                var l = autoVal(ctx,"<")
+                                var r = autoVal(ctx,">")
+                                prompt(ctx, "symlink: args=%v -> %v\n", ic.a, t)
                                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
                                 errostack(of(ctx,t), 5, "expects pair of names (%T %v)", t, t).debug(6)
                                 return
@@ -3806,13 +3585,13 @@ ForArgs:
                 }
 
                 if srcDir, srcName = splitFileName(ctx, srcNameVal); srcName == "" {
-                        prompt(ctx, "symlink: args=%v\n", args)
+                        prompt(ctx, "symlink: args=%v\n", ic.a)
                         prompt(ctx, "symlink: src=%v\n", srcNameVal)
                         errostack(of(ctx,srcNameVal), 5, "empty src filename (%T)", srcNameVal).debug(6)
                         return
                 }
                 if dstDir, dstName = splitFileName(ctx, dstNameVal); dstName == "" {
-                        prompt(ctx, "symlink: args=%v\n", args)
+                        prompt(ctx, "symlink: args=%v\n", ic.a)
                         prompt(ctx, "symlink: dest=%v\n", dstNameVal)
                         errostack(of(ctx,dstNameVal), 6, "empty dest filename (%T)", dstNameVal).debug(12)
                         return
@@ -3879,21 +3658,19 @@ ForArgs:
         return
 }
 
-func (ctx builtin) _stat(args... Value) (res Value) {
+type builtin_stat struct { builtin_
+        dir bool `di,dr,dir`
+        file bool `fi,file`
+        symbol bool `s,sym,symlink,symbol,l,link`
+}
+func (ctx *builtin_stat) x(ic *invocation, w facet) (res interface{}) {
+        if len(ic.a) == 0 { return }
+
         var proj = ctx.Project()
         if proj == nil {
                 erro(ctx, "unknown current context").debug(1)
                 return
         }
-
-        var opts, nams = bop[struct {
-                generalOpts
-                dir bool `di,dr,dir`
-                file bool `fi,file`
-                symbol bool `s,sym,symlink,symbol,l,link`
-        }](&ctx, plain, args...)
-
-        if len(nams) == 0 { return }
 
         var (
                 pos = ctx.Position()
@@ -3904,11 +3681,11 @@ func (ctx builtin) _stat(args... Value) (res Value) {
         var check = func(file *File) {
                 if file == nil || file.info == nil {
                         vals = append(vals, valF)
-                } else if mode := file.info.Mode(); opts.dir && mode&os.ModeDir != 0 { // IsDir()
+                } else if mode := file.info.Mode(); ctx.dir && mode&os.ModeDir != 0 { // IsDir()
                         vals = append(vals, valT)//file
-                } else if opts.symbol && mode&os.ModeSymlink != 0 {
+                } else if ctx.symbol && mode&os.ModeSymlink != 0 {
                         vals = append(vals, valT)//file
-                } else if opts.file && mode&os.ModeType != 0 { // IsRegular()
+                } else if ctx.file && mode&os.ModeType != 0 { // IsRegular()
                         vals = append(vals, valT)//file
                 } else {
                         vals = append(vals, valT)//file
@@ -3929,7 +3706,7 @@ func (ctx builtin) _stat(args... Value) (res Value) {
                 if file != nil { check(file) }
         }
 
-        for _, a := range nams {
+        for _, a := range ic.a {
                 switch t := a.(type) {
                 case *File: check(t)
                 case *Path: checkstat(a)
@@ -3937,21 +3714,18 @@ func (ctx builtin) _stat(args... Value) (res Value) {
                 }
         }
 
-        res = MakeListOrScalar(pos, vals)
-        return
+        return vals
 }
 
-func (ctx builtin) file(aa... Value) (res Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                caller bool `c,cc,caller,callercontext,caller-context`
-                exists bool `e,ex,exist,exists,me,existsist,must-exist,must,required`
-                ignore bool `i,ig,ignore,ignore-missing`
-                report bool `r,report,reportmissing;rm,report-missing;er,err,error`
-        }](&ctx, plain, aa...)
-
+type builtin_file struct { builtin_
+        caller bool `c,cc,caller,callercontext,caller-context`
+        exists bool `e,ex,exist,exists,me,existsist,must-exist,must,required`
+        ignore bool `i,ig,ignore,ignore-missing`
+        report bool `r,report,reportmissing;rm,report-missing;er,err,error`
+}
+func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
         var proj *Project
-        if opts.caller && false {
+        if ctx.caller && false {
                 // program -> closure -> traversal -> ...
                 if false {
                         proj = ctx.closure().Project()
@@ -3962,10 +3736,10 @@ func (ctx builtin) file(aa... Value) (res Value) {
                 proj = ctx.Project()
         }
 
+        var cc = ctx.Context
         var en int
         var list []Value
-        var fil = func(a Value) {
-                var ctx = at(ctx, a.Position())
+        var fil = func(a Value) { ctx.Context = at(cc, a.Position())
                 var am []matchedFileMap
                 var fs []*File
                 if false && strings.HasPrefix(a.String(), "tablegen-min") {
@@ -3975,15 +3749,15 @@ func (ctx builtin) file(aa... Value) (res Value) {
                                 info(ctx, "%s: %v\n", a, fs)
                                 info(ctx, "%s: %v\n", a, list)
                                 info(ctx, "%s: %v %v %v\n", a, f, f.fullname(), f.exists())
-                                infostack(ctx, 3, "%s: %T %v\n", a, a, opts.exists).debug(16)
+                                infostack(ctx, 3, "%s: %T %v\n", a, a, ctx.exists).debug(16)
                         } ()
                 }
 
                 if f, y := toFile(a); y {
                         if false && !f.exists() { f.stat(ctx) }
-                        if !opts.exists || f.exists() {
+                        if !ctx.exists || f.exists() {
                                 list = append(list, f)
-                        } else if opts.report {
+                        } else if ctx.report {
                                 info(ctx, "no such file {%v %v %v}", f.dir, f.sub, f.name).debug(1)
                         }
                         return
@@ -4007,11 +3781,11 @@ func (ctx builtin) file(aa... Value) (res Value) {
                 if fs = proj.selectFiles(ctx, am); fs == nil { return }
 
                 for _, f := range fs {
-                        if !opts.exists || f.exists() {
+                        if !ctx.exists || f.exists() {
                                 list = append(list, f)
-                        } else if opts.ignore {
-                                if opts.verbose { info(ctx, "%s(%v) → %v", typeof(a), a, f).debug(1) }
-                        } else if opts.exists {
+                        } else if ctx.ignore {
+                                if ctx.verbose { info(ctx, "%s(%v) → %v", typeof(a), a, f).debug(1) }
+                        } else if ctx.exists {
                                 en += 1
                         }
                 }
@@ -4021,7 +3795,7 @@ func (ctx builtin) file(aa... Value) (res Value) {
                 } }
         }
 
-        for _, a := range args {
+        for _, a := range ic.a {
                 if fil(a); en > 0 {
                         erro(ctx, `%v: %s(%v) is not a file (%v)`, proj, typeof(a), a, list)
                         errostack(ctx, 5).debug(16)
@@ -4029,28 +3803,25 @@ func (ctx builtin) file(aa... Value) (res Value) {
                 }
         }
 
-        res = MakeListOrScalar(ctx.Position(), list)
-        return
+        return list
 }
 
-func (ctx builtin) glob(aa ...Value) (res Value) {
-        var _, args = bop[struct {
-                generalOpts
-                dir bool `di,dir,directory`
-                file bool `fi,file`
-                symbol bool `s,sym,symlink,symbol,symbolic`
-        }](&ctx, plain, aa...)
-
-        var proj *Project
+type builtin_glob struct { builtin_
+        dir bool `di,dir,directory`
+        file bool `fi,file`
+        symbol bool `s,sym,symlink,symbol,symbolic`
+}
+func (ctx *builtin_glob) x(ic *invocation, w facet) (res interface{}) {
         var cwd string // TODO: get current work directory
+        var proj *Project
         if proj = ctx.Project(); proj == nil {
                 erro(ctx, "unknown current cntext").debug(1)
                 return
         }
 
-        var pos = ctx.Position()
         var list []Value
-        for _, a := range args {
+        var pos = ctx.Position()
+        for _, a := range ic.a {
                 var ( str string; names []string )
                 if str = a.Strval(ctx); !filepath.IsAbs(str) {
                         str = filepath.Join(cwd, str)
@@ -4063,11 +3834,11 @@ func (ctx builtin) glob(aa ...Value) (res Value) {
                 }
                 for _, name := range names {
                         //var fi, _ = os.Stat(name)
-                        // TODO: opts.dir, opts.file, opts.symbol
+                        // TODO: ctx.dir, ctx.file, ctx.symbol
                         list = append(list, MakePathStr(pos, name))
                 }
         }
-        return MakeListOrScalar(pos, list)
+        return list
 }
 
 func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
@@ -4092,8 +3863,7 @@ func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
         return
 }
 
-type wildcardOpts struct {
-        generalOpts
+type builtin_wildcard struct { builtin_
         includeMissing bool `im,includemissing,include-missing,m,missing`
         ignoreMissing bool `gm,ignoremissing,ignore-missing`
         errorMissing bool `em,errormissing,e,err,error-missing,no-missing`
@@ -4103,18 +3873,13 @@ type wildcardOpts struct {
         filetype string `ft,filetype,file-type` // dir, file, etc.
         dir string `di,dir,directory`
 }
-func _wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
-        var ( d1, d2 time.Duration ; n int ; db = opts.debug == 1000 )
-        defer func(t0 time.Time) {
-                var t2 = time.Now()
-                if d := t2.Sub(t0); d > 1*time.Second {
-                        var pos = ctx.Position()
-                        prompt(ctx, "%v: slow: dir=%s, %d excludes\n", pos, opts.dir, len(opts.exclude))
-                        prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(pats), pats)
-                        prompt(ctx, "%v: slow: %d files, %v\n", pos, len(files), files)
-                        prompt(ctx, "%v: slow: %v⇒%v+%v * %d\n", pos, d, d1, d2, n).debug(4)
-                }
-        } (time.Now())
+func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
+        var db = false //ctx.debug == 1000
+
+        //strings.HasSuffix(ctx.dir, "/testdata/wildcard")
+        if false { if pats != nil { defer func() { if files == nil {
+                noted(ctx, "%v %v -> %v", ctx.dir, pats, files).debug(10)
+        }}(); db = pats[0].String() == "[foobar/config/*.def.am, **.def.am]" }}
 
         type subr struct {
                 d, n, dn string
@@ -4128,7 +3893,9 @@ func _wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
         var work func(sub *subr)
         var top = subr{ pat: make(chan Value, 1) }
         var subsub = func(sub *subr) (ss *subr) {
-                for _, s := range sub.ss { if s.d == sub.dn { return s } }
+                if sub.ss != nil { for _, s := range sub.ss {
+                        if s.d == sub.dn { return s }
+                }}
                 return
         }
         var subed = func(sub *subr, pat Value) {
@@ -4145,38 +3912,42 @@ func _wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
                 }
                 ss.pat <- pat
         }
-        var missing = opts.includeMissing && !opts.ignoreMissing
+        var missing = ctx.includeMissing && !ctx.ignoreMissing
         var collect = func(name string) {
                 var a []os.FileInfo ; if missing { a = append(a, nil) }
-                var f = stat(ctx, name, "", opts.dir, a...)
-                if true { assert(f != nil, "stat %s %s", name, opts.dir) }
+                var f = stat(ctx, name, "", ctx.dir, a...)
+                if true { assert(f != nil, "stat %s %s", name, ctx.dir) }
 
                 top.Lock()
-                switch d := f.info.IsDir(); opts.filetype {
+                switch d := f.info.IsDir(); ctx.filetype {
                 case "f", "file": if!d { files = append(files, f) }
                 case "d", "dir" : if d { files = append(files, f) }
                 case "":                 files = append(files, f)
-                default: erro(ctx, "unknown -filetype: %s (%v)", opts.filetype, f).debug(1)
+                default: erro(ctx, "unknown -filetype: %s (%v)", ctx.filetype, f).debug(1)
                 }
                 top.Unlock()
                 top.Done()
         }
         var subcard = func(sub *subr, pat Value) {
-                if db { defer func(){ info(ctx, "subcard: %v %v, %v", pat, sub.dn, files).debug(6) }() }
-
                 defer sub.Done()
 
-                var cp, _ = pat.(*compositePattern)
-                if cp != nil { pat = cp.Value }
+                if db { defer func(){ noted(ctx, "subcard: %T %v, %v, %v", pat, pat, sub.dn, files).debug(3) }() }
 
+                if t, y := pat.(*compositePattern); y { pat = t.Value }
+                if t, y := pat.(*List); y {
+                        warn(ctx, "pattern is a list: %T %v %v", pat, pat, t.Elems).debug(1)
+                        if len(t.Elems) == 1 { pat = t.Elems[0] }
+                }
+
+                var dir = ctx.dir
                 var ctx = at(ctx, pat.Position())
                 if p, y := pat.(*Path); !y {
                         // fallthrough
                 } else if nElems := len(p.Elems); nElems == 0 {
-                        errostack(ctx, 3, "empty path: %v", pat).debug(6)
+                        errostack(ctx, 3, "empty path: %v", pat).debug(3)
                         return
                 } else if y, _, _ = p.Elems[0].match(ctx, sub.n); y && nElems == 1 {
-                        errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", opts.dir, sub.dn, pat, sub.n, nElems).debug(1)
+                        errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", dir, sub.dn, pat, sub.n, nElems).debug(1)
                         return
                 } else if y && sub.isDir && nElems > 1 {
                         val := p.Elems[1]
@@ -4201,7 +3972,7 @@ func _wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
                 if gp, y := pat.(*GlobPattern); !y {
                         // fallthrough
                 } else if len(gp.components) == 0 {
-                        errostack(ctx, 3, "empty glob: %v (%s)", pat, sub.dn).debug(6)
+                        errostack(ctx, 3, "empty glob: %v (%s)", pat, sub.dn).debug(3)
                         return
                 } else if m, y := gp.components[0].(*GlobMeta); !y {
                         // fallthrough
@@ -4222,17 +3993,17 @@ func _wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
                 return
         }
         var subwork = func(subdir, name string, pats []Value) {
-                if db { defer func(){ info(ctx, "subwork: %v %s/%s", pats, subdir, name).debug(6) }() }
-
                 defer top.Done()
 
                 var sub = &subr{ d:subdir, n:name, dn:filepath.Join(subdir,name) }
 
-                for _, x := range opts.exclude {
+                if db { defer func(){ noted(ctx, "subwork: %v %s", pats, sub.dn).debug(3) }() }
+
+                for _, x := range ctx.exclude {
                         if y, _, _ := x.match(ctx, sub.dn); y { return }
                 }
 
-                if fi, err := os.Stat(filepath.Join(opts.dir, sub.dn)); err == nil {
+                if fi, err := os.Stat(filepath.Join(ctx.dir, sub.dn)); err == nil {
                         sub.isDir = fi.IsDir()
                 } else if true {
                         erro(ctx, "%p: %v %v → %v", sub, sub.d, sub.n, sub.dn)
@@ -4253,15 +4024,9 @@ func _wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
         }
 
         work = func(sub *subr) {
-                t0 := time.Now()
-                names := readDirNames(ctx, filepath.Join(opts.dir, sub.d), opts.errorMissing)
-                d := time.Now().Sub(t0)
+                names := readDirNames(ctx, filepath.Join(ctx.dir, sub.d), ctx.errorMissing)
 
-                if db { defer func(){ info(ctx, "work: dir=%v, names=%v", sub.d, names).debug(6) }() }
-
-                top.Lock()
-                d1 += d ; n += 1
-                top.Unlock()
+                if db { noted(ctx, "work: dir=%v, names=%v", sub.d, names).debug(3) }
 
                 var pats []Value
                 for v := range sub.pat { pats = append(pats, v) }
@@ -4269,60 +4034,41 @@ func _wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
                 top.Done()
         }
 
-        t0 := time.Now()
+        // Merge pats to make sure no patterns are concealed in List values, this will
+        // fail matchings in subcard routine.
+        pats = merge(pats...)
+
         top.Add(1) ; go work(&top)
-
         for _, v := range pats { top.pat <- v }; close(top.pat)
-
-        top.Wait() ; d2 += time.Now().Sub(t0)
-
-        if db { warn(ctx, "_wildcard: %v %v", pats, files).debug(10) }
+        top.Wait()
         return
 }
-func wildcard(ctx Context, opts *wildcardOpts, pats ...Value) (files []*File) {
-        if opts.dir != ""  { files = _wildcard(ctx, opts, pats...) } else {
-                files = ctx.Project().wildcard(ctx, opts, pats...)
+func (ctx *builtin_wildcard) do(pats ...Value) (files []*File) {
+        // strings.HasSuffix(ctx.dir, "/testdata/wildcard")
+        if false { if ctx.dir == "" && pats != nil { defer func() { if files == nil {
+                noted(ctx, "%v %v -> %v", ctx.dir, pats, files).debug(5)
+        }}()}}
+
+        if ctx.dir != "" {
+                return ctx._do(pats...)
+        } else {
+                return ctx.Project().wildcard(ctx, pats...)
         }
-        return
 }
+func (ctx *builtin_wildcard) x(ic *invocation, w facet) (res interface{}) {
+        var vals []Value // strings.HasSuffix(ctx.dir, "/testdata/wildcard")
+        if false { if ctx.dir == "" && ic.a != nil { defer func() { if vals == nil {
+                noted(ctx, "%v %v %v -> %v", ctx.dir, ic.o, ic.a, res).debug(10)
+        }}()}}
 
-func (ctx builtin) wildcard(aa... Value) (res Value) {
-        var opts, args = bop[wildcardOpts](&ctx, plain, aa...)
-        var (
-                files []*File
-                vals []Value
-                t1 time.Time
-        )
+        if len(ctx.exclude) > 0 { ctx.exclude = mergex(ctx, plain, ctx.exclude...) }
 
-        defer func(t0 time.Time) {
-                var t2 = time.Now()
-                if d := t2.Sub(t0); d > 1*time.Second {
-                        var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; pos = ctx.Position() )
-                        prompt(ctx, "%v: slow: %d files, dir=%s\n", pos, len(files), opts.dir)
-                        prompt(ctx, "%v: slow: %v\n", pos, res)
-                        prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)
-                } else if opts.timing {
-                        info(ctx, "wildcard: %v", d).debug(1)
-                }
-        } (time.Now())
-
-        if len(opts.exclude) > 0 {
-                opts.exclude = mergex(ctx, plain, opts.exclude...)
-        }
-
-        files = wildcard(ctx.Context, &opts, args...) ; t1 = time.Now()
-
-ForFiles:
-        for _, file := range files {
-                for _, x := range opts.exclude {
-                        if y, _, _ := x.match(ctx, file); y {
-                                continue ForFiles
-                        }
-                }
-
-                if !(opts.names || opts.strs) {
+        for _, file := range ctx.do(merge(ic.a...)...) {
+                if file == nil {
+                        errostack(ctx, 3, "nil file: %v", ic.a).debug(3)
+                } else if !(ctx.names || ctx.strs) {
                         vals = append(vals, file)
-                } else if opts.strs {
+                } else if ctx.strs {
                         vals = append(vals, MakeString(file.position, file.name))
                 } else if strings.Contains(file.name, PathSep) {
                         vals = append(vals, MakePathStr(file.position, file.name))
@@ -4330,16 +4076,13 @@ ForFiles:
                         vals = append(vals, MakeBareword(file.position, file.name))
                 }
         }
-        res = MakeListOrScalar(ctx.Position(), vals)
-        return
+        return vals
 }
 
-type builtinReadDirOpts struct {
-        generalOpts
-}
-func (ctx builtin) readdir(args... Value) (res Value) {
+type builtin_readdir struct { builtin_ }
+func (ctx *builtin_readdir) x(ic *invocation, w facet) (res interface{}) {
         var l []Value
-        for _, a := range args {
+        for _, a := range ic.a {
                 if fis, err := ioutil.ReadDir(a.Strval(ctx)); err == nil {
                         v := new(List)
                         for _, fi := range fis {
@@ -4350,64 +4093,44 @@ func (ctx builtin) readdir(args... Value) (res Value) {
                         break //l = append(l, MakeNone(pos))
                 }
         }
-        if len(l) > 0 {
-                res = MakeListOrScalar(ctx.Position(), l)
-        }
-        return
+        return l
 }
 
-func (ctx builtin) readfile(aa ...Value) (res Value) {
-        var opts, args = bop[struct {
-                generalOpts
-                trim      bool `ta,trim,trim-all`
-                trimLeft  bool `tl,trim-left`
-                trimRight bool `tr,trim-right`
-        }](&ctx, plain, aa...)
-
-        var (
-                closured = closureProjects(ctx)
-                pos = ctx.Position()
-                l []Value
-        )
-
-        for _, v := range args {
-                var (
-                        a = as{v}
-                        apos = a.Position()
-                        s []byte
-                        err error
-                )
-                if !apos.IsValid() { apos = pos }
-                if _, str, ok := a.fullnameOpt2(ctx, closured...); !ok || str == "" {
-                        errostack(at(ctx,apos), 5, "%v is not a file", a).debug(1)
+type builtin_readfile struct { builtin_
+        trim      bool `ta,trim,trim-all`
+        trimLeft  bool `tl,trim-left`
+        trimRight bool `tr,trim-right`
+}
+func (ctx *builtin_readfile) x(ic *invocation, w facet) (res interface{}) {
+        var l []Value
+        var closured = closureProjects(ctx)
+        for _, v := range ic.a {
+                if o, y := (as{v}.fullnameOpt(ctx, closured...)); !y {
+                        errostack(of(ctx,v), 5, "%v is not a file", v).debug(1)
                         break
-                } else if s, err = ioutil.ReadFile(str); err != nil {
-                        errostack(at(ctx,apos), 5, "read file failed: %v", err).debug(1)
+                } else if s, e := ioutil.ReadFile(o.Strval(ctx)); e != nil {
+                        errostack(of(ctx,v), 5, "read file failed: %v", e).debug(1)
                         break
                 } else {
-                        if opts.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
-                        if opts.trimLeft  { s = bytes.TrimLeftFunc (s, unicode.IsSpace) } else
-                        if opts.trimRight { s = bytes.TrimRightFunc(s, unicode.IsSpace) }
-                        l = append(l, MakeString(pos, string(s)))
+                        if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
+                        if ctx.trimLeft  { s = bytes.TrimLeftFunc (s, unicode.IsSpace) } else
+                        if ctx.trimRight { s = bytes.TrimRightFunc(s, unicode.IsSpace) }
+                        l = append(l, MakeString(v.Position(), string(s)))
                 }
         }
-        if len(l) > 0 {
-                res = MakeListOrScalar(pos, l)
-        }
-        return
+        return l
 }
 
-func (ctx builtin) writefile(aa ...Value) (res Value) {
+type builtin_writefile struct { builtin_
+        path bool `p,path`
+}
+func (ctx *builtin_writefile) x(ic *invocation, w facet) (res interface{}) {
         // $(write-file filename,content)
         // $(write-file -p filename,content)
-        var opts, args = bop[struct {
-                generalOpts
-                path bool `p,path`
-        }](&ctx, plain, aa...)
 ForArgs:
-        for i := 0; i < len(args); i += 1 {
+        for i := 0; i < len(ic.a); i += 1 {
                 var (
-                        a = args[i]
+                        a = ic.a[i]
                         name, data string
                         perm = os.FileMode(0600)
                 )
@@ -4434,19 +4157,19 @@ ForArgs:
                                 break
                         }
                 default: // write-file name text 0660  name text 0660 ...
-                        name = args[i].Strval(ctx)
-                        if i+1 < len(args) {
-                                data = args[i+1].Strval(ctx)
+                        name = ic.a[i].Strval(ctx)
+                        if i+1 < len(ic.a) {
+                                data = ic.a[i+1].Strval(ctx)
                                 i += 1
                         }
-                        if i+1 < len(args) {
-                                perm = permVal(ctx, args[i+1],0600)
+                        if i+1 < len(ic.a) {
+                                perm = permVal(ctx, ic.a[i+1],0600)
                                 i += 1
                         }
                 }
                 if name == "" {
                         continue ForArgs
-                } else if dir := filepath.Dir(name); opts.path && dir != "." && dir != PathSep {
+                } else if dir := filepath.Dir(name); ctx.path && dir != "." && dir != PathSep {
                         if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
                                 erro(ctx, "%v", err).debug(1)
                                 return
@@ -4505,19 +4228,15 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
         return
 }
 
-func (ctx builtin) touchfile(aa ...Value) (res Value) {
+type builtin_touchfile struct { builtin_
+        mode os.FileMode `m,mode;fm,filemode,file-mode`
+        path bool `p,path`
+}
+func (ctx *builtin_touchfile) x(ic *invocation, w facet) (res interface{}) {
         // $(touch-file filename)
         // $(touch-file -p filename)
-        var opts, args = bop[struct {
-                generalOpts
-                mode os.FileMode `m,mode;fm,filemode,file-mode`
-                path bool `p,path`
-        }](&ctx, plain, aa...)
-
-        if opts.mode == 0 { opts.mode = os.FileMode(0600) }
-
-        for i := 0; i < len(args); i += 1 {
-                if err := touch(ctx, args[i], uint32(opts.mode), opts.path); err != nil {
+        for i := 0; i < len(ic.a); i += 1 {
+                if err := touch(ctx, ic.a[i], uint32(ctx.mode), ctx.path); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         break
                 }
@@ -4527,25 +4246,24 @@ func (ctx builtin) touchfile(aa ...Value) (res Value) {
 
 // $(grep 'status=1',$@)
 // $(grep 'status=([0-9]+)',$1,$@)
-func (ctx builtin) grep(args... Value) (res Value) {
+type builtin_grep struct { builtin_ }
+func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
         var (
+                args = ic.a
+                nargs = len(args)
                 list []Value
                 rxs []*regexp.Regexp // TODO: move it into builtinGrepOpts
                 result Value
-                nargs int
                 err error
 
         )
-        if nargs = len(args); !(nargs == 2 || nargs == 3) {
+        if !(nargs == 2 || nargs == 3) {
                 erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").debug(1)
                 return
         }
 
-        var _, rvs = bop[struct {
-                generalOpts
-        }](&ctx, plain, args[0])
-
-        switch ; nargs {
+        var rvs = merge(args[0])
+        switch nargs {
         case 2:   args = args[1:]
         case 3: result = args[1] ; args = args[2:]
         }
@@ -4566,14 +4284,14 @@ func (ctx builtin) grep(args... Value) (res Value) {
         var greped = func(line int, match []string) (done bool) {
                 var vals []Value
                 for i, s := range match {
-                        if d, v := cc.autoSet(fmt.Sprintf("%d",i), MakeString(pos, s)); d == nil {
+                        if d, v := cc.set(ctx, fmt.Sprintf("%d",i), MakeString(pos, s)); d == nil {
                                 erro(ctx, "set $%d to '%s' failed", i, s).debug(1)
                                 return
                         } else { vals = append(vals, v) }
                 }
                 defer func() {
                         for i, v := range vals {
-                                if d, v := cc.autoSet(fmt.Sprintf("%d",i), v); d == nil {
+                                if d, v := cc.set(ctx, fmt.Sprintf("%d",i), v); d == nil {
                                         erro(ctx, "restore $%d to '%s' failed", i, v).debug(1)
                                 }
                         }
@@ -4593,10 +4311,10 @@ func (ctx builtin) grep(args... Value) (res Value) {
                 }
 
                 if c := of(ctx, a); filename == "" {
-                        var pc = ctx.Context.pc()
+                        var pc = ctx.pc()
                         erro(c, "empty filename: %T %v", a, a)
                         erro(c, "%v %v", rvs, args)
-                        errostack(c, 5, "%p %v", pc, pc.autoGet("^")).debug(64)
+                        errostack(c, 5, "%p %v", pc, pc.get(ctx, "^")).debug(64)
                         return
                 } else if file, err = os.Open(filename); err != nil {
                         erro(c, "%v", err)
@@ -4617,8 +4335,7 @@ func (ctx builtin) grep(args... Value) (res Value) {
                         }
                 }
         }
-        if len(list) > 0 { res = MakeListOrScalar(pos, list) }
-        return
+        return ease(ctx, list)
 }
 
 var (
@@ -4632,7 +4349,7 @@ var (
 
 func (project *Project) resolveDef(ctx Context, name string) (res *def) {
         var obj Object
-        if obj = project.resolveObject(ctx, name); !isNil(obj) { res, _ = obj.(*def) }
+        if obj = project.resolveObject(ctx, name); !isNull(obj) { res, _ = obj.(*def) }
         return
 }
 
@@ -4642,7 +4359,7 @@ func (project *Project) strExpandConfig(ctx Context, s string) (result string, e
                 res = new(bytes.Buffer)
                 index, line = 0, 0
         )
-        if d := autoGet(ctx, "-file"); d != nil {
+        if d := autoVal(ctx, "-file"); d != nil {
                 if f, y := toFile(d); y { pos.Filename = f.fullname() }
                 // warn(ctx, "%T %v %v", v, v, pos)
         }
@@ -4670,7 +4387,7 @@ func (project *Project) strExpandConfig(ctx Context, s string) (result string, e
                                 warnstack(ctx, 10, "in %v", project).debug(6)
                         }
                         continue
-                } else if val = def.Call(ctx, nil); isNil(val) {
+                } else if val = def.invoke(ctx, plain, nil, nil); isNull(val) {
                         if false && (def.origin != DefExecute || def.value != nil) {
                                 warn(of(ctx,def), "%v is nil (%T)", name, val).debug(1)
                         }
@@ -4687,7 +4404,7 @@ func (project *Project) strExpandConfig(ctx Context, s string) (result string, e
 
                 switch t := val.(type) {
                 case *undef, undef: // FIXME: fmt.Fprintf(res, "#undef")
-                case *Plain: fmt.Fprintf(res, "%s", t.Value)
+                case *Plain: fmt.Fprintf(res, "%s", t.Raw.String())
                 case *answer, *boolean:
                         if i, e := t.Integer(ctx); e == nil {
                                 fmt.Fprintf(res, "%d", i)
@@ -4738,7 +4455,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                         hasv = m[6] > m[0] && m[7] > m[6]
                 )
                 if def = project.resolveDef(ctx, name); def != nil { // t = def.True(ctx);
-                        if val := def.Call(ctx, nil); val == nil {
+                        if val := def.invoke(ctx, plain, nil, nil); val == nil {
                                 // noop, TODO: or #undef?
                         } else if _, undef := val.(*undef); undef {
                                 _, err = out.WriteString(fmt.Sprintf("#undef /* %s */", name))
@@ -4761,7 +4478,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                         var va []Value
                         if def == nil {
                                 s = fmt.Sprintf("#undef %s", name)
-                        } else if isNil(def.value) || isNone(def.value) {
+                        } else if isNull(def.value) || isNone(def.value) {
                                 s = fmt.Sprintf("#undef %s /* %v */", name, def.value)
                         } else if va, _, _ = plain.expand(ctx, def.value); len(va) == 1 {
                                 switch v := va[0].(type) {
@@ -4807,12 +4524,16 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
         return
 }
 
-func (ctx builtin) untraversed(args... Value) Value {
-        var pos = ctx.Position()
-        var vals = mergex(ctx, plain, args...)
-        return untraversed{MakeListOrScalar(pos, vals)}
+type builtin_untraversed struct {
+        Context
+}
+func (ctx *builtin_untraversed) x(ic *invocation, w facet) (res interface{}) {
+        return untraversed{ease(ctx, ic.a)} // mergex(ctx, plain, ic.a...)
 }
 
-func (ctx builtin) _return(args... Value) Value {
-        return &returner{valbase{ctx.Position()}, args }
+type builtin_return struct {
+        Context
+}
+func (ctx *builtin_return) x(ic *invocation, w facet) (res interface{}) {
+        return &returner{valbase{ctx.Position()}, ic.a }
 }
