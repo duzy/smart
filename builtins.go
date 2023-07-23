@@ -3693,9 +3693,9 @@ func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
                         proj = ctx.pc().Project()
                 }
         }
-        return ctx.do(proj, ic.a...)
+        return ctx.do([]*Project{proj}, ic.a...)
 }
-func (ctx *builtin_file) do(proj *Project, args ...Value) (list []Value) {
+func (ctx *builtin_file) do(projs []*Project, args ...Value) (list []Value) {
         var en int
         var cc = ctx.Context
         var fil = func(a Value) { ctx.Context = at(cc, a.Position())
@@ -3719,11 +3719,11 @@ func (ctx *builtin_file) do(proj *Project, args ...Value) (list []Value) {
                         return
                 }
 
-                if am = files(ctx, a, proj); am == nil { if s := a.Strval(ctx); s != "" { const w = false
-                        if am = files(ctx, s, proj); am != nil {
-                                if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", proj, a, a, ctx.Project()).debug(6) }
+                if am = files(ctx, a, projs...); am == nil { if s := a.Strval(ctx); s != "" { const w = false
+                        if am = files(ctx, s, projs...); am != nil {
+                                if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", projs, a, a, ctx.Project()).debug(6) }
                         } else if f := file(ctx, s); f != nil {
-                                if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", proj, a, a, ctx.Project()).debug(6) }
+                                if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", projs, a, a, ctx.Project()).debug(6) }
 
                                 list = append(list, f)
                                 return
@@ -3732,8 +3732,7 @@ func (ctx *builtin_file) do(proj *Project, args ...Value) (list []Value) {
                         }
                 }}
 
-                if fs = proj.selectFiles(ctx, am); fs == nil { return }
-
+                for _, p := range projs { fs = append(fs, p.selectFiles(ctx, am)...) }
                 for _, f := range fs {
                         if !ctx.exists || f.exists() {
                                 list = append(list, f)
@@ -3750,7 +3749,7 @@ func (ctx *builtin_file) do(proj *Project, args ...Value) (list []Value) {
         }
 
         for _, a := range umerge(true, args...) { if fil(a); en > 0 {
-                erro(ctx, `%v: %s(%v) is not a file (%v)`, proj, typeof(a), a, list)
+                erro(ctx, `%v: %s(%v) is not a file (%v)`, projs, typeof(a), a, list)
                 errostack(ctx, 5).debug(16)
                 break
         }}

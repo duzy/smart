@@ -986,18 +986,8 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
         // NOTE: this optimized the performance.
     case *bareword, *barecomp, *Path:
         if len(projects) == 0 { projects = closureProjects(ctx) }
-        if false {
-            var m = files(ctx, t, projects...)
-            if false && m == nil { m = files(ctx, t.Strval(ctx), projects...) } // FIXME: not working perfectly
-            if m != nil { for _, p := range projects {
-                if f = p.selectFile(ctx, m); f != nil { break }
-            }}
-        } else {
-            var proj *Project
-            if len(projects) > 0 { proj = projects[0] } else { proj = ctx.Project() }
-            if v := (&builtin_file{builtin_:builtin_{Context:ctx}}).do(proj, t); len(v) == 1 {
-                f, _ = v[0].(*File)
-            }
+        if v := (&builtin_file{builtin_:builtin_{Context:ctx}}).do(projects, t); len(v) == 1 {
+            f, _ = v[0].(*File)
         }
     }
     return
