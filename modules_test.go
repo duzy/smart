@@ -173,43 +173,43 @@ func TestVariantTarget(t *testing.T) {
 
 	if v := ctx.get("neg1"); v == nil {
 		ctx.err("neg1")
-	} else if v.String() == "!foo" {
+	} else if v.String() != "!foobar" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "true" {
+	} else if s := v.Strval(ctx); s != "!foobar" {
 		ctx.err("%T %v -> %s", v, v, s)
+	} else if t, y := v.(*negative); !y {
+		ctx.err("%T %v", v, v)
+	} else if t.True(ctx) {
+		ctx.err("%T %v", v, v)
 	}
 	if v := ctx.get("neg2"); v == nil {
 		ctx.err("neg2")
-	} else if v.String() == "a!foo" {
+	} else if v.String() != "a!foobar" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "a!foo" {
+	} else if s := v.Strval(ctx); s != "a!foobar" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 	if v := ctx.get("neg3"); v == nil {
 		ctx.err("neg3")
-	} else if v.String() == "&(a!foo)" {
+	} else if v.String() != "&(a!foobar)" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "xxx" {
+	} else if s := v.Strval(ctx); s != "xxx" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 	if v := ctx.get("neg4", "xxx"); v == nil {
 		ctx.err("neg4")
-	} else if v.String() == "&(a!xxx)" {
+	} else if v.String() != "&(a!xxx)" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.Strval(ctx); s != "" {
 		ctx.err("%T %v -> %s", v, v, s)
-	} else { for _, s := range strings.Fields(s) { if !validFlag(s) {
-		ctx.err("%s", s)
-	}}}
+	}
 	if v := ctx.get("neg4", "foobar"); v == nil {
 		ctx.err("neg4")
-	} else if v.String() == "&(a!foobar)" {
+	} else if v.String() != "&(a!foobar)" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "xxx" {
+	} else if s := v.Strval(ctx); s != "xxx" {
 		ctx.err("%T %v -> %s", v, v, s)
-	} else { for _, s := range strings.Fields(s) { if !validFlag(s) {
-		ctx.err("%s", s)
-	}}}
+	}
 
 	var cflagv, cflags string
 	if v := ctx.get("cflags"); v == nil {
