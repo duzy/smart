@@ -2344,6 +2344,22 @@ func TestBuiltins(t *testing.T) {
 		ctx.err("%T %v", o.Value, o.Value)
 	} else if f.fullname() != fullFooTxt {
 		ctx.err("%T %v %v", v, v, f.fullname())
+	} else if o.cmp(ctx, f) != cmpEqual {
+		ctx.err("%T %v %v", v, o, f)
+	} else if f.cmp(ctx, o) != cmpEqual {
+		ctx.err("%T %v %v", v, o, f)
+	} else if cmp(ctx, o, f) != cmpEqual {
+		ctx.err("%T %v %v", v, o, f)
+	} else if cmp(ctx, f, o) != cmpEqual {
+		ctx.err("%T %v %v", v, o, f)
+	} else if p := pathStr(ctx, f.position, f.fullname()); o.cmp(ctx, p) != cmpEqual {
+		ctx.err("%T %v %v", v, o, p)
+	} else if p.cmp(ctx, o) != cmpEqual {
+		ctx.err("%T %v %v", v, o, p)
+	} else if cmp(ctx, p, o) != cmpEqual {
+		ctx.err("%T %v %v", v, o, p)
+	} else if cmp(ctx, o, p) != cmpEqual {
+		ctx.err("%T %v %v", v, o, p)
 	}
 	if v := ctx.get("val9"); v == nil {
 		ctx.err("val9")

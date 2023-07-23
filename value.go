@@ -48,8 +48,8 @@ const (
     cmpLPrefix     = -2 // L is prefix of R, should also be 'smaller'
     cmpSmaller     = -1 // meaningless so far
     cmpGreater     = 1  // meaningless so far
-    cmpRPrefix     = 3  // R is prefix of L, should also be 'greater'
-    cmpEqual       = 2
+    cmpRPrefix     = 2  // R is prefix of L, should also be 'greater'
+    cmpEqual       = 3
 )
 const (
     existenceMatterless existence = 1<<iota
@@ -932,10 +932,27 @@ const (
 )
 
 type fullnameOpt struct { Value }
-
 func (o fullnameOpt) Strval(ctx Context) (res string) {
     if f, y := o.Value.(*File); y && f != nil { return f.fullname() }
     return o.Value.Strval(ctx)
+}
+func (o fullnameOpt) expand(ctx Context, w facet) Value {
+    if v := o.Value.expand(ctx, w); v != nil && v != o.Value {
+        return fullnameOpt{v}
+    }
+    return o
+}
+func (o fullnameOpt) cmp(ctx Context, v Value) (res cmpres) {
+    if f, y := o.Value.(*File); y && f != nil { if res = f.cmp(ctx, v); res == cmpUnknown {
+        if a, b := f.fullname(), v.Strval(ctx); a == b {
+            res = cmpEqual
+        } else if a < b {
+            res = cmpSmaller
+        } else if a > b {
+            res = cmpGreater
+        }
+    }} else { res = o.Value.cmp(ctx, v) }
+    return
 }
 
 func fullnameOption(x Value) fullnameOpt { return fullnameOpt{x} }
@@ -1228,6 +1245,12 @@ type Value interface {
 }
 
 func Is(v Value, k Kind) bool { return v.Kind() & k != 0 }
+func cmp(ctx Context, l, r Value) (res cmpres) {
+    if res = l.cmp(ctx, r); res == cmpUnknown { res = r.cmp(ctx, l)
+        if res != cmpUnknown && res != cmpEqual { res = cmpres(-res) }
+    }
+    return
+}
 
 type valvec []Value
 
@@ -3708,13 +3731,17 @@ func (p *Path) patterned(ctx Context) (result bool) {
     return
 }
 func (p *Path) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*Path); ok {
+    if a, y := v.(*Path); y {
         res = compareElems(ctx, p.Elems, a.Elems)
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     } else if u, o := v.(unexpanded); o && u.Value != nil {
         res = p.cmp(ctx, u.Value)
-    } else if f, ok := v.(*File); ok {
+    } else if o, y := v.(fullnameOpt); y && o.Value != nil {
+        if res = o.cmp(ctx, p); res != cmpUnknown && res != cmpEqual {
+            res = cmpres(-res)
+        }
+    } else if f, y := v.(*File); y {
         if s := p.Strval(ctx); f.name == s { res = cmpEqual }
     }
     return
@@ -4283,6 +4310,7 @@ func toFile(v Value) (f *File, y bool) {
     if f, y = v.(*File); !y {
         switch t := v.(type) {
         case fullfile: f, y = t.File, true
+        case fullnameOpt: f, y = toFile(t.Value)
         case as: f, y = toFile(t.Value)
         }
     }
