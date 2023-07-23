@@ -934,14 +934,8 @@ const (
 type fullnameOpt struct { Value }
 
 func (o fullnameOpt) Strval(ctx Context) (res string) {
-    if f, _ := o.Value.(*File); f == nil { return f.fullname() }
+    if f, y := o.Value.(*File); y && f != nil { return f.fullname() }
     return o.Value.Strval(ctx)
-}
-
-func (o fullnameOpt) filize(ctx Context, projects ...*Project) (f *File) {
-    if f, _ = o.Value.(*File); f == nil { f = as{o.Value}.file(ctx, projects...)
-        if f != nil { o.Value = f } }
-    return
 }
 
 func fullnameOption(x Value) fullnameOpt { return fullnameOpt{x} }
@@ -975,11 +969,19 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
         // NOTE: this optimized the performance.
     case *bareword, *barecomp, *Path:
         if len(projects) == 0 { projects = closureProjects(ctx) }
-        var m = files(ctx, t, projects...)
-        if m == nil { m = files(ctx, t.Strval(ctx), projects...) } // FIXME: peel value t does not work perfectly
-        if m != nil { for _, p := range projects {
-            if f = p.selectFile(ctx, m); f != nil { break }
-        }}
+        if false {
+            var m = files(ctx, t, projects...)
+            if false && m == nil { m = files(ctx, t.Strval(ctx), projects...) } // FIXME: not working perfectly
+            if m != nil { for _, p := range projects {
+                if f = p.selectFile(ctx, m); f != nil { break }
+            }}
+        } else {
+            var proj *Project
+            if len(projects) > 0 { proj = projects[0] } else { proj = ctx.Project() }
+            if v := (&builtin_file{builtin_:builtin_{Context:ctx}}).do(proj, t); len(v) == 1 {
+                f, _ = v[0].(*File)
+            }
+        }
     }
     return
 }
@@ -1001,15 +1003,18 @@ func (a as) fullnameOrStrval(ctx Context, projects ...*Project) (s string, f boo
     return
 }
 
-func (a as) fullnameOpt(ctx Context, projects ...*Project) (o fullnameOpt, ok bool) {
-    o.Value = a.Value
-    if ok = o.filize(ctx) != nil; ok { return }
-    if t := file(ctx, a.Value.Strval(ctx)); t != nil {
+func (a as) fullnameOpt(ctx Context, projects ...*Project) (o fullnameOpt, y bool) {
+    if v := a.Value; v == nil { return } else { v = scalarize(v)
+        if f, _ := v.(*File); f == nil { if f = a.file(ctx, projects...); f != nil {
+            o.Value = f ; return o, true
+        }}
+    }
+    if false { if t := file(ctx, o.Value.Strval(ctx)); t != nil {
         var ( p = ctx.Project() ; ctx = of(ctx, a) )
-        erro(ctx, "FIXME: %v: %v (%T)", p, a.Value, a.Value)
+        erro(ctx, "FIXME: %v: %v (%T, %T)", p, a.Value, a.Value, o.Value)
         erro(ctx, "FIXME: %v: %v (%s)", p, t, t.fullname())
         errostack(ctx, 5).debug(16)
-    }
+    }}
     return
 }
 

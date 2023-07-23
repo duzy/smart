@@ -1,5 +1,9 @@
 project testbuiltins
 
+files (
+    (foo.txt) ⇒ $/
+)
+
 val1 := $(addprefix -foo=,bar &(bar))
 val2  = $(addprefix -foo=,bar &(bar))
 val3 := $(addprefix  foo ,bar &(bar))
@@ -8,6 +12,10 @@ val4  = $(addprefix  foo ,bar &(bar))
 val5 := $(join foo bar xx yy zz,-)
 val6  = $(join foo bar xx yy zz,-)
 val7 := $(join &(target.arch) &(target.vendor) &(target.sys) &(target.abi),-)
+
+val8  := foo.txt
+val9  := $(file foo.txt)
+val10 := $(fullname foo.txt)
 
 target.arch := foo
 target.vendor := bar

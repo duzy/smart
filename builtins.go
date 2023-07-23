@@ -323,7 +323,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.fullnameOpt":
                 if x := v.expand(ctx, plain|expandFullName); isTrivial(x) {
                         erro(of(ctx, v), "expecting file value: %T %v", v, v).debug(1)
-                } else if o := fullnameOption(x); o.filize(ctx) != nil {
+                } else if o, y := (as{x}.fullnameOpt(ctx)); y && o.Value != nil {
                         val.Set(reflect.ValueOf(o))
                 } else {
                         erro(of(ctx,v), "%v: not a file: %v → %T %v", ctx.Project(), v, x, x)
@@ -857,6 +857,9 @@ func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
         } else if n := ctx.debug; n>0 {
                 if u, y := a.(unexpanded); y {
                         warn(of(ctx,a), "equal: a: %T %v (unexpanded)", u.Value, a)
+                } else if l, y := a.(*List); y {
+                        var v = l.Elems[0]
+                        warn(of(ctx,a), "equal: a: %T(len=%d), %T %v", a, len(l.Elems), v, v)
                 } else {
                         warn(of(ctx,a), "equal: a: %T %v", a, a)
                 }
@@ -2908,15 +2911,15 @@ func (ctx *builtin_decodebase64) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_fullname struct { builtin_ }
 func (ctx *builtin_fullname) x(ic *invocation, w facet) (res interface{}) {
-        var l []Value
-        var closured = closureProjects(ctx)
-        for _, a := range ic.a {
-                if ctx.debug > 0 { if f, ok := toFile(a); ok {
+        var ( l []Value ; p = /* closureProjects(ctx) */[]*Project{ctx.Project()} )
+        for _, a := range umerge(true, ic.a...) {
+                if ctx.debug > 0 { if f, y := toFile(a); y {
                         warn(ctx, "dir=%v sub=%v name=%v", f.dir, f.sub, f.name).debug(ctx.debug)
                 } else {
                         warn(ctx, "%T %v", a, a).debug(ctx.debug,1)
                 }}
-                if o, y := (as{a}.fullnameOpt(ctx, closured...)); y { a = o }
+
+                if o, y := (as{a}.fullnameOpt(ctx, p...)); y { a = o }
                 l = append(l, a)
         }
         return l
@@ -3677,42 +3680,38 @@ func (ctx *builtin_stat) x(ic *invocation, w facet) (res interface{}) {
 type builtin_file struct { builtin_
         caller bool `c,cc,caller,callercontext,caller-context`
         exists bool `e,ex,exist,exists,me,existsist,must-exist,must,required`
-        ignore bool `i,ig,ignore,ignore-missing`
         report bool `r,report,reportmissing;rm,report-missing;er,err,error`
+        ignore bool `i,ig,ignore,ignore-missing`
 }
 func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
-        var proj *Project
-        if ctx.caller && false {
+        var proj *Project = ctx.Project()
+        if false && ctx.caller {
                 // program -> closure -> traversal -> ...
                 if false {
                         proj = ctx.closure().Project()
                 } else {
                         proj = ctx.pc().Project()
                 }
-        } else {
-                proj = ctx.Project()
         }
-
-        var cc = ctx.Context
+        return ctx.do(proj, ic.a...)
+}
+func (ctx *builtin_file) do(proj *Project, args ...Value) (list []Value) {
         var en int
-        var list []Value
+        var cc = ctx.Context
         var fil = func(a Value) { ctx.Context = at(cc, a.Position())
-                var am []matchedFileMap
                 var fs []*File
-                if false && strings.HasPrefix(a.String(), "tablegen-min") {
-                        defer func() {
-                                var f = file(ctx, a.Strval(ctx))
-                                info(ctx, "%s: %v\n", a, am)
-                                info(ctx, "%s: %v\n", a, fs)
-                                info(ctx, "%s: %v\n", a, list)
-                                info(ctx, "%s: %v %v %v\n", a, f, f.fullname(), f.exists())
-                                infostack(ctx, 3, "%s: %T %v\n", a, a, ctx.exists).debug(16)
-                        } ()
-                }
+                var am []matchedFileMap
+                if false { if strings.HasPrefix(a.String(), "tablegen-min") { defer func() {
+                        var f = file(ctx, a.Strval(ctx))
+                        info(ctx, "%s: %v\n", a, am)
+                        info(ctx, "%s: %v\n", a, fs)
+                        info(ctx, "%s: %v\n", a, list)
+                        info(ctx, "%s: %v %v %v\n", a, f, f.fullname(), f.exists())
+                        infostack(ctx, 3, "%s: %T %v\n", a, a, ctx.exists).debug(16)
+                }()}}
 
                 if f, y := toFile(a); y {
-                        if false && !f.exists() { f.stat(ctx) }
-                        if !ctx.exists || f.exists() {
+                        if !ctx.exists || f.exists() /* || f.stat(ctx) != nil */ {
                                 list = append(list, f)
                         } else if ctx.report {
                                 info(ctx, "no such file {%v %v %v}", f.dir, f.sub, f.name).debug(1)
@@ -3720,9 +3719,7 @@ func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
                         return
                 }
 
-                if am = files(ctx, a, proj); am == nil {
-                        const w = false
-                        var s = a.Strval(ctx)
+                if am = files(ctx, a, proj); am == nil { if s := a.Strval(ctx); s != "" { const w = false
                         if am = files(ctx, s, proj); am != nil {
                                 if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", proj, a, a, ctx.Project()).debug(6) }
                         } else if f := file(ctx, s); f != nil {
@@ -3733,7 +3730,7 @@ func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
                         } else {
                                 return
                         }
-                }
+                }}
 
                 if fs = proj.selectFiles(ctx, am); fs == nil { return }
 
@@ -3749,17 +3746,14 @@ func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
 
                 if en > 0 { for i, m := range am {
                         info(of(ctx,m.pattern), "found %d. %s → %s(%s) → %v", i, m.name, typeof(m.pattern), m.pattern, m.locs)
-                } }
+                }}
         }
 
-        for _, a := range merge(ic.a...) {
-                if fil(a); en > 0 {
-                        erro(ctx, `%v: %s(%v) is not a file (%v)`, proj, typeof(a), a, list)
-                        errostack(ctx, 5).debug(16)
-                        break
-                }
-        }
-
+        for _, a := range umerge(true, args...) { if fil(a); en > 0 {
+                erro(ctx, `%v: %s(%v) is not a file (%v)`, proj, typeof(a), a, list)
+                errostack(ctx, 5).debug(16)
+                break
+        }}
         return list
 }
 

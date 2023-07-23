@@ -9,6 +9,7 @@ import (
 	"sync"
 	"strings"
 	"testing"
+	"path/filepath"
 )
 
 const TER = false
@@ -2324,6 +2325,49 @@ func TestBuiltins(t *testing.T) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "foo-bar-a-0" {
 		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	fullFooTxt := filepath.Join(ctx.WorkDir(), "foo.txt")
+	if v := ctx.get("val8"); v == nil {
+		ctx.err("val8")
+	} else if v.String() != "foo.txt" {
+		ctx.err("%T %v", v, v)
+	} else if v.Strval(ctx) != "foo.txt" {
+		ctx.err("%T %v", v, v)
+	} else if _, y := v.(*barecomp); !y {
+		ctx.err("%T %v", v, v)
+	} else if f := (as{v}.file(ctx)); f == nil {
+		ctx.err("%T %v", v, v)
+	} else if o, y := (as{v}.fullnameOpt(ctx)); !y || o.Value == nil {
+		ctx.err("%T %v ; %T %v %v", v, v, o.Value, o.Value, y)
+	} else if f, y := o.Value.(*File); !y || f == nil {
+		ctx.err("%T %v", o.Value, o.Value)
+	} else if f.fullname() != fullFooTxt {
+		ctx.err("%T %v %v", v, v, f.fullname())
+	}
+	if v := ctx.get("val9"); v == nil {
+		ctx.err("val9")
+	} else if v.String() != "foo.txt" {
+		ctx.err("%T %v", v, v)
+	} else if v.Strval(ctx) != "foo.txt" {
+		ctx.err("%T %v", v, v)
+	} else if f, y := v.(*File); !y || f == nil {
+		ctx.err("%T %v", v, v)
+	} else if f.fullname() != fullFooTxt {
+		ctx.err("%T %v %v", v, v, f.fullname())
+	}
+	if v := ctx.get("val10"); v == nil {
+		ctx.err("val10")
+	} else if v.String() != "foo.txt" {
+		ctx.err("%T %v", v, v)
+	} else if v.Strval(ctx) != fullFooTxt { o, y := v.(fullnameOpt)
+		ctx.err("%T %v ; %T %v %v", v, v, o.Value, o.Value, y)
+	} else if o, y := v.(fullnameOpt); !y {
+		ctx.err("%T %v", v, v)
+	} else if f, y := o.Value.(*File); !y || f == nil {
+		ctx.err("%T %v", o.Value, o.Value)
+	} else if f.fullname() != fullFooTxt {
+		ctx.err("%T %v %v", v, v, f.fullname())
 	}
 
 	ctx.flush()
