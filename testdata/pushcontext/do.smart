@@ -1,0 +1,13 @@
+project pushcontext
+
+foo := foobar
+
+eval push-context foo
+
+foo1 := $(foo)
+foo  := x
+foo2 := $(foo)
+
+eval pop-context
+
+foo3 := $(foo)

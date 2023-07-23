@@ -202,7 +202,7 @@ func (opts *useVarOpts) apply(ctx Context, def *def, vals []Value) {
 func parseUseNameOpts(ctx Context, nameVal Value) (name string, opts useVarOpts) {
     if a, y := nameVal.(*argumented); y {
         opts.remainder = parseOpts(ctx, &opts, plain, a.args...)
-		name = a.value.Strval(ctx)
+		name = a.Value.Strval(ctx)
 	} else {
         name = nameVal.Strval(ctx)
     }
@@ -354,10 +354,7 @@ func (l *loader) use(ctx Context, opts useOpts, specVal Value, arged []Value, pa
     } else if specName = specVal.Strval(ctx); specName == "" {
         errostack(ctx, 3, "empty spec: %v (%T)", specVal, specVal).debug(6)
         return
-    } else if absPath, isDir, err = uc.search(linfo, specName); err != nil {
-        errostack(ctx, 3, "no such package `%v` (%T)", specName, specVal).debug(6)
-        return
-    } else if absPath == "" {
+    } else if absPath, isDir = uc.search(ctx, linfo, specName); absPath == "" {
         errostack(ctx, 3, "missing `%s` (in %v)", specName, uc.paths).debug(6)
         return
     } else {
@@ -669,28 +666,26 @@ func (l *loader) usePath() (s string) {
     return
 }
 
-func iterateargumentedIdentElems(ctx Context, elems, stems []Value, f func(elems, stems []Value)) {
-    for i, elem := range elems {
-        if a, ok := elem.(*argumented); ok {
-            var prefix, suffix = elems[:i], elems[i+1:]
-            iterateargumentedIdentifiers(ctx, a, func(ident Value, stems2 []Value) {
-                var head   = append(prefix, ident)
-                var stems3 = append(stems , stems2...)
-                iterateargumentedIdentElems(ctx, suffix, stems3, func(elems, stems []Value) {
-                    f(append(head, elems...), stems)
-                })
+func iterateArgumentedIdentElems(ctx Context, elems, stems []Value, f func(elems, stems []Value)) {
+    for i, elem := range elems { if a, y := elem.(*argumented); y {
+        var prefix, suffix = elems[:i], elems[i+1:]
+        iterateArgumentedIdentifiers(ctx, a, func(ident Value, stems2 []Value) {
+            var head   = append(prefix, ident)
+            var stems3 = append(stems , stems2...)
+            iterateArgumentedIdentElems(ctx, suffix, stems3, func(elems, stems []Value) {
+                f(append(head, elems...), stems)
             })
-            return
-        }
-    }
+        })
+        return
+    }}
     f(elems, stems)
 }
 
-func iterateargumentedIdentifiers(ctx Context, identifier Value, f func(ident Value, stem []Value)) {
+func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Value, stem []Value)) {
     switch t := identifier.(type) {
     case *argumented:
-        var args = mergex(ctx, plain, t.args...)
-        iterateargumentedIdentifiers(ctx, t.value, func(ident Value, stems []Value) {
+        var args = xmerge(ctx, plain, t.args...)
+        iterateArgumentedIdentifiers(ctx, t.Value, func(ident Value, stems []Value) {
             var pos = ident.Position()
             for _, arg := range args {
                 if isTrivial(arg) { continue }
@@ -698,7 +693,7 @@ func iterateargumentedIdentifiers(ctx Context, identifier Value, f func(ident Va
             }
         })
     case *barecomp:
-        iterateargumentedIdentElems(ctx, t.Elems, nil, func(elems, stems []Value) {
+        iterateArgumentedIdentElems(ctx, t.Elems, nil, func(elems, stems []Value) {
             if len(stems) == 0 { f(t, stems) } else {
                 f(MakeBarecomp(t.Position(), elems...), stems)
             }
@@ -709,37 +704,36 @@ func iterateargumentedIdentifiers(ctx Context, identifier Value, f func(ident Va
 }
 
 func (l *loader) define(ctx Context, tok Token, identifier, value Value) (defs []*def) {
-    iterateargumentedIdentifiers(ctx, identifier, func(ident Value, stems []Value) {
-        var def = l.define1(ctx, tok, ident, value)
-        defs = append(defs, def)
+    iterateArgumentedIdentifiers(ctx, identifier, func(ident Value, stems []Value) {
+        if d := l.define1(ctx, tok, ident, value); d != nil { defs = append(defs, d) }
     })
     return
 }
 
-func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (res *def) {
+func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *def) {
     var alt Object
     switch t := identifier.(type) {
-    case *selection:
-        var v = t.value(ctx, ident)
-        if a, y := v.(*def); y {
-            res = a
-        } else {
-            erro(ctx, "`%v` is not a def (%T)", t, v)
-            return
-        }
-
     case *argumented:
-        var args = mergex(ctx, plain, t.args...)
-        erro(ctx, "TODO: multiple defs: %v args=%v", t.value, args)
+        var args = xmerge(ctx, plain, t.args...)
+        erro(ctx, "TODO: multiple defs: %v args=%v", t.Value, args)
         return
 
-    case *Group:
+    case *group:
         erro(ctx, "TODO: multiple defs: %v", t.Elems)
         return
 
-    default: //case *bareword, *barecomp, *Qualiword, *Path, *Flag:
+    case *selection:
+        if v := t.value(ctx, ident); v == nil {
+            erro(ctx, "nil selection: %v", t).debug(1)
+            return
+        } else if a, y := v.(*def); y { d = a } else {
+            erro(ctx, "`%v` is not a def (%T)", t, v).debug(1)
+            return
+        }
+
+    default: //case *bareword, *barecomp, *Qualiword, *Path, *flag:
         var name = t.Strval(ctx)
-        if _, ok := builtins[name]; ok {
+        if _, y := builtins[name]; y {
             erro(ctx, "`%v` (%v) is builtin name", identifier, name)
             return
         }
@@ -747,74 +741,105 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (res *
         // Resolve base value to derive.
         var prev = l.project.resolveObject(ctx, name)
 
-        if res, alt = l.def(identifier.Position(), name); alt == nil {
-            if res == nil {
-                erro(ctx, "`%s` is undefined, via %v (%)", name, t, t).debug(1)
+        if d, alt = l.def(t.Position(), name); alt == nil {
+            if d == nil {
+                erro(ctx, "`%s` is undefined (%v %v)", name, typeof(t), t).debug(1)
                 return
-            } else if tok == ADD_ASSIGN && prev == nil {
-                if false {
-                    erro(ctx, "`%s` must be defined first to append", name).debug(1)
-                    return
-                }
-                // if prev != nil { if d, y := prev.(*def); y { res.origin = d.origin } }
-                // if res.origin == DefVoid { res.origin = DefDefault }
+            } else if false && tok == ADD_ASSIGN && prev == nil {
+                erro(ctx, "`%s` must be defined first to append", name).debug(1)
+                return
             }
         } else if tok == ASSIGN || tok == EXC_ASSIGN {
-            if ad, okay := alt.(*def); !okay {
+            if a, y := alt.(*def); !y {
                 erro(ctx, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).debug(1)
                 return
-            } else if ad.owner == l.project && ad.origin != DefConfRef {
+            } else if a.owner == l.project && a.origin != DefConfRef {
                 erro(ctx, "`%v` already defined (%T) (%v)", identifier, alt, l.project).debug(1)
                 return
             } else {
-                res = ad
+                d = a
             }
         } else {
-            res = alt.(*def)
+            d = alt.(*def)
         }
 
         if prev == nil {
             // no derived value
         } else if prev.OwnerProject() == l.project {
-            // not derivable def if in the same project
+            // not derivable def if they are from the same project
         } else if derived, y := prev.(*def); !y {
             // not a def
         } else if derived == nil {
             erro(ctx, "prev def '%s' is nil", name).debug(1)
-        } else if derived == res || (res.value != nil && res.value.refs(ctx, derived)) {
+        } else if derived == d || (d.value != nil && d.value.refs(ctx, derived)) {
             // same def
-        } else if tok == ADD_ASSIGN && alt == nil {
-            // NOTE: We must set the origin from Void to derived origin! If not, the
-            //       Def.Call method will fail to initiate a real 'call' with arguments
-            //       set correctly, (see (*def).Call for details).
-            if res.origin == DefVoid { res.origin = derived.origin }
-            if !isTrivial(derived.value) { res.append(ctx, derived.value) }
+        } else if d != nil && tok == ADD_ASSIGN && alt == nil {
+            if d.origin == DefVoid { d.origin = derived.origin }
+            if !isTrivial(derived.value) { d.append(ctx, derived.value) }
         }
     }
 
-    if res == nil {
-        erro(ctx, "def is nil for '%v' of %T", identifier, identifier).debug(1)
+    if d == nil {
+        erro(ctx, "def is nil: %v %v", typeof(identifier), identifier).debug(1)
         return
     }
 
-    res.position = identifier.Position()
-    l.assign(ctx, tok, res, alt, value)
+    switch d.position = identifier.Position(); tok {
+    case     ASSIGN: d.set(ctx, DefDefault, value) //   =
+    case CO1_ASSIGN: d.set(ctx, DefExpand1, value) //  :=
+    case CO2_ASSIGN: d.set(ctx, DefExpand2, value) // ::=
+    case EXC_ASSIGN: d.set(ctx, DefExecute, value) //  !=
+    case QUE_ASSIGN: if alt == nil { d.set(ctx, DefDefault, value) } // ?=
+    case ADD_ASSIGN: if !isTrivial(value) { d.append(ctx, value) } // +=
+    case SHI_ASSIGN: if !isTrivial(value) { tail := d.value // =+
+        if d.val(ctx, value); !isTrivial(tail) { d.append(ctx, tail) }
+    }
+    case SUB_ASSIGN: if d.value != nil { if dv := merge(d.value); len(dv) > 0 { // -=
+        var vals []Value
+        var sub = merge(value)
+    outer1:
+        for _, v := range dv {
+            for _, sv := range sub { if v.cmp(ctx, sv) == cmpEqual { continue outer1 }}
+            vals = append(vals, v)
+        }
+        d.value = ease(ctx, vals)
+    }}
+    case SAD_ASSIGN, SSH_ASSIGN: // -+=, -=+
+        var vals []Value
+        var sub = merge(value)
+        if d.value != nil { if dv := merge(d.value); len(dv) > 0 {
+        outer2:
+            for _, v := range dv {
+                for _, sv := range sub { if v.cmp(ctx, sv) == cmpEqual { continue outer2 }}
+                vals = append(vals, v)
+            }
+        }}
+        if SAD_ASSIGN == tok {
+            vals = append(vals, sub...) // -+=
+        } else {
+            vals = append(sub, vals...) // -=+
+        }
+        d.value = ease(ctx, vals)
+    default:
+        erro(ctx, "unknown origin: %v %v %v", d.origin, d.name, tok).debug(1)
+    }
     return
 }
 
 func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
     var (
         ctx = at(l, l.Position())
-        params  []*def
+        params []*auto
         depends []Value
         ordered []Value
         progScope *Scope = l.Scope()
         configure = clause.config
         recipes = clause.recipes
     )
-    for _, name := range clause.params {
-        def := progScope.Lookup(name).(*def)
-        params = append(params, def)
+    for _, name := range clause.params { o := progScope.Lookup(name)
+        if a, y := o.(*auto); y { params = append(params, a) } else {
+            errostack(ctx, 3, "invalid param: %T %v", o, o).debug(5)
+        }
     }
     for _, depend := range clause.depends {
         switch dep := depend.(type) {
@@ -829,7 +854,8 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
         }
     }
 
-    var prog = &Program{
+    var u = ctx.universe()
+    var prog = &program{
         language: l.p.dialect,
         project:  l.project,
         scope:    progScope,
@@ -857,7 +883,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             entries = append(entries, entry)
         }
 
-        if t, okay := entry.Target().(*Flag); okay && t != nil {
+        if t, okay := entry.Target().(*flag); okay && t != nil {
             var s = t.name.Strval(ctx)
             if l.project.name != "~" { l.Globe().AddFlagEntry(s, entry) }
         } else if configure {
@@ -866,7 +892,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
                 return
             } else {
                 l.project.configs = append(l.project.configs, entry)
-                configuration.entries = append(configuration.entries, entry)
+                u.configuration.entries = append(u.configuration.entries, entry)
             }
         }
     }
@@ -887,14 +913,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     )
 
     defer func(t time.Time) {
-        var panics, _ = assured(ctx, true)
-        if proj := l.project; panics > 0 {
-            if err != nil { erro(ctx, "panics with error: %v", panics, err) }
-            erro(ctx, "failed: got %d panics from %v (%s)", panics, proj, proj.spec).debug(128)
-        } else if err != nil {
-            erro(ctx, "parse file failed: %v", err).debug(128)
-        }
-
+        if err != nil { erro(ctx, "parse file failed: %v", err).debug(128) }
         if d := time.Now().Sub(t); d > time.Duration(options.slow)*time.Millisecond {
             warnstack(ctx, 10, "%v: slow include (%v)", l.project, d).debug(1) //  → %s, filename
         } else if options.verbose {
@@ -905,7 +924,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     ctx = at(ctx, spec.Position())
 
     // Execute the rule entry to update include source.
-    if entry, ok := spec.(*Rule); ok && entry != nil {
+    if entry, ok := spec.(*rule); ok && entry != nil {
         var (
             result []Value
             okay bool
@@ -1052,8 +1071,8 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
         var numBaseParams int
         for _, elem := range params {
             if l, y := elem.(*List); y && len(l.Elems) == 1 { elem = l.Elems[0] }
-            if a, y := elem.(*argumented); y { elem = a.value }
-            if _, y := elem.(*Pair); y { continue }
+            if a, y := elem.(*argumented); y { elem = a.Value }
+            if _, y := elem.(*pair); y { continue }
             numBaseParams += 1
         }
         if numBaseParams == 0 {
@@ -1074,7 +1093,7 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
 
     if implicitBase != "" {
         implicitIndex = len(implicitBases)
-        implicitBases = append(implicitBases, MakePathStr(position, implicitBase))
+        implicitBases = append(implicitBases, pathStr(ctx, position, implicitBase))
     }
 
 ParamsLoop:
@@ -1084,11 +1103,10 @@ ParamsLoop:
             absPath string
             args []Value
             isDir bool
-            err error
         )
         if list, y := elem.(*List); y && len(list.Elems) == 1 { elem = list.Elems[0] }
-        if a, y := elem.(*argumented); y { elem, args = a.value, a.args }
-        if p, y := elem.(*Pair); y {
+        if a, y := elem.(*argumented); y { elem, args = a.Value, a.args }
+        if p, y := elem.(*pair); y {
             var (
                 identifier = p.Key
                 position = identifier.Position()
@@ -1108,18 +1126,18 @@ ParamsLoop:
             specVal Value
             implicit bool
         )
-        if specVal = elem.expand(ctx, plain); specVal == nil {
+        if specVal = elem.expand(ctx, strval); specVal == nil {
             specVal = elem // okay!
-        } else if true && specVal.expandable(ctx, plain) {
-            erro(at(ctx,elemPos), "incomplete expand: %T %v -> %T %v", elem, elem, specVal, specVal).debug(1)
+        } else if true && specVal.expandable(ctx, strval) {
+            errostack(at(ctx,elemPos), 5, "incomplete expand: %T %v ⇒ %T %v", elem, elem, specVal, specVal).debug(16)
             return
         } else if defs := specVal.defs(ctx); len(defs) > 0 {
-            erro(at(ctx,elemPos), "incomplete expand: %v -> %v (defs=%v)", elem, specVal, defs).debug(1)
+            errostack(at(ctx,elemPos), 5, "incomplete expand: %v ⇒ %v (defs=%v)", elem, specVal, defs).debug(16)
             return
         }
 
-        if specName = elem.Strval(ctx); specName == "" {
-            erro(at(ctx,elemPos), "%v: empty base name `%v` (%T)", l.project, elem, elem).debug(1)
+        if specName = specVal.Strval(ctx); specName == "" {
+            erro(at(ctx,elemPos), "%v: empty base name `%v` (%T)", l.project, specVal, specVal).debug(1)
             break ParamsLoop
         } else if strings.Contains(specName, "//") {
             erro(at(ctx,elemPos), "%v: invalid spec: %v in %T", l.project, elem, ctx)
@@ -1140,11 +1158,7 @@ ParamsLoop:
         } else if f, y := toFile(elem); y && f.info != nil {
             absPath, isDir = f.fullname(), f.info.IsDir()
             if true { assert(filepath.IsAbs(absPath), "invalid abs path: %v", f) }
-        } else if absPath, isDir, err = uc.search(linfo, specName); err != nil {
-            erro(at(ctx,elemPos), "%v: search base failed: %v -> %v", l.project, elem, specName)
-            erro(at(ctx,elemPos), "%v: search base failed, %v", l.project, err).debug(6)
-            break ParamsLoop
-        } else if absPath == "" {
+        } else if absPath, isDir = uc.search(at(ctx,position), linfo, specName); absPath == "" {
             erro(at(ctx,elemPos), "%v: search base failed: %v -> %v", l.project, elem, specName).debug(1)
             break ParamsLoop
         }
@@ -1385,7 +1399,7 @@ func (l *loader) declare(ctx Context, keyword Token, ident *barecomp, identStr s
 
     for _, arg := range merge(l.loadArgs...) {
         switch t := arg.(type) {
-        case *Pair:
+        case *pair:
             var name = t.Key.Strval(ctx)
             var d, a = l.def(t.Key.Position(), name)
             if a != nil {
@@ -1427,105 +1441,108 @@ func (l *loader) autoAfter(ctx Context, tag string) {
         if false && tag == "declare" { info(ctx, "%v: %v", proj, tag).debug(4) }// skip...
     } else {
         const ( o = true ; t = false )
-        if t && ddd { prompt(ctx, "%s: loader.autoAfter - %s\n", l.Position(), tag) }
+        if t && ctx.universe().ddd { prompt(ctx, "%s: loader.autoAfter - %s\n", l.Position(), tag) }
         if o { l.include(ctx, includeOpts{}, val) }
-        if t && ddd { prompt(ctx, "%s: loader.autoAfter - %s.\n", l.Position(), tag) }
+        if t && ctx.universe().ddd { prompt(ctx, "%s: loader.autoAfter - %s.\n", l.Position(), tag) }
     }
 }
 
-func (l *loader) configuration(ctx Context, linfo *loadinfo, ident *barecomp, identStr string, declared bool) (result bool) {
+func (l *loader) loadConfiguration(ctx Context, linfo *loadinfo, ident *barecomp, identStr string, declared bool) (result bool) {
     if false { defer un(tracef(t_traverse, "configuration(%v)", ident)) }
+    if s := l.project.name; s == dotConfigure { return }
 
-    // Get configuration file name for the project and include it in flat mode.
-    if file := l.project.configuration(ctx); file == nil {
+    var local bool
+    var configure string
+    var uc = l.universe()
+    var v = l.project.opts.configureFlag
+    if v != nil {
+        if t, y := v.(*boolean); y { if !t.bool { return } } else
+        if !Is(v, KindNumber) { configure = v.Strval(ctx) }
+    }
+    if local = configure == "."; local || configure == "" { configure = "configure" }
+
+    var loaded *Project
+    var load = func(absPath string, isDir bool) (res bool) {
+        if isDir {
+            if !l.dir(ctx, configure, absPath, nil) { return }
+        } else {
+            if !l.file(ctx, absPath, nil) { return }
+        }
+
+        var globe = l.Globe()
+        if loaded, res = globe.loaded[absPath]; loaded == nil { res = false }
+        if !res { erro(ctx, "not loaded: %s (%s, dir=%v)", configure, absPath, isDir).debug(16) }
+        return
+    }
+
+    var ( absPath string ; isDir bool )
+    if filepath.IsAbs(configure) { if file := stat(ctx, configure, "", ""); file.exists() {
+        absPath, isDir = file.fullname(), file.info.IsDir()
+    }} else if file := stat(ctx, configure, "", l.project.absPath); file.exists() {
+        absPath, isDir = file.fullname(), file.info.IsDir()
+    }
+    if absPath == "" && v != nil {
+        if !local { absPath, isDir = uc.search(ctx, linfo, configure) }
+        if absPath == "" {
+            erro(ctx, "%v: no such project: %s", l.project, configure)
+            errostack(ctx, 3).debug(6)
+        }
+    }
+    if absPath == "" { return } else
+    if !load(absPath, isDir) { return }
+
+    if name, _ := l.Scope().Lookup(dotConfigure).(*projectname); name == nil {
+        if _, alt := l.Scope().projectname(ctx, dotConfigure, loaded); alt != nil {
+            if val, ok := alt.(*projectname); !ok || val == nil {
+                erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
+            }
+        }
+    }
+    if l.project.configure == loaded { return }
+    if l.project.configure != nil {
+        erro(ctx, ".configure already specified").debug(1)
+        return
+    }
+
+    var opts = useOpts{}
+    for _, usee := range loaded.usees(true, false, false, false) {
+        if err := l.addUsing(ctx, usee, nil, opts); err != nil { // see applyUseVars
+            erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
+            break
+        }
+    }
+
+    // Load configuration.sm after .configure was loaded.
+    l.project.configure = loaded // must set .configure first to get the correct configuration file
+    l.project.configurationLoad = l.project.configuration(ctx)
+    if f := l.project.configurationLoad; f == nil {
         erro(ctx, "%v: nil configuration file", ident).debug(1)
         return
     } else if declared || options.configure {
-        var ( s string = file.fullname(); exists bool )
-        for _, v := range configuration.clean { if s == v { exists = true; break }}
-        if !exists { configuration.clean = append(configuration.clean, s) }
-    } else if file.exists() {
+        var ( s string = f.fullname(); exists bool )
+        for _, v := range uc.configuration.clean { if s == v { exists = true; break }}
+        if !exists { uc.configuration.clean = append(uc.configuration.clean, s) }
+    } else if f.exists() || f.stat(ctx) != nil {
         if false && (options.verboseImport || options.verboseLoads) {
-            var cp Position; cp.Filename, cp.Line = file.fullname(), 1
+            var cp Position; cp.Filename, cp.Line = f.fullname(), 1
             info(at(ctx,cp), "%s (%s)", l.project, l.project.spec).debug(true, 1)
         } else if options.verbose {
-            info(ctx, "%v for %s (%s)", file, l.project.spec, l.project).debug(16)
+            info(ctx, "%v for %s (%s)", f, l.project.spec, l.project).debug(16)
         }
+        if testPromptConfiguration { if l.project.name == "testdefaultconfigure" {
+            prompt(ctx, "%v:1: %v\n", f.fullname(), l.project)
+            noted(ctx, "%v", f).debug(1)
+        }}
+        // Include it in flat mode.
         var isIncludingConf = l.p.isIncludingConf
         l.p.isIncludingConf = true
-        l.include(ctx, includeOpts{isConfigure: true}, file)
+        l.include(ctx, includeOpts{isConfigure:true}, f)
         l.p.isIncludingConf = isIncludingConf
-    }
-
-    if s := l.project.name; s == dotConfigure { return } else
-    if l.project.opts.configure || l.project.opts.configureName != "" {
-        var configure = l.project.opts.configureName
-        if configure == "" { configure = "configure" }
-
-        var loaded *Project
-        var load = func(absPath string, isDir bool) (res bool) {
-            if isDir {
-                if !l.dir(ctx, configure, absPath, nil) { return }
-            } else {
-                if !l.file(ctx, absPath, nil) { return }
-            }
-
-            var globe = l.Globe()
-            if loaded, res = globe.loaded[absPath]; loaded == nil { res = false }
-            if !res { erro(ctx, "not loaded: %s (%s, dir=%v)", configure, absPath, isDir).debug(16) }
-            return
-        }
-
-        var uc = l.universe()
-        if absPath, isDir, err := uc.search(linfo, configure); err != nil {
-            erro(ctx, "%v: search configure failed: %v", l.project, configure, err)
-            errostack(ctx, 3).debug(6)
-            return false
-        } else if absPath == "" {
-            if file := stat(ctx, configure, "", l.project.absPath); file.exists() {
-                if !load(file.fullname(), file.info.IsDir()) { return }
-            } else if file = stat(ctx, dotConfigure, "", l.project.absPath); file.exists() {
-                if !load(file.fullname(), file.info.IsDir()) { return }
-            } else {
-                erro(ctx, "%v: no such project: %s", l.project, configure)
-                errostack(ctx, 3).debug(6)
-                return false
-            }
-        } else if !load(absPath, isDir) {
-            return
-        }
-
-        if name, _ := l.Scope().Lookup(dotConfigure).(*projectname); name == nil {
-            if _, alt := l.Scope().projectname(ctx, dotConfigure, loaded); alt != nil {
-                if val, ok := alt.(*projectname); !ok || val == nil {
-                    erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
-                }
-            }
-        }
-        if l.project.configure == loaded { return }
-        if l.project.configure != nil {
-            erro(ctx, ".configure already specified").debug(1)
-            return
-        }
-
-        l.project.configure, result = loaded, true
-
-        var opts = useOpts{}
-        for _, usee := range loaded.usees(true, false, false, false) {
-            if err := l.addUsing(ctx, usee, nil, opts); err != nil { // see applyUseVars
-                erro(ctx, "using '%v' failed: %v", usee, err).debug(1)
-                break
-            }
-        }
-    } else if file := stat(ctx, dotConfigure, "", l.project.absPath); file.exists() {
-        if true {
-            warn(ctx, ".configure is deprecated, use -configure to search 'configure'").debug(1)
-        } else if identStr == dotConfigure {
-            erro(ctx, "provided .configure for a .configure project").debug(1)
-        } else if !l.loadDotConfigure(ctx, ident, identStr, file) {
-            //erro(ctx, "declare %s: %s/.configure", name, l.project.absPath)
-        }
-    }
+    } else if testPromptConfiguration { if l.project.name == "testdefaultconfigure" {
+        i, _ := os.Stat(f.fullname())
+        prompt(ctx, "%v:1: %v\n", f.fullname(), l.project)
+        noted(ctx, "%v %v %v", f, f.stat(ctx), i).debug(16)
+    }}
     return true
 }
 
@@ -1538,22 +1555,22 @@ func (l *loader) loadProjectContainer(ctx Context, ident *barecomp, identStr str
         }
 
         // Looking for project specific .container module
-        if file := stat(ctx, dotContainer, "", l.project.absPath); file.exists() {
-            if !l.loadDotContainer(ctx, ident, identStr, file) {
+        if f := stat(ctx, dotContainer, "", l.project.absPath); f.exists() {
+            if !l.loadDotContainer(ctx, ident, identStr, f) {
                 //erro(ctx, "declare %s: %s/.container", name, l.project.absPath)
             }
             if options.verbose {
-                info(ctx, "%v for %s (%s)\n", file, l.project.spec, l.project).debug(1)
+                info(ctx, "%v for %s (%s)\n", f, l.project.spec, l.project).debug(1)
             }
             return
         }
 
         // Looking for .smart/.container
         walkSmartBaseDirs(ctx, l.project.absPath, func(s string) bool {
-            var file = stat(ctx, dotContainer, "", filepath.Join(s, ".smart"))
-            if !file.exists() {
+            var f = stat(ctx, dotContainer, "", filepath.Join(s, ".smart"))
+            if !f.exists() {
                 // no docking enabled
-            } else if !l.loadDotContainer(ctx, ident, identStr, file) {
+            } else if !l.loadDotContainer(ctx, ident, identStr, f) {
                 //erro(ctx, "%v", err)
             }
             return false
@@ -1644,7 +1661,7 @@ func (l *loader) resolveObject(value Value) (name string, result Value) {
     return
 }
 
-func (l *loader) resolveEntries(target Value) (entries *ResolveEntries) {
+func (l *loader) resolveEntries(target Value) (entries *resolvedEntries) {
     var ctx = at(l, l.Position())
     entries = l.project.resolveEntries(ctx, target, false)
     return
@@ -1670,85 +1687,6 @@ func (l *loader) def(position Position, name string) (def *def, alt Object) {
     }
     def, alt = scope.define(at(l, position), DefVoid, name, nil)
     if def != nil { def.position = position }
-    return
-}
-
-func (l *loader) assign(ctx Context, tok Token, def *def, alt Object, value Value) {
-    switch tok {
-    case ASSIGN:     //   =
-        def.set(ctx, DefDefault, value)
-    case CO1_ASSIGN: //  :=
-        def.set(ctx, DefExpand1, value)
-    case CO2_ASSIGN: // ::=
-        def.set(ctx, DefExpand2, value)
-    case EXC_ASSIGN: //  !=
-        def.set(ctx, DefExecute, value)
-    case QUE_ASSIGN: //  ?=
-        if isNull(alt) { def.set(ctx, DefDefault, value) }
-    case ADD_ASSIGN: //  +=
-        if isTrivial(value) {
-            // NOOP
-        } else if def.value != nil && def.value.refs(ctx, value) {
-            erro(ctx, "self-ref value: %v -> %v ; %v ; %v",
-                def.value, value, def.value, value).debug(1)
-        } else {
-            def.append(ctx, value)
-        }
-    case SHI_ASSIGN: //  =+
-        if isTrivial(value) {
-            // NOOP
-        } else if def.value != nil && def.value.refs(ctx, value) {
-            erro(ctx, "self-ref value: %v -> %v ; %v ; %v",
-                def.value, value, def.value, value).debug(1)
-        } else {
-            var tail = def.value
-            def.val(ctx, value)
-            def.append(ctx, merge(tail)...)
-            warn(ctx, "%v; %v; %v", value, tail, def).debug(1)
-        }
-    case SUB_ASSIGN: // -=
-        if isTrivial(def.value) {
-            // NOOP
-        } else {
-            var (
-                vals []Value
-                sub = merge(value)
-            )
-        ForOldVals:
-            for _, val := range merge(def.value) {
-                for _, v := range sub {
-                    if val.cmp(ctx, v) == cmpEqual { continue ForOldVals }
-                }
-                vals = append(vals, val)
-            }
-            def.value = MakeList(def.position, vals...)
-        }
-    case SAD_ASSIGN, SSH_ASSIGN: // -+=, -=+
-        var (
-            vals []Value
-            newVals = merge(value)
-        )
-        if isTrivial(def.value) {
-            // NOOP
-        } else {
-        ForOldVals1:
-            for _, val := range merge(def.value) {
-                for _, v := range newVals {
-                    if val.cmp(ctx, v) == cmpEqual { continue ForOldVals1 }
-                }
-                vals = append(vals, val)
-            }
-        }
-        if SAD_ASSIGN == tok {
-            vals = append(vals, newVals...) // -+=
-        } else {
-            vals = append(newVals, vals...) // -=+
-        }
-        def.value = MakeList(def.position, vals...)
-    default:
-        erro(ctx, "unknown origin: %v %v %v",
-            def.origin, def.name, tok).debug(1)
-    }
     return
 }
 
@@ -1790,13 +1728,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
     defer func(t time.Time, saved *parser, m Mode) {
         if true { ctx = l.p.ctx() }
 
-        var panics, _ = assured(ctx, true)
-        if proj := l.project; panics > 0 {
-            if err != nil { erro(ctx, "panics with error: %v", panics, err) }
-            erro(ctx, "failed: got %d panics from %v (%s)", panics, proj, proj.spec).debug(128)
-        } else if err != nil {
-            erro(ctx, "parse file failed: %v", err).debug(128)
-        }
+        if err != nil { erro(ctx, "parse file failed: %v", err).debug(128) }
 
         if d := time.Now().Sub(t); d > time.Duration(options.slow)*time.Millisecond*10 {
             warnstack(ctx, 10, "%v: slow loading (%v)", l.project, d).debug(1) //  → %s, filename
@@ -1884,10 +1816,9 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 ListLoop:
     for _, d := range list {
         var name = d.Name()
-        if  strings.HasPrefix(name, "~") ||
-            strings.HasSuffix(name, ".#") ||
-            strings.HasSuffix(name, ".smart") ||
-            strings.HasSuffix(name, ".sm") { continue ListLoop }
+        if hasPrefix(name, "~") || hasSuffix(name, ".#", ".smart", ".sm") {
+            continue ListLoop
+        }
 
         var fullname = filepath.Join(linked, name)
         if d.Mode()&os.ModeSymlink != 0 {
@@ -2129,35 +2060,35 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
 func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileInfo) bool) (loadedOkay bool) {
     if options.traceLaunch { defer un(trace(t_launch, "loader.dir")) }
 
-    var pos Position = ctx.Position()
     if !filepath.IsAbs(absDir) {
         errostack(ctx, 3, "needs absolute dir `%s' (%s)", absDir, specName).debug(10)
         return
-    } else if !pos.IsValid() { pos = positionForDir(absDir) }
+    }
+
+    var pos Position = ctx.Position()
+    if !pos.IsValid() { pos = positionForDir(absDir) }
 
     var loaded *Project
     var globe = ctx.Globe()
     defer func(t time.Time, ver bool) {
-        if d := time.Now().Sub(t); ver && d>1*time.Second {
-            if l.project == nil {
-                noted(ctx, "load (%15s) ⇒ %s (%s)\n", d, loaded, specName).debug(1)
-            } else {
-                noted(ctx, "load (%15s) %s ⇒ %s (%s)\n", d, l.project.name, loaded, specName).debug(1)
-            }
-        }
+        if d := time.Now().Sub(t); ver && d>1*time.Second { if l.project == nil {
+            noted(ctx, "load (%15s) ⇒ %s (%s)\n", d, loaded, specName).debug(1)
+        } else {
+            noted(ctx, "load (%15s) %s ⇒ %s (%s)\n", d, l.project.name, loaded, specName).debug(1)
+        }}
 
         if loaded == nil {
-            erro(ctx, "%v (%v) not loaded in %v", specName, filepath.Base(absDir), l.Scope())
-            errostack(l, 16).debug(512)
+            erro(ctx, "%v (%v) not loaded", specName, filepath.Base(absDir))
+            errostack(ctx, 16).debug(512)
             return
-        } else if globe.main == nil {
-            globe.main = loaded
         }
+
+        if globe.main == nil { globe.main = loaded }
 
         if proj := l.Scope().project; proj == nil {
             if false { erro(ctx, "%v: no owner project for %s", loaded.name, l.Scope()).debug(1) }
         } else if name, _ := proj.scope.Lookup(loaded.name).(*projectname); name == nil {
-            if _, alt := proj.scope.projectname(at(l, pos), loaded.name, loaded); alt != nil {
+            if _, alt := proj.scope.projectname(at(ctx,pos), loaded.name, loaded); alt != nil {
                 if val, ok := alt.(*projectname); !ok || val == nil {
                     erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
                 }

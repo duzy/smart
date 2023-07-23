@@ -6,6 +6,7 @@
 package smart
 
 import (
+	"reflect"
 	"testing"
 	"fmt"
 )
@@ -14,167 +15,188 @@ func TestAutoContext(t *testing.T) {
 	defer func(o commandLineOpts) { options = o } (options)
 	options.failOnErrors = false
 
-	var tc = load_testcase(t, "testdata/value/0", "testvalues0")
-	var get = func(name string, i ...interface{}) Value { return tc.get(name, i...) }
+	var ctx = load_testcase(t, "testdata/value/0", "testvalues0")
+
+	if c := ctx.cast(reflect.TypeOf((*universe)(nil))); c == nil {
+		ctx.err("Context.cast")
+	} else if c := cast[*universe](ctx); c == nil {
+		ctx.err("Context.cast")
+	}
 
 	{
-		ac := autoContext{ Context:tc, defs:make(autoDefMap) }
-		ac.args(tc, nil, []Value{ease(tc, []string{"a", "b", "c"})})
+		ac := autoContext{ Context:ctx, defs:make(autoDefMap) }
+		ac.args(ctx, nil, []Value{ease(ctx, []string{"a", "b", "c"})})
 		if Context(&ac).ac() != &ac {
-			tc.err("%v", Context(&ac))
+			ctx.err("%v", Context(&ac))
 		} else if len(ac.defs) != 1 {
-			tc.err("%v", ac.defs)
+			ctx.err("%v", ac.defs)
 		} else if d, y := ac.defs["1"]; !y {
-			tc.err("1: %v", ac.defs)
+			ctx.err("1: %v", ac.defs)
 		} else if d.value == nil {
-			tc.err("%v", d)
+			ctx.err("%v", d)
 		} else if s := d.value.String(); s != "'a' 'b' 'c'" {
-			tc.err("%T %v -> %s", d.value, d.value, s)
-		} else if s := d.value.Strval(tc); s != "a b c" {
-			tc.err("%T %v -> %s", d.value, d.value, s)
-		} else if d := ac.get(tc, "1"); d == nil {
-			tc.err("%v", ac.defs)
+			ctx.err("%T %v -> %s", d.value, d.value, s)
+		} else if s := d.value.Strval(ctx); s != "a b c" {
+			ctx.err("%T %v -> %s", d.value, d.value, s)
+		} else if d := ac.get(ctx, "1"); d == nil {
+			ctx.err("%v", ac.defs)
 		} else if d := autoDef(&ac, "1"); d == nil {
-			tc.err("%v", ac.defs)
+			ctx.err("%v", ac.defs)
 		} else if v := autoVal(&ac, "1"); v == nil {
-			tc.err("%v", ac.defs)
-		} else if s := v.Strval(tc); s != "a b c" {
-			tc.err("%T %v -> %s", v, v, s)
-		} else if d, v := ac.amend(tc, "1", ease(tc, "a")); d == nil {
-			tc.err("%v", ac.defs)
+			ctx.err("%v", ac.defs)
+		} else if s := v.Strval(ctx); s != "a b c" {
+			ctx.err("%T %v -> %s", v, v, s)
+		} else if d, v := ac.amend(ctx, "1", ease(ctx, "a")); d == nil {
+			ctx.err("%v", ac.defs)
 		} else if v == nil {
-			tc.err("%v", ac.defs)
+			ctx.err("%v", ac.defs)
 		} else if v.String() != "'a' 'b' 'c'" {
-			tc.err("%v %v", ac.defs, v)
+			ctx.err("%v %v", ac.defs, v)
 		} else if d.value == nil {
-			tc.err("%v %v", ac.defs, d)
+			ctx.err("%v %v", ac.defs, d)
 		} else if d.value.String() != "'a'" {
-			tc.err("%v %v", ac.defs, d)
+			ctx.err("%v %v", ac.defs, d)
 		}
 	}
 	{
-		ac := autoContext{ Context:tc, defs:make(autoDefMap) }
-		ac.args(tc, nil, ease(tc, []string{"a", "b", "c"}).(*List).Elems)
+		ac := autoContext{ Context:ctx, defs:make(autoDefMap) }
+		ac.args(ctx, nil, ease(ctx, []string{"a", "b", "c"}).(*List).Elems)
 		if len(ac.defs) != 3 {
-			tc.err("%v", ac.defs)
+			ctx.err("%v", ac.defs)
 		} else if d, y := ac.defs["1"]; !y {
-			tc.err("1: %v", ac.defs)
+			ctx.err("1: %v", ac.defs)
 		} else if d.value == nil {
-			tc.err("%v", d)
+			ctx.err("%v", d)
 		} else if d.value.String() == "a" {
-			tc.err("%T %v", d.value, d.value)
+			ctx.err("%T %v", d.value, d.value)
 		}
 	}
 
-	if foo := tc.def("foo"); foo == nil {
-		tc.err("foo")
+	if foo := ctx.def("foo"); foo == nil {
+		ctx.err("foo")
 	} else if foo.value == nil {
-		tc.err("%v", foo)
+		ctx.err("%v", foo)
 	} else if s := foo.value.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
-		tc.err("%T %v ; %s", foo.value, foo.value, s)
-	} else if s := foo.value.Strval(tc); s != "" {
-		tc.err("%T %v ; %s", foo.value, foo.value, s)
+		ctx.err("%T %v ; %s", foo.value, foo.value, s)
+	} else if s := foo.value.Strval(ctx); s != "" {
+		ctx.err("%T %v ; %s", foo.value, foo.value, s)
 	} else if l, y := foo.value.(*List); !y {
-		tc.err("%T %v", foo.value, foo.value)
+		ctx.err("%T %v", foo.value, foo.value)
 	} else if len(l.Elems) != 10 {
-		tc.err("%v", l.Elems)
-	} else if !l.Elems[0].expandable(tc, expandAuto|expandDigits) {
-		tc.err("%T %v", l.Elems[0], l.Elems[0])
-	} else if !l.Elems[0].expandable(tc, expandAuto|expandDigits|expandDelegate) {
-		tc.err("%T %v", l.Elems[0], l.Elems[0])
-	} else if l.Elems[0].expandable(tc, expandAuto) {
-		tc.err("%T %v", l.Elems[0], l.Elems[0])
-	} else if l.Elems[0].expandable(tc, expandDigits) {
-		tc.err("%T %v", l.Elems[0], l.Elems[0])
-	} else if l.Elems[0].expandable(tc, expandDelegate) {
-		tc.err("%T %v", l.Elems[0], l.Elems[0])
-	} else if l.Elems[0].expandable(tc, expandPlaceholder) {
-		tc.err("%T %v", l.Elems[0], l.Elems[0])
+		ctx.err("%v", l.Elems)
+	} else if !l.Elems[0].expandable(ctx, expandAuto|expandDigits) {
+		ctx.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if !l.Elems[0].expandable(ctx, expandAuto|expandDigits|expandDelegate) {
+		ctx.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if l.Elems[0].expandable(ctx, expandAuto) {
+		ctx.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if l.Elems[0].expandable(ctx, expandDigits) {
+		ctx.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if l.Elems[0].expandable(ctx, expandDelegate) {
+		ctx.err("%T %v", l.Elems[0], l.Elems[0])
+	} else if l.Elems[0].expandable(ctx, expandPlaceholder) {
+		ctx.err("%T %v", l.Elems[0], l.Elems[0])
 	}
 
-	if foo := get("foo"); foo == nil {
-		tc.err("foo")
+	if foo := ctx.get("foo"); foo == nil {
+		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
-		tc.err("%T %v -> %s", foo, foo, s)
-	} else if s := foo.Strval(tc); s != "" {
-		tc.err("%T %v -> %s", foo, foo, s)
+		ctx.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", foo, foo, s)
 	}
 
-	if foo := get("foo", "1"); foo == nil {
-		tc.err("foo")
+	if foo := ctx.get("foo", "1"); foo == nil {
+		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 1 $2 $3 $4 $5 $6 $7 $8 $9" {
-		tc.err("%T %v -> %s", foo, foo, s)
-	} else if s := foo.Strval(tc); s != "1" {
-		tc.err("%T %v -> %s", foo, foo, s)
+		ctx.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(ctx); s != "1" {
+		ctx.err("%T %v -> %s", foo, foo, s)
 	}
 
-	if foo := get("foo", "1", "2", "3"); foo == nil {
-		tc.err("foo")
+	if foo := ctx.get("foo", "1", "2", "3"); foo == nil {
+		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 1 2 3 $4 $5 $6 $7 $8 $9" {
-		tc.err("%T %v -> %s", foo, foo, s)
-	} else if s := foo.Strval(tc); s != "1 2 3" {
-		tc.err("%T %v -> %s", foo, foo, s)
+		ctx.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(ctx); s != "1 2 3" {
+		ctx.err("%T %v -> %s", foo, foo, s)
 	}
 
-	if foo := get("foo", expandDelegate, "1"); foo == nil {
-		tc.err("foo")
+	if foo := ctx.get("foo", expandDelegate, "1"); foo == nil {
+		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 1 $2 $3 $4 $5 $6 $7 $8 $9" {
-		tc.err("%T %v -> %s", foo, foo, s)
-	} else if s := foo.Strval(tc); s != "1" {
-		tc.err("%T %v -> %s", foo, foo, s)
+		ctx.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(ctx); s != "1" {
+		ctx.err("%T %v -> %s", foo, foo, s)
 	}
 
-	if foo := get("foo", expandAutoKept|expandDelegate, "1"); foo == nil {
-		tc.err("foo")
+	if foo := ctx.get("foo", expandAutoKept|expandDelegate, "1"); foo == nil {
+		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
-		tc.err("%T %v -> %s", foo, foo, s)
-	} else if s := foo.Strval(tc); s != "" {
-		tc.err("%T %v -> %s", foo, foo, s)
+		ctx.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", foo, foo, s)
 	}
 
-	if foo := get("foo", "1", "2", "3", expandAutoKept|expandDelegate); foo == nil {
-		tc.err("foo")
+	if foo := ctx.get("foo", "1", "2", "3", expandAutoKept|expandDelegate); foo == nil {
+		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
-		tc.err("%T %v -> %s", foo, foo, s)
-	} else if s := foo.Strval(tc); s != "" {
-		tc.err("%T %v -> %s", foo, foo, s)
+		ctx.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", foo, foo, s)
 	}
 
-	if foo := get("foo", expandDelegate, "1"); foo == nil {
-		tc.err("foo")
+	if foo := ctx.get("foo", expandDelegate, "1"); foo == nil {
+		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 1 $2 $3 $4 $5 $6 $7 $8 $9" {
-		tc.err("%T %v -> %s", foo, foo, s)
-	} else if s := foo.Strval(tc); s != "1" {
-		tc.err("%T %v -> %s", foo, foo, s)
+		ctx.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(ctx); s != "1" {
+		ctx.err("%T %v -> %s", foo, foo, s)
 	}
 
-	if foo := get("foo", expandDelegate, "1", "2", "3"); foo == nil {
-		tc.err("foo")
+	if foo := ctx.get("foo", expandDelegate, "1", "2", "3"); foo == nil {
+		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 1 2 3 $4 $5 $6 $7 $8 $9" {
-		tc.err("%T %v -> %s", foo, foo, s)
-	} else if s := foo.Strval(tc); s != "1 2 3" {
-		tc.err("%T %v -> %s", foo, foo, s)
+		ctx.err("%T %v -> %s", foo, foo, s)
+	} else if s := foo.Strval(ctx); s != "1 2 3" {
+		ctx.err("%T %v -> %s", foo, foo, s)
 	}
 
-	tc.flush()
+	if d := ctx.def("val"); d == nil {
+		ctx.err("val")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "&(foobar)" {
+		ctx.err("%T %v", d.value, d.value)
+	} else if s := d.value.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", d.value, d.value, s)
+	}
+	if v := ctx.get("val"); v == nil {
+		ctx.err("val")
+	} else if v.String() != "&(foobar)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
 }
 
 func TestValues1(t *testing.T) {
 	defer func(o commandLineOpts) { options = o } (options)
 	options.failOnErrors = false
 
-	var tc = load_testcase(t, "testdata/value/1", "testvalues1")
-	var get = func(name string, ii ...interface{}) (res Value) { return tc.get(name, ii...) }
+	var ctx = load_testcase(t, "testdata/value/1", "testvalues1")
 
-	if v := get(".test.foo"); v == nil {
-		tc.err(".test.foo")
-	} else if s := v.Strval(tc); s != "-foo" {
-		tc.err("%T %v -> %s", v, v, s)
+	if v := ctx.get(".test.foo"); v == nil {
+		ctx.err(".test.foo")
+	} else if s := v.Strval(ctx); s != "-foo" {
+		ctx.err("%T %v -> %s", v, v, s)
 	} else if s = v.String(); s != "-foo" {
-		tc.err("%T %v -> %s", v, v, s)
+		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	tc.flush()
+	ctx.flush()
 }
 
 func TestValues2(t *testing.T) {
@@ -182,23 +204,22 @@ func TestValues2(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/2", "testvalues2")
-	var get = func(s string, i ...interface{}) Value { return ctx.get(s, i...) }
 
-	if v := get(".test.ab"); v == nil {
+	if v := ctx.get(".test.ab"); v == nil {
 		ctx.err(".test.ab")
 	} else if s := v.String(); s != "foobar $1-$2" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if s := v.Strval(ctx); s != "foobar -" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.ab", "a", "b"); v == nil {
+	if v := ctx.get(".test.ab", "a", "b"); v == nil {
 		ctx.err(".test.ab")
 	} else if v.String() != "foobar a-b" {
 		ctx.err("%T %v", v, v) // "foobar $1-$2"
 	} else if s := v.Strval(ctx); s != "foobar a-b" {
 		ctx.err("%T %v -> %s", v, v, s) // "foobar -"
 	}
-	if v := get(".test.ab", "a", "b", expandDelegate); v == nil {
+	if v := ctx.get(".test.ab", "a", "b", expandDelegate); v == nil {
 		ctx.err(".test.ab")
 	} else if v.String() != "foobar a-b" {
 		ctx.err("%T %v", v, v)
@@ -206,21 +227,21 @@ func TestValues2(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test.ba"); v == nil {
+	if v := ctx.get(".test.ba"); v == nil {
 		ctx.err(".test.ba")
 	} else if v.String() != "foobaz $2-$1" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "foobaz -" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.ba", "a", "b"); v == nil {
+	if v := ctx.get(".test.ba", "a", "b"); v == nil {
 		ctx.err(".test.ba")
 	} else if v.String() != "foobaz b-a" {
 		ctx.err("%T %v", v, v) // "foobaz $2-$1"
 	} else if s := v.Strval(ctx); s != "foobaz b-a" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.ba", "a", "b", expandDelegate); v == nil {
+	if v := ctx.get(".test.ba", "a", "b", expandDelegate); v == nil {
 		ctx.err(".test.ba")
 	} else if s := v.String(); s != "foobaz b-a" {
 		ctx.err("%T %v", v, v)
@@ -228,14 +249,14 @@ func TestValues2(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test", "a", "b", "c"); v == nil {
+	if v := ctx.get(".test", "a", "b", "c"); v == nil {
 		ctx.err(".test")
 	} else if s := v.String(); s != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c $(call(-c) &(.test.x),aa,bb)" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c foobar aa-bb" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test", "a", "b", "c", expandClosure); v == nil {
+	if v := ctx.get(".test", "a", "b", "c", expandClosure); v == nil {
 		ctx.err(".test")
 	} else if s := v.String(); s != "foobar $1-$2 b foobar aa-bb c foobar aa-bb" {
 		ctx.err("%T %v", v, v)
@@ -243,7 +264,7 @@ func TestValues2(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if true {
 		// TODO: test the rest part
-	} else if t := vi(ctx, v, "a", "b", "c", expandDebug|expandAuto|expandDigits); t == nil {
+	} else if t := xa(ctx, v, "a", "b", "c"); t == nil {
 		ctx.err("%T %v", v, v)
 	} else if t.String() != "foobar a-b b foobar aa-bb c foobar aa-bb" {
 		ctx.err("%T %v -> %T %v", v, v, t, t)
@@ -251,21 +272,21 @@ func TestValues2(t *testing.T) {
 		ctx.err("%T %v -> %s", t, t, s)
 	}
 
-	if v := get(".test.0", "a", "b", "c"); v == nil {
+	if v := ctx.get(".test.0", "a", "b", "c"); v == nil {
 		ctx.err(".test.0")
 	} else if v.String() != "foobar $1-$2 b foobar aa-bb c" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.s1", "a", "b", "c"); v == nil {
+	if v := ctx.get(".test.s1", "a", "b", "c"); v == nil {
 		ctx.err(".test.s1")
 	} else if v.String() != "'foobar $1-$2 b foobar aa-bb c'" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.s1"))
 	} else if s := v.Strval(ctx); s != "foobar $1-$2 b foobar aa-bb c" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.s2", "a", "b", "c"); v == nil {
+	if v := ctx.get(".test.s2", "a", "b", "c"); v == nil {
 		ctx.err(".test.s2")
 	} else if v.String() != "'foobar a-b b foobar aa-bb c'" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.s2"))
@@ -273,14 +294,14 @@ func TestValues2(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test.1", "a", "b", "c"); v == nil {
+	if v := ctx.get(".test.1", "a", "b", "c"); v == nil {
 		ctx.err(".test.1")
 	} else if v.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.1", "a", "b", "c", expandClosure); v == nil {
+	if v := ctx.get(".test.1", "a", "b", "c", expandClosure); v == nil {
 		ctx.err(".test.1")
 	} else if v.String() != "foobar $1-$2 b foobar aa-bb c" {
 		ctx.err("%T %v", v, v)
@@ -293,14 +314,14 @@ func TestValues2(t *testing.T) {
 	} else if d.value.String() != "foobaz $2-$1 b foobaz $2$2-$1$1 $3" {
 		ctx.err("%v", d)
 	}
-	if v := get(".test.2", "a", "b", "cc"); v == nil {
+	if v := ctx.get(".test.2", "a", "b", "cc"); v == nil {
 		ctx.err(".test.2")
 	} else if v.String() != "foobaz b-a b foobaz bb-aa cc" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.2"))
 	} else if s := v.Strval(ctx); s != "foobaz b-a b foobaz bb-aa cc" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.2", "a", "b", "cc"); v == nil {
+	if v := ctx.get(".test.2", "a", "b", "cc"); v == nil {
 		ctx.err(".test.2")
 	} else if v.String() != "foobaz b-a b foobaz bb-aa cc" {
 		ctx.err("%T %v", v, v)
@@ -313,14 +334,14 @@ func TestValues2(t *testing.T) {
 	} else if d.value.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) $1$1,$2$2) $3" {
 		ctx.err("%v", d) // "foobaz $2-$1 b foobaz $22-$11 $3"
 	}
-	if v := get(".test.3", "a", "b", "c"); v == nil {
+	if v := ctx.get(".test.3", "a", "b", "c"); v == nil {
 		ctx.err(".test.3")
 	} else if v.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c" {
 		ctx.err("%T %v", v, v) // foobar $1-$2 $(.test.ab $1$1,$2$2) $3
 	} else if s := v.Strval(ctx); s != "foobar - b foobar aa-bb c" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.3", "a", "b", "c", expandClosure); v == nil {
+	if v := ctx.get(".test.3", "a", "b", "c", expandClosure); v == nil {
 		ctx.err(".test.3")
 	} else if v.String() != "foobar $1-$2 b foobar aa-bb c" {
 		ctx.err("%T %v", v, v)
@@ -328,14 +349,14 @@ func TestValues2(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test.4", "a", "b", "x"); v == nil {
+	if v := ctx.get(".test.4", "a", "b", "x"); v == nil {
 		ctx.err(".test.4")
 	} else if v.String() != "foobar a-b b foobar aa-bb c foobar aa-bb x" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "foobar a-b b foobar aa-bb c foobar aa-bb x" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.5", "a", "b", "x"); v == nil {
+	if v := ctx.get(".test.5", "a", "b", "x"); v == nil {
 		ctx.err(".test.5")
 	} else if v.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c $(call(-c) &(.test.x),aa,bb) x" {
 		ctx.err("%T %v", v, v) // foobar $1-$2 b foobar aa-bb c foobar aa-bb x
@@ -351,7 +372,6 @@ func TestValues3(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/3", "testvalues3")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test.x"); d == nil {
 		ctx.err(".test.x")
@@ -360,7 +380,7 @@ func TestValues3(t *testing.T) {
 	} else if d.value.String() != "$(a1)-$(a2)-3" {
 		ctx.err("%T %v", d.value, d.value)
 	}
-	if v := get(".test.x"); v == nil {
+	if v := ctx.get(".test.x"); v == nil {
 		ctx.err(".test.x")
 	} else if v.String() != "$(a1)-$(a2)-3" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.x"))
@@ -375,7 +395,7 @@ func TestValues3(t *testing.T) {
 	} else if d.value.String() != "x-y-3-xyz" {
 		ctx.err("%T %v", d.value, d.value)
 	}
-	if v := get(".test.y"); v == nil {
+	if v := ctx.get(".test.y"); v == nil {
 		ctx.err(".test.y")
 	} else if v.String() != "x-y-3-xyz" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.y"))
@@ -390,7 +410,7 @@ func TestValues3(t *testing.T) {
 	} else if d.value.String() != "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)" {
 		ctx.err("%T %v", d.value, d.value)
 	}
-	if v := get(".test.z"); v == nil {
+	if v := ctx.get(".test.z"); v == nil {
 		ctx.err(".test.z")
 	} else if v.String() != "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.y"))
@@ -398,7 +418,7 @@ func TestValues3(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test.1"); v == nil {
+	if v := ctx.get(".test.1"); v == nil {
 		ctx.err(".test.1")
 	} else if v.String() != "x-y-3-xyz" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.1"))
@@ -406,7 +426,7 @@ func TestValues3(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test.2"); v == nil {
+	if v := ctx.get(".test.2"); v == nil {
 		ctx.err(".test.2")
 	} else if v.String() != "x-y-3-xyz" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.2"))
@@ -414,7 +434,7 @@ func TestValues3(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test.3"); v == nil {
+	if v := ctx.get(".test.3"); v == nil {
 		ctx.err(".test.3")
 	} else if v.String() != "x-y-3-xyz" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.3"))
@@ -430,7 +450,6 @@ func TestValues4(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/4", "testvalues4")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test.*"); d == nil {
 		ctx.err(".test.*")
@@ -442,14 +461,14 @@ func TestValues4(t *testing.T) {
 		ctx.err("%v -> %v", d, s)
 	}
 
-	if v := get(".test.D.c"); v == nil {
+	if v := ctx.get(".test.D.c"); v == nil {
 		ctx.err(".test.D.c")
 	} else if v.String() != "D c $(value &(.test.x)) &(value .test.v) ($1) ($1) $(foreach $1,&(.test.x.$_)) ($1)" {
 		ctx.err("%T %v", v, v) // "D c $(value &(.test.x)) xx $(.test.foreach $1,&(.test.none)) ($1) $(foreach $1,&(.test.x.$_)) ($1)"
 	} else if s := v.Strval(ctx); s != "D c xx xx () () ()" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if v := get(".test.D.c", "a"); v == nil {
+	if v := ctx.get(".test.D.c", "a"); v == nil {
 		ctx.err(".test.D.c")
 	} else if v.String() != "D c $(value &(.test.x)) &(value .test.v) (a) (a) &(.test.x.a) (a)" {
 		ctx.err("%T %v", v, v)
@@ -457,7 +476,7 @@ func TestValues4(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test.D.c++"); v == nil {
+	if v := ctx.get(".test.D.c++"); v == nil {
 		ctx.err(".test.D.c++")
 	} else if s := v.String(); s != "D c++" {
 		ctx.err("%T %v -> %s", v, v, s)
@@ -465,7 +484,7 @@ func TestValues4(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test.I.c"); v == nil {
+	if v := ctx.get(".test.I.c"); v == nil {
 		ctx.err(".test.I.c")
 	} else if v.String() != "I c &(value &(.test.x)) &(value .test.v) $(value &(.test.x)) xx" {
 		ctx.err("%T %v", v, v)
@@ -473,7 +492,7 @@ func TestValues4(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
-	if v := get(".test.I.c++"); v == nil {
+	if v := ctx.get(".test.I.c++"); v == nil {
 		ctx.err(".test.I.c++")
 	} else if s := v.String(); s != "I c++" {
 		ctx.err("%T %v -> %s", v, v, s)
@@ -489,7 +508,6 @@ func TestValues5(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/5", "testvalues5")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -499,7 +517,7 @@ func TestValues5(t *testing.T) {
 		ctx.err("%v", d)
 	}
 
-	if v := get(".test", "a"); v == nil {
+	if v := ctx.get(".test", "a"); v == nil {
 		ctx.err(".test")
 	} else if v.String() != "z-a" {
 		ctx.err("%T %v", v, v)
@@ -515,7 +533,6 @@ func TestValues6(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/6", "testvalues6")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -525,7 +542,7 @@ func TestValues6(t *testing.T) {
 		ctx.err("%v", d)
 	}
 
-	if v := get(".test", "b"); v == nil {
+	if v := ctx.get(".test", "b"); v == nil {
 		ctx.err(".test")
 	} else if v.String() != "z-y-x-a" {
 		ctx.err("%T %v", v, v)
@@ -541,7 +558,6 @@ func TestValues7(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/7", "testvalues7")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -551,7 +567,7 @@ func TestValues7(t *testing.T) {
 		ctx.err("%v", d)
 	}
 
-	if v := get(".test", "a", "b"); v == nil {
+	if v := ctx.get(".test", "a", "b"); v == nil {
 		ctx.err(".test")
 	} else if v.String() != "z-yxa-yxb" {
 		ctx.err("%T %v", v, v)
@@ -567,7 +583,6 @@ func TestValues8(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/8", "testvalues8")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -577,7 +592,7 @@ func TestValues8(t *testing.T) {
 		ctx.err("%v", d)
 	}
 
-	if v := get(".test", "a"); v == nil {
+	if v := ctx.get(".test", "a"); v == nil {
 		ctx.err(".test")
 	} else if v.String() != "a" {
 		ctx.err("%T %v", v, v)
@@ -593,7 +608,6 @@ func TestValues9(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/9", "testvalues9")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -603,7 +617,7 @@ func TestValues9(t *testing.T) {
 		ctx.err("%v", d)
 	}
 
-	if v := get(".test", ".u"); v == nil {
+	if v := ctx.get(".test", ".u"); v == nil {
 		ctx.err(".test")
 	} else if v.String() != "foobar" {
 		ctx.err("%T %v", v, v)
@@ -619,7 +633,6 @@ func TestValues10(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/10", "testvalues10")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -629,7 +642,7 @@ func TestValues10(t *testing.T) {
 		ctx.err("%v", d)
 	}
 
-	if v := get(".test", "w"); v == nil {
+	if v := ctx.get(".test", "w"); v == nil {
 		ctx.err(".test")
 	} else if v.String() != "foobar" {
 		ctx.err("%T %v", v, v)
@@ -645,7 +658,6 @@ func TestValues11(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/11", "testvalues11")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -655,7 +667,7 @@ func TestValues11(t *testing.T) {
 		ctx.err("%v", d)
 	}
 
-	if v := get(".test", ".v2"); v == nil {
+	if v := ctx.get(".test", ".v2"); v == nil {
 		ctx.err(".test")
 	} else if v.String() != "&(.test.v2)" {
 		ctx.err("%T %v", v, v)
@@ -671,7 +683,6 @@ func TestValues12(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/12", "testvalues12")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -681,11 +692,36 @@ func TestValues12(t *testing.T) {
 		ctx.err("%v", d)
 	}
 
-	if v := get(".test", "w2"); v == nil {
+	if v := ctx.get(".test", "w2"); v == nil {
 		ctx.err(".test")
 	} else if v.String() != "&(.test.w2)" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "foobaz" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
+
+	ctx.flush()
+}
+
+func TestValues13(t *testing.T) {
+	defer func(o commandLineOpts) { options = o } (options)
+	options.failOnErrors = false
+
+	var ctx = load_testcase(t, "testdata/value/13", "testvalues13")
+
+	if d := ctx.def("foo"); d == nil {
+		ctx.err("foo")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "&(-g!foobar)" {
+		ctx.err("%v", d)
+	}
+
+	if v := ctx.get("foo"); v == nil {
+		ctx.err(".test")
+	} else if v.String() != "&(-g!foobar)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "not-foobar" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
@@ -697,7 +733,6 @@ func TestPlaceholders(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/placeholder", "testplaceholder")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
 	if d := ctx.def("val1"); d == nil {
 		ctx.err("val1 is nil")
@@ -715,7 +750,7 @@ func TestPlaceholders(t *testing.T) {
 		ctx.err("%d - %T %v - %v", i, v, v, d.l)
 	}}}
 
-	if v := get("val1", "1", "2", "3", "4", "5", "6", "7", "8", "9", "_"); v == nil {
+	if v := ctx.get("val1", "1", "2", "3", "4", "5", "6", "7", "8", "9", "_"); v == nil {
 		ctx.err("val1")
 	} else if v.String() != "$0 1 2 3 4 5 6 7 8 9" {
 		ctx.err("%T %v", v, v)
@@ -741,7 +776,7 @@ func TestPlaceholders(t *testing.T) {
 		ctx.err("%T %v , %s", v, v, w.string)
 	}}}
 
-	if v := get("val2", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
+	if v := ctx.get("val2", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
 		ctx.err("val2")
 	} else if v.String() != "$(foreach a b c d e f,$_)" {
 		ctx.err("%T %v", v, v)
@@ -759,21 +794,23 @@ func TestPlaceholders(t *testing.T) {
 		info(of(ctx,v), "%T %v, %T", v, v, u.Value).debug(1)
 	}
 
-	if v := get("val3", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
+	if v := ctx.get("val3", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
 		ctx.err("val3")
 	} else if v.String() != "$(foreach 1 2 3 4 5 6 7 8 9,$_)" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "1 2 3 4 5 6 7 8 9" {
 		ctx.err("%T %v -> %s", v, v, s)
-	} else if d, y := v.(*delegate); !y {
+	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v", u.Value, u.Value)
 	} else if b, y := d.x.(*builtin); !y { // optional
 		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
 	} else if b.name != "foreach" {
 		ctx.err("%T %v ; %v", v, v, b)
 	}
 
-	if v := get("val4", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
+	if v := ctx.get("val4", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
 		ctx.err("val4")
 	} else if s := v.String(); s != "a b c d e f" {
 		ctx.err("%T %v -> %s", v, v, s)
@@ -783,7 +820,7 @@ func TestPlaceholders(t *testing.T) {
 		ctx.err("%T %v", v, v)
 	}
 
-	if v := get("val5", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
+	if v := ctx.get("val5", "1", "2", "3", "4", "5", "6", "7", "8", "9"); v == nil {
 		ctx.err("val5")
 	} else if s := v.String(); s != "1 2 3 4 5 6 7 8 9" {
 		ctx.err("%T %v -> %s", v, v, s)
@@ -802,9 +839,8 @@ func TestOptional(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/value/optional", "testoptional")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
 
-	if v := get("val1"); v == nil {
+	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
 	} else if v.String() != "$(name)" {
 		ctx.err("%T %v", v, v)
@@ -824,23 +860,25 @@ func TestOptional(t *testing.T) {
 		info(of(ctx,v), "%T %v, %T", v, v, u.Value).debug(1)
 	}
 
-	if v := get("val2"); v == nil {
+	if v := ctx.get("val2"); v == nil {
 		ctx.err("val2")
 	} else if v.String() != ".self" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "foo" {
 		ctx.err("%T %v -> %s", v, v, s)
-	} else if x, y := v.(expanded); !y {
+	// } else if x, y := v.(expanded); !y {
+	// 	ctx.err("%T %v", v, v)
+	// } else if p, y := x.Value.(*self); !y {
+	// 	ctx.err("%T %v", x.Value, x.Value)
+	} else if p, y := v.(*self); !y {
 		ctx.err("%T %v", v, v)
-	} else if p, y := x.Value.(*self); !y {
-		ctx.err("%T %v", x.Value, x.Value)
 	} else if p.name != "foo" {
 		ctx.err("%T %v -> %v", v, v, p)
 	} else if false {
 		info(of(ctx,v), "%T %v", v, v).debug(1)
 	}
 
-	if v := get("val3"); v == nil {
+	if v := ctx.get("val3"); v == nil {
 		ctx.err("val3")
 	} else if v.String() != "$(foo→baz?)" {
 		ctx.err("%T %v", v, v)
@@ -856,7 +894,7 @@ func TestOptional(t *testing.T) {
 		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
 	}
 
-	if v := get("val4"); v == nil {
+	if v := ctx.get("val4"); v == nil {
 		ctx.err("val4")
 	} else if v.String() != "$(fo?→bar)" {
 		ctx.err("%T %v", v, v)
@@ -872,7 +910,7 @@ func TestOptional(t *testing.T) {
 		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
 	}
 
-	if v := get("val5"); v == nil {
+	if v := ctx.get("val5"); v == nil {
 		ctx.err("val5")
 	} else if v.String() != "$(fo?→bar?)" {
 		ctx.err("%T %v", v, v)
@@ -895,7 +933,7 @@ func TestOptional(t *testing.T) {
 	} else if d.value.String() != "foo" {
 		ctx.err("%T %v", d.value, d.value)
 	}
-	if v := get("val6"); v == nil {
+	if v := ctx.get("val6"); v == nil {
 		ctx.err("val6")
 	} else if v.String() != "foo" {
 		ctx.err("%T %v", v, v)
@@ -907,7 +945,7 @@ func TestOptional(t *testing.T) {
 		ctx.err("%T %v ; %v", v, v, p)
 	}
 
-	if v := get("val7"); v == nil {
+	if v := ctx.get("val7"); v == nil {
 		ctx.err("val7")
 	} else if v.String() != "foo" {
 		ctx.err("%T %v", v, v)
@@ -926,7 +964,7 @@ func TestOptional(t *testing.T) {
 	} else if d.value.String() != "$(foo→bar?)" {
 		ctx.err("%T %v", d.value, d.value)
 	}
-	if v := get("val8"); v == nil {
+	if v := ctx.get("val8"); v == nil {
 		ctx.err("val8")
 	} else if v.String() != "$(foo→bar?)" {
 		ctx.err("%T %v", v, v)
@@ -948,7 +986,7 @@ func TestOptional(t *testing.T) {
 func TestGlobMatch(t *testing.T) {
 	defer func(o commandLineOpts) { options = o } (options)
 
-	var ctx Context = &uni
+	var ctx Context = init_universe()//&uni
 
 	if a, b, c := globMatch(ctx, "*.c", "foo.c"); !a || c != nil {
 		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
@@ -1079,21 +1117,33 @@ func TestGlobMatch(t *testing.T) {
 	}
 }
 
-func TestPatterns(t *testing.T) {
+func TestValueGeneral(t *testing.T) {
 	defer func(o commandLineOpts) { options = o } (options)
 	options.failOnErrors = false
 
-	var ctx = load_testcase(t, "testdata/value", "testvalues")
-	var get = func(s string, ii ...interface{}) Value { return ctx.get(s, ii...) }
+	var assert_bool bool
+	var assert_value Value
+	var ctx = load_testcase(t, "testdata/value", "testvalues", hooks{
+		assert: func(ctx Context, v Value, b bool) (res bool) {
+			assert_bool, assert_value = b, v
+			return true
+		},
+	})
+
+	if assert_value == nil {
+		t.Errorf("assert: %v", assert_value)
+	} else if assert_bool {
+		t.Errorf("assert")
+	}
 
 	// Globs
 
 	var (
-		glob1 = get("glob1")
-		glob2 = get("glob2")
-		val1 = get("val1")
-		val2 = get("val2")
-		val3 = get("val3")
+		glob1 = ctx.get("glob1")
+		glob2 = ctx.get("glob2")
+		val1 = ctx.get("val1")
+		val2 = ctx.get("val2")
+		val3 = ctx.get("val3")
 	)
 
 	if glob1.Strval(ctx) != "*.c" {
@@ -1142,12 +1192,12 @@ func TestPatterns(t *testing.T) {
 	// Regexps
 
 	var (
-		regexp1 = get("regexp1")
-		regexp2 = get("regexp2")
-		regexp3 = get("regexp3")
-		regexp4 = get("regexp4")
-		regexp5 = get("regexp5")
-		regexp6 = get("regexp6")
+		regexp1 = ctx.get("regexp1")
+		regexp2 = ctx.get("regexp2")
+		regexp3 = ctx.get("regexp3")
+		regexp4 = ctx.get("regexp4")
+		regexp5 = ctx.get("regexp5")
+		regexp6 = ctx.get("regexp6")
 	)
 
 	if regexp1.Strval(ctx) != `x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}` {

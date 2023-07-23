@@ -9,16 +9,34 @@ import (
     "path/filepath"
 	"strings"
 	"testing"
+	"os"
 )
 
 type testcase struct { Context ; *testing.T }
 
-func load_testcase(t *testing.T, dir, name string) testcase {
+const _tmodules = "/Volumes/workspace/.smart/modules"
+func testHasModule(name string) (res bool) {
+	if i, e := os.Stat(filepath.Join(_tmodules, name)); e == nil { res = i.IsDir() }
+	return
+}
+
+func load_testcase(t *testing.T, dir, name string, h ...hooks) testcase {
 	if !filepath.IsAbs(dir) { dir = filepath.Join(baseWorkDir, dir) }
 
-	var ctx = &uni
+	var ctx = init_universe()
+
 	ctx.workdir = dir
 	ctx.globe.main = nil
+	ctx.filecache = make(map[string]*filebase) // NOTE: must reset the filecache
+	for _, h := range h {
+		if h.assert != nil { ctx.hooks.assert = h.assert }
+	}
+
+	if false { noted(ctx, "testcase: %v %v", name, dir) }
+	if tm := false; testHasModule("variant") {
+		for _, s := range ctx.paths { if tm = s == _tmodules; tm { break }}
+		if !tm { ctx.paths = append(ctx.paths, _tmodules) }
+	}
 
 	var s = skip{3}
 	var tc = testcase{ctx, t}
@@ -30,7 +48,7 @@ func load_testcase(t *testing.T, dir, name string) testcase {
 	} else if m.name != name {
 		erro(tc, "main: %s <-> %s", m.name, name).debug(1, s)
 	} else {
-		tc.Context = &closureContext{tc.Context, []*Scope{m.scope}} // TODO: add projectContext{ctx, m}
+		tc.Context = closureWith(tc.Context, m.scope) // TODO: add projectContext{ctx, m}
 	}
 
 	if tc.dia().countErrors() > 0 {
@@ -65,6 +83,11 @@ func (tc testcase) flush() {
 	}
 }
 
+func (tc testcase) rule(name string) (r *resolvedEntries) {
+	if p := tc.Project(); p != nil { r = p.resolveEntries(tc.Context, name, false) }
+	return
+}
+
 func (tc testcase) obj(name string) (res Object) {
 	if p := tc.Project(); p != nil { res = p.resolveObject(tc.Context, name) }
 	return
@@ -75,13 +98,12 @@ func (tc testcase) def(name string) (d *def) {
 	return
 }
 
-// var get = func(name string) (res Value) { return (testcase{ctx,t}.get(name, expandZero)) }
 func (tc testcase) get(name string, ii ...interface{}) (res Value) {
 	var d *def
-	var s = skip{3}
+	var s = skip{2} // tRunner + testcase.get
 	var a []interface{}
-	for _, i := range ii { if t, y := i.(skip); y { s = t } else { a = append(a, i) } }
-	if d, res = vc(tc, name, a...); d == nil {
+	for _, i := range ii { if t, y := i.(skip); y { s.int = t.int+1 } else { a = append(a, i) } }
+	if d, res = _call(tc, name, a...); d == nil {
 		if false { tc.Errorf("%s: not def", name) }
 		erro(tc, "%v", name).debug(1, s)
 	} else if res == nil {

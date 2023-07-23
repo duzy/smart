@@ -31,5 +31,5 @@ project testforeach
 # assert $(equal(-d) $(.test.4 x,y,a  ),xa ya)
 
 .test.5 := $(foreach do.smart,&(.test.x $_))
-.test.x := $(stat(-f) $//$1)
+.test.x := $(stat(-full) $//$1)
 # assert $(foreach do.smart,$(.test.x $_))

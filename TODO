@@ -19,7 +19,7 @@
 ** TODO Always ~compare~ files (including paths)
    Get rid of explicit ~(compare)~ modifier.
 ** TODO Add instances of execution context for each ~use~ project
-   Refers to ~Program.Execute~ and ~prog.pc~.
+   Refers to ~program.Execute~ and ~prog.pc~.
 * Passed
 ** DONE Update target whenever recipe command changed
   - save recipe record in file .smart/recipe/target

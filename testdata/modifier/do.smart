@@ -1,0 +1,4 @@
+project testmodifier
+
+val := foobar
+foo := [(test-mod-1 $(val))]

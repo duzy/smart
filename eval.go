@@ -28,7 +28,7 @@ ForRecipes:
 
         var (
             ctx = at(ctx, recipe.Position())
-            vals = mergex(ctx, w, recipe)
+            vals = xmerge(ctx, w, recipe)
             n = len(vals)
         )
         if n < 1 {
@@ -40,7 +40,7 @@ ForRecipes:
             name = vals[0]
             ov []Value
         )
-        if a, y := name.(*argumented); y { name, ov = a.value, a.args }
+        if a, y := name.(*argumented); y { name, ov = a.Value, a.args }
 
         ctx = at(ctx, name.Position())
 
@@ -56,8 +56,8 @@ ForRecipes:
         case invoker:
             v = tv.invoke(ctx, plain, ov, vals[1:])
 
-        case Executer:
-            var a, traves = tv.Execute(ctx, vals[1:]...)
+        case executer:
+            var a, traves = tv.execute(ctx, vals[1:]...)
             if a == nil {
                 // no return value
             } else if t := traves.not(traveCase, traveDone, traveNext); t.has() {
@@ -79,7 +79,7 @@ ForRecipes:
         if /*isNil*/isTrivial(v) { continue }
 
         list = append(list, v)
-        if g, ok := v.(*Group); ok && g != nil && g.Len() > 0 {
+        if g, ok := v.(*group); ok && g != nil && g.Len() > 0 {
             if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
                 var str = s.Strval(ctx)
                 if num, e := c.Integer(ctx); e != nil {

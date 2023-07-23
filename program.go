@@ -36,14 +36,14 @@ type programContext struct {
 
     by dirtyOpts
 
-    prog *Program
+    prog *program
     projs []*Project
     params []string // $0, $1, $2, ...
     defaultVal Value
     values []Value
-    deferVals []Value
+    defers []Value
 
-    _env []*Pair
+    _env []*pair
     changedWD string
 
     start time.Time // start time
@@ -139,7 +139,7 @@ func (pc *programContext) env(ctx Context) (env []string, osi int) {
 }
 
 func (pc *programContext) pc() *programContext { return pc }
-func (pc *programContext) program() *Program { return pc.prog }
+func (pc *programContext) program() *program { return pc.prog }
 func (pc *programContext) projects(ctx Context, projects ...*Project) []*Project {
     if len(pc.projs) == 0 { pc.projs = closureProjects(ctx) }
     if len(projects) > 0 { outer: for i, proj := range projects {
@@ -226,7 +226,7 @@ func (pc *programContext) dirtyMark(vals ...Value) {
     }
     if enableDirtyMark { pc.Context.dirtyMark(vals...) }
 }
-func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) (err error) {
+func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) {
     if pos := ctx.Position(); !pos.IsValid() && pc.prog.position.IsValid() {
         ctx = at(ctx, pc.prog.position)
     }
@@ -235,6 +235,7 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
         warnstack(ctx, 3, "shell: %v %v", params, ctx.isConfigure()).debug(10)
     }()}
 
+    var err error
     var target Value
     if target, _, _, err = wait(ctx, waitOpts{
         ReportUpdates: false,
@@ -249,8 +250,8 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
     if f, y := target.(*File); y && pc != nil && !ctx.dirty(ctx) {
         pc.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
 
-        if false { if e := ctx.entry(); e != nil { if r, y := e.(*Rule); y {
-            if t, y := r.target.(*Flag); y {
+        if false { if e := ctx.entry(); e != nil { if r, y := e.(*rule); y {
+            if t, y := r.target.(*flag); y {
                 warnstack(ctx, 3, "interpret: %v", t, f).debug(1)
             }
         }}}
@@ -292,7 +293,7 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
     var opts = ctx.dirtyOpts()
     if len(target.updatedDeps(ctx)) > 0 { return true }
     if v := autoVal(ctx, "^"); v != nil { a = append(a, v) }
-    for _, dep := range mergex(ctx, plain, a...) {
+    for _, dep := range xmerge(ctx, plain, a...) {
         var mat bool = len(opts.pats) == 0
         if !mat { for _, pat := range opts.pats { if mat, _, _ = pat.match(ctx, dep); mat { break }}}
         if mat && (dep.updated(ctx) || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
@@ -599,8 +600,8 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         if true && (db || strings.HasSuffix(prereqStrval, "Unwind-EHABI.cpp")) {
             var s = targetValue.Strval(ctx)
             var b bool ; if prereqFile != nil { b = prereqFile.exists() }
-            for i, concrete := range concreteList { info(at(ctx,concrete.Position()), "%v : concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.Programs())) }
-            for i, stemmed  := range stemmedList { info(at(ctx,stemmed.position), "%v : stemmed: %d. %v (%d programs)", targetValue, i, stemmed, len(stemmed.Programs())) }
+            for i, concrete := range concreteList { info(at(ctx,concrete.Position()), "%v : concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.programs())) }
+            for i, stemmed  := range stemmedList { info(at(ctx,stemmed.position), "%v : stemmed: %d. %v (%d programs)", targetValue, i, stemmed, len(stemmed.programs())) }
             for i, t := range pc.traves { info(at(ctx, t.pos), "%v: %d. %v", s, i, t) }
 
             var f string ; if prereqFile != nil { f = prereqFile.fullname() }
@@ -614,7 +615,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
         if prereqFile != nil && !prereqFile.exists() {
             erro(of(ctx, prereqValue), "%v: missing %v %v", targetValue, prereqValue, prereqFile.fullname())
-            for i, concrete := range concreteList { warn(at(ctx,concrete.Position()), "%v: concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.Programs())) }
+            for i, concrete := range concreteList { warn(at(ctx,concrete.Position()), "%v: concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.programs())) }
             for i, stemmed  := range stemmedList  { warn(at(ctx,stemmed.position), "%v: stemmed: %d. %v", targetValue, i, stemmed) }
             for i, s := range pc.traves { warn(at(ctx,s.pos), "%v: %d. %v", targetValue, i, s) }
             if m := prereqFile.filemap; m != nil { warn(of(ctx,m.pattern), "%v: %v %v", targetValue, prereqFile, m) }
@@ -885,7 +886,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
                     if pattern && stemmedThisTarget {
                         // IMPORTANT NOTE: traveNext state should be remained
                         //   This traveNext state muse be returned, so that the
-                        //   (*Program).traverse func can break it's loop properly.
+                        //   (*program).traverse func can break it's loop properly.
                         // pc.traves = append(pc.traves, s) // collect the state
                     }
                     return traveResContinue // try the next pattern
@@ -1057,7 +1058,7 @@ CheckPrereqResult:
         if obj := prereqObj;   obj != nil { erro(at(ctx,obj.Position()), "object: %T %v", obj, obj) }
         for i, s := range pc.traves { erro(at(ctx,s.pos), "trave.%d: %v: %v: %v", i, targetValue, prereqValue, s) }
         for i, c := range ctx.closureScopes() { erro(ctx, "closure.%d: %v", i, c) }
-        for i, concrete := range concreteList { erro(at(ctx,concrete.Position()), "concrete: %d. %v (%d programs)", i, concrete, len(concrete.Programs())) }
+        for i, concrete := range concreteList { erro(at(ctx,concrete.Position()), "concrete: %d. %v (%d programs)", i, concrete, len(concrete.programs())) }
         for i, stemmed  := range stemmedList  { erro(at(ctx,stemmed.position), "stemmed: %d. %v", i, stemmed) }
         errostack(of(ctx, prereqValue), 6).debug(512)
         return
@@ -1140,14 +1141,14 @@ ForPrerequisites:
             var c = autoVal(ctx, "<")
             var q = depend
             if f != 0 {
-                prompt(ctx, "%v: Program.traverse slow: %v %v %d\n", pos, d, d/f, pc.countFiles)
+                prompt(ctx, "%v: program.traverse slow: %v %v %d\n", pos, d, d/f, pc.countFiles)
             } else {
-                prompt(ctx, "%v: Program.traverse slow: %v %d\n", pos, d, pc.countFiles)
+                prompt(ctx, "%v: program.traverse slow: %v %d\n", pos, d, pc.countFiles)
             }
-            prompt(ctx, "%v: Program.traverse %v: @: %v\n", pos, p, a)
-            prompt(ctx, "%v: Program.traverse %v: ^: %v\n", pos, p, t)
-            prompt(ctx, "%v: Program.traverse %v: <: %v\n", pos, p, c)
-            prompt(ctx, "%v: Program.traverse %v: >: %v\n", pos, p, q)
+            prompt(ctx, "%v: program.traverse %v: @: %v\n", pos, p, a)
+            prompt(ctx, "%v: program.traverse %v: ^: %v\n", pos, p, t)
+            prompt(ctx, "%v: program.traverse %v: <: %v\n", pos, p, c)
+            prompt(ctx, "%v: program.traverse %v: >: %v\n", pos, p, q)
             infostack(ctx, 3).debug(1)
         }
 
@@ -1260,11 +1261,11 @@ ForPrerequisites:
     return
 }
 
-type Program struct {
+type program struct {
     position Position
     project *Project
     scope   *Scope
-    params   []*def
+    params   []*auto
     depends  []Value // normal
     ordered  []Value // order-only
     recipes  []Value
@@ -1272,9 +1273,9 @@ type Program struct {
     configure bool
 }
 
-func (prog *Program) getModifiers(ctx Context, name string) (ms []*modification) {
+func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
     for _, d := range prog.depends {
-        if g, y := d.(*modifications); y { for _, m := range g.list {
+        if g, y := d.(*modification); y { for _, m := range g.list {
             if m.Elems[0].Strval(ctx) == name { ms = append(ms, m) }
         }}
     }
@@ -1290,10 +1291,6 @@ func (t normalTraverseContext) traversed(ctx Context, target Value) (targets []V
         autoSet(ctx, "^", MakeList(t.Position(), targets...))
         autoSet(ctx, "<", targets[0])
         autoSet(ctx, ">", targets[len(targets)-1])
-        var c = at(t.Context, target.Position())
-        if false && strings.HasSuffix(target.Strval(c), "patchlevel.c") {
-            warn(c, "%T %p %v\n", t.Context, t.Context, autoDef(ctx, "^")).debug(32)
-        }
     }
     return
 }
@@ -1304,7 +1301,7 @@ func (t orderTraverseContext) traversed(ctx Context, target Value) (targets []Va
     return
 }
 
-func (prog *Program) workDir(ctx Context) (workDir string) {
+func (prog *program) workDir(ctx Context) (workDir string) {
     if pc := ctx.pc(); pc == nil {
         workDir = prog.project.absPath
     } else if pc.changedWD == "" {
@@ -1330,29 +1327,23 @@ func (prog *Program) workDir(ctx Context) (workDir string) {
     return
 }
 
-func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
-    var (
-        ctx Context = cc
-        args []Value
-        entry = cc.entry()
-    )
-    if a := cc.argumented(); a != nil { args = a.args }
-    if ctx != nil && ctx.dia().flush() > 0 {
-        var errs = ctx.dia().totalErrors()
+func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
+    var dia, entry = ctx.dia(), ctx.entry()
+    if dia.flush() > 0 {
+        var errs = dia.totalErrors()
         var s string ; if errs > 1 { s = "s" }
         prompt(ctx, "%v: canceled execution (%d error%s), project %s\n", entry, errs,s, prog.project)
         warn(ctx, `cancel "%v"`, entry)
         warnstack(ctx, 5).debug(16)
-        if options.failOnErrors { fail(ctx.Position(), "fail by %d error%s", errs, s) }
+        if false && options.failOnErrors { fail(ctx.Position(), "fail by %d error%s", errs, s) }
         return
     }
 
+    assert(prog.project == prog.scope.project, "mismatched scope/project")
+
     var pc = programContext{
         autoContext: autoContext{ Context:ctx, defs:make(autoDefMap) },
-        execRec: make(map[Value]int),
-        start: time.Now(),
-        prog: prog,
-        print: true,
+        execRec: make(map[Value]int), start: time.Now(), prog: prog, print: true,
     }
 
     ctx = &pc
@@ -1360,14 +1351,9 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
     defer func() {
         var targets = autoVal(ctx, "@") // depends = autoVal(ctx, "^")
         if isTrivial(targets) { targets = entry.Target() }
-
-        if errs := ctx.dia().flush(); errs > 0 /* || (y && !f.exists()) */ {
+        if errs := dia.flush(); errs > 0 /* || (y && !f.exists()) */ {
             var str, ent, tar = entryIndicator(ctx, entry)
-
-            // if f != nil { erro(ctx, "%v: missing %s", f, f.fullname()) }
-            for _, s := range pc.traves {
-                erro(at(ctx,s.pos), "%v: %v", ent, s)
-            }
+            for _, s := range pc.traves { erro(at(ctx,s.pos), "%v: %v", ent, s) }
 
             if errs == 0 {
                 // just missing target file
@@ -1381,60 +1367,50 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
 
             if options.failOnErrors {
                 fail(prog.position, "fail by %d errors", errs)
-            } else if cc == nil || ctx.isConfigure() {
+            } else if ctx.isConfigure() {
                 // done
             } else if s := pc.traves.add(ctx, traveFail, targets); errs == 1 {
                 s.error = fmt.Errorf("got an error for %v", str)
             } else {
                 s.error = fmt.Errorf("got %d errors for %v", errs, str)
             }
-        } else if pc.deferVals != nil {
-            for _, a := range pc.deferVals {
-                if g, y := a.(*Group); y { modify(ctx, g) } else {
-                    erro(of(ctx, a), "defer: not a modifier: %T %v", a, a).debug(1)
-                }
-            }
-        }
+        } else { for _, a := range pc.defers { if g, y := a.(*group); y {
+            modify(ctx, g, true)
+        } else {
+            erro(of(ctx, a), "defer: not a modifier: %v: %v", typeof(a), a).debug(1)
+        }}}
 
         _traves = pc.traves
     } ()
 
-    assert(prog.project == prog.scope.project, "mismatched scope/project")
-    if options.verbose { info(ctx, "%v: %v", entry, args).debug(1) }
-    if cc != nil {
-        var depth, loop int = 0, -1
+    if true {
+        var cc = pc.Context
         var a = []Value{ autoVal(cc, "@") }
+        var depth, loop int = 0, -1
 
     ForPC:
-        for c := cc.pc(); c != nil; c = c.caller() {
-            if c.program() == prog {
-                if depth += 1; depth == maxCallRecursion { break ForPC }
-                var t = autoVal(c, "@")
-                if /* 1 < depth */true {
-                    for i, v := range a { if eq(cc, t, v) { loop = i; break ForPC } }
-                }
-                if loop < 0 { a = append(a, t) }
-            }
-        }
+        for c := pc.caller(); c != nil; c = c.caller() { if c.program() == prog {
+            if depth += 1; depth == maxCallRecursion { break ForPC }
+            var t = autoVal(c, "@")
+            for i, v := range a { if eq(ctx, t, v) { loop = i; break ForPC } }
+            if loop < 0 { a = append(a, t) }
+        }}
 
-        if /* 1 < depth && */ 0 <= loop {
-            var t = autoVal(cc, "@")
-            if o := cc.closure(); o != nil {
-                if v := autoVal(o, "@"); v != nil && eq(cc, v, t) {
-                    if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug(1) }
-                    // FIXES: skip execution as it's closure, for example:
-                    //
-                    //   %.h($(headers)): $(srcinc)/%.h update-file
-                    //
-                    // where the 'update-file' is like:
-                    //
-                    //   update-file: [((in)) (closure) (set @=&@)] $(in) \
-                    //       [(read-file $>) (update-file -p)]
-                    //
-                    // see also Rule.traverse for the same skip.
-                    return
-                }
-            }
+        if 0 <= loop { var t = autoVal(cc, "@")
+            if o := cc.closure(); o != nil { if v := autoVal(o, "@"); v != nil && eq(cc, v, t) {
+                if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug(1) }
+                // FIXES: skip execution as it's closure, for example:
+                //
+                //   %.h($(headers)): $(srcinc)/%.h update-file
+                //
+                // where the 'update-file' is like:
+                //
+                //   update-file: [((in)) (closure) (set @=&@)] $(in) \
+                //       [(read-file $>) (update-file -p)]
+                //
+                // see also Rule.traverse for the same skip.
+                return
+            }}
 
             prompt(ctx, "%v: %v: %v, %v\n", a[0], autoVal(cc.closure(), "@"), cc, cc.closure())
             for i, t := range a { erro(of(ctx,t), "loop: %v: %v", i, t) }
@@ -1444,27 +1420,21 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
 
         if depth < maxCallRecursion {
             // continues
-        } else if c := cc.pc(); c != nil {
-            if /*options.traceTraversalNestIndent*/true { pc.traceLevel = c.traceLevel }
-
+        } else if c := pc.caller(); c != nil { pc.traceLevel = c.traceLevel
             var tt = as{autoVal(c, "@")}
             var s, _ = tt.fullnameOrStrval(ctx)
             prompt(ctx, "%v: max recursion call (%d)\n", s, depth)
             warn(of(ctx,tt), "max recursion call (%d)\n", depth).debug(1)
 
             const collapse = false
-            for ; c != nil; c = c.caller() {
-                var n int
+            for ; c != nil; c = c.caller() { var n int
                 if collapse { for next := c.caller(); next != nil; next = next.caller() {
                     if d := autoVal(next, "@"); d == nil { continue } else
-                    if t := d; t != nil && eq(ctx, t, tt) {
-                        n += 1;  continue
-                    }
+                    if t := d; t != nil && eq(ctx, t, tt) { n += 1;  continue }
                     if next.program() == c.program() { n += 1; c = next } else { break }
                 }}
 
-                var t = autoVal(c, "@")
-                if prog := c.program(); prog == nil {
+                if prog, t := c.program(), autoVal(c, "@"); prog == nil {
                     erro(at(ctx,entry.Position()), "%v (@=%v)", entry, tt)
                     break
                 } else if pos := prog.position; n > 0 {
@@ -1478,31 +1448,30 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
                     erro(at(ctx,pos), "%v : %v", t, autoVal(c, ">"))
                 }
 
-                ctx.dia().flush() // dump immediately
+                dia.flush() // dump immediately
             }
+
             errostack(ctx, depth, "#>", entry).debug(512)
             if false { fail(prog.position, "max call depth") }
             return
         }
 
-        if stems := cc.stems(); stems != nil {
-            autoSet(ctx, "*", MakeString(ctx.Position(), stems[0]))
-        }
+        if t := ctx.stems(); t != nil { autoSet(ctx, "*", ease(ctx, t)) }
     }
 
     var alreadyUpdated bool
 
-    // NOTE: set "@" before autoArgs
+    // NOTE: set "@" before setting auto args
     // Select the right target value before setting parameters,
     // because the target could be overrided by parameters.
     if target := entry.Target(); target == nil {
         erro(ctx, "%v: nil entry target", target)
-        errostack(ctx, 8, "").debug(20)
+        errostack(ctx, 8).debug(20)
         return
     } else {
         switch a := target.(type) {
         case *String, *Compound: // NOTE: escape 'String' and "Compound" values from file searching
-        case *Flag: pc.print = false // Flag target (-foo) turns off printing automatically
+        case *flag: pc.print = false // Flag target (-foo) turns off printing automatically
         case *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
         case fullfile: if a._traved > 1 { return }
         default:
@@ -1516,36 +1485,29 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
             return
         }}
 
-        if options.verbose { info(ctx, "%v: %v", target, args).debug(1) }
-
         autoSet(ctx, "@", target)
     }
 
-    var err error
-    if pc.params, err = pc.args(ctx, prog.params, args); err != nil {
-        erro(ctx, "auto args failed: %v", err).debug(1)
-        return
-    }
+    var args []Value
+    if a := ctx.argumented(); a != nil { args = a.args }
+    pc.params = pc.args(ctx, prog.params, args)
 
     // Note: must enter work directory (cd) before setting cloctx
     var enterBack *enterec
     if len(cd.stack) > 0 { enterBack = cd.stack[0] }
-    if err = enter(ctx, prog.project.absPath); err != nil {
+    if err := enter(ctx, prog.project.absPath); err != nil {
         erro(ctx, "enter project '%v' failed: %v", prog.project, err).debug(1)
         return
     }
 
     defer func(swd string) {
-        if e := leave(ctx, prog, enterBack); e != nil {
+        if err := leave(ctx, prog, enterBack); err != nil {
             // NOTE: err could be traveCase, traveDone, etc.
-            if err == nil { err = e } else {
-                erro(ctx, "leave project '%v' failed: %v", prog.project, err).debug(1)
-            }
-        }
-        if prog.project.changedWD = swd; err != nil {
-            erro(ctx, "execution failed: %v", err).debug(6)
+            erro(ctx, "leave project '%v' failed: %v", prog.project, err).debug(1)
             return
         }
+
+        prog.project.changedWD = swd
 
         var defaultVal = pc.defaultVal
         pc.defaultVal = nil
@@ -1554,21 +1516,18 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
             // good!
         } else if d := autoVal(ctx, "-"); d != nil {
             result = d
-        } else if !isNull(defaultVal) {
+        } else if defaultVal != nil {
             result = defaultVal
         }
 
-        if cc != nil && !isNull(result) { if p := cc.pc(); p != nil {
+        if result != nil { if p := pc.caller(); p != nil {
             p.defaultVal = result
         }}
     } (prog.project.changedWD)
 
-    if alreadyUpdated {
-        if options.verbose {
-            info(ctx, "'%v' already updated", autoVal(ctx, "@"))
-        }
-        if false { return }
-    }
+    if alreadyUpdated { if options.verbose {
+        noted(ctx, "'%v' already updated", autoVal(ctx, "@")).debug(3)
+    }}
 
     if pc.print && prog.configure { pc.print = false }
     cd.stack[0].silent = !pc.print
@@ -1588,13 +1547,13 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
 
     // Update normal prerequisites
     pc.prerequisite(normalTraverseContext{ctx}, prog.depends)
-    if errs := ctx.dia().flush(); errs > 0 {
+    if errs := dia.flush(); errs > 0 {
         s := pc.traves.add(at(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, pc.traves).debug(1)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, autoVal(ctx,"@"))
         if warnstack(ctx, 6).debug(8); true && options.failOnErrors {
-            fail(prog.position, "fail by %d errors", ctx.dia().totalErrors())
+            fail(prog.position, "fail by %d errors", dia.totalErrors())
         }
         return
     } else if pc.traves.has(traveCase, traveDone, traveFail, traveNext) {
@@ -1603,13 +1562,13 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
 
     // Update order-only prerequisites
     pc.prerequisite(orderTraverseContext{ctx}, prog.ordered)
-    if errs := ctx.dia().flush(); errs > 0 {
+    if errs := dia.flush(); errs > 0 {
         s := pc.traves.add(at(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, pc.traves).debug(1)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, autoVal(ctx,"@"))
         if warnstack(ctx, 6).debug(8); true && options.failOnErrors {
-            fail(prog.position, "fail by %d errors", ctx.dia().totalErrors())
+            fail(prog.position, "fail by %d errors", dia.totalErrors())
         }
         return
     } else if pc.traves.has(traveCase, traveDone, traveFail, traveNext) {
@@ -1619,9 +1578,7 @@ func (prog *Program) execute(cc Context) (result Value, _traves travestates) {
     if prog.language != "" || len(prog.recipes) == 0 {/* no op. */} else
     if h := autoVal(ctx,"-"); h == nil || len(pc.interpreted) == 0 {
         if i, y := dialects["eval"]; y && i != nil {
-            if err = pc.interpret(ctx, i, nil); err != nil {
-                erro(ctx, "eval: %v", err).debug(1)
-            }
+            pc.interpret(ctx, i, nil)
         } else {
             erro(ctx, "no default dialect").debug(1)
         }

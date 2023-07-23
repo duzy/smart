@@ -2,6 +2,7 @@ project testforeach4
 
 .test.1 := $(foreach $(foreach $1 $2,x$_),X$_)
 .test.2 := $(foreach $(foreach $1 $2,&(.test.x$_)),X$_)
+.test.3 := $(foreach $(foreach $(foreach $1 $2,&(.test.x$_)),X$_),Y$_)
 
 .test.x  := $(foreach $(foreach $1 $2,        x$_) ,X$_) \
             $(foreach $(foreach $1 $2,&(.test.x$_)),X$_)

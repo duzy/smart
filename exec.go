@@ -1149,7 +1149,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   } else if exe.stamp && exe.target.patterned(ctx) {
     errostack(ctx, 5, "target is pattern: %v", exe.target).debug(64)
     return
-  } else if _, ok := exe.target.Value.(*Flag); ok {
+  } else if _, ok := exe.target.Value.(*flag); ok {
     // no stamp required for Flags
   } else if _, ok = toFile(exe.target.Value); !ok {
     // no stamp required for non-file targets
@@ -1259,7 +1259,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   )
 
   if exe.fullname { w |= expandFullName }
-  recipes = mergex(ctx, w, program.recipes...)
+  recipes = xmerge(ctx, w, program.recipes...)
 
   for _, recipe := range recipes {
     if !recipePos.IsValid() { recipePos = recipe.Position() }

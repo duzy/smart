@@ -1,0 +1,5 @@
+project testvalues13
+
+foo := &(-g!foobar)
+
+-g!foobar := not-foobar

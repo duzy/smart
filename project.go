@@ -58,10 +58,10 @@ func (p *FileMap) primePatterns(ctx Context) (pats []Value) {
     if pattern.expandable(ctx, expandClosure) {
       var u int
       // FIXME+TODO: this could be time consuming to expand clousre in the filemap
-      /*if pats, err = mergex(ctx, plain, pattern); err != nil {
+      /*if pats, err = xmerge(ctx, plain, pattern); err != nil {
         erro(of(ctx,pattern), "merge pattern '%v' failed: %v", pattern, err)
       } else*/ if pats, u, _ = plain.expand(ctx, pattern); u == 0 {
-        if pats != nil { pats = mergex(ctx, plain, pats...) }
+        if pats != nil { pats = xmerge(ctx, plain, pats...) }
       } else {
         errostack(of(ctx,pattern), 3, "unexpanded file pattern: %v", pats).debug(15)
       }
@@ -272,6 +272,8 @@ type Project struct {
   position Position
   keyword  Token // project, package, module
 
+  configurationLoad *File // decided at load time
+  configurationSave *File // decided at configure time
   configure *Project // .configure
   configured bool
 
@@ -290,7 +292,7 @@ type Project struct {
   filemapx []*valcache_kv // closure cache
   filemap valcache
   entries valcache
-  patterns []*Rule // order is important
+  patterns []*rule // order is important
   configs []Entry // configure entries
   defaultEntry Entry
 
@@ -471,11 +473,9 @@ func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
 }
 
 func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
-  if a := p.selectFiles(ctx, maps); len(a) > 0 {
-    if file = a[0]; !file.exists() {
-      for _, f := range a { if f.exists() { return f } }
-    }
-  }
+  if a := p.selectFiles(ctx, maps); len(a) > 0 { if file = a[0]; !file.exists() {
+    for _, f := range a { if f.exists() { return f } }
+  }}
   return
 }
 
@@ -505,15 +505,15 @@ func (p *Project) tempFile(ctx Context, name string) (file *File) {
 }
 
 func (p *Project) configuration(ctx Context) (file *File) {
-  if file = p.tempFile(closureWith(ctx, p.scope), configuration_sm); file == nil {
+  var s = []*Scope{ p.scope }
+  if p.configure != nil { s = append(s, p.configure.scope) }
+  if file = p.tempFile(closureWith(ctx, s...), configuration_sm); file == nil {
     erro(ctx, "%v: no file configuration.sm", p).debug(1)
   }
   return
 }
 
-type cacher struct {
-  generalOpts
-}
+type cacher struct { generalOpts }
 
 func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   var p = ctx.Project()
@@ -522,7 +522,7 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   var bits = cacheStore // cacheMatchPatts
   for mi, m := range ctx.universe().cache(ctx, p, patts, paths) {
     var ctx = of(ctx, m.pattern)
-    for i, pat := range mergex(ctx, plain, m.pattern) {
+    for i, pat := range xmerge(ctx, plain, m.pattern) {
       if pat.expandable(ctx, plain) {
         p.filemapx = append(p.filemapx, &valcache_kv{ pat, m })
       } else if c := p.filemap.slot(ctx, pat, bits|cacheKey); c != nil && c._val == nil {
@@ -568,7 +568,7 @@ func resolveObject(c Context, s string) Object {
   if scope := c.Scope(); scope != nil { if o := scope.Resolve(s); o != nil { return o }}
   return c.Project().resolveObject(c, s)
 }
-func resolveEntries(c Context, s string, a bool) *ResolveEntries { return c.Project().resolveEntries(c, s, a) }
+func resolveEntries(c Context, s string, a bool) *resolvedEntries { return c.Project().resolveEntries(c, s, a) }
 func resolvePatterns(c Context, v Value, s string) []*stemmed { return c.Project().resolvePatterns(c, v, s) }
 
 func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
@@ -590,10 +590,10 @@ func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
   return
 }
 
-func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBases bool) (entries *ResolveEntries) {
+func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBases bool) (entries *resolvedEntries) {
   var add = func(a ...Entry) {
     if len(a) > 0 {
-      if entries == nil { entries = new(ResolveEntries) }
+      if entries == nil { entries = new(resolvedEntries) }
       entries.add(a[0])
       entries.all = append(entries.all, a[1:]...)
     }
@@ -637,7 +637,7 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBas
   }
 
   if cache != nil && cache._val != nil {
-    add(cache._val.(*Rule))
+    add(cache._val.(*rule))
   }
 
   if p.configure != nil && ctx.isConfigure() {
@@ -739,7 +739,7 @@ ForPatterns:
       if pa := pat.arged; len(pa) > 0 {
         var y bool
         var t1 = time.Now()
-        var av = mergex(ctx, plain, pa...)
+        var av = xmerge(ctx, plain, pa...)
         var t2 = time.Now()
         for _, a := range av { if y, _, _ = a.match(ctx, s); y { break } }
 
@@ -779,7 +779,7 @@ func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
   return
 }
 
-func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *Program) (entry Entry, err error) {
+func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *program) (entry Entry, err error) {
   var name string
   if name = target.Strval(ctx); name == "" {
     erro(of(ctx, target), "empty target name: %v", target).debug(1)
@@ -801,7 +801,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
 
   defer func() {
     if entry != nil && err == nil {
-      entry.setPrograms(append(entry.Programs(), prog))
+      entry.setPrograms(append(entry.programs(), prog))
     }
   } ()
 
@@ -817,11 +817,11 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
 
   var arged []Value // e.g. for pattern filtering
   switch t := target.(type) {
-  case *Group:
+  case *group:
     erro(ctx, "group target not supported: %v", t).debug(1)
     return
   case *argumented:
-    target, arged = t.value, merge(t.args...)
+    target, arged = t.Value, merge(t.args...)
   }
 
   var cache = p.entries.slot(ctx, target, cacheKey|cacheStore|cacheNoConflict)
@@ -831,7 +831,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   }
 
   if cache._val == nil {
-    var rule = &Rule{
+    var rule = &rule{
       position: target.Position(), class: GeneralRule, target: target, arged: arged,
     }
 
@@ -846,7 +846,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
 
     entry = rule
     cache._val = rule
-  } else if p, y := cache._val.(*Rule); y { entry = p } else {
+  } else if p, y := cache._val.(*rule); y { entry = p } else {
     errostack(ctx, 3, "wrong cache: %T %v", cache._val, cache._val).debug(1)
     return
   }
@@ -1006,7 +1006,7 @@ func enter(ctx Context, dir string) (err error) {
   return
 }
 
-func leave(ctx Context, prog *Program, stop *enterec) (err error) {
+func leave(ctx Context, prog *program, stop *enterec) (err error) {
   cd.mutex.Lock(); defer cd.mutex.Unlock()
 
   var size = len(cd.stack)

@@ -1,0 +1,13 @@
+project testrules1
+
+.test.foobar: .test.fxx ; &(foo fxxbar)
+.test.foobaz: .test.fxx ; &(foo $<)
+.test.foobay: .test.fxx ; &(foo $>)
+.test.fxx: ; 'fxx'
+
+c = 0
+foo = $1
+
+.test.1 := ${.test.foobar}
+.test.2 := ${.test.foobaz}
+.test.3 := ${.test.foobay}

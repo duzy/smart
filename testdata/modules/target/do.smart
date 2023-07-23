@@ -1,0 +1,11 @@
+project testtarget (variant=darwin/arm64/bootstrap,variant/bootstrap)
+
+target.sys := foo
+
+foo := foobar
+neg1 := !$(foo)
+neg2 := a!$(foo)
+neg3 := &(a!$(foo))
+neg4 := $(foreach $1,&(a!$_))
+
+a!foobar := xxx

@@ -1,0 +1,15 @@
+project testbuiltins
+
+val1 := $(addprefix -foo=,bar &(bar))
+val2  = $(addprefix -foo=,bar &(bar))
+val3 := $(addprefix  foo ,bar &(bar))
+val4  = $(addprefix  foo ,bar &(bar))
+
+val5 := $(join foo bar xx yy zz,-)
+val6  = $(join foo bar xx yy zz,-)
+val7 := $(join &(target.arch) &(target.vendor) &(target.sys) &(target.abi),-)
+
+target.arch := foo
+target.vendor := bar
+target.sys := a
+target.abi := 0

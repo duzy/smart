@@ -58,7 +58,7 @@ val3 = foo/oo/oo/oo/bar.c
 # 	(?flags)       set flags within current group; non-capturing
 # 	(?flags:re)    set flags during re; non-capturing
 #
-# 	Flag syntax is xyz (set) or -xyz (clear) or xy-z (set xy, clear z). The flags are:
+# 	flag syntax is xyz (set) or -xyz (clear) or xy-z (set xy, clear z). The flags are:
 #
 # 	i              case-insensitive (default false)
 # 	m              multi-line mode: ^ and $ match begin/end line in addition to begin/end text (default false)

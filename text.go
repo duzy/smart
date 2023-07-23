@@ -149,8 +149,8 @@ Converted into:
 func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
         var (
                 pos = ctx.Position()
-                stack []*Group
-                nodes []*Group
+                stack []*group
+                nodes []*group
                 tok xml_enc.Token
         )
         xd := xml_enc.NewDecoder(strings.NewReader(source))
@@ -240,8 +240,8 @@ func (p *JSON) cmp(ctx Context, v Value) (res cmpres) {
 
 type jsonDecodeState struct {
         dec *json_enc.Decoder
-        stack []*Group
-        nodes []*Group
+        stack []*group
+        nodes []*group
 }
 func (ds *jsonDecodeState) decode() {}
 
@@ -263,9 +263,9 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
         //prompt(ctx, "json: %v\n", source)
         var (
                 pos Position = ctx.Position()
-                stack []*Group
+                stack []*group
                 nodes []Value
-                node *Group
+                node *group
                 value Value
                 t, v json_enc.Token
                 s string
@@ -348,7 +348,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
 
                         switch vd := v.(type) {
                         case json_enc.Delim:
-                                var vn *Group
+                                var vn *group
                                 switch vd {
                                 case '[': vn = MakeGroup(pos, MakeBareword(pos, JsonArray))
                                 case '{': vn = MakeGroup(pos, MakeBareword(pos, JsonObject))

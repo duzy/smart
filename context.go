@@ -10,6 +10,7 @@ import (
   "path/filepath"
   "runtime/debug"
   "strings"
+  "reflect"
   "regexp"
   "bufio"
   "bytes"
@@ -23,8 +24,6 @@ const (
   clocks = "🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧"
   productVerTag = "dev" // dev, alpha, beta, stable
 )
-
-var ddd bool // debug dumps for special conditions
 
 type commandLineOpts struct {
   help            bool `h,help`
@@ -96,8 +95,8 @@ type commandLineOpts struct {
   traceConfig     bool `tc,trace-config`
 }
 
-func (o *commandLineOpts) debugParsing(syntax string) (res bool) {
-  if ddd { for _, s := range o.debugSyn {
+func (o *commandLineOpts) debugParsing(ctx Context, syntax string) (res bool) {
+  if ctx.universe().ddd { for _, s := range o.debugSyn {
     if res = s == syntax; res { break }
   }}
   return
@@ -124,20 +123,21 @@ type Context interface {
   parser() *parser // only in parse stage
 
   inner() Context
+  cast(reflect.Type) Context
 
   ac() *autoContext
+  rc() *refContext
   ic() *invocation
 
   closure() *closureContext
   closureScopes() []*Scope
-  closureResolveAuto(string) (Object, bool)
 
   Project() *Project
   projects(Context, ...*Project) []*Project
 
   poco() *positionContext
   pc() *programContext
-  program() *Program
+  program() *program
 
   dirtyMark(...Value)
   dirtyOpts() *dirtyOpts
@@ -157,11 +157,18 @@ type Context interface {
 
   // TODO: call(Context, string, facet, []Value, ...Value) Value
 
-  un(Context, Value) bool
+  ref(Context, Value) bool
 
-  isConfigure() bool
   appendCallerUpdated() bool
+  isConfigure() bool
   mustExists() bool
+}
+
+func cast[C Context](ctx Context) (res C) {
+  if t := ctx.cast(reflect.TypeOf(res)); t != nil {
+    if c, y := t.(C); y { res = c } else { errostack(ctx, 3, "%T", t).debug(10) }
+  }
+  return
 }
 
 func getTargetValue(ctx Context) (res Value) {
@@ -195,7 +202,7 @@ var options = commandLineOpts{
   failOnErrors: true,
   fastMode: true,
 
-  parallel: false, // FIXME: Program.traverse not working in parallel
+  parallel: false, // FIXME: program.traverse not working in parallel
 
   slow: 999 * 1, // *90
 }
@@ -455,9 +462,9 @@ func (ac *argumentedContext) String() string {
   }
 }
 
-func executeEntry(ctx Context, entry *Rule, args ...Value) (result []Value, okay bool) {
+func executeEntry(ctx Context, entry *rule, args ...Value) (result []Value, okay bool) {
   var traves travestates
-  if result, traves = entry.Execute(at(ctx, entry.position), args...); !traves.has() {
+  if result, traves = entry.execute(at(ctx, entry.position), args...); !traves.has() {
     return result, true
   }
 
@@ -485,7 +492,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
   } else {
     var okay bool
     switch g := goal.(type) {
-    case *Rule:
+    case *rule:
       if result, okay = executeEntry(at(ctx, g.position), g, args...); !okay {
         erro(at(ctx,ctx.Position()), "update '%v' failed", g).debug(1)
       }
@@ -605,7 +612,7 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
 
 func CommandLine() {
   if options.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
-  var context = &uni ; defer assured(context)
+  var context = init_universe() ; defer assured(context)
   var modulesPaths, packagePaths searchlist
   walkSmartBaseDirs(context, context.workdir, func(s string) bool {
     if baseTmpPath == "" { baseTmpPath = s }
@@ -617,7 +624,7 @@ func CommandLine() {
   modulesPaths = append(modulesPaths, filepath.Join(context.prefix, "user", "lib", "smart", "modules"))
 
   // make sure that .smart dirs have higher priority.
-  uni.paths = append(modulesPaths, uni.paths...)
+  context.paths = append(modulesPaths, context.paths...)
   for _, s := range modulesPaths {
     searchFile := filepath.Join(s, ".search")
     if fi, _ := os.Stat(searchFile); fi == nil { continue }
@@ -639,7 +646,7 @@ func CommandLine() {
         line = filepath.Clean(filepath.Join(s, line))
       }
       if fi, err = os.Stat(line); err == nil && fi.IsDir() {
-        uni.paths = append(uni.paths, line)
+        context.paths = append(context.paths, line)
       }
     }
     if err != nil { fmt.Fprintf(stderr, "%v: %v", file, err); return }

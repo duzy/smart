@@ -43,9 +43,9 @@ type builtin_a interface{ a(*invocation,facet) bool }
 type builtin_c interface{ c(*invocation,facet) interface{} }
 type builtin_x interface{ x(*invocation,facet) interface{} }
 
-var builtin_a_t = reflect.TypeOf((*builtin_a)(nil)).Elem();
-var builtin_c_t = reflect.TypeOf((*builtin_c)(nil)).Elem();
-var builtin_x_t = reflect.TypeOf((*builtin_x)(nil)).Elem();
+var builtin_a_t = reflect.TypeOf((*builtin_a)(nil)).Elem()
+var builtin_c_t = reflect.TypeOf((*builtin_c)(nil)).Elem()
+var builtin_x_t = reflect.TypeOf((*builtin_x)(nil)).Elem()
 
 var builtins = map[string]reflect.Type {
         `typeof`:    reflect.TypeOf((*builtin_typeof)(nil)).Elem(),
@@ -151,7 +151,7 @@ var builtins = map[string]reflect.Type {
 
         `contains`:     reflect.TypeOf((*builtin_contains)(nil)).Elem(),
         `filter`:       reflect.TypeOf((*builtin_filter)(nil)).Elem(),
-        `filterout`:    reflect.TypeOf((*builtin_filterout)(nil)).Elem(),
+        `filter-out`:   reflect.TypeOf((*builtin_filterout)(nil)).Elem(),
 
         `decode-base64`:reflect.TypeOf((*builtin_decodebase64)(nil)).Elem(),
         `encode-base64`:reflect.TypeOf((*builtin_encodebase64)(nil)).Elem(),
@@ -390,37 +390,29 @@ func _parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args ...
 ForArgs:
         for _, arg := range args {
                 var (
-                        okay bool
-                        flag *Flag
+                        f *flag
+                        y bool
                         value Value
                 )
-                if arg.patterned(ctx) {
-                        // don't parse patterns, e.g. -I%
-                } else if flag, okay = arg.(*Flag); okay {
-                        value = MakeBoolean(flag.position, true)
-                } else if pair, y := arg.(*Pair); y {
-                        if flag, okay = pair.Key.(*Flag); okay { value = pair.Value }
-                } else if aa, y := arg.(*argumented); y {
-                        if flag, okay = aa.value.(*Flag); okay {
-                                value = ease(ctx, aa.args)
-                        }
-                }
-                if !okay || flag == nil {
+                // don't parse patterns, e.g. -I%
+                if !arg.patterned(ctx) { switch t := arg.(type) {
+                case *flag: f, value = t, MakeBoolean(t.position, true)
+                case *pair: if f, y = t.Key.(*flag); y { value = t.Value }
+                case *argumented: if f, y = t.Value.(*flag); y { value = ease(ctx, t.args) }
+                }}
+                if f == nil {
                         rest = append(rest, arg)
                         continue ForArgs
                 }
-                for i := 0; i < len(opts); i += 1 {
-                        if _, match := flag.opt(ctx, opts[i]); match {
-                                _set(ctx, val, value)
-                                continue ForArgs
-                        }
-                }
+                for i := 0; i < len(opts); i += 1 { if _, y = f.opt(ctx, opts[i]); y {
+                        _set(ctx, val, value)
+                        continue ForArgs
+                }}
                 rest = append(rest, arg)
         }
 
-        switch val.Type().String() {
-        case "fs.FileMode", "os.FileMode":
-                if val.Uint() == 0 { val.SetUint(0640) } // os.FileMode(0640)
+        switch val.Type().String() { // os.FileMode(0640)
+        case "fs.FileMode", "os.FileMode": if val.Uint() == 0 { val.SetUint(0640) }
         }
         return
 }
@@ -434,12 +426,8 @@ func bop[Opts interface{}] (ctx Context, w facet, v []Value, args ...Value) (opt
         if args != nil { if w == 0 {
                 res = merge(args...)
         } else {
-                res = mergex(ctx, w, args...)
+                res = xmerge(ctx, w, args...)
         }}
-        return
-}
-func mop[Opts interface{}] (ctx *modifier, w facet, args ...Value) (opts Opts, res []Value) {
-        res = parseOpts(ctx.Context, &opts, w, args...)
         return
 }
 
@@ -449,7 +437,7 @@ func _opts[Opts interface{}](ctx Context, w facet, args ...Value) (opts Opts, re
 }
 
 func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []Value) {
-        if w&^expandNone == 0 {
+        if w == 0 {
                 rest = merge(args...) // NOTE: set the returning args first of all!
         } else {
                 if false && // FIXME: the args[1].expand(ctx, w) causes 'd.x == nil'
@@ -461,7 +449,7 @@ func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []
                         warn(ctx, "%T %v %p -> %T %v %p %p", d.x, args[1], d,
                                 t.(*delegate).x, t, t, t.(*delegate)).debug(1)
                 }
-                rest = mergex(ctx, w, args...)
+                rest = xmerge(ctx, w, args...)
         }
 
         if opts.Kind() != reflect.Ptr {
@@ -469,48 +457,39 @@ func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []
         } else if opts = opts.Elem(); opts.Kind() == reflect.Struct {
                 var (
                         otyp = opts.Type()
-                        gen *generalOpts
+                        genOpts *generalOpts
+                        builtin, general, modifier reflect.Value
                 )
                 if false { info(ctx, "opts: %v, %v", opts.Kind(), otyp) }
                 for i := 0; i < otyp.NumField(); i += 1 {
                         var ft = otyp.Field(i)
                         var fv = opts.Field(i)
-                        if fv.Kind() != reflect.Struct {
-                                if ft.Anonymous && ft.Name == "Context" && fv.Type().String() == "smart.Context" {
-                                        if false { info(ctx, "%v %v %v %v", ft.Name, ft.Tag, fv.Type(), rest) }
+                        if t := fv.Type(); fv.Kind() != reflect.Struct {
+                                if ft.Anonymous && ft.Name == "Context" && t.String() == "smart.Context" {
+                                        if false { info(ctx, "%v %v %v %v", ft.Name, ft.Tag, t, rest) }
                                         continue
                                 } else {
                                         rest = _parseOpt(ctx, ft.Tag, fv, rest...)
                                 }
-                                if false && fv.Kind() == reflect.String && ft.Name == "dir" {
-                                        noted(ctx, "%v `%v` -> %v %v", ft.Name, ft.Tag, fv, rest).debug(1)
-                                }
-                        } else if ft.Name == "generalOpts" && fv.Type().String() == "smart.generalOpts" {
-                                if true {
-                                        rest = _parseOpts(ctx, fv.Addr(), w, rest)
-                                } else {
-                                        gen = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
-                                        rest = parseOpts(ctx, gen, w, rest...)
-                                }
-                        } else if ft.Name == "builtin_" && fv.Type().String() == "smart.builtin_" {
-                                if true {
-                                        rest = _parseOpts(ctx, fv.Addr(), w, rest)
-                                } else {
-                                        gen = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
-                                        rest = parseOpts(ctx, gen, w, rest...)
-                                }
+                        } else if !ft.Anonymous {
+                                continue
+                        } else if ft.Name == "generalOpts" {
+                                genOpts = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
+                                general = fv.Addr()
+                        } else if strings.HasPrefix(ft.Name, "builtin_") {
+                                if builtin.IsValid() { warn(ctx, "embedded multiple builtins: %v", ft).debug(3) }
+                                builtin = fv.Addr()
+                        } else if strings.HasPrefix(ft.Name, "modifier_") {
+                                if modifier.IsValid() { warn(ctx, "embedded multiple modifiers: %v", ft).debug(3) }
+                                modifier = fv.Addr()
                         }
                 }
-                if gen == nil { return }
-
-                // var a = mergex(ctx, expandFullName, rest...)
-                // for _, v := range rest {
-                //         if strings.Contains(v.String(), ".configure/library") {
-                //                 var t = v.expand(ctx, expandFullName)
-                //                 warn(of(ctx,v), "%v: %v; %v", v, t, a).debug(1)
-                //         }
-                // }
-                if gen.fullname { rest = mergex(ctx, expandFullName, rest...) }
+                if builtin.IsValid() { rest = _parseOpts(ctx, builtin, w, rest) }
+                if general.IsValid() { rest = _parseOpts(ctx, general, w, rest) }
+                if modifier.IsValid() { rest = _parseOpts(ctx, modifier, w, rest) }
+                if false && genOpts != nil && genOpts.fullname {
+                        rest, _, _ = expandFullName.expand(ctx, rest...)
+                }
         } else {
                 erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).debug(1)
         }
@@ -524,11 +503,11 @@ func _parseHeadArgs(ctx Context, store interface{}, w facet, args ...Value) (hea
         if len(args) == 0 {
                 // zero args
         } else if head = parseOpts(ctx, store, w, args[0]); len(head) > 0 {
-                rest = args[1:] //mergex(ctx, w, args[1:]...)
+                rest = args[1:] //xmerge(ctx, w, args[1:]...)
         } else if len(args) == 1 {
                 // done
-        } else if head = mergex(ctx, w, args[1]); len(args) > 2 {
-                rest = args[2:] //mergex(ctx, w, args[2:]...)
+        } else if head = xmerge(ctx, w, args[1]); len(args) > 2 {
+                rest = args[2:] //xmerge(ctx, w, args[2:]...)
         }
         return
 }
@@ -640,7 +619,7 @@ func (ctx *builtin_pushcontext) c(ic *invocation, w facet) (res interface{}) {
                 if m == nil { m = make(map[string]*def) }
 
                 var t *def
-                if o := scope.Lookup(s); o != nil { if d, ok := o.(*def); ok {
+                if o := scope.Lookup(s); o != nil { if d, y := o.(*def); y {
                         t = new(def) ; *t = *d
                 }}
                 m[s] = t
@@ -659,7 +638,7 @@ func (ctx *builtin_popcontext) c(ic *invocation, w facet) (res interface{}) {
         }
 
         var rules []Value
-        for _, r := range ctx.rules { if v, y := r.(*Group); !y {
+        for _, r := range ctx.rules { if v, y := r.(*group); !y {
                 rules = append(rules, v)
         } else {
                 rules = append(rules, v.Elems...)
@@ -770,8 +749,6 @@ func (ctx *builtin_warning) x(ic *invocation, w facet) (res interface{}) {
         return
 }
 
-var builtin_assert_hook func(*builtin_assert, Value, bool) bool
-
 type builtin_assert struct { builtin_
         msg string `m,msg,message`
 }
@@ -779,29 +756,25 @@ func (ctx *builtin_assert) a(ic *invocation, w facet) (skip bool) { return }
 func (ctx *builtin_assert) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
 func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
         var d = ctx.debug ; if d < 1 { d = 3 }
+        var t = diagError ; if ctx.warn { t = diagWarn }
 
-        if ic.a == nil && builtin_assert_hook != nil && !builtin_assert_hook(ctx, nil, false) {
-                if prompt(ctx, "assert: %v\n", ic.a); ctx.warn {
-                        warnstack(ctx, d).debug(d)
-                } else {
-                        errostack(ctx, d).debug(d)
-                }
+        var hook = ctx.universe().hooks.assert
+        if ic.a == nil && hook != nil && !hook(ctx, nil, false) {
+                prompt(ctx, "assert: %v\n", ic.a)
+                diagstack(ctx, d, t).debug(d)
         }
 
         var cc = ctx.Context
         for _, a := range ic.a { ctx.Context = at(cc, a.Position()) ; var okay = a.True(ctx)
-                if builtin_assert_hook != nil && builtin_assert_hook(ctx, a, okay) {
-                        continue
-                } else if !okay {
-                        prompt(ctx, "assert: %T %v\n", a, a)
-                        if ctx.warn {
-                                warnstack(ctx, d).debug(d)
-                        } else {
-                                erro(ctx, "%v", a)
-                                errostack(ctx, d).debug(d)
-                        }
-                }
+                if hook != nil && hook(ctx, a, okay) { continue }
+                if okay { continue }
+
+                var v = a.expand(ctx, strval)
+                prompt(ctx, "assert: %v: %v ⇒ %v: %v\n", typeof(a), a, typeof(v), v)
+                diag(ctx, t, "%v: %v ⇒ %s", typeof(a), a, a.Strval(ctx))
+                diagstack(ctx, d, t).debug(d)
         }
+
         if ctx.dia().flush()>0 && ctx.fail { fail(cc.Position(), "assertion failed") }
         return
 }
@@ -817,31 +790,25 @@ func (ctx *builtin_sure) x(ic *invocation, w facet) (res interface{}) {
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
 type builtin_defor struct { builtin_ }
 func (ctx *builtin_defor) x(ic *invocation, w facet) (res interface{}) {
-        for _, a := range merge(ic.a...) {
-                var _, unresolved = a.(unresolved)
-                if unresolved { continue } else {
-                        res = a
-                        break
-                }
-        }
-        return
-}
-
-type builtin_or struct { builtin_ }
-func (ctx *builtin_or) x(ic *invocation, w facet) (res interface{}) {
-        for _, a := range ic.a { if v := a.True(ctx); v {
+        for _, a := range umerge(true, ic.a...) { if _, y := a.(unresolved); y {
+                continue
+        } else {
                 res = a
                 break
         }}
         return
 }
 
+type builtin_or struct { builtin_ }
+func (ctx *builtin_or) x(ic *invocation, w facet) (res interface{}) {
+        for _, a := range ic.a { if a.True(ctx) { return a } }
+        return
+}
+
 type builtin_and struct { builtin_ }
 func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
-        for _, a := range ic.a { if v := a.True(ctx); v {
-                res = a
-        } else {
-                res = nil; break
+        for _, a := range ic.a { if a.True(ctx) { res = a } else {
+                return nil
         }}
         return
 }
@@ -851,13 +818,8 @@ func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
 type builtin_not struct { builtin_ }
 func (ctx *builtin_not) x(ic *invocation, w facet) (res interface{}) {
         var t bool
-        for i, a := range ic.a {
-                if ctx.debug>0 { warn(ctx, "%v. %T %v", i, a, a) }
-                if t = a.True(ctx); t { break }
-        }
-
+        for _, a := range ic.a { if t = a.True(ctx); t { break } }
         if n := ctx.debug; n>0 { warnstack(ctx, 3).debug(n) }
-
         return !t
 }
 
@@ -874,7 +836,7 @@ func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
 type builtin_equal struct { builtin_ }
 func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
         if len(ic.a) > 0 {
-                if a := merge(ic.a[0]); len(a) == 1 {
+                if a := umerge(true, ic.a[0]); len(a) == 1 {
                         ic.a[0] = a[0]
                 } else {
                         ic.a[0] = MakeList(ic.a[0].Position(), a...)
@@ -948,10 +910,10 @@ func (ctx *builtin_match) x(ic *invocation, w facet) (res interface{}) {
         }
 
         if len(ic.a) > 1 {
-                patList = mergex(ctx, plain, ic.a[0])
-                valList = mergex(ctx, plain, ic.a[1:]...)
+                patList = umerge(true, ic.a[0])
+                valList = umerge(true, ic.a[1:]...)
         } else {
-                valList = mergex(ctx, plain, ic.a[0])
+                valList = umerge(true, ic.a[0])
         }
         if ctx.debug > 0 {
                 var ( n = len(ic.a) ; d = ctx.debug )
@@ -1004,57 +966,50 @@ ForValList:
 // 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
 // 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
 type builtin_case struct { builtin_ }
+func (ctx *builtin_case) a(ic *invocation, w facet) (skip bool) { return }
 func (ctx *builtin_case) x(ic *invocation, w facet) (res interface{}) {
         var val Value
-        var args = ic.a
-        if args = merge(args...); len(args) == 0 { return } else
-        if _, ok := args[0].(*Group); !ok {
-                val = args[0].expand(ctx, plain)
+        var args = umerge(true, ic.a...)
+        if len(args) == 0 { return } else
+        if _, ok := args[0].(*group); !ok {
+                val = args[0].expand(ctx, w)
                 args = args[1:]
         }
 
         var def []Value
-        for _, arg := range args {
-                if g, ok := arg.(*Group); ok && len(g.Elems)>0 {
-                        if n := len(g.Elems); val != nil && isNone(val) && n == 1 {
-                                res = g.Elems[0]
-                                return
-                        } else if n == 1 {
-                                def = append(def, g.Elems[0])
-                                continue
-                        }
-
-                        var collect bool
-                        var v = g.Elems[0].expand(ctx, plain)
-                        if val == nil && v.True(ctx) {
-                                collect = true
-                        } else if val != nil && isTrivial(val) {
-                                if isTrivial(v) {
-                                        collect = true
-                                } else if f, ok := v.(*Flag); ok && isNull(f.name) {
-                                        collect = true
-                                }
-                        } else if val != nil && val.cmp(ctx, v) == cmpEqual {
-                                collect = true
-                        } else if false && val != nil {
-                                warn(ctx, "%v %v %v %v", val, v, g, val.cmp(ctx, v))
-                        }
-                        if !collect { continue }
-
-                        var vals []Value
-                        for _, v := range g.Elems[1:] {
-                                if f, ok := v.(*Flag); ok && isNull(f.name) { continue }
-                                vals = append(vals, v)
-                        }
-                        res = ease(ctx, vals)
-                        return
-                } else {
-                        erro(of(ctx,arg), "unexpected case: %T %v", arg, arg).debug(1)
-                        return
+        for _, arg := range args { if g, y := arg.(*group); y && len(g.Elems)>0 {
+                if n := len(g.Elems); val != nil && isNone(val) && n == 1 {
+                        return g.Elems[0]
+                } else if n == 1 {
+                        def = append(def, g.Elems[0])
+                        continue
                 }
-        }
 
-        return ease(ctx, def)
+                var collect bool
+                var v = g.Elems[0].expand(ctx, w)
+                if val == nil && v.True(ctx) {
+                        collect = true
+                } else if val != nil && isTrivial(val) {
+                        if isTrivial(v) {
+                                collect = true
+                        } else if f, y := v.(*flag); y && isNull(f.name) {
+                                collect = true
+                        }
+                } else if val != nil && val.cmp(ctx, v) == cmpEqual {
+                        collect = true
+                }
+                if !collect { continue }
+
+                var vals []Value
+                for _, v := range g.Elems[1:] { if f, y := v.(*flag); !y || isNull(f.name) {
+                        vals = append(vals, v)
+                }}
+                return vals
+        } else {
+                erro(of(ctx,arg), "unexpected case: %T %v", arg, arg).debug(1)
+                return
+        }}
+        return
 }
 
 // $(if cond, true-value, else-value, ...)
@@ -1154,6 +1109,10 @@ func (ctx *builtin_foreach) String() string {
                 return ctx.Context.String()
         }
 }
+func (ctx *builtin_foreach) a1(ic *invocation, w facet) {
+        w &= ^(expandPlaceholder|expandInvoke)
+        for i, a := range ic.a { if i > 0 { ic.a[i] = a.expand(ctx, w) }}
+}
 func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
         if n := len(ic.a); n < 2 {
                 errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, ic.a).debug(32)
@@ -1162,10 +1121,14 @@ func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
 
         // NOTE: only expand the first arg with placeholder bit
         a := ic.a[0].expand(ctx, w|expandPlaceholder)
-        if builtin_foreach_a_skip && w&expandUnexpandedForth == 0 { _, skip = a.(unexpanded) }
+        if builtin_foreach_a_skip && w&expandUnexpandedForth == 0 {
+                if _, skip = a.(unexpanded); skip { ctx.a1(ic, w) }
+        }
 
-        if false && w&expandDebug != 0 { if d := autoDef(ctx, "1"); ic.a[0].String() == "$1" && d != nil {
-                noted(ctx, "%T %v -> %T %v ; %v", ic.a[0], ic.a[0], a, a, d).debug(1)
+        if false { if (w&expandDebug != 0 || ctx.universe().ddd) && a.String() == "$(filter-out &(-x!a) &(-x~&(target.sys)!a) &(-x!b) &(-x~&(target.sys)!b) &(-x!c) &(-x~&(target.sys)!c),&(-x) &(-x~&(target.sys))) &(-x.a) &(-x~&(target.sys).a) &(-x.b) &(-x~&(target.sys).b) &(-x.c) &(-x~&(target.sys).c)" {
+                w.noted(ctx, ic.a[0], ic.a[1:])
+                noted(ctx, "%v %v", typeof(ic.a[0]), ic.a[0])
+                noted(ctx, "%v %v", typeof(a), a).debug(16)
         }}
 
         ic.a[0] = a
@@ -1178,14 +1141,12 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
                 noted(ctx, "%v %v -> %v", typeof(ic.a[0]), values, res).debug(16)
         }(); db = true }}
 
-        if u, y := ic.a[0].(unexpanded); y {
-                if !builtin_foreach_a_skip && w&expandUnexpandedForth == 0 { return ctx }
-                values = merge(u.Value)
-        } else {
-                values = merge(ic.a[0])
-        }
+        if !builtin_foreach_a_skip && w&expandUnexpandedForth == 0 { if _, y := ic.a[0].(unexpanded); y {
+                ctx.a1(ic, w)
+                return ctx
+        }}
 
-        if temps = ic.a[1:]; len(values) == 0 {
+        if values, temps = umerge(true, ic.a[0]), ic.a[1:]; len(values) == 0 {
                 var d = ctx.debug ; if d < 1 { d = 1 }
                 errostack(ctx, 3, "$(foreach <list>,<templates>): insurficient arguments: %v", ic.a).debug(d)
                 return
@@ -1199,7 +1160,11 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
         var d = ctx.debug
         var vw = (w|expandPairVal|expandPlaceholder)&^expandPlaceholderKept
         var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
-        for _, val := range values { cc.set(ctx, "_", val)
+        for _, val := range values {
+                if !ctx.empty && xEmpty(ctx, val) { continue }
+
+                cc.set(ctx, "_", val)
+
                 var l []Value
                 for _, a := range temps { v := scalarize(scalarize(a).expand(&cc, vw))
                         if ctx.empty || !isTrivial(v) && !isEmpty(v) { l = append(l, v) }
@@ -1207,8 +1172,10 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
                 }
                 if l == nil { if ctx.empty {
                         list = append(list, MakeNone(ctx.Position()))
-                }} else {
-                        list = append(list, /* ease(ctx, l) */l...)
+                }} else if false {
+                        list = append(list, ease(ctx, l))
+                } else {
+                        list = append(list, l...)
                 }
                 if d>0 { warnstack(ctx, 3, "foreach: %v %v -> %v -> %v", typeof(val), val, temps, l).debug(d) }
                 if db { noted(ctx, "%v %v => %v -> %v", typeof(val), val, temps, l).debug(1) }
@@ -1218,6 +1185,8 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_count struct { builtin_
         vals []Value `v,val,value`
+        // incs []string `add,inc,increase`
+        // num int64 `n,num`
 }
 func (ctx *builtin_count) x(ic *invocation, w facet) (res interface{}) {
         var num int64
@@ -1253,8 +1222,8 @@ func (ctx *builtin_auto) x(ic *invocation, w facet) (res interface{}) {
         if len(ic.a) == 0 { return }
 
         var ac = autoContext{ Context:ctx, defs:make(autoDefMap) }
-        for _, a := range merge(ic.a[0]) {
-                if p, y := a.(*Pair); y { if s := p.Key.Strval(ctx); s != "" {
+        for _, a := range umerge(true, ic.a[0]) {
+                if p, y := a.(*pair); y { if s := p.Key.Strval(ctx); s != "" {
                         ac.set(ctx, s, p.Value)
                 } else { erro(ctx, "empty auto name: %T %v", p.Key, p.Key).debug(1) }}
         }
@@ -1352,7 +1321,7 @@ func (ctx *builtin_closure) x(ic *invocation, w facet) (res interface{}) {
         if len(ic.a) < 1 { return }
 
         var vals []Value
-        outer: for _, val := range merge(ic.a[0]) {
+        outer: for _, val := range umerge(true, ic.a[0]) {
                 var name = val.Strval(ctx)
                 for _, scope := range ctx.closureScopes() {
                         if d := scope.FindDef(name); d != nil {
@@ -1407,12 +1376,19 @@ func (ctx *builtin_list) x(ic *invocation, w facet) (res interface{}) {
         return ic.a
 }
 
-type builtin_plain struct { builtin_ }
-func (ctx *builtin_plain) x(ic *invocation, w facet) (res interface{}) {
+type builtin_plain struct { builtin_
+        scope bool `findscope,find-scope,scope`
+}
+func (ctx *builtin_plain) c(ic *invocation, w facet) (res interface{}) {
         var scope = ctx.Scope()
-        for _, val := range ic.a {
-                var _, o = scope.Find(val.Strval(ctx))
-                if d, y := o.(*def); y && d.value != nil {
+        for _, a := range ic.a {
+                var ( o Object ; s = a.Strval(ctx) )
+                if ctx.scope { _, o = scope.Find(s) } else { o = resolveObject(ctx, s) }
+                if o == nil {
+                        erro(of(ctx,a), "no such symbol: %s", s).debug(1)
+                } else if d, y := o.(*def); !y {
+                        erro(of(ctx,a), "not a def: %s: %v", s, typeof(o)).debug(1)
+                } else if d.value != nil {
                         d.value = d.value.expand(ctx, plain)
                 }
         }
@@ -1669,11 +1645,11 @@ func (ctx *builtin_unique) x(ic *invocation, w facet) (res interface{}) {
         } else if ctx.plain {
                 var x = plain
                 if ctx.keepAuto { x &= ^expandAuto }
-                args = mergex(ctx, x, args...)
+                args = xmerge(ctx, x, args...)
         } else {
                 var x = expandDelegate | expandPathStr | expandPairVal
                 if ctx.keepAuto { x &= ^expandAuto }
-                args = mergex(ctx, x, args...)
+                args = xmerge(ctx, x, args...)
         }
 
         var list []Value
@@ -1698,18 +1674,17 @@ ForArgs:
 
 type builtin_join struct { builtin_ }
 func (ctx *builtin_join) x(ic *invocation, w facet) (res interface{}) {
-        var args = ic.a
-        if l := len(args); l > 0 {
+        if l := len(ic.a); l > 0 {
                 var (
                         fields []string
                         vals []Value
                         sep string
                 )
                 if l < 2 {
-                        vals = mergex(ctx, plain, args...)
+                        vals = umerge(true, ic.a...)
                 } else {
-                        vals = mergex(ctx, plain, args[:l-1]...)
-                        sep = args[l-1].Strval(ctx)
+                        vals = umerge(true, ic.a[:l-1]...)
+                        sep = ic.a[l-1].Strval(ctx)
                 }
                 for _, a := range vals {
                         if v := a.Strval(ctx); v != "" { fields = append(fields, v) }
@@ -1796,17 +1771,17 @@ ValueType:
 }
 
 // TODO: deprecate this and add -quote to _builtin.SplitString
-type builtin_splitquote struct { builtin_ }
+type builtin_splitquote struct { builtin_splitstring }
 func (ctx *builtin_splitquote) x(ic *invocation, w facet) (res interface{}) {
-        res = (&builtin_splitstring{ctx.builtin_}).x(ic, w)
+        res = ctx.builtin_splitstring.x(ic, w)
         if val, y := res.(Value); y && val != nil { quotestrings(val) }
         return
 }
 
 // TODO: deprecate this and add -quote to _builtin.SplitString
-type builtin_splitquotejoin struct { builtin_ }
+type builtin_splitquotejoin struct { builtin_splitstring }
 func (ctx *builtin_splitquotejoin) x(ic *invocation, w facet) (res interface{}) {
-        res = (&builtin_splitstring{ctx.builtin_}).x(ic, w)
+        res = ctx.builtin_splitstring.x(ic, w)
         if val, y := res.(Value); y && val != nil {
                 var err error
                 var sep string
@@ -1821,9 +1796,9 @@ func (ctx *builtin_splitquotejoin) x(ic *invocation, w facet) (res interface{}) 
         return
 }
 
-type builtin_splitjoinquote struct { builtin_ }
+type builtin_splitjoinquote struct { builtin_splitstring }
 func (ctx *builtin_splitjoinquote) x(ic *invocation, w facet) (res interface{}) {
-        res = (&builtin_splitstring{ctx.builtin_}).x(ic, w)
+        res = ctx.builtin_splitstring.x(ic, w)
         if val, y := res.(Value); y && val != nil {
                 var err error
                 var sep string
@@ -1925,13 +1900,13 @@ type builtin_path struct { builtin_ }
 func (ctx *builtin_path) x(ic *invocation, w facet) (res interface{}) {
         var list []Value
         for _, a := range ic.a {
-                list = append(list, MakePathStr(a.Position(), a.Strval(ctx)))
+                list = append(list, pathStr(ctx, a.Position(), a.Strval(ctx)))
         }
         return list
 }
 
 type builtin_bare struct { builtin_
-        name   bool `n,name,file-name,non-full`
+        name bool `n,name,file-name,non-full`
 }
 func (ctx *builtin_bare) x(ic *invocation, w facet) (res interface{}) {
         var vals []Value
@@ -2032,74 +2007,67 @@ func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
         return
 }
 
-type builtin_string struct { builtin_ }
-func (ctx *builtin_string) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_str{builtin_:ctx.builtin_,strval:false}).x(ic, w)
+type builtin_string struct { builtin_str }
+func (ctx *builtin_string) x(ic *invocation, w facet) (res interface{}) { ctx.strval = false
+        return ctx.builtin_str.x(ic, w)
 }
 
-type builtin_strval struct { builtin_ }
-func (ctx *builtin_strval) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_str{builtin_:ctx.builtin_,strval:true}).x(ic, w)
+type builtin_strval struct { builtin_str }
+func (ctx *builtin_strval) x(ic *invocation, w facet) (res interface{}) { ctx.strval = true
+        return ctx.builtin_str.x(ic, w)
 }
 
 type builtin_filter struct { builtin_
-        stem bool `s,stem;us,use-stem`
+        stem bool `s,stem,us,use-stem`
         neg bool
 }
 func (ctx *builtin_filter) do(pats []Value, values... Value) (result []Value) {
-        var t1 time.Time
+        defer func(t0 time.Time) { if d := time.Now().Sub(t0); d > 1*time.Second {
+                pos := ctx.Position()
+                prompt(ctx, "%v: slow: %d result, %v\n", pos, len(result), result)
+                prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(pats), pats)
+                prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
+        }} (time.Now())
 
-        defer func(t0 time.Time) {
-                if d := time.Now().Sub(t0); d > 1*time.Second {
-                        var ( d1 = t1.Sub(t0) ; pos = ctx.Position() )
-                        prompt(ctx, "%v: slow: %d result, %v\n", pos, len(result), result)
-                        prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(pats), pats)
-                        prompt(ctx, "%v: slow: %v⇒%v\n", pos, d, d1).debug(4)
-                }
-        } (time.Now())
-
-        var filter = func(v Value) Value {
-                for _, pat := range pats {
-                        if full, res, stems := pat.match(ctx, v); full {
-                                if ctx.neg { v = nil } else if ctx.stem {
-                                        var vals []Value
-                                        for _, s := range stems {
-                                                vals = append(vals, MakeString(v.Position(), s))
-                                        }
-                                        v = ease(ctx, vals)
-                                } else if true {
-                                        // 'v' is just good enough
-                                } else if t, r := pat.stencil(ctx, stems); t != nil && len(r) == 0 {
-                                        v = t
-                                } else if s, y := res.(string); y {
-                                        v = MakeString(v.Position(), s)
-                                } else if a, y := res.([]string); y {
-                                        var vals []Value
-                                        for _, s := range a {
-                                                vals = append(vals, MakeString(v.Position(), s))
-                                        }
-                                        v = ease(ctx, vals)
+        var f = func(v Value) Value {
+                for _, pat := range pats { if u, y := pat.(unexpanded); false && y {
+                        erro(ctx, "unexpanded pattern: %v %v : %v %v", typeof(u.Value), u.Value, typeof(v), v).debug(5)
+                } else if full, res, stems := pat.match(ctx, v); full {
+                        if ctx.neg { v = nil } else if ctx.stem {
+                                var vals []Value
+                                for _, s := range stems {
+                                        vals = append(vals, MakeString(v.Position(), s))
                                 }
-                                return v
+                                v = ease(ctx, vals)
+                        } else if true {
+                                // 'v' is just good enough
+                        } else if t, r := pat.stencil(ctx, stems); t != nil && len(r) == 0 {
+                                v = t
+                        } else if s, y := res.(string); y {
+                                v = MakeString(v.Position(), s)
+                        } else if a, y := res.([]string); y {
+                                var vals []Value
+                                for _, s := range a {
+                                        vals = append(vals, MakeString(v.Position(), s))
+                                }
+                                v = ease(ctx, vals)
                         }
-                }
+                        return v
+                }}
                 if ctx.neg { return v } else { return nil }
         }
 
-        var vals = mergex(ctx, plain, values...) ; t1 = time.Now()
-        for _, v := range vals {
-                if t := filter(v); t != nil { result = append(result, t) }
-        }
+        for _, v := range values { if t := f(v); t != nil { result = append(result, t) }}
         return
 }
 func (ctx *builtin_filter) x(ic *invocation, w facet) (res interface{}) {
         if len(ic.a) > 1 {
                 var i int
                 var vals []Value
-                var pats = merge(ic.a[0])
+                var pats = umerge(true, ic.a[0])
                 if len(pats) > 0 {
                         i = 1 // good
-                } else if pats = merge(ic.a[1]); len(pats) == 0 {
+                } else if pats = umerge(true, ic.a[1]); len(pats) == 0 {
                         erro(ctx, "no patterns: %v", ic.a).debug(1)
                         return
                 } else {
@@ -2111,17 +2079,24 @@ func (ctx *builtin_filter) x(ic *invocation, w facet) (res interface{}) {
                         return
                 }
 
-                vals = merge(ic.a[i:]...)
+                vals = umerge(true, ic.a[i:]...)
                 vals = ctx.do(pats, vals...)
                 if len(vals) > 0 { res = vals }
+                if false {
+                        w.noted(ctx, pats[0], ic.a)
+                        noted(ctx, "%v %v -> %v", pats, ic.a[i:], vals).debug(10)
+                }
         }
         return
 }
 
 // $(filter-out pattern…,text)
-type builtin_filterout struct { builtin_ }
-func (ctx *builtin_filterout) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_filter{builtin_:ctx.builtin_,neg:true}).x(ic, w)
+type builtin_filterout struct { builtin_filter }
+func (ctx *builtin_filterout) do(pats []Value, values... Value) (result []Value) { ctx.neg = true
+        return ctx.builtin_filter.do(pats, values...)
+}
+func (ctx *builtin_filterout) x(ic *invocation, w facet) (res interface{}) { ctx.neg = true
+        return ctx.builtin_filter.x(ic, w)
 }
 
 type builtin_substring struct { builtin_ }
@@ -2171,7 +2146,7 @@ func (ctx *builtin_subst) x(ic *invocation, w facet) (res interface{}) {
                         s1 = ic.a[0].Strval(ctx)
                         s2 = ic.a[1].Strval(ctx)
                 )
-                for _, arg := range mergex(ctx, expandDelegate, ic.a[2:]...) {
+                for _, arg := range xmerge(ctx, expandDelegate, ic.a[2:]...) {
                         var s = strings.Replace(arg.Strval(ctx), s1, s2, -1)
                         list = append(list, MakeString(arg.Position(), s))
                 }
@@ -2182,16 +2157,16 @@ func (ctx *builtin_subst) x(ic *invocation, w facet) (res interface{}) {
 // $(patsubst pattern,replacement,text)
 // TODO: supports: $(var:pattern=replacement)
 // TODO: supports: $(var:suffix=replacement)
+// TODO: support flags -name and -full for name-only and full-name-only matching
 type builtin_patsubst struct { builtin_
         findFiles bool `find,find-file`
         fullFiles bool `ff,fullfile,fullfiles`
         cleanPath bool `c,clean,cleanpath`
         noFileMap bool `nomap,no-map,nofile,nofiles,no-files,no-filemap`
-        warnDstNomap bool `warn-dst-nomap`
         erroDstNomap bool `err-dst-nomap,error-dst-nomap`
+        warnDstNomap bool `warn-dst-nomap`
 }
 func (ctx *builtin_patsubst) x(ic *invocation, w facet) (res interface{}) {
-        // TODO: support flags -name and -full for name-only and full-name-only matching
         if len(ic.a) < 3 {
                 erro(ctx, "not enough arguments").debug(1)
                 return
@@ -2200,34 +2175,30 @@ func (ctx *builtin_patsubst) x(ic *invocation, w facet) (res interface{}) {
         var (
                 proj = ctx.Project()
                 closured = closureProjects(ctx)
-                srcPats = merge(ic.a[0])
+                srcPats = umerge(true, ic.a[0])
                 dstPats, sources, list []Value
                 t1 time.Time
         )
-
-        defer func(t0 time.Time) {
-                var t2 = time.Now()
-                if d := t2.Sub(t0); d > 1*time.Second {
-                        var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; pos = ctx.Position() )
-                        prompt(ctx, "%v: slow: src %d %v\n", pos, len(srcPats), srcPats)
-                        prompt(ctx, "%v: slow: dst %d %v\n", pos, len(dstPats), dstPats)
-                        prompt(ctx, "%v: slow: sources %d %v\n", pos, len(sources), sources)
-                        prompt(ctx, "%v: slow: list %d %v\n", pos, len(list), list)
-                        prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)
-                }
-        } (time.Now())
+        defer func(t0 time.Time) { t2 := time.Now(); if d := t2.Sub(t0); d > 1*time.Second {
+                var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; pos = ctx.Position() )
+                prompt(ctx, "%v: slow: src %d %v\n", pos, len(srcPats), srcPats)
+                prompt(ctx, "%v: slow: dst %d %v\n", pos, len(dstPats), dstPats)
+                prompt(ctx, "%v: slow: sources %d %v\n", pos, len(sources), sources)
+                prompt(ctx, "%v: slow: list %d %v\n", pos, len(list), list)
+                prompt(ctx, "%v: slow: %v⇒%v+%v\n", pos, d, d1, d2).debug(4)
+        }} (time.Now())
 
         if len(srcPats) == 0 {
                 if len(ic.a) < 4 {
                         erro(ctx, "not enough arguments").debug(1)
                         return
                 }
-                srcPats = mergex(ctx, plain, ic.a[1])
-                dstPats = mergex(ctx, plain, ic.a[2])
-                sources = mergex(ctx, plain, ic.a[3:]...)
+                srcPats = umerge(true, ic.a[1])
+                dstPats = umerge(true, ic.a[2])
+                sources = umerge(true, ic.a[3:]...)
         } else {
-                dstPats = mergex(ctx, plain, ic.a[1])
-                sources = mergex(ctx, plain, ic.a[2:]...)
+                dstPats = umerge(true, ic.a[1])
+                sources = umerge(true, ic.a[2:]...)
         }
 
         t1 = time.Now()
@@ -2295,23 +2266,19 @@ ForSources:
                                 var dstFile *File
                                 if !ctx.noFileMap { dstFile = proj.file(ctx, nameStr) }
                                 if dstFile == nil {
-                                        var a = []interface{}{
+                                        a := []interface{}{
                                                 "%v: %v (%v): unmapped destination, aka files (...)",
                                                 proj, nameStr, dstPat,
                                         }
-                                        if ctx.erroDstNomap {
-                                                var t = files(ctx, nameVal, proj)
-                                                erro(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
-                                                erro(of(ctx,srcPat), "%v: %v %v", proj, nameVal, t)
-                                                errostack(of(ctx,dstPat), 16, a...).debug(6)
+                                        if t := files(ctx, nameVal, proj); ctx.erroDstNomap {
+                                                erro(of(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
+                                                errostack(of(ctx,dstPat), 16, a...).debug(16)
                                         } else if ctx.warnDstNomap {
-                                                warn(of(ctx,srcPat), "%v: %v (%v)", proj, srcFile, srcPat)
-                                                warnstack(of(ctx,dstPat), 10, a...).debug(4)
+                                                warn(of(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
+                                                warnstack(of(ctx,dstPat), 16, a...).debug(5)
                                         }
-
                                         dstFile = stat(ctx, nameStr, srcFile.sub, srcFile.dir, nil)
                                 }
-
                                 if dstFile.position = srcPat.Position(); full {
                                         list = append(list, fullfile{dstFile})
                                 } else {
@@ -2327,18 +2294,18 @@ ForSources:
                                 list = append(list, MakeString(pos, nameStr))
                                 continue stencilTargetPats
                         case *Path:
-                                list = append(list, MakePathStr(pos, nameStr))
+                                list = append(list, pathStr(ctx, pos, nameStr))
                                 continue stencilTargetPats
                         case *bareword, *barecomp:
                                 if strings.Contains(nameStr, PathSep) {
-                                        list = append(list, MakePathStr(pos, nameStr))
+                                        list = append(list, pathStr(ctx, pos, nameStr))
                                 } else {
                                         list = append(list, MakeBareword(pos, nameStr))
                                 }
                                 continue stencilTargetPats
                         default:
                                 if strings.Contains(nameStr, PathSep) {
-                                        list = append(list, MakePathStr(pos, nameStr))
+                                        list = append(list, pathStr(ctx, pos, nameStr))
                                 } else if true {
                                         list = append(list, MakeBareword(pos, nameStr))
                                 } else {
@@ -2356,9 +2323,7 @@ ForSources:
                 warn(ctx, "res: %v", list)
                 warnstack(ctx, 3, "").debug(ctx.debug)
         }
-
-        res = ease(ctx, list)
-        return
+        return list
 }
 
 type builtin_title struct { builtin_ }
@@ -2388,19 +2353,19 @@ func (ctx *builtin_lowercase) x(ic *invocation, w facet) (res interface{}) {
         return list
 }
 
-type builtin_strip struct { builtin_ }
+type builtin_strip struct { builtin_trimspace }
 func (ctx *builtin_strip) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_trimspace{ctx.builtin_}).x(ic, w)
+        return ctx.builtin_trimspace.x(ic, w)
 }
 
-type builtin_trimspace struct { builtin_ }
+type builtin_trimspace struct { builtin_trim }
 func (ctx *builtin_trimspace) a(ic *invocation, w facet) (skip bool) {
         a, _, _ := w.expand(ctx, ic.a...)
         ic.a = append([]Value{MakeNone(ctx.Position())}, a...)
         return
 }
 func (ctx *builtin_trimspace) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_trim{ctx.builtin_}).x(ic, w)
+        return ctx.builtin_trim.x(ic, w)
 }
 
 type builtin_trim struct { builtin_ }
@@ -2461,7 +2426,7 @@ func (ctx *builtin_trimprefix) x(ic *invocation, w facet) (res interface{}) {
         if len(ic.a) == 1 {
                 if len(prefixs) > 1 { values = prefixs[1:] }
         } else {
-                values = mergex(ctx, plain, ic.a[1:]...)
+                values = umerge(true, ic.a[1:]...)
         }
 
         if len(values) == 0 {
@@ -2564,41 +2529,41 @@ func (ctx *builtin_addprefix) x(ic *invocation, w facet) (res interface{}) {
                 return
         }
 
-        var prefixs = merge(ic.a[0])
-
+        var prefixs = umerge(true, ic.a[0])
         if len(prefixs) != 1 {
                 erro(ctx, "not enough args, try $(addprefix 'prefix', ...)").debug(1)
                 return
         }
 
         var list []Value
-        var vals = mergex(ctx.Context, plain, ic.a[1:]...)
-
-        for _, prefix := range prefixs {
-                if !prefix.True(ctx) { continue }
-                var p, y = prefix.(*Pair)
-                for _, val := range vals {
-                        if /* false && !val.True(ctx) */isTrivial(val) { continue }
+        var vals = umerge(true, ic.a[1:]...)
+        var tw = expandClosure|expandDelegate
+        for _, prefix := range prefixs { if isTrivial(prefix) { continue }; p, y := prefix.(*pair)
+                for _, val := range vals { if isTrivial(val) { continue }; pos := val.Position()
                         if y && !isTrivial(p.Value) {
-                                val = MakeBarecomp(val.Position(), p.Value, val)
+                                c := MakeBarecomp(pos, p.Value)
+                                c.comp(ctx, val)
+                                val = c
                         }
-                        if val.expandable(ctx, expandDelegate|expandClosure) {
-                                if y {
-                                        val = paircomp{MakePair(p.Position(), p.Key, val)}
+                        if a, b := y && p.Key.expandable(ctx, tw), val.expandable(ctx, tw); a||b {
+                                if b { val = unexpanded{val}}
+                                if y { key := p.Key
+                                        if a { key = unexpanded{key}}
+                                        val = paircomp{MakePair(pos, key, val)}
                                 } else {
                                         val = precomp{prefix, val}
                                 }
                         } else if y {
-                                val = MakePair(p.Position(), p.Key, val)
+                                val = MakePair(pos, p.Key, val)
                         } else {
-                                val = MakeBarecomp(val.Position(), prefix, val)
+                                c := MakeBarecomp(pos, prefix)
+                                c.comp(ctx, val)
+                                val = c
                         }
                         list = append(list, val)
                 }
         }
-
-        res = ease(ctx, list)
-        return
+        return list
 }
 
 type builtin_addsuffix struct { builtin_ }
@@ -2619,7 +2584,7 @@ func (ctx *builtin_addsuffix) x(ic *invocation, w facet) (res interface{}) {
         }
 
         var list []Value
-        var vals = mergex(ctx.Context, plain, ic.a[1:]...)
+        var vals = xmerge(ctx.Context, plain, ic.a[1:]...)
 
         for _, suffix := range suffixs {
                 if !suffix.True(ctx) { continue }
@@ -2628,7 +2593,7 @@ func (ctx *builtin_addsuffix) x(ic *invocation, w facet) (res interface{}) {
                                 continue
                         }
                         var pos = val.Position()
-                        var p, y = val.(*Pair)
+                        var p, y = val.(*pair)
                         if y && !isTrivial(p.Value) {
                                 val = MakeBarecomp(p.Key.Position(), val, p.Key)
                         }
@@ -2832,52 +2797,44 @@ type builtin_contains struct { builtin_
         match  bool `m,mat,match,p,pat,pattern`
         string bool `s,str,string`
 }
+func (ctx *builtin_contains) a(ic *invocation, w facet) (skip bool) { return }
 func (ctx *builtin_contains) x(ic *invocation, w facet) (res interface{}) {
         if len(ic.a) < 2 {
-                erro(ctx, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)").debug(1)
+                erro(ctx, "unexpected number of arguments, try $(contains a b c1 c2, v1 v2 …)").debug(1)
                 return
         }
 
-        var vals = mergex(ctx, w|expandPairVal, ic.a[0])
-        var list = mergex(ctx, w|expandPairVal, ic.a[1:]...)
+        w |= expandPairVal|expandUnexpandedMerge
+
+        var vals = xmerge(ctx, w, ic.a[0])
+        var list = xmerge(ctx, w, ic.a[1:]...)
         if len(vals) == 0 || len(list) == 0 {
-                erro(ctx, "insufficient number of arguments").debug(6)
+                erro(ctx, "insufficient number of arguments: %v ⇒ %v %v", ic.a, vals, list).debug(6)
                 return
         }
 
-        var (
-                y int
-                s string
-        )
-        // NOTE: returns true if list contains all vals in it's presented order.
-ForVals:
-        for i, val := range vals {
+        var y int
+
+outer:
+        for i, val := range vals { var s string
                 if ctx.string { s = val.Strval(ctx) }
-                for _, elem := range list {
-                        if ctx.string {
-                                if elem.Strval(ctx) == s {
-                                        y += 1; continue ForVals
-                                }
-                        } else if ctx.match {
-                                if full, _, _ := val.match(ctx, elem); full {
-                                        y += 1; continue ForVals
-                                }
-                        } else if val.cmp(ctx, elem) == cmpEqual {
-                                y += 1; continue ForVals
+                for j, elem := range list {
+                        if ctx.string { if elem.Strval(ctx) == s {
+                                y += 1; continue outer
+                        }} else if ctx.match { if t, _, _ := val.match(ctx, elem); t {
+                                y += 1; continue outer
+                        }} else if val.cmp(ctx, elem) == cmpEqual {
+                                y += 1; continue outer
                         }
-                        if ctx.debug>0 && !ctx.string && !isNull(elem) {
-                                if a, b := val.Strval(ctx), elem.Strval(ctx); a == b {
-                                        warn(of(ctx,val), "wrong: %T %v <-> %T %v ; '%s', '%s'", val, val, elem, elem, a, b)
-                                }
-                        }
+                        if ctx.debug>0 && false { warn(of(ctx,val), "%d. %T %v <-> %d. %T %v", i, val, val, j, elem, elem) }
+                        if ctx.debug>0 && !ctx.string && elem != nil { if a, b := val.Strval(ctx), elem.Strval(ctx); a == b {
+                                warn(of(ctx,val), "wrong: %T %v <-> %T %v ; '%s', '%s'", val, val, elem, elem, a, b)
+                        }}
                 }
-                if ctx.debug>0 { warn(of(ctx,val), "%d. %T %v", i, val, val) }
         }
 
         var b = (y == len(vals))
-        if ctx.debug>0 && !b {
-                warn(ctx, "found %d/%d: %v", y, len(vals), list).debug(ctx.debug)
-        }
+        if ctx.debug>0 && !b { warn(ctx, "found %d/%d: %v", y, len(vals), list).debug(ctx.debug) }
         res = MakeBoolean(ctx.Position(), b)
         return
 }
@@ -2998,49 +2955,49 @@ func (ctx *builtin_bases) x(ic *invocation, w facet) (res interface{}) {
         return l
 }
 
-type builtin_base struct { builtin_ }
-func (ctx *builtin_base) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_bases{ctx.builtin_,1}).x(ic, w)
+type builtin_base struct { builtin_bases }
+func (ctx *builtin_base) x(ic *invocation, w facet) (res interface{}) { ctx.n = 1
+        return ctx.builtin_bases.x(ic, w)
 }
 
-type builtin_base2 struct { builtin_ }
-func (ctx *builtin_base2) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_bases{ctx.builtin_,2}).x(ic, w)
+type builtin_base2 struct { builtin_bases }
+func (ctx *builtin_base2) x(ic *invocation, w facet) (res interface{}) { ctx.n = 2
+        return ctx.builtin_bases.x(ic, w)
 }
 
-type builtin_base3 struct { builtin_ }
-func (ctx *builtin_base3) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_bases{ctx.builtin_,3}).x(ic, w)
+type builtin_base3 struct { builtin_bases }
+func (ctx *builtin_base3) x(ic *invocation, w facet) (res interface{}) { ctx.n = 3
+        return ctx.builtin_bases.x(ic, w)
 }
 
-type builtin_base4 struct { builtin_ }
-func (ctx *builtin_base4) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_bases{ctx.builtin_,4}).x(ic, w)
+type builtin_base4 struct { builtin_bases }
+func (ctx *builtin_base4) x(ic *invocation, w facet) (res interface{}) { ctx.n = 4
+        return ctx.builtin_bases.x(ic, w)
 }
 
-type builtin_base5 struct { builtin_ }
-func (ctx *builtin_base5) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_bases{ctx.builtin_,5}).x(ic, w)
+type builtin_base5 struct { builtin_bases }
+func (ctx *builtin_base5) x(ic *invocation, w facet) (res interface{}) { ctx.n = 5
+        return ctx.builtin_bases.x(ic, w)
 }
 
-type builtin_base6 struct { builtin_ }
-func (ctx *builtin_base6) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_bases{ctx.builtin_,6}).x(ic, w)
+type builtin_base6 struct { builtin_bases }
+func (ctx *builtin_base6) x(ic *invocation, w facet) (res interface{}) { ctx.n = 6
+        return ctx.builtin_bases.x(ic, w)
 }
 
-type builtin_base7 struct { builtin_ }
-func (ctx *builtin_base7) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_bases{ctx.builtin_,7}).x(ic, w)
+type builtin_base7 struct { builtin_bases }
+func (ctx *builtin_base7) x(ic *invocation, w facet) (res interface{}) { ctx.n = 7
+        return ctx.builtin_bases.x(ic, w)
 }
 
-type builtin_base8 struct { builtin_ }
-func (ctx *builtin_base8) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_bases{ctx.builtin_,8}).x(ic, w)
+type builtin_base8 struct { builtin_bases }
+func (ctx *builtin_base8) x(ic *invocation, w facet) (res interface{}) { ctx.n = 8
+        return ctx.builtin_bases.x(ic, w)
 }
 
-type builtin_base9 struct { builtin_ }
-func (ctx *builtin_base9) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_bases{ctx.builtin_,9}).x(ic, w)
+type builtin_base9 struct { builtin_bases }
+func (ctx *builtin_base9) x(ic *invocation, w facet) (res interface{}) { ctx.n = 9
+        return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_dirs struct { builtin_
@@ -3057,54 +3014,54 @@ func (ctx *builtin_dirs) x(ic *invocation, w facet) (res interface{}) {
                 }
                 s = filepath.Dir(s)
                 for i := ctx.n-1; 0 < i; i -= 1 { s = filepath.Dir(s) }
-                l = append(l, MakePathStr(a.Position(), s))
+                l = append(l, pathStr(ctx, a.Position(), s))
         }
         return l
 }
 
-type builtin_dir struct { builtin_ }
-func (ctx *builtin_dir) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_dirs{ctx.builtin_,1}).x(ic, w)
+type builtin_dir struct { builtin_dirs }
+func (ctx *builtin_dir) x(ic *invocation, w facet) (res interface{}) { ctx.n = 1
+        return ctx.builtin_dirs.x(ic, w)
 }
 
-type builtin_dir2 struct { builtin_ }
-func (ctx *builtin_dir2) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_dirs{ctx.builtin_,2}).x(ic, w)
+type builtin_dir2 struct { builtin_dirs }
+func (ctx *builtin_dir2) x(ic *invocation, w facet) (res interface{}) { ctx.n = 2
+        return ctx.builtin_dirs.x(ic, w)
 }
 
-type builtin_dir3 struct { builtin_ }
-func (ctx *builtin_dir3) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_dirs{ctx.builtin_,3}).x(ic, w)
+type builtin_dir3 struct { builtin_dirs }
+func (ctx *builtin_dir3) x(ic *invocation, w facet) (res interface{}) { ctx.n = 3
+        return ctx.builtin_dirs.x(ic, w)
 }
 
-type builtin_dir4 struct { builtin_ }
-func (ctx *builtin_dir4) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_dirs{ctx.builtin_,4}).x(ic, w)
+type builtin_dir4 struct { builtin_dirs }
+func (ctx *builtin_dir4) x(ic *invocation, w facet) (res interface{}) { ctx.n = 4
+        return ctx.builtin_dirs.x(ic, w)
 }
 
-type builtin_dir5 struct { builtin_ }
-func (ctx *builtin_dir5) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_dirs{ctx.builtin_,5}).x(ic, w)
+type builtin_dir5 struct { builtin_dirs }
+func (ctx *builtin_dir5) x(ic *invocation, w facet) (res interface{}) { ctx.n = 5
+        return ctx.builtin_dirs.x(ic, w)
 }
 
-type builtin_dir6 struct { builtin_ }
-func (ctx *builtin_dir6) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_dirs{ctx.builtin_,6}).x(ic, w)
+type builtin_dir6 struct { builtin_dirs }
+func (ctx *builtin_dir6) x(ic *invocation, w facet) (res interface{}) { ctx.n = 6
+        return ctx.builtin_dirs.x(ic, w)
 }
 
-type builtin_dir7 struct { builtin_ }
-func (ctx *builtin_dir7) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_dirs{ctx.builtin_,7}).x(ic, w)
+type builtin_dir7 struct { builtin_dirs }
+func (ctx *builtin_dir7) x(ic *invocation, w facet) (res interface{}) { ctx.n = 7
+        return ctx.builtin_dirs.x(ic, w)
 }
 
-type builtin_dir8 struct { builtin_ }
-func (ctx *builtin_dir8) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_dirs{ctx.builtin_,8}).x(ic, w)
+type builtin_dir8 struct { builtin_dirs }
+func (ctx *builtin_dir8) x(ic *invocation, w facet) (res interface{}) { ctx.n = 8
+        return ctx.builtin_dirs.x(ic, w)
 }
 
-type builtin_dir9 struct { builtin_ }
-func (ctx *builtin_dir9) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_dirs{ctx.builtin_,9}).x(ic, w)
+type builtin_dir9 struct { builtin_dirs }
+func (ctx *builtin_dir9) x(ic *invocation, w facet) (res interface{}) { ctx.n = 9
+        return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_undirs struct { builtin_
@@ -3127,54 +3084,54 @@ func (ctx *builtin_undirs) x(ic *invocation, w facet) (res interface{}) {
                 } else {
                         v = v[i-1:] // empty
                 }
-                l = append(l, MakePathStr(a.Position(), filepath.Join(v...)))
+                l = append(l, pathStr(ctx, a.Position(), filepath.Join(v...)))
         }
         return l
 }
 
-type builtin_undir struct { builtin_ }
-func (ctx *builtin_undir) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_undirs{ctx.builtin_,1}).x(ic, w)
+type builtin_undir struct { builtin_undirs }
+func (ctx *builtin_undir) x(ic *invocation, w facet) (res interface{}) { ctx.n = 1
+        return ctx.builtin_undirs.x(ic, w)
 }
 
-type builtin_undir2 struct { builtin_ }
-func (ctx *builtin_undir2) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_undirs{ctx.builtin_,2}).x(ic, w)
+type builtin_undir2 struct { builtin_undirs }
+func (ctx *builtin_undir2) x(ic *invocation, w facet) (res interface{}) { ctx.n = 2
+        return ctx.builtin_undirs.x(ic, w)
 }
 
-type builtin_undir3 struct { builtin_ }
-func (ctx *builtin_undir3) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_undirs{ctx.builtin_,3}).x(ic, w)
+type builtin_undir3 struct { builtin_undirs }
+func (ctx *builtin_undir3) x(ic *invocation, w facet) (res interface{}) { ctx.n = 3
+        return ctx.builtin_undirs.x(ic, w)
 }
 
-type builtin_undir4 struct { builtin_ }
-func (ctx *builtin_undir4) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_undirs{ctx.builtin_,4}).x(ic, w)
+type builtin_undir4 struct { builtin_undirs }
+func (ctx *builtin_undir4) x(ic *invocation, w facet) (res interface{}) { ctx.n = 4
+        return ctx.builtin_undirs.x(ic, w)
 }
 
-type builtin_undir5 struct { builtin_ }
-func (ctx *builtin_undir5) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_undirs{ctx.builtin_,5}).x(ic, w)
+type builtin_undir5 struct { builtin_undirs }
+func (ctx *builtin_undir5) x(ic *invocation, w facet) (res interface{}) { ctx.n = 5
+        return ctx.builtin_undirs.x(ic, w)
 }
 
-type builtin_undir6 struct { builtin_ }
-func (ctx *builtin_undir6) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_undirs{ctx.builtin_,6}).x(ic, w)
+type builtin_undir6 struct { builtin_undirs }
+func (ctx *builtin_undir6) x(ic *invocation, w facet) (res interface{}) { ctx.n = 6
+        return ctx.builtin_undirs.x(ic, w)
 }
 
-type builtin_undir7 struct { builtin_ }
-func (ctx *builtin_undir7) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_undirs{ctx.builtin_,7}).x(ic, w)
+type builtin_undir7 struct { builtin_undirs }
+func (ctx *builtin_undir7) x(ic *invocation, w facet) (res interface{}) { ctx.n = 7
+        return ctx.builtin_undirs.x(ic, w)
 }
 
-type builtin_undir8 struct { builtin_ }
-func (ctx *builtin_undir8) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_undirs{ctx.builtin_,8}).x(ic, w)
+type builtin_undir8 struct { builtin_undirs }
+func (ctx *builtin_undir8) x(ic *invocation, w facet) (res interface{}) { ctx.n = 8
+        return ctx.builtin_undirs.x(ic, w)
 }
 
-type builtin_undir9 struct { builtin_ }
-func (ctx *builtin_undir9) x(ic *invocation, w facet) (res interface{}) {
-        return (&builtin_undirs{ctx.builtin_,9}).x(ic, w)
+type builtin_undir9 struct { builtin_undirs }
+func (ctx *builtin_undir9) x(ic *invocation, w facet) (res interface{}) { ctx.n = 9
+        return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_chopdir struct { builtin_ }
@@ -3241,10 +3198,10 @@ func (ctx *builtin_mkdir) c(ic *invocation, w facet) (res interface{}) {
                         name string
                 )
                 switch t := a.(type) {
-                case *Pair: // mkdir name => perm name => perm
+                case *pair: // mkdir name => perm name => perm
                         name = t.Key.Strval(ctx)
                         perm = permVal(ctx, t.Value, uint32(perm))
-                case *Group: // mkdir (name perm) (name perm)
+                case *group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
                                 name = t.Get(0).Strval(ctx)
                                 perm = permVal(ctx, t.Get(1), uint32(perm))
@@ -3303,10 +3260,10 @@ func (ctx *builtin_rename) c(ic *invocation, w facet) (res interface{}) {
                         oldname, newname string
                 )
                 switch t := a.(type) {
-                case *Pair: // rename oldname=newname
+                case *pair: // rename oldname=newname
                         oldname = t.Key.Strval(ctx)
                         newname = t.Value.Strval(ctx)
-                case *Group: // rename (oldname newname) (old new)
+                case *group: // rename (oldname newname) (old new)
                         if t.Len() == 2 {
                                 oldname = t.Get(0).Strval(ctx)
                                 newname = t.Get(1).Strval(ctx)
@@ -3439,12 +3396,12 @@ func (ctx *builtin_truncate) c(ic *invocation, w facet) (res interface{}) {
                         e error
                 )
                 switch t := a.(type) {
-                case *Pair: // truncate name => size old => new
+                case *pair: // truncate name => size old => new
                         name = t.Key.Strval(ctx)
                         if size, e = t.Value.Integer(ctx); e != nil {
                                 erro(ctx, "%v: %v", t.Value, e).debug(1)
                         }
-                case *Group: // truncate (name size) (old new)
+                case *group: // truncate (name size) (old new)
                         if t.Len() == 2 {
                                 name = t.Get(0).Strval(ctx)
                                 if size, e = t.Get(1).Integer(ctx); e != nil {
@@ -3492,10 +3449,10 @@ func (ctx *builtin_link) c(ic *invocation, w facet) (res interface{}) {
                         a = ic.a[i]
                 )
                 switch t := a.(type) {
-                case *Pair: // link oldname => newname old => new
+                case *pair: // link oldname => newname old => new
                         oldname = t.Key.Strval(ctx)
                         newname = t.Value.Strval(ctx)
-                case *Group: // link (oldname newname) (old new)
+                case *group: // link (oldname newname) (old new)
                         if t.Len() == 2 {
                                 oldname = t.Get(0).Strval(ctx)
                                 newname = t.Get(1).Strval(ctx)
@@ -3550,9 +3507,9 @@ ForArgs:
                         aa []Value
                 )
                 switch t := ic.a[i].(type) {
-                case *Pair: // symlink srcName=dstName srcName=>dstName...
+                case *pair: // symlink srcName=dstName srcName=>dstName...
                         srcNameVal, dstNameVal = t.Key, t.Value
-                case *Group: // symlink (-u srcName dstName) (-v srcName dstName)...
+                case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
                         if aa = parseOpts(ctx, &opts, plain, t.Elems...); len(aa) != 2 {
                                 erro(of(ctx,t), "expects two values for group").debug(1)
                                 return
@@ -3795,7 +3752,7 @@ func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
                 } }
         }
 
-        for _, a := range ic.a {
+        for _, a := range merge(ic.a...) {
                 if fil(a); en > 0 {
                         erro(ctx, `%v: %s(%v) is not a file (%v)`, proj, typeof(a), a, list)
                         errostack(ctx, 5).debug(16)
@@ -3835,7 +3792,7 @@ func (ctx *builtin_glob) x(ic *invocation, w facet) (res interface{}) {
                 for _, name := range names {
                         //var fi, _ = os.Stat(name)
                         // TODO: ctx.dir, ctx.file, ctx.symbol
-                        list = append(list, MakePathStr(pos, name))
+                        list = append(list, pathStr(ctx, pos, name))
                 }
         }
         return list
@@ -4061,7 +4018,7 @@ func (ctx *builtin_wildcard) x(ic *invocation, w facet) (res interface{}) {
                 noted(ctx, "%v %v %v -> %v", ctx.dir, ic.o, ic.a, res).debug(10)
         }}()}}
 
-        if len(ctx.exclude) > 0 { ctx.exclude = mergex(ctx, plain, ctx.exclude...) }
+        if len(ctx.exclude) > 0 { ctx.exclude = umerge(true, ctx.exclude...) }
 
         for _, file := range ctx.do(merge(ic.a...)...) {
                 if file == nil {
@@ -4071,7 +4028,7 @@ func (ctx *builtin_wildcard) x(ic *invocation, w facet) (res interface{}) {
                 } else if ctx.strs {
                         vals = append(vals, MakeString(file.position, file.name))
                 } else if strings.Contains(file.name, PathSep) {
-                        vals = append(vals, MakePathStr(file.position, file.name))
+                        vals = append(vals, pathStr(ctx, file.position, file.name))
                 } else {
                         vals = append(vals, MakeBareword(file.position, file.name))
                 }
@@ -4135,10 +4092,10 @@ ForArgs:
                         perm = os.FileMode(0600)
                 )
                 switch t := a.(type) {
-                case *Pair: // write-file name=text name=text
+                case *pair: // write-file name=text name=text
                         name = t.Key  .Strval(ctx)
                         data = t.Value.Strval(ctx)
-                case *Group: // write-file (name text) (name text 0660)
+                case *group: // write-file (name text) (name text 0660)
                         if n := t.Len(); n < 4 && n > 0 {
                                 name = t.Get(0).Strval(ctx)
                                 if n > 1 { data = t.Get(1).Strval(ctx) }
@@ -4186,7 +4143,7 @@ ForArgs:
 func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
         var a, filename, c = as{file}.fullname(ctx)
         if filename == "" {
-                erro(of(ctx,file), "touch: no full file name: %v (%T, %v, %v)", file, file, a, c).debug(1)
+                errostack(of(ctx,file), 3, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c).debug(24)
                 return
         } else if d := filepath.Dir(filename); optPath && d != "." && d != PathSep {
                 if err = os.MkdirAll(d, os.FileMode(optMode|0733)); err != nil {
@@ -4300,7 +4257,7 @@ func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
                 return
         }
 
-        for _, a := range mergex(ctx, plain, args...) {
+        for _, a := range umerge(true, args...) {
                 var file *os.File
                 var filename string
 
@@ -4411,7 +4368,7 @@ func (project *Project) strExpandConfig(ctx Context, s string) (result string, e
                         } else {
                                 erro(ctx, "%: %v", t, i).debug(1)
                         }
-                case *Group:
+                case *group:
                         fmt.Fprintf(res, "%s", parseGroupValue(ctx, t).Strval(ctx))
                 default:
                         fmt.Fprintf(res, "%s", val.Strval(ctx))
@@ -4524,16 +4481,12 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
         return
 }
 
-type builtin_untraversed struct {
-        Context
-}
+type builtin_untraversed struct { builtin_ }
 func (ctx *builtin_untraversed) x(ic *invocation, w facet) (res interface{}) {
-        return untraversed{ease(ctx, ic.a)} // mergex(ctx, plain, ic.a...)
+        return untraversed{ease(ctx, ic.a)}
 }
 
-type builtin_return struct {
-        Context
-}
+type builtin_return struct { builtin_ }
 func (ctx *builtin_return) x(ic *invocation, w facet) (res interface{}) {
         return &returner{valbase{ctx.Position()}, ic.a }
 }
