@@ -37,7 +37,7 @@ func validFlags(t testcase, v Value, s string) (res bool) {
 }
 
 func TestVariantTarget(t *testing.T) {
-	if s := "variant/bootstrap"; !testHasModule(s) { // variant/.target
+	if s := "variant/.target"; !testHasModule(s) { // variant/bootstrap
 		t.Logf("skip %s", s)
 		return
 	}
@@ -46,6 +46,24 @@ func TestVariantTarget(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/modules/target", "testtarget")
+	if d := ctx.def("host.triple"); d == nil {
+		ctx.err("host.triple")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.origin != DefExpand1 {
+		ctx.err("%v %v", d.origin, d)
+	} else if d.value.String() != "&(host.arch)-&(host.arch.ext)-&(host.vendor)-&(host.sys)-&(host.abi)" {
+		ctx.err("%v", d)
+	}
+	if d := ctx.def("target.triple"); d == nil {
+		ctx.err("target.triple")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.origin != DefExpand1 {
+		ctx.err("%v %v", d.origin, d)
+	} else if d.value.String() != "&(target.arch)-&(target.arch.ext)-&(target.vendor)-&(target.sys)-&(target.abi)" {
+		ctx.err("%v", d)
+	}
 
 	langs  := strings.Fields("c c++ cl cuda cuda++ objc objc++ swift")
 	flags1 := strings.Fields("-D -I -L -O -W -Wl -Werror -Wno-error -f -f.ld -m -g -v -no -no.ld"+

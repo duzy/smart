@@ -397,7 +397,6 @@ type universe struct {
 // func (ctx *universe) arguments() []Value { return nil }
 // func (ctx *universe) closure() *closureContext { return nil }
 // func (ctx *universe) dirty(Context, ...Value) (res bool) { return }
-// func (ctx *universe) dirtyMark(vals ...Value) { return }
 // func (ctx *universe) dirtyOpts() *dirtyOpts { return nil }
 // func (ctx *universe) ruleContext() *ruleContext { return nil }
 // func (ctx *universe) mustExists() bool { return false }
@@ -407,6 +406,7 @@ type universe struct {
 // func (ctx *universe) stemmed() *stemmed { return nil }
 // func (ctx *universe) traverse(_ Context, prereqValue Value) (traves travestates) { return }
 // func (ctx *universe) traversed(_ Context, target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
+func (ctx *universe) dirtyMark(vals ...Value) { return }
 func (ctx *universe) ref(_ Context, _ Value) bool { return false }
 func (ctx *universe) isConfigure() bool { return false }
 func (ctx *universe) inner() Context { return nil }

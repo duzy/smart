@@ -1675,24 +1675,42 @@ ForArgs:
         return list
 }
 
-type builtin_join struct { builtin_ }
+type builtin_join struct { builtin_
+        comp bool `comp,compose,compose-value`
+}
+func (ctx *builtin_join) a(ic *invocation, w facet) (skip bool) { var u int
+        ic.a, u, _ = w.expand(ctx, ic.a...)
+        return !ctx.comp && u > 0
+}
 func (ctx *builtin_join) x(ic *invocation, w facet) (res interface{}) {
         if l := len(ic.a); l > 0 {
                 var (
                         fields []string
                         vals []Value
-                        sep string
+                        sep Value
                 )
                 if l < 2 {
                         vals = umerge(true, ic.a...)
                 } else {
                         vals = umerge(true, ic.a[:l-1]...)
-                        sep = ic.a[l-1].Strval(ctx)
+                        sep = scalarize(ic.a[l-1])
                 }
-                for _, a := range vals {
-                        if v := a.Strval(ctx); v != "" { fields = append(fields, v) }
+                if len(vals) == 0 { return }
+                if ctx.comp {
+                        var comp = MakeBarecomp(ctx.Position())
+                        for i, a := range vals {
+                                if i > 0 && !isTrivial(sep) { comp.Elems = append(comp.Elems, sep) }
+                                comp.Elems = append(comp.Elems, a)
+                        }
+                        res = comp
+                } else {
+                        var ss string
+                        if sep != nil { ss = sep.Strval(ctx) }
+                        for _, a := range vals {
+                                if v := a.Strval(ctx); v != "" { fields = append(fields, v) }
+                        }
+                        res = MakeString(ctx.Position(), strings.Join(fields, ss))
                 }
-                res = MakeString(ctx.Position(), strings.Join(fields, sep))
         }
         return
 }

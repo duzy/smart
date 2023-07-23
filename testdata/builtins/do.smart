@@ -12,6 +12,7 @@ val4  = $(addprefix  foo ,bar &(bar))
 val5 := $(join foo bar xx yy zz,-)
 val6  = $(join foo bar xx yy zz,-)
 val7 := $(join &(target.arch) &(target.vendor) &(target.sys) &(target.abi),-)
+val71 := $(join(-comp) &(target.arch) &(target.vendor) &(target.sys) &(target.abi),-)
 
 val8  := foo.txt
 val9  := $(file foo.txt)

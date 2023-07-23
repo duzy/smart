@@ -2326,6 +2326,15 @@ func TestBuiltins(t *testing.T) {
 	} else if s := v.Strval(ctx); s != "foo-bar-a-0" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
+	if d := ctx.def("val71"); d == nil {
+		ctx.err("val71")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if v.String() != "&(target.arch)-&(target.vendor)-&(target.sys)-&(target.abi)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "foo-bar-a-0" {
+		ctx.err("%T %v -> %s", v, v, s)
+	}
 
 	fullFooTxt := filepath.Join(ctx.WorkDir(), "foo.txt")
 	if v := ctx.get("val8"); v == nil {
