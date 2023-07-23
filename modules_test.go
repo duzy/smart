@@ -237,9 +237,9 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", d)
 	} else if strings.Count(s, "$(foreach $1,&($2.$_) &($2~&(target.sys).$_)),") != 1 {
 		ctx.err("%v", d)
-	} else if strings.Count(s, ",$(or $3,$2)$_)") != 1 {
+	} else if strings.Count(s, ",$(or $3,$2)$_$(or $4))") != 1 {
 		ctx.err("%v", d)
-	} else if s != "$(foreach(-unique) $(filter-out $(foreach $1,&($2!$_) &($2~&(target.sys)!$_)),&($2) &($2~&(target.sys))) $(foreach $1,&($2.$_) &($2~&(target.sys).$_)),$(or $3,$2)$_)" {
+	} else if s != "$(foreach(-unique) $(filter-out $(foreach $1,&($2!$_) &($2~&(target.sys)!$_)),&($2) &($2~&(target.sys))) $(foreach $1,&($2.$_) &($2~&(target.sys).$_)),$(or $3,$2)$_$(or $4))" {
 		ctx.err("%v ; %v", s, d)
 	}
 	if v := ctx.get("_flag", []string{"a", "b", "c"}, "-x"); v == nil {
@@ -266,7 +266,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", v)
 	} else if s2 := "&(-x.a) &(-x~&(target.sys).a) &(-x.b) &(-x~&(target.sys).b) &(-x.c) &(-x~&(target.sys).c)"; strings.Count(s, s2) != 1 {
 		ctx.err("%v", v)
-	} else if s3 := "$(or $3,-x)$_)"; strings.Count(s, s3) != 1 {
+	} else if s3 := "$(or $3,-x)$_$(or $4))"; strings.Count(s, s3) != 1 {
 		ctx.err("%v", v)
 	} else if s != "$(foreach(-unique) "+s1+" "+s2+","+s3 {
 		ctx.err("%v", v)
@@ -319,7 +319,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", v)
 	} else if s2 := "&(-z.a) &(-z~&(target.sys).a) &(-z.b) &(-z~&(target.sys).b) &(-z.c) &(-z~&(target.sys).c)"; strings.Count(s, s2) != 1 {
 		ctx.err("%v", v)
-	} else if s3 := "$(or $3,-z)$_)"; strings.Count(s, s3) != 1 {
+	} else if s3 := "$(or $3,-z)$_$(or $4))"; strings.Count(s, s3) != 1 {
 		ctx.err("%v", v)
 	} else if s != "$(foreach(-unique) "+s1+" "+s2+","+s3 {
 		ctx.err("%v", v)
@@ -350,7 +350,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", v)
 	} else if s2 := "&(-x.a) &(-x~&(target.sys).a) &(-x.b) &(-x~&(target.sys).b) &(-x.c) &(-x~&(target.sys).c)"; strings.Count(s, s2) != 1 {
 		ctx.err("%v", v)
-	} else if s3 := "-y$_)"; strings.Count(s, s3) != 1 {
+	} else if s3 := "-y$_$(or $4))"; strings.Count(s, s3) != 1 {
 		ctx.err("%v", v)
 	} else if s != "$(foreach(-unique) "+s1+" "+s2+","+s3 {
 		ctx.err("%v", v)
@@ -390,15 +390,15 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", d1.value)
 	} else if strings.Count(s, "$(foreach(-unique) $2 $1,&(-v.$_) -std=&(-std.$_) -std=&(std.$_))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-D!$_) &(-D~&(target.sys)!$_)),&(-D) &(-D~&(target.sys))) $(foreach $1 $2,&(-D.$_) &(-D~&(target.sys).$_)),$(or $3,-D)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-D!$_) &(-D~&(target.sys)!$_)),&(-D) &(-D~&(target.sys))) $(foreach $1 $2,&(-D.$_) &(-D~&(target.sys).$_)),$(or $3,-D)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-f!$_) &(-f~&(target.sys)!$_)),&(-f) &(-f~&(target.sys))) $(foreach $1 $2,&(-f.$_) &(-f~&(target.sys).$_)),$(or $3,-f)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-f!$_) &(-f~&(target.sys)!$_)),&(-f) &(-f~&(target.sys))) $(foreach $1 $2,&(-f.$_) &(-f~&(target.sys).$_)),$(or $3,-f)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-I!$_) &(-I~&(target.sys)!$_)),&(-I) &(-I~&(target.sys))) $(foreach $1 $2,&(-I.$_) &(-I~&(target.sys).$_)),$(or $3,-I)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-I!$_) &(-I~&(target.sys)!$_)),&(-I) &(-I~&(target.sys))) $(foreach $1 $2,&(-I.$_) &(-I~&(target.sys).$_)),$(or $3,-I)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-isystem!$_) &(-isystem~&(target.sys)!$_)),&(-isystem) &(-isystem~&(target.sys))) $(foreach $1 $2,&(-isystem.$_) &(-isystem~&(target.sys).$_)),$(or $3,-isystem)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-isystem!$_) &(-isystem~&(target.sys)!$_)),&(-isystem) &(-isystem~&(target.sys))) $(foreach $1 $2,&(-isystem.$_) &(-isystem~&(target.sys).$_)),$(or $3,-isystem)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-isystem-after!$_) &(-isystem-after~&(target.sys)!$_)),&(-isystem-after) &(-isystem-after~&(target.sys))) $(foreach $1 $2,&(-isystem-after.$_) &(-isystem-after~&(target.sys).$_)),$(or $3,-isystem-after)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-isystem-after!$_) &(-isystem-after~&(target.sys)!$_)),&(-isystem-after) &(-isystem-after~&(target.sys))) $(foreach $1 $2,&(-isystem-after.$_) &(-isystem-after~&(target.sys).$_)),$(or $3,-isystem-after)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
 	} else if strings.Count(s, "$(foreach(-unique) $1 $2,&(cppflags.$_) &(cppflags~&(target.sys).$_))") != 1 {
 		ctx.err("%v", d1.value)
@@ -408,15 +408,15 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", d2.value)
 	} else if strings.Count(s, "$(foreach(-unique) $2 $1,&(-v.$_) -std=&(-std.$_) -std=&(std.$_))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-D!$_) &(-D~&(target.sys)!$_)),&(-D) &(-D~&(target.sys))) $(foreach $1 $2,&(-D.$_) &(-D~&(target.sys).$_)),$(or $3,-D)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-D!$_) &(-D~&(target.sys)!$_)),&(-D) &(-D~&(target.sys))) $(foreach $1 $2,&(-D.$_) &(-D~&(target.sys).$_)),$(or $3,-D)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-f!$_) &(-f~&(target.sys)!$_)),&(-f) &(-f~&(target.sys))) $(foreach $1 $2,&(-f.$_) &(-f~&(target.sys).$_)),$(or $3,-f)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-f!$_) &(-f~&(target.sys)!$_)),&(-f) &(-f~&(target.sys))) $(foreach $1 $2,&(-f.$_) &(-f~&(target.sys).$_)),$(or $3,-f)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-I!$_) &(-I~&(target.sys)!$_)),&(-I) &(-I~&(target.sys))) $(foreach $1 $2,&(-I.$_) &(-I~&(target.sys).$_)),$(or $3,-I)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-I!$_) &(-I~&(target.sys)!$_)),&(-I) &(-I~&(target.sys))) $(foreach $1 $2,&(-I.$_) &(-I~&(target.sys).$_)),$(or $3,-I)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-isystem!$_) &(-isystem~&(target.sys)!$_)),&(-isystem) &(-isystem~&(target.sys))) $(foreach $1 $2,&(-isystem.$_) &(-isystem~&(target.sys).$_)),$(or $3,-isystem)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-isystem!$_) &(-isystem~&(target.sys)!$_)),&(-isystem) &(-isystem~&(target.sys))) $(foreach $1 $2,&(-isystem.$_) &(-isystem~&(target.sys).$_)),$(or $3,-isystem)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-isystem-after!$_) &(-isystem-after~&(target.sys)!$_)),&(-isystem-after) &(-isystem-after~&(target.sys))) $(foreach $1 $2,&(-isystem-after.$_) &(-isystem-after~&(target.sys).$_)),$(or $3,-isystem-after)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 $2,&(-isystem-after!$_) &(-isystem-after~&(target.sys)!$_)),&(-isystem-after) &(-isystem-after~&(target.sys))) $(foreach $1 $2,&(-isystem-after.$_) &(-isystem-after~&(target.sys).$_)),$(or $3,-isystem-after)$_$(or $4))") != 1 {
 		ctx.err("%v", d1.value)
 	} else if strings.Count(s, "$(foreach(-unique) $1 $2,&(cppflags.$_) &(cppflags~&(target.sys).$_))") != 1 {
 		ctx.err("%v", d1.value)
@@ -440,25 +440,25 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", v1)
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.sys)) $(foreach $1 c,&(-g.$_) &(-g~&(target.sys).$_))),-g)") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-g!$_) &(-g~&(target.sys)!$_)),&(-g) &(-g~&(target.sys))) $(foreach $1 c,&(-g.$_) &(-g~&(target.sys).$_)),$(or $3,-g)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-g!$_) &(-g~&(target.sys)!$_)),&(-g) &(-g~&(target.sys))) $(foreach $1 c,&(-g.$_) &(-g~&(target.sys).$_)),$(or $3,-g)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-O!$_) &(-O~&(target.sys)!$_)),&(-O) &(-O~&(target.sys))) $(foreach $1 c,&(-O.$_) &(-O~&(target.sys).$_)),$(or $3,-O)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-O!$_) &(-O~&(target.sys)!$_)),&(-O) &(-O~&(target.sys))) $(foreach $1 c,&(-O.$_) &(-O~&(target.sys).$_)),$(or $3,-O)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-D!$_) &(-D~&(target.sys)!$_)),&(-D) &(-D~&(target.sys))) $(foreach $1 c,&(-D.$_) &(-D~&(target.sys).$_)),$(or $3,-D)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-D!$_) &(-D~&(target.sys)!$_)),&(-D) &(-D~&(target.sys))) $(foreach $1 c,&(-D.$_) &(-D~&(target.sys).$_)),$(or $3,-D)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-f!$_) &(-f~&(target.sys)!$_)),&(-f) &(-f~&(target.sys))) $(foreach $1 c,&(-f.$_) &(-f~&(target.sys).$_)),$(or $3,-f)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-f!$_) &(-f~&(target.sys)!$_)),&(-f) &(-f~&(target.sys))) $(foreach $1 c,&(-f.$_) &(-f~&(target.sys).$_)),$(or $3,-f)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-m!$_) &(-m~&(target.sys)!$_)),&(-m) &(-m~&(target.sys))) $(foreach $1 c,&(-m.$_) &(-m~&(target.sys).$_)),$(or $3,-m)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-m!$_) &(-m~&(target.sys)!$_)),&(-m) &(-m~&(target.sys))) $(foreach $1 c,&(-m.$_) &(-m~&(target.sys).$_)),$(or $3,-m)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-W!$_) &(-W~&(target.sys)!$_)),&(-W) &(-W~&(target.sys))) $(foreach $1 c,&(-W.$_) &(-W~&(target.sys).$_)),$(or $3,-W)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-W!$_) &(-W~&(target.sys)!$_)),&(-W) &(-W~&(target.sys))) $(foreach $1 c,&(-W.$_) &(-W~&(target.sys).$_)),$(or $3,-W)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-I!$_) &(-I~&(target.sys)!$_)),&(-I) &(-I~&(target.sys))) $(foreach $1 c,&(-I.$_) &(-I~&(target.sys).$_)),$(or $3,-I)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-I!$_) &(-I~&(target.sys)!$_)),&(-I) &(-I~&(target.sys))) $(foreach $1 c,&(-I.$_) &(-I~&(target.sys).$_)),$(or $3,-I)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-no!$_) &(-no~&(target.sys)!$_)),&(-no) &(-no~&(target.sys))) $(foreach $1 c,&(-no.$_) &(-no~&(target.sys).$_)),$(or $3,-no)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-no!$_) &(-no~&(target.sys)!$_)),&(-no) &(-no~&(target.sys))) $(foreach $1 c,&(-no.$_) &(-no~&(target.sys).$_)),$(or $3,-no)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-isystem!$_) &(-isystem~&(target.sys)!$_)),&(-isystem) &(-isystem~&(target.sys))) $(foreach $1 c,&(-isystem.$_) &(-isystem~&(target.sys).$_)),$(or $3,-isystem)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-isystem!$_) &(-isystem~&(target.sys)!$_)),&(-isystem) &(-isystem~&(target.sys))) $(foreach $1 c,&(-isystem.$_) &(-isystem~&(target.sys).$_)),$(or $3,-isystem)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-isystem-after!$_) &(-isystem-after~&(target.sys)!$_)),&(-isystem-after) &(-isystem-after~&(target.sys))) $(foreach $1 c,&(-isystem-after.$_) &(-isystem-after~&(target.sys).$_)),$(or $3,-isystem-after)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-isystem-after!$_) &(-isystem-after~&(target.sys)!$_)),&(-isystem-after) &(-isystem-after~&(target.sys))) $(foreach $1 c,&(-isystem-after.$_) &(-isystem-after~&(target.sys).$_)),$(or $3,-isystem-after)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
 	} else if strings.Count(s, "$(foreach(-unique) $1 c,&($(or $3,c)flags.$_) &($(or $3,c)flags~&(target.sys).$_))") != 1 {
 		ctx.err("%v", v1)
@@ -472,25 +472,25 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", v1)
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.sys)) $(foreach $1 c,&(-g.$_) &(-g~&(target.sys).$_))),-g)") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-g!$_) &(-g~&(target.sys)!$_)),&(-g) &(-g~&(target.sys))) $(foreach $1 c,&(-g.$_) &(-g~&(target.sys).$_)),$(or $3,-g)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-g!$_) &(-g~&(target.sys)!$_)),&(-g) &(-g~&(target.sys))) $(foreach $1 c,&(-g.$_) &(-g~&(target.sys).$_)),$(or $3,-g)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-O!$_) &(-O~&(target.sys)!$_)),&(-O) &(-O~&(target.sys))) $(foreach $1 c,&(-O.$_) &(-O~&(target.sys).$_)),$(or $3,-O)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-O!$_) &(-O~&(target.sys)!$_)),&(-O) &(-O~&(target.sys))) $(foreach $1 c,&(-O.$_) &(-O~&(target.sys).$_)),$(or $3,-O)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-D!$_) &(-D~&(target.sys)!$_)),&(-D) &(-D~&(target.sys))) $(foreach $1 c,&(-D.$_) &(-D~&(target.sys).$_)),$(or $3,-D)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-D!$_) &(-D~&(target.sys)!$_)),&(-D) &(-D~&(target.sys))) $(foreach $1 c,&(-D.$_) &(-D~&(target.sys).$_)),$(or $3,-D)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-f!$_) &(-f~&(target.sys)!$_)),&(-f) &(-f~&(target.sys))) $(foreach $1 c,&(-f.$_) &(-f~&(target.sys).$_)),$(or $3,-f)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-f!$_) &(-f~&(target.sys)!$_)),&(-f) &(-f~&(target.sys))) $(foreach $1 c,&(-f.$_) &(-f~&(target.sys).$_)),$(or $3,-f)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-m!$_) &(-m~&(target.sys)!$_)),&(-m) &(-m~&(target.sys))) $(foreach $1 c,&(-m.$_) &(-m~&(target.sys).$_)),$(or $3,-m)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-m!$_) &(-m~&(target.sys)!$_)),&(-m) &(-m~&(target.sys))) $(foreach $1 c,&(-m.$_) &(-m~&(target.sys).$_)),$(or $3,-m)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-W!$_) &(-W~&(target.sys)!$_)),&(-W) &(-W~&(target.sys))) $(foreach $1 c,&(-W.$_) &(-W~&(target.sys).$_)),$(or $3,-W)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-W!$_) &(-W~&(target.sys)!$_)),&(-W) &(-W~&(target.sys))) $(foreach $1 c,&(-W.$_) &(-W~&(target.sys).$_)),$(or $3,-W)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-I!$_) &(-I~&(target.sys)!$_)),&(-I) &(-I~&(target.sys))) $(foreach $1 c,&(-I.$_) &(-I~&(target.sys).$_)),$(or $3,-I)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-I!$_) &(-I~&(target.sys)!$_)),&(-I) &(-I~&(target.sys))) $(foreach $1 c,&(-I.$_) &(-I~&(target.sys).$_)),$(or $3,-I)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-no!$_) &(-no~&(target.sys)!$_)),&(-no) &(-no~&(target.sys))) $(foreach $1 c,&(-no.$_) &(-no~&(target.sys).$_)),$(or $3,-no)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-no!$_) &(-no~&(target.sys)!$_)),&(-no) &(-no~&(target.sys))) $(foreach $1 c,&(-no.$_) &(-no~&(target.sys).$_)),$(or $3,-no)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-isystem!$_) &(-isystem~&(target.sys)!$_)),&(-isystem) &(-isystem~&(target.sys))) $(foreach $1 c,&(-isystem.$_) &(-isystem~&(target.sys).$_)),$(or $3,-isystem)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-isystem!$_) &(-isystem~&(target.sys)!$_)),&(-isystem) &(-isystem~&(target.sys))) $(foreach $1 c,&(-isystem.$_) &(-isystem~&(target.sys).$_)),$(or $3,-isystem)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-isystem-after!$_) &(-isystem-after~&(target.sys)!$_)),&(-isystem-after) &(-isystem-after~&(target.sys))) $(foreach $1 c,&(-isystem-after.$_) &(-isystem-after~&(target.sys).$_)),$(or $3,-isystem-after)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out $(foreach $1 c,&(-isystem-after!$_) &(-isystem-after~&(target.sys)!$_)),&(-isystem-after) &(-isystem-after~&(target.sys))) $(foreach $1 c,&(-isystem-after.$_) &(-isystem-after~&(target.sys).$_)),$(or $3,-isystem-after)$_$(or $4))") != 1 {
 		ctx.err("%v", v1)
 	} else if strings.Count(s, "$(foreach(-unique) $1 c,&($(or $3,c)flags.$_) &($(or $3,c)flags~&(target.sys).$_))") != 1 {
 		ctx.err("%v", v1)
@@ -532,25 +532,25 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", s)
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.sys)) &(-g.fxxbxx) &(-g~&(target.sys).fxxbxx) &(-g.c) &(-g~&(target.sys).c)),-g)") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-g!fxxbxx) &(-g~&(target.sys)!fxxbxx) &(-g!c) &(-g~&(target.sys)!c),&(-g) &(-g~&(target.sys))) &(-g.fxxbxx) &(-g~&(target.sys).fxxbxx) &(-g.c) &(-g~&(target.sys).c),$(or $3,-g)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-g!fxxbxx) &(-g~&(target.sys)!fxxbxx) &(-g!c) &(-g~&(target.sys)!c),&(-g) &(-g~&(target.sys))) &(-g.fxxbxx) &(-g~&(target.sys).fxxbxx) &(-g.c) &(-g~&(target.sys).c),$(or $3,-g)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-O!fxxbxx) &(-O~&(target.sys)!fxxbxx) &(-O!c) &(-O~&(target.sys)!c),&(-O) &(-O~&(target.sys))) &(-O.fxxbxx) &(-O~&(target.sys).fxxbxx) &(-O.c) &(-O~&(target.sys).c),$(or $3,-O)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-O!fxxbxx) &(-O~&(target.sys)!fxxbxx) &(-O!c) &(-O~&(target.sys)!c),&(-O) &(-O~&(target.sys))) &(-O.fxxbxx) &(-O~&(target.sys).fxxbxx) &(-O.c) &(-O~&(target.sys).c),$(or $3,-O)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-D!fxxbxx) &(-D~&(target.sys)!fxxbxx) &(-D!c) &(-D~&(target.sys)!c),&(-D) &(-D~&(target.sys))) &(-D.fxxbxx) &(-D~&(target.sys).fxxbxx) &(-D.c) &(-D~&(target.sys).c),$(or $3,-D)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-D!fxxbxx) &(-D~&(target.sys)!fxxbxx) &(-D!c) &(-D~&(target.sys)!c),&(-D) &(-D~&(target.sys))) &(-D.fxxbxx) &(-D~&(target.sys).fxxbxx) &(-D.c) &(-D~&(target.sys).c),$(or $3,-D)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-f!fxxbxx) &(-f~&(target.sys)!fxxbxx) &(-f!c) &(-f~&(target.sys)!c),&(-f) &(-f~&(target.sys))) &(-f.fxxbxx) &(-f~&(target.sys).fxxbxx) &(-f.c) &(-f~&(target.sys).c),$(or $3,-f)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-f!fxxbxx) &(-f~&(target.sys)!fxxbxx) &(-f!c) &(-f~&(target.sys)!c),&(-f) &(-f~&(target.sys))) &(-f.fxxbxx) &(-f~&(target.sys).fxxbxx) &(-f.c) &(-f~&(target.sys).c),$(or $3,-f)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-m!fxxbxx) &(-m~&(target.sys)!fxxbxx) &(-m!c) &(-m~&(target.sys)!c),&(-m) &(-m~&(target.sys))) &(-m.fxxbxx) &(-m~&(target.sys).fxxbxx) &(-m.c) &(-m~&(target.sys).c),$(or $3,-m)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-m!fxxbxx) &(-m~&(target.sys)!fxxbxx) &(-m!c) &(-m~&(target.sys)!c),&(-m) &(-m~&(target.sys))) &(-m.fxxbxx) &(-m~&(target.sys).fxxbxx) &(-m.c) &(-m~&(target.sys).c),$(or $3,-m)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-W!fxxbxx) &(-W~&(target.sys)!fxxbxx) &(-W!c) &(-W~&(target.sys)!c),&(-W) &(-W~&(target.sys))) &(-W.fxxbxx) &(-W~&(target.sys).fxxbxx) &(-W.c) &(-W~&(target.sys).c),$(or $3,-W)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-W!fxxbxx) &(-W~&(target.sys)!fxxbxx) &(-W!c) &(-W~&(target.sys)!c),&(-W) &(-W~&(target.sys))) &(-W.fxxbxx) &(-W~&(target.sys).fxxbxx) &(-W.c) &(-W~&(target.sys).c),$(or $3,-W)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-I!fxxbxx) &(-I~&(target.sys)!fxxbxx) &(-I!c) &(-I~&(target.sys)!c),&(-I) &(-I~&(target.sys))) &(-I.fxxbxx) &(-I~&(target.sys).fxxbxx) &(-I.c) &(-I~&(target.sys).c),$(or $3,-I)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-I!fxxbxx) &(-I~&(target.sys)!fxxbxx) &(-I!c) &(-I~&(target.sys)!c),&(-I) &(-I~&(target.sys))) &(-I.fxxbxx) &(-I~&(target.sys).fxxbxx) &(-I.c) &(-I~&(target.sys).c),$(or $3,-I)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-no!fxxbxx) &(-no~&(target.sys)!fxxbxx) &(-no!c) &(-no~&(target.sys)!c),&(-no) &(-no~&(target.sys))) &(-no.fxxbxx) &(-no~&(target.sys).fxxbxx) &(-no.c) &(-no~&(target.sys).c),$(or $3,-no)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-no!fxxbxx) &(-no~&(target.sys)!fxxbxx) &(-no!c) &(-no~&(target.sys)!c),&(-no) &(-no~&(target.sys))) &(-no.fxxbxx) &(-no~&(target.sys).fxxbxx) &(-no.c) &(-no~&(target.sys).c),$(or $3,-no)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-isystem!fxxbxx) &(-isystem~&(target.sys)!fxxbxx) &(-isystem!c) &(-isystem~&(target.sys)!c),&(-isystem) &(-isystem~&(target.sys))) &(-isystem.fxxbxx) &(-isystem~&(target.sys).fxxbxx) &(-isystem.c) &(-isystem~&(target.sys).c),$(or $3,-isystem)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-isystem!fxxbxx) &(-isystem~&(target.sys)!fxxbxx) &(-isystem!c) &(-isystem~&(target.sys)!c),&(-isystem) &(-isystem~&(target.sys))) &(-isystem.fxxbxx) &(-isystem~&(target.sys).fxxbxx) &(-isystem.c) &(-isystem~&(target.sys).c),$(or $3,-isystem)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-isystem-after!fxxbxx) &(-isystem-after~&(target.sys)!fxxbxx) &(-isystem-after!c) &(-isystem-after~&(target.sys)!c),&(-isystem-after) &(-isystem-after~&(target.sys))) &(-isystem-after.fxxbxx) &(-isystem-after~&(target.sys).fxxbxx) &(-isystem-after.c) &(-isystem-after~&(target.sys).c),$(or $3,-isystem-after)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-isystem-after!fxxbxx) &(-isystem-after~&(target.sys)!fxxbxx) &(-isystem-after!c) &(-isystem-after~&(target.sys)!c),&(-isystem-after) &(-isystem-after~&(target.sys))) &(-isystem-after.fxxbxx) &(-isystem-after~&(target.sys).fxxbxx) &(-isystem-after.c) &(-isystem-after~&(target.sys).c),$(or $3,-isystem-after)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
 	} else if strings.Count(s, "&($(or $3,c)flags.fxxbxx)") != 1 {
 		ctx.err("%v", s)
@@ -580,25 +580,25 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", s)
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.sys)) &(-g.fxxbxx) &(-g~&(target.sys).fxxbxx) &(-g.c) &(-g~&(target.sys).c)),-g)") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-g!fxxbxx) &(-g~&(target.sys)!fxxbxx) &(-g!c) &(-g~&(target.sys)!c),&(-g) &(-g~&(target.sys))) &(-g.fxxbxx) &(-g~&(target.sys).fxxbxx) &(-g.c) &(-g~&(target.sys).c),$(or $3,-g)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-g!fxxbxx) &(-g~&(target.sys)!fxxbxx) &(-g!c) &(-g~&(target.sys)!c),&(-g) &(-g~&(target.sys))) &(-g.fxxbxx) &(-g~&(target.sys).fxxbxx) &(-g.c) &(-g~&(target.sys).c),$(or $3,-g)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-O!fxxbxx) &(-O~&(target.sys)!fxxbxx) &(-O!c) &(-O~&(target.sys)!c),&(-O) &(-O~&(target.sys))) &(-O.fxxbxx) &(-O~&(target.sys).fxxbxx) &(-O.c) &(-O~&(target.sys).c),$(or $3,-O)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-O!fxxbxx) &(-O~&(target.sys)!fxxbxx) &(-O!c) &(-O~&(target.sys)!c),&(-O) &(-O~&(target.sys))) &(-O.fxxbxx) &(-O~&(target.sys).fxxbxx) &(-O.c) &(-O~&(target.sys).c),$(or $3,-O)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-D!fxxbxx) &(-D~&(target.sys)!fxxbxx) &(-D!c) &(-D~&(target.sys)!c),&(-D) &(-D~&(target.sys))) &(-D.fxxbxx) &(-D~&(target.sys).fxxbxx) &(-D.c) &(-D~&(target.sys).c),$(or $3,-D)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-D!fxxbxx) &(-D~&(target.sys)!fxxbxx) &(-D!c) &(-D~&(target.sys)!c),&(-D) &(-D~&(target.sys))) &(-D.fxxbxx) &(-D~&(target.sys).fxxbxx) &(-D.c) &(-D~&(target.sys).c),$(or $3,-D)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-f!fxxbxx) &(-f~&(target.sys)!fxxbxx) &(-f!c) &(-f~&(target.sys)!c),&(-f) &(-f~&(target.sys))) &(-f.fxxbxx) &(-f~&(target.sys).fxxbxx) &(-f.c) &(-f~&(target.sys).c),$(or $3,-f)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-f!fxxbxx) &(-f~&(target.sys)!fxxbxx) &(-f!c) &(-f~&(target.sys)!c),&(-f) &(-f~&(target.sys))) &(-f.fxxbxx) &(-f~&(target.sys).fxxbxx) &(-f.c) &(-f~&(target.sys).c),$(or $3,-f)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-m!fxxbxx) &(-m~&(target.sys)!fxxbxx) &(-m!c) &(-m~&(target.sys)!c),&(-m) &(-m~&(target.sys))) &(-m.fxxbxx) &(-m~&(target.sys).fxxbxx) &(-m.c) &(-m~&(target.sys).c),$(or $3,-m)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-m!fxxbxx) &(-m~&(target.sys)!fxxbxx) &(-m!c) &(-m~&(target.sys)!c),&(-m) &(-m~&(target.sys))) &(-m.fxxbxx) &(-m~&(target.sys).fxxbxx) &(-m.c) &(-m~&(target.sys).c),$(or $3,-m)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-W!fxxbxx) &(-W~&(target.sys)!fxxbxx) &(-W!c) &(-W~&(target.sys)!c),&(-W) &(-W~&(target.sys))) &(-W.fxxbxx) &(-W~&(target.sys).fxxbxx) &(-W.c) &(-W~&(target.sys).c),$(or $3,-W)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-W!fxxbxx) &(-W~&(target.sys)!fxxbxx) &(-W!c) &(-W~&(target.sys)!c),&(-W) &(-W~&(target.sys))) &(-W.fxxbxx) &(-W~&(target.sys).fxxbxx) &(-W.c) &(-W~&(target.sys).c),$(or $3,-W)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-I!fxxbxx) &(-I~&(target.sys)!fxxbxx) &(-I!c) &(-I~&(target.sys)!c),&(-I) &(-I~&(target.sys))) &(-I.fxxbxx) &(-I~&(target.sys).fxxbxx) &(-I.c) &(-I~&(target.sys).c),$(or $3,-I)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-I!fxxbxx) &(-I~&(target.sys)!fxxbxx) &(-I!c) &(-I~&(target.sys)!c),&(-I) &(-I~&(target.sys))) &(-I.fxxbxx) &(-I~&(target.sys).fxxbxx) &(-I.c) &(-I~&(target.sys).c),$(or $3,-I)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-no!fxxbxx) &(-no~&(target.sys)!fxxbxx) &(-no!c) &(-no~&(target.sys)!c),&(-no) &(-no~&(target.sys))) &(-no.fxxbxx) &(-no~&(target.sys).fxxbxx) &(-no.c) &(-no~&(target.sys).c),$(or $3,-no)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-no!fxxbxx) &(-no~&(target.sys)!fxxbxx) &(-no!c) &(-no~&(target.sys)!c),&(-no) &(-no~&(target.sys))) &(-no.fxxbxx) &(-no~&(target.sys).fxxbxx) &(-no.c) &(-no~&(target.sys).c),$(or $3,-no)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-isystem!fxxbxx) &(-isystem~&(target.sys)!fxxbxx) &(-isystem!c) &(-isystem~&(target.sys)!c),&(-isystem) &(-isystem~&(target.sys))) &(-isystem.fxxbxx) &(-isystem~&(target.sys).fxxbxx) &(-isystem.c) &(-isystem~&(target.sys).c),$(or $3,-isystem)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-isystem!fxxbxx) &(-isystem~&(target.sys)!fxxbxx) &(-isystem!c) &(-isystem~&(target.sys)!c),&(-isystem) &(-isystem~&(target.sys))) &(-isystem.fxxbxx) &(-isystem~&(target.sys).fxxbxx) &(-isystem.c) &(-isystem~&(target.sys).c),$(or $3,-isystem)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-isystem-after!fxxbxx) &(-isystem-after~&(target.sys)!fxxbxx) &(-isystem-after!c) &(-isystem-after~&(target.sys)!c),&(-isystem-after) &(-isystem-after~&(target.sys))) &(-isystem-after.fxxbxx) &(-isystem-after~&(target.sys).fxxbxx) &(-isystem-after.c) &(-isystem-after~&(target.sys).c),$(or $3,-isystem-after)$_)") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &(-isystem-after!fxxbxx) &(-isystem-after~&(target.sys)!fxxbxx) &(-isystem-after!c) &(-isystem-after~&(target.sys)!c),&(-isystem-after) &(-isystem-after~&(target.sys))) &(-isystem-after.fxxbxx) &(-isystem-after~&(target.sys).fxxbxx) &(-isystem-after.c) &(-isystem-after~&(target.sys).c),$(or $3,-isystem-after)$_$(or $4))") != 1 {
 		ctx.err("%v", s)
 	} else if strings.Count(s, "&($(or $3,c)flags.fxxbxx)") != 1 {
 		ctx.err("%v", s)

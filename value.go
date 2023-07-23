@@ -986,7 +986,7 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
         // NOTE: this optimized the performance.
     case *bareword, *barecomp, *Path:
         if len(projects) == 0 { projects = closureProjects(ctx) }
-        if v := (&builtin_file{builtin_:builtin_{Context:ctx}}).do(projects, t); len(v) == 1 {
+        if v := (&builtin_file{builtin_:builtin_{Context:ctx}}).do(projects, t); len(v) > 0 {
             f, _ = v[0].(*File)
         }
     }
@@ -5664,7 +5664,7 @@ func (p *closure) refs(ctx Context, v Value) (res bool) {
 func (p *closure) resolve(ctx Context, x Value) (res Value) {
     var name = x.Name(ctx)
     if name == "" {
-        erro(ctx, "%v: closure: empty name - %v %v", p, typeof(p.x), p.x).debug(1)
+        if false { warnstack(ctx, 5, "%v: closure: empty name - %v %v", p, typeof(p.x), p.x).debug(10) }
         return
     }
 

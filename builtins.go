@@ -2816,18 +2816,17 @@ func (ctx *builtin_contains) x(ic *invocation, w facet) (res interface{}) {
                 return
         }
 
-        var y int
+        var n int
 
 outer:
-        for i, val := range vals { var s string
-                if ctx.string { s = val.Strval(ctx) }
+        for i, val := range vals { var s string ; if ctx.string { s = val.Strval(ctx) }
                 for j, elem := range list {
                         if ctx.string { if elem.Strval(ctx) == s {
-                                y += 1; continue outer
+                                n += 1; continue outer
                         }} else if ctx.match { if t, _, _ := val.match(ctx, elem); t {
-                                y += 1; continue outer
+                                n += 1; continue outer
                         }} else if val.cmp(ctx, elem) == cmpEqual {
-                                y += 1; continue outer
+                                n += 1; continue outer
                         }
                         if ctx.debug>0 && false { warn(of(ctx,val), "%d. %T %v <-> %d. %T %v", i, val, val, j, elem, elem) }
                         if ctx.debug>0 && !ctx.string && elem != nil { if a, b := val.Strval(ctx), elem.Strval(ctx); a == b {
@@ -2836,10 +2835,9 @@ outer:
                 }
         }
 
-        var b = (y == len(vals))
-        if ctx.debug>0 && !b { warn(ctx, "found %d/%d: %v", y, len(vals), list).debug(ctx.debug) }
-        res = MakeBoolean(ctx.Position(), b)
-        return
+        var y = (n == len(vals))
+        if ctx.debug>0 && !y { warn(ctx, "found %d/%d: %v", n, len(vals), list).debug(ctx.debug) }
+        return MakeBoolean(ctx.Position(), y)
 }
 
 type builtin_sort struct {}
