@@ -2212,7 +2212,11 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 				switch t := val != nil && val.True(ctx); v.name.Strval(ctx) {
 				case "dd": p.dd = t
 				case "ddd":
-					if u := ctx.universe(); val == nil { u.ddd = "yes" } else {
+					if u := ctx.universe(); val == nil {
+						u.ddd = "yes"
+					} else if t, y := boolVal(val); y {
+						if t { u.ddd = "yes" } else { u.ddd = "" }
+					} else {
 						u.ddd = val.Strval(ctx)
 					}
 				}

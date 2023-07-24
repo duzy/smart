@@ -243,16 +243,16 @@ func TestApp(t *testing.T) {
 		return strings.Replace(s, "<OS>", os, -1)
 	}
 
-	flag1 := func(a ...interface{}) string {
+	flag1 := func(a ...interface{}) string { // $(.flag $1)
 		return fmt.Sprintf("$(foreach(-unique) $(filter-out $(foreach $1,&(%[1]s!$_) &(%[1]s~&(target.sys)!$_)),&(%[1]s) &(%[1]s~&(target.sys))) $(foreach $1,&(%[1]s.$_) &(%[1]s~&(target.sys).$_)),$(or $3,%[1]s)$_$(or $4))", a...)
 	}
-	flag2 := func(a ...interface{}) string { if len(a) > 1 { a[0], a[1] = a[1], a[0] }
+	flag2 := func(a ...interface{}) string { if len(a) > 1 { a[0], a[1] = a[1], a[0] } // $(.flag $1 yyy,xxx)
 		return fmt.Sprintf("$(foreach(-unique) $(filter-out $(foreach $1 %[1]s,&(%[2]s!$_) &(%[2]s~&(target.sys)!$_)),&(%[2]s) &(%[2]s~&(target.sys))) $(foreach $1 %[1]s,&(%[2]s.$_) &(%[2]s~&(target.sys).$_)),%[2]s$_$(or $4))", a...)
 	}
-	flag3 := func(a ...interface{}) string {
+	flag3 := func(a ...interface{}) string { // $(.flag $1,xxx,yy)
 		return fmt.Sprintf("$(foreach(-unique) $(filter-out &(%[1]s!%[2]s) &(%[1]s~&(target.sys)!%[2]s),&(%[1]s) &(%[1]s~&(target.sys))) &(%[1]s.%[2]s) &(%[1]s~&(target.sys).%[2]s),$(or $3,%[1]s)$_$(or $4))", a...)
 	}
-	flag4 := func(a ...interface{}) string {
+	flag4 := func(a ...interface{}) string { // $(.flag $1,xxx,y,y)
 		return fmt.Sprintf("$(foreach(-unique) $(filter-out &(%[1]s!%[2]s) &(%[1]s~&(target.sys)!%[2]s) &(%[1]s!c) &(%[1]s~&(target.sys)!c),&(%[1]s) &(%[1]s~&(target.sys))) &(%[1]s.%[2]s) &(%[1]s~&(target.sys).%[2]s) &(%[1]s.%[3]s) &(%[1]s~&(target.sys).%[3]s),%[1]s$_$(or $4))", a...)
 	}
 

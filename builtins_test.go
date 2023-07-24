@@ -2330,7 +2330,7 @@ func TestBuiltins(t *testing.T) {
 		ctx.err("val7.1")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if v.String() != "&(target.arch)-&(target.vendor)-&(target.sys)-&(target.abi)" {
+	} else if v.String() != "&(target.arch)-&(XXX)-&(target.vendor)-&(target.sys)-&(target.abi)" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s != "foo-bar-a-0" {
 		ctx.err("%T %v -> %s", v, v, s)

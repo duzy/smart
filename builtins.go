@@ -1699,17 +1699,16 @@ func (ctx *builtin_join) x(ic *invocation, w facet) (res interface{}) {
                 if ctx.comp {
                         var comp = MakeBarecomp(ctx.Position())
                         for i, a := range vals {
-                                if i > 0 && !isTrivial(sep) { comp.Elems = append(comp.Elems, sep) }
+                                if i > 0 && !isTrivial(sep) { a = rearcomp{sep,a} }
                                 comp.Elems = append(comp.Elems, a)
                         }
                         res = comp
                 } else {
-                        var ss string
-                        if sep != nil { ss = sep.Strval(ctx) }
+                        var s string; if sep != nil { s = sep.Strval(ctx) }
                         for _, a := range vals {
                                 if v := a.Strval(ctx); v != "" { fields = append(fields, v) }
                         }
-                        res = MakeString(ctx.Position(), strings.Join(fields, ss))
+                        res = MakeString(ctx.Position(), strings.Join(fields, s))
                 }
         }
         return
@@ -2854,7 +2853,7 @@ outer:
         }
 
         var y = (n == len(vals))
-        if ctx.debug>0 && !y { warn(ctx, "found %d/%d: %v", n, len(vals), list).debug(ctx.debug) }
+        if ctx.debug>0 && !y { warn(ctx, "found %d/%d: %v ; %v", n, len(vals), list, ic.a).debug(ctx.debug) }
         return MakeBoolean(ctx.Position(), y)
 }
 

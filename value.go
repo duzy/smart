@@ -1915,12 +1915,12 @@ func (p *option) expand(_ Context, _ facet) Value { return p }
 
 type prediction struct { boolean ; string }
 
-func isTrueVal(v Value) (res bool) {
+func boolVal(v Value) (res, y bool) {
     switch t := v.(type) {
-    case *answer:     res = t.bool
-    case *boolean:    res = t.bool
-    case *option:     res = t.bool
-    case *prediction: res = t.bool
+    case *answer:     res, y = t.bool, true
+    case *boolean:    res, y = t.bool, true
+    case *option:     res, y = t.bool, true
+    case *prediction: res, y = t.bool, true
     }
     return
 }
@@ -2747,7 +2747,10 @@ func (p precomp) un() (y bool) {
 func (p precomp) True(ctx Context) bool { return p.suffix.True(ctx) }
 func (p precomp) String() (s string) { return p.Value.String() + p.suffix.String() }
 func (p precomp) Strval(ctx Context) (s string) {
-    if t := p.suffix.Strval(ctx); t != "" { s = p.Value.Strval(ctx) + t }
+    var v Value = p.suffix.expand(ctx, strval)
+    if _, y := v.(unexpanded); !y { if t := v.Strval(ctx); t != "" { v = p.Value.expand(ctx, strval)
+        if _, y = v.(unexpanded); !y { s = v.Strval(ctx) + t }
+    }}
     return
 }
 func (p precomp) expand(ctx Context, w facet) (res Value) {
@@ -2774,7 +2777,10 @@ func (p rearcomp) un() (y bool) {
 func (p rearcomp) True(ctx Context) bool { return p.prefix.True(ctx) }
 func (p rearcomp) String() (s string) { return p.prefix.String() + p.Value.String() }
 func (p rearcomp) Strval(ctx Context) (s string) {
-    if t := p.prefix.Strval(ctx); t != "" { s = t + p.Value.Strval(ctx) }
+    var v Value = p.prefix.expand(ctx, strval)
+    if _, y := v.(unexpanded); !y { if t := v.Strval(ctx); t != "" { v = p.Value.expand(ctx, strval)
+        if _, y = v.(unexpanded); !y { s = t + v.Strval(ctx) }
+    }}
     return
 }
 func (p rearcomp) expand(ctx Context, w facet) (res Value) {

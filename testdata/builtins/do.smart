@@ -12,7 +12,7 @@ val4  = $(addprefix  foo ,bar &(bar))
 val5 := $(join foo bar xx yy zz,-)
 val6  = $(join foo bar xx yy zz,-)
 val7 := $(join &(target.arch) &(target.vendor) &(target.sys) &(target.abi),-)
-val7.1 := $(join(-comp) &(target.arch) &(target.vendor) &(target.sys) &(target.abi),-)
+val7.1 := $(join(-comp) &(target.arch) &(XXX) &(target.vendor) &(target.sys) &(target.abi),-)
 
 target.arch := foo
 target.vendor := bar
