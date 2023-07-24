@@ -7,6 +7,8 @@ project testapp (app)
 -I.foo                ::= fooI
 -L.foo                ::= fooL
 -l.foo                ::= fool
+-Wl.foo               ::= fooWl
+-rpath.foo            ::= foorpath
 -isystem.foo          ::= fooisystem
 -isystem-after.foo    ::= fooisystem-after
 -cxx-isystem.foo      ::= foocxxisystem
