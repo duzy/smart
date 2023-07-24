@@ -721,7 +721,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.Strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
-	} else if true { for _, t := range foo4 { if n := strings.Count(s, t); n != 1 {
+	} else { for _, t := range foo4 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
 	}}}
 

@@ -2211,7 +2211,10 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 			if v, y := op.(*flag); y {
 				switch t := val != nil && val.True(ctx); v.name.Strval(ctx) {
 				case "dd": p.dd = t
-				case "ddd": ctx.universe().ddd = t
+				case "ddd":
+					if u := ctx.universe(); val == nil { u.ddd = "yes" } else {
+						u.ddd = val.Strval(ctx)
+					}
 				}
 			} else {
 				erro(of(ctx,op), "unsupport flag: %T %v (%v)", v, v, val).debug(1)
@@ -2893,7 +2896,7 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 	var count int64
 	defer func(t time.Time, pos Pos, tok Token, lit string, state ScanState) {
-		if ctx.universe().ddd {/* dont check time in ddd mode */} else
+		if ctx.universe().ddd == "template.expand" {/* dont check time in ddd mode */} else
         if d := time.Now().Sub(t); d > time.Duration(options.slow)*time.Millisecond {
 			var c = time.Duration(count)
             warnstack(ctx, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
@@ -3471,14 +3474,13 @@ func (p *parser) file(ctx Context) *parsedFile {
 		}
 	}
 
-	if !ctx.universe().ddd && options.debugFiles != nil {
-		for _, s := range options.debugFiles {
-			if ctx.universe().ddd = strings.Contains(filename, s); ctx.universe().ddd { break }
-		}
-	}
+	var u = ctx.universe()
+	if options.debugFiles != nil && u.ddd == "" { for _, s := range options.debugFiles {
+		if strings.Contains(filename, s) { u.ddd = "parser.files" ; break }
+	}}
 
 	var auto = (loader.mode&Flat == 0) && isMainFile //&& isEntryFileName(filename)
-	if auto { loader.autoAfter(p.ctx(), "declare") }
+	if auto { loader.after(p.ctx(), "declare") }
 	if loader.mode&ModuleClauseOnly == 0 {
 		if loader.mode&Flat == 0 {
 			ForInit: for p.tok != EOF {
@@ -3517,7 +3519,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 				}
 			}
 		}
-		if false && auto { loader.autoAfter(p.ctx(), "amid") }
+		if false && auto { loader.after(p.ctx(), "amid") }
 		if loader.mode&ImportsOnly == 0 { // rest of module body
 			for /* p.dia().totalErrors() == 0 && */ p.tok != EOF {
 				if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
@@ -3528,8 +3530,8 @@ func (p *parser) file(ctx Context) *parsedFile {
 			}
 		}
 	}
-	if auto { loader.autoAfter(ctx, "appendix") }
-	if ctx.universe().ddd && options.debugFiles != nil { ctx.universe().ddd = false }
+	if auto { loader.after(ctx, "appendix") }
+	if options.debugFiles != nil && u.ddd == "parser.files" { u.ddd = "" }
 
 	return &parsedFile{
 		// TODO: doc: doc,

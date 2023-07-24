@@ -2464,7 +2464,6 @@ func (p *punctuation) match(ctx Context, i interface{}) (full bool, res interfac
 func (p *punctuation) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *punctuation) hit(ctx Context, cache hitch, bits int) *filemapCache { return cache.filemapCache }
 func (p *punctuation) traverse(ctx Context) { }
-
 func (_ *punctuation) cache(ctx Context, cache *valcache, bits int) (res *valcache) { return cache }
 func (_ *punctuation) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
@@ -5457,7 +5456,7 @@ func (p *delegate) expandable(ctx Context, w facet) (res bool) {
 }
 func (p *delegate) expand(ctx Context, w facet) (res Value) {
     db, rm, un := false, false, true
-    if false { if w&expandDebug != 0 || (ctx.universe().ddd && p.String() == "$(filter-out &(-x!a) &(-x~&(target.sys)!a) &(-x!b) &(-x~&(target.sys)!b) &(-x!c) &(-x~&(target.sys)!c),&(-x) &(-x~&(target.sys)))") { defer func() {
+    if false { if w&expandDebug != 0 || (ctx.universe().ddd == "delegate.expand" && p.String() == "$(filter-out &(-x!a) &(-x~&(target.sys)!a) &(-x!b) &(-x~&(target.sys)!b) &(-x!c) &(-x~&(target.sys)!c),&(-x) &(-x~&(target.sys)))") { defer func() {
         var s string
         if a, y := p.x.(*auto); !y {
             s = sf("a=%v", p.a)
@@ -5678,7 +5677,7 @@ func (p *closure) resolve(ctx Context, x Value) (res Value) {
     return
 }
 func (p *closure) expand(ctx Context, w facet) (res Value) {
-    if false { if w&expandDebug != 0 || (ctx.universe().ddd && p.String() == "&(-x!b)") { defer func() {
+    if false { if w&expandDebug != 0 || (ctx.universe().ddd == "closure.expand" && p.String() == "&(-x!b)") { defer func() {
         if true { var a []Value ; if ic := ctx.ic(); ic != nil { a = ic.a }; w.noted(ctx, p, p.a, a) }
         if false { t := p.x.expand(ctx, w&^expandInvoke)
             noted(ctx, "%v: %v %v ⇒ %v %v", p, typeof(p.x), p.x, typeof(t), t)

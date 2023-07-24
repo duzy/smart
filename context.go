@@ -96,7 +96,7 @@ type commandLineOpts struct {
 }
 
 func (o *commandLineOpts) debugParsing(ctx Context, syntax string) (res bool) {
-  if ctx.universe().ddd { for _, s := range o.debugSyn {
+  if ctx.universe().ddd != "" { for _, s := range o.debugSyn {
     if res = s == syntax; res { break }
   }}
   return

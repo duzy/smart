@@ -1428,7 +1428,7 @@ func isConfigureProject(proj *Project) bool {
         proj.name == "configure.base"
 }
 
-func (l *loader) autoAfter(ctx Context, tag string) {
+func (l *loader) after(ctx Context, tag string) {
     if proj := l.project; isConfigureProject(proj) {
         if false && tag == "declare" { info(ctx, "%v: %v", proj, tag).debug(4) }// skip...
     } else if obj := proj.resolveObject(ctx, ".auto.after."+tag); obj == nil {
@@ -1440,10 +1440,11 @@ func (l *loader) autoAfter(ctx Context, tag string) {
     } else if val := scalarize(d.value.expand(ctx, plain)); isTrivial(val) {
         if false && tag == "declare" { info(ctx, "%v: %v", proj, tag).debug(4) }// skip...
     } else {
-        const ( o = true ; t = false )
-        if t && ctx.universe().ddd { prompt(ctx, "%s: loader.autoAfter - %s\n", l.Position(), tag) }
+        var u = ctx.universe()
+        const ( o = true ; t = false ; s = "loader.after" )
+        if t && u.ddd == s { prompt(ctx, "%s: loader.after - %s\n", l.Position(), tag) }
         if o { l.include(ctx, includeOpts{}, val) }
-        if t && ctx.universe().ddd { prompt(ctx, "%s: loader.autoAfter - %s.\n", l.Position(), tag) }
+        if t && u.ddd == s { prompt(ctx, "%s: loader.after - %s.\n", l.Position(), tag) }
     }
 }
 

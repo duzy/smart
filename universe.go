@@ -389,7 +389,7 @@ type universe struct {
     filemaps filemapCache // value -> dirs
     filecache map[string]*filebase // File.fullname() -> File
 
-    ddd bool // debug parsing via `eval -ddd=true{}`, also project.dd
+    ddd string // debug parsing via `eval -ddd=example`, also project.dd
 }
 // func (ctx *universe) appendCallerUpdated() bool { return false }
 // func (ctx *universe) aquireLock() (unlock func()) { return nil }

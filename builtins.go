@@ -1128,7 +1128,7 @@ func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
                 if _, skip = a.(unexpanded); skip { ctx.a1(ic, w) }
         }
 
-        if false { if (w&expandDebug != 0 || ctx.universe().ddd) && a.String() == "$(filter-out &(-x!a) &(-x~&(target.sys)!a) &(-x!b) &(-x~&(target.sys)!b) &(-x!c) &(-x~&(target.sys)!c),&(-x) &(-x~&(target.sys))) &(-x.a) &(-x~&(target.sys).a) &(-x.b) &(-x~&(target.sys).b) &(-x.c) &(-x~&(target.sys).c)" {
+        if false { if (w&expandDebug != 0 || ctx.universe().ddd == "foreach") && a.String() == "$(filter-out &(-x!a) &(-x~&(target.sys)!a) &(-x!b) &(-x~&(target.sys)!b) &(-x!c) &(-x~&(target.sys)!c),&(-x) &(-x~&(target.sys))) &(-x.a) &(-x~&(target.sys).a) &(-x.b) &(-x~&(target.sys).b) &(-x.c) &(-x~&(target.sys).c)" {
                 w.noted(ctx, ic.a[0], ic.a[1:])
                 noted(ctx, "%v %v", typeof(ic.a[0]), ic.a[0])
                 noted(ctx, "%v %v", typeof(a), a).debug(16)
@@ -2834,8 +2834,8 @@ func (ctx *builtin_contains) x(ic *invocation, w facet) (res interface{}) {
                 return
         }
 
+        var ddd = ctx.universe().ddd == "contains"
         var n int
-
 outer:
         for i, val := range vals { var s string ; if ctx.string { s = val.Strval(ctx) }
                 for j, elem := range list {
@@ -2846,7 +2846,7 @@ outer:
                         }} else if val.cmp(ctx, elem) == cmpEqual {
                                 n += 1; continue outer
                         }
-                        if ctx.debug>0 && false { warn(of(ctx,val), "%d. %T %v <-> %d. %T %v", i, val, val, j, elem, elem) }
+                        if ctx.debug>0 && ddd { warn(of(ctx,val), "%d. %T %v <-> %d. %T %v", i, val, val, j, elem, elem) }
                         if ctx.debug>0 && !ctx.string && elem != nil { if a, b := val.Strval(ctx), elem.Strval(ctx); a == b {
                                 warn(of(ctx,val), "wrong: %T %v <-> %T %v ; '%s', '%s'", val, val, elem, elem, a, b)
                         }}
@@ -2858,37 +2858,37 @@ outer:
         return MakeBoolean(ctx.Position(), y)
 }
 
-type builtin_sort struct {}
+type builtin_sort struct { builtin_ }
 func (ctx builtin_sort) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(sort list)
         return
 }
 
-type builtin_word struct {}
+type builtin_word struct { builtin_ }
 func (ctx builtin_word) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(word n,text)
         return
 }
 
-type builtin_wordlist struct {}
+type builtin_wordlist struct { builtin_ }
 func (ctx builtin_wordlist) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(wordlist s,e,text)
         return
 }
 
-type builtin_words struct {}
+type builtin_words struct { builtin_ }
 func (ctx builtin_words) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(words n,text)
         return
 }
 
-type builtin_firstword struct {}
+type builtin_firstword struct { builtin_ }
 func (ctx builtin_firstword) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(firstword names...)
         return
 }
 
-type builtin_lastword struct {}
+type builtin_lastword struct { builtin_ }
 func (ctx builtin_lastword) x(ic *invocation, w facet) (res interface{}) {
         // TODO: $(lastword names...)
         return
