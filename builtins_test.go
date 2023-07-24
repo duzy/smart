@@ -2326,8 +2326,8 @@ func TestBuiltins(t *testing.T) {
 	} else if s := v.Strval(ctx); s != "foo-bar-a-0" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-	if d := ctx.def("val71"); d == nil {
-		ctx.err("val71")
+	if d := ctx.def("val7.1"); d == nil {
+		ctx.err("val7.1")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
 	} else if v.String() != "&(target.arch)-&(target.vendor)-&(target.sys)-&(target.abi)" {
@@ -2393,6 +2393,59 @@ func TestBuiltins(t *testing.T) {
 		ctx.err("%T %v", o.Value, o.Value)
 	} else if f.fullname() != fullFooTxt {
 		ctx.err("%T %v %v", v, v, f.fullname())
+	}
+
+	if v := ctx.get("val11.0"); v == nil {
+		ctx.err("val11.0")
+	} else if v.String() != "-no -yes -false -true" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "-no -yes -false -true" {
+		ctx.err("%T %v ⇒ %s", v, v, s)
+	} else if l, y := v.(*List); !y {
+		ctx.err("%T %v", v, v)
+	} else { for _, t := range l.Elems {
+		if f, y := t.(*flag); !y {
+			ctx.err("%T %v", t, t)
+		} else if _, y := f.name.(*bareword); !y {
+			ctx.err("%T %v", f.name, f.name)
+		} else if !f.True(ctx) {
+			ctx.err("%T %v", t, t)
+		} else if !f.name.True(ctx) {
+			ctx.err("%T %v", f.name, f.name)
+		}
+	}}
+	if v := ctx.get("val11"); v == nil {
+		ctx.err("val11")
+	} else if v.String() != "-no" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "-no" {
+		ctx.err("%T %v ⇒ %s", v, v, s)
+	} else if f, y := v.(*flag); !y {
+		ctx.err("%T %v", v, v)
+	} else if _, y := f.name.(*bareword); !y {
+		ctx.err("%T %v", f.name, f.name)
+	}
+	if v := ctx.get("val12"); v == nil {
+		ctx.err("val12")
+	} else if v.String() != "-yes" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "-yes" {
+		ctx.err("%T %v ⇒ %s", v, v, s)
+	} else if f, y := v.(*flag); !y {
+		ctx.err("%T %v", v, v)
+	} else if _, y := f.name.(*bareword); !y {
+		ctx.err("%T %v", f.name, f.name)
+	}
+	if v := ctx.get("val13"); v == nil {
+		ctx.err("val13")
+	} else if v.String() != "-false" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.Strval(ctx); s != "-false" {
+		ctx.err("%T %v ⇒ %s", v, v, s)
+	} else if f, y := v.(*flag); !y {
+		ctx.err("%T %v", v, v)
+	} else if _, y := f.name.(*bareword); !y {
+		ctx.err("%T %v", f.name, f.name)
 	}
 
 	ctx.flush()

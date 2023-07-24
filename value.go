@@ -2475,13 +2475,9 @@ type bareword struct { valbase; string }
 func (_ *bareword) Kind() Kind { return KindBareword }
 func (p *bareword) String() string { return p.string }
 func (p *bareword) Strval(ctx Context) string { return p.string }
-func (p *bareword) True(ctx Context) bool { return isTrueString(p.string) }
-func (p *bareword) Integer(ctx Context) (i int64, err error) {
-    return strconv.ParseInt(p.string, 10, 64)
-}
-func (p *bareword) Float(ctx Context) (f float64, err error) {
-    return strconv.ParseFloat(p.string, 64)
-}
+func (p *bareword) True(ctx Context) bool { return /* isTrueString(p.string) */p.string != "" }
+func (p *bareword) Integer(ctx Context) (i int64, err error) { return strconv.ParseInt(p.string, 10, 64) }
+func (p *bareword) Float(ctx Context) (f float64, err error) { return strconv.ParseFloat(p.string, 64) }
 func (p *bareword) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*bareword); y {
         if p.string == a.string {
