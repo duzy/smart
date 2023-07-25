@@ -88,7 +88,7 @@ func print_options(ctx Context) {
         for _, opt := range opts {
                 prompt(ctx, "    %v:\n", opt.entry)
                 for _, info := range opt.infos {
-                        prompt(ctx, "        %s\n", info.Strval(ctx))
+                        prompt(ctx, "        %s\n", info.strval(ctx))
                 }
         }
 }

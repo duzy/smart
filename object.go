@@ -37,33 +37,33 @@ type objbase struct { // generally unnamed objects
     scope *Scope
     owner *Project
 }
-func (_ *objbase) Kind() Kind { return KindObject }
+func (_ *objbase) kind() Kind { return KindObject }
 func (p *objbase) DeclScope() *Scope { return p.scope }
 func (p *objbase) OwnerProject() *Project { return p.owner }
 func (p *objbase) String() string { return fmt.Sprintf("{unknown %p}", p) }
-func (p *objbase) Strval(ctx Context) string { return fmt.Sprintf("{unknown %p}", p) }
-func (p *objbase) Name(ctx Context) string { panic("inquiring name of an unknown object") }
+func (p *objbase) strval(ctx Context) string { return fmt.Sprintf("{unknown %p}", p) }
+func (p *objbase) name(ctx Context) string { panic("inquiring name of an unknown object") }
 func (p *objbase) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *objbase) rescope(_ Context, scope *Scope) { panic("rescoping unknown object") }
 func (p *objbase) exists() existence { return existenceMatterless }
 
 type knownobject struct { // generally named objects
     objbase
-    name string // single, or group name if containing '(*)' and corresponding members
+    name_ string // single, or group name if containing '(*)' and corresponding members
     //members [][]string
 }
-func (p *knownobject) Kind() Kind { return p.objbase.Kind()|KindKnownObject }
-func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name) }
-func (p *knownobject) Strval(_ Context) string { return fmt.Sprintf("{object %s}", p.name) }
-func (p *knownobject) True(_ Context) bool { return true }
-func (p *knownobject) Name(ctx Context) string { return p.name }
+func (p *knownobject) kind() Kind { return p.objbase.kind()|KindKnownObject }
+func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name_) }
+func (p *knownobject) strval(_ Context) string { return fmt.Sprintf("{object %s}", p.name_) }
+func (p *knownobject) true(_ Context) bool { return p.name_ != "" }
+func (p *knownobject) name(_ Context) string { return p.name_ }
 func (p *knownobject) rescope(_ Context, scope *Scope) {
     if p.scope != scope {
         if p.scope != nil {
-            delete(p.scope.elems, p.name)
+            delete(p.scope.elems, p.name_)
         }
         if p.scope = scope; p.scope != nil {
-            p.scope.elems[p.name] = p
+            p.scope.elems[p.name_] = p
         }
     }
 }
@@ -71,7 +71,7 @@ func (p *knownobject) expand(_ Context, _ facet) Value { return p }
 func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*knownobject); ok {
         assert(ok, "value is not knownobject")
-        if p.owner == a.owner && p.scope == a.scope && p.name == a.name {
+        if p.owner == a.owner && p.scope == a.scope && p.name_ == a.name_ {
             res = cmpEqual
         }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
@@ -96,23 +96,23 @@ type unresolved struct { // named callable/executable objects
     Value
     project *Project
 }
-func (_ unresolved) Kind() Kind { return KindObject|KindUnresolved }
-func (p unresolved) Name(ctx Context) (name string) {
+func (_ unresolved) kind() Kind { return KindObject|KindUnresolved }
+func (p unresolved) name(ctx Context) (name string) {
     if p.Value == nil {
         erro(at(ctx,p.Position()), "unresolved object name is nil")
     } else if ctx == nil {
         name = p.Value.String()
     } else {
-        name = p.Value.Strval(ctx)
+        name = p.Value.strval(ctx)
     }
     return
 }
 // func (p unresolved) Position() Position { return p.Value.Position() }
 // func (p unresolved) String() string { return p.Value.String() }
-// func (p unresolved) Strval(ctx Context) (s string) { return /* p.Value.Strval(ctx) */ }
-func (p unresolved) Float(_ Context) (float64, error) { return 0.0, nil }
-func (p unresolved) Integer(_ Context) (int64, error) { return 0, nil }
-func (p unresolved) True(_ Context) bool { return false }
+// func (p unresolved) strval(ctx Context) (s string) { return /* p.Value.strval(ctx) */ }
+func (p unresolved) float(_ Context) (float64, error) { return 0.0, nil }
+func (p unresolved) int(_ Context) (int64, error) { return 0, nil }
+func (p unresolved) true(_ Context) bool { return false }
 func (p unresolved) OwnerProject() *Project { return p.project }
 func (p unresolved) DeclScope() *Scope { return p.project.scope }
 func (p unresolved) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
@@ -123,7 +123,7 @@ func (p unresolved) rescope(ctx Context, scope *Scope) {
     if true {
         fail(p.Value.Position(), "cant rescope a unresolved object")
     } else if p.project != scope.project {
-        var name = p.Value.Strval(ctx)
+        var name = p.Value.strval(ctx)
         if p.project.scope != nil { delete(p.project.scope.elems, name) }
         if p.project = scope.project; p.project.scope != nil {
             p.project.scope.elems[name] = p
@@ -146,9 +146,9 @@ func (p unresolved) refs(ctx Context, v Value) (res bool) {
         if p.Value == o.Value || p.Value.refs(ctx, o.Value) { return true }
         if p.Value.cmp(ctx, o.Value) == cmpEqual { return true }
         if (p.project == o.project || p.project.hasBase(o.project)) &&
-            p.Value.Strval(ctx) == o.Value.Strval(ctx) { return true }
+            p.Value.strval(ctx) == o.Value.strval(ctx) { return true }
     } else if d, y := v.(*def); false && y {
-        if o := p.project.resolveObject(ctx, p.Value.Strval(ctx)); o == nil {
+        if o := p.project.resolveObject(ctx, p.Value.strval(ctx)); o == nil {
             if o == d || o.refs(ctx, d) { return true }
         }
     }
@@ -190,7 +190,7 @@ func (p unresolved) expand(ctx Context, w facet) (res Value) {
 
     // TODO: only if w&expandResolve != 0 ...
 
-    if name := v.Strval(ctx); name == "" {
+    if name := v.strval(ctx); name == "" {
         warnstack(ctx, 3, "empty unresolved: %T %v ⇒ %T %v", p.Value, p.Value, v, v).debug(3)
         return p
     } else if o := p.project.resolveObject(ctx, name); o == nil {
@@ -221,9 +221,9 @@ func (_ unresolved) collect(ctx Context, cache *valcache, bits int) (res []*valc
 }
 
 type projectname struct { *Project ; scope *Scope }
-func (_ *projectname) Kind() Kind { return KindObject|KindKnownObject|KindProjectName }
-func (_ *projectname) Integer(_ Context) (int64, error) { return 0, nil }
-func (_ *projectname) Float(_ Context) (float64, error) { return .0, nil }
+func (_ *projectname) kind() Kind { return KindObject|KindKnownObject|KindProjectName }
+func (_ *projectname) int(_ Context) (int64, error) { return 0, nil }
+func (_ *projectname) float(_ Context) (float64, error) { return .0, nil }
 func (_ *projectname) updated(_ Context) bool { return false }
 func (_ *projectname) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *projectname) stamp(ctx Context) (files []*File, err error) { return }
@@ -235,10 +235,10 @@ func (_ *projectname) expandable(_ Context, _ facet) bool { return false }
 func (p *projectname) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (p *projectname) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
 func (p *projectname) Position() Position { return p.position }
-func (p *projectname) String() string { return p.name }
-func (p *projectname) Strval(_ Context) string { return p.name }
-func (p *projectname) Name(_ Context) string { return p.name }
-func (p *projectname) True(_ Context) bool { return p.Project != nil }
+func (p *projectname) String() string { return p.Project.name }
+func (p *projectname) strval(_ Context) string { return p.Project.name }
+func (p *projectname) name(_ Context) string { return p.Project.name }
+func (p *projectname) true(_ Context) bool { return p.Project != nil }
 func (p *projectname) DeclScope() *Scope { return p.scope }
 func (p *projectname) OwnerProject() *Project { return p.scope.project }
 func (p *projectname) Get(ctx Context, name string) (Value, error) { return p.resolveObject(ctx, name), nil }
@@ -247,7 +247,7 @@ func (p *projectname) expand(_ Context, _ facet) (res Value) { return expanded{p
 func (p *projectname) traverse(ctx Context) {
     if t := p.Project.defaultEntry; t != nil {
         switch t.Target().(type) {
-        case *flag: return
+        case flag: return
         }
 
         t.traverse(ctx)
@@ -269,10 +269,10 @@ func (p *projectname) cmp(ctx Context, v Value) (res cmpres) {
 func (p *projectname) rescope(_ Context, scope *Scope) {
     if p.scope != scope {
         if p.scope != nil {
-            delete(p.scope.elems, p.name)
+            delete(p.scope.elems, p.Project.name)
         }
         if p.scope = scope; p.scope != nil {
-            p.scope.elems[p.name] = p
+            p.scope.elems[p.Project.name] = p
         }
     }
 }
@@ -290,16 +290,16 @@ func (_ *projectname) collect(ctx Context, cache *valcache, bits int) (res []*va
 }
 
 type self struct { projectname }
-func (p *self) Kind() Kind { return p.projectname.Kind()|KindSelf }
+func (p *self) kind() Kind { return p.projectname.kind()|KindSelf }
 func (_ *self) elemstr(_ Context, o Object, k elembits) (s string) { return "$(.self)" }
 func (_ *self) String() string { return ".self" }
-func (p *self) Name(_ Context) string { return p.String() }
+func (p *self) name(_ Context) string { return p.String() }
 func (p *self) expand(_ Context, _ facet) Value { return expanded{p} }
 
-type scopename struct { *Scope ; name string }
-func (_ *scopename) Kind() Kind { return KindObject|KindScopeName }
-func (_ *scopename) Integer(_ Context) (int64, error) { return 0, nil }
-func (_ *scopename) Float(_ Context) (float64, error) { return .0, nil }
+type scopename struct { *Scope ; name_ string }
+func (_ *scopename) kind() Kind { return KindObject|KindScopeName }
+func (_ *scopename) int(_ Context) (int64, error) { return 0, nil }
+func (_ *scopename) float(_ Context) (float64, error) { return .0, nil }
 func (_ *scopename) updated(_ Context) bool { return false }
 func (_ *scopename) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *scopename) stamp(ctx Context) (files []*File, err error) { return }
@@ -313,10 +313,10 @@ func (_ *scopename) traverse(ctx Context) { }
 func (p *scopename) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchStrval(ctx, p, i) }
 func (p *scopename) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (p *scopename) Position() Position { return p.position }
-func (p *scopename) String() string  { return fmt.Sprintf("{scope %s}", p.name) }
-func (p *scopename) Strval(_ Context) string { return p.name }
-func (p *scopename) Name(_ Context) string { return p.name }
-func (p *scopename) True(_ Context) bool { return p.Scope != nil }
+func (p *scopename) String() string  { return fmt.Sprintf("{scope %s}", p.name_) }
+func (p *scopename) strval(_ Context) string { return p.name_ }
+func (p *scopename) name(_ Context) string { return p.name_ }
+func (p *scopename) true(_ Context) bool { return p.Scope != nil }
 func (p *scopename) OwnerProject() *Project { return p.Scope.project }
 func (p *scopename) DeclScope() *Scope { return p.Scope.outer }
 // func (p *scopename) invoke(_ Context, _ facet, _, _ []Value) Value { return p }
@@ -325,7 +325,7 @@ func (p *scopename) Get(ctx Context, name string) (value Value, err error) {
     if s := p.Resolve(name); s != nil { if value, _ = s.(Value); value == nil {
         err = fmt.Errorf("`%s' in scope is invalid (%T)", name, s)
     }} else {
-        err = fmt.Errorf("undefined `%s' in scope `%s'", name, p.name)
+        err = fmt.Errorf("undefined `%s' in scope `%s'", name, p.name_)
     }
     return
 }
@@ -340,10 +340,10 @@ func (p *scopename) cmp(ctx Context, v Value) (res cmpres) {
 func (p *scopename) rescope(_ Context, scope *Scope) {
     if p.Scope != scope {
         if p.Scope != nil {
-            delete(p.Scope.elems, p.name)
+            delete(p.Scope.elems, p.name_)
         }
         if p.Scope = scope; p.Scope != nil {
-            p.Scope.elems[p.name] = p
+            p.Scope.elems[p.name_] = p
         }
     }
 }
@@ -484,7 +484,7 @@ func (ac *autoContext) args(ctx Context, params []*auto, args []Value) (names []
         compact []Value // compacted args: combine duplicated pairs
         named = make(map[string]struct{}, len(params))
     )
-    for _, param := range params { named[param.name] = struct{}{} }
+    for _, param := range params { named[param.name_] = struct{}{} }
 
 outer:
     for _, a := range args {
@@ -508,7 +508,7 @@ outer:
         }
 
         var name string
-        if p, y := a.(*pair); y { s := p.Key.Strval(ctx)
+        if p, y := a.(*pair); y { s := p.Key.strval(ctx)
             if _, y = named[s]; y { name, a = s, p.Value }
         }
 
@@ -516,7 +516,7 @@ outer:
         if name != "" {
             // Got the name!
         } else if argnum < len(params) {
-            name = params[argnum].name
+            name = params[argnum].name(ctx)
         } else {
             name = id
         }
@@ -559,20 +559,20 @@ func autoSet(ctx Context, name string, val Value) (out *def, res Value) {
 }
 
 type auto struct { knownobject }
-func (a *auto) Kind() Kind { return a.knownobject.Kind()|KindAuto }
-func (a *auto) String() (s string) { return a.name }
-func (a *auto) Strval(ctx Context) (res string) {
-    if d := a.def(ctx); d != nil && d.value != nil { res = d.value.Strval(ctx) }
+func (a *auto) kind() Kind { return a.knownobject.kind()|KindAuto }
+func (a *auto) String() (s string) { return a.name_ }
+func (a *auto) strval(ctx Context) (res string) {
+    if d := a.def(ctx); d != nil && d.value != nil { res = d.value.strval(ctx) }
     return
 }
 func (a *auto) Get(ctx Context, name string) (res Value, _ error) {
-    if name == "value" { res = autoVal(ctx, a.name) }
+    if name == "value" { res = autoVal(ctx, a.name_) }
     return
 }
 func (a *auto) refs(ctx Context, v Value) (res bool) {
     if u, y := v.(unexpanded); y { v = u.Value }
-    if o, y := v.(*auto); y && (o == a || o.name == a.name) { return true }
-    if rc := ctx.rc(); rc != nil { if o, y := rc.v.(*auto); y && (a == o || a.name == o.name) {
+    if o, y := v.(*auto); y && (o == a || o.name_ == a.name_) { return true }
+    if rc := ctx.rc(); rc != nil { if o, y := rc.v.(*auto); y && (a == o || a.name_ == o.name_) {
         if false { noted(ctx, "%v: %v %v , %v", a, typeof(v), v, rc.v.refs(ctx, a)).debug(32) }
         return true
     }}
@@ -585,36 +585,36 @@ func (a *auto) defs(ctx Context, s ...string) (res []*def) {
     if d := a.def(ctx); d != nil { res = append(res, d) }
     return
 }
-func (a *auto) def(ctx Context) *def { return autoDef(ctx, a.name) }
+func (a *auto) def(ctx Context) *def { return autoDef(ctx, a.name_) }
 func (a *auto) set(ctx Context, value Value, app ...Value) {
-    if value == nil && app != nil { if d := autoDef(ctx, a.name); d != nil {
+    if value == nil && app != nil { if d := autoDef(ctx, a.name_); d != nil {
         d.value = ease(ctx, append(merge(d.value), app...))
         d.position = a.position
         return
     }}
 
-    d, _ := autoSet(ctx, a.name, ease(ctx, append(merge(value), app...)))
+    d, _ := autoSet(ctx, a.name_, ease(ctx, append(merge(value), app...)))
     if d != nil { d.position = a.position } else if true {
-        warnstack(of(ctx,a), 3, "set auto failed: %v: %v %v", a.name, value, app).debug(16)
+        warnstack(of(ctx,a), 3, "set auto failed: %v: %v %v", a.name_, value, app).debug(16)
     }
 }
 func (a *auto) expandable(ctx Context, w facet) (res bool) {
     if w&expandAuto != 0 && w&expandAutoKept == 0 { res = true } else
-    if w&expandUnexpandedForth != 0 { if d := autoDef(ctx, a.name); d != nil {
+    if w&expandUnexpandedForth != 0 { if d := autoDef(ctx, a.name_); d != nil {
         res = d.expandable(ctx, w)
     }}
     return
 }
 func (a *auto) expand(ctx Context, w facet) (res Value) {
-    if true { if w&expandDebug != 0 { if d := autoDef(ctx, a.name); true/* d != nil && d.value != res */ { defer func() {
+    if true { if w&expandDebug != 0 { if d := autoDef(ctx, a.name_); true/* d != nil && d.value != res */ { defer func() {
         if true { w.noted(ctx, a, d) }
         noted(ctx, "%v ⇒ %v %v (same=%v)", a, typeof(res), res, (res==a)).debug(10)
     }()}}}
     g := w&expandAuto != 0 && w&expandAutoKept == 0 || w&expandDefDefArgs != 0 || w&expandUnexpandedForth != 0
-    if g && !ctx.ref(ctx, a) { if d := autoDef(ctx, a.name); d != nil {
+    if g && !ctx.ref(ctx, a) { if d := autoDef(ctx, a.name_); d != nil {
         var recured bool
         if ic := ctx.ic().Context.ic(); ic != nil && ic.in(a) { if false { w.noted(ctx, a) }
-            noted(ctx, "recursive: %v ⇒ %v ; %v", a, d, autoDef(ctx.ac().Context, a.name)).debug(5)
+            noted(ctx, "recursive: %v ⇒ %v ; %v", a, d, autoDef(ctx.ac().Context, a.name_)).debug(5)
             recured = true
         }
         if d.value == nil {
@@ -629,19 +629,19 @@ func (a *auto) expand(ctx Context, w facet) (res Value) {
     return unexpanded{a}
 }
 func (a *auto) invoke(ctx Context, w facet, o, v []Value) (res Value) {
-    if d := autoDef(ctx, a.name); d != nil { res = d.invoke(ctx, w, o, v) }
+    if d := autoDef(ctx, a.name_); d != nil { res = d.invoke(ctx, w, o, v) }
     return
 }
 func (a *auto) cmp(ctx Context, v Value) (res cmpres) {
-    if val := autoVal(ctx, a.name); val != nil { res = val.cmp(ctx, v) }
+    if val := autoVal(ctx, a.name_); val != nil { res = val.cmp(ctx, v) }
     return
 }
 func (a *auto) stat(ctx Context) (si *statinfo) {
-    if val := autoVal(ctx, a.name); val != nil { si = val.stat(ctx) }
+    if val := autoVal(ctx, a.name_); val != nil { si = val.stat(ctx) }
     return
 }
 func (a *auto) traverse(ctx Context) {
-    if val := autoVal(ctx, a.name); val != nil { val.traverse(ctx) }
+    if val := autoVal(ctx, a.name_); val != nil { val.traverse(ctx) }
     return
 }
 func (_ *auto) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
@@ -664,7 +664,7 @@ type def struct {
     origin Origin
     value Value
 }
-func (d *def) Kind() Kind { return d.knownobject.Kind()|KindDef }
+func (d *def) kind() Kind { return d.knownobject.kind()|KindDef }
 func (d *def) Position() (pos Position) {
     if d != nil { if d.value == nil {
         pos = d.valbase.position
@@ -690,31 +690,31 @@ func (d *def) String() (s string) {
         value = d.value
         // d.mutex.Unlock()
     }
-    if s = d.name + d.streq(); value != nil {
+    if s = d.name_ + d.streq(); value != nil {
         s += elemstr(nil, d, value, 0)
     } else {
         s += "<nil>"
     }
     return
 }
-func (d *def) Strval(ctx Context) (res string) {
+func (d *def) strval(ctx Context) (res string) {
     var val Value
     {
         // d.mutex.Lock()
         val = d.value
         // d.mutex.Unlock()
     }
-    if val != nil { res = val.Strval(ctx) }
+    if val != nil { res = val.strval(ctx) }
     return
 }
-func (d *def) True(ctx Context) (res bool) {
+func (d *def) true(ctx Context) (res bool) {
     var val Value
     {
         // d.mutex.Lock()
         val = d.value
         // d.mutex.Unlock()
     }
-    if val != nil { res = val.True(ctx) }
+    if val != nil { res = val.true(ctx) }
     return
 }
 func (d *def) refs(ctx Context, v Value) (res bool) {
@@ -734,7 +734,7 @@ func (d *def) defs(ctx Context, s ...string) (res []*def) {
         res = append(res, d)
     } else {
         for _, a := range s {
-            if d.name == a {
+            if d.name_ == a {
                 res = append(res, d)
                 break
             }
@@ -767,8 +767,8 @@ func (d *def) expand(ctx Context, w facet) (res Value) {
         if true { w0.noted(ctx, d) }
         var a []Value ; if i := ctx.ic(); i != nil { a = i.a }
         noted(ctx, "%v: %v %v", d, d.origin, a)
-        noted(ctx, "%v: %v %v", d.name, typeof(d.value), d.value)
-        noted(ctx, "%v: %v %v (same=%v)", d.name, typeof(res), res, (res==d.value)).debug(16)
+        noted(ctx, "%v: %v %v", d.name_, typeof(d.value), d.value)
+        noted(ctx, "%v: %v %v (same=%v)", d.name_, typeof(res), res, (res==d.value)).debug(16)
     }(w); db = true }}
 
     if w&expandInvoke == 0 {
@@ -841,10 +841,10 @@ func (d *def) cmp(ctx Context, v Value) (res cmpres) {
 func (d *def) elemstr(_ Context, o Object, k elembits) (s string) {
     if o != nil {
         if p := d.OwnerProject(); p != o.OwnerProject() {
-            return fmt.Sprintf("$(%s->%s)", p.name, d.name)
+            return fmt.Sprintf("$(%s->%s)", p.name, d.name_)
         }
     }
-    s = fmt.Sprintf(`$(%s)`, d.name)
+    s = fmt.Sprintf(`$(%s)`, d.name_)
     return
 }
 func (d *def) val(ctx Context, value Value) { d.set(ctx, d.origin, value) }
@@ -881,9 +881,9 @@ func (d *def) set(ctx Context, origin Origin, value Value, app ...Value) {
     case DefExpand1: vals, _, _ = (w&^expandClosure).expand(ctx, vals...) //  :=
     case DefExpand2: vals, _, _ = (w| expandClosure).expand(ctx, vals...) // ::=
     default: for _, val := range vals { if val != nil && val.refs(ctx, d) { ctx = at(ctx, pos)
-        if options.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name, val) }
+        if options.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name_, val) }
         if options.debug { warn(ctx, "from here").debug(1) }
-        errostack(ctx, 3, "value refers to assigning Def '%s': %v (%T)", d.name, val, val).debug(10)
+        errostack(ctx, 3, "value refers to assigning Def '%s': %v (%T)", d.name_, val, val).debug(10)
         return
     }}}
 
@@ -922,8 +922,8 @@ func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
     if isTrivial(value) { return }
 
     var cmd string
-    if cmd = value.Strval(ctx); cmd == "" {
-        warn(ctx, "%v: empty command (value=%v)", d.name, value).debug(1)
+    if cmd = value.strval(ctx); cmd == "" {
+        warn(ctx, "%v: empty command (value=%v)", d.name_, value).debug(1)
         return
     }
 
@@ -934,8 +934,8 @@ func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
     )
     sh.Stdout, sh.Stderr = &stdout, &stderr
     if err := sh.Run(); err != nil {
-        erro(ctx, "%v: execute command failed: %v", d.name, err)
-        erro(ctx, "%v: execute command: %s", d.name, cmd).debug(2)
+        erro(ctx, "%v: execute command failed: %v", d.name_, err)
+        erro(ctx, "%v: execute command: %s", d.name_, cmd).debug(2)
         stdout.Reset()
         stderr.Reset()
         return
@@ -950,7 +950,7 @@ func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
 }
 func (d *def) Get(ctx Context, name string) (res Value, err error) {
     switch name {
-    case "name" : res = MakeString(d.position, d.name)
+    case "name" : res = MakeString(d.position, d.name_)
     case "value":
         // d.mutex.Lock()
         res = d.value
@@ -1002,7 +1002,7 @@ type undetermined struct {
     identifier Value
     value Value
 }
-func (_ *undetermined) Kind() Kind { return KindObject|KindUndetermined }
+func (_ *undetermined) kind() Kind { return KindObject|KindUndetermined }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
 func (p *undetermined) String() (s string) {
     s = p.identifier.String()
@@ -1010,11 +1010,11 @@ func (p *undetermined) String() (s string) {
     s += p.value.String()
     return
 }
-func (p *undetermined) Strval(ctx Context) string { return p.value.Strval(ctx) }
-func (p *undetermined) Name(ctx Context) string { return p.identifier.Strval(ctx) }
-func (p *undetermined) True(ctx Context) bool { return false }
-func (p *undetermined) Float(ctx Context) (f float64, _ error) { return 0, nil }
-func (p *undetermined) Integer(ctx Context) (i int64, _ error) { return 0, nil }
+func (p *undetermined) strval(ctx Context) string { return p.value.strval(ctx) }
+func (p *undetermined) name(ctx Context) string { return p.identifier.strval(ctx) }
+func (p *undetermined) true(ctx Context) bool { return false }
+func (p *undetermined) float(ctx Context) (f float64, _ error) { return 0, nil }
+func (p *undetermined) int(ctx Context) (i int64, _ error) { return 0, nil }
 func (p *undetermined) updated(_ Context) bool { return false }
 func (p *undetermined) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (p *undetermined) refs(ctx Context, v Value) bool {
@@ -1076,9 +1076,8 @@ func (_ *undetermined) collect(ctx Context, cache *valcache, bits int) (res []*v
 
 // A builtin represents a built-in function. builtins don't have a valid type.
 type builtin struct { knownobject ; t reflect.Type }
-func (p *builtin) Kind() Kind { return p.knownobject.Kind()|KindBuiltin }
-func (p *builtin) String() string { return p.name }
-func (p *builtin) True(_ Context) bool { return p.t != nil }
+func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
+func (p *builtin) String() string { return p.name_ }
 func (p *builtin) true(_ Context) bool { return p.t != nil }
 func (p *builtin) isCommand() bool { return reflect.PointerTo(p.t).Implements(builtin_c_t) }
 func (p *builtin) invoke(ctx Context, w facet, o, a []Value) Value { return invoke(ctx, p, w, o, a) }
@@ -1111,7 +1110,7 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
     } else { c.Set(reflect.ValueOf(ctx)) }
 
     if ic.o == nil {} else if t := _parseOpts(ctx, bv, plain, ic.o); t != nil {
-        errostack(ctx, 3, "%v: unsupported opts: %v (%v, %030b)", p.name, t, typeof(bv), w).debug(16)
+        errostack(ctx, 3, "%v: unsupported opts: %v (%v, %030b)", p.name_, t, typeof(bv), w).debug(16)
         return
     } else if false { if t, y := bi.(*builtin_wildcard); y {
         noted(ctx, "%v: %v %v", p, ic.o, t.dir).debug(1)
@@ -1154,7 +1153,7 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
 }
 func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*builtin); y { assert(y, "value is not builtin")
-        if /*p.f == a.f &&*/ p.name == a.name { res = cmpEqual }
+        if /*p.f == a.f &&*/ p.name_ == a.name_ { res = cmpEqual }
     } else if l, y := v.(*List); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
@@ -1213,14 +1212,14 @@ func (ec *ruleContext) String() string {
             }
         }
         for _, c := range cc {
-            if t := c.rule.Strval(c.Context); s != "" {
+            if t := c.rule.strval(c.Context); s != "" {
                 s = fmt.Sprintf("%s{%s}", t, s)
             } else {
                 s = t
             }
         }
         return s
-    } else if s, t := ec.rule.Strval(ec.Context), ec.Context.String(); t != "" {
+    } else if s, t := ec.rule.strval(ec.Context), ec.Context.String(); t != "" {
         return fmt.Sprintf("%s{%s}", s, t)
     } else {
         return fmt.Sprintf("%s", s)
@@ -1286,7 +1285,7 @@ type rule struct {
     program_ []*program
     position Position
 }
-func (_ *rule) Kind() Kind { return KindObject|KindRule }
+func (_ *rule) kind() Kind { return KindObject|KindRule }
 func (entry *rule) Class() ruleClass { return entry.class }
 func (entry *rule) Target() Value { return entry.target }
 func (entry *rule) programs() []*program { return entry.program_ }
@@ -1304,20 +1303,20 @@ func (entry *rule) Position() (pos Position) {
     }
     return
 }
-func (entry *rule) Name(ctx Context) (name string) {
+func (entry *rule) name(ctx Context) (name string) {
     if entry == nil {
         erro(ctx, "nil entry")
     } else if isNull(entry.target) {
         erro(at(ctx,entry.position), "entry target is nil")
     } else {
-        name = entry.target.Strval(ctx)
+        name = entry.target.strval(ctx)
     }
     return
 }
-func (entry *rule) True(ctx Context) bool { return entry.target.True(ctx) }
-func (entry *rule) Float(_ Context) (f float64, _ error) { return 0, nil }
-func (entry *rule) Integer(_ Context) (i int64, _ error) { return 0, nil }
-func (entry *rule) Strval(ctx Context) string { return entry.target.Strval(ctx) }
+func (entry *rule) true(ctx Context) bool { return entry.target.true(ctx) }
+func (entry *rule) float(_ Context) (f float64, _ error) { return 0, nil }
+func (entry *rule) int(_ Context) (i int64, _ error) { return 0, nil }
+func (entry *rule) strval(ctx Context) string { return entry.target.strval(ctx) }
 func (entry *rule) String() string {
     if entry.target == nil { return "<nil entry>" }
     return entry.target.String()
@@ -1360,7 +1359,7 @@ ForPrograms:
 func (entry *rule) Get(_ Context, name string) (Value, error) {
     switch name {
     case "class": return MakeString(entry.position, entry.class.String()), nil
-    case "name" : return entry.target, nil //return MakeString(entry.position, entry.Name()), nil
+    case "name" : return entry.target, nil //return MakeString(entry.position, entry.name()), nil
     //case "prerequisites": ...
     }
     return nil, fmt.Errorf("no such entry property (%s)", name)
@@ -1493,7 +1492,7 @@ ForPrograms:
         var ctx = at(ctx, prog.position)
         var v, t = prog.execute(ctx)
 
-        if true && sc != nil && sc.stem.target.Strval(ctx) == "Unwind-EHABI.o" {
+        if true && sc != nil && sc.stem.target.strval(ctx) == "Unwind-EHABI.o" {
             info(ctx, "rule.traverse: %v: %d: %v %v", target, i, t, v)
         }
 
@@ -1556,16 +1555,16 @@ func (entry *rule) option(ctx Context) (res bool, infos []Value) {
             g, ok := depend.(*modification)
             if!ok { continue }
             for _, m := range g.list {
-                if m.Elems[0].Strval(ctx) != "configure" { continue }
+                if m.Elems[0].strval(ctx) != "configure" { continue }
                 for _, arg := range m.Elems[1:] {
                     a, ok := arg.(*argumented)
                     if!ok { continue }
-                    f, ok := a.Value.(*flag)
+                    f, ok := a.Value.(flag)
                     if!ok { continue }
-                    if f.name.Strval(ctx) != "option" { continue }
+                    if f.Value.strval(ctx) != "option" { continue }
                     for _, v := range a.args {
                         if p, ok := v.(*pair); ok {
-                            if p.Key.Strval(ctx) != "info" { continue }
+                            if p.Key.strval(ctx) != "info" { continue }
                             v = p.Value
                         }
                         infos = append(infos, v)
@@ -1612,7 +1611,7 @@ type stemmed struct {
     target Value
     stems []string
 }
-func (p *stemmed) Kind() Kind { return p.rule.Kind()|KindStemmedRule }
+func (p *stemmed) kind() Kind { return p.rule.kind()|KindStemmedRule }
 func (p *stemmed) String() (s string) {
     for i, stem := range p.stems { if i > 0 { s += "," }; s += stem }
     return fmt.Sprintf("%s:%s", p.target, s) // "<%s:%s>"

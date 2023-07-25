@@ -253,9 +253,9 @@ var builtins = map[string]reflect.Type {
 
 func EscapedString(ctx Context, v Value) (s string) {
         if p, ok := v.(*String); ok {
-                s = strings.Replace(p.Strval(ctx), "\\'", "'", -1)
+                s = strings.Replace(p.strval(ctx), "\\'", "'", -1)
         } else {
-                s = v.Strval(ctx)
+                s = v.strval(ctx)
         }
         return
 }
@@ -294,21 +294,21 @@ func trimRightSpaces(s string) string {
 func _set(ctx Context, val reflect.Value, v Value) {
         switch val.Kind() {
         case reflect.Bool:
-                if t := v == nil || v.True(ctx); true { val.SetBool(t) }
+                if t := v == nil || v.true(ctx); true { val.SetBool(t) }
         case reflect.Float32, reflect.Float64:
-                if t, e := v.Float(ctx); e == nil { val.SetFloat(t) } else {
+                if t, e := v.float(ctx); e == nil { val.SetFloat(t) } else {
                         erro(ctx, "%v: %v", v, e).debug(10)
                 }
         case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-                if t, e := v.Integer(ctx); e == nil { val.SetInt(t) } else {
+                if t, e := v.int(ctx); e == nil { val.SetInt(t) } else {
                         erro(ctx, "%v: %v", v, e).debug(10)
                 }
         case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-                if t, e := v.Integer(ctx); e == nil { val.SetUint(uint64(t)) } else {
+                if t, e := v.int(ctx); e == nil { val.SetUint(uint64(t)) } else {
                         erro(ctx, "%v: %v", v, t).debug(10)
                 }
         case reflect.String:
-                val.SetString(v.Strval(ctx))
+                val.SetString(v.strval(ctx))
         case reflect.Slice:
                 if p := reflect.New(val.Type().Elem()); p.Kind() == reflect.Ptr {
                         var t = p.Elem()
@@ -336,13 +336,13 @@ func _set(ctx Context, val reflect.Value, v Value) {
                         val.Set(reflect.ValueOf(file))
                 } else if proj := ctx.Project(); proj == nil {
                         erro(of(ctx,x), "no current project to find file '%v'", x).debug(1)
-                } else if file = proj.file(ctx, x.Strval(ctx)); file != nil {
+                } else if file = proj.file(ctx, x.strval(ctx)); file != nil {
                         val.Set(reflect.ValueOf(file))
                 } else {
                         erro(of(ctx,v), "'%v' is not a file", x).debug(1)
                 }
         case "regexp.Regexp":
-                if rx, e := regexp.Compile(v.Strval(ctx)); e != nil {
+                if rx, e := regexp.Compile(v.strval(ctx)); e != nil {
                         erro(of(ctx,v), "compile regexp '%v' failed: %v", v, e).debug(1)
                 } else {
                         val.Set(reflect.ValueOf(rx))
@@ -352,7 +352,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
         }
         default: switch val.Type().String() {
         case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
-                if t, e := v.Integer(ctx); e == nil {
+                if t, e := v.int(ctx); e == nil {
                         if t == 0 { warn(of(ctx,v), "zero file mode").debug(1) }
                         val.SetUint(uint64(t))
                 } else {
@@ -384,30 +384,36 @@ func _parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args ...
                 }
         }
 
-        // var set func(reflect.Value, Value)
-        // set = func(val reflect.Value, v Value)
-
 ForArgs:
         for _, arg := range args {
                 var (
-                        f *flag
                         y bool
-                        value Value
+                        f flag
+                        a, value Value
                 )
+                if u, y := arg.(unexpanded); y {
+                        a = u.Value
+                } else {
+                        a = arg
+                }
+
                 // don't parse patterns, e.g. -I%
-                if !arg.patterned(ctx) { switch t := arg.(type) {
-                case *flag: f, value = t, MakeBoolean(t.position, true)
-                case *pair: if f, y = t.Key.(*flag); y { value = t.Value }
-                case *argumented: if f, y = t.Value.(*flag); y { value = ease(ctx, t.args) }
+                if !a.patterned(ctx) { switch t := a.(type) {
+                case flag: f, value = t, MakeBoolean(t.Position(), true)
+                case *pair: if f, y = t.Key.(flag); y { value = t.Value }
+                case *argumented: if f, y = t.Value.(flag); y { value = ease(ctx, t.args) }
                 }}
-                if f == nil {
+
+                if f.Value == nil {
                         rest = append(rest, arg)
                         continue ForArgs
                 }
+
                 for i := 0; i < len(opts); i += 1 { if _, y = f.opt(ctx, opts[i]); y {
                         _set(ctx, val, value)
                         continue ForArgs
                 }}
+
                 rest = append(rest, arg)
         }
 
@@ -439,7 +445,7 @@ func _opts[Opts interface{}](ctx Context, w facet, args ...Value) (opts Opts, re
 func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []Value) {
         if w == 0 {
                 rest = merge(args...) // NOTE: set the returning args first of all!
-        } else {
+        } else if false {
                 if false && // FIXME: the args[1].expand(ctx, w) causes 'd.x == nil'
                         w == 0 && len(args)>1 && args[0].String() == "-plain" &&
                         args[1].String() == "$(configure~$(target.sys).features)" {
@@ -450,48 +456,52 @@ func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []
                                 t.(*delegate).x, t, t, t.(*delegate)).debug(1)
                 }
                 rest = xmerge(ctx, w, args...)
+        } else {
+                rest = umerge(true, args...)
         }
 
         if opts.Kind() != reflect.Ptr {
                 erro(ctx, "opts must be ptr: %v", opts.Kind()).debug(10)
-        } else if opts = opts.Elem(); opts.Kind() == reflect.Struct {
-                var (
-                        otyp = opts.Type()
-                        genOpts *generalOpts
-                        builtin, general, modifier reflect.Value
-                )
-                if false { info(ctx, "opts: %v, %v", opts.Kind(), otyp) }
-                for i := 0; i < otyp.NumField(); i += 1 {
-                        var ft = otyp.Field(i)
-                        var fv = opts.Field(i)
-                        if t := fv.Type(); fv.Kind() != reflect.Struct {
-                                if ft.Anonymous && ft.Name == "Context" && t.String() == "smart.Context" {
-                                        if false { info(ctx, "%v %v %v %v", ft.Name, ft.Tag, t, rest) }
-                                        continue
-                                } else {
-                                        rest = _parseOpt(ctx, ft.Tag, fv, rest...)
-                                }
-                        } else if !ft.Anonymous {
-                                continue
-                        } else if ft.Name == "generalOpts" {
-                                genOpts = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
-                                general = fv.Addr()
-                        } else if strings.HasPrefix(ft.Name, "builtin_") {
-                                if builtin.IsValid() { warn(ctx, "embedded multiple builtins: %v", ft).debug(3) }
-                                builtin = fv.Addr()
-                        } else if strings.HasPrefix(ft.Name, "modifier_") {
-                                if modifier.IsValid() { warn(ctx, "embedded multiple modifiers: %v", ft).debug(3) }
-                                modifier = fv.Addr()
-                        }
-                }
-                if builtin.IsValid() { rest = _parseOpts(ctx, builtin, w, rest) }
-                if general.IsValid() { rest = _parseOpts(ctx, general, w, rest) }
-                if modifier.IsValid() { rest = _parseOpts(ctx, modifier, w, rest) }
-                if false && genOpts != nil && genOpts.fullname {
-                        rest, _, _ = expandFullName.expand(ctx, rest...)
-                }
-        } else {
+                return
+        } else if opts = opts.Elem(); opts.Kind() != reflect.Struct {
                 erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).debug(1)
+                return
+        }
+
+        var (
+                otyp = opts.Type()
+                genOpts *generalOpts
+                builtin, general, modifier reflect.Value
+        )
+        if false { info(ctx, "opts: %v, %v", opts.Kind(), otyp) }
+        for i := 0; i < otyp.NumField(); i += 1 {
+                var ft = otyp.Field(i)
+                var fv = opts.Field(i)
+                if t := fv.Type(); fv.Kind() != reflect.Struct {
+                        if ft.Anonymous && ft.Name == "Context" && t.String() == "smart.Context" {
+                                if false { info(ctx, "%v %v %v %v", ft.Name, ft.Tag, t, rest) }
+                                continue
+                        } else {
+                                rest = _parseOpt(ctx, ft.Tag, fv, rest...)
+                        }
+                } else if !ft.Anonymous {
+                        continue
+                } else if ft.Name == "generalOpts" {
+                        genOpts = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
+                        general = fv.Addr()
+                } else if strings.HasPrefix(ft.Name, "builtin_") {
+                        if builtin.IsValid() { warn(ctx, "embedded multiple builtins: %v", ft).debug(3) }
+                        builtin = fv.Addr()
+                } else if strings.HasPrefix(ft.Name, "modifier_") {
+                        if modifier.IsValid() { warn(ctx, "embedded multiple modifiers: %v", ft).debug(3) }
+                        modifier = fv.Addr()
+                }
+        }
+        if  builtin.IsValid() { rest = _parseOpts(ctx,  builtin, w, rest) }
+        if  general.IsValid() { rest = _parseOpts(ctx,  general, w, rest) }
+        if modifier.IsValid() { rest = _parseOpts(ctx, modifier, w, rest) }
+        if false && genOpts != nil && genOpts.fullname {
+                rest, _, _ = expandFullName.expand(ctx, rest...)
         }
         return
 }
@@ -584,7 +594,7 @@ func (ctx *builtin_origin) x(ic *invocation, w facet) (res interface{}) {
         var scope = ctx.Scope()
         for _, arg := range ic.a {
                 var pos = arg.Position()
-                if name := arg.Strval(ctx); name == "" {
+                if name := arg.strval(ctx); name == "" {
                         elems = append(elems, MakeNull(pos))
                 } else if def := scope.FindDef(name); def != nil {
                         elems = append(elems, MakeString(pos, def.origin.String()))
@@ -614,7 +624,7 @@ func (ctx *builtin_pushcontext) c(ic *invocation, w facet) (res interface{}) {
                 m map[string]*def
         )
         for _, arg := range ic.a {
-                var s = arg.Strval(ctx)
+                var s = arg.strval(ctx)
                 if s == "" { continue }
                 if m == nil { m = make(map[string]*def) }
 
@@ -652,7 +662,7 @@ func (ctx *builtin_popcontext) c(ic *invocation, w facet) (res interface{}) {
                 scope.mutex.Lock()
                 delete(scope.elems, s)
                 scope.mutex.Unlock()
-        } else if o := scope.Lookup(d.name); o != nil { if t, ok := o.(*def); ok {
+        } else if o := scope.Lookup(d.name_); o != nil { if t, ok := o.(*def); ok {
                 *t = *d
         }}}
         uc.globe.stack = uc.globe.stack[0:l-1]
@@ -693,7 +703,7 @@ func (ctx *builtin_date) x(ic *invocation, w facet) (res interface{}) {
                 var vals []Value
                 for _, a := range ic.a {
                         var s string
-                        if s = a.Strval(ctx); s == "" {
+                        if s = a.strval(ctx); s == "" {
                                 s = t.String()
                         } else if s = t.Format(s); s == "" {
                                 s = fmt.Sprintf("%v", t)
@@ -717,7 +727,7 @@ func (ctx *builtin_debug) x(ic *invocation, w facet) (res interface{}) {
         var s bytes.Buffer
         for i, a := range ic.a {
                 if i > 0 { fmt.Fprintf(&s, " ") }
-                fmt.Fprintf(&s, "%s", a.Strval(ctx))
+                fmt.Fprintf(&s, "%s", a.strval(ctx))
         }
         warnstack(ctx, ctx.s, "%s", s.String()).debug(ctx.n)
         return
@@ -728,7 +738,7 @@ func (ctx *builtin_error) x(ic *invocation, w facet) (res interface{}) {
         var s bytes.Buffer
         for i, a := range ic.a {
                 if i > 0 { fmt.Fprintf(&s, " ") }
-                fmt.Fprintf(&s, "%s", a.Strval(ctx))
+                fmt.Fprintf(&s, "%s", a.strval(ctx))
         }
         if false {
                 erro(ctx, "%s", s.String()).debug(1)
@@ -743,7 +753,7 @@ func (ctx *builtin_warning) x(ic *invocation, w facet) (res interface{}) {
         var s bytes.Buffer
         for i, a := range ic.a {
                 if i > 0 { fmt.Fprintf(&s, " ") }
-                fmt.Fprintf(&s, "%s", a.Strval(ctx))
+                fmt.Fprintf(&s, "%s", a.strval(ctx))
         }
         warn(ctx, "%s", s).debug(1)
         return
@@ -765,13 +775,13 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
         }
 
         var cc = ctx.Context
-        for _, a := range ic.a { ctx.Context = at(cc, a.Position()) ; var okay = a.True(ctx)
+        for _, a := range ic.a { ctx.Context = at(cc, a.Position()) ; var okay = a.true(ctx)
                 if hook != nil && hook(ctx, a, okay) { continue }
                 if okay { continue }
 
                 var v = a.expand(ctx, strval)
                 prompt(ctx, "assert: %v: %v ⇒ %v: %v\n", typeof(a), a, typeof(v), v)
-                diag(ctx, t, "%v: %v ⇒ %s", typeof(a), a, a.Strval(ctx))
+                diag(ctx, t, "%v: %v ⇒ %s", typeof(a), a, a.strval(ctx))
                 diagstack(ctx, d, t).debug(d)
         }
 
@@ -781,7 +791,7 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_sure struct { builtin_ }
 func (ctx *builtin_sure) x(ic *invocation, w facet) (res interface{}) {
-        for _, a := range ic.a { if !a.True(ctx) {
+        for _, a := range ic.a { if !a.true(ctx) {
                 erro(of(ctx,a), "assert: %T %v", a, a).debug(1)
         }}
         return ic.a
@@ -801,13 +811,13 @@ func (ctx *builtin_defor) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_or struct { builtin_ }
 func (ctx *builtin_or) x(ic *invocation, w facet) (res interface{}) {
-        for _, a := range ic.a { if a.True(ctx) { return a } }
+        for _, a := range ic.a { if a.true(ctx) { return a } }
         return
 }
 
 type builtin_and struct { builtin_ }
 func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
-        for _, a := range ic.a { if a.True(ctx) { res = a } else {
+        for _, a := range ic.a { if a.true(ctx) { res = a } else {
                 return nil
         }}
         return
@@ -818,7 +828,7 @@ func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
 type builtin_not struct { builtin_ }
 func (ctx *builtin_not) x(ic *invocation, w facet) (res interface{}) {
         var t bool
-        for _, a := range ic.a { if t = a.True(ctx); t { break } }
+        for _, a := range ic.a { if t = a.true(ctx); t { break } }
         if n := ctx.debug; n>0 { warnstack(ctx, 3).debug(n) }
         return !t
 }
@@ -928,7 +938,7 @@ ForValList:
         for _, val := range valList {
                 if isTrivial(val) { continue ForValList }
 
-                var str = val.Strval(ctx)
+                var str = val.strval(ctx)
                 for _, rx := range ctx.regexps {
                         var matched = rx.MatchString(str);
                         if ctx.negated { matched = !matched }
@@ -990,12 +1000,12 @@ func (ctx *builtin_case) x(ic *invocation, w facet) (res interface{}) {
 
                 var collect bool
                 var v = g.Elems[0].expand(ctx, w)
-                if val == nil && v.True(ctx) {
+                if val == nil && v.true(ctx) {
                         collect = true
                 } else if val != nil && isTrivial(val) {
                         if isTrivial(v) {
                                 collect = true
-                        } else if f, y := v.(*flag); y && isNull(f.name) {
+                        } else if f, y := v.(flag); y && isNull(f.Value) {
                                 collect = true
                         }
                 } else if val != nil && val.cmp(ctx, v) == cmpEqual {
@@ -1004,7 +1014,7 @@ func (ctx *builtin_case) x(ic *invocation, w facet) (res interface{}) {
                 if !collect { continue }
 
                 var vals []Value
-                for _, v := range g.Elems[1:] { if f, y := v.(*flag); !y || isNull(f.name) {
+                for _, v := range g.Elems[1:] { if f, y := v.(flag); !y || isNull(f.Value) {
                         vals = append(vals, v)
                 }}
                 return vals
@@ -1030,7 +1040,7 @@ func (ctx *builtin_if) x(ic *invocation, w facet) (res interface{}) {
         if na := len(ic.a); na > 1 { t := ic.a[0]
                 if _, y := t.(unexpanded); y {
                         return ctx
-                } else if t.True(ctx) {
+                } else if t.true(ctx) {
                         res = ic.a[1]//.expand(ctx, w)
                 } else if na > 2 {
                         a := ic.a[2:] //a, _, _ := w.expand(ctx, ic.a[2:]...)
@@ -1053,7 +1063,7 @@ func (ctx *builtin_ifeq) x(ic *invocation, w facet) (res interface{}) {
                 if _, y := a.(unexpanded); y { return ctx }
                 if _, y := b.(unexpanded); y { return ctx }
                 if ctx.strval {
-                        equal = a.Strval(ctx) == b.Strval(ctx)
+                        equal = a.strval(ctx) == b.strval(ctx)
                 } else {
                         equal = a.cmp(ctx, b) == cmpEqual
                 }
@@ -1079,7 +1089,7 @@ func (ctx *builtin_ifne) x(ic *invocation, w facet) (res interface{}) {
                 if _, y := a.(unexpanded); y { return ctx }
                 if _, y := b.(unexpanded); y { return ctx }
                 if ctx.strval {
-                        equal = a.Strval(ctx) == b.Strval(ctx)
+                        equal = a.strval(ctx) == b.strval(ctx)
                 } else {
                         equal = a.cmp(ctx, b) == cmpEqual
                 }
@@ -1194,7 +1204,7 @@ type builtin_count struct { builtin_
 func (ctx *builtin_count) x(ic *invocation, w facet) (res interface{}) {
         var num int64
         var vals = valvec(ctx.vals)
-        for _, a := range ic.a { if a.True(ctx) || vals.has2(ctx, a) {
+        for _, a := range ic.a { if a.true(ctx) || vals.has2(ctx, a) {
                 num += 1
         }}
         return num
@@ -1205,7 +1215,7 @@ func (ctx *builtin_env) x(ic *invocation, w facet) (res interface{}) {
         var vals []Value
         for _, a := range ic.a { if val := a.expand(ctx, expandDelegate); isTrivial(val) {
                 continue
-        } else if s := strings.TrimSpace(val.Strval(ctx)); s != "" {
+        } else if s := strings.TrimSpace(val.strval(ctx)); s != "" {
                 vals = append(vals, MakeString(a.Position(), os.Getenv(s)))
         }}
         return vals
@@ -1226,7 +1236,7 @@ func (ctx *builtin_auto) x(ic *invocation, w facet) (res interface{}) {
 
         var ac = autoContext{ Context:ctx, defs:make(autoDefMap) }
         for _, a := range umerge(true, ic.a[0]) {
-                if p, y := a.(*pair); y { if s := p.Key.Strval(ctx); s != "" {
+                if p, y := a.(*pair); y { if s := p.Key.strval(ctx); s != "" {
                         ac.set(ctx, s, p.Value)
                 } else { erro(ctx, "empty auto name: %T %v", p.Key, p.Key).debug(1) }}
         }
@@ -1263,7 +1273,7 @@ func (ctx *builtin_value) x(ic *invocation, w facet) (res interface{}) {
                         name string
                         val Value
                 )
-                if name = a.Strval(ctx); name == "" {
+                if name = a.strval(ctx); name == "" {
                         // TODO: name is empty
                 } else if closure {
                         if def := closureGet(ctx, name); def != nil {
@@ -1303,7 +1313,7 @@ func (ctx *builtin_call) x(ic *invocation, w facet) (res interface{}) {
         var name = ic.a[0]
         if _, y := name.(unexpanded); y {
                 return ctx
-        } else if s := name.Strval(ctx); ctx._closure {
+        } else if s := name.strval(ctx); ctx._closure {
                 obj = closureResolveObject(ctx, s)
         } else {
                 obj = resolveObject(ctx, s)
@@ -1325,7 +1335,7 @@ func (ctx *builtin_closure) x(ic *invocation, w facet) (res interface{}) {
 
         var vals []Value
         outer: for _, val := range umerge(true, ic.a[0]) {
-                var name = val.Strval(ctx)
+                var name = val.strval(ctx)
                 for _, scope := range ctx.closureScopes() {
                         if d := scope.FindDef(name); d != nil {
                                 vals = append(vals, d.invoke(ctx, w, nil, ic.a[1:]))
@@ -1385,7 +1395,7 @@ type builtin_plain struct { builtin_
 func (ctx *builtin_plain) c(ic *invocation, w facet) (res interface{}) {
         var scope = ctx.Scope()
         for _, a := range ic.a {
-                var ( o Object ; s = a.Strval(ctx) )
+                var ( o Object ; s = a.strval(ctx) )
                 if ctx.scope { _, o = scope.Find(s) } else { o = resolveObject(ctx, s) }
                 if o == nil {
                         erro(of(ctx,a), "no such symbol: %s", s).debug(1)
@@ -1407,13 +1417,13 @@ func (ctx *builtin_shell) x(ic *invocation, w facet) (res interface{}) {
         )
         for _, a := range ic.a {
                 var bufout, buferr bytes.Buffer
-                var s = a.Strval(ctx)
+                var s = a.strval(ctx)
                 sh := exec.Command("sh", "-c", s)
                 sh.Stdout, sh.Stderr = &bufout, &buferr
                 if err = sh.Run(); err != nil {
                         s = strings.TrimSpace(buferr.String())
                         if !strings.HasPrefix(s, ":") { s = ":\n" + s }
-                        prompt(ctx, "%s%s\n", a.Strval(ctx), s)
+                        prompt(ctx, "%s%s\n", a.strval(ctx), s)
                         errostack(ctx, 3, "%s", err).debug(10)
                         if true { fail(ctx.Position(), "%v", err) }
                         return
@@ -1430,7 +1440,7 @@ type builtin_which struct { builtin_ }
 func (ctx *builtin_which) x(ic *invocation, w facet) (res interface{}) {
         var vals []Value
         for _, a := range ic.a {
-                if s, err := exec.LookPath(a.Strval(ctx)); err != nil {
+                if s, err := exec.LookPath(a.strval(ctx)); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
                 } else if s != "" {
@@ -1475,7 +1485,7 @@ func (ctx *builtin_servehttp) c(ic *invocation, w facet) (res interface{}) {
                 http.Handle("/", http.FileServer(http.Dir(s)))
         } else {
                 for _, a := range ic.a {
-                        var s = a.Strval(ctx)
+                        var s = a.strval(ctx)
                         info(ctx, "serving files %v ...", s)
                         http.Handle("/", http.FileServer(http.Dir(s)))
                 }
@@ -1511,7 +1521,7 @@ func (ctx *builtin_append) x(ic *invocation, w facet) (res interface{}) {
 
         for _, a := range names {
                 var d *def
-                if name := a.Strval(ctx); name == "" {
+                if name := a.strval(ctx); name == "" {
                         erro(of(ctx,a), "name '%v' is empty", a).debug(1)
                 } else if ctx._closure { if d = closureGet(ctx, name); d == nil {
                         erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
@@ -1534,7 +1544,7 @@ func (ctx *builtin_plus) x(ic *invocation, w facet) (res interface{}) {
         if ctx.int {
                 var num int64
                 for n, a := range ic.a {
-                        if i, e := a.Integer(ctx); e == nil {
+                        if i, e := a.int(ctx); e == nil {
                                 if n == 0 { num = i } else { num += i }
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
@@ -1544,7 +1554,7 @@ func (ctx *builtin_plus) x(ic *invocation, w facet) (res interface{}) {
         } else {
                 var num float64
                 for n, a := range ic.a {
-                        if f, e := a.Float(ctx); e == nil {
+                        if f, e := a.float(ctx); e == nil {
                                 if n == 0 { num = f } else { num += f }
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
@@ -1561,7 +1571,7 @@ func (ctx *builtin_minus) x(ic *invocation, w facet) (res interface{}) {
         if ctx.int {
                 var num int64
                 for n, a := range ic.a {
-                        if i, e := a.Integer(ctx); e == nil {
+                        if i, e := a.int(ctx); e == nil {
                                 if n == 0 { num = i } else { num -= i }
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
@@ -1571,7 +1581,7 @@ func (ctx *builtin_minus) x(ic *invocation, w facet) (res interface{}) {
         } else {
                 var num float64
                 for n, a := range ic.a {
-                        if f, e := a.Float(ctx); e == nil {
+                        if f, e := a.float(ctx); e == nil {
                                 if n == 0 { num = f } else { num -= f }
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
@@ -1588,7 +1598,7 @@ func (ctx *builtin_multiply) x(ic *invocation, w facet) (res interface{}) {
         if ctx.int {
                 var num int64
                 for n, a := range ic.a {
-                        if i, e := a.Integer(ctx); e == nil {
+                        if i, e := a.int(ctx); e == nil {
                                 if n == 0 { num = i } else { num *= i }
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
@@ -1598,7 +1608,7 @@ func (ctx *builtin_multiply) x(ic *invocation, w facet) (res interface{}) {
         } else {
                 var num float64
                 for n, a := range ic.a {
-                        if f, e := a.Float(ctx); e == nil {
+                        if f, e := a.float(ctx); e == nil {
                                 if n == 0 { num = f } else { num *= f }
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
@@ -1615,7 +1625,7 @@ func (ctx *builtin_divide) x(ic *invocation, w facet) (res interface{}) {
         if ctx.int {
                 var num int64
                 for n, a := range ic.a {
-                        if i, e := a.Integer(ctx); e == nil {
+                        if i, e := a.int(ctx); e == nil {
                                 if n == 0 { num = i } else { num /= i } // FIXME: NaN
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
@@ -1625,7 +1635,7 @@ func (ctx *builtin_divide) x(ic *invocation, w facet) (res interface{}) {
         } else {
                 var num float64
                 for n, a := range ic.a {
-                        if f, e := a.Float(ctx); e == nil {
+                        if f, e := a.float(ctx); e == nil {
                                 if n == 0 { num = f } else { num /= f } // FIXME: NaN
                         } else {
                                 erro(ctx, "%v: %v", a, e).debug(1)
@@ -1665,9 +1675,9 @@ ForArgs:
                 }}
 
                 if false {
-                        var s = a.Strval(ctx)
+                        var s = a.strval(ctx)
                         for _, v := range list {
-                                if s == v.Strval(ctx) { continue ForArgs }
+                                if s == v.strval(ctx) { continue ForArgs }
                         }
                 }
                 list = append(list, a)
@@ -1704,9 +1714,9 @@ func (ctx *builtin_join) x(ic *invocation, w facet) (res interface{}) {
                         }
                         res = comp
                 } else {
-                        var s string; if sep != nil { s = sep.Strval(ctx) }
+                        var s string; if sep != nil { s = sep.strval(ctx) }
                         for _, a := range vals {
-                                if v := a.Strval(ctx); v != "" { fields = append(fields, v) }
+                                if v := a.strval(ctx); v != "" { fields = append(fields, v) }
                         }
                         res = MakeString(ctx.Position(), strings.Join(fields, s))
                 }
@@ -1720,7 +1730,7 @@ func (ctx *builtin_quote) x(ic *invocation, w facet) (res interface{}) {
         if l := len(args); l > 0 {
                 var fields []string
                 for _, a := range args {
-                        if v := a.Strval(ctx); v != "" { fields = append(fields, v) }
+                        if v := a.strval(ctx); v != "" { fields = append(fields, v) }
                 }
                 res = MakeString(ctx.Position(), strconv.Quote(strings.Join(fields, " ")))
         } else {
@@ -1734,13 +1744,13 @@ func (ctx *builtin_quotejoin) x(ic *invocation, w facet) (res interface{}) {
         var sep string
         var args = merge(ic.a...)
         if l := len(args); l > 1 {
-                sep = args[l-1].Strval(ctx)
+                sep = args[l-1].strval(ctx)
                 args = args[:l-1]
         }
         if l := len(args); l > 0 {
                 var fields []string
                 for _, a := range args[1:] {
-                        if v := a.Strval(ctx); v != "" { fields = append(fields, v) }
+                        if v := a.strval(ctx); v != "" { fields = append(fields, v) }
                 }
                 res = MakeString(ctx.Position(), strconv.Quote(strings.Join(fields, sep)))
         } else {
@@ -1754,8 +1764,8 @@ type builtin_splitstring struct { builtin_ }
 func (ctx *builtin_splitstring) x(ic *invocation, w facet) (res interface{}) {
         var fields []Value
         if len(ic.a) > 0 {
-                var sep = ic.a[0].Strval(ctx)
-                for _, a := range ic.a[1:] { for _, s := range strings.Split(a.Strval(ctx), sep) {
+                var sep = ic.a[0].strval(ctx)
+                for _, a := range ic.a[1:] { for _, s := range strings.Split(a.strval(ctx), sep) {
                         fields = append(fields, MakeString(a.Position(), s))
                 }}
         }
@@ -1783,7 +1793,7 @@ ValueType:
                 for _, elem := range v.Elems {
                         var ( v Value; s string )
                         if v, err = joinstrings(ctx, elem, sep); err != nil { break ValueType }
-                        if s = v.Strval(ctx); s != "" { strs = append(strs, s) }
+                        if s = v.strval(ctx); s != "" { strs = append(strs, s) }
                 }
                 res = MakeString(value.Position(), strings.Join(strs, sep))
         }
@@ -1806,7 +1816,7 @@ func (ctx *builtin_splitquotejoin) x(ic *invocation, w facet) (res interface{}) 
                 var err error
                 var sep string
                 if l := len(ic.a); l > 1 {
-                        sep = ic.a[l-1].Strval(ctx)
+                        sep = ic.a[l-1].strval(ctx)
                         ic.a = ic.a[:l-1]
                 }
                 if res, err = joinstrings(ctx, val, sep); err != nil {
@@ -1823,7 +1833,7 @@ func (ctx *builtin_splitjoinquote) x(ic *invocation, w facet) (res interface{}) 
                 var err error
                 var sep string
                 if l := len(ic.a); l > 1 {
-                        sep = ic.a[l-1].Strval(ctx)
+                        sep = ic.a[l-1].strval(ctx)
                         ic.a = ic.a[:l-1]
                 }
 
@@ -1831,7 +1841,7 @@ func (ctx *builtin_splitjoinquote) x(ic *invocation, w facet) (res interface{}) 
                 if v, err = joinstrings(ctx, val, sep); err != nil {
                         erro(ctx, "%v", err).debug(1)
                 } else {
-                        res = MakeString(ctx.Position(), strconv.Quote(v.Strval(ctx)))
+                        res = MakeString(ctx.Position(), strconv.Quote(v.strval(ctx)))
                 }
         }
         return
@@ -1842,16 +1852,16 @@ func (ctx *builtin_field) x(ic *invocation, w facet) (res interface{}) {
         var fields []string
         if l := len(ic.a); l >= 2 {
                 var (
-                        s string = ic.a[1].Strval(ctx)
+                        s string = ic.a[1].strval(ctx)
                         i int64
                 )
-                if n, e := ic.a[0].Integer(ctx); e != nil {
+                if n, e := ic.a[0].int(ctx); e != nil {
                         erro(ctx, "%v: %v", ic.a[0], e).debug(1)
                         return
                 } else { i = n }
 
                 if l > 2 {
-                        fields = strings.Split(s, ic.a[2].Strval(ctx))
+                        fields = strings.Split(s, ic.a[2].strval(ctx))
                 } else {
                         fields = strings.Fields(s)
                 }
@@ -1882,7 +1892,7 @@ func (ctx *builtin_usee) x(ic *invocation, w facet) (res interface{}) {
 
         for _, arg := range ic.a {
                 var v Value
-                if v, err = proj.use.Get(ctx, arg.Strval(ctx)); err != nil {
+                if v, err = proj.use.Get(ctx, arg.strval(ctx)); err != nil {
                         erro(ctx, "%v", err).debug(1)
                         return
                 } else {
@@ -1905,7 +1915,7 @@ func (ctx *builtin_uses) x(ic *invocation, w facet) (res interface{}) {
 
 ForArgs:
         for _, arg := range ic.a {
-                var s = arg.Strval(ctx)
+                var s = arg.strval(ctx)
                 for _, u := range proj.use.list {
                         if found = u.project.name == s; found {
                                 break ForArgs
@@ -1920,7 +1930,7 @@ type builtin_path struct { builtin_ }
 func (ctx *builtin_path) x(ic *invocation, w facet) (res interface{}) {
         var list []Value
         for _, a := range ic.a {
-                list = append(list, pathStr(ctx, a.Position(), a.Strval(ctx)))
+                list = append(list, pathStr(ctx, a.Position(), a.strval(ctx)))
         }
         return list
 }
@@ -1934,14 +1944,14 @@ func (ctx *builtin_bare) x(ic *invocation, w facet) (res interface{}) {
                 var val Value
                 switch t := a.(type) {
                 case *String, *Compound:
-                        val = MakeBareword(a.Position(), a.Strval(ctx));
+                        val = MakeBareword(a.Position(), a.strval(ctx));
                 case *File:
-                        val = MakeBareword(a.Position(), t.name);
+                        val = MakeBareword(a.Position(), t.name(ctx));
                 case fullfile:
                         if ctx.name {
-                                val = MakeBareword(a.Position(), t.name);
+                                val = MakeBareword(a.Position(), t.name(ctx));
                         } else {
-                                val = MakeBareword(a.Position(), t.Strval(ctx));
+                                val = MakeBareword(a.Position(), t.strval(ctx));
                         }
                 default: val = a
                 }
@@ -1957,7 +1967,7 @@ func (ctx *builtin_bareword) x(ic *invocation, w facet) (res interface{}) {
                 var val Value
                 switch a.(type) {
                 case *bareword: val = a
-                default: val = MakeBareword(a.Position(), a.Strval(ctx));
+                default: val = MakeBareword(a.Position(), a.strval(ctx));
                 }
                 vals = append(vals, val)
         }
@@ -1992,7 +2002,7 @@ func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
                         if f, y := v.(fullfile); y && ctx.name { v = f.File }
                         if ctx.expand && v != nil { v = v.expand(ctx, w) }
                         if v == nil { t = "<nil>" } else
-                        if ctx.strval { t = v.Strval(ctx) } else { t = v.String() }
+                        if ctx.strval { t = v.strval(ctx) } else { t = v.String() }
                         if ctx.debug>0 { warn(ctx, "%T %v -> %v", d.value, d.value, t) }
                         strs = append(strs, t)
                 }
@@ -2000,7 +2010,7 @@ func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
                         var t string
                         if f, y := a.(fullfile); y && ctx.name { a = f.File }
                         if ctx.expand { a = a.expand(ctx, w) }
-                        if ctx.strval { t = a.Strval(ctx) } else { t = a.String() }
+                        if ctx.strval { t = a.strval(ctx) } else { t = a.String() }
                         if ctx.debug>0 { warn(ctx, "%T %v -> %v", a, a, t) }
                         strs = append(strs, t)
                 }
@@ -2148,7 +2158,7 @@ func (ctx *builtin_substring) x(ic *invocation, w facet) (res interface{}) {
                 if a == -1 { return }
 
                 for _, arg := range ic.a {
-                        var s = arg.Strval(ctx)
+                        var s = arg.strval(ctx)
                         if i := len(s); i <= a { s = "" } else
                         if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
                         list = append(list, MakeString(arg.Position(), s))
@@ -2163,11 +2173,11 @@ func (ctx *builtin_subst) x(ic *invocation, w facet) (res interface{}) {
         var list []Value
         if nargs := len(ic.a); nargs > 2 {
                 var (
-                        s1 = ic.a[0].Strval(ctx)
-                        s2 = ic.a[1].Strval(ctx)
+                        s1 = ic.a[0].strval(ctx)
+                        s2 = ic.a[1].strval(ctx)
                 )
                 for _, arg := range xmerge(ctx, expandDelegate, ic.a[2:]...) {
-                        var s = strings.Replace(arg.Strval(ctx), s1, s2, -1)
+                        var s = strings.Replace(arg.strval(ctx), s1, s2, -1)
                         list = append(list, MakeString(arg.Position(), s))
                 }
         }
@@ -2235,7 +2245,7 @@ ForSources:
                 if srcFile, ok = toFile(src); ok {
                         source = srcFile
                 } else if ctx.findFiles {
-                        var s = src.Strval(ctx)
+                        var s = src.strval(ctx)
                         if srcFile = proj.file(ctx, s); srcFile != nil {
                                 source = srcFile
                         } else {
@@ -2244,7 +2254,7 @@ ForSources:
                 } else if !ctx.fullname {
                         source = src
                 } else if o, y := (as{src}.fullnameOpt(ctx, closured...)); y {
-                        source = o.Strval(ctx)
+                        source = o.strval(ctx)
                 } else {
                         erro(of(ctx,src), "fullname '%v' failed", src)
                         erro(ctx, "called from here", src).debug(1)
@@ -2276,7 +2286,7 @@ ForSources:
                         }
 
                         var nameStr string
-                        if nameStr = nameVal.Strval(ctx); nameStr == "" {
+                        if nameStr = nameVal.strval(ctx); nameStr == "" {
                                 continue stencilTargetPats
                         } else if ctx.cleanPath {
                                 nameStr = filepath.Clean(nameStr)
@@ -2349,7 +2359,7 @@ ForSources:
 type builtin_title struct { builtin_ }
 func (ctx *builtin_title) x(ic *invocation, w facet) (res interface{}) {
         var list []Value
-        for _, a := range ic.a { if s := a.Strval(ctx); s != "" {
+        for _, a := range ic.a { if s := a.strval(ctx); s != "" {
                 list = append(list, MakeString(a.Position(), strings.Title(s)))
         }}
         return list
@@ -2358,7 +2368,7 @@ func (ctx *builtin_title) x(ic *invocation, w facet) (res interface{}) {
 type builtin_uppercase struct { builtin_ }
 func (ctx *builtin_uppercase) x(ic *invocation, w facet) (res interface{}) {
         var list []Value
-        for _, a := range ic.a { if s := a.Strval(ctx); s != "" {
+        for _, a := range ic.a { if s := a.strval(ctx); s != "" {
                 list = append(list, MakeString(a.Position(), strings.ToUpper(s)))
         }}
         return list
@@ -2367,7 +2377,7 @@ func (ctx *builtin_uppercase) x(ic *invocation, w facet) (res interface{}) {
 type builtin_lowercase struct { builtin_ }
 func (ctx *builtin_lowercase) x(ic *invocation, w facet) (res interface{}) {
         var list []Value
-        for _, a := range ic.a { if s := a.Strval(ctx); s != "" {
+        for _, a := range ic.a { if s := a.strval(ctx); s != "" {
                 list = append(list, MakeString(a.Position(), strings.ToLower(s)))
         }}
         return list
@@ -2392,7 +2402,7 @@ type builtin_trim struct { builtin_ }
 func (ctx *builtin_trim) x(ic *invocation, w facet) (res interface{}) {
         var cutset string
         var list []Value
-        for i, a := range ic.a { if s := a.Strval(ctx); s != "" { if i == 0 {
+        for i, a := range ic.a { if s := a.strval(ctx); s != "" { if i == 0 {
                 cutset = s
         } else if cutset == "" {
                 list = append(list, MakeString(a.Position(), strings.TrimSpace(s)))
@@ -2408,7 +2418,7 @@ func (ctx *builtin_trimleft) x(ic *invocation, w facet) (res interface{}) {
                 cutset string
                 list []Value
         )
-        for i, a := range ic.a { if s := a.Strval(ctx); s != "" { if i == 0 {
+        for i, a := range ic.a { if s := a.strval(ctx); s != "" { if i == 0 {
                 cutset = s
         } else if cutset == "" {
                 list = append(list, MakeString(a.Position(), strings.TrimLeftFunc(s, unicode.IsSpace)))
@@ -2424,7 +2434,7 @@ func (ctx *builtin_trimright) x(ic *invocation, w facet) (res interface{}) {
                 cutset string
                 list []Value
         )
-        for i, a := range ic.a { if s := a.Strval(ctx); s != "" { if i == 0 {
+        for i, a := range ic.a { if s := a.strval(ctx); s != "" { if i == 0 {
                 cutset = s
         } else if cutset == "" {
                 list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
@@ -2462,9 +2472,9 @@ func (ctx *builtin_trimprefix) x(ic *invocation, w facet) (res interface{}) {
                         pos = value.Position()
                         p, s string
                 )
-                if s = value.Strval(ctx); s == "" { continue }
+                if s = value.strval(ctx); s == "" { continue }
                 ForPrefix: for _, prefix := range prefixs {
-                        if p = prefix.Strval(ctx); p == "" { continue }
+                        if p = prefix.strval(ctx); p == "" { continue }
 
                         // FIXME: matched cutset is empty: %-xxx- and *-xxx-
                         var full, r, stems = prefix.match(ctx, value)
@@ -2505,7 +2515,7 @@ func (ctx *builtin_trimsuffix) x(ic *invocation, w facet) (res interface{}) {
                 cutset, s string
                 list []Value
         )
-        for i, a := range ic.a { if s = a.Strval(ctx); s != "" { if i == 0 {
+        for i, a := range ic.a { if s = a.strval(ctx); s != "" { if i == 0 {
                 cutset = s
         } else if cutset == "" {
                 list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
@@ -2522,7 +2532,7 @@ type builtin_trimext struct { builtin_
 func (ctx *builtin_trimext) x(ic *invocation, w facet) (res interface{}) {
         var ext string
         var list []Value
-        for i, a := range ic.a { if s := a.Strval(ctx); s != "" {
+        for i, a := range ic.a { if s := a.strval(ctx); s != "" {
                 if i == 0 && len(ic.a) > 1 {
                         ext = s
                 } else if ext == "" {
@@ -2607,9 +2617,9 @@ func (ctx *builtin_addsuffix) x(ic *invocation, w facet) (res interface{}) {
         var vals = xmerge(ctx.Context, plain, ic.a[1:]...)
 
         for _, suffix := range suffixs {
-                if !suffix.True(ctx) { continue }
+                if !suffix.true(ctx) { continue }
                 for _, val := range vals {
-                        if /* false && !val.True(ctx) */isTrivial(val) {
+                        if /* false && !val.true(ctx) */isTrivial(val) {
                                 continue
                         }
                         var pos = val.Position()
@@ -2650,7 +2660,7 @@ func (ctx *builtin_printf) x(ic *invocation, w facet) (res interface{}) {
                 erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
                 return
         } else {
-                f = vals[0].Strval(ctx)
+                f = vals[0].strval(ctx)
         }
 
         var i int
@@ -2666,35 +2676,35 @@ ForArgs:
                                 case '+', '-', '#', ' ', '.', '0', '1', '2', '3',
                                         '4', '5', '6', '7', '8', '9': continue
                                 case 'c', 'd', 'o', 'O', 'q', 'U':
-                                        if t, e := v.Integer(ctx); e == nil { a = append(a, t) } else {
+                                        if t, e := v.int(ctx); e == nil { a = append(a, t) } else {
                                                 erro(ctx, "%v: %v", v, e).debug(1)
                                         }
                                         continue ForArgs
                                 case 'e', 'E', 'f', 'F', 'g', 'G':
-                                        if t, e := v.Float(ctx); e == nil { a = append(a, t) } else {
+                                        if t, e := v.float(ctx); e == nil { a = append(a, t) } else {
                                                 erro(ctx, "%v: %v", v, e).debug(1)
                                         }
                                         continue ForArgs
                                 case 'b', 'x', 'X':
-                                        switch k := v.Kind(); {
+                                        switch k := v.kind(); {
                                         case k&KindInteger != 0:
-                                                if t, e := v.Integer(ctx); e == nil { a = append(a, t) } else {
+                                                if t, e := v.int(ctx); e == nil { a = append(a, t) } else {
                                                         erro(ctx, "%v: %v", v, e).debug(1)
                                                 }
                                                 continue ForArgs
                                         case k&KindFloat != 0:
-                                                if t, e := v.Float(ctx); e == nil { a = append(a, t) } else {
+                                                if t, e := v.float(ctx); e == nil { a = append(a, t) } else {
                                                         erro(ctx, "%v: %v", v, e).debug(1)
                                                 }
                                                 continue ForArgs
                                         default:
-                                                if t, e := strconv.Atoi(v.Strval(ctx)) ; e == nil { a = append(a, t) } else {
+                                                if t, e := strconv.Atoi(v.strval(ctx)) ; e == nil { a = append(a, t) } else {
                                                         erro(ctx, "%v: %v", v, e).debug(1)
                                                 }
                                                 continue ForArgs
                                         }
                                 case 'v':
-                                        a = append(a, v/* .Strval(ctx) */)
+                                        a = append(a, v/* .strval(ctx) */)
                                         continue ForArgs
                                 case 't', 'T':
                                         a = append(a, v)
@@ -2795,7 +2805,7 @@ func (ctx *builtin_indent) x(ic *invocation, w facet) (res interface{}) {
         }
         for _, a := range ic.a {
                 var lines []string
-                for _, line := range strings.Split(a.Strval(ctx), "\n") {
+                for _, line := range strings.Split(a.strval(ctx), "\n") {
                         lines = append(lines, s + line)
                 }
                 l = append(l, MakeString(a.Position(), strings.Join(lines, "\n")))
@@ -2836,9 +2846,9 @@ func (ctx *builtin_contains) x(ic *invocation, w facet) (res interface{}) {
         var ddd = ctx.universe().ddd == "contains"
         var n int
 outer:
-        for i, val := range vals { var s string ; if ctx.string { s = val.Strval(ctx) }
+        for i, val := range vals { var s string ; if ctx.string { s = val.strval(ctx) }
                 for j, elem := range list {
-                        if ctx.string { if elem.Strval(ctx) == s {
+                        if ctx.string { if elem.strval(ctx) == s {
                                 n += 1; continue outer
                         }} else if ctx.match { if t, _, _ := val.match(ctx, elem); t {
                                 n += 1; continue outer
@@ -2846,7 +2856,7 @@ outer:
                                 n += 1; continue outer
                         }
                         if ctx.debug>0 && ddd { warn(of(ctx,val), "%d. %T %v <-> %d. %T %v", i, val, val, j, elem, elem) }
-                        if ctx.debug>0 && !ctx.string && elem != nil { if a, b := val.Strval(ctx), elem.Strval(ctx); a == b {
+                        if ctx.debug>0 && !ctx.string && elem != nil { if a, b := val.strval(ctx), elem.strval(ctx); a == b {
                                 warn(of(ctx,val), "wrong: %T %v <-> %T %v ; '%s', '%s'", val, val, elem, elem, a, b)
                         }}
                 }
@@ -2899,7 +2909,7 @@ func (ctx *builtin_encodebase64) x(ic *invocation, w facet) (res interface{}) {
                 pos := ctx.Position()
                 buf := new(bytes.Buffer)
                 enc := base64.NewEncoder(base64.StdEncoding, buf)
-                for _, a := range ic.a { enc.Write([]byte(a.Strval(ctx))) }
+                for _, a := range ic.a { enc.Write([]byte(a.strval(ctx))) }
                 enc.Close()
                 res = MakeString(pos, buf.String())
         }
@@ -2911,7 +2921,7 @@ func (ctx *builtin_decodebase64) x(ic *invocation, w facet) (res interface{}) {
         if len(ic.a) > 0 {
                 var list []Value
                 for _, a := range ic.a {
-                        var s string = a.Strval(ctx)
+                        var s string = a.strval(ctx)
                         if dat, err := base64.StdEncoding.DecodeString(s); err != nil {
                                 erro(ctx, "decode '%s' failed: %v", s, err).debug(1)
                                 return
@@ -2944,7 +2954,7 @@ type builtin_ext struct { builtin_ }
 func (ctx *builtin_ext) x(ic *invocation, w facet) (res interface{}) {
         var list []Value
         for _, a := range ic.a {
-                list = append(list, MakeString(a.Position(), filepath.Ext(a.Strval(ctx))))
+                list = append(list, MakeString(a.Position(), filepath.Ext(a.strval(ctx))))
         }
         return list
 }
@@ -2959,7 +2969,7 @@ func (ctx *builtin_bases) x(ic *invocation, w facet) (res interface{}) {
                 if ctx.fullname {
                         s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
-                        s = a.Strval(ctx)
+                        s = a.strval(ctx)
                 }
 
                 d := filepath.Dir(s)
@@ -3028,7 +3038,7 @@ func (ctx *builtin_dirs) x(ic *invocation, w facet) (res interface{}) {
                 if ctx.fullname {
                         s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
-                        s = a.Strval(ctx)
+                        s = a.strval(ctx)
                 }
                 s = filepath.Dir(s)
                 for i := ctx.n-1; 0 < i; i -= 1 { s = filepath.Dir(s) }
@@ -3092,7 +3102,7 @@ func (ctx *builtin_undirs) x(ic *invocation, w facet) (res interface{}) {
                 if ctx.fullname {
                         s, _ = as{a}.fullnameOrStrval(ctx)
                 } else {
-                        s = a.Strval(ctx)
+                        s = a.strval(ctx)
                 }
                 var v = strings.Split(s, PathSep)
                 if i := len(v); i == 0 {
@@ -3168,7 +3178,7 @@ func (ctx *builtin_chopdir) x(ic *invocation, w facet) (res interface{}) {
                 }
         }
         for _, a := range ic.a {
-                var v = strings.Split(a.Strval(ctx), PathSep)
+                var v = strings.Split(a.strval(ctx), PathSep)
                 if i := len(v); 0 < i {
                         if n < 0 { n = i + n }
                         if 0 <= n && n+1 < i {
@@ -3193,7 +3203,7 @@ func (ctx *builtin_reldir) x(ic *invocation, w facet) (res interface{}) {
                 t string
         )
         for i, a := range ic.a {
-                if s := a.Strval(ctx); i == 0 {
+                if s := a.strval(ctx); i == 0 {
                         t = s
                 } else if s, err = filepath.Rel(t, s); err == nil {
                         l = append(l, MakeString(a.Position(), s))
@@ -3217,11 +3227,11 @@ func (ctx *builtin_mkdir) c(ic *invocation, w facet) (res interface{}) {
                 )
                 switch t := a.(type) {
                 case *pair: // mkdir name => perm name => perm
-                        name = t.Key.Strval(ctx)
+                        name = t.Key.strval(ctx)
                         perm = permVal(ctx, t.Value, uint32(perm))
                 case *group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
-                                name = t.Get(0).Strval(ctx)
+                                name = t.Get(0).strval(ctx)
                                 perm = permVal(ctx, t.Get(1), uint32(perm))
                         } else {
                                 erro(ctx, "Wrong size of list `%v'", t).debug(1)
@@ -3229,14 +3239,14 @@ func (ctx *builtin_mkdir) c(ic *invocation, w facet) (res interface{}) {
                         }
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
-                                name = t.Get(0).Strval(ctx)
+                                name = t.Get(0).strval(ctx)
                                 perm = permVal(ctx, t.Get(1), uint32(perm))
                         } else {
                                 erro(ctx, "Wrong size of list `%v'", t).debug(1)
                                 break
                         }
                 default: // mkdir name perm, name perm, ...
-                        name = ic.a[i].Strval(ctx)
+                        name = ic.a[i].strval(ctx)
                         if i+1 < nargs {
                                 perm = permVal(ctx, ic.a[i+1], uint32(perm))
                                 i += 1
@@ -3260,7 +3270,7 @@ func (ctx *builtin_mkdir) c(ic *invocation, w facet) (res interface{}) {
 type builtin_chdir struct { builtin_ }
 func (ctx *builtin_chdir) c(ic *invocation, w facet) (res interface{}) {
         if len(ic.a) == 1 {
-                var str = ic.a[0].Strval(ctx)
+                var str = ic.a[0].strval(ctx)
                 if err := lockCD(str, 0); err != nil {
                         erro(ctx, "%v", err).debug(1)
                 }
@@ -3279,28 +3289,28 @@ func (ctx *builtin_rename) c(ic *invocation, w facet) (res interface{}) {
                 )
                 switch t := a.(type) {
                 case *pair: // rename oldname=newname
-                        oldname = t.Key.Strval(ctx)
-                        newname = t.Value.Strval(ctx)
+                        oldname = t.Key.strval(ctx)
+                        newname = t.Value.strval(ctx)
                 case *group: // rename (oldname newname) (old new)
                         if t.Len() == 2 {
-                                oldname = t.Get(0).Strval(ctx)
-                                newname = t.Get(1).Strval(ctx)
+                                oldname = t.Get(0).strval(ctx)
+                                newname = t.Get(1).strval(ctx)
                         } else {
                                 erro(of(ctx,t), "wrong size of group `%v'", t).debug(1)
                                 break
                         }
                 case *List: // rename oldname newname, old new, ...
                         if t.Len() == 2 {
-                                oldname = t.Get(0).Strval(ctx)
-                                newname = t.Get(1).Strval(ctx)
+                                oldname = t.Get(0).strval(ctx)
+                                newname = t.Get(1).strval(ctx)
                         } else {
                                 erro(of(ctx,t), "wrong size of list `%v'", t).debug(1)
                                 break
                         }
                 default: // rename newname oldname  newname oldname ...
                         if i+1 < nargs {
-                                oldname = ic.a[i+0].Strval(ctx)
-                                newname = ic.a[i+1].Strval(ctx)
+                                oldname = ic.a[i+0].strval(ctx)
+                                newname = ic.a[i+1].strval(ctx)
                                 i += 1
                         } else {
                                 erro(of(ctx,t), "Wrong arguments `%v'", ic.a).debug(1)
@@ -3329,7 +3339,7 @@ func (ctx *builtin_remove) c(ic *invocation, w facet) (res interface{}) {
                 var s = f.fullname()
                 if opts.skip != "" {
                         if strings.HasPrefix(s, opts.skip) { return } else
-                        if strings.HasPrefix(f.name, opts.skip) { return }
+                        if strings.HasPrefix(f.name(ctx), opts.skip) { return }
                 }
                 if opts.all { err = os.RemoveAll(s) } else { err = os.Remove(s) }
                 if err != nil {
@@ -3342,7 +3352,7 @@ func (ctx *builtin_remove) c(ic *invocation, w facet) (res interface{}) {
         }
         var removePath = func(ctx Context, p *Path) {
                 var err error
-                var s = p.Strval(ctx)
+                var s = p.strval(ctx)
                 if opts.skip != "" {
                         if strings.HasPrefix(s, opts.skip) { return }
                 }
@@ -3385,7 +3395,7 @@ func (ctx *builtin_remove) c(ic *invocation, w facet) (res interface{}) {
                         removePat(ctx, v)
                 } else if f, y := v.(*File); y {
                         removeFile(ctx, f)
-                } else if f = file(ctx, v.Strval(ctx)); f != nil {
+                } else if f = file(ctx, v.strval(ctx)); f != nil {
                         removeFile(ctx, f)
                 } else if p, y := v.(*Path); y {
                         removePath(ctx, p)
@@ -3415,14 +3425,14 @@ func (ctx *builtin_truncate) c(ic *invocation, w facet) (res interface{}) {
                 )
                 switch t := a.(type) {
                 case *pair: // truncate name => size old => new
-                        name = t.Key.Strval(ctx)
-                        if size, e = t.Value.Integer(ctx); e != nil {
+                        name = t.Key.strval(ctx)
+                        if size, e = t.Value.int(ctx); e != nil {
                                 erro(ctx, "%v: %v", t.Value, e).debug(1)
                         }
                 case *group: // truncate (name size) (old new)
                         if t.Len() == 2 {
-                                name = t.Get(0).Strval(ctx)
-                                if size, e = t.Get(1).Integer(ctx); e != nil {
+                                name = t.Get(0).strval(ctx)
+                                if size, e = t.Get(1).int(ctx); e != nil {
                                         erro(ctx, "%v: %v", t.Get(1), e).debug(1)
                                 }
                         } else {
@@ -3431,8 +3441,8 @@ func (ctx *builtin_truncate) c(ic *invocation, w facet) (res interface{}) {
                         }
                 case *List: // truncate name size, old new, ...
                         if t.Len() == 2 {
-                                name = t.Get(0).Strval(ctx)
-                                if size, e = t.Get(1).Integer(ctx); e != nil {
+                                name = t.Get(0).strval(ctx)
+                                if size, e = t.Get(1).int(ctx); e != nil {
                                         erro(ctx, "%v: %v", t.Get(1), e).debug(1)
                                 }
                         } else {
@@ -3441,8 +3451,8 @@ func (ctx *builtin_truncate) c(ic *invocation, w facet) (res interface{}) {
                         }
                 default: // truncate name size  name size ...
                         if i+1 < nargs {
-                                name = ic.a[i+0].Strval(ctx)
-                                if size, e = ic.a[i+1].Integer(ctx); e != nil {
+                                name = ic.a[i+0].strval(ctx)
+                                if size, e = ic.a[i+1].int(ctx); e != nil {
                                         erro(ctx, "%v: %v", ic.a[i+1], e).debug(1)
                                 }
                                 i += 1
@@ -3468,28 +3478,28 @@ func (ctx *builtin_link) c(ic *invocation, w facet) (res interface{}) {
                 )
                 switch t := a.(type) {
                 case *pair: // link oldname => newname old => new
-                        oldname = t.Key.Strval(ctx)
-                        newname = t.Value.Strval(ctx)
+                        oldname = t.Key.strval(ctx)
+                        newname = t.Value.strval(ctx)
                 case *group: // link (oldname newname) (old new)
                         if t.Len() == 2 {
-                                oldname = t.Get(0).Strval(ctx)
-                                newname = t.Get(1).Strval(ctx)
+                                oldname = t.Get(0).strval(ctx)
+                                newname = t.Get(1).strval(ctx)
                         } else {
                                 erro(ctx, "Wrong size of group `%v'", t).debug(1)
                                 break
                         }
                 case *List: // link oldname newname, old new, ...
                         if t.Len() == 2 {
-                                oldname = t.Get(0).Strval(ctx)
-                                newname = t.Get(1).Strval(ctx)
+                                oldname = t.Get(0).strval(ctx)
+                                newname = t.Get(1).strval(ctx)
                         } else {
                                 erro(ctx, "Wrong size of list `%v'", t).debug(1)
                                 break
                         }
                 default: // link oldname newname  oldname newname ...
                         if i+1 < nargs {
-                                oldname = ic.a[i+0].Strval(ctx)
-                                newname = ic.a[i+1].Strval(ctx)
+                                oldname = ic.a[i+0].strval(ctx)
+                                newname = ic.a[i+1].strval(ctx)
                                 i += 1
                         } else {
                                 erro(ctx, "Wrong arguments `%v'", ic.a).debug(1)
@@ -3672,7 +3682,7 @@ func (ctx *builtin_stat) x(ic *invocation, w facet) (res interface{}) {
                         file *File
                         s string
                 )
-                if s = a.Strval(ctx); filepath.IsAbs(s) {
+                if s = a.strval(ctx); filepath.IsAbs(s) {
                         file = stat(ctx, s, "", "")
                 } else {
                         file = stat(ctx, s, "", proj.absPath)
@@ -3717,7 +3727,7 @@ func (ctx *builtin_file) do(projs []*Project, args ...Value) (list []Value) {
                 var fs []*File
                 var am []matchedFileMap
                 if false { if strings.HasPrefix(a.String(), "tablegen-min") { defer func() {
-                        var f = file(ctx, a.Strval(ctx))
+                        var f = file(ctx, a.strval(ctx))
                         info(ctx, "%s: %v\n", a, am)
                         info(ctx, "%s: %v\n", a, fs)
                         info(ctx, "%s: %v\n", a, list)
@@ -3734,7 +3744,7 @@ func (ctx *builtin_file) do(projs []*Project, args ...Value) (list []Value) {
                         return
                 }
 
-                if am = files(ctx, a, projs...); am == nil { if s := a.Strval(ctx); s != "" { const w = false
+                if am = files(ctx, a, projs...); am == nil { if s := a.strval(ctx); s != "" { const w = false
                         if am = files(ctx, s, projs...); am != nil {
                                 if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", projs, a, a, ctx.Project()).debug(6) }
                         } else if f := file(ctx, s); f != nil {
@@ -3788,7 +3798,7 @@ func (ctx *builtin_glob) x(ic *invocation, w facet) (res interface{}) {
         var pos = ctx.Position()
         for _, a := range ic.a {
                 var ( str string; names []string )
-                if str = a.Strval(ctx); !filepath.IsAbs(str) {
+                if str = a.strval(ctx); !filepath.IsAbs(str) {
                         str = filepath.Join(cwd, str)
                 }
 
@@ -4034,11 +4044,11 @@ func (ctx *builtin_wildcard) x(ic *invocation, w facet) (res interface{}) {
                 } else if !(ctx.names || ctx.strs) {
                         vals = append(vals, file)
                 } else if ctx.strs {
-                        vals = append(vals, MakeString(file.position, file.name))
-                } else if strings.Contains(file.name, PathSep) {
-                        vals = append(vals, pathStr(ctx, file.position, file.name))
+                        vals = append(vals, MakeString(file.position, file.name(ctx)))
+                } else if strings.Contains(file.name(ctx), PathSep) {
+                        vals = append(vals, pathStr(ctx, file.position, file.name(ctx)))
                 } else {
-                        vals = append(vals, MakeBareword(file.position, file.name))
+                        vals = append(vals, MakeBareword(file.position, file.name(ctx)))
                 }
         }
         return vals
@@ -4048,7 +4058,7 @@ type builtin_readdir struct { builtin_ }
 func (ctx *builtin_readdir) x(ic *invocation, w facet) (res interface{}) {
         var l []Value
         for _, a := range ic.a {
-                if fis, err := ioutil.ReadDir(a.Strval(ctx)); err == nil {
+                if fis, err := ioutil.ReadDir(a.strval(ctx)); err == nil {
                         v := new(List)
                         for _, fi := range fis {
                                 v.Append(MakeString(a.Position(), fi.Name()))
@@ -4073,7 +4083,7 @@ func (ctx *builtin_readfile) x(ic *invocation, w facet) (res interface{}) {
                 if o, y := (as{v}.fullnameOpt(ctx, closured...)); !y {
                         errostack(of(ctx,v), 5, "%v is not a file", v).debug(1)
                         break
-                } else if s, e := ioutil.ReadFile(o.Strval(ctx)); e != nil {
+                } else if s, e := ioutil.ReadFile(o.strval(ctx)); e != nil {
                         errostack(of(ctx,v), 5, "read file failed: %v", e).debug(1)
                         break
                 } else {
@@ -4101,12 +4111,12 @@ ForArgs:
                 )
                 switch t := a.(type) {
                 case *pair: // write-file name=text name=text
-                        name = t.Key  .Strval(ctx)
-                        data = t.Value.Strval(ctx)
+                        name = t.Key  .strval(ctx)
+                        data = t.Value.strval(ctx)
                 case *group: // write-file (name text) (name text 0660)
                         if n := t.Len(); n < 4 && n > 0 {
-                                name = t.Get(0).Strval(ctx)
-                                if n > 1 { data = t.Get(1).Strval(ctx) }
+                                name = t.Get(0).strval(ctx)
+                                if n > 1 { data = t.Get(1).strval(ctx) }
                                 if n > 2 { perm = permVal(ctx, t.Get(2),0600) }
                         } else {
                                 erro(ctx, "Wrong size of group `%v'", t).debug(1)
@@ -4114,17 +4124,17 @@ ForArgs:
                         }
                 case *List: // write-file name text, name text 0660, ...
                         if n := t.Len(); n < 4 && n > 0 {
-                                name = t.Get(0).Strval(ctx)
-                                if n > 1 { data = t.Get(1).Strval(ctx) }
+                                name = t.Get(0).strval(ctx)
+                                if n > 1 { data = t.Get(1).strval(ctx) }
                                 if n > 2 { perm = permVal(ctx, t.Get(2),0600) }
                         } else {
                                 erro(ctx, "Wrong size of list `%v'", t).debug(1)
                                 break
                         }
                 default: // write-file name text 0660  name text 0660 ...
-                        name = ic.a[i].Strval(ctx)
+                        name = ic.a[i].strval(ctx)
                         if i+1 < len(ic.a) {
-                                data = ic.a[i+1].Strval(ctx)
+                                data = ic.a[i+1].strval(ctx)
                                 i += 1
                         }
                         if i+1 < len(ic.a) {
@@ -4233,7 +4243,7 @@ func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
         case 3: result = args[1] ; args = args[2:]
         }
         for _, a := range rvs {
-                if s := a.Strval(ctx); s == "" {
+                if s := a.strval(ctx); s == "" {
                         erro(of(ctx,a), "empty regexp").debug(1)
                         return
                 } else if r, e := regexp.Compile(s); e != nil {
@@ -4272,7 +4282,7 @@ func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
                 if f, y := a.(*File); y {
                         filename = f.fullname()
                 } else {
-                        filename = a.Strval(ctx)
+                        filename = a.strval(ctx)
                 }
 
                 if c := of(ctx, a); filename == "" {
@@ -4283,7 +4293,7 @@ func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
                         return
                 } else if file, err = os.Open(filename); err != nil {
                         erro(c, "%v", err)
-                        errostack(c, 5, "%v (%T)", a.Strval(ctx), a).debug(128)
+                        errostack(c, 5, "%v (%T)", a.strval(ctx), a).debug(128)
                         return
                 }
                 defer file.Close()
@@ -4371,15 +4381,15 @@ func (project *Project) strExpandConfig(ctx Context, s string) (result string, e
                 case *undef, undef: // FIXME: fmt.Fprintf(res, "#undef")
                 case *Plain: fmt.Fprintf(res, "%s", t.Raw.String())
                 case *answer, *boolean:
-                        if i, e := t.Integer(ctx); e == nil {
+                        if i, e := t.int(ctx); e == nil {
                                 fmt.Fprintf(res, "%d", i)
                         } else {
                                 erro(ctx, "%: %v", t, i).debug(1)
                         }
                 case *group:
-                        fmt.Fprintf(res, "%s", parseGroupValue(ctx, t).Strval(ctx))
+                        fmt.Fprintf(res, "%s", parseGroupValue(ctx, t).strval(ctx))
                 default:
-                        fmt.Fprintf(res, "%s", val.Strval(ctx))
+                        fmt.Fprintf(res, "%s", val.strval(ctx))
                 }
         }
         if index < len(s) { fmt.Fprint(res, s[index:]) }
@@ -4419,7 +4429,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                         name = str[m[4]:m[5]]
                         hasv = m[6] > m[0] && m[7] > m[6]
                 )
-                if def = project.resolveDef(ctx, name); def != nil { // t = def.True(ctx);
+                if def = project.resolveDef(ctx, name); def != nil { // t = def.true(ctx);
                         if val := def.invoke(ctx, plain, nil, nil); val == nil {
                                 // noop, TODO: or #undef?
                         } else if _, undef := val.(*undef); undef {
@@ -4427,7 +4437,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                                 if err != nil { erro(ctx, "%v", err); return }
                                 continue
                         } else {
-                               t = val.True(ctx)
+                               t = val.true(ctx)
                         }
                 }
 
@@ -4448,7 +4458,7 @@ func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (er
                         } else if va, _, _ = plain.expand(ctx, def.value); len(va) == 1 {
                                 switch v := va[0].(type) {
                                 case *answer, *boolean:
-                                        if b := v.True(ctx); b {
+                                        if b := v.true(ctx); b {
                                                 s = fmt.Sprintf("#define %s 1 /* %T %v */", name, v, v)
                                         } else {
                                                 s = fmt.Sprintf("#undef %s /* %T %v */", name, v, v)

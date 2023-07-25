@@ -27,14 +27,14 @@ var launchTime = time.Now()
 var searchPaths searchlist
 
 type searchlist []string
-func (sl *searchlist) String() string { return fmt.Sprint(*sl) }
+func (sl *searchlist) string() string { return fmt.Sprint(*sl) }
 func (sl *searchlist) Set(value string) error {
     *sl = append(*sl, strings.Split(value, ",")...)
     return nil
 }
 
 type char rune
-func (c char) String() string { return string(rune(c)) }
+func (c char) string() string { return string(rune(c)) }
 
 type filemapCache struct {
     maps []FileMap
@@ -313,14 +313,14 @@ func (cache *filemapCache) val(ctx Context, key Value, bits int) (res *filemapCa
     }
 
     if res == nil && options.errorUncache {
-        errostack(ctx, 10, "%08b: %s(%v) → %s", bits, typeof(key), key, key.Strval(ctx)).debug(32)
+        errostack(ctx, 10, "%08b: %s(%v) → %s", bits, typeof(key), key, key.strval(ctx)).debug(32)
     }
     return
 }
 
 func (cache hitch) pat(ctx Context, key Value, bits int) (res *filemapCache) {
     var a []*filemapCachePat
-    if s := key.Strval(ctx); (bits&cacheStore) != 0 {
+    if s := key.strval(ctx); (bits&cacheStore) != 0 {
         if cache.pats != nil { a, _ = cache.pats[s] } else {
             cache.pats = make(map[string][]*filemapCachePat)
         }
@@ -423,7 +423,7 @@ func (ctx *universe) universe() *universe { return ctx }
 func (ctx *universe) loader() *loader { return ctx.globe.top }
 func (ctx *universe) Globe() *Globe { return ctx.globe }
 func (ctx *universe) Scope() *Scope { return ctx.scope }
-func (ctx *universe) String() (s string) { if fullContextStringer { s = "{}" }; return }
+func (ctx *universe) string() (s string) { if fullContextStringer { s = "{}" }; return }
 func (ctx *universe) WorkDir() (s string) { if s = ctx.workdir; s == "" { s = baseWorkDir }; return }
 func (ctx *universe) Project() *Project { return ctx.globe.main }
 func (ctx *universe) Position() (p Position) {
@@ -669,7 +669,7 @@ type matchedFileMap struct {
     name string
 }
 
-func (m matchedFileMap) String() string {
+func (m matchedFileMap) string() string {
     return fmt.Sprintf("{%v, %v, %v}", m.name, m.pattern, m.project)
 }
 
@@ -694,12 +694,12 @@ func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap)
     var h = hitch{&uc.filemaps, hitched{name}}
     if v, y := name.(Value); y {
         if cache = v.hit(ctx, h, cacheZero); cache == nil {
-            var s = v.Strval(ctx) ; if S != "" { db = S == s }
+            var s = v.strval(ctx) ; if S != "" { db = S == s }
             if c := h.char0(cacheZero); c != nil { // FIXES: *.o <-> sub/foo.o
                 h.filemapCache = c
                 cache = h.strx(ctx, s, cacheZero)
             }
-        } else if S != "" { db = S == v.Strval(ctx) }
+        } else if S != "" { db = S == v.strval(ctx) }
     } else if s, y := name.(string); y {
         if cache = h.strx(ctx, s, cacheZero); S != "" { db = S == s }
     } else if a, y := name.([]string); y {
@@ -855,7 +855,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
     for _, flag := range dc.globe.flags {
         if options.verboseExecFlags { info(of(ctx, flag), "%v", flag) }
 
-        var s = flag.name.Strval(ctx)
+        var s = flag.Value.strval(ctx)
         var args, _ = dc.globe.args[flag]
         var entries, _ = dc.globe.flagEntries[s]
         for _, entry := range entries {
@@ -904,7 +904,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                     }
                 }
             case *delegate:
-                var s = t.Strval(ctx)
+                var s = t.strval(ctx)
                 if entries := proj.resolveEntries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
                     return false
@@ -913,8 +913,8 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                         goals = append(goals, entry)
                     }
                 }
-            case *flag:
-                var s = t.Strval(ctx)
+            case flag:
+                var s = t.strval(ctx)
                 if entries := proj.resolveEntries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
                     return false
@@ -930,7 +930,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                     //     project/spec(-clean)
                     //     xxxx()
                     var (
-                        s = t.Value.Strval(ctx)
+                        s = t.Value.strval(ctx)
                         args = merge(t.args...)
                         found int
                     )
@@ -1055,13 +1055,13 @@ func (dc *universe) loadTopWork() (err error) {
     for _, target := range args {
         switch t := target.(type) {
         case *pair: dc.globe.pairs = append(dc.globe.pairs, t)
-        case *flag: dc.globe.flags = append(dc.globe.flags, t)
-            if s := t.name.Strval(ctx); s == "clean" {
-                mode.position, mode.string = t.position, "clean"
+        case flag: dc.globe.flags = append(dc.globe.flags, t)
+            if s := t.Value.strval(ctx); s == "clean" {
+                mode.position, mode.string = t.Position(), "clean"
             }
         case *argumented:
             dc.globe.args[t.Value] = t.args
-            if f, ok := t.Value.(*flag); ok {
+            if f, ok := t.Value.(flag); ok {
                 dc.globe.flags = append(dc.globe.flags, f)
             } else {
                 dc.globe.goals.append(ctx, t/*.value*/)
@@ -1109,7 +1109,7 @@ type Globe struct {
 
     args    map[Value][]Value
     flagEntries map[string][]Entry
-    flags []*flag
+    flags []flag
     pairs []*pair
 
     os    *def
@@ -1154,7 +1154,7 @@ func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
     m.scope.elems[".self"] = &self{projectname{m,m.scope}}
     m.scope.elems[".usee"] = m.use
     m.scope.mutex.Unlock()
-    m.use.name = "usee"
+    m.use.name_ = "usee"
     m.use.scope = m.scope
     m.use.owner = m
 

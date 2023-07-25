@@ -528,7 +528,7 @@ func closureResolveObject(ctx Context, name string) (obj Object) {
             if _, obj = scope.Find(name); isNull(obj) {
                 // fallthrough
             } else if a, y := obj.(*auto); y { // assert(a.name == name)
-                if d := autoDef(ctx, a.name); d != nil { obj = d }
+                if d := autoDef(ctx, a.name(ctx)); d != nil { obj = d }
                 if infos {
                     var proj = a.OwnerProject()
                     val := obj.expand(ctx.closure(), plain)
@@ -588,10 +588,10 @@ func refdef(ctx Context, val Value, origin Origin) (res bool) {
 }
 
 func entryIndicator(ctx Context, entry Value) (str, ent, tar string) {
-    if !isNull(entry) { ent = entry.Strval(ctx) }
+    if !isNull(entry) { ent = entry.strval(ctx) }
     if val := autoVal(ctx, "@"); val == nil || isTrivial(val) {
         str = ent // ...
-    } else if tar = val.Strval(ctx); ent != tar {
+    } else if tar = val.strval(ctx); ent != tar {
         str = fmt.Sprintf("%s(%s)", ent, tar)
     } else {
         str = ent
@@ -712,12 +712,12 @@ func getRecipesHash(ctx Context, target Value, values ...Value) (k, v HashBytes,
     )
     fmt.Fprintf(key, "%s", program.project.absPath)
     fmt.Fprintf(key, "%s", program.position)
-    fmt.Fprintf(key, "%s", target.Strval(ctx)) // targetStr
+    fmt.Fprintf(key, "%s", target.strval(ctx)) // targetStr
 
     for _, value := range values {
         if false {
             // FIXME: Strval() varies when &(var) is used
-            fmt.Fprintf(val, "%v", value.Strval(ctx))
+            fmt.Fprintf(val, "%v", value.strval(ctx))
         } else {
             fmt.Fprintf(val, "%v", value)
         }
@@ -868,6 +868,7 @@ const (
     KindBoolean
     KindList
     KindGroup
+    KindFlag
 
     KindInteger
     KindBinary
@@ -932,9 +933,9 @@ const (
 )
 
 type fullnameOpt struct { Value }
-func (o fullnameOpt) Strval(ctx Context) (res string) {
+func (o fullnameOpt) strval(ctx Context) (res string) {
     if f, y := o.Value.(*File); y && f != nil { return f.fullname() }
-    return o.Value.Strval(ctx)
+    return o.Value.strval(ctx)
 }
 func (o fullnameOpt) expand(ctx Context, w facet) Value {
     if v := o.Value.expand(ctx, w); v != nil && v != o.Value {
@@ -944,7 +945,7 @@ func (o fullnameOpt) expand(ctx Context, w facet) Value {
 }
 func (o fullnameOpt) cmp(ctx Context, v Value) (res cmpres) {
     if f, y := o.Value.(*File); y && f != nil { if res = f.cmp(ctx, v); res == cmpUnknown {
-        if a, b := f.fullname(), v.Strval(ctx); a == b {
+        if a, b := f.fullname(), v.strval(ctx); a == b {
             res = cmpEqual
         } else if a < b {
             res = cmpSmaller
@@ -961,7 +962,7 @@ type as struct { Value }
 
 func (a as) file(ctx Context, projects ...*Project) (f *File) {
     defer func() { if f == nil {
-        var s = a.Strval(ctx)
+        var s = a.strval(ctx)
         if v, t := a.Value, file(ctx, s); t != nil {
             var ( p = ctx.Project() ; ctx = of(ctx, v) )
             for i, m := range files(ctx, t, projects...) {
@@ -1006,7 +1007,7 @@ func (a as) fullname(ctx Context, projects ...*Project) (f *File, s string, ok b
 
 // TODO: deprecation
 func (a as) fullnameOrStrval(ctx Context, projects ...*Project) (s string, f bool) {
-    if _, s, f = a.fullname(ctx, projects...); !f { s = a.Strval(ctx) }
+    if _, s, f = a.fullname(ctx, projects...); !f { s = a.strval(ctx) }
     return
 }
 
@@ -1016,7 +1017,7 @@ func (a as) fullnameOpt(ctx Context, projects ...*Project) (o fullnameOpt, y boo
             o.Value = f ; return o, true
         }}
     }
-    if false { if t := file(ctx, o.Value.Strval(ctx)); t != nil {
+    if false { if t := file(ctx, o.Value.strval(ctx)); t != nil {
         var ( p = ctx.Project() ; ctx = of(ctx, a) )
         erro(ctx, "FIXME: %v: %v (%T, %T)", p, a.Value, a.Value, o.Value)
         erro(ctx, "FIXME: %v: %v (%s)", p, t, t.fullname())
@@ -1169,24 +1170,24 @@ func elemstr(ctx Context, o Object, elem Value, k elembits) (s string) {
 type Value interface {
     Positioner // The position where the value appears (or NoPos).
 
-    Kind() Kind
-
-    Name(Context) string
-
     // Literal representations of the value.
     String() string
 
+    kind() Kind
+
+    name(Context) string
+
     // Strval returns the string form of the value.
-    Strval(Context) string
+    strval(Context) string
 
     // Returns true if the value can be evaluated as 'true', 'yes', etc.
-    True(Context) bool
+    true(Context) bool
 
     // Integer returns the integer form of the value.
-    Integer(Context) (int64, error)
+    int(Context) (int64, error)
 
     // Float returns the float form of the value.
-    Float(Context) (float64, error)
+    float(Context) (float64, error)
 
     // Equality compare.
     cmp(Context, Value) cmpres
@@ -1234,7 +1235,7 @@ type Value interface {
     traverse(Context)
 }
 
-func Is(v Value, k Kind) bool { return v.Kind() & k != 0 }
+func Is(v Value, k Kind) bool { return v.kind() & k != 0 }
 func cmp(ctx Context, l, r Value) (res cmpres) {
     if res = l.cmp(ctx, r); res == cmpUnknown { res = r.cmp(ctx, l)
         if res != cmpUnknown && res != cmpEqual { res = cmpres(-res) }
@@ -1267,14 +1268,14 @@ func (vals *valvec) add2(ctx Context, val Value) (res *valvec) {
 }
 
 type valbase struct { position Position }
-func (_ *valbase) Kind() Kind { return KindUnclassified }
+func (_ *valbase) kind() Kind { return KindUnclassified }
 func (t *valbase) Position() (res Position) { return t.position }
 func (_ *valbase) String() (s string) { return }
-func (_ *valbase) Strval(_ Context) (s string) { return }
-func (_ *valbase) Name(_ Context) (s string) { return }
-func (_ *valbase) Integer(_ Context) (i int64, e error) { return }
-func (_ *valbase) Float(_ Context) (f float64, e error) { return }
-func (_ *valbase) True(_ Context) (res bool) { return }
+func (_ *valbase) strval(_ Context) (s string) { return }
+func (_ *valbase) name(_ Context) (s string) { return }
+func (_ *valbase) int(_ Context) (i int64, e error) { return }
+func (_ *valbase) float(_ Context) (f float64, e error) { return }
+func (_ *valbase) true(_ Context) (res bool) { return }
 func (_ *valbase) refs(_ Context, _ Value) (res bool) { return }
 func (_ *valbase) defs(_ Context, _ ...string) (res []*def) { return }
 func (_ *valbase) expandable(_ Context, _ facet) bool { return false }
@@ -1290,10 +1291,10 @@ func (_ *valbase) delete(ctx Context) (file []*File, err error) { return }
 func (_ *valbase) traverse(ctx Context) { }
 
 func matchStrval(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
-    var v = p.Strval(ctx)
+    var v = p.strval(ctx)
     switch t := i.(type) {
     case Value:
-        if w := t.Strval(ctx); strings.HasPrefix(w, v) { s, full = v, (len(v) == len(w)) }
+        if w := t.strval(ctx); strings.HasPrefix(w, v) { s, full = v, (len(v) == len(w)) }
     case string:
         if strings.HasPrefix(t, v) { s, full = v, (len(v) == len(t)) }
     case []string:
@@ -1305,13 +1306,13 @@ func matchStrval(ctx Context, p Value, i interface{}) (full bool, s string, stem
 }
 
 type undef struct { Value }
-func (p undef) Kind() Kind { return KindUndef }
+func (p undef) kind() Kind { return KindUndef }
 func (p undef) expand(Context, facet) Value { return p }
 func (p undef) String() string { return fmt.Sprintf("undef{%s}",p.Value) }
-func (p undef) Strval(Context) (s string) { return }
-func (p undef) Integer(Context) (i int64, e error) { return }
-func (p undef) Float(Context) (f float64, e error) { return }
-func (p undef) True(Context) (res bool) { return }
+func (p undef) strval(Context) (s string) { return }
+func (p undef) int(Context) (i int64, e error) { return }
+func (p undef) float(Context) (f float64, e error) { return }
+func (p undef) true(Context) (res bool) { return }
 func (p undef) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     erro(ctx, "cache unsupported (bits=%08b): %T %v", bits, p.Value, p.Value).debug(32)
     return
@@ -1321,7 +1322,7 @@ type returner struct {
     valbase
     Values []Value
 }
-func (p *returner) Kind() Kind { return KindReturner }
+func (p *returner) kind() Kind { return KindReturner }
 func (p *returner) expand(ctx Context, w facet) (res Value) {
     var vals, u, n = w.expand(ctx, p.Values...)
     if n > 0 { res = &returner{p.valbase, vals} } else { res = p }
@@ -1342,7 +1343,7 @@ func (_ *returner) collect(ctx Context, cache *valcache, bits int) (res []*valca
 }
 
 type optional struct { Value }
-func (o optional) Kind() Kind { return KindOptional }
+func (o optional) kind() Kind { return KindOptional }
 func (o optional) String() string { return o.Value.String()+"?" }
 func (o optional) expand(ctx Context, w facet) Value {
     return optional{o.Value.expand(ctx, w)}
@@ -1370,7 +1371,7 @@ func optionalize(ctx Context, val Value) (res optional, okay bool) {
 }
 
 type argumented struct { Value ; args []Value }
-func (_ *argumented) Kind() Kind { return KindArgumented }
+func (_ *argumented) kind() Kind { return KindArgumented }
 func (p *argumented) elemstr(ctx Context, o Object, k elembits) (s string) {
     for i, a := range p.args {
         if i > 0 { s += "," }
@@ -1380,11 +1381,11 @@ func (p *argumented) elemstr(ctx Context, o Object, k elembits) (s string) {
     return
 }
 func (p *argumented) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *argumented) Strval(ctx Context) (s string) {
-    s = p.Value.Strval(ctx) + "("
+func (p *argumented) strval(ctx Context) (s string) {
+    s = p.Value.strval(ctx) + "("
     for i, a := range p.args {
         if i > 0 { s += "," }
-        s += a.Strval(ctx)
+        s += a.strval(ctx)
     }
     s += ")"
     return
@@ -1454,7 +1455,7 @@ func (p *argumented) traverse(ctx Context) {
                     panic(fmt.Sprintf("%T %v", val, val))
                 } else if file, okay := toFile(val); okay {
                     a = file
-                } else if file := proj.file(ctx, val.Strval(ctx)); file != nil {
+                } else if file := proj.file(ctx, val.strval(ctx)); file != nil {
                     a = file
                 } else {
                     a = val //MakeString(a.Position(), str)
@@ -1482,10 +1483,10 @@ func (_ *argumented) collect(ctx Context, cache *valcache, bits int) (res []*val
 }
 
 type none struct { valbase ; v Value }
-func (_ *none) Kind() Kind { return KindNone }
+func (_ *none) kind() Kind { return KindNone }
 func (p *none) expand(_ Context, _ facet) Value { return p }
-func (p *none) True(ctx Context) (res bool) {
-    if p.v != nil { res = p.v.True(ctx) }
+func (p *none) true(ctx Context) (res bool) {
+    if p.v != nil { res = p.v.true(ctx) }
     return
 }
 func (p *none) cmp(ctx Context, v Value) (res cmpres) {
@@ -1514,7 +1515,7 @@ func (_ *none) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
 }
 
 type null struct { valbase }
-func (_ *null) Kind() Kind { return KindNull }
+func (_ *null) kind() Kind { return KindNull }
 func (p *null) expand(_ Context, _ facet) Value { return p }
 func (p *null) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*null); ok {
@@ -1567,7 +1568,7 @@ func xEmpty(ctx Context, v Value) (t bool) {
     switch a := v.(type) {
     case unexpanded:
         if false { switch a.Value.(type) { case *closure, *delegate: return true }}
-        if s := a.Strval(ctx); s == "" { return true } else
+        if s := a.strval(ctx); s == "" { return true } else
         if false { v := a.Value; noted(ctx, "%v: %v -> '%v'", typeof(v), v, s).debug(2) }
     // case *closure : if _, y := a.x.(unresolved); y { return true }
     // case *delegate: if _, y := a.x.(unresolved); y { return true }
@@ -1576,7 +1577,7 @@ func xEmpty(ctx Context, v Value) (t bool) {
     case *String: t = a.string == ""
     // case digital: return false
     }
-    if false { if !t && v.Strval(ctx) == "" { noted(ctx, "%v: %v", typeof(v), v).debug(1) }}
+    if false { if !t && v.strval(ctx) == "" { noted(ctx, "%v: %v", typeof(v), v).debug(1) }}
     return
 }
 func isUndef(v Value) (t bool) { _, t = v.(unresolved); return }
@@ -1615,7 +1616,7 @@ func hasSuffix(str string, suffixs ...string) (res bool) {
 
 // any is used to box an arbitrary value
 type any struct { value interface{} }
-func (_ *any) Kind() Kind { return KindAny }
+func (_ *any) kind() Kind { return KindAny }
 func (p *any) cmp(ctx Context, v Value) (res cmpres) {
     switch a := v.(type) {
     case *any:
@@ -1717,9 +1718,9 @@ func (p *any) Position() (res Position) {
     if v, ok := p.value.(Positioner); ok { res = v.Position() }
     return
 }
-func (p *any) True(ctx Context) (t bool) {
+func (p *any) true(ctx Context) (t bool) {
     switch v := p.value.(type) {
-    case Value:     t = v.True(ctx)
+    case Value:     t = v.true(ctx)
     case float32:   t = math.Abs(float64(v))-0 >= FloatEpsilon
     case float64:   t = math.Abs(v)-0 >= FloatEpsilon
     case int64:     t = v != 0
@@ -1728,9 +1729,9 @@ func (p *any) True(ctx Context) (t bool) {
     }
     return
 }
-func (p *any) Float(ctx Context) (res float64, err error) {
+func (p *any) float(ctx Context) (res float64, err error) {
     switch v := p.value.(type) {
-    case Value:       res, err = v.Float(ctx)
+    case Value:       res, err = v.float(ctx)
     case float32:     res = float64(v)
     case float64:     res = v
     case int:         res = float64(v)
@@ -1739,9 +1740,9 @@ func (p *any) Float(ctx Context) (res float64, err error) {
     }
     return
 }
-func (p *any) Integer(ctx Context) (res int64, err error) {
+func (p *any) int(ctx Context) (res int64, err error) {
     switch v := p.value.(type) {
-    case Value:       res, err = v.Integer(ctx)
+    case Value:       res, err = v.int(ctx)
     case float32:     res = int64(v)
     case float64:     res = int64(v)
     case int:         res = int64(v)
@@ -1750,9 +1751,9 @@ func (p *any) Integer(ctx Context) (res int64, err error) {
     }
     return
 }
-func (p *any) Strval(ctx Context) (s string) {
+func (p *any) strval(ctx Context) (s string) {
     switch v := p.value.(type) {
-    case Value:       s = v.Strval(ctx)
+    case Value:       s = v.strval(ctx)
     case float32:     s = strconv.FormatFloat(float64(v),'g', -1, 32)
     case float64:     s = strconv.FormatFloat(float64(v),'g', -1, 64)
     case int:         s = strconv.FormatInt(int64(v),10)
@@ -1762,8 +1763,8 @@ func (p *any) Strval(ctx Context) (s string) {
     }
     return
 }
-func (p *any) Name(ctx Context) (s string) {
-    if v, y := p.value.(Value); y { s = v.Name(ctx) }
+func (p *any) name(ctx Context) (s string) {
+    if v, y := p.value.(Value); y { s = v.name(ctx) }
     return
 }
 func (p *any) String() string { return fmt.Sprintf("<%v>", p.value) }
@@ -1803,25 +1804,25 @@ func (p *negative) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *negative) Strval(ctx Context) string {
+func (p *negative) strval(ctx Context) string {
     if true {
-        return "!"+p.x.Strval(ctx) // fmt.Sprintf("%v", !p.x.True(ctx))
-    } else if p.True(ctx) {
+        return "!"+p.x.strval(ctx) // fmt.Sprintf("%v", !p.x.true(ctx))
+    } else if p.true(ctx) {
         return "true"
     } else {
         return "false"
     }
 }
-func (p *negative) True(ctx Context) (res bool) {
-    if p.x != nil { res = !p.x.True(ctx) }
+func (p *negative) true(ctx Context) (res bool) {
+    if p.x != nil { res = !p.x.true(ctx) }
     return
 }
-func (p *negative) Float(ctx Context) (res float64, _ error) {
-    if !p.x.True(ctx) { res = FloatEpsilon }
+func (p *negative) float(ctx Context) (res float64, _ error) {
+    if !p.x.true(ctx) { res = FloatEpsilon }
     return
 }
-func (p *negative) Integer(ctx Context) (res int64, _ error) {
-    if !p.x.True(ctx) { res = 1 }
+func (p *negative) int(ctx Context) (res int64, _ error) {
+    if !p.x.true(ctx) { res = 1 }
     return
 }
 func (p *negative) traverse(ctx Context) { if p.x != nil { p.x.traverse(ctx) } }
@@ -1841,13 +1842,13 @@ func (_ *negative) collect(ctx Context, cache *valcache, bits int) (res []*valca
 func Negative(val Value) *negative { return &negative{valbase{val.Position()},val} }
 
 type boolean struct { valbase; bool }
-func (_ *boolean) Kind() Kind { return KindBoolean }
+func (_ *boolean) kind() Kind { return KindBoolean }
 func (p *boolean) string() string { if p.bool { return "true" } else { return "false" } }
 func (p *boolean) String() string { return p.string()+"{}" }
-func (p *boolean) Strval(_ Context) string { return p.string() }
-func (p *boolean) True(_ Context) bool { return p.bool }
-func (p *boolean) Float(_ Context) (v float64, _ error) { if p.bool { v = 1. }; return }
-func (p *boolean) Integer(_ Context) (v int64, _ error) { if p.bool { v = 1  }; return }
+func (p *boolean) strval(_ Context) string { return p.string() }
+func (p *boolean) true(_ Context) bool { return p.bool }
+func (p *boolean) float(_ Context) (v float64, _ error) { if p.bool { v = 1. }; return }
+func (p *boolean) int(_ Context) (v int64, _ error) { if p.bool { v = 1  }; return }
 func (p *boolean) expand(_ Context, _ facet) Value { return p }
 func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*option); ok {
@@ -1905,12 +1906,12 @@ func (_ *boolean) collect(ctx Context, cache *valcache, bits int) (res []*valcac
 type answer struct { boolean }
 func (p *answer) string() (s string) { if p.bool { return "yes" } else { return "no" } }
 func (p *answer) String() (s string) { return p.string()+"{}" }
-func (p *answer) Strval(_ Context) string { return p.string() }
+func (p *answer) strval(_ Context) string { return p.string() }
 func (p *answer) expand(_ Context, _ facet) Value { return p }
 
 type option struct { boolean }
 func (p *option) String() (s string) { if p.bool { return "on" } else { return "off" } }
-func (p *option) Strval(ctx Context) string { return p.String() }
+func (p *option) strval(ctx Context) string { return p.String() }
 func (p *option) expand(_ Context, _ facet) Value { return p }
 
 type prediction struct { boolean ; string }
@@ -1933,12 +1934,12 @@ type integer struct {
     valbase
     int64
 }
-func (_ *integer) Kind() Kind { return KindInteger }
-func (p *integer) True(ctx Context) bool { return p.int64 != 0 }
-func (p *integer) Integer(ctx Context) (i int64, _ error) { return p.int64, nil }
-func (p *integer) Float(ctx Context) (f float64, _ error) { return float64(p.int64), nil }
+func (_ *integer) kind() Kind { return KindInteger }
+func (p *integer) true(ctx Context) bool { return p.int64 != 0 }
+func (p *integer) int(ctx Context) (i int64, _ error) { return p.int64, nil }
+func (p *integer) float(ctx Context) (f float64, _ error) { return float64(p.int64), nil }
 func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
-    if i, e := v.Integer(ctx); e != nil {
+    if i, e := v.int(ctx); e != nil {
         if false { warnstack(ctx, 6, "%T %v: %v", v, v, e).debug(20) }
     } else if p.int64 == i {
         res = cmpEqual
@@ -1963,51 +1964,51 @@ func (_ *integer) collect(ctx Context, cache *valcache, bits int) (res []*valcac
 }
 
 type Bin struct { integer }
-func (_ *Bin) Kind() Kind { return KindInteger|KindBinary }
+func (_ *Bin) kind() Kind { return KindInteger|KindBinary }
 func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
-func (p *Bin) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),2) }
+func (p *Bin) strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),2) }
 func (p *Bin) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Bin) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Bin) expand(_ Context, _ facet) Value { return p }
 
 type Oct struct { integer }
-func (_ *Oct) Kind() Kind { return KindInteger|KindOctal }
+func (_ *Oct) kind() Kind { return KindInteger|KindOctal }
 func (p *Oct) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
-func (p *Oct) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),8) }
+func (p *Oct) strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),8) }
 func (p *Oct) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Oct) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Oct) expand(_ Context, _ facet) Value { return p }
 
 type Int struct { integer }
-func (_ *Int) Kind() Kind { return KindInteger|KindDecimal }
+func (_ *Int) kind() Kind { return KindInteger|KindDecimal }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
-func (p *Int) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),10) }
+func (p *Int) strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Int) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Int) expand(_ Context, _ facet) Value { return p }
 
 type Hex struct { integer }
-func (_ *Hex) Kind() Kind { return KindInteger|KindHexDecimal }
+func (_ *Hex) kind() Kind { return KindInteger|KindHexDecimal }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
-func (p *Hex) Strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),16) }
+func (p *Hex) strval(ctx Context) string { return strconv.FormatInt(int64(p.int64),16) }
 func (p *Hex) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Hex) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Hex) expand(_ Context, _ facet) Value { return p }
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
 type Float struct { valbase; float64 } // IEEE-754 64-bit binary floating-point
-func (p *Float) Kind() Kind { return KindFloat }
+func (p *Float) kind() Kind { return KindFloat }
 func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
-func (p *Float) Strval(ctx Context) string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
-func (p *Float) True(ctx Context) bool { return math.Abs(p.float64)-0 > FloatEpsilon }
-func (p *Float) Integer(ctx Context) (i int64, _ error) { return int64(p.float64), nil }
-func (p *Float) Float(ctx Context) (f float64, _ error) { return p.float64, nil }
+func (p *Float) strval(ctx Context) string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
+func (p *Float) true(ctx Context) bool { return math.Abs(p.float64)-0 > FloatEpsilon }
+func (p *Float) int(ctx Context) (i int64, _ error) { return int64(p.float64), nil }
+func (p *Float) float(ctx Context) (f float64, _ error) { return p.float64, nil }
 func (p *Float) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Float) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Float) expand(_ Context, _ facet) Value { return p }
 func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
     if _, ok := v.(*Float); ok {
-        if f, e := v.Float(ctx); e != nil {
+        if f, e := v.float(ctx); e != nil {
             if false { warn(ctx, "%v: %v", v, e).debug(1) }
         } else if p.float64 == f {
             res = cmpEqual
@@ -2040,12 +2041,12 @@ type DateTime struct {
     valbase
     t time.Time
 }
-func (_ *DateTime) Kind() Kind { return KindDateTime }
+func (_ *DateTime) kind() Kind { return KindDateTime }
 func (p *DateTime) String() string { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00") }
-func (p *DateTime) Strval(ctx Context) string { return p.String() } // time.RFC3339Nano
-func (p *DateTime) True(ctx Context) bool { return !p.t.IsZero() }
-func (p *DateTime) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
-func (p *DateTime) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
+func (p *DateTime) strval(ctx Context) string { return p.String() } // time.RFC3339Nano
+func (p *DateTime) true(ctx Context) bool { return !p.t.IsZero() }
+func (p *DateTime) int(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
+func (p *DateTime) float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *DateTime) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
 func (p *DateTime) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *DateTime) expand(_ Context, _ facet) Value { return p }
@@ -2089,21 +2090,21 @@ func ParseDateTime(pos Position, s string) *DateTime {
 }
 
 type Date struct { DateTime }
-func (_ *Date) Kind() Kind { return KindDateTime|KindDate }
+func (_ *Date) kind() Kind { return KindDateTime|KindDate }
 func (p *Date) String() string { return time.Time(p.t).Format("2006-01-02") }
-func (p *Date) Strval(ctx Context) string { return p.String() }
-func (p *Date) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
-func (p *Date) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
+func (p *Date) strval(ctx Context) string { return p.String() }
+func (p *Date) int(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
+func (p *Date) float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *Date) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Date) expand(_ Context, _ facet) Value { return p }
 
 type Time struct { DateTime }
-func (_ *Time) Kind() Kind { return KindDateTime|KindTime }
+func (_ *Time) kind() Kind { return KindDateTime|KindTime }
 func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.999999999Z07:00") }
-func (p *Time) Strval(ctx Context) string { return p.String() }
-func (p *Time) Integer(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
-func (p *Time) Float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
+func (p *Time) strval(ctx Context) string { return p.String() }
+func (p *Time) int(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
+func (p *Time) float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
 func (p *Time) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchStrval(ctx, p, i) }
 func (p *Time) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Time) expand(_ Context, _ facet) Value { return p }
@@ -2123,7 +2124,7 @@ type URL struct {
     Query Value
     Fragment Value
 }
-func (_ *URL) Kind() Kind { return KindURL }
+func (_ *URL) kind() Kind { return KindURL }
 func (p *URL) elemstr(ctx Context, o Object, k elembits) (s string) {
     if s = elemstr(ctx, o, p.Scheme, k); s == "" { return }
     if s += ":"; p.Host == nil {
@@ -2178,44 +2179,44 @@ func (p *URL) elemstr(ctx Context, o Object, k elembits) (s string) {
     return
 }
 func (p *URL) String() string { return p.elemstr(nil, nil, 0) }
-func (p *URL) Strval(ctx Context) (s string) {
-    if s = p.Scheme.Strval(ctx) + ":"; p.Host != nil && !isNone(p.Host) {
+func (p *URL) strval(ctx Context) (s string) {
+    if s = p.Scheme.strval(ctx) + ":"; p.Host != nil && !isNone(p.Host) {
         s += "//"
         if p.Username != nil && !isNone(p.Username) {
-            s += p.Username.Strval(ctx)
+            s += p.Username.strval(ctx)
             if p.Password != nil {
-                s += ":" + p.Password.Strval(ctx)
+                s += ":" + p.Password.strval(ctx)
             }
             s += "@"
         }
-        s += p.Host.Strval(ctx)
+        s += p.Host.strval(ctx)
         if p.Port != nil && !isNone(p.Port) {
-            s += ":" + p.Port.Strval(ctx)
+            s += ":" + p.Port.strval(ctx)
         }
     }
     if p.Path != nil && !isNone(p.Path) {
         //if !strings.HasPrefix(path, PathSep) { s += PathSep }
-        s += p.Path.Strval(ctx)
+        s += p.Path.strval(ctx)
     }
     if p.Query != nil && !isNone(p.Query) {
-        s += "?" + p.Query.Strval(ctx)
+        s += "?" + p.Query.strval(ctx)
     }
     if p.Fragment != nil && !isNone(p.Fragment) {
-        s += "#" + p.Fragment.Strval(ctx)
+        s += "#" + p.Fragment.strval(ctx)
     }
     return
 }
-func (p *URL) True(ctx Context) (t bool) {
-    if p.Scheme != nil { if t = p.Scheme.True(ctx); t { return }}
-    if p.Host   != nil { if t = p.Host  .True(ctx); t { return }}
-    if p.Path   != nil { if t = p.Path  .True(ctx); t { return }}
+func (p *URL) true(ctx Context) (t bool) {
+    if p.Scheme != nil { if t = p.Scheme.true(ctx); t { return }}
+    if p.Host   != nil { if t = p.Host  .true(ctx); t { return }}
+    if p.Path   != nil { if t = p.Path  .true(ctx); t { return }}
     return //p.String() != "", nil
 }
-func (p *URL) Integer(ctx Context) (i int64, _ error) {
-    if s := p.Strval(ctx); s != "" { i = int64(len(s)) }
+func (p *URL) int(ctx Context) (i int64, _ error) {
+    if s := p.strval(ctx); s != "" { i = int64(len(s)) }
     return
 }
-func (p *URL) Float(ctx Context) (f float64, e error) { i, e := p.Integer(ctx); return float64(i), e }
+func (p *URL) float(ctx Context) (f float64, e error) { i, e := p.int(ctx); return float64(i), e }
 func (p *URL) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*URL); ok {
         if p.Scheme == nil || a.Scheme == nil { return }
@@ -2305,14 +2306,14 @@ func (_ *URL) collect(ctx Context, cache *valcache, bits int) (res []*valcache) 
 }
 
 type Raw struct { valbase; string }
-func (_ *Raw) Kind() Kind { return KindRaw }
+func (_ *Raw) kind() Kind { return KindRaw }
 func (p *Raw) String() string { return p.string }
-func (p *Raw) Strval(ctx Context) string { return p.string }
-func (p *Raw) True(ctx Context) bool { return p.string != "" }
-func (p *Raw) Integer(ctx Context) (i int64, err error) {
+func (p *Raw) strval(ctx Context) string { return p.string }
+func (p *Raw) true(ctx Context) bool { return p.string != "" }
+func (p *Raw) int(ctx Context) (i int64, err error) {
     return strconv.ParseInt(p.string, 10, 64)
 }
-func (p *Raw) Float(ctx Context) (f float64, err error) {
+func (p *Raw) float(ctx Context) (f float64, err error) {
     return strconv.ParseFloat(p.string, 64)
 }
 func (p *Raw) expand(_ Context, _ facet) Value { return p }
@@ -2347,13 +2348,13 @@ func (_ *Raw) collect(ctx Context, cache *valcache, bits int) (res []*valcache) 
 }
 
 type String struct { valbase; string }
-func (_ *String) Kind() Kind { return KindString }
+func (_ *String) kind() Kind { return KindString }
 func (p *String) elemstr(_ Context, o Object, k elembits) (s string) {
     if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
     return
 }
 func (p *String) String() string { return p.elemstr(nil, nil, 0) }
-func (p *String) Strval(ctx Context) (s string) {
+func (p *String) strval(ctx Context) (s string) {
     if false {
         s = strings.Replace(p.string, "\\\"", "\"", -1)
     } else {
@@ -2361,17 +2362,17 @@ func (p *String) Strval(ctx Context) (s string) {
     }
     return
 }
-func (p *String) True(ctx Context) (v bool) {
+func (p *String) true(ctx Context) (v bool) {
     switch p.string {
     case "no", "false": v = false
     default: v = p.string != ""
     }
     return
 }
-func (p *String) Integer(ctx Context) (i int64, err error) {
+func (p *String) int(ctx Context) (i int64, err error) {
     return strconv.ParseInt(p.string, 10, 64)
 }
-func (p *String) Float(ctx Context) (f float64, err error) {
+func (p *String) float(ctx Context) (f float64, err error) {
     return strconv.ParseFloat(p.string, 64)
 }
 func (p *String) expand(_ Context, _ facet) Value { return p }
@@ -2380,7 +2381,7 @@ func (p *String) cmp(ctx Context, v Value) (res cmpres) {
     case *group:
     case *List: if len(t.Elems) == 1 { res = p.cmp(ctx, t.Elems[0]) }
     case unexpanded: if t.Value != nil { res = p.cmp(ctx, t.Value) }
-    default: if s := t.Strval(ctx); p.string == s {
+    default: if s := t.strval(ctx); p.string == s {
             res = cmpEqual
         } else if p.string < s {
             res = cmpSmaller
@@ -2424,10 +2425,10 @@ func isTrueString(s string) (t bool) {
 
 type punctuation struct { valbase; tok Token }
 func (p *punctuation) String() string { return p.tok.String() }
-func (p *punctuation) Strval(ctx Context) string { return p.tok.String() }
-func (p *punctuation) True(ctx Context) bool { return false }
-func (p *punctuation) Integer(ctx Context) (i int64, _ error) { return 0, nil }
-func (p *punctuation) Float(ctx Context) (f float64, _ error) { return 0, nil }
+func (p *punctuation) strval(ctx Context) string { return p.tok.String() }
+func (p *punctuation) true(ctx Context) bool { return false }
+func (p *punctuation) int(ctx Context) (i int64, _ error) { return 0, nil }
+func (p *punctuation) float(ctx Context) (f float64, _ error) { return 0, nil }
 func (p *punctuation) expand(_ Context, _ facet) Value { return p }
 func (p *punctuation) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*punctuation); y {
@@ -2448,14 +2449,14 @@ func (p *punctuation) cmp(ctx Context, v Value) (res cmpres) {
 func (p *punctuation) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
     var s string
     switch t := i.(type) {
-    case   Value : s = t.Strval(ctx)
+    case   Value : s = t.strval(ctx)
     case   string: s = t
     case []string: if len(t) == 1 { s = t[0] } else { return }
     default:
         erro(of(ctx,p), "%T: matching unsupported value: %T %v", p, i, i).debug(1)
         return
     }
-    if t := p.Strval(ctx); strings.HasPrefix(s, t) {
+    if t := p.strval(ctx); strings.HasPrefix(s, t) {
         full, res = len(s) == len(t), s[:len(t)]
         if false && s == ".h" { warn(ctx, "%v %v; %v %v", p, s, full, res).debug(6) }
     }
@@ -2471,12 +2472,12 @@ func (_ *punctuation) collect(ctx Context, cache *valcache, bits int) (res []*va
 }
 
 type bareword struct { valbase; string }
-func (_ *bareword) Kind() Kind { return KindBareword }
+func (_ *bareword) kind() Kind { return KindBareword }
 func (p *bareword) String() string { return p.string }
-func (p *bareword) Strval(ctx Context) string { return p.string }
-func (p *bareword) True(ctx Context) bool { return /* isTrueString(p.string) */p.string != "" }
-func (p *bareword) Integer(ctx Context) (i int64, err error) { return strconv.ParseInt(p.string, 10, 64) }
-func (p *bareword) Float(ctx Context) (f float64, err error) { return strconv.ParseFloat(p.string, 64) }
+func (p *bareword) strval(ctx Context) string { return p.string }
+func (p *bareword) true(ctx Context) bool { return p.string != "" }
+func (p *bareword) int(ctx Context) (i int64, err error) { return strconv.ParseInt(p.string, 10, 64) }
+func (p *bareword) float(ctx Context) (f float64, err error) { return strconv.ParseFloat(p.string, 64) }
 func (p *bareword) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*bareword); y {
         if p.string == a.string {
@@ -2495,7 +2496,7 @@ func (p *bareword) cmp(ctx Context, v Value) (res cmpres) {
             }
         }
     } else if c, y := v.(*barecomp); y {
-        if s := c.Strval(ctx); p.string == s {
+        if s := c.strval(ctx); p.string == s {
             res = cmpEqual
         } else if p.string < s {
             if strings.HasPrefix(s, p.string) {
@@ -2549,7 +2550,7 @@ func (p *bareword) collect(ctx Context, cache *valcache, bits int) (res []*valca
 
 func (p *bareword) expand(ctx Context, w facet) (res Value) {
     if res = p; false && w&expandFullName != 0 {
-        if file := file(ctx, p.Strval(ctx)); file != nil {
+        if file := file(ctx, p.strval(ctx)); file != nil {
             res = file.expand(ctx, w)
         }
     }
@@ -2566,10 +2567,10 @@ func (p *bareword) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) 
 
 type qualiword struct { valbase; words []string } // TODO: foo.bar.zar, foo.&(bar).zar ???
 func (p *qualiword) String() string { return strings.Join(p.words,".") }
-func (p *qualiword) Strval(ctx Context) string { return p.String() }
-func (p *qualiword) True(ctx Context) bool { return len(p.words)!=0 }
-func (p *qualiword) Integer(ctx Context) (i int64, _ error) { return int64(len(p.words)), nil }
-func (p *qualiword) Float(ctx Context) (f float64, _ error) { return 0, nil }
+func (p *qualiword) strval(ctx Context) string { return p.String() }
+func (p *qualiword) true(ctx Context) bool { return len(p.words)!=0 }
+func (p *qualiword) int(ctx Context) (i int64, _ error) { return int64(len(p.words)), nil }
+func (p *qualiword) float(ctx Context) (f float64, _ error) { return 0, nil }
 func (p *qualiword) expand(_ Context, _ facet) Value { return p }
 func (p *qualiword) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*qualiword); y {
@@ -2639,9 +2640,9 @@ func (p *elements) Take(n int) (v Value) {
 func (p *elements) ToBarecomp(pos Position) *barecomp { return &barecomp{valbase{pos},*p} }
 func (p *elements) ToCompound(pos Position) *Compound { return &Compound{valbase{pos},*p} }
 func (p *elements) ToList(pos Position) *List { return &List{pos, *p} }
-func (p *elements) True(ctx Context) (t bool) { // (or elems...)
+func (p *elements) true(ctx Context) (t bool) { // (or elems...)
     for _, elem := range p.Elems {
-        if elem != nil { if t = elem.True(ctx); t { break }}
+        if elem != nil { if t = elem.true(ctx); t { break }}
     }
     return
 }
@@ -2713,18 +2714,18 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
 }
 
 type paircomp struct { *pair }
-func (_ paircomp) Kind() Kind { return KindPaircomp }
+func (_ paircomp) kind() Kind { return KindPaircomp }
 func (p paircomp) un() (y bool) {
     if _, y = p.Key.(unexpanded); !y { _, y = p.Value.(unexpanded) }
     return
 }
-func (p paircomp) True(ctx Context) (res bool) {
-    if !p.un() { res = p.pair.True(ctx) }
+func (p paircomp) true(ctx Context) (res bool) {
+    if !p.un() { res = p.pair.true(ctx) }
     return
 }
-func (p paircomp) Strval(ctx Context) (s string) {
-    if false && !p.un() { s = p.pair.Strval(ctx) } else
-    if k := p.Key.Strval(ctx); k != "" { if v := p.Value.Strval(ctx); v != "" {
+func (p paircomp) strval(ctx Context) (s string) {
+    if false && !p.un() { s = p.pair.strval(ctx) } else
+    if k := p.Key.strval(ctx); k != "" { if v := p.Value.strval(ctx); v != "" {
         s = k + "=" + v
     }}
     return
@@ -2739,17 +2740,17 @@ type precomp struct {
     Value
     suffix Value
 }
-func (_ precomp) Kind() Kind { return KindPrecomp }
+func (_ precomp) kind() Kind { return KindPrecomp }
 func (p precomp) un() (y bool) {
     if _, y = p.Value.(unexpanded); !y { _, y = p.suffix.(unexpanded) }
     return
 }
-func (p precomp) True(ctx Context) bool { return p.suffix.True(ctx) }
+func (p precomp) true(ctx Context) bool { return p.suffix.true(ctx) }
 func (p precomp) String() (s string) { return p.Value.String() + p.suffix.String() }
-func (p precomp) Strval(ctx Context) (s string) {
+func (p precomp) strval(ctx Context) (s string) {
     var v Value = p.suffix.expand(ctx, strval)
-    if _, y := v.(unexpanded); !y { if t := v.Strval(ctx); t != "" { v = p.Value.expand(ctx, strval)
-        if _, y = v.(unexpanded); !y { s = v.Strval(ctx) + t }
+    if _, y := v.(unexpanded); !y { if t := v.strval(ctx); t != "" { v = p.Value.expand(ctx, strval)
+        if _, y = v.(unexpanded); !y { s = v.strval(ctx) + t }
     }}
     return
 }
@@ -2769,17 +2770,17 @@ type rearcomp struct {
     prefix Value
     Value
 }
-func (_ rearcomp) Kind() Kind { return KindRearcomp }
+func (_ rearcomp) kind() Kind { return KindRearcomp }
 func (p rearcomp) un() (y bool) {
     if _, y = p.prefix.(unexpanded); !y { _, y = p.Value.(unexpanded) }
     return
 }
-func (p rearcomp) True(ctx Context) bool { return p.prefix.True(ctx) }
+func (p rearcomp) true(ctx Context) bool { return p.prefix.true(ctx) }
 func (p rearcomp) String() (s string) { return p.prefix.String() + p.Value.String() }
-func (p rearcomp) Strval(ctx Context) (s string) {
+func (p rearcomp) strval(ctx Context) (s string) {
     var v Value = p.prefix.expand(ctx, strval)
-    if _, y := v.(unexpanded); !y { if t := v.Strval(ctx); t != "" { v = p.Value.expand(ctx, strval)
-        if _, y = v.(unexpanded); !y { s = t + v.Strval(ctx) }
+    if _, y := v.(unexpanded); !y { if t := v.strval(ctx); t != "" { v = p.Value.expand(ctx, strval)
+        if _, y = v.(unexpanded); !y { s = t + v.strval(ctx) }
     }}
     return
 }
@@ -2796,7 +2797,7 @@ func (p rearcomp) cmp(ctx Context, v Value) (res cmpres) {
 }
 
 type barecomp struct { valbase ; elements }
-func (_ *barecomp) Kind() Kind { return KindBarecomp }
+func (_ *barecomp) kind() Kind { return KindBarecomp }
 func (p *barecomp) elemstr(ctx Context, o Object, k elembits) (s string) {
     for _, elem := range p.Elems {
         s += elemstr(ctx, o, elem, k)
@@ -2804,16 +2805,16 @@ func (p *barecomp) elemstr(ctx Context, o Object, k elembits) (s string) {
     return
 }
 func (p *barecomp) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *barecomp) Strval(ctx Context) (s string) {
+func (p *barecomp) strval(ctx Context) (s string) {
     for _, elem := range p.Elems {
         if isTrivial(elem) { continue } else {
-            s += elem.Strval(ctx)
+            s += elem.strval(ctx)
         }
     }
     return
 }
-func (p *barecomp) True(ctx Context) bool { return p.elements.True(ctx) }
-func (p *barecomp) Integer(ctx Context) (res int64, _ error) {
+func (p *barecomp) true(ctx Context) bool { return p.elements.true(ctx) }
+func (p *barecomp) int(ctx Context) (res int64, _ error) {
     if len(p.Elems) == 2 {
         if i, y := p.Elems[0].(*Int); y {
             var n = i.int64
@@ -2874,7 +2875,7 @@ func (p *barecomp) obsolete_hit2(ctx Context, cache hitch, bits int) (res *filem
             } else {
                 errostack(ctx, 3, "%08b: %v[%d]: looking up pattern: %T", bits, elems, i, elem).debug(64)
             }
-        } else if s := elem.Strval(ctx); s != "" {
+        } else if s := elem.strval(ctx); s != "" {
             part += s
         } else {
             warnstack(ctx, 3, "%08b: %v[%d]: empty: %T %v", bits, elems, i, elem, elem).debug(64)
@@ -2903,7 +2904,7 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
             if (bits&cacheStore) != 0 { pat = elem ; break } else {
                 errostack(ctx, 3, "%08b: %v[%d]: looking up pattern: %T", bits, elems, i, elem).debug(64)
             }
-        } else if s := elem.Strval(ctx); s != "" {
+        } else if s := elem.strval(ctx); s != "" {
             part += s;
         } else {
             warnstack(ctx, 3, "%08b: %v[%d]: empty: %T %v", bits, elems, i, elem, elem).debug(64)
@@ -2926,10 +2927,10 @@ func (p *barecomp) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return
 }
 func (p *barecomp) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    return cache.str(at(ctx, p.position), p.Strval(ctx), bits)
+    return cache.str(at(ctx, p.position), p.strval(ctx), bits)
 }
 func (p *barecomp) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
-    var s string = p.Strval(ctx)
+    var s string = p.strval(ctx)
     if cache.fast != nil { if c := cache.str(ctx, s, bits); c != nil {
         res = append(res, c) ; return
     }}
@@ -2947,7 +2948,7 @@ func (p *barecomp) cmp(ctx Context, v Value) (res cmpres) {
                 var cr = elemsL[i].cmp(ctx, elemsR[i])
                 if cr == cmpEqual { continue } else
                 if cr == cmpLPrefix || cr == cmpRPrefix {
-                    if false && p.Strval(ctx) == v.Strval(ctx) { res = cmpEqual ; return }
+                    if false && p.strval(ctx) == v.strval(ctx) { res = cmpEqual ; return }
                     if true  && p.String(   ) == v.String(   ) { res = cmpEqual ; return }
                 } else {
                     break
@@ -2975,29 +2976,29 @@ func (p *barecomp) cmp(ctx Context, v Value) (res cmpres) {
     } else if a, y := v.(rearcomp); y {
         cmp(mergeBare(p.Elems...), mergeBare(a.prefix, a.Value))
     } else if w, y := v.(*bareword); y {
-        if s := p.Strval(ctx); s == w.string {
+        if s := p.strval(ctx); s == w.string {
             res = cmpEqual
         } else if s < w.string {
             res = cmpSmaller
         } else {
             res = cmpGreater
         }
-    } else if fR, y := v.(*flag); y {
+    } else if fR, y := v.(flag); y {
         var elems []Value
         for _, elem := range p.Elems {
             if !isNull(elem) && !isNone(elem) {
                 elems = append(elems, elem)
             }
         }
-        if len(elems) == 2 { if fL, y := elems[0].(*flag); y {
-            if isNull(fL.name) || isNone(fL.name) {
-                res = elems[1].cmp(ctx, fR.name)
-            } else if m, r, t := fL.name.match(ctx, fR.name); m {
+        if len(elems) == 2 { if fL, y := elems[0].(flag); y {
+            if isNull(fL.Value) || isNone(fL.Value) {
+                res = elems[1].cmp(ctx, fR.Value)
+            } else if m, r, t := fL.Value.match(ctx, fR.Value); m {
                 if isNull(elems[1]) || isNone(elems[1]) { res = cmpEqual }
             } else if r != nil { // matched prefix
                 var s = joinMatchRes(ctx, r)
-                var sL = s + elems[1].Strval(ctx)
-                var sR = fR.name.Strval(ctx)
+                var sL = s + elems[1].strval(ctx)
+                var sR = fR.Value.strval(ctx)
                 if sL == sR {
                     res = cmpEqual
                 } else if s < sR {
@@ -3038,7 +3039,7 @@ func (p *barecomp) match(ctx Context, i interface{}) (full bool, res interface{}
         elem Value
     )
     switch t := i.(type) {
-    case   Value : s = t.Strval(ctx)
+    case   Value : s = t.strval(ctx)
     case   string: s = t
     case []string: if len(t) == 1 { s = t[0] } else { return }
     default:
@@ -3106,26 +3107,26 @@ type barefile struct {
     Value
     File *File
 }
-func (_ *barefile) Kind() Kind { return KindBarefile }
+func (_ *barefile) kind() Kind { return KindBarefile }
 func (p *barefile) elemstr(ctx Context, o Object, k elembits) (s string) { return elemstr(ctx, o, p.Value, k) }
 func (p *barefile) String() string { return p.elemstr(nil, nil, 0) }
-func (p *barefile) Strval(ctx Context) string {
+func (p *barefile) strval(ctx Context) string {
     if p.File != nil {
-        return p.File.Strval(ctx)
+        return p.File.strval(ctx)
     } else {
-        return p.Value.Strval(ctx)
+        return p.Value.strval(ctx)
     }
 }
-func (p *barefile) True(ctx Context) (t bool) {
-    if p.File != nil { t = p.File.True(ctx) }
+func (p *barefile) true(ctx Context) (t bool) {
+    if p.File != nil { t = p.File.true(ctx) }
     return
 }
-func (p *barefile) Integer(ctx Context) (res int64, _ error) {
+func (p *barefile) int(ctx Context) (res int64, _ error) {
     if p.File.exists() { res = p.File.info.Size() }
     return
 }
-func (p *barefile) Float(ctx Context) (f float64, _ error) {
-    i, e := p.Integer(ctx); return float64(i), e
+func (p *barefile) float(ctx Context) (f float64, _ error) {
+    i, e := p.int(ctx); return float64(i), e
 }
 func (p *barefile) refs(ctx Context, v Value) bool { return p.Value.refs(ctx, v) }
 func (p *barefile) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
@@ -3133,7 +3134,7 @@ func (p *barefile) expandable(ctx Context, w facet) bool { return p.Value.expand
 func (p *barefile) expand(ctx Context, w facet) (res Value) {
     if w&expandFullName != 0 {
         var f = p.File
-        if f == nil { f = file(ctx, p.Value.Strval(ctx)) }
+        if f == nil { f = file(ctx, p.Value.strval(ctx)) }
         if f != nil { if v := f.expand(ctx, w); v != f { return v }}
     }
 
@@ -3145,8 +3146,8 @@ func (p *barefile) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *barefile) traverse(ctx Context) {
-    if p.Strval(ctx) == ".configure/header/.c" {
-        warn(ctx, "%T %v %s %v", p.Value, p.Value, p.Value.Strval(ctx), p.File).debug(1)
+    if p.strval(ctx) == ".configure/header/.c" {
+        warn(ctx, "%T %v %s %v", p.Value, p.Value, p.Value.strval(ctx), p.File).debug(1)
     }
     if p.File != nil { p.File.traverse(ctx) } else
     if p.Value != nil { p.Value.traverse(ctx) }
@@ -3221,7 +3222,7 @@ func barefilize(ctx Context, targets ...Value) []Value {
         case *barecomp, *Path:
             if t.patterned(ctx) || t.expandable(ctx, expandClosure) /* || refdef(ctx, t, DefArg) */ {
                 break
-            } else if file := project.file(ctx, t.Strval(ctx)); file != nil {
+            } else if file := project.file(ctx, t.strval(ctx)); file != nil {
                 targets[i] = &barefile{ target, file }
                 file.position = target.Position()
             }
@@ -3495,7 +3496,7 @@ func obsolete_globMatchFile(ctx Context, patVal Value, filename string, tailMatc
         return
     }
 
-    var patList = strings.Split(filepath.Clean(patVal.Strval(ctx)), PathSep)
+    var patList = strings.Split(filepath.Clean(patVal.strval(ctx)), PathSep)
     if len(patList) == 0 { return } // FIXME: match any?
 
     var st []string
@@ -3534,7 +3535,7 @@ func obsolete_globMatchFile(ctx Context, patVal Value, filename string, tailMatc
 
 type GlobMeta struct { valbase ; Token }
 func (p *GlobMeta) String() string { return p.Token.String() }
-func (p *GlobMeta) Strval(ctx Context) string { return p.Token.String() }
+func (p *GlobMeta) strval(ctx Context) string { return p.Token.String() }
 func (p *GlobMeta) expand(_ Context, _ facet) Value { return p }
 func (p *GlobMeta) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*GlobMeta); ok {
@@ -3565,8 +3566,8 @@ func (p *GlobRange) elemstr(ctx Context, o Object, k elembits) (s string) {
     return fmt.Sprintf("[%s]", elemstr(ctx, o, p.Chars, k))
 }
 func (p *GlobRange) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *GlobRange) Strval(ctx Context) (s string) {
-    return fmt.Sprintf("[%s]", p.Chars.Strval(ctx))
+func (p *GlobRange) strval(ctx Context) (s string) {
+    return fmt.Sprintf("[%s]", p.Chars.strval(ctx))
 }
 func (p *GlobRange) refs(ctx Context, v Value) bool { return p.Chars.refs(ctx, v) }
 func (p *GlobRange) defs(ctx Context, s ...string) []*def { return p.Chars.defs(ctx, s...) }
@@ -3595,7 +3596,7 @@ func (_ *GlobRange) hit(ctx Context, cache hitch, bits int) (res *filemapCache) 
 }
 func (p *GlobRange) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     if cache = cache.fix(ctx, "[]", bits); cache != nil {
-        for _, c := range p.Chars.Strval(ctx) {
+        for _, c := range p.Chars.strval(ctx) {
             warn(ctx, "range: %v: %s", p.Chars, c)
         }
         warnstack(ctx, 3, "%v: %v", p, p.Chars).debug(1)
@@ -3610,7 +3611,7 @@ func (_ *GlobRange) collect(ctx Context, cache *valcache, bits int) (res []*valc
 // Path is addressing a file (dynamically), the real located file varies
 // base on 'elements' and the context.
 type Path struct { valbase ; elements }
-func (_ *Path) Kind() Kind { return KindPath }
+func (_ *Path) kind() Kind { return KindPath }
 func (p *Path) elemstr(ctx Context, o Object, k elembits) (s string) {
     for i, elem := range p.Elems {
         var v = elemstr(ctx, o, elem, k)
@@ -3625,7 +3626,7 @@ func (p *Path) elemstr(ctx Context, o Object, k elembits) (s string) {
     return
 }
 func (p *Path) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *Path) Strval(ctx Context) (s string) {
+func (p *Path) strval(ctx Context) (s string) {
     for i, seg := range p.Elems {
         if seg == nil {
             erro(ctx, "`%s` nil path segment", p).debug(1)
@@ -3637,7 +3638,7 @@ func (p *Path) Strval(ctx Context) (s string) {
             erro(at(ctx,seg.Position()), "undef path segment (%T)", seg)
             erro(at(ctx,ctx.Position()), "… from this context: %s", ctx).debug(16)
             return
-        } else if v = seg.Strval(ctx); i > 0 {
+        } else if v = seg.strval(ctx); i > 0 {
             s += PathSep + v
         } else if v != "" {
             s += v
@@ -3647,10 +3648,10 @@ func (p *Path) Strval(ctx Context) (s string) {
     }
     return
 }
-func (p *Path) True(ctx Context) (t bool) {
+func (p *Path) true(ctx Context) (t bool) {
     // FIXME: return p.exists() ??
     for _, elem := range p.Elems {
-        if t = elem.True(ctx); t { break }
+        if t = elem.true(ctx); t { break }
     }
     return
 }
@@ -3666,7 +3667,7 @@ func (p *Path) expand(ctx Context, w facet) (res Value) {
 func (p *Path) delete(ctx Context) (files []*File, err error) {
     // if positionalValueCtx { ctx = at(ctx, p.position) }
     // var s string
-    // if s = p.Strval(ctx); s == "" {
+    // if s = p.strval(ctx); s == "" {
     //     erro(ctx, "no path name for `%s`", p)
     // } else if file := stat(ctx, s, "", "", nil); file != nil {
     //     if files, err = file.delete(ctx); err != nil {
@@ -3697,10 +3698,10 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
             erro(ctx, "partial match: %v", rest)
             return
         } else {
-            s = val.Strval(ctx)
+            s = val.strval(ctx)
         }
     } else {
-        s = p.Strval(ctx)
+        s = p.strval(ctx)
     }
 
     if filepath.IsAbs(s) {
@@ -3733,7 +3734,7 @@ func (p *Path) cmp(ctx Context, v Value) (res cmpres) {
             res = cmpres(-res)
         }
     } else if f, y := v.(*File); y {
-        if s := p.Strval(ctx); f.name == s { res = cmpEqual }
+        if s := p.strval(ctx); f.name(ctx) == s { res = cmpEqual }
     }
     return
 }
@@ -3780,7 +3781,7 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
             break
         }
 
-        ss = append(ss, elem.Strval(ctx))
+        ss = append(ss, elem.strval(ctx))
     }
 
     if len(ss) == 0 {
@@ -3837,7 +3838,7 @@ func (p *Path) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
                 t = append(t, a...)
             } else if x, y := c._fix["**"]; y {
                 if s == nil && str == "" {
-                    for _, v := range elems[n:] { s = append(s, v.Strval(ctx)) }
+                    for _, v := range elems[n:] { s = append(s, v.strval(ctx)) }
                     str = strings.Join(s, PathSep)
                 }
                 for k, a := range x._fix { // see valcache.matchPatts
@@ -3890,7 +3891,7 @@ func expandPathElems(ctx Context, w facet, elems ...Value) (res []Value, u, n in
                 }
                 n += 1
             case *Compound:
-                if s := v.Strval(ctx); s != "" {
+                if s := v.strval(ctx); s != "" {
                     vals = append(vals, splitPathStr(ctx, v.position, s)...)
                 }
                 n += 1
@@ -3994,7 +3995,7 @@ SegsSrcsLoop:
 
         var prefix string
         if !isTrivial(pre) {
-            if prefix = pre.Strval(ctx); !strings.HasPrefix(src, prefix) {
+            if prefix = pre.strval(ctx); !strings.HasPrefix(src, prefix) {
                 // if infos { info(of(ctx,p), "%d: seg=%v (%T) pp=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, seg, pp, pre, suf, res, stems, src).debug(1) }
                 break SegsSrcsLoop
             }
@@ -4004,7 +4005,7 @@ SegsSrcsLoop:
         var stem []string
         if prefix != "" { stem = append(stem, strings.TrimPrefix(src, prefix)) }
         if !isTrivial(suf) {
-            var suffix = suf.Strval(ctx)
+            var suffix = suf.strval(ctx)
             if res = append(res, src); m < lenSrcs {
                 for stem = append(stem, src); m < lenSrcs; m += 1 {
                     src = srcs[m]
@@ -4129,9 +4130,9 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, res interface{}, st
                     return
                 } else if stub.other == t.filestub { break }
             }
-            var s = t.name
+            var s = t.name(ctx)
             if t.sub != "" {
-                s = filepath.Join(t.sub, t.name)
+                s = filepath.Join(t.sub, s)
                 if full, result, stems = p.match1(ctx, s); full || len(result) > 0 {
                     return
                 }
@@ -4142,14 +4143,14 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, res interface{}, st
                     return
                 }
             }
-        } else if full, result, stems = p.match1(ctx, t.name); full || len(result) > 0 {
+        } else if full, result, stems = p.match1(ctx, t.name(ctx)); full || len(result) > 0 {
             return // NOTE: done if path fully or partially matched
         } else if t.dir != "" || t.sub != "" {
             full, result, stems = p.match1(ctx, t.fullname()) // NOTE: matching the fullname form
             return
         }
     case Value :
-        if str := t.Strval(ctx); str != "" {
+        if str := t.strval(ctx); str != "" {
             full, result, stems = p.match1(ctx, str)
             return
         }
@@ -4234,7 +4235,7 @@ func (p *PathPun) String() (s string) {
     }
     return
 }
-func (p *PathPun) Strval(ctx Context) (s string) {
+func (p *PathPun) strval(ctx Context) (s string) {
     if s = p.String(); s == "" && !(p.rune == 0 || p.rune == '/') {
         erro(at(ctx,p.position), "unknown segment '%s' ('%v')", string(p.rune), p).debug(1)
     }
@@ -4254,7 +4255,7 @@ func (p *PathPun) cmp(ctx Context, v Value) (res cmpres) {
 func (p *PathPun) match(ctx Context, i interface{}) (full bool, result interface{}, stems []string) {
     var s string
     switch t := i.(type) {
-    case Value : s = t.Strval(ctx)
+    case Value : s = t.strval(ctx)
     case string: s = t
     }
     switch p.rune {
@@ -4271,9 +4272,9 @@ func (p *PathPun) stencil(ctx Context, stems []string) (result Value, rest []str
 }
 
 func (p *PathPun) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    if false { return cache.str(ctx, []string{p.Strval(ctx)}, 0, bits, nil) }
+    if false { return cache.str(ctx, []string{p.strval(ctx)}, 0, bits, nil) }
 
-    var s = p.Strval(ctx)
+    var s = p.strval(ctx)
     var c = cache.charstr(s, bits, false)
     if c != nil { res = c } else {
         if c = cache.charstr(s, bits, true); c != nil {
@@ -4310,16 +4311,16 @@ func toFile(v Value) (f *File, y bool) {
 
 func splitFileName(ctx Context, val Value) (dir, name string) {
     if f, _ := toFile(val); f != nil {
-        dir, name = filepath.Join(f.dir, f.sub), f.name
+        dir, name = filepath.Join(f.dir, f.sub), f.name(ctx)
     } else {
-        name = val.Strval(ctx)
+        name = val.strval(ctx)
         dir = filepath.Dir(name)
     }
     return
 }
 
 type fullfile struct { *File }
-func (u fullfile) Strval(ctx Context) (s string) { return u.fullname() }
+func (u fullfile) strval(ctx Context) (s string) { return u.fullname() }
 func (u fullfile) expand(ctx Context, w facet) Value {
     if w != expandZero && (w&expandFullName == 0 /* || filepath.IsAbs(u.name) */) {
         if v := u.File.expand(ctx, w); v != u.File {
@@ -4334,27 +4335,28 @@ type File struct {
     *filebase
     *filestub
 }
-func (p *File) String() string { return p.name }
-func (p *File) Strval(ctx Context) (s string) { return p.name }
-func (p *File) True(ctx Context) (t bool) {
-    if p.name != "" {
+func (p *File) String() string { return p.filestub.name }
+func (p *File) strval(ctx Context) (s string) { return p.filestub.name }
+func (p *File) name(_ Context) string { return p.filestub.name }
+func (p *File) true(ctx Context) (t bool) {
+    if p.filestub.name != "" {
         t = true // p.exists() == existenceConfirmed
     }
     return
 }
 func (p *File) BaseName() (s string) {
     if p.info != nil { s = p.info.Name() } else {
-        s = filepath.Base(p.name)
+        s = filepath.Base(p.filestub.name)
     }
     return
 }
 func (p *File) fullname() (s string) {
-    return filepath.Join(p.dir, p.sub, p.name)
+    return filepath.Join(p.dir, p.sub, p.filestub.name)
 }
 func (p *File) searchInMatchedPaths(ctx Context, proj *Project) (res bool) {
     if p.filemap != nil {
         // FIXME: File should keep both 'match' and 'pre', or just remove searchInMatchedPaths
-        var f = p.filemap.stat(ctx, p.name)
+        var f = p.filemap.stat(ctx, p.filestub.name)
         if f != nil && f.info != nil { p.info, res = f.info, true }
     }
     return
@@ -4394,10 +4396,10 @@ func (p *File) stamp(ctx Context) (files []*File, err error) {
     return
 }
 func (p *File) expandable(ctx Context, w facet) (res bool) {
-    return w&expandFullName != 0 && !filepath.IsAbs(p.name)
+    return w&expandFullName != 0 && !filepath.IsAbs(p.filestub.name)
 }
 func (p *File) expand(ctx Context, w facet) (res Value) {
-    if w&expandFullName != 0 && !filepath.IsAbs(p.name) {
+    if w&expandFullName != 0 && !filepath.IsAbs(p.filestub.name) {
         res = fullfile{p}
     } else {
         res = p
@@ -4439,8 +4441,8 @@ func (p *File) isSysFile() (res bool) {
         //     files (
         //       (foo.xxx) ⇒ -
         //     )
-        if f, ok := p.filemap.locs[0].(*flag); ok {
-            res = isNone(f.name) || isNull(f.name)
+        if f, ok := p.filemap.locs[0].(flag); ok {
+            res = isNone(f.Value) || isNull(f.Value)
         }
     }
     return
@@ -4462,13 +4464,13 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
         if p.filebase == a.filebase {
             res = cmpEqual
         } else if p.fullname() == a.fullname() {
-            s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.fullname())
-            s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.name, a.fullname())
-            unreachable("same files differed: ", p.name, " != ", a.name, s)
-        } else if false /*p.dir != a.dir && p.sub == a.sub && p.name == a.name*/ {
-            s := fmt.Sprintf("\n      a: %s: %s %s", p.name, p.dir, p.sub)
-            s += fmt.Sprintf("\n      b: %s: %s %s", a.name, a.dir, a.sub)
-            prompt(ctx, "%s: warning: files may differ: %s != %s :%s\n", p.position, p.name, a.name, s)
+            s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.filestub.name, p.fullname())
+            s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.filestub.name, a.fullname())
+            unreachable("same files differed: ", p.filestub.name, " != ", a.filestub.name, s)
+        } else if false /*p.dir != a.dir && p.sub == a.sub && p.filestub.name == a.name*/ {
+            s := fmt.Sprintf("\n      a: %s: %s %s", p.filestub.name, p.dir, p.sub)
+            s += fmt.Sprintf("\n      b: %s: %s %s", a.filestub.name, a.dir, a.sub)
+            prompt(ctx, "%s: warning: files may differ: %s != %s :%s\n", p.position, p.filestub.name, a.filestub.name, s)
         }
     } else if l, y := v.(*List); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
@@ -4477,28 +4479,28 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
     } else {
         switch v.(type) {
         case *barecomp, *bareword, *Path:
-            if s := v.Strval(ctx); s == p.name { res = cmpEqual }
+            if s := v.strval(ctx); s == p.filestub.name { res = cmpEqual }
         }
     }
     return
 }
 func (p *File) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    return cache.strx(at(ctx, p.position), p.name, bits|cacheFile)
+    return cache.strx(at(ctx, p.position), p.filestub.name, bits|cacheFile)
 }
 func (p *File) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    return cache.strx(at(ctx, p.position), p.name, bits|cacheFile)
+    return cache.strx(at(ctx, p.position), p.filestub.name, bits|cacheFile)
 }
 func (p *File) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
-    if c := cache.strx(ctx, p.name, bits); c != nil { res = append(res, c) }
+    if c := cache.strx(ctx, p.filestub.name, bits); c != nil { res = append(res, c) }
     return
 }
 
 func (p *File) patterned(ctx Context, ) bool { return false }
 func (p *File) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *File) match1(ctx Context, v string) (full bool, s string, stems []string) {
-    if name := p.name; name == v {
+    if name := p.filestub.name; name == v {
         s, full = name, true
-    } else if name = filepath.Join(p.sub, p.name); name == v {
+    } else if name = filepath.Join(p.sub, p.filestub.name); name == v {
         s, full = name, true
     }
     return
@@ -4508,7 +4510,7 @@ func (p *File) match(ctx Context, i interface{}) (full bool, s interface{}, stem
     case string: return p.match1(ctx, t)
     case Value:
         if !isTrivial(t) {
-            return p.match1(ctx, t.Strval(ctx))
+            return p.match1(ctx, t.strval(ctx))
         }
     default:
         erro(at(ctx,p.position), "matching file '%v' with unknown input: %v", p, i).debug(1)
@@ -4534,86 +4536,91 @@ func (p *File) change(dir, sub, name string) (okay bool) {
 
 type FileContent struct { *File ; content []byte }
 
-type flag struct { valbase ; name Value }
-func (p *flag) elemstr(ctx Context, o Object, k elembits) (s string) {
-    return "-" + elemstr(ctx, o, p.name, k)
-}
-func (p *flag) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *flag) Strval(ctx Context) (s string) {
-    if p.name == nil {
+type flag struct { Value }
+func (p flag) kind() Kind { return KindFlag }
+func (p flag) String() (s string) { return p.elemstr(nil, nil, 0) }
+func (p flag) strval(ctx Context) (s string) {
+    if p.Value == nil {
         s = "-"
-    } else if isNone(p.name) {
+    } else if isNone(p.Value) {
         s = "-"
     } else {
-        s = "-" + p.name.Strval(ctx)
+        s = "-" + p.Value.strval(ctx)
     }
     return
 }
-func (p *flag) Integer(ctx Context) (i int64, e error) {
-    if i, e = p.name.Integer(ctx); e == nil { i = -i }
+func (p flag) elemstr(ctx Context, o Object, k elembits) (s string) {
+    return "-" + elemstr(ctx, o, p.Value, k)
+}
+func (p flag) int(ctx Context) (i int64, e error) {
+    if i, e = p.Value.int(ctx); e == nil { i = -i }
     return
 }
-func (p *flag) Float(ctx Context) (f float64, e error) {
-    if f, e = p.name.Float(ctx); e == nil { f = -f }
+func (p flag) float(ctx Context) (f float64, e error) {
+    if f, e = p.Value.float(ctx); e == nil { f = -f }
     return
 }
-func (p *flag) True(ctx Context) (t bool) { return p.name.True(ctx) }
-func (p *flag) refs(ctx Context, v Value) bool { return p.name.refs(ctx, v) }
-func (p *flag) defs(ctx Context, s ...string) []*def { return p.name.defs(ctx, s...) }
-func (p *flag) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
+// func (p flag) true(ctx Context) (t bool) { return p.Value.true(ctx) }
+// func (p flag) refs(ctx Context, v Value) bool { return p.Value.refs(ctx, v) }
+// func (p flag) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
+func (p flag) Position() (pos Position) { pos = p.Value.Position()
+    pos.Column -= 1
+    return
+}
+func (p flag) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
     switch t := i.(type) {
     case *none, *null, unresolved:
-    case *flag:
-        full, res, stems = p.name.match(ctx, t.name)
+    case flag:
+        full, res, stems = p.Value.match(ctx, t.name)
         if s, y := res.(string); y { res = "-" + s }
     case Value:
-        if v := t.Strval(ctx); strings.HasPrefix(v, "-") {
-            full, res, stems = p.name.match(ctx, v[1:])
+        if v := t.strval(ctx); strings.HasPrefix(v, "-") {
+            full, res, stems = p.Value.match(ctx, v[1:])
             if s, y := res.(string); y { res = "-" + s }
         }
     case string:
         if strings.HasPrefix(t, "-") {
-            full, res, stems = p.name.match(ctx, t[1:])
+            full, res, stems = p.Value.match(ctx, t[1:])
             if s, y := res.(string); y { res = "-" + s }
         }
     default:
-        warn(at(ctx,p.position), "-%v <-> %T %v", p.name, i, i).debug(true, 16)
+        warn(of(ctx,p), "-%v <-> %T %v", p.Value, i, i).debug(true, 16)
     }
     return
 }
-func (p *flag) expandable(ctx Context, w facet) bool { return p.name.expandable(ctx, w) }
-func (p *flag) expand(ctx Context, w facet) (res Value) {
-    if name := p.name.expand(ctx, w); name != p.name {
-        res = &flag{p.valbase, name}
+// func (p flag) expandable(ctx Context, w facet) bool { return p.Value.expandable(ctx, w) }
+func (p flag) expand(ctx Context, w facet) (res Value) {
+    if name := p.Value.expand(ctx, w); name != p.Value {
+        res = flag{name}
     } else {
         res = p
     }
     return
 }
-func (p *flag) stencil(ctx Context, stems []string) (val Value, rest []string) {
+func (p flag) stencil(ctx Context, stems []string) (val Value, rest []string) {
     var name Value
-    name, rest = p.name.stencil(ctx, stems)
-    if !isNull(name) && name != p.name {
-        val = &flag{p.valbase, name}
+    name, rest = p.Value.stencil(ctx, stems)
+    if !isNull(name) && name != p.Value {
+        val = flag{name}
     } else {
         rest = stems
     }
     return
 }
-func (p *flag) opt(ctx Context, name string) (res string, match bool) {
-    if isTrivial(p.name) {
+func (p flag) opt(ctx Context, name string) (res string, match bool) {
+    if isTrivial(p.Value) {
         if false { erro(of(ctx,p), "flag name is trivial").debug(16) }
-    } else if f, ok := p.name.(*flag); ok {
+    } else if f, ok := p.Value.(flag); ok {
         res, match = f.opt(ctx, name)
-    } else if s := p.name.Strval(ctx); s == name {
+    } else if s := p.Value.strval(ctx); s == name {
         res, match = name, true
     }
     return
 }
 // DEPRECATED and not used anymore
-func (p *flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names []string, err error) {
-    switch t := p.name.(type) {
-    case *flag:
+func (p flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names []string, err error) {
+    switch t := p.Value.(type) {
+    case flag:
         runes, names, err = t.opts(ctx, try, opts...)
     case *String:
         for _, opt := range opts {
@@ -4647,11 +4654,11 @@ func (p *flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names 
     }
     return
 }
-func (p *flag) cmp(ctx Context, v Value) (res cmpres) {
+func (p flag) cmp(ctx Context, v Value) (res cmpres) {
     if v == nil {
         // ...
-    } else if a, ok := v.(*flag); ok {
-        res = p.name.cmp(ctx, a.name)
+    } else if a, ok := v.(flag); ok {
+        res = p.Value.cmp(ctx, a.Value)
     } else if c, ok := v.(*barecomp); ok {
         var elems []Value // right hand side barecomp elements
         for _, elem := range c.Elems {
@@ -4659,15 +4666,15 @@ func (p *flag) cmp(ctx Context, v Value) (res cmpres) {
                 elems = append(elems, elem)
             }
         }
-        if len(elems) == 2 { if fR, ok := elems[0].(*flag); ok {
-            if isNull(fR.name) || isNone(fR.name) {
-                res = p.name.cmp(ctx, elems[1])
-            } else if m, r, t := fR.name.match(ctx, p.name); m {
+        if len(elems) == 2 { if fR, ok := elems[0].(flag); ok {
+            if isNull(fR.Value) || isNone(fR.Value) {
+                res = p.Value.cmp(ctx, elems[1])
+            } else if m, r, t := fR.Value.match(ctx, p.Value); m {
                 if isNull(elems[1]) || isNone(elems[1]) { res = cmpEqual }
             } else if r != nil { // matched prefix
                 var s, _ = r.(string)
-                var sL = p.name.Strval(ctx)
-                var sR = s + elems[1].Strval(ctx)
+                var sL = p.Value.strval(ctx)
+                var sR = s + elems[1].strval(ctx)
                 if sL == sR {
                     res = cmpEqual
                 } else if s < sR {
@@ -4684,30 +4691,29 @@ func (p *flag) cmp(ctx Context, v Value) (res cmpres) {
     } else if u, y := v.(unexpanded); y && u.Value != nil {
         res = p.cmp(ctx, u.Value)
     } else if i, y := v.(*Int); y && i.int64 < 0 {
-        if a, e := p.name.Integer(ctx); e == nil {
+        if a, e := p.Value.int(ctx); e == nil {
             if b := -i.int64; a == b { res = cmpEqual } else
             if a < b { res = cmpGreater } else { res = cmpSmaller }
         }
     } else if f, y := v.(*Float); y && f.float64 < 0 {
-        if a, e := p.name.Float(ctx); e == nil {
+        if a, e := p.Value.float(ctx); e == nil {
             if b := -f.float64; a == b { res = cmpEqual } else
             if a < b { res = cmpGreater } else { res = cmpSmaller }
         }
     }
     return
 }
-func (p *flag) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
-func (_ *flag) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (p flag) traverse(ctx Context) { ctx.traverse(of(ctx, p), p) }
+func (_ flag) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (p *flag) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    if false { ctx = at(ctx, p.position) }
-    return cache.str(ctx, "-", bits).slot(ctx, p.name, bits)
+func (p flag) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+    return cache.str(ctx, "-", bits).slot(ctx, p.Value, bits)
 }
-func (p *flag) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (p flag) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
     if c := cache.str(ctx, "-", cacheZero); c != nil {
-        if c = c.slot(ctx, p.name, cacheZero); c != nil { res = append(res, c) }
+        if c = c.slot(ctx, p.Value, cacheZero); c != nil { res = append(res, c) }
     }
     return
 }
@@ -4758,19 +4764,19 @@ func (p *Compound) elemstr(ctx Context, o Object, k elembits) (s string) {
     return
 }
 func (p *Compound) String() string { return p.elemstr(nil, nil, 0) }
-func (p *Compound) Strval(ctx Context) (s string) {
-    for _, e := range p.Elems { s += e.Strval(ctx) }
+func (p *Compound) strval(ctx Context) (s string) {
+    for _, e := range p.Elems { s += e.strval(ctx) }
     // NOTE: escaping \" here makes the string complicated
     if false { s = strings.Replace(s, `\"`, `"`, -1) }
     return
 }
-func (p *Compound) Float(ctx Context) (f float64, err error) {
-    return strconv.ParseFloat(p.Strval(ctx), 64)
+func (p *Compound) float(ctx Context) (f float64, err error) {
+    return strconv.ParseFloat(p.strval(ctx), 64)
 }
-func (p *Compound) Integer(ctx Context) (i int64, err error) {
-    return strconv.ParseInt(p.Strval(ctx), 10, 64)
+func (p *Compound) int(ctx Context) (i int64, err error) {
+    return strconv.ParseInt(p.strval(ctx), 10, 64)
 }
-func (p *Compound) True(ctx Context) bool { return p.elements.True(ctx) }
+func (p *Compound) true(ctx Context) bool { return p.elements.true(ctx) }
 func (p *Compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *Compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *Compound) expandable(ctx Context, w facet) bool { return p.elements.expandable(ctx, w) }
@@ -4782,7 +4788,7 @@ func (p *Compound) expand(ctx Context, w facet) (res Value) {
 }
 func (p *Compound) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*Compound); ok {
-        if p.Strval(ctx) == a.Strval(ctx) { res = cmpEqual }
+        if p.strval(ctx) == a.strval(ctx) { res = cmpEqual }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     } else if u, o := v.(unexpanded); o && u.Value != nil {
@@ -4798,7 +4804,7 @@ func (p *Compound) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
 func (p *Compound) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     if false { ctx = at(ctx, p.position) }
     if cache = cache.str(ctx, "\"\"", bits); true {
-        cache = cache.strx(ctx, p.Strval(ctx), bits)
+        cache = cache.strx(ctx, p.strval(ctx), bits)
     } else {
         var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
         if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
@@ -4808,7 +4814,7 @@ func (p *Compound) cache(ctx Context, cache *valcache, bits int) (res *valcache)
 }
 func (p *Compound) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
     if c := cache.str(ctx, "\"\"", cacheZero); c != nil {
-        if c = c.strx(ctx, p.Strval(ctx), cacheZero); c != nil { res = append(res, c) }
+        if c = c.strx(ctx, p.strval(ctx), cacheZero); c != nil { res = append(res, c) }
     }
     return
 }
@@ -4817,7 +4823,7 @@ type List struct {
     position Position
     elements
 }
-func (_ *List) Kind() Kind { return KindList }
+func (_ *List) kind() Kind { return KindList }
 func (p *List) Position() (pos Position) { return p.position }
 func (p *List) elemstr(ctx Context, o Object, k elembits) (s string) {
     var strs []string
@@ -4826,14 +4832,14 @@ func (p *List) elemstr(ctx Context, o Object, k elembits) (s string) {
     }
     return strings.Join(strs, " ")
 }
-func (_ *List) Name(_ Context) (s string) { return }
+func (_ *List) name(_ Context) (s string) { return }
 func (p *List) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *List) Strval(ctx Context) (s string) {
+func (p *List) strval(ctx Context) (s string) {
     var x = 0
     for _, e := range p.Elems {
         if e == nil {
             // TODO: special process for nil elements in a list??
-        } else if v := e.Strval(ctx); v != "" {
+        } else if v := e.strval(ctx); v != "" {
             if 0 < x { s += " " }
             s += v
             x += 1
@@ -4841,13 +4847,13 @@ func (p *List) Strval(ctx Context) (s string) {
     }
     return
 }
-func (p *List) Float(ctx Context) (f float64, _ error) {
-    i, e := p.Integer(ctx); return float64(i), e
+func (p *List) float(ctx Context) (f float64, _ error) {
+    i, e := p.int(ctx); return float64(i), e
 }
-func (p *List) Integer(ctx Context) (i int64, err error) {
+func (p *List) int(ctx Context) (i int64, err error) {
     if n := len(p.Elems); n == 1 {
         // If there's only one element, treat it as a scalar.
-        return p.Elems[0].Integer(ctx)
+        return p.Elems[0].int(ctx)
     } else {
         return int64(n), nil
     }
@@ -5017,7 +5023,7 @@ func (p *List) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
 }
 
 type group struct { valbase ; elements }
-func (_ *group) Kind() Kind { return KindGroup }
+func (_ *group) kind() Kind { return KindGroup }
 func (p *group) Position() Position { return p.valbase.Position() }
 func (p *group) elemstr(ctx Context, o Object, k elembits) string {
     var strs []string
@@ -5027,25 +5033,25 @@ func (p *group) elemstr(ctx Context, o Object, k elembits) string {
     return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
 func (p *group) String() string { return p.elemstr(nil, nil, 0) }
-func (p *group) Strval(ctx Context) (s string) {
+func (p *group) strval(ctx Context) (s string) {
     s = "("
     for i, elem := range p.Elems {
         if i > 0 { s += " " }
-        s += elem.Strval(ctx)
+        s += elem.strval(ctx)
     }
     s += ")"
     return
 }
-func (p *group) True(ctx Context) (t bool) {
+func (p *group) true(ctx Context) (t bool) {
     if t = len(p.Elems) > 0; t {
         for _, elem := range p.Elems {
-            if t = elem.True(ctx); !t { break }
+            if t = elem.true(ctx); !t { break }
         }
     }
     return
 }
-//func (p *group) Float(ctx Context) (f float64, _ error) { return p.valbase.Float(ctx) }
-//func (p *group) Integer(ctx Context) (i int64, e error) { return p.valbase.Integer(ctx) }
+//func (p *group) float(ctx Context) (f float64, _ error) { return p.valbase.float(ctx) }
+//func (p *group) int(ctx Context) (i int64, e error) { return p.valbase.int(ctx) }
 func (p *group) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *group) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *group) stat(ctx Context) (si *statinfo) { return }
@@ -5131,17 +5137,17 @@ func (p *pair) elemstr(ctx Context, o Object, k elembits) string {
     return elemstr(ctx, o, p.Key, k)+`=`+elemstr(ctx, o, p.Value, k)
 }
 func (p *pair) String() string { return p.elemstr(nil, nil, 0) }
-func (p *pair) Strval(ctx Context) string {
-    return p.Key.Strval(ctx) + "=" + p.Value.Strval(ctx)
+func (p *pair) strval(ctx Context) string {
+    return p.Key.strval(ctx) + "=" + p.Value.strval(ctx)
 }
-func (p *pair) True(ctx Context) (t bool) {
-    if t = p.Key.True(ctx); !t && !isNull(p.Value) {
-        t = p.Value.True(ctx)
+func (p *pair) true(ctx Context) (t bool) {
+    if t = p.Key.true(ctx); !t && !isNull(p.Value) {
+        t = p.Value.true(ctx)
     }
     return
 }
-func (p *pair) Integer(ctx Context) (i int64, e error) { return p.Value.Integer(ctx) }
-func (p *pair) Float(ctx Context) (f float64, e error) { return p.Value.Float(ctx) }
+func (p *pair) int(ctx Context) (i int64, e error) { return p.Value.int(ctx) }
+func (p *pair) float(ctx Context) (f float64, e error) { return p.Value.float(ctx) }
 func (p *pair) refs(ctx Context, v Value) bool { return p.Key.refs(ctx, v) || p.Value.refs(ctx, v) }
 func (p *pair) defs(ctx Context, s ...string) []*def {
     return append(p.Key.defs(ctx, s...), p.Value.defs(ctx, s...)...)
@@ -5218,7 +5224,7 @@ func (_ *pair) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
 type selected struct { Value }
 type expanded struct { Value }
 type unexpanded struct { Value }
-func (u unexpanded) True(ctx Context) bool { return false }
+func (u unexpanded) true(ctx Context) bool { return false }
 func (u unexpanded) traverse(ctx Context) {}
 func (u unexpanded) match(_ Context, _ interface{}) (b bool, s interface{}, a []string) { return }
 func (u unexpanded) refs(ctx Context, v Value) (res bool) {
@@ -5282,7 +5288,7 @@ func (p digital) expand(ctx Context, w facet) (res Value) {
     if w&expandDigits != 0 && w&expandDigitsKept == 0 {
         if res = p.Value.expand(ctx, w); res != p.Value { var b bool
             if false { b = w&(expandAuto|expandDelegate) != 0 && w&expandAutoKept == 0 }
-            if b { if u, y := res.(unexpanded); y { if d, y := p.Value.(*delegate); y { if a, y := d.x.(*auto); y { if t := autoDef(ctx, a.name); t != nil {
+            if b { if u, y := res.(unexpanded); y { if d, y := p.Value.(*delegate); y { if a, y := d.x.(*auto); y { if t := autoDef(ctx, a.name(ctx)); t != nil {
                 warnstack(of(ctx,p), 5, "%v ⇒ %v %v ; %v", a, typeof(u.Value), u.Value, t).debug(32)
             }}}}}
             return
@@ -5321,22 +5327,22 @@ type delegate struct {
     a []Value
     //TODO: patsubst Value, aka lhs%=rhs% like in $(var:lhs%=rhs%)
 }
-func (p *delegate) elemstr(ctx Context, o Object, k elembits) string { return p._elemstr(ctx, o, k, "$") }
 func (p *delegate) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *delegate) Strval(ctx Context) (s string) {
-    if v := p.value(ctx, strval); v != nil { s = v.Strval(ctx) }
+func (p *delegate) strval(ctx Context) (s string) {
+    if v := p.value(ctx, strval); v != nil { s = v.strval(ctx) }
     return
 }
-func (p *delegate) True(ctx Context) (t bool) {
-    if v := p.value(ctx, strval); v != nil { t = v.True(ctx) }
+func (p *delegate) elemstr(ctx Context, o Object, k elembits) string { return p._elemstr(ctx, o, k, "$") }
+func (p *delegate) true(ctx Context) (t bool) {
+    if v := p.value(ctx, strval); v != nil { t = v.true(ctx) }
     return
 }
-func (p *delegate) Integer(ctx Context) (i int64, e error) {
-    if v := p.value(ctx, strval); v != nil { i, e = v.Integer(ctx) }
+func (p *delegate) int(ctx Context) (i int64, e error) {
+    if v := p.value(ctx, strval); v != nil { i, e = v.int(ctx) }
     return
 }
-func (p *delegate) Float(ctx Context) (f float64, e error) {
-    if v := p.value(ctx, strval); v != nil { f, e = v.Float(ctx) }
+func (p *delegate) float(ctx Context) (f float64, e error) {
+    if v := p.value(ctx, strval); v != nil { f, e = v.float(ctx) }
     return
 }
 func (p *delegate) value(ctx Context, w facet) (v Value) {
@@ -5377,7 +5383,7 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
         return
     } else if d, y := p.x.(*def); y {
         if y = len(s) == 0; !y {
-            for _, a := range s { if y = d.name == a; y { break } }
+            for _, a := range s { if y = d.name(ctx) == a; y { break } }
         }
         if y { res = append(res, d) }
     } else {
@@ -5398,10 +5404,11 @@ func (p *delegate) traverse(ctx Context) {
         val.traverse(ctx)
     }
 }
-func (p *delegate) name(ctx Context, sel bool) (name string) {
+func (p *delegate) name(ctx Context) string { return p.name_(ctx, true) }
+func (p *delegate) name_(ctx Context, sel bool) (name string) {
     switch x := p.x.(type) {
-    case Object: name = x.Name(ctx)
-    case *selection: if sel { name = x.Strval(ctx) }
+    case Object: name = x.name(ctx)
+    case *selection: if sel { name = x.strval(ctx) }
     }
     return
 }
@@ -5415,8 +5422,8 @@ func (p *delegate) _elemstr(ctx Context, o Object, k elembits, l string) (s stri
 }
 func (p *delegate) string(ctx Context, o Object, k elembits) (s string) { // source representation
     switch x := p.x.(type) {
-    case *selection: s = x.String() // x.Strval(ctx)
-    case  Object: s = x.Name(ctx)
+    case *selection: s = x.String() // x.strval(ctx)
+    case  Object: s = x.name(ctx)
     default: s = x.String()
     }
     if p.o != nil {
@@ -5467,7 +5474,7 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
         if a, y := p.x.(*auto); !y {
             s = sf("a=%v", p.a)
         } else {
-            s = sf("a=%v ; %v", p.a, autoDef(ctx, a.name))
+            s = sf("a=%v ; %v", p.a, autoDef(ctx, a.name(ctx)))
         }
         w.noted(ctx, p, s)
         u, _ := res.(unexpanded) ; uv := u.Value
@@ -5615,12 +5622,12 @@ func (p *delegate) collect(ctx Context, cache *valcache, bits int) (res []*valca
 type closure struct { delegate }
 func (p *closure) elemstr(ctx Context, o Object, k elembits) string { return p._elemstr(ctx, o, k, "&") }
 func (p *closure) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *closure) Strval(ctx Context) (s string) {
-    if v := p.value(ctx, plain); v != nil { s = v.Strval(ctx) }
+func (p *closure) strval(ctx Context) (s string) {
+    if v := p.value(ctx, plain); v != nil { s = v.strval(ctx) }
     return
 }
-func (p *closure) True(ctx Context) (t bool) {
-    if v := p.value(ctx, plain); v != nil { t = v.True(ctx) }
+func (p *closure) true(ctx Context) (t bool) {
+    if v := p.value(ctx, plain); v != nil { t = v.true(ctx) }
     return
 }
 func (p *closure) value(ctx Context, w facet) (v Value) {
@@ -5663,7 +5670,7 @@ func (p *closure) refs(ctx Context, v Value) (res bool) {
     return
 }
 func (p *closure) resolve(ctx Context, x Value) (res Value) {
-    var name = x.Name(ctx)
+    var name = x.name(ctx)
     if name == "" {
         if false { warnstack(ctx, 5, "%v: closure: empty name - %v %v", p, typeof(p.x), p.x).debug(10) }
         return
@@ -5818,25 +5825,25 @@ func (p *selection) elemstr(ctx Context, o Object, k elembits) (s string) {
     return
 }
 func (p *selection) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *selection) Strval(ctx Context) (s string) {
+func (p *selection) strval(ctx Context) (s string) {
     if n, ok := p.o.(*projectname); ok && n != nil {
         ctx = closureWith(ctx, n.Project.scope)
     }
-    if v := p.value(ctx, ident); v != nil { s = v.Strval(ctx) }
+    if v := p.value(ctx, ident); v != nil { s = v.strval(ctx) }
     return
 }
-func (p *selection) True(ctx Context) (t bool) {
-    if v := p.value(ctx, ident); v != nil { t = v.True(ctx) }
+func (p *selection) true(ctx Context) (t bool) {
+    if v := p.value(ctx, ident); v != nil { t = v.true(ctx) }
     return
 }
-func (p *selection) Integer(ctx Context) (i int64, e error) {
-    if s := p.Strval(ctx); s != "" {
+func (p *selection) int(ctx Context) (i int64, e error) {
+    if s := p.strval(ctx); s != "" {
         i, e = strconv.ParseInt(s, 10, 64)
     }
     return
 }
-func (p *selection) Float(ctx Context) (f float64, e error) {
-    if s := p.Strval(ctx); s != "" {
+func (p *selection) float(ctx Context) (f float64, e error) {
+    if s := p.strval(ctx); s != "" {
         f, e = strconv.ParseFloat(s, 64)
     }
     return
@@ -5906,7 +5913,7 @@ func (p *selection) value(ctx Context, w facet) (res Value) {
 
     var (
         e error
-        s = p.s.Strval(ctx)
+        s = p.s.strval(ctx)
     )
     if p.t.IsSelectProg() {
         if n, y := o.(*projectname); !y {
@@ -6037,10 +6044,10 @@ func (p *PercPattern) elemstr(_ Context, o Object, k elembits) (s string) {
     return
 }
 func (p *PercPattern) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *PercPattern) Strval(ctx Context) (s string) {
-    if p.Prefix != nil { s = p.Prefix.Strval(ctx) }
+func (p *PercPattern) strval(ctx Context) (s string) {
+    if p.Prefix != nil { s = p.Prefix.strval(ctx) }
     s += "%"
-    if p.Suffix != nil { s += p.Suffix.Strval(ctx) }
+    if p.Suffix != nil { s += p.Suffix.strval(ctx) }
     return
 }
 func (p *PercPattern) refs(ctx Context, v Value) bool { return p.Prefix.refs(ctx, v) || p.Suffix.refs(ctx, v) }
@@ -6065,7 +6072,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
     var prefix string
     if !isTrivial(p.Prefix) {
         // FIXME: the prefix could be Glob, Regexp, etc.
-        if prefix = p.Prefix.Strval(ctx); strings.HasPrefix(rep, prefix) {
+        if prefix = p.Prefix.strval(ctx); strings.HasPrefix(rep, prefix) {
             result = prefix
         } else {
             return
@@ -6083,7 +6090,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
         for ok {
             if isTrivial(pp.Prefix) {
                 // does nothing
-            } else if s := pp.Prefix.Strval(ctx); s != "" {
+            } else if s := pp.Prefix.strval(ctx); s != "" {
                 if n := strings.Index(rep[a:], s); n < 0 {
                     break
                 } else {
@@ -6102,7 +6109,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
             } else if pp2, ok = pp.Suffix.(*PercPattern); ok {
                 pp = pp2
                 continue
-            } else if s := pp.Suffix.Strval(ctx); s != "" && strings.HasSuffix(rep[a:], s) {
+            } else if s := pp.Suffix.strval(ctx); s != "" && strings.HasSuffix(rep[a:], s) {
                 if b -= len(s); a < b {
                     stems = append(stems, rep[a:b])
                     result += rep[a:]
@@ -6125,7 +6132,7 @@ func (p *PercPattern) match1(ctx Context, rep string) (full bool, result string,
             }
         }
     } else if a <= b {
-        if s := p.Suffix.Strval(ctx); strings.HasSuffix(rep[a:], s) {
+        if s := p.Suffix.strval(ctx); strings.HasSuffix(rep[a:], s) {
             if b -= len(s); a < b {
                 stems = append(stems, rep[a:b])
                 result = rep
@@ -6147,13 +6154,13 @@ func (p *PercPattern) match(ctx Context, i interface{}) (full bool, result inter
             return p.match1(ctx, filepath.Join(t.dir, t.sub, t.name))  // NOTE: matching the fullname form
         }
     case *File:
-        if full, result, stems = p.match1(ctx, t.name); full || result != "" {
+        if full, result, stems = p.match1(ctx, t.name(ctx)); full || result != "" {
             return // NOTE: done if path fully or partially matched
         } else if t.dir != "" || t.sub != "" {
             return p.match1(ctx, t.fullname()) // NOTE: matching the fullname form
         }
     case Value:
-        return p.match1(ctx, t.Strval(ctx))
+        return p.match1(ctx, t.strval(ctx))
     default:
         unreachable(fmt.Sprintf("perc.match: %T %v", i, i))
     }
@@ -6246,7 +6253,7 @@ func (p *PercPattern) cache(ctx Context, cache *valcache, bits int) (res *valcac
 
     var fix string
     switch t := p.Prefix.(type) {
-    case *barecomp: fix = t.Strval(ctx)
+    case *barecomp: fix = t.strval(ctx)
     case *bareword: fix = t.string
     case *none,nil: fix = ""
     default:
@@ -6258,7 +6265,7 @@ func (p *PercPattern) cache(ctx Context, cache *valcache, bits int) (res *valcac
     if cache = cache.fix(ctx, "%", bits); cache == nil { return }
 
     switch t := p.Suffix.(type) {
-    case *barecomp: fix = t.Strval(ctx)
+    case *barecomp: fix = t.strval(ctx)
     case *bareword: fix = t.string
     case *none,nil: fix = ""
     case *PercPattern: return t.cache(ctx, cache, bits)
@@ -6271,7 +6278,7 @@ func (p *PercPattern) cache(ctx Context, cache *valcache, bits int) (res *valcac
 func (p *PercPattern) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
     var pre, suf string
     switch t := p.Prefix.(type) {
-    case *barecomp: pre = t.Strval(ctx)
+    case *barecomp: pre = t.strval(ctx)
     case *bareword: pre = t.string
     case *none,nil: pre = ""
     default:
@@ -6280,7 +6287,7 @@ func (p *PercPattern) collect(ctx Context, cache *valcache, bits int) (res []*va
     }
 
     switch t := p.Suffix.(type) {
-    case *barecomp: suf = t.Strval(ctx)
+    case *barecomp: suf = t.strval(ctx)
     case *bareword: suf = t.string
     case *none,nil: suf = ""
     case *PercPattern:
@@ -6335,9 +6342,9 @@ func (p *compositePattern) String() (s string) {
     s += "]"
     return
 }
-// func (p *compositePattern) Strval(ctx Context) (s string) {
+// func (p *compositePattern) strval(ctx Context) (s string) {
 //     s += "["
-//     for i, v := range p.vals { if i > 0 { s += " " } ; s += v.Strval(ctx) }
+//     for i, v := range p.vals { if i > 0 { s += " " } ; s += v.strval(ctx) }
 //     s += "]"
 //     return
 // }
@@ -6406,8 +6413,8 @@ func (p *GlobPattern) elemstr(ctx Context, o Object, k elembits) (s string) {
     return
 }
 func (p *GlobPattern) String() (s string) { return p.elemstr(nil, nil, 0) }
-func (p *GlobPattern) Strval(ctx Context) (s string) {
-    for _, comp := range p.components { s += comp.Strval(ctx) }
+func (p *GlobPattern) strval(ctx Context) (s string) {
+    for _, comp := range p.components { s += comp.strval(ctx) }
     return
 }
 func (p *GlobPattern) refs(ctx Context, v Value) (res bool) {
@@ -6438,9 +6445,9 @@ func (p *GlobPattern) patterned(ctx Context) bool { return true }
 func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result interface{}, stems []string) {
     var s string
     switch t := i.(type) {
-    case *File:     s = t.name
     case *filestub: s = t.name
-    case Value:     s = t.Strval(ctx)
+    case *File:     s = t.name(ctx)
+    case Value:     s = t.strval(ctx)
     case string:    s = t
     case []string: if len(t) == 1 { s = t[0] } else { return }
     default:
@@ -6449,7 +6456,7 @@ func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result inter
     }
 
     var err error
-    var pattern = p.Strval(ctx)
+    var pattern = p.strval(ctx)
     if full, stems, err = globMatch(ctx, pattern, s); full { result = s }
     if false && p.String() == "*.def.in" { info(ctx, "%v %v ; %v %v %v", p, s, full, stems, err).debug(1) }
     if err != nil { errostack(at(ctx,p.position), 3, "%v: glob match: %v", p, err).debug(16) }
@@ -6515,7 +6522,7 @@ func (p *GlobPattern) cache(ctx Context, cache *valcache, bits int) (res *valcac
     var fix string
     for _, comp := range p.components {
         switch t := comp.(type) {
-        case *barecomp, *bareword: fix = t.Strval(ctx)
+        case *barecomp, *bareword: fix = t.strval(ctx)
             if cache = cache.fix(ctx, fix, bits); cache == nil { return }
 
         case *GlobMeta, *GlobRange:
@@ -6558,15 +6565,15 @@ func (p *GlobPattern) collect(ctx Context, cache *valcache, bits int) (res []*va
 
 type RegexpPattern struct { valbase ; *regexp.Regexp }
 func (p *RegexpPattern) String() string { return "{"+p.Regexp.String()+"}" }
-func (p *RegexpPattern) Strval(ctx Context) (s string) { return p.Regexp.String() }
+func (p *RegexpPattern) strval(ctx Context) (s string) { return p.Regexp.String() }
 func (p *RegexpPattern) patterned(ctx Context) bool { return true }
 func (p *RegexpPattern) match(ctx Context, i interface{}) (full bool, result interface{}, stems []string) {
     if p.Regexp != nil {
         var str string
         switch t := i.(type) {
-        case *File:     str = t.name
         case *filestub: str = t.name
-        case Value:  str = t.Strval(ctx)
+        case *File:     str = t.name(ctx)
+        case Value:  str = t.strval(ctx)
         case string: str = t
         case []string: if len(t) == 1 { str = t[0] } else { return }
         default:
@@ -6643,10 +6650,10 @@ type Scoper interface {
 }
 
 type namescoper struct {
-    name string
+    name_ string
     scope *Scope
 }
-func (ns *namescoper) Name() string { return ns.name }
+func (ns *namescoper) name() string { return ns.name_ }
 func (ns *namescoper) Scope() *Scope { return ns.scope }
 
 func values(args ...interface{}) (elems []Value) {
@@ -6721,13 +6728,13 @@ func xmerge(ctx Context, w facet, values ...Value) (res []Value) {
 }
 
 func trueVal(ctx Context, v Value, i bool) (res bool) {
-    if res = i; v != nil { res = v.True(ctx) }
+    if res = i; v != nil { res = v.true(ctx) }
     return
 }
 
 func int64Val(ctx Context, v Value, i int64) (res int64, err error) {
     if res = i; v != nil {
-        if i, err = v.Integer(ctx); err == nil { res = i }
+        if i, err = v.int(ctx); err == nil { res = i }
     }
     return
 }
@@ -6735,7 +6742,7 @@ func int64Val(ctx Context, v Value, i int64) (res int64, err error) {
 func intVal(ctx Context, v Value, i int) (res int, e error) {
     if res = i; v != nil {
         var t int64
-        if t, e = v.Integer(ctx); e == nil { res = int(t) }
+        if t, e = v.int(ctx); e == nil { res = int(t) }
     }
     return
 }
@@ -6743,7 +6750,7 @@ func intVal(ctx Context, v Value, i int) (res int, e error) {
 func uintVal(ctx Context, v Value, i uint32) (res uint32, e error) {
     if res = i; v != nil {
         var t int64
-        if t, e = v.Integer(ctx); e== nil { res = uint32(t) }
+        if t, e = v.int(ctx); e== nil { res = uint32(t) }
     }
     return
 }
@@ -6945,8 +6952,7 @@ func EscapeChar(s string) string {
 func makeArgumented(val Value, args... Value) *argumented { return &argumented{val, args} }
 func makeAnswer(pos Position, v bool) *answer { return &answer{boolean{valbase{pos},v}} }
 func makeOption(pos Position, v bool) *option { return &option{boolean{valbase{pos},v}} }
-func makeFlag(pos Position, s string) *flag     { return &flag{valbase{pos}, &bareword{valbase{pos},s}} }
-func makeFlagValue(pos Position, v Value) *flag { return &flag{valbase{pos}, v} }
+func makeFlag(pos Position, s string) flag    { return flag{&bareword{valbase{pos},s}} }
 
 func MakeNull(pos Position) *null { return &null{valbase{pos}} }
 func MakeNone(pos Position) *none { return &none{valbase{pos}, nil} }
@@ -7160,7 +7166,7 @@ func forth(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
         if true { return } else { fail(v.Position(), "unsafe invocation") }
     } else if a, y := v.(*auto); y && ic.v == v {
         if true { return unexpanded{a}, nil, false } else {
-            errostack(of(ctx,v), 10, "invocation loop detected (%d): %v ; %v", n, v, autoDef(ctx, a.name)).debug(100)
+            errostack(of(ctx,v), 10, "invocation loop detected (%d): %v ; %v", n, v, autoDef(ctx, a.name(ctx))).debug(100)
             if true { return } else { fail(v.Position(), "unsafe invocation") }
         }
     } else if d, y := v.(*def); y && ic.v == v {

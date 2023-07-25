@@ -113,16 +113,16 @@ func (ctx *configureExecutor) execute(project *Project, entry Entry) (result *Pr
         erro(ctx, "%v: %v", entry, val).debug(1)
     }
 
-    var s = entry.Target().Strval(ctx)
+    var s = entry.Target().strval(ctx)
     if d := project.scope.FindDef(s); d != nil { okay = true // good!
         if true && testPromptConfiguration { noted(of(ctx,d), "%v: %p %v", project, d, d).debug(1) }
         if _, y := ctx.defs[s]; y { return } else { ctx.defs[s] = struct{}{} }
         if d.value == nil {
             // Set <nil> value with exec-assign ('!=') to a None value.
-            fmt.Fprintf(ctx.writer, "%v !=\n", d.name)
+            fmt.Fprintf(ctx.writer, "%v !=\n", d.name(ctx))
         } else {
             var s = elemstr(ctx, d, d.value, elemNoBrace)
-            fmt.Fprintf(ctx.writer, "%v = %v\n", d.name, s)
+            fmt.Fprintf(ctx.writer, "%v = %v\n", d.name(ctx), s)
         }
     } else {
         erro(ctx, "`%s` unconfigured", s).debug(1)
@@ -197,7 +197,7 @@ func configureBoolValue(ctx Context) (result bool) {
     if d = autoVal(ctx, "-"); d == nil { return }
     for i, v := range merge(d.expand(ctx, plain)) {
         if v == nil { continue } else {
-            result = (i == 0 || result) && v.True(ctx)
+            result = (i == 0 || result) && v.true(ctx)
         }
         if !result { break }
     }
@@ -234,7 +234,7 @@ func configurePackage(ctx Context, _ Value, args ...Value) (result Value) {
     var t packagetype = packageSmart
     for _, arg := range args { switch a := arg.(type) {
     case *pair:
-        switch key, val := a.Key.Strval(ctx), a.Value.Strval(ctx); key {
+        switch key, val := a.Key.strval(ctx), a.Value.strval(ctx); key {
         case "type":
             switch val {
             case "", "smart": t = packageSmart
@@ -247,7 +247,7 @@ func configurePackage(ctx Context, _ Value, args ...Value) (result Value) {
             prompt(ctx, "%v: package: `%v` unknown option", key)
         }
     default:
-        names = append(names, a.Strval(ctx))
+        names = append(names, a.strval(ctx))
     }}
     for _, name := range names { if info, y := u.configuration.packages[name]; !y {
         var err error
@@ -331,7 +331,7 @@ func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName i
     if !verbose && !commOpts.silent { verbose = !commOpts.silent }
 
     for _, par := range prog.params {
-        switch par.name {
+        switch par.name(ctx) {
         case "LANG":   params = append(params, configureParam(ctx, "LANG",   ctx.program().language))
         case "TARGET": params = append(params, configureParam(ctx, "TARGET", target))
         case "VALUE":  params = append(params, configureParam(ctx, "VALUE",  hyphen))
@@ -346,15 +346,15 @@ ForInParams:
             return
         }
 
-        var key, value = p.Key.Strval(ctx), p.Value
+        var key, value = p.Key.strval(ctx), p.Value
         if _, y = value.(*Compound); y {
-            value = MakeString(ctx.Position(), value.Strval(ctx))
+            value = MakeString(ctx.Position(), value.strval(ctx))
         } else if value != nil {
             value = value.expand(ctx, plain)
         }
 
-        for _, par := range prog.params { if par.name == key || par.name == strings.ToUpper(key) {
-            params = append(params, configureParam(ctx, par.name, value))
+        for _, par := range prog.params { if s := par.name(ctx); s == key || s == strings.ToUpper(key) {
+            params = append(params, configureParam(ctx, par.name(ctx), value))
             continue ForInParams
         }}
 
@@ -362,7 +362,7 @@ ForInParams:
             if false && verbose { prompt(ctx, "%s", p.Value) }
         } else if true {
             var params []string
-            for _, p := range prog.params { params = append(params, p.name) }
+            for _, p := range prog.params { params = append(params, p.name(ctx)) }
 
             var t = autoVal(ctx,"@")
             ctx = at(ctx, a.Position())
@@ -397,7 +397,7 @@ ForInParams:
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
 
-        if false && target.Strval(ctx) == "LZMA_VERSION" {
+        if false && target.strval(ctx) == "LZMA_VERSION" {
             info(ctx, "configure: %v: %v, %T %v", entry, reses, result, result).debug(1)
         }
 
@@ -421,10 +421,10 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
     if options.traceConfig { defer un(trace(t_config, "configureDo")) }
 
     var opName string
-    if f, y := name.(*flag); y {
-        opName = f.name.Strval(ctx)
+    if f, y := name.(flag); y {
+        opName = f.Value.strval(ctx)
     } else {
-        opName = name.Strval(ctx)
+        opName = name.strval(ctx)
     }
     if opName == "" {
         erro(ctx, "empty configure name: %v (%T)", name, name).debug(1)
@@ -455,7 +455,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         }
     } else {
         var s string
-        for _, info := range infos { s += info.Strval(ctx) }
+        for _, info := range infos { s += info.strval(ctx) }
         if s != "" { prompt(ctx, "%s …", s) }
     }
     defer func() {
@@ -465,7 +465,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
             prompt(ctx, "… <nil>\n")
         } else if isNone(result) {
             prompt(ctx, "… <none>\n")
-        } else if s := result.Strval(ctx); s == "" {
+        } else if s := result.strval(ctx); s == "" {
             prompt(ctx, "… ? (%s %v)\n", typeof(result), result)
         } else {
             prompt(ctx, "… %v\n", s)
@@ -508,7 +508,7 @@ func (ctx *modifier_configure) x(aa ...Value) (result interface{}) {
         if program.project.name == "configure" {
             if o := program.project.scope.Lookup(dotConfigure); !isNull(o) {
                 if d, ok := o.(*def); ok && !isNull(d.value) && !isNone(d.value) {
-                    if val := d.value.True(ctx); val {
+                    if val := d.value.true(ctx); val {
                         program.project.configure = program.project
                         if opts.verbose {
                             info(ctx, "self-configure project enabled: %v", ctx.Project()).debug(1)
@@ -530,7 +530,7 @@ func (ctx *modifier_configure) x(aa ...Value) (result interface{}) {
     }
 
     var d *def
-    var name = target.Strval(ctx)
+    var name = target.strval(ctx)
     if d = program.scope.FindDef(name); d == nil {
         var alt Object
         d, alt = program.project.scope.define(ctx, DefConfig, name, nil)
@@ -577,15 +577,14 @@ ForConfig:
 
         var ( name Value ; para []Value )
         switch arg := a.(type) {
+        case flag: name = arg.Value
         case *argumented:
-            if flag, okay := arg.Value.(*flag); !okay {
+            if flag, okay := arg.Value.(flag); !okay {
                 erro(of(ctx,a), " `%v` is unsupported value (%T)", arg.Value, arg.Value).debug(1)
                 return
             } else {
                 name, para = flag, arg.args
             }
-        case *flag:
-            name = arg.name
         default:
             erro(of(ctx,a), " `%v` is unsupported (%T)", a, a).debug(1)
             return
@@ -691,7 +690,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
             s.error = traveTargetNotDefinedFile
             s.depend = depend
         } else if true {
-            prompt(ctx, "%v: not defined as file\n", target.Strval(ctx))
+            prompt(ctx, "%v: not defined as file\n", target.strval(ctx))
             erro(ctx, "(%T) %v", target.Value, target.Value)
             errostack(ctx, 8, "").debug(64)
         }
@@ -744,7 +743,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
     }
     if dealArgs != nil { args = dealArgs(args, &data) }
     if dealData != nil { for _, arg := range args {
-        if str := arg.Strval(ctx); str == "" {
+        if str := arg.strval(ctx); str == "" {
             continue
         } else if err := dealData(str, &data); err != nil {
             erro(ctx, "convert: %v", err).debug(1)
@@ -830,7 +829,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
 
         var configs = make(map[string]*def)
         for _, a := range args {
-            var name = a.Strval(ctx)
+            var name = a.strval(ctx)
             if _, ok := configs[name]; ok {
                 continue
             } else if obj := project.resolveObject(ctx, name); obj == nil {
@@ -841,13 +840,13 @@ func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
             }
         }
         for _, c := range project.configs {
-            var name = c.Name(ctx)
+            var name = c.name(ctx)
             if def, ok := project.scope.Lookup(name).(*def); ok {
                 configs[name] = def
             }
         }
         for _, def := range configs {
-            fmt.Fprintf(out, "#undef %s\n", def.name)
+            fmt.Fprintf(out, "#undef %s\n", def.name(ctx))
         }
         return args
     }
@@ -904,7 +903,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
         erro(ctx, " target '@' is undefined").debug(1)
         return
     } else {
-        outFile = target.Strval(ctx)
+        outFile = target.strval(ctx)
     }
 
     if ctx.makePath {
@@ -944,13 +943,13 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
                 sources = append(sources, a...)
             }
         case *Path:
-            var s = d.Strval(ctx)
+            var s = d.strval(ctx)
             err = walkFiles(ctx, s, pats, func(file *File, err error) error {
                 if err == nil { sources = append(sources, file) }
                 return err
             })
         default:
-            var s = d.Strval(ctx)
+            var s = d.strval(ctx)
             dir := filepath.Dir(s)
             name := filepath.Base(s)
             file := stat(ctx, name, "", dir)
@@ -974,7 +973,7 @@ ForSources:
         var (s string; f *os.File)
         switch v := source.(type) {
         case *File: s = v.fullname()
-        default: s = v.Strval(ctx)
+        default: s = v.strval(ctx)
         }
         if f, err = os.Open(s); err != nil {
             prompt(ctx, "%v: (configure) %v: %v\n", pos, source, err)

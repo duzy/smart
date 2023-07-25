@@ -19,27 +19,24 @@ import (
 )
 
 // Value returned by (plain) modifier.
-type Plain struct {
-        Raw
-        name string
-}
-func (p *Plain) Name(_ Context) (s string) { return p.name }
+type Plain struct { Raw ; name_ string }
 func (p *Plain) String() (s string) {
         var value = strings.Replace(p.string, "'", "\\'", -1)
-        if p.name == "" {
+        if p.name_ == "" {
                 s = fmt.Sprintf("(plain '%s')", value)
         } else {
-                s = fmt.Sprintf("((plain %s) '%s')", p.name, value)
+                s = fmt.Sprintf("((plain %s) '%s')", p.name_, value)
         }
         return
 }
 func (p *Plain) expand(_ Context, _ facet) (val Value) { return /* &p.Raw */p }
+func (p *Plain) name(_ Context) string { return p.name_ }
 func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         if a, y := v.(*Plain); y {
-                if p.name == a.name && p.string == a.string {
+                if p.name_ == a.name(ctx) && p.string == a.string {
                         res = cmpEqual
                 }
-        } else if v.Strval(ctx) == p.string {
+        } else if v.strval(ctx) == p.string {
                 res = cmpEqual
         }
         return
@@ -71,7 +68,7 @@ func (_ *plainInt) Evaluate(ctx Context, args ...Value) (result Value, err error
                 opts plainOpts
         )
         if args = parseOpts(ctx, &opts, plain, args...); len(args) > 0 {
-                name = args[0].Strval(ctx)
+                name = args[0].strval(ctx)
                 program.language = name
         }
         if str, err = multiline(ctx, program.recipes...); err != nil {
@@ -92,7 +89,7 @@ func multiline(ctx Context, recipes... Value) (res string, err error) {
                 w = new(bytes.Buffer)
         )
         for n, recipe := range recipes {
-                if fmt.Fprint(w, recipe.Strval(ctx)); n < x { fmt.Fprint(w, "\n") }
+                if fmt.Fprint(w, recipe.strval(ctx)); n < x { fmt.Fprint(w, "\n") }
         }
         res = w.String()
         return
@@ -302,7 +299,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                         err = ErrorIllJson; break LoopJSON
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
-                                        if s = k.Strval(ctx); s != JsonObject {
+                                        if s = k.strval(ctx); s != JsonObject {
                                                 err = ErrorIllJson; break LoopJSON
                                         }
                                 }
@@ -313,7 +310,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                         err = ErrorIllJson; break LoopJSON
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
-                                        if s = k.Strval(ctx); s != JsonArray {
+                                        if s = k.strval(ctx); s != JsonArray {
                                                 err = ErrorIllJson; break LoopJSON
                                         }
                                 }
@@ -332,7 +329,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                         node = stack[x-1]
                         if k := node.Get(0); k != nil {
                                 var kind string
-                                if kind = k.Strval(ctx); kind == JsonArray {
+                                if kind = k.strval(ctx); kind == JsonArray {
                                         node.Append(sv); continue
                                 } else if kind != JsonObject {
                                         err = ErrorIllJson; break LoopJSON
@@ -383,7 +380,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                 }
                 if node != nil && value != nil {
                         if k := node.Get(0); k != nil {
-                                if s = k.Strval(ctx); s != JsonArray {
+                                if s = k.strval(ctx); s != JsonArray {
                                         err = ErrorIllJson; break LoopJSON
                                 }
                         }

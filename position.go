@@ -56,7 +56,7 @@ type TokFile struct {
 	*golang.File
 }
 
-func (f *TokFile) String() string {
+func (f *TokFile) string() string {
 	return f.Name() //fmt.Sprintf("{%s}", f.Name())
 }
 

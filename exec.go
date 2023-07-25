@@ -458,7 +458,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) (status int, err error) {
           erro(at(ctx,lpos), "%s", obj)
           if !isNull(obj) {
             if val := obj.expand(ctx.closure().pc(), plain); !isNull(val) {
-              erro(at(ctx,lpos), "%s -> %v", obj.Name(ctx), val)
+              erro(at(ctx,lpos), "%s -> %v", obj.name(ctx), val)
             }
           }
           erro(ctx, "%v", ctx).debug(16)
@@ -623,13 +623,13 @@ func (_ *execResult) collect(ctx Context, cache *valcache, bits int) (res []*val
     errostack(ctx, 5, "cache unsupported").debug(32)
     return
 }
-func (p *execResult) True(ctx Context) (res bool) {
+func (p *execResult) true(ctx Context) (res bool) {
   res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
   return
 }
-func (p *execResult) Integer(ctx Context) (i int64, _ error) { return int64(p.Status), nil }
-func (p *execResult) Float(ctx Context) (f float64, _ error) { return float64(p.Status), nil }
-func (p *execResult) Strval(ctx Context) (s string) {
+func (p *execResult) int(ctx Context) (i int64, _ error) { return int64(p.Status), nil }
+func (p *execResult) float(ctx Context) (f float64, _ error) { return float64(p.Status), nil }
+func (p *execResult) strval(ctx Context) (s string) {
   if p.Stdout.Buf != nil { s = p.Stdout.Buf.String() }
   return
 }
@@ -992,7 +992,7 @@ func (exe *execContext) exec(cmd, opt string, err error) {
         prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, e)
       }
       if exe.logFileName != nil && !exe.logPos.IsValid() {
-        prompt(ctx, "%v:1: see logs for \"%s\"\n", exe.logFileName.Strval(ctx), exe.target)
+        prompt(ctx, "%v:1: see logs for \"%s\"\n", exe.logFileName.strval(ctx), exe.target)
       }
       errostack(ctx, 6, `stamp "%v" failed`, exe.target).debug(10)
       return
@@ -1024,7 +1024,7 @@ func (exe *execContext) exec(cmd, opt string, err error) {
     }
   } ()
 
-  if exe.logFileName != nil { exe.log = &ExecLog{ filename: exe.logFileName.Strval(ctx) } }
+  if exe.logFileName != nil { exe.log = &ExecLog{ filename: exe.logFileName.strval(ctx) } }
   if exe.bufStdout || exe.retStdout { exe.Stdout.Buf = new(bytes.Buffer) }
   if exe.bufStderr || exe.retStderr { exe.Stderr.Buf = new(bytes.Buffer) }
   if exe.tieStdout { exe.Stdout.Tie = stdout }
@@ -1149,7 +1149,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   } else if exe.stamp && exe.target.patterned(ctx) {
     errostack(ctx, 5, "target is pattern: %v", exe.target).debug(64)
     return
-  } else if _, ok := exe.target.Value.(*flag); ok {
+  } else if _, ok := exe.target.Value.(flag); ok {
     // no stamp required for Flags
   } else if _, ok = toFile(exe.target.Value); !ok {
     // no stamp required for non-file targets
@@ -1171,10 +1171,10 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   for i, v := range args {
     var s string
     if p.contained && i == 0 {
-      if s = v.Strval(ctx); s == "shell" {
+      if s = v.strval(ctx); s == "shell" {
         cmd = defaultShell
       }
-    } else if s = strings.TrimSpace(v.Strval(ctx)); s != "" {
+    } else if s = strings.TrimSpace(v.strval(ctx)); s != "" {
       exe.args = append(exe.args, s)
     }
   }
@@ -1198,9 +1198,9 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       if obj := exe.container.resolveObject(ctx, name); obj != nil {
         if d, _ := obj.(*def); d != nil {
           if v := d.invoke(ctx, plain, nil, nil); v != nil {
-            if str = v.Strval(ctx); str == "-" {
+            if str = v.strval(ctx); str == "-" {
               /*if v, err = def.DiscloseValue(exe.container); err == nil && v != nil {
-                  if str, err = v.Strval(ctx); str == "" { str = "-" }
+                  if str, err = v.strval(ctx); str == "" { str = "-" }
                   prompt(ctx, "%v: %v (%v)\n", name, str, def)
                 }*/
             }
@@ -1264,7 +1264,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
   for _, recipe := range recipes {
     if !recipePos.IsValid() { recipePos = recipe.Position() }
 
-    var str = recipe.Strval(ctx)
+    var str = recipe.strval(ctx)
     if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
       source += "\n" // an empty line
       continue

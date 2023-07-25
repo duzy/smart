@@ -46,6 +46,30 @@ func TestVariantTarget(t *testing.T) {
 	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/modules/target", "testtarget")
+
+	for k, v := range map[string]string{
+		"asm": "c",
+		"c": "c",
+		"s": "c",
+		"S": "c",
+		"cpp": "c++",
+		"cxx": "c++",
+		"c++": "c++",
+		"cc": "c++",
+		"cu": "cuda",
+		"cuda": "cuda",
+		"cuh": "cuda",
+		"m": "objc",
+		"mm": "objc++",
+		"swift": "swift",
+	} { if d := ctx.def("lang."+k); d == nil {
+		ctx.err("lang."+k)
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != v {
+		ctx.err("%v", d)
+	}}
+
 	if d := ctx.def("host.triple"); d == nil {
 		ctx.err("host.triple")
 	} else if d.value == nil {
@@ -83,7 +107,7 @@ func TestVariantTarget(t *testing.T) {
 		ctx.err("use.*")
 	} else if usev = v.String(); usev == "" {
 		ctx.err("%T %v", v, v)
-	} else if uses = v.Strval(ctx); uses == "" {
+	} else if uses = v.strval(ctx); uses == "" {
 		ctx.err("%T %v -> %s", v, v, uses)
 	}
 
@@ -175,39 +199,39 @@ func TestVariantTarget(t *testing.T) {
 		ctx.err("neg1")
 	} else if v.String() != "!foobar" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s != "!foobar" {
+	} else if s := v.strval(ctx); s != "!foobar" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if t, y := v.(*negative); !y {
 		ctx.err("%T %v", v, v)
-	} else if t.True(ctx) {
+	} else if t.true(ctx) {
 		ctx.err("%T %v", v, v)
 	}
 	if v := ctx.get("neg2"); v == nil {
 		ctx.err("neg2")
 	} else if v.String() != "a!foobar" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s != "a!foobar" {
+	} else if s := v.strval(ctx); s != "a!foobar" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 	if v := ctx.get("neg3"); v == nil {
 		ctx.err("neg3")
 	} else if v.String() != "&(a!foobar)" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s != "xxx" {
+	} else if s := v.strval(ctx); s != "xxx" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 	if v := ctx.get("neg4", "xxx"); v == nil {
 		ctx.err("neg4")
 	} else if v.String() != "&(a!xxx)" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s != "" {
+	} else if s := v.strval(ctx); s != "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 	if v := ctx.get("neg4", "foobar"); v == nil {
 		ctx.err("neg4")
 	} else if v.String() != "&(a!foobar)" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s != "xxx" {
+	} else if s := v.strval(ctx); s != "xxx" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
@@ -216,7 +240,7 @@ func TestVariantTarget(t *testing.T) {
 		ctx.err("cflags")
 	} else if cflagv = v.String(); cflagv == "" {
 		ctx.err("%T %v", v, v)
-	} else if cflags = v.Strval(ctx); cflags == "" {
+	} else if cflags = v.strval(ctx); cflags == "" {
 		ctx.err("%T %v -> %s", v, v, cflags)
 	}
 
@@ -301,7 +325,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", v)
 	} else if s != "$(foreach(-unique) "+s1+" "+s2+","+s3 {
 		ctx.err("%v", v)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%v ; %v", s, v)
 	} else if strings.Count(s, "-xxx") != 1 {
 		ctx.err("%v ; %v", s, v)
@@ -354,7 +378,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", v)
 	} else if s != "$(foreach(-unique) "+s1+" "+s2+","+s3 {
 		ctx.err("%v", v)
-	} else if s := v.Strval(ctx); s != "" {
+	} else if s := v.strval(ctx); s != "" {
 		ctx.err("%v ; %v", s, v)
 	}
 	if v := ctx.get(".flag", []string{"a", "b", "c"}, "-x", "-y"); v == nil {
@@ -385,7 +409,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", v)
 	} else if s != "$(foreach(-unique) "+s1+" "+s2+","+s3 {
 		ctx.err("%v", v)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%v ; %v", s, v)
 	} else if strings.Count(s, "-yxx") != 1 {
 		ctx.err("%v ; %v", s, v)
@@ -453,7 +477,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", d1.value)
 	} else if strings.Count(s, flag1("cppflags")) != 1 {
 		ctx.err("%v", d1.value)
-	} else if s1, s2 := d1.value.Strval(ctx), d2.value.Strval(ctx); s1 != s2 {
+	} else if s1, s2 := d1.value.strval(ctx), d2.value.strval(ctx); s1 != s2 {
 		ctx.err("%v", s1)
 		ctx.err("%v", s2)
 		ctx.err("%v", d1.value)
@@ -527,19 +551,19 @@ func TestApp(t *testing.T) {
 		noted(ctx, "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag1("cflags"); strings.Count(s, t) != 1 {
 		noted(ctx, "%v", t) ; ctx.err("%v", v2)
-	} else if s1, s2 := v1.Strval(ctx), v2.Strval(ctx); s1 != s2 {
+	} else if s1, s2 := v1.strval(ctx), v2.strval(ctx); s1 != s2 {
 		ctx.err("%T %v -> %s", v2, v2, s)
 		ctx.err("%T %v -> %s", v2, v2, s)
 	}
 
 	if v := ctx.get("std.fxxbxx"); v == nil {
 		ctx.err("std.fxxbxx")
-	} else if s := v.Strval(ctx); s != "stdfxxbxx1" {
+	} else if s := v.strval(ctx); s != "stdfxxbxx1" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 	if v := ctx.get("-std.fxxbxx"); v == nil {
 		ctx.err("-std.fxxbxx")
-	} else if s := v.Strval(ctx); s != "stdfxxbxx2" {
+	} else if s := v.strval(ctx); s != "stdfxxbxx2" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 	if v1, v2 := ctx.get("cflags", "fxxbxx"), ctx.get("xflags", "fxxbxx"); v1 == nil || v2 == nil {
@@ -625,9 +649,9 @@ func TestApp(t *testing.T) {
 		noted(ctx, "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag3("cflags", "fxxbxx"); strings.Count(s, t) != 1 {
 		noted(ctx, "%v", t) ; ctx.err("%v", v2)
-	} else if s1 := v1.Strval(ctx); s1 == "" {
+	} else if s1 := v1.strval(ctx); s1 == "" {
 		ctx.err("%T %v -> %s", v2, v2, s1)
-	} else if s2 := v2.Strval(ctx); s2 == "" {
+	} else if s2 := v2.strval(ctx); s2 == "" {
 		ctx.err("%T %v -> %s", v2, v2, s2)
 	} else if !validFlags(ctx, v1, s1) {
 		ctx.err("%s", s1)
@@ -667,19 +691,19 @@ func TestApp(t *testing.T) {
 		ctx.err(".test.1")
 	} else if s := v.String(); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "" {
-		ctx.err("%T %v -> %s", v, v, s)
+	} else if s := v.strval(ctx); s == "" {
+		ctx.err("%T %v ⇒ %s", v, v, s)
 	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
 	}}} else if !strings.Contains(s, "-std=fxxbar") {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
+		ctx.err("%T %v ⇒ %s", v, v, s)
 	}
 
 	if v := ctx.get(".test.2"); v == nil {
 		ctx.err(".test.2")
 	} else if s := v.String(); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
@@ -691,7 +715,7 @@ func TestApp(t *testing.T) {
 		ctx.err(".test.3")
 	} else if s := v.String(); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
@@ -703,7 +727,7 @@ func TestApp(t *testing.T) {
 		ctx.err(".test.4")
 	} else if s := v.String(); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
@@ -713,7 +737,7 @@ func TestApp(t *testing.T) {
 		ctx.err(".test.5")
 	} else if s := v.String(); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo2 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
@@ -723,7 +747,7 @@ func TestApp(t *testing.T) {
 		ctx.err(".test.6")
 	} else if s := v.String(); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo3 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
@@ -737,7 +761,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%v", s)
 	} else if strings.Count(s, flag3("-l", "foo")) != 1 {
 		ctx.err("%v", s)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo4 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
@@ -749,7 +773,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%T %v", v, v)
 	} else if strings.Count(s, flag3("loadlibes", "foo")) != 1 {
 		ctx.err("%v", s)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo5 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
@@ -761,7 +785,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%T %v", v, v)
 	} else if strings.Count(s, flag3("loadlibs", "foo")) != 1 {
 		ctx.err("%v", s)
-	} else if s := v.Strval(ctx); s == "" {
+	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo6 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)

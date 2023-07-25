@@ -21,7 +21,7 @@ type use struct {
         opts useOpts
 }
 
-func (_ *use) Kind() Kind { return KindUse }
+func (_ *use) kind() Kind { return KindUse }
 func (p *use) refs(ctx Context, v Value) bool {
         for _, a := range p.params {
                 if a.refs(ctx, v) { return true }
@@ -81,7 +81,7 @@ func (p *use) cmp(ctx Context, v Value) (res cmpres) {
 func (p *use) patterned(ctx Context) bool { return false }
 func (p *use) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
 func (p *use) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
-func (p *use) True(ctx Context) bool { return p.project != nil }
+func (p *use) true(ctx Context) bool { return p.project != nil }
 func (p *use) updated(ctx Context) (res bool) {
         if entry := p.project.defaultEntry; entry != nil {
                 res = entry.updated(ctx)
@@ -101,7 +101,7 @@ func (p *use) String() string {
                 return fmt.Sprintf("%s", p.project.name)
         }
 }
-func (p *use) Strval(ctx Context) (s string) {
+func (p *use) strval(ctx Context) (s string) {
         s = fmt.Sprintf("use %s %v", p.project.name, p.params)
         return
 }
@@ -119,13 +119,13 @@ func (_ *use) collect(ctx Context, cache *valcache, bits int) (res []*valcache) 
 }
 
 type uselist struct {
-        name string
+        name_ string
         scope *Scope
         owner *Project
         list []*use
 }
-func (_ *uselist) Kind() Kind { return KindUseList }
-func (p *uselist) Name(_ Context) string { return p.name }
+func (_ *uselist) kind() Kind { return KindUseList }
+func (p *uselist) name(_ Context) string { return p.name_ }
 func (p *uselist) DeclScope() *Scope { return p.scope }
 func (p *uselist) OwnerProject() *Project { return p.owner }
 func (p *uselist) Position() (pos Position) {
@@ -142,7 +142,7 @@ func (p *uselist) String() string {
         }
         return fmt.Sprintf("%s", s)
 }
-func (p *uselist) Strval(ctx Context) (s string) {
+func (p *uselist) strval(ctx Context) (s string) {
         for i, elem := range p.list {
                 if i > 0 { s += " " }
                 s += elem.project.name
@@ -150,9 +150,9 @@ func (p *uselist) Strval(ctx Context) (s string) {
         s = fmt.Sprintf("[%v]", s)
         return
 }
-func (p *uselist) True(ctx Context) bool { return len(p.list) > 0 }
-func (p *uselist) Integer(ctx Context) (i int64, _ error) { return int64(len(p.list)), nil }
-func (p *uselist) Float(ctx Context) (f float64, _ error) { return 0, nil }
+func (p *uselist) true(ctx Context) bool { return len(p.list) > 0 }
+func (p *uselist) int(ctx Context) (i int64, _ error) { return int64(len(p.list)), nil }
+func (p *uselist) float(ctx Context) (f float64, _ error) { return 0, nil }
 func (p *uselist) updated(ctx Context) (res bool) {
         for _, elem := range p.list {
                 res = res || elem.updated(ctx)
@@ -196,11 +196,8 @@ func (p *uselist) delete(ctx Context) (files []*File, err error) {
         return
 }
 func (p *uselist) cmp(ctx Context, v Value) (res cmpres) {
-        if a, ok := v.(*uselist); ok {
-                assert(ok, "value is not uselist")
-                if p.name == a.name && p.owner == a.owner {
-                        res = cmpEqual
-                }
+        if a, y := v.(*uselist); y { assert(y, "value is not uselist")
+                if p.name_ == a.name_ && p.owner == a.owner { res = cmpEqual }
         }
         return
 }
@@ -233,7 +230,7 @@ func (p *uselist) expand(ctx Context, w facet) (res Value) {
                 list = append(list, v.(*use))
         }
         if num > 0 {
-                res = &uselist{ p.name, p.scope, p.owner, list }
+                res = &uselist{ p.name_, p.scope, p.owner, list }
         } else {
                 res = p
         }
@@ -254,22 +251,14 @@ func (p *uselist) append(ctx Context, proj *Project, params []Value, opts useOpt
 }
 
 func (p *uselist) Get(ctx Context, name string) (result Value, err error) {
-        var list []Value
-        for _, usee := range p.list {
-                if usee.opts.noVars { continue }
-                //if _, obj := usee.project.scope.Find("use."+name); !isNull(obj) {
-                if obj := usee.project.scope.Lookup("use."+name); !isNull(obj) {
-                        list = append(list, obj)
+        var vals []Value
+        var n = "use."+name
+        for _, u := range p.list { if u.opts.noVars { continue }
+                if o := u.project.scope.Lookup(n); o != nil {
+                        vals = append(vals, o)
                 }
         }
-        if err != nil {
-                // failed
-        } else if len(list) > 0 {
-                result = ease(ctx, list)
-        } else {
-                result = MakeNone(p.Position())
-        }
-        return
+        return ease(ctx, vals), nil
 }
 
 func (p *uselist) invoke(ctx Context, w facet, o, a []Value) (result Value) {

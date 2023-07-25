@@ -29,7 +29,7 @@ func TestValueModifier(t *testing.T) {
 		ctx.err("val")
 	} else if v.String() != "foobar" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.Strval(ctx); s != "foobar" {
+	} else if s := v.strval(ctx); s != "foobar" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
@@ -41,7 +41,7 @@ func TestValueModifier(t *testing.T) {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v -> %v", v, v, l.Elems)
-	} else if s := v.Strval(ctx); s != "foobar test_mod_1" {
+	} else if s := v.strval(ctx); s != "foobar test_mod_1" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 

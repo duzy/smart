@@ -678,7 +678,7 @@ func CommandLine() {
     for i, v := range result {
       if s := ""; isNull(v) {
         s = "<nil>"
-      } else if s = strings.TrimSpace(v.Strval(context)); s == "" {
+      } else if s = strings.TrimSpace(v.strval(context)); s == "" {
         continue
       } else if i == 0 {
         fmt.Fprintf(stderr, "%s", s)
