@@ -139,7 +139,7 @@ func (ctx *universe) configure() {
     var u = ctx.universe()
 
     // Remove all existing configuration.sm files
-    if options.cleanConf { for _, s := range u.configuration.clean {
+    if u.cleanConf { for _, s := range u.configuration.clean {
         if _, e := os.Stat(s); e != nil {
             if false { prompt(ctx, "%v\n", e).debug(1) }
         } else if e = os.Remove(s); e == nil {
@@ -168,10 +168,11 @@ func (ctx *universe) configure() {
         }
     }
 
-    if n := ctx.dia().flush(); n > 0 {
-        warn(ctx, "configuration got %d errors", ctx.dia().totalErrors()).debug(1)
-        if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.dia().totalErrors()) }
-        //return
+    if n := ctx.dia().flush(); n > 0 { total := ctx.dia().totalErrors()
+        warn(ctx, "configuration got %d errors", total).debug(1)
+        if u.failOnErrors {
+            panic(failure{"%v: fail by %d errors",ia(ctx.Position(), total)})
+        }
     }
     printLeavingDirectory(ctx)
     return
@@ -295,7 +296,8 @@ type modifierConfigureOpts struct {
     accumulate bool `add,acc,accumulate`
 }
 func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
-    if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
+    var uni = ctx.universe()
+    if uni.traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
 
     var entries *resolvedEntries
     if program := ctx.program(); program == nil {
@@ -380,9 +382,12 @@ ForInParams:
     )
     for _, entry := range entries.all {
         if reses, traves = entry.execute(ctx, params...); ctx.dia().flush() > 0 {
+            total := ctx.dia().totalErrors()
             warn(at(ctx,entry.Position()), "%v", entry)
-            warnstack(ctx, 5, `configure '%s' got %d error(s)`, entryName, ctx.dia().totalErrors()).debug(1)
-            if options.failOnErrors { fail(entry.Position(), "fail by %d errors", ctx.dia().totalErrors()) }
+            warnstack(ctx, 5, `configure '%s' got %d error(s)`, entryName, total).debug(1)
+            if uni.failOnErrors {
+                panic(failure{"%v: fail by %d errors",ia(entry.Position(), total)})
+            }
         } else if n := len(reses); n != 1 {
             if true { // just bypass, no configuration results - <nil>
                 if false { warn(at(ctx,entry.Position()), "%v", entry).debug(1) }
@@ -418,7 +423,8 @@ ForInParams:
 }
 
 func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, name Value, args []Value) (configured bool, result Value) {
-    if options.traceConfig { defer un(trace(t_config, "configureDo")) }
+    var uni = ctx.universe()
+    if uni.traceConfig { defer un(trace(t_config, "configureDo")) }
 
     var opName string
     if f, y := name.(flag); y {
@@ -445,7 +451,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         }
     }
 
-    if ctx.universe().configuration.silent {
+    if uni.configuration.silent {
         // silent
     } else if len(infos) == 0 {
         if len(args) > 0 {
@@ -459,7 +465,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         if s != "" { prompt(ctx, "%s …", s) }
     }
     defer func() {
-        if ctx.universe().configuration.silent {
+        if uni.configuration.silent {
             // silent
         } else if isNull(result) {
             prompt(ctx, "… <nil>\n")
@@ -494,7 +500,8 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
 //     (configure -compiles(info="..."))
 type modifier_configure struct { modifier_ }
 func (ctx *modifier_configure) x(aa ...Value) (result interface{}) {
-    if options.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, options.reconfigure))) }
+    var uni = ctx.universe()
+    if uni.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, uni.reconfigure))) }
 
     var program = ctx.program()
     if program == nil {
@@ -544,8 +551,8 @@ func (ctx *modifier_configure) x(aa ...Value) (result interface{}) {
     }
 
     if !isNull(d.value) { // Check if it's already configured?
-        if !options.reconfigure { return } // return if not reconfigure
-        if done, found := ctx.universe().configuration.done[d]; done && found { return }
+        if !uni.reconfigure { return } // return if not reconfigure
+        if done, found := uni.configuration.done[d]; done && found { return }
     }
 
     var value Value
@@ -614,7 +621,7 @@ ForConfig:
             d.set(ctx, DefConfig, value)
         }
 
-        if d == nil { ctx.universe().configuration.done[d] = true }
+        if d == nil { uni.configuration.done[d] = true }
     }
     return
 }

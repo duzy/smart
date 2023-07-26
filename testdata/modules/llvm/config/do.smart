@@ -1,0 +1,1 @@
+project testllvmconfig (llvm/Config) #variant=darwin/arm64/bootstrap,

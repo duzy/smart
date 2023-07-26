@@ -12,9 +12,6 @@ import (
 )
 
 func TestAutoContext(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/0", "testvalues0")
 
 	if c := ctx.cast(reflect.TypeOf((*universe)(nil))); c == nil {
@@ -183,9 +180,6 @@ func TestAutoContext(t *testing.T) {
 }
 
 func TestValues1(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/1", "testvalues1")
 
 	if v := ctx.get(".test.foo"); v == nil {
@@ -200,9 +194,6 @@ func TestValues1(t *testing.T) {
 }
 
 func TestValues2(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/2", "testvalues2")
 
 	if v := ctx.get(".test.ab"); v == nil {
@@ -368,9 +359,6 @@ func TestValues2(t *testing.T) {
 }
 
 func TestValues3(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/3", "testvalues3")
 
 	if d := ctx.def(".test.x"); d == nil {
@@ -446,9 +434,6 @@ func TestValues3(t *testing.T) {
 }
 
 func TestValues4(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/4", "testvalues4")
 
 	if d := ctx.def(".test.*"); d == nil {
@@ -504,9 +489,6 @@ func TestValues4(t *testing.T) {
 }
 
 func TestValues5(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/5", "testvalues5")
 
 	if d := ctx.def(".test"); d == nil {
@@ -529,9 +511,6 @@ func TestValues5(t *testing.T) {
 }
 
 func TestValues6(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/6", "testvalues6")
 
 	if d := ctx.def(".test"); d == nil {
@@ -554,9 +533,6 @@ func TestValues6(t *testing.T) {
 }
 
 func TestValues7(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/7", "testvalues7")
 
 	if d := ctx.def(".test"); d == nil {
@@ -579,9 +555,6 @@ func TestValues7(t *testing.T) {
 }
 
 func TestValues8(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/8", "testvalues8")
 
 	if d := ctx.def(".test"); d == nil {
@@ -604,9 +577,6 @@ func TestValues8(t *testing.T) {
 }
 
 func TestValues9(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/9", "testvalues9")
 
 	if d := ctx.def(".test"); d == nil {
@@ -629,9 +599,6 @@ func TestValues9(t *testing.T) {
 }
 
 func TestValues10(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/10", "testvalues10")
 
 	if d := ctx.def(".test"); d == nil {
@@ -654,9 +621,6 @@ func TestValues10(t *testing.T) {
 }
 
 func TestValues11(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/11", "testvalues11")
 
 	if d := ctx.def(".test"); d == nil {
@@ -679,9 +643,6 @@ func TestValues11(t *testing.T) {
 }
 
 func TestValues12(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/12", "testvalues12")
 
 	if d := ctx.def(".test"); d == nil {
@@ -704,9 +665,6 @@ func TestValues12(t *testing.T) {
 }
 
 func TestValues13(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/13", "testvalues13")
 
 	if d := ctx.def("foo"); d == nil {
@@ -729,9 +687,6 @@ func TestValues13(t *testing.T) {
 }
 
 func TestPlaceholders(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/value/placeholder", "testplaceholder")
 
 	if d := ctx.def("val1"); d == nil {
@@ -834,11 +789,10 @@ func TestPlaceholders(t *testing.T) {
 }
 
 func TestOptional(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.silentOptionalSelection = true
-	options.failOnErrors = false
+	cl := init_commandline()
+	cl.silentOptionalSelection = true
 
-	var ctx = load_testcase(t, "testdata/value/optional", "testoptional")
+	var ctx = load_testcase(t, "testdata/value/optional", "testoptional", cl)
 
 	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
@@ -984,8 +938,6 @@ func TestOptional(t *testing.T) {
 }
 
 func TestGlobMatch(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-
 	var ctx Context = init_universe()//&uni
 
 	if a, b, c := globMatch(ctx, "*.c", "foo.c"); !a || c != nil {
@@ -1118,9 +1070,6 @@ func TestGlobMatch(t *testing.T) {
 }
 
 func TestValueGeneral(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var assert_bool bool
 	var assert_value Value
 	var ctx = load_testcase(t, "testdata/value", "testvalues", hooks{

@@ -765,27 +765,33 @@ type builtin_assert struct { builtin_
 func (ctx *builtin_assert) a(ic *invocation, w facet) (skip bool) { return }
 func (ctx *builtin_assert) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
 func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
-        var d = ctx.debug ; if d < 1 { d = 3 }
+        defer ctx.dia().trace(ctx, "builtin_assert")
+
+        const sn = 5
         var t = diagError ; if ctx.warn { t = diagWarn }
 
         var hook = ctx.universe().hooks.assert
         if ic.a == nil && hook != nil && !hook(ctx, nil, false) {
                 prompt(ctx, "assert: %v\n", ic.a)
-                diagstack(ctx, d, t).debug(d)
+                diagstack(ctx, sn, t).debug(1)
         }
 
         var cc = ctx.Context
         for _, a := range ic.a { ctx.Context = at(cc, a.Position()) ; var okay = a.true(ctx)
                 if hook != nil && hook(ctx, a, okay) { continue }
                 if okay { continue }
-
-                var v = a.expand(ctx, strval)
-                prompt(ctx, "assert: %v: %v ⇒ %v: %v\n", typeof(a), a, typeof(v), v)
-                diag(ctx, t, "%v: %v ⇒ %s", typeof(a), a, a.strval(ctx))
-                diagstack(ctx, d, t).debug(d)
+                if false {
+                        var v = a.expand(ctx, strval)
+                        prompt(ctx, "assert: %v: %v ⇒ %v: %v\n", typeof(a), a, typeof(v), v)
+                        diagstack(ctx, sn, t, "%v: %v ⇒ %s", typeof(a), a, a.strval(ctx)).debug(1)
+                } else if false {
+                        diagstack(ctx, sn, t, "%v: %v ⇒ %s", typeof(a), a, a.strval(ctx)).debug(1)
+                } else {
+                        diagstack(ctx, sn, t, "%v: %v", typeof(a), a).debug(1)
+                }
         }
 
-        if ctx.dia().flush()>0 && ctx.fail { fail(cc.Position(), "assertion failed") }
+        if ctx.fail { panic(failure{"%v: failed assertion",ia(cc.Position())}) }
         return
 }
 
@@ -1172,14 +1178,14 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
         var list []Value
         var d = ctx.debug
         var vw = (w|expandPairVal|expandPlaceholder)&^expandPlaceholderKept
-        var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
+        var cc = &autoContext{ Context:ctx, defs:make(autoDefMap) }
         for _, val := range values {
                 if !ctx.empty && xEmpty(ctx, val) { continue }
 
                 cc.set(ctx, "_", val)
 
                 var l []Value
-                for _, a := range temps { v := scalarize(scalarize(a).expand(&cc, vw))
+                for _, a := range temps { v := scalarize(scalarize(a).expand(cc, vw))
                         if ctx.empty || !isTrivial(v) && !isEmpty(v) { l = append(l, v) }
                         if db { noted(ctx, "%T %v %v -> %v %v", a, typeof(a), a, typeof(v), v) }
                 }
@@ -1234,7 +1240,7 @@ func (ctx *builtin_auto) a(ic *invocation, w facet) (skip bool) {
 func (ctx *builtin_auto) x(ic *invocation, w facet) (res interface{}) {
         if len(ic.a) == 0 { return }
 
-        var ac = autoContext{ Context:ctx, defs:make(autoDefMap) }
+        var ac = &autoContext{ Context:ctx, defs:make(autoDefMap) }
         for _, a := range umerge(true, ic.a[0]) {
                 if p, y := a.(*pair); y { if s := p.Key.strval(ctx); s != "" {
                         ac.set(ctx, s, p.Value)
@@ -1242,7 +1248,7 @@ func (ctx *builtin_auto) x(ic *invocation, w facet) (res interface{}) {
         }
 
         var vals []Value
-        for _, v := range ic.a[1:] { vals = append(vals, v.expand(&ac, w|expandAuto)) }
+        for _, v := range ic.a[1:] { vals = append(vals, v.expand(ac, w|expandAuto)) }
         return vals
 }
 
@@ -1425,7 +1431,7 @@ func (ctx *builtin_shell) x(ic *invocation, w facet) (res interface{}) {
                         if !strings.HasPrefix(s, ":") { s = ":\n" + s }
                         prompt(ctx, "%s%s\n", a.strval(ctx), s)
                         errostack(ctx, 3, "%s", err).debug(10)
-                        if true { fail(ctx.Position(), "%v", err) }
+                        panic(failure{"%v",ia(ctx.Position(), err)})
                         return
                 }
                 val := MakeString(pos, strings.TrimSpace(bufout.String()))
@@ -4255,7 +4261,7 @@ func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
         }
 
         var pos = ctx.Position()
-        var cc = autoContext{ Context:ctx, defs:make(autoDefMap) }
+        var cc = &autoContext{ Context:ctx, defs:make(autoDefMap) }
         var greped = func(line int, match []string) (done bool) {
                 var vals []Value
                 for i, s := range match {
@@ -4271,7 +4277,7 @@ func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
                                 }
                         }
                 } ()
-                list = append(list, result.expand(&cc, expandDigits|plain))
+                list = append(list, result.expand(cc, expandDigits|plain))
                 return
         }
 

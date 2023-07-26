@@ -18,10 +18,7 @@ func (ctx *test_mod_1) v(args ...Value) (result interface{}) {
 func TestValueModifier(t *testing.T) {
 	modifiers[`test-mod-1`] = reflect.TypeOf((*test_mod_1)(nil)).Elem()
 
-	defer func(o commandLineOpts) { options = o
-		delete(modifiers, `test-mod-1`)
-	} (options)
-	options.failOnErrors = false
+	defer func() { delete(modifiers, `test-mod-1`) } ()
 
 	var ctx = load_testcase(t, "testdata/modifier", "testmodifier")
 

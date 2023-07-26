@@ -20,16 +20,19 @@ func testHasModule(name string) (res bool) {
 	return
 }
 
-func load_testcase(t *testing.T, dir, name string, h ...hooks) testcase {
+func load_testcase(t *testing.T, dir, name string, ii ...interface{}) testcase {
 	if !filepath.IsAbs(dir) { dir = filepath.Join(baseWorkDir, dir) }
 
-	var ctx = init_universe()
+	var ctx = init_universe() ; defer assured(ctx, false)
 
 	ctx.workdir = dir
 	ctx.globe.main = nil
 	ctx.filecache = make(map[string]*filebase) // NOTE: must reset the filecache
-	for _, h := range h {
-		if h.assert != nil { ctx.hooks.assert = h.assert }
+	for _, i := range ii {
+		switch t := i.(type) {
+		case commandLine: ctx.commandLine = t
+		case hooks: if t.assert != nil { ctx.hooks.assert = t.assert }
+		}
 	}
 
 	if false { noted(ctx, "testcase: %v %v", name, dir) }
@@ -38,7 +41,7 @@ func load_testcase(t *testing.T, dir, name string, h ...hooks) testcase {
 		if !tm { ctx.paths = append(ctx.paths, _tmodules) }
 	}
 
-	var s = skip{3}
+	var s = skipint{3}
 	var tc = testcase{ctx, t}
 
 	if err := ctx.loadTopWork(); err != nil {
@@ -51,13 +54,13 @@ func load_testcase(t *testing.T, dir, name string, h ...hooks) testcase {
 		tc.Context = closureWith(tc.Context, m.scope) // TODO: add projectContext{ctx, m}
 	}
 
-	if tc.dia().countErrors() > 0 {
-		tc.Errorf("%d errors in %s", tc.dia().flush(), tc.Position().Filename)
+	if tc.dia().flush(); tc.dia().error() {
+		tc.Errorf("%d errors in %s", tc.dia().totalErrors(), tc.Position().Filename)
 	}
 	return tc
 }
 
-func (tc testcase) err(f string, i ...interface{}) {
+func (tc *testcase) err(f string, i ...interface{}) {
 	var ctx = tc.Context
 	if i == nil { var s string
 		if n := strings.Index(f, ":"); n > 0 {
@@ -71,38 +74,38 @@ func (tc testcase) err(f string, i ...interface{}) {
 	} else if v, y := a.(Value); y && v != nil {
 		ctx = at(ctx, v.Position()); break
 	}}}
-	erro(ctx, f, i...).debug(1, skip{2})
+	erro(ctx, f, i...).debug(1, skipint{2})
 	if false { tc.Errorf(f, i...) }
 }
 
-func (tc testcase) flush() {
+func (tc *testcase) flush() {
 	if n := tc.dia().countErrors(); n > 0 { var pos Position
 		if p := tc.Project(); p != nil { pos = p.position } else { pos = tc.Position() }
-		noted(at(tc.Context, pos), "%v: %v errors", tc.Project(), n).debug(1, skip{2})
+		noted(at(tc.Context, pos), "%v: %v errors", tc.Project(), n).debug(1, skipint{2})
 		tc.Errorf("%d errors in %s", tc.dia().flush(), pos.Filename)
 	}
 }
 
-func (tc testcase) rule(name string) (r *resolvedEntries) {
+func (tc *testcase) rule(name string) (r *resolvedEntries) {
 	if p := tc.Project(); p != nil { r = p.resolveEntries(tc.Context, name, false) }
 	return
 }
 
-func (tc testcase) obj(name string) (res Object) {
+func (tc *testcase) obj(name string) (res Object) {
 	if p := tc.Project(); p != nil { res = p.resolveObject(tc.Context, name) }
 	return
 }
 
-func (tc testcase) def(name string) (d *def) {
+func (tc *testcase) def(name string) (d *def) {
 	if o := tc.obj(name); o != nil { d, _ = o.(*def) }
 	return
 }
 
-func (tc testcase) get(name string, ii ...interface{}) (res Value) {
+func (tc *testcase) get(name string, ii ...interface{}) (res Value) {
 	var d *def
-	var s = skip{2} // tRunner + testcase.get
+	var s = skipint{2} // tRunner + testcase.get
 	var a []interface{}
-	for _, i := range ii { if t, y := i.(skip); y { s.int = t.int+1 } else { a = append(a, i) } }
+	for _, i := range ii { if t, y := i.(skipint); y { s.int = t.int+1 } else { a = append(a, i) } }
 	if d, res = _call(tc, name, a...); d == nil {
 		if false { tc.Errorf("%s: not def", name) }
 		erro(tc, "%v", name).debug(1, s)

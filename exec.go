@@ -919,6 +919,7 @@ func (p *execContext) check() (err error) {
 func (exe *execContext) exec(cmd, opt string, err error) {
   var (
     ctx = exe.Context
+    uni = ctx.universe()
     pc = ctx.pc()
     env, envSep = pc.env(ctx)
     program = ctx.program()
@@ -932,15 +933,14 @@ func (exe *execContext) exec(cmd, opt string, err error) {
     }
   }
 
-  if ctx.dia().flush() > 0 {
+  if ctx.dia().flush() > 0 { var total = ctx.dia().totalErrors()
     if str := trimPromptString(exe.targetName); filepath.IsAbs(exe.targetName) {
       var pos Position; pos.Filename, pos.Line = exe.targetName, 1
-      warn(ctx, "got %d error(s)", ctx.dia().totalErrors())
-      warn(at(ctx,pos), "cancel execution for %s", str).debug(1)
+      warn(at(ctx,pos), "cancel execution for %s, got %d error(s)", str, total).debug(1)
     } else {
-      warn(ctx, "got %d error(s), cancel execution for %s", ctx.dia().totalErrors(), str).debug(1)
+      warn(ctx, "got %d error(s), cancel execution for %s", total, str).debug(1)
     }
-    if options.failOnErrors { fail(ctx.Position(), "fail by %d errors", ctx.dia().totalErrors()) }
+    if uni.failOnErrors { panic(failure{"fail by %d errors",ia(ctx.Position(), total)}) }
     return
   }
 
@@ -1077,7 +1077,7 @@ func (exe *execContext) exec(cmd, opt string, err error) {
       src = fmt.Sprintf("%s && %s", envstr, src)
     }
 
-    if options.noExec { continue }
+    if uni.noExec { continue }
 
     if !exe.silentErrs || exe.prompt || exe.promptSrc {
       exe.printEnteringOnFirstWrote = true
@@ -1111,7 +1111,8 @@ type executor struct {
   contained bool
 }
 func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error) {
-  if options.traceExecutor {
+  var uni = ctx.universe()
+  if uni.traceExecutor {
     var t = autoVal(ctx, "@")
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
@@ -1222,7 +1223,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
       return
     }
 
-    if options.verbose {
+    if uni.verbose {
       prompt(ctx, "%v: container=%v, image=%v\n", exe.container, containerName, containerImage)
     }
 

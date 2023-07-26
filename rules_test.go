@@ -10,9 +10,6 @@ import (
 )
 
 func TestRules0(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/rule/0", "testrules0")
 
 	if true {} else
@@ -28,9 +25,6 @@ func TestRules0(t *testing.T) {
 }
 
 func TestRules1(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/rule/1", "testrules1")
 
 	if r := ctx.rule(".test.foobar"); r == nil {

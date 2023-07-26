@@ -119,6 +119,7 @@ var (
 )
 
 func modify(x Context, g *group, hyphen bool) (res Value) {
+    var uni = x.universe()
     var pc = x.pc()
     var ctx = at(x, g.position)
     var name = g.Elems[0].strval(ctx)
@@ -172,7 +173,7 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
     if pc != nil && pc.traves.has(traveFail) {
         if true && res != nil { warn(ctx, "%v %v", res, pc.traves).debug(1) }
         if t := pc.traves.not(traveCase, traveNext, traveDone); false && t.has() {
-            if options.verbose || options.verboseBreaks {
+            if uni.verbose || uni.verboseBreaks {
                 proj := ctx.Project()
                 var _, ent, _ = entryIndicator(ctx, ctx.entry())
                 prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
@@ -283,12 +284,13 @@ func (g *modification) traverse(ctx Context) {
     var pc = ctx.pc()
     if pc != nil { pc.Wait() }
 
+    var uni = ctx.universe()
     for _, m := range g.list {
         var ctx = at(ctx, m.position)
         if m.traverse(ctx); pc == nil { continue }
         if t := pc.traves.of(traveFail); t.has() { return }
         if t := pc.traves.not(traveCase, traveDone, traveNext, traveRule, traveFile); t.has() {
-            if true || (options.verbose || options.verboseBreaks) {
+            if true || (uni.verbose || uni.verboseBreaks) {
                 var _, ent, _ = entryIndicator(ctx, ctx.entry())
                 warn(ctx, "%v: %s failed\n", ent, m.Elems[0])
                 for _, s := range t { warn(at(ctx,s.pos), "%v: %v", m.Elems[0], s) }
@@ -1087,11 +1089,12 @@ func tempFile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file
 }
 
 func removeTempDirs(ctx Context, cleanDirs ...string) {
+    var uni = ctx.universe()
     if len(cleanDirs) == 0 {
-        var clean =  options.cleanTmpDirs
-        if  clean || options.cleanDotCache { cleanDirs = append(cleanDirs, ".cache") }
-        if  clean || options.cleanDotDeps  { cleanDirs = append(cleanDirs, ".deps") }
-        if  clean || options.cleanDotGrep  { cleanDirs = append(cleanDirs, ".grep") }
+        var clean =  uni.cleanTmpDirs
+        if  clean || uni.cleanDotCache { cleanDirs = append(cleanDirs, ".cache") }
+        if  clean || uni.cleanDotDeps  { cleanDirs = append(cleanDirs, ".deps") }
+        if  clean || uni.cleanDotGrep  { cleanDirs = append(cleanDirs, ".grep") }
     }
     for _, dir := range cleanDirs {
         if file, err := tempFile(ctx, dir, ""); err != nil {
@@ -1353,7 +1356,9 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
             return
         }
     }
-    if options.saveGrepSource {
+
+    var uni = ctx.universe()
+    if uni.saveGrepSource {
         var (
             perm = os.FileMode(0600)
             data = []byte(gc.targetFullName)
@@ -1404,7 +1409,8 @@ type modifier_grep struct { modifier_
     noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
 }
 func (ctx *modifier_grep) x(args ...Value) (result interface{}) {
-    if false && options.noDepsGrep || options.noGrep { return }
+    var uni = ctx.universe()
+    if false && uni.noDepsGrep || uni.noGrep { return }
 
     var gc = grepctx{ modifier_grep:ctx }
     // gc.fileinc = true // grep files by default
@@ -1665,7 +1671,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
             for s, p := range missing { erro(at(ctx,p), `missing "%v"`, s) }
             erro(ctx, `%v: "%v" %d deps missing in "%v"`, proj, targetVal, len(missing), savedDepsFileName)
             errostack(ctx, 3, "%v", ctx).debug(10)
-            fail(ctx.Position(), "removed %s", savedDepsFileName)
+            panic(failure{"removed %s",ia(ctx.Position(), savedDepsFileName)})
         } else {
             for s, p := range missing { warn(at(ctx,p), `missing "%v"`, s) }
             warn(ctx, `%v: "%v" missing %d deps (%v in total)`, proj, targetVal, len(missing), len(files))
@@ -1727,7 +1733,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool) {
             prompt(ctx, "%s: dep is unknown file; project %v\n", dep, proj)
             erro(ctx, "%v: %s is unknown file", proj, dep)
             errostack(ctx, 5, "(%T):", ctx).debug(24)
-            fail(ctx.Position(), "dep '%s' is not file", dep)
+            panic(failure{"dep '%s' is not file",ia(ctx.Position(), dep)})
         }
         fullname = dep
     } else {
@@ -1797,7 +1803,8 @@ type modifier_deps struct { modifier_
     cc string `c,cc,compiler`
 }
 func (ctx *modifier_deps) x(args ...Value) (result interface{}) {
-    if options.noDepsGrep || options.noDeps { return }
+    var uni = ctx.universe()
+    if uni.noDepsGrep || uni.noDeps { return }
 
     // NOTE: parse opts for (deps) before expanding the args, because we share args
     //       with the compilers!
@@ -2409,7 +2416,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
         // no buffer value
     } else if content = val.strval(ctx); false && strings.Contains(content, `"\"`) {
         prompt(ctx, "%v: %T\n", filename, val).debug(1)
-        fail(ctx.Position(), "%s", filename)
+        panic(failure{"%s",ia(ctx.Position(), filename)})
     } else {
         exeres, _ = val.(*execResult)
     }
@@ -2519,7 +2526,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
             if file := stat(ctx, filename, "", ""); file == nil {
                 prompt(ctx, "%s: invalid file\n", filename)
                 errostack(ctx, 6, "%v: invalid file '%s'", ctx.Project(), filename).debug(1)
-                fail(ctx.Position(), "invalid file %s", filename)
+                panic(failure{"invalid file %s",ia(ctx.Position(), filename)})
             } else {
                 var files []*File
                 if files, err = file.stamp(ctx); err != nil {
@@ -2718,7 +2725,9 @@ func (ctx *modifier_assert) v(args ...Value) (result interface{}) {
         fails += 1
     }
     if fails > 0 { errostack(ctx, 8, "%v: %v", target, args).debug(6) }
-    if ctx.dia().flush() > 0 { fail(ctx.Position(), "assertion: %v", args) }
+    if ctx.dia().flush() > 0 {
+        panic(failure{"assertion: %v",ia(ctx.Position(), args)})
+    }
     return
 }
 

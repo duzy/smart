@@ -13,6 +13,7 @@ import (
     "strings"
     "strconv"
     "sync"
+    "sync/atomic"
     "bytes"
     // "unsafe"
     "time"
@@ -121,7 +122,7 @@ func (p unresolved) invoke(_ Context, _ facet, _, _ []Value) Value { return p }
 func (p unresolved) execute(ctx Context, a ...Value) (result []Value, err error) { return []Value{p}, nil }
 func (p unresolved) rescope(ctx Context, scope *Scope) {
     if true {
-        fail(p.Value.Position(), "cant rescope a unresolved object")
+        panic(failure{"cant rescope a unresolved object",ia(p.Value.Position())})
     } else if p.project != scope.project {
         var name = p.Value.strval(ctx)
         if p.project.scope != nil { delete(p.project.scope.elems, name) }
@@ -877,12 +878,13 @@ func (d *def) set(ctx Context, origin Origin, value Value, app ...Value) {
         vals[i] = o.value // replace defs
     }}
 
+    var uni = ctx.universe()
     switch w := plain|expandAuto/* &^expandOptimal */; origin {
     case DefExpand1: vals, _, _ = (w&^expandClosure).expand(ctx, vals...) //  :=
     case DefExpand2: vals, _, _ = (w| expandClosure).expand(ctx, vals...) // ::=
     default: for _, val := range vals { if val != nil && val.refs(ctx, d) { ctx = at(ctx, pos)
-        if options.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name_, val) }
-        if options.debug { warn(ctx, "from here").debug(1) }
+        if uni.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name_, val) }
+        if uni.debug { warn(ctx, "from here").debug(1) }
         errostack(ctx, 3, "value refers to assigning Def '%s': %v (%T)", d.name_, val, val).debug(10)
         return
     }}}
@@ -1074,6 +1076,8 @@ func (_ *undetermined) collect(ctx Context, cache *valcache, bits int) (res []*v
     return
 }
 
+const max_expand = 30
+
 // A builtin represents a built-in function. builtins don't have a valid type.
 type builtin struct { knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
@@ -1081,6 +1085,10 @@ func (p *builtin) String() string { return p.name_ }
 func (p *builtin) true(_ Context) bool { return p.t != nil }
 func (p *builtin) isCommand() bool { return reflect.PointerTo(p.t).Implements(builtin_c_t) }
 func (p *builtin) invoke(ctx Context, w facet, o, a []Value) Value { return invoke(ctx, p, w, o, a) }
+func (p *builtin) refs(ctx Context, v Value) (res bool) {
+    if o, y := v.(*builtin); y { res = o == p /* || p.name_ == o.name_ */ }
+    return
+}
 func (p *builtin) expand(ctx Context, w facet) (res Value) {
     if w&expandInvoke == 0 {
         if false { warnstack(ctx, 3, "builtin.expand: invalid (%030b)", w).debug(16) }
@@ -1093,8 +1101,34 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
         return p
     }
 
+    // Check builtin maximum expand-depth per invocation.
+    if t := atomic.AddInt32(&ic.int32, 1); t > int32(max_expand) {
+        if len(ic.a) > 0 && ic.a[0].String() == "unique" {
+            noted(ctx, "%v: %v", p, ic.a).debug(1)
+        }
+        errostack(of(ctx, p), 3, "max expand: %v %v (depth=%v,facet=%030b)", p, ic.a, t, w).debug(t)
+        panic(failure{"max expand: %v %v (depth=%d)",ia(p, ic.a, t)})
+    }
+    defer atomic.AddInt32(&ic.int32, -1)
+
+    // Check self-dependency in arguments.
+    for i, a := range ic.a { if a == p /* || a.refs(ctx, p) */ {
+        errostack(of(ctx,a), 5, "self-dependency: %v ⇒ %v [%d]", p, ic.a, i).debug(10)
+        panic(failure{"self-dependency: %v ⇒ %d %v",ia(p, a, i)})
+    }}
+
     bv := reflect.New(p.t)
     bi := bv.Interface()
+
+    defer func(t0 time.Time) {
+        if d := time.Now().Sub(t0); d > 1*time.Second {
+            noted(ctx, "%v: slow: %v", p, d).debug(3)
+        } else if t := bv.Elem().FieldByName("timing"); !t.IsValid() {
+            if false { noted(ctx, "%v: %v", p, d).debug(1) }
+        } else if t.Type().Kind() == reflect.Bool && t.Bool() {
+            noted(ctx, "%v: %v", p, d).debug(1)
+        }
+    }(time.Now())
 
     var y bool
     var g builtin_c
@@ -1121,22 +1155,11 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
         forth = t.Type().Kind() == reflect.Bool && t.Bool()
     }}
 
-    var u int
     if x, y := bi.(builtin_a); y {
         if x.a(ic, w|expandArgs) && !forth { return p }
-    } else if ic.a, u, _ = (w|expandArgs).expand(ctx, ic.a...); u>0 {
-        if !forth { return p }
+    } else { var u int
+        if ic.a, u, _ = (w|expandArgs).expand(ctx, ic.a...); u>0 && !forth { return p }
     }
-
-    defer func(t0 time.Time) {
-        if d := time.Now().Sub(t0); d > 1*time.Second {
-            noted(ctx, "%v: slow: %v", p, d).debug(3)
-        } else if t := bv.Elem().FieldByName("timing"); !t.IsValid() {
-            if false { noted(ctx, "%v: %v", p, d).debug(1) }
-        } else if t.Type().Kind() == reflect.Bool && t.Bool() {
-            noted(ctx, "%v: %v", p, d).debug(1)
-        }
-    }(time.Now())
 
     if t := (interface{})(nil); f != nil {
         if t, ic.x = f.x(ic, w), true; t == f {

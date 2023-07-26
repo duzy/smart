@@ -312,7 +312,8 @@ func (cache *filemapCache) val(ctx Context, key Value, bits int) (res *filemapCa
         res, _ = cache.vals[key]
     }
 
-    if res == nil && options.errorUncache {
+  var uni = ctx.universe()
+    if res == nil && uni.errorUncache {
         errostack(ctx, 10, "%08b: %s(%v) → %s", bits, typeof(key), key, key.strval(ctx)).debug(32)
     }
     return
@@ -373,6 +374,7 @@ type configuration struct{
 
 type universe struct {
     diaContext
+    commandLine
     configuration
     hooks
 
@@ -388,6 +390,8 @@ type universe struct {
     statmutex sync.Mutex
     filemaps filemapCache // value -> dirs
     filecache map[string]*filebase // File.fullname() -> File
+
+    facet_expand_n int64
 
     ddd string // debug parsing via `eval -ddd=example`, also project.dd
 }
@@ -439,7 +443,7 @@ func (ctx *universe) cast(t reflect.Type) (res Context) {
     return
 }
 func (ctx *universe) projects(_ Context, projs ...*Project) []*Project {
-    if len(projs) > 0 { fail(ctx.Position(), "%v", projs) }
+    if len(projs) > 0 { panic(failure{"%v",ia(ctx.Position(), projs)}) }
     return nil
 }
 func (ctx *universe) closureScopes() (scopes []*Scope) {
@@ -449,9 +453,27 @@ func (ctx *universe) closureScopes() (scopes []*Scope) {
     return
 }
 
-func (ctx *universe) help()       { do_helpscreen(ctx) }
-func (ctx *universe) helpFlags()  { print_flag_trace(ctx) }
-func (ctx *universe) helpConfig() { print_configuration(ctx) }
+func (ctx *universe) doHelp()       { do_helpscreen(ctx) }
+func (ctx *universe) doHelpFlags()  { print_flag_trace(ctx) }
+func (ctx *universe) doHelpConfig() { print_configuration(ctx) }
+
+func init_commandline() commandLine {
+    return commandLine{
+        debugPrompt: true,
+        debugErrors: true,
+        debugWarns:  true,
+        debugInfos:  true,
+
+        silentOptionalSelection: false,
+
+        failOnErrors: true,
+        fastMode: true,
+
+        parallel: false, // FIXME: program.traverse not working in parallel
+
+        slow: 999 * 1, // *90
+    }
+}
 
 func init_universe() (ctx *universe) { ctx = &universe{}
     if s, e := os.Getwd(); e != nil { erro(ctx, "%v", e).debug(6); return } else {
@@ -460,6 +482,7 @@ func init_universe() (ctx *universe) { ctx = &universe{}
         ctx.filecache = make(map[string]*filebase)
         ctx.scope = NewScope(ctx.Position(), nil, nil, `universe`)
         ctx.fset = NewFileSet()
+        ctx.commandLine = init_commandline()
         ctx.configuration = configuration{
             packages: make(map[string]packageinfo),
             done: make(map[*def]bool),
@@ -828,7 +851,7 @@ func startHeapProfile(ctx Context, name string) (stop func()) {
 }
 
 func (dc *universe) run() (result []Value, travestates []*travestate) {
-    if options.noRun { return }
+    if dc.noRun { return }
 
     var main = dc.globe.main
     if main == nil {
@@ -837,30 +860,30 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
     }
 
     var ctx Context = closureWith(dc, main.scope)
-    if options.verbose { info(ctx, "goal: %v", main).debug(1) }
+    if dc.verbose { info(ctx, "goal: %v", main).debug(1) }
 
     removeTempDirs(ctx)
 
-    if options.cpuProf != "" || options.autoProfs {
-        var name = options.cpuProf
+    if dc.cpuProf != "" || dc.autoProfs {
+        var name = dc.cpuProf
         if name == "" { name = "run.cpu.auto.prof" }
         defer startCPUProfile(ctx, name, true)()
-    } else if options.memProf != "" || options.autoProfs {
-        var name = options.memProf
+    } else if dc.memProf != "" || dc.autoProfs {
+        var name = dc.memProf
         if name == "" { name = "run.mem.auto.prof" }
         defer startHeapProfile(ctx, name)()
     }
 
     var done bool
     for _, flag := range dc.globe.flags {
-        if options.verboseExecFlags { info(of(ctx, flag), "%v", flag) }
+        if dc.verboseExecFlags { info(of(ctx, flag), "%v", flag) }
 
         var s = flag.Value.strval(ctx)
         var args, _ = dc.globe.args[flag]
         var entries, _ = dc.globe.flagEntries[s]
         for _, entry := range entries {
             var ctx = at(ctx, entry.Position())
-            if options.verboseExecFlags {
+            if dc.verboseExecFlags {
                 info(ctx, "%v", entry)
                 ctx.dia().flush()
             }
@@ -969,18 +992,13 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
 func (dc *universe) loadTopWork() (err error) {
-    if options.traceLaunch { defer un(trace(t_launch, "universe.load")) }
-    defer func(l *loader) { dc.globe.top = l } (dc.globe.top)
+    if dc.traceLaunch { defer un(trace(t_launch, "universe.load")) }
 
     var (
-        ctx Context = dc
-        base = ctx.WorkDir()
         args []Value
+        base = dc.WorkDir()
+        ctx Context = dc
     )
-    if true { defer func() { if m := dc.globe.main; m == nil {
-        erro(dc, "load failed: %v", base).debug(6)
-    }}()}
-
     if s := filepath.Join(base, ".smart", "modules"); s != "" {
         if _, e := os.Stat(s); e == nil { dc.AddSearchPaths(s) }
     }
@@ -996,6 +1014,8 @@ func (dc *universe) loadTopWork() (err error) {
         }
     }
 
+    defer func(l *loader) { dc.globe.top = l } (dc.globe.top)
+
     dc.globe.top = &loader{ closureContext: closureContext{
         ctx, []*Scope{dc.globe.Scope},
     }}
@@ -1005,24 +1025,24 @@ func (dc *universe) loadTopWork() (err error) {
     } else if args = dc.globe.top.text("@", text); len(args) == 0 {
         // ohh...
     } else {
-        args = parseOpts(ctx, &options, 0, args...)
+        args = parseOpts(ctx, &dc.commandLine, 0, args...)
     }
 
-    if v := options.reconfigure; v { options.configure = v }
-    if v := options.fastMode; v { // Turn off many things for fast mode:
-        //options.noImportFiles = v
-        options.noDepsGrep = v
-        options.noDeps = v
-        options.noGrep = v
+    if v := dc.reconfigure; v { dc.commandLine.configure = v }
+    if v := dc.fastMode; v { // Turn off many things for fast mode:
+        //dc.noImportFiles = v
+        dc.noDepsGrep = v
+        dc.noDeps = v
+        dc.noGrep = v
     }
 
-    if options.verbose { defer func(t time.Time) {
+    if dc.verbose { defer func(t time.Time) {
         prompt(ctx, "Goals %v (%s)\n", dc.globe.goals, time.Now().Sub(t))
     } (time.Now()) }
 
     assert(dc.globe.args != nil, "globe args is nil")
 
-    if options.autoProfs {
+    if dc.autoProfs {
         if f, e := os.Create(filepath.Join(baseWorkDir, "load.cpu.auto.prof")); e != nil {
             erro(ctx, "%v", e).debug(1)
             return
@@ -1035,7 +1055,7 @@ func (dc *universe) loadTopWork() (err error) {
             defer pprof.StopCPUProfile()
         }
         defer func() {
-            var prof string //= options.memProf
+            var prof string //= dc.memProf
             if prof == "" { prof = filepath.Join(baseWorkDir, "load.mem.auto.prof") }
             if f, e := os.Create(prof); e != nil {
                 erro(ctx, "%v", e).debug(1)
@@ -1070,18 +1090,18 @@ func (dc *universe) loadTopWork() (err error) {
             dc.globe.goals.append(ctx, t)
         }
     }
-    if mode.string == "" { if options.configure {
+    if mode.string == "" { if dc.commandLine.configure {
         mode.string = "configure"
     } else {
         mode.string = "goals"
     }}
     dc.globe.mode.value = mode
 
-    defer func(t time.Time) { if d := time.Now().Sub(t); options.verboseImport {
+    defer func(t time.Time) { if d := time.Now().Sub(t); dc.verboseImport {
         var name string
         if p := dc.globe.top.Project(); p != nil { name = p.name }
         prompt(ctx, "└·%s … (%s)\n", name, d)
-    } else if d > time.Duration(options.slow)*time.Millisecond*10 {
+    } else if d > time.Duration(dc.slow)*time.Millisecond*10 {
         if m := dc.globe.main; m != nil {
             warn(at(ctx, m.position), "slow loading (%v)!!\n", d).debug(6)
         } else {
@@ -1089,7 +1109,7 @@ func (dc *universe) loadTopWork() (err error) {
         }
     }} (time.Now())
 
-    if options.verboseImport { prompt(ctx, "┌→%s\n", base) }
+    if dc.verboseImport { prompt(ctx, "┌→%s\n", base) }
     if!dc.globe.top.path(base, nil) { return }
     if dc.globe.main == nil { erro(ctx, "nothing loaded\n").debug(1) }
     return

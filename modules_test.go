@@ -19,7 +19,7 @@ var testValidFlag = []*regexp.Regexp{
 	regexp.MustCompile(`^-(?:(?:(?:cxx|stdlib\+\+)-)?isystem(?:-after)?)=?[[:alnum:]_\-/]+$`),
 	regexp.MustCompile(`^-[IL]=?[[:alnum:]_\-/]+$`),
 	regexp.MustCompile(`^-[DWfl][[:alnum:]_\-]+$`),
-	regexp.MustCompile(`^-no[[:alnum:]_\-]+$`),
+	regexp.MustCompile(`^-no[[:alnum:]_\-+]+$`),
 	regexp.MustCompile(`^-O[0-6]$`),
 	regexp.MustCompile(`^-[vg]$`),
 }
@@ -41,9 +41,6 @@ func TestVariantTarget(t *testing.T) {
 		t.Logf("skip %s", s)
 		return
 	}
-
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/modules/target", "testtarget")
 
@@ -257,9 +254,6 @@ func TestApp(t *testing.T) {
 		t.Logf("skip %s", s)
 		return
 	}
-
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
 
 	var ctx = load_testcase(t, "testdata/modules/app", "testapp")
 
@@ -790,6 +784,46 @@ func TestApp(t *testing.T) {
 	} else { for _, t := range foo6 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
 	}}}
+
+	ctx.flush()
+}
+
+func TestLLVMConfig(t *testing.T) {
+	if s := "llvm/Config"; !testHasModule(s) {
+		t.Logf("skip %s", s)
+		return
+	}
+
+	var ctx = load_testcase(t, "testdata/modules/llvm/config", "testllvmconfig")
+
+	if v := ctx.get("enum1", "*AsmPrinter.cpp", "LLVM_ASM_PRINTER"); v == nil {
+		ctx.err("enum1")
+	} else if s := v.String(); s == "" {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "AsmPrinter.cpp") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "LLVM_ASM_PRINTER") != 1 {
+		ctx.err("%v", v)
+	} else if true {
+		info(ctx, "%v", v).debug(1)
+	}
+
+	ctx.flush()
+}
+
+func TestToolchainBooting(t *testing.T) { TestLLVMConfig(t)
+	if s := "toolchain/booting"; !testHasModule(s) {
+		t.Logf("skip %s", s)
+		return
+	}
+
+	var ctx = load_testcase(t, "testdata/modules/toolchain/booting", "testtoolchainbooting")
+
+	if r := ctx.rule("stamp"); r == nil {
+		ctx.err("stamp")
+	} else if v, e := ctx.universe().run(); e != nil {
+		ctx.err("%v: %v (%v)", r, e, v)
+	}
 
 	ctx.flush()
 }

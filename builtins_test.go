@@ -15,9 +15,6 @@ import (
 const TER = false
 
 func TestAssert(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var boos []bool
 	var vals []Value
 	var ctx = load_testcase(t, "testdata/assert", "testassert", hooks{
@@ -65,9 +62,6 @@ func TestAssert(t *testing.T) {
 }
 
 func TestWildcard(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/wildcard", "testwildcard")
 
 	var (
@@ -380,9 +374,6 @@ func TestWildcard(t *testing.T) {
 }
 
 func TestForeach(t *testing.T) { TestAutoContext(t)
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/foreach", "testforeach")
 	var to_list func(v Value) (*List, bool)
 	var to_list_direct = func(v Value) (l *List, y bool) { l, y = v.(*List) ; return }
@@ -1323,9 +1314,6 @@ func TestForeach(t *testing.T) { TestAutoContext(t)
 }
 
 func TestForeach1(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/foreach/1", "testforeach1")
 
 	if v := ctx.get(".test.4"); v == nil {
@@ -1347,9 +1335,6 @@ func TestForeach1(t *testing.T) {
 }
 
 func TestForeach2(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/foreach/2", "testforeach2")
 
 	if v := ctx.get(".test.1"); v == nil {
@@ -1388,9 +1373,6 @@ func TestForeach2(t *testing.T) {
 }
 
 func TestForeach3(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/foreach/3", "testforeach3")
 
 	if v := ctx.get(".test.x"); v == nil {
@@ -1763,9 +1745,6 @@ func TestForeach3(t *testing.T) {
 }
 
 func TestForeach4(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/foreach/4", "testforeach4")
 
 	if v := ctx.get(".test.1", "a", "b"); v == nil {
@@ -1839,9 +1818,6 @@ func TestForeach4(t *testing.T) {
 }
 
 func TestForeach5(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/foreach/5", "testforeach5")
 
 	if v := ctx.get(".test.x"); v == nil {
@@ -1937,9 +1913,6 @@ func TestForeach5(t *testing.T) {
 }
 
 func TestAddPrefix(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/addprefix", "testaddprefix")
 
 	if v := ctx.get("val1"); v == nil {
@@ -1968,9 +1941,6 @@ func TestAddPrefix(t *testing.T) {
 }
 
 func TestPushContext(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/pushcontext", "pushcontext")
 
 	if v := ctx.get("foo"); v == nil {
@@ -2009,9 +1979,6 @@ func TestPushContext(t *testing.T) {
 }
 
 func TestContains(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/contains", "testcontains")
 
 	if v := ctx.get(".test.1"); v == nil {
@@ -2050,9 +2017,6 @@ func TestContains(t *testing.T) {
 }
 
 func TestLogic(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/logic", "testlogic")
 
 	if v := ctx.get("val1"); v == nil {
@@ -2182,9 +2146,6 @@ func TestLogic(t *testing.T) {
 }
 
 func TestBuiltins(t *testing.T) {
-	defer func(o commandLineOpts) { options = o } (options)
-	options.failOnErrors = false
-
 	var ctx = load_testcase(t, "testdata/builtins", "testbuiltins")
 
 	if d := ctx.def("val1"); d == nil {

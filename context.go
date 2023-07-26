@@ -25,7 +25,7 @@ const (
   productVerTag = "dev" // dev, alpha, beta, stable
 )
 
-type commandLineOpts struct {
+type commandLine struct {
   help            bool `h,help`
 
   debug           bool `d,db,debug`
@@ -95,8 +95,8 @@ type commandLineOpts struct {
   traceConfig     bool `tc,trace-config`
 }
 
-func (o *commandLineOpts) debugParsing(ctx Context, syntax string) (res bool) {
-  if ctx.universe().ddd != "" { for _, s := range o.debugSyn {
+func (o *commandLine) debugParsing(ctx Context, syntax string) (res bool) {
+  if ctx.universe().ddd == syntax { for _, s := range o.debugSyn {
     if res = s == syntax; res { break }
   }}
   return
@@ -191,23 +191,8 @@ func getTargetValueString(ctx Context) (val Value, str string) {
   return
 }
 
-var options = commandLineOpts{
-  debugPrompt: true,
-  debugErrors: true,
-  debugWarns:  true,
-  debugInfos:  true,
-
-  silentOptionalSelection: false,
-
-  failOnErrors: true,
-  fastMode: true,
-
-  parallel: false, // FIXME: program.traverse not working in parallel
-
-  slow: 999 * 1, // *90
-}
-
 type diagType int
+
 const (
   diagInfo diagType = iota
   diagWarn
@@ -219,8 +204,9 @@ const (
 var (
   goStackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   goStackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
+  goStackSmartTrace = regexp.MustCompile(`^(?:extbit\.io/)?(.+?)smart\.\(\*diaContext\)\.trace\(.+\)$`)
 )
-type skip struct{ int }
+type skipint struct{ int }
 type frames struct{ int }
 type diagPoint struct {
   dt diagType
@@ -235,17 +221,12 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
   }
 
   var s string
-  if false { switch d.dt {
-  case diagPrompt: if !options.debugPrompt { return d } else { s = "note:" }
-  case diagInfo:   if !options.debugInfos  { return d } else { s = "info:" }
-  case diagWarn:   if !options.debugWarns  { return d } else { s = "warning:" }
-  case diagError:  if !options.debugErrors { return d } else { s = "" }
-  }} else { switch d.dt {
-  case diagPrompt: if !options.debugPrompt { return d } else { s = "note:" }
-  case diagInfo:   if !options.debugInfos  { return d } else { s = "info:" }
-  case diagWarn:   if !options.debugWarns  { return d } else { s = "info:" }
-  case diagError:  if !options.debugErrors { return d } else { s = "info:" }
-  }}
+  switch d.dt {
+  case diagPrompt: if /* !options.debugPrompt */false { return d } else { s = "note:" }
+  case diagInfo:   if /* !options.debugInfos */false  { return d } else { s = "info:" }
+  case diagWarn:   if /* !options.debugWarns */false  { return d } else { s = "info:" }
+  case diagError:  if /* !options.debugErrors */false { return d } else { s = "info:" }
+  }
 
   var (
     nums []int
@@ -256,7 +237,7 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
     if !t { return d }
   } else if t, y := a.(int); y {
     nums = append(nums, t)
-  } else if t, y := a.(skip); y {
+  } else if t, y := a.(skipint); y {
     i += t.int
   } else if t, y := a.(frames); y {
     j += t.int
@@ -277,6 +258,9 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
   if true {
     var gotPanic bool
     for ; 0 < j && i+1 < len(v); i = i+1 {
+      // skip diaContext.trace lines
+      if goStackSmartTrace.Match(v[i+0]) { continue }
+
       var (
         sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)
         sm2 = goStackLine2.FindAllSubmatch(v[i+1], 1)
@@ -310,12 +294,8 @@ type diaContext struct {
   errs int
 }
 func (diag *diaContext) inner() Context { return diag.Context }
-// func (diag *diaContext) spawn(ctx Context) Context {
-//   return &diaContext{ Context: diag.Context.spawn(ctx) }
-// }
-func (diag *diaContext) aquireLock() (unlock func()) {
-    diag.Lock() ; return func() { diag.Unlock() }
-}
+func (diag *diaContext) dia() *diaContext { return diag }
+func (diag *diaContext) aquireLock() (unlock func()) { diag.Lock(); return func(){ diag.Unlock() }}
 func (diag *diaContext) String() string {
   if fullContextStringer {
     return fmt.Sprintf("diag{%s}", diag.Context)
@@ -323,19 +303,12 @@ func (diag *diaContext) String() string {
     return diag.Context.String()
   }
 }
-func (diag *diaContext) dia() *diaContext { return diag }
-func (diag *diaContext) reset() {
-  diag.Lock() ; defer diag.Unlock()
-  diag.points = []*diagPoint{}
-}
-
-func (diag *diaContext) add(point *diagPoint) *diagPoint {
-  diag.Lock() ; defer diag.Unlock()
+func (diag *diaContext) reset() { defer diag.aquireLock()(); diag.points = []*diagPoint{}}
+func (diag *diaContext) add(point *diagPoint) *diagPoint { defer diag.aquireLock()()
   diag.points = append(diag.points, point)
   return point
 }
-func (diag *diaContext) nest(points []*diagPoint) {
-  diag.Lock() ; defer diag.Unlock()
+func (diag *diaContext) nest(points []*diagPoint) { defer diag.aquireLock()()
   diag.nested = append(diag.nested, points)
 }
 
@@ -344,12 +317,17 @@ func (diag *diaContext) point(ctx Context, dt diagType, f string, args ...interf
   return diag.add(&diagPoint{ dt, ctx.Position(), fmt.Sprintf(f, args...), nil })
 }
 
+func (diag *diaContext) trace(ctx Context, fmt string, a ...interface{}) {
+  if len(a) == 0 { a = append(a, ctx.Position()) } else
+  if _, y := a[0].(Position); !y { a = append([]interface{}{ctx.Position()}, a...) }
+  if diag.error() { panic(failure{fmt, a}) }
+}
+
+func (diag *diaContext) error() bool { return diag.errs > 0 || diag.countErrors() > 0 }
 func (diag *diaContext) totalErrors() (errs int) { return diag.errs }
 func (diag *diaContext) countErrors() (errs int) { return diag.check(diagError) }
-func (diag *diaContext) check(dt diagType) (errs int) {
-  diag.Lock()
+func (diag *diaContext) check(dt diagType) (errs int) { defer diag.aquireLock()()
   for _, d := range diag.points { if d.dt == dt { errs += 1 } }
-  diag.Unlock()
   return
 }
 func (diag *diaContext) flush() (errs int) {
@@ -581,17 +559,17 @@ func positionForDir(dir string) (pos Position) {
 }
 
 // usage: defer assured(ctx, ...)
-func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
-  var pos = ctx.Position()
+func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) { defer ctx.dia().flush()
+  var f *failure
   for e := recover(); e != nil; e = recover() {
-    switch t := e.(type) {
+    switch recovered += 1; t := e.(type) {
     case bailout: continue
-    case failure: erro(at(ctx,t.position), "%v [failure]", t.metainfo)
-    default: prompt(ctx, "%v [assured]\n", e)
+    case Value: erro(at(ctx,t.Position()), "%v %v", t, t).debug(1)
+    case failure: erro(t.at(ctx), "[failure] "+t.fmt, t.ia()...).debug(1); if f == nil { f = &t }
+    default: erro(ctx, "%v [assured: %T]\n", e, e).debug(1)
     }
-    recovered += 1
   }
-  if recovered > 0 {
+  if recovered > 0 { var pos = ctx.Position()
     if !strings.HasSuffix(pos.Filename, entryFileName) {
       var s = filepath.Join(pos.Filename, entryFileName)
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
@@ -599,20 +577,25 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
       var s = filepath.Join(pos.Filename, "build.smart")
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     }
-    errostack(at(ctx,pos), 5, "failed, %d recovered", recovered).debug(128)
+
+    // if defer assured from top stack, this will dump the full stack of panics
+    errostack(ctx, 5, "failed, %d recovered", recovered).debug(128)
   }
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] { return }
-  if errs = ctx.dia().countErrors(); errs > 0 && recovered == 0 {
-    noted(ctx, "got %d errors (total %d)", errs, ctx.dia().totalErrors()).debug(10)
-    ctx.dia().flush() // flush diagnostics
-    panic(fmt.Sprintf("%v: got %d errors, %d recovered", pos, errs, recovered))
+
+  var dia = ctx.dia()
+  if errs = dia.countErrors(); errs > 0 && recovered == 0 { t := dia.totalErrors()
+    noted(ctx, "got %d errors (total %d, recovered %d)", errs, t, recovered).debug(10)
+    if f != nil && (len(dontCheckErrors) == 0 || !dontCheckErrors[0]) {
+      panic(failure{"fail [assured]",ia(ctx.Position())})
+    }
   }
   return
 }
 
-func CommandLine() {
-  if options.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
-  var context = init_universe() ; defer assured(context)
+func CommandLine() { var context = init_universe() ; defer assured(context, false)
+  if context.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
+
   var modulesPaths, packagePaths searchlist
   walkSmartBaseDirs(context, context.workdir, func(s string) bool {
     if baseTmpPath == "" { baseTmpPath = s }
@@ -660,15 +643,15 @@ func CommandLine() {
     erro(context, "loading work failed: %v", err)
   } else if context.dia().flush() > 0 {
     prompt(context, "loading work got %d errors\n", context.dia().totalErrors())
-  } else if options.help {
-    context.help()
-  } else if options.printFlags {
-    context.helpFlags()
-  } else if options.printConfig {
-    context.helpConfig()
+  } else if context.help {
+    context.doHelp()
+  } else if context.printFlags {
+    context.doHelpFlags()
+  } else if context.printConfig {
+    context.doHelpConfig()
   } else if numUpdatedPlugins > 0 { // see buildPlugin
     prompt(context, "plugins updated, please relaunch.\n")
-  } else if options.configure {
+  } else if context.commandLine.configure {
     context.configure()
   } else if result, err := context.run(); err != nil {
     erro(context, "run work failed: %v", err)

@@ -1,0 +1,5 @@
+project testtoolchainbooting (variant=darwin/arm64/bootstrap,app)
+
+use toolchain/booting
+
+stamp: $(.usee) touch

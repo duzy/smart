@@ -22,8 +22,12 @@ var (
 
 type (
     failure struct {
+        fmt string
+        a []interface{}
+    }
+
+    termination struct {
         position Position
-        metainfo interface{}
     }
 
     FailedAssertion string
@@ -42,8 +46,23 @@ func unreachable(a ...interface{}) {
     panic(Unreachable(fmt.Sprint(a...)))
 }
 
-func fail(pos Position, s string, a ...interface{}) {
-    panic(failure{pos,fmt.Sprintf(s,a...)})
+func ia(a ...interface{}) []interface{} { return a }
+
+func (f *failure) Error() string { var a []interface{}
+    for _, v := range f.a { if _, y := v.(Position); !y { a = append(a, v) }}
+    return fmt.Sprintf(f.fmt, a...)
+}
+func (f *failure) at(ctx Context) Context {
+    for _, a := range f.a { switch t := a.(type) {
+    case []Value: if len(t) > 0 { return at(ctx, t[0].Position()) }
+    case Value: return at(ctx, t.Position())
+    case Position: return at(ctx, t)
+    }}
+    return ctx
+}
+func (f *failure) ia() (res []interface{}) {
+    for i, a := range f.a { if _, y := a.(Position); i > 0 || !y { res = append(res, a) }}
+    return
 }
 
 func (s FailedAssertion) Error() string { return string(s) }

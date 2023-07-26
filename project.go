@@ -157,7 +157,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
     if isNull(path) {
       erro(at(ctx,pos), "nil path: name=%s",  name)
       erro(at(ctx,pos), "nil path: %v", p).debug(32)
-      fail(pos, "file mapping nil path: %v", p)
+      panic(failure{"file mapping nil path: %v",ia(pos, p)})
     } else if isNone(path) {
       warn(at(ctx,pos), "nil path: name=%s",  name)
       warn(at(ctx,pos), "nil path: %v", p).debug(32)
@@ -869,7 +869,8 @@ func (p *Project) hasBase(proj *Project) (res bool) {
 }
 
 func (p *Project) hasLoaded(ctx Context, proj *Project, traveUseLoop bool) (rp *Project, res, isb bool, err error) {
-  if options.checkLoadGraph || !options.fastMode {
+  var uni = ctx.universe()
+  if uni.checkLoadGraph || !uni.fastMode {
     rp, res, isb, err = p.hasLoadedRecur(ctx, p, proj, 1, traveUseLoop)
   }
   return
@@ -985,7 +986,8 @@ func lockCD(dir string, dura time.Duration) error {
 func enter(ctx Context, dir string) (err error) {
   cd.mutex.Lock(); defer cd.mutex.Unlock()
 
-  if options.traceEntering {
+  var uni = ctx.universe()
+  if uni.traceEntering {
     prompt(ctx, "entering: %v (%v)\n", dir, ctx.Project().name)
   }
 
@@ -1009,7 +1011,8 @@ func leave(ctx Context, prog *program, stop *enterec) (err error) {
   cd.mutex.Lock(); defer cd.mutex.Unlock()
 
   var size = len(cd.stack)
-  if options.traceEntering {
+  var uni = ctx.universe()
+  if uni.traceEntering {
     prompt(ctx, "leaving: %v (%v %v %v)\n", stop.dir, prog.project.name, stop.num, size)
   }
 

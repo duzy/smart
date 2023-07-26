@@ -578,7 +578,8 @@ func with(ctx Context, target Value) (res bool) {
 // traverse - traverse the prerrequiste for the current target $@
 func (pc *programContext) traverse(ctx Context, prereqValue Value) (result travestates) {
     var (
-        verb = options.verbose || options.verboseBreaks
+        uni = ctx.universe()
+        verb = uni.verbose || uni.verboseBreaks
 
         projects = ctx.projects(ctx)
 
@@ -1069,7 +1070,8 @@ CheckPrereqResult:
 
 func (pc *programContext) prerequisite(ctx Context, prerequisites []Value) {
     var (
-        verb = options.verbose || options.verboseBreaks
+        uni = ctx.universe()
+        verb = uni.verbose || uni.verboseBreaks
         ent  = autoVal(ctx, "@")
         stem *stemmed
         depends valvec
@@ -1328,6 +1330,7 @@ func (prog *program) workDir(ctx Context) (workDir string) {
 }
 
 func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
+    var uni = ctx.universe()
     var dia, entry = ctx.dia(), ctx.entry()
     if dia.flush() > 0 {
         var errs = dia.totalErrors()
@@ -1335,18 +1338,20 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         prompt(ctx, "%v: canceled execution (%d error%s), project %s\n", entry, errs,s, prog.project)
         warn(ctx, `cancel "%v"`, entry)
         warnstack(ctx, 5).debug(16)
-        if false && options.failOnErrors { fail(ctx.Position(), "fail by %d error%s", errs, s) }
+        if false && uni.failOnErrors {
+			panic(failure{"fail by %d error%s",ia(prog.position, errs, s)})
+        }
         return
     }
 
     assert(prog.project == prog.scope.project, "mismatched scope/project")
 
-    var pc = programContext{
+    var pc = &programContext{
         autoContext: autoContext{ Context:ctx, defs:make(autoDefMap) },
         execRec: make(map[Value]int), start: time.Now(), prog: prog, print: true,
     }
 
-    ctx = &pc
+    ctx = pc
 
     defer func() {
         var targets = autoVal(ctx, "@") // depends = autoVal(ctx, "^")
@@ -1365,8 +1370,8 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
 
             errostack(ctx, 8).debug(32)
 
-            if options.failOnErrors {
-                fail(prog.position, "fail by %d errors", errs)
+            if uni.failOnErrors {
+                panic(failure{"fail by %d error",ia(ctx.Position(),errs)})
             } else if ctx.isConfigure() {
                 // done
             } else if s := pc.traves.add(ctx, traveFail, targets); errs == 1 {
@@ -1452,7 +1457,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
             }
 
             errostack(ctx, depth, "#>", entry).debug(512)
-            if false { fail(prog.position, "max call depth") }
+            if false { panic(failure{"max call depth",ia(prog.position)}) }
             return
         }
 
@@ -1481,7 +1486,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         }
 
         if pc.execRec[target] += 1; false { if pc.execRec[target] > 1 {
-            if options.traceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
+            if uni.traceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
             return
         }}
 
@@ -1525,14 +1530,14 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         }}
     } (prog.project.changedWD)
 
-    if alreadyUpdated { if options.verbose {
+    if alreadyUpdated { if uni.verbose {
         noted(ctx, "'%v' already updated", autoVal(ctx, "@")).debug(3)
     }}
 
     if pc.print && prog.configure { pc.print = false }
     cd.stack[0].silent = !pc.print
 
-    if options.traceExec {
+    if uni.traceExec {
         var d = pc.depth()
         var t = autoVal(ctx, "@")
         var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
@@ -1552,8 +1557,8 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, pc.traves).debug(1)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, autoVal(ctx,"@"))
-        if warnstack(ctx, 6).debug(8); true && options.failOnErrors {
-            fail(prog.position, "fail by %d errors", dia.totalErrors())
+        if warnstack(ctx, 6).debug(8); true && uni.failOnErrors {
+            panic(failure{"fail by %d errors",ia(prog.position)})
         }
         return
     } else if pc.traves.has(traveCase, traveDone, traveFail, traveNext) {
@@ -1567,8 +1572,8 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         s.error = fmt.Errorf("%d errors counted", errs)
         prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, pc.traves).debug(1)
         warn(ctx, "%d errors while traversing prerequisites for %v", errs, autoVal(ctx,"@"))
-        if warnstack(ctx, 6).debug(8); true && options.failOnErrors {
-            fail(prog.position, "fail by %d errors", dia.totalErrors())
+        if warnstack(ctx, 6).debug(8); true && uni.failOnErrors {
+            panic(failure{"fail by %d errors",ia(prog.position)})
         }
         return
     } else if pc.traves.has(traveCase, traveDone, traveFail, traveNext) {

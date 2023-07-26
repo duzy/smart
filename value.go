@@ -21,6 +21,7 @@ import (
     "bytes"
     "io/fs"
     "sync"
+    "sync/atomic"
     "time"
     "math"
     "fmt"
@@ -1050,8 +1051,7 @@ func (cache *valcache) slot(ctx Context, val Value, bits int) (res *valcache) {
 
     if bits&cacheKey != 0 && bits&cacheStore != 0 && res != nil {
         if res._key == nil { res._key = val } else
-        if res._key.cmp(ctx, val) != cmpEqual {
-            a, b := res._key, val
+        if res._key.cmp(ctx, val) != cmpEqual { a, b := res._key, val
             errostack(ctx, 5, "conflict cache: %v %v , %v %v", typeof(a), a, typeof(b), b).debug(32)
             return
         }
@@ -1324,10 +1324,10 @@ type returner struct {
 }
 func (p *returner) kind() Kind { return KindReturner }
 func (p *returner) expand(ctx Context, w facet) (res Value) {
-    var vals, u, n = w.expand(ctx, p.Values...)
-    if n > 0 { res = &returner{p.valbase, vals} } else { res = p }
-    if u > 0 { res = unexpanded{res} }
-    return
+    // var vals, u, n = w.expand(ctx, p.Values...)
+    // if n > 0 { res = &returner{p.valbase, vals} } else { res = p }
+    // if u > 0 { res = unexpanded{res} }
+    return expand(ctx, w, p.Values...)
 }
 func (p *returner) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b): %v", bits, p.Values).debug(32)
@@ -2670,6 +2670,7 @@ func (p *elements) expandable(ctx Context, w facet) (res bool) {
 }
 
 func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
+    var uni = ctx.universe()
     if len(elemsL) != len(elemsR) {
         elemsL = merge(elemsL...)
         elemsR = merge(elemsR...)
@@ -2683,7 +2684,7 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
                 return
             }
             if res = elem.cmp(ctx, other); res != cmpEqual {
-                if options.debug && elem.String() == other.String() {
+                if uni.debug && elem.String() == other.String() {
                     warn(ctx, "L.%d: %T %v", i, elem, elem)
                     warn(ctx, "R.%d: %T %v", i, other, other)
                     if b1, y := elem.(*barecomp); y {
@@ -5221,6 +5222,7 @@ func (_ *pair) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
     return
 }
 
+type skipped struct { Value }
 type selected struct { Value }
 type expanded struct { Value }
 type unexpanded struct { Value }
@@ -5346,16 +5348,17 @@ func (p *delegate) float(ctx Context) (f float64, e error) {
     return
 }
 func (p *delegate) value(ctx Context, w facet) (v Value) {
+    var uni = ctx.universe()
     if t := p.expand(ctx, w); t == nil || t == p {
         if false { erro(of(ctx,p), "expand: %v is nil", p).debug(10) }
     } else if u, y := t.(unexpanded); y && u.Value == p {
-        if options.debug { warn(of(ctx,p), "expand: %v", p).debug(1) }
+        if uni.debug { warn(of(ctx,p), "expand: %v", p).debug(1) }
     } else if u, y := t.(unresolved); y && u.Value == p {
-        if options.debug { warn(of(ctx,p), "expand: %v", p).debug(1) }
+        if uni.debug { warn(of(ctx,p), "expand: %v", p).debug(1) }
     } else if o, y := t.(*delegate); y && p.l == o.l && p.x == o.x {
-        if options.debug { warn(of(ctx,p), "expand: %v %v", p, o).debug(1) }
+        if uni.debug { warn(of(ctx,p), "expand: %v %v", p, o).debug(1) }
     } else if t.refs(ctx, p) {
-        if options.debug { warn(of(ctx,p), "expand: %v %v", p, t).debug(1) }
+        if uni.debug { warn(of(ctx,p), "expand: %v %v", p, t).debug(1) }
     } else {
         v = t
     }
@@ -5863,6 +5866,8 @@ func (p *selection) value(ctx Context, w facet) (res Value) {
         noted(ctx, "%T %v → %T %v → %T %v", p.o, p.o, t, t, res, res).debug(16)
     }()}}
 
+    var uni = ctx.universe()
+
     var o Object
     if s, y := p.o.(*selection); y {
         if t := s.value(ctx, w); t == nil {
@@ -5892,8 +5897,8 @@ func (p *selection) value(ctx Context, w facet) (res Value) {
     } else if o, y = p.o.(Object); y {
         // good
     } else if t, y := p.o.(optional); y {
-        if !options.silentOptionalSelection {
-            warnstack(of(ctx,p.o), 3, "selection.object: optional %s %v", typeof(t.Value), t.Value).debug(1)
+        if !uni.silentOptionalSelection {
+            warnstack(of(ctx,p.o), 3, "selection.object: optional %s %v", typeof(t.Value), t.Value).debug(3)
         }
         if o, y = t.Value.(Object); !y { return unexpanded{p} }
     } else {
@@ -6763,10 +6768,19 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
 }
 
 func (w facet) expand(ctx Context, values ...Value) (elems []Value, u, n int) {
+    var uni = ctx.universe()
     for _, elem := range values {
         if w&expandArgs == 0 && (elem == nil || isNull(elem)) { continue }
 
+        if t := atomic.AddInt64(&uni.facet_expand_n, 1); t > int64(max_expand)*2 {
+            errostack(of(ctx, elem), 3, "max expand: %v (depth=%v,facet=%030b)", values, t, w).debug(t)
+            panic(fmt.Sprintf("max expand: %T %v", elem, elem))
+        }
+
         val := elem.expand(ctx, w)
+
+        atomic.AddInt64(&uni.facet_expand_n, -1)
+
         if val == nil {
             if false { errostack(of(ctx,elem), 3, "nil: %T %v", elem, elem).debug(5) }
             continue
@@ -6782,40 +6796,19 @@ func (w facet) expand(ctx Context, values ...Value) (elems []Value, u, n int) {
     }
     return
 }
-func (w facet) /*TODO*/_expand(ctx Context, values ...Value) (elems []Value, u, n int) {
-    var m sync.Mutex
-    var g sync.WaitGroup
-    var f = func(elem Value, mx bool) { if mx { defer g.Done() }
-        if elem == nil || isTrivial(elem) { return }
 
-        val := elem.expand(ctx, w)
-        if val == nil {
-            if false { errostack(of(ctx,elem), 3, "nil: %T %v", elem, elem).debug(5) }
-            return
+func expand(ctx Context, w facet, values ...Value) (res Value) {
+    if n := len(values); n == 1 {
+        res = values[0].expand(ctx, w)
+    } else if n > 1 {
+        var a, u, _ = w.expand(ctx, values...)
+        if n = len(a); n == 1 {
+            res = a[0]
+        } else if n > 1 {
+            res = &List{ctx.Position(), elements{a}}
+            if u > 0 { res = unexpanded{res} }
         }
-
-        var _u, _n int
-        if t, y := val.(unexpanded); y { _u = 1
-            if t.Value != elem && t != elem { _n = 1 }
-        } else if val != elem /* || val.cmp(ctx, elem) != cmpEqual */ {
-            _n = 1
-        }
-
-        if mx { m.Lock() }
-        elems = append(elems, val)
-        u += _u
-        n += _n
-        if mx { m.Unlock() }
     }
-    if n := len(values); n == 0 {} else if n == 1 { f(values[0], false) } else {
-        for _, elem := range values { g.Add(1); go f(elem, true) }
-        g.Wait()
-    }
-    return
-}
-
-func Expand(ctx Context, values ...Value) (res []Value) {
-    res, _, _ = plain.expand(ctx, values...)
     return
 }
 
@@ -7021,7 +7014,7 @@ func MakeDelegate(pos Position, tok Token, obj Value, opts []Value, args... Valu
     return &delegate{valbase{pos}, tok, obj, opts, args}
 }
 func MakeClosure(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
-    if isNull(obj) { panic(failure{pos,"making closure on <nil> object"}) }
+    if isNull(obj) { panic(failure{"making closure on <nil> object",ia(pos)}) }
     return &closure{delegate{valbase{pos}, tok, obj, opts, args}}
 }
 
@@ -7123,6 +7116,7 @@ func ParseURL(pos Position, s string) *URL {
 
 type invocation struct {
     Context
+    int32 // expand N
     o, a []Value
     v Value
     x bool
@@ -7163,31 +7157,31 @@ func forth(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
 
     for ic, n := ctx.ic(), 1; ic != nil; ic = ic.Context.ic() { if n += 1; n > 999 {
         errostack(of(ctx,v), 10, "invocation exceeds limitation: %d, %v", n, v).debug(100)
-        if true { return } else { fail(v.Position(), "unsafe invocation") }
+        if true { return } else { panic(failure{"unsafe invocation",ia(v.Position())}) }
     } else if a, y := v.(*auto); y && ic.v == v {
         if true { return unexpanded{a}, nil, false } else {
             errostack(of(ctx,v), 10, "invocation loop detected (%d): %v ; %v", n, v, autoDef(ctx, a.name(ctx))).debug(100)
-            if true { return } else { fail(v.Position(), "unsafe invocation") }
+            if true { return } else { panic(failure{"unsafe invocation",ia(v.Position())}) }
         }
     } else if d, y := v.(*def); y && ic.v == v {
         if true { return unexpanded{d}, nil, false } else {
             errostack(of(ctx,v), 10, "invocation loop detected (%d): %v", n, d).debug(100)
-            if true { return } else { fail(v.Position(), "unsafe invocation") }
+            if true { return } else { panic(failure{"unsafe invocation",ia(v.Position())}) }
         }
     } else if b, y := v.(*builtin); !y && ic.v == v {
         errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v (%v)", n, typeof(v), v, b).debug(100)
-        if true { return } else { fail(v.Position(), "unsafe invocation") }
+        if true { return } else { panic(failure{"unsafe invocation",ia(v.Position())}) }
     }}
 
     // NOTE: the ic.a represents the arguments, which is a COPY of the original slice;
     // NOTE: making a COPY for the arguments FIXES the bug of delegate-altered-args mistake
-    ic := invocation{Context:ctx, v:v, o:o}
+    ic := &invocation{Context:ctx, v:v, o:o}
     if true {
         ic.a = append(ic.a, a...) // make a copy
     } else {
         ic.a = make([]Value, len(a)) ; copy(ic.a, a)
     }
-    if v != nil { res = v.expand(&ic, w|expandInvoke) }
+    if v != nil { res = v.expand(ic, w|expandInvoke) }
     return res, ic.a, ic.x
 }
 
@@ -7198,9 +7192,9 @@ func invoke(ctx Context, v Value, w facet, o, a []Value) (res Value) {
 
 func xauto(ctx Context, v Value, w facet, a ...Value) (res Value) {
     if len(a)>0 {
-        ac := autoContext{ Context:ctx, defs:make(autoDefMap) }
+        ac := &autoContext{ Context:ctx, defs:make(autoDefMap) }
         ac.args(ctx, nil, a)
-        ctx, w = &ac, w|expandAuto|expandDigits
+        ctx, w = ac, w|expandAuto|expandDigits
     }
     return v.expand(ctx, w)
 }
@@ -7221,7 +7215,9 @@ func inv(ctx Context, v Value, ii ...interface{}) (res Value) { w, a := iwa(ctx,
 }
 
 func call(ctx Context, name string, w facet, o []Value, a ...Value) (res Value) {
-    if v := ctx.universe().scope.Lookup(name); v != nil { res = invoke(ctx, v, w, o, a) }
+    if v := ctx.universe().scope.Lookup(name); v != nil {
+        if t := invoke(ctx, v, w, o, a); t != v { res = t }
+    }
     return
 }
 
@@ -7233,7 +7229,7 @@ func _call(ctx Context, name string, ii ...interface{}) (d *def, res Value) { w,
     } else if d, y = o.(*def); !y {
         erro(ctx, "%v: %s is not def: %T", p, name, o)
     } else if len(a) > 0 {
-        res = invoke(ctx, d, w, nil, a)
+        if t := invoke(ctx, d, w, nil, a); t != o { res = t }
     } else if d.value != nil {
         if res = d.value; w != 0 { res = res.expand(ctx, w) }
     }
