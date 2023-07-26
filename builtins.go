@@ -735,16 +735,15 @@ func (ctx *builtin_debug) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_error struct { builtin_ }
 func (ctx *builtin_error) x(ic *invocation, w facet) (res interface{}) {
+    defer ctx.dia().trace(ctx, "builtin_error")
+
     var s bytes.Buffer
     for i, a := range ic.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
         fmt.Fprintf(&s, "%s", a.strval(ctx))
     }
-    if false {
-        erro(ctx, "%s", s.String()).debug(1)
-    } else {
-        errostack(ctx, 5, "%s", s.String()).debug(6)
-    }
+
+    errostack(ctx, 5, "%s", s.String()).debug(1)
     return
 }
 
@@ -797,6 +796,8 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_sure struct { builtin_ }
 func (ctx *builtin_sure) x(ic *invocation, w facet) (res interface{}) {
+    defer ctx.dia().trace(ctx, "builtin_sure")
+
     for _, a := range ic.a { if !a.true(ctx) {
         erro(of(ctx,a), "assert: %T %v", a, a).debug(1)
     }}
