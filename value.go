@@ -1051,8 +1051,8 @@ func (cache *valcache) slot(ctx Context, val Value, bits int) (res *valcache) {
 
     if bits&cacheKey != 0 && bits&cacheStore != 0 && res != nil {
         if res._key == nil { res._key = val } else
-        if res._key.cmp(ctx, val) != cmpEqual { a, b := res._key, val
-            errostack(ctx, 5, "conflict cache: %v %v , %v %v", typeof(a), a, typeof(b), b).debug(32)
+        if res._key.cmp(ctx, val) != cmpEqual { a, b, v := res._key, val, val.expand(ctx, strval)
+            errostack(ctx, 5, "conflict cache: %v %v , %v %v ; %v", typeof(a), a, typeof(b), b, v).debug(32)
             return
         }
     }
@@ -2947,6 +2947,11 @@ func (p *barecomp) cmp(ctx Context, v Value) (res cmpres) {
             var i int
             for ; i < len(elemsL) && i < len(elemsR); i += 1 {
                 var cr = elemsL[i].cmp(ctx, elemsR[i])
+
+                if elemsL[i].String() == "$(feature)" { a, b := elemsL[i], elemsR[i]
+                    noted(ctx, "%T %v, %T %v: %v", a, a, b, b, cr).debug(1)
+                }
+
                 if cr == cmpEqual { continue } else
                 if cr == cmpLPrefix || cr == cmpRPrefix {
                     if false && p.strval(ctx) == v.strval(ctx) { res = cmpEqual ; return }
@@ -5244,18 +5249,26 @@ func (u unexpanded) expand(ctx Context, w facet) (res Value) {
     if w&expandUnexpandedKept != 0 { return u }
     return u.Value.expand(ctx, w)
 }
-func (u unexpanded) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    errostack(at(ctx,u.Position()), 5, "cache unsupported (bits=%08b)", bits).debug(32)
+func (u unexpanded) cmp(ctx Context, v Value) (res cmpres) {
+    if a, y := v.(unexpanded); y {
+        res = u.Value.cmp(ctx, a.Value)
+    } else {
+        res = u.Value.cmp(ctx, v)
+    }
     return
 }
-func (u unexpanded) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    errostack(at(ctx,u.Position()), 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (u unexpanded) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
-    errostack(at(ctx,u.Position()), 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
+// func (u unexpanded) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+//     errostack(at(ctx,u.Position()), 5, "cache unsupported (bits=%08b)", bits).debug(1)
+//     return
+// }
+// func (u unexpanded) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+//     errostack(at(ctx,u.Position()), 5, "cache unsupported (bits=%08b)", bits).debug(1)
+//     return
+// }
+// func (u unexpanded) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+//     errostack(at(ctx,u.Position()), 5, "cache unsupported (bits=%08b)", bits).debug(1)
+//     return
+// }
 
 type refContext struct { Context ; v Value }
 func (rc *refContext) inner() Context { return rc.Context }
@@ -5585,20 +5598,21 @@ func (p *delegate) delete(ctx Context) (file []*File, err error) {
     return
 }
 func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*delegate); ok { // NOTE: don't expand the delegate!!!
+    if a, y := v.(*delegate); y { // NOTE: don't expand the delegate!!!
         if p == a { return cmpEqual }
-        if t := p.x.cmp(ctx, a.x); t == cmpEqual {
-            if len(p.a) == 0 && len(a.a) == 0 {
-                res = t
-            } else if len(p.a) == len(a.a) { for i, t := range p.a {
-                if res = t.cmp(ctx, a.a[i]); res != cmpEqual { return }
-            }}
-        }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+
+        var t cmpres
+        if p.x == a.x { t = cmpEqual } else { t = p.x.cmp(ctx, a.x) }
+        if t == cmpEqual { if len(p.a) == 0 && len(a.a) == 0 {
+            res = t
+        } else if len(p.a) == len(a.a) { for i, t := range p.a {
+            if res = t.cmp(ctx, a.a[i]); res != cmpEqual { return }
+        }}}
+    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
-    } else if d, ok := p.x.(*def); ok && len(p.a) == 0 && d.value != nil {
+    } else if d, y := p.x.(*def); y && len(p.a) == 0 && d.value != nil {
         res = d.value.cmp(ctx, v)
-    } else if u, o := v.(unexpanded); o && u.Value != nil {
+    } else if u, y := v.(unexpanded); y && u.Value != nil {
         res = p.cmp(ctx, u.Value)
     }
     return

@@ -15,6 +15,7 @@ import (
   "bufio"
   "bytes"
   "sync"
+  "time"
   "fmt"
   "os"
   "io"
@@ -25,7 +26,7 @@ const (
   productVerTag = "dev" // dev, alpha, beta, stable
 )
 
-type commandLine struct {
+type commandline struct {
   help            bool `h,help`
 
   debug           bool `d,db,debug`
@@ -79,7 +80,7 @@ type commandLine struct {
   noDepsGrep      bool `nodg,ngd,no-deps-grep,no-grep-deps`
   noImportFiles   bool `noif,no-import-files`
 
-  slow int64 `sl,slow`
+  slow time.Duration `sl,slow` // time.Millisecond
 
   parallel        bool `p,par,para,parallel`
 
@@ -95,7 +96,7 @@ type commandLine struct {
   traceConfig     bool `tc,trace-config`
 }
 
-func (o *commandLine) debugParsing(ctx Context, syntax string) (res bool) {
+func (o *commandline) debugParsing(ctx Context, syntax string) (res bool) {
   if ctx.universe().ddd == syntax { for _, s := range o.debugSyn {
     if res = s == syntax; res { break }
   }}
@@ -559,16 +560,17 @@ func positionForDir(dir string) (pos Position) {
 }
 
 // usage: defer assured(ctx, ...)
-func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) { defer ctx.dia().flush()
+func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
   var f *failure
   for e := recover(); e != nil; e = recover() {
     switch recovered += 1; t := e.(type) {
     case bailout: continue
     case Value: erro(at(ctx,t.Position()), "%v %v", t, t).debug(1)
-    case failure: erro(t.at(ctx), "[failure] "+t.fmt, t.ia()...).debug(1); if f == nil { f = &t }
-    default: erro(ctx, "%v [assured: %T]\n", e, e).debug(1)
+    case failure: erro(t.at(ctx), "[failure]: "+t.fmt, t.ia()...).debug(1); if f == nil { f = &t }
+    default: erro(ctx, "[assured: %T]: %v", e, e).debug(1)
     }
   }
+
   if recovered > 0 { var pos = ctx.Position()
     if !strings.HasSuffix(pos.Filename, entryFileName) {
       var s = filepath.Join(pos.Filename, entryFileName)
@@ -577,17 +579,18 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) { defer
       var s = filepath.Join(pos.Filename, "build.smart")
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     }
-
     // if defer assured from top stack, this will dump the full stack of panics
     errostack(ctx, 5, "failed, %d recovered", recovered).debug(128)
   }
-  if len(dontCheckErrors) > 0 && dontCheckErrors[0] { return }
 
-  var dia = ctx.dia()
+  var dia = ctx.dia() ; dia.flush()
+  if len(dontCheckErrors) > 0 && dontCheckErrors[0] { return }
   if errs = dia.countErrors(); errs > 0 && recovered == 0 { t := dia.totalErrors()
     noted(ctx, "got %d errors (total %d, recovered %d)", errs, t, recovered).debug(10)
     if f != nil && (len(dontCheckErrors) == 0 || !dontCheckErrors[0]) {
       panic(failure{"fail [assured]",ia(ctx.Position())})
+    } else {
+      dia.flush()
     }
   }
   return
@@ -651,7 +654,7 @@ func CommandLine() { var context = init_universe() ; defer assured(context, fals
     context.doHelpConfig()
   } else if numUpdatedPlugins > 0 { // see buildPlugin
     prompt(context, "plugins updated, please relaunch.\n")
-  } else if context.commandLine.configure {
+  } else if context.commandline.configure {
     context.configure()
   } else if result, err := context.run(); err != nil {
     erro(context, "run work failed: %v", err)

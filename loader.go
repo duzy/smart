@@ -282,6 +282,8 @@ func (l *loader) Position() (res Position) {
 }
 
 func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value, params ...Value) (loaded *Project) {
+	if true { defer ctx.dia().trace(ctx, "usespec") }
+
     var (
         uni = l.universe()
         globe = l.Globe()
@@ -346,7 +348,7 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
     }
 
     defer func(a []*Project) { if l.loadStack = a; loaded == nil {
-        erro(ctx, "%v not loaded (%v,dir=%v)", specName, absPath, isDir).debug(16)
+        erro(ctx, "%v not loaded (%v,dir=%v)", specName, absPath, isDir).debug(1)
         return
     } else if name, _ := scope.Lookup(loaded.name).(*projectname); name == nil {
         if _, alt := scope.projectname(ctx, loaded.name, loaded); alt != nil {
@@ -815,6 +817,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
             }
         }
 
+        var ctx = at(ctx, target.Position())
         var entry, err = l.project.entry(ctx, clause.special, clause.options, target, prog)
         if err != nil {
             erro(of(ctx,target), "creating entry '%v' failed: %v", target, err)
@@ -845,6 +848,8 @@ type includeOpts struct {
     isConfigure bool // internal
 }
 func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
+    defer ctx.dia().trace(ctx, "include")
+
     var (
         uni = ctx.universe()
         globe = l.Globe()
@@ -854,12 +859,12 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     )
 
     defer func(t time.Time) {
-        if err != nil { erro(ctx, "parse file failed: %v", err).debug(128) }
-        if d := time.Now().Sub(t); d > time.Duration(uni.slow)*time.Millisecond {
-            warnstack(ctx, 10, "%v: slow include (%v)", l.project, d).debug(1) //  → %s, filename
+        if d := time.Now().Sub(t); d > uni.slow {
+            warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, uni.slow).debug(1) //  → %s, filename
         } else if uni.verbose {
             info(ctx, "included %v (%v)", spec, d).debug(1)
         }
+        if err != nil { erro(ctx, "parse file failed: %v", err).debug(2) }
     } (time.Now())
 
     ctx = at(ctx, spec.Position())
@@ -1447,7 +1452,7 @@ func (l *loader) loadConfiguration(ctx Context, linfo *loadinfo, ident *barecomp
     if f := l.project.configurationLoad; f == nil {
         erro(ctx, "%v: nil configuration file", ident).debug(1)
         return
-    } else if declared || uni.commandLine.configure {
+    } else if declared || uni.commandline.configure {
         var ( s string = f.fullname(); exists bool )
         for _, v := range uc.configuration.clean { if s == v { exists = true; break }}
         if !exists { uc.configuration.clean = append(uc.configuration.clean, s) }
@@ -1658,16 +1663,16 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
     assert(ctx.loader() == l, "require the same loader context")
 
     defer func(t time.Time, p *parser, m Mode) { if true { ctx = l.p.ctx() }
-        if d := time.Now().Sub(t); d > time.Duration(uni.slow)*time.Millisecond*10 {
-            warnstack(ctx, 10, "%v: slow: %v", l.project, d).debug(3) //  → %s, filename
+        if d := time.Now().Sub(t); d > uni.slow {
+            warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, uni.slow).debug(2) //  → %s, filename
         } else if uni.verbose {
-            info(ctx, "loaded %v (%v)", filename, d).debug(1)
+            info(ctx, "loaded %v (%v)", filename, d).debug(2)
         }
 
         l.p, l.mode = p, m
 
-        if err != nil { errostack(ctx, 3, "parse file failed: %v", err).debug(16) }
-        if f == nil && res == nil { erro(ctx, "source not loaded").debug(1) }
+        if f == nil && res == nil { erro(ctx, "source not loaded: %s", filepath.Base(filename)).debug(2) }
+        if err != nil { errostack(ctx, 3, "source error: %v", err).debug(16) }
     } (time.Now(), l.p, l.mode)
 
     l.mode = mode

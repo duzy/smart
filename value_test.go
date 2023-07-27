@@ -176,6 +176,47 @@ func TestAutoContext(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
+	if v1, v2 := ctx.get("val1"), ctx.get("val2"); v1 == nil || v2 == nil {
+		ctx.err("val1")
+		ctx.err("val2")
+	} else if v1.String() != "$(a)" {
+		ctx.err("%T %v", v1, v1)
+	} else if v2.String() != "$(a)" {
+		ctx.err("%T %v", v2, v2)
+	} else if u1, y := v1.(unexpanded); !y {
+		ctx.err("%T %v", v1, v1)
+	} else if u2, y := v2.(unexpanded); !y {
+		ctx.err("%T %v", v2, v2)
+	} else if l1, y := u1.Value.(*List); !y || l1.Len() != 1 {
+		ctx.err("%T %v , %v", u1.Value, u1.Value, l1)
+	} else if l2, y := u2.Value.(*List); !y || l2.Len() != 1 {
+		ctx.err("%T %v , %v", u2.Value, u2.Value, l2)
+	} else if u1, y := l1.Elems[0].(unexpanded); !y {
+		ctx.err("%T %v", l1.Elems[0], l1.Elems[0])
+	} else if u2, y := l2.Elems[0].(unexpanded); !y {
+		ctx.err("%T %v", l2.Elems[0], l2.Elems[0])
+	} else if d1, y := u1.Value.(*delegate); !y {
+		ctx.err("%T %v", u1.Value, u1.Value)
+	} else if d2, y := u2.Value.(*delegate); !y {
+		ctx.err("%T %v", u2.Value, u2.Value)
+	} else if u1, y := d1.x.(unexpanded); !y {
+		ctx.err("%T %v", d1.x, d1.x)
+	} else if u2, y := d2.x.(unexpanded); !y {
+		ctx.err("%T %v", d2.x, d2.x)
+	} else if a1, y := u1.Value.(*auto); !y {
+		ctx.err("%T %v", u1.Value, u1.Value)
+	} else if a2, y := u2.Value.(*auto); !y {
+		ctx.err("%T %v", u2.Value, u2.Value)
+	} else if t := a1.cmp(ctx, a2); t != cmpEqual {
+		ctx.err("%v, %v ; %v", a1, a2, t)
+	} else if t := a2.cmp(ctx, a1); t != cmpEqual {
+		ctx.err("%v, %v ; %v", a1, a2, t)
+	} else if t := v1.cmp(ctx, v2); t != cmpEqual {
+		ctx.err("%T %v, %T %v ; %v", v2, v2, v1, v1, t)
+	} else if t := v2.cmp(ctx, v1); t != cmpEqual {
+		ctx.err("%T %v, %T %v ; %v", v2, v2, v1, v1, t)
+	}
+
 	ctx.flush()
 }
 

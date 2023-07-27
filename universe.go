@@ -374,7 +374,7 @@ type configuration struct{
 
 type universe struct {
     diaContext
-    commandLine
+    commandline
     configuration
     hooks
 
@@ -457,37 +457,42 @@ func (ctx *universe) doHelp()       { do_helpscreen(ctx) }
 func (ctx *universe) doHelpFlags()  { print_flag_trace(ctx) }
 func (ctx *universe) doHelpConfig() { print_configuration(ctx) }
 
-func init_commandline() commandLine {
-    return commandLine{
-        debugPrompt: true,
-        debugErrors: true,
-        debugWarns:  true,
-        debugInfos:  true,
+func init_commandline() commandline { return commandline{
+    debugPrompt: true,
+    debugErrors: true,
+    debugWarns:  true,
+    debugInfos:  true,
 
-        silentOptionalSelection: false,
+    silentOptionalSelection: false,
 
-        failOnErrors: true,
-        fastMode: true,
+    failOnErrors: true,
+    fastMode: true,
 
-        parallel: false, // FIXME: program.traverse not working in parallel
+    parallel: false, // FIXME: program.traverse not working in parallel
 
-        slow: 999 * 1, // *90
-    }
-}
+    slow: 9990 * time.Millisecond,
+}}
 
-func init_universe() (ctx *universe) { ctx = &universe{}
+func init_universe(ii ...interface{}) (ctx *universe) { ctx = &universe{}
     if s, e := os.Getwd(); e != nil { erro(ctx, "%v", e).debug(6); return } else {
         ctx.workdir = s
         ctx.paths = searchPaths
+        ctx.fset = NewFileSet()
         ctx.filecache = make(map[string]*filebase)
         ctx.scope = NewScope(ctx.Position(), nil, nil, `universe`)
-        ctx.fset = NewFileSet()
-        ctx.commandLine = init_commandline()
         ctx.configuration = configuration{
             packages: make(map[string]packageinfo),
             done: make(map[*def]bool),
         }
     }
+
+    var cl bool = true
+    for _, i := range ii { switch t := i.(type) {
+    case  commandline: ctx.commandline, cl =  t, false
+    case *commandline: ctx.commandline, cl = *t, false
+    case hooks: if t.assert != nil { ctx.hooks.assert = t.assert }
+    }}
+    if cl { ctx.commandline = init_commandline() }
 
     var (
         bin = ease(ctx, os.Args[0])
@@ -1025,10 +1030,10 @@ func (dc *universe) loadTopWork() (err error) {
     } else if args = dc.globe.top.text("@", text); len(args) == 0 {
         // ohh...
     } else {
-        args = parseOpts(ctx, &dc.commandLine, 0, args...)
+        args = parseOpts(ctx, &dc.commandline, 0, args...)
     }
 
-    if v := dc.reconfigure; v { dc.commandLine.configure = v }
+    if v := dc.reconfigure; v { dc.commandline.configure = v }
     if v := dc.fastMode; v { // Turn off many things for fast mode:
         //dc.noImportFiles = v
         dc.noDepsGrep = v
@@ -1090,7 +1095,7 @@ func (dc *universe) loadTopWork() (err error) {
             dc.globe.goals.append(ctx, t)
         }
     }
-    if mode.string == "" { if dc.commandLine.configure {
+    if mode.string == "" { if dc.commandline.configure {
         mode.string = "configure"
     } else {
         mode.string = "goals"
@@ -1101,7 +1106,7 @@ func (dc *universe) loadTopWork() (err error) {
         var name string
         if p := dc.globe.top.Project(); p != nil { name = p.name }
         prompt(ctx, "└·%s … (%s)\n", name, d)
-    } else if d > time.Duration(dc.slow)*time.Millisecond*10 {
+    } else if d > dc.slow {
         if m := dc.globe.main; m != nil {
             warn(at(ctx, m.position), "slow loading (%v)!!\n", d).debug(6)
         } else {

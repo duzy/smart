@@ -794,6 +794,15 @@ func TestLLVMConfig(t *testing.T) {
 		return
 	}
 
+	{
+		var cl = init_commandline()
+		cl.configure = true
+
+		var ctx = load_testcase(t, "testdata/modules/llvm/config", "", cl)
+
+		ctx.universe().configure()
+	}
+
 	var ctx = load_testcase(t, "testdata/modules/llvm/config", "testllvmconfig")
 
 	if v := ctx.get("enum1", "*AsmPrinter.cpp", "LLVM_ASM_PRINTER"); v == nil {

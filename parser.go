@@ -1323,9 +1323,7 @@ func (p *parser) closuredelegate() (result Value) {
 					return
 				}
 
-				erro(of(ctx,name), "%v: nil: %v %v ⇒ '%s'", proj, typeof(name), name, str)
-				errostack(of(ctx,name), 32).debug(64)
-				if ctx.dia().flush()>0 { /* fail(ctx.Position(), "undefined %v", name) */ }
+				errostack(of(ctx,name), 16, "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
 			// } else if obj, okay = resolved.(*selection); okay {
 			// 	return
 			// } else if obj, okay = resolved.(*builtin); okay {
@@ -1395,9 +1393,6 @@ func (p *parser) closuredelegate() (result Value) {
 			erro(at(ctx,posName), "%v: parsed name is nil", proj).debug(1)
 			return MakeNull(posName)
 		}
-		if false { if name.String() == "-g!$_" {
-			noted(ctx, "%T %v %v", name, name, name.strval(ctx)).debug(5)
-		}}
 
 		if v, y := optionalize(ctx, name); y { name = v } // foo?  foo(a,b,c)?
 		if a, y := name.(*argumented); y {
@@ -1523,17 +1518,6 @@ func (p *parser) closuredelegate() (result Value) {
 		}
 	}
 
-	if true && opts == nil && len(rest) > 0 {
-		// NOTE: Options (flags) in args are deprecated by $(wildcard(-foo) ...)
-		for _, v := range merge(rest[0]) {
-			if p, y := v.(*pair); y { v = p.Key }
-			if f, y := v.(flag); y { if s := f.String(); s != "-foo" &&
-				s != "-std" && s != "-lunwind" && s != "-x" && s != "-" &&
-				!(s[0] == '-' && s[len(s)-1] == '-') { warn(of(ctx,v), "%v", f).debug(1) }
-			} else { break }
-		}
-	}
-
 	if position := ctx.Position(); tok.IsDelegate() {
 		if isNull(obj) { erro(at(ctx,name.Position()), "resolved '%v' is nil (%T %v, tok=%v)", name, resolved, resolved, tok).debug(1) }
 		return MakeDelegate(position, tokLp, obj, opts, rest...)
@@ -1611,13 +1595,13 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 
 func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled && false { defer un(trace(t_traverse, "Unary")) }
+	if true { defer ctx.dia().trace(ctx, "unary") }
 
 	switch p.tok {
 	case BAREWORD, AT:
 		return p.bare(lhs)
 
-	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING,
-		DATETIME, DATE, TIME, URI,
+	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URI,
 		/*RAW,*/ STRING, ESCAPE:
 		return p.literal(lhs)
 
@@ -1690,12 +1674,12 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	}
 
 	var s = p.scanner.ScanState
-	if p.lineComment != nil {
-		for _, comment := range p.lineComment.List {
-			erro(at(p,comment.Pos), "# %s", comment.Text)
-		}
-	}
-	erro(p, "bad unary expression '%v' (lit=%s, left=%v, bits=%022b, scan=%v)", p.tok, p.lit, lhs, p.bits, s).debug(32)
+	if p.lineComment != nil { for _, comment := range p.lineComment.List {
+		erro(at(p,comment.Pos), "# %s", comment.Text)
+	}}
+
+	erro(p, "bad: %v (lit=%s, left=%v, bits=%022b, scan=%v)",
+		p.tok, p.lit, lhs, p.bits, s).debug(1)
 
 	p.step() // go to the next token
 	return MakeNull(p.Position())
@@ -1712,6 +1696,7 @@ func (p *parser) isParametersGroup(x Value) (res bool) {
 
 func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
+	if true { defer ctx.dia().trace(ctx, "composite") }
 
 	switch x = p.unary(ctx, lhs); p.tok { // check composible expressions
 	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
@@ -1771,8 +1756,7 @@ func (p *parser) text(ctx Context) (res []Value) {
 
 func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
-
-	defer ctx.dia().trace(ctx, "expr")
+	if true { defer ctx.dia().trace(ctx, "expr") }
 
 	var tok, lit = p.tok, p.lit
 	if x = p.composite(ctx, lhs); x == nil {
@@ -2907,11 +2891,11 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 }
 
 func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
-    var uni = ctx.universe()
 	var count int64
+    var uni = ctx.universe()
 	defer func(t time.Time, pos Pos, tok Token, lit string, state ScanState) {
 		if ctx.universe().ddd == "template.expand" {/* dont check time in ddd mode */} else
-        if d := time.Now().Sub(t); d > time.Duration(uni.slow)*time.Millisecond {
+        if d := time.Now().Sub(t); d > uni.slow {
 			var c = time.Duration(count)
             warnstack(ctx, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
         }

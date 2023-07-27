@@ -134,10 +134,8 @@ func (p unresolved) rescope(ctx Context, scope *Scope) {
 func (p unresolved) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(unresolved); y {
         res = p.Value.cmp(ctx, a.Value)
-    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
-        res = p.cmp(ctx, l.Elems[0])
-    } else if u, y := v.(unexpanded); y && u.Value != nil {
-        res = p.cmp(ctx, u.Value)
+    } else {
+        res = p.Value.cmp(ctx, v)
     }
     return
 }
@@ -634,6 +632,7 @@ func (a *auto) invoke(ctx Context, w facet, o, v []Value) (res Value) {
     return
 }
 func (a *auto) cmp(ctx Context, v Value) (res cmpres) {
+    if o, y := v.(*auto); y && (a == o || a.name_ == o.name_) { res = cmpEqual } else
     if val := autoVal(ctx, a.name_); val != nil { res = val.cmp(ctx, v) }
     return
 }

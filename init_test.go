@@ -23,17 +23,11 @@ func testHasModule(name string) (res bool) {
 func load_testcase(t *testing.T, dir, name string, ii ...interface{}) testcase {
 	if !filepath.IsAbs(dir) { dir = filepath.Join(baseWorkDir, dir) }
 
-	var ctx = init_universe() ; defer assured(ctx, false)
+	var ctx = init_universe(ii...) ; defer assured(ctx, false)
 
 	ctx.workdir = dir
 	ctx.globe.main = nil
 	ctx.filecache = make(map[string]*filebase) // NOTE: must reset the filecache
-	for _, i := range ii {
-		switch t := i.(type) {
-		case commandLine: ctx.commandLine = t
-		case hooks: if t.assert != nil { ctx.hooks.assert = t.assert }
-		}
-	}
 
 	if false { noted(ctx, "testcase: %v %v", name, dir) }
 	if tm := false; testHasModule("variant") {
@@ -48,7 +42,7 @@ func load_testcase(t *testing.T, dir, name string, ii ...interface{}) testcase {
 		erro(tc, "%v", err).debug(2)
 	} else if m := ctx.globe.main; m == nil {
 		erro(tc, "not loaded: %s", dir).debug(2)
-	} else if m.name != name {
+	} else if name != "" && m.name != name {
 		erro(tc, "main: %s <-> %s", m.name, name).debug(1, s)
 	} else {
 		tc.Context = closureWith(tc.Context, m.scope) // TODO: add projectContext{ctx, m}

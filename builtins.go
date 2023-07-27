@@ -423,25 +423,6 @@ ForArgs:
     return
 }
 
-// see https://go.dev/doc/tutorial/generics
-func bop[Opts interface{}] (ctx Context, w facet, v []Value, args ...Value) (opts Opts, res []Value) {
-    // res = ctx.opts(&opts, w, args...)
-    if a := parseOpts(ctx, &opts, 0, v...); len(a) > 0 { for _, v := range a {
-        erro(ctx, "unknown option: %v (%T)", v, v).debug(4)
-    }}
-    if args != nil { if w == 0 {
-        res = merge(args...)
-    } else {
-        res = xmerge(ctx, w, args...)
-    }}
-    return
-}
-
-func _opts[Opts interface{}](ctx Context, w facet, args ...Value) (opts Opts, res []Value) {
-    res = parseOpts(ctx, &opts, w, args...)
-    return
-}
-
 func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []Value) {
     if w == 0 {
         rest = merge(args...) // NOTE: set the returning args first of all!
@@ -470,7 +451,6 @@ func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []
 
     var (
         otyp = opts.Type()
-        genOpts *generalOpts
         builtin, general, modifier reflect.Value
     )
     if false { info(ctx, "opts: %v, %v", opts.Kind(), otyp) }
@@ -487,7 +467,7 @@ func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []
         } else if !ft.Anonymous {
             continue
         } else if ft.Name == "generalOpts" {
-            genOpts = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
+            // genOpts = (*generalOpts)(unsafe.Pointer(fv.UnsafeAddr()))
             general = fv.Addr()
         } else if strings.HasPrefix(ft.Name, "builtin_") {
             if builtin.IsValid() { warn(ctx, "embedded multiple builtins: %v", ft).debug(3) }
@@ -500,13 +480,16 @@ func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []
     if  builtin.IsValid() { rest = _parseOpts(ctx,  builtin, w, rest) }
     if  general.IsValid() { rest = _parseOpts(ctx,  general, w, rest) }
     if modifier.IsValid() { rest = _parseOpts(ctx, modifier, w, rest) }
-    if false && genOpts != nil && genOpts.fullname {
-        rest, _, _ = expandFullName.expand(ctx, rest...)
-    }
     return
 }
 func parseOpts(ctx Context, store interface{}, w facet, args ...Value) (rest []Value) {
     return _parseOpts(ctx, reflect.ValueOf(store), w, args)
+}
+
+// see https://go.dev/doc/tutorial/generics
+func _opts[Opts interface{}](ctx Context, w facet, args ...Value) (opts Opts, res []Value) {
+    res = parseOpts(ctx, &opts, w, args...)
+    return
 }
 
 func _parseHeadArgs(ctx Context, store interface{}, w facet, args ...Value) (head, rest []Value) {
@@ -575,12 +558,13 @@ func typeof(arg interface{}) (s string) {
 type builtin_typeof struct { builtin_
     expand bool `x,e,ex,exp,expand`
 }
+func (ctx *builtin_typeof) a(ic *invocation, w facet) (skip bool) { return }
 func (ctx *builtin_typeof) x(ic *invocation, w facet) (res interface{}) {
     var elems []Value
     for _, arg := range ic.a {
-        if ctx.expand { arg = arg.expand(ctx, plain) }
+        if ctx.expand { arg = arg.expand(ctx, w) }
         // Arguments are passed in a list:
-        //   $(fun abc)         args: (abc)
+        //   $(fun abc)             args: (abc)
         //   $(fun a,b,c)           args: (a),(b),(c)
         //   $(fun a b c,1 2 3)     args: (a b c),(1 2 3)
         elems = append(elems, MakeBareword(arg.Position(), typeof(arg)))
@@ -592,26 +576,22 @@ type builtin_origin struct { builtin_ }
 func (ctx *builtin_origin) x(ic *invocation, w facet) (res interface{}) {
     var elems []Value
     var scope = ctx.Scope()
-    for _, arg := range ic.a {
-        var pos = arg.Position()
-        if name := arg.strval(ctx); name == "" {
-            elems = append(elems, MakeNull(pos))
-        } else if def := scope.FindDef(name); def != nil {
-            elems = append(elems, MakeString(pos, def.origin.String()))
-        } else {
-            elems = append(elems, MakeNull(pos))
-        }
-    }
+    for _, arg := range ic.a { if s := arg.strval(ctx); s == "" {
+        elems = append(elems, MakeNull(arg.Position()))
+    } else if d := scope.FindDef(s); d != nil {
+        elems = append(elems, MakeString(arg.Position(), d.origin.String()))
+    } else {
+        elems = append(elems, MakeNull(arg.Position()))
+    }}
     return elems
 }
 
 type builtin_defined struct { builtin_ }
 func (ctx *builtin_defined) x(ic *invocation, w facet) (res interface{}) {
     var elems []Value
-    var pos = ctx.Position()
     for _, arg := range ic.a {
         var _, unresolved = arg.(unresolved)
-        elems = append(elems, MakeBoolean(pos, !unresolved))
+        elems = append(elems, MakeBoolean(arg.Position(), !unresolved))
     }
     return elems
 }
