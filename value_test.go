@@ -13,6 +13,10 @@ import (
 
 func TestAutoContext(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/0", "testvalues0")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if c := ctx.cast(reflect.TypeOf((*universe)(nil))); c == nil {
 		ctx.err("Context.cast")
@@ -222,6 +226,10 @@ func TestAutoContext(t *testing.T) {
 
 func TestValues1(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/1", "testvalues1")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get(".test.foo"); v == nil {
 		ctx.err(".test.foo")
@@ -236,6 +244,10 @@ func TestValues1(t *testing.T) {
 
 func TestValues2(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/2", "testvalues2")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get(".test.ab"); v == nil {
 		ctx.err(".test.ab")
@@ -401,6 +413,10 @@ func TestValues2(t *testing.T) {
 
 func TestValues3(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/3", "testvalues3")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test.x"); d == nil {
 		ctx.err(".test.x")
@@ -476,6 +492,10 @@ func TestValues3(t *testing.T) {
 
 func TestValues4(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/4", "testvalues4")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test.*"); d == nil {
 		ctx.err(".test.*")
@@ -531,6 +551,10 @@ func TestValues4(t *testing.T) {
 
 func TestValues5(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/5", "testvalues5")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -553,6 +577,10 @@ func TestValues5(t *testing.T) {
 
 func TestValues6(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/6", "testvalues6")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -575,6 +603,10 @@ func TestValues6(t *testing.T) {
 
 func TestValues7(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/7", "testvalues7")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -597,6 +629,10 @@ func TestValues7(t *testing.T) {
 
 func TestValues8(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/8", "testvalues8")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -619,6 +655,10 @@ func TestValues8(t *testing.T) {
 
 func TestValues9(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/9", "testvalues9")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -641,6 +681,10 @@ func TestValues9(t *testing.T) {
 
 func TestValues10(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/10", "testvalues10")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -663,6 +707,10 @@ func TestValues10(t *testing.T) {
 
 func TestValues11(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/11", "testvalues11")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -685,6 +733,10 @@ func TestValues11(t *testing.T) {
 
 func TestValues12(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/12", "testvalues12")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
@@ -707,6 +759,10 @@ func TestValues12(t *testing.T) {
 
 func TestValues13(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/13", "testvalues13")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def("foo"); d == nil {
 		ctx.err("foo")
@@ -729,6 +785,10 @@ func TestValues13(t *testing.T) {
 
 func TestPlaceholders(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/placeholder", "testplaceholder")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def("val1"); d == nil {
 		ctx.err("val1 is nil")
@@ -834,6 +894,10 @@ func TestOptional(t *testing.T) {
 	cl.silentOptionalSelection = true
 
 	var ctx = load_testcase(t, "testdata/value/optional", "testoptional", cl)
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
@@ -1119,6 +1183,10 @@ func TestValueGeneral(t *testing.T) {
 			return true
 		},
 	})
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if assert_value == nil {
 		t.Errorf("assert: %v", assert_value)

@@ -11,6 +11,10 @@ import (
 
 func TestRules0(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/rule/0", "testrules0")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if true {} else
 	if foo := ctx.get("foo"); foo == nil {
@@ -26,6 +30,10 @@ func TestRules0(t *testing.T) {
 
 func TestRules1(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/rule/1", "testrules1")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if r := ctx.rule(".test.foobar"); r == nil {
 		ctx.err(".test.foobar")

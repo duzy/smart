@@ -2471,6 +2471,7 @@ func (_ *punctuation) collect(ctx Context, cache *valcache, bits int) (res []*va
     return
 }
 
+type bare struct { string }
 type bareword struct { valbase; string }
 func (_ *bareword) kind() Kind { return KindBareword }
 func (p *bareword) String() string { return p.string }
@@ -3096,10 +3097,14 @@ func (p *barecomp) comp(ctx Context, x Value) {
     }
 }
 
-func compose(ctx Context, x, y Value) (_ Value) {
+func compose(ctx Context, /* n int, */ x, y Value) (_ Value) {
     switch t := x.(type) {
-    case *barecomp: t.comp(ctx, y)
-    case *Path: t.comp(ctx, y)
+    case *barecomp:
+        // if n == 0 { t = MakeBarecomp(t.Position(), t.Elems...) }
+        t.comp(ctx, y)
+    case *Path:
+        // if n == 0 { t = MakePath(t.Position(), t.Elems...) }
+        t.comp(ctx, y)
     default:
         comp := MakeBarecomp(x.Position(), x)
         comp.comp(ctx, y)
@@ -6872,6 +6877,8 @@ func ease(ctx Context, iv interface{}) (res Value) {
     case  float64: elems = append(elems, MakeFloat(ctx.Position(),         t))
     case   string: elems = append(elems, MakeString(ctx.Position(), t))
     case []string: for _, s := range t { elems = append(elems, MakeString(ctx.Position(), s)) }
+    case     bare: elems = append(elems, MakeBareword(ctx.Position(), t.string))
+    case   []bare: for _, s := range t { elems = append(elems, MakeBareword(ctx.Position(), s.string)) }
     default: erro(ctx, "unsupported result: %T %v", t, t).debug(3) ; return
     }
     if elems == nil { // FIXME: return nil here caused dead-loop ???
@@ -7149,6 +7156,8 @@ func (p *invocation) ind(v Value) (n int) {
     return
 }
 
+const max_invoke = 999
+
 // NOTE: forthTraceDots is for debugging call trace, if this finally goes into a formal
 //       feature, it should need a sync-lock protection.
 var forthTraceDots string
@@ -7169,23 +7178,24 @@ func forth(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
         } ()
     }
 
-    for ic, n := ctx.ic(), 1; ic != nil; ic = ic.Context.ic() { if n += 1; n > 999 {
-        errostack(of(ctx,v), 10, "invocation exceeds limitation: %d, %v", n, v).debug(100)
-        if true { return } else { panic(failure{"unsafe invocation",ia(v.Position())}) }
-    } else if a, y := v.(*auto); y && ic.v == v {
-        if true { return unexpanded{a}, nil, false } else {
-            errostack(of(ctx,v), 10, "invocation loop detected (%d): %v ; %v", n, v, autoDef(ctx, a.name(ctx))).debug(100)
-            if true { return } else { panic(failure{"unsafe invocation",ia(v.Position())}) }
+    for ic, n := ctx.ic(), 1; ic != nil; ic = ic.Context.ic() { var d *diagPoint
+        if n += 1; n > max_invoke {
+            d = errostack(of(ctx,v), 10, "invocation exceeds limitation (%d): %v", n, v)
+        } else if x, y := v.(*auto); false && y && ic.v == v { if true { return unexpanded{v}, nil, false }
+            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v ; %v", n, v, autoDef(ctx, x.name(ctx)))
+        } else if _, y := v.(*def);  false && y && ic.v == v { if true { return unexpanded{v}, nil, false }
+            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v", n, v)
+        } else if _, y := v.(*builtin); !y && ic.v == v {
+            if u, y := v.(unexpanded); y { if true { noted(ctx, "%v", autoDef(ctx, "_")) }
+                d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v (%T)", n, typeof(v), v, u.Value)
+            } else {
+                d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v", n, typeof(v), v)
+            }
         }
-    } else if d, y := v.(*def); y && ic.v == v {
-        if true { return unexpanded{d}, nil, false } else {
-            errostack(of(ctx,v), 10, "invocation loop detected (%d): %v", n, d).debug(100)
-            if true { return } else { panic(failure{"unsafe invocation",ia(v.Position())}) }
+        if d != nil { d.debug(100)
+            panic(failure{"unsafe invocation: %v",ia(v.Position(), v)})
         }
-    } else if b, y := v.(*builtin); !y && ic.v == v {
-        errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v (%v)", n, typeof(v), v, b).debug(100)
-        if true { return } else { panic(failure{"unsafe invocation",ia(v.Position())}) }
-    }}
+    }
 
     // NOTE: the ic.a represents the arguments, which is a COPY of the original slice;
     // NOTE: making a COPY for the arguments FIXES the bug of delegate-altered-args mistake

@@ -27,6 +27,11 @@ func TestConfigureDefault(t *testing.T) {
 	}
 
 	var ctx = load_testcase(t, "testdata/configuration", "testdefaultconfigure")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
+
 	var m = ctx.Project()
 	var cc = closureWith(ctx, m.configure.scope)
 
@@ -158,6 +163,10 @@ func TestConfigureDefault(t *testing.T) {
 
 			testPromptConfiguration = false//true
 			c := load_testcase(ctx.T, "testdata/configuration", "testdefaultconfigure")
+			if c.Context == nil {
+				ctx.Errorf("fail")
+				return
+			}
 			testPromptConfiguration = false
 
 			if m := c.Project(); m.configurationLoad == nil || m.configurationSave != nil {
@@ -320,6 +329,10 @@ func TestConfigureDiverged(t *testing.T) {
 
 			testPromptConfiguration = false//true
 			c := load_testcase(ctx.T, "testdata/configuration", "testdefaultconfigure")
+			if c.Context == nil {
+				ctx.Errorf("fail")
+				return
+			}
 			testPromptConfiguration = false
 
 			if d := c.Project().scope.FindDef("FOO"); d == nil {
@@ -351,6 +364,10 @@ func TestConfigureCustom(t *testing.T) {
 		if e := os.Remove(s); e == nil { t.Errorf("%v", s) }
 	}
 	var ctx = load_testcase(t, "testdata/configuration/custom", "testcustomconfigure")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 	{
 		s := filepath.Join(ctx.WorkDir(), "tmp", configuration_sm)
 		if e := os.Remove(s); e == nil { t.Errorf("%v", s) }
@@ -424,6 +441,10 @@ func TestConfigureCustom(t *testing.T) {
 			if !strings.Contains(string(b), "FOO5 = true{}") { ctx.Errorf("%s", b) }
 
 			c := load_testcase(ctx.T, "testdata/configuration/custom", "testcustomconfigure")
+			if c.Context == nil {
+				ctx.Errorf("fail")
+				return
+			}
 			if d, foo := c.def("FOO1"), c.get("FOO1"); foo == nil {
 				erro(of(c, d), "%v", d).debug(1)
 			} else if foo.String() != "yes{}" {

@@ -21,6 +21,10 @@ func TestValueModifier(t *testing.T) {
 	defer func() { delete(modifiers, `test-mod-1`) } ()
 
 	var ctx = load_testcase(t, "testdata/modifier", "testmodifier")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get("val"); v == nil {
 		ctx.err("val")

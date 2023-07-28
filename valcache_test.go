@@ -12,6 +12,11 @@ import (
 
 func TestValueCache(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/valcache", "valcache")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
+
 	var m = ctx.Project()
 
 	if m.filemap._fix == nil {

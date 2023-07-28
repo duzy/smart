@@ -205,7 +205,7 @@ const (
 var (
   goStackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   goStackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
-  goStackSmartTrace = regexp.MustCompile(`^(?:extbit\.io/)?(.+?)smart\.\(\*diaContext\)\.trace\(.+\)$`)
+  goStackSmartTrace = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.\(\*diaContext\)\.trace\(.+\)$`)
 )
 type skipint struct{ int }
 type frames struct{ int }
@@ -260,7 +260,7 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
     var gotPanic bool
     for ; 0 < j && i+1 < len(v); i = i+1 {
       // skip diaContext.trace lines
-      if goStackSmartTrace.Match(v[i+0]) { continue }
+      if goStackSmartTrace.Match(v[i]) { continue }
 
       var (
         sm1 = goStackLine1.FindAllSubmatch(v[i+0], 1)

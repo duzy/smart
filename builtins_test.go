@@ -23,6 +23,10 @@ func TestAssert(t *testing.T) {
 			return true
 		},
 	})
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if foo := ctx.get("foo"); foo == nil {
 		ctx.err("foo")
@@ -63,6 +67,10 @@ func TestAssert(t *testing.T) {
 
 func TestWildcard(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/wildcard", "testwildcard")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	var (
 		pat1 = ctx.get("pat1")
@@ -375,6 +383,11 @@ func TestWildcard(t *testing.T) {
 
 func TestForeach(t *testing.T) { TestAutoContext(t)
 	var ctx = load_testcase(t, "testdata/foreach", "testforeach")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
+
 	var to_list func(v Value) (*List, bool)
 	var to_list_direct = func(v Value) (l *List, y bool) { l, y = v.(*List) ; return }
 	var to_list_unexpanded = func(v Value) (l *List, y bool) {
@@ -1315,6 +1328,10 @@ func TestForeach(t *testing.T) { TestAutoContext(t)
 
 func TestForeach1(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/foreach/1", "testforeach1")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get(".test.4"); v == nil {
 		ctx.err(".test.4")
@@ -1336,6 +1353,10 @@ func TestForeach1(t *testing.T) {
 
 func TestForeach2(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/foreach/2", "testforeach2")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get(".test.1"); v == nil {
 		ctx.err(".test.1")
@@ -1374,6 +1395,10 @@ func TestForeach2(t *testing.T) {
 
 func TestForeach3(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/foreach/3", "testforeach3")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get(".test.x"); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
@@ -1746,6 +1771,10 @@ func TestForeach3(t *testing.T) {
 
 func TestForeach4(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/foreach/4", "testforeach4")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get(".test.1", "a", "b"); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
@@ -1819,6 +1848,10 @@ func TestForeach4(t *testing.T) {
 
 func TestForeach5(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/foreach/5", "testforeach5")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get(".test.x"); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
@@ -1914,6 +1947,10 @@ func TestForeach5(t *testing.T) {
 
 func TestAddPrefix(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/addprefix", "testaddprefix")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
@@ -1942,6 +1979,10 @@ func TestAddPrefix(t *testing.T) {
 
 func TestPushContext(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/pushcontext", "pushcontext")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get("foo"); v == nil {
 		ctx.err("foo")
@@ -1980,6 +2021,10 @@ func TestPushContext(t *testing.T) {
 
 func TestContains(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/contains", "testcontains")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get(".test.1"); v == nil {
 		ctx.err(".test.1")
@@ -2018,6 +2063,10 @@ func TestContains(t *testing.T) {
 
 func TestLogic(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/logic", "testlogic")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
@@ -2147,6 +2196,10 @@ func TestLogic(t *testing.T) {
 
 func TestBuiltins(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/builtins", "testbuiltins")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if d := ctx.def("val1"); d == nil {
 		ctx.err("val1")

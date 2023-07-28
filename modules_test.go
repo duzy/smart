@@ -9,7 +9,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+    "io/ioutil"
+	"path/filepath"
 	"fmt"
+	"os"
 )
 
 var testValidFlag = []*regexp.Regexp{
@@ -43,6 +46,10 @@ func TestVariantTarget(t *testing.T) {
 	}
 
 	var ctx = load_testcase(t, "testdata/modules/target", "testtarget")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	for k, v := range map[string]string{
 		"asm": "c",
@@ -88,7 +95,7 @@ func TestVariantTarget(t *testing.T) {
 
 	langs  := strings.Fields("c c++ cl cuda cuda++ objc objc++ swift")
 	flags1 := strings.Fields("-D -I -L -O -W -Wl -Werror -Wno-error -f -f.ld -m -g -v -no -no.ld"+
-		" -isystem -isystem-after -cxx-isystem -stdlib++-isystem -stdlib")
+		" -isystem -isystem-after -cxx-isystem -stdlib -stdlib++-isystem -diagnostics")
 	flags2 := strings.Fields("-l -framework")
 	flags3 := strings.Fields("ar asm c cpp cxx oc ocxx cl cuda cudaxx ld")
 	flags4 := strings.Fields("ld")
@@ -108,13 +115,16 @@ func TestVariantTarget(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, uses)
 	}
 
+	usev = " "+usev
+	uses = " "+uses
+
 	for _, flag := range flags1 {
 		s1 := fmt.Sprintf("%s(-unique)", flag)
 		s2 := fmt.Sprintf("%s~&(target.sys)(-unique)", flag)
 		s3 := fmt.Sprintf("%s~foo(-unique)", flag)
-		if !strings.Contains(usev, s1) { ctx.err("%v", s1) }
-		if !strings.Contains(usev, s2) { ctx.err("%v", s2) }
-		if !strings.Contains(uses, s3) { ctx.err("%v", s3) }
+		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v ; %v", s1, usev) }
+		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v ; %v", s2, usev) }
+		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v ; %v", s3, uses) }
 		if d := ctx.def(flag); d == nil {
 			ctx.err("%s", flag)
 		} else if d.origin != DefExpand1 {
@@ -126,9 +136,9 @@ func TestVariantTarget(t *testing.T) {
 			s1 := fmt.Sprintf("%s.%s(-unique)", flag, lang)
 			s2 := fmt.Sprintf("%s~&(target.sys).%s(-unique)", flag, lang)
 			s3 := fmt.Sprintf("%s~foo.%s(-unique)", flag, lang)
-			if !strings.Contains(usev, s1) { ctx.err("%v", s1) }
-			if !strings.Contains(usev, s2) { ctx.err("%v", s2) }
-			if !strings.Contains(uses, s3) { ctx.err("%v", s3) }
+			if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
+			if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
+			if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 			if d := ctx.def(s0); d == nil {
 				ctx.err("%s", s0)
 			} else if d.origin != DefExpand1 {
@@ -140,9 +150,9 @@ func TestVariantTarget(t *testing.T) {
 		s1 := fmt.Sprintf("%s(-unique -reverse)", flag)
 		s2 := fmt.Sprintf("%s~&(target.sys)(-unique -reverse)", flag)
 		s3 := fmt.Sprintf("%s~foo(-unique -reverse)", flag)
-		if !strings.Contains(usev, s1) { ctx.err("%v", s1) }
-		if !strings.Contains(usev, s2) { ctx.err("%v", s2) }
-		if !strings.Contains(uses, s3) { ctx.err("%v", s3) }
+		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
+		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
+		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(flag); d == nil {
 			ctx.err("%s", flag)
 		} else if d.origin != DefExpand1 {
@@ -154,9 +164,9 @@ func TestVariantTarget(t *testing.T) {
 		s1 := fmt.Sprintf("%sflags(-unique -auto)", flag)
 		s2 := fmt.Sprintf("%sflags~&(target.sys)(-unique -auto)", flag)
 		s3 := fmt.Sprintf("%sflags~foo(-unique -auto)", flag)
-		if !strings.Contains(usev, s1) { ctx.err("%v", s1) }
-		if !strings.Contains(usev, s2) { ctx.err("%v", s2) }
-		if !strings.Contains(uses, s3) { ctx.err("%v", s3) }
+		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
+		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
+		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(s0); d == nil {
 			ctx.err("%s", s0)
 		} else if d.origin != DefExpand1 {
@@ -168,9 +178,9 @@ func TestVariantTarget(t *testing.T) {
 		s1 := fmt.Sprintf("%sflags.%s(-unique -auto)", flag, suffix)
 		s2 := fmt.Sprintf("%sflags~&(target.sys).%s(-unique -auto)", flag, suffix)
 		s3 := fmt.Sprintf("%sflags~foo.%s(-unique -auto)", flag, suffix)
-		if !strings.Contains(usev, s1) { ctx.err("%v", s1) }
-		if !strings.Contains(usev, s2) { ctx.err("%v", s2) }
-		if !strings.Contains(uses, s3) { ctx.err("%v", s3) }
+		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
+		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
+		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(s0); d == nil {
 			ctx.err("%s", s0)
 		} else if d.origin != DefExpand1 {
@@ -182,9 +192,9 @@ func TestVariantTarget(t *testing.T) {
 		s1 := fmt.Sprintf("%s(-unique -auto -reverse)", flag)
 		s2 := fmt.Sprintf("%s~&(target.sys)(-unique -auto -reverse)", flag)
 		s3 := fmt.Sprintf("%s~foo(-unique -auto -reverse)", flag)
-		if !strings.Contains(usev, s1) { ctx.err("%v", s1) }
-		if !strings.Contains(usev, s2) { ctx.err("%v", s2) }
-		if !strings.Contains(uses, s3) { ctx.err("%v", s3) }
+		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
+		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
+		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(s0); d == nil {
 			ctx.err("%s", s0)
 		} else if d.origin != DefExpand1 {
@@ -256,6 +266,10 @@ func TestApp(t *testing.T) {
 	}
 
 	var ctx = load_testcase(t, "testdata/modules/app", "testapp")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	ss := func(s string) string { os := "darwin"
 		return strings.Replace(s, "<OS>", os, -1)
@@ -689,7 +703,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%T %v ⇒ %s", v, v, s)
 	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
-	}}} else if !strings.Contains(s, "-std=fxxbar") {
+	}}} else if strings.Count(s, "-std=fxxbar") != 1 {
 		ctx.err("%T %v ⇒ %s", v, v, s)
 	}
 
@@ -701,7 +715,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
-	}}} else if !strings.Contains(s, "-std=fxxbar") {
+	}}} else if strings.Count(s, "-std=fxxbar") != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
 	}
 
@@ -713,7 +727,7 @@ func TestApp(t *testing.T) {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
-	}}} else if !strings.Contains(s, "-std=fxxbar") {
+	}}} else if strings.Count(s, "-std=fxxbar") != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
 	}
 
@@ -788,6 +802,12 @@ func TestApp(t *testing.T) {
 	ctx.flush()
 }
 
+func checkLLVMConfig(ctx testcase, s string) {
+	if strings.Count(s, "FOO = $(.self)") != 1 {
+		ctx.Errorf("%s", s)
+	}
+}
+
 func TestLLVMConfig(t *testing.T) {
 	if s := "llvm/Config"; !testHasModule(s) {
 		t.Logf("skip %s", s)
@@ -799,11 +819,52 @@ func TestLLVMConfig(t *testing.T) {
 		cl.configure = true
 
 		var ctx = load_testcase(t, "testdata/modules/llvm/config", "", cl)
+		if ctx.Context == nil {
+			t.Errorf("fail")
+			return
+		}
+
+		var m = ctx.Project()
+		var cc = closureWith(ctx, m.configure.scope)
+		var f = m.configuration(cc)
+		if f == nil {
+			ctx.err("%v: nil configuration", m)
+		} else if f.fullname() != m.configurationLoad.fullname() {
+			ctx.err("%v: %v %v", m, f, m.configurationLoad)
+		}
 
 		ctx.universe().configure()
+
+		if f = m.configurationSave; f == nil {
+			ctx.err("%v: nil configuration", m)
+		} else if f.fullname() != m.configurationLoad.fullname() {
+			ctx.err("%v: %v", f, m.configurationLoad)
+		} else if i, e := os.Stat(f.fullname()); e != nil {
+			ctx.err("%s: %v", configuration_sm, e)
+		} else if i == nil {
+			ctx.err("missing %s", f.fullname())
+		}
+
+		if o := m.configure.resolveObject(ctx, "outtmp"); o == nil {
+			ctx.err("outtmp: %v", m.configure)
+		} else if outtmp, y := o.(*def); !y || outtmp.value == nil {
+			ctx.err("outtmp: %T %v", o, o)
+		} else if outtmp.value.String() != "&(target.tmp)/&(rel.remnant)" {
+			ctx.err("outtmp: %T %v", outtmp.value, outtmp.value)
+		} else if s := filepath.Join(outtmp.strval(cc), configuration_sm); s != f.fullname() {
+			ctx.err("outtmp: %v != %v", s, f.fullname())
+		} else if b, e := ioutil.ReadFile(s); e != nil {
+			ctx.Errorf("%v", e)
+		} else {
+			checkLLVMConfig(ctx, string(b))
+		}
 	}
 
 	var ctx = load_testcase(t, "testdata/modules/llvm/config", "testllvmconfig")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if v := ctx.get("enum1", "*AsmPrinter.cpp", "LLVM_ASM_PRINTER"); v == nil {
 		ctx.err("enum1")
@@ -827,6 +888,10 @@ func TestToolchainBooting(t *testing.T) { TestLLVMConfig(t)
 	}
 
 	var ctx = load_testcase(t, "testdata/modules/toolchain/booting", "testtoolchainbooting")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
 	if r := ctx.rule("stamp"); r == nil {
 		ctx.err("stamp")

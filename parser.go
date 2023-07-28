@@ -678,20 +678,24 @@ func (p *parser) depends(ctx Context, normal bool) (list []Value) {
 	return
 }
 // If lhs is set, result list elements which are identifiers are not resolved.
-func (p *parser) values(ctx Context, lhs bool) (list []Value) {
-	if t_traverse.enabled { defer un(trace(t_traverse, "List")) }
-	for p.spaces(); !p.isEndOfList(lhs); p.spaces() { var pos = p.pos
-		if val := p.expr(ctx, lhs); p.pos == pos {
-			erro(p, "nothing: %v %v; %v", p.tok, p.lit, list).debug(1)
+func (p *parser) values(ctx Context, lhs bool) (values []Value) {
+	if t_traverse.enabled { defer un(trace(t_traverse, "Values")) }
+	for p.spaces(); !p.isEndOfList(lhs); p.spaces() {
+		pos := p.pos
+		val := p.expr(ctx, lhs)
+
+		if p.pos == pos {
+			erro(p, "bad: %v %v; %v", p.tok, p.lit, values).debug(1)
 			break
-		} else { list = append(list, val) }
+		}
+
+		values = append(values, val)
 
 		// If there's a comment right after the parsed expression, we break
 		// the expression list to treat the end-of-line comment like a LINEND.
-		if p.lineComment != nil  { break }
+		if p.lineComment != nil { break }
 		if p.tok == LINEND { break }
 		if p.tok == EOF    { break }
-		// if p.spaces(); p.isEndOfList(lhs) { break }
 	}
 	return
 }
@@ -1057,8 +1061,9 @@ func (p *parser) dot(lhs bool, x Value) (res *barecomp) {
 
 	defer p.setbits(p.setbit(parseDOT))
 
-	var comp *barecomp
 	if x == nil { panic(fmt.Sprintf("nil dot (tok=%v)", p.tok)) }
+
+	var comp *barecomp
 	if comp, _ = x.(*barecomp); comp == nil {
 		comp = MakeBarecomp(x.Position())//(p.Position())
 		comp.Elems = append(comp.Elems, x)
@@ -1217,15 +1222,16 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 	return url
 }
 
-func (p *parser) closuredelegate() (result Value) {
+func (p *parser) closuredelegate(ctx Context) (result Value) {
 	if t_traverse.enabled {	defer un(trace(t_traverse, "ClosureDelegate")) }
 
 	defer p.setbits(p.setbit(parseCall))
 
 	const allowClosureName = true
 
+	ctx = at(ctx, p.Position())
+
 	var (
-		ctx = p.ctx()
 		loader = ctx.loader()
 		scope = loader.Scope()
 		proj = loader.Project()
@@ -1324,16 +1330,6 @@ func (p *parser) closuredelegate() (result Value) {
 				}
 
 				errostack(of(ctx,name), 16, "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
-			// } else if obj, okay = resolved.(*selection); okay {
-			// 	return
-			// } else if obj, okay = resolved.(*builtin); okay {
-			// 	return
-			// } else if obj, okay = resolved.(*self); okay {
-			// 	return
-			// } else if obj, okay = resolved.(*projectname); okay {
-			// 	return
-			// } else if obj, okay = resolved.(*scopename); okay {
-			// 	return
 			} else if _, okay = resolved.(invoker); okay {
 				return str, resolved, okay
 			} else if obj, okay = resolved.(Object); !okay {
@@ -1520,7 +1516,22 @@ func (p *parser) closuredelegate() (result Value) {
 
 	if position := ctx.Position(); tok.IsDelegate() {
 		if isNull(obj) { erro(at(ctx,name.Position()), "resolved '%v' is nil (%T %v, tok=%v)", name, resolved, resolved, tok).debug(1) }
-		return MakeDelegate(position, tokLp, obj, opts, rest...)
+
+		var d = MakeDelegate(position, tokLp, obj, opts, rest...)
+		if p.bits&parseTemplateBlock != 0 { if _, y := obj.(*auto); y { t := d.expand(ctx, strval)
+			if false { if t != nil { if strings.Contains(t.String(), "-f.ld") {
+				noted(ctx, "%T %v %p", t, t, t).debug(1)
+			}}}
+
+			// Make clone to barecomp and Path for compose() and x.comp().
+			switch v := t.(type) {
+			case *barecomp: return MakeBarecomp(v.Position(), v.Elems...)
+			case *Path: return MakePath(v.Position(), v.Elems...)
+			case unexpanded: break
+			default: return v
+			}
+		}}
+		return d
 	} else {
 		if isNull(obj) { erro(at(ctx,name.Position()), "resolved '%v' is nil (%T %v), shall be 'unresolved' (tok=%v)", name, resolved, resolved, tok).debug(1) }
 		return MakeClosure(position, tokLp, obj, opts, rest...)
@@ -1609,7 +1620,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		return p.compound(lhs)
 
 	case DELEGATE, CLOSURE: // delegate, closure
-		return p.closuredelegate()
+		return p.closuredelegate(ctx)
 
 	case LPAREN:
 		return p.group(lhs)
@@ -1678,19 +1689,16 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		erro(at(p,comment.Pos), "# %s", comment.Text)
 	}}
 
-	erro(p, "bad: %v (lit=%s, left=%v, bits=%022b, scan=%v)",
-		p.tok, p.lit, lhs, p.bits, s).debug(1)
+	erro(p, "bad: %v (lit=%s, left=%v, bits=%022b, scan=%v)", p.tok, p.lit, lhs, p.bits, s).debug(1)
 
 	p.step() // go to the next token
 	return MakeNull(p.Position())
 }
 
 func (p *parser) isParametersGroup(x Value) (res bool) {
-	if p.bits&parseDepend0 != 0 {
-		if g, y := x.(*group); y && len(g.Elems) == 1 {
-			_, res = g.Elems[0].(*group)
-		}
-	}
+	if p.bits&parseDepend0 != 0 { if g, y := x.(*group); y && len(g.Elems) == 1 {
+		_, res = g.Elems[0].(*group)
+	}}
 	return
 }
 
@@ -1729,28 +1737,23 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 		}
 	case COLON:
 		if (p.bits&parseRecipe != 0 || !lhs) && p.bits&parseNoURL == 0 {
-			if isKnownURLScheme(x.strval(at(ctx, p.Position()))) {
-				x = p.url(ctx, lhs, x)
-			}
+			if isKnownURLScheme(x.strval(at(ctx, p.Position()))) { x = p.url(ctx, lhs, x) }
 		}
 	}
 	return
 }
 
-func (p *parser) text(ctx Context) (res []Value) {
-    var uni = ctx.universe()
+func (p *parser) text(ctx Context) (res []Value) { var uni = ctx.universe()
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Text")) }
-	for p.tok != EOF {
-		if p.tok == SPACE { p.next(true) } else {
-			res = append(res, p.expr(ctx, false))
-			if ctx.dia().flush() > 0 { total := ctx.dia().totalErrors()
-				warn(ctx, "parse text got %d errors", total).debug(16)
-				if uni.failOnErrors {
-					panic(failure{"fail by %d errors",ia(p.Position(), total)})
-				}
+	for p.tok != EOF { if p.tok == SPACE { p.next(true) } else {
+		res = append(res, p.expr(ctx, false))
+		if ctx.dia().flush() > 0 { total := ctx.dia().totalErrors()
+			warn(ctx, "parse text got %d errors", total).debug(16)
+			if uni.failOnErrors {
+				panic(failure{"fail by %d errors",ia(p.Position(), total)})
 			}
 		}
-	}
+	}}
 	return
 }
 
@@ -1762,8 +1765,16 @@ func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 	if x = p.composite(ctx, lhs); x == nil {
 		erro(p, "invalid (tok=%v,%v; next=%v,%v)", tok, lit, p.tok, p.lit).debug(6)
 		return
-	} else if lhs && p.tok.IsAssign() { return
-	} else if p.isParametersGroup(x)  { return }
+	}
+
+	if false { if x != nil { if strings.Contains(x.String(), "-f.ld") {
+		noted(ctx, "%T %v %p", x, x, x).debug(1)
+	}}}
+
+	if lhs && p.tok.IsAssign() { return }
+	if p.isParametersGroup(x)  { return }
+
+	var n int
 
 SwitchCompose:
 	switch p.tok {
@@ -1772,10 +1783,8 @@ SwitchCompose:
 		return
 
 	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
-		if p.bits&parseNoSelect == 0 {
-			x = p.selectExpr(x)
-			goto SwitchCompose // For example: foobar⇒run(-gen)
-		}
+		// For example: foobar⇒run(-gen)
+		if p.bits&parseNoSelect == 0 { x = p.selectExpr(x); goto SwitchCompose }
 		return
 
 	case LPAREN:
@@ -1795,7 +1804,7 @@ SwitchCompose:
 		return // FIXES: a%%b/foo/bar -> Path(a%%b foo bar)
 
 	case BAR:
-		if _, ok := x.(*group); ok { return } // in case of: [(var)|...]
+		if _, y := x.(*group); y { return } // in case of: [(var)|...]
 
 	case COMMA:
 		if p.bits&(parseArged|parseCall|parseGroup) != 0 { return }
@@ -1804,33 +1813,34 @@ SwitchCompose:
 			return
 		}
 
-	case
-		COMPOSED, COLON, SEMICOLON, RAW,
-		RPAREN, RBRACK, RBRACE, SPACE,
-		LINEND, EOF:
+	case COMPOSED, COLON, SEMICOLON, RAW, RPAREN, RBRACK, RBRACE, SPACE, LINEND, EOF:
 		return // No composition!
 	}
 
 	var y = p.composite(ctx, lhs)
-	if _, ok := y.(*Path); ok {
+
+	if _, t := y.(*Path); t {
 		switch x.(type) {
-		case flag: // okay: -Ifoo/bar, -Lfoo/bar
+		case  flag: // okay: -Ifoo/bar, -Lfoo/bar
 		case *Path: // okay: combine two paths
-		case *String, *Compound, *delegate, *closure, *punctuation:
 		case *barecomp:
-		default:
-			warn(of(ctx,y), "barecomp path: %T %v ; %v (next=%v)", x, x, y, p.tok).debug(1)
+		case *String, *Compound, *delegate, *closure, *punctuation:
+		default: warn(of(ctx,y), "barecomp path: %T %v ; %v (next=%v)", x, x, y, p.tok).debug(1)
 		}
 	}
 
-	// Further composing
-	x = compose(ctx, x, y)
+	// Make the first a clone, because $(auto-xxx) 'points' to the same value
+    if false && n == 0 { switch t := x.(type) {
+    case *barecomp: x = MakeBarecomp(t.Position(), t.Elems...)
+    case *Path: x = MakePath(t.Position(), t.Elems...)
+    }}
+
+	x, n = compose(ctx, x, y), n+1 // concat
 
 	// Keep trying composing as long as possible
 	switch p.tok {
-	case SPACE, LINEND, EOF: break
-	default: //case SELECT_PROG1, SELECT_PROG2, LPAREN:
-		goto SwitchCompose
+	case SPACE, LINEND, EOF: return
+	default: goto SwitchCompose
 	}
 	return
 }
@@ -2372,6 +2382,10 @@ func (p *parser) define(ctx Context, tok Token, ident Value) (def *def) {
 		value = MakeList(elems[0].Position(), elems...)
 	}
 
+	if false { if value != nil { if strings.Contains(value.String(), "-f.ld") {
+		noted(ctx, "%v", value).debug(1)
+	}}}
+
 	// NOTE: Put all explicit defs into project scope. It's important for defs enclosed
 	//       in templates work.
 	var loader = ctx.loader()
@@ -2379,6 +2393,7 @@ func (p *parser) define(ctx Context, tok Token, ident Value) (def *def) {
 		defer func(s []*Scope) { loader.scopes = s } (loader.scopes)
 		loader.scopes = append([]*Scope{ scope }, loader.scopes...)
 	}
+
 	var defs = loader.define(at(ctx, position), tok, ident, value)
 	if n := len(defs); n > 0 {  def = defs[n-1] }
 	return
@@ -2532,20 +2547,11 @@ func (p *parser) defineConfigureTargets(ctx Context) {
 }
 
 func (p *parser) ruleParams(ctx Context, args []Value) (err error) {
-	var loader = ctx.loader()
-	for _, elem := range args {
-		var ctx = at(ctx, elem.Position())
+	var scope = ctx.Scope()
+	for _, elem := range args { var ctx = at(ctx, elem.Position())
 		switch elem.(type) {
 		case *bareword, *barecomp:
-			var s = elem.strval(ctx)
-			var d, a = loader.auto(of(ctx,elem), s)
-			if a != nil { var y bool
-				if d, y = a.(*auto); !y {
-					erro(of(ctx,elem), "%T '%s' already taken the name, no such parameter", a, s)
-				}
-			}
-			p.params = append(p.params, d)
-			ctx.Scope().replace(ctx, strconv.Itoa(len(p.params)), d)
+			p.params = append(p.params, scope.auto(ctx, elem.strval(ctx), strconv.Itoa(len(p.params)+1)))
 		default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
 			erro(of(ctx,elem), "bad parameter form (%T)", elem)
 		}
@@ -2698,19 +2704,12 @@ func (p *parser) rule(special specialRule, optvals, targets []Value) (result Val
 	p.params = nil
 	p.dialect = ""
 
+	var scope = loader.Scope()
 	for _, s := range automatics {
-		if a, alt := loader.auto(ctx, s); alt != nil {
-			erro(ctx, "name `%s' already taken, not automatic (%T).", s, alt)
-		} else if a == nil {
-			erro(ctx, "'%s' is not defined", s)
-		}
+		if a := scope.auto(ctx, s); a == nil { erro(ctx, "'%s' is not defined", s).debug(1) }
 	}
-	for i := 1; i < 10; i += 1 {
-		if a, alt := loader.auto(ctx, strconv.Itoa(i)); alt != nil {
-			erro(ctx, "name `%v` already taken, not numberred (%T).", i, alt)
-		} else if a == nil {
-			erro(ctx, "'$%d' is not defined", i)
-		}
+	for i := 1; i < 10; i += 1 { s := strconv.Itoa(i)
+		if a := scope.auto(ctx, s); a == nil { erro(ctx, "'%s' is not defined", s).debug(1) }
 	}
 
 	// switch special {
@@ -2866,19 +2865,23 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 		defer startCPUProfile(ctx, name, true)()
 	}
 
+	if len(vars) == 0 {
+		if true { noted(ctx, "%v", t).debug(1) }
+		return
+	}
+
 	var loader = ctx.loader()
 	defer loader.closeScope(loader.openScope("template block"))
 
+	scope := loader.Scope()
 	ac := &autoContext{ Context:at(ctx, p.Position()), defs:make(autoDefMap) }
 	ctx = ac
 
-	for s, v := range vars { if a, alt := loader.auto(ctx, s); alt != nil {
-		erro(ctx, "name '%s' already taken (%v)", s, typeof(alt)).debug(1)
-	} else {
-		a.set(ctx, v)
+	for s, v := range vars { if a := scope.auto(ctx, s); a != nil { a.set(ctx, v) } else {
+		erro(ctx, "'%s' not defined", s).debug(1)
 	}}
 
-	var savedBits = p.bits
+	var bits = p.bits
 	p.bits |= parseTemplateBlock
 	for p.tok != EOF && p.pos < p.stop {
 		if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
@@ -2887,7 +2890,7 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 			p.clause(ctx)
 		}
 	}
-	p.bits = savedBits
+	p.bits = bits
 }
 
 func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
@@ -3007,14 +3010,16 @@ func (p *parser) callTemplate(ctx Context, t *template, name Value, args []Value
 	var loader = ctx.loader()
 	defer loader.closeScope(loader.openScope("template call "))
 
+	var scope = loader.Scope()
 	var params = merge(t.params...)
-	for i, param := range params {
-		var s = param.strval(ctx)
-		if a, alt := loader.auto(of(p,param), s); alt != nil {
-			erro(at(ctx,param.Position()), "duplicated parameter '%s'", s).debug(1)
-		} else if i < len(args) {
-			a.set(ctx, args[i])
-		}
+	for i, param := range params { var s = param.strval(ctx)
+		// if a, alt := loader.auto(of(p,param), s); alt != nil {
+		// 	erro(at(ctx,param.Position()), "duplicated parameter '%s'", s).debug(1)
+		// } else if i < len(args) {
+		// 	a.set(ctx, args[i])
+		// }
+		a := &auto{knownobject{objbase{valbase{param.Position()}, scope, ctx.Project()}, s}}
+		if scope.replace(ctx, s, a); len(args)>i { a.set(ctx, args[i]) }
 	}
 
 	for p.tok != EOF && p.pos < t.endPos {

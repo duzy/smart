@@ -1603,16 +1603,16 @@ func (l *loader) resolveEntries(target Value) (entries *resolvedEntries) {
     return
 }
 
-func (l *loader) auto(ctx Context, name string) (a *auto, alt Object) {
-    var scope = l.Scope()
-    if  strings.HasPrefix(scope.comment, "file ") && l.mode&Flat != 0 {
-        // use project scope if defining in flat file (aka. include)
-        // to ensure that the symbol is valid in the project
-        scope = l.Scope()
-    }
-    if a, alt = scope.auto(l, name); a != nil { a.position = ctx.Position() }
-    return
-}
+// func (l *loader) auto(ctx Context, name string) (a *auto, alt Object) {
+//     var scope = l.Scope()
+//     if  strings.HasPrefix(scope.comment, "file ") && l.mode&Flat != 0 {
+//         // use project scope if defining in flat file (aka. include)
+//         // to ensure that the symbol is valid in the project
+//         scope = l.Scope()
+//     }
+//     if a, alt = scope.auto(l, name); a != nil { a.position = ctx.Position() }
+//     return
+// }
 
 func (l *loader) def(position Position, name string) (def *def, alt Object) {
     var scope = l.Scope()

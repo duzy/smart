@@ -120,7 +120,7 @@ func (s *Scope) Resolve(name string) (obj Object) {
 // the same name, Insert leaves s unchanged and returns alt.
 // Otherwise it inserts obj, sets the object's outer scope
 // if not already set, and returns nil.
-func (s *Scope) Insert(ctx Context, obj Object) Object {
+func (s *Scope) insert(ctx Context, obj Object) Object {
 	s.mutex.Lock(); defer s.mutex.Unlock()
 	var name = obj.name(ctx)
 	if alt := s.elems[name]; alt != nil {
@@ -218,18 +218,35 @@ func (scope *Scope) builtin(ctx Context, name string, f reflect.Type) (bui *buil
 	return
 }
 
-func (scope *Scope) auto(ctx Context, name string) (a *auto, alt Object) {
-	var okay bool
+func (scope *Scope) auto2(ctx Context, name string) (a *auto, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
+
+	var okay bool
 	if alt, okay = scope.elems[name]; okay && alt == nil {
 		delete(scope.elems, name)
 		okay = false
 	}
 	if !okay {
 		p := ctx.Position()
-		a = &auto{knownobject{objbase{valbase{p}, scope, scope.project}, name}}
+		a = &auto{
+			knownobject{
+				objbase{valbase{p}, scope, ctx.Project()},
+				name,
+			},
+		}
 		scope.replace(ctx, name, a)
 	}
+	return
+}
+
+func (scope *Scope) auto(ctx Context, name string, alias ...string) (a *auto) {
+	var t Object
+	if a, t = scope.auto2(ctx, name); t != nil { var y bool
+		if a, y = t.(*auto)	; !y { erro(ctx, "name '%s' already taken: %T", t) }
+	}
+	if a != nil { for _, s := range alias {
+		scope.replace(ctx, s, a)
+	}}
 	return
 }
 
@@ -246,7 +263,7 @@ func (scope *Scope) define(ctx Context, origin Origin, name string, value Value)
 			knownobject: knownobject{
 				objbase{
 					scope: scope,
-					owner: scope.project,
+					owner: scope.project, //ctx.Project(),
 				}, name,
 			},
 		}

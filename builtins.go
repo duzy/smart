@@ -1343,10 +1343,11 @@ type builtin_defs struct { builtin_
     rn int `rn`
 }
 func (ctx *builtin_defs) x(ic *invocation, w facet) (res interface{}) {
-    var names []string
-    outer: for name, _ := range ctx.Project().scope.elems {
+    var names []bare
+outer:
+    for name, _ := range ctx.Project().scope.elems {
         if len(ctx.rxs) == 0 {
-            names = append(names, name)
+            names = append(names, bare{name})
             if ctx.n>0 && len(names) == ctx.n {
                 break
             } else {
@@ -1359,7 +1360,7 @@ func (ctx *builtin_defs) x(ic *invocation, w facet) (res interface{}) {
         for _, rx := range ctx.rxs {
             var sm = rx.FindStringSubmatch(name)
             if len(sm)>0 && ctx.rn<len(sm) {
-                names = append(names, sm[ctx.rn])
+                names = append(names, bare{sm[ctx.rn]})
                 if ctx.n>0 && len(names) == ctx.n {
                     break outer
                 } else {
@@ -1368,6 +1369,7 @@ func (ctx *builtin_defs) x(ic *invocation, w facet) (res interface{}) {
             }
         }
     }
+    if false /* && names != nil */ { noted(ctx, "%v %v", ctx.rxs, names).debug(1) }
     return names
 }
 

@@ -24,6 +24,10 @@ func TestBuildExample(t *testing.T) {
 
 func TestLoadTopWork(t *testing.T) {
         var ctx = load_testcase(t, "testdata/none", "none")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
 
         if !strings.HasSuffix(ctx.WorkDir(), "/testdata/none") {
                 ctx.err("wrong workdir: %s", ctx.WorkDir())

@@ -537,6 +537,7 @@ outer:
     named = nil
     return
 }
+
 func autoVal(ctx Context, name string) (res Value) {
     if d := autoDef(ctx, name); d != nil { res = d.value }
     return
@@ -605,9 +606,9 @@ func (a *auto) expandable(ctx Context, w facet) (res bool) {
     return
 }
 func (a *auto) expand(ctx Context, w facet) (res Value) {
-    if true { if w&expandDebug != 0 { if d := autoDef(ctx, a.name_); true/* d != nil && d.value != res */ { defer func() {
+    if false { if w&expandDebug != 0 || a.name_ == "flag" { if d := autoDef(ctx, a.name_); true/* d != nil && d.value != res */ { defer func() {
         if true { w.noted(ctx, a, d) }
-        noted(ctx, "%v ⇒ %v %v (same=%v)", a, typeof(res), res, (res==a)).debug(10)
+        noted(ctx, "%v ⇒ %v %v (same=%v,%p)", a, typeof(res), res, (res==a), res).debug(10)
     }()}}}
     g := w&expandAuto != 0 && w&expandAutoKept == 0 || w&expandDefDefArgs != 0 || w&expandUnexpandedForth != 0
     if g && !ctx.ref(ctx, a) { if d := autoDef(ctx, a.name_); d != nil {
@@ -760,8 +761,7 @@ func (d *def) expandable(ctx Context, w facet) (res bool) {
     if val != nil { res = val.expandable(ctx, w) }
     return
 }
-func (d *def) expand(ctx Context, w facet) (res Value) {
-    var db bool
+func (d *def) expand(ctx Context, w facet) (res Value) { var db bool
     if false { if w&expandDebug != 0 { defer func(w0 facet) {
         if d.value != nil { ctx = of(ctx, d.value) } else { ctx = of(ctx, d) }
         if true { w0.noted(ctx, d) }
@@ -866,19 +866,10 @@ func (d *def) set(ctx Context, origin Origin, value Value, app ...Value) {
     if value != nil { vals = merge(value) }
     if   app != nil { vals = append(vals, app...) }
 
-    for i, val := range vals { if o, y := val.(*def); y {
-        if false {
-            // Appending Def value is not recommended, but if it does, we make
-            // a warning here to give a chance for further optimization.
-            warn(ctx, "use def as value: %v", o)
-            warn(ctx, "%v: %v", d.origin, d)
-            warnstack(ctx, 5).debug(16)
-        }
-        vals[i] = o.value // replace defs
-    }}
+    for i, val := range vals { if o, y := val.(*def); y { vals[i] = o.value }}
 
     var uni = ctx.universe()
-    switch w := plain|expandAuto/* &^expandOptimal */; origin {
+    switch w := plain/* |expandAuto *//* &^expandOptimal */; origin {
     case DefExpand1: vals, _, _ = (w&^expandClosure).expand(ctx, vals...) //  :=
     case DefExpand2: vals, _, _ = (w| expandClosure).expand(ctx, vals...) // ::=
     default: for _, val := range vals { if val != nil && val.refs(ctx, d) { ctx = at(ctx, pos)
