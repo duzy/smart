@@ -1662,7 +1662,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
 
     assert(ctx.loader() == l, "require the same loader context")
 
-    defer func(t time.Time, p *parser, m Mode) { if true { ctx = l.p.ctx() }
+    defer func(t time.Time, p *parser, m Mode) { if true { ctx = l.p.ctx(ctx) }
         if d := time.Now().Sub(t); d > uni.slow {
             warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, uni.slow).debug(2) //  → %s, filename
         } else if uni.verbose {
@@ -1715,7 +1715,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
         })
 	l.p.next(true)
 
-    if ctx = l.p.ctx(); l.mode&parsingText != 0 {
+    if ctx = l.p.ctx(ctx); l.mode&parsingText != 0 {
         res = l.p.text(ctx)
     } else if f = l.p.file(ctx); f == nil {
         // Source is not a valid source file, returnning a valid but empty parsedFile
