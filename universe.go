@@ -509,6 +509,13 @@ func init_universe(ii ...interface{}) (ctx *universe) { ctx = &universe{}
     }
 
     var pos = ctx.Position()
+    var dotos Value
+    if strings.Contains(runtime.GOOS, " ") {
+        dotos = MakeString(pos, runtime.GOOS)
+    } else {
+        dotos = MakeBareword(pos, runtime.GOOS)
+    }
+
     ctx.globe = &Globe{
         Scope: NewScope(pos, ctx.scope, nil, `globe "smart"`),
         loaded: make(map[string]*Project),
@@ -516,7 +523,7 @@ func init_universe(ii ...interface{}) (ctx *universe) { ctx = &universe{}
         flagEntries: make(map[string][]Entry),
     }
     ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
-    ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os",    MakeString(pos, runtime.GOOS))
+    ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os", dotos)
     ctx.globe.goals, _ = ctx.globe.define(ctx, DefVoid, ".goals", MakeNone(pos))
     ctx.globe.mode,  _ = ctx.globe.define(ctx, DefVoid, ".mode",  MakeNull(pos))
     ctx.Context = &positionContext{ctx.Context/* = nil */, pos}

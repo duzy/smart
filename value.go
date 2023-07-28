@@ -7180,21 +7180,19 @@ func forth(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
 
     for ic, n := ctx.ic(), 1; ic != nil; ic = ic.Context.ic() { var d *diagPoint
         if n += 1; n > max_invoke {
-            d = errostack(of(ctx,v), 10, "invocation exceeds limitation (%d): %v", n, v)
+            d = errostack(of(ctx,v), 10, "invocation exceeds limitation (%d): %v", n, v).debug(100)
         } else if x, y := v.(*auto); false && y && ic.v == v { if true { return unexpanded{v}, nil, false }
-            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v ; %v", n, v, autoDef(ctx, x.name(ctx)))
+            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v ; %v", n, v, autoDef(ctx, x.name(ctx))).debug(100)
         } else if _, y := v.(*def);  false && y && ic.v == v { if true { return unexpanded{v}, nil, false }
-            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v", n, v)
+            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v", n, v).debug(100)
         } else if _, y := v.(*builtin); !y && ic.v == v {
             if u, y := v.(unexpanded); y { if true { noted(ctx, "%v", autoDef(ctx, "_")) }
-                d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v (%T)", n, typeof(v), v, u.Value)
+                d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v (%T)", n, typeof(v), v, u.Value).debug(100)
             } else {
-                d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v", n, typeof(v), v)
+                d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v", n, typeof(v), v).debug(100)
             }
         }
-        if d != nil { d.debug(100)
-            panic(failure{"unsafe invocation: %v",ia(v.Position(), v)})
-        }
+        if d != nil { panic(failure{"unsafe invocation: %v",ia(v.Position(), v)}) }
     }
 
     // NOTE: the ic.a represents the arguments, which is a COPY of the original slice;
