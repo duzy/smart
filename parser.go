@@ -1257,7 +1257,9 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		return
 	}
 
-	resolveObject := func(lPos Position, lTok Token, name Value) (str string, obj Value, okay bool) {
+	resolve := func(lPos Position, lTok Token, name Value) (str string, obj Value, okay bool) {
+		defer ctx.dia().trace(ctx, "resolve") // backtrace on errors
+
 		if a, y := name.(*argumented); y { name = a.Value }
 		if sel, y := name.(*selection); y {
 			if sel == nil {
@@ -1345,7 +1347,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 				if false {
 					errostack(of(ctx,name), 16, "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
 				} else {
-					erro(of(ctx,name), "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
+					erro(of(ctx,name), "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(1)
 				}
 			} else if _, okay = resolved.(invoker); okay {
 				return str, resolved, okay
@@ -1426,7 +1428,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		if isNull(name) {/* error */} else
 		if !allowClosureName && name.expandable(ctx, expandClosure|expandDelegate) {
 			erro(at(ctx,posName), "%v: name '%v' (%T) is closured", proj, name, name).debug(1)
-		} else if nameStr, obj, okay = resolveObject(posLp, tokLp, name); !okay {
+		} else if nameStr, obj, okay = resolve(posLp, tokLp, name); !okay {
 			erro(at(ctx,posName), "%v: name '%v' is unidentified", proj, name).debug(1)
 		}
 
@@ -1514,7 +1516,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 				erro(at(ctx,posLp), "parsed name is nil").debug(1)
 			} else if name.expandable(ctx, expandClosure) {
 				erro(at(ctx,name.Position()), "name '%v' (%T) is closured (project=%v)", name, name, proj).debug(1)
-			} else if nameStr, obj, okay = resolveObject(posLp, tokLp, name); !okay {
+			} else if nameStr, obj, okay = resolve(posLp, tokLp, name); !okay {
 				erro(at(ctx,name.Position()), "name '%v' is unidentified", name).debug(1)
 			}
 		} else {
