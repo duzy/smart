@@ -1222,6 +1222,19 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 	return url
 }
 
+func (p *parser) expandTemplateBlockAuto(ctx Context, obj, d Value) (result Value) {
+	if p.bits&parseTemplateBlock != 0 { if _, y := obj.(*auto); y {
+		// Make clone to barecomp and Path for compose() and x.comp().
+		switch t := d.expand(ctx, strval); v := t.(type) {
+		case *barecomp: return MakeBarecomp(v.Position(), v.Elems...)
+		case *Path: return MakePath(v.Position(), v.Elems...)
+		case unexpanded: break
+		default: return v
+		}
+	}}
+	return d
+}
+
 func (p *parser) closuredelegate(ctx Context) (result Value) {
 	if t_traverse.enabled {	defer un(trace(t_traverse, "ClosureDelegate")) }
 
@@ -1514,26 +1527,13 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		}
 	}
 
+	if isNull(obj) {
+		erro(at(ctx,name.Position()), "resolved '%v' is nil (%T %v, tok=%v)", name, resolved, resolved, tok).debug(1)
+	}
+
 	if position := ctx.Position(); tok.IsDelegate() {
-		if isNull(obj) { erro(at(ctx,name.Position()), "resolved '%v' is nil (%T %v, tok=%v)", name, resolved, resolved, tok).debug(1) }
-
-		var d = MakeDelegate(position, tokLp, obj, opts, rest...)
-		if p.bits&parseTemplateBlock != 0 { if _, y := obj.(*auto); y { t := d.expand(ctx, strval)
-			if false { if t != nil { if strings.Contains(t.String(), "-f.ld") {
-				noted(ctx, "%T %v %p", t, t, t).debug(1)
-			}}}
-
-			// Make clone to barecomp and Path for compose() and x.comp().
-			switch v := t.(type) {
-			case *barecomp: return MakeBarecomp(v.Position(), v.Elems...)
-			case *Path: return MakePath(v.Position(), v.Elems...)
-			case unexpanded: break
-			default: return v
-			}
-		}}
-		return d
+		return p.expandTemplateBlockAuto(ctx, obj, MakeDelegate(position, tokLp, obj, opts, rest...))
 	} else {
-		if isNull(obj) { erro(at(ctx,name.Position()), "resolved '%v' is nil (%T %v), shall be 'unresolved' (tok=%v)", name, resolved, resolved, tok).debug(1) }
 		return MakeClosure(position, tokLp, obj, opts, rest...)
 	}
 }
@@ -1541,65 +1541,58 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "SpecialClosureDelegate")) }
 
-	var obj Object
-	var resolved Value
 	var pos, tok, s = p.pos, p.tok, p.lit
 	var position = p.loc(pos)
+
 	p.step()
 
+	var obj Object
 	var loader = ctx.loader()
-	if c := s[0]; /*p.bits&parseDefineClause != 0*/true &&
-		len(s) == 1 && (('0' <= c && c <= '9') /*|| c == '_'*/) {
-		var scope = loader.Scope()
-		for _, a := range p.autos { if a.name(ctx) == s { obj = a ; break } }
-		if obj == nil {
-			var a = &auto{knownobject{
-				objbase{valbase{position}, scope, scope.project}, s,
-			}}
-			p.autos = append([]*auto{a}, p.autos...)
-			obj = a
-		}
+	var scope = loader.Scope()
+
+	for _, a := range p.autos { if a.name(ctx) == s { obj = a ; break } }
+	for _, a := range p.autos { if a.name(ctx) == s { obj = a ; break } }
+
+	var resolved Value
+	if obj == nil { if c := s[0]; len(s) == 1 && (('0' <= c && c <= '9') /*|| c == '_'*/) {
+		a := &auto{knownobject{objbase{valbase{position}, scope, scope.project}, s}}
+		p.autos = append([]*auto{a}, p.autos...)
+		obj = a
 	} else if w := MakeBareword(position, s); s == "_" {
-		for _, a := range p.autos { if a.name(ctx) == s { obj = a ; goto DashNxt } }
-		if obj == nil && p.bits&parseTemplateBlock != 0 {
+		if p.bits&parseTemplateBlock != 0 {
 			if _, resolved = loader.resolveObject(w); resolved != nil {
 				obj, _ = resolved.(Object)
 			}
 		}
-	DashNxt:
 	} else if _, resolved = loader.resolveObject(w); resolved == nil {
 		erro(ctx, "'%v' is undefined (autos: %v)", s, p.autos).debug(16)
 		return MakeNull(position)
-	} else if c, y := resolved.(invoker); c == nil || !y {
+	} else if t, y := resolved.(invoker); !y {
 		erro(of(ctx,resolved), "'%v' is not callable: %T", s, resolved).debug(6)
 		return MakeNull(position)
-	} else if obj, y = c.(Object); !y {
+	} else if obj, y = t.(Object); !y {
 		erro(of(ctx,resolved), "'%v' is not object: %T", s, c).debug(6)
 		return MakeNull(position)
-	}
+	}}
 
 	if isNull(obj) {
-		erro(ctx, "resolved '%v' is <nil>: %v (%T)", s, resolved, resolved).debug(1)
+		erro(ctx, "'%v' is <nil> (resolved: %T %v)", s, resolved, resolved).debug(1)
 		return MakeNull(position)
 	}
 
-	var isDigital, isPlaceholder bool
 	if tok.IsDelegate() {
 		if result = MakeDelegate(position, tok, obj, nil); tok == DELEGATE__ {
-			isPlaceholder = true
+			result = placeholder{result}
 		} else if DELEGATE_0 <= tok && tok <= DELEGATE_9 {
-			isDigital = true
+			result = digital{result}
 		}
+		return p.expandTemplateBlockAuto(ctx, obj, result)
 	} else {
 		if result = MakeClosure(position, tok, obj, nil); tok == CLOSURE__ {
-			isPlaceholder = true
+			result = placeholder{result}
 		} else if CLOSURE_0 <= tok && tok <= CLOSURE_9 {
-			isDigital = true
+			result = digital{result}
 		}
-	}
-	if true {
-		if isDigital { result = digital{ result }} else
-		if isPlaceholder { result = placeholder{ result }}
 	}
 	return
 }
