@@ -403,8 +403,11 @@ func (p *parser) isRecipeStart() (res bool) {
 // Barewords & Identifiers
 
 func (p *parser) bare(ctx Context, lhs bool) (x Value) {
-	var pos, tok, lit = p.Position(), p.tok, p.lit
+	if true { defer ctx.dia().trace(ctx, "bare") }
 
+	ctx = p.ctx(ctx)
+
+	var tok, lit = p.tok, p.lit
 	switch p.step(); tok {
 	case BAREWORD: // okay
 	case UNDEF:
@@ -412,52 +415,52 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 			if p.next(true); p.tok == RBRACE {
 				x = &undef{&none{valbase{p.Position()}, nil}}
 				p.step()
-			} else if v := p.expr(p, false); v != nil {
+			} else if v := p.expr(ctx, false); v != nil {
 				x = &undef{v}
 				p.expect(RBRACE)
 			} else {
-				erro(at(p,pos), "undef invalid expression: %v, %v", p.tok, p.lit).debug(1)
+				erro(ctx, "undef invalid expression: %v, %v", p.tok, p.lit).debug(1)
 			}
 			return
 		}
 	case BARE: // TODO: bare{ ... }
 		if p.tok == LBRACE { // file{ ... }
-			erro(p, "TODO: %v", tok).debug(1) ; p.dia().flush()
+			erro(ctx, "TODO: %v", tok).debug(1)
 			return
 		}
 	case REGEX: // TODO: regex{ ... }
 		if p.tok == LBRACE { // file{ ... }
-			erro(p, "TODO: %v", tok).debug(1) ; p.dia().flush()
+			erro(ctx, "TODO: %v", tok).debug(1)
 			return
 		}
 	case FILE:
 		if p.tok == LBRACE { // file{ ... }
-			erro(p, "TODO: %v", tok).debug(1) ; p.dia().flush()
+			erro(ctx, "TODO: %v", tok).debug(1)
 			return
 		}
 	case BIN, OCT, INT, HEX, FLOAT:
 		if p.tok == LBRACE { // answer{...}, bool{...}
 			if p.next(true); p.tok == RBRACE {
 				switch p.step(); tok {
-				case BIN:   x = MakeBin(pos, 0)
-				case OCT:   x = MakeOct(pos, 0)
-				case INT:   x = MakeInt(pos, 0)
-				case HEX:   x = MakeHex(pos, 0)
-				case FLOAT: x = MakeFloat(pos, 0.)
+				case BIN:   x = MakeBin(p.Position(), 0)
+				case OCT:   x = MakeOct(p.Position(), 0)
+				case INT:   x = MakeInt(p.Position(), 0)
+				case HEX:   x = MakeHex(p.Position(), 0)
+				case FLOAT: x = MakeFloat(p.Position(), 0.)
 				}
-			} else if v := p.expr(p, false); v == nil {
+			} else if v := p.expr(ctx, false); v == nil {
 				// TODO: true{ expr }, yes{ expr }, ...
-				erro(at(p,pos), "%s expects: %v, not %v %v", tok, RBRACE, p.tok, p.lit).debug(1)
+				erro(ctx, "%s expects: %v, not %v %v", tok, RBRACE, p.tok, p.lit).debug(1)
 			} else if p.spaces(); p.tok == RBRACE {
 				if p.step(); tok == FLOAT {
-					var n, _ = v.float(p)
-					return MakeFloat(pos, n)
+					var n, _ = v.float(ctx)
+					return MakeFloat(p.Position(), n)
 				}
-				switch n, _ := v.int(p); tok {
-				case BIN: return MakeBin(pos, n)
-				case OCT: return MakeOct(pos, n)
-				case INT: return MakeInt(pos, n)
-				case HEX: return MakeHex(pos, n)
+				switch n, _ := v.int(ctx); tok {
+				case BIN: return MakeBin(p.Position(), n)
+				case OCT: return MakeOct(p.Position(), n)
+				case INT: return MakeInt(p.Position(), n)
+				case HEX: return MakeHex(p.Position(), n)
 				}
 			}
 			return
@@ -465,37 +468,37 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 	case ANSWER, BOOL, NONE:
 		if p.tok == LBRACE { // answer{...}, bool{...}
 			if p.next(true); p.tok == RBRACE {
-				switch pos := p.Position(); tok {
-				case ANSWER: x = makeAnswer(pos, false)
-				case BOOL: x = MakeBoolean(pos, false)
-				case NONE: x = MakeNone(pos)
+				switch tok {
+				case ANSWER: x = makeAnswer(p.Position(), false)
+				case   BOOL: x = MakeBoolean(p.Position(), false)
+				case   NONE: x = MakeNone(p.Position())
 				}
 				p.step()
 				return
-			}
-
-			if tok == NONE {
-				x = &none{valbase{pos}, p.expr(p, false)}
+			} else if tok == NONE {
+				x = &none{valbase{p.Position()}, p.expr(ctx, false)}
 				p.spaces()
 				p.expect(RBRACE)
 				return
 			}
 
-			var ( pos = p.Position(); v bool )
+			var v bool
 			switch p.tok {
 			case TRUE, YES: v = true
 			case FALSE, NO: v = false
 			default:
-				if t := p.expr(p, false); t != nil {
-					v = t.true(p)
+				if t := p.expr(ctx, false); t != nil {
+					v = t.true(ctx)
 				} else {
-					erro(at(p,pos), "undef invalid expression: %v, %v", p.tok, p.lit).debug(1)
+					erro(p.ctx(ctx), "undef invalid expression: %v, %v", p.tok, p.lit).debug(1)
 				}
 			}
+
 			p.spaces()
+
 			switch p.expect(RBRACE); tok {
-			case ANSWER: x = makeAnswer(pos, v)
-			case BOOL: x = MakeBoolean(pos, v)
+			case ANSWER: x = makeAnswer(p.Position(), v)
+			case   BOOL: x = MakeBoolean(p.Position(), v)
 			}
 			return
 		}
@@ -503,30 +506,30 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 		if p.tok == LBRACE { // true{}, false{}, yes{}, no{}, null{}
 			if p.next(true); p.tok == RBRACE {
 				switch p.step(); tok {
-				case YES , NO   : x = makeAnswer( pos, tok == YES)
-				case TRUE, FALSE: x = MakeBoolean(pos, tok == TRUE)
-				case NULL: x = MakeNull(pos)
+				case YES , NO   : x = makeAnswer( p.Position(), tok == YES)
+				case TRUE, FALSE: x = MakeBoolean(p.Position(), tok == TRUE)
+				case NULL: x = MakeNull(p.Position())
 				}
 			} else {
 				// TODO: true{ expr }, yes{ expr }, ...
-				erro(at(p,pos), "%s expects: %v, not %v %v", tok, RBRACE, p.tok, p.lit).debug(1)
+				erro(ctx, "%s expects: %v, not %v %v", tok, RBRACE, p.tok, p.lit).debug(1)
 			}
 			return
 		}
 	case AT, DOT, DOTDOT: // TODO: parse DOT into Qualiword
-		return &punctuation{valbase{pos}, tok} // lit = tok.String() // Special bareword.
+		return &punctuation{valbase{p.Position()}, tok} // lit = tok.String() // Special bareword.
 	default:
-		if tok.IsKeyword() { lit = tok.String() } else {
-			if true {
-				erro(at(p,pos), "%v %v -> %v %v", tok, lit, p.tok, p.lit)
-			} else {
-				p.expect(BAREWORD)
-			}
-			panic(failure{"parsing: %v %v",ia(p.Position(), p.tok, p.lit)})
+		if tok.IsKeyword() {
+			lit = tok.String()
+		} else if true {
+			erro(ctx, "%v %v -> %v %v", tok, lit, p.tok, p.lit).debug(1)
+			// panic(failure{"parsing: %v %v",ia(p.Position(), p.tok, p.lit)})
+			return
+		} else {
+			p.expect(BAREWORD)
 		}
 	}
-
-	return MakeBareword(pos, lit)
+	return MakeBareword(ctx.Position(), lit)
 }
 
 func (p *parser) selector(ctx Context) (res Value) {
@@ -3037,9 +3040,9 @@ func (p *parser) templateCall(ctx Context, name Value, args []Value) {
 func (p *parser) template(ctx Context, verb string) {
 	defer ctx.dia().trace(ctx, "template."+verb)
 
+	var arged *argumented
 	var startingPos = p.Position()
 	var startingTok = p.tok
-	var arged *argumented
 	if verb == "" { // lead by the 'template' keyword
 		p.expect(TEMPLATE) // expect and skip 'template'
 		p.spaces()
@@ -3048,9 +3051,9 @@ func (p *parser) template(ctx Context, verb string) {
 		if p.tok == EOF {
 			erro(of(ctx,op), "unexpected end of file after %v", op).debug(1)
 			return
-		} else if w, ok := op.(*bareword); ok {
+		} else if w, y := op.(*bareword); y {
 			verb = w.string
-		} else if arged, ok = op.(*argumented); !ok {
+		} else if arged, y = op.(*argumented); !y {
 			erro(of(ctx,op), "unknown template verb: %v", op).debug(1)
 			return
 		}
@@ -3086,11 +3089,11 @@ func (p *parser) template(ctx Context, verb string) {
 		if len(params) != 1 {
 			erro(at(ctx,startingPos), "too many def params: %v", params)
 			return
-		} else if arged, ok := params[0].(*argumented); !ok {
+		} else if a, y := params[0].(*argumented); !y {
 			erro(at(ctx,startingPos), "too many def params: %v", params)
 			return
 		} else {
-			tmpl.name, tmpl.params = arged.Value, arged.args
+			tmpl.name, tmpl.params = a.Value, a.args
 			p.templates = append(p.templates, tmpl)
 		}
 	} else {
@@ -3098,12 +3101,9 @@ func (p *parser) template(ctx Context, verb string) {
 	}
 
 	var nested int
-	for p.tok != EOF {
+	for p.tok != EOF { nl := false
 		if p.tok == LINEND || p.lineComment != nil {
-			if p.spaces(); p.tok == EOF { return }
-		} else {
-			if p.step(); p.tok == EOF { return }
-			continue
+			if p.spaces(); p.tok == EOF { return } else { nl = true }
 		}
 
 		switch pos, stop := p.pos, p.stop; p.tok {
@@ -3155,10 +3155,6 @@ func (p *parser) template(ctx Context, verb string) {
 				erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
 				return
 			}
-		case DEF, FOR, FOREACH:
-			if false { noted(p, "%v: %d, %v", p.tok, nested, p.scanner.ScanState).debug(1) }
-			nested += 1
-			p.next(true)
 		case END: // 	nested -= 1
 			if p.next(true); verb == "def" {
 				if nested > 0 { nested -= 1 ; continue }
@@ -3169,13 +3165,17 @@ func (p *parser) template(ctx Context, verb string) {
 				tmpl.end, tmpl.endPos = &state, pos
 				return
 			}
+		case DEF, FOR, FOREACH:
+			if false { noted(p, "%v: %d, %v", p.tok, nested, p.scanner.ScanState).debug(1) }
+			if p.next(true); nl { nested += 1 }
+			continue
 		default:
 			if false { noted(p, "%v: %s, %d, %v", p.tok, p.lit, nested, p.scanner.ScanState).debug(1) }
 			p.step()
 			continue
 		}
 
-		erro(p, "%v: %s, %d, %v", p.tok, p.lit, nested, p.scanner.ScanState).debug(1)
+		erro(p, "%v %s, %d, %v", p.tok, p.lit, nested, p.scanner.ScanState).debug(1)
 		break
 	}
 }
@@ -3196,44 +3196,19 @@ func (p *parser) clause(ctx Context) { var uni = ctx.universe()
 		case USE:
 			erro(ctx, "`%v` unexpected here", p.tok).debug(10)
 			return
-		case INCLUDE:
-			p.spec(ctx, tok, p.expect(tok), p.include)
-			return
-		case FILES:
-			p.spec(ctx, tok, p.expect(tok), p.files)
-			return
-		case ASSERT:
-			p.spec(ctx, tok, p.expect(tok), p.assert)
-			return
-		case APPEND:
-			p.spec(ctx, tok, p.expect(tok), p.append)
-		case EVAL:
-			p.spec(ctx, tok, p.expect(tok), p.eval)
-			return
-		case COLON:
-			p.specialRule(ctx)
-			return
-		case TEMPLATE:
-			p.template(ctx, "")
-			return
-		case FOR:
-			p.template(ctx, "for")
-			return
-		case FOREACH:
-			p.template(ctx, "foreach")
-			return
-		case DONE:
-			p.template(ctx, "done")
-			return
-		case DEF:
-			p.template(ctx, "def")
-			return
-		case END:
-			p.template(ctx, "end")
-			return
+		case  INCLUDE: p.spec(ctx, tok, p.expect(tok), p.include); return
+		case    FILES: p.spec(ctx, tok, p.expect(tok), p.files); return
+		case   ASSERT: p.spec(ctx, tok, p.expect(tok), p.assert); return
+		case   APPEND: p.spec(ctx, tok, p.expect(tok), p.append); return
+		case    COLON: p.specialRule(ctx); return
+		case TEMPLATE: p.template(ctx, ""); return
+		case      FOR: p.template(ctx, "for"); return
+		case  FOREACH: p.template(ctx, "foreach"); return
+		case     DONE: p.template(ctx, "done"); return
+		case      DEF: p.template(ctx, "def"); return
+		case      END: p.template(ctx, "end"); return
 		default:
-			x = p.expr(ctx, true)
-			p.spaces()
+			x = p.expr(ctx, true); p.spaces()
 		}
 	}
 
@@ -3283,20 +3258,14 @@ type projectDeclOpts struct {
 	noDock bool `n,nd,nod,nodock,no-dock` // don't load container project
     traveUseLoop bool `b,break;l,loop` // don't recursively use this project
     multiUseAllowed bool `m,multi`  // this project is used multiple times
-	final bool `f,final`
+	final bool `final` // no bases
 }
 
 func (p *parser) file(ctx Context) *parsedFile {
     var uni = ctx.universe()
 	if uni.traceLaunch { defer un(trace(t_launch, "parser.file")) }
 	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
-    if false { defer un(tracef(t_traverse, "file(%s)", p.scanner.File().Name())) }
-	if ctx.dia().countErrors() > 0 {
-		// Don't bother parsing the rest if errors scanned,
-		// likely not a Go source file at all.
-		errostack(ctx, 5, "got errors").debug(10)
-		return nil
-	}
+	if ctx.dia().error() { return nil }
 
 	var (
 		ident *barecomp
@@ -3516,8 +3485,8 @@ func (p *parser) file(ctx Context) *parsedFile {
 
 		if p.spaces(); p.tok != EOF { p.linend() }
 		if keyword != PACKAGE {
-			loader.loadConfiguration(ctx, linfo, ident, identStr, declared)
-			if !opts.noDock { loader.loadProjectContainer(ctx, ident, identStr) }
+			loader.configure(ctx, linfo, ident, identStr, declared)
+			if !opts.noDock { loader.container(ctx, ident, identStr) }
 		}
 	case EOF:
 		return nil
@@ -3538,27 +3507,17 @@ func (p *parser) file(ctx Context) *parsedFile {
 		if loader.mode&Flat == 0 {
 			ForInit: for p.tok != EOF {
 				switch tok := p.tok; tok {
-				case LINEND: p.next(true) // skip empty lines
-				case USE:
-					p.spec(ctx, tok, p.expect(tok), p.use)
-				case ASSERT:
-					p.spec(ctx, tok, p.expect(tok), p.assert)
-				case APPEND:
-					p.spec(ctx, tok, p.expect(tok), p.append)
-				case EVAL:
-					p.spec(ctx, tok, p.expect(tok), p.eval)
-				case TEMPLATE:
-					p.template(ctx, "")
-				case FOR:
-					p.template(ctx, "for")
-				case FOREACH:
-					p.template(ctx, "foreach")
-				case DONE:
-					p.template(ctx, "done")
-				case DEF:
-					p.template(ctx, "def")
-				case END:
-					p.template(ctx, "end")
+				case   LINEND: p.next(true) // skip empty lines
+				case      USE: p.spec(ctx, tok, p.expect(tok), p.use)
+				case   ASSERT: p.spec(ctx, tok, p.expect(tok), p.assert)
+				case   APPEND: p.spec(ctx, tok, p.expect(tok), p.append)
+				case     EVAL: p.spec(ctx, tok, p.expect(tok), p.eval)
+				case TEMPLATE: p.template(ctx, "")
+				case      FOR: p.template(ctx, "for")
+				case  FOREACH: p.template(ctx, "foreach")
+				case     DONE: p.template(ctx, "done")
+				case      DEF: p.template(ctx, "def")
+				case      END: p.template(ctx, "end")
 				default:
 					if p.tok.IsKeyword() { break ForInit }
 					var x = p.expr(ctx, true); p.spaces()

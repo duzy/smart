@@ -746,7 +746,7 @@ func (ctx *builtin_assert) c(ic *invocation, w facet) (res interface{}) { return
 func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
     defer ctx.dia().trace(ctx, "builtin_assert")
 
-    const sn = 5
+    const sn = 1
     var t = diagError ; if ctx.warn { t = diagWarn }
 
     var hook = ctx.universe().hooks.assert
@@ -2712,8 +2712,8 @@ type builtin_print struct{ builtin_
 func (ctx *builtin_print) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
 func (ctx *builtin_print) x(ic *invocation, w facet) (res interface{}) {
     var diag = ctx.dia()
-    if ctx.noErrs && diag.check(diagError) > 0 { return }
-    if ctx.noWarn && diag.check(diagWarn) > 0 { return }
+    if ctx.noErrs && diag.count(diagError) > 0 { return }
+    if ctx.noWarn && diag.count(diagWarn) > 0 { return }
 
     var (
         x = len(ic.a)
@@ -2735,8 +2735,8 @@ type builtin_printl struct{ builtin_
 func (ctx *builtin_printl) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
 func (ctx *builtin_printl) x(ic *invocation, w facet) (res interface{}) {
     var diag = ctx.dia()
-    if ctx.noErrs && diag.check(diagError) > 0 { return }
-    if ctx.noWarn && diag.check(diagWarn) > 0 { return }
+    if ctx.noErrs && diag.count(diagError) > 0 { return }
+    if ctx.noWarn && diag.count(diagWarn) > 0 { return }
 
     var (
         x = len(ic.a)
@@ -2760,9 +2760,9 @@ type builtin_println struct{ builtin_
 }
 func (ctx *builtin_println) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
 func (ctx *builtin_println) x(ic *invocation, w facet) (res interface{}) {
-    var diag = ctx.dia()
-    if ctx.noErrs && diag.check(diagError) > 0 { return }
-    if ctx.noWarn && diag.check(diagWarn) > 0 { return }
+    var dia = ctx.dia()
+    if ctx.noErrs && dia.count(diagError) > 0 { return }
+    if ctx.noWarn && dia.count(diagWarn) > 0 { return }
 
     var (
         x = len(ic.a)

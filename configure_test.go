@@ -220,6 +220,11 @@ func TestConfigureDiverged(t *testing.T) {
 		if e := os.Remove(s); e == nil { t.Errorf("%v", s) }
 	}
 	var ctx = load_testcase(t, "testdata/configuration/diverged", "testdivergedconfigure")
+	if ctx.Context == nil {
+		t.Errorf("fail")
+		return
+	}
+
 	var m = ctx.Project()
 	var cc = closureWith(ctx, m.configure.scope)
 

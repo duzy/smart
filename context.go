@@ -319,15 +319,18 @@ func (diag *diaContext) point(ctx Context, dt diagType, f string, args ...interf
 }
 
 func (diag *diaContext) trace(ctx Context, fmt string, a ...interface{}) {
-  if len(a) == 0 { a = append(a, ctx.Position()) } else
-  if _, y := a[0].(Position); !y { a = append([]interface{}{ctx.Position()}, a...) }
-  if diag.error() { panic(failure{fmt, a}) }
+  if diag.error() {
+    if false { erro(ctx, fmt, a...).debug(3) }
+    if len(a) == 0 { a = append(a, ctx.Position()) } else
+    if _, y := a[0].(Position); !y { a = append([]interface{}{ctx.Position()}, a...) }
+    panic(failure{fmt, a})
+  }
 }
 
 func (diag *diaContext) error() bool { return diag.errs > 0 || diag.countErrors() > 0 }
 func (diag *diaContext) totalErrors() (errs int) { return diag.errs }
-func (diag *diaContext) countErrors() (errs int) { return diag.check(diagError) }
-func (diag *diaContext) check(dt diagType) (errs int) { defer diag.aquireLock()()
+func (diag *diaContext) countErrors() (errs int) { return diag.count(diagError) }
+func (diag *diaContext) count(dt diagType) (errs int) { defer diag.aquireLock()()
   for _, d := range diag.points { if d.dt == dt { errs += 1 } }
   return
 }
@@ -580,11 +583,14 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     }
     // if defer assured from top stack, this will dump the full stack of panics
-    errostack(ctx, 5, "failed, %d recovered", recovered).debug(128)
+    errostack(ctx, 5, "failed, %d recovered", recovered).debug(/* 1, */128)
   }
 
   var dia = ctx.dia() ; dia.flush()
-  if len(dontCheckErrors) > 0 && dontCheckErrors[0] { return }
+  if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
+    return
+  }
+
   if errs = dia.countErrors(); errs > 0 && recovered == 0 { t := dia.totalErrors()
     noted(ctx, "got %d errors (total %d, recovered %d)", errs, t, recovered).debug(10)
     if f != nil && (len(dontCheckErrors) == 0 || !dontCheckErrors[0]) {
