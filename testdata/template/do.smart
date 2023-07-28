@@ -1,0 +1,42 @@
+project testtemplate
+
+types ::= xxx yyy zzz
+
+var.xxx ::= test-xxx
+var.yyy ::= test-yyy
+var.zzz ::= test-zzz
+
+.test.1 :=
+.test.2 :=
+.test.3 :=
+
+for type=$(types)
+.test.1 += $(type)
+done
+
+foreach $(defs(-rn=1 -r='^var\.(.+?)$'))
+.test.2 += $_
+done
+
+def foo(xxx)
+.test.3 += $(xxx)
+end
+
+template for type=$(types)
+.test.1 += $(type)
+template expand
+
+template foreach $(defs(-rn=1 -r='^var\.(.+?)$'))
+.test.2 += $_
+template expand
+
+template def bar(xxx)
+.test.3 += $(xxx)
+template end
+
+template foo(xxx)
+template foo(yyy)
+template foo(zzz)
+template bar(xxx)
+template bar(yyy)
+template bar(zzz)

@@ -168,8 +168,11 @@ const (
 	INSTANCE   // instance
 	FILES      // files
 	TEMPLATE   // template
+	FOR        // for
 	FOREACH    // foreach
 	DONE       // done
+	DEF        // def
+	END        // end
 
 	constant_beg
 	UNDEF   // `undef`
@@ -330,8 +333,11 @@ var tokens = [...]string{
 	INSTANCE:   "instance",
 	FILES:      "files",
 	TEMPLATE:   "template",
+	FOR:        "for",
 	FOREACH:    "foreach",
 	DONE:       "done",
+	DEF:        "def",
+	END:        "end",
 
 	UNDEF:  "undef",
 	NULL:   "null",

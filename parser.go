@@ -1258,6 +1258,9 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 	}
 
 	resolveObject := func(lPos Position, lTok Token, name Value) (str string, obj Value, okay bool) {
+		if true { if strings.HasPrefix(name.String(), "configure~$(target.sys).funcs.") { defer func() {
+			noted(ctx, "%v ⇒ %T %v '%v' %v", name, obj, obj, str, autoDef(ctx, "_")).debug(32)
+		}()}}
 		if a, y := name.(*argumented); y { name = a.Value }
 		if sel, y := name.(*selection); y {
 			if sel == nil {
@@ -1759,10 +1762,6 @@ func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 		erro(p, "invalid (tok=%v,%v; next=%v,%v)", tok, lit, p.tok, p.lit).debug(6)
 		return
 	}
-
-	if false { if x != nil { if strings.Contains(x.String(), "-f.ld") {
-		noted(ctx, "%T %v %p", x, x, x).debug(1)
-	}}}
 
 	if lhs && p.tok.IsAssign() { return }
 	if p.isParametersGroup(x)  { return }
@@ -2866,11 +2865,12 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 	var loader = ctx.loader()
 	defer loader.closeScope(loader.openScope("template block"))
 
-	scope := loader.Scope()
-	ac := &autoContext{ Context:at(ctx, p.Position()), defs:make(autoDefMap) }
-	ctx = ac
+	ctx = &autoContext{ Context:at(ctx, p.Position()), defs:make(autoDefMap) }
 
-	for s, v := range vars { if a := scope.auto(ctx, s); a != nil { a.set(ctx, v) } else {
+	scope := loader.Scope()
+	for s, v := range vars { if a := scope.auto(ctx, s); a != nil {
+		a.set(ctx, v)
+	} else {
 		erro(ctx, "'%s' not defined", s).debug(1)
 	}}
 
@@ -3033,48 +3033,60 @@ func (p *parser) templateCall(ctx Context, name Value, args []Value) {
 	}
 	erro(of(ctx,name), "undefined template: %v", name).debug(1)
 }
-func (p *parser) template(ctx Context) {
-	defer ctx.dia().flush()
+func (p *parser) template(ctx Context, verb string) {
+	defer ctx.dia().trace(ctx, "template."+verb)
 
-	var (
-		starting = p.Position()
-		arged *argumented
-		verb string
-	)
-	p.expect(TEMPLATE) // expect and skip 'template'
-	p.spaces()
+	var startingPos = p.Position()
+	var startingTok = p.tok
+	var arged *argumented
+	if verb == "" { // lead by the 'template' keyword
+		p.expect(TEMPLATE) // expect and skip 'template'
+		p.spaces()
 
-	var op = p.expr(ctx, false) ; p.spaces()
-	if p.tok == EOF {
-		erro(of(ctx,op), "unexpected end of file after %v", op).debug(1)
-		return
-	} else if w, ok := op.(*bareword); ok {
-		verb = w.string
-	} else if arged, ok = op.(*argumented); !ok {
-		erro(of(ctx,op), "unknown template verb: %v", op).debug(1)
-		return
+		var op = p.expr(ctx, false) ; p.spaces()
+		if p.tok == EOF {
+			erro(of(ctx,op), "unexpected end of file after %v", op).debug(1)
+			return
+		} else if w, ok := op.(*bareword); ok {
+			verb = w.string
+		} else if arged, ok = op.(*argumented); !ok {
+			erro(of(ctx,op), "unknown template verb: %v", op).debug(1)
+			return
+		}
+
+		switch verb {
+		case "end", "expand":
+			erro(of(ctx,op), "unexpected verb: %s", verb).debug(1)
+			return
+		case "": if verb == "" && arged != nil {
+			p.expect(LINEND)
+			p.templateCall(ctx, arged.Value, arged.args)
+			return //true
+		}}
+	} else {
+		switch verb {
+		case "def": p.expect(DEF)
+		case "for": p.expect(FOR)
+		case "foreach": p.expect(FOREACH)
+		case "done", "end":
+			erro(ctx, "unexpected verb: %s", verb).debug(1)
+			return
+		}
+
+		p.spaces()
 	}
 
-	switch verb {
-	case "end", "expand":
-		erro(of(ctx,op), "unexpected verb: %s", verb).debug(1)
-		return
-	case "": if arged != nil {
-		p.expect(LINEND)
-		p.templateCall(ctx, arged.Value, arged.args)
-		return //true
-	}}
+	var params = xmerge(ctx, strval, p.values(ctx, false)...)
 
-	var params = xmerge(ctx, plain, p.values(ctx, false)...)
 	// TODO: parse template options - parseOpts
 
 	var tmpl = &template{ state:p.scanner.ScanState, pos:p.pos, tok:p.tok, lit:p.lit }
 	if verb == "def" {
 		if len(params) != 1 {
-			erro(at(ctx,starting), "too many def params: %v", params)
+			erro(at(ctx,startingPos), "too many def params: %v", params)
 			return
 		} else if arged, ok := params[0].(*argumented); !ok {
-			erro(at(ctx,starting), "too many def params: %v", params)
+			erro(at(ctx,startingPos), "too many def params: %v", params)
 			return
 		} else {
 			tmpl.name, tmpl.params = arged.Value, arged.args
@@ -3089,41 +3101,78 @@ func (p *parser) template(ctx Context) {
 		if p.tok == LINEND || p.lineComment != nil {
 			if p.spaces(); p.tok == EOF { return }
 		}
-		if p.tok != TEMPLATE { p.step(); continue }
-		if false { info(p, "%v: %v", p.tok, p.scanner.ScanState).debug(1) }
 
-		var pos, stop = p.pos, p.stop
-		if p.next(true); p.tok != BAREWORD && p.tok != FOREACH {
-			erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
-			return
-		}
+		switch pos, stop := p.pos, p.stop; p.tok {
+		case TEMPLATE:
+			switch p.next(true); p.tok {
+			case BAREWORD:
+				if p.lit == "end" && (verb == "def") {
+					if nested > 0 { nested -= 1 ; continue }
 
-		if p.lit == "def" || p.lit == "for" || p.lit == "foreach" {
-			nested += 1
-		} else if p.lit == "expand" && (verb == "for" || verb == "foreach") {
-			if nested > 0 { nested -= 1 } else {
-				p.next(true) // consumes the 'expand'
-				params := p.values(ctx, false)
-				p.expect(LINEND)
-				p.stop = pos
-				p.templateExpand(ctx, tmpl, params)
-				p.stop = stop
-				return //true
+					p.next(true) // consumes the 'end'
+					p.expect(LINEND)
+
+					state := p.scanner.ScanState
+					tmpl.end, tmpl.endPos = &state, pos
+					return
+				}
+				if p.lit == "expand" && (verb == "for" || verb == "foreach") {
+					if nested > 0 { nested -= 1 ; continue }
+
+					p.next(true) // consumes the 'expand'
+
+					params := p.values(ctx, false)
+					p.expect(LINEND)
+					p.stop = pos
+					p.templateExpand(ctx, tmpl, params)
+					p.stop = stop
+					return
+				}
+			case DEF, FOR, FOREACH:
+				nested += 1
+				p.next(true)
+				continue
+			default:
+				erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
+				return
 			}
-		} else if p.lit == "end" && (verb == "def") {
-			if nested > 0 { nested -= 1 } else {
-				p.next(true) // consumes the 'end'
+		case DONE:
+			switch p.next(true); startingTok {
+			case FOR, FOREACH:
+				if nested > 0 { nested -= 1 ; continue }
+
 				p.expect(LINEND)
+
+				p.stop = pos
+				p.templateExpand(ctx, tmpl, nil)
+				p.stop = stop
+				return
+			default:
+				erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
+				return
+			}
+		case DEF, FOR, FOREACH:
+			noted(p, "%v: %d, %v", p.tok, nested, p.scanner.ScanState).debug(1)
+			nested += 1
+			p.next(true)
+		case END: // 	nested -= 1
+			if p.next(true); verb == "def" {
+				if nested > 0 { nested -= 1 ; continue }
+
+				p.expect(LINEND)
+
 				state := p.scanner.ScanState
 				tmpl.end, tmpl.endPos = &state, pos
-				return //true
+				return
 			}
-		} else if false {
-			erro(p, "unexpected template: %v (verb=%s, nested=%v)", p.tok, verb, nested).debug(1)
-			return
-		} else {
+		default:
+			if false { noted(p, "%v: %s, %d, %v", p.tok, p.lit, nested, p.scanner.ScanState).debug(1) }
+			p.step()
 			continue
 		}
+
+		erro(p, "%v: %s, %d, %v", p.tok, p.lit, nested, p.scanner.ScanState).debug(1)
+		break
 	}
 }
 
@@ -3161,15 +3210,22 @@ func (p *parser) clause(ctx Context) { var uni = ctx.universe()
 			p.specialRule()
 			return
 		case TEMPLATE:
-			p.template(ctx)
+			p.template(ctx, "")
+			return
+		case FOR:
+			p.template(ctx, "for")
 			return
 		case FOREACH:
-			warn(ctx, "%v %v", p.tok, p.lit).debug(1)
-			p.next(true)
+			p.template(ctx, "foreach")
 			return
 		case DONE:
-			warn(ctx, "%v %v", p.tok, p.lit).debug(1)
-			p.next(true)
+			p.template(ctx, "done")
+			return
+		case DEF:
+			p.template(ctx, "def")
+			return
+		case END:
+			p.template(ctx, "end")
 			return
 		default:
 			x = p.expr(ctx, true)
@@ -3488,13 +3544,17 @@ func (p *parser) file(ctx Context) *parsedFile {
 				case EVAL:
 					p.spec(ctx, tok, p.expect(tok), p.eval)
 				case TEMPLATE:
-					p.template(ctx)
+					p.template(ctx, "")
+				case FOR:
+					p.template(ctx, "for")
 				case FOREACH:
-					warn(ctx, "%v %v", p.tok, p.lit).debug(1)
-					p.next(true)
+					p.template(ctx, "foreach")
 				case DONE:
-					warn(ctx, "%v %v", p.tok, p.lit).debug(1)
-					p.next(true)
+					p.template(ctx, "done")
+				case DEF:
+					p.template(ctx, "def")
+				case END:
+					p.template(ctx, "end")
 				default:
 					if p.tok.IsKeyword() { break ForInit }
 					var x = p.expr(ctx, true); p.spaces()
