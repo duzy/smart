@@ -3101,6 +3101,9 @@ func (p *parser) template(ctx Context, verb string) {
 	for p.tok != EOF {
 		if p.tok == LINEND || p.lineComment != nil {
 			if p.spaces(); p.tok == EOF { return }
+		} else {
+			if p.step(); p.tok == EOF { return }
+			continue
 		}
 
 		switch pos, stop := p.pos, p.stop; p.tok {
@@ -3153,7 +3156,7 @@ func (p *parser) template(ctx Context, verb string) {
 				return
 			}
 		case DEF, FOR, FOREACH:
-			noted(p, "%v: %d, %v", p.tok, nested, p.scanner.ScanState).debug(1)
+			if false { noted(p, "%v: %d, %v", p.tok, nested, p.scanner.ScanState).debug(1) }
 			nested += 1
 			p.next(true)
 		case END: // 	nested -= 1
