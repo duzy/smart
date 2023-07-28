@@ -1344,11 +1344,8 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 					return
 				}
 
-				if false {
-					errostack(of(ctx,name), 16, "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
-				} else {
-					erro(of(ctx,name), "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(1)
-				}
+				erro(of(ctx,name), "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
+				return
 			} else if _, okay = resolved.(invoker); okay {
 				return str, resolved, okay
 			} else if obj, okay = resolved.(Object); !okay {
