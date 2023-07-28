@@ -1238,11 +1238,11 @@ func (p *parser) expandTemplateBlockAuto(ctx Context, obj, val Value) (result Va
 func (p *parser) closuredelegate(ctx Context) (result Value) {
 	if t_traverse.enabled {	defer un(trace(t_traverse, "ClosureDelegate")) }
 
-	defer p.setbits(p.setbit(parseCall))
-
 	const allowClosureName = true
 
 	ctx = at(ctx, p.Position())
+
+	defer ctx.dia().trace(ctx, "closuredelegate")
 
 	var (
 		loader = ctx.loader()
@@ -1258,9 +1258,6 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 	}
 
 	resolveObject := func(lPos Position, lTok Token, name Value) (str string, obj Value, okay bool) {
-		if false { if strings.HasPrefix(name.String(), "configure~$(target.sys).funcs.") { defer func() {
-			noted(ctx, "%v ⇒ %T %v '%v' %v", name, obj, obj, str, autoDef(ctx, "_")).debug(32)
-		}()}}
 		if a, y := name.(*argumented); y { name = a.Value }
 		if sel, y := name.(*selection); y {
 			if sel == nil {
@@ -1345,7 +1342,11 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 					return
 				}
 
-				errostack(of(ctx,name), 16, "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
+				if false {
+					errostack(of(ctx,name), 16, "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
+				} else {
+					erro(of(ctx,name), "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
+				}
 			} else if _, okay = resolved.(invoker); okay {
 				return str, resolved, okay
 			} else if obj, okay = resolved.(Object); !okay {
@@ -1377,6 +1378,8 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		}
 		return
 	}
+
+	defer p.setbits(p.setbit(parseCall))
 
 	var (
 		name Value
@@ -2899,6 +2902,9 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 			var c = time.Duration(count)
             warnstack(ctx, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
         }
+
+		if ctx.dia().error() { erro(ctx, "template errors").debug(1) }
+
 		p.pos, p.tok, p.lit, p.scanner.ScanState = pos, tok, lit, state
 	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.ScanState)
 
