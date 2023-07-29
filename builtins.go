@@ -748,11 +748,12 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
 
     const sn = 1
     var t = diagError ; if ctx.warn { t = diagWarn }
+    var d = ctx.debug ; if d < 1 { d = 1 }
 
     var hook = ctx.universe().hooks.assert
     if ic.a == nil && hook != nil && !hook(ctx, nil, false) {
         prompt(ctx, "assert: %v\n", ic.a)
-        diagstack(ctx, sn, t).debug(1)
+        diagstack(ctx, sn, t).debug(d)
     }
 
     var cc = ctx.Context
@@ -762,11 +763,11 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
         if false {
             var v = a.expand(ctx, strval)
             prompt(ctx, "assert: %v: %v ⇒ %v: %v\n", typeof(a), a, typeof(v), v)
-            diagstack(ctx, sn, t, "%v: %v ⇒ %s", typeof(a), a, a.strval(ctx)).debug(1)
+            diagstack(ctx, sn, t, "%v: %v ⇒ %s", typeof(a), a, a.strval(ctx)).debug(d)
         } else if false {
-            diagstack(ctx, sn, t, "%v: %v ⇒ %s", typeof(a), a, a.strval(ctx)).debug(1)
+            diagstack(ctx, sn, t, "%v: %v ⇒ %s", typeof(a), a, a.strval(ctx)).debug(d)
         } else {
-            diagstack(ctx, sn, t, "%v: %v", typeof(a), a).debug(1)
+            diagstack(ctx, sn, t, "%v: %v", typeof(a), a).debug(d)
         }
     }
 

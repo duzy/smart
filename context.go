@@ -569,7 +569,7 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
     switch recovered += 1; t := e.(type) {
     case bailout: continue
     case Value: erro(at(ctx,t.Position()), "%v %v", t, t).debug(1)
-    case failure: erro(t.at(ctx), "[failure]: "+t.fmt, t.ia()...).debug(1); if f == nil { f = &t }
+    case failure: erro(t.at(ctx), "[failure] "+t.fmt, t.ia()...).debug(1); if f == nil { f = &t }
     default: erro(ctx, "[assured: %T]: %v", e, e).debug(1)
     }
   }

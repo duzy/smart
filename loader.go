@@ -1422,12 +1422,14 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
     if absPath == "" && v != nil {
         if !local { absPath, isDir = uni.search(ctx, linfo, configure) }
         if absPath == "" {
-            erro(ctx, "%v: no such project: %s", l.project, configure)
-            errostack(ctx, 3).debug(6)
+            erro(ctx, "%v: no such project: %s", l.project, configure).debug(1)
         }
     }
     if absPath == "" { return } else
-    if !load(absPath, isDir) { return }
+    if !load(absPath, isDir) {
+        erro(ctx, "%v: configure not loaded: %s", l.project, configure).debug(1)
+        return
+    }
 
     if name, _ := l.Scope().Lookup(dotConfigure).(*projectname); name == nil {
         if _, alt := l.Scope().projectname(ctx, dotConfigure, loaded); alt != nil {

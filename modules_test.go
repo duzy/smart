@@ -808,71 +808,106 @@ func checkLLVMConfig(ctx testcase, s string) {
 	}
 }
 
-func TestLLVMConfig(t *testing.T) {
+func testLLVMConfigConfigure(t *testing.T) {
+	var cl = init_commandline()
+	cl.configure = true
+
+	var ctx = load_testcase(t, "testdata/modules/llvm/config", "", cl)
+	if ctx.Context == nil {
+		t.Errorf("configure fail")
+		return
+	}
+
+	var base *Project
+	var m = ctx.Project()
+	if m == nil {
+		ctx.Errorf("configure fail")
+		return
+	} else if len(m.bases) != 1 {
+		ctx.Errorf("bases: %v", m.bases)
+		return
+	} else if base = m.bases[0]; base.name != "llvm.Config" {
+		ctx.Errorf("base: %v", base)
+		return
+	} else if base.configure == nil {
+		ctx.Errorf("configure fail")
+		return
+	}
+
+	defer assured(ctx, true)
+
+	var cc = closureWith(ctx, base.configure.scope)
+	if f := base.configuration(cc); f == nil {
+		ctx.err("%v: %v: nil configuration", m, base)
+	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 != s2 {
+		erro(ctx, "%v: %v: %v", m, base, s1)
+		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
+		ctx.Errorf("%v: %v", m, base)
+	}
+
+	if v := ctx.get("val1"); v == nil {
+		ctx.err("val1")
+	} else if s := v.String(); s != base.configurationLoad.name(ctx) {
+		ctx.err("%v , %v", v, base.configurationLoad.name(ctx))
+	} else if s1, s2 := v.strval(ctx), base.configurationLoad.fullname(); s1 != s2 {
+		erro(ctx, "%v: %v: %v", m, base, s1)
+		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
+		ctx.Errorf("%v: %v", m, base)
+	}
+	if v := ctx.get("val2"); v == nil {
+		ctx.err("val2")
+	} else if s := v.String(); s != base.configurationLoad.name(ctx) {
+		ctx.err("%v , %v", v, base.configurationLoad.name(ctx))
+	} else if f, y := v.(*File); !y {
+		ctx.err("%T %v", v, v)
+	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 != s2 {
+		erro(ctx, "%v: %v: %v", m, base, s1)
+		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
+		ctx.Errorf("%v: %v", m, base)
+	}
+
+	ctx.universe().configure()
+
+	if f := base.configurationSave; f == nil {
+		ctx.err("%v: nil configuration", base)
+	} else if f.fullname() != base.configurationLoad.fullname() {
+		ctx.err("%v: %v", f, base.configurationLoad)
+	} else if i, e := os.Stat(f.fullname()); e != nil {
+		ctx.err("%s: %v", configuration_sm, e)
+	} else if i == nil {
+		ctx.err("missing %s", f.fullname())
+	}
+
+	if o := base.configure.resolveObject(ctx, "outtmp"); o == nil {
+		ctx.err("outtmp: %v", base.configure)
+	} else if outtmp, y := o.(*def); !y || outtmp.value == nil {
+		ctx.err("outtmp: %T %v", o, o)
+	} else if outtmp.value.String() != "&(target.tmp)/&(rel.remnant)" {
+		ctx.err("outtmp: %T %v", outtmp.value, outtmp.value)
+	} else if s := filepath.Join(outtmp.strval(cc), configuration_sm); s != base.configurationSave.fullname() {
+		ctx.err("outtmp: %v != %v", s, base.configurationSave.fullname())
+	} else if b, e := ioutil.ReadFile(s); e != nil {
+		ctx.Errorf("%v", e)
+	} else {
+		checkLLVMConfig(ctx, string(b))
+	}
+}
+
+func testLLVMConfig(t *testing.T) {
 	if s := "llvm/Config"; !testHasModule(s) {
 		t.Logf("skip %s", s)
 		return
 	}
 
-	{
-		var cl = init_commandline()
-		cl.configure = true
-
-		var ctx = load_testcase(t, "testdata/modules/llvm/config", "", cl)
-		if ctx.Context == nil {
-			t.Errorf("fail")
-			return
-		}
-
-		var m = ctx.Project()
-		if m == nil {
-			t.Errorf("fail")
-			return
-		} else if m.configure == nil {
-			t.Errorf("fail")
-			return
-		}
-
-		var cc = closureWith(ctx, m.configure.scope)
-		var f = m.configuration(cc)
-		if f == nil {
-			ctx.err("%v: nil configuration", m)
-		} else if f.fullname() != m.configurationLoad.fullname() {
-			ctx.err("%v: %v %v", m, f, m.configurationLoad)
-		}
-
-		ctx.universe().configure()
-
-		if f = m.configurationSave; f == nil {
-			ctx.err("%v: nil configuration", m)
-		} else if f.fullname() != m.configurationLoad.fullname() {
-			ctx.err("%v: %v", f, m.configurationLoad)
-		} else if i, e := os.Stat(f.fullname()); e != nil {
-			ctx.err("%s: %v", configuration_sm, e)
-		} else if i == nil {
-			ctx.err("missing %s", f.fullname())
-		}
-
-		if o := m.configure.resolveObject(ctx, "outtmp"); o == nil {
-			ctx.err("outtmp: %v", m.configure)
-		} else if outtmp, y := o.(*def); !y || outtmp.value == nil {
-			ctx.err("outtmp: %T %v", o, o)
-		} else if outtmp.value.String() != "&(target.tmp)/&(rel.remnant)" {
-			ctx.err("outtmp: %T %v", outtmp.value, outtmp.value)
-		} else if s := filepath.Join(outtmp.strval(cc), configuration_sm); s != f.fullname() {
-			ctx.err("outtmp: %v != %v", s, f.fullname())
-		} else if b, e := ioutil.ReadFile(s); e != nil {
-			ctx.Errorf("%v", e)
-		} else {
-			checkLLVMConfig(ctx, string(b))
-		}
-	}
+	testLLVMConfigConfigure(t)
 
 	var ctx = load_testcase(t, "testdata/modules/llvm/config", "testllvmconfig")
 	if ctx.Context == nil {
-		t.Errorf("fail")
+		t.Errorf("testllvmconfig fail")
 		return
 	}
+
+	defer assured(ctx, true)
 
 	if v := ctx.get("enum1", "*AsmPrinter.cpp", "LLVM_ASM_PRINTER"); v == nil {
 		ctx.err("enum1")
@@ -889,17 +924,37 @@ func TestLLVMConfig(t *testing.T) {
 	ctx.flush()
 }
 
-func TestToolchainBooting(t *testing.T) { TestLLVMConfig(t)
+func testToolchainBootingConfigure(t *testing.T) {
+	var ctx = load_testcase(t, "testdata/modules/toolchain/booting", "testtoolchainbooting")
+	if ctx.Context == nil {
+		t.Errorf("testtoolchainbooting fail")
+		return
+	}
+
+	defer assured(ctx, true)
+
+	ctx.universe().configure()
+
+	ctx.flush()
+}
+
+func TestToolchainBooting(t *testing.T) {
+	testLLVMConfig(t)
+
 	if s := "toolchain/booting"; !testHasModule(s) {
 		t.Logf("skip %s", s)
 		return
 	}
 
+	testToolchainBootingConfigure(t)
+
 	var ctx = load_testcase(t, "testdata/modules/toolchain/booting", "testtoolchainbooting")
 	if ctx.Context == nil {
-		t.Errorf("fail")
+		t.Errorf("testtoolchainbooting fail")
 		return
 	}
+
+	defer assured(ctx, true)
 
 	if r := ctx.rule("stamp"); r == nil {
 		ctx.err("stamp")

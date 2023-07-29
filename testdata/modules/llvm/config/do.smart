@@ -1,1 +1,6 @@
 project testllvmconfig (llvm/Config) #variant=darwin/arm64/bootstrap,
+
+val1 ::= $(fullname configuration.sm)
+val2 ::= $(file configuration.sm)
+
+stamp: $(.base) touch

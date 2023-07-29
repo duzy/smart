@@ -1331,16 +1331,13 @@ func (prog *program) workDir(ctx Context) (workDir string) {
 
 func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
     var uni = ctx.universe()
-    var dia, entry = ctx.dia(), ctx.entry()
-    if dia.flush() > 0 {
-        var errs = dia.totalErrors()
-        var s string ; if errs > 1 { s = "s" }
-        prompt(ctx, "%v: canceled execution (%d error%s), project %s\n", entry, errs,s, prog.project)
-        warn(ctx, `cancel "%v"`, entry)
-        warnstack(ctx, 5).debug(16)
-        if false && uni.failOnErrors {
-			panic(failure{"fail by %d error%s",ia(prog.position, errs, s)})
-        }
+    var dia = ctx.dia()
+    var entry = ctx.entry()
+
+    defer dia.trace(ctx, "execute "+entry.String())
+
+    if t := dia.countErrors(); t > 0 {
+        erro(ctx, "%v: got %d errors, canceled execution (%v)", entry, t, prog.project).debug(1)
         return
     }
 
