@@ -1610,7 +1610,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 
 func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled && false { defer un(trace(t_traverse, "Unary")) }
-	if true { defer ctx.dia().trace(ctx, "unary") }
+	defer ctx.dia().trace(ctx, "unary")
 
 	switch p.tok {
 	case BAREWORD, AT:
@@ -1708,7 +1708,7 @@ func (p *parser) isParametersGroup(x Value) (res bool) {
 
 func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
-	if true { defer ctx.dia().trace(ctx, "composite") }
+	defer ctx.dia().trace(ctx, "composite")
 
 	switch x = p.unary(ctx, lhs); p.tok { // check composible expressions
 	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
@@ -1763,7 +1763,7 @@ func (p *parser) text(ctx Context) (res []Value) { var uni = ctx.universe()
 
 func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
-	if true { defer ctx.dia().trace(ctx, "expr") }
+	defer ctx.dia().trace(ctx, "expr")
 
 	var tok, lit = p.tok, p.lit
 	if x = p.composite(ctx, lhs); x == nil {
@@ -1927,6 +1927,8 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 	ctx = at(ctx, g.spec[0].Position()) // p.ctx()
 
+	defer ctx.dia().trace(ctx, "use")
+
 	var specVals, arged []Value
 	switch v := g.spec[0].(type) {
 	case *delegate:
@@ -1986,16 +1988,6 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	}
 
 	wg.Wait()
-
-	if errs := ctx.dia().flush(); errs > 0 {
-		var (
-			pos = p.Position()
-			proj = loader.Project()
-		)
-        prompt(ctx, "%s: use %v failed; %d errors\n", proj, specVals, errs)
-		erro(at(ctx,pos), "%v errors: use %v", errs, specVals).debug(6)
-		panic(failure{"%s: use %v failed; %d errors",ia(pos, proj, specVals, errs)})
-	}
 	return
 }
 
