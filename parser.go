@@ -833,7 +833,7 @@ ForGlobTok:
 	if components == nil {
 		erro(ctx, "nil glob expression (tok=%v, lit=%v)", p.tok, p.lit)
 	}
-	return MakeGlobPattern(ctx.Position(), components...)
+	return makeGlobPattern(ctx, components...)
 }
 
 func (p *parser) percExpr(ctx Context, lhs bool, x Value) Value {

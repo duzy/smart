@@ -1361,12 +1361,22 @@ func (_ optional) collect(ctx Context, cache *valcache, bits int) (res []*valcac
     return
 }
 
-func optionalize(ctx Context, val Value) (res optional, okay bool) {
+func _optionalize(val Value) (name Value, okay bool) {
     if g, y := val.(*GlobPattern); y && len(g.components) == 2 {
         if m, y := g.components[1].(*GlobMeta); y && m.Token == QUE {
-            res, okay = optional{ g.components[0] }, true
+            name, okay = g.components[0], true
         }
     }
+    return
+}
+func optionalize(ctx Context, val Value) (res optional, okay bool) {
+    if v, y := _optionalize(val); y {
+        res, okay = optional{v}, true
+    } else if t, y := val.(*barecomp); y { if v, y := _optionalize(t.Elems[len(t.Elems)-1]); y {
+        x := MakeBarecomp(ctx.Position(), t.Elems[:len(t.Elems)-1]...)
+        x.Elems = append(x.Elems, v)
+        res, okay = optional{x}, true
+    }}
     return
 }
 
@@ -7028,8 +7038,8 @@ func MakePercPattern(pos Position, prefix, suffix Value) *PercPattern {
         Suffix: suffix,
     }
 }
-func MakeGlobPattern(pos Position, components... Value) Value {
-    return &GlobPattern{valbase:valbase{pos}, components:components}
+func makeGlobPattern(ctx Context, components... Value) Value {
+    return &GlobPattern{valbase:valbase{ctx.Position()}, components:components}
 }
 func MakeDelegate(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
     return &delegate{valbase{pos}, tok, obj, opts, args}
