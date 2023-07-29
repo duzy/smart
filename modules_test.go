@@ -825,6 +825,14 @@ func TestLLVMConfig(t *testing.T) {
 		}
 
 		var m = ctx.Project()
+		if m == nil {
+			t.Errorf("fail")
+			return
+		} else if m.configure == nil {
+			t.Errorf("fail")
+			return
+		}
+
 		var cc = closureWith(ctx, m.configure.scope)
 		var f = m.configuration(cc)
 		if f == nil {

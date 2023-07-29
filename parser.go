@@ -101,8 +101,8 @@ type parsedRuleData struct {
 }
 
 type template struct {
-	state ScanState
-	end *ScanState
+	state scanState
+	end *scanState
 	pos, endPos Pos   // token position
 	tok Token // one token look-ahead
 	lit string      // token literal
@@ -292,7 +292,7 @@ func (p *parser) step() {
 	// if p.tok != LINEND && p.lineComment != nil { p.tok = LINEND }
 
 	if p.dd {
-		var t = warn(p, "%v %v %v", p.tok, p.lit, p.scanner.ScanState)
+		var t = warn(p, "%v %v %v", p.tok, p.lit, p.scanner.scanState)
 		if p.tok == COMPOUND { t.debug(12) }
 		if p.tok == LINEND { t.debug(24) }
 		p.dia().flush()
@@ -1688,7 +1688,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		}
 	}
 
-	var s = p.scanner.ScanState
+	var s = p.scanner.scanState
 	if p.lineComment != nil { for _, comment := range p.lineComment.List {
 		erro(at(p,comment.Pos), "# %s", comment.Text)
 	}}
@@ -2844,10 +2844,8 @@ func (p *parser) specialRule(ctx Context) Value {
 }
 
 var pprofCounter int
-func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, expandParams []Value) {
-	p.pos, p.tok, p.lit, p.scanner.ScanState = t.pos, t.tok, t.lit, t.state
-
-	// TODO: deal with expandParams
+func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value) {
+	p.pos, p.tok, p.lit, p.scanner.scanState = t.pos, t.tok, t.lit, t.state
 
 	// NOTE: comment here will affect loader.def()
 	if false { pprofCounter += 1
@@ -2855,10 +2853,15 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 		defer startCPUProfile(ctx, name, true)()
 	}
 
-	if len(vars) == 0 {
+	defer ctx.dia().trace(ctx, "template")
+
+	if !(p.pos < p.stop) {
+		erro(at(ctx,p.loc(p.pos)), "bad range: [%v %v) (%v)", p.pos, p.stop, t.name).debug(10)
+	}
+	if true { if t.name == nil && len(vars) == 0 {
 		if true { noted(ctx, "%v", t).debug(1) }
 		return
-	}
+	}}
 
 	var loader = ctx.loader()
 	defer loader.closeScope(loader.openScope("template block"))
@@ -2872,9 +2875,16 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 		erro(ctx, "'%s' not defined", s).debug(1)
 	}}
 
+	// if t.name != nil && (t.name.String() == "foo" || t.name.String() == "bar") {
+	// 	noted(ctx, "%v %v %v, %v %v", t.name, vars, p.tok, p.pos, p.stop).debug(1)
+	// }
+
 	var bits = p.bits
 	p.bits |= parseTemplateBlock
 	for p.tok != EOF && p.pos < p.stop {
+		// if t.name != nil && (t.name.String() == "foo" || t.name.String() == "bar") {
+		// 	noted(ctx, "%v %v %v", t.name, vars, p.tok).debug(1)
+		// }
 		if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
 			p.next(true)
 		} else {
@@ -2887,7 +2897,7 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value, 
 func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 	var count int64
     var uni = ctx.universe()
-	defer func(t time.Time, pos Pos, tok Token, lit string, state ScanState) {
+	defer func(t time.Time, pos Pos, tok Token, lit string, state scanState) {
 		if ctx.universe().ddd == "template.expand" {/* dont check time in ddd mode */} else
         if d := time.Now().Sub(t); d > uni.slow {
 			var c = time.Duration(count)
@@ -2896,8 +2906,8 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 
 		if ctx.dia().error() { erro(ctx, "template errors").debug(1) }
 
-		p.pos, p.tok, p.lit, p.scanner.ScanState = pos, tok, lit, state
-	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.ScanState)
+		p.pos, p.tok, p.lit, p.scanner.scanState = pos, tok, lit, state
+	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.scanState)
 
 	// TODO: parseOpts(params) -> add option to turn off asFile in Context
 
@@ -2931,10 +2941,22 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 	}
 
 	switch t.verb {
+	case "": // call template
+		var a = map[string]Value{}
+		for i, v := range t.params { if s := v.strval(ctx); s != "" {
+			if i < len(params) { a[s] = params[i] } else {
+				a[s] = makeNull(v.Position())
+			}
+		} else {
+			erro(of(ctx,v), "empty template param name: %v %v", v, v).debug(1)
+		}}
+		if false { noted(at(ctx,p.loc(t.pos+1)), "%v [%v %v) %v", t.name, t.pos, t.endPos, a) }
+		p.templateBlock(ctx, t, a)
+		count = 1
 	case "foreach": // foreach val1 val2 val3 val4 ...
 		for _, elem := range xmerge(ctx, plain, t.params...) {
 			if isTrivial(elem) { continue }
-			p.templateBlock(ctx, t, map[string]Value{ "_" : elem }, params)
+			p.templateBlock(ctx, t, map[string]Value{ "_" : elem })
 			count += 1
 		}
 	case "for": // for name1=(val1 val2 val3 ...) name2=(val1 val2 val3)
@@ -2981,65 +3003,29 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 			}
 			_1trivial = _1trivial && len(m) == 1
 
-			if len(m) > 0 && !_1trivial { p.templateBlock(ctx, t, m, params) }
+			if len(m) > 0 && !_1trivial { p.templateBlock(ctx, t, m) }
 			count += 1
 		}
 	default:
-		erro(p, "expand template %v: %v", t.verb, params).debug(1)
-	}
-}
-func (p *parser) callTemplate(ctx Context, t *template, name Value, args []Value) {
-	var count int64
-	defer func(t time.Time, pos Pos, tok Token, lit string, state ScanState) {
-        if d := time.Now().Sub(t); d > 1999*time.Millisecond {
-			var c = time.Duration(count)
-            infostack(ctx, 3, "%v: slow: %v, %v, %d*%v", name, d, count, d/c).debug(1)
-        }
-		p.pos, p.tok, p.lit, p.scanner.ScanState = pos, tok, lit, state
-	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.ScanState)
-
-	p.pos, p.tok, p.lit, p.scanner.ScanState = t.pos, t.tok, t.lit, t.state
-
-	// NOTE: a new scope is required for template expansion
-	var loader = ctx.loader()
-	defer loader.closeScope(loader.openScope("template call "))
-
-	var scope = loader.Scope()
-	var params = merge(t.params...)
-	for i, param := range params { var s = param.strval(ctx)
-		// if a, alt := loader.auto(of(p,param), s); alt != nil {
-		// 	erro(at(ctx,param.Position()), "duplicated parameter '%s'", s).debug(1)
-		// } else if i < len(args) {
-		// 	a.set(ctx, args[i])
-		// }
-		a := &auto{knownobject{objbase{valbase{param.Position()}, scope, ctx.Project()}, s}}
-		if scope.replace(ctx, s, a); len(args)>i { a.set(ctx, args[i]) }
-	}
-
-	for p.tok != EOF && p.pos < t.endPos {
-		if p.tok == LINEND ||
-			(p.tok == COMMENT && p.lineComment != nil) {
-			p.next(true)
-		} else {
-			p.clause(ctx)
-		}
+		erro(p, "expand template '%v' %v %v", t.verb, t.params, params).debug(1)
 	}
 }
 func (p *parser) templateCall(ctx Context, name Value, args []Value) {
-	for _, tmpl := range p.templates {
-		if tmpl.name != nil && eq(ctx, tmpl.name, name) {
-			p.callTemplate(at(ctx, tmpl.name.Position()), tmpl, name, args)
-			return
-		}
-	}
+	for _, t := range p.templates { if t.name != nil && eq(ctx, t.name, name) {
+		stop := p.stop
+		p.stop = t.endPos
+		p.templateExpand(ctx, t, args)
+		p.stop = stop
+		return
+	}}
+
 	erro(of(ctx,name), "undefined template: %v", name).debug(1)
 }
 func (p *parser) template(ctx Context, verb string) {
 	defer ctx.dia().trace(ctx, "template."+verb)
 
 	var arged *argumented
-	var startingPos = p.Position()
-	var startingTok = p.tok
+	var startingPos, startingTok = p.Position(), p.tok
 	if verb == "" { // lead by the 'template' keyword
 		p.expect(TEMPLATE) // expect and skip 'template'
 		p.spaces()
@@ -3081,7 +3067,7 @@ func (p *parser) template(ctx Context, verb string) {
 
 	// TODO: parse template options - parseOpts
 
-	var tmpl = &template{ state:p.scanner.ScanState, pos:p.pos, tok:p.tok, lit:p.lit }
+	var tmpl = &template{ state:p.scanner.scanState, pos:p.pos, tok:p.tok, lit:p.lit }
 	if verb == "def" {
 		if len(params) != 1 {
 			erro(at(ctx,startingPos), "too many def params: %v", params)
@@ -3098,83 +3084,83 @@ func (p *parser) template(ctx Context, verb string) {
 	}
 
 	var nested int
-	for p.tok != EOF { nl := false
-		if p.tok == LINEND || p.lineComment != nil {
-			if p.spaces(); p.tok == EOF { return } else { nl = true }
-		}
 
-		switch pos, stop := p.pos, p.stop; p.tok {
-		case TEMPLATE:
-			switch p.next(true); p.tok {
-			case BAREWORD:
-				if p.lit == "end" && (verb == "def") {
-					if nested > 0 { nested -= 1 ; continue }
-
-					p.next(true) // consumes the 'end'
-					p.expect(LINEND)
-
-					state := p.scanner.ScanState
-					tmpl.end, tmpl.endPos = &state, pos
-					return
-				}
-				if p.lit == "expand" && (verb == "for" || verb == "foreach") {
-					if nested > 0 { nested -= 1 ; continue }
-
-					p.next(true) // consumes the 'expand'
-
-					params := p.values(ctx, false)
-					p.expect(LINEND)
-					p.stop = pos
-					p.templateExpand(ctx, tmpl, params)
-					p.stop = stop
-					return
-				}
-			case DEF, FOR, FOREACH:
-				nested += 1
-				p.next(true)
-				continue
-			default:
-				erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
-				return
-			}
-		case DONE:
-			switch p.next(true); startingTok {
-			case FOR, FOREACH:
+outer:
+	for p.tok != EOF { switch pos, stop := p.pos, p.stop; p.tok {
+	case TEMPLATE: p.next(true)
+		if false {
+			erro(p, "%v %v: %v %v: %d, %v", startingTok, verb, p.tok, p.lit, nested, p.scanner.scanState).debug(1)
+		} else { switch p.tok {
+		case BAREWORD:
+			if p.lit == "expand" && (verb == "for" || verb == "foreach") {
 				if nested > 0 { nested -= 1 ; continue }
 
-				p.expect(LINEND)
+				p.next(true) // consumes the 'expand'
+
+				params := p.values(ctx, false)
+				if p.tok != EOF { p.expect(LINEND) }
 
 				p.stop = pos
-				p.templateExpand(ctx, tmpl, nil)
+				p.templateExpand(ctx, tmpl, params)
 				p.stop = stop
 				return
-			default:
-				erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
-				return
 			}
-		case END: // 	nested -= 1
-			if p.next(true); verb == "def" {
+		case END:
+			if verb == "def" {
 				if nested > 0 { nested -= 1 ; continue }
 
-				p.expect(LINEND)
+				p.next(true) // consumes the 'end'
+				if p.tok != EOF { p.expect(LINEND) }
 
-				state := p.scanner.ScanState
+				state := p.scanner.scanState
 				tmpl.end, tmpl.endPos = &state, pos
 				return
 			}
 		case DEF, FOR, FOREACH:
-			if false { noted(p, "%v: %d, %v", p.tok, nested, p.scanner.ScanState).debug(1) }
-			if p.next(true); nl { nested += 1 }
-			continue
+			p.next(true)
+			nested += 1
 		default:
-			if false { noted(p, "%v: %s, %d, %v", p.tok, p.lit, nested, p.scanner.ScanState).debug(1) }
-			p.step()
-			continue
-		}
+			erro(p, "%v %v: %v %v (nested=%v)", startingTok, verb, p.tok, p.lit, nested).debug(1)
+			return
+		}}
+	case DONE:
+		switch p.next(true); startingTok {
+		case FOR, FOREACH:
+			if nested > 0 { nested -= 1 ; continue }
+			if p.tok != EOF { p.expect(LINEND) }
 
-		erro(p, "%v %s, %d, %v", p.tok, p.lit, nested, p.scanner.ScanState).debug(1)
-		break
-	}
+			p.stop = pos
+			p.templateExpand(ctx, tmpl, nil)
+			p.stop = stop
+			return
+		default:
+			erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
+			return
+		}
+	case END:
+		if p.next(true); startingTok == DEF {
+			if nested > 0 { nested -= 1 ; continue }
+			if p.tok != EOF { p.expect(LINEND) }
+
+			state := p.scanner.scanState
+			tmpl.end, tmpl.endPos = &state, pos
+			return
+		} else {
+			erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
+			return
+		}
+	case DEF, FOR, FOREACH:
+		p.next(true)
+		nested += 1
+	default:
+		for p.tok != EOF { var l bool
+			if p.tok == LINEND { p.next(true) ; l = true }
+			if l || p.lineComment != nil {
+				switch p.tok { case DONE, END, DEF, FOR, FOREACH, TEMPLATE: continue outer }
+			}
+			p.next(true)
+		}
+	}}
 }
 
 func (p *parser) clause(ctx Context) { var uni = ctx.universe()
@@ -3279,7 +3265,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 	assert(loader == loader, "bad loader")
 	defer loader.closeScope(loader.openScope(fmt.Sprintf("file %s", filename)))
 	if uni.debugFileEntry {
-		warn(p, "parser.file: %v %v", p.tok, p.scanner.ScanState).debug(1)
+		warn(p, "parser.file: %v %v", p.tok, p.scanner.scanState).debug(1)
 	}
 
 	if loader.mode&Flat != 0 {

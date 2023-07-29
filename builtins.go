@@ -3858,7 +3858,7 @@ func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
     var top = subr{ pat: make(chan Value, 1) }
     var subsub = func(sub *subr) (ss *subr) {
         if sub.ss != nil { for _, s := range sub.ss {
-            if s.d == sub.dn { return s }
+            if s != nil && sub != nil && s.d == sub.dn { return s }
         }}
         return
     }

@@ -19,7 +19,7 @@ func TestTemplate(t *testing.T) {
 
 	if v := ctx.get(".test.1"); v == nil {
 		t.Errorf(".test.1")
-	} else if v.String() == "xxx yyy zzz xxx yyy zzz" {
+	} else if v.String() != "xxx yyy zzz xxx yyy zzz" {
 		ctx.err("%T %v", v, v)
 	}
 
@@ -27,11 +27,11 @@ func TestTemplate(t *testing.T) {
 		t.Errorf(".test.2")
 	} else if s := v.String(); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if strings.Count(s, "test-xxx") != 2 {
+	} else if strings.Count(s, "xxx") != 2 {
 		ctx.err("%T %v", v, v)
-	} else if strings.Count(s, "test-yyy") != 2 {
+	} else if strings.Count(s, "yyy") != 2 {
 		ctx.err("%T %v", v, v)
-	} else if strings.Count(s, "test-zzz") != 2 {
+	} else if strings.Count(s, "zzz") != 2 {
 		ctx.err("%T %v", v, v)
 	}
 
@@ -39,11 +39,11 @@ func TestTemplate(t *testing.T) {
 		t.Errorf(".test.3")
 	} else if s := v.String(); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if strings.Count(s, "test-xxx") != 2 {
+	} else if strings.Count(s, "xxx") != 2 {
 		ctx.err("%T %v", v, v)
-	} else if strings.Count(s, "test-yyy") != 2 {
+	} else if strings.Count(s, "yyy") != 2 {
 		ctx.err("%T %v", v, v)
-	} else if strings.Count(s, "test-zzz") != 2 {
+	} else if strings.Count(s, "zzz") != 2 {
 		ctx.err("%T %v", v, v)
 	}
 

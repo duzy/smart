@@ -14,24 +14,24 @@ for type=$(types)
 .test.1 += $(type)
 done
 
-foreach $(defs(-rn=1 -r='^var\.(.+?)$'))
+foreach $(defs(-rn=1 -r='^var\.(.+)$'))
 .test.2 += $_
 done
 
-def foo(xxx)
-.test.3 += $(xxx)
+def foo(x)
+.test.3 += $(x)
 end
 
 template for type=$(types)
 .test.1 += $(type)
 template expand
 
-template foreach $(defs(-rn=1 -r='^var\.(.+?)$'))
+template foreach $(defs(-rn=1 -r='^var\.(.+)$'))
 .test.2 += $_
 template expand
 
-template def bar(xxx)
-.test.3 += $(xxx)
+template def bar(x)
+.test.3 += $(x)
 template end
 
 template foo(xxx)

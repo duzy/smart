@@ -28,7 +28,7 @@ const (
 	isMaximumBit     // 1000000000000000
 )
 
-type ScanState struct {
+type scanState struct {
 	ch         rune  // current character
 	offset     int   // character offset
 	readOffset int   // reading offset (position after current character)
@@ -37,7 +37,7 @@ type ScanState struct {
 	bits    scanbits // scan bits
 }
 
-func (s ScanState) String() string {
+func (s scanState) String() string {
 	var t string
 	switch s.ch {
 	case '\n': t = "\\n"
@@ -48,11 +48,11 @@ func (s ScanState) String() string {
 		s.lineOffset, s.offset, s.readOffset, s.bitss, s.bits)
 }
 
-func (s *ScanState) push(bits scanbits) {
+func (s *scanState) push(bits scanbits) {
 	s.bitss = append(s.bitss, s.bits) // &^ isLineFeed
 	s.bits = bits
 }
-func (s *ScanState) pop(bits scanbits) {
+func (s *scanState) pop(bits scanbits) {
 	if bits == 0 || (s.bits&bits != 0) {
 		if n := len(s.bitss); 0 < n {
 			s.bits = s.bitss[n-1] //&^ isLineFeed
@@ -63,39 +63,39 @@ func (s *ScanState) pop(bits scanbits) {
 	}
 }
 
-func (s *ScanState) SetBits(bits scanbits) (prev scanbits) {
+func (s *scanState) SetBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits = bits
 	return
 }
 
-func (s *ScanState) AddBits(bits scanbits) (prev scanbits) {
+func (s *scanState) AddBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits |= bits
 	return
 }
 
-func (s *ScanState) RemBits(bits scanbits) (prev scanbits) {
+func (s *scanState) RemBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits &^= bits
 	return
 }
 
-func (s *ScanState) CommentsOff() scanbits { return s.AddBits(isHashValid) }
-func (s *ScanState) recipes(v bool) {
+func (s *scanState) CommentsOff() scanbits { return s.AddBits(isHashValid) }
+func (s *scanState) recipes(v bool) {
 	var bits = s.bits
 	if v { bits |= isRecipes } else { bits &^= isRecipes }
 	s.bits = bits
 }
 
-func (s *ScanState) canRecipe() (res bool) {
+func (s *scanState) canRecipe() (res bool) {
 	if t := s.bits; (s.lineOffset == s.offset-1) && t.canRecipe() {
 		res = !t.is(isCallParen|isCallBrace|isCallColonL|isCallColonR|isGroup)
 	}
 	return
 }
 
-func (s *ScanState) bit(bits scanbits) (res bool) {
+func (s *scanState) bit(bits scanbits) (res bool) {
 	if res = s.bits&bits != 0; !res {
 		for i := len(s.bitss)-1; 0 <= i; i -= 1 {
 			if res = s.bitss[i]&bits != 0; res { break }
@@ -121,7 +121,7 @@ type Scanner struct {
 	mode ScanMode         // scanning mode
 
 	// scanning state
-	ScanState
+	scanState
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
