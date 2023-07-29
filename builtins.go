@@ -577,11 +577,11 @@ func (ctx *builtin_origin) x(ic *invocation, w facet) (res interface{}) {
     var elems []Value
     var scope = ctx.Scope()
     for _, arg := range ic.a { if s := arg.strval(ctx); s == "" {
-        elems = append(elems, MakeNull(arg.Position()))
+        elems = append(elems, makeNull(arg.Position()))
     } else if d := scope.FindDef(s); d != nil {
         elems = append(elems, MakeString(arg.Position(), d.origin.String()))
     } else {
-        elems = append(elems, MakeNull(arg.Position()))
+        elems = append(elems, makeNull(arg.Position()))
     }}
     return elems
 }
@@ -1171,7 +1171,7 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
             if db { noted(ctx, "%T %v %v -> %v %v", a, typeof(a), a, typeof(v), v) }
         }
         if l == nil { if ctx.empty {
-            list = append(list, MakeNone(ctx.Position()))
+            list = append(list, makeNone(ctx.Position()))
         }} else if false {
             list = append(list, ease(ctx, l))
         } else {
@@ -1279,9 +1279,9 @@ func (ctx *builtin_value) x(ic *invocation, w facet) (res interface{}) {
         } else if closure {
             val = MakeClosure(ctx.Position(), LPAREN, unresolved{a, ctx.Project()}, nil)
         } else if false {
-            val = MakeNone(a.Position())
+            val = makeNone(a.Position())
         } else {
-            val = MakeNull(a.Position())
+            val = makeNull(a.Position())
         }
         vals = append(vals, val)
     }
@@ -1723,7 +1723,7 @@ func (ctx *builtin_quote) x(ic *invocation, w facet) (res interface{}) {
         }
         res = MakeString(ctx.Position(), strconv.Quote(strings.Join(fields, " ")))
     } else {
-        res = MakeNone(ctx.Position())
+        res = makeNone(ctx.Position())
     }
     return
 }
@@ -1743,7 +1743,7 @@ func (ctx *builtin_quotejoin) x(ic *invocation, w facet) (res interface{}) {
         }
         res = MakeString(ctx.Position(), strconv.Quote(strings.Join(fields, sep)))
     } else {
-        res = MakeNone(ctx.Position())
+        res = makeNone(ctx.Position())
     }
     return
 }
@@ -2380,7 +2380,7 @@ func (ctx *builtin_strip) x(ic *invocation, w facet) (res interface{}) {
 type builtin_trimspace struct { builtin_trim }
 func (ctx *builtin_trimspace) a(ic *invocation, w facet) (skip bool) {
     a, _, _ := w.expand(ctx, ic.a...)
-    ic.a = append([]Value{MakeNone(ctx.Position())}, a...)
+    ic.a = append([]Value{makeNone(ctx.Position())}, a...)
     return
 }
 func (ctx *builtin_trimspace) x(ic *invocation, w facet) (res interface{}) {
@@ -4054,7 +4054,7 @@ func (ctx *builtin_readdir) x(ic *invocation, w facet) (res interface{}) {
             }
             l = append(l, v)
         } else {
-            break //l = append(l, MakeNone(pos))
+            break //l = append(l, makeNone(pos))
         }
     }
     return l

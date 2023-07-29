@@ -606,7 +606,7 @@ ForConfig:
             erro(ctx, "%v: not configured with: %T %v", target, name, name).debug(1)
             return
         } else if v := value; v == nil {
-            value = MakeNull(a.Position())
+            value = makeNull(a.Position())
         } else if isNull(v) || isNone(v) || isUndef(v) {
             // noop
         } else if v = value.expand(ctx, plain); v != nil && v != value {

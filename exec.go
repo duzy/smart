@@ -906,7 +906,7 @@ func (p *execContext) check() (err error) {
       if p.zeroErrs && en == 0 && err == nil {
         p.vals = append(p.vals, MakeInt(p.logPos, int64(p.Status)))
       } else {
-        p.vals = append(p.vals, MakeNone(p.logPos))
+        p.vals = append(p.vals, makeNone(p.logPos))
       }
     } else if p.Status != 0 || err != nil {
       // break

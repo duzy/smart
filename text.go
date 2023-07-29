@@ -220,7 +220,7 @@ func (p *xml) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         if result, err = DecodeXML(ctx, source, p.whitespace); err == nil {
                 result = &XML{ result }
         } else {
-                result = &XML{ MakeNone(ctx.Position()) }
+                result = &XML{ makeNone(ctx.Position()) }
         }
         return
 }
@@ -416,7 +416,7 @@ func (_ *json) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         if result, err = DecodeJSON(ctx, source); err == nil {
                 result = &JSON{ result }
         } else {
-                result = &JSON{ MakeNone(program.position) }
+                result = &JSON{ makeNone(program.position) }
         }
         return
 }
@@ -454,7 +454,7 @@ func (p *yaml) Evaluate(ctx Context, args ...Value) (result Value, err error) {
         } else if result, err = DecodeYAML(ctx, source, p.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
-                result = &YAML{ MakeNone(ctx.Position()) }
+                result = &YAML{ makeNone(ctx.Position()) }
                 erro(ctx, "%v", err).debug(1)
         }
         return

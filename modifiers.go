@@ -184,7 +184,7 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
     } else if !hyphen {
         // $- remains
     } else if res == nil {
-        res = MakeNull(g.position) // $- remains too
+        res = makeNull(g.position) // $- remains too
     } else if name == "defer" || name == "set" || name == "var" {
         errostack(ctx, 3, "invalid result: (set ...) ⇒ %T %v", res, res).debug(1)
     } else if a := ctx.ac(); a != nil {
@@ -430,7 +430,7 @@ func (ctx *modifier_print) x(args ...Value) (result interface{}) {
     if val := autoVal(ctx, "-"); val != nil { content = val.strval(ctx) }
     if ctx.stdout { fmt.Fprint(stdout, content) }
     if ctx.stderr { fmt.Fprint(stderr, content) }
-    if ctx.reset  { autoSet(ctx, "-", MakeNone(ctx.Position())) }
+    if ctx.reset  { autoSet(ctx, "-", makeNone(ctx.Position())) }
     return
 }
 
@@ -536,7 +536,7 @@ ForArgs:
             name, value = a.Key.strval(ctx), a.Value.expand(ctx, plain)
             if isNull(value) { value = a.Value }
         case flag:
-            name, value = a.Value.strval(ctx), MakeNone(a.Position())
+            name, value = a.Value.strval(ctx), makeNone(a.Position())
             if name == "" { name = "-" }
         default:
             erro(ctx, "%T `%s` is unsupported (try: foo=value)", arg, arg).debug(1)
@@ -1497,7 +1497,7 @@ ForTarget:
     pc.grepped = grepped
 
     if !gc.noTraverse {
-        autoSet(ctx.Context, "~", MakeNone(ctx.Position()))
+        autoSet(ctx.Context, "~", makeNone(ctx.Position()))
         pc.grepped = nil
     } else {
         result = ease(ctx, pc.grepped)

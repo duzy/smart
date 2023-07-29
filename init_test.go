@@ -106,7 +106,7 @@ func (tc *testcase) get(name string, ii ...interface{}) (res Value) {
 	} else if res == nil {
 		if false { tc.Errorf("%s: %v", name, d.value) }
 		erro(at(tc,d.position), "%v", d).debug(1, s)
-		res = MakeNull(d.position)
+		res = makeNull(d.position)
 	}
 	return
 }

@@ -471,7 +471,7 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 				switch tok {
 				case ANSWER: x = makeAnswer(p.Position(), false)
 				case   BOOL: x = MakeBoolean(p.Position(), false)
-				case   NONE: x = MakeNone(p.Position())
+				case   NONE: x = makeNone(p.Position())
 				}
 				p.step()
 				return
@@ -508,7 +508,7 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 				switch p.step(); tok {
 				case YES , NO   : x = makeAnswer( p.Position(), tok == YES)
 				case TRUE, FALSE: x = MakeBoolean(p.Position(), tok == TRUE)
-				case NULL: x = MakeNull(p.Position())
+				case NULL: x = makeNull(p.Position())
 				}
 			} else {
 				// TODO: true{ expr }, yes{ expr }, ...
@@ -570,7 +570,7 @@ func (p *parser) selectExpr(ctx Context, lhs Value) (res Value) {
             } else if !isNull(o) {
 				lhs = o
 			} else if tok == SELECT_PROG2 {
-				res = MakeNull(ctx.Position()) // ignore
+				res = makeNull(ctx.Position()) // ignore
 				return
 			} else {
 				erro(at(ctx,lhs.Position()), "%v: '%v' is undefined (name=%v, obj=%v)", proj, lhs, name, o)
@@ -586,7 +586,7 @@ func (p *parser) selectExpr(ctx Context, lhs Value) (res Value) {
         } else if !isNull(o) {
 			lhs = o
 		} else if tok == SELECT_PROG2 {
-			res = MakeNull(ctx.Position()) // ignore
+			res = makeNull(ctx.Position()) // ignore
 			return
 		} else {
 			erro(of(ctx,lhs), "'%v' is undefined", lhs).debug(1)
@@ -599,7 +599,7 @@ func (p *parser) selectExpr(ctx Context, lhs Value) (res Value) {
 	}
 
 	if rhs := p.selector(ctx); isNull(rhs) {
-		res = MakeNull(ctx.Position())
+		res = makeNull(ctx.Position())
 	} else {
 		if v, y := optionalize(ctx, rhs); y { rhs = v } // foo→bar?
 		res = MakeSelection(ctx.Position(), tok, lhs, rhs)
@@ -955,7 +955,7 @@ func (p *parser) pair(ctx Context, x Value) *pair {
 
 	var y Value
 	if p.isEndOfList(false) {
-		y = MakeNull(ctx.Position())
+		y = makeNull(ctx.Position())
 	} else {
 		y = p.expr(ctx, false)
 	}
@@ -971,7 +971,7 @@ func (p *parser) flagExpr(ctx Context, lhs bool) flag {
 	var x Value
 	// flag expressions, excluding "-)" "-]" "-}" "-\n", "-=", "-:", etc.
 	if p.isEndOfLine() || p.isEndOfList(false) || p.tok == SPACE || p.tok == RECIPE {
-		x = MakeNull(ctx.Position())
+		x = makeNull(ctx.Position())
 	} else if false {
 		x = p.expr(ctx, false)
 	} else {
@@ -1168,12 +1168,12 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 			p.expect(PCON) // the second '/'
 		} else {
 			erro(ctx, "TODO: URL path: %v (%T) (next: %s (%s))", scheme, scheme,  p.tok, p.lit).debug(1)
-			res = MakeNull(p.Position())
+			res = makeNull(p.Position())
 			return
 		}
 	} else if !p.isEndOfURL(lhs) {
 		erro(at(ctx, p.loc(colon1)), "TODO: URL: %v (%T) (next: %s (%s))", scheme, scheme, p.tok, p.lit).debug(1)
-		res = MakeNull(p.Position())
+		res = makeNull(p.Position())
 		return
 	}
 
@@ -1397,7 +1397,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		switch p.tok {
 		case SPACE:
 			erro(at(ctx,posName), "unexpected spaces").debug(1)
-			return MakeNull(posName)
+			return makeNull(posName)
 		case COLON:
 			p.step();  posName = p.Position()
 			warn(at(ctx,posName), "colon").debug(1)
@@ -1405,7 +1405,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 
 		if name = p.expr(ctx, false); name == nil {
 			erro(at(ctx,posName), "%v: parsed name is nil", proj).debug(1)
-			return MakeNull(posName)
+			return makeNull(posName)
 		}
 
 		if v, y := optionalize(ctx, name); y { name = v } // foo?  foo(a,b,c)?
@@ -1503,7 +1503,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		if position := p.Position(); tok != CLOSURE { // $(...), disabled $name.
 			// &(...), &{...}, &'...', &"..."
 			erro(ctx, "expects `%v` or `%v` or quotes", LPAREN, LBRACE).debug(1)
-			return MakeNull(position)
+			return makeNull(position)
 		} else if p.tok == STRING || p.tok == COMPOUND {
 			var posLp = p.Position()
 			tokLp = p.tok
@@ -1519,7 +1519,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		} else {
 			// &(...), &{...}, &'...', &"..."
 			erro(ctx, "expects `%v`, `%v` or quotes, not %v %v", LPAREN, LBRACE, p.tok, p.lit).debug(1)
-			return MakeNull(position)
+			return makeNull(position)
 		}
 	}
 
@@ -1571,18 +1571,18 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 		}
 	} else if _, resolved = loader.resolveObject(w); resolved == nil {
 		erro(ctx, "'%v' is undefined (autos: %v)", s, p.autos).debug(16)
-		return MakeNull(position)
+		return makeNull(position)
 	} else if t, y := resolved.(invoker); !y {
 		erro(of(ctx,resolved), "'%v' is not callable: %T", s, resolved).debug(6)
-		return MakeNull(position)
+		return makeNull(position)
 	} else if obj, y = t.(Object); !y {
 		erro(of(ctx,resolved), "'%v' is not object: %T", s, c).debug(6)
-		return MakeNull(position)
+		return makeNull(position)
 	}}
 
 	if isNull(obj) {
 		erro(ctx, "'%v' is <nil> (resolved: %T %v)", s, resolved, resolved).debug(1)
-		return MakeNull(position)
+		return makeNull(position)
 	}
 
 	if p.bits&parseTemplateBlock != 0 && ctx.universe().ddd == "template" { defer func() {
@@ -1653,7 +1653,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 			return makePathPun(at(ctx, position), tok)
 		} else {
 			erro(ctx, "unexpected path: %v", tok).debug(1)
-			return MakeNull(position)
+			return makeNull(position)
 		}
 
 	case PCON: // The root of the path
@@ -1696,7 +1696,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	erro(p, "bad: %v (lit=%s, left=%v, bits=%022b, scan=%v)", p.tok, p.lit, lhs, p.bits, s).debug(1)
 
 	p.step() // go to the next token
-	return MakeNull(p.Position())
+	return makeNull(p.Position())
 }
 
 func (p *parser) isParametersGroup(x Value) (res bool) {
@@ -2491,7 +2491,7 @@ SwitchDialect:
 	}
 	if p.spaces(); p.tok != EOF { p.linend() }
     if len(elems) == 0 {
-        return MakeNone(position)
+        return makeNone(position)
     } else if isList {
         return MakeList(position, elems...)
     } else {
@@ -2796,7 +2796,7 @@ func (p *parser) rule(ctx Context, special specialRule, optvals, targets []Value
 			for _, v := range res { list.Elems = append(list.Elems, v) }
 			result = list
 		} else {
-			result = MakeNull(parsedData.position)
+			result = makeNull(parsedData.position)
 		}
 	}
 

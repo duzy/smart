@@ -524,8 +524,8 @@ func init_universe(ii ...interface{}) (ctx *universe) { ctx = &universe{}
     }
     ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
     ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os", dotos)
-    ctx.globe.goals, _ = ctx.globe.define(ctx, DefVoid, ".goals", MakeNone(pos))
-    ctx.globe.mode,  _ = ctx.globe.define(ctx, DefVoid, ".mode",  MakeNull(pos))
+    ctx.globe.goals, _ = ctx.globe.define(ctx, DefVoid, ".goals", makeNone(pos))
+    ctx.globe.mode,  _ = ctx.globe.define(ctx, DefVoid, ".mode",  makeNull(pos))
     ctx.Context = &positionContext{ctx.Context/* = nil */, pos}
     return
 }

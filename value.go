@@ -6893,7 +6893,7 @@ func ease(ctx Context, iv interface{}) (res Value) {
     }
     if elems == nil { // FIXME: return nil here caused dead-loop ???
         if false { noted(ctx, "%T %v", iv, iv).debug(1) }
-        res = MakeNone(ctx.Position())
+        res = makeNone(ctx.Position())
     } else if len(elems) > 1 {
         res = MakeList(elems[0].Position(), elems...)
     } else {
@@ -6915,7 +6915,7 @@ func va(ctx Context, i interface{}) (v Value) {
     case uint64:  v = MakeInt(ctx.Position(), int64(t))
     case string:
         if t == "" {
-            v = MakeNone(ctx.Position())
+            v = makeNone(ctx.Position())
         } else {
             v = MakeBareword(ctx.Position(), t)
         }
@@ -6923,7 +6923,7 @@ func va(ctx Context, i interface{}) (v Value) {
         var l = MakeList(ctx.Position())
         for _, s := range t {
             if s == "" {
-                v = MakeNone(ctx.Position())
+                v = makeNone(ctx.Position())
             } else {
                 v = MakeBareword(ctx.Position(), s)
             }
@@ -6936,7 +6936,7 @@ func va(ctx Context, i interface{}) (v Value) {
         for _, i := range t { l.Elems = append(l.Elems, va(ctx, i)) }
         v = l
     case nil:
-        v = MakeNone(ctx.Position())
+        v = makeNone(ctx.Position())
     default:
         erro(ctx, "va: %T %v", t, t).debug(1)
     }
@@ -6945,7 +6945,7 @@ func va(ctx Context, i interface{}) (v Value) {
 
 func scalarize(v Value) (res Value) {
     if l, _ := v.(*List); l != nil { n := l.Len()
-        if n == 0 { return MakeNone(l.position) }
+        if n == 0 { return makeNone(l.position) }
         if n == 1 { return scalarize(l.Elems[0]) }
     } else if u, y := res.(unexpanded); y {
         u.Value = scalarize(u.Value)
@@ -6978,8 +6978,8 @@ func makeAnswer(pos Position, v bool) *answer { return &answer{boolean{valbase{p
 func makeOption(pos Position, v bool) *option { return &option{boolean{valbase{pos},v}} }
 func makeFlag(pos Position, s string) flag    { return flag{&bareword{valbase{pos},s}} }
 
-func MakeNull(pos Position) *null { return &null{valbase{pos}} }
-func MakeNone(pos Position) *none { return &none{valbase{pos}, nil} }
+func makeNull(pos Position) *null { return &null{valbase{pos}} }
+func makeNone(pos Position) *none { return &none{valbase{pos}, nil} }
 func MakeSelection(pos Position, tok Token, lhs, rhs Value) *selection { return &selection{valbase{pos}, tok, lhs, rhs} }
 func MakeBoolean(pos Position, v bool) *boolean { return &boolean{valbase{pos},v} }
 func MakeBin(pos Position, i int64) *Bin { return &Bin{integer{valbase{pos},i}} }
@@ -7030,8 +7030,8 @@ func MakePair(pos Position, k, v Value) (p *pair) {
     return
 }
 func MakePercPattern(pos Position, prefix, suffix Value) *PercPattern {
-    if prefix == nil { prefix = MakeNone(pos) }
-    if suffix == nil { suffix = MakeNone(pos) }
+    if prefix == nil { prefix = makeNone(pos) }
+    if suffix == nil { suffix = makeNone(pos) }
     return &PercPattern{
         valbase: valbase{pos},
         Prefix: prefix,

@@ -885,7 +885,7 @@ func (d *def) set(ctx Context, origin Origin, value Value, app ...Value) {
         // d.mutex.Unlock()
     } else if origin != DefExecute {
         // d.mutex.Lock()
-        d.origin, d.value = origin, MakeNone(d.position)
+        d.origin, d.value = origin, makeNone(d.position)
         // d.mutex.Unlock()
         return
     }}
