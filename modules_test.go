@@ -904,7 +904,7 @@ func testLLVMConfigConfigure(t *testing.T) {
 
 	if f := m.tempFile(ctx, configuration_sm); f == nil {
 		ctx.err("%v: nil %s", m, configuration_sm)
-	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 == s2 {
+	} else if s1, s2 := f.fullname(), base.configurationFile.fullname(); s1 == s2 {
 		erro(ctx, "%v: %v: %v", m, base, s1)
 		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
 		ctx.Errorf("%v: %v", m, base)
@@ -915,7 +915,7 @@ func testLLVMConfigConfigure(t *testing.T) {
 	}
 	if f := base.tempFile(ctx, configuration_sm); f == nil {
 		ctx.err("%v: nil %s", m, configuration_sm)
-	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 == s2 {
+	} else if s1, s2 := f.fullname(), base.configurationFile.fullname(); s1 == s2 {
 		erro(ctx, "%v: %v: %v", m, base, s1)
 		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
 		ctx.Errorf("%v: %v", m, base)
@@ -927,7 +927,7 @@ func testLLVMConfigConfigure(t *testing.T) {
 
 	if f := base.configuration(cc1); f == nil {
 		ctx.err("%v: %v: nil configuration", m, base)
-	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 == s2 {
+	} else if s1, s2 := f.fullname(), base.configurationFile.fullname(); s1 == s2 {
 		erro(ctx, "%v: %v: %v", m, base, s1)
 		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
 		ctx.Errorf("%v: %v", m, base)
@@ -939,9 +939,9 @@ func testLLVMConfigConfigure(t *testing.T) {
 
 	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
-	} else if s := v.String(); s != base.configurationLoad.name(ctx) {
-		ctx.err("%v , %v", v, base.configurationLoad.name(ctx))
-	} else if s1, s2 := v.strval(ctx), base.configurationLoad.fullname(); s1 == s2 {
+	} else if s := v.String(); s != base.configurationFile.name(ctx) {
+		ctx.err("%v , %v", v, base.configurationFile.name(ctx))
+	} else if s1, s2 := v.strval(ctx), base.configurationFile.fullname(); s1 == s2 {
 		erro(ctx, "%v: %v: %v", m, base, s1)
 		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
 		ctx.Errorf("%v: %v", m, base)
@@ -952,11 +952,11 @@ func testLLVMConfigConfigure(t *testing.T) {
 	}
 	if v := ctx.get("val2"); v == nil {
 		ctx.err("val2")
-	} else if s := v.String(); s != base.configurationLoad.name(ctx) {
-		ctx.err("%v , %v", v, base.configurationLoad.name(ctx))
+	} else if s := v.String(); s != base.configurationFile.name(ctx) {
+		ctx.err("%v , %v", v, base.configurationFile.name(ctx))
 	} else if f, y := v.(*File); !y {
 		ctx.err("%T %v", v, v)
-	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 == s2 {
+	} else if s1, s2 := f.fullname(), base.configurationFile.fullname(); s1 == s2 {
 		erro(ctx, "%v: %v: %v", m, base, s1)
 		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
 		ctx.Errorf("%v: %v", m, base)
@@ -966,12 +966,10 @@ func testLLVMConfigConfigure(t *testing.T) {
 		ctx.Errorf("%v: %v", m, s2)
 	}
 
-	ctx.universe().configure()
+	ctx.universe().configure(ctx)
 
-	if f := base.configurationSave; f == nil {
+	if f := base.configurationFile; f == nil {
 		ctx.err("%v: nil configuration", base)
-	} else if f.fullname() != base.configurationLoad.fullname() {
-		ctx.err("%v: %v", f, base.configurationLoad)
 	} else if i, e := os.Stat(f.fullname()); e != nil {
 		ctx.err("%s: %v", configuration_sm, e)
 	} else if i == nil {
@@ -984,8 +982,8 @@ func testLLVMConfigConfigure(t *testing.T) {
 		ctx.err("outtmp: %T %v", o, o)
 	} else if outtmp.value.String() != "&(target.tmp)/&(rel.remnant)" {
 		ctx.err("outtmp: %T %v", outtmp.value, outtmp.value)
-	} else if s := filepath.Join(outtmp.strval(cc1), configuration_sm); s != base.configurationSave.fullname() {
-		ctx.err("outtmp: %v != %v", s, base.configurationSave.fullname())
+	} else if s := filepath.Join(outtmp.strval(cc1), configuration_sm); s != base.configurationFile.fullname() {
+		ctx.err("outtmp: %v != %v", s, base.configurationFile.fullname())
 	} else if b, e := ioutil.ReadFile(s); e != nil {
 		ctx.Errorf("%v", e)
 	} else {
@@ -1033,7 +1031,7 @@ func testToolchainBootingConfigure(t *testing.T) {
 
 	defer assured(ctx, true)
 
-	ctx.universe().configure()
+	ctx.universe().configure(ctx)
 
 	ctx.flush()
 }

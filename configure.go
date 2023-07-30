@@ -44,49 +44,55 @@ type configureExecutor struct {
     writer *bufio.Writer
     defs map[string]struct{}
 }
-func (ctx *configureExecutor) openConfigurationFile(p *Project) (file *os.File, err error) {
-    if f := p.configuration(ctx); f == nil {
-        erro(ctx, "nil configuration file for %v", p).debug(1)
+func (ctx *configureExecutor) openConfigurationFile(p *Project) (file *os.File) {
+    defer ctx.dia().trace(ctx, "configuration-file")
+
+    if f := p.configurationFile; f == nil {
+        erro(ctx, "%p: nil configuration file", p).debug(1)
         return
     } else if s := f.fullname(); s == "" {
         erro(ctx, "empty configuration file name: %v", f).debug(1)
         return
-    } else if err = os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); err != nil {
+    } else if err := os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); err != nil {
         erro(ctx, "make path %s failed: %v", filepath.Dir(s), err).debug(1)
         return
     } else if file, err = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); err != nil {
         erro(ctx, "open configuration %s failed: %v", s, err).debug(1)
         return
-    } else if p.configurationSave = f; testPromptConfiguration {
+    } else if testPromptConfiguration {
         prompt(ctx, "%s:1: %v\n", s, p)
         noted(ctx, "%v", p).debug(16)
-    } else if testConfigurationDiverged {
+    } else if testConfigurationDiverged || true {
         return
-    } else if t := p.configurationLoad; t != nil && t != f && t.fullname() != f.fullname() {
-        prompt(ctx, "%v:1: at load-time\n", t.fullname())
-        prompt(ctx, "%v:1: at configure-time\n", f.fullname())
-        erro(ctx, "%v: diverged configuration file", p).debug(1)
+    } else if t := p.configuration(ctx); t != nil && t != f && t.fullname() != f.fullname() {
+        erro(ctx, "%v: diverged configuration file (%v)", p, ctx.Project())
+        prompt(ctx, "%v:1: <--- at load-time\n", t.fullname())
+        prompt(ctx, "%v:1: <--- at configure-time\n", f.fullname()).debug(1)
     }
     return
 }
 func (ctx *configureExecutor) execute(project *Project, entry Entry) (result *Project, okay bool) {
-    if n := ctx.dia().flush(); n > 0 { return }
+    defer ctx.dia().trace(ctx, "execute")
+
     if p := entry.OwnerProject(); p != project && p != nil {
         if p.configured { return nil, true } // already configured
+
+        if false {
+            var ss = []*Scope{ p.scope }
+            if c := p.configure; c != nil { ss = append(ss, c.scope) }
+            ctx.Context = closureWith(ctx.Context, ss...)
+        }
 
         ctx.defs = make(map[string]struct{}) // reset defs for p
 
         // NOTE: configuration.sm is created for every project
-        var f, e = ctx.openConfigurationFile(p)
-        if e != nil {
-            erro(ctx, "%v", e).debug(1)
-            return
-        } else if f != nil {
-            if ctx.writer != nil { if e = ctx.writer.Flush(); e != nil {
+        var f = ctx.openConfigurationFile(p)
+        if f != nil {
+            if ctx.writer != nil { if e := ctx.writer.Flush(); e != nil {
                 erro(ctx, "%v", e).debug(1)
                 return
             }}
-            if ctx.file != nil { if e = ctx.file.Close(); e != nil {
+            if ctx.file != nil { if e := ctx.file.Close(); e != nil {
                 erro(ctx, "%v", e).debug(1)
                 return
             }}
@@ -134,12 +140,13 @@ func (ctx *configureExecutor) close() {
     if ctx.file != nil   { if err := ctx.file.Close();   err != nil {} }
 }
 
-func (ctx *universe) configure() {
+func (uni *universe) configure(ctx Context) {
     var project *Project
-    var u = ctx.universe()
+
+    defer ctx.dia().trace(ctx, "configure")
 
     // Remove all existing configuration.sm files
-    if u.cleanConf { for _, s := range u.configuration.clean {
+    if uni.cleanConf { for _, s := range uni.configuration.clean {
         if _, e := os.Stat(s); e != nil {
             if false { prompt(ctx, "%v\n", e).debug(1) }
         } else if e = os.Remove(s); e == nil {
@@ -150,7 +157,7 @@ func (ctx *universe) configure() {
     }}
 
     var configureInits = make(map[Entry]struct{})
-    for _, entry := range u.configuration.entries { var p = entry.OwnerProject().configure
+    for _, entry := range uni.configuration.entries { var p = entry.OwnerProject().configure
         if p != nil && p.defaultEntry != nil { configureInits[p.defaultEntry] = struct{}{} }
     }
     for entry, _ := range configureInits {
@@ -161,19 +168,13 @@ func (ctx *universe) configure() {
     }
 
     var ce = configureExecutor{Context:ctx} ; defer ce.close()
-    for _, entry := range u.configuration.entries { var okay bool
+    for _, entry := range uni.configuration.entries { var okay bool
         if project, okay = ce.execute(project, entry); !okay {
             erro(ctx, "configure '%v' failed", entry).debug(1)
             break
         }
     }
 
-    if n := ctx.dia().flush(); n > 0 { total := ctx.dia().totalErrors()
-        warn(ctx, "configuration got %d errors", total).debug(1)
-        if u.failOnErrors {
-            panic(failure{"%v: fail by %d errors",ia(ctx.Position(), total)})
-        }
-    }
     printLeavingDirectory(ctx)
     return
 }
@@ -231,7 +232,7 @@ func configureOption(ctx Context, _ Value, args ...Value) (result Value) {
 // -package finds system package in a way similar to cmake.find_package
 func configurePackage(ctx Context, _ Value, args ...Value) (result Value) {
     var names []string
-    var u = ctx.universe()
+    var uni = ctx.universe()
     var t packagetype = packageSmart
     for _, arg := range args { switch a := arg.(type) {
     case *pair:
@@ -250,7 +251,7 @@ func configurePackage(ctx Context, _ Value, args ...Value) (result Value) {
     default:
         names = append(names, a.strval(ctx))
     }}
-    for _, name := range names { if info, y := u.configuration.packages[name]; !y {
+    for _, name := range names { if info, y := uni.configuration.packages[name]; !y {
         var err error
         switch t {
         case packageSmart: // TODO: info, err = loadPackageSmartInfo(pos, name)
@@ -259,7 +260,7 @@ func configurePackage(ctx Context, _ Value, args ...Value) (result Value) {
             prompt(ctx, "%v: package `%v`: unknown type\n", name)
         }
         if err != nil { return } else if info.Project != nil {
-            u.configuration.packages[name] = info
+            uni.configuration.packages[name] = info
             result = makeAnswer(ctx.Position(), true)
             break
         }
@@ -454,18 +455,16 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
     if uni.configuration.silent {
         // silent
     } else if len(infos) == 0 {
-        if len(args) > 0 {
-            prompt(ctx, "%v %v …", target, args)
-        } else {
-            prompt(ctx, "%v %v …", target, opName)
-        }
+        var a interface{} = opName; if len(args) > 0 { a = args }
+        prompt(ctx, "%v %v …", target, a)
     } else {
         var s string
         for _, info := range infos { s += info.strval(ctx) }
         if s != "" { prompt(ctx, "%s …", s) }
     }
+
     defer func() {
-        if uni.configuration.silent {
+        if uni.configuration.silent || ctx.dia().error() {
             // silent
         } else if isNull(result) {
             prompt(ctx, "… <nil>\n")

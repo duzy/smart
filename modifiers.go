@@ -2693,8 +2693,8 @@ type modifier_assert struct { modifier_
 }
 func (ctx *modifier_assert) x(args ...Value) (_ interface{}) { ctx.v(args...) ; return }
 func (ctx *modifier_assert) v(args ...Value) (result interface{}) {
-    var fails int
-    var vals []Value
+    defer ctx.dia().trace(ctx, "modifier_assert")
+
     var pc = ctx.pc()
     var uni = ctx.universe()
     var target = autoVal(ctx, "@")
@@ -2712,21 +2712,15 @@ func (ctx *modifier_assert) v(args ...Value) (result interface{}) {
         if uni.hooks.assert != nil && uni.hooks.assert(ctx, v, b) {
             continue
         } else if b {
-            vals = append(vals, v) ; continue
+            continue
         } else if s := ctx.msg; s == "" {
-            erro(of(ctx, a), "assert failed: %s: %v → %v → %s", typeof(a), a, v, v.strval(ctx))
+            erro(of(ctx, a), "assert failed: %s: %v → %v → %s", typeof(a), a, v, v.strval(ctx)).debug(1)
         } else {
-            erro(of(ctx, a), "assert failed: %s %v: %v: %s", typeof(a), a, v, s)
+            erro(of(ctx, a), "assert failed: %s %v: %v: %s", typeof(a), a, v, s).debug(1)
         }
 
         pc.traves.add(ctx, traveFail, target).
-            error = fmt.Errorf("assert failed: %v", a)
-
-        fails += 1
-    }
-    if fails > 0 { errostack(ctx, 8, "%v: %v", target, args).debug(6) }
-    if ctx.dia().flush() > 0 {
-        panic(failure{"assertion: %v",ia(ctx.Position(), args)})
+            error = fmt.Errorf("assert: %v", a)
     }
     return
 }

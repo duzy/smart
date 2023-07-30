@@ -661,7 +661,7 @@ func CommandLine() { var context = init_universe() ; defer assured(context, fals
   } else if numUpdatedPlugins > 0 { // see buildPlugin
     prompt(context, "plugins updated, please relaunch.\n")
   } else if context.commandline.configure {
-    context.configure()
+    context.configure(context)
   } else if result, err := context.run(); err != nil {
     erro(context, "run work failed: %v", err)
   } else if context.dia().flush() > 0 {

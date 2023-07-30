@@ -1353,28 +1353,20 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
     defer func() {
         var targets = autoVal(ctx, "@") // depends = autoVal(ctx, "^")
         if isTrivial(targets) { targets = entry.Target() }
-        if errs := dia.flush(); errs > 0 /* || (y && !f.exists()) */ {
+        if errs := dia.countErrors(); errs > 0 {
             var str, ent, tar = entryIndicator(ctx, entry)
-            for _, s := range pc.traves { erro(at(ctx,s.pos), "%v: %v", ent, s) }
-
-            if errs == 0 {
-                // just missing target file
-            } else if tar != "" && tar != ent {
-                erro(ctx, "%s: %s: got %d errors", ent, tar, errs)
+            for _, s := range pc.traves {
+                erro(at(ctx,s.pos), "%v: %v", ent, s).debug(1)
+            }
+            if tar != "" && tar != ent {
+                erro(ctx, "%s: %s: got %d errors", ent, tar, errs).debug(1)
             } else {
-                erro(ctx, "%s: got %d errors", ent, errs)
+                erro(ctx, "%s: got %d errors", ent, errs).debug(1)
             }
 
-            errostack(ctx, 8).debug(32)
-
-            if uni.failOnErrors {
-                panic(failure{"fail by %d error",ia(ctx.Position(),errs)})
-            } else if ctx.isConfigure() {
-                // done
-            } else if s := pc.traves.add(ctx, traveFail, targets); errs == 1 {
-                s.error = fmt.Errorf("got an error for %v", str)
-            } else {
-                s.error = fmt.Errorf("got %d errors for %v", errs, str)
+            if !ctx.isConfigure() {
+                s := pc.traves.add(ctx, traveFail, targets)
+                s.error = fmt.Errorf("got %d error(s) for %v", errs, str)
             }
         } else { for _, a := range pc.defers { if g, y := a.(*group); y {
             modify(ctx, g, true)

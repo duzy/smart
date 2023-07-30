@@ -272,8 +272,7 @@ type Project struct {
   position Position
   keyword  Token // project, package, module
 
-  configurationLoad *File // decided at load time
-  configurationSave *File // decided at configure time
+  configurationFile *File // decided at load time
   configure *Project // .configure
   configured bool
 

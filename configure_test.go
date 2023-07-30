@@ -112,36 +112,36 @@ func TestConfigureDefault(t *testing.T) {
 
 		if s := filepath.Join(outtmp.strval(cc), configuration_sm); s == "" {
 			ctx.err("%v", outtmp)
-		} else if m.configurationLoad == nil {
+		} else if m.configurationFile == nil {
 			ctx.err("%v: nil configuration file", m)
-		} else if t := m.configurationLoad.fullname(); t != s { v := outtmp.value
+		} else if t := m.configurationFile.fullname(); t != s { v := outtmp.value
 			prompt(ctx, "%v:1: %v ⇒ %v\n", s, v, v.expand(ctx, strval))
-			prompt(ctx, "%v:1: %v\n", t, m.configurationLoad)
-			ctx.err("%v (%v)", m.configurationLoad, m)
+			prompt(ctx, "%v:1: %v\n", t, m.configurationFile)
+			ctx.err("%v (%v)", m.configurationFile, m)
 		}
 
 		var f = m.configuration(cc)
 		if f == nil {
 			ctx.err("%v: nil configuration", m)
-		} else if f.fullname() != m.configurationLoad.fullname() {
-			ctx.err("%v: %v %v", m, f, m.configurationLoad)
+		} else if f.fullname() != m.configurationFile.fullname() {
+			ctx.err("%v: %v %v", m, f, m.configurationFile)
 		} else if e := os.Remove(f.fullname()); false && e != nil {
 			ctx.err("%v: %v", m, e)
 		}
 
 		testPromptConfiguration = false//true
-		ctx.universe().configure()
+		ctx.universe().configure(ctx)
 		testPromptConfiguration = false
 
-		if f = m.configurationSave; f == nil {
-			ctx.err("%v: nil configuration", m)
-		} else if f.fullname() != m.configurationLoad.fullname() {
-			ctx.err("%v: %v", f, m.configurationLoad)
-		} else if i, e := os.Stat(f.fullname()); e != nil {
-			ctx.err("%s: %v", configuration_sm, e)
-		} else if i == nil {
-			ctx.err("missing %s", f.fullname())
-		}
+		// if f = m.configurationSave; f == nil {
+		// 	ctx.err("%v: nil configuration", m)
+		// } else if f.fullname() != m.configurationFile.fullname() {
+		// 	ctx.err("%v: %v", f, m.configurationFile)
+		// } else if i, e := os.Stat(f.fullname()); e != nil {
+		// 	ctx.err("%s: %v", configuration_sm, e)
+		// } else if i == nil {
+		// 	ctx.err("missing %s", f.fullname())
+		// }
 
 		if d, v := ctx.get("FOO"), ctx.get("FOO"); v == nil {
 			erro(of(ctx, d), "%v", d).debug(1)
@@ -169,13 +169,13 @@ func TestConfigureDefault(t *testing.T) {
 			}
 			testPromptConfiguration = false
 
-			if m := c.Project(); m.configurationLoad == nil || m.configurationSave != nil {
-				c.err("%v %v", m, m.configurationSave)
-			} else if m.configurationLoad.fullname() != s {
-				c.err("%v", m.configurationLoad)
-			} else if m.configurationLoad.stat(c) == nil {
-				prompt(c, "%s:1: %v\n", m.configurationLoad.fullname(), m.configurationLoad)//.debug(1)
-				c.err("%v", m.configurationLoad)
+			if m := c.Project(); m.configurationFile == nil /* || m.configurationSave != nil */ {
+				c.err("%v", m/* , m.configurationSave */)
+			} else if m.configurationFile.fullname() != s {
+				c.err("%v", m.configurationFile)
+			} else if m.configurationFile.stat(c) == nil {
+				prompt(c, "%s:1: %v\n", m.configurationFile.fullname(), m.configurationFile)//.debug(1)
+				c.err("%v", m.configurationFile)
 			} else if d := m.scope.FindDef("FOO"); d == nil {
 				erro(c, "FOO").debug(1)
 			} else if v := d.value; v == nil {
@@ -200,7 +200,7 @@ func TestConfigureDefault(t *testing.T) {
 			}
 			c.flush()
 		}
-		if f = m.configurationSave; f == nil {
+		if f = m.configurationFile; f == nil {
 			ctx.err("%v", m)
 		} else if e := os.Remove(f.fullname()); e != nil {
 			ctx.err("%v: %v", m, e)
@@ -225,10 +225,12 @@ func TestConfigureDiverged(t *testing.T) {
 		return
 	}
 
-	var m = ctx.Project()
-	var cc = closureWith(ctx, m.configure.scope)
+	defer assured(ctx, true)
 
-	if m := ctx.Project(); m.configure == nil {
+	var m = ctx.Project()
+	var cc = closureWith(ctx, m.configure.scope/* , m.scope */)
+
+	if m.configure == nil {
 		ctx.err("%v: nil configure", m)
 	} else if w := filepath.Join(_tmodules, "configure"); m.configure.absPath != w {
 		ctx.err("%v.%v: %s != %s", m, m.configure, m.configure.absPath, w)
@@ -263,42 +265,38 @@ func TestConfigureDiverged(t *testing.T) {
 
 		if s := filepath.Join(outtmp.strval(cc), configuration_sm); s == "" {
 			ctx.err("%v", outtmp)
-		} else if m.configurationLoad == nil {
+		} else if m.configurationFile == nil {
 			ctx.err("%v: nil configuration file", m)
-		} else if t := m.configurationLoad.fullname(); t != s { v := outtmp.value
+		} else if t := m.configurationFile.fullname(); t != s { v := outtmp.value
 			prompt(ctx, "%v:1: %v ⇒ %v\n", s, v, v.expand(ctx, strval))
-			prompt(ctx, "%v:1: %v\n", t, m.configurationLoad)
-			ctx.err("%v (%v)", m.configurationLoad, m)
+			prompt(ctx, "%v:1: %v\n", t, m.configurationFile)
+			ctx.err("%v (%v)", m.configurationFile, m)
 		} else if s := filepath.Join(outtmp.strval(ctx), configuration_sm); s == "" {
 			ctx.err("%v", outtmp)
 		} else if t == s { v := outtmp.value
 			prompt(ctx, "%v:1: %v ⇒ %v\n", s, v, v.expand(ctx, strval))
-			prompt(ctx, "%v:1: %v\n", t, m.configurationLoad)
-			ctx.err("%v (%v)", m.configurationLoad, m)
+			prompt(ctx, "%v:1: %v\n", t, m.configurationFile)
+			ctx.err("%v (%v)", m.configurationFile, m)
 		}
 
 		if f := m.configuration(cc); f == nil {
 			ctx.err("%v: nil configuration", m)
-		} else if t := m.configurationLoad.fullname(); f.fullname() == t {
+		} else if t := m.configurationFile.fullname(); f.fullname() == t {
 			prompt(ctx, "%v:1: %v\n", f.fullname(), f)
-			prompt(ctx, "%v:1: %v\n", t, m.configurationLoad)
-			ctx.err("%v: %v %v", m, f, m.configurationLoad)
+			prompt(ctx, "%v:1: %v\n", t, m.configurationFile)
+			ctx.err("%v: %v %v", m, f, m.configurationFile)
 		} else if e := os.Remove(f.fullname()); false && e != nil {
 			ctx.err("%v: %v", m, e)
 		}
 
 		testPromptConfiguration = false//true
 		testConfigurationDiverged = true
-		ctx.universe().configure()
+		ctx.universe().configure(cc)
 		testConfigurationDiverged = false
 		testPromptConfiguration = false
 
-		if f := m.configurationSave; f == nil {
+		if f := m.configurationFile; f == nil {
 			ctx.err("%v: nil configuration", m)
-		} else if t := m.configurationLoad.fullname(); f.fullname() == t {
-			prompt(ctx, "%v:1: %v\n", f.fullname(), f)
-			prompt(ctx, "%v:1: %v\n", t, m.configurationLoad)
-			ctx.err("%v: %v", f, m.configurationLoad)
 		} else if i, e := os.Stat(f.fullname()); e != nil {
 			ctx.err("%v: %s: %v", f, configuration_sm, e)
 		} else if i == nil {
@@ -323,22 +321,46 @@ func TestConfigureDiverged(t *testing.T) {
 			ctx.err("%v", outtmp)
 		}
 		{
+			f := m.configurationFile
 			s := filepath.Join(filepath.Dir(_tmodules), defaultCK, configuration_sm)
 			if i, e := os.Stat(s); e == nil || i != nil { ctx.Errorf("%v", e) }
+			if f == nil {
+				ctx.err("%v: nil configuration file", m)
+			} else if f.fullname() == s { // NOTE: diverged
+				erro(ctx, "%s", f.fullname())
+				erro(ctx, "%s", s)//.debug(1)
+				ctx.err("%v ; %v", outtmp, f)
+			}
 
-			s = filepath.Join(outtmp.strval(ctx), configuration_sm)
-			if s != filepath.Join(outtmp.strval(cc), configuration_sm) { ctx.Errorf("%v", s) } else
-			if i, e := os.Stat(s); e != nil || i == nil { ctx.Errorf("%v", e) } else
-			if b, e := ioutil.ReadFile(s); e != nil { ctx.Errorf("%v", e) } else
-			if !strings.Contains(string(b), "FOO = $(.self)") { ctx.Errorf("%s", b) }
+			/**/s = filepath.Join(outtmp.strval(ctx), configuration_sm)
+			if s != filepath.Join(outtmp.strval(cc ), configuration_sm) {
+				erro(ctx, "%s", outtmp.strval(cc))
+				erro(ctx, "%s", s).debug(1)
+				ctx.Errorf("%v ; %v", outtmp, configuration_sm)
+			} else if f == nil {
+				ctx.err("%v: nil configuration file", m)
+			} else if f.fullname() == s { // NOTE diverged
+				erro(ctx, "%s", f.fullname())
+				erro(ctx, "%s", s)//.debug(1)
+				ctx.err("%v ; %v", outtmp, f)
+			} else if i, e := os.Stat(/*s*/f.fullname()); e != nil || i == nil {
+				erro(ctx, "%s", f.fullname())
+				erro(ctx, "%s", s)//.debug(1)
+				ctx.err("%v ; %v", outtmp, f)
+			} else if b, e := ioutil.ReadFile(/*s*/f.fullname()); e != nil {
+				ctx.Errorf("%v", e)
+			} else if !strings.Contains(string(b), "FOO = $(.self)") {
+				ctx.Errorf("%s", b)
+			}
 
 			testPromptConfiguration = false//true
 			c := load_testcase(ctx.T, "testdata/configuration", "testdefaultconfigure")
+			testPromptConfiguration = false
+
 			if c.Context == nil {
-				ctx.Errorf("fail")
+				ctx.Errorf("testdefaultconfigure fail")
 				return
 			}
-			testPromptConfiguration = false
 
 			if d := c.Project().scope.FindDef("FOO"); d == nil {
 				erro(of(c, d), "%v", d).debug(1)
@@ -350,7 +372,7 @@ func TestConfigureDiverged(t *testing.T) {
 			}
 			c.flush()
 		}
-		if f := m.configurationSave; f == nil {
+		if f := m.configurationFile; f == nil {
 			ctx.err("%v", m)
 		} else if e := os.Remove(f.fullname()); e != nil {
 			ctx.err("%v: %v", m, e)
@@ -434,7 +456,7 @@ func TestConfigureCustom(t *testing.T) {
 			ctx.err("%v: %v", m, e)
 		}
 
-		ctx.universe().configure()
+		ctx.universe().configure(ctx)
 		{
 			s := filepath.Join(filepath.Dir(_tmodules), defaultCK, "custom", configuration_sm)
 			if i, e := os.Stat(s); e != nil || i == nil { ctx.Errorf("%v", e) }

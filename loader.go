@@ -1451,8 +1451,8 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
 
     // Load configuration.sm after .configure was loaded.
     l.project.configure = loaded // must set .configure first to get the correct configuration file
-    l.project.configurationLoad = l.project.configuration(ctx)
-    if f := l.project.configurationLoad; f == nil {
+    l.project.configurationFile = l.project.configuration(ctx)
+    if f := l.project.configurationFile; f == nil {
         erro(ctx, "%v: nil configuration file", ident).debug(1)
         return
     } else if declared || uni.commandline.configure {
