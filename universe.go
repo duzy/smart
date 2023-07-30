@@ -418,7 +418,6 @@ type universe struct {
 // func (ctx *universe) closure() *closureContext { return nil }
 // func (ctx *universe) dirty(Context, ...Value) (res bool) { return }
 // func (ctx *universe) dirtyOpts() *dirtyOpts { return nil }
-// func (ctx *universe) ruleContext() *ruleContext { return nil }
 // func (ctx *universe) mustExists() bool { return false }
 // func (ctx *universe) parser() *parser { return nil }
 // func (ctx *universe) program() *program { return nil }
@@ -431,6 +430,7 @@ func (ctx *universe) dirtyMark(vals ...Value) { return }
 func (ctx *universe) ref(_ Context, _ Value) bool { return false }
 func (ctx *universe) isConfigure() bool { return false }
 func (ctx *universe) inner() Context { return nil }
+func (ctx *universe) ruleContext() *ruleContext { return nil }
 func (ctx *universe) argumented() *argumentedContext { return nil }
 func (ctx *universe) ac() *autoContext { return nil }
 func (ctx *universe) ic() *invocation { return nil }

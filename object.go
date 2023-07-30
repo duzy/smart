@@ -1347,10 +1347,6 @@ func (entry *rule) execute(ctx Context, a ...Value) (result []Value, traves trav
 }
 func (entry *rule) exec(cc Context, a ...Value) (result []Value, traves travestates) {
     if cc = (&ruleContext{ cc, entry }); len(a)>0 { cc = &argumentedContext{ cc, a } }
-    if true { if entry.String() == "-library-c" {
-        noted(cc, "%v: %v ; %v", entry, a, cc).debug(1)
-    }}
-
 ForPrograms:
     for _, program := range entry.program_ {
         var pos = program.position

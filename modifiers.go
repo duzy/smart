@@ -2714,19 +2714,13 @@ func (ctx *modifier_assert) v(args ...Value) (result interface{}) {
     var uni = ctx.universe()
     var target = autoVal(ctx, "@")
     for _, a := range args {
-        if a == nil {
-            errostack(ctx, 3, "assert failed: nil arg").debug(16)
-            return
-        }
-
+        if a == nil { erro(ctx, "assert: nil arg").debug(1); return }
         if _, y := a.(*punctuation); y { continue }
 
         v := a.expand(ctx, strval)
         b := v.true(ctx)
 
-        if uni.hooks.assert != nil && uni.hooks.assert(ctx, v, b) {
-            continue
-        } else if b {
+        if (uni.hooks.assert != nil && uni.hooks.assert(ctx, v, b)) || b {
             continue
         } else if s := ctx.msg; s == "" {
             erro(of(ctx, a), "assert failed: %s: %v → %v → %s", typeof(a), a, v, v.strval(ctx)).debug(1)
