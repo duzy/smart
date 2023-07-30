@@ -662,7 +662,6 @@ func (ctx *modifier_closure) x(pc *programContext, args ...Value) (result interf
     } else if !filepath.IsAbs(dir) {
         erro(at(ctx,scope.position), "&/ is relative").debug(1)
     } else if err := enter(ctx, dir); err == nil {
-        proj.changedWD = dir
         pc.changedWD = dir
     }
     return
@@ -700,7 +699,6 @@ func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
         }
         if err := enter(ctx, dir); err == nil {
             if pc := ctx.pc(); pc != nil { pc.changedWD = dir }
-            proj.changedWD = dir
         }
     } else {
         erro(ctx, "wrong number of cd args: %v", args).debug(1)
@@ -2719,8 +2717,7 @@ func (ctx *modifier_assert) v(args ...Value) (result interface{}) {
             erro(of(ctx, a), "assert failed: %s %v: %v: %s", typeof(a), a, v, s).debug(1)
         }
 
-        pc.traves.add(ctx, traveFail, target).
-            error = fmt.Errorf("assert: %v", a)
+        pc.traves.add(ctx, traveFail, target).error = fmt.Errorf("assert: %v", a)
     }
     return
 }

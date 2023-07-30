@@ -372,11 +372,27 @@ type configuration struct{
     silent bool
 }
 
+type enterec struct {
+  wd, dir string
+  print, silent bool
+  num int
+}
+
+func (rec *enterec) String() string { return rec.dir }
+
+type cdstack struct{
+  stack []*enterec // entered directories
+  enters map[string]*enterec // enters
+  mutex sync.Mutex
+}
+
 type universe struct {
     diaContext
     commandline
     configuration
     hooks
+
+    cds cdstack
 
     workdir string
     prefix  string // FIXME: prefix for distribution
@@ -480,6 +496,7 @@ func init_universe(ii ...interface{}) (ctx *universe) { ctx = &universe{}
         ctx.fset = NewFileSet()
         ctx.filecache = make(map[string]*filebase)
         ctx.scope = NewScope(ctx.Position(), nil, nil, `universe`)
+        ctx.cds.enters = make(map[string]*enterec)
         ctx.configuration = configuration{
             packages: make(map[string]packageinfo),
             done: make(map[*def]bool),

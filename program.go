@@ -1330,7 +1330,6 @@ func (prog *program) workDir(ctx Context) (workDir string) {
 }
 
 func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
-    var uni = ctx.universe()
     var dia = ctx.dia()
     var entry = ctx.entry()
 
@@ -1343,21 +1342,23 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
 
     assert(prog.project == prog.scope.project, "mismatched scope/project")
 
-    var pc = &programContext{
+    pc := programContext{
         autoContext: autoContext{ Context:ctx, defs:make(autoDefMap) },
         execRec: make(map[Value]int), start: time.Now(), prog: prog, print: true,
     }
 
-    ctx = pc
+    ctx = &pc
 
     defer func() {
         var targets = autoVal(ctx, "@") // depends = autoVal(ctx, "^")
         if isTrivial(targets) { targets = entry.Target() }
+
         if errs := dia.countErrors(); errs > 0 {
             var str, ent, tar = entryIndicator(ctx, entry)
             for _, s := range pc.traves {
                 erro(at(ctx,s.pos), "%v: %v", ent, s).debug(1)
             }
+
             if tar != "" && tar != ent {
                 erro(ctx, "%s: %s: got %d errors", ent, tar, errs).debug(1)
             } else {
@@ -1374,6 +1375,14 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
             erro(of(ctx, a), "defer: not a modifier: %v: %v", typeof(a), a).debug(1)
         }}}
 
+        if result == nil { if result = autoVal(ctx, "-"); result == nil {
+            result = pc.defaultVal
+        }}
+        if result != nil { if caller := pc.caller(); caller != nil {
+            caller.defaultVal = result
+        }}
+
+        pc.defaultVal = nil
         _traves = pc.traves
     } ()
 
@@ -1453,21 +1462,20 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         if t := ctx.stems(); t != nil { autoSet(ctx, "*", ease(ctx, t)) }
     }
 
-    var alreadyUpdated bool
+    var uni = ctx.universe()
 
     // NOTE: set "@" before setting auto args
     // Select the right target value before setting parameters,
     // because the target could be overrided by parameters.
     if target := entry.Target(); target == nil {
-        erro(ctx, "%v: nil entry target", target)
-        errostack(ctx, 8).debug(20)
+        erro(ctx, "%v: nil entry target", target).debug(1)
         return
     } else {
         switch a := target.(type) {
-        case *String, *Compound: // NOTE: escape 'String' and "Compound" values from file searching
-        case flag: pc.print = false // Flag target (-foo) turns off printing automatically
-        case *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-        case fullfile: if a._traved > 1 { return }
+        case *String, *Compound: // NOTE: skip strings to optimize speed from searching
+        case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+        case    *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+        case     flag: pc.print = false // Flag target (-foo) turns off printing automatically
         default:
             if file := prog.project.file(ctx, a.strval(ctx)); file != nil {
                 if file._traved > 1 { return } else { target = file }
@@ -1486,45 +1494,18 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
     if a := ctx.argumented(); a != nil { args = a.args }
     pc.params = pc.args(ctx, prog.params, args)
 
-    // Note: must enter work directory (cd) before setting cloctx
     var enterBack *enterec
-    if len(cd.stack) > 0 { enterBack = cd.stack[0] }
+    if len(uni.cds.stack) > 0 { enterBack = uni.cds.stack[0] }
     if err := enter(ctx, prog.project.absPath); err != nil {
         erro(ctx, "enter project '%v' failed: %v", prog.project, err).debug(1)
         return
     }
-
-    defer func(swd string) {
-        if err := leave(ctx, prog, enterBack); err != nil {
-            // NOTE: err could be traveCase, traveDone, etc.
-            erro(ctx, "leave project '%v' failed: %v", prog.project, err).debug(1)
-            return
-        }
-
-        prog.project.changedWD = swd
-
-        var defaultVal = pc.defaultVal
-        pc.defaultVal = nil
-
-        if /*!isNull(result) && !isNone(result)*/!isTrivial(result) {
-            // good!
-        } else if d := autoVal(ctx, "-"); d != nil {
-            result = d
-        } else if defaultVal != nil {
-            result = defaultVal
-        }
-
-        if result != nil { if p := pc.caller(); p != nil {
-            p.defaultVal = result
-        }}
-    } (prog.project.changedWD)
-
-    if alreadyUpdated { if uni.verbose {
-        noted(ctx, "'%v' already updated", autoVal(ctx, "@")).debug(3)
-    }}
+    defer func() { if err := leave(ctx, prog, enterBack); err != nil {
+        erro(ctx, "leave project '%v' failed: %v", prog.project, err).debug(1)
+    }} ()
 
     if pc.print && prog.configure { pc.print = false }
-    cd.stack[0].silent = !pc.print
+    uni.cds.stack[0].silent = !pc.print
 
     if uni.traceExec {
         var d = pc.depth()
@@ -1533,7 +1514,6 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         defer un(trace(t_exec, s))
     }
 
-    var proj = ctx.Project()
     autoSet(ctx, "^", nil)
     autoSet(ctx, "<", nil)
     autoSet(ctx, ">", nil)
@@ -1541,14 +1521,9 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
 
     // Update normal prerequisites
     pc.prerequisite(normalTraverseContext{ctx}, prog.depends)
-    if errs := dia.flush(); errs > 0 {
+    if errs := dia.countErrors(); errs > 0 {
         s := pc.traves.add(at(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
-        prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, pc.traves).debug(1)
-        warn(ctx, "%d errors while traversing prerequisites for %v", errs, autoVal(ctx,"@"))
-        if warnstack(ctx, 6).debug(8); true && uni.failOnErrors {
-            panic(failure{"fail by %d errors",ia(prog.position)})
-        }
         return
     } else if pc.traves.has(traveCase, traveDone, traveFail, traveNext) {
         return
@@ -1556,20 +1531,18 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
 
     // Update order-only prerequisites
     pc.prerequisite(orderTraverseContext{ctx}, prog.ordered)
-    if errs := dia.flush(); errs > 0 {
+    if errs := dia.countErrors(); errs > 0 {
         s := pc.traves.add(at(ctx, prog.position), traveFail, nil)
         s.error = fmt.Errorf("%d errors counted", errs)
-        prompt(ctx, "%v: execute failed, project %s; traves=%v\n", entry, proj, pc.traves).debug(1)
-        warn(ctx, "%d errors while traversing prerequisites for %v", errs, autoVal(ctx,"@"))
-        if warnstack(ctx, 6).debug(8); true && uni.failOnErrors {
-            panic(failure{"fail by %d errors",ia(prog.position)})
-        }
         return
     } else if pc.traves.has(traveCase, traveDone, traveFail, traveNext) {
         return
     }
 
-    if prog.language != "" || len(prog.recipes) == 0 {/* no op. */} else
+    if prog.language != "" || len(prog.recipes) == 0 {
+        return
+    }
+
     if h := autoVal(ctx,"-"); h == nil || len(pc.interpreted) == 0 {
         if i, y := dialects["eval"]; y && i != nil {
             pc.interpret(ctx, i, nil)

@@ -252,22 +252,6 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
   return
 }
 
-type enterec struct {
-  wd, dir string
-  print, silent bool
-  num int
-}
-
-func (rec *enterec) String() string { return rec.dir }
-
-var cd = &struct{
-  stack []*enterec // entered directories
-  enters map[string]*enterec // enters
-  mutex sync.Mutex
-}{
-  enters: make(map[string]*enterec),
-}
-
 type Project struct {
   position Position
   keyword  Token // project, package, module
@@ -276,7 +260,6 @@ type Project struct {
   configure *Project // .configure
   configured bool
 
-  changedWD string
 	absPath string
 	relPath string
   tmpPath string
@@ -988,39 +971,40 @@ func lockCD(dir string, dura time.Duration) error {
 }
 
 func enter(ctx Context, dir string) (err error) {
-  cd.mutex.Lock(); defer cd.mutex.Unlock()
-
   var uni = ctx.universe()
+  uni.cds.mutex.Lock(); defer uni.cds.mutex.Unlock()
+
   if uni.traceEntering {
     prompt(ctx, "entering: %v (%v)\n", dir, ctx.Project().name)
   }
 
   var wd string
   if wd, err = os.Getwd(); err != nil { return }
-  if err = lockCD(dir, 0); err != nil { return }
+  if err = lockCD(dir, 0); err != nil { return } // FIXME: not thread safe
   if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
   autoSet(ctx, "CWD", MakeString(ctx.program().position, dir))
 
-  var ( enter *enterec ; ok bool )
-  if enter, ok = cd.enters[dir]; !ok {
+  var ( enter *enterec ; y bool )
+  if enter, y = uni.cds.enters[dir]; !y {
     enter = &enterec{ wd:wd, dir:dir }
-    cd.enters[dir] = enter
+    uni.cds.enters[dir] = enter
   }
   enter.num += 1
-  cd.stack = append([]*enterec{enter}, cd.stack...)
+  uni.cds.stack = append([]*enterec{enter}, uni.cds.stack...)
   return
 }
 
 func leave(ctx Context, prog *program, stop *enterec) (err error) {
-  cd.mutex.Lock(); defer cd.mutex.Unlock()
-
-  var size = len(cd.stack)
   var uni = ctx.universe()
+
+  uni.cds.mutex.Lock(); defer uni.cds.mutex.Unlock()
+
+  var size = len(uni.cds.stack)
   if uni.traceEntering {
     prompt(ctx, "leaving: %v (%v %v %v)\n", stop.dir, prog.project.name, stop.num, size)
   }
 
-  for _, enter := range cd.stack {
+  for _, enter := range uni.cds.stack {
     if enter.num == 0 { continue } else {
       enter.num -= 1
     }
@@ -1029,7 +1013,7 @@ func leave(ctx Context, prog *program, stop *enterec) (err error) {
         enter.print = false
         prompt(ctx, "smart:  Leaving directory '%s'\n", enter.dir)
       }
-      err = lockCD(enter.wd, 0)
+      err = lockCD(enter.wd, 0) // FIXME: not thread safe
       break
     }
   }
@@ -1037,24 +1021,27 @@ func leave(ctx Context, prog *program, stop *enterec) (err error) {
   // Erase 'zero' and unprint records, the first record is always kept.
   // So that the right entering/leaving pairs are printed.
   if size > 1 {
-    var stack = []*enterec{ cd.stack[0] }
+    var stack = []*enterec{ uni.cds.stack[0] }
     for i := 1; i < size; i += 1 {
-      var rec = cd.stack[i]
+      var rec = uni.cds.stack[i]
       if rec.num > 0 || rec.print {
         stack = append(stack, rec)
       }
     }
-    cd.stack = stack
+    uni.cds.stack = stack
   }
   return
 }
 
 func printEnteringDirectory(ctx Context) {
-  cd.mutex.Lock() ; defer cd.mutex.Unlock()
-  if size := len(cd.stack); size > 0 {
-    var enter = cd.stack[0]
+  var uni = ctx.universe()
+
+  uni.cds.mutex.Lock() ; defer uni.cds.mutex.Unlock()
+
+  if size := len(uni.cds.stack); size > 0 {
+    var enter = uni.cds.stack[0]
     if enter.silent { return }
-    for _, p := range cd.stack {
+    for _, p := range uni.cds.stack {
       if p.print && p != enter {
         p.print = false
         diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'", p.dir)
@@ -1068,9 +1055,12 @@ func printEnteringDirectory(ctx Context) {
 }
 
 func printLeavingDirectory(ctx Context) {
-  cd.mutex.Lock() ; defer cd.mutex.Unlock()
-  if size := len(cd.stack); size > 0 {
-    for _, enter := range cd.stack {
+  var uni = ctx.universe()
+
+  uni.cds.mutex.Lock() ; defer uni.cds.mutex.Unlock()
+
+  if size := len(uni.cds.stack); size > 0 {
+    for _, enter := range uni.cds.stack {
       if enter.print {
         enter.print = false
         diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'", enter.dir)
