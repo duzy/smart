@@ -1343,11 +1343,9 @@ func (_ *returner) collect(ctx Context, cache *valcache, bits int) (res []*valca
 }
 
 type optional struct { Value }
-func (o optional) kind() Kind { return KindOptional }
+func (o optional) kind() Kind { return o.Value.kind()|KindOptional }
 func (o optional) String() string { return o.Value.String()+"?" }
-func (o optional) expand(ctx Context, w facet) Value {
-    return optional{o.Value.expand(ctx, w)}
-}
+func (o optional) expand(ctx Context, w facet) Value { return optional{o.Value.expand(ctx, w)} }
 func (o optional) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b): %v", bits, o.Value).debug(32)
     return
@@ -1372,11 +1370,13 @@ func _optionalize(val Value) (name Value, okay bool) {
 func optionalize(ctx Context, val Value) (res optional, okay bool) {
     if v, y := _optionalize(val); y {
         res, okay = optional{v}, true
-    } else if t, y := val.(*barecomp); y { if v, y := _optionalize(t.Elems[len(t.Elems)-1]); y {
-        x := MakeBarecomp(ctx.Position(), t.Elems[:len(t.Elems)-1]...)
-        x.Elems = append(x.Elems, v)
-        res, okay = optional{x}, true
-    }}
+    } else if t, y := val.(*barecomp); y {
+        if v, y := _optionalize(t.Elems[len(t.Elems)-1]); y {
+            x := MakeBarecomp(ctx.Position(), t.Elems[:len(t.Elems)-1]...)
+            x.Elems = append(x.Elems, v)
+            res, okay = optional{x}, true
+        }
+    }
     return
 }
 
@@ -3940,44 +3940,27 @@ func (p *Path) matchN(ctx Context, srcs ...string) (full bool, res []string, ste
     }
 
     var segs, un, _ = expandPathElems(ctx, plain, p.Elems...)
-    if ; un > 0 {
+    if un > 0 {
         errostack(ctx, 3, "can't expand path: %v", p).debug(1)
         return
     }
 
-    const warns = false
-
     var (
-        // infos = warns
         lenSegs = len(segs)
         lenSrcs = len(srcs)
         lastSuf Value
         n, m int
     )
-    if warns {
-        defer func() {
-            prompt(ctx, "%v: %v %v %v\n", p, res, full, stems)
-            warn(ctx, "%v: %s (%d, %d; %d, %d)", p, srcs, n, lenSegs, m, lenSrcs)
-            warnstack(ctx, 3, "%v: %T", p, ctx).debug(8)
-        } ()
-    }
 SegsSrcsLoop:
-    for ; n < lenSegs && m < lenSrcs; {
+    for n < lenSegs && m < lenSrcs {
         var si, seg, src = n, segs[n], srcs[m]
         if cs := correctPathPunForMatch(seg); cs != nil { seg = cs } else {
             erro(of(ctx,seg), "invalid path seg: %v (%T)", seg, seg).debug(1)
             break SegsSrcsLoop
         }
 
-        var (
-            pp, pre, suf = percperc(seg)
-            // ss []string
-            // s    string
-            // r    interface{}
-            // f    bool
-        )
+        var pp, pre, suf = percperc(seg) // %%
         if pp {
-            // if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) src=%v pp=%v pre=%v suf=%v res=%v stems=%v srcs[%d]=%s lenSegs=%d", si, p, seg, seg, src, pp, pre, suf, res, stems, m, src, lenSegs).debug(1) }
             if !isTrivial(lastSuf) && !isTrivial(pre) {
                 erro(of(ctx,seg), "the continual %%/%% makes no sense")
                 break SegsSrcsLoop
@@ -3995,7 +3978,6 @@ SegsSrcsLoop:
             var f, r, ss = seg.match(ctx, src)
             var s = joinMatchRes(ctx, r)
             if f || s == src {
-                // if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T); str=%v srcs[%d]=%v -> f=%v s=%v ss=%v => res=%v stems=%v", si, p, seg, seg, srcs, m, src, f, s, ss, res, stems).debug(1) }
                 // NOTE: `s` could be empty string, e.g. when `str` is absolute path
                 res   = append(res  , s)
                 stems = append(stems, ss...)
@@ -4009,18 +3991,14 @@ SegsSrcsLoop:
                 } else if false {
                     res, stems = nil, nil
                 }
-                // if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v f=%v s=%s ss=%v src=%s lenSegs=%d str=%s", si, p, seg, seg, res, stems, f, s, ss, src, lenSegs, srcs).debug(1) }
                 break SegsSrcsLoop
             }
         }
 
         var prefix string
-        if !isTrivial(pre) {
-            if prefix = pre.strval(ctx); !strings.HasPrefix(src, prefix) {
-                // if infos { info(of(ctx,p), "%d: seg=%v (%T) pp=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, seg, pp, pre, suf, res, stems, src).debug(1) }
-                break SegsSrcsLoop
-            }
-        }
+        if !isTrivial(pre) { if prefix = pre.strval(ctx); !strings.HasPrefix(src, prefix) {
+            break SegsSrcsLoop
+        }}
 
         // Iterate segs for %%, e.g. bar, baz in foo/%%/bar/baz
         var stem []string
@@ -4093,25 +4071,11 @@ SegsSrcsLoop:
         // if infos && n == lenSegs { info(of(ctx,p), "%d: path=%v seg=%v (%T) str=%v src=%v -> f=%v s=%v ss=%v -> res=%v stems=%v stem=%v m=%d/%d 3.lengSegs=%d", si, p, seg, seg, srcs, src, f, s, ss, res, stems, stem, m, lenSrcs, lenSegs).debug(true, 1) }
     }
     if lenRes := len(res); lenRes > 0 { // full or partial matched
-        // TODO: if n < lenSegs { rest = strings.Join(segs[n:], PathSep) }
-        // result = strings.Join(res, PathSep) //NOTE: do NOT use `filepath.Join(res...)` here
-        if full = /* n == lenSegs && */ m <= lenSrcs && lenSrcs == lenRes && lenSegs <= lenRes; full {
-            for i := 0; i < lenSrcs; i += 1 { if srcs[i] != res[i] { full = false; break } }
-        }
-        /*if infos { if false {
-            warn(of(ctx,p), "Path.match: path=%v str=%v res=%v stems=%v -> full=%v result=%v lens=%d,%d", p, srcs, res, stems, full, result, lenRes, lenSrcs).debug(1)
-        } else {
-            warn(of(ctx,p), "Path.match: path=%v res=%v stems=%v lenRes=%d", p, res, stems, lenRes)
-            warn(of(ctx,p), "Path.match: str=%v full=%v result=%v lenSrcs=%d", srcs, full, result, lenSrcs).debug(4)
-        }}*/
-        // if correct := (!full && strings.HasPrefix(srcs, result)) || (full /* && str == result */); false {
-        //     assert(correct, "incorrect result: res=%v result=%v full=%v stems=%v str=%s", res, result, full, stems, src)
-        // } else if !correct {
-        //     prompt(ctx, "%v: %v: incorrect match: full=%v; segs=%v; srcs=%v; res=%v\n", srcs, p, full, segs, srcs, res)
-        //     erro(of(ctx,p), "incorrect match: path=%v, str=%s, res=%v result=%v", p, srcs, res, result)
-        //     errostack(ctx, 8, "%v", ctx).debug(10)
+        // if full = n == lenSegs && m <= lenSrcs && lenSrcs == lenRes && lenSegs <= lenRes; full {
+        //     for i := 0; i < lenSrcs; i += 1 { if srcs[i] != res[i] { full = false; break } }
         // }
-        if full && p.patterned(ctx) && len(stems) == 0 {
+        full = n == lenSegs && m == lenSrcs
+        if full && len(stems) == 0 && p.patterned(ctx) {
             if lenSegs == 1 && lenSrcs == 1 && len(res) == 1 && segs[0].patterned(ctx) {
                 stems = res
             } else {
@@ -4125,14 +4089,13 @@ SegsSrcsLoop:
 }
 func (p *Path) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
     ctx = at(ctx, p.position)
+
     var result []string
-    defer func() {
-        if n := len(result); n == 1 {
-            res = result[0]
-        } else if n > 1 {
-            res = result
-        }
-    } ()
+    defer func() { if n := len(result); n == 1 {
+        res = result[0]
+    } else if n > 1 {
+        res = result
+    }} ()
 
     switch t := i.(type) {
     case   string : full, result, stems = p.match1(ctx, t)
@@ -4145,26 +4108,7 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, res interface{}, st
             return
         }
     case *File:
-        if false {
-            for stub := t.filestub; true; stub = stub.other {
-                if full, result, stems = p.match1(ctx, stub.name); full || len(result) > 0 {
-                    return
-                } else if stub.other == t.filestub { break }
-            }
-            var s = t.name(ctx)
-            if t.sub != "" {
-                s = filepath.Join(t.sub, s)
-                if full, result, stems = p.match1(ctx, s); full || len(result) > 0 {
-                    return
-                }
-            }
-            if t.dir != "" {
-                s = filepath.Join(t.dir, s)
-                if full, result, stems = p.match1(ctx, s); full || len(result) > 0 {
-                    return
-                }
-            }
-        } else if full, result, stems = p.match1(ctx, t.name(ctx)); full || len(result) > 0 {
+        if full, result, stems = p.match1(ctx, t.name(ctx)); full || len(result) > 0 {
             return // NOTE: done if path fully or partially matched
         } else if t.dir != "" || t.sub != "" {
             full, result, stems = p.match1(ctx, t.fullname()) // NOTE: matching the fullname form

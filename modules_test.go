@@ -818,7 +818,7 @@ func testLLVMConfigConfigure(t *testing.T) {
 		return
 	}
 
-	var base *Project
+	var base, general *Project
 	var m = ctx.Project()
 	if m == nil {
 		ctx.Errorf("configure fail")
@@ -836,23 +836,119 @@ func testLLVMConfigConfigure(t *testing.T) {
 
 	defer assured(ctx, true)
 
-	var cc = closureWith(ctx, base.configure.scope)
-	if f := base.configuration(cc); f == nil {
-		ctx.err("%v: %v: nil configuration", m, base)
-	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 != s2 {
+	if o := m.resolveObject(ctx, "general"); o == nil {
+		ctx.Errorf("general")
+	} else if p, y := o.(*projectname); !y {
+		ctx.err("%T %v", o, o)
+	} else {
+		general = p.Project
+	}
+
+	if v := ctx.get("/"); v == nil {
+		ctx.Errorf("/")
+	} else if v.String() != m.absPath {
+		ctx.err("%T %v", v, v)
+	} else if s := v.strval(ctx); s != m.absPath {
+		ctx.err("%T %v %s", v, v, s)
+	} else if _, y := v.(*Path); !y {
+		ctx.err("%T %v", v, v)
+	}
+
+	var chop = fmt.Sprintf("%%%%/.smart/modules/ %s/ %s/ %s/",
+		filepath.Dir(general.absPath),
+		filepath.Dir(filepath.Dir(general.absPath)),
+		filepath.Dir(filepath.Dir(filepath.Dir(general.absPath))))
+	if v := ctx.get("rel.chop"); v == nil { // from general
+		ctx.Errorf("rel.chop")
+	} else if !strings.HasSuffix(v.String(), chop) {
+		ctx.err("%T %v", v, v)
+	}
+
+	var remnant = ctx.get("rel.remnant")
+	if v := remnant; v == nil {
+		ctx.Errorf("rel.remnant")
+	} else if v.String() != "&(trim-prefix &(rel.chop),&/)" { // from general
+		ctx.err("%T %v", v, v)
+	} else if s := v.strval(ctx); s == "" {
+		ctx.err("%T %v", v, v)
+	} else if _, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	}
+
+	var cc1 = closureWith(ctx, base.configure.scope, base.scope)
+	var cc2 = closureWith(ctx, base.scope, base.configure.scope)
+	if v := remnant; v == nil {
+		ctx.Errorf("remnant")
+	} else if s := v.strval(cc1); s == "" {
+		ctx.err("%T %v", v, v)
+	}
+
+	if d := base.resolveDef(cc1, "rel.remnant"); d == nil {
+		ctx.Errorf("rel.remnant")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if v.String() != "&(trim-prefix &(rel.chop),&/)" { // from general
+		ctx.err("%T %v", v, v)
+	} else if s := v.strval(cc1); s == "" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.strval(cc2); s == "" {
+		ctx.err("%T %v", v, v)
+	} else if _, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	}
+
+	p1 := strings.Split(m.absPath,PathSep)
+	p2 := strings.Split(base.absPath,PathSep)
+	t1 := filepath.Join(append(p1[len(p1)-4:], configuration_sm)...)
+	t2 := filepath.Join(append(p2[len(p2)-2:], configuration_sm)...)
+
+	if f := m.tempFile(ctx, configuration_sm); f == nil {
+		ctx.err("%v: nil %s", m, configuration_sm)
+	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 == s2 {
 		erro(ctx, "%v: %v: %v", m, base, s1)
 		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
 		ctx.Errorf("%v: %v", m, base)
+	} else if s1 != t1 {
+		ctx.Errorf("%v: %v", m, s1)
+	} else if s2 != t2 {
+		ctx.Errorf("%v: %v", m, s2)
+	}
+	if f := base.tempFile(ctx, configuration_sm); f == nil {
+		ctx.err("%v: nil %s", m, configuration_sm)
+	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 == s2 {
+		erro(ctx, "%v: %v: %v", m, base, s1)
+		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
+		ctx.Errorf("%v: %v", m, base)
+	} else if s1 != t1 {
+		ctx.Errorf("%v: %v", m, s1)
+	} else if s2 != t2 {
+		ctx.Errorf("%v: %v", m, s2)
+	}
+
+	if f := base.configuration(cc1); f == nil {
+		ctx.err("%v: %v: nil configuration", m, base)
+	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 == s2 {
+		erro(ctx, "%v: %v: %v", m, base, s1)
+		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
+		ctx.Errorf("%v: %v", m, base)
+	} else if s1 != t1 {
+		ctx.Errorf("%v: %v", m, s1)
+	} else if s2 != t2 {
+		ctx.Errorf("%v: %v", m, s2)
 	}
 
 	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
 	} else if s := v.String(); s != base.configurationLoad.name(ctx) {
 		ctx.err("%v , %v", v, base.configurationLoad.name(ctx))
-	} else if s1, s2 := v.strval(ctx), base.configurationLoad.fullname(); s1 != s2 {
+	} else if s1, s2 := v.strval(ctx), base.configurationLoad.fullname(); s1 == s2 {
 		erro(ctx, "%v: %v: %v", m, base, s1)
 		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
 		ctx.Errorf("%v: %v", m, base)
+	} else if s1 != t1 {
+		ctx.Errorf("%v: %v", m, s1)
+	} else if s2 != t2 {
+		ctx.Errorf("%v: %v", m, s2)
 	}
 	if v := ctx.get("val2"); v == nil {
 		ctx.err("val2")
@@ -860,10 +956,14 @@ func testLLVMConfigConfigure(t *testing.T) {
 		ctx.err("%v , %v", v, base.configurationLoad.name(ctx))
 	} else if f, y := v.(*File); !y {
 		ctx.err("%T %v", v, v)
-	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 != s2 {
+	} else if s1, s2 := f.fullname(), base.configurationLoad.fullname(); s1 == s2 {
 		erro(ctx, "%v: %v: %v", m, base, s1)
 		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
 		ctx.Errorf("%v: %v", m, base)
+	} else if s1 != t1 {
+		ctx.Errorf("%v: %v", m, s1)
+	} else if s2 != t2 {
+		ctx.Errorf("%v: %v", m, s2)
 	}
 
 	ctx.universe().configure()
@@ -884,7 +984,7 @@ func testLLVMConfigConfigure(t *testing.T) {
 		ctx.err("outtmp: %T %v", o, o)
 	} else if outtmp.value.String() != "&(target.tmp)/&(rel.remnant)" {
 		ctx.err("outtmp: %T %v", outtmp.value, outtmp.value)
-	} else if s := filepath.Join(outtmp.strval(cc), configuration_sm); s != base.configurationSave.fullname() {
+	} else if s := filepath.Join(outtmp.strval(cc1), configuration_sm); s != base.configurationSave.fullname() {
 		ctx.err("outtmp: %v != %v", s, base.configurationSave.fullname())
 	} else if b, e := ioutil.ReadFile(s); e != nil {
 		ctx.Errorf("%v", e)

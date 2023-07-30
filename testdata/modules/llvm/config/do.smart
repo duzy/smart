@@ -1,6 +1,28 @@
 project testllvmconfig (llvm/Config) #variant=darwin/arm64/bootstrap,
 
+rel.chop =+ $(dir4 $/)/
+remnant ::= $(base4 $/)
+
 val1 ::= $(fullname configuration.sm)
 val2 ::= $(file configuration.sm)
+
+assert (
+    $(remnant)
+
+    $(rel.chop)
+    $(rel.remnant)
+
+    $(equal(-d) $(fullname llvm/Config/llvm-config.h.cmake), $(srcinc)/llvm/Config/llvm-config.h.cmake)
+    $(equal(-d) $(fullname llvm/Config/llvm-config.h),       $(outinc)/llvm/Config/llvm-config.h)
+    # $(equal(-d) $(rel.remnant),$(remnant))
+
+    $(val1)
+    $(val2)
+
+    $(src.def.in)
+    $(src.h.cmake)
+
+    $(headers)
+)
 
 stamp: $(.base) touch

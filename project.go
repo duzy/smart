@@ -570,6 +570,11 @@ func resolveObject(c Context, s string) Object {
 func resolveEntries(c Context, s string, a bool) *resolvedEntries { return c.Project().resolveEntries(c, s, a) }
 func resolvePatterns(c Context, v Value, s string) []*stemmed { return c.Project().resolvePatterns(c, v, s) }
 
+func (p *Project) resolveDef(ctx Context, name string) (res *def) {
+  if o := p.resolveObject(ctx, name); o != nil { res, _ = o.(*def) }
+  return
+}
+
 func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
   if p != nil && p.scope != nil { if _, obj = p.scope.Find(s); isNull(obj) {
     if p.pluginScope != nil {

@@ -692,9 +692,6 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *de
             if d == nil {
                 erro(ctx, "`%s` is undefined (%v %v)", name, typeof(t), t).debug(1)
                 return
-            } else if false && tok == ADD_ASSIGN && prev == nil {
-                erro(ctx, "`%s` must be defined first to append", name).debug(1)
-                return
             }
         } else if tok == ASSIGN || tok == EXC_ASSIGN {
             if a, y := alt.(*def); !y {
@@ -720,7 +717,7 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *de
             erro(ctx, "prev def '%s' is nil", name).debug(1)
         } else if derived == d || (d.value != nil && d.value.refs(ctx, derived)) {
             // same def
-        } else if d != nil && tok == ADD_ASSIGN && alt == nil {
+        } else if d != nil && (tok == ADD_ASSIGN || tok == SHI_ASSIGN) && alt == nil {
             if d.origin == DefVoid { d.origin = derived.origin }
             if !isTrivial(derived.value) { d.append(ctx, derived.value) }
         }

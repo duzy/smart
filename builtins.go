@@ -2439,6 +2439,10 @@ func (ctx *builtin_trimright) x(ic *invocation, w facet) (res interface{}) {
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 type builtin_trimprefix struct { builtin_ }
 func (ctx *builtin_trimprefix) x(ic *invocation, w facet) (res interface{}) {
+    if false { if ctx.verbose = ctx.Project().name == "testllvmconfig"; ctx.verbose { defer func() {
+        noted(ctx, "%v: %v %v", ctx.Project(), ic.a, res).debug(2)
+    }()}}
+
     if len(ic.a) == 0 { return }
 
     var values, list []Value
@@ -2449,30 +2453,32 @@ func (ctx *builtin_trimprefix) x(ic *invocation, w facet) (res interface{}) {
         values = umerge(true, ic.a[1:]...)
     }
 
-    if len(values) == 0 {
-        return
-    } else if len(prefixs) == 0 {
-        res = ease(ctx, values)
-        return
+    if len(values) == 0 { return }
+    if len(prefixs) == 0 { return ease(ctx, values) }
+    if ctx.verbose {
+        warn(ctx, "prefix = %v", prefixs)
+        warn(ctx, "values = %v", values)
     }
 
-    if ctx.verbose { warn(ctx, "prefix=%v values=%v", prefixs, values) }
-    ForValues: for _, value := range values {
-        var (
-            pos = value.Position()
-            p, s string
-        )
+ForValues:
+    for _, value := range values { var s string
         if s = value.strval(ctx); s == "" { continue }
-        ForPrefix: for _, prefix := range prefixs {
+
+        var pos = value.Position()
+
+    ForPrefix:
+        for _, prefix := range prefixs { var p string
             if p = prefix.strval(ctx); p == "" { continue }
 
             // FIXME: matched cutset is empty: %-xxx- and *-xxx-
             var full, r, stems = prefix.match(ctx, value)
             var cutset = joinMatchRes(ctx, r)
-            if ctx.verbose /*|| (strings.Contains(s, "/.smart/modules/") && prefix.String() == "%%/.smart/modules/")*/ {
-                warn(ctx, "full=%v cutset=%v stems=%v", full, cutset, stems)
-                warn(ctx, "prefix = %T %v", prefix, prefix)
-                warn(ctx, "value  = %T %v", value, value)
+            if ctx.verbose {
+                warn(ctx, "full   = %v", full)
+                warn(ctx, "prefix = %v (%v)", prefix, typeof(prefix))
+                warn(ctx, "value  = %v (%v)", value, typeof(value))
+                warn(ctx, "cutset = %v", cutset)
+                warn(ctx, "stems  = %v", stems)
                 warn(ctx, "trim   = %v", strings.TrimPrefix(s, cutset)).debug(1)
             }
 
@@ -4311,12 +4317,6 @@ var (
     rxConfigure = regexp.MustCompile(fmt.Sprintf(`(?m:%s)`, rsConfigure)) // m: multilines
     rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
-
-func (project *Project) resolveDef(ctx Context, name string) (res *def) {
-    var obj Object
-    if obj = project.resolveObject(ctx, name); !isNull(obj) { res, _ = obj.(*def) }
-    return
-}
 
 func (project *Project) strExpandConfig(ctx Context, s string) (result string, err error) {
     var (
