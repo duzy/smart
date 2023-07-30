@@ -521,14 +521,15 @@ func (ctx *modifier_env) x(args ...Value) (result interface{}) {
 //     [(set -)]             clear $-
 type modifier_set struct { modifier_ }
 func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
-    var program = ctx.program()
+    defer ctx.dia().trace(ctx, "set")
+
     var pc = ctx.pc()
+
 ForArgs:
     for _, arg := range args {
         var (
             name string
             value Value
-            def *def
         )
         switch a := arg.(type) {
         case *bareword: name = a.string
@@ -543,24 +544,40 @@ ForArgs:
             return
         }
 
-        if def = program.scope.FindDef(name); def == nil {
-            erro(ctx, "no such def '%s' (%v, %v)", name, arg, args).debug(16)
+        var d *def
+        var isauto, y bool
+        var o = pc.prog.scope.Resolve(name)
+        if o == nil {
+            erro(ctx, "no such def '%s' (%v, %v)", name, arg, args).debug(1)
             break ForArgs
-        } else { isauto := false // TODO: correct isauto value
-            if def.val(ctx, value); !isauto && isNull(def.value) && !isNull(value) {
-                errostack(ctx, 3, "set def wrong: %T %v (auto: %v)", value, value, autoVal(ctx, def.name(ctx))).debug(6)
+        } else if _, y = o.(*auto); y {
+            if ac := ctx.ac(); ac == nil {
+                erro(ctx, "not in auto context").debug(1)
+                break ForArgs
+            } else if d = ac.get(ctx, name); d == nil {
+                d, _ = ac.set(ctx, name, nil)
             }
+            isauto = d != nil
+        }
 
-            if isauto && name == "@" {
-                var f, s, y = as{value}.fullname(ctx)
-                if ctx.verbose {
-                    var ts = trimPromptString(s)
-                    prompt(ctx, "%s …… traversed (%d)\n", ts, f._traved)
-                    if false { warnstack(ctx, 64).debug(64) }
-                }
-                if y && f._traved > 1 {
-                    pc.traves.add(ctx, traveDone, nil)
-                }
+        if d == nil { if d, y = o.(*def); !y {
+            erro(ctx, "not a def: %T %v", name, o, o).debug(1)
+            break ForArgs
+        }}
+
+        if d.val(ctx, value); !isauto && d.value != nil && value != nil {
+            erro(ctx, "set def wrong: %T %v (auto: %v)", value, value, autoVal(ctx, d.name(ctx))).debug(1)
+        }
+
+        if isauto && name == "@" {
+            var f, s, y = as{value}.fullname(ctx)
+            if ctx.verbose {
+                var ts = trimPromptString(s)
+                prompt(ctx, "%s …… traversed (%d)\n", ts, f._traved)
+                if false { warnstack(ctx, 64).debug(64) }
+            }
+            if y && f._traved > 1 {
+                pc.traves.add(ctx, traveDone, nil)
             }
         }
     }

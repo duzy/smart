@@ -1218,13 +1218,6 @@ func (ec *ruleContext) String() string {
     } else if true {
         var ( cc []*ruleContext; s string )
         for c := ec; c != nil && len(cc) < 5; c = c.Context.ruleContext() {
-            if false {
-                cc = append([]*ruleContext{ c }, cc...)
-            } else {
-                cc = append(cc, c)
-            }
-        }
-        for _, c := range cc {
             if t := c.rule.strval(c.Context); s != "" {
                 s = fmt.Sprintf("%s{%s}", t, s)
             } else {
@@ -1353,7 +1346,11 @@ func (entry *rule) execute(ctx Context, a ...Value) (result []Value, traves trav
     return
 }
 func (entry *rule) exec(cc Context, a ...Value) (result []Value, traves travestates) {
-    if cc = (&ruleContext{ cc, entry }); len(a) > 0 { cc = &argumentedContext{ cc, a } }
+    if cc = (&ruleContext{ cc, entry }); len(a)>0 { cc = &argumentedContext{ cc, a } }
+    if true { if entry.String() == "-library-c" {
+        noted(cc, "%v: %v ; %v", entry, a, cc).debug(1)
+    }}
+
 ForPrograms:
     for _, program := range entry.program_ {
         var pos = program.position

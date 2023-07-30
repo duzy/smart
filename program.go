@@ -82,6 +82,12 @@ func (pc *programContext) String() string {
     }
 }
 
+func (pc *programContext) initializeArgs() {
+    if a := pc.Context.argumented(); a != nil {
+        pc.params = pc.args(pc.Context, pc.prog.params, a.args)
+    }
+}
+
 // func (pc *programContext) spawn(ctx Context) Context {
 //     return &traverseContext{
 //         Context: pc.Context.spawn(ctx),
@@ -109,7 +115,6 @@ func (pc *programContext) calleeError(err error) {
 func (pc *programContext) level(n int) { pc.traceLevel += n }
 func (pc *programContext) trace(a ...interface{}) { printIndentDots(pc.traceLevel, a...) }
 func (pc *programContext) tracef(s string, a ...interface{}) { printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...)) }
-
 func (pc *programContext) traversed(ctx Context, target Value) []Value {
     if !isTrivial(target) {
         pc.targets = append(pc.targets, target)
@@ -1490,9 +1495,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         autoSet(ctx, "@", target)
     }
 
-    var args []Value
-    if a := ctx.argumented(); a != nil { args = a.args }
-    pc.params = pc.args(ctx, prog.params, args)
+    pc.initializeArgs()
 
     var enterBack *enterec
     if len(uni.cds.stack) > 0 { enterBack = uni.cds.stack[0] }

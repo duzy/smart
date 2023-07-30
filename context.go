@@ -126,6 +126,9 @@ type Context interface {
   inner() Context
   cast(reflect.Type) Context
 
+  argumented() *argumentedContext
+  dia() *diaContext
+
   ac() *autoContext
   rc() *refContext
   ic() *invocation
@@ -152,9 +155,6 @@ type Context interface {
 
   sc() *stemmedContext
   stems() []string
-
-  argumented() *argumentedContext
-  dia() *diaContext
 
   // TODO: call(Context, string, facet, []Value, ...Value) Value
 

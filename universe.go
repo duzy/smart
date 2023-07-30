@@ -426,6 +426,7 @@ type universe struct {
 // func (ctx *universe) stemmed() *stemmed { return nil }
 // func (ctx *universe) traverse(_ Context, prereqValue Value) (traves travestates) { return }
 // func (ctx *universe) traversed(_ Context, target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
+func (ctx *universe) String() (s string) { return }
 func (ctx *universe) dirtyMark(vals ...Value) { return }
 func (ctx *universe) ref(_ Context, _ Value) bool { return false }
 func (ctx *universe) isConfigure() bool { return false }

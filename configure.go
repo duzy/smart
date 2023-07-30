@@ -341,6 +341,7 @@ func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName i
             if hyphen == nil { warn(ctx, "nil hyphen def").debug(1) }
         }
     }
+
 ForInParams:
     for _, a := range paramsOrig {
         var p, y = a.(*pair)
@@ -377,34 +378,28 @@ ForInParams:
 
     ctx = &configureContext{ ctx }
 
-    var (
-        reses []Value
-        traves travestates
-    )
+    var reses []Value
+    var traves travestates
     for _, entry := range entries.all {
-        if reses, traves = entry.execute(ctx, params...); ctx.dia().flush() > 0 {
-            total := ctx.dia().totalErrors()
-            warn(at(ctx,entry.Position()), "%v", entry)
-            warnstack(ctx, 5, `configure '%s' got %d error(s)`, entryName, total).debug(1)
-            if uni.failOnErrors {
-                panic(failure{"%v: fail by %d errors",ia(entry.Position(), total)})
-            }
-        } else if n := len(reses); n != 1 {
-            if true { // just bypass, no configuration results - <nil>
-                if false { warn(at(ctx,entry.Position()), "%v", entry).debug(1) }
-            } else if erro(at(ctx,entry.Position()), "%v", entry); n == 0 {
-                errostack(ctx, 5, `configure "%s" has no results`, entryName).debug(32)
-            } else {
-                errostack(ctx, 5, `configure "%s" has multiple results (%d)`, entryName, n).debug(32)
-            }
-        } else if result = reses[0]; !isNull(result) && result == hyphen {
+        if false { if entry.String() == "-library-c" {
+            noted(ctx, "%v: %v", entry, params).debug(1)
+        }}
+
+        reses, traves = entry.execute(ctx, params...)
+
+        if ctx.dia().error() { return }
+        if traves = traves.not(traveDone, traveRule, traveFile); traves.has() {
+            for i, s := range traves { erro(ctx, "%v: %d. %v", entry, i, s) }
+            erro(ctx, "%v: %d trave states", entry, len(traves)).debug(16)
+            return
+        }
+
+        if n := len(reses); n == 0 {
+            if false { warn(at(ctx,entry.Position()), "%v", entry).debug(1) }
+        } else if result = reses[0]; result != nil && result == hyphen {
             warn(at(ctx,entry.Position()), "%v", entry)
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug(1)
             result = nil // simply discard the result as it's the same as the input (hyphen) value
-        }
-
-        if false && target.strval(ctx) == "LZMA_VERSION" {
-            info(ctx, "configure: %v: %v, %T %v", entry, reses, result, result).debug(1)
         }
 
         if result != nil { if d, y := result.(*def); y /* && d.name == "@" */ {
@@ -412,11 +407,6 @@ ForInParams:
             var x = at(ctx, entry.Position())
             errostack(x, 3, "%v: invalid result: %v (%v)", entry, d, h).debug(10)
         }}
-
-        if traves = traves.not(traveDone, traveRule, traveFile); traves.has() {
-            for i, s := range traves { erro(ctx, "%v: %d. %v", entry, i, s) }
-            erro(ctx, "%v: %d trave states", entry, len(traves)).debug(16)
-        }
     }
 
     configured = true
@@ -482,8 +472,6 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
     } else {
         configured, result = configureExecuteEntry(ctx, opts, name, target, params...)
     }
-
-    if false { info(ctx, "%v %v %v", opName, configured, result) }
     return
 }
 
