@@ -97,16 +97,33 @@ func (tc *testcase) def(name string) (d *def) {
 
 func (tc *testcase) get(name string, ii ...interface{}) (res Value) {
 	var d *def
+    var y bool
 	var s = skipint{2} // tRunner + testcase.get
-	var a []interface{}
-	for _, i := range ii { if t, y := i.(skipint); y { s.int = t.int+1 } else { a = append(a, i) } }
-	if d, res = _call(tc, name, a...); d == nil {
-		if false { tc.Errorf("%s: not def", name) }
-		erro(tc, "%v", name).debug(1, s)
-	} else if res == nil {
+	var w facet
+	var a []Value
+	for _, i := range ii {
+		if t, y := i.(skipint); y {
+			s.int = t.int+1
+		}else if t, y := i.(facet); y {
+			w |= t
+		} else {
+			a = append(a, va(tc, i))
+		}
+	}
+
+	if o := tc.Project().resolveObject(tc, name); o == nil {
+		erro(tc, "%v: %s is nil", tc.Project(), name)
+	} else if d, y = o.(*def); !y {
+		erro(tc, "%v: %s is not def: %T", tc.Project(), name, o)
+	} else if len(a) > 0 {
+		if t := invoke(tc, d, w, nil, a); t != o { res = t }
+	} else if d.value != nil { if res = d.value; w != 0 {
+		res = res.expand(tc, w)
+	}}
+
+	if res == nil && d != nil { res = makeNull(d.position)
 		if false { tc.Errorf("%s: %v", name, d.value) }
 		erro(at(tc,d.position), "%v", d).debug(1, s)
-		res = makeNull(d.position)
 	}
 	return
 }

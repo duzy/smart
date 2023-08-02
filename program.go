@@ -1138,6 +1138,16 @@ ForPrerequisites:
         var isPatternStemmedForTarget = stem != nil && stem.target != nil &&
             eq(ctx, stem.target, target)
 
+        if /* strings.HasPrefix(target.String(), ".configure/library/") */false {
+            var v Value
+            if _, y := prerequisite.(*modification); !y {
+                v = prerequisite.expand(ctx, strval|expandUnexpandedForth)
+            } else {
+                v = prerequisite
+            }
+            noted(ctx, "%v %v %v %v", target, prerequisite, v, depend).debug(1)
+        }
+
         if depend != nil { depends.add(depend) }
 
         if d, f := time.Now().Sub(t0), time.Duration(pc.countFiles); d > 15*time.Second &&
@@ -1299,12 +1309,14 @@ func (t normalTraverseContext) traversed(ctx Context, target Value) (targets []V
         autoSet(ctx, "<", targets[0])
         autoSet(ctx, ">", targets[len(targets)-1])
     }
+    if false { noted(ctx, "%v %v", target, targets).debug(1) }
     return
 }
 func (t orderTraverseContext) traversed(ctx Context, target Value) (targets []Value) {
     if targets = t.Context.traversed(ctx, target); len(targets) > 0 {
         autoSet(ctx, "|", MakeList(t.Position(), targets...))
     }
+    if false { noted(ctx, "%v %v", target, targets).debug(1) }
     return
 }
 
@@ -1320,11 +1332,15 @@ func (prog *program) workDir(ctx Context) (workDir string) {
             }
         }
         if x, y := o.(invoker); y {
-            if v := x.invoke(ctx, plain, nil, nil); !isTrivial(v) {
+            if v := x.invoke(ctx, plain, nil, nil); v != nil {
                 workDir = v.strval(ctx)
             } else {
-                errostack(ctx, 3, "trivial %T %v", x, x).debug(32)
+                erro(ctx, "trivial %T %v", x, x).debug(1)
             }
+        } else if v := o.expand(ctx, strval); v != nil {
+            workDir = v.strval(ctx)
+        } else {
+            erro(ctx, "trivial %T %v", x, x).debug(1)
         }
     } else if filepath.IsAbs(pc.changedWD) {
         workDir = pc.changedWD

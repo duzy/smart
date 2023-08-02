@@ -506,27 +506,27 @@ func TestApp(t *testing.T) {
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.sys)) $(foreach $1 c,&(-g.$_) &(-g~&(target.sys).$_))),-g)") != 1 {
 		ctx.err("%v", v1)
 	} else if t := flag2("-g", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-O", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-D", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-f", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-m", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-W", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-I", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-no", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-isystem", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-isystem-after", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
-	} else if strings.Count(s, flag1("cflags")) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+	} else if t := flag1("cflags"); strings.Count(s, t) != 1 {
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if s := v2.String(); s == "" {
 		ctx.err("%T %v", v2, v2)
 	} else if strings.Count(s, "&(patsubst %,--target=%,&(target.triple))") != 1 {
@@ -538,27 +538,27 @@ func TestApp(t *testing.T) {
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.sys)) $(foreach $1 c,&(-g.$_) &(-g~&(target.sys).$_))),-g)") != 1 {
 		ctx.err("%v", v2)
 	} else if t := flag2("-g", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-O", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-D", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-f", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-m", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-W", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-I", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-no", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-isystem", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-isystem-after", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag1("cflags"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if s1, s2 := v1.strval(ctx), v2.strval(ctx); s1 != s2 {
 		ctx.err("%T %v -> %s", v2, v2, s)
 		ctx.err("%T %v -> %s", v2, v2, s)
@@ -596,27 +596,27 @@ func TestApp(t *testing.T) {
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.sys)) &(-g.fxxbxx) &(-g~&(target.sys).fxxbxx) &(-g.c) &(-g~&(target.sys).c)),-g)") != 1 {
 		ctx.err("%v", s)
 	} else if t := flag4("-g", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-O", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-D", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-f", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-m", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-W", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-I", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-no", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-isystem", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-isystem-after", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag3("cflags", "fxxbxx"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v1)
+		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if s := v2.String(); s == "" {
 		ctx.err("%T %v", v2, v2)
 	} else if strings.Count(s, "&(patsubst %,--target=%,&(target.triple))") != 1 {
@@ -636,27 +636,27 @@ func TestApp(t *testing.T) {
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.sys)) &(-g.fxxbxx) &(-g~&(target.sys).fxxbxx) &(-g.c) &(-g~&(target.sys).c)),-g)") != 1 {
 		ctx.err("%v", s)
 	} else if t := flag4("-g", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-O", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-D", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-f", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-m", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-W", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-I", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-no", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-isystem", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-isystem-after", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag3("cflags", "fxxbxx"); strings.Count(s, t) != 1 {
-		noted(ctx, "%v", t) ; ctx.err("%v", v2)
+		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if s1 := v1.strval(ctx); s1 == "" {
 		ctx.err("%T %v -> %s", v2, v2, s1)
 	} else if s2 := v2.strval(ctx); s2 == "" {
@@ -738,7 +738,7 @@ func TestApp(t *testing.T) {
 	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
+		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
 	}}}
 
 	if v := ctx.get(".test.5"); v == nil {
@@ -748,7 +748,7 @@ func TestApp(t *testing.T) {
 	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo2 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
+		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
 	}}}
 
 	if v := ctx.get(".test.6"); v == nil {
@@ -758,7 +758,7 @@ func TestApp(t *testing.T) {
 	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo3 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
+		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
 	}}}
 
 	if v := ctx.get(".test.7"); v == nil {
@@ -772,7 +772,7 @@ func TestApp(t *testing.T) {
 	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo4 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
+		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
 	}}}
 
 	if v := ctx.get(".test.8"); v == nil {
@@ -784,7 +784,7 @@ func TestApp(t *testing.T) {
 	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo5 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
+		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
 	}}}
 
 	if v := ctx.get(".test.9"); v == nil {
@@ -796,7 +796,7 @@ func TestApp(t *testing.T) {
 	} else if s := v.strval(ctx); s == "" {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else { for _, t := range foo6 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
+		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
 	}}}
 
 	ctx.flush()

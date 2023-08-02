@@ -83,10 +83,12 @@ const (
     expandOptimal   // possible optimal presentation
     expandDebug
     expandTrace
+    expandTraverse
 
     ident = expandClosure | expandDelegate | expandSelection | expandPathStr | expandArgedArgs
     plain = ident | expandAuto | expandOptimal
     strval = plain | expandUnexpandedForth | expandPlaceholder // NOTE: expand $_ in template
+    traval = strval | expandTraverse
     temporate = plain // TODO: Temporate Expanding - only expand what's possible and requested
 )
 
@@ -4824,8 +4826,12 @@ func (p *List) int(ctx Context) (i int64, err error) {
     }
 }
 func (p *List) expand(ctx Context, w facet) (res Value) {
-    var elems, u, n = w.expand(ctx, p.Elems...)
-    if res = p; n > 0 { res = &List{p.position, elements{elems}}}
+    elems, u, n := w.expand(ctx, p.Elems...)
+    if n > 0 {
+        res = &List{p.position, elements{elems}}
+    } else {
+        res = p
+    }
     if u > 0 { res = unexpanded{res} }
     return
 }
@@ -5126,8 +5132,6 @@ func (p *pair) expandable(ctx Context, w facet) bool {
     return w&expandPairVal != 0 && p.Value.expandable(ctx, w)
 }
 func (p *pair) expand(ctx Context, w facet) (res Value) {
-    res = p
-
     // NOTE: The value (p.Value) could be used as template arguments in many
     // NOTE: cases (eg copy-file). So don't implicitly expand p.Value!
     if k := p.Key.expand(ctx, w); w&expandPairVal != 0 {
@@ -5137,6 +5141,7 @@ func (p *pair) expand(ctx Context, w facet) (res Value) {
     } else if k != p.Key {
         res = &pair{p.valbase, k, p.Value}
     }
+    if res == nil { res = p }
     return
 }
 func (p *pair) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -5369,18 +5374,16 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *delegate) traverse(ctx Context) {
-    ctx = at(ctx, p.position)
-
-    if val := p.expand(ctx, plain); val == nil {
+func (p *delegate) traverse(ctx Context) { ctx = at(ctx, p.position)
+    if val := p.expand(ctx, traval); val == nil {
         warn(ctx, "delegate '%v' expands to nil", p)
         warnstack(ctx, -1, "").debug(16)
     } else if !isTrivial(val) {
         val.traverse(ctx)
     }
 }
-func (p *delegate) name(ctx Context) string { return p.name_(ctx, true) }
-func (p *delegate) name_(ctx Context, sel bool) (name string) {
+func (p *delegate) name(ctx Context) (name string) {
+    const sel = true
     switch x := p.x.(type) {
     case Object: name = x.name(ctx)
     case *selection: if sel { name = x.strval(ctx) }
@@ -5397,9 +5400,9 @@ func (p *delegate) _elemstr(ctx Context, o Object, k elembits, l string) (s stri
 }
 func (p *delegate) string(ctx Context, o Object, k elembits) (s string) { // source representation
     switch x := p.x.(type) {
-    case *selection: s = x.String() // x.strval(ctx)
+    case *selection: s = x.String()
     case  Object: s = x.name(ctx)
-    default: s = x.String()
+    default: if x != nil { s = x.String() }
     }
     if p.o != nil {
         s += "("
@@ -5443,8 +5446,9 @@ func (p *delegate) expandable(ctx Context, w facet) (res bool) {
     return
 }
 func (p *delegate) expand(ctx Context, w facet) (res Value) {
-    db, rm, un := false, false, true
-    if false { if w&expandDebug != 0 || (ctx.universe().ddd == "delegate.expand" && p.String() == "$(filter-out &(-x!a) &(-x~&(target.sys)!a) &(-x!b) &(-x~&(target.sys)!b) &(-x!c) &(-x~&(target.sys)!c),&(-x) &(-x~&(target.sys)))") { defer func() {
+    db, remake, unexp := false, false, true
+
+    if true { if w&expandDebug != 0 || (ctx.universe().db("delegate.expand") && p.String() == "$(if &(.test.$_),std=&(.test.$_))") { defer func() {
         var s string
         if a, y := p.x.(*auto); !y {
             s = sf("a=%v", p.a)
@@ -5454,7 +5458,7 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
         w.noted(ctx, p, s)
         u, _ := res.(unexpanded) ; uv := u.Value
         noted(ctx, "%v: %v %v ⇒ %v %v", p, typeof(p.x), p.x, typeof(res), res)
-        noted(ctx, "same=%v,%v ; %v,%v ; %v: %v", (res == p), (p == uv), rm, un, typeof(uv), uv).debug(32)
+        noted(ctx, "same=%v,%v ; %v,%v ; %v: %v", (res == p), (p == uv), remake, unexp, typeof(uv), uv).debug(32)
     }() ; /* w |= expandDebug */ ; db = true }}
 
     if w&(expandDelegate|expandDefDefArgs|expandUnexpandedForth) == 0 {
@@ -5480,23 +5484,30 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
         x Value
         y bool
     )
+
     if w&expandDefDefArgs != 0 { _, y = p.x.(*auto) }
+
     if y || w&(expandDelegate|expandUnexpandedForth) != 0 {
         x, a, y = forth(ctx, p.x, w, p.o, p.a) ; t1 = time.Now()
 
         if db { if p.x == x {
             noted(ctx, "%v: %v: %v ; %v ⇒ %v ; %v", p, typeof(p.x), p.x, p.a, a, y).debug(1)
         } else {
+            if len(a)>0 {
+                u, _ := a[0].(unexpanded)
+                noted(ctx, "%T %v , %T %v", a[0], a[0], u.Value, u.Value).debug(1)
+            }
             noted(ctx, "%v: %v: %v ⇒ %v %v ; %v ⇒ %v; %v", p, typeof(p.x), p.x, typeof(x), x, p.a, a, y).debug(1)
         }}
 
-        if x != p.x {
-            if e, y := x.(expanded); y { return e.Value }
-            if y { return x }
-        }
+        if x != p.x { if e, t := x.(expanded); t {
+            return e.Value
+        } else if y {
+            return x
+        }}
     } else if w&expandDefDefArgs != 0 {
         a, _, _ = (w|expandArgs).expand(ctx, p.a...)
-        x = p.x.expand(ctx, w&^expandInvoke)
+        x = p.x.expand(ctx, w&^expandInvoke) ; t1 = time.Now()
 
         if db { if x == p.x {
             noted(ctx, "%v: %v %v ; %v ⇒ %v", p, typeof(p.x), p.x, p.a, a).debug(1)
@@ -5505,31 +5516,36 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
         }}
     }
 
-    if x == nil { if _, z := p.x.(*auto); false && !db && !z {
-        if true { w.noted(ctx, p, p.a) }
-        noted(ctx, "%v: %v - %v", p, y, typeof(p.x)).debug(16)
-    }} else if x != p.x {
-        rm = true
-    } else if n := len(p.a); 0 < n && n != len(a) { if rm = true; a == nil { a = p.a } else {
-        warnstack(ctx, 3, "mangled args: %v: %v ⇒ %v (%030b)", p.x, p.a, a, w).debug(1)
-    }} else { for i, a := range a { if a != p.a[i] {
-        if a == nil { warnstack(ctx, 3, "mangled arg: %v: %v ⇒ %v (%030b)", p.x, a, a, w).debug(1) }
-        if u, y := a.(unexpanded); y {
-            rm = u.Value != p.a[i]
-        } else {
-            rm = true //rm, un = true, false
+    if n := len(p.a); 0 < n && n != len(a) {
+        if a == nil && p.a != nil { a = p.a } else {
+            warnstack(ctx, 3, "mangled args: %v: %v ⇒ %v (%030b)", p.x, p.a, a, w).debug(1)
         }
-        if db { noted(ctx, "%v: a[%d] ⇒ %T %v ⇒ %T %v (%v, %v)", p, i, p.a[i], p.a[i], a, a, rm, un).debug(1) }
-        if rm { break }
-    }}}
-
-    r := p
-    if rm {
-        if u, y := x.(unexpanded); false && y { x, un = u.Value, true }
-        r = &delegate{ p.valbase, p.l, x, p.o, a }
+        remake = true
+    } else {
+        remake = (x != nil && x != p.x)
     }
 
-    if un {
+    // Remake if any arg is different.
+    if !remake { for i, a := range a { if a != p.a[i] {
+        if a == nil { warnstack(ctx, 3, "mangled arg: %v: %v ⇒ %v (%030b)", p.x, a, a, w).debug(1) }
+        if u, y := a.(unexpanded); y {
+            remake = u.Value != p.a[i]
+        } else {
+            remake = true //rm, un = true, false
+        }
+        if db { noted(ctx, "%v: a[%d] ⇒ %T %v ⇒ %T %v (%v, %v)", p, i, p.a[i], p.a[i], a, a, remake, unexp).debug(1) }
+        if remake { break }
+    }}}
+
+    var r *delegate
+
+    if remake { if x == nil { x = p.x }
+        r = &delegate{ p.valbase, p.l, x, p.o, a }
+    } else {
+        r = p
+    }
+
+    if unexp {
         return unexpanded{r}
     } else {
         return r
@@ -5666,12 +5682,9 @@ func (p *closure) resolve(ctx Context, x Value) (res Value) {
     return
 }
 func (p *closure) expand(ctx Context, w facet) (res Value) {
-    if false { if w&expandDebug != 0 || (ctx.universe().ddd == "closure.expand" && p.String() == "&(-x!b)") { defer func() {
+    if false { if w&expandDebug != 0 || (ctx.universe().db("closure.expand") && p.String() == "&(.test.$_)") { defer func() {
         if true { var a []Value ; if ic := ctx.ic(); ic != nil { a = ic.a }; w.noted(ctx, p, p.a, a) }
-        if false { t := p.x.expand(ctx, w&^expandInvoke)
-            noted(ctx, "%v: %v %v ⇒ %v %v", p, typeof(p.x), p.x, typeof(t), t)
-        }
-        noted(ctx, "%v: %v %v ⇒ %v %v", p, typeof(p.x), p.x, typeof(res), res).debug(32)
+        noted(ctx, "%v: %v %v ⇒ %v %v", p, typeof(p.x), p, typeof(res), res).debug(32)
     }()}}
 
     ctx = at(ctx, p.position)
@@ -6743,29 +6756,24 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
 func (w facet) expand(ctx Context, values ...Value) (elems []Value, u, n int) {
     var uni = ctx.universe()
     for _, elem := range values {
-        if w&expandArgs == 0 && (elem == nil || isNull(elem)) { continue }
+        if w&expandArgs == 0 && elem == nil { continue }
 
         if t := atomic.AddInt64(&uni.facet_expand_n, 1); t > int64(max_expand)*2 {
             errostack(of(ctx, elem), 3, "max expand: %v (depth=%v,facet=%030b)", values, t, w).debug(t)
-            panic(fmt.Sprintf("max expand: %T %v", elem, elem))
+            panic(failure{"max expand: %T %v",ia(elem.Position(), elem, elem)})
         }
 
         val := elem.expand(ctx, w)
 
         atomic.AddInt64(&uni.facet_expand_n, -1)
 
-        if val == nil {
-            if false { errostack(of(ctx,elem), 3, "nil: %T %v", elem, elem).debug(5) }
-            continue
-        }
+        if val == nil { /* n += 1 ; */ continue }
 
         elems = append(elems, val)
 
-        if t, y := val.(unexpanded); y { u += 1
+        if t, y := val.(unexpanded); y {      u += 1
             if t.Value != elem && t != elem { n += 1 }
-        } else if val != elem /* || val.cmp(ctx, elem) != cmpEqual */ {
-            n += 1
-        }
+        } else               if val != elem { n += 1 }
     }
     return
 }
@@ -7176,9 +7184,13 @@ func xauto(ctx Context, v Value, w facet, a ...Value) (res Value) {
 }
 
 func iwa(ctx Context, ii ...interface{}) (w facet, a []Value) {
-    for _, i := range ii { if t, y := i.(facet); y { w |= t } else {
-        a = append(a, va(ctx, i))
-    }}
+    for _, i := range ii {
+        if t, y := i.(facet); y {
+            w |= t
+        } else {
+            a = append(a, va(ctx, i))
+        }
+    }
     return
 }
 
@@ -7193,21 +7205,6 @@ func inv(ctx Context, v Value, ii ...interface{}) (res Value) { w, a := iwa(ctx,
 func call(ctx Context, name string, w facet, o []Value, a ...Value) (res Value) {
     if v := ctx.universe().scope.Lookup(name); v != nil {
         if t := invoke(ctx, v, w, o, a); t != v { res = t }
-    }
-    return
-}
-
-func _call(ctx Context, name string, ii ...interface{}) (d *def, res Value) { w, a := iwa(ctx, ii...)
-    var y bool
-    var p = ctx.Project()
-    if o := p.resolveObject(ctx, name); o == nil {
-        erro(ctx, "%v: %s is nil", p, name)
-    } else if d, y = o.(*def); !y {
-        erro(ctx, "%v: %s is not def: %T", p, name, o)
-    } else if len(a) > 0 {
-        if t := invoke(ctx, d, w, nil, a); t != o { res = t }
-    } else if d.value != nil {
-        if res = d.value; w != 0 { res = res.expand(ctx, w) }
     }
     return
 }

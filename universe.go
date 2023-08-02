@@ -470,6 +470,13 @@ func (ctx *universe) closureScopes() (scopes []*Scope) {
     return
 }
 
+func (ctx *universe) db(ss ...string) (res bool) {
+    for _, d := range strings.Fields(ctx.ddd) {
+        for _, s := range ss { if d == s { return true }}
+    }
+    return
+}
+
 func (ctx *universe) doHelp()       { do_helpscreen(ctx) }
 func (ctx *universe) doHelpFlags()  { print_flag_trace(ctx) }
 func (ctx *universe) doHelpConfig() { print_configuration(ctx) }

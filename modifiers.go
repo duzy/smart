@@ -2723,12 +2723,14 @@ func (ctx *modifier_assert) v(args ...Value) (result interface{}) {
         if (uni.hooks.assert != nil && uni.hooks.assert(ctx, v, b)) || b {
             continue
         } else if s := ctx.msg; s == "" {
-            erro(of(ctx, a), "assert failed: %s: %v → %v → %s", typeof(a), a, v, v.strval(ctx)).debug(1)
+            noted(ctx, "%v", autoDef(ctx, "<"))
+            noted(ctx, "%v", autoDef(ctx, ">"))
+            erro(of(ctx, a), "assert: %s: %v → %v → %s", typeof(a), a, v, v.strval(ctx)).debug(1)
         } else {
-            erro(of(ctx, a), "assert failed: %s %v: %v: %s", typeof(a), a, v, s).debug(1)
+            erro(of(ctx, a), "assert: %s %v: %v: %s", typeof(a), a, v, s).debug(1)
         }
 
-        pc.traves.add(ctx, traveFail, target).error = fmt.Errorf("assert: %v", a)
+        pc.traves.add(ctx, traveFail, target).error = fmt.Errorf("assert(%v)", a)
     }
     return
 }

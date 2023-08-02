@@ -1068,6 +1068,8 @@ func (_ *undetermined) collect(ctx Context, cache *valcache, bits int) (res []*v
 
 const max_expand = 30
 
+type skip struct {}
+
 // A builtin represents a built-in function. builtins don't have a valid type.
 type builtin struct { knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
@@ -1090,6 +1092,10 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
         errostack(ctx, 3, "builtin.expand: nil delegate context (%030b)", w).debug(16)
         return p
     }
+
+    if false { if w&expandDebug != 0 || (ctx.universe().db("delegate.expand") && p.name_ == "if") { defer func() {
+        noted(ctx, "%v: %v ⇒ %v %v", p, ic.a, typeof(res), res).debug(24)
+    }()}}
 
     // Check builtin maximum expand-depth per invocation.
     if t := atomic.AddInt32(&ic.int32, 1); t > int32(max_expand) {
@@ -1151,16 +1157,21 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
         if ic.a, u, _ = (w|expandArgs).expand(ctx, ic.a...); u>0 && !forth { return p }
     }
 
-    if t := (interface{})(nil); f != nil {
-        if t, ic.x = f.x(ic, w), true; t == f {
+    if f != nil {
+        if t := f.x(ic, w); t == f {
+            noted(ctx, "%v: use skip{} instead: %T %v", p, typeof(t), t).debug(1)
+            return p
+        } else if _, y := t.(skip); y {
             return p
         } else {
+            ic.x = true
             return ease(ctx, t)
         }
     } else if g != nil {
-        if t, ic.x = g.c(ic, w), true; t != nil {
+        if t := g.c(ic, w); t != nil {
             warnstack(ctx, 3, "discarded command result: %v", t).debug(5)
         }
+        ic.x = true
     }
     return
 }

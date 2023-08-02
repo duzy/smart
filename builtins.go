@@ -841,7 +841,7 @@ func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
         }
     }
     if len(ic.a) != 2 {
-        erro(ctx, "wrong number of arguments: %v", ic.a)
+        erro(ctx, "equal: wrong number of arguments: %v", ic.a)
         erro(ctx, "try: $(equal <value-list>,<value-list>)").debug(1)
         return
     }
@@ -1016,23 +1016,30 @@ func (ctx *builtin_case) x(ic *invocation, w facet) (res interface{}) {
 // $(if cond, true-value, else-value, ...)
 type builtin_if struct { builtin_ }
 func (ctx *builtin_if) a(ic *invocation, w facet) (skip bool) { // NOTE: optional
-    for i, v := range ic.a { if i == 0 {
-        v = v.expand(ctx, w)
-        _, skip = v.(unexpanded)
-    } else /* if w&expandPlaceholder != 0 */ {
-        v = v.expand(ctx, /* expandPlaceholder */w)
-    } ; ic.a[i] = v }
+    for i, v := range ic.a { v = v.expand(ctx, w)
+        if i == 0 { if w&expandTraverse == 0 {
+            _, skip = v.(unexpanded)
+        }}
+        ic.a[i] = v
+    }
     return
 }
 func (ctx *builtin_if) x(ic *invocation, w facet) (res interface{}) {
-    if na := len(ic.a); na > 1 { t := ic.a[0]
-        if _, y := t.(unexpanded); y {
-            return ctx
-        } else if t.true(ctx) {
-            res = ic.a[1]//.expand(ctx, w)
-        } else if na > 2 {
-            a := ic.a[2:] //a, _, _ := w.expand(ctx, ic.a[2:]...)
-            res = ease(ctx, a)
+    if n := len(ic.a); n > 1 {
+        var t = ic.a[0]//.expand(ctx, strval)
+
+        if false { if ctx.universe().db("test.if") {
+            noted(ctx, "%v %v, %T %v, %T %v, %030b", ic.a, len(ic.a), t, t, res, res, w).debug(16)
+        }}
+
+        if w&expandTraverse == 0 { if _, y := t.(unexpanded); y {
+            return skip{}
+        }}
+
+        if t.true(ctx) {
+            res = ic.a[1]
+        } else if n > 2 {
+            res = ic.a[2:]
         }
     }
     return
@@ -1041,15 +1048,27 @@ func (ctx *builtin_if) x(ic *invocation, w facet) (res interface{}) {
 type builtin_ifeq struct { builtin_
     strval bool `s,sv,str,strval`
 }
+func (ctx *builtin_ifeq) a(ic *invocation, w facet) (skip bool) {
+    for i, v := range ic.a { v = v.expand(ctx, w)
+        if i < 2 && !skip && w&expandTraverse == 0 {
+            _, skip = v.(unexpanded)
+        }
+        ic.a[i] = v
+    }
+    return
+}
 func (ctx *builtin_ifeq) x(ic *invocation, w facet) (res interface{}) {
-    if na := len(ic.a); na > 2 {
+    if n := len(ic.a); n > 2 {
         var (
             a = ic.a[0]//.expand(ctx, plain)
             b = ic.a[1]//.expand(ctx, expandDelegate)
-            equal bool
         )
-        if _, y := a.(unexpanded); y { return ctx }
-        if _, y := b.(unexpanded); y { return ctx }
+        if w&expandTraverse == 0 {
+            if _, y := a.(unexpanded); y { return skip{} }
+            if _, y := b.(unexpanded); y { return skip{} }
+        }
+
+        var equal bool
         if ctx.strval {
             equal = a.strval(ctx) == b.strval(ctx)
         } else {
@@ -1057,8 +1076,8 @@ func (ctx *builtin_ifeq) x(ic *invocation, w facet) (res interface{}) {
         }
         if equal {
             res = ic.a[2]
-        } else if na > 3 {
-            res = ease(ctx, ic.a[3:])
+        } else if n > 3 {
+            res = ic.a[3:]
         }
     }
     return
@@ -1067,15 +1086,27 @@ func (ctx *builtin_ifeq) x(ic *invocation, w facet) (res interface{}) {
 type builtin_ifne struct { builtin_
     strval bool `s,sv,str,strval`
 }
+func (ctx *builtin_ifne) a(ic *invocation, w facet) (skip bool) {
+    for i, v := range ic.a { v = v.expand(ctx, w)
+        if i < 2 && !skip && w&expandTraverse == 0 {
+            _, skip = v.(unexpanded)
+        }
+        ic.a[i] = v
+    }
+    return
+}
 func (ctx *builtin_ifne) x(ic *invocation, w facet) (res interface{}) {
-    if na := len(ic.a); na > 2 {
+    if n := len(ic.a); n > 2 {
         var (
             a = ic.a[0]//.expand(ctx, plain)
             b = ic.a[1]//.expand(ctx, expandDelegate)
-            equal bool
         )
-        if _, y := a.(unexpanded); y { return ctx }
-        if _, y := b.(unexpanded); y { return ctx }
+        if w&expandTraverse == 0 {
+            if _, y := a.(unexpanded); y { return skip{} }
+            if _, y := b.(unexpanded); y { return skip{} }
+        }
+
+        var equal bool
         if ctx.strval {
             equal = a.strval(ctx) == b.strval(ctx)
         } else {
@@ -1083,13 +1114,14 @@ func (ctx *builtin_ifne) x(ic *invocation, w facet) (res interface{}) {
         }
         if !equal {
             res = ic.a[2]
-        } else if na > 3 {
-            res = ease(ctx, ic.a[3:])
+        } else if n > 3 {
+            res = ic.a[3:]
         }
     }
     return
 }
 
+// $(for x=(a b c),$(x))
 // type builtin_for struct {
 //     Context
 //     generalOpts
@@ -1122,11 +1154,12 @@ func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
 
     // NOTE: only expand the first arg with placeholder bit
     a := ic.a[0].expand(ctx, w|expandPlaceholder)
+
     if builtin_foreach_a_skip && w&expandUnexpandedForth == 0 {
         if _, skip = a.(unexpanded); skip { ctx.a1(ic, w) }
     }
 
-    if false { if (w&expandDebug != 0 || ctx.universe().ddd == "foreach") && a.String() == "$(filter-out &(-x!a) &(-x~&(target.sys)!a) &(-x!b) &(-x~&(target.sys)!b) &(-x!c) &(-x~&(target.sys)!c),&(-x) &(-x~&(target.sys))) &(-x.a) &(-x~&(target.sys).a) &(-x.b) &(-x~&(target.sys).b) &(-x.c) &(-x~&(target.sys).c)" {
+    if false { if w&expandDebug != 0 {
         w.noted(ctx, ic.a[0], ic.a[1:])
         noted(ctx, "%v %v", typeof(ic.a[0]), ic.a[0])
         noted(ctx, "%v %v", typeof(a), a).debug(16)
@@ -1142,19 +1175,20 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
         noted(ctx, "%v %v -> %v", typeof(ic.a[0]), values, res).debug(16)
     }(); db = true }}
 
-    if !builtin_foreach_a_skip && w&expandUnexpandedForth == 0 { if _, y := ic.a[0].(unexpanded); y {
-        ctx.a1(ic, w)
-        return ctx
-    }}
+    if !builtin_foreach_a_skip && w&expandUnexpandedForth == 0 {
+        if _, y := ic.a[0].(unexpanded); y {
+            ctx.a1(ic, w)
+            return skip{}
+        }
+    }
 
     if values, temps = umerge(true, ic.a[0]), ic.a[1:]; len(values) == 0 {
         var d = ctx.debug ; if d < 1 { d = 1 }
         errostack(ctx, 3, "$(foreach <list>,<templates>): insurficient arguments: %v", ic.a).debug(d)
         return
-    } else if !ctx.unique {
-        // remains duplication
-    } else if t := call(ctx, "unique", w, nil, values...); !isTrivial(t) {
-        values = merge(t)
+    } else if ctx.unique {
+        t := call(ctx, "unique", w, nil, values...)
+        if !isTrivial(t) { values = merge(t) }
     }
 
     var list []Value
@@ -1169,7 +1203,9 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
         var l []Value
         for _, a := range temps { v := scalarize(scalarize(a).expand(cc, vw))
             if ctx.empty || !isTrivial(v) && !isEmpty(v) { l = append(l, v) }
-            if db { noted(ctx, "%T %v %v -> %v %v", a, typeof(a), a, typeof(v), v) }
+            if db || ctx.universe().db("closure.expand") && a.String() == "$(if &(.test.$_),std=&(.test.$_))" {
+                noted(ctx, "%T %v -> %v %v", a, a, typeof(v), v).debug(1)
+            }
         }
         if l == nil { if ctx.empty {
             list = append(list, makeNone(ctx.Position()))
@@ -1300,7 +1336,7 @@ func (ctx *builtin_call) x(ic *invocation, w facet) (res interface{}) {
     var obj Object
     var name = ic.a[0]
     if _, y := name.(unexpanded); y {
-        return ctx
+        return skip{}//ctx
     } else if s := name.strval(ctx); ctx._closure {
         obj = closureResolveObject(ctx, s)
     } else {
@@ -1310,7 +1346,7 @@ func (ctx *builtin_call) x(ic *invocation, w facet) (res interface{}) {
         // var a, u, n = (w|expandAuto|expandArgs).expand(ctx, ic.a...)
         // if true { noted(ctx, "%v ⇒ %v", a, ic.a).debug(1) }
         // if u > 0 || n > 0 { ic.a = a }
-        return ctx
+        return skip{}//ctx
     }
     return invoke(ctx, obj, w, nil, ic.a[1:])
 }
