@@ -1130,7 +1130,6 @@ func (ctx *builtin_ifne) x(ic *invocation, w facet) (res interface{}) {
 //     return
 // }
 
-const builtin_foreach_a_skip = false // it works true or false
 type builtin_foreach struct { builtin_
     empty bool `empty,allow-empty`
     unique bool `u,uni,unique`
@@ -1153,19 +1152,11 @@ func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
     }
 
     // NOTE: only expand the first arg with placeholder bit
-    a := ic.a[0].expand(ctx, w|expandPlaceholder)
+    ic.a[0] = ic.a[0].expand(ctx, w|expandPlaceholder)
 
-    if builtin_foreach_a_skip && w&expandUnexpandedForth == 0 {
-        if _, skip = a.(unexpanded); skip { ctx.a1(ic, w) }
+    if w&expandUnexpandedForth == 0 {
+        if _, skip = ic.a[0].(unexpanded); skip { ctx.a1(ic, w) }
     }
-
-    if false { if w&expandDebug != 0 {
-        w.noted(ctx, ic.a[0], ic.a[1:])
-        noted(ctx, "%v %v", typeof(ic.a[0]), ic.a[0])
-        noted(ctx, "%v %v", typeof(a), a).debug(16)
-    }}
-
-    ic.a[0] = a
     return
 }
 func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
@@ -1174,13 +1165,6 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
         w.noted(ctx, ic.a[0], ic.a[1:])
         noted(ctx, "%v %v -> %v", typeof(ic.a[0]), values, res).debug(16)
     }(); db = true }}
-
-    if !builtin_foreach_a_skip && w&expandUnexpandedForth == 0 {
-        if _, y := ic.a[0].(unexpanded); y {
-            ctx.a1(ic, w)
-            return skip{}
-        }
-    }
 
     if values, temps = umerge(true, ic.a[0]), ic.a[1:]; len(values) == 0 {
         var d = ctx.debug ; if d < 1 { d = 1 }
@@ -1203,9 +1187,7 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
         var l []Value
         for _, a := range temps { v := scalarize(scalarize(a).expand(cc, vw))
             if ctx.empty || !isTrivial(v) && !isEmpty(v) { l = append(l, v) }
-            if db || ctx.universe().db("closure.expand") && a.String() == "$(if &(.test.$_),std=&(.test.$_))" {
-                noted(ctx, "%T %v -> %v %v", a, a, typeof(v), v).debug(1)
-            }
+            if db { noted(ctx, "%T %v -> %v %v", a, a, typeof(v), v).debug(1) }
         }
         if l == nil { if ctx.empty {
             list = append(list, makeNone(ctx.Position()))
