@@ -730,13 +730,23 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *de
 
     switch d.position = identifier.Position(); tok {
     case     ASSIGN: d.set(ctx, DefDefault, value) //   =
-    case CO1_ASSIGN: d.set(ctx, DefExpand1, value) //  :=
-    case CO2_ASSIGN: d.set(ctx, DefExpand2, value) // ::=
-    case EXC_ASSIGN: d.set(ctx, DefExecute, value) //  !=
-    case QUE_ASSIGN: if alt == nil { d.set(ctx, DefDefault, value) } // ?=
-    case ADD_ASSIGN: if !isTrivial(value) { d.append(ctx, value) } // +=
-    case SHI_ASSIGN: if !isTrivial(value) { tail := d.value // =+
-        if d.val(ctx, value); !isTrivial(tail) { d.append(ctx, tail) }
+    case CO1_ASSIGN: d.set(ctx, DefExpand1, value, expandDefAssign) //  :=
+    case CO2_ASSIGN: d.set(ctx, DefExpand2, value, expandDefAssign) // ::=
+    case EXC_ASSIGN: d.set(ctx, DefExecute, value, expandDefAssign) //  !=
+    case QUE_ASSIGN: if alt == nil { // ?=
+        d.set(ctx, DefDefault, value, expandDefAssign)
+    }
+    case ADD_ASSIGN: if !isTrivial(value) { // +=
+        var ii []interface{}
+        if !isTrivial(d.value) { ii = vi(umerge(true, d.value)...) }
+        if !isTrivial(  value) { ii = vi(umerge(true,   value)...) }
+        d.set(ctx, d.origin, nil, append(ii, expandDefAssign)...)
+    }
+    case SHI_ASSIGN: if !isTrivial(value) {
+        var ii []interface{}
+        if !isTrivial(  value) { ii = vi(umerge(true,   value)...) }
+        if !isTrivial(d.value) { ii = vi(umerge(true, d.value)...) }
+        d.set(ctx, d.origin, nil, append(ii, expandDefAssign)...)
     }
     case SUB_ASSIGN: if d.value != nil { if dv := merge(d.value); len(dv) > 0 { // -=
         var vals []Value

@@ -9,7 +9,9 @@ val5 := $(or         a,&(none))
 val6 := $(and $1,$2,$3)
 
 x0  = (variant/$(or(-forth) $(base &(variant)),bootstrap))
+# eval -ddd=or
 x1 := (variant/$(or(-forth) $(base &(variant)),bootstrap))
+# eval -ddd=none{}
 x2 :=  variant/$(or(-forth) $(base &(variant)),bootstrap)
 x3 :=          $(or(-forth) $(base &(variant)),bootstrap)
 x4 :=          $(or         $(base &(variant)),bootstrap)

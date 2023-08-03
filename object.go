@@ -15,7 +15,7 @@ import (
     "sync"
     "sync/atomic"
     "bytes"
-    // "unsafe"
+    "unsafe"
     "time"
     "fmt"
 )
@@ -805,6 +805,7 @@ func (d *def) expand(ctx Context, w facet) (res Value) { var db bool
     if d.value != nil { if res = d.xauto(ctx, w, ic.a...); d.origin == DefExecute {
         res = d.xexec(ctx, res, ic.a...)
     }}
+
     if db { noted(ctx, "%v %v -> %v ; %v %v %v", d.origin, d, res, ic.a, u, n).debug(1) }
 
     if ic.x = true; res == nil { return d }
@@ -848,15 +849,22 @@ func (d *def) elemstr(_ Context, o Object, k elembits) (s string) {
     return
 }
 func (d *def) val(ctx Context, value Value) { d.set(ctx, d.origin, value) }
-func (d *def) set(ctx Context, origin Origin, value Value, app ...Value) {
-    var pos = d.position
-    if value == nil {
-        // NOTE: will append values iif len(app) > 0
-    } else if d.value == value {
+func (d *def) set(ctx Context, origin Origin, value Value, ii ...interface{}) {
+    var app []Value
+    var w = plain/* |expandAuto *//* &^expandOptimal */;
+    for _, i := range ii {
+        switch v := i.(type) {
+        case Value: app = append(app, v)
+        case facet: w |= v
+        }
+    }
+
+    if value != nil && d.value == value {
         if d.origin != origin { d.origin = origin }
         return
     }
 
+    var pos = d.position
     if !pos.IsValid() {
         if value != nil { pos =  value.Position() } else
         if len(app) > 0 { pos = app[0].Position() }
@@ -869,7 +877,7 @@ func (d *def) set(ctx Context, origin Origin, value Value, app ...Value) {
     for i, val := range vals { if o, y := val.(*def); y { vals[i] = o.value }}
 
     var uni = ctx.universe()
-    switch w := plain/* |expandAuto *//* &^expandOptimal */; origin {
+    switch origin {
     case DefExpand1: vals, _, _ = (w&^expandClosure).expand(ctx, vals...) //  :=
     case DefExpand2: vals, _, _ = (w| expandClosure).expand(ctx, vals...) // ::=
     default: for _, val := range vals { if val != nil && val.refs(ctx, d) { ctx = at(ctx, pos)
@@ -896,7 +904,7 @@ func (d *def) set(ctx Context, origin Origin, value Value, app ...Value) {
     return
 }
 func (d *def) append(ctx Context, va ...Value) {
-    if len(va) > 0 { d.set(ctx, d.origin, nil, va...) }
+    if len(va) > 0 { d.set(ctx, d.origin, nil, vi(va...)...) }
 }
 func (d *def) invoke(ctx Context, w facet, o, a []Value) (res Value) {
     return invoke(ctx, d, w, o, a)
@@ -1129,10 +1137,12 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
     var y bool
     var g builtin_c
     var f builtin_x
-    if f, y = bi.(builtin_x); !y { if g, y = bi.(builtin_c); !y {
-        errostack(ctx, 3, "no method: (*%s).[cx](...) (%030b)", typeof(bi), w).debug(16)
-        return
-    }}
+    if f, y = bi.(builtin_x); !y {
+        if g, y = bi.(builtin_c); !y {
+            errostack(ctx, 3, "no method: (*%s).[cx](...) (%030b)", typeof(bi), w).debug(16)
+            return
+        }
+    }
 
     if c := bv.Elem().FieldByName("Context"); !c.IsValid() {
         errostack(ctx, 3, "no field: %s.Context (%030b)", typeof(bi), w).debug(16)
@@ -1142,19 +1152,51 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
     if ic.o == nil {} else if t := _parseOpts(ctx, bv, plain, ic.o); t != nil {
         errostack(ctx, 3, "%v: unsupported opts: %v (%v, %030b)", p.name_, t, typeof(bv), w).debug(16)
         return
-    } else if false { if t, y := bi.(*builtin_wildcard); y {
-        noted(ctx, "%v: %v %v", p, ic.o, t.dir).debug(1)
+    }
+
+    if false { if _, y := bi.(*builtin_or); y && len(ic.a) == 2 && ic.a[0].String() == "$3" && ic.a[1].String() == "$2" {
+        defer func(a []Value) { noted(ctx, "%v: %v %v %v", p, ic.o, a, ic.a).debug(2) }(ic.a)
     }}
 
     var forth bool = w&expandUnexpandedForth != 0
-    if !forth { if t := bv.Elem().FieldByName("forth"); t.IsValid() {
-        forth = t.Type().Kind() == reflect.Bool && t.Bool()
-    }}
+    if f := bv.Elem().FieldByName("forth"); f.IsValid() && f.Kind() == reflect.Bool {
+        if forth {
+            if f.CanSet() { f.SetBool(true) } else {
+                *(*bool)(unsafe.Pointer(f.UnsafeAddr())) = true
+            }
+        } else {
+            if forth = f.Bool(); false && forth {
+                w |= expandUnexpandedForth
+            }
+        }
+    }
 
     if x, y := bi.(builtin_a); y {
         if x.a(ic, w|expandArgs) && !forth { return p }
     } else { var u int
         if ic.a, u, _ = (w|expandArgs).expand(ctx, ic.a...); u>0 && !forth { return p }
+    }
+
+    // FIXES unexpected expansion for autos on def-assigns.
+    if w&expandDefAssign != 0 && p.name_ != "auto" {
+        const ad = expandAuto|expandDigits
+        var f func(v Value) (res bool)
+        f = func(v Value) (res bool) {
+            var args []Value
+            switch t := v.(type) {
+            case *List: for _, v := range t.Elems { if f(v) { return true } }
+            case *delegate: if f(t.x) { return true } else { args = t.a }
+            case *closure: if f(t.x) { return true } else { args = t.a }
+            case unexpanded: return f(t.Value)
+            case digital, *auto: return true
+            }
+            if false { for _, a := range args { if f(a) { return true } }}
+            return
+        }
+        for _, a := range ic.a { if w&ad != 0 && a.expandable(ctx, ad) {
+            if false && ctx.universe().db("builtin") { noted(ctx, "builtin: %T %v", a, a).debug(1) }
+            if f(a) { return p }
+        }}
     }
 
     if f != nil {

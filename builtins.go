@@ -42,6 +42,8 @@ type builtin_ struct {
 type builtin_a interface{ a(*invocation,facet) bool }
 type builtin_c interface{ c(*invocation,facet) interface{} }
 type builtin_x interface{ x(*invocation,facet) interface{} }
+type builtin_1 interface{ x(*invocation) interface{} }
+type builtin_0 interface{ x() interface{} }
 
 var builtin_a_t = reflect.TypeOf((*builtin_a)(nil)).Elem()
 var builtin_c_t = reflect.TypeOf((*builtin_c)(nil)).Elem()
@@ -315,54 +317,60 @@ func _set(ctx Context, val reflect.Value, v Value) {
             _set(ctx, t, v)
             val.Set(reflect.Append(val, t))
         }
-    case reflect.Interface: switch val.Type().String() {
-    case "smart.Value": val.Set(reflect.ValueOf(v))
-    default: erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
-    }
-    case reflect.Ptr: switch val.Type().Elem().String() {
-    case "smart.fullnameOpt":
-        if x := v.expand(ctx, plain|expandFullName); isTrivial(x) {
-            erro(of(ctx, v), "expecting file value: %T %v", v, v).debug(1)
-        } else if o, y := (as{x}.fullnameOpt(ctx)); y && o.Value != nil {
-            val.Set(reflect.ValueOf(o))
-        } else {
-            erro(of(ctx,v), "%v: not a file: %v → %T %v", ctx.Project(), v, x, x)
-            errostack(ctx, 5).debug(32)
+    case reflect.Interface:
+        switch val.Type().String() {
+        case "smart.Value":
+            val.Set(reflect.ValueOf(v))
+        default:
+            erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
         }
-    case "smart.File":
-        if x := v.expand(ctx, plain); isNone(x) {
-            erro(of(ctx,v), "expecting file value: %T %v", v, v).debug(1)
-        } else if file, y := toFile(x); y {
-            val.Set(reflect.ValueOf(file))
-        } else if proj := ctx.Project(); proj == nil {
-            erro(of(ctx,x), "no current project to find file '%v'", x).debug(1)
-        } else if file = proj.file(ctx, x.strval(ctx)); file != nil {
-            val.Set(reflect.ValueOf(file))
-        } else {
-            erro(of(ctx,v), "'%v' is not a file", x).debug(1)
-        }
-    case "regexp.Regexp":
-        if rx, e := regexp.Compile(v.strval(ctx)); e != nil {
-            erro(of(ctx,v), "compile regexp '%v' failed: %v", v, e).debug(1)
-        } else {
-            val.Set(reflect.ValueOf(rx))
+    case reflect.Ptr:
+        switch val.Type().Elem().String() {
+        case "smart.fullnameOpt":
+            if x := v.expand(ctx, plain|expandFullName); isTrivial(x) {
+                erro(of(ctx, v), "expecting file value: %T %v", v, v).debug(1)
+            } else if o, y := (as{x}.fullnameOpt(ctx)); y && o.Value != nil {
+                val.Set(reflect.ValueOf(o))
+            } else {
+                erro(of(ctx,v), "%v: not a file: %v → %T %v", ctx.Project(), v, x, x)
+                errostack(ctx, 5).debug(32)
+            }
+        case "smart.File":
+            if x := v.expand(ctx, plain); isNone(x) {
+                erro(of(ctx,v), "expecting file value: %T %v", v, v).debug(1)
+            } else if file, y := toFile(x); y {
+                val.Set(reflect.ValueOf(file))
+            } else if proj := ctx.Project(); proj == nil {
+                erro(of(ctx,x), "no current project to find file '%v'", x).debug(1)
+            } else if file = proj.file(ctx, x.strval(ctx)); file != nil {
+                val.Set(reflect.ValueOf(file))
+            } else {
+                erro(of(ctx,v), "'%v' is not a file", x).debug(1)
+            }
+        case "regexp.Regexp":
+            if rx, e := regexp.Compile(v.strval(ctx)); e != nil {
+                erro(of(ctx,v), "compile regexp '%v' failed: %v", v, e).debug(1)
+            } else {
+                val.Set(reflect.ValueOf(rx))
+            }
+        default:
+            erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).debug(1)
         }
     default:
-        erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).debug(1)
-    }
-    default: switch val.Type().String() {
-    case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
-        if t, e := v.int(ctx); e == nil {
-            if t == 0 { warn(of(ctx,v), "zero file mode").debug(1) }
-            val.SetUint(uint64(t))
-        } else {
-            erro(ctx, "%v: %v", v, t).debug(1)
+        switch val.Type().String() {
+        case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
+            if t, e := v.int(ctx); e == nil {
+                if t == 0 { warn(of(ctx,v), "zero file mode").debug(1) }
+                val.SetUint(uint64(t))
+            } else {
+                erro(ctx, "%v: %v", v, t).debug(1)
+            }
+        case "regex.Regex": // aka. reflect.Ptr
+            erro(of(ctx,v), "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+        default:
+            erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
         }
-    case "regex.Regex": // aka. reflect.Ptr
-        erro(of(ctx,v), "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
-    default:
-        erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
-    }}
+    }
 }
 
 func _parseOpt(ctx Context, tag reflect.StructTag, field reflect.Value, args ...Value) (rest []Value) {
@@ -399,7 +407,7 @@ ForArgs:
 
         // don't parse patterns, e.g. -I%
         if !a.patterned(ctx) { switch t := a.(type) {
-        case flag: f, value = t, MakeBoolean(t.Position(), true)
+        case  flag: f, value = t, MakeBoolean(t.Position(), true)
         case *pair: if f, y = t.Key.(flag); y { value = t.Value }
         case *argumented: if f, y = t.Value.(flag); y { value = ease(ctx, t.args) }
         }}
@@ -798,16 +806,49 @@ func (ctx *builtin_defor) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_or struct { builtin_ }
+func (ctx *builtin_or) _a(ic *invocation, w facet) (skip bool) {
+    for i, a := range ic.a {
+        if false && !ctx.forth {
+            if _, y := a.(unexpanded); y { skip = true }
+        }
+        if false && ctx.universe().db("or") {
+            noted(ctx, "or: %v %d. %v ; %v %v %v", ic.a, i, a.expand(ctx, w), autoDef(ctx, "1"), autoDef(ctx, "2"), autoDef(ctx, "3"))
+        }
+        ic.a[i] = a.expand(ctx, w)
+    }
+    return
+}
 func (ctx *builtin_or) x(ic *invocation, w facet) (res interface{}) {
-    for _, a := range ic.a { if a.true(ctx) { return a } }
+    for _, a := range umerge(true, ic.a...) {
+        if a.expandable(ctx, w) { a = a.expand(ctx, w) }
+        if !ctx.forth { if u, y := a.(unexpanded); y {
+            if false && ctx.universe().db("or") { v := u.Value
+                noted(ctx, "or: %T %v %030b", v, v, w&expandDefAssign).debug(1)
+            }
+            return skip{}
+        }}
+        if a.true(ctx) { return a }
+    }
     return
 }
 
 type builtin_and struct { builtin_ }
+func (ctx *builtin_and) _a(ic *invocation, w facet) (skip bool) {
+    for i, a := range ic.a {
+        if false && !ctx.forth {
+            if _, y := a.(unexpanded); y { skip = true }
+        }
+        ic.a[i] = a.expand(ctx, w)
+    }
+    return
+}
 func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
-    for _, a := range ic.a { if a.true(ctx) { res = a } else {
-        return nil
-    }}
+    for _, a := range umerge(true, ic.a...) {
+        if !ctx.forth {
+            if _, y := a.(unexpanded); y { return skip{} }
+        }
+        if a.true(ctx) { res = a } else { return nil }
+    }
     return
 }
 
@@ -1154,7 +1195,7 @@ func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
     // NOTE: only expand the first arg with placeholder bit
     ic.a[0] = ic.a[0].expand(ctx, w|expandPlaceholder)
 
-    if w&expandUnexpandedForth == 0 {
+    if !ctx.forth {
         if _, skip = ic.a[0].(unexpanded); skip { ctx.a1(ic, w) }
     }
     return

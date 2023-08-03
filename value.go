@@ -75,6 +75,7 @@ const (
     expandModifier  // [(...) ...]       -> ...
     expandInvoke    // via invoke
     expandArgs      // special care for args
+    expandDefAssign
     expandDefDefArgs
     expandDefOriginOff
     expandUnexpandedForth
@@ -5615,11 +5616,11 @@ type closure struct { delegate }
 func (p *closure) elemstr(ctx Context, o Object, k elembits) string { return p._elemstr(ctx, o, k, "&") }
 func (p *closure) String() (s string) { return p.elemstr(nil, nil, 0) }
 func (p *closure) strval(ctx Context) (s string) {
-    if v := p.value(ctx, plain); v != nil { s = v.strval(ctx) }
+    if v := p.value(ctx, strval); v != nil { s = v.strval(ctx) }
     return
 }
 func (p *closure) true(ctx Context) (t bool) {
-    if v := p.value(ctx, plain); v != nil { t = v.true(ctx) }
+    if v := p.value(ctx, strval); v != nil { t = v.true(ctx) }
     return
 }
 func (p *closure) value(ctx Context, w facet) (v Value) {
@@ -6698,7 +6699,11 @@ func umerge(un bool, args ...Value) (elems []Value) {
 }
 func _umerge(u unexpanded) (elems []Value) {
     if l, y := u.Value.(*List); y {
-        elems = append(elems, umerge(true, l.Elems...)...)
+        if false && len(l.Elems) == 1 {
+            elems = append(elems, unexpanded{l.Elems[0]})
+        } else {
+            elems = append(elems, umerge(true, l.Elems...)...)
+        }
     } else {
         elems = []Value{u}
     }
@@ -6767,7 +6772,9 @@ func (w facet) expand(ctx Context, values ...Value) (elems []Value, u, n int) {
 
         atomic.AddInt64(&uni.facet_expand_n, -1)
 
-        if val == nil { /* n += 1 ; */ continue }
+        // Builtins and modifiers may yield nil values; one must add to n indicating the changes,
+        // List.expand relies on it to make the correct value.
+        if val == nil { n += 1 ; continue }
 
         elems = append(elems, val)
 
@@ -6816,6 +6823,11 @@ func splitPathStr(ctx Context, pos Position, str string) (segments []Value) {
         // TODO: calculate position of each segment
         segments = append(segments, v)
     }
+    return
+}
+
+func vi(a ...Value) (ii []interface{}) {
+    for _, v := range a { ii = append(ii, v) }
     return
 }
 

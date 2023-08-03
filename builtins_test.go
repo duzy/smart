@@ -2111,10 +2111,14 @@ func TestLogic(t *testing.T) {
 		ctx.err("val5")
 	} else if v.String() != "$(or a,&(none))" {
 		ctx.err("%T %v", v, v)
-	} else if _, y := v.(unexpanded); !y {
+	} else if true {
+		if _, y := v.(unexpanded); !y {
+			ctx.err("%T %v", v, v)
+		} else if s := v.strval(ctx); s != "a" {
+			ctx.err("%T %v -> %s", v, v, s)
+		}
+	} else if _, y := v.(*bareword); !y {
 		ctx.err("%T %v", v, v)
-	} else if s := v.strval(ctx); s != "a" {
-		ctx.err("%T %v -> %s", v, v, s)
 	}
 
 	if v := ctx.get("val6"); v == nil {
