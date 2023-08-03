@@ -1708,6 +1708,7 @@ func (p *parser) isParametersGroup(x Value) (res bool) {
 
 func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
+
 	defer ctx.dia().trace(ctx, "composite")
 
 	switch x = p.unary(ctx, lhs); p.tok { // check composible expressions
@@ -1763,6 +1764,7 @@ func (p *parser) text(ctx Context) (res []Value) { var uni = ctx.universe()
 
 func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
+
 	defer ctx.dia().trace(ctx, "expr")
 
 	var tok, lit = p.tok, p.lit
@@ -3183,6 +3185,7 @@ func (p *parser) clause(ctx Context) { var uni = ctx.universe()
 		case    FILES: p.spec(ctx, tok, p.expect(tok), p.files); return
 		case   ASSERT: p.spec(ctx, tok, p.expect(tok), p.assert); return
 		case   APPEND: p.spec(ctx, tok, p.expect(tok), p.append); return
+		case     EVAL: p.spec(ctx, tok, p.expect(tok), p.eval); return
 		case    COLON: p.specialRule(ctx); return
 		case TEMPLATE: p.template(ctx, ""); return
 		case      FOR: p.template(ctx, "for"); return
@@ -3249,6 +3252,8 @@ func (p *parser) file(ctx Context) *parsedFile {
 	if uni.traceLaunch { defer un(trace(t_launch, "parser.file")) }
 	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
 	if ctx.dia().error() { return nil }
+
+	defer ctx.dia().trace(ctx, "file")
 
 	var (
 		ident *barecomp
