@@ -1999,6 +1999,225 @@ type modifier_check struct { modifier_
     file Value `f,file`
     dir Value `di,dir`
 }
+
+func (ctx *modifier_check) x(args ...Value) (result interface{}) {
+    var (
+        pos = ctx.Position()
+        pc  = ctx.pc()
+        optBreak travekind // breaking with good results
+        makeResult func(Position,bool) Value // returns results only if non-nil
+        values []Value
+        res bool
+    )
+
+    if ctx.good   { optBreak   = traveDone }
+    if ctx.answer { makeResult = func(p Position,v bool) Value { return makeAnswer(p, v) } }
+    if makeResult == nil && ( ctx.boolean ||
+        (ctx.file != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
+        (ctx.dir  != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
+        (ctx.silent)) { makeResult = func(p Position,v bool) Value { return MakeBoolean(p, v) } }
+
+    var checkFile = func (val Value, dir bool) {
+        var ( s string; f *File )
+        if v, y := val.(*boolean); y {
+            if v.bool { val = autoVal(ctx, "@") } else { val = nil }
+        }
+
+        if val == nil {
+            erro(ctx, "nil file value to check").debug(1)
+            return
+        } else if f, res = toFile(val); res {
+            // best case
+        } else if s = val.strval(ctx); filepath.IsAbs(s) {
+            if f = stat(at(ctx, val.Position()), s, "", ""); f != nil { res = true }
+        } else if f = file(ctx, s); f != nil { res = true }
+
+        if f != nil {
+            if !dir || ctx.regular { res = f.exists()
+                if ctx.verbose { warnstack(of(ctx,val), 3, "check regular file '%v': %v", val, res).debug(1) }
+            } else if dir || ctx.isdir { res = f.info != nil && f.info.Mode().IsDir()
+                if ctx.verbose { warnstack(of(ctx,val), 3, "check dir '%v': %v", val, res).debug(1) }
+            } else if ctx.exists { res = f.exists()
+                if ctx.verbose { warnstack(of(ctx,val), 3, "check file exists '%v': %v", val, res).debug(1) }
+            } else if ctx.verbose {
+                warnstack(of(ctx,val), 3, "check file '%v': %v", val, res).debug(1)
+            }
+        } else if ctx.verbose {
+            warnstack(of(ctx,val), 3, "check file '%v': %v", val, res).debug(1)
+        }
+
+        if makeResult != nil {
+            values = append(values, makeResult(pos, res))
+        } else if !res {
+            pc.traves.addf(ctx, optBreak, "'%v' is not file", val)
+            return
+        }
+    }
+
+    if ctx.file != nil { checkFile(ctx.file, false) }
+    if ctx.dir  != nil { checkFile(ctx.dir, true) }
+
+    var program = ctx.program()
+    var value = autoVal(ctx, "-")
+ForPairs:
+    for _, arg := range args {
+        var p, y = arg.(*pair)
+        if !y {
+            if res = arg.true(ctx); makeResult != nil {
+                values = append(values, makeResult(pos, res))
+            } else {
+                pc.traves.addf(ctx, optBreak, "value '%v' is false", arg)
+                if ctx.verbose { warn(ctx, "value '%v' is false", arg).debug(1) }
+            }
+            continue
+        }
+
+        var key, str string
+        switch key = p.Key.strval(ctx); key {
+        case "status":
+            var exeres, _ = value.(*execResult)
+            if exeres == nil {
+                pc.traves.addf(ctx, optBreak, "value '%v' is not exec result", value)
+                erro(of(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
+                return
+            } else { /*exeres.wg.Wait()*/ }
+
+            var num, e = p.Value.int(ctx)
+            if e != nil {
+                erro(ctx, "%v: %v", p.Value, e).debug(1)
+                return
+            }
+            if ctx.verbose {
+                prompt(ctx, "checking status ")
+                if num != 0 { prompt(ctx, "== %d ", num) }
+                prompt(ctx, "…")
+            }
+
+            var good = exeres.Status == int(num)
+            if ctx.verbose {
+                var s string
+                if good { s = "Yes" } else { s = "No" }
+                prompt(ctx, "… %s (%d)\n", s, exeres.Status)
+            }
+            if ctx.debug>0 {
+                var tar = autoVal(ctx, "@")
+                var val = autoVal(ctx, "-")
+                warn(at(ctx,program.position), "%v: %v", ctx.entry(), tar)
+                warn(ctx, "status=%v", exeres.Status)
+                warn(ctx, "hyphen=%v", val)
+                warn(ctx, "context: %v", ctx).debug(ctx.debug)
+            }
+
+            if makeResult != nil {
+                values = append(values, makeResult(pos, good))
+            } else if !good {
+                pc.traves.addf(ctx, optBreak, "bad status (%v) (expects %v)", exeres.Status, p.Value)
+                break ForPairs
+            }
+        case "stdout", "stderr":
+            var exeres, _ = value.(*execResult)
+            if exeres == nil {
+                pc.traves.addf(ctx, optBreak, "not an exec result (%T)", value)
+                erro(of(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
+                return
+            } else { /*exeres.wg.Wait()*/ }
+
+            if ctx.verbose {
+                prompt(ctx, "checking %s (status=%d) … ", key, exeres.Status)
+            }
+            if ctx.debug>0 {
+                var tar = autoVal(ctx, "@")
+                var val = autoVal(ctx, "-")
+                warn(at(ctx,program.position), "%v: %v", ctx.entry(), tar)
+                warn(ctx, "status=%v", exeres.Status)
+                warn(ctx, "hyphen=%v", val)
+                warn(ctx, "context: %v", ctx).debug(ctx.debug)
+            }
+
+            var v *bytes.Buffer
+            switch key {
+            case "stdout": v = exeres.Stdout.Buf
+            case "stderr": v = exeres.Stderr.Buf
+            default: unreachable()
+            }
+
+            if v == nil {
+                pc.traves.addf(ctx, optBreak, "bad %s (expects %v)", key, p.Value)
+                break ForPairs
+            }
+
+            str = p.Value.strval(ctx)
+            if ctx.trim { str = strings.TrimSpace(str) }
+
+            if res := v.String() == str; makeResult != nil {
+                values = append(values, makeResult(pos, res))
+            } else if !res {
+                pc.traves.addf(ctx, optBreak, "bad %s (%v) (expects %v)", key, v, p.Value)
+                break ForPairs
+            }
+        case "file", "dir": // file=xxx and dir=xxx, same as -file=xxx and -dir=xxx
+            var ( f *File; res bool )
+            if f, res = toFile(p.Value); res {
+                // ok
+            } else if str = p.Value.strval(ctx); filepath.IsAbs(str) {
+                if f = stat(at(ctx, p.Value.Position()), str, "", ""); f != nil {
+                    // ok
+                }
+            } else if f = file(ctx, str); f != nil {
+                // ok
+            }
+            switch key {
+            case "file": res = f.info != nil && !f.info.Mode().IsDir()//.IsRegular()
+            case "dir":  res = f.info != nil &&  f.info.Mode().IsDir()
+            default: unreachable()
+            }
+            if makeResult != nil {
+                values = append(values, makeResult(pos, res))
+            } else if !res {
+                pc.traves.addf(ctx, optBreak, "`%v` is not %s", p.Value, key)
+                break ForPairs
+            }
+        case "var":
+            var g, ok = p.Value.(*group)
+            if !ok {
+                pc.traves.addf(ctx, optBreak, "`%v` is not a group value", p.Value)
+                break ForPairs
+            }
+            for _, elem := range g.Elems {
+                switch p := elem.(type) {
+                case *pair:
+                    var a, b string
+                    var k = p.Key.strval(ctx)
+                    var def = program.project.scope.FindDef(k)
+                    if def != nil {
+                        a = p.Value.strval(ctx)
+                        b = def.value.strval(ctx)
+                        if res := a != b; makeResult != nil {
+                            values = append(values, makeResult(pos, res))
+                        } else if !res {
+                            pc.traves.addf(ctx, optBreak, "`%v` != `%v`", p.Key, p.Value)
+                            break ForPairs
+                        }
+                    } else if makeResult != nil {
+                        values = append(values, makeResult(pos, false))
+                    } else {
+                        pc.traves.addf(ctx, optBreak, "`%v` is not defined", k)
+                        break ForPairs
+                    }
+                default:
+                    pc.traves.addf(ctx, optBreak, "`%v` unsupported checks", elem)
+                    break ForPairs
+                }
+            }
+        default:
+            erro(ctx, "unknown check for %v -> %v", p.Key, p.Value).debug(1)
+            break ForPairs
+        }
+    }
+
+    return values
+}
+
 type copyopts struct {
     program *program
     path, update bool
@@ -2378,44 +2597,56 @@ type modifier_updatefile struct { modifier_
     verbFilename bool `vf,verbfile,verb-filename`
     path   bool `p,path,md,makedir,make-dir,mp,makepath,make-path`
     zero   bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
-    keep   bool `k,keep;keep-file`
+    keep   bool `k,keep,keep-file`
     append bool `a,app,append,append-content`
     mode os.FileMode "m,mode"
 }
 func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
     assert(ctx.mode != 0, "zero file mode")
 
-    var (
-        filename string
-        target as
-    )
-    if len(args) > 1 { ctx.mode = permVal(ctx, args[1], 0600) }
+    defer ctx.dia().trace(ctx, "update-file")
+
+    var target as
+    var filename string
     if len(args) > 0 { target.Value = args[0] }
+    if len(args) > 1 { if false { ctx.mode = permVal(ctx, args[1], 0600) }}
+
     if isTrivial(target) { target.Value = autoVal(ctx, "@") }
     if isTrivial(target) {
-        errostack(ctx, 5, "no file target to update").debug(16)
-    } else if ctx.fullname { if o, y := target.fullnameOpt(ctx); y {
-        filename = o.strval(ctx)
+        erro(ctx, "no file target to update").debug(1)
+        return
+    } else if f, y := target.Value.(*File); y {
+        filename = f.fullname()
+    } else if o, y := target.fullnameOpt(ctx); !y {
+        erro(ctx, "update-file: not a file (%T: %v)\n", target.Value, target).debug(1)
+        return
     } else {
-        errostack(ctx, 5, "%v: not a file (%T)\n", target, target.Value).debug(16)
-    }}
+        filename = o.strval(ctx)
+    }
+
+    if filename == "" {
+        erro(ctx, "update-file: empty fullname (%T %v)\n", target.Value, target).debug(1)
+        return
+    }
 
     if ctx.debug > 0 {
         warnstack(ctx, 5, "update-file: %v (fullname=%v, project=%v)",
             target, filename, ctx.Project()).debug(ctx.debug)
     }
+
     if ctx.path { // Make path (mkdir -p)
         if p := filepath.Dir(filename); p != "." && p != "/" {
             if fi, _ := os.Stat(p); fi != nil && !fi.IsDir() {
                 if e := os.Remove(p); e != nil {
-                    errostack(ctx, 5, "%v (%T %v)", e, target, target).debug(16)
+                    erro(ctx, "%v (%T %v)", e, target, target).debug(1)
+                    return
                 }
             }
             if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
                 if proj := ctx.Project(); proj != nil {
                     info(ctx, "%v: %v %v", filename, proj, ctx.universe().unmap(ctx, filename))
                     info(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
-                    errostack(ctx, 5, "%v: %v (%T %v)", filename, e, target, target).debug(16)
+                    erro(ctx, "%v: %v (%T %v)", filename, e, target, target).debug(1)
                 }
                 return
             }

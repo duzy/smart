@@ -330,7 +330,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
             if x := v.expand(ctx, plain|expandFullName); isTrivial(x) {
                 erro(of(ctx, v), "expecting file value: %T %v", v, v).debug(1)
             } else if o, y := (as{x}.fullnameOpt(ctx)); y && o.Value != nil {
-                val.Set(reflect.ValueOf(o))
+                val.Set(reflect.ValueOf(&o))
             } else {
                 erro(of(ctx,v), "%v: not a file: %v → %T %v", ctx.Project(), v, x, x)
                 errostack(ctx, 5).debug(32)
