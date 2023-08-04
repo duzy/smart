@@ -2005,17 +2005,17 @@ func (ctx *modifier_check) x(args ...Value) (result interface{}) {
         pos = ctx.Position()
         pc  = ctx.pc()
         optBreak travekind // breaking with good results
-        makeResult func(Position,bool) Value // returns results only if non-nil
+        makeResult func(bool) Value // returns results only if non-nil
         values []Value
         res bool
     )
 
     if ctx.good   { optBreak   = traveDone }
-    if ctx.answer { makeResult = func(p Position,v bool) Value { return makeAnswer(p, v) } }
+    if ctx.answer { makeResult = func(v bool) Value { return makeAnswer(pos, v) } }
     if makeResult == nil && ( ctx.boolean ||
         (ctx.file != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
         (ctx.dir  != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
-        (ctx.silent)) { makeResult = func(p Position,v bool) Value { return MakeBoolean(p, v) } }
+        (ctx.silent)) { makeResult = func(v bool) Value { return MakeBoolean(pos, v) } }
 
     var checkFile = func (val Value, dir bool) {
         var ( s string; f *File )
@@ -2047,7 +2047,7 @@ func (ctx *modifier_check) x(args ...Value) (result interface{}) {
         }
 
         if makeResult != nil {
-            values = append(values, makeResult(pos, res))
+            values = append(values, makeResult(res))
         } else if !res {
             pc.traves.addf(ctx, optBreak, "'%v' is not file", val)
             return
@@ -2064,7 +2064,7 @@ ForPairs:
         var p, y = arg.(*pair)
         if !y {
             if res = arg.true(ctx); makeResult != nil {
-                values = append(values, makeResult(pos, res))
+                values = append(values, makeResult(res))
             } else {
                 pc.traves.addf(ctx, optBreak, "value '%v' is false", arg)
                 if ctx.verbose { warn(ctx, "value '%v' is false", arg).debug(1) }
@@ -2109,7 +2109,7 @@ ForPairs:
             }
 
             if makeResult != nil {
-                values = append(values, makeResult(pos, good))
+                values = append(values, makeResult(good))
             } else if !good {
                 pc.traves.addf(ctx, optBreak, "bad status (%v) (expects %v)", exeres.Status, p.Value)
                 break ForPairs
@@ -2150,7 +2150,7 @@ ForPairs:
             if ctx.trim { str = strings.TrimSpace(str) }
 
             if res := v.String() == str; makeResult != nil {
-                values = append(values, makeResult(pos, res))
+                values = append(values, makeResult(res))
             } else if !res {
                 pc.traves.addf(ctx, optBreak, "bad %s (%v) (expects %v)", key, v, p.Value)
                 break ForPairs
@@ -2172,7 +2172,7 @@ ForPairs:
             default: unreachable()
             }
             if makeResult != nil {
-                values = append(values, makeResult(pos, res))
+                values = append(values, makeResult(res))
             } else if !res {
                 pc.traves.addf(ctx, optBreak, "`%v` is not %s", p.Value, key)
                 break ForPairs
@@ -2193,13 +2193,13 @@ ForPairs:
                         a = p.Value.strval(ctx)
                         b = def.value.strval(ctx)
                         if res := a != b; makeResult != nil {
-                            values = append(values, makeResult(pos, res))
+                            values = append(values, makeResult(res))
                         } else if !res {
                             pc.traves.addf(ctx, optBreak, "`%v` != `%v`", p.Key, p.Value)
                             break ForPairs
                         }
                     } else if makeResult != nil {
-                        values = append(values, makeResult(pos, false))
+                        values = append(values, makeResult(false))
                     } else {
                         pc.traves.addf(ctx, optBreak, "`%v` is not defined", k)
                         break ForPairs

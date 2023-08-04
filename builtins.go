@@ -4428,7 +4428,7 @@ func (project *Project) strExpandConfig(ctx Context, s string) (result string, e
 
         switch t := val.(type) {
         case *undef, undef: // FIXME: fmt.Fprintf(res, "#undef")
-        case *Plain: fmt.Fprintf(res, "%s", t.Raw.String())
+        case *Plain: fmt.Fprintf(res, "%s", t.raw.String())
         case *answer, *boolean:
             if i, e := t.int(ctx); e == nil {
                 fmt.Fprintf(res, "%d", i)

@@ -19,7 +19,7 @@ import (
 )
 
 // Value returned by (plain) modifier.
-type Plain struct { Raw ; name_ string }
+type Plain struct { raw ; name_ string }
 func (p *Plain) String() (s string) {
         var value = strings.Replace(p.string, "'", "\\'", -1)
         if p.name_ == "" {
@@ -29,7 +29,7 @@ func (p *Plain) String() (s string) {
         }
         return
 }
-func (p *Plain) expand(_ Context, _ facet) (val Value) { return /* &p.Raw */p }
+func (p *Plain) expand(_ Context, _ facet) (val Value) { return /* &p.raw */p }
 func (p *Plain) name(_ Context) string { return p.name_ }
 func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         if a, y := v.(*Plain); y {
@@ -78,7 +78,7 @@ func (_ *plainInt) Evaluate(ctx Context, args ...Value) (result Value, err error
                 pos = program.recipes[0].Position()
         }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{Raw{valbase{pos}, str}, name}
+        result = &Plain{raw{valbase{pos}, str}, name}
         if opts.debug>0 { warn(ctx, "%v", str).debug(opts.debug) }
         return
 }

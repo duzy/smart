@@ -433,11 +433,11 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         if isTrivial(arg) { continue }
         switch t := arg.(type) {
         case *pair: params = append(params, t)
-        case *Raw, *String, *Compound:
+        case *raw, *String, *Compound:
             params = append(params, configureParam(ctx, "INFO", t))
             infos = append(infos, t)
         default:
-            erro(of(ctx,arg), " unsupported parameter: $T %v", t, t).debug(1)
+            erro(of(ctx,arg), " unsupported parameter: %T %v", t, t).debug(1)
             return
         }
     }

@@ -976,7 +976,7 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
             erro(ctx, "FIXME: %v: %v (%s)", p, t, t.fullname())
             errostack(ctx, 5).debug(32)
         }
-    } } ()
+    }} ()
 
     switch t := a.Value.(type) {
     case  as       : f = t.file(ctx, projects...)
@@ -1035,6 +1035,12 @@ func joinMatchRes(ctx Context, res interface{}) (str string) {
     if a, y := res.([]string); y { str = strings.Join(a, PathSep) } else
     if res != nil { warn(ctx, "unexpected result: %T %v", res, res).debug(6) }
     return
+}
+
+func joinraw(sep string, vals ...*raw) string {
+    var strs []string
+    for _, v := range vals { strs = append(strs, v.String()) }
+    return strings.Join(strs, sep)
 }
 
 type valcache_kv struct {
@@ -2318,20 +2324,16 @@ func (_ *URL) collect(ctx Context, cache *valcache, bits int) (res []*valcache) 
     return
 }
 
-type Raw struct { valbase; string }
-func (_ *Raw) kind() Kind { return KindRaw }
-func (p *Raw) String() string { return p.string }
-func (p *Raw) strval(ctx Context) string { return p.string }
-func (p *Raw) true(ctx Context) bool { return p.string != "" }
-func (p *Raw) int(ctx Context) (i int64, err error) {
-    return strconv.ParseInt(p.string, 10, 64)
-}
-func (p *Raw) float(ctx Context) (f float64, err error) {
-    return strconv.ParseFloat(p.string, 64)
-}
-func (p *Raw) expand(_ Context, _ facet) Value { return p }
-func (p *Raw) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*Raw); ok {
+type raw struct { valbase; string }
+func (_ *raw) kind() Kind { return KindRaw }
+func (p *raw) String() string { return p.string }
+func (p *raw) strval(ctx Context) string { return p.string }
+func (p *raw) true(ctx Context) bool { return p.string != "" }
+func (p *raw) int(ctx Context) (i int64, err error) { return strconv.ParseInt(p.string, 10, 64) }
+func (p *raw) float(ctx Context) (f float64, err error) { return strconv.ParseFloat(p.string, 64) }
+func (p *raw) expand(_ Context, _ facet) Value { return p }
+func (p *raw) cmp(ctx Context, v Value) (res cmpres) {
+    if a, ok := v.(*raw); ok {
         if p.string == a.string { res = cmpEqual }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
@@ -2340,22 +2342,22 @@ func (p *Raw) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Raw) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
+func (p *raw) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
     full, s, stems = matchStrval(ctx, p, i)
     return
 }
-func (p *Raw) stencil(ctx Context, stems []string) (val Value, rest []string) {
+func (p *raw) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (_ *Raw) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (_ *raw) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *Raw) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *raw) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *Raw) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *raw) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
@@ -6953,7 +6955,7 @@ func MakeHex(pos Position, i int64) *Hex { return &Hex{integer{valbase{pos},i}} 
 func MakeFloat(pos Position, f float64) *Float  { return &Float{valbase{pos},f} }
 func MakeDate(pos Position, s time.Time) *Date  { return &Date{DateTime{valbase{pos},s}} }
 func MakeTime(pos Position, t time.Time) *Time  { return &Time{DateTime{valbase{pos},t}} }
-func MakeRaw(pos Position, s string) *Raw       { return &Raw{valbase{pos},s} }
+func MakeRaw(pos Position, s string) *raw       { return &raw{valbase{pos},s} }
 func MakeString(pos Position, s string) *String { return &String{valbase{pos},s} }
 func MakeURL(pos Position, s *url.URL) *URL {
     var host, port string

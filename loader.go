@@ -1801,14 +1801,14 @@ ListLoop:
     return
 }
 
-func (l *loader) sources(pos Position, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
-    var ctx = at(l, pos)
+func (l *loader) sources(ctx Context, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
     defer ctx.dia().trace(ctx, "sources")
 
     var uni = l.universe()
+
     defer func(t time.Time) {
         if d := time.Now().Sub(t); uni.verboseParse || d > 1*time.Second {
-            prompt(ctx, "sources(%15s) %16s ⇒ %s\n", d, l.project, path)
+            prompt(ctx, "sources:(%15s) %20s ⇒ %s\n", d, l.project, path)
         }
 		if uni.debugParsing(ctx, "sources") {
 			warn(ctx, "sources: %s", path).debug(6)
@@ -1817,7 +1817,7 @@ func (l *loader) sources(pos Position, path string, filter func(os.FileInfo) boo
 
     fd, err := os.Open(path)
     if err != nil {
-        errostack(ctx, 3, "%v", err).debug(10)
+        erro(ctx, "%v", err).debug(1)
         return
     }
     defer fd.Close()
@@ -2041,7 +2041,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, ""))
 
     var mods map[string]*Project
-    if mods = l.sources(pos, absDir, filter, parseMode); mods == nil {
+    if mods = l.sources(at(l, pos), absDir, filter, parseMode); mods == nil {
         errostack(ctx, 3, "failed parsing module: %s", specName).debug(12)
         if uni.failOnErrors {
             panic(failure{"fail by %d errors",ia(l.Position(), l.dia().totalErrors())})
