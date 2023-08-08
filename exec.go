@@ -832,7 +832,6 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     ctx.Stdout.execContext = nil
     ctx.Stderr.execContext = nil
     ctx.container = nil
-    ctx.Context = nil
     ctx.sh = nil
     ctx.x = nil
 
@@ -1012,7 +1011,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   if exe.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
-  } else if d := exe.debug; d>0 { defer func() {
+  } else if d := exe.debug; false && d>0 { defer func() {
     noted(ctx, "%v: %v (%v)", ctx.entry(), exe.target.Value, result).debug(d)
   }()}
 

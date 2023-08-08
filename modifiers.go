@@ -725,7 +725,11 @@ type modifier_path struct { modifier_
     mode os.FileMode `m,mode`
 }
 func (ctx *modifier_path) x(args ...Value) (result interface{}) {
-    if ctx.mode == 0 { ctx.mode = os.FileMode(0755) }
+    if ctx.mode == 0 {
+        ctx.mode = os.FileMode(0755)
+    } else {
+        ctx.mode |= os.FileMode(0111)
+    }
     if len(args) == 0 { if v := autoVal(ctx, "@"); !isTrivial(v) {
         args = append(args, v)
     }}
