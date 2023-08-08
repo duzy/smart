@@ -72,7 +72,6 @@ var (
         `for`:          reflect.TypeOf((*modifier_for)(nil)).Elem(),
 
         `cd`:           reflect.TypeOf((*modifier_cd)(nil)).Elem(),
-        `mkdir`:        reflect.TypeOf((*modifier_mkdir)(nil)).Elem(),
         `path`:         reflect.TypeOf((*modifier_path)(nil)).Elem(),
 
         `sudo`:         reflect.TypeOf((*modifier_sudo)(nil)).Elem(),
@@ -722,10 +721,10 @@ func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
     return
 }
 
-type modifier_mkdir struct { modifier_
+type modifier_path struct { modifier_
     mode os.FileMode `m,mode`
 }
-func (ctx *modifier_mkdir) x(args ...Value) (result interface{}) {
+func (ctx *modifier_path) x(args ...Value) (result interface{}) {
     if ctx.mode == 0 { ctx.mode = os.FileMode(0755) }
     if len(args) == 0 {
         var d = autoVal(ctx, "@")
@@ -739,31 +738,6 @@ func (ctx *modifier_mkdir) x(args ...Value) (result interface{}) {
     for _, a := range args {
         var s = a.strval(ctx)
         if err := os.MkdirAll(s, ctx.mode); err != nil {
-            erro(ctx, "make path '%s' failed: %v", s, err).debug(1)
-            break
-        }
-    }
-    return
-}
-
-// (path $(dir $@))
-// (path /example/path)
-type modifier_path struct { modifier_ }
-func (ctx *modifier_path) x(args ...Value) (result interface{}) {
-    if len(args) == 0 {
-        var d = autoVal(ctx, "@")
-        var s = d.strval(ctx)
-        if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
-            if err := os.MkdirAll(s, os.FileMode(0755)); err != nil {
-                erro(ctx, "make path '%s' failed: %v", err).debug(1)
-            }
-        }
-        return
-    }
-
-    for _, arg := range args {
-        var s = arg.strval(ctx)
-        if err := os.MkdirAll(s, os.FileMode(0755)); err != nil {
             erro(ctx, "make path '%s' failed: %v", s, err).debug(1)
             break
         }
