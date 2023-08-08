@@ -9,7 +9,7 @@ package smart
 // evaluer evaluates smart statements
 type evaluer struct { accumulation bool }
 type evaluerOpts struct { generalOpts }
-func (p *evaluer) Evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (p *evaluer) evaluate(ctx Context, args ...Value) (result Value, err error) {
     var program = ctx.program()
     if program == nil {
         erro(ctx, "needs program context to evaluate: %v", ctx).debug(16)

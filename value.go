@@ -986,7 +986,7 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
     case *def      : if !isTrivial(t.value) { return as{t.value   }.file(ctx) }
     case *List     : if len(t.Elems) == 1   { return as{t.Elems[0]}.file(ctx) }
     case *rule:                               return as{t.target  }.file(ctx)
-    case *String, *Compound:
+    case *String, *compound:
         // NOTE: escape 'string' and "compound" values from file parsing,
         // NOTE: this optimized the performance.
     case *bareword, *barecomp, *Path:
@@ -1053,7 +1053,7 @@ type valcache struct {
 }
 
 func (cache *valcache) slot(ctx Context, val Value, bits int) (res *valcache) {
-    if false { if _, y := val.(*Compound); !y { info(ctx, "cache: %T %v %08b", val, val, bits) }}
+    if false { if _, y := val.(*compound); !y { info(ctx, "cache: %T %v %08b", val, val, bits) }}
     if cache == nil { return }
 
     res = val.cache(ctx, cache, bits&^cacheKey)
@@ -1185,6 +1185,8 @@ type Value interface {
     kind() Kind
 
     name(Context) string
+
+    // TODO: string(Context) string
 
     // Strval returns the string form of the value.
     strval(Context) string
@@ -2646,16 +2648,16 @@ func (p *elements) Slice(n int) (a []Value) {
     }
     return
 }
-func (p *elements) Take(n int) (v Value) {
+func (p *elements) take(n int) (v Value) {
     if x := len(p.Elems); n>=0 && n<x {
         v = p.Elems[n]
         p.Elems = append(p.Elems[0:n], p.Elems[n+1:]...)
     }
     return
 }
-func (p *elements) ToBarecomp(pos Position) *barecomp { return &barecomp{valbase{pos},*p} }
-func (p *elements) ToCompound(pos Position) *Compound { return &Compound{valbase{pos},*p} }
-func (p *elements) ToList(pos Position) *List { return &List{pos, *p} }
+func (p *elements) barecomp(pos Position) *barecomp { return &barecomp{valbase{pos},*p} }
+func (p *elements) compound(pos Position) *compound { return &compound{valbase{pos},*p} }
+func (p *elements) list(pos Position) *List { return &List{pos, *p} }
 func (p *elements) true(ctx Context) (t bool) { // (or elems...)
     for _, elem := range p.Elems {
         if elem != nil { if t = elem.true(ctx); t { break }}
@@ -3105,27 +3107,24 @@ func (p *barecomp) stencil(ctx Context, stems []string) (val Value, rest []strin
     return
 }
 func (p *barecomp) comp(ctx Context, x Value) {
-    if o, y := x.(*barecomp); y {
+    if o, b := x.(*barecomp); b {
         for _, elem := range o.Elems { p.comp(ctx, elem) }
     } else {
         p.Elems = append(p.Elems, x)
     }
 }
 
-func compose(ctx Context, /* n int, */ x, y Value) (_ Value) {
-    switch t := x.(type) {
-    case *barecomp:
-        // if n == 0 { t = MakeBarecomp(t.Position(), t.Elems...) }
+type composer interface { comp(Context, Value) }
+
+func compose(ctx Context, x, y Value) (_ Value) {
+    if t, b := x.(composer); b {
         t.comp(ctx, y)
-    case *Path:
-        // if n == 0 { t = MakePath(t.Position(), t.Elems...) }
-        t.comp(ctx, y)
-    default:
-        comp := MakeBarecomp(x.Position(), x)
-        comp.comp(ctx, y)
-        x = comp
+        return x
+    } else {
+        c := MakeBarecomp(x.Position(), x)
+        c.comp(ctx, y)
+        return c
     }
-    return x
 }
 
 // barefile reduces file lookups, it works like an alias of a File.
@@ -3898,9 +3897,9 @@ func expandPathElems(ctx Context, w facet, elems ...Value) (res []Value, u, n in
     var xelems []Value
     xelems, u, n = w.expand(ctx, elems...)
     for _, elem := range xelems {
-        if p, ok := elem.(*Path); ok {
-            var ev, u1, n1 = expandPathElems(ctx, w, p.Elems...)
-            res = append(res, ev...)
+        if p, y := elem.(*Path); y {
+            var v, u1, n1 = expandPathElems(ctx, w, p.Elems...)
+            res = append(res, v...)
             u += u1
             n += n1
         } else {
@@ -3916,7 +3915,7 @@ func expandPathElems(ctx Context, w facet, elems ...Value) (res []Value, u, n in
                     vals = append(vals, splitPathStr(ctx, v.position, v.string)...)
                 }
                 n += 1
-            case *Compound:
+            case *compound:
                 if s := v.strval(ctx); s != "" {
                     vals = append(vals, splitPathStr(ctx, v.position, s)...)
                 }
@@ -4167,20 +4166,21 @@ func (p *Path) comp(ctx Context, val Value) {
     } else if isNone(tail) {
         p.Elems[ti] = val
         return
-    } else if seg, ok := tail.(*PathPun); ok {
-        switch comp = MakeBarecomp(tail.Position()); seg.rune {
+    } else if seg, y := tail.(*PathPun); y {
+        comp = MakeBarecomp(tail.Position())
+        switch seg.rune {
         case 0, '/': break // discard
         default: comp.comp(ctx, tail)
         }
         p.Elems[ti] = comp
-    } else if comp, ok = tail.(*barecomp); !ok || comp == nil {
+    } else if comp, y = tail.(*barecomp); !y || comp == nil {
         comp = MakeBarecomp(tail.Position(), tail)
         p.Elems[ti] = comp
     }
 
-    if vp, ok := val.(*Path); ok {
-        var head = vp.Elems[0]
-        if seg, ok := head.(*PathPun); ok {
+    if v, y := val.(*Path); y {
+        var head = v.Elems[0]
+        if seg, y := head.(*PathPun); y {
             switch seg.rune {
             case 0, '/': break // discard
             default: comp.comp(ctx, head)
@@ -4188,7 +4188,7 @@ func (p *Path) comp(ctx Context, val Value) {
         } else {
             comp.comp(ctx, head)
         }
-        p.Elems = append(p.Elems, vp.Elems[1:]...)
+        p.Elems = append(p.Elems, v.Elems[1:]...)
     } else {
         comp.comp(ctx, val)
     }
@@ -4292,11 +4292,11 @@ func splitFileName(ctx Context, val Value) (dir, name string) {
 type fullfile struct { *File }
 func (u fullfile) strval(ctx Context) (s string) { return u.fullname() }
 func (u fullfile) expand(ctx Context, w facet) Value {
-    if w != expandZero && (w&expandFullName == 0 /* || filepath.IsAbs(u.name) */) {
+    if false { if w != expandZero && (w&expandFullName == 0 /* || filepath.IsAbs(u.name) */) {
         if v := u.File.expand(ctx, w); v != u.File {
             if f, y := v.(*File); y && f != u.File { return fullfile{f} }
         }
-    }
+    }}
     return u
 }
 
@@ -4369,12 +4369,11 @@ func (p *File) expandable(ctx Context, w facet) (res bool) {
     return w&expandFullName != 0 && !filepath.IsAbs(p.filestub.name)
 }
 func (p *File) expand(ctx Context, w facet) (res Value) {
-    if w&expandFullName != 0 && !filepath.IsAbs(p.filestub.name) {
-        res = fullfile{p}
-    } else {
-        res = p
-    }
-    return
+    if false { if strings.HasPrefix(p.filestub.name, ".configure/function/HAVE_") {
+        noted(ctx, "%v, %030b ⇒ %v", p, w&expandFullName, p.fullname()).debug(32)
+    }}
+    if p.expandable(ctx, w) { return fullfile{p} }
+    return p
 }
 func (p *File) exists() (res bool) {
     if p != nil && p.filebase != nil {
@@ -4690,8 +4689,8 @@ func (p flag) collect(ctx Context, cache *valcache, bits int) (res []*valcache) 
 
 const escapedChars = "\"\r\n"
 
-type Compound struct { valbase ; elements } // "compound string"
-func (p *Compound) elemstr(ctx Context, o Object, k elembits) (s string) {
+type compound struct { valbase ; elements } // "compound string"
+func (p *compound) elemstr(ctx Context, o Object, k elembits) (s string) {
     for _, elem := range p.Elems {
         s += elemstr(ctx, o, elem, k|elemNoQuote)
     }
@@ -4733,31 +4732,31 @@ func (p *Compound) elemstr(ctx Context, o Object, k elembits) (s string) {
     }
     return
 }
-func (p *Compound) String() string { return p.elemstr(nil, nil, 0) }
-func (p *Compound) strval(ctx Context) (s string) {
+func (p *compound) String() string { return p.elemstr(nil, nil, 0) }
+func (p *compound) strval(ctx Context) (s string) {
     for _, e := range p.Elems { s += e.strval(ctx) }
     // NOTE: escaping \" here makes the string complicated
     if false { s = strings.Replace(s, `\"`, `"`, -1) }
     return
 }
-func (p *Compound) float(ctx Context) (f float64, err error) {
+func (p *compound) float(ctx Context) (f float64, err error) {
     return strconv.ParseFloat(p.strval(ctx), 64)
 }
-func (p *Compound) int(ctx Context) (i int64, err error) {
+func (p *compound) int(ctx Context) (i int64, err error) {
     return strconv.ParseInt(p.strval(ctx), 10, 64)
 }
-func (p *Compound) true(ctx Context) bool { return p.elements.true(ctx) }
-func (p *Compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
-func (p *Compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
-func (p *Compound) expandable(ctx Context, w facet) bool { return p.elements.expandable(ctx, w) }
-func (p *Compound) expand(ctx Context, w facet) (res Value) {
+func (p *compound) true(ctx Context) bool { return p.elements.true(ctx) }
+func (p *compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
+func (p *compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
+func (p *compound) expandable(ctx Context, w facet) bool { return p.elements.expandable(ctx, w) }
+func (p *compound) expand(ctx Context, w facet) (res Value) {
     var elems, u, n = w.expand(ctx, p.Elems...)
-    if n > 0 { res = &Compound{p.valbase, elements{elems}} } else { res = p }
+    if n > 0 { res = &compound{p.valbase, elements{elems}} } else { res = p }
     if u > 0 { res = unexpanded{res} }
     return
 }
-func (p *Compound) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*Compound); ok {
+func (p *compound) cmp(ctx Context, v Value) (res cmpres) {
+    if a, ok := v.(*compound); ok {
         if p.strval(ctx) == a.strval(ctx) { res = cmpEqual }
     } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
@@ -4766,12 +4765,12 @@ func (p *Compound) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *Compound) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
-func (p *Compound) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (p *compound) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
+func (p *compound) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b): %v", bits, p).debug(32)
     return
 }
-func (p *Compound) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (p *compound) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     if false { ctx = at(ctx, p.position) }
     if cache = cache.str(ctx, "\"\"", bits); true {
         cache = cache.strx(ctx, p.strval(ctx), bits)
@@ -4782,7 +4781,7 @@ func (p *Compound) cache(ctx Context, cache *valcache, bits int) (res *valcache)
     }
     return cache
 }
-func (p *Compound) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (p *compound) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
     if c := cache.str(ctx, "\"\"", cacheZero); c != nil {
         if c = c.strx(ctx, p.strval(ctx), cacheZero); c != nil { res = append(res, c) }
     }
@@ -6777,12 +6776,21 @@ func (w facet) expand(ctx Context, values ...Value) (elems []Value, u, n int) {
         // Builtins and modifiers may yield nil values; one must add to n indicating the changes,
         // List.expand relies on it to make the correct value.
         if val == nil { n += 1 ; continue }
+        if false { if w&expandFullName != 0 { s := elem.strval(ctx)
+            if strings.HasPrefix(s, ".configure/function/HAVE_") {
+                if l, y := val.(*List); y { t := l.Elems[0]
+                    noted(ctx, "%T %v ; %T %v", elem, val, t, t).debug(1)
+                } else {
+                    noted(ctx, "%T ⇒ %T %v", elem, val, val).debug(/*32*/1)
+                }
+            }
+        }}
 
         elems = append(elems, val)
 
         if t, y := val.(unexpanded); y {      u += 1
             if t.Value != elem && t != elem { n += 1 }
-        } else               if val != elem { n += 1 }
+        } else if               val != elem { n += 1 }
     }
     return
 }
@@ -6978,7 +6986,7 @@ func MakeURL(pos Position, s *url.URL) *URL {
 }
 func MakeBareword(pos Position, word string) *bareword { return &bareword{valbase{pos},word} }
 func MakeBarecomp(pos Position, elems... Value) *barecomp { return &barecomp{valbase{pos},elements{merge(elems...)}} }
-func MakeCompound(pos Position, elems... Value) *Compound { return &Compound{valbase{pos},elements{merge(elems...)}} }
+func MakeCompound(pos Position, elems... Value) *compound { return &compound{valbase{pos},elements{merge(elems...)}} }
 func MakeList(pos Position, elems... Value) *List {
     if !pos.IsValid() && len(elems) > 0 { pos = elems[0].Position() }
     return &List{pos,elements{elems}}

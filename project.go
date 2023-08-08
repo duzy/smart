@@ -74,7 +74,7 @@ func (p *FileMap) primePatterns(ctx Context) (pats []Value) {
 
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(ctx Context, val interface{}) (matched bool, pattern Value, name string) {
-  // TODO: escape file matching for 'String' and "Compound" values
+  // TODO: escape file matching for 'String' and "compound" values
   for _, pat := range filemap.primePatterns(ctx) {
     if matched, name = filemap.match(ctx, pat, val); matched { pattern = pat; break }
   }
@@ -82,7 +82,7 @@ func (filemap *FileMap) Match(ctx Context, val interface{}) (matched bool, patte
 }
 
 func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched bool, name string) {
-  // TODO: escape file matching for 'String' and "Compound" values
+  // TODO: escape file matching for 'String' and "compound" values
   var res interface{}
   matched, res, _ = pat.match(ctx, val)
 

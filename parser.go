@@ -1030,7 +1030,7 @@ func (p *parser) literal(ctx Context, lhs bool) (v Value) {
 	return
 }
 
-func (p *parser) compound(ctx Context, lhs bool) *Compound {
+func (p *parser) compound(ctx Context, lhs bool) *compound {
 	var elems []Value
 	var lpos = p.pos
 	p.step()
@@ -1063,18 +1063,17 @@ func (p *parser) dot(ctx Context, lhs bool, x Value) (res *barecomp) {
 
 	if x == nil { panic(fmt.Sprintf("nil dot (tok=%v)", p.tok)) }
 
+	ctx = p.ctx(ctx)
+
 	var comp *barecomp
 	if comp, _ = x.(*barecomp); comp == nil {
 		comp = MakeBarecomp(x.Position())//(p.Position())
 		comp.Elems = append(comp.Elems, x)
 	}
 
-	ctx = p.ctx(ctx)
-
-	for /*comp.End() == p.pos && */!p.isEndOfDotConcat(lhs) {
+	for !p.isEndOfDotConcat(lhs) {
 		comp.comp(ctx, p.composite(ctx, false))
 		if p.tok == DOT /*&& comp.End() == p.pos*/ {
-			// var dot = MakeBareword(p.Position(), ".") // TODO: parse to Qualiword instead
 			var dot Value = &punctuation{valbase{p.Position()}, p.tok}
 			comp.Elems = append(comp.Elems, dot)
 			p.step() // '.'
@@ -1826,7 +1825,7 @@ SwitchCompose:
 		case  flag: // okay: -Ifoo/bar, -Lfoo/bar
 		case *Path: // okay: combine two paths
 		case *barecomp:
-		case *String, *Compound, *delegate, *closure, *punctuation:
+		case *String, *compound, *delegate, *closure, *punctuation:
 		default: warn(of(ctx,y), "barecomp path: %T %v ; %v (next=%v)", x, x, y, p.tok).debug(1)
 		}
 	}
@@ -2011,7 +2010,7 @@ func (p *parser) include(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	var loader = ctx.loader()
 	if p.spaces(); p.tok == COLON {
 		switch x.(type) {
-		case *File, *String, *Compound: // escape from file searching
+		case *File, *String, *compound: // escape from file searching
 		default: if file := loader.project.file(ctx, x.strval(ctx)); file != nil {
 			x = file
 		} else if val := x.expand(ctx, strval); !isNull(val) && val != x {
@@ -2514,7 +2513,7 @@ func (p *parser) movar(ctx Context, args []Value) (err error) {
 		} else if def == nil {
 			erro(of(ctx,k), "'%v' not defined", name).debug(1)
 		} else {
-			if g, y := v.(*group); y { v = g.ToList(def.position) }
+			if g, y := v.(*group); y { v = g.list(def.position) }
 			def.val(at(ctx, v.Position()), v)
 		}
 	}

@@ -351,7 +351,7 @@ ForInParams:
         }
 
         var key, value = p.Key.strval(ctx), p.Value
-        if _, y = value.(*Compound); y {
+        if _, y = value.(*compound); y {
             value = MakeString(ctx.Position(), value.strval(ctx))
         } else if value != nil {
             value = value.expand(ctx, plain)
@@ -433,7 +433,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         if isTrivial(arg) { continue }
         switch t := arg.(type) {
         case *pair: params = append(params, t)
-        case *raw, *String, *Compound:
+        case *raw, *String, *compound:
             params = append(params, configureParam(ctx, "INFO", t))
             infos = append(infos, t)
         default:
@@ -454,9 +454,17 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
     }
 
     defer func() {
-        if uni.configuration.silent || ctx.dia().error() {
-            // silent
-        } else if isNull(result) {
+        if dia := ctx.dia(); uni.configuration.silent {
+            return
+        } else if dia.count(diagInfo, diagWarn, diagError) > 0 {
+            return
+        } else if false && dia.points != nil { t := true
+            for _, d := range dia.points {
+                if strings.HasSuffix(d.message, "…") { t = false; break }
+            }
+            if t { return }
+        }
+        if isNull(result) {
             prompt(ctx, "… <nil>\n")
         } else if isNone(result) {
             prompt(ctx, "… <none>\n")
@@ -467,7 +475,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         }
     } ()
 
-    if config, ok := configureOps[opName]; ok {
+    if config, y := configureOps[opName]; y {
         configured, result = true, config(ctx, target, params...)
     } else {
         configured, result = configureExecuteEntry(ctx, opts, name, target, params...)
@@ -728,13 +736,12 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         closure, okay = configuredFiles[filename]
         if okay && closure != nil && !opts.reconfig { return }
     }
+
     //if closure == nil { closure = ctx.closcop }
     defer func(s string, c *Scope) { configuredFiles[s] = c } (filename, closure)
 
     var data bytes.Buffer
-    if h := autoVal(ctx,"-"); !isNull(h) {
-        args = append(args, h)
-    }
+    if h := autoVal(ctx,"-"); !isNull(h) { args = append(args, h) }
     if dealArgs != nil { args = dealArgs(args, &data) }
     if dealData != nil { for _, arg := range args {
         if str := arg.strval(ctx); str == "" {
@@ -750,27 +757,22 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         return
     } else if f := ctx.Project().configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
-        prompt(ctx, "%v: %v\n%s\n",
-            filename, autoVal(ctx,"@"), strings.TrimSpace(data.String())).debug(1)
+        prompt(ctx, "%v: %v\n%s\n", filename, autoVal(ctx,"@"), strings.TrimSpace(data.String())).debug(1)
     }
 
     var ( status string; same bool )
-    if opts.verbose {
-        defer func(st time.Time) {
-            if same {
-                if true { return } else { status = "unchanged" }
-            } else if status == "" {
-                status = fmt.Sprintf("outdated (%s)", filename)
-            }
+    if opts.verbose { defer func(st time.Time) {
+        if same {
+            if true { return } else { status = "unchanged" }
+        } else if status == "" {
+            status = fmt.Sprintf("outdated (%s)", filename)
+        }
 
-            var d = time.Now().Sub(st)
-            printEnteringDirectory(ctx)
-            prompt(ctx, "update %v …… %s (in %v)\n",
-                trimPromptString(filename), status, d)
-            if opts.debug>0 { infostack(ctx, opts.stack, "%v (%v)",
-                autoVal(ctx, "@"), d).debug(opts.debug) }
-        } (time.Now())
-    }
+        var d = time.Now().Sub(st)
+        printEnteringDirectory(ctx)
+        prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(filename), status, d)
+        if d := opts.debug; d>0 { infostack(ctx, opts.stack, "%v (%v)", autoVal(ctx, "@"), d).debug(d) }
+    }(time.Now())}
 
     if file.info != nil {
         var err error
@@ -962,6 +964,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
     }
 
     var exprs = make(map[string]int)
+
 ForSources:
     for _, source := range sources {
         var (s string; f *os.File)
@@ -973,11 +976,12 @@ ForSources:
             prompt(ctx, "%v: (configure) %v: %v\n", pos, source, err)
             continue ForSources
         }
+
         scanner := bufio.NewScanner(f)
         scanner.Split(bufio.ScanLines)
-        for scanner.Scan() {
-            s := scanner.Text()
-            ForOpts: for _, x := range ctx.rxs {
+        for scanner.Scan() { s := scanner.Text()
+        ForOpts:
+            for _, x := range ctx.rxs {
                 sm := x.FindStringSubmatch(s)
                 if sm == nil { continue }
                 exprs[sm[1]] += 1

@@ -264,7 +264,7 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
     }
 
     var value Value
-    if value, err = i.Evaluate(ctx, params...); err != nil {
+    if value, err = i.evaluate(ctx, params...); err != nil {
         var (
             _, ent, _ = entryIndicator(ctx, ctx.entry())
             nam = intername(i)
@@ -513,7 +513,7 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
         }
 
         switch prereqValue.(type) {
-        case *String, *Compound: // skip checking files for performance
+        case *String, *compound: // skip checking files for performance
         default:
             mapPrereqFile(prereqValue)
             return
@@ -777,7 +777,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
         travedPrereqFile = func (s *travestate) (res *File) { return }
     } else {
-        // If the prereqValue is not a *File, for example a (*String) or (*Compound)
+        // If the prereqValue is not a *File, for example a (*String) or (*compound)
         // %.h <-> 'llvm/PassSupport.h' <-> [
         //   file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h
         //   file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h
@@ -1493,7 +1493,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         return
     } else {
         switch a := target.(type) {
-        case *String, *Compound: // NOTE: skip strings to optimize speed from searching
+        case *String, *compound: // NOTE: skip strings to optimize speed from searching
         case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
         case    *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
         case     flag: pc.print = false // Flag target (-foo) turns off printing automatically

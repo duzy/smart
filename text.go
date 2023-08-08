@@ -60,7 +60,7 @@ type (
                 generalOpts
         }
 )
-func (_ *plainInt) Evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (_ *plainInt) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var (
                 program = ctx.program()
                 pos = ctx.Position()
@@ -211,7 +211,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
 }
 
 type xml struct { whitespace bool }
-func (p *xml) Evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (p *xml) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var source string
         if source, err = multiline(ctx, ctx.program().recipes...); err != nil {
                 erro(ctx, "%v", err).debug(1)
@@ -405,7 +405,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
 
 type json struct {}
 
-func (_ *json) Evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (_ *json) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var program = ctx.program()
         if program == nil {
                 erro(ctx, `needs program context to evaluate: %v`, ctx).debug(16)
@@ -446,7 +446,7 @@ func DecodeYAML(ctx Context, source string, ws bool) (result Value, err error) {
 }
 
 type yaml struct { whitespace bool }
-func (p *yaml) Evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (p *yaml) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var source string
         if source, err = multiline(ctx, ctx.program().recipes...); err != nil {
                 erro(ctx, "%v", err).debug(1)

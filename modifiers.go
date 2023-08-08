@@ -35,6 +35,7 @@ type generalOpts struct {
     fullname bool `fn,ful,full,fullname,full-name,ff,fullfile,full-file`
     silent   bool `silent` // force silent, contrast 'verbose'
     stack    int  `sn,stack,stacknum,stack-num,stack-number`
+    trace    bool `trace`
     timing   bool `t,time,timing`
     verbose  bool `v,verb,verbose` // prompts more information
     warn     bool `w,warn,warning` // prompts more warnings
@@ -527,14 +528,12 @@ func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
 
 ForArgs:
     for _, arg := range args {
-        var (
-            name string
-            value Value
-        )
+        var name string
+        var value Value
         switch a := arg.(type) {
         case *bareword: name = a.string
         case *pair: // NOTE: pair.Value is not expanded, need to do it again.
-            name, value = a.Key.strval(ctx), a.Value.expand(ctx, plain)
+            name, value = a.Key.strval(ctx), a.Value.expand(ctx, /* plain */strval)
             if isNull(value) { value = a.Value }
         case flag:
             name, value = a.Value.strval(ctx), makeNone(a.Position())

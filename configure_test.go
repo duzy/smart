@@ -133,16 +133,6 @@ func TestConfigureDefault(t *testing.T) {
 		ctx.universe().configure(ctx)
 		testPromptConfiguration = false
 
-		// if f = m.configurationSave; f == nil {
-		// 	ctx.err("%v: nil configuration", m)
-		// } else if f.fullname() != m.configurationFile.fullname() {
-		// 	ctx.err("%v: %v", f, m.configurationFile)
-		// } else if i, e := os.Stat(f.fullname()); e != nil {
-		// 	ctx.err("%s: %v", configuration_sm, e)
-		// } else if i == nil {
-		// 	ctx.err("missing %s", f.fullname())
-		// }
-
 		if d, v := ctx.get("FOO"), ctx.get("FOO"); v == nil {
 			erro(of(ctx, d), "%v", d).debug(1)
 		} else if v.String() != ".self" {

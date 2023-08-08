@@ -330,8 +330,12 @@ func (diag *diaContext) trace(ctx Context, fmt string, a ...interface{}) {
 func (diag *diaContext) error() bool { return diag.errs > 0 || diag.countErrors() > 0 }
 func (diag *diaContext) totalErrors() (errs int) { return diag.errs }
 func (diag *diaContext) countErrors() (errs int) { return diag.count(diagError) }
-func (diag *diaContext) count(dt diagType) (errs int) { defer diag.aquireLock()()
-  for _, d := range diag.points { if d.dt == dt { errs += 1 } }
+func (diag *diaContext) count(dt ...diagType) (errs int) { defer diag.aquireLock()()
+  for _, d := range diag.points {
+    for _, t := range dt {
+      if d.dt == t { errs += 1 ; break }
+    }
+  }
   return
 }
 func (diag *diaContext) flush() (errs int) {

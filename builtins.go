@@ -120,17 +120,17 @@ var builtins = map[string]reflect.Type {
     `field`:         reflect.TypeOf((*builtin_field)(nil)).Elem(),
     `fields`:        reflect.TypeOf((*builtin_fields)(nil)).Elem(),
 
-    // `usee`:       reflect.TypeOf((*builtin_usee)(nil)).Elem(),
-    `uses`:     reflect.TypeOf((*builtin_uses)(nil)).Elem(),
+    // `usee`:      reflect.TypeOf((*builtin_usee)(nil)).Elem(),
+    `uses`:         reflect.TypeOf((*builtin_uses)(nil)).Elem(),
 
-    `path`:     reflect.TypeOf((*builtin_path)(nil)).Elem(),
-    `bare`:     reflect.TypeOf((*builtin_bare)(nil)).Elem(),
+    `path`:         reflect.TypeOf((*builtin_path)(nil)).Elem(),
+    `bare`:         reflect.TypeOf((*builtin_bare)(nil)).Elem(),
     `bareword`:     reflect.TypeOf((*builtin_bareword)(nil)).Elem(),
-    `str`:      reflect.TypeOf((*builtin_str)(nil)).Elem(),
+    `str`:          reflect.TypeOf((*builtin_str)(nil)).Elem(),
     `string`:       reflect.TypeOf((*builtin_string)(nil)).Elem(),
     `strval`:       reflect.TypeOf((*builtin_strval)(nil)).Elem(),
-    `strip`:    reflect.TypeOf((*builtin_strip)(nil)).Elem(),
-    `trim`:     reflect.TypeOf((*builtin_trim)(nil)).Elem(),
+    `strip`:        reflect.TypeOf((*builtin_strip)(nil)).Elem(),
+    `trim`:         reflect.TypeOf((*builtin_trim)(nil)).Elem(),
     `trim-space`:   reflect.TypeOf((*builtin_trimspace)(nil)).Elem(),
     `trim-left`:    reflect.TypeOf((*builtin_trimleft)(nil)).Elem(),
     `trim-right`:   reflect.TypeOf((*builtin_trimright)(nil)).Elem(),
@@ -143,12 +143,12 @@ var builtins = map[string]reflect.Type {
 
     `uppercase`:    reflect.TypeOf((*builtin_uppercase)(nil)).Elem(),
     `lowercase`:    reflect.TypeOf((*builtin_lowercase)(nil)).Elem(),
-    `title`:    reflect.TypeOf((*builtin_title)(nil)).Elem(),
+    `title`:        reflect.TypeOf((*builtin_title)(nil)).Elem(),
     `indent`:       reflect.TypeOf((*builtin_indent)(nil)).Elem(),
     `substring`:    reflect.TypeOf((*builtin_substring)(nil)).Elem(),
 
     // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-    `subst`:    reflect.TypeOf((*builtin_subst)(nil)).Elem(),
+    `subst`:        reflect.TypeOf((*builtin_subst)(nil)).Elem(),
     `patsubst`:     reflect.TypeOf((*builtin_patsubst)(nil)).Elem(),
 
     `contains`:     reflect.TypeOf((*builtin_contains)(nil)).Elem(),
@@ -862,18 +862,59 @@ func (ctx *builtin_not) x(ic *invocation, w facet) (res interface{}) {
     return !t
 }
 
-type builtin_unequal struct { builtin_ }
+type builtin_unequal struct { builtin_
+    strval bool `s,sv,strval`
+}
 func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
-    if n := len(ic.a); n != 2 {
-        erro(ctx, "wrong number of arguments, try: $(not-equal <value-list>,<value-list>)")
-    } else if ic.a[0].cmp(ctx, ic.a[1]) != cmpEqual {
+    if ctx.trace { ctx.dia().trace(ctx, "unequal") }
+
+    if len(ic.a) != 2 {
+        erro(ctx, "unequal: wrong number of arguments: %v", ic.a)
+        erro(ctx, "try: $(unequal <value-list>,<value-list>)").debug(1)
+        return
+    }
+
+    var t bool
+    var a = ic.a[0].expand(ctx, strval)
+    var b = ic.a[1].expand(ctx, strval)
+    if ctx.strval {
+        t = a.strval(ctx) != b.strval(ctx)
+    } else {
+        t = a.cmp(ctx, b) != cmpEqual
+    }
+
+    if t {
         res = MakeBoolean(ctx.Position(), true)
+    } else if n := ctx.debug; n>0 {
+        if u, y := a.(unexpanded); y {
+            warn(of(ctx,a), "unequal: a: %T %v (unexpanded)", u.Value, a)
+        } else if l, y := a.(*List); y {
+            var v = l.Elems[0]
+            warn(of(ctx,a), "unequal: a: %T(len=%d), %T %v", a, len(l.Elems), v, v)
+        } else {
+            warn(of(ctx,a), "unequal: a: %T %v", a, a)
+        }
+        if u, y := b.(unexpanded); y {
+            warn(of(ctx,a), "unequal: b: %T %v (unexpanded)", u.Value, b)
+        } else if l, y := b.(*List); y {
+            var v = l.Elems[0]
+            warn(of(ctx,b), "unequal: b: %T(len=%d), %T %v", b, len(l.Elems), v, v)
+        } else {
+            warn(of(ctx,b), "unequal: b: %T %v", b, b)
+        }
+        warnstack(ctx, n, "unequal: %v", t).debug(n)
+    } else if len(ic.a)>2 {
+        warnstack(of(ctx,ic.a[2]), 1, "unequal: extra args specified: %v", ic.a[2]).debug(1)
     }
     return
 }
 
-type builtin_equal struct { builtin_ }
+type builtin_equal struct { builtin_
+    strval bool `s,sv,strval`
+}
 func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
+    if ctx.trace { ctx.dia().trace(ctx, "equal") }
+
     if len(ic.a) > 0 {
         if a := umerge(true, ic.a[0]); len(a) == 1 {
             ic.a[0] = a[0]
@@ -881,36 +922,40 @@ func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
             ic.a[0] = MakeList(ic.a[0].Position(), a...)
         }
     }
+
     if len(ic.a) != 2 {
         erro(ctx, "equal: wrong number of arguments: %v", ic.a)
         erro(ctx, "try: $(equal <value-list>,<value-list>)").debug(1)
         return
     }
 
-    var (
-        a = ic.a[0].expand(ctx, plain)
-        b = ic.a[1].expand(ctx, plain)
-    )
-    if t := a.cmp(ctx, b); t == cmpEqual {
+    var t bool
+    var a = ic.a[0].expand(ctx, strval)
+    var b = ic.a[1].expand(ctx, strval)
+    if ctx.strval {
+        t = a.strval(ctx) == b.strval(ctx)
+    } else {
+        t = a.cmp(ctx, b) == cmpEqual
+    }
+
+    if t {
         res = MakeBoolean(ctx.Position(), true)
     } else if n := ctx.debug; n>0 {
         if u, y := a.(unexpanded); y {
-            warn(of(ctx,a), "equal: a: %T %v (unexpanded)", u.Value, a)
-        } else if l, y := a.(*List); y {
-            var v = l.Elems[0]
+            warn(of(ctx,a), "equal: a: %T %v (unexpanded, %s)", u.Value, a, a.strval(ctx))
+        } else if l, y := a.(*List); y { var v = l.Elems[0]
             warn(of(ctx,a), "equal: a: %T(len=%d), %T %v", a, len(l.Elems), v, v)
         } else {
-            warn(of(ctx,a), "equal: a: %T %v", a, a)
+            warn(of(ctx,a), "equal: a: %T %v (%s)", a, a, a.strval(ctx))
         }
         if u, y := b.(unexpanded); y {
-            warn(of(ctx,a), "equal: b: %T %v (unexpanded)", u.Value, b)
-        } else if l, y := b.(*List); y {
-            var v = l.Elems[0]
+            warn(of(ctx,a), "equal: b: %T %v (unexpanded, %s)", u.Value, b, b.strval(ctx))
+        } else if l, y := b.(*List); y { var v = l.Elems[0]
             warn(of(ctx,b), "equal: b: %T(len=%d), %T %v", b, len(l.Elems), v, v)
         } else {
-            warn(of(ctx,b), "equal: b: %T %v", b, b)
+            warn(of(ctx,b), "equal: b: %T %v (%s)", b, b, b.strval(ctx))
         }
-        warnstack(ctx, n, "equal: %v", t).debug(n)
+        warnstack(ctx, n).debug(n)
     } else if len(ic.a)>2 {
         warnstack(of(ctx,ic.a[2]), 1, "equal: extra args specified: %v", ic.a[2]).debug(1)
     }
@@ -1055,12 +1100,14 @@ func (ctx *builtin_case) x(ic *invocation, w facet) (res interface{}) {
 }
 
 // $(if cond, true-value, else-value, ...)
-type builtin_if struct { builtin_ }
+type builtin_if struct { builtin_
+    def bool `def,defined`
+}
 func (ctx *builtin_if) a(ic *invocation, w facet) (skip bool) { // NOTE: optional
     for i, v := range ic.a { v = v.expand(ctx, w)
-        if i == 0 { if w&expandTraverse == 0 {
+        if !ctx.def && w&expandTraverse == 0 && i == 0 {
             _, skip = v.(unexpanded)
-        }}
+        }
         ic.a[i] = v
     }
     return
@@ -1069,11 +1116,7 @@ func (ctx *builtin_if) x(ic *invocation, w facet) (res interface{}) {
     if n := len(ic.a); n > 1 {
         var t = ic.a[0]//.expand(ctx, strval)
 
-        if false { if ctx.universe().db("test.if") {
-            noted(ctx, "%v %v, %T %v, %T %v, %030b", ic.a, len(ic.a), t, t, res, res, w).debug(16)
-        }}
-
-        if w&expandTraverse == 0 { if _, y := t.(unexpanded); y {
+        if !ctx.def && w&expandTraverse == 0 { if _, y := t.(unexpanded); y {
             return skip{}
         }}
 
@@ -1992,7 +2035,7 @@ func (ctx *builtin_bare) x(ic *invocation, w facet) (res interface{}) {
     for _, a := range ic.a {
         var val Value
         switch t := a.(type) {
-        case *String, *Compound:
+        case *String, *compound:
             val = MakeBareword(a.Position(), a.strval(ctx));
         case *File:
             val = MakeBareword(a.Position(), t.name(ctx));
@@ -2369,7 +2412,7 @@ ForSources:
             // Deal with source value types
             switch pos := dstPat.Position(); src.(type) {
             case *File, fullfile:
-            case *String, *Compound:
+            case *String, *compound:
                 list = append(list, MakeString(pos, nameStr))
                 continue stencilTargetPats
             case *Path:
@@ -3765,31 +3808,28 @@ type builtin_file struct { builtin_
 }
 func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
     var proj *Project = ctx.Project()
-    if false && ctx.caller {
+    if false { if ctx.caller {
         // program -> closure -> traversal -> ...
         if false {
             proj = ctx.closure().Project()
         } else {
             proj = ctx.pc().Project()
         }
-    }
+    }}
     return ctx.do([]*Project{proj}, ic.a...)
 }
 func (ctx *builtin_file) do(projs []*Project, args ...Value) (list []Value) {
     var en int
     var cc = ctx.Context
     var fil = func(a Value) { ctx.Context = at(cc, a.Position())
-        var fs []*File
-        var am []matchedFileMap
-        if false { if strings.HasPrefix(a.String(), "tablegen-min") { defer func() {
-            var f = file(ctx, a.strval(ctx))
-            info(ctx, "%s: %v\n", a, am)
-            info(ctx, "%s: %v\n", a, fs)
-            info(ctx, "%s: %v\n", a, list)
-            info(ctx, "%s: %v %v %v\n", a, f, f.fullname(), f.exists())
-            infostack(ctx, 3, "%s: %T %v\n", a, a, ctx.exists).debug(16)
+        if false { if strings.HasPrefix(a.strval(ctx), ".configure/") { defer func() {
+            if list != nil { if t, y := list[len(list)-1].(*File); y {
+                noted(ctx, "%T %v ⇒ %v %s", a, a, t, t.fullname()).debug(10)
+            }}
         }()}}
 
+        var fs []*File
+        var am []matchedFileMap
         if f, y := toFile(a); y {
             if !ctx.exists || f.exists() /* || f.stat(ctx) != nil */ {
                 list = append(list, f)
@@ -3804,7 +3844,6 @@ func (ctx *builtin_file) do(projs []*Project, args ...Value) (list []Value) {
                 if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", projs, a, a, ctx.Project()).debug(6) }
             } else if f := file(ctx, s); f != nil {
                 if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", projs, a, a, ctx.Project()).debug(6) }
-
                 list = append(list, f)
                 return
             } else {

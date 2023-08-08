@@ -290,7 +290,7 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) {
     return
   }
 
-  if !p.report { return }
+  if !p.scanErrors() { return }
 
   var (
     lpos Position = pos
@@ -493,6 +493,7 @@ func (p *execResult) String() string {
 type execOpts struct {
   generalOpts
   logFileName *fullnameOpt "l,log"
+  checkRecipe bool `checkrecipe,checkrecipes,check-recipe,check-recipes`
   deprecated  bool `dump,deprecate`
   dropFailed  bool `df,drop,drop-fail,drop-failure,fail-drop,remove-on-fail`
   infos       bool `sci,scan-infos`
@@ -566,6 +567,10 @@ func (p *execContext) onFirstWrote() {
       warn(p.Context, "exec: encountered %d errors", errs).debug(1)
     }
   }
+}
+
+func (p *execContext) scanErrors() bool {
+  return (p.debug > 0 || p.report) && p.silentErrs == false
 }
 
 func (p *execContext) runContainerAndRetry() (err error) {
@@ -736,7 +741,7 @@ func (p *execContext) check() (err error) {
       prompt(ctx, "%v: %d warnings\n", p.targetName, wn)
     }
 
-    if p.report { for i, rec := range p.scannedDiags {
+    if p.scanErrors() { for i, rec := range p.scannedDiags {
       if !p.infos && rec.dt == diagInfo { continue }
       if !p.logPos.IsValid() { p.logPos = rec.position }
       if i == 0 && !rec.position.Same(&rec.position) {
@@ -957,18 +962,9 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     if opt != "" { ctx.sh.Args = append(ctx.sh.Args, opt) }
     if src.string != "" { ctx.sh.Args = append(ctx.sh.Args, src.string) }
 
-    d := ctx.debug
-
-    if d == 0 {
-      ctx.Stdout.report = !ctx.silentErrs
-      ctx.Stderr.report = !ctx.silentErrs
-    } else {
-      ctx.Stdout.report = true
-      ctx.Stderr.report = true
-    }
-
     err = ctx.run()
 
+    d := ctx.debug
     if d > 0 {
       entry := ctx.entry()
       prompt(ctx, "%v\n", ctx.sh)
@@ -990,12 +986,14 @@ type executor struct {
   cmd, opt string
   contained bool
 }
-func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error) {
   var uni = ctx.universe()
   if uni.traceExecutor {
     var t = autoVal(ctx, "@")
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
+
+  defer ctx.dia().trace(ctx, "executor")
 
   var (
     pos = ctx.Position()
@@ -1121,8 +1119,7 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     return
   }
 
-  if exe.path {
-    var s string
+  if exe.path { var s string
     if s = filepath.Dir(exe.targetName); s != "" && s != "." && s != "/" {
       if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
         erro(of(ctx,exe.target), "make path '%s' for target failed: %v", s, err).debug(1)
@@ -1131,44 +1128,84 @@ func (p *executor) Evaluate(ctx Context, args ...Value) (result Value, err error
     }
   }
 
-  var (
-    recipePos Position
-    recipes []Value
-    source string
-    w = plain
-  )
-
+  var w = strval
   if exe.fullname { w |= expandFullName }
-  recipes = xmerge(ctx, w, program.recipes...)
 
-  for _, recipe := range recipes {
+  var source string
+  var recipePos Position
+  for i, recipe := range program.recipes {
+    if recipe = recipe.expand(ctx, w); true && exe.fullname {
+      // NOTE: do a second expand for fullname because delegate to file
+      //       skipped fullname expansion (FIXME)
+      recipe = recipe.expand(ctx, expandFullName)
+    }
+
     if !recipePos.IsValid() { recipePos = recipe.Position() }
 
+    if exe.checkRecipe { v := recipe
+      if u, y := v.(unexpanded); y { v = u.Value }
+      if l, y := v.(*compound); y {
+        if exe.fullname { for i, t := range umerge(true, l.Elems...) {
+          if f, y := t.(fullfile); y {
+            if false { noted(of(ctx,t), "fullname: %v ⇒ %v", f, f.strval(ctx)).debug(1) }
+          } else if f, y := t.(*File); y {
+            if s := f.name(ctx); !filepath.IsAbs(s) {
+              erro(of(ctx,t), "not fullname: %v ⇒ %s", s, f.fullname()).debug(1)
+            }
+          } else if p, y := t.(*Path); y && !filepath.IsAbs(p.strval(ctx)) {
+            erro(of(ctx,t), "not fullname: [%d] ⇒ %v", i, p).debug(1)
+          } else if s := t.strval(ctx); strings.Contains(s, PathSep) && !filepath.IsAbs(s) {
+            if c, y := t.(*barecomp); y { for i, t := range c.Elems {
+              if f, y := t.(*File); y {
+                if !filepath.IsAbs(f.name(ctx)) {
+                  if true { erro(ctx, "not fullname: %v , %s", f, f.fullname()).debug(1) }
+                }
+              } else if p, y := t.(*Path); y && !filepath.IsAbs(p.strval(ctx)) {
+                erro(of(ctx,t), "not fullname: %v [%d] ⇒ %v", c, i, t).debug(1)
+              } else if s := t.strval(ctx); strings.Contains(s, "-rpath") {
+                if false { noted(ctx, "%v [%d] ⇒ %T %v", c, i, t, t).debug(1) }
+              } else if strings.Contains(s, PathSep) && !filepath.IsAbs(s) {
+                noted(ctx, "not fullname: %v [%d] ⇒ %T %v", c, i, t, t).debug(1)
+              } else if false {
+                noted(ctx, "%v [%d] ⇒ %T %v", c, i, t, t).debug(1)
+              }
+            }} else {
+              noted(ctx, "%T %v", t, t).debug(1)
+            }
+          }
+        }}
+      } else {
+        erro(ctx, "recipe %d: %T %v", i, recipe, recipe).debug(1)
+      }
+    }
+
     var str = recipe.strval(ctx)
+
     if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
       source += "\n" // an empty line
       continue
-    } else if source += str; strings.HasSuffix(source, "\\") {
-      source += "\n" // append the line feed
-      // continue
+    } else {
+      // Escape '$$' sequences.
+      str = strings.Replace(str, "$$", "$", -1)
+
+      // Duplicate all %
+      //str = strings.Replace(str, "%", "%%", -1)
     }
 
-    // Escape '$$' sequences.
-    source = strings.Replace(source, "$$", "$", -1)
+    if source += str; strings.HasSuffix(source, "\\") {
+      source += "\n" // append the line feed
+      if i < len(program.recipes) { continue }
+    }
 
     // Remove tabs in line breakings.
     source = strings.Replace(source, "\\\n\t", "\\\n", -1)
 
-    // Duplicate all %
-    //source = strings.Replace(source, "%", "%%", -1)
-
     exe.sources = append(exe.sources, &raw{valbase{recipePos}, source})
-    recipePos = Position{}
-    source = ""
+    recipePos, source = Position{}, ""
   }
 
-  if len(recipes) > 0 && len(exe.sources) == 0 {
-    erro(ctx, "empty recipes: %v", recipes).debug(1)
+  if len(program.recipes) > 0 && len(exe.sources) == 0 {
+    erro(ctx, "empty recipes: %v", program.recipes).debug(1)
     return;
   }
 
