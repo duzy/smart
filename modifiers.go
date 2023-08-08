@@ -726,19 +726,20 @@ type modifier_path struct { modifier_
 }
 func (ctx *modifier_path) x(args ...Value) (result interface{}) {
     if ctx.mode == 0 { ctx.mode = os.FileMode(0755) }
-    if len(args) == 0 {
-        var d = autoVal(ctx, "@")
-        var s = d.strval(ctx)
-        if err := os.MkdirAll(filepath.Dir(s), ctx.mode); err != nil {
-            erro(ctx, "make path '%s' failed: %v", s, err).debug(1)
-        }
-        return
-    }
-
+    if len(args) == 0 { if v := autoVal(ctx, "@"); !isTrivial(v) {
+        args = append(args, v)
+    }}
     for _, a := range args {
-        var s = a.strval(ctx)
+        v := a.expand(ctx, strval)
+
+        var s string
+        if f, y := v.(*File); y {
+            s = f.fullname()
+        } else {
+            s = a.strval(ctx)
+        }
         if err := os.MkdirAll(s, ctx.mode); err != nil {
-            erro(ctx, "make path '%s' failed: %v", s, err).debug(1)
+            erro(ctx, "path: %T %v ⇒ %T %v ⇒ %s: %v", a, a, v, v, s, err).debug(1)
             break
         }
     }

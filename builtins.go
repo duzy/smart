@@ -3131,7 +3131,7 @@ type builtin_dirs struct { builtin_
 }
 func (ctx *builtin_dirs) x(ic *invocation, w facet) (res interface{}) {
     var l []Value
-    for _, a := range ic.a {
+    for _, a := range merge(ic.a...) {
         var s string
         if ctx.fullname {
             s, _ = as{a}.fullnameOrStrval(ctx)
@@ -3140,7 +3140,24 @@ func (ctx *builtin_dirs) x(ic *invocation, w facet) (res interface{}) {
         }
         s = filepath.Dir(s)
         for i := ctx.n-1; 0 < i; i -= 1 { s = filepath.Dir(s) }
-        l = append(l, pathStr(ctx, a.Position(), s))
+
+        var v Value
+        var d = ctx.debug
+        if f, y := a.(*File); y {
+            if ctx.fullname {
+                f = stat(ctx, s, "", "", nil)
+            } else {
+                f = stat(ctx, s, f.sub, f.dir, nil)
+            }
+            if d>0 { noted(ctx, "%T %v ⇒ %v %v", a, a, f, f.fullname()).debug(d) }
+            v = f
+        } else if s != "" {
+            if d>0 { noted(ctx, "%T %v ⇒ %v", a, a, s).debug(d) }
+            v = pathStr(ctx, a.Position(), s)
+        } else {
+            continue
+        }
+        l = append(l, v)
     }
     return l
 }
