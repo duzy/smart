@@ -1097,6 +1097,8 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
         return p
     }
 
+	defer d_trace(ctx, "builtin.expand")
+
     var ic = ctx.ic()
     if ic == nil {
         errostack(ctx, 3, "builtin.expand: nil delegate context (%030b)", w).debug(16)

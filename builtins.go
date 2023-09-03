@@ -723,7 +723,7 @@ func (ctx *builtin_debug) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_error struct { builtin_ }
 func (ctx *builtin_error) x(ic *invocation, w facet) (res interface{}) {
-    defer ctx.dia().trace(ctx, "builtin_error")
+    defer d_trace(ctx, "builtin_error")
 
     var s bytes.Buffer
     for i, a := range ic.a {
@@ -752,7 +752,7 @@ type builtin_assert struct { builtin_
 func (ctx *builtin_assert) a(ic *invocation, w facet) (skip bool) { return }
 func (ctx *builtin_assert) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
 func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
-    defer ctx.dia().trace(ctx, "builtin_assert")
+    defer d_trace(ctx, "builtin_assert")
 
     const sn = 1
     var t = diagError ; if ctx.warn { t = diagWarn }
@@ -785,7 +785,7 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_sure struct { builtin_ }
 func (ctx *builtin_sure) x(ic *invocation, w facet) (res interface{}) {
-    defer ctx.dia().trace(ctx, "builtin_sure")
+    defer d_trace(ctx, "builtin_sure")
 
     for _, a := range ic.a { if !a.true(ctx) {
         erro(of(ctx,a), "assert: %T %v", a, a).debug(1)
@@ -866,7 +866,7 @@ type builtin_unequal struct { builtin_
     strval bool `s,sv,strval`
 }
 func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
-    if ctx.trace { ctx.dia().trace(ctx, "unequal") }
+    if ctx.trace { d_trace(ctx, "unequal") }
 
     if len(ic.a) != 2 {
         erro(ctx, "unequal: wrong number of arguments: %v", ic.a)
@@ -913,7 +913,7 @@ type builtin_equal struct { builtin_
     strval bool `s,sv,strval`
 }
 func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
-    if ctx.trace { ctx.dia().trace(ctx, "equal") }
+    if ctx.trace { d_trace(ctx, "equal") }
 
     if len(ic.a) > 0 {
         if a := umerge(true, ic.a[0]); len(a) == 1 {
@@ -4518,7 +4518,7 @@ func autoconf(ctx Context, out *bytes.Buffer, project *Project, str string) (err
     return
 }
 
-func configure(ctx Context, out *bytes.Buffer, project *Project, str string) (err error) {
+func configureString(ctx Context, out *bytes.Buffer, project *Project, str string) (err error) {
     if s, e := project.strExpandConfig(ctx, str); e != nil {
         erro(ctx, "%v: %v", str, err).debug(1)
         return e

@@ -45,7 +45,7 @@ type configureExecutor struct {
     defs map[string]struct{}
 }
 func (ctx *configureExecutor) openConfigurationFile(p *Project) (file *os.File) {
-    defer ctx.dia().trace(ctx, "configuration-file")
+    defer d_trace(ctx, "configuration-file")
 
     if f := p.configurationFile; f == nil {
         erro(ctx, "%p: nil configuration file", p).debug(1)
@@ -72,7 +72,7 @@ func (ctx *configureExecutor) openConfigurationFile(p *Project) (file *os.File) 
     return
 }
 func (ctx *configureExecutor) execute(project *Project, entry Entry) (result *Project, okay bool) {
-    defer ctx.dia().trace(ctx, "execute")
+    defer d_trace(ctx, "execute")
 
     if p := entry.OwnerProject(); p != project && p != nil {
         if p.configured { return nil, true } // already configured
@@ -143,7 +143,7 @@ func (ctx *configureExecutor) close() {
 func (uni *universe) configure(ctx Context) {
     var project *Project
 
-    defer ctx.dia().trace(ctx, "configure")
+    defer d_trace(ctx, "configure")
 
     // Remove all existing configuration.sm files
     if uni.cleanConf { for _, s := range uni.configuration.clean {
@@ -297,8 +297,7 @@ type modifierConfigureOpts struct {
     accumulate bool `add,acc,accumulate`
 }
 func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
-    var uni = ctx.universe()
-    if uni.traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
+    if ctx.universe().traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
 
     var entries *resolvedEntries
     if program := ctx.program(); program == nil {
@@ -415,7 +414,9 @@ ForInParams:
 
 func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, name Value, args []Value) (configured bool, result Value) {
     var uni = ctx.universe()
-    if uni.traceConfig { defer un(trace(t_config, "configureDo")) }
+    if uni.traceConfig { defer un(trace(t_config, "configureExecute")) }
+
+	defer d_trace(ctx, "configureExecute")
 
     var opName string
     if f, y := name.(flag); y {
@@ -424,12 +425,19 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         opName = name.string(ctx)
     }
     if opName == "" {
-        erro(ctx, "empty configure name: %v (%T)", name, name).debug(1)
+        erro(ctx, "empty configure name: %v: %v", typeof(name), name).debug(1)
         return
     }
 
+    var w facet
+    if opts.forth {
+        w = strval
+    } else {
+        w = plain
+    }
+
     var params, infos []Value
-    for _, arg := range xmerge(ctx, strval, args...) {
+    for _, arg := range xmerge(ctx, w, args...) {
         if isTrivial(arg) { continue }
         switch t := arg.(type) {
         case *pair: params = append(params, t)
@@ -443,6 +451,9 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
             erro(of(ctx,arg), " unsupported parameter: %v: %v", typeof(t), t).debug(1)
             return
         }
+    }
+    if true || opts.debug>0 {
+        noted(ctx, "%v %v: %v -> %v %v", typeof(target), target, args, infos, params).debug(1)
     }
 
     if uni.configuration.silent {
@@ -467,8 +478,10 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
             }
             if t { return }
         }
-        if isNull(result) {
+        if result == nil {
             prompt(ctx, "… <nil>\n")
+        } else if isNull(result) {
+            prompt(ctx, "… <null>\n")
         } else if isNone(result) {
             prompt(ctx, "… <none>\n")
         } else if s := result.string(ctx); s == "" {
@@ -478,8 +491,8 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         }
     } ()
 
-    if config, y := configureOps[opName]; y {
-        configured, result = true, config(ctx, target, params...)
+    if configureOp, y := configureOps[opName]; y {
+        configured, result = true, configureOp(ctx, target, params...)
     } else {
         configured, result = configureExecuteEntry(ctx, opts, name, target, params...)
     }
@@ -501,66 +514,72 @@ func (ctx *modifier_configure) x(aa ...Value) (result interface{}) {
     var uni = ctx.universe()
     if uni.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, uni.reconfigure))) }
 
+    var project = ctx.Project()
     var program = ctx.program()
+    if project == nil {
+        erro(ctx, " no project to configure: %v", ctx).debug(1)
+        return
+    }
     if program == nil {
-        erro(ctx, " needs traversal context to configure: %v", ctx).debug(1)
+        erro(ctx, " no program to configure: %v", ctx).debug(1)
         return
     }
 
-    var opts, args = _opts[modifierConfigureOpts](ctx.Context, plain, aa...)
+    var opts, ops = _opts[modifierConfigureOpts](ctx.Context, strval, aa...)
 
-    if program.project.configure == nil {
-        if program.project.name == "configure" {
-            if o := program.project.scope.Lookup(dotConfigure); !isNull(o) {
-                if d, ok := o.(*def); ok && !isNull(d.value) && !isNone(d.value) {
+    if project.configure == nil {
+        if project.name == "configure" {
+            if o := project.scope.Lookup(dotConfigure); o != nil {
+                if d, y := o.(*def); y && d.value != nil && !isTrivial(d.value) {
                     if val := d.value.true(ctx); val {
-                        program.project.configure = program.project
-                        if opts.verbose {
+                        if project.configure = project; opts.verbose {
                             info(ctx, "self-configure project enabled: %v", ctx.Project()).debug(1)
                         }
                     }
                 }
             }
         }
-        if program.project.configure == nil {
-            erro(ctx, " %v: .configure not provided", program.project).debug(1)
+        if project.configure == nil {
+            erro(ctx, " %v: .configure not provided", project).debug(1)
             return
         }
     }
 
-    var target = autoVal(ctx,"@")
-    if isNull(target) {
+    var target = autoVal(ctx, "@")
+    if target == nil {
         erro(ctx, " target is trivial: %s", ctx).debug(1)
         return
     }
 
-    var d *def
     var name = target.string(ctx)
+    if name == "" {
+        erro(ctx, " target is empty: %v: %v", typeof(target), target).debug(1)
+        return
+    }
+
+    var d *def
     if d = program.scope.FindDef(name); d == nil {
         var alt Object
-        d, alt = program.project.scope.define(ctx, DefConfig, name, nil)
+        d, alt = project.scope.define(ctx, DefConfig, name, nil)
         if d == nil && alt != nil { d, _ = alt.(*def) }
     }
     if d == nil {
         erro(ctx, " cannot define configuration `%s`", name).debug(1)
         return
-    } else {
-        result = d
     }
 
-    if !isNull(d.value) { // Check if it's already configured?
+    if result = d; !isNull(d.value) { // Check if it's already configured?
         if !uni.reconfigure { return } // return if not reconfigure
-        if done, found := uni.configuration.done[d]; done && found { return }
+        if _, done := uni.configuration.done[d]; done { return }
     }
 
     var value Value
-    if len(args) == 0 { // Empty configuration: (configure)
+    if len(ops) == 0 { // Empty configuration: (configure)
         if value = autoVal(ctx,"-"); value == nil || value == d || value.refs(ctx, d) {
             return
         }
 
         switch v := value.(type) {
-        default: d.set(ctx, DefConfig, value)
         case *execResult:
             var s string
             if /*v.wg.Wait()*/; v.Status == 0 && v.Stdout.Buf != nil {
@@ -568,28 +587,31 @@ func (ctx *modifier_configure) x(aa ...Value) (result interface{}) {
             } else if v.Stderr.Buf != nil {
                 s = v.Stderr.Buf.String()
             }
-            d.set(ctx, DefConfig, MakeString(ctx.Position(), s))
+            value = MakeString(ctx.Position(), s)
         }
+
+        d.set(ctx, DefConfig, value)
         return
     } else {
         d.set(ctx, DefConfig, nil)
     }
 
     var configured bool
+
 ForConfig:
-    for i, a := range args {
+    for i, a := range ops {
         if d.value == nil && i > 0 { break ForConfig }
 
-        var ( name Value ; para []Value )
+        var name Value
+        var para []Value
         switch arg := a.(type) {
         case flag: name = arg.Value
         case *argumented:
-            if flag, okay := arg.Value.(flag); !okay {
+            if _, y := arg.Value.(flag); !y {
                 erro(of(ctx,a), " `%v` is unsupported value (%T)", arg.Value, arg.Value).debug(1)
                 return
-            } else {
-                name, para = flag, arg.args
             }
+            name, para = arg.Value, arg.args
         default:
             erro(of(ctx,a), " `%v` is unsupported (%T)", a, a).debug(1)
             return
@@ -599,6 +621,8 @@ ForConfig:
             erro(of(ctx,a), " unknown configure `%v` (%T)", a, a).debug(1)
             return
         }
+
+        if opts.debug>0 { noted(ctx, "%v: %v: %v", target, name, para).debug(opts.debug) }
 
         if configured, value = configureExecute(ctx, &opts, target, name, para); !configured {
             erro(ctx, "%v: not configured with: %T %v", target, name, name).debug(1)
@@ -619,7 +643,7 @@ ForConfig:
             d.set(ctx, DefConfig, value)
         }
 
-        if d == nil { uni.configuration.done[d] = true }
+        if d == nil { uni.configuration.done[d] = struct{}{} }
     }
     return
 }
@@ -861,7 +885,7 @@ type modifier_configurefile struct { modifier_ }
 func (ctx *modifier_configurefile) x(args ...Value) (result interface{}) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var convert = func(str string, out *bytes.Buffer) (err error) {
-        return configure(ctx, out, ctx.Project(), str)
+        return configureString(ctx, out, ctx.Project(), str)
     }
     return configureConvert(ctx, nil, convert, &opts, args...)
 }

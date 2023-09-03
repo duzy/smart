@@ -125,6 +125,8 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
     var name = g.Elems[0].string(ctx)
     var args = g.Elems[1:]
 
+	defer d_trace(ctx, "modify")
+
     if t, y := modifiers[name]; !y {
         var _, ent, _ = entryIndicator(ctx, ctx.entry())
         prompt(ctx, "%v: %s failed for %s\n", ent, name, ctx.Project())
@@ -521,7 +523,7 @@ func (ctx *modifier_env) x(args ...Value) (result interface{}) {
 //     [(set -)]             clear $-
 type modifier_set struct { modifier_ }
 func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
-    defer ctx.dia().trace(ctx, "set")
+    defer d_trace(ctx, "set")
 
     var pc = ctx.pc()
 
@@ -2582,7 +2584,7 @@ type modifier_updatefile struct { modifier_
 func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
     assert(ctx.mode != 0, "zero file mode")
 
-    defer ctx.dia().trace(ctx, "update-file")
+    defer d_trace(ctx, "update-file")
 
     var target as
     var filename string
@@ -2918,7 +2920,7 @@ type modifier_assert struct { modifier_
 func (ctx *modifier_assert) v(args ...Value) (_ interface{}) { ctx.z(expandZero, args...) ; return }
 func (ctx *modifier_assert) x(args ...Value) (_ interface{}) { ctx.z(expandZero, args...) ; return }
 func (ctx *modifier_assert) z(w facet, args ...Value) (_ interface{}) {
-    defer ctx.dia().trace(ctx, "modifier_assert")
+    defer d_trace(ctx, "modifier_assert")
 
     var pc = ctx.pc()
     var uni = ctx.universe()

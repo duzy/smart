@@ -366,7 +366,7 @@ type packageinfo struct {
 
 type configuration struct{
     packages map[string]packageinfo
-    done map[*def]bool
+    done map[*def]struct{}
     entries []Entry // order list
     clean []string
     silent bool
@@ -507,7 +507,7 @@ func init_universe(ii ...interface{}) (ctx *universe) { ctx = &universe{}
         ctx.cds.enters = make(map[string]*enterec)
         ctx.configuration = configuration{
             packages: make(map[string]packageinfo),
-            done: make(map[*def]bool),
+            done: make(map[*def]struct{}),
         }
     }
 

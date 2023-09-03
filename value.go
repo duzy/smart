@@ -82,7 +82,7 @@ const (
     expandUnexpandedForth
     expandUnexpandedKept
     expandUnexpandedMerge
-    expandOptimal   // possible optimal presentation
+    expandOptimal // possible optimal presentation
     expandDebug
     expandTrace
     expandTraverse

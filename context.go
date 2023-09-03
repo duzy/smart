@@ -292,7 +292,7 @@ type diaContext struct {
   sync.Mutex
   points   []*diagPoint
   nested [][]*diagPoint
-  errs int
+  errs, traced int
 }
 func (diag *diaContext) inner() Context { return diag.Context }
 func (diag *diaContext) dia() *diaContext { return diag }
@@ -318,13 +318,15 @@ func (diag *diaContext) point(ctx Context, dt diagType, f string, args ...interf
   return diag.add(&diagPoint{ dt, ctx.Position(), fmt.Sprintf(f, args...), nil })
 }
 
-func (diag *diaContext) trace(ctx Context, fmt string, a ...interface{}) {
-  if diag.error() {
+func d_trace(ctx Context, fmt string, a ...interface{}) {
+  if diag := ctx.dia(); diag.error() {
+    if diag.traced += 1; diag.traced > 1 { return }
     if false { erro(ctx, fmt, a...).debug(3) }
     if len(a) == 0 { a = append(a, ctx.Position()) } else
     if _, y := a[0].(Position); !y { a = append([]interface{}{ctx.Position()}, a...) }
     panic(failure{fmt, a})
   }
+  return
 }
 
 func (diag *diaContext) error() bool { return diag.errs > 0 || diag.countErrors() > 0 }

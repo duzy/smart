@@ -209,7 +209,7 @@ func (uo *usevar) apply(ctx Context, d *def, u ...*def) {
     }
 }
 func usefor(ctx Context, user *Project, f func(usevar, Value, Value, string)) {
-    defer ctx.dia().trace(ctx, "use")
+    defer d_trace(ctx, "use")
 
     var o = user.resolveObject(ctx, "use.*")
     if o != nil { if d, y := o.(*def); y && d != nil { for _, spec := range umerge(true, d.value) {
@@ -287,7 +287,7 @@ func (l *loader) Position() (res Position) {
 }
 
 func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value, params ...Value) (loaded *Project) {
-	if true { defer ctx.dia().trace(ctx, "usespec") }
+	if true { defer d_trace(ctx, "usespec") }
 
     var (
         uni = l.universe()
@@ -860,7 +860,7 @@ type includeOpts struct {
     isConfigure bool // internal
 }
 func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
-    defer ctx.dia().trace(ctx, "include")
+    defer d_trace(ctx, "include")
 
     var (
         uni = ctx.universe()
@@ -1404,7 +1404,7 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
     }
     if local = configure == "."; local || configure == "" { configure = "configure" }
 
-    defer ctx.dia().trace(ctx, "configuration: %v", configure)
+    defer d_trace(ctx, "configuration: %v", configure)
 
     var loaded *Project
     var load = func(absPath string, isDir bool) (res bool) {
@@ -1673,7 +1673,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
 
     assert(ctx.loader() == l, "require the same loader context")
 
-    defer ctx.dia().trace(ctx, "source")
+    defer d_trace(ctx, "source")
     defer func(t time.Time, p *parser, m Mode) { if true { ctx = l.p.ctx(ctx) }
         if d := time.Now().Sub(t); d > uni.slow {
             warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, uni.slow).debug(2) //  → %s, filename
@@ -1802,7 +1802,7 @@ ListLoop:
 }
 
 func (l *loader) sources(ctx Context, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
-    defer ctx.dia().trace(ctx, "sources")
+    defer d_trace(ctx, "sources")
 
     var uni = l.universe()
 
@@ -1998,7 +1998,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     var uni = ctx.universe()
     if uni.traceLaunch { defer un(trace(t_launch, "loader.dir")) }
 
-	defer ctx.dia().trace(ctx, "dir (%s)", specName)
+	defer d_trace(ctx, "dir (%s)", specName)
 
     if !filepath.IsAbs(absDir) {
         errostack(ctx, 3, "needs absolute dir `%s' (%s)", absDir, specName).debug(10)

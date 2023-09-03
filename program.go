@@ -578,7 +578,7 @@ func with(ctx Context, target Value) (res bool) {
 
 // traverse - traverse the prerrequiste for the current target $@
 func (pc *programContext) traverse(ctx Context, prereqValue Value) (result travestates) {
-    defer ctx.dia().trace(ctx, "traverse")
+    defer d_trace(ctx, "traverse")
 
     var (
         uni = ctx.universe()
@@ -1317,11 +1317,11 @@ func (prog *program) workDir(ctx Context) (workDir string) {
 }
 
 func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
-    var dia = ctx.dia()
     var entry = ctx.entry()
 
-    defer dia.trace(ctx, "execute "+entry.String())
+    defer d_trace(ctx, "execute "+entry.String())
 
+    var dia = ctx.dia()
     if t := dia.countErrors(); t > 0 {
         erro(ctx, "%v: got %d errors, canceled execution (%v)", entry, t, prog.project).debug(1)
         return

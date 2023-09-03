@@ -403,7 +403,7 @@ func (p *parser) isRecipeStart() (res bool) {
 // Barewords & Identifiers
 
 func (p *parser) bare(ctx Context, lhs bool) (x Value) {
-	if true { defer ctx.dia().trace(ctx, "bare") }
+	if true { defer d_trace(ctx, "parser.bare") }
 
 	ctx = p.ctx(ctx)
 
@@ -1241,7 +1241,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 
 	ctx = at(ctx, p.Position())
 
-	defer ctx.dia().trace(ctx, "closuredelegate")
+	defer d_trace(ctx, "parser.closuredelegate")
 
 	var (
 		loader = ctx.loader()
@@ -1257,7 +1257,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 	}
 
 	resolve := func(lPos Position, lTok Token, name Value) (str string, obj Value, okay bool) {
-		defer ctx.dia().trace(ctx, "resolve") // backtrace on errors
+		defer d_trace(ctx, "parser.closuredelegate.resolve") // backtrace on errors
 
 		if a, y := name.(*argumented); y { name = a.Value }
 		if sel, y := name.(*selection); y {
@@ -1609,7 +1609,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 
 func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled && false { defer un(trace(t_traverse, "Unary")) }
-	defer ctx.dia().trace(ctx, "unary")
+	defer d_trace(ctx, "parser.unary")
 
 	switch p.tok {
 	case BAREWORD, AT:
@@ -1708,7 +1708,7 @@ func (p *parser) isParametersGroup(x Value) (res bool) {
 func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
 
-	defer ctx.dia().trace(ctx, "composite")
+	defer d_trace(ctx, "parser.composite")
 
 	switch x = p.unary(ctx, lhs); p.tok { // check composible expressions
 	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
@@ -1764,7 +1764,7 @@ func (p *parser) text(ctx Context) (res []Value) { var uni = ctx.universe()
 func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
 
-	defer ctx.dia().trace(ctx, "expr")
+	defer d_trace(ctx, "parser.expr")
 
 	var tok, lit = p.tok, p.lit
 	if x = p.composite(ctx, lhs); x == nil {
@@ -1928,7 +1928,7 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 	ctx = at(ctx, g.spec[0].Position()) // p.ctx()
 
-	defer ctx.dia().trace(ctx, "use")
+	defer d_trace(ctx, "parser.use")
 
 	var specVals, arged []Value
 	switch v := g.spec[0].(type) {
@@ -2191,7 +2191,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 		name string
 	)
 
-	defer ctx.dia().trace(ctx, "eval")
+	defer d_trace(ctx, "parser.eval")
 
 	if g.skip { return } else if g.spec == nil {
 		var opts struct {
@@ -2257,7 +2257,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 func (p *parser) directive(ctx Context) (props []Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "spec")) }
 
-	defer ctx.dia().trace(ctx, "directive")
+	defer d_trace(ctx, "parser.directive")
 
 	//var doc = p.leadComment
 	var comment *CommentGroup
@@ -2283,7 +2283,7 @@ ParamsParseLoop: // Parse the directive parameters
 func (p *parser) spec(ctx Context, keyword Token, pos Pos, f parseSpecFunc) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "spec("+keyword.String()+")")) }
 
-	defer ctx.dia().trace(ctx, "spec")
+	defer d_trace(ctx, "parser.spec")
 
 	var opts = clauseOpts{ keyword: keyword }
 	for p.spaces(); p.tok == MINUS; p.spaces() {
@@ -2852,7 +2852,7 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value) 
 		defer startCPUProfile(ctx, name, true)()
 	}
 
-	defer ctx.dia().trace(ctx, "template")
+	defer d_trace(ctx, "parser.template")
 
 	if !(p.pos < p.stop) {
 		erro(at(ctx,p.loc(p.pos)), "bad range: [%v %v) (%v)", p.pos, p.stop, t.name).debug(10)
@@ -2874,16 +2874,9 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value) 
 		erro(ctx, "'%s' not defined", s).debug(1)
 	}}
 
-	// if t.name != nil && (t.name.String() == "foo" || t.name.String() == "bar") {
-	// 	noted(ctx, "%v %v %v, %v %v", t.name, vars, p.tok, p.pos, p.stop).debug(1)
-	// }
-
 	var bits = p.bits
 	p.bits |= parseTemplateBlock
 	for p.tok != EOF && p.pos < p.stop {
-		// if t.name != nil && (t.name.String() == "foo" || t.name.String() == "bar") {
-		// 	noted(ctx, "%v %v %v", t.name, vars, p.tok).debug(1)
-		// }
 		if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
 			p.next(true)
 		} else {
@@ -3021,7 +3014,7 @@ func (p *parser) templateCall(ctx Context, name Value, args []Value) {
 	erro(of(ctx,name), "undefined template: %v", name).debug(1)
 }
 func (p *parser) template(ctx Context, verb string) {
-	defer ctx.dia().trace(ctx, "template."+verb)
+	defer d_trace(ctx, "parser.template."+verb)
 
 	var arged *argumented
 	var startingPos, startingTok = p.Position(), p.tok
@@ -3165,7 +3158,7 @@ outer:
 func (p *parser) clause(ctx Context) { var uni = ctx.universe()
 	if t_traverse.enabled { defer un(tracef(t_traverse, "clause(%v, %v)", p.tok, p.pos)) }
 
-	defer ctx.dia().trace(ctx, "clause")
+	defer d_trace(ctx, "parser.clause")
 
 	var x Value
 	defer func() { if uni.debugParsing(ctx, "clause") {
@@ -3230,7 +3223,7 @@ func (p *parser) clause(ctx Context) { var uni = ctx.universe()
 			pp = loader.p
 		}
 	} else if isIncludingConf {
-		warn(ctx, "bad clause: %v (kit=%s) after %v", p.tok, p.lit, list).debug(10)
+		warn(ctx, "bad clause: %v (kit=%s) after %v", p.tok, p.lit, list).debug(3)
 	} else {
 		erro(ctx, "bad clause: %v (lit=%s) after %v", p.tok, p.lit, list).debug(10)
 	}
@@ -3250,7 +3243,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
 	if ctx.dia().error() { return nil }
 
-	defer ctx.dia().trace(ctx, "file")
+	defer d_trace(ctx, "parser.file")
 
 	var (
 		ident *barecomp

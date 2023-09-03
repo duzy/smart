@@ -808,7 +808,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     logFile *os.File
   )
 
-  if d := ctx.dia(); d.error() { return } else { defer d.trace(ctx, "exec") }
+  if ctx.dia().error() { return } else { defer d_trace(ctx, "exec") }
 
   var pc = ctx.pc()
   var env, sep = pc.env(ctx)
@@ -992,7 +992,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
 
-  defer ctx.dia().trace(ctx, "executor")
+  defer d_trace(ctx, "executor")
 
   var (
     pos = ctx.Position()
