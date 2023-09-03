@@ -429,13 +429,16 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
     }
 
     var params, infos []Value
-    for _, arg := range xmerge(ctx, plain, args...) {
+    for _, arg := range xmerge(ctx, strval, args...) {
         if isTrivial(arg) { continue }
         switch t := arg.(type) {
         case *pair: params = append(params, t)
         case *raw, *String, *compound:
             params = append(params, configureParam(ctx, "INFO", t))
             infos = append(infos, t)
+        case unexpanded:
+            erro(of(ctx,arg), " unexpanded: %v", t).debug(1)
+            return
         default:
             erro(of(ctx,arg), " unsupported parameter: %v: %v", typeof(t), t).debug(1)
             return
