@@ -1162,11 +1162,13 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
               } else if p, y := t.(*Path); y && !filepath.IsAbs(p.string(ctx)) {
                 erro(of(ctx,t), "not fullname: %v [%d] ⇒ %v", c, i, t).debug(1)
               } else if s := t.string(ctx); strings.Contains(s, "-rpath") {
-                if false { noted(ctx, "%v [%d] ⇒ %T %v", c, i, t, t).debug(1) }
+                if false { noted(ctx, "%v [%d] ⇒ %v: %v", c, i, typeof(t), t).debug(1) }
+              } else if true {
+                // continue...
               } else if strings.Contains(s, PathSep) && !filepath.IsAbs(s) {
-                noted(ctx, "not fullname: %v [%d] ⇒ %T %v", c, i, t, t).debug(1)
+                noted(ctx, "not fullname: %v [%d] ⇒ %v: %v", c, i, typeof(t), t).debug(1)
               } else if false {
-                noted(ctx, "%v [%d] ⇒ %T %v", c, i, t, t).debug(1)
+                noted(ctx, "%v [%d] ⇒ %v: %v", c, i, typeof(t), t).debug(1)
               }
             }} else {
               noted(ctx, "%T %v", t, t).debug(1)
