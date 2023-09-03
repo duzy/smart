@@ -73,7 +73,7 @@ func TestValueCache(t *testing.T) {
 
 	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
-	} else if v.strval(ctx) != "**.c++" {
+	} else if v.string(ctx) != "**.c++" {
 		ctx.err("%v", v)
 	} else if true {
 		// skips, files() not working globs
@@ -87,7 +87,7 @@ func TestValueCache(t *testing.T) {
 
 	if v := ctx.get("val2"); v == nil {
 		ctx.err("val2")
-	} else if v.strval(ctx) != "foo.c++" {
+	} else if v.string(ctx) != "foo.c++" {
 		ctx.err("%v", v)
 	} else if f := m.file(ctx, v); f == nil {
 		ctx.err("%v %v", v, f)
@@ -101,7 +101,7 @@ func TestValueCache(t *testing.T) {
 
 	if v := ctx.get("val3"); v == nil {
 		ctx.err("val3")
-	} else if v.strval(ctx) != "foo.o" {
+	} else if v.string(ctx) != "foo.o" {
 		ctx.err("%T %v", v, v)
 	} else if t := ctx.unmap(ctx, v); t == nil {
 		ctx.err("%T %v", v, v)
@@ -135,7 +135,7 @@ func TestValueCache(t *testing.T) {
 		ctx.err("sources is wrong: %v %v", d, v)
 	} else if false {
 		info(ctx, "%v", v).debug(1)
-	} else if s := v.strval(ctx); strings.Count(s, "foo.c") != 2 {
+	} else if s := v.string(ctx); strings.Count(s, "foo.c") != 2 {
 		ctx.err("sources is wrong: %v", v) // NOTE: "foo.c" counts foo.c foo.c++
 	} else if strings.Count(s, "foo.c++") != 1 {
 		ctx.err("sources is wrong: %v", v)
@@ -151,7 +151,7 @@ func TestValueCache(t *testing.T) {
 		ctx.err("objects is wrong: %v %v", d, v)
 	} else if false {
 		info(ctx, "%v", v).debug(1)
-	} else if s := v.strval(ctx); strings.Count(s, "foo.o") != 2 {
+	} else if s := v.string(ctx); strings.Count(s, "foo.o") != 2 {
 		ctx.err("sources is wrong: %v", v)
 	} else if strings.Count(s, "foo/bar.o") != 2 {
 		ctx.err("sources is wrong: %v", v)

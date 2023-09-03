@@ -477,7 +477,7 @@ func (p *execResult) true(ctx Context) (res bool) {
 }
 func (p *execResult) int(ctx Context) (i int64, _ error) { return int64(p.Status), nil }
 func (p *execResult) float(ctx Context) (f float64, _ error) { return float64(p.Status), nil }
-func (p *execResult) strval(ctx Context) (s string) {
+func (p *execResult) string(ctx Context) (s string) {
   if p.Stdout.Buf != nil { s = p.Stdout.Buf.String() }
   return
 }
@@ -865,7 +865,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
         prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, e)
       }
       if ctx.logFileName != nil && !ctx.logPos.IsValid() {
-        prompt(ctx, "%v:1: see logs for \"%s\"\n", ctx.logFileName.strval(ctx), ctx.target)
+        prompt(ctx, "%v:1: see logs for \"%s\"\n", ctx.logFileName.string(ctx), ctx.target)
       }
       erro(ctx, `stamp "%v" failed`, ctx.target).debug(1)
       return
@@ -893,7 +893,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     }
   } ()
 
-  if ctx.logFileName != nil { ctx.log = &ExecLog{ filename: ctx.logFileName.strval(ctx) } }
+  if ctx.logFileName != nil { ctx.log = &ExecLog{ filename: ctx.logFileName.string(ctx) } }
   if ctx.bufStdout || ctx.retStdout { ctx.Stdout.Buf = new(bytes.Buffer) }
   if ctx.bufStderr || ctx.retStderr { ctx.Stderr.Buf = new(bytes.Buffer) }
   if ctx.tieStdout { ctx.Stdout.Tie = stdout }
@@ -918,29 +918,29 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
   for i, src := range ctx.sources {
     ctx.current = i
 
-    if a := "@"; strings.HasPrefix(src.string, a) {
-      src.string = strings.TrimPrefix(src.string, a)
+    if a := "@"; strings.HasPrefix(src.s, a) {
+      src.s = strings.TrimPrefix(src.s, a)
     } else if ctx.promptSrc && !ctx.prompt {
-      var s string = src.string
+      var s string = src.s
       s = strings.Replace(s, "\n", "\\n", -1)
       s = strings.Replace(s, "\\\\n", "\\\n", -1)
       prompt(ctx, "%s\n", s)//.debug(1)
     }
 
-    if src.string = strings.TrimSpace(src.string); src.string == "" { continue }
+    if src.s = strings.TrimSpace(src.s); src.s == "" { continue }
 
     if false && !ctx.noCD && ctx.workDir != "" {
-      if strings.HasPrefix(src.string, "#") {
-        src.string = fmt.Sprintf("cd '%s' %s", ctx.workDir, src.string)
+      if strings.HasPrefix(src.s, "#") {
+        src.s = fmt.Sprintf("cd '%s' %s", ctx.workDir, src.s)
       } else {
         // Insert a "\n" before the right paren ')' to ensure that
         // it's working with comments like "true #comment...".
-        src.string = fmt.Sprintf("cd '%s' && (%s\n)", ctx.workDir, src.string)
+        src.s = fmt.Sprintf("cd '%s' && (%s\n)", ctx.workDir, src.s)
       }
     }
 
     if cmd == "docker" && len(envstr) > 0 {
-      src.string = fmt.Sprintf("%s && %s", envstr, src.string)
+      src.s = fmt.Sprintf("%s && %s", envstr, src.s)
     }
 
     if uni.noExec { continue }
@@ -959,7 +959,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
       ctx.sh.Args = append(ctx.sh.Args, "-ti")
     }
     if opt != "" { ctx.sh.Args = append(ctx.sh.Args, opt) }
-    if src.string != "" { ctx.sh.Args = append(ctx.sh.Args, src.string) }
+    if src.s != "" { ctx.sh.Args = append(ctx.sh.Args, src.s) }
 
     err = ctx.run()
 
@@ -1052,8 +1052,8 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
   for i, v := range args { var s string
     if p.contained && i == 0 {
-      if s = v.strval(ctx); s == "shell" { cmd = defaultShell }
-    } else if s = strings.TrimSpace(v.strval(ctx)); s != "" {
+      if s = v.string(ctx); s == "shell" { cmd = defaultShell }
+    } else if s = strings.TrimSpace(v.string(ctx)); s != "" {
       exe.args = append(exe.args, s)
     }
   }
@@ -1077,9 +1077,9 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
       if obj := exe.container.resolveObject(ctx, name); obj != nil {
         if d, _ := obj.(*def); d != nil {
           if v := d.invoke(ctx, plain, nil, nil); v != nil {
-            if str = v.strval(ctx); str == "-" {
+            if str = v.string(ctx); str == "-" {
               /*if v, err = def.DiscloseValue(exe.container); err == nil && v != nil {
-                  if str, err = v.strval(ctx); str == "" { str = "-" }
+                  if str, err = v.string(ctx); str == "" { str = "-" }
                   prompt(ctx, "%v: %v (%v)\n", name, str, def)
                 }*/
             }
@@ -1146,22 +1146,22 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
       if l, y := v.(*compound); y {
         if exe.fullname { for i, t := range umerge(true, l.Elems...) {
           if f, y := t.(fullfile); y {
-            if false { noted(of(ctx,t), "fullname: %v ⇒ %v", f, f.strval(ctx)).debug(1) }
+            if false { noted(of(ctx,t), "fullname: %v ⇒ %v", f, f.string(ctx)).debug(1) }
           } else if f, y := t.(*File); y {
             if s := f.name(ctx); !filepath.IsAbs(s) {
               erro(of(ctx,t), "not fullname: %v ⇒ %s", s, f.fullname()).debug(1)
             }
-          } else if p, y := t.(*Path); y && !filepath.IsAbs(p.strval(ctx)) {
+          } else if p, y := t.(*Path); y && !filepath.IsAbs(p.string(ctx)) {
             erro(of(ctx,t), "not fullname: [%d] ⇒ %v", i, p).debug(1)
-          } else if s := t.strval(ctx); strings.Contains(s, PathSep) && !filepath.IsAbs(s) {
+          } else if s := t.string(ctx); strings.Contains(s, PathSep) && !filepath.IsAbs(s) {
             if c, y := t.(*barecomp); y { for i, t := range c.Elems {
               if f, y := t.(*File); y {
                 if !filepath.IsAbs(f.name(ctx)) {
                   if true { erro(ctx, "not fullname: %v , %s", f, f.fullname()).debug(1) }
                 }
-              } else if p, y := t.(*Path); y && !filepath.IsAbs(p.strval(ctx)) {
+              } else if p, y := t.(*Path); y && !filepath.IsAbs(p.string(ctx)) {
                 erro(of(ctx,t), "not fullname: %v [%d] ⇒ %v", c, i, t).debug(1)
-              } else if s := t.strval(ctx); strings.Contains(s, "-rpath") {
+              } else if s := t.string(ctx); strings.Contains(s, "-rpath") {
                 if false { noted(ctx, "%v [%d] ⇒ %T %v", c, i, t, t).debug(1) }
               } else if strings.Contains(s, PathSep) && !filepath.IsAbs(s) {
                 noted(ctx, "not fullname: %v [%d] ⇒ %T %v", c, i, t, t).debug(1)
@@ -1178,7 +1178,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
       }
     }
 
-    var str = recipe.strval(ctx)
+    var str = recipe.string(ctx)
 
     if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
       source += "\n" // an empty line

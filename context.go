@@ -406,6 +406,107 @@ func noted(ctx Context, f string, a ...interface{}) *diagPoint {
   }
 }
 
+func infostack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagInfo  , a...) }
+func warnstack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagWarn  , a...) }
+func errostack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagError , a...) }
+func promstack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagPrompt, a...) }
+func notestack(ctx Context, n int, a ...interface{}) *diagPoint { var f string
+  if len(a) > 0 { if s, y := a[0].(string); y { f, a = s, a[1:] } }
+  a = append([]interface{}{ "%v: "+f+"\n", ctx.Position() }, a...)
+  return diagstack(ctx, n, diagPrompt, a...)
+}
+func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPoint) {
+    var (
+        proj = ctx.Project()
+        entry = ctx.entry()
+        s, str string
+    )
+    if len(a) > 0 { if t, y := a[0].(string); y { s, a = t, a[1:] }}
+    if s != "" && s != "<#" && s != "#>" {
+      if len(a) > 0 { if p, y := a[0].(Position); y && p.IsValid() && strings.HasPrefix(s, "%") {
+        if strings.HasSuffix(s, "\n") {
+          s = strings.TrimSuffix(s, "\n") + "#%d\n"
+          a = append([]interface{}{p, n}, a[1:]...)
+        }
+      } else {
+        s = "#%d: " + s
+        a = append([]interface{}{n}, a...)
+      }}
+      point = diag(ctx, dt, s, a...)
+    } else if entry == nil {
+        if point = diag(ctx, dt, "#%d: in project %v:", n, proj); proj != nil {
+            point.position = proj.position
+        }
+        for last, i := ctx.Position(), ctx.inner(); i != nil; i = i.inner() {
+            if pos := i.Position(); !pos.Same(&last) {
+                point = diag(ctx, dt, "%v: from here", proj)
+                point.position = pos
+                last = pos
+            }
+        }
+        return
+    } else {
+        if proj == nil { proj = entry.OwnerProject() }
+        str, _, _ = entryIndicator(ctx, entry)
+    }
+
+    if s == "<#" && len(a) > 0 { for _, t := range a {
+        if v, ok := t.(Value); ok {
+            if str == "" {
+                point = diag(ctx, dt, "%v: %v (%T)", proj, v, v)
+            } else {
+                point = diag(ctx, dt, "%v: %v: %v (%T)", proj, str, v, v)
+            }
+            point.position = v.Position()
+        }
+    }}
+
+    if point == nil {
+        point = diag(ctx, dt, "%v", proj)
+    } else if true {
+        // ...
+    } else if str == "" {
+        point = diag(ctx, dt, "%v: %v", proj, ctx)
+    } else {
+        point = diag(ctx, dt, "%v: %v: %v", proj, str, ctx)
+    }
+
+    if pc := ctx.poco(); pc != nil {
+        point.position = pc.position
+
+        if s == "#>" && len(a) > 0 { for _, t := range a {
+            if v, ok := t.(Value); ok {
+                if str == "" {
+                    point = diag(ctx, dt, "%v: %v (%T)", proj, v, v)
+                } else {
+                    point = diag(ctx, dt, "%v: %v: %v (%T)", proj, str, v, v)
+                }
+                point.position = v.Position()
+            }
+        }}
+
+        for last := &pc.position; pc != nil && n > 0; pc = pc.Context.poco() {
+            var pos = &pc.position
+            if last == pos || last.Same(pos) { continue }  else { n -= 1 }
+
+            var suf string
+            if n == 0 && pc.caller() != nil { suf = " ..." }
+
+            if entry := pc.entry(); entry == nil {
+                point = diag(ctx, /* dt */diagInfo, "#%d: %v%s", n, proj, suf)
+            } else if str, _, _ := entryIndicator(pc, entry); str != "" {
+                point = diag(ctx, /* dt */diagInfo, "#%d: %v: %v%s", n, proj, str, suf)
+            } else {
+                point = diag(ctx, /* dt */diagInfo, "#%d: %v: %v%s", n, proj, entry, suf)
+            }
+
+            point.position = *pos
+            last = pos
+        }
+    }
+    return
+}
+
 type positionContext struct { Context; position Position }
 func (pc *positionContext) poco() *positionContext { return pc }
 func (pc *positionContext) inner() Context { return pc.Context }
@@ -674,7 +775,7 @@ func CommandLine() { var context = init_universe() ; defer assured(context, fals
     for i, v := range result {
       if s := ""; isNull(v) {
         s = "<nil>"
-      } else if s = strings.TrimSpace(v.strval(context)); s == "" {
+      } else if s = strings.TrimSpace(v.string(context)); s == "" {
         continue
       } else if i == 0 {
         fmt.Fprintf(stderr, "%s", s)

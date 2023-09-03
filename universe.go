@@ -314,14 +314,14 @@ func (cache *filemapCache) val(ctx Context, key Value, bits int) (res *filemapCa
 
   var uni = ctx.universe()
     if res == nil && uni.errorUncache {
-        errostack(ctx, 10, "%08b: %s(%v) → %s", bits, typeof(key), key, key.strval(ctx)).debug(32)
+        errostack(ctx, 10, "%08b: %s(%v) → %s", bits, typeof(key), key, key.string(ctx)).debug(32)
     }
     return
 }
 
 func (cache hitch) pat(ctx Context, key Value, bits int) (res *filemapCache) {
     var a []*filemapCachePat
-    if s := key.strval(ctx); (bits&cacheStore) != 0 {
+    if s := key.string(ctx); (bits&cacheStore) != 0 {
         if cache.pats != nil { a, _ = cache.pats[s] } else {
             cache.pats = make(map[string][]*filemapCachePat)
         }
@@ -754,12 +754,12 @@ func (uc *universe) unmap(ctx Context, name interface{}) (maps []matchedFileMap)
     var h = hitch{&uc.filemaps, hitched{name}}
     if v, y := name.(Value); y {
         if cache = v.hit(ctx, h, cacheZero); cache == nil {
-            var s = v.strval(ctx) ; if S != "" { db = S == s }
+            var s = v.string(ctx) ; if S != "" { db = S == s }
             if c := h.char0(cacheZero); c != nil { // FIXES: *.o <-> sub/foo.o
                 h.filemapCache = c
                 cache = h.strx(ctx, s, cacheZero)
             }
-        } else if S != "" { db = S == v.strval(ctx) }
+        } else if S != "" { db = S == v.string(ctx) }
     } else if s, y := name.(string); y {
         if cache = h.strx(ctx, s, cacheZero); S != "" { db = S == s }
     } else if a, y := name.([]string); y {
@@ -915,7 +915,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
     for _, flag := range dc.globe.flags {
         if dc.verboseExecFlags { info(of(ctx, flag), "%v", flag) }
 
-        var s = flag.Value.strval(ctx)
+        var s = flag.Value.string(ctx)
         var args, _ = dc.globe.args[flag]
         var entries, _ = dc.globe.flagEntries[s]
         for _, entry := range entries {
@@ -955,8 +955,8 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
             switch t := goal.(type) {
             case *null, *none: // just ignore
             case *bareword:
-                if entries := proj.resolveEntries(ctx, t.string, true); entries == nil {
-                    erro(ctx, "no such entry `%s`", t.string).debug(1)
+                if entries := proj.resolveEntries(ctx, t.s, true); entries == nil {
+                    erro(ctx, "no such entry `%s`", t.s).debug(1)
                     return false
                 } else {
                     for _, entry := range entries.all {
@@ -964,7 +964,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                     }
                 }
             case *delegate:
-                var s = t.strval(ctx)
+                var s = t.string(ctx)
                 if entries := proj.resolveEntries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
                     return false
@@ -974,7 +974,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                     }
                 }
             case flag:
-                var s = t.strval(ctx)
+                var s = t.string(ctx)
                 if entries := proj.resolveEntries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
                     return false
@@ -990,7 +990,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                     //     project/spec(-clean)
                     //     xxxx()
                     var (
-                        s = t.Value.strval(ctx)
+                        s = t.Value.string(ctx)
                         args = merge(t.args...)
                         found int
                     )
@@ -1113,8 +1113,8 @@ func (dc *universe) loadTopWork() (err error) {
         switch t := target.(type) {
         case *pair: dc.globe.pairs = append(dc.globe.pairs, t)
         case flag: dc.globe.flags = append(dc.globe.flags, t)
-            if s := t.Value.strval(ctx); s == "clean" {
-                mode.position, mode.string = t.Position(), "clean"
+            if s := t.Value.string(ctx); s == "clean" {
+                mode.position, mode.s = t.Position(), "clean"
             }
         case *argumented:
             dc.globe.args[t.Value] = t.args
@@ -1127,10 +1127,10 @@ func (dc *universe) loadTopWork() (err error) {
             dc.globe.goals.append(ctx, t)
         }
     }
-    if mode.string == "" { if dc.commandline.configure {
-        mode.string = "configure"
+    if mode.s == "" { if dc.commandline.configure {
+        mode.s = "configure"
     } else {
-        mode.string = "goals"
+        mode.s = "goals"
     }}
     dc.globe.mode.value = mode
 

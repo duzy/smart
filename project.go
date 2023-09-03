@@ -97,7 +97,7 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
     //     )
     for _, p := range filemap.locs { // FIXME: performance, operate on p.(*Path) instead
       if _, ok := p.(*Path); !ok { continue } // NOTE: only work with paths to improve performance
-      var ps = p.strval(ctx)
+      var ps = p.string(ctx)
       for i := strings.LastIndex(ps, PathSep); -1 <= i; {
         var ( prefix = ps[i+1:]; l = len(prefix) ) // NOTE: -1 <= i < len(ps)
         if has := strings.HasPrefix(str, prefix) && str[l] == '/'; has {
@@ -166,7 +166,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
 
     var dir, sub string
 
-    if sub = path.strval(ctx); sub == "" {
+    if sub = path.string(ctx); sub == "" {
       if true {
         erro(at(ctx,path.Position()), "filemap path '%v' is empty (%T)", path, path)
         erro(at(ctx,pos), "filemap path '%v' is empty (pattern=%v)", path, patts)
@@ -278,9 +278,6 @@ type Project struct {
   configs []Entry // configure entries
   defaultEntry Entry
 
-  // TODO: printEntering() ...
-  // TODO: printLeaving() ...
-
   plugin *plugin.Plugin
   pluginScope *Scope
 
@@ -289,7 +286,6 @@ type Project struct {
 
 func (p *Project) AbsPath() string { return p.absPath }
 func (p *Project) RelPath() string { return p.relPath }
-func (p *Project) Spec() string { return p.spec }
 func (p *Project) String() string { return p.name }
 func (p *Project) Scope() *Scope { return p.scope }
 func (p *Project) Bases() []*Project { return p.bases }
@@ -323,20 +319,20 @@ func (p *Project) wildcard(ctx *builtin_wildcard, patterns ...Value) (files []*F
   var f0 = func(lVal, rVal Value, lPat, rPat bool, fm *FileMap) {
     var o = *ctx
     for _, loc := range fm.locs {
-      if o.dir = loc.strval(ctx); lPat && rPat {
+      if o.dir = loc.string(ctx); lPat && rPat {
         var pat Value
         if lVal.cmp(ctx, rVal) == cmpEqual { pat = lVal } else {
           pat = &compositePattern{lVal, []Value{rVal}}
         }
         g.Add(1) ; go collect(o._do(pat)...)
       } else if lPat && !rPat {
-        if file := stat(ctx, rVal.strval(ctx), "", o.dir, a...); file != nil {
+        if file := stat(ctx, rVal.string(ctx), "", o.dir, a...); file != nil {
           g.Add(1) ; go collect(file)
         } else if false {
           erro(ctx, "nil: %v: %T %v (%s, %v)", lVal, rVal, rVal, o.dir, a).debug(1)
         }
       } else if !lPat && rPat {
-        if file := stat(ctx, lVal.strval(ctx), o.dir, "", a...); file != nil {
+        if file := stat(ctx, lVal.string(ctx), o.dir, "", a...); file != nil {
           g.Add(1) ; go collect(file)
         } else if false {
           erro(ctx, "nil: %v: %T %v (%s, %v)", rVal, lVal, lVal, o.dir, a).debug(1)
@@ -476,10 +472,10 @@ func (p *Project) tempFile(ctx Context, name string) (file *File) {
     // good
   } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
     erro(ctx, "%v: CTD is not defined for temp file: %v", p, name).debug(1)
-  } else if file = stat(ctx, filepath.Join(ctd.strval(ctx), name), "", "", nil); file == nil {
-    erro(ctx, "%v: nil stat %v %v", p, ctd.strval(ctx), name).debug(1)
+  } else if file = stat(ctx, filepath.Join(ctd.string(ctx), name), "", "", nil); file == nil {
+    erro(ctx, "%v: nil stat %v %v", p, ctd.string(ctx), name).debug(1)
   } else if false {
-    warn(of(ctx,ctd), "using default temp file: %v/%v", ctd.strval(ctx), name)
+    warn(of(ctx,ctd), "using default temp file: %v/%v", ctd.string(ctx), name)
     warn(at(ctx,p.position), "suggesting define files rule for '%s' in %v", name, p).debug(12)
   }
   return // NOTE: temp file may not exists
@@ -605,13 +601,13 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBas
     if cache = p.entries.slot(ctx, v, bits); cache != nil {
       // good
     } else if c := p.entries.strx(ctx, "''", bits); c != nil {
-      var s = v.strval(ctx)
+      var s = v.string(ctx)
       if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%T %v: no such entry, do you mean '%s'?", v, v, s).debug(16)
         return
       }
     } else if c := p.entries.strx(ctx, "\"\"", bits); c != nil {
-      var s = v.strval(ctx)
+      var s = v.string(ctx)
       if c = c.strx(ctx, s, bits); c != nil {
         errostack(ctx, 3, "%T %v: no such entry, do you mean \"%s\"?", v, v, s).debug(16)
         return
@@ -701,10 +697,8 @@ func (p *Project) resolvePatterns123(ctx Context, v Value, s string) (res []*ste
 
 func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed) {
   defer func(t0 time.Time) {
-    var t = time.Now()
-    if d := t.Sub(t0); d > 1*time.Second {
-      var pos = ctx.Position()
-      prompt(ctx, "%v: slow: %v %v", pos, val, d).debug(1)
+    if d := time.Now().Sub(t0); d > 1*time.Second {
+      prompt(ctx, "%v: slow: %v %v", ctx.Position(), val, d).debug(1)
     }
   } (time.Now())
 
@@ -713,14 +707,10 @@ ForPatterns:
     if full, r, stems := pat.target.match(ctx, s); full {
       var m = joinMatchRes(ctx, r)
 
-      if true {
-        for sc := ctx.sc(); sc != nil; { // pattern loop detection
-          if s := sc.stem.target.strval(ctx); s == m {
-            continue ForPatterns // break the loop
-          }
-          if c := sc.inner(); c != nil { sc = c.sc() } else { break }
-        }
-      }
+      if true { for sc := ctx.sc(); sc != nil; { // pattern loop detection
+        if s := sc.stem.target.string(ctx); s == m { continue ForPatterns }
+        if c := sc.inner(); c != nil { sc = c.sc() } else { break }
+      }}
 
       if pa := pat.arged; len(pa) > 0 {
         var y bool
@@ -767,7 +757,7 @@ func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
 
 func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *program) (entry Entry, err error) {
   var name string
-  if name = target.strval(ctx); name == "" {
+  if name = target.string(ctx); name == "" {
     erro(of(ctx, target), "empty target name: %v", target).debug(1)
     return
   }

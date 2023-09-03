@@ -81,7 +81,7 @@ ForRecipes:
         list = append(list, v)
         if g, ok := v.(*group); ok && g != nil && g.Len() > 0 {
             if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
-                var str = s.strval(ctx)
+                var str = s.string(ctx)
                 if num, e := c.int(ctx); e != nil {
                     erro(ctx, "%v: %v", c, e).debug(1)
                 } else if str == "shell" && num != 0 {

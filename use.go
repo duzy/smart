@@ -101,7 +101,7 @@ func (p *use) String() string {
                 return fmt.Sprintf("%s", p.project.name)
         }
 }
-func (p *use) strval(ctx Context) (s string) {
+func (p *use) string(ctx Context) (s string) {
         s = fmt.Sprintf("use %s %v", p.project.name, p.params)
         return
 }
@@ -142,7 +142,7 @@ func (p *uselist) String() string {
         }
         return fmt.Sprintf("%s", s)
 }
-func (p *uselist) strval(ctx Context) (s string) {
+func (p *uselist) string(ctx Context) (s string) {
         for i, elem := range p.list {
                 if i > 0 { s += " " }
                 s += elem.project.name

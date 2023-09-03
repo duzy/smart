@@ -21,7 +21,7 @@ func TestRules0(t *testing.T) {
 		ctx.err("foo")
 	} else if foo.String() != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
 		ctx.err("%T %v", foo, foo)
-	} else if s := foo.strval(ctx); s != "" {
+	} else if s := foo.string(ctx); s != "" {
 		ctx.err("%T %v -> %s", foo, foo, s)
 	}
 
@@ -69,7 +69,7 @@ func TestRules1(t *testing.T) {
 		ctx.err(".test.1")
 	} else if v.String() != "fxxbar" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.strval(ctx); s != "fxxbar" {
+	} else if s := v.string(ctx); s != "fxxbar" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
@@ -77,7 +77,7 @@ func TestRules1(t *testing.T) {
 		ctx.err(".test.2")
 	} else if v.String() != ".test.fxx" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.strval(ctx); s != ".test.fxx" {
+	} else if s := v.string(ctx); s != ".test.fxx" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 
@@ -85,7 +85,7 @@ func TestRules1(t *testing.T) {
 		ctx.err(".test.3")
 	} else if v.String() != ".test.fxx" {
 		ctx.err("%T %v", v, v)
-	} else if s := v.strval(ctx); s != ".test.fxx" {
+	} else if s := v.string(ctx); s != ".test.fxx" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
 

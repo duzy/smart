@@ -558,9 +558,9 @@ func (p *parser) selectExpr(ctx Context, lhs Value) (res Value) {
 			lhs = v
 		}
 	case *bareword:
-        switch t.string {
+        switch t.s {
         case "use", "usee", "goals", "os", "mode":
-			erro(ctx, "$:%s: is obsoleted, use $(.$s) instead", t.string, t.string).debug(1)
+			erro(ctx, "$:%s: is obsoleted, use $(.$s) instead", t.s, t.s).debug(1)
         default:
             if name, o := loader.resolveObject(lhs); false {
 				erro(at(ctx,lhs.Position()), "resolve '%v' failed", lhs)
@@ -574,7 +574,7 @@ func (p *parser) selectExpr(ctx Context, lhs Value) (res Value) {
 				return
 			} else {
 				erro(at(ctx,lhs.Position()), "%v: '%v' is undefined (name=%v, obj=%v)", proj, lhs, name, o)
-				erro(ctx, "%v: parser is here (name=%s, tok=%s)", proj, t.string, tok)
+				erro(ctx, "%v: parser is here (name=%s, tok=%s)", proj, t.s, tok)
 				erro(at(ctx,p.Position()), "%v: parser to go here (tok=%s, lit=%s)", proj, p.tok, p.lit).debug(16)
 				return
             }
@@ -1359,7 +1359,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 				return
 			} else if resolved = loader.resolveEntries(name); isNull(resolved) {
 				if name.expandable(ctx, plain) {
-					var s = name.strval(ctx)
+					var s = name.string(ctx)
 					erro(of(ctx,name), "resolved '%v' (aka. %s) is nil (project=%v)", name, s, proj).debug(1)
 				} else {
 					erro(of(ctx,name), "resolved '%v' is nil (project=%v)", name, proj).debug(1)
@@ -1442,10 +1442,10 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 					var pos = val.Position()
 					var s string
 					if kv, y := val.(*pair); y {
-						s = kv.Key.strval(ctx)
+						s = kv.Key.string(ctx)
 						val = kv.Value
 					} else {
-						s = val.strval(ctx)
+						s = val.string(ctx)
 						val = nil
 					}
 					if s == "" { erro(at(ctx,pos), "%v: auto: %v is empty", proj, val).debug(1) }
@@ -1523,7 +1523,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 	}
 
 	if isNull(obj) && proj.plugin != nil && proj.pluginScope != nil {
-		if nameStr == "" && !isNull(name) { nameStr = name.strval(ctx) }
+		if nameStr == "" && !isNull(name) { nameStr = name.string(ctx) }
 		if nameStr == "" {
 			erro(at(ctx,name.Position()), "strval name '%v' is empty", name).debug(1)
 		} else {
@@ -1741,7 +1741,7 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 		}
 	case COLON:
 		if (p.bits&parseRecipe != 0 || !lhs) && p.bits&parseNoURL == 0 {
-			if isKnownURLScheme(x.strval(at(ctx, p.Position()))) { x = p.url(ctx, lhs, x) }
+			if isKnownURLScheme(x.string(at(ctx, p.Position()))) { x = p.url(ctx, lhs, x) }
 		}
 	}
 	return
@@ -1885,7 +1885,7 @@ func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useOpts, p
         var s string
         switch t := prop.(type) {
         case flag:
-            switch s = t.Value.strval(ctx); s {
+            switch s = t.Value.string(ctx); s {
             //case "nouse", "unuse": opts.unuse = true
             case "reuse": opts.reuse = true
             default: params = append(params, prop)
@@ -1893,7 +1893,7 @@ func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useOpts, p
         case *pair: // -param=value
             switch tt := t.Key.(type) {
             case flag:
-                switch s = tt.Value.strval(ctx); s {
+                switch s = tt.Value.string(ctx); s {
                 case "use": useList = append(useList, t.Value)
                 default: params = append(params, prop)
                 }
@@ -1904,7 +1904,7 @@ func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useOpts, p
         case *argumented: // -param(value)
             switch tt := t.Value.(type) {
             case flag:
-                switch s = tt.Value.strval(ctx); s {
+                switch s = tt.Value.string(ctx); s {
                 case "use": useList = append(useList, t.args...)
                 default: params = append(params, prop)
                 }
@@ -1941,7 +1941,7 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
         if f, ok := v.Key.(flag); !ok {
             erro(ctx, "'%v' invalid use spec", v.Key)
             return
-        } else if s = f.Value.strval(ctx); s != "list" {
+        } else if s = f.Value.string(ctx); s != "list" {
             erro(ctx, "'%v' invalid use spec, do you mean -list?", v.Key)
             return
         }
@@ -2011,7 +2011,7 @@ func (p *parser) include(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	if p.spaces(); p.tok == COLON {
 		switch x.(type) {
 		case *File, *String, *compound: // escape from file searching
-		default: if file := loader.project.file(ctx, x.strval(ctx)); file != nil {
+		default: if file := loader.project.file(ctx, x.string(ctx)); file != nil {
 			x = file
 		} else if val := x.expand(ctx, strval); !isNull(val) && val != x {
 			x = val
@@ -2066,7 +2066,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 	if path == nil {
 		if len(pats) == 1 { if a, ok := pats[0].(*argumented); ok { if f, ok := a.Value.(flag); ok {
-			var name = f.Value.strval(ctx)
+			var name = f.Value.string(ctx)
 			switch name {
 			default:
 				// TODO: parse files options
@@ -2108,7 +2108,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 		}
 
 		if len(patsNew) == 1 { if f, ok := patsNew[0].(flag); ok {
-			var name = f.Value.strval(ctx)
+			var name = f.Value.string(ctx)
 			switch name {
 			default:
 				// TODO: parse files options
@@ -2202,7 +2202,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 			var val Value
 			if v, y := op.(*pair); y { op, val = v.Key, v.Value }
 			if v, y := op.(flag); y {
-				switch t := val != nil && val.true(ctx); v.Value.strval(ctx) {
+				switch t := val != nil && val.true(ctx); v.Value.string(ctx) {
 				case "dd": p.dd = t
 				case "ddd":
 					if u := ctx.universe(); val == nil {
@@ -2210,7 +2210,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 					} else if t, y := boolVal(val); y {
 						if t { u.ddd = "yes" } else { u.ddd = "" }
 					} else {
-						u.ddd = val.strval(ctx)
+						u.ddd = val.string(ctx)
 					}
 				}
 			} else {
@@ -2427,13 +2427,13 @@ SwitchDialect:
 			} else if _, sym := loader.resolveObject(t); false {
 				erro(ctx, "resolve '%v' failed", x)
 			} else if isTrivial(sym) {
-				erro(of(ctx,x), "resolved '%v' (from %v) is nil", t.string, x)
+				erro(of(ctx,x), "resolved '%v' (from %v) is nil", t.s, x)
 			} else if false {
-				erro(of(ctx,x), "builtin command no more supported, use $(%s ...) instead", t.string)
+				erro(of(ctx,x), "builtin command no more supported, use $(%s ...) instead", t.s)
 			} else if b, y := sym.(*builtin); !y {
-				erro(of(ctx,x), "'%s' is not a command (%s)", t.string, typeof(sym))
+				erro(of(ctx,x), "'%s' is not a command (%s)", t.s, typeof(sym))
 			} else if !b.isCommand() {
-				erro(of(ctx,x), "'%s' is not a command, use $(%s ...) instead", t.string, t.string)
+				erro(of(ctx,x), "'%s' is not a command, use $(%s ...) instead", t.s, t.s)
 			} else { x = sym }
 
 			if !isValue && p.tok.IsAssign() {
@@ -2492,9 +2492,9 @@ SwitchDialect:
     }
 }
 
+// Parsing (var a=xxx,b=yyy) definitions
 func (p *parser) movar(ctx Context, args []Value) (err error) {
 	var loader = ctx.loader()
-	// Parsing (var a=xxx,b=yyy) definitions
 	for _, elem := range args {
 		var kv, ok = elem.(*pair)
 		if !ok || kv == nil {
@@ -2504,7 +2504,7 @@ func (p *parser) movar(ctx Context, args []Value) (err error) {
 
 		var name string
 		var k, v = kv.Key, kv.Value
-		if name = k.strval(at(ctx, k.Position())); name == "" {
+		if name = k.string(at(ctx, k.Position())); name == "" {
 			erro(of(ctx,k), "name '%v' is empty", k).debug(1)
 		}
 
@@ -2514,7 +2514,7 @@ func (p *parser) movar(ctx Context, args []Value) (err error) {
 			erro(of(ctx,k), "'%v' not defined", name).debug(1)
 		} else {
 			if g, y := v.(*group); y { v = g.list(def.position) }
-			def.val(at(ctx, v.Position()), v)
+			def.val(at(ctx,v.Position()), v)
 		}
 	}
 	return
@@ -2526,16 +2526,14 @@ func (p *parser) defineConfigureTargets(ctx Context) {
 		var pos = t.Position()
 		if !pos.IsValid() { pos = p.Position() }
 
-		var (
-			ctx = at(ctx, pos)
-			name = t.strval(ctx)
-		)
-
+		var ctx = at(ctx, pos)
+		var name = t.string(ctx)
 		var d, a = loader.project.scope.define(ctx, /*defVoid*/DefConfig, name, nil)
 		if d == nil && a != nil { if d, _ = a.(*def); d == nil {
 			erro(ctx, "configure %v: already defined in '%v' as %v", t, loader.project, a).debug(6)
 			return
 		}}
+
 		if !d.position.IsValid() { d.position = pos }
 	}
 }
@@ -2545,7 +2543,7 @@ func (p *parser) ruleParams(ctx Context, args []Value) (err error) {
 	for _, elem := range args { var ctx = at(ctx, elem.Position())
 		switch elem.(type) {
 		case *bareword, *barecomp:
-			p.params = append(p.params, scope.auto(ctx, elem.strval(ctx), strconv.Itoa(len(p.params)+1)))
+			p.params = append(p.params, scope.auto(ctx, elem.string(ctx), strconv.Itoa(len(p.params)+1)))
 		default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
 			erro(of(ctx,elem), "bad parameter form (%T)", elem)
 		}
@@ -2588,7 +2586,7 @@ ForModifiersExpr:
 
 		switch n := g.Elems[0].(type) {
 		case *bareword:
-			if name = n.string; name == "var" {
+			if name = n.s; name == "var" {
 				p.movar(ctx, merge(g.Elems[1:]...))
 				continue ForModifiersExpr
 			} else if name == "configure" {
@@ -2605,7 +2603,7 @@ ForModifiersExpr:
 		case *delegate, *closure, *barecomp, *String:
 			var ctx = at(ctx, n.Position())
 			var v = xmerge(ctx, plain, n)
-			if name = v[0].strval(ctx); name == "" {
+			if name = v[0].string(ctx); name == "" {
 				erro(of(ctx,n), "name '%v' is empty", n).debug(1)
 				continue ForModifiersExpr
 			}
@@ -2752,7 +2750,7 @@ func (p *parser) rule(ctx Context, special specialRule, optvals, targets []Value
 
 	var params []string
 	if t := targets[0]; p.configure {
-		name := t.strval(ctx)
+		name := t.string(ctx)
 		d, a := ctx.Project().scope.define(ctx, DefVoid, name, nil)
 		if d == nil && a == nil {
 			erro(of(ctx,t), "cannot define configure target '%v'", name)
@@ -2944,7 +2942,7 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 	switch t.verb {
 	case "": // call template
 		var a = map[string]Value{}
-		for i, v := range t.params { if s := v.strval(ctx); s != "" {
+		for i, v := range t.params { if s := v.string(ctx); s != "" {
 			if i < len(params) { a[s] = params[i] } else {
 				a[s] = makeNull(v.Position())
 			}
@@ -2976,7 +2974,7 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 			if pair, ok := a.(*pair); !ok {
 				erro(of(ctx,a), "unexpected value: %T %v", a, a).debug(1)
 				return
-			} else if s = pair.Key.strval(at(ctx, pair.Key.Position())); s == "" {
+			} else if s = pair.Key.string(at(ctx, pair.Key.Position())); s == "" {
 				erro(of(ctx,a), "empty key: %T %v", pair.Key, pair.Key).debug(1)
 				return
 			} else if g, ok := pair.Value.(*group); ok {
@@ -3036,7 +3034,7 @@ func (p *parser) template(ctx Context, verb string) {
 			erro(of(ctx,op), "unexpected end of file after %v", op).debug(1)
 			return
 		} else if w, y := op.(*bareword); y {
-			verb = w.string
+			verb = w.s
 		} else if arged, y = op.(*argumented); !y {
 			erro(of(ctx,op), "unknown template verb: %v", op).debug(1)
 			return
@@ -3390,7 +3388,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 					erro(at(ctx,ident.Position()), "expecting a bareword: %v (%T)", w, w).debug(1)
 				} else if ident.comp(ctx, word); p.tok == DOT {
 					ident.comp(ctx, &punctuation{valbase{p.Position()}, p.tok}) // TODO: parse to Qualiword
-					implicitBaseSegs = append(implicitBaseSegs, word.string)
+					implicitBaseSegs = append(implicitBaseSegs, word.s)
 					p.step() // '.'
 				} else { break ForProjectName }
 			}
@@ -3402,7 +3400,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			}
 		}
 
-		if identStr = ident.strval(ctx); linfo.loadee != nil && identStr != linfo.loadee.name {
+		if identStr = ident.string(ctx); linfo.loadee != nil && identStr != linfo.loadee.name {
 			warn(at(ctx,ident.position), "%s: declare multiple project in the same directory", ctx.Project()).debug(24)
 		} else if identStr == "_" && loader.mode&DeclarationErrors != 0 {
 			erro(at(ctx,ident.Position()), "package name '_' is preserved").debug(1)

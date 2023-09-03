@@ -102,7 +102,7 @@ func (ctx *configureExecutor) execute(project *Project, entry Entry) (result *Pr
         fmt.Fprintf(ctx.writer, "# %s (%s) configuration\n", p.spec, p.relPath)
 
         if !ctx.universe().configuration.silent {
-            prompt(ctx, "Configure project %s …… (%s)\n", p.spec, p.relPath)
+            prompt(ctx, "configure %s …… (%s)\n", p.spec, p.relPath)
         }
 
         project = p
@@ -119,7 +119,7 @@ func (ctx *configureExecutor) execute(project *Project, entry Entry) (result *Pr
         erro(ctx, "%v: %v", entry, val).debug(1)
     }
 
-    var s = entry.Target().strval(ctx)
+    var s = entry.Target().string(ctx)
     if d := project.scope.FindDef(s); d != nil { okay = true // good!
         if true && testPromptConfiguration { noted(of(ctx,d), "%v: %p %v", project, d, d).debug(1) }
         if _, y := ctx.defs[s]; y { return } else { ctx.defs[s] = struct{}{} }
@@ -236,7 +236,7 @@ func configurePackage(ctx Context, _ Value, args ...Value) (result Value) {
     var t packagetype = packageSmart
     for _, arg := range args { switch a := arg.(type) {
     case *pair:
-        switch key, val := a.Key.strval(ctx), a.Value.strval(ctx); key {
+        switch key, val := a.Key.string(ctx), a.Value.string(ctx); key {
         case "type":
             switch val {
             case "", "smart": t = packageSmart
@@ -249,7 +249,7 @@ func configurePackage(ctx Context, _ Value, args ...Value) (result Value) {
             prompt(ctx, "%v: package: `%v` unknown option", key)
         }
     default:
-        names = append(names, a.strval(ctx))
+        names = append(names, a.string(ctx))
     }}
     for _, name := range names { if info, y := uni.configuration.packages[name]; !y {
         var err error
@@ -350,9 +350,9 @@ ForInParams:
             return
         }
 
-        var key, value = p.Key.strval(ctx), p.Value
+        var key, value = p.Key.string(ctx), p.Value
         if _, y = value.(*compound); y {
-            value = MakeString(ctx.Position(), value.strval(ctx))
+            value = MakeString(ctx.Position(), value.string(ctx))
         } else if value != nil {
             value = value.expand(ctx, plain)
         }
@@ -419,9 +419,9 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
 
     var opName string
     if f, y := name.(flag); y {
-        opName = f.Value.strval(ctx)
+        opName = f.Value.string(ctx)
     } else {
-        opName = name.strval(ctx)
+        opName = name.string(ctx)
     }
     if opName == "" {
         erro(ctx, "empty configure name: %v (%T)", name, name).debug(1)
@@ -437,7 +437,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
             params = append(params, configureParam(ctx, "INFO", t))
             infos = append(infos, t)
         default:
-            erro(of(ctx,arg), " unsupported parameter: %T %v", t, t).debug(1)
+            erro(of(ctx,arg), " unsupported parameter: %v: %v", typeof(t), t).debug(1)
             return
         }
     }
@@ -449,7 +449,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         prompt(ctx, "%v %v …", target, a)
     } else {
         var s string
-        for _, info := range infos { s += info.strval(ctx) }
+        for _, info := range infos { s += info.string(ctx) }
         if s != "" { prompt(ctx, "%s …", s) }
     }
 
@@ -468,7 +468,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
             prompt(ctx, "… <nil>\n")
         } else if isNone(result) {
             prompt(ctx, "… <none>\n")
-        } else if s := result.strval(ctx); s == "" {
+        } else if s := result.string(ctx); s == "" {
             prompt(ctx, "… ? (%s %v)\n", typeof(result), result)
         } else {
             prompt(ctx, "… %v\n", s)
@@ -532,7 +532,7 @@ func (ctx *modifier_configure) x(aa ...Value) (result interface{}) {
     }
 
     var d *def
-    var name = target.strval(ctx)
+    var name = target.string(ctx)
     if d = program.scope.FindDef(name); d == nil {
         var alt Object
         d, alt = program.project.scope.define(ctx, DefConfig, name, nil)
@@ -692,7 +692,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
             s.error = traveTargetNotDefinedFile
             s.depend = depend
         } else if true {
-            prompt(ctx, "%v: not defined as file\n", target.strval(ctx))
+            prompt(ctx, "%v: not defined as file\n", target.string(ctx))
             erro(ctx, "(%T) %v", target.Value, target.Value)
             errostack(ctx, 8, "").debug(64)
         }
@@ -744,7 +744,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
     if h := autoVal(ctx,"-"); !isNull(h) { args = append(args, h) }
     if dealArgs != nil { args = dealArgs(args, &data) }
     if dealData != nil { for _, arg := range args {
-        if str := arg.strval(ctx); str == "" {
+        if str := arg.string(ctx); str == "" {
             continue
         } else if err := dealData(str, &data); err != nil {
             erro(ctx, "convert: %v", err).debug(1)
@@ -825,7 +825,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
 
         var configs = make(map[string]*def)
         for _, a := range args {
-            var name = a.strval(ctx)
+            var name = a.string(ctx)
             if _, ok := configs[name]; ok {
                 continue
             } else if obj := project.resolveObject(ctx, name); obj == nil {
@@ -899,7 +899,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
         erro(ctx, " target '@' is undefined").debug(1)
         return
     } else {
-        outFile = target.strval(ctx)
+        outFile = target.string(ctx)
     }
 
     if ctx.makePath {
@@ -939,13 +939,13 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
                 sources = append(sources, a...)
             }
         case *Path:
-            var s = d.strval(ctx)
+            var s = d.string(ctx)
             err = walkFiles(ctx, s, pats, func(file *File, err error) error {
                 if err == nil { sources = append(sources, file) }
                 return err
             })
         default:
-            var s = d.strval(ctx)
+            var s = d.string(ctx)
             dir := filepath.Dir(s)
             name := filepath.Base(s)
             file := stat(ctx, name, "", dir)
@@ -970,7 +970,7 @@ ForSources:
         var (s string; f *os.File)
         switch v := source.(type) {
         case *File: s = v.fullname()
-        default: s = v.strval(ctx)
+        default: s = v.string(ctx)
         }
         if f, err = os.Open(s); err != nil {
             prompt(ctx, "%v: (configure) %v: %v\n", pos, source, err)

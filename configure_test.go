@@ -73,7 +73,7 @@ func TestConfigureDefault(t *testing.T) {
 		ctx.err("target.out: %v", m.configure)
 	} else if targetOut, y := o.(*def); !y || targetOut.value == nil {
 		ctx.err("target.out: %T %v", o, o)
-	} else if targetOut.value.String() != workspaceOut.strval(ctx)+"/&(target.triple)/&(variant.tag)" {
+	} else if targetOut.value.String() != workspaceOut.string(ctx)+"/&(target.triple)/&(variant.tag)" {
 		ctx.err("target.out: %T %v", targetOut.value, targetOut.value)
 	} else if o := m.configure.resolveObject(ctx, "target.tmp"); o == nil {
 		ctx.err("target.tmp: %v", m.configure)
@@ -97,7 +97,7 @@ func TestConfigureDefault(t *testing.T) {
 		ctx.err("configure.cc: %T %v", d.value, d.value)
 	} else if t.String() != "&(cc)" {
 		ctx.err("configure.cc: %v", t)
-	} else if s := t.strval(cc); s == "" {
+	} else if s := t.string(cc); s == "" {
 		ctx.err("configure.cc: %v → %s", t, s)
 	} else { ctx.universe().configuration.silent = true
 		var config = func(name string) (entries []Entry) {
@@ -110,7 +110,7 @@ func TestConfigureDefault(t *testing.T) {
 			ctx.err("FOO")
 		}
 
-		if s := filepath.Join(outtmp.strval(cc), configuration_sm); s == "" {
+		if s := filepath.Join(outtmp.string(cc), configuration_sm); s == "" {
 			ctx.err("%v", outtmp)
 		} else if m.configurationFile == nil {
 			ctx.err("%v: nil configuration file", m)
@@ -137,7 +137,7 @@ func TestConfigureDefault(t *testing.T) {
 			erro(of(ctx, d), "%v", d).debug(1)
 		} else if v.String() != ".self" {
 			ctx.err("%T %v", v, v)
-		} else if s := v.strval(ctx); s != "testdefaultconfigure" {
+		} else if s := v.string(ctx); s != "testdefaultconfigure" {
 			ctx.err("%T %v -> %s", v, v, s)
 		} else if _, y := v.(*self); ! y {
 			ctx.err("%T %v", v, v)
@@ -146,7 +146,7 @@ func TestConfigureDefault(t *testing.T) {
 			s := filepath.Join(filepath.Dir(_tmodules), defaultCK, configuration_sm)
 			if i, e := os.Stat(s); e == nil || i != nil { ctx.Errorf("%v", e) }
 
-			s = filepath.Join(outtmp.strval(cc), configuration_sm)
+			s = filepath.Join(outtmp.string(cc), configuration_sm)
 			if i, e := os.Stat(s); e != nil || i == nil { ctx.Errorf("%v", e) } else
 			if b, e := ioutil.ReadFile(s); e != nil { ctx.Errorf("%v", e) } else
 			if !strings.Contains(string(b), "FOO = $(.self)") { ctx.Errorf("%s", b) }
@@ -172,7 +172,7 @@ func TestConfigureDefault(t *testing.T) {
 				c.err("%v ; %T", d, v)
 			} else if v.String() != "$(.self)" {
 				c.err("%v ; %T %v", d, v, v)
-			} else if s := v.strval(c); s != "testdefaultconfigure" {
+			} else if s := v.string(c); s != "testdefaultconfigure" {
 				c.err("%v ; %T -> %s", d, v, s)
 			} else if _, y := v.(*delegate); ! y {
 				c.err("%v ; %T", d, v)
@@ -183,7 +183,7 @@ func TestConfigureDefault(t *testing.T) {
 				c.err("%v", d)
 			} else if v.String() != "$(.self)" {
 				c.err("%v ; %T %v", d, v, v)
-			} else if s := v.strval(c); s != "testdefaultconfigure" {
+			} else if s := v.string(c); s != "testdefaultconfigure" {
 				c.err("%v ; %T -> %s", d, v, s)
 			} else if _, y := v.(*delegate); ! y {
 				c.err("%v ; %T", d, v)
@@ -240,7 +240,7 @@ func TestConfigureDiverged(t *testing.T) {
 		ctx.err("configure.cc: %T %v", d.value, d.value)
 	} else if t.String() != "&(cc)" {
 		ctx.err("configure.cc: %v", t)
-	} else if s := t.strval(ctx); s != "" {
+	} else if s := t.string(ctx); s != "" {
 		ctx.err("configure.cc: %v → %s", t, s)
 	} else { ctx.universe().configuration.silent = true
 		var config = func(name string) (entries []Entry) {
@@ -253,7 +253,7 @@ func TestConfigureDiverged(t *testing.T) {
 			ctx.err("FOO")
 		}
 
-		if s := filepath.Join(outtmp.strval(cc), configuration_sm); s == "" {
+		if s := filepath.Join(outtmp.string(cc), configuration_sm); s == "" {
 			ctx.err("%v", outtmp)
 		} else if m.configurationFile == nil {
 			ctx.err("%v: nil configuration file", m)
@@ -261,7 +261,7 @@ func TestConfigureDiverged(t *testing.T) {
 			prompt(ctx, "%v:1: %v ⇒ %v\n", s, v, v.expand(ctx, strval))
 			prompt(ctx, "%v:1: %v\n", t, m.configurationFile)
 			ctx.err("%v (%v)", m.configurationFile, m)
-		} else if s := filepath.Join(outtmp.strval(ctx), configuration_sm); s == "" {
+		} else if s := filepath.Join(outtmp.string(ctx), configuration_sm); s == "" {
 			ctx.err("%v", outtmp)
 		} else if t == s { v := outtmp.value
 			prompt(ctx, "%v:1: %v ⇒ %v\n", s, v, v.expand(ctx, strval))
@@ -297,7 +297,7 @@ func TestConfigureDiverged(t *testing.T) {
 			erro(of(ctx, d), "%v", d).debug(1)
 		} else if v.String() != ".self" {
 			ctx.err("%T %v", v, v)
-		} else if s := v.strval(ctx); s != "testdivergedconfigure" {
+		} else if s := v.string(ctx); s != "testdivergedconfigure" {
 			ctx.err("%T %v ⇒ %s", v, v, s)
 		} else if _, y := v.(*self); !y {
 			ctx.err("%T %v", v, v)
@@ -322,9 +322,9 @@ func TestConfigureDiverged(t *testing.T) {
 				ctx.err("%v ; %v", outtmp, f)
 			}
 
-			/**/s = filepath.Join(outtmp.strval(ctx), configuration_sm)
-			if s != filepath.Join(outtmp.strval(cc ), configuration_sm) {
-				erro(ctx, "%s", outtmp.strval(cc))
+			/**/s = filepath.Join(outtmp.string(ctx), configuration_sm)
+			if s != filepath.Join(outtmp.string(cc ), configuration_sm) {
+				erro(ctx, "%s", outtmp.string(cc))
 				erro(ctx, "%s", s).debug(1)
 				ctx.Errorf("%v ; %v", outtmp, configuration_sm)
 			} else if f == nil {
@@ -367,7 +367,7 @@ func TestConfigureDiverged(t *testing.T) {
 		} else if e := os.Remove(f.fullname()); e != nil {
 			ctx.err("%v: %v", m, e)
 		}
-		if e := os.RemoveAll(outtmp.strval(ctx)); e != nil {
+		if e := os.RemoveAll(outtmp.string(ctx)); e != nil {
 			ctx.err("%v: %v", outtmp, e)
 		}
 	}
@@ -404,15 +404,15 @@ func TestConfigureCustom(t *testing.T) {
 		ctx.err("configure.foo: %T %v", d.value, d.value)
 	} else if t.String() != ".self" {
 		ctx.err("configure.foo: %v", t)
-	} else if s := t.strval(ctx); s != "configure" {
+	} else if s := t.string(ctx); s != "configure" {
 		ctx.err("configure.foo: %v → %s", t, s)
 	} else if t.String() != ".self" {
 		ctx.err("configure.foo: %v", t)
-	} else if s := t.strval(ctx); s != "configure" {
+	} else if s := t.string(ctx); s != "configure" {
 		ctx.err("configure.foo: %v → %s", t, s)
-	} else if s := d.value.strval(ctx); s != m.configure.name {
+	} else if s := d.value.string(ctx); s != m.configure.name {
 		ctx.err("configure.foo: %T %v → %v (%v)", d.value, d.value, s, m.configure.name)
-	} else if s := d.strval(ctx); s != m.configure.name {
+	} else if s := d.string(ctx); s != m.configure.name {
 		ctx.err("configure.foo: %v → %v", d, s)
 	} else {
 		ctx.universe().configuration.silent = true
@@ -466,7 +466,7 @@ func TestConfigureCustom(t *testing.T) {
 				erro(of(c, d), "%v", d).debug(1)
 			} else if foo.String() != "yes{}" {
 				c.err("%T %v ; %v", foo, foo, d)
-			} else if s := foo.strval(ctx); s != "yes" {
+			} else if s := foo.string(ctx); s != "yes" {
 				c.err("%T %v -> %s", foo, foo, s)
 			} else if _, y := foo.(*answer); ! y {
 				c.err("%T %v ; %v", foo, foo, d)
@@ -496,30 +496,30 @@ func TestConfigureCustom(t *testing.T) {
 		// 	ctx.err("foo")
 		// } else if  foo.String() != ".self" {
 		// 	ctx.err("%T %v", foo, foo)
-		// } else if s := foo.strval(ctx); s != "configure" {
+		// } else if s := foo.string(ctx); s != "configure" {
 		// 	ctx.err("%T %v -> %s", foo, foo, s)
 		// }
-		if s := foo1.strval(ctx); s != "yes" {
+		if s := foo1.string(ctx); s != "yes" {
 			ctx.err("%T %v -> %s", foo1, foo1, s)
 		} else if s = foo1.String(); s != "yes{}" {
 			ctx.err("%T %v -> %s", foo1, foo1, s)
 		}
-		if s := foo2.strval(ctx); s != "yes" {
+		if s := foo2.string(ctx); s != "yes" {
 			ctx.err("%T %v -> %s", foo2, foo2, s)
 		} else if s = foo2.String(); s != "yes{}" {
 			ctx.err("%T %v -> %s", foo2, foo2, s)
 		}
-		if s := foo3.strval(ctx); s != "true" {
+		if s := foo3.string(ctx); s != "true" {
 			ctx.err("%T %v -> %s", foo3, foo3, s)
 		} else if s = foo3.String(); s != "true{}" {
 			ctx.err("%T %v -> %s", foo3, foo3, s)
 		}
-		if s := foo4.strval(ctx); s != "true" {
+		if s := foo4.string(ctx); s != "true" {
 			ctx.err("%T %v -> %s", foo4, foo4, s)
 		} else if s = foo4.String(); s != "true{}" {
 			ctx.err("%T %v -> %s", foo4, foo4, s)
 		}
-		if s := foo5.strval(ctx); s != "true" {
+		if s := foo5.string(ctx); s != "true" {
 			ctx.err("%T %v -> %s", foo5, foo5, s)
 		} else if s = foo5.String(); s != "true{}" {
 			ctx.err("%T %v -> %s", foo5, foo5, s)

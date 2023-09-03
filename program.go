@@ -8,7 +8,6 @@ package smart
 
 import (
     "path/filepath"
-    "hash/maphash"
     "io/fs"
     "strings"
     "sync"
@@ -137,7 +136,7 @@ func (pc *programContext) env(ctx Context) (env []string, osi int) {
     env = os.Environ()
     osi = len(env)
     for _, p := range pc._env {
-        var k, v = p.Key.strval(ctx), p.Value.strval(ctx)
+        var k, v = p.Key.string(ctx), p.Value.string(ctx)
         env = append(env, fmt.Sprintf("%s=%s", k, v)) // strconv.Quote(v)
     }
     return
@@ -334,7 +333,7 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
     var reason string
     var targetFile *File
     var targetFull string
-    if false { if s := target.strval(ctx); s != "" && (
+    if false { if s := target.string(ctx); s != "" && (
         // s == "tablegen-min" ||
         false) {
         defer func() {
@@ -349,7 +348,7 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
 
     var y bool
     if targetFile, targetFull, y = target.fullname(ctx); !y {
-        targetFull = target.strval(ctx)
+        targetFull = target.string(ctx)
     } else if n := targetFile._traved; n > 1 {
         if false { warnstack(ctx, 5, "%v, %v, %d", targetFile, targetFull, n).debug(10) }
         return
@@ -496,7 +495,7 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
             errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest).debug(8)
             return
         } else if prereqStrval == "" {
-            prereqStrval = prereqValue.strval(ctx);
+            prereqStrval = prereqValue.string(ctx);
         }
 
         if prereqStrval == "" {
@@ -507,7 +506,7 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
         mapPrereqFile(prereqValue)
         return
      } else {
-        if prereqStrval = prereqValue.strval(ctx); prereqStrval == "" { // just reject empty strval
+        if prereqStrval = prereqValue.string(ctx); prereqStrval == "" { // just reject empty strval
             errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, ctx.stems()).debug(8)
             return
         }
@@ -522,9 +521,6 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
 
     return
 }
-
-const traverseCacheOn = false
-var traverseCache = make(map[uint64]int, 128)
 
 func (pc *programContext) deferTrave(ctx Context, targetValue, prereqValue, prereqPattern Value, prereqFile *File) {
     var (
@@ -582,6 +578,8 @@ func with(ctx Context, target Value) (res bool) {
 
 // traverse - traverse the prerrequiste for the current target $@
 func (pc *programContext) traverse(ctx Context, prereqValue Value) (result travestates) {
+    defer ctx.dia().trace(ctx, "traverse")
+
     var (
         uni = ctx.universe()
         verb = uni.verbose || uni.verboseBreaks
@@ -603,29 +601,26 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         db = false
     )
     defer func(t0 time.Time) {
-        if true && (db || strings.HasSuffix(prereqStrval, "Unwind-EHABI.cpp")) {
-            var s = targetValue.strval(ctx)
-            var b bool ; if prereqFile != nil { b = prereqFile.exists() }
-            for i, concrete := range concreteList { info(at(ctx,concrete.Position()), "%v : concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.programs())) }
-            for i, stemmed  := range stemmedList { info(at(ctx,stemmed.position), "%v : stemmed: %d. %v (%d programs)", targetValue, i, stemmed, len(stemmed.programs())) }
-            for i, t := range pc.traves { info(at(ctx, t.pos), "%v: %d. %v", s, i, t) }
-
-            var f string ; if prereqFile != nil { f = prereqFile.fullname() }
-            info(ctx, "%v: %v (%v, %v)", s, prereqStrval, b, f)
-            info(ctx, "%v: %v (%T)", s, prereqValue, prereqValue)
-            warnstack(ctx, 3).debug(10)
-        }
-
         pc.deferTrave(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
-        result = pc.traves
 
-        if prereqFile != nil && !prereqFile.exists() {
-            erro(of(ctx, prereqValue), "%v: missing %v %v", targetValue, prereqValue, prereqFile.fullname())
-            for i, concrete := range concreteList { warn(at(ctx,concrete.Position()), "%v: concrete: %d. %v (%d programs)", targetValue, i, concrete, len(concrete.programs())) }
-            for i, stemmed  := range stemmedList  { warn(at(ctx,stemmed.position), "%v: stemmed: %d. %v", targetValue, i, stemmed) }
-            for i, s := range pc.traves { warn(at(ctx,s.pos), "%v: %d. %v", targetValue, i, s) }
-            if m := prereqFile.filemap; m != nil { warn(of(ctx,m.pattern), "%v: %v %v", targetValue, prereqFile, m) }
-            errostack(ctx, 5).debug(10)
+        if result = pc.traves; prereqFile != nil && prereqFile.stat(ctx) == nil {
+            prompt(of(ctx, prereqValue), "%v:0: <- missing file\n", prereqFile.fullname())
+
+            if m := prereqFile.filemap; m != nil {
+                noted(of(ctx, m.pattern), "%v ⇒ %v ⇒ %v", targetValue, m, prereqFile).debug(1)
+            }
+
+            for i, s := range pc.traves { ctx := at(ctx, s.pos)
+                noted(ctx, "%v → traves[%d] ⇒ %v", targetValue, i, s).debug(1)
+            }
+            for i, concrete := range concreteList { ctx := at(ctx, concrete.Position())
+                noted(ctx, "%v → concrete[%d] ⇒ %v", targetValue, i, concrete).debug(1)
+            }
+            for i, stemmed := range stemmedList  { ctx := at(ctx, stemmed.position)
+                noted(ctx, "%v → stemmed[%d] ⇒ %v", targetValue, i, stemmed).debug(1)
+            }
+
+            erro(of(ctx, prereqValue), "%v ⇒ %v", targetValue, prereqValue).debug(2)
         }
 
         if d := time.Now().Sub(t0); d > 60*time.Second {
@@ -646,85 +641,63 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     } (time.Now())
 
     if targetValue = getTargetValue(ctx); targetValue == nil {
-        prompt(of(ctx,prereqValue), "%s: target is nil\n", prereqStrval)
-        errostack(ctx, 3, "").debug(6)
+        erro(of(ctx,prereqValue), "%s: target is nil\n", prereqStrval).debug(1)
         return
     } else if isTrivial(targetValue) {
-        prompt(of(ctx,prereqValue), "%s: target is trivial (%T)\n", prereqStrval, targetValue)
-        errostack(ctx, 3, "").debug(6)
+        erro(of(ctx,prereqValue), "%s: target is trivial (%T)\n", prereqStrval, targetValue).debug(1)
+        return
+    } else if len(projects) == 0 {
+        erro(of(ctx,prereqValue), "%v: no projects: %v", prereqStrval, prereqValue).debug(1)
         return
     }
 
-    if len(projects) == 0 {
-        erro(ctx, "%v: no projects to traverse (%s)", prereqValue, prereqStrval)
-        erro(ctx, "%v: closure %v", prereqStrval, len(ctx.closureScopes()))
-        errostack(ctx, 3, "").debug(8)
-        return
-    } else {
-        prereqValue, prereqPattern, prereqStrval, prereqFile, prereqObj =
-            probPrereqValue(ctx, projects, prereqValue)
+    prereqValue, prereqPattern, prereqStrval, prereqFile, prereqObj =
+        probPrereqValue(ctx, projects, prereqValue)
 
-        if prereqFile != nil {
-            if prereqFile._travin += 1; prereqFile._travin > 1 { return }
-        }
-    }
-
-    // NOTE: Don't delete, keep it for future debugging.
-    if false && ((
-        strings.HasPrefix(prereqStrval, "") ||
-            false) && (
-        strings.Contains(prereqStrval, "/") ||
-            false) && (
-        strings.HasSuffix(prereqStrval, ".o") ||
-            false)) {
-        var s, _, _ = entryIndicator(ctx, targetValue)
-        prompt(ctx, "%v : %T %v\n", s, prereqValue, prereqStrval)
-        warn(ctx, "@: %T %v : %v", targetValue, targetValue, ctx.program().depends)
-        if f := file(ctx, prereqStrval); f == nil {
-            var p = ctx.Project()
-            var a = ctx.unmap(ctx, prereqStrval)
-            var b = files(ctx, prereqStrval, p)
-            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, a)
-            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, b)
-            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, p.selectFiles(ctx, a))
-            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, p.selectFiles(ctx, b))
-            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, p.selectFile(ctx, a))
-            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, p.selectFile(ctx, b))
-            for i, m := range a { warn(at(ctx, f.position), "%v: %d. %v: %v %v", p, i, m.project, m.name, m.pattern) }
-            for i, m := range b { warn(at(ctx, f.position), "%v: %d. %v: %v %v", p, i, m.project, m.name, m.pattern) }
-            if f, y := prereqValue.(*File); y {
-                warn(at(ctx, f.position), "%v: %v", p, f.filestub)
-                warn(at(ctx, f.position), "%v: %v %v", p, f.fullname(), f.exists())
-            }
-            warnstack(ctx, 5, "%v: %v", p, ctx.entry()).debug(10)
+    if uni.db("traverse") || (false && (
+        strings.HasPrefix(targetValue.string(ctx), ".configure/library/"))) {
+        if f, y := targetValue.(*File); y {
+            prompt(ctx, "%v:0: @\n", f.fullname()).debug(1)
         } else {
-            warn(ctx, ">: %T %v -> file: %v", prereqValue, prereqValue, f)
-            warn(at(ctx, f.position), "%v", f.filestub)
-            warn(at(ctx, f.position), "%v", f.fullname())
-            if f, y := prereqValue.(*File); y {
-                warn(at(ctx, f.position), "%v", f.filestub)
-                warn(at(ctx, f.position), "%v", f.fullname())
-            }
-            warnstack(ctx, 5, "%v", ctx.entry()).debug(10)
+            var s, _, _ = entryIndicator(ctx, targetValue)
+            prompt(ctx, "%v : %v (%T)\n", s, prereqStrval, prereqValue)
         }
+
+        noted(of(ctx,targetValue), "@: %T %v", targetValue, targetValue).debug(1)
+
+        if prereqFile != nil { if false { s := prereqFile.fullname()
+            noted(ctx, ">: %T %v ⇒ %v", prereqValue, prereqValue, s).debug(1)
+        }} else if f, y := prereqValue.(*File); y {
+            noted(at(ctx, f.position), "%v %v", f, f.exists()).debug(1)
+        } else if f := file(ctx, prereqStrval); f == nil {
+            var a = ctx.unmap(ctx, prereqStrval)
+            var b = files(ctx, prereqStrval, ctx.Project())
+            noted(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, a)
+            noted(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, b).debug(1)
+            if p := ctx.Project(); false {
+                warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFiles(ctx, a))
+                warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFiles(ctx, b))
+                warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFile(ctx, a))
+                warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFile(ctx, b))
+                for i, m := range a { warn(at(ctx, f.position), "%v: %d. %v: %v %v", p, i, m.project, m.name, m.pattern) }
+                for i, m := range b { warn(at(ctx, f.position), "%v: %d. %v: %v %v", p, i, m.project, m.name, m.pattern) }
+            }
+        } else {
+            noted(ctx, ">: %T %v ⇒ %v", prereqValue, prereqValue, f).debug(1)
+        }
+
+        defer func() {
+            var s = targetValue.string(ctx)
+            for i, concrete := range concreteList { noted(at(ctx,concrete.Position()), "%v : concrete: %d. %v", targetValue, i, concrete).debug(1) }
+            for i, stemmed := range stemmedList { noted(at(ctx,stemmed.position), "%v : stemmed: %d. %v", targetValue, i, stemmed).debug(1) }
+            for i, t := range pc.traves { noted(at(ctx, t.pos), "%v: %d. %v", s, i, t).debug(1) }
+            notestack(ctx, 5).debug(2)
+        } ()
+
         db = true
     }
 
-    if traverseCacheOn && traverseCache != nil && prereqFile != nil {
-        var h maphash.Hash
-        if false { h.WriteString(ctx.Project().absPath) }
-        if false { h.WriteString(targetValue.strval(ctx)) }
-        if false { h.WriteString(prereqStrval) }
-        if true  { h.WriteString(prereqFile.fullname()) }
-
-        var hs = h.Sum64()
-        if i, y := traverseCache[hs]; y && i > 0 {
-            info(ctx, "traverse: %v: %v: %v, %d", targetValue, prereqValue, hs, i).debug(1)
-            return
-        }
-
-        traverseCache[hs] += 1
-    }
+    if f := prereqFile; f != nil { if f._travin += 1; f._travin > 1 { return }}
 
     // Recursion detection -- simply return to break it if looped.
     if traverseDetectLoops {
@@ -799,10 +772,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         traveResReturn
     )
     var traverseEntry = func(project *Project, entry Entry, pattern bool) (result traveResT) {
-        if false && db { defer func() { if result == traveResReturn {
-            for i, s := range pc.traves { info(at(ctx,s.pos), "%v : %d. %v", entry, i, s) }
-            warn(ctx, "%v, %T %v ; %v", entry, prereqValue, prereqValue, result).debug(6)
-        }}()}
+        if false && db { defer func() { noted(ctx, "%v: %v", entry, pc.traves).debug(2) } () }
 
         entry.traverse(ctx) // NOTE: this adds traveRule to pc.traves
 
@@ -880,8 +850,8 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             }
             for _, s := range tt {
                 if g := s.target; g == nil {
-                    prompt(ctx, "%v: %v\n", targetValue.strval(ctx), t)
-                    erro(ctx, "%v: %v %v %v\n", targetValue.strval(ctx), prereqPattern, prereqValue, pattern)
+                    prompt(ctx, "%v: %v\n", targetValue.string(ctx), t)
+                    erro(ctx, "%v: %v %v %v\n", targetValue.string(ctx), prereqPattern, prereqValue, pattern)
                     errostack(ctx, 5, "").debug(1)
                 } else if true && eq(ctx, targetValue, g) {
                     if /*pattern && */stemmedThisTarget {
@@ -910,30 +880,28 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
                     var op = traveResReturn // assuming file processed
                     if !entry.hasRecipes() { op = traveResContinue }
                     return op
-                } else if _, ok := prereqValue.(*String); false && ok {
+                } else if _, y := prereqValue.(*String); false && y {
                     if prereqFile == nil { prompt(ctx, "nonfile: %T %v: %T %v : %T %v ; %v\n",
                         targetValue, targetValue, prereqValue, prereqValue, s.target, s.target, s).debug(1) }
                 }
             }
         }
-
         return
     }
 
     t1 = time.Now()
 
-ForProjectsConcretes:
     for _, project := range projects {
-        var entries = project.resolveEntries(ctx, prereqValue, /* pc.grepping,  */false)
-        if entries != nil && len(entries.all) > 0 {
-            concreteList = append(concreteList, entries.all...)
-        } else {
-            continue ForProjectsConcretes
+        var entries = project.resolveEntries(ctx, prereqValue, false)
+        if false && db {
+            noted(ctx, "entries: %T %v ⇒ %v (%v)", prereqValue, prereqValue, entries, project).debug(1)
         }
+        if entries == nil || len(entries.all) == 0 { continue }
+        concreteList = append(concreteList, entries.all...)
     ForEntries:
         for _, entry := range entries.all {
             if !isNull(entry) && targetValue == entry { continue ForEntries }
-            if w, k := targetValue.(*bareword); k && w.string == prereqStrval {
+            if w, k := targetValue.(*bareword); k && w.s == prereqStrval {
                 continue ForEntries // target resolve to itself, does nothing
             }
             switch traverseEntry(project, entry, false) {
@@ -951,14 +919,20 @@ ForProjectsConcretes:
 
     t2 = time.Now()
 
-ForProjectsPatterns:
     for _, project := range projects {
+        if false { for i, p := range project.patterns { t := p.target
+            if s := t.string(ctx); s == ".configure/library/*.c" || strings.HasPrefix(s, ".configure/library/HAVE_") {
+                a, b, c := p.match(ctx, prereqStrval)
+                noted(ctx, "stemmed: %s ⇒ %d %v %v ⇒ %v %v %v %v", prereqStrval, i, typeof(t), p, s, a, b, c).debug(10)
+            }
+        }}
+        for _, p := range project.patterns { assert(p.target.patterned(ctx), "not pattern") }
         var patterns = project.resolvePatterns(ctx, prereqValue, prereqStrval)
-        if len(patterns) > 0 {
-            stemmedList = append(stemmedList, patterns...)
-        } else {
-            continue ForProjectsPatterns
+        if false && db {
+            noted(ctx, "stemmed: %T %v ⇒ %v (%v)", prereqValue, prereqValue, patterns, project).debug(1)
         }
+        if len(patterns) == 0 { continue }
+        stemmedList = append(stemmedList, patterns...)
     ForPatterns:
         for _, entry := range patterns {
             switch traverseEntry(project, entry, true) {
@@ -976,24 +950,16 @@ CheckPrereqResult:
     if false && prereqFile == nil { prereqFile, _ = toFile(prereqValue) }
 
     var p = prereqFile
-    if p == nil {/* fallthrough */} else
-    if p.exists() {
+    if p == nil {
+        // fallthrough
+    } else if p.exists() {
         trave := pc.traves.add(ctx, traveFile, targetValue)
         trave.dependPat = prereqPattern
         trave.depend = p
         return
     } else if m := p.filemap; m != nil {
         if p.info == nil { p.stat(ctx) }
-        if true && p.info == nil && p.name(ctx) == "tablegen-min" {
-            var f = m.stat(ctx, p.name(ctx))
-            var pos = ctx.Position()
-            for _, loc := range m.locs { prompt(ctx, "%v: %v ⇒ %v\n", pos, m, loc) }
-            prompt(ctx, "%v: {%v %v %v}\n", pos, p.dir, p.sub, p.name)
-            prompt(ctx, "%v: {%v %v %v}\n", pos, f.dir, f.sub, f.name)
-            prompt(ctx, "%v: %v, patts=%v\n", pos, m.project, m.patts).debug(1)
-        }
         if p.info != nil {
-            assert(p.exists(), "file must exists at this point")
             trave := pc.traves.add(ctx, traveFile, targetValue)
             trave.dependPat = prereqPattern
             trave.depend = p
@@ -1038,9 +1004,9 @@ CheckPrereqResult:
         return
     }
 
-    if ctx.isConfigure() {
-        return
-    } else if len(ctx.stems()) == 0 || ctx.mustExists() {
+    if ctx.isConfigure() { return }
+
+    if len(ctx.stems()) == 0 || ctx.mustExists() {
         if s := pc.traves.add(ctx, traveFail, targetValue); prereqFile != nil {
             s.error = fileNotFoundError{ctx.Project(), prereqFile}
             ctx = at(ctx, prereqFile.position)
@@ -1050,13 +1016,13 @@ CheckPrereqResult:
         }
 
         if prereqFile != nil && prereqValue != prereqFile {
-            info(ctx, "%T %v: %T %v; file=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile).debug(1)
+            noted(ctx, "%T %v: %T %v; file=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile).debug(1)
         } else if prereqFile != nil {
-            info(ctx, "%T %v: %T %v; path=%s\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile.fullname()).debug(1)
+            noted(ctx, "%T %v: %T %v; path=%s\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile.fullname()).debug(1)
         } else if prereqObj != nil {
-            info(ctx, "%T %v: %T %v; obj=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqObj).debug(1)
+            noted(ctx, "%T %v: %T %v; obj=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqObj).debug(1)
         } else {
-            info(ctx, "%T %v: %T %v\n", targetValue, targetValue, prereqValue, prereqValue).debug(1)
+            noted(ctx, "%T %v: %T %v\n", targetValue, targetValue, prereqValue, prereqValue).debug(1)
         }
 
         if val := prereqValue; val != nil { erro(at(ctx,val.Position()), "value: %T %v ; %s %v", val, val, prereqStrval, files(ctx, prereqStrval)) }
@@ -1068,9 +1034,9 @@ CheckPrereqResult:
         for i, stemmed  := range stemmedList  { erro(at(ctx,stemmed.position), "stemmed: %d. %v", i, stemmed) }
         errostack(of(ctx, prereqValue), 6).debug(512)
         return
-    } else {
-        return // no operation
     }
+
+    return // no operation
 }
 
 func (pc *programContext) prerequisite(ctx Context, prerequisites []Value) {
@@ -1198,15 +1164,15 @@ ForPrerequisites:
                     } else if depend == nil {
                         prompt(ctx, "%v: %v\n", target, s).debug(1)
                         erro(at(ctx,s.pos), "%v", s)
-                        erro(of(ctx,target), "1. %T %v %s", target, target, target.strval(ctx))
+                        erro(of(ctx,target), "1. %T %v %s", target, target, target.string(ctx))
                         erro(of(ctx,s.depend), "2. %T %v mine=%v", s.depend, s.depend, dependMine)
                         erro(of(ctx,prerequisite), "3. %T %v", prerequisite, prerequisite)
                         errostack(ctx, 5, "#>").debug(10)
                     } else {
                         prompt(ctx, "%v: %v: %v\n", target, depend, s).debug(1)
                         erro(at(ctx,s.pos), "%v", s)
-                        erro(of(ctx,target), "1. %T %v %s", target, target, target.strval(ctx))
-                        erro(of(ctx,depend), "2. %T %v %s", depend, depend, depend.strval(ctx))
+                        erro(of(ctx,target), "1. %T %v %s", target, target, target.string(ctx))
+                        erro(of(ctx,depend), "2. %T %v %s", depend, depend, depend.string(ctx))
                         if s.depend == nil { erro(ctx, "3. mine=%v", dependMine) } else {
                             erro(of(ctx,s.depend), "3. %T %v mine=%v", s.depend, s.depend, dependMine)
                         }
@@ -1293,7 +1259,7 @@ type program struct {
 func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
     for _, d := range prog.depends {
         if g, y := d.(*modification); y { for _, m := range g.list {
-            if m.Elems[0].strval(ctx) == name { ms = append(ms, m) }
+            if m.Elems[0].string(ctx) == name { ms = append(ms, m) }
         }}
     }
     return
@@ -1333,12 +1299,12 @@ func (prog *program) workDir(ctx Context) (workDir string) {
         }
         if x, y := o.(invoker); y {
             if v := x.invoke(ctx, plain, nil, nil); v != nil {
-                workDir = v.strval(ctx)
+                workDir = v.string(ctx)
             } else {
                 erro(ctx, "trivial %T %v", x, x).debug(1)
             }
         } else if v := o.expand(ctx, strval); v != nil {
-            workDir = v.strval(ctx)
+            workDir = v.string(ctx)
         } else {
             erro(ctx, "trivial %T %v", x, x).debug(1)
         }
@@ -1376,9 +1342,9 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
 
         if errs := dia.countErrors(); errs > 0 {
             var str, ent, tar = entryIndicator(ctx, entry)
-            for _, s := range pc.traves {
+            if false { for _, s := range pc.traves {
                 erro(at(ctx,s.pos), "%v: %v", ent, s).debug(1)
-            }
+            }}
 
             if tar != "" && tar != ent {
                 erro(ctx, "%s: %s: got %d errors", ent, tar, errs).debug(1)
@@ -1386,9 +1352,9 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
                 erro(ctx, "%s: got %d errors", ent, errs).debug(1)
             }
 
-            if !ctx.isConfigure() {
-                s := pc.traves.add(ctx, traveFail, targets)
-                s.error = fmt.Errorf("got %d error(s) for %v", errs, str)
+            if false && !ctx.isConfigure() {
+                pc.traves.add(ctx, traveFail, targets).
+                    error = fmt.Errorf("got %d error(s) for %v", errs, str)
             }
         } else { for _, a := range pc.defers { if g, y := a.(*group); y {
             modify(ctx, g, true)
@@ -1498,7 +1464,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         case    *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
         case     flag: pc.print = false // Flag target (-foo) turns off printing automatically
         default:
-            if file := prog.project.file(ctx, a.strval(ctx)); file != nil {
+            if file := prog.project.file(ctx, a.string(ctx)); file != nil {
                 if file._traved > 1 { return } else { target = file }
             }
         }

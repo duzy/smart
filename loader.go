@@ -58,7 +58,7 @@ const (
     // Wants value for rule depends.
     DependValue
 
-    // Wants v.strval(ctx), expands delegates and closures,
+    // Wants v.string(ctx), expands delegates and closures,
     // turn off KeepClosures, KeepDelegates.
     StringValue = 0
 )
@@ -217,7 +217,7 @@ func usefor(ctx Context, user *Project, f func(usevar, Value, Value, string)) {
         if a, y := spec.(*argumented); y { val = a.Value
             op.remainder = parseOpts(ctx, &op, strval, a.args...)
         }
-        if name = val.strval(ctx); name == "" { c := user.configure
+        if name = val.string(ctx); name == "" { c := user.configure
             if c != nil { t := c.resolveObject(ctx, "use.*")
                 noted(ctx, "%T %v", t, t)
             }
@@ -300,7 +300,7 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
     if n, y := specVal.(*projectname); y {
         if false { warnstack(ctx, 3, "use project: %v %s", n, n.spec).debug(6) }
         loaded = n.Project
-    } else if specName = specVal.strval(ctx); specName == "" {
+    } else if specName = specVal.string(ctx); specName == "" {
         errostack(ctx, 3, "empty spec: %v (%T)", specVal, specVal).debug(6)
         return
     } else if absPath, isDir = uni.search(ctx, linfo, specName); absPath == "" {
@@ -537,7 +537,7 @@ func (l *loader) loadPlugin(ctx Context) (err error) {
     var g = stat(ctx, "smart.go", "", l.project.absPath)
     if g == nil { return /* smart.go was not presented */ }
 
-    var src = g.strval(ctx)
+    var src = g.string(ctx)
     s := strings.Replace(l.project.relPath, "..", "_", -1)
     s = filepath.Join(filepath.Dir(joinTmpPath(ctx, "", "")), "plugins", s)
 
@@ -679,7 +679,7 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *de
         }
 
     default: //case *bareword, *barecomp, *Qualiword, *Path, flag:
-        var name = t.strval(ctx)
+        var name = t.string(ctx)
         if _, y := builtins[name]; y {
             erro(ctx, "`%v` (%v) is builtin name", identifier, name)
             return
@@ -839,7 +839,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
         }
 
         if t, okay := entry.Target().(flag); okay && t.Value != nil {
-            var s = t.Value.strval(ctx)
+            var s = t.Value.string(ctx)
             if l.project.name != "~" { l.Globe().AddFlagEntry(s, entry) }
         } else if configure {
             if entry.Class() == PatternRule {
@@ -913,7 +913,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
             return
         }
     default:
-        if specName = spec.strval(ctx); specName == "" {
+        if specName = spec.string(ctx); specName == "" {
             erro(of(ctx,spec), "include: empty string: %v", spec)
             errostack(ctx, 5, "").debug(16)
             return
@@ -1017,7 +1017,7 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
         position = ctx.Position()
     )
     if file := stat(ctx, dotBase, "", l.project.absPath); file != nil {
-        if true { var s = file.strval(ctx)
+        if true { var s = file.string(ctx)
             assert(s == file.name(ctx) && s == dotBase, "invalid strval: %v => %v", file, s)
         }
         if !file.info.IsDir() && (l.project.spec == dotBase /*|| l.project.spec == dotConfigure*/) {
@@ -1073,7 +1073,7 @@ ParamsLoop:
                 position = identifier.Position()
                 name string
             )
-            if name = p.Key.strval(ctx); len(name) > 0 && name[0] == '.' {
+            if name = p.Key.string(ctx); len(name) > 0 && name[0] == '.' {
                 identifier = MakeBarecomp(position, MakeBareword(position, "project"), p.Key)
             }
 
@@ -1097,7 +1097,7 @@ ParamsLoop:
             return
         }
 
-        if specName = specVal.strval(ctx); specName == "" {
+        if specName = specVal.string(ctx); specName == "" {
             erro(at(ctx,elemPos), "%v: empty base name `%v` (%T)", l.project, specVal, specVal).debug(1)
             break ParamsLoop
         } else if strings.Contains(specName, "//") {
@@ -1327,7 +1327,7 @@ func (l *loader) declare(ctx Context, keyword Token, ident *barecomp, identStr s
         for _, t := range globe.pairs {
             switch k := t.Key.(type) {
             case *bareword, *barecomp:
-                var name = k.strval(ctx);
+                var name = k.string(ctx);
                 //if name[0] == '.' { name = "project" + name }
                 var d, a = l.def(l.Position(), name)
                 if d == nil && a != nil { d = a.(*def) }
@@ -1342,7 +1342,7 @@ func (l *loader) declare(ctx Context, keyword Token, ident *barecomp, identStr s
     for _, arg := range merge(l.loadArgs...) {
         switch t := arg.(type) {
         case *pair:
-            var name = t.Key.strval(ctx)
+            var name = t.Key.string(ctx)
             var d, a = l.def(t.Key.Position(), name)
             if a != nil {
                 var ok bool
@@ -1400,7 +1400,7 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
     var v = l.project.opts.configureFlag
     if v != nil {
         if t, y := v.(*boolean); y { if !t.bool { return } } else
-        if !Is(v, KindNumber) { configure = v.strval(ctx) }
+        if !Is(v, KindNumber) { configure = v.string(ctx) }
     }
     if local = configure == "."; local || configure == "" { configure = "configure" }
 
@@ -1587,7 +1587,7 @@ func (l *loader) resolveObject(value Value) (name string, result Value) {
     }
 
     var ctx = at(l, pos)
-    if name = value.strval(ctx); name == "" {
+    if name = value.string(ctx); name == "" {
         erro(ctx, "name '%v' is empty", name).debug(1)
         return
     }
@@ -1928,7 +1928,7 @@ ListLoop:
                 return
             }
 
-            var name = src.name.strval(ctx)
+            var name = src.name.string(ctx)
             if mod, found := mods[name]; !found {
                 mod = &Project{ name: name, scope: l.Scope() }
                 mods[name] = mod
