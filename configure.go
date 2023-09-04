@@ -437,13 +437,17 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
     }
 
     var params, infos []Value
+    if d := opts.debug; d > 0 { defer func() {
+        noted(ctx, "%v %v: %v -> %v %v", typeof(target), target, args, infos, params).debug(1+d)
+    }()}
     for _, arg := range xmerge(ctx, w, args...) {
         if isTrivial(arg) { continue }
         switch t := arg.(type) {
-        case *pair: params = append(params, t)
         case *raw, *String, *compound:
             params = append(params, configureParam(ctx, "INFO", t))
             infos = append(infos, t)
+        case *pair:
+            params = append(params, t)
         case unexpanded:
             erro(of(ctx,arg), " unexpanded: %v", t).debug(1)
             return
@@ -451,9 +455,6 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
             erro(of(ctx,arg), " unsupported parameter: %v: %v", typeof(t), t).debug(1)
             return
         }
-    }
-    if true || opts.debug>0 {
-        noted(ctx, "%v %v: %v -> %v %v", typeof(target), target, args, infos, params).debug(1)
     }
 
     if uni.configuration.silent {
@@ -467,8 +468,11 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
         if s != "" { prompt(ctx, "%s …", s) }
     }
 
+    var dia = ctx.dia()
+    if dia.error() { return }
+
     defer func() {
-        if dia := ctx.dia(); uni.configuration.silent {
+        if uni.configuration.silent {
             return
         } else if dia.count(diagInfo, diagWarn, diagError) > 0 {
             return

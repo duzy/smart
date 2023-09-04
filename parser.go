@@ -44,12 +44,12 @@ const (
 	parseFilesSpec     // 0000001000000000000000  files ( ... )
 	parseTemplateBlock // 0000010000000000000000
 	parseUndefValue    // 0000100000000000000000
+	parseForeachTempl  // 0001000000000000000000
 
-	parseSpecialRule   // 0001000000000000000000  e.g. :use ...:
-	// parseColonName  // 0010000000000000000000  e.g. $:use:
+	parseSpecialRule   // 0010000000000000000000  e.g. :use ...:
 
-	parseRecipeBuiltin // 0010000000000000000000  recipe builtin command
-	parseRecipeText    // 0100000000000000000000
+	parseRecipeBuiltin // 0100000000000000000000  recipe builtin command
+	parseRecipeText    // 1000000000000000000000
 	parseRecipe = parseRecipeBuiltin | parseRecipeText
 
 	// The parseNo* bits control the parsing priority!
@@ -1222,7 +1222,7 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 }
 
 func (p *parser) expandTemplateBlockAuto(ctx Context, obj, val Value) (result Value) {
-	if p.bits&parseTemplateBlock != 0 { if _, y := obj.(*auto); y {
+	if p.bits&parseTemplateBlock != 0 { if a, y := obj.(*auto); y && !(p.bits&parseForeachTempl != 0 && a.name_ == "_") {
 		// Make clone to barecomp and Path for compose() and x.comp().
 		switch t := val.expand(ctx, /* p.facet */strval); v := t.(type) {
 		case  *barecomp: return MakeBarecomp(v.Position(), v.Elems...)
@@ -1416,13 +1416,13 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 					erro(of(ctx,v), "%v: not a Flag: %T %v", proj, v, v).debug(1)
 				}
 			}
-
 			if true { name, opts = a.Value, args }
 			if v, y := optionalize(ctx, name); y { name = v } // foo?(a,b,c)
 		}
 
-		if isNull(name) {/* error */} else
-		if !allowClosureName && name.expandable(ctx, expandClosure|expandDelegate) {
+		if isNull(name) {
+			// error
+		} else if !allowClosureName && name.expandable(ctx, expandClosure|expandDelegate) {
 			erro(at(ctx,posName), "%v: name '%v' (%T) is closured", proj, name, name).debug(1)
 		} else if nameStr, obj, okay = resolve(posLp, tokLp, name); !okay {
 			erro(at(ctx,posName), "%v: name '%v' is unidentified", proj, name).debug(1)
@@ -1433,6 +1433,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 			var autos []*auto
 			var savedAutos = p.autos
 			var savedAutop = p.autop
+			var savedBits  = p.bits
 			if nameStr == "auto" {
 				if tokLp != LPAREN { erro(at(ctx,posLp), "%v: auto: incorrect left paren", proj).debug(1) }
 				p.spaces() // skip the imediate spaces
@@ -1461,28 +1462,31 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 			}
 
 			if autos != nil { p.autos = append(autos, p.autos...) }
-			if savedBits := p.bits; nameStr == "case" {
+
+			if nameStr == "case" {
 				rest = append(rest, p.list(ctx, false))
-				p.bits |= parseUndefValue
-				for ; p.tok == COMMA; {
+				for p.bits |= parseUndefValue; p.tok == COMMA; {
 					p.next(true) // consumes COMMA
 					rest = append(rest, p.list(ctx, false))
 				}
-				p.bits = savedBits
 			} else if nameStr == "and" {
 				p.bits |= parseUndefValue
 				for rest = append(rest, p.list(ctx, false)); p.tok == COMMA; {
 					p.next(true) // consumes COMMA
 					rest = append(rest, p.list(ctx, false))
 				}
-				p.bits = savedBits
 			} else if nameStr == "or" {
 				p.bits |= parseUndefValue
 				for rest = append(rest, p.list(ctx, false)); p.tok == COMMA; {
 					p.next(true) // consumes COMMA
 					rest = append(rest, p.list(ctx, false))
 				}
-				p.bits = savedBits
+			} else if nameStr == "foreach" {
+				rest = append(rest, p.list(ctx, false))
+				for p.bits |= parseForeachTempl; p.tok == COMMA; {
+					p.next(true) // consumes COMMA
+					rest = append(rest, p.list(ctx, false))
+				}
 			} else {
 				for rest = append(rest, p.list(ctx, false)); p.tok == COMMA; {
 					p.next(true) // consumes COMMA
@@ -1491,6 +1495,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 			}
 			p.autos = savedAutos
 			p.autop = savedAutop
+			p.bits = savedBits
 		}
 
 		switch tokLp {
