@@ -2926,7 +2926,7 @@ func (ctx *modifier_assert) z(w facet, args ...Value) (_ interface{}) {
     var uni = ctx.universe()
     var target = autoVal(ctx, "@")
     for _, a := range args {
-        if a == nil { erro(ctx, "assert: nil arg").debug(1); return }
+        if a == nil { erro(ctx, "assert: nil").debug(1); return }
         if _, y := a.(*punctuation); y { continue }
 
         v := a.expand(ctx, strval|w)
@@ -2935,11 +2935,9 @@ func (ctx *modifier_assert) z(w facet, args ...Value) (_ interface{}) {
         if (uni.hooks.assert != nil && uni.hooks.assert(ctx, v, b)) || b {
             continue
         } else if s := ctx.msg; s == "" {
-            noted(ctx, "%v", autoDef(ctx, "<"))
-            noted(ctx, "%v", autoDef(ctx, ">"))
-            erro(of(ctx, a), "assert: %s: %v → %v → %s", typeof(a), a, v, v.string(ctx)).debug(1)
+            erro(of(ctx,a), "assert: %s %v → %s %v → %s", typeof(a), a, typeof(v), v, v.string(ctx)).debug(1)
         } else {
-            erro(of(ctx, a), "assert: %s %v: %v: %s", typeof(a), a, v, s).debug(1)
+            erro(of(ctx,a), "assert: %s %v: %v: %s", typeof(a), a, v, s).debug(1)
         }
 
         pc.traves.add(ctx, traveFail, target).error = fmt.Errorf("assert(%v)", a)

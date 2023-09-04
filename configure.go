@@ -19,20 +19,20 @@ import (
     "os"
 )
 
-var configureOps = map[string] func(Context, Value, ...Value) (Value) {
-    "a":       configureAnswer,
-    "answer":  configureAnswer,
-    "b":       configureBool,
-    "bool":    configureBool,
-    "boolean": configureBool,
-    "v":       configureValue,
-    "val":     configureValue,
-    "value":   configureValue,
-    "o":       configureOption,
-    "opt":     configureOption,
-    "option":  configureOption,
-    "pkg":     configurePackage,
-    "package": configurePackage,
+var configureOps = map[string] func(*modifier_configure, Value, ...Value) (Value) {
+    "a":       (*modifier_configure)._answer,
+    "answer":  (*modifier_configure)._answer,
+    "b":       (*modifier_configure)._bool,
+    "bool":    (*modifier_configure)._bool,
+    "boolean": (*modifier_configure)._bool,
+    "v":       (*modifier_configure)._value,
+    "val":     (*modifier_configure)._value,
+    "value":   (*modifier_configure)._value,
+    "o":       (*modifier_configure)._option,
+    "opt":     (*modifier_configure)._option,
+    "option":  (*modifier_configure)._option,
+    "pkg":     (*modifier_configure)._package,
+    "package": (*modifier_configure)._package,
 }
 
 var testPromptConfiguration bool
@@ -179,7 +179,7 @@ func (uni *universe) configure(ctx Context) {
     return
 }
 
-func configureParam(ctx Context, name string, i interface{}) *pair {
+func (ctx *modifier_configure) _param(name string, i interface{}) *pair {
     var val Value
     var pos = ctx.Position()
     switch t := i.(type) {
@@ -190,11 +190,11 @@ func configureParam(ctx Context, name string, i interface{}) *pair {
 }
 
 // -value
-func configureValue(ctx Context, _ Value, _ ...Value) (result Value) {
+func (ctx *modifier_configure) _value(_ Value, _ ...Value) (result Value) {
     return autoVal(ctx,"-")
 }
 
-func configureBoolValue(ctx Context) (result bool) {
+func (ctx *modifier_configure) _boolvalue() (result bool) {
     var d Value
     if d = autoVal(ctx, "-"); d == nil { return }
     for i, v := range merge(d.expand(ctx, plain)) {
@@ -208,19 +208,19 @@ func configureBoolValue(ctx Context) (result bool) {
 
 // -bool
 // -bool('message...')
-func configureBool(ctx Context, _ Value, params ...Value) Value {
-    return MakeBoolean(ctx.Position(), configureBoolValue(ctx))
+func (ctx *modifier_configure) _bool(_ Value, params ...Value) Value {
+    return MakeBoolean(ctx.Position(), ctx._boolvalue())
 }
 
 // -answer
 // -answer('message...')
-func configureAnswer(ctx Context, _ Value, params ...Value) (result Value) {
-    return makeAnswer(ctx.Position(), configureBoolValue(ctx))
+func (ctx *modifier_configure) _answer(_ Value, params ...Value) (result Value) {
+    return makeAnswer(ctx.Position(), ctx._boolvalue())
 }
 
 // -option
 // -option('message...')
-func configureOption(ctx Context, _ Value, args ...Value) (result Value) {
+func (ctx *modifier_configure) _option(_ Value, args ...Value) (result Value) {
     if d := autoVal(ctx, "-"); d != nil {
         result = d.expand(ctx, plain)
     } else {
@@ -230,7 +230,7 @@ func configureOption(ctx Context, _ Value, args ...Value) (result Value) {
 }
 
 // -package finds system package in a way similar to cmake.find_package
-func configurePackage(ctx Context, _ Value, args ...Value) (result Value) {
+func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
     var names []string
     var uni = ctx.universe()
     var t packagetype = packageSmart
@@ -292,11 +292,7 @@ type commonConfigureOpts struct {
     silent bool `s,silent`
     noResetHyphen bool `r,reset` // reset hyphen value, aka. "-"
 }
-type modifierConfigureOpts struct {
-    generalOpts
-    accumulate bool `add,acc,accumulate`
-}
-func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
+func (ctx *modifier_configure) executeEntry(entryName interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
     if ctx.universe().traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
 
     var entries *resolvedEntries
@@ -315,7 +311,7 @@ func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName i
 
     var (
         hyphen = autoVal(ctx,"-")
-        verbose = opts.verbose
+        verbose = ctx.verbose
 
         programs = entries.programs()
         prog = programs[0]
@@ -334,9 +330,9 @@ func configureExecuteEntry(ctx Context, opts *modifierConfigureOpts, entryName i
 
     for _, par := range prog.params {
         switch par.name(ctx) {
-        case "LANG":   params = append(params, configureParam(ctx, "LANG",   ctx.program().language))
-        case "TARGET": params = append(params, configureParam(ctx, "TARGET", target))
-        case "VALUE":  params = append(params, configureParam(ctx, "VALUE",  hyphen))
+        case "LANG":   params = append(params, ctx._param("LANG",   ctx.program().language))
+        case "TARGET": params = append(params, ctx._param("TARGET", target))
+        case "VALUE":  params = append(params, ctx._param("VALUE",  hyphen))
             if hyphen == nil { warn(ctx, "nil hyphen def").debug(1) }
         }
     }
@@ -357,7 +353,7 @@ ForInParams:
         }
 
         for _, par := range prog.params { if s := par.name(ctx); s == key || s == strings.ToUpper(key) {
-            params = append(params, configureParam(ctx, par.name(ctx), value))
+            params = append(params, ctx._param(par.name(ctx), value))
             continue ForInParams
         }}
 
@@ -368,14 +364,14 @@ ForInParams:
             for _, p := range prog.params { params = append(params, p.name(ctx)) }
 
             var t = autoVal(ctx,"@")
-            ctx = at(ctx, a.Position())
+            ctx.Context = at(ctx.Context, a.Position())
             warn(ctx, "ignored param: %T %v; target: %T %v", a, a, t, t)
             warn(at(ctx,prog.position), "%v params = %v", t, params).debug(16)
             return
         }
     }
 
-    ctx = &configureContext{ ctx }
+    ctx.Context = &configureContext{ ctx.Context }
 
     var reses []Value
     var traves travestates
@@ -412,7 +408,7 @@ ForInParams:
     return
 }
 
-func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, name Value, args []Value) (configured bool, result Value) {
+func (ctx *modifier_configure) execute(target, name Value, args []Value) (configured bool, result Value) {
     var uni = ctx.universe()
     if uni.traceConfig { defer un(trace(t_config, "configureExecute")) }
 
@@ -430,21 +426,21 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
     }
 
     var w facet
-    if opts.forth {
+    if ctx.forth {
         w = strval
     } else {
         w = plain
     }
 
     var params, infos []Value
-    if d := opts.debug; d > 0 { defer func() {
+    if d := ctx.debug; d > 0 { defer func() {
         noted(ctx, "%v %v: %v -> %v %v", typeof(target), target, args, infos, params).debug(1+d)
     }()}
     for _, arg := range xmerge(ctx, w, args...) {
         if isTrivial(arg) { continue }
         switch t := arg.(type) {
         case *raw, *String, *compound:
-            params = append(params, configureParam(ctx, "INFO", t))
+            params = append(params, ctx._param("INFO", t))
             infos = append(infos, t)
         case *pair:
             params = append(params, t)
@@ -498,7 +494,7 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
     if configureOp, y := configureOps[opName]; y {
         configured, result = true, configureOp(ctx, target, params...)
     } else {
-        configured, result = configureExecuteEntry(ctx, opts, name, target, params...)
+        configured, result = ctx.executeEntry(name, target, params...)
     }
     return
 }
@@ -513,8 +509,10 @@ func configureExecute(ctx Context, opts *modifierConfigureOpts, target Value, na
 //     (configure -library(lib,function,include='<xxx.h>'))
 //     (configure -symbol(symbol,include='<xxx.h>'))
 //     (configure -compiles(info="..."))
-type modifier_configure struct { modifier_ }
-func (ctx *modifier_configure) x(aa ...Value) (result interface{}) {
+type modifier_configure struct { modifier_
+    accumulate bool `add,acc,accumulate`
+}
+func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
     var uni = ctx.universe()
     if uni.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, uni.reconfigure))) }
 
@@ -529,14 +527,12 @@ func (ctx *modifier_configure) x(aa ...Value) (result interface{}) {
         return
     }
 
-    var opts, ops = _opts[modifierConfigureOpts](ctx.Context, strval, aa...)
-
     if project.configure == nil {
         if project.name == "configure" {
             if o := project.scope.Lookup(dotConfigure); o != nil {
                 if d, y := o.(*def); y && d.value != nil && !isTrivial(d.value) {
                     if val := d.value.true(ctx); val {
-                        if project.configure = project; opts.verbose {
+                        if project.configure = project; ctx.verbose {
                             info(ctx, "self-configure project enabled: %v", ctx.Project()).debug(1)
                         }
                     }
@@ -626,9 +622,9 @@ ForConfig:
             return
         }
 
-        if opts.debug>0 { noted(ctx, "%v: %v: %v", target, name, para).debug(opts.debug) }
+        if d := ctx.debug; d > 0 { noted(ctx, "%v: %v: %v", target, name, para).debug(d) }
 
-        if configured, value = configureExecute(ctx, &opts, target, name, para); !configured {
+        if configured, value = ctx.execute(target, name, para); !configured {
             erro(ctx, "%v: not configured with: %T %v", target, name, name).debug(1)
             return
         } else if v := value; v == nil {
@@ -641,7 +637,7 @@ ForConfig:
 
         if value == d || (value != nil && value.refs(ctx, d)) {
             // Value is the Def, does nothing!
-        } else if opts.accumulate {
+        } else if ctx.accumulate {
             d.append(ctx, value)
         } else {
             d.set(ctx, DefConfig, value)
