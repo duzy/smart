@@ -1,0 +1,21 @@
+project testdefs
+
+val0  = a b c
+val0 ?= xyz
+
+val1 := a
+val1 += b
+val1 =+ x
+val1 ?= xyz
+
+val2 ::= a
+val2  += b
+val2  =+ x
+val2 ?= xyz
+
+val3 ::= a b c d
+val3  -= d
+
+val4 ::= a b c
+# val4 -+= b
+# val4 -=+ c

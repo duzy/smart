@@ -383,28 +383,36 @@ func (p *Project) wildcard(ctx *builtin_wildcard, patterns ...Value) (files []*F
   return
 }
 
+func file(ctx Context, s string, projects ...*Project) (res *File) {
+  if len(projects) == 0 {
+    projects = append(projects, ctx.Project())
+  }
+  for _, p := range projects {
+    if res = p.file(ctx, s); res != nil { break }
+  }
+  return
+}
+
 func files(ctx Context, iname interface{}, projects ...*Project) (maps []matchedFileMap) {
   var a, b, c, d []matchedFileMap // four sections
-  var ms = ctx.unmap(ctx, iname)
+  var ms = unmap(ctx, iname)
 
   if len(projects) == 0 {
     projects = append(projects, ctx.Project())
   }
 
 outer:
-  for _, m := range ms {
-    for _, p := range projects {
-      if m.project == p {
-        a = append(a, m) ; continue outer
-      } else if p.hasBase(m.project) {
-        b = append(b, m) ; continue outer
-      } else if t := p.configure; t != nil && (m.project == t || t.hasBase(m.project)) {
-        c = append(c, m) ; continue outer
-      } else {
-        d = append(d, m) ; continue outer
-      }
+  for _, m := range ms { for _, p := range projects {
+    if m.project == p {
+      a = append(a, m) ; continue outer
+    } else if p.hasBase(m.project) {
+      b = append(b, m) ; continue outer
+    } else if t := p.configure; t != nil && (m.project == t || t.hasBase(m.project)) {
+      c = append(c, m) ; continue outer
+    } else {
+      d = append(d, m) ; continue outer
     }
-  }
+  }}
 
   maps = append(a, b...)
   if true  && len(maps) == 0 { maps = c }
@@ -457,7 +465,7 @@ func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
 }
 
 func (p *Project) file(ctx Context, iname interface{}) (file *File) {
-  if file = p.selectFile(ctx, /*files(ctx, iname, p)*/ctx.unmap(ctx, iname)); false && file == nil {
+  if file = p.selectFile(ctx, /*files(ctx, iname, p)*/unmap(ctx, iname)); false && file == nil {
     var s, d string // TODO: s = iname
     if s != "" {
       if !filepath.IsAbs(s) { d = p.absPath }
@@ -539,7 +547,6 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   }
 }
 
-func file(c Context, s string) *File { return c.Project().file(c, s) }
 func resolveTempFile(c Context, s string) *File { return c.Project().tempFile(c, s) }
 func resolveObject(c Context, s string) Object {
   if scope := c.Scope(); scope != nil { if o := scope.Resolve(s); o != nil { return o }}

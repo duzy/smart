@@ -742,11 +742,10 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *de
         if !isTrivial(  value) { ii = vi(umerge(true,   value)...) }
         d.set(ctx, d.origin, nil, append(ii, expandDefAssign)...)
     }
-    case SHI_ASSIGN: if !isTrivial(value) {
+    case SHI_ASSIGN: if !isTrivial(value) { // =+
         var ii []interface{}
-        if !isTrivial(  value) { ii = vi(umerge(true,   value)...) }
         if !isTrivial(d.value) { ii = vi(umerge(true, d.value)...) }
-        d.set(ctx, d.origin, nil, append(ii, expandDefAssign)...)
+        d.set(ctx, d.origin, value, append(ii, expandDefAssign)...)
     }
     case SUB_ASSIGN: if d.value != nil { if dv := merge(d.value); len(dv) > 0 { // -=
         var vals []Value

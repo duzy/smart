@@ -2624,7 +2624,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
             }
             if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
                 if proj := ctx.Project(); proj != nil {
-                    info(ctx, "%v: %v %v", filename, proj, ctx.universe().unmap(ctx, filename))
+                    info(ctx, "%v: %v %v", filename, proj, unmap(ctx, filename))
                     info(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
                     erro(ctx, "%v: %v (%T %v)", filename, e, target, target).debug(1)
                 }

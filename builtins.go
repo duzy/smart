@@ -224,12 +224,12 @@ var builtins = map[string]reflect.Type {
     `untraversed`: reflect.TypeOf((*builtin_untraversed)(nil)).Elem(),
 
     // commands ------------------------------------------------------------------
-    `print`:    reflect.TypeOf((*builtin_print)(nil)).Elem(),
+    `print`:        reflect.TypeOf((*builtin_print)(nil)).Elem(),
     `printf`:       reflect.TypeOf((*builtin_printf)(nil)).Elem(),
     `printl`:       reflect.TypeOf((*builtin_printl)(nil)).Elem(),
     `println`:      reflect.TypeOf((*builtin_println)(nil)).Elem(),
 
-    `plain`:    reflect.TypeOf((*builtin_plain)(nil)).Elem(),
+    `plain`:        reflect.TypeOf((*builtin_plain)(nil)).Elem(),
 
     `append`:       reflect.TypeOf((*builtin_append)(nil)).Elem(),
     // `pop`:      reflect.TypeOf((*builtin_pop)(nil)).Elem(),
@@ -771,9 +771,9 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
         if false {
             var v = a.expand(ctx, strval)
             prompt(ctx, "assert: %v: %v ⇒ %v: %v\n", typeof(a), a, typeof(v), v)
-            diagstack(ctx, sn, t, "%v: %v ⇒ %s", typeof(a), a, a.string(ctx)).debug(d)
-        } else if false {
-            diagstack(ctx, sn, t, "%v: %v ⇒ %s", typeof(a), a, a.string(ctx)).debug(d)
+            diagstack(ctx, sn, t, "%v: %v ⇒ '%s'", typeof(a), a, a.string(ctx)).debug(d)
+        } else if true {
+            diagstack(ctx, sn, t, "%v: %v ⇒ '%s'", typeof(a), a, a.string(ctx)).debug(d)
         } else {
             diagstack(ctx, sn, t, "%v: %v", typeof(a), a).debug(d)
         }
@@ -2546,7 +2546,7 @@ func (ctx *builtin_trimright) x(ic *invocation, w facet) (res interface{}) {
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 type builtin_trimprefix struct { builtin_ }
 func (ctx *builtin_trimprefix) x(ic *invocation, w facet) (res interface{}) {
-    if false { if ctx.verbose = ctx.Project().name == "testllvmconfig"; ctx.verbose { defer func() {
+    if false { if ctx.verbose = ctx.Project().name == "testtrimprefix" && ic.a != nil && ic.a[0].string(ctx) == "**/testdata/"; ctx.verbose { defer func() {
         noted(ctx, "%v: %v %v", ctx.Project(), ic.a, res).debug(2)
     }()}}
 
@@ -2581,7 +2581,7 @@ ForValues:
             var full, r, stems = prefix.match(ctx, value)
             var cutset = joinMatchRes(ctx, r)
             if ctx.verbose {
-                warn(ctx, "full   = %v", full)
+                warn(ctx, "full   = %v (%v)", full, r)
                 warn(ctx, "prefix = %v (%v)", prefix, typeof(prefix))
                 warn(ctx, "value  = %v (%v)", value, typeof(value))
                 warn(ctx, "cutset = %v", cutset)
@@ -3825,13 +3825,13 @@ func (ctx *builtin_stat) x(ic *invocation, w facet) (res interface{}) {
 type builtin_file struct { builtin_
     caller bool `c,cc,caller,callercontext,caller-context`
     exists bool `e,ex,exist,exists,me,existsist,must-exist,must,required`
-    report bool `r,report,reportmissing;rm,report-missing;er,err,error`
-    ignore bool `i,ig,ignore,ignore-missing`
+    report bool `er,err,error,r,report,reportmissing,rm,report-missing`
+    ignore bool `i,ig,ignore,ignore-missing,missing,nonexists`
+    match  bool `map,mapped,matched,must-map,must-mapped,must-match,must-matched`
 }
 func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
     var proj *Project = ctx.Project()
     if false { if ctx.caller {
-        // program -> closure -> traversal -> ...
         if false {
             proj = ctx.closure().Project()
         } else {
@@ -3844,11 +3844,13 @@ func (ctx *builtin_file) do(projs []*Project, args ...Value) (list []Value) {
     var en int
     var cc = ctx.Context
     var fil = func(a Value) { ctx.Context = at(cc, a.Position())
-        if false { if strings.HasPrefix(a.string(ctx), ".configure/") { defer func() {
+        if d := ctx.debug; d>0 { defer func() {
             if list != nil { if t, y := list[len(list)-1].(*File); y {
-                noted(ctx, "%T %v ⇒ %v %s", a, a, t, t.fullname()).debug(10)
-            }}
-        }()}}
+                noted(ctx, "%v %v ⇒ %v %s", typeof(a), a, t, t.fullname()).debug(1+d)
+            }} else {
+                noted(ctx, "%v %v (%v)", typeof(a), a, projs).debug(1+d)
+            }
+        }()}
 
         var fs []*File
         var am []matchedFileMap
@@ -3864,11 +3866,12 @@ func (ctx *builtin_file) do(projs []*Project, args ...Value) (list []Value) {
         if am = files(ctx, a, projs...); am == nil { if s := a.string(ctx); s != "" { const w = false
             if am = files(ctx, s, projs...); am != nil {
                 if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", projs, a, a, ctx.Project()).debug(6) }
-            } else if f := file(ctx, s); f != nil {
+            } else if f := file(ctx, s, projs...); f != nil {
                 if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", projs, a, a, ctx.Project()).debug(6) }
                 list = append(list, f)
                 return
             } else {
+                if ctx.match { erro(ctx, "not a file (%v %v → %v)", typeof(a), a, unmap(ctx, a)).debug(1) }
                 return
             }
         }}
@@ -3966,8 +3969,6 @@ type builtin_wildcard struct { builtin_
 }
 func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
     var db = false //ctx.debug == 1000
-
-    //strings.HasSuffix(ctx.dir, "/testdata/wildcard")
     if false { if pats != nil { defer func() { if files == nil {
         noted(ctx, "%v %v -> %v", ctx.dir, pats, files).debug(10)
     }}(); db = pats[0].String() == "[foobar/config/*.def.am, **.def.am]" }}
@@ -4013,7 +4014,7 @@ func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
         switch d := f.info.IsDir(); ctx.filetype {
         case "f", "file": if!d { files = append(files, f) }
         case "d", "dir" : if d { files = append(files, f) }
-        case "":         files = append(files, f)
+        case "":                 files = append(files, f)
         default: erro(ctx, "unknown -filetype: %s (%v)", ctx.filetype, f).debug(1)
         }
         top.Unlock()
@@ -4058,8 +4059,6 @@ func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
             return
         }
 
-        const infos = false
-
         if gp, y := pat.(*GlobPattern); !y {
             // fallthrough
         } else if len(gp.components) == 0 {
@@ -4068,18 +4067,16 @@ func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
         } else if m, y := gp.components[0].(*GlobMeta); !y {
             // fallthrough
         } else if m.Token == DAST { // aka **
-            if y, _, _ = gp.match(ctx, sub.dn); infos {
-                info(ctx, "_wildcard: %v %v (%v %v, %v)", gp, sub.dn, sub.d, sub.n, y)
-            }
+            y, _, _ = gp.match(ctx, sub.dn)
             if sub.isDir { subed(sub, pat) }
             if y { top.Add(1) ; go collect(sub.dn) ; return }
             return
         }
 
-        var y bool
-        if y, _, _ = pat.match(ctx, sub.n); infos {
-            info(ctx, "_wildcard: %s %v, %v (%v %v, %v)", typeof(pat), pat, sub.dn, sub.d, sub.n, y)
-        }
+        y, b, c := pat.match(ctx, sub.n)
+        if false { if y && strings.HasPrefix(sub.dn, "inc/") {
+            noted(ctx, "%v, %v %v: %v %v", sub.dn, sub.n, pat, b, c).debug(5)
+        }}
         if y { top.Add(1) ; go collect(sub.dn) ; return }
         return
     }
@@ -4135,7 +4132,6 @@ func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
     return
 }
 func (ctx *builtin_wildcard) do(pats ...Value) (files []*File) {
-    // strings.HasSuffix(ctx.dir, "/testdata/wildcard")
     if false { if ctx.dir == "" && pats != nil { defer func() { if files == nil {
         noted(ctx, "%v %v -> %v", ctx.dir, pats, files).debug(5)
     }}()}}
@@ -4147,7 +4143,7 @@ func (ctx *builtin_wildcard) do(pats ...Value) (files []*File) {
     }
 }
 func (ctx *builtin_wildcard) x(ic *invocation, w facet) (res interface{}) {
-    var vals []Value // strings.HasSuffix(ctx.dir, "/testdata/wildcard")
+    var vals []Value
     if false { if ctx.dir == "" && ic.a != nil { defer func() { if vals == nil {
         noted(ctx, "%v %v %v -> %v", ctx.dir, ic.o, ic.a, res).debug(10)
     }}()}}

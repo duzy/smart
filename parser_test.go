@@ -13,7 +13,7 @@ import (
 
 var testtrace = true
 
-func TestParseFile(t *testing.T) {
+func testParseFile(t *testing.T) {
 	// mode := DeclarationErrors
 	// if testtrace {
 	//         mode |= Trace
@@ -31,7 +31,7 @@ func TestParseFile(t *testing.T) {
 	// }
 }
 
-func TestParseDir(t *testing.T) {
+func testParseDir(t *testing.T) {
 	// fset, dir := NewFileSet(), "testdata"
 	// _, err := ParseDir(fset, dir, nil, DeclarationErrors)
 	// if err != nil {

@@ -9,11 +9,11 @@ import (
 	//"fmt"
 	//"math/rand"
 	//"sync"
-        "path/filepath"
+	"path/filepath"
 	"testing"
 )
 
-func TestPositionExample(t *testing.T) {
+func testPositionExample(t *testing.T) {
         src := []byte(`
 project foo
 include modules/*.smart

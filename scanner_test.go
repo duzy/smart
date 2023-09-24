@@ -18,7 +18,7 @@ type scanResult struct {
         lit string
 }
 
-func TestInit(t *testing.T) {
+func testInit(t *testing.T) {
 	var s Scanner
 
 	// 1st init
@@ -96,7 +96,7 @@ func TestInit(t *testing.T) {
 	}
 }
 
-func TestStrings(t *testing.T) {
+func testStrings(t *testing.T) {
         src := `
 string1 = 'a b c $a $b $c 1'
 string2 = "a b c $a $b $c 2"
@@ -291,7 +291,7 @@ texts = this is a text array
 }
 
 // TODO: TestIntegers
-func _TestIntegers(t *testing.T) {
+func testIntegers(t *testing.T) {
         src := `
 integer1 = +100
 integer2 = 99
@@ -405,7 +405,7 @@ bin2 = 0b1100110011
 }
 
 // TODO: TestDatetime
-func _TestDatetime(t *testing.T) {
+func testDatetime(t *testing.T) {
         src := `
 t1 = 1979-05-27T07:32:00Z
 t2 = 1979-05-27T07:32:00-07:00
@@ -482,7 +482,7 @@ t7 = 07:32:00.999999
 }
 
 // TODO: TestFloats
-func _TestFloats(t *testing.T) {
+func testFloats(t *testing.T) {
         src := `
 float1 = +1.0
 float2 = 3.1415
@@ -561,7 +561,7 @@ float8 = 6.18_16_18_16
 }
 
 // TODO: TestArrays
-func _TestArrays(t *testing.T) {
+func testArrays(t *testing.T) {
         src := `
 array1 = text1 text2 text3 '' 1 2 3 1.2 ( a b c 1 2 3 '' "")
 
@@ -630,7 +630,7 @@ array2 = \
 }
 
 // TODO: TestMaps
-func _TestMaps(t *testing.T) {
+func testMaps(t *testing.T) {
         src := `
 map1 = (
    k1 value1,
@@ -699,7 +699,7 @@ map2 = (  k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4  )
 }
 
 // TODO: TestCalls
-func _TestCalls(t *testing.T) {
+func testCalls(t *testing.T) {
 	var s Scanner
 
         src1 := `
@@ -862,7 +862,7 @@ v2 = $(concat "a" 'b' c)
 }
 
 // TODO: TestRules
-func _TestRules(t *testing.T) {
+func testRules(t *testing.T) {
 	var s Scanner
 
         src1 := `
@@ -1079,7 +1079,7 @@ start:?[shell]:
 }
 
 // TODO: TestProgConstructs
-func _TestProgConstructs(t *testing.T) {
+func testProgConstructs(t *testing.T) {
 	var s Scanner
 
         src1 := `

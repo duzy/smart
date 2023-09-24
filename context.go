@@ -117,7 +117,7 @@ type Context interface {
   aquireLock() (unlock func())
 
   universe() *universe
-  unmap(Context, interface{}) []matchedFileMap
+  // unmap(Context, interface{}) []matchedFileMap
   // cache(Context, []Value, []Value)
 
   loader() *loader // only in load stage

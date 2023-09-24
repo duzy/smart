@@ -127,3 +127,97 @@ func (tc *testcase) get(name string, ii ...interface{}) (res Value) {
 	}
 	return
 }
+
+func Test(t *testing.T) {
+	// scanner_test.go
+	t.Run("init",        testInit)
+	t.Run("strings",     testStrings)
+	// t.Run("integers",    testIntegers)
+	// t.Run("floats",      testFloats)
+	// t.Run("datetime",    testDatetime)
+	// t.Run("arrays",      testArrays)
+	// t.Run("maps",        testMaps)
+	// t.Run("calls",       testCalls)
+	// t.Run("rules",       testRules)
+	// t.Run("prog",        testProgConstructs)
+
+	// parser_test.go
+	t.Run("file",        testParseFile)
+	t.Run("dir",         testParseDir)
+
+	// position_test.go
+	t.Run("position",    testPositionExample)
+
+	// builtins_test.go
+	t.Run("assert",      testAssert)
+	t.Run("wildcard",    testWildcard)
+	t.Run("files",       testFiles)
+	t.Run("auto",        testAutoContext) // value_test.go
+	t.Run("foreach",     testForeach)
+	t.Run("foreach",     testForeach1)
+	t.Run("foreach",     testForeach2)
+	t.Run("foreach",     testForeach3)
+	t.Run("foreach",     testForeach4)
+	t.Run("foreach",     testForeach5)
+	t.Run("addprefix",   testAddPrefix)
+	t.Run("pushcontext", testPushContext)
+	t.Run("contains",    testContains)
+	t.Run("logic",       testLogic)
+	t.Run("trim-prefix", testTrimPrefix)
+	t.Run("builtins",    testBuiltins)
+
+	// template_test.go
+	t.Run("template",    testTemplate)
+	t.Run("template",    testTemplateForeach)
+
+	// modifiers_test.go
+	t.Run("modifier",    testValueModifier)
+
+	// value_test.go
+	// t.Run("auto",       testAutoContext)
+	t.Run("value",       testValues1)
+	t.Run("value",       testValues2)
+	t.Run("value",       testValues3)
+	t.Run("value",       testValues4)
+	t.Run("value",       testValues5)
+	t.Run("value",       testValues6)
+	t.Run("value",       testValues7)
+	t.Run("value",       testValues8)
+	t.Run("value",       testValues9)
+	t.Run("value",       testValues10)
+	t.Run("value",       testValues11)
+	t.Run("value",       testValues12)
+	t.Run("value",       testValues13)
+	t.Run("value",       testPlaceholders)
+	t.Run("value",       testOptional)
+	t.Run("value",       testGlobMatch)
+	t.Run("value",       testValueGeneral)
+
+	// defs_test.go
+	t.Run("defs",        testDefs0)
+
+	// valcache_test.go
+	t.Run("valcache",    testValueCache)
+
+	// rules_test.go
+	t.Run("rules",       testRules0)
+	t.Run("rules",       testRules1)
+
+	// loader_test.go
+	t.Run("load",        testLoad)
+	t.Run("build",       testBuildExample)
+	t.Run("load.top",    testLoadTopWork)
+
+	// modules_test.go
+	t.Run("variant",            testVariantTarget)
+	t.Run("app",                testApp)
+	t.Run("llvm/Config",        testLLVMConfigConfigure)
+	t.Run("llvm/Config",        testLLVMConfig)
+	t.Run("toolchain/booting",  testToolchainBootingConfigure)
+	t.Run("toolchain/booting",  testToolchainBooting)
+
+	// configure_test.go
+	t.Run("configure.default",  testConfigureDefault)
+	t.Run("configure.diverged", testConfigureDiverged)
+	t.Run("configure.custom",   testConfigureCustom)
+}

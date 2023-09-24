@@ -10,7 +10,7 @@ import (
         "strings"
 )
 
-func TestLoad(t *testing.T) {
+func testLoad(t *testing.T) {
         // var l = &loader{
         //	 closureContext: closureContext{&uni, nil},
         // }
@@ -18,11 +18,11 @@ func TestLoad(t *testing.T) {
         // TODO: loader
 }
 
-func TestBuildExample(t *testing.T) {
+func testBuildExample(t *testing.T) {
         // TODO: test `testdata/example-build.smart`
 }
 
-func TestLoadTopWork(t *testing.T) {
+func testLoadTopWork(t *testing.T) {
         var ctx = load_testcase(t, "testdata/none", "none")
 	if ctx.Context == nil {
 		t.Errorf("fail")

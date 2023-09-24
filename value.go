@@ -943,13 +943,18 @@ func (a as) fullnameOpt(ctx Context, projects ...*Project) (o fullnameOpt, y boo
 }
 
 func joinMatchRes(ctx Context, res interface{}) (str string) {
-    if s, y := res.(string); y { str = s } else
-    if a, y := res.([]string); y { str = strings.Join(a, PathSep) } else
-    if res != nil { warn(ctx, "unexpected result: %T %v", res, res).debug(6) }
+    if s, y := res.(string); y {
+        str = s
+    } else if a, y := res.([]string); y {
+        // NOTE: cannot use filepath.Join() to avoid trimming empty strings
+        str = strings.Join(a, PathSep)
+    } else if res != nil {
+        warn(ctx, "unexpected result: %T %v", res, res).debug(6)
+    }
     return
 }
 
-func joinraw(sep string, vals ...*raw) string {
+func joinRaws(sep string, vals ...*raw) string {
     var strs []string
     for _, v := range vals { strs = append(strs, v.String()) }
     return strings.Join(strs, sep)
@@ -1212,21 +1217,6 @@ func (_ *valbase) updated(_ Context) bool { return false }
 func (_ *valbase) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (_ *valbase) delete(ctx Context) (file []*File, err error) { return }
 func (_ *valbase) traverse(ctx Context) { }
-
-func matchString(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
-    var v = p.string(ctx)
-    switch t := i.(type) {
-    case Value:
-        if w := t.string(ctx); strings.HasPrefix(w, v) { s, full = v, (len(v) == len(w)) }
-    case string:
-        if strings.HasPrefix(t, v) { s, full = v, (len(v) == len(t)) }
-    case []string:
-        if n := len(t); n > 0 { if t[0] == v { s, full = v, (n == 1) } }
-    default:
-        errostack(of(ctx,p), 3, "%T %v :matching unsupported value: %T %v", p, p, i, i).debug(16)
-    }
-    return
-}
 
 type undef struct { Value }
 func (p undef) kind() Kind { return KindUndef }
@@ -1774,6 +1764,21 @@ func (_ *negative) collect(ctx Context, cache *valcache, bits int) (res []*valca
 
 func Negative(val Value) *negative { return &negative{valbase{val.Position()},val} }
 
+func stringMatch(ctx Context, p Value, i interface{}) (full bool, s string, stems []string) {
+    var v = p.string(ctx)
+    switch t := i.(type) {
+    case Value:
+        if w := t.string(ctx); strings.HasPrefix(w, v) { full, s = (len(v) == len(w)), v }
+    case string:
+        if strings.HasPrefix(t, v) { full, s = (len(v) == len(t)), v }
+    case []string:
+        if n := len(t); n > 0 { if t[0] == v { full, s = (n == 1), v } }
+    default:
+        errostack(of(ctx,p), 3, "%v(%v) :matching unsupported value: %v(%v)", typeof(p), p, typeof(i), i).debug(16)
+    }
+    return
+}
+
 type boolean struct { valbase; bool }
 func (_ *boolean) kind() Kind { return KindBoolean }
 func (p *boolean) String() string { return p.string_()+"{}" }
@@ -1816,8 +1821,7 @@ func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *boolean) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
-    full, s, stems = matchString(ctx, p, i)
-    return
+    return stringMatch(ctx, p, i)
 }
 func (p *boolean) stencil(ctx Context, stems []string) (val Value, rest []string) {
     val, rest = p, stems
@@ -1901,7 +1905,7 @@ type Bin struct { integer }
 func (_ *Bin) kind() Kind { return KindInteger|KindBinary }
 func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
 func (p *Bin) string(ctx Context) string { return strconv.FormatInt(int64(p.int64),2) }
-func (p *Bin) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchString(ctx, p, i) }
+func (p *Bin) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Bin) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Bin) expand(_ Context, _ facet) Value { return p }
 
@@ -1909,7 +1913,7 @@ type Oct struct { integer }
 func (_ *Oct) kind() Kind { return KindInteger|KindOctal }
 func (p *Oct) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
 func (p *Oct) string(ctx Context) string { return strconv.FormatInt(int64(p.int64),8) }
-func (p *Oct) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchString(ctx, p, i) }
+func (p *Oct) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Oct) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Oct) expand(_ Context, _ facet) Value { return p }
 
@@ -1917,7 +1921,7 @@ type Int struct { integer }
 func (_ *Int) kind() Kind { return KindInteger|KindDecimal }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) string(ctx Context) string { return strconv.FormatInt(int64(p.int64),10) }
-func (p *Int) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchString(ctx, p, i) }
+func (p *Int) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Int) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Int) expand(_ Context, _ facet) Value { return p }
 
@@ -1925,7 +1929,7 @@ type Hex struct { integer }
 func (_ *Hex) kind() Kind { return KindInteger|KindHexDecimal }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
 func (p *Hex) string(ctx Context) string { return strconv.FormatInt(int64(p.int64),16) }
-func (p *Hex) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchString(ctx, p, i) }
+func (p *Hex) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Hex) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Hex) expand(_ Context, _ facet) Value { return p }
 
@@ -1937,7 +1941,7 @@ func (p *Float) string(ctx Context) string { return strconv.FormatFloat(float64(
 func (p *Float) true(ctx Context) bool { return math.Abs(p.float64)-0 > FloatEpsilon }
 func (p *Float) int(ctx Context) (i int64, _ error) { return int64(p.float64), nil }
 func (p *Float) float(ctx Context) (f float64, _ error) { return p.float64, nil }
-func (p *Float) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchString(ctx, p, i) }
+func (p *Float) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Float) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Float) expand(_ Context, _ facet) Value { return p }
 func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
@@ -1981,7 +1985,7 @@ func (p *DateTime) string(ctx Context) string { return p.String() } // time.RFC3
 func (p *DateTime) true(ctx Context) bool { return !p.t.IsZero() }
 func (p *DateTime) int(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
 func (p *DateTime) float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
-func (p *DateTime) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchString(ctx, p, i) }
+func (p *DateTime) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return stringMatch(ctx, p, i) }
 func (p *DateTime) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *DateTime) expand(_ Context, _ facet) Value { return p }
 func (p *DateTime) cmp(ctx Context, v Value) (res cmpres) {
@@ -2029,7 +2033,7 @@ func (p *Date) String() string { return time.Time(p.t).Format("2006-01-02") }
 func (p *Date) string(ctx Context) string { return p.String() }
 func (p *Date) int(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
 func (p *Date) float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
-func (p *Date) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchString(ctx, p, i) }
+func (p *Date) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Date) expand(_ Context, _ facet) Value { return p }
 
@@ -2039,7 +2043,7 @@ func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.99999999
 func (p *Time) string(ctx Context) string { return p.String() }
 func (p *Time) int(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
 func (p *Time) float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
-func (p *Time) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return matchString(ctx, p, i) }
+func (p *Time) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Time) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Time) expand(_ Context, _ facet) Value { return p }
 
@@ -2216,7 +2220,7 @@ func (p *URL) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *URL) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
-    full, s, stems = matchString(ctx, p, i)
+    full, s, stems = stringMatch(ctx, p, i)
     return
 }
 func (p *URL) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -2258,7 +2262,7 @@ func (p *raw) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *raw) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
-    full, s, stems = matchString(ctx, p, i)
+    full, s, stems = stringMatch(ctx, p, i)
     return
 }
 func (p *raw) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -2322,7 +2326,7 @@ func (p *String) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *String) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
-    full, s, stems = matchString(ctx, p, i)
+    full, s, stems = stringMatch(ctx, p, i)
     return
 }
 func (p *String) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -2488,8 +2492,7 @@ func (p *bareword) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *bareword) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
-    full, s, stems = matchString(ctx, p, i)
-    return
+    return stringMatch(ctx, p, i)
 }
 func (p *bareword) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
@@ -2531,7 +2534,7 @@ func (p *qualiword) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *qualiword) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
-    full, s, stems = matchString(ctx, p, i)
+    full, s, stems = stringMatch(ctx, p, i)
     return
 }
 func (p *qualiword) stencil(ctx Context, stems []string) (val Value, rest []string) {
@@ -3707,6 +3710,10 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
 
     var ( stopPat, stopVal Value ; ss []string )
+    if false { if (bits&cacheStore == 0) && strings.HasPrefix(p.string(ctx), ".test/") {
+        defer func() { noted(ctx, "%016b: %v %v %v", bits, elems, cache, res).debug(20) } ()
+    }}
+
     for i, elem := range elems {
         if elem.patterned(ctx) {
             if false { warn(ctx, "%08b: %v: %v[%d]: %T %v", bits, p, elems, i, elem, elem).debug(1) }
@@ -3731,7 +3738,7 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     } else if m = cache.match(at(ctx, p.position), p); m != nil {
         cache.filemapCache = &m.filemapCache
     } else {
-        if (bits&cacheStore) != 0 { erro(ctx, "%08b: %v: %v: %v", bits, p, elems, ss).debug(1) }
+        if (bits&cacheStore) != 0 { erro(ctx, "%08b: %v %v", bits, elems, cache).debug(1) }
         return
     }
 
@@ -3850,6 +3857,11 @@ func (p *Path) match1(ctx Context, str string) (full bool, result []string, stem
     }
     return
 }
+func pathSegMatch(ctx Context, seg Value, src string) (bool, string, []string) {
+    y, s0, ss := seg.match(ctx, src)
+    s := joinMatchRes(ctx, s0)
+    return y, s, ss
+}
 func (p *Path) matchN(ctx Context, srcs ...string) (full bool, res []string, stems []string) {
     if len(srcs) == 0 {
         if false { erro(at(ctx,p.position), "empty: %v", srcs) }
@@ -3858,148 +3870,197 @@ func (p *Path) matchN(ctx Context, srcs ...string) (full bool, res []string, ste
 
     var segs, un, _ = expandPathElems(ctx, plain, p.Elems...)
     if un > 0 {
-        errostack(ctx, 3, "can't expand path: %v", p).debug(1)
+        errostack(ctx, 3, "cannot expand path: %v", p).debug(1)
         return
     }
 
     var (
         lenSegs = len(segs)
         lenSrcs = len(srcs)
-        lastSuf Value
-        n, m int
+        numSeg = 0
+        numSrc = 0
     )
-SegsSrcsLoop:
-    for n < lenSegs && m < lenSrcs {
-        var si, seg, src = n, segs[n], srcs[m]
-        if cs := correctPathPunForMatch(seg); cs != nil { seg = cs } else {
-            erro(of(ctx,seg), "invalid path seg: %v (%T)", seg, seg).debug(1)
-            break SegsSrcsLoop
-        }
 
-        var pp, pre, suf = percperc(seg) // %%
-        if pp {
-            if !isTrivial(lastSuf) && !isTrivial(pre) {
-                erro(of(ctx,seg), "the continual %%/%% makes no sense")
-                break SegsSrcsLoop
-            }
-            if /*ps, ok := seg.(*PathPun);*/ src == "" /*&& ok && (ps.rune == 0 || ps.rune == '/')*/ { // for root path seg '/'
-                // NOTE: seg could also be % or %% here
-                res   = append(res, "") // for '/'
-                stems = append(stems, "")
-                //info(of(ctx,p), "%v %v; %v %v; %v %v", p, seg, res, stems, ps, ok)
-            }
-            lastSuf = suf
-            n += 1 // move forward to the next seg
-            m += 1 // move forward to the next src
+    if true { defer func() { if full && len(stems) == 0 && len(res) > 0 && p.patterned(ctx) {
+        if lenSegs == 1 /* && lenSrcs == 1 */ && len(res) == 1 && segs[0].patterned(ctx) {
+            stems = res
         } else {
-            var f, r, ss = seg.match(ctx, src)
-            var s = joinMatchRes(ctx, r)
-            if f || s == src {
-                // NOTE: `s` could be empty string, e.g. when `str` is absolute path
-                res   = append(res  , s)
-                stems = append(stems, ss...)
-                lastSuf = nil
-                n += 1 // move forward to the next seg
-                m += 1 // move forward to the next src
-                if f { continue SegsSrcsLoop } else { break SegsSrcsLoop }
-            } else {
-                if ps, ok := seg.(*PathPun); (s == "" && ok && ps.rune == 0) || s != "" {
-                    res = append(res, s)
-                } else if false {
-                    res, stems = nil, nil
-                }
-                break SegsSrcsLoop
-            }
+            ctx = of(ctx, p)
+            warn(ctx, "incorrect full match: %v: srcs=%s, res=%v, stems=%v", p, srcs, res, stems)
+            warnstack(ctx, 3).debug(6)
+        }
+    }}()}
+
+SegsSrcsLoop:
+    for numSeg < lenSegs && numSrc < lenSrcs {
+        var seg = segs[numSeg]; numSeg += 1 // move forward to the next seg
+        if s := correctPathPunForMatch(seg); s == nil {
+            erro(of(ctx,seg), "invalid path segment: %v(%v)", typeof(seg), seg).debug(1)
+            break SegsSrcsLoop
+        } else {
+            seg = s
         }
 
-        var prefix string
-        if !isTrivial(pre) { if prefix = pre.string(ctx); !strings.HasPrefix(src, prefix) {
-            break SegsSrcsLoop
+        var multi, pre, suf = multia(ctx, seg) // %% or **
+        if false { if p.string(ctx) == ".test/x**y" { noted(of(ctx, seg),
+            "%v %v: %v %v %v %v", segs, srcs, seg, multi, pre, suf).debug(1) }}
+
+        var src = srcs[numSrc]; numSrc += 1 // move forward to the next src
+        if false { if !multi && numSrc == 1 && src == "" { // for root path '/'
+            res, stems = append(res, src), append(stems, src)
         }}
 
-        // Iterate segs for %%, e.g. bar, baz in foo/%%/bar/baz
-        var stem []string
-        if prefix != "" { stem = append(stem, strings.TrimPrefix(src, prefix)) }
-        if !isTrivial(suf) {
-            var suffix = suf.string(ctx)
-            if res = append(res, src); m < lenSrcs {
-                for stem = append(stem, src); m < lenSrcs; m += 1 {
-                    src = srcs[m]
-                    res = append(res, src)
-                    if strings.HasSuffix(src, suffix) {
-                        stem = append(stem, strings.TrimSuffix(src, suffix))
-                        stems = append(stems, strings.Join(stem, PathSep))
-                        // if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs).debug(1) }
-                        n += 1 // continue for next seg
-                        m += 1 // move forward to the next src
-                        continue SegsSrcsLoop
+        if multi {
+            var stem []string
+            var st, prefix, suffix string
+            if !isTrivial(pre) { prefix = pre.string(ctx) }
+            if !isTrivial(suf) { suffix = suf.string(ctx) }
+
+            if prefix != "" { if strings.HasPrefix(src, prefix) {
+                st = strings.TrimPrefix(src, prefix)
+            } else {
+                break SegsSrcsLoop
+            }}
+
+            var noful bool
+            var tail []string // stem
+            if suffix != "" {
+                for {
+                    if false { if p.string(ctx) == "**/testdata" { noted(of(ctx, seg),
+                        "%v %v ; %v %v ; %v %v %v", segs, srcs, seg, src, res, stems, stem).debug(1) }}
+
+                    if res = append(res, src); strings.HasSuffix(st, suffix) {
+                        st = strings.TrimSuffix(st, suffix)
+                        if stem = append(stem, st); numSeg == lenSegs {
+                            full = numSrc == lenSrcs
+                        } else {
+                            full = numSeg == lenSegs-1
+                        }
+                        break
+                    } else if prefix == "" && st == "" {
+                        stem = append(stem, src)
+                    } else {
+                        stem = append(stem, st)
+                    }
+
+                    if numSrc < lenSrcs {
+                        src = srcs[numSrc] ; numSrc += 1
+                        st = src[:]
+                    } else {
+                        full = numSeg == lenSegs-1
+                        noful = !full
+                        break
+                    }
+                }
+
+                if false { if p.string(ctx) == "**/testdata" { noted(of(ctx, seg),
+                    "%v %v ; %v %v ; %v, %v %v %v",
+                    segs, srcs, seg, src, noful, full, res, stem).debug(1) }}
+            } else if numSeg < lenSegs {
+                if prefix == "" || st != "" { res = append(res, src) }
+                if st == "" { st = src } ;   stem = append(stem, st)
+
+                prefix = ""
+
+                var con bool
+                var nxt = segs[numSeg]
+                if multi, pre, suf = multia(ctx, nxt); multi { // x%%y or x**y
+                    if !isTrivial(pre) { prefix = pre.string(ctx) }
+                    if !isTrivial(suf) { suffix = suf.string(ctx) }
+                    con = prefix == "" // x**/**y
+                }
+
+                if false { if p.string(ctx) == "/**/testdata" { noted(of(ctx, seg),
+                    "%v %v ; %v/%v %v ; %v %v %v ; %v %v, %v %v %v",
+                    segs, srcs, seg, nxt, src, multi, pre, suf, con, st, res, stem, stems).debug(1) }}
+
+                // Finding the best match stopped by nxt:
+                for ; numSrc < lenSrcs ; numSrc += 1 { if src = srcs[numSrc]; multi {
+                    if prefix == "" { res = append(res, src)
+                        if suffix != "" && strings.HasSuffix(src, suffix) {
+                            if st = strings.TrimSuffix(src, suffix); con { // x**/**y
+                                stems = append(stems, strings.Join(stem, PathSep))
+                                stem = []string{ st }
+                            } else {
+                                stem = append(stem, st)
+                            }
+                            full = numSrc == lenSrcs && numSeg+1 == lenSegs
+                            numSrc += 1
+                            break
+                        } else {
+                            stem = append(stem, src)
+                        }
+                    } else if strings.HasPrefix(src, prefix) {
+                        if len(stem) > 0 {
+                            stems = append(stems, strings.Join(stem, PathSep))
+                        }
+                        stem = []string{ strings.TrimPrefix(src, prefix) }
+                        numSrc += 1
+                        break
                     } else {
                         stem = append(stem, src)
                     }
-                }
-            } else {
-                stem = append(stem, strings.TrimSuffix(src, suffix))
-            }
-            if len(stem) > 0 {
-                stems = append(stems, strings.Join(stem, PathSep))
-                // if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v suffix=%v src=%s lenSegs=%d lenSrcs=%d m=%d", si, p, seg, seg, res, stems, suffix, src, lenSegs, lenSrcs, m).debug(1) }
-            }
-        } else if n < lenSegs && !isTrivial(segs[n]) {
-            for seg = segs[n]; m < lenSrcs; m += 1 {
-                src = srcs[m]
-
-                var matched, r, ss = seg.match(ctx, src)
-                if s := joinMatchRes(ctx, r); matched || s == src {
-                    res = append(res, s)
-                    if s == "" && len(ss) == 0 {
-                        stem = append(stem, s)
-                    } else if false {
-                        stem = append(stem, ss...)
-                    }
-                    if si == 0 && len(stems) == 1 && stems[0] == "" { // heading %% matched root '/'
-                        stem = append(stems, stem...) // for the root '/'
-                        stems[0] = strings.Join(stem, PathSep)
+                } else if y, s, ss := pathSegMatch(ctx, nxt, src); y || s == src {
+                    if res = append(res, src); len(ss) == 0 {
+                        stem = append(stem, src)
                     } else {
-                        stems = append(stems, strings.Join(stem, PathSep))
+                        tail = ss
                     }
-                    // if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v matched=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, matched, s, ss, src, lenSegs).debug(1) }
-                    n += 1 // continue for next seg
-                    m += 1 // move forward to the next src
-                    continue SegsSrcsLoop
+
+                    if false { if p.string(ctx) == "**/testdata" { noted(of(ctx, seg),
+                        "%v %v ; %v/%v %v ; %v %v %v ; %v %v , %v",
+                        segs, srcs, seg, nxt, src, multi, pre, suf, s, ss, stem).debug(1) }}
+
+                    numSeg += 1
+                    full = numSeg == lenSegs && numSrc == lenSrcs
+                    numSrc += 1
+                    break
                 } else {
-                    res = append(res, src)
-                    stem = append(stem, src)
-                }
-            }
-            if len(stem) > 0 {
-                stems = append(stems, strings.Join(stem, PathSep))
-                // if infos { info(of(ctx,p), "%d: path=%v seg=%v (%T) res=%v stems=%v s=%s ss=%v src=%s lenSegs=%d", si, p, seg, seg, res, stems, s, ss, src, lenSegs).debug(1) }
-            }
-        } else { // the tailing %%
-            if /*m < lenSrcs*/true {
-                var rest = srcs[m-1:]
-                res = append(res, rest...)
-                stem = append(stem, rest...)
-                stems = append(stems, strings.Join(stem, PathSep))
-            }
-            // if infos { info(of(ctx,p), "%d: seg=%v pre=%v suf=%v res=%v stems=%v src=%s", si, seg, pre, suf, res, stems, src).debug(1) }
-            break SegsSrcsLoop
-        }
-        // if infos && n == lenSegs { info(of(ctx,p), "%d: path=%v seg=%v (%T) str=%v src=%v -> f=%v s=%v ss=%v -> res=%v stems=%v stem=%v m=%d/%d 3.lengSegs=%d", si, p, seg, seg, srcs, src, f, s, ss, res, stems, stem, m, lenSrcs, lenSegs).debug(true, 1) }
-    }
-    if lenRes := len(res); lenRes > 0 { // full or partial matched
-        // if full = n == lenSegs && m <= lenSrcs && lenSrcs == lenRes && lenSegs <= lenRes; full {
-        //     for i := 0; i < lenSrcs; i += 1 { if srcs[i] != res[i] { full = false; break } }
-        // }
-        full = n == lenSegs && m == lenSrcs
-        if full && len(stems) == 0 && p.patterned(ctx) {
-            if lenSegs == 1 && lenSrcs == 1 && len(res) == 1 && segs[0].patterned(ctx) {
-                stems = res
+                    res, stem = append(res, src), append(stem, src)
+
+                    if false { if p.string(ctx) == "**/testdata" { noted(of(ctx, seg),
+                        "%v %v ; %v/%v %v ; %v", segs, srcs, seg, nxt, src, stem).debug(1) }}
+                }}
+
+                if false { if p.string(ctx) == "/**/testdata" { noted(of(ctx, seg),
+                    "%v %v ; %v/%v %v ; %v %v %v ; %v %v %v %v %v",
+                    segs, srcs, seg, nxt, src, multi, pre, suf, res, stems, stem, tail, full).debug(1) }}
             } else {
-                prompt(ctx, "%v: %v: incorrect full match: segs=%v; srcs=%v; res=%v\n", srcs, p, segs, srcs, res)
-                warn(of(ctx,p), "incorrect full match: path=%v, str=%s, res=%v", p, srcs, res)
-                warnstack(ctx, 3, "(%T):", ctx).debug(6)
+                if res, stem = append(res, src), append(stem, st); numSrc < lenSrcs {
+                    var t = srcs[numSrc:]
+                    res = append(res, t...)
+                    stem = append(stem, t...)
+                    numSrc, full = lenSrcs, true
+                }
+
+                if false && p.string(ctx) == ".test/x**y/x**" { noted(of(ctx, seg),
+                    "%v %v ; %v %v ; %v %v %v",
+                    segs, srcs, seg, src, full, res, stem).debug(1) }
             }
+
+            if !full && !noful { full = numSrc == lenSrcs }
+
+            if len(stem) > 0 { stems = append(stems, strings.Join(stem, PathSep)) }
+            if len(tail) > 0 { stems = append(stems, tail...) }
+        } else if y, s, ss := pathSegMatch(ctx, seg, src); y /* || s == src */ {
+            res, stems = append(res, src), append(stems, ss...)
+            full = numSeg == lenSegs && numSrc == lenSrcs
+
+            if false { if s == "" && p.string(ctx) == "/**/testdata" { noted(of(ctx, seg),
+                "%v %v: %v(%v) %v ; %v %v ; %v %v",
+                segs, srcs, typeof(seg), seg, src, s, ss, res, stems).debug(1) }}
+
+            if !y { break SegsSrcsLoop }
+        } else {
+            if p, y := seg.(*PathPun); s != "" || (y && p.rune == 0) {
+                res, stems = append(res, s), append(stems, ss...)
+            }
+
+            if false { if p.string(ctx) == "/**/testdata" { noted(of(ctx, seg),
+                "%v %v: %v %v ; %v %v %v ; %v %v",
+                segs, srcs, seg, src, y, s, ss, res, stems).debug(1) }}
+
+            break SegsSrcsLoop
         }
     }
     return
@@ -4020,7 +4081,14 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, res interface{}, st
 
     switch t := i.(type) {
     case   string : full, result, stems = p.match1(ctx, t)
-    case []string : full, result, stems = p.matchN(ctx, t...)
+    case []string :
+        if n := len(t); n == 1 {
+            full, result, stems = p.match1(ctx, t[0])
+        } else if n > 1 {
+            full, result, stems = p.matchN(ctx, t...)
+        } else {
+            return
+        }
     case *filestub:
         if full, result, stems = p.match1(ctx, t.name); full || len(result) > 0 {
             return // NOTE: done if path fully or partially matched
@@ -6222,23 +6290,51 @@ func (p *PercPattern) collect(ctx Context, cache *valcache, bits int) (res []*va
     return
 }
 
-// Check for patterns like foo%%bar
-func percperc(p Value) (t bool, prefix, suffix Value) {
-    if p1, ok := p.(*PercPattern); ok {
-        if p2, ok := p1.Suffix.(*PercPattern); ok {
-            // assert(isNone(p2.Prefix))
+// Check for patterns like foo%%bar foo**bar
+func multia(ctx Context, p Value) (result bool, prefix, suffix Value) {
+    if p1, y := p.(*PercPattern); y {
+        if p2, y := p1.Suffix.(*PercPattern); y {
             prefix = p1.Prefix
             suffix = p2.Suffix
-            t = true
+            result = true
         }
+    } else if g, y := p.(*GlobPattern); y && len(g.components) > 0 {
+        var glob, n = false, -1
+        for i, comp := range g.components { if m, y := comp.(*GlobMeta); y {
+            if m.Token == DAST && n == -1 { t := g.components[:i]
+                if n = i; n > 0 { if glob {
+                    suffix = makeGlobPattern(ctx, t...)
+                } else {
+                    prefix = MakeBarecomp(comp.Position(), t...)
+                }}
+                break
+            } else {
+                glob = true
+            }
+        }}
+        if result = n > -1; result && n < len(g.components) {
+            t, glob := g.components[n+1:], false
+            for _, comp := range t {
+                if _, y := comp.(*GlobMeta); y { glob = true ; break }
+            }
+            if glob {
+                suffix = makeGlobPattern(ctx, t...)
+            } else if len(t) > 1 {
+                suffix = MakeBarecomp(t[0].Position(), t...)
+            } else if len(t) > 0 {
+                suffix = t[0]
+            }
+        }
+        if false && n != -1 { noted(of(ctx,p), "%v %v %v ; %v %v %v",
+            p, g.components[:n], g.components[n+1:], result, prefix, suffix).debug(10) }
     }
     return
 }
 
 func correctPathPunForMatch(seg Value) Value {
-    if bc, ok := seg.(*barecomp); ok {
-        for _, elem := range bc.Elems {
-            if _, t := elem.(*Path); t { seg = nil; break }
+    if x, y := seg.(*barecomp); y {
+        for _, elem := range x.Elems {
+            if _, y := elem.(*Path); y { seg = nil; break }
         }
     }
     return seg
@@ -6360,7 +6456,14 @@ func (p *GlobPattern) match(ctx Context, i interface{}) (full bool, result inter
     case *File:     s = t.name(ctx)
     case Value:     s = t.string(ctx)
     case string:    s = t
-    case []string: if len(t) == 1 { s = t[0] } else { return }
+    case []string:
+        if n := len(t); n == 1 {
+            s = t[0]
+        } else if true && n > 1 {
+            s = filepath.Join(t...) // TODO: optimization: avoid joining
+        } else {
+            return
+        }
     default:
         errostack(at(ctx,p.position), 3, "%v : unsupported glob match: %T %v", p, i, i).debug(16)
         return

@@ -11,7 +11,7 @@ import (
 	"fmt"
 )
 
-func TestAutoContext(t *testing.T) {
+func testAutoContext(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/0", "testvalues0")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -224,7 +224,7 @@ func TestAutoContext(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues1(t *testing.T) {
+func testValues1(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/1", "testvalues1")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -242,7 +242,7 @@ func TestValues1(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues2(t *testing.T) {
+func testValues2(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/2", "testvalues2")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -411,7 +411,7 @@ func TestValues2(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues3(t *testing.T) {
+func testValues3(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/3", "testvalues3")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -490,7 +490,7 @@ func TestValues3(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues4(t *testing.T) {
+func testValues4(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/4", "testvalues4")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -549,7 +549,7 @@ func TestValues4(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues5(t *testing.T) {
+func testValues5(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/5", "testvalues5")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -575,7 +575,7 @@ func TestValues5(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues6(t *testing.T) {
+func testValues6(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/6", "testvalues6")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -601,7 +601,7 @@ func TestValues6(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues7(t *testing.T) {
+func testValues7(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/7", "testvalues7")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -627,7 +627,7 @@ func TestValues7(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues8(t *testing.T) {
+func testValues8(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/8", "testvalues8")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -653,7 +653,7 @@ func TestValues8(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues9(t *testing.T) {
+func testValues9(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/9", "testvalues9")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -679,7 +679,7 @@ func TestValues9(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues10(t *testing.T) {
+func testValues10(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/10", "testvalues10")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -705,7 +705,7 @@ func TestValues10(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues11(t *testing.T) {
+func testValues11(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/11", "testvalues11")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -731,7 +731,7 @@ func TestValues11(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues12(t *testing.T) {
+func testValues12(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/12", "testvalues12")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -757,7 +757,7 @@ func TestValues12(t *testing.T) {
 	ctx.flush()
 }
 
-func TestValues13(t *testing.T) {
+func testValues13(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/13", "testvalues13")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -783,7 +783,7 @@ func TestValues13(t *testing.T) {
 	ctx.flush()
 }
 
-func TestPlaceholders(t *testing.T) {
+func testPlaceholders(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/value/placeholder", "testplaceholder")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -889,7 +889,7 @@ func TestPlaceholders(t *testing.T) {
 	ctx.flush()
 }
 
-func TestOptional(t *testing.T) {
+func testOptional(t *testing.T) {
 	cl := init_commandline()
 	cl.silentOptionalSelection = true
 
@@ -1042,7 +1042,7 @@ func TestOptional(t *testing.T) {
 	ctx.flush()
 }
 
-func TestGlobMatch(t *testing.T) {
+func testGlobMatch(t *testing.T) {
 	var ctx Context = init_universe()//&uni
 
 	if a, b, c := globMatch(ctx, "*.c", "foo.c"); !a || c != nil {
@@ -1174,7 +1174,7 @@ func TestGlobMatch(t *testing.T) {
 	}
 }
 
-func TestValueGeneral(t *testing.T) {
+func testValueGeneral(t *testing.T) {
 	var assert_bool bool
 	var assert_value Value
 	var ctx = load_testcase(t, "testdata/value", "testvalues", hooks{

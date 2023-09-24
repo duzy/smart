@@ -1,0 +1,6 @@
+project testtemplate
+
+foreach a b c
+.test.$_ : $_ $(foreach $_ d e f,foo=$_)
+	print $_ $^
+done

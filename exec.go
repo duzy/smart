@@ -907,7 +907,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     erro(ctx, "%v", err).debug(1)
     return
   } else {
-    cmdline := joinraw("\n", ctx.sources...)
+    cmdline := joinRaws("\n", ctx.sources...)
     ctx.log.createWriter(logFile, ctx.workDir, cmdline)
   }
   ctx.Stdout.execContext = ctx

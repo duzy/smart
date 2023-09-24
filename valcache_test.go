@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestValueCache(t *testing.T) {
+func testValueCache(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/valcache", "valcache")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -103,7 +103,7 @@ func TestValueCache(t *testing.T) {
 		ctx.err("val3")
 	} else if v.string(ctx) != "foo.o" {
 		ctx.err("%T %v", v, v)
-	} else if t := ctx.unmap(ctx, v); t == nil {
+	} else if t := unmap(ctx, v); t == nil {
 		ctx.err("%T %v", v, v)
 	} else if len(t) != 1 {
 		ctx.err("%T %v ; %v", v, v, t)

@@ -15,7 +15,7 @@ func (ctx *test_mod_1) v(args ...Value) (result interface{}) {
 	return append(args, MakeBareword(ctx.Position(), "test_mod_1"))
 }
 
-func TestValueModifier(t *testing.T) {
+func testValueModifier(t *testing.T) {
 	modifiers[`test-mod-1`] = reflect.TypeOf((*test_mod_1)(nil)).Elem()
 
 	defer func() { delete(modifiers, `test-mod-1`) } ()

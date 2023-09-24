@@ -422,7 +422,7 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
 
 func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, prereqPattern Value, prereqStrval string, prereqFile *File, prereqObj Object) {
     var mapPrereqFile = func(name interface{}) {
-        var maps = ctx.unmap(ctx, name)
+        var maps = unmap(ctx, name)
         if maps != nil { defer func() { if prereqFile == nil {
             for _, m := range maps { warn(of(ctx, m.pattern), "%v, skipped %v", name, m) }
             warnstack(ctx, 3, "skipped %d, projects %v", len(maps), projects).debug(8)
@@ -670,7 +670,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         }} else if f, y := prereqValue.(*File); y {
             noted(at(ctx, f.position), "%v %v", f, f.exists()).debug(1)
         } else if f := file(ctx, prereqStrval); f == nil {
-            var a = ctx.unmap(ctx, prereqStrval)
+            var a = unmap(ctx, prereqStrval)
             var b = files(ctx, prereqStrval, ctx.Project())
             noted(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, a)
             noted(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, b).debug(1)

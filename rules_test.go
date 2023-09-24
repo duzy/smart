@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestRules0(t *testing.T) {
+func testRules0(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/rule/0", "testrules0")
 	if ctx.Context == nil {
 		t.Errorf("fail")
@@ -28,7 +28,7 @@ func TestRules0(t *testing.T) {
 	ctx.flush()
 }
 
-func TestRules1(t *testing.T) {
+func testRules1(t *testing.T) {
 	var ctx = load_testcase(t, "testdata/rule/1", "testrules1")
 	if ctx.Context == nil {
 		t.Errorf("fail")

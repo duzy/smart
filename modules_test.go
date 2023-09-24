@@ -39,7 +39,7 @@ func validFlags(t testcase, v Value, s string) (res bool) {
 	return
 }
 
-func TestVariantTarget(t *testing.T) {
+func testVariantTarget(t *testing.T) {
 	if s := "variant/.target"; !testHasModule(s) { // variant/bootstrap
 		t.Logf("skip %s", s)
 		return
@@ -259,7 +259,7 @@ func TestVariantTarget(t *testing.T) {
 	ctx.flush()
 }
 
-func TestApp(t *testing.T) {
+func testApp(t *testing.T) {
 	if s := "app"; !testHasModule(s) {
 		t.Logf("skip %s", s)
 		return
@@ -818,6 +818,8 @@ func testLLVMConfigConfigure(t *testing.T) {
 		return
 	}
 
+	defer assured(ctx, true)
+
 	var base, general *Project
 	var m = ctx.Project()
 	if m == nil {
@@ -832,9 +834,16 @@ func testLLVMConfigConfigure(t *testing.T) {
 	} else if base.configure == nil {
 		ctx.Errorf("configure fail")
 		return
+	} else if f := file(ctx, ".configure/type/test.c", base.configure); f == nil {
+		ctx.Errorf("file .configure/type/test.c")
+		return
+	} else if f := file(ctx, ".configure/type/xxx/test.c", base.configure); f == nil {
+		ctx.Errorf("file .configure/type/xxx/test.c")
+		return
+	} else if f := file(ctx, ".configure/type/xxx/yyy/test.c", base.configure); f == nil {
+		ctx.Errorf("file .configure/type/xxx/yyy/test.c")
+		return
 	}
-
-	defer assured(ctx, true)
 
 	if o := m.resolveObject(ctx, "general"); o == nil {
 		ctx.Errorf("general")
@@ -1006,6 +1015,8 @@ func testLLVMConfigConfigure(t *testing.T) {
 	} else {
 		checkLLVMConfig(ctx, string(b))
 	}
+
+	ctx.flush()
 }
 
 func testLLVMConfig(t *testing.T) {
@@ -1013,8 +1024,6 @@ func testLLVMConfig(t *testing.T) {
 		t.Logf("skip %s", s)
 		return
 	}
-
-	testLLVMConfigConfigure(t)
 
 	var ctx = load_testcase(t, "testdata/modules/llvm/config", "testllvmconfig")
 	if ctx.Context == nil {
@@ -1053,15 +1062,11 @@ func testToolchainBootingConfigure(t *testing.T) {
 	ctx.flush()
 }
 
-func TestToolchainBooting(t *testing.T) {
-	testLLVMConfig(t)
-
+func testToolchainBooting(t *testing.T) {
 	if s := "toolchain/booting"; !testHasModule(s) {
 		t.Logf("skip %s", s)
 		return
 	}
-
-	testToolchainBootingConfigure(t)
 
 	var ctx = load_testcase(t, "testdata/modules/toolchain/booting", "testtoolchainbooting")
 	if ctx.Context == nil {

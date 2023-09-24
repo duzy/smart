@@ -232,7 +232,7 @@ func (_ *projectname) refs(_ Context, _ Value) (res bool) { return }
 func (_ *projectname) patterned(_ Context) bool { return false }
 func (_ *projectname) expandable(_ Context, _ facet) bool { return false }
 func (p *projectname) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
-func (p *projectname) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchString(ctx, p, i) }
+func (p *projectname) match(ctx Context, i interface{}) (bool, interface{}, []string) { return stringMatch(ctx, p, i) }
 func (p *projectname) Position() Position { return p.position }
 func (p *projectname) String() string { return p.Project.name }
 func (p *projectname) string(_ Context) string { return p.Project.name }
@@ -309,7 +309,7 @@ func (_ *scopename) patterned(_ Context) bool { return false }
 func (_ *scopename) expandable(_ Context, _ facet) bool { return false }
 func (_ *scopename) stat(ctx Context) (si *statinfo) { return }
 func (_ *scopename) traverse(ctx Context) { }
-func (p *scopename) match(ctx Context, i interface{}) (bool, interface{}, []string) { return matchString(ctx, p, i) }
+func (p *scopename) match(ctx Context, i interface{}) (bool, interface{}, []string) { return stringMatch(ctx, p, i) }
 func (p *scopename) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (p *scopename) Position() Position { return p.position }
 func (p *scopename) String() string  { return fmt.Sprintf("{scope %s}", p.name_) }

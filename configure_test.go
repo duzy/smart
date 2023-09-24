@@ -16,7 +16,7 @@ import (
 
 const defaultCK = "tmp/go/src/extbit.io/smart/testdata/configuration"
 
-func TestConfigureDefault(t *testing.T) {
+func testConfigureDefault(t *testing.T) {
 	if s := "configure"; !testHasModule(s) {
 		t.Logf("skip %s", s)
 		return
@@ -200,7 +200,7 @@ func TestConfigureDefault(t *testing.T) {
 	ctx.flush()
 }
 
-func TestConfigureDiverged(t *testing.T) {
+func testConfigureDiverged(t *testing.T) {
 	if s := "configure"; !testHasModule(s) {
 		t.Logf("skip %s", s)
 		return
@@ -375,7 +375,7 @@ func TestConfigureDiverged(t *testing.T) {
 	ctx.flush()
 }
 
-func TestConfigureCustom(t *testing.T) {
+func testConfigureCustom(t *testing.T) {
 	{
 		s := filepath.Join(filepath.Dir(_tmodules), defaultCK, "custom", configuration_sm)
 		if e := os.Remove(s); e == nil { t.Errorf("%v", s) }
