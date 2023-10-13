@@ -2,9 +2,9 @@ project testtemplate
 
 types ::= xxx yyy zzz
 
-var.xxx ::= test-xxx
-var.yyy ::= test-yyy
-var.zzz ::= test-zzz
+foreach $(types)
+var.$_ ::= test-$_
+done
 
 .test.1 :=
 .test.2 :=
@@ -14,7 +14,7 @@ for type=$(types)
 .test.1 += $(type)
 done
 
-foreach $(defs(-rn=1 -r='^var\.(.+)$'))
+foreach $(defs(-rn=1 -r='^var\.([xyz]+)$'))
 .test.2 += $_
 done
 
@@ -22,21 +22,21 @@ def foo(x)
 .test.3 += $(x)
 end
 
-template for type=$(types)
+for type=$(types) #template for type=$(types)
 .test.1 += $(type)
-template expand
+done #template expand
 
-template foreach $(defs(-rn=1 -r='^var\.(.+)$'))
+foreach $(defs(-rn=1 -r='^var\.([xyz]+)$')) #template foreach $(defs(-rn=1 -r='^var\.([xyz]+)$'))
 .test.2 += $_
-template expand
+done #template expand
 
-template def bar(x)
+def bar(x) #template def bar(x)
 .test.3 += $(x)
-template end
+end #template end
 
-template foo(xxx)
-template foo(yyy)
-template foo(zzz)
-template bar(xxx)
-template bar(yyy)
-template bar(zzz)
+foo(xxx) #template foo(xxx)
+foo(yyy) #template foo(yyy)
+foo(zzz) #template foo(zzz)
+bar(xxx) #template bar(xxx)
+bar(yyy) #template bar(yyy)
+bar(zzz) #template bar(zzz)

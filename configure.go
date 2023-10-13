@@ -45,7 +45,7 @@ type configureExecutor struct {
     defs map[string]struct{}
 }
 func (ctx *configureExecutor) openConfigurationFile(p *Project) (file *os.File) {
-    defer d_trace(ctx, "configuration-file")
+    defer dtrace(ctx, "configuration-file")
 
     if f := p.configurationFile; f == nil {
         erro(ctx, "%p: nil configuration file", p).debug(1)
@@ -68,11 +68,13 @@ func (ctx *configureExecutor) openConfigurationFile(p *Project) (file *os.File) 
         erro(ctx, "%v: diverged configuration file (%v)", p, ctx.Project())
         prompt(ctx, "%v:1: <--- at load-time\n", t.fullname())
         prompt(ctx, "%v:1: <--- at configure-time\n", f.fullname()).debug(1)
+        return
     }
+
     return
 }
 func (ctx *configureExecutor) execute(project *Project, entry Entry) (result *Project, okay bool) {
-    defer d_trace(ctx, "execute")
+    defer dtrace(ctx, "execute")
 
     if p := entry.OwnerProject(); p != project && p != nil {
         if p.configured { return nil, true } // already configured
@@ -143,7 +145,7 @@ func (ctx *configureExecutor) close() {
 func (uni *universe) configure(ctx Context) {
     var project *Project
 
-    defer d_trace(ctx, "configure")
+    defer dtrace(ctx, "configure")
 
     // Remove all existing configuration.sm files
     if uni.cleanConf { for _, s := range uni.configuration.clean {
@@ -232,7 +234,6 @@ func (ctx *modifier_configure) _option(_ Value, args ...Value) (result Value) {
 // -package finds system package in a way similar to cmake.find_package
 func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
     var names []string
-    var uni = ctx.universe()
     var t packagetype = packageSmart
     for _, arg := range args { switch a := arg.(type) {
     case *pair:
@@ -251,7 +252,7 @@ func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
     default:
         names = append(names, a.string(ctx))
     }}
-    for _, name := range names { if info, y := uni.configuration.packages[name]; !y {
+    for _, name := range names { if info, y := ctx.universe().configuration.packages[name]; !y {
         var err error
         switch t {
         case packageSmart: // TODO: info, err = loadPackageSmartInfo(pos, name)
@@ -260,7 +261,7 @@ func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
             prompt(ctx, "%v: package `%v`: unknown type\n", name)
         }
         if err != nil { return } else if info.Project != nil {
-            uni.configuration.packages[name] = info
+            ctx.universe().configuration.packages[name] = info
             result = makeAnswer(ctx.Position(), true)
             break
         }
@@ -409,10 +410,9 @@ ForInParams:
 }
 
 func (ctx *modifier_configure) execute(target, name Value, args []Value) (configured bool, result Value) {
-    var uni = ctx.universe()
-    if uni.traceConfig { defer un(trace(t_config, "configureExecute")) }
+    if ctx.universe().traceConfig { defer un(trace(t_config, "configureExecute")) }
 
-	defer d_trace(ctx, "configureExecute")
+	defer dtrace(ctx, "configureExecute")
 
     var opName string
     if f, y := name.(flag); y {
@@ -433,27 +433,27 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
     }
 
     var params, infos []Value
+
     if d := ctx.debug; d > 0 { defer func() {
         noted(ctx, "%v %v: %v -> %v %v", typeof(target), target, args, infos, params).debug(1+d)
     }()}
+
     for _, arg := range xmerge(ctx, w, args...) {
-        if isTrivial(arg) { continue }
-        switch t := arg.(type) {
+        if !isTrivial(arg) { switch t := arg.(type) {
         case *raw, *String, *compound:
-            params = append(params, ctx._param("INFO", t))
-            infos = append(infos, t)
+            params, infos = append(params, ctx._param("INFO", t)), append(infos, t)
         case *pair:
             params = append(params, t)
         case unexpanded:
-            erro(of(ctx,arg), " unexpanded: %v", t).debug(1)
+            erro(of(ctx,arg), " unexpanded(%v): %v", typeof(t.Value), t.Value).debug(1)
             return
         default:
             erro(of(ctx,arg), " unsupported parameter: %v: %v", typeof(t), t).debug(1)
             return
-        }
+        }}
     }
 
-    if uni.configuration.silent {
+    if ctx.universe().configuration.silent {
         // silent
     } else if len(infos) == 0 {
         var a interface{} = opName; if len(args) > 0 { a = args }
@@ -468,7 +468,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
     if dia.error() { return }
 
     defer func() {
-        if uni.configuration.silent {
+        if ctx.universe().configuration.silent {
             return
         } else if dia.count(diagInfo, diagWarn, diagError) > 0 {
             return
@@ -855,7 +855,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
             var name = a.string(ctx)
             if _, ok := configs[name]; ok {
                 continue
-            } else if obj := project.resolveObject(ctx, name); obj == nil {
+            } else if obj := project.resolve(ctx, name); obj == nil {
                 erro(ctx, "undefined %v", name).debug(1)
                 return nil
             } else if def, ok := obj.(*def); ok {

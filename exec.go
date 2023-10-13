@@ -808,7 +808,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     logFile *os.File
   )
 
-  if ctx.dia().error() { return } else { defer d_trace(ctx, "exec") }
+  if ctx.dia().error() { return } else { defer dtrace(ctx, "exec") }
 
   var pc = ctx.pc()
   var env, sep = pc.env(ctx)
@@ -992,7 +992,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
   }
 
-  defer d_trace(ctx, "executor")
+  defer dtrace(ctx, "executor")
 
   var (
     pos = ctx.Position()
@@ -1061,7 +1061,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   if p.contained {
     if program.project.name == dotContainer {
       exe.container = program.project
-    } else if _, containerSym := program.project.scope.Find(dotContainer); containerSym != nil {
+    } else if _, containerSym := program.project.scope.find(dotContainer); containerSym != nil {
       if pn, _ := containerSym.(*projectname); pn != nil {
         exe.container = pn.Project
       }
@@ -1074,7 +1074,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
     var strval = func(name string) (str string) {
       var ctx = closureWith(ctx, exe.container.Scope())
-      if obj := exe.container.resolveObject(ctx, name); obj != nil {
+      if obj := exe.container.resolve(ctx, name); obj != nil {
         if d, _ := obj.(*def); d != nil {
           if v := d.invoke(ctx, plain, nil, nil); v != nil {
             if str = v.string(ctx); str == "-" {

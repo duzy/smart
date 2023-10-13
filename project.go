@@ -548,32 +548,30 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
 }
 
 func resolveTempFile(c Context, s string) *File { return c.Project().tempFile(c, s) }
-func resolveObject(c Context, s string) Object {
-  if scope := c.Scope(); scope != nil { if o := scope.Resolve(s); o != nil { return o }}
-  return c.Project().resolveObject(c, s)
+func resolve(c Context, s string) Object {
+  if scope := c.Scope(); scope != nil { if o := scope.resolve(s); o != nil { return o }}
+  return c.Project().resolve(c, s)
 }
 func resolveEntries(c Context, s string, a bool) *resolvedEntries { return c.Project().resolveEntries(c, s, a) }
 func resolvePatterns(c Context, v Value, s string) []*stemmed { return c.Project().resolvePatterns(c, v, s) }
 
 func (p *Project) resolveDef(ctx Context, name string) (res *def) {
-  if o := p.resolveObject(ctx, name); o != nil { res, _ = o.(*def) }
+  if o := p.resolve(ctx, name); o != nil { res, _ = o.(*def) }
   return
 }
 
-func (p *Project) resolveObject(ctx Context, s string) (obj Object) {
-  if p != nil && p.scope != nil { if _, obj = p.scope.Find(s); isNull(obj) {
-    if p.pluginScope != nil {
-      if obj = p.pluginScope.Lookup(s); obj != nil {
+func (p *Project) resolve(ctx Context, s string) (obj Object) {
+  if p != nil && p.scope != nil { if _, obj = p.scope.find(s); obj == nil {
+    if p.pluginScope != nil { if obj = p.pluginScope.Lookup(s); obj != nil {
         return
-      }
-    }
+    }}
     for _, base := range p.bases {
-      if obj = base.resolveObject(ctx, s); obj != nil {
+      if obj = base.resolve(ctx, s); obj != nil {
         break
       }
     }
-    if isNull(obj) && p.configure != nil && ctx.isConfigure() {
-      obj = p.configure.resolveObject(ctx, s)
+    if obj == nil && p.configure != nil && p.configure != p {
+      obj = p.configure.resolve(ctx, s) // ctx.isConfigure()
     }
   }}
   return

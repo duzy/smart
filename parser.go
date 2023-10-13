@@ -42,7 +42,7 @@ const (
 	parseDefineClause  // 0000000100000000000000
 
 	parseFilesSpec     // 0000001000000000000000  files ( ... )
-	parseTemplateBlock // 0000010000000000000000
+	parseCodeBlock     // 0000010000000000000000
 	parseUndefValue    // 0000100000000000000000
 	parseForeachTempl  // 0001000000000000000000
 
@@ -349,7 +349,9 @@ func (p *parser) expected(pos Pos, msg string, a... interface{}) {
 
 func (p *parser) expect(tok Token) Pos {
 	var pos = p.pos
-	if p.tok != tok { p.expected(pos, "'"+tok.String()+"'") }
+	if p.tok != tok && !(tok == LINEND && p.lineComment != nil) {
+		p.expected(pos, "'"+tok.String()+"'")
+	}
 	p.step() // move forward
 	return pos
 }
@@ -403,7 +405,7 @@ func (p *parser) isRecipeStart() (res bool) {
 // Barewords & Identifiers
 
 func (p *parser) bare(ctx Context, lhs bool) (x Value) {
-	if true { defer d_trace(ctx, "parser.bare") }
+	if true { defer dtrace(ctx, "parser.bare") }
 
 	ctx = p.ctx(ctx)
 
@@ -562,7 +564,7 @@ func (p *parser) selectExpr(ctx Context, lhs Value) (res Value) {
         case "use", "usee", "goals", "os", "mode":
 			erro(ctx, "$:%s: is obsoleted, use $(.$s) instead", t.s, t.s).debug(1)
         default:
-            if name, o := loader.resolveObject(lhs); false {
+            if name, o := loader.resolve(lhs); false {
 				erro(at(ctx,lhs.Position()), "resolve '%v' failed", lhs)
 				erro(ctx, "parser is here (tok=%s)", tok)
 				erro(at(ctx,p.Position()), "parser to go here (tok=%s, lit=%s)", p.tok, p.lit).debug(8)
@@ -580,7 +582,7 @@ func (p *parser) selectExpr(ctx Context, lhs Value) (res Value) {
             }
         }
     case *barecomp: // for cases like '.foo'
-        if name, o := loader.resolveObject(t); false {
+        if name, o := loader.resolve(t); false {
 			erro(of(ctx,lhs), "resolve selection object '%v' (%s) error", lhs, name).debug(1)
 			return
         } else if !isNull(o) {
@@ -1222,15 +1224,16 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 }
 
 func (p *parser) expandTemplateBlockAuto(ctx Context, obj, val Value) (result Value) {
-	if p.bits&parseTemplateBlock != 0 { if a, y := obj.(*auto); y && !(p.bits&parseForeachTempl != 0 && a.name_ == "_") {
+	if p.bits&parseCodeBlock == 0 { return val }
+	if a, y := obj.(*auto); y && !(p.bits&parseForeachTempl != 0 && a.name_ == "_") {
 		// Make clone to barecomp and Path for compose() and x.comp().
 		switch t := val.expand(ctx, /* p.facet */strval); v := t.(type) {
 		case  *barecomp: return MakeBarecomp(v.Position(), v.Elems...)
 		case      *Path: return MakePath(v.Position(), v.Elems...)
-		case unexpanded: break
+		case unexpanded: /*return v.Value*/ break
 		default: return v
 		}
-	}}
+	}
 	return val
 }
 
@@ -1241,7 +1244,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 
 	ctx = at(ctx, p.Position())
 
-	defer d_trace(ctx, "parser.closuredelegate")
+	defer dtrace(ctx, "parser.closuredelegate")
 
 	var (
 		loader = ctx.loader()
@@ -1251,13 +1254,14 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		resolved Value // Object or *selection
 		rest []Value
 	)
+
 	resolveConfig := func(val Value, name string) (obj Object) {
-		if c := proj.configure; c != nil { obj = c.resolveObject(ctx, name) }
+		if c := proj.configure; c != nil { obj = c.resolve(ctx, name) }
 		return
 	}
 
 	resolve := func(lPos Position, lTok Token, name Value) (str string, obj Value, okay bool) {
-		defer d_trace(ctx, "parser.closuredelegate.resolve") // backtrace on errors
+		defer dtrace(ctx, "parser.closuredelegate.resolve") // backtrace on errors
 
 		if a, y := name.(*argumented); y { name = a.Value }
 		if sel, y := name.(*selection); y {
@@ -1299,7 +1303,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		case LPAREN:
 			if allowClosureName && name.expandable(ctx, expandDelegate|expandClosure) {
 				return str, unresolved{name, proj}, true // recursive delegation or closure
-			} else if str, resolved = loader.resolveObject(name); false {
+			} else if str, resolved = loader.resolve(name); false {
 				erro(at(ctx,name.Position()), "resolve '%v' (%s) failed", name, str).debug(1)
 				return
 			} else if str == "" {
@@ -1527,7 +1531,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		}
 	}
 
-	if isNull(obj) && proj.plugin != nil && proj.pluginScope != nil {
+	if obj == nil && proj.plugin != nil && proj.pluginScope != nil {
 		if nameStr == "" && !isNull(name) { nameStr = name.string(ctx) }
 		if nameStr == "" {
 			erro(at(ctx,name.Position()), "strval name '%v' is empty", name).debug(1)
@@ -1536,14 +1540,19 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 		}
 	}
 
-	if isNull(obj) {
+	if obj == nil {
 		erro(at(ctx,name.Position()), "resolved '%v' is nil (%T %v, tok=%v)", name, resolved, resolved, tok).debug(1)
 	}
 
-	if position := ctx.Position(); tok.IsDelegate() {
-		return p.expandTemplateBlockAuto(ctx, obj, MakeDelegate(position, tokLp, obj, opts, rest...))
+	if pos := ctx.Position(); tok.IsDelegate() {
+		var t = MakeDelegate(pos, tokLp, obj, opts, rest...)
+		result = p.expandTemplateBlockAuto(ctx, obj, t)
+		if p.bits&parseCodeBlock != 0 && nameStr == "foreach" { if u, y := result.(unexpanded); y {
+			noted(ctx, "%v %v", typeof(u.Value), u.Value).debug(1)
+		}}
+		return
 	} else {
-		return MakeClosure(position, tokLp, obj, opts, rest...)
+		return MakeClosure(pos, tokLp, obj, opts, rest...)
 	}
 }
 
@@ -1568,12 +1577,12 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 		p.autos = append([]*auto{a}, p.autos...)
 		obj = a
 	} else if w := MakeBareword(position, s); s == "_" {
-		if p.bits&parseTemplateBlock != 0 {
-			if _, resolved = loader.resolveObject(w); resolved != nil {
+		if p.bits&parseCodeBlock != 0 {
+			if _, resolved = loader.resolve(w); resolved != nil {
 				obj, _ = resolved.(Object)
 			}
 		}
-	} else if _, resolved = loader.resolveObject(w); resolved == nil {
+	} else if _, resolved = loader.resolve(w); resolved == nil {
 		erro(ctx, "'%v' is undefined (autos: %v)", s, p.autos).debug(16)
 		return makeNull(position)
 	} else if t, y := resolved.(invoker); !y {
@@ -1589,7 +1598,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 		return makeNull(position)
 	}
 
-	if p.bits&parseTemplateBlock != 0 && ctx.universe().ddd == "template" { defer func() {
+	if p.bits&parseCodeBlock != 0 && ctx.universe().ddd == "template" { defer func() {
 		var v Value
 		if a, y := obj.(*auto); y { v = autoVal(ctx, a.name_) }
 		noted(ctx, "%T %v ; %T %v ; %v", obj, obj, result, result, v).debug(16)
@@ -1614,14 +1623,14 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 
 func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled && false { defer un(trace(t_traverse, "Unary")) }
-	defer d_trace(ctx, "parser.unary")
+
+	defer dtrace(ctx, "parser.unary")
 
 	switch p.tok {
 	case BAREWORD, AT:
 		return p.bare(ctx, lhs)
 
-	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URI,
-		/*RAW,*/ STRING, ESCAPE:
+	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URI, STRING, ESCAPE/*, RAW*/:
 		return p.literal(ctx, lhs)
 
 	case COMPOUND:
@@ -1692,12 +1701,12 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		}
 	}
 
-	var s = p.scanner.scanState
 	if p.lineComment != nil { for _, comment := range p.lineComment.List {
-		erro(at(p,comment.Pos), "# %s", comment.Text)
+		erro(at(p,comment.Pos), "# %s", comment.Text).debug(1)
 	}}
 
-	erro(p, "bad: %v (lit=%s, left=%v, bits=%022b, scan=%v)", p.tok, p.lit, lhs, p.bits, s).debug(1)
+	erro(p, "bad: %v (lit=%s, left=%v, bits=%022b, scan=%v)",
+		p.tok, p.lit, lhs, p.bits, p.scanner.scanState).debug(1)
 
 	p.step() // go to the next token
 	return makeNull(p.Position())
@@ -1713,9 +1722,11 @@ func (p *parser) isParametersGroup(x Value) (res bool) {
 func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
 
-	defer d_trace(ctx, "parser.composite")
+	defer dtrace(ctx, "parser.composite")
 
-	switch x = p.unary(ctx, lhs); p.tok { // check composible expressions
+	x = p.unary(ctx, lhs)
+
+	switch p.tok { // check composible expressions
 	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
 		// accepts 'foo=>bar', but 'foo => bar' is different
 		if p.bits&parseNoSelect == 0 { x = p.selectExpr(ctx, x); break }
@@ -1752,13 +1763,13 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 	return
 }
 
-func (p *parser) text(ctx Context) (res []Value) { var uni = ctx.universe()
+func (p *parser) text(ctx Context) (res []Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Text")) }
 	for p.tok != EOF { if p.tok == SPACE { p.next(true) } else {
 		res = append(res, p.expr(ctx, false))
 		if ctx.dia().flush() > 0 { total := ctx.dia().totalErrors()
 			warn(ctx, "parse text got %d errors", total).debug(16)
-			if uni.failOnErrors {
+			if ctx.universe().failOnErrors {
 				panic(failure{"fail by %d errors",ia(p.Position(), total)})
 			}
 		}
@@ -1769,11 +1780,11 @@ func (p *parser) text(ctx Context) (res []Value) { var uni = ctx.universe()
 func (p *parser) expr(ctx Context, lhs bool) (x Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
 
-	defer d_trace(ctx, "parser.expr")
+	defer dtrace(ctx, "parser.expr")
 
 	var tok, lit = p.tok, p.lit
 	if x = p.composite(ctx, lhs); x == nil {
-		erro(p, "invalid (tok=%v,%v; next=%v,%v)", tok, lit, p.tok, p.lit).debug(6)
+		erro(at(ctx, p.Position()), "invalid (tok=%v,%v; next=%v,%v)", tok, lit, p.tok, p.lit).debug(6)
 		return
 	}
 
@@ -1933,7 +1944,7 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 	ctx = at(ctx, g.spec[0].Position()) // p.ctx()
 
-	defer d_trace(ctx, "parser.use")
+	defer dtrace(ctx, "parser.use")
 
 	var specVals, arged []Value
 	switch v := g.spec[0].(type) {
@@ -2196,7 +2207,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 		name string
 	)
 
-	defer d_trace(ctx, "parser.eval")
+	defer dtrace(ctx, "parser.eval")
 
 	if g.skip { return } else if g.spec == nil {
 		var opts struct {
@@ -2237,7 +2248,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	ctx = at(ctx, prop0.Position())
 
 	var loader = ctx.loader()
-	if name, resolved = loader.resolveObject(prop0); false {
+	if name, resolved = loader.resolve(prop0); false {
 		erro(ctx, "resolve '%v' failed", prop0).debug(1)
 		return
 	} else if name == "configuration" {
@@ -2262,7 +2273,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 func (p *parser) directive(ctx Context) (props []Value) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "spec")) }
 
-	defer d_trace(ctx, "parser.directive")
+	defer dtrace(ctx, "parser.directive")
 
 	//var doc = p.leadComment
 	var comment *CommentGroup
@@ -2288,7 +2299,7 @@ ParamsParseLoop: // Parse the directive parameters
 func (p *parser) spec(ctx Context, keyword Token, pos Pos, f parseSpecFunc) {
 	if t_traverse.enabled { defer un(trace(t_traverse, "spec("+keyword.String()+")")) }
 
-	defer d_trace(ctx, "parser.spec")
+	defer dtrace(ctx, "parser.spec")
 
 	var opts = clauseOpts{ keyword: keyword }
 	for p.spaces(); p.tok == MINUS; p.spaces() {
@@ -2429,7 +2440,7 @@ SwitchDialect:
 				// no resolving commands
 			} else if t, y := x.(*bareword); !y {
 				// does nothing
-			} else if _, sym := loader.resolveObject(t); false {
+			} else if _, sym := loader.resolve(t); false {
 				erro(ctx, "resolve '%v' failed", x)
 			} else if isTrivial(sym) {
 				erro(of(ctx,x), "resolved '%v' (from %v) is nil", t.s, x)
@@ -2848,7 +2859,8 @@ func (p *parser) specialRule(ctx Context) Value {
 }
 
 var pprofCounter int
-func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value) {
+
+func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 	p.pos, p.tok, p.lit, p.scanner.scanState = t.pos, t.tok, t.lit, t.state
 
 	// NOTE: comment here will affect loader.def()
@@ -2857,7 +2869,7 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value) 
 		defer startCPUProfile(ctx, name, true)()
 	}
 
-	defer d_trace(ctx, "parser.template")
+	defer dtrace(ctx, "parser.codeblock")
 
 	if !(p.pos < p.stop) {
 		erro(at(ctx,p.loc(p.pos)), "bad range: [%v %v) (%v)", p.pos, p.stop, t.name).debug(10)
@@ -2868,19 +2880,24 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value) 
 	}}
 
 	var loader = ctx.loader()
-	defer loader.closeScope(loader.openScope("template block"))
+	defer loader.closeScope(loader.openScope("code block"))
 
-	ctx = &autoContext{ Context:at(ctx, p.Position()), defs:make(autoDefMap) }
+	ctx = &autoContext{
+		Context: at(ctx, p.Position()),
+		defs: make(autoDefMap),
+	}
 
-	scope := loader.Scope()
+	var scope = loader.Scope()
 	for s, v := range vars { if a := scope.auto(ctx, s); a != nil {
 		a.set(ctx, v)
 	} else {
-		erro(ctx, "'%s' not defined", s).debug(1)
+		erro(ctx, "`%s` not defined", s).debug(1)
 	}}
 
-	var bits = p.bits
-	p.bits |= parseTemplateBlock
+	defer func(v parseBits) { p.bits = v } (p.bits)
+
+	p.bits |= parseCodeBlock
+
 	for p.tok != EOF && p.pos < p.stop {
 		if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
 			p.next(true)
@@ -2888,15 +2905,15 @@ func (p *parser) templateBlock(ctx Context, t *template, vars map[string]Value) 
 			p.clause(ctx)
 		}
 	}
-	p.bits = bits
 }
 
 func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 	var count int64
-    var uni = ctx.universe()
+
 	defer func(t time.Time, pos Pos, tok Token, lit string, state scanState) {
-		if ctx.universe().ddd == "template.expand" {/* dont check time in ddd mode */} else
-        if d := time.Now().Sub(t); d > uni.slow {
+		if u := ctx.universe(); u.ddd == "template.expand" {
+			// dont check time in ddd mode
+		} else if d := time.Now().Sub(t); d > u.slow {
 			var c = time.Duration(count)
             warnstack(ctx, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
         }
@@ -2940,6 +2957,7 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 	switch t.verb {
 	case "": // call template
 		var a = map[string]Value{}
+
 		for i, v := range t.params { if s := v.string(ctx); s != "" {
 			if i < len(params) { a[s] = params[i] } else {
 				a[s] = makeNull(v.Position())
@@ -2947,13 +2965,16 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 		} else {
 			erro(of(ctx,v), "empty template param name: %v %v", v, v).debug(1)
 		}}
-		if false { noted(at(ctx,p.loc(t.pos+1)), "%v [%v %v) %v", t.name, t.pos, t.endPos, a) }
-		p.templateBlock(ctx, t, a)
+
+		if false { erro(ctx, "template %s: DEPRECATED", t.verb).debug(1) }
+
+		p.codeblock(ctx, t, a)
+
 		count = 1
 	case "foreach": // foreach val1 val2 val3 val4 ...
 		for _, elem := range xmerge(ctx, plain, t.params...) {
 			if isTrivial(elem) { continue }
-			p.templateBlock(ctx, t, map[string]Value{ "_" : elem })
+			p.codeblock(ctx, t, map[string]Value{ "_" : elem })
 			count += 1
 		}
 	case "for": // for name1=(val1 val2 val3 ...) name2=(val1 val2 val3)
@@ -2998,9 +3019,13 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 				_1trivial = isTrivial(elem)
 				m[name] = elem
 			}
+
 			_1trivial = _1trivial && len(m) == 1
 
-			if len(m) > 0 && !_1trivial { p.templateBlock(ctx, t, m) }
+			if len(m) > 0 && !_1trivial {
+				p.codeblock(ctx, t, m)
+			}
+
 			count += 1
 		}
 	default:
@@ -3019,15 +3044,18 @@ func (p *parser) templateCall(ctx Context, name Value, args []Value) {
 	erro(of(ctx,name), "undefined template: %v", name).debug(1)
 }
 func (p *parser) template(ctx Context, verb string) {
-	defer d_trace(ctx, "parser.template."+verb)
+	defer dtrace(ctx, "parser.template."+verb)
 
 	var arged *argumented
 	var startingPos, startingTok = p.Position(), p.tok
-	if verb == "" { // lead by the 'template' keyword
+	if verb == "" { // lead by the 'template' keyword (DEPRECATED)
 		p.expect(TEMPLATE) // expect and skip 'template'
 		p.spaces()
 
 		var op = p.expr(ctx, false) ; p.spaces()
+
+		if true { erro(of(ctx,op), "template %s: DEPRECATED", verb).debug(1) }
+
 		if p.tok == EOF {
 			erro(of(ctx,op), "unexpected end of file after %v", op).debug(1)
 			return
@@ -3160,43 +3188,55 @@ outer:
 	}}
 }
 
-func (p *parser) clause(ctx Context) { var uni = ctx.universe()
+func (p *parser) expandTemplateDef(ctx Context, x Value) (result bool) {
+	if a, y := x.(*argumented); y {
+		ctx = at(ctx, a.Value.Position())
+
+		p.templateCall(ctx, a.Value, a.args)
+
+		result = true
+	}
+	return
+}
+
+func (p *parser) clause(ctx Context) {
 	if t_traverse.enabled { defer un(tracef(t_traverse, "clause(%v, %v)", p.tok, p.pos)) }
 
-	defer d_trace(ctx, "parser.clause")
+	defer dtrace(ctx, "parser.clause")
 
 	var x Value
-	defer func() { if uni.debugParsing(ctx, "clause") {
+	defer func() { if ctx.universe().debugParsing(ctx, "clause") {
 		warn(ctx, "clause: %s %v; %v %v", typeof(x), x, p.tok, p.lit).debug(6)
 	}} ()
 
 	var tok = p.tok // TODO: allow assigns like: `eval := xxx`
 	if /* TODO: p.spaces(); !p.tok.IsAssign() && !p.tok.IsRuleDelim() */true {
-		switch tok {
-		case USE:
-			erro(ctx, "`%v` unexpected here", p.tok).debug(10)
-			return
+		switch p.spaces(); tok {
 		case  INCLUDE: p.spec(ctx, tok, p.expect(tok), p.include); return
 		case    FILES: p.spec(ctx, tok, p.expect(tok), p.files); return
 		case   ASSERT: p.spec(ctx, tok, p.expect(tok), p.assert); return
 		case   APPEND: p.spec(ctx, tok, p.expect(tok), p.append); return
 		case     EVAL: p.spec(ctx, tok, p.expect(tok), p.eval); return
 		case    COLON: p.specialRule(ctx); return
-		case TEMPLATE: p.template(ctx, ""); return
+		case TEMPLATE: p.template(ctx, ""); return // DEPRECATED
 		case      FOR: p.template(ctx, "for"); return
 		case  FOREACH: p.template(ctx, "foreach"); return
 		case     DONE: p.template(ctx, "done"); return
 		case      DEF: p.template(ctx, "def"); return
 		case      END: p.template(ctx, "end"); return
+		case USE:
+			erro(ctx, "`%v` unexpected here", p.tok).debug(10)
+			return
 		default:
-			x = p.expr(ctx, true); p.spaces()
+			x = p.expr(ctx, true) ; p.spaces()
+			if p.expandTemplateDef(ctx, x) { return }
 		}
 	}
 
 	if t_traverse.enabled { defer un(trace(t_traverse, "Clause(?)")) }
 
 	if p.tok.IsAssign() {
-		if uni.debugParsing(ctx, "define") {
+		if ctx.universe().debugParsing(ctx, "define") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			ctx.dia().flush()
 		}
@@ -3210,7 +3250,7 @@ func (p *parser) clause(ctx Context) { var uni = ctx.universe()
 	}
 
 	if p.tok.IsRuleDelim() {
-		if uni.debugParsing(ctx, "rule") {
+		if ctx.universe().debugParsing(ctx, "rule") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			ctx.dia().flush()
 		}
@@ -3227,6 +3267,8 @@ func (p *parser) clause(ctx Context) { var uni = ctx.universe()
 			isIncludingConf = pp.isIncludingConf
 			pp = loader.p
 		}
+	} else if strings.HasSuffix(p.scanner.File().Name(), PathSep+configuration_sm) {
+		if false { warn(ctx, "%v (kit=%s)", p.tok, p.lit).debug(1) }
 	} else if isIncludingConf {
 		warn(ctx, "bad clause: %v (kit=%s) after %v", p.tok, p.lit, list).debug(3)
 	} else {
@@ -3243,12 +3285,11 @@ type projectDeclOpts struct {
 }
 
 func (p *parser) file(ctx Context) *parsedFile {
-    var uni = ctx.universe()
-	if uni.traceLaunch { defer un(trace(t_launch, "parser.file")) }
+	if ctx.universe().traceLaunch { defer un(trace(t_launch, "parser.file")) }
 	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
 	if ctx.dia().error() { return nil }
 
-	defer d_trace(ctx, "parser.file")
+	defer dtrace(ctx, "parser.file")
 
 	var (
 		ident *barecomp
@@ -3264,7 +3305,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 	assert(loader != nil, "nil loader")
 	assert(loader == loader, "bad loader")
 	defer loader.closeScope(loader.openScope(fmt.Sprintf("file %s", filename)))
-	if uni.debugFileEntry {
+	if ctx.universe().debugFileEntry {
 		warn(p, "parser.file: %v %v", p.tok, p.scanner.scanState).debug(1)
 	}
 
@@ -3480,7 +3521,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 	}
 
 	var u = ctx.universe()
-	if uni.debugFiles != nil && u.ddd == "" { for _, s := range uni.debugFiles {
+	if ctx.universe().debugFiles != nil && u.ddd == "" { for _, s := range ctx.universe().debugFiles {
 		if strings.Contains(filename, s) { u.ddd = "parser.files" ; break }
 	}}
 
@@ -3495,7 +3536,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 				case   ASSERT: p.spec(ctx, tok, p.expect(tok), p.assert)
 				case   APPEND: p.spec(ctx, tok, p.expect(tok), p.append)
 				case     EVAL: p.spec(ctx, tok, p.expect(tok), p.eval)
-				case TEMPLATE: p.template(ctx, "")
+				case TEMPLATE: p.template(ctx, "") // DEPRECATED
 				case      FOR: p.template(ctx, "for")
 				case  FOREACH: p.template(ctx, "foreach")
 				case     DONE: p.template(ctx, "done")
@@ -3507,13 +3548,13 @@ func (p *parser) file(ctx Context) *parsedFile {
 					if p.tok.IsAssign() { p.define(ctx, p.tok, x) } else
 					if p.tok.IsRuleDelim() {
 						if ctx.Project() == nil {
-							erro(ctx, "no project declared before defining rules")
+							erro(ctx, "no project declared before defining rules").debug(1)
 						} else {
 							x = p.rule(ctx, specialRuleNor, nil, []Value{x})
 						}
 						break ForInit
-					} else {
-						erro(ctx, "unexpected %v (after %v)", p.tok, x)
+					} else if !p.expandTemplateDef(ctx, x) {
+						erro(ctx, "unexpected %v (after %v %v)", p.tok, typeof(x), x).debug(1)
 					}
 				}
 			}
@@ -3530,7 +3571,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 		}
 	}
 	if auto { loader.after(ctx, "appendix") }
-	if uni.debugFiles != nil && u.ddd == "parser.files" { u.ddd = "" }
+	if ctx.universe().debugFiles != nil && u.ddd == "parser.files" { u.ddd = "" }
 
 	return &parsedFile{
 		// TODO: doc: doc,

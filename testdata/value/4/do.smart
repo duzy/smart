@@ -1,12 +1,13 @@
 project testvalues4
 
 .test.* :=
-template for flag=(D I)
-template  for lang=(c c++)
+# TODO: for flag=(D I) and lang=(c c++)
+for flag=(D I) #template for flag=(D I)
+ for lang=(c c++) #template  for lang=(c c++)
 .test.* += $(flag).$(lang)(-unique)
 .test.$(flag).$(lang) := $(flag) $(lang)
-template  expand
-template expand
+ done #template  expand
+done #template expand
 # assert $(.test.*)     $(equal(-d) $(.test.*),D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique))
 # assert $(.test.D.c++) $(equal(-d) $(.test.D.c++),D c++)
 # assert $(.test.I.c++) $(equal(-d) $(.test.I.c++),I c++)

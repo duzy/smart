@@ -6,32 +6,23 @@
 package smart
 
 import (
-        "testing"
-        "strings"
+    "strings"
 )
 
-func testLoad(t *testing.T) {
-        // var l = &loader{
-        //	 closureContext: closureContext{&uni, nil},
-        // }
-        // l.path("testdata", nil)
-        // TODO: loader
+func testLoad(ctx *testcase) {
+    // var l = &loader{
+    //	 closureContext: closureContext{&uni, nil},
+    // }
+    // l.path("testdata", nil)
+    // TODO: loader
 }
 
-func testBuildExample(t *testing.T) {
-        // TODO: test `testdata/example-build.smart`
+func testBuildExample(ctx *testcase) {
+    // TODO: test `testdata/example-build.smart`
 }
 
-func testLoadTopWork(t *testing.T) {
-        var ctx = load_testcase(t, "testdata/none", "none")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
-        if !strings.HasSuffix(ctx.WorkDir(), "/testdata/none") {
-                ctx.err("wrong workdir: %s", ctx.WorkDir())
-        }
-
-        ctx.flush()
+func testLoadTopWork(ctx *testcase) {
+    if !strings.HasSuffix(ctx.WorkDir(), "/testdata/none") {
+        ctx.err("wrong workdir: %s", ctx.WorkDir())
+    }
 }

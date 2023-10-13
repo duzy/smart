@@ -5,17 +5,7 @@
 //
 package smart
 
-import (
-	"testing"
-)
-
-func testRules0(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/rule/0", "testrules0")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testRules0(ctx *testcase) {
 	if true {} else
 	if foo := ctx.get("foo"); foo == nil {
 		ctx.err("foo")
@@ -24,17 +14,9 @@ func testRules0(t *testing.T) {
 	} else if s := foo.string(ctx); s != "" {
 		ctx.err("%T %v -> %s", foo, foo, s)
 	}
-
-	ctx.flush()
 }
 
-func testRules1(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/rule/1", "testrules1")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testRules1(ctx *testcase) {
 	if r := ctx.rule(".test.foobar"); r == nil {
 		ctx.err(".test.foobar")
 	} else if v := inv(ctx, r); v == nil {
@@ -88,6 +70,4 @@ func testRules1(t *testing.T) {
 	} else if s := v.string(ctx); s != ".test.fxx" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-
-	ctx.flush()
 }

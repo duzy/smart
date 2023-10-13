@@ -15,37 +15,43 @@ import (
 type testcase struct { Context ; *testing.T }
 
 const _tmodules = "/Volumes/workspace/.smart/modules"
+
 func testHasModule(name string) (res bool) {
 	if i, e := os.Stat(filepath.Join(_tmodules, name)); e == nil { res = i.IsDir() }
 	return
 }
 
-func load_testcase(t *testing.T, dir, name string, ii ...interface{}) testcase {
+func loadcase(t *testing.T, dir, name string, ii ...interface{}) testcase {
 	if !filepath.IsAbs(dir) { dir = filepath.Join(baseWorkDir, dir) }
+	if _, e := os.Stat(dir); e != nil {
+		t.Errorf("%v", e)
+		return testcase{}
+	}
 
-	var ctx = init_universe(ii...) ; defer assured(ctx, false)
+	var ctx = init_universe(ii...)
+
+	defer assured(ctx, false)
 
 	ctx.workdir = dir
 	ctx.globe.main = nil
 	ctx.filecache = make(map[string]*filebase) // NOTE: must reset the filecache
 
-	if false { noted(ctx, "testcase: %v %v", name, dir) }
-	if tm := false; testHasModule("variant") {
+	if testHasModule("variant") { var tm bool
 		for _, s := range ctx.paths { if tm = s == _tmodules; tm { break }}
 		if !tm { ctx.paths = append(ctx.paths, _tmodules) }
 	}
 
-	var s = skipint{3}
 	var tc = testcase{ctx, t}
 
-	if err := ctx.loadTopWork(); err != nil {
-		erro(tc, "%v", err).debug(2)
+	if e := ctx.loadTopWork(); e != nil {
+		erro(ctx, "%v", e).debug(2)
 	} else if m := ctx.globe.main; m == nil {
-		erro(tc, "not loaded: %s", dir).debug(2)
+		erro(ctx, "%s", dir).debug(2)
 	} else if name != "" && m.name != name {
-		erro(tc, "main: %s <-> %s", m.name, name).debug(1, s)
+		erro(ctx, "%v <-> %v", m.name, name).debug(1, skipint{3})
 	} else {
 		tc.Context = closureWith(tc.Context, m.scope) // TODO: add projectContext{ctx, m}
+		testRemoveConfigureDir(tc, tc.Project())
 	}
 
 	if tc.dia().flush(); tc.dia().error() {
@@ -86,7 +92,7 @@ func (tc *testcase) rule(name string) (r *resolvedEntries) {
 }
 
 func (tc *testcase) obj(name string) (res Object) {
-	if p := tc.Project(); p != nil { res = p.resolveObject(tc.Context, name) }
+	if p := tc.Project(); p != nil { res = p.resolve(tc.Context, name) }
 	return
 }
 
@@ -111,7 +117,7 @@ func (tc *testcase) get(name string, ii ...interface{}) (res Value) {
 		}
 	}
 
-	if o := tc.Project().resolveObject(tc, name); o == nil {
+	if o := tc.Project().resolve(tc, name); o == nil {
 		erro(tc, "%v: %s is nil", tc.Project(), name)
 	} else if d, y = o.(*def); !y {
 		erro(tc, "%v: %s is not def: %T", tc.Project(), name, o)
@@ -128,7 +134,63 @@ func (tc *testcase) get(name string, ii ...interface{}) (res Value) {
 	return
 }
 
+func testRemoveConfigureDir(ctx testcase, p *Project) {
+	if f := p.configurationFile; f == nil {
+		// skip
+	} else if s := f.fullname(); s == "" {
+		ctx.err("%v", f)
+	} else if !strings.HasSuffix(s, PathSep+configuration_sm) {
+		ctx.err("%v %v", f, s)
+	} else if s = filepath.Dir(s); s == "" {
+		ctx.err("%v %v", f, s)
+	} else if e := os.RemoveAll(s); e != nil {
+		ctx.err("%v", e)
+	} else if false {
+		noted(ctx, "%v", s).debug(10)
+	}
+	for _, base := range p.bases { testRemoveConfigureDir(ctx, base) }
+}
+
+type testcase_f1 func (*testcase)
+type testcase_f2 func (*testcase, string, string)
+
+func runcase(t *testing.T, spec, name string, f testcase_f1, ii ...interface{}) {
+	var ctx = loadcase(t, spec, name, ii...)
+	if ctx.Context == nil {
+		t.Errorf(spec)
+		return
+	}
+
+	defer ctx.flush()
+	defer assured(ctx, true)
+
+	f(&ctx)
+}
+
 func Test(t *testing.T) {
+	run := func (str, spec, name string, i interface{}, b ...bool) {
+		t.Run(str, func (t *testing.T) {
+			var a []interface{}
+			if len(b) > 0 && b[0] {
+				c := init_commandline()
+				c.configure = true
+				a = append(a, c)
+			}
+
+			spec = "testdata/" + spec
+
+			var f testcase_f1
+			switch v := i.(type) {
+			case func(*testcase): f = v // testcase_f1
+			case func(*testcase, string, string): // testcase_f2
+				f = func(ctx *testcase) { v(ctx, spec, name) }
+			default: t.Errorf("%T", i) ; return
+			}
+
+			runcase(t, spec, name, f, a...)
+		})
+	}
+
 	// scanner_test.go
 	t.Run("init",        testInit)
 	t.Run("strings",     testStrings)
@@ -149,75 +211,76 @@ func Test(t *testing.T) {
 	t.Run("position",    testPositionExample)
 
 	// builtins_test.go
-	t.Run("assert",      testAssert)
-	t.Run("wildcard",    testWildcard)
-	t.Run("files",       testFiles)
-	t.Run("auto",        testAutoContext) // value_test.go
-	t.Run("foreach",     testForeach)
-	t.Run("foreach",     testForeach1)
-	t.Run("foreach",     testForeach2)
-	t.Run("foreach",     testForeach3)
-	t.Run("foreach",     testForeach4)
-	t.Run("foreach",     testForeach5)
-	t.Run("addprefix",   testAddPrefix)
-	t.Run("pushcontext", testPushContext)
-	t.Run("contains",    testContains)
-	t.Run("logic",       testLogic)
-	t.Run("trim-prefix", testTrimPrefix)
-	t.Run("builtins",    testBuiltins)
+	t.Run("assert", testAssert)
+	run("wildcard", "wildcard", "testwildcard", testWildcard)
+	run("files", "files", "testfiles", testFiles)
+	run("auto", "value/0", "testvalues0", testAutoContext) // value_test.go
+	run("foreach", "foreach",   "testforeach",  testForeach)
+	run("foreach", "foreach/1", "testforeach1", testForeach1)
+	run("foreach", "foreach/2", "testforeach2", testForeach2)
+	run("foreach", "foreach/3", "testforeach3", testForeach3)
+	run("foreach", "foreach/4", "testforeach4", testForeach4)
+	run("foreach", "foreach/5", "testforeach5", testForeach5)
+	run("addprefix", "addprefix", "testaddprefix", testAddPrefix)
+	run("pushcontext", "pushcontext", "pushcontext", testPushContext)
+	run("contains", "contains", "testcontains", testContains)
+	run("logic", "logic", "testlogic", testLogic)
+	run("trim-prefix", "trimprefix", "testtrimprefix", testTrimPrefix)
+	run("builtins", "builtins", "testbuiltins", testBuiltins)
 
 	// template_test.go
-	t.Run("template",    testTemplate)
-	t.Run("template",    testTemplateForeach)
+	run("template", "template",         "testtemplate", testTemplate)
+	run("template", "template/foreach", "testtemplate", testTemplateForeach)
 
 	// modifiers_test.go
-	t.Run("modifier",    testValueModifier)
+	{   testValueModifierInit()
+		run("modifier", "modifier", "testmodifier", testValueModifier)
+	}
 
 	// value_test.go
-	// t.Run("auto",       testAutoContext)
-	t.Run("value",       testValues1)
-	t.Run("value",       testValues2)
-	t.Run("value",       testValues3)
-	t.Run("value",       testValues4)
-	t.Run("value",       testValues5)
-	t.Run("value",       testValues6)
-	t.Run("value",       testValues7)
-	t.Run("value",       testValues8)
-	t.Run("value",       testValues9)
-	t.Run("value",       testValues10)
-	t.Run("value",       testValues11)
-	t.Run("value",       testValues12)
-	t.Run("value",       testValues13)
-	t.Run("value",       testPlaceholders)
+	// run("auto", "value/0", "testvalues0", testAutoContext) // value_test.go
+	run("value", "value/1",  "testvalues1",  testValues1)
+	run("value", "value/2",  "testvalues2",  testValues2)
+	run("value", "value/3",  "testvalues3",  testValues3)
+	run("value", "value/4",  "testvalues4",  testValues4)
+	run("value", "value/5",  "testvalues5",  testValues5)
+	run("value", "value/6",  "testvalues6",  testValues6)
+	run("value", "value/7",  "testvalues7",  testValues7)
+	run("value", "value/8",  "testvalues8",  testValues8)
+	run("value", "value/9",  "testvalues9",  testValues9)
+	run("value", "value/10", "testvalues10", testValues10)
+	run("value", "value/11", "testvalues11", testValues11)
+	run("value", "value/12", "testvalues12", testValues12)
+	run("value", "value/13", "testvalues13", testValues13)
+	run("value", "value/placeholder", "testplaceholder", testPlaceholders)
 	t.Run("value",       testOptional)
 	t.Run("value",       testGlobMatch)
 	t.Run("value",       testValueGeneral)
 
 	// defs_test.go
-	t.Run("defs",        testDefs0)
+	run("defs", "defs", "testdefs", testDefs0)
 
 	// valcache_test.go
-	t.Run("valcache",    testValueCache)
+	run("valcache", "valcache", "valcache", testValueCache)
 
 	// rules_test.go
-	t.Run("rules",       testRules0)
-	t.Run("rules",       testRules1)
+	run("rules", "rule/0", "testrules0", testRules0)
+	run("rules", "rule/1", "testrules1", testRules1)
 
 	// loader_test.go
-	t.Run("load",        testLoad)
-	t.Run("build",       testBuildExample)
-	t.Run("load.top",    testLoadTopWork)
-
-	// modules_test.go
-	t.Run("variant",            testVariantTarget)
-	t.Run("app",                testApp)
-	t.Run("llvm/Config",        testLLVMConfigConfigure)
-	t.Run("llvm/Config",        testLLVMConfig)
-	t.Run("toolchain/booting",  testToolchainBootingConfigure)
-	t.Run("toolchain/booting",  testToolchainBooting)
+	// run("load", , , testLoad)
+	// run("build", , , testBuildExample)
+	run("load", "none", "none", testLoadTopWork)
 
 	// configure_test.go
-	t.Run("configure.default",  testConfigureDefault)
-	t.Run("configure.diverged", testConfigureDiverged)
-	t.Run("configure.custom",   testConfigureCustom)
+	run("configure", "configuration",          "testdefaultconfigure",  testConfigure1)
+	run("configure", "configuration/diverged", "testdivergedconfigure", testConfigure2)
+	run("configure", "configuration/custom",   "testcustomconfigure",   testConfigure3)
+
+	// modules_test.go
+	run("variant", "modules/target", "testtarget", testVariantTarget)
+	run("app", "modules/app", "testapp", testApp)
+	run("llvm/Config", "modules/llvm/config", "testllvmconfig", testLLVMConfig1, true)
+	run("llvm/Config", "modules/llvm/config", "testllvmconfig", testLLVMConfig2)
+	run("toolchain/booting", "modules/toolchain/booting", "testtoolchainbooting",  testToolchainBooting)
 }

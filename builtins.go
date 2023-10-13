@@ -537,10 +537,10 @@ func typeof(arg interface{}) (s string) {
         if n := len(a.Elems); n == 1 {
             switch v := a.Elems[0].(type) {
             case *delegate: // FIXME: recursively undelegate types
-                if d, _ := v.x.(*def); d != nil {
-                    s = fmt.Sprintf("%T", d.value) //s = d.value.Type().String()
+                if d, y := v.x.(*def); y && d != nil {
+                    s = fmt.Sprintf("$%v", typeof(d.value))
                 } else {
-                    s = "unknown"
+                    s = fmt.Sprintf("$%v", typeof(v.x))
                 }
             default:
                 s = fmt.Sprintf("%T", v) //s = v.Type().String()
@@ -723,7 +723,7 @@ func (ctx *builtin_debug) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_error struct { builtin_ }
 func (ctx *builtin_error) x(ic *invocation, w facet) (res interface{}) {
-    defer d_trace(ctx, "builtin_error")
+    defer dtrace(ctx, "builtin_error")
 
     var s bytes.Buffer
     for i, a := range ic.a {
@@ -752,16 +752,16 @@ type builtin_assert struct { builtin_
 func (ctx *builtin_assert) a(ic *invocation, w facet) (skip bool) { return }
 func (ctx *builtin_assert) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
 func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
-    defer d_trace(ctx, "builtin_assert")
+    defer dtrace(ctx, "builtin_assert")
 
-    const sn = 1
-    var t = diagError ; if ctx.warn { t = diagWarn }
     var d = ctx.debug ; if d < 1 { d = 1 }
+    var s = ctx.stack ; if s < 1 { s = 1 }
+    var t = diagError ; if ctx.warn { t = diagWarn }
 
     var hook = ctx.universe().hooks.assert
     if ic.a == nil && hook != nil && !hook(ctx, nil, false) {
         prompt(ctx, "assert: %v\n", ic.a)
-        diagstack(ctx, sn, t).debug(d)
+        diagstack(ctx, s, t).debug(d)
     }
 
     var cc = ctx.Context
@@ -771,11 +771,11 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
         if false {
             var v = a.expand(ctx, strval)
             prompt(ctx, "assert: %v: %v ⇒ %v: %v\n", typeof(a), a, typeof(v), v)
-            diagstack(ctx, sn, t, "%v: %v ⇒ '%s'", typeof(a), a, a.string(ctx)).debug(d)
+            diagstack(ctx, s, t, "%v: %v ⇒ '%s'", typeof(a), a, a.string(ctx)).debug(d)
         } else if true {
-            diagstack(ctx, sn, t, "%v: %v ⇒ '%s'", typeof(a), a, a.string(ctx)).debug(d)
+            diagstack(ctx, s, t, "%v: %v ⇒ '%s'", typeof(a), a, a.string(ctx)).debug(d)
         } else {
-            diagstack(ctx, sn, t, "%v: %v", typeof(a), a).debug(d)
+            diagstack(ctx, s, t, "%v: %v", typeof(a), a).debug(d)
         }
     }
 
@@ -785,7 +785,7 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
 
 type builtin_sure struct { builtin_ }
 func (ctx *builtin_sure) x(ic *invocation, w facet) (res interface{}) {
-    defer d_trace(ctx, "builtin_sure")
+    defer dtrace(ctx, "builtin_sure")
 
     for _, a := range ic.a { if !a.true(ctx) {
         erro(of(ctx,a), "assert: %T %v", a, a).debug(1)
@@ -866,7 +866,7 @@ type builtin_unequal struct { builtin_
     strval bool `s,sv,strval`
 }
 func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
-    if ctx.trace { d_trace(ctx, "unequal") }
+    if ctx.trace { dtrace(ctx, "unequal") }
 
     if len(ic.a) != 2 {
         erro(ctx, "unequal: wrong number of arguments: %v", ic.a)
@@ -913,7 +913,7 @@ type builtin_equal struct { builtin_
     strval bool `s,sv,strval`
 }
 func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
-    if ctx.trace { d_trace(ctx, "equal") }
+    if ctx.trace { dtrace(ctx, "equal") }
 
     if len(ic.a) > 0 {
         if a := umerge(true, ic.a[0]); len(a) == 1 {
@@ -1411,7 +1411,7 @@ func (ctx *builtin_call) x(ic *invocation, w facet) (res interface{}) {
     } else if s := name.string(ctx); ctx._closure {
         obj = closureResolveObject(ctx, s)
     } else {
-        obj = resolveObject(ctx, s)
+        obj = resolve(ctx, s)
     }
     if obj == nil {
         // var a, u, n = (w|expandAuto|expandArgs).expand(ctx, ic.a...)
@@ -1493,7 +1493,7 @@ func (ctx *builtin_plain) c(ic *invocation, w facet) (res interface{}) {
     var scope = ctx.Scope()
     for _, a := range ic.a {
         var ( o Object ; s = a.string(ctx) )
-        if ctx.scope { _, o = scope.Find(s) } else { o = resolveObject(ctx, s) }
+        if ctx.scope { _, o = scope.find(s) } else { o = resolve(ctx, s) }
         if o == nil {
             erro(of(ctx,a), "no such symbol: %s", s).debug(1)
         } else if d, y := o.(*def); !y {
@@ -1624,7 +1624,7 @@ func (ctx *builtin_append) x(ic *invocation, w facet) (res interface{}) {
             erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
         }} else if ctx._auto { if d = autoDef(ctx, name); d == nil {
             erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
-        }} else if o := resolveObject(ctx, name); o != nil { if d, _ = o.(*def); d == nil {
+        }} else if o := resolve(ctx, name); o != nil { if d, _ = o.(*def); d == nil {
             erro(ctx, "'%s' (%v) is undefined (%T)", name, a, ctx).debug(1)
         }} else {
             erro(ctx, "%T %v", a, a).debug(1)
@@ -2088,7 +2088,7 @@ func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
             if d, y := o.(*def); y && d != nil { defs = append(defs, d) }
         }
         for _, name := range ctx.def {
-            if _, o := ctx.Scope().Find(name); o == nil { } else
+            if _, o := ctx.Scope().find(name); o == nil { } else
             if d, y := o.(*def); y && d != nil { defs = append(defs, d) }
         }
 

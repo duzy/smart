@@ -209,16 +209,16 @@ func (uo *usevar) apply(ctx Context, d *def, u ...*def) {
     }
 }
 func usefor(ctx Context, user *Project, f func(usevar, Value, Value, string)) {
-    defer d_trace(ctx, "use")
+    defer dtrace(ctx, "use")
 
-    var o = user.resolveObject(ctx, "use.*")
+    var o = user.resolve(ctx, "use.*")
     if o != nil { if d, y := o.(*def); y && d != nil { for _, spec := range umerge(true, d.value) {
         var ( val = spec ; name string ; op usevar ; ctx = of(ctx, spec) )
         if a, y := spec.(*argumented); y { val = a.Value
             op.remainder = parseOpts(ctx, &op, strval, a.args...)
         }
         if name = val.string(ctx); name == "" { c := user.configure
-            if c != nil { t := c.resolveObject(ctx, "use.*")
+            if c != nil { t := c.resolve(ctx, "use.*")
                 noted(ctx, "%T %v", t, t)
             }
             erro(of(ctx,val), "%v: empty use spec: '%v' (%T)", user, spec, spec).debug(1)
@@ -272,10 +272,10 @@ func usevars(ctx Context, user, usee *Project) {
             op.apply(closureWith(ctx, user.scope), d, append(dd, useDef)...)
         }
     })
-    if ddd { noted(ctx, "%v ⇒ %v ; %v", user, usee, user.resolveObject(ctx, "use.*")).debug(5) }
+    if ddd { noted(ctx, "%v ⇒ %v ; %v", user, usee, user.resolve(ctx, "use.*")).debug(5) }
 }
 func baseNonTrivialDefs(ctx Context, user *Project, name string) (dd []*def) {
-    for _, base := range user.bases { if o := base.resolveObject(ctx, name); o != nil {
+    for _, base := range user.bases { if o := base.resolve(ctx, name); o != nil {
         if t, y := o.(*def); y && !isTrivial(t.value) { dd = append(dd, t) }
     }}
     return
@@ -287,7 +287,7 @@ func (l *loader) Position() (res Position) {
 }
 
 func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value, params ...Value) (loaded *Project) {
-	if true { defer d_trace(ctx, "usespec") }
+	if true { defer dtrace(ctx, "usespec") }
 
     var (
         uni = l.universe()
@@ -686,7 +686,7 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *de
         }
 
         // Resolve base value to derive.
-        var prev = l.project.resolveObject(ctx, name)
+        var prev = l.project.resolve(ctx, name)
 
         if d, alt = l.def(t.Position(), name); alt == nil {
             if d == nil {
@@ -859,7 +859,7 @@ type includeOpts struct {
     isConfigure bool // internal
 }
 func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
-    defer d_trace(ctx, "include")
+    defer dtrace(ctx, "include")
 
     var (
         uni = ctx.universe()
@@ -1273,7 +1273,7 @@ func (l *loader) declare(ctx Context, keyword Token, ident *barecomp, identStr s
         //l.scope = l.scope
         l.scopes[0] = at.Project.scope
         return true
-    } else if _, o := l.Scope().Find(identStr); o != nil {
+    } else if _, o := l.Scope().find(identStr); o != nil {
         if _, ok := o.(*builtin); ok {
             erro(ctx, "project name '%s' is a builtin name", identStr)
             return
@@ -1372,7 +1372,7 @@ func isConfigureProject(proj *Project) bool {
 func (l *loader) after(ctx Context, tag string) {
     if proj := l.project; isConfigureProject(proj) {
         if false && tag == "declare" { info(ctx, "%v: %v", proj, tag).debug(4) }// skip...
-    } else if obj := proj.resolveObject(ctx, ".auto.after."+tag); obj == nil {
+    } else if obj := proj.resolve(ctx, ".auto.after."+tag); obj == nil {
         if false && tag == "declare" { info(ctx, "%v: %v", proj, tag).debug(4) }// skip...
     } else if d, y := obj.(*def); !y {
         warnstack(ctx, 3, "%v: unsupported .auto: %T %v", proj, obj, obj).debug(1)
@@ -1403,7 +1403,7 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
     }
     if local = configure == "."; local || configure == "" { configure = "configure" }
 
-    defer d_trace(ctx, "configuration: %v", configure)
+    defer dtrace(ctx, "configuration: %v", configure)
 
     var loaded *Project
     var load = func(absPath string, isDir bool) (res bool) {
@@ -1578,7 +1578,7 @@ func (l *loader) OpenNamedScope(name, comment string) (scopes []*Scope) {
     return
 }
 
-func (l *loader) resolveObject(value Value) (name string, result Value) {
+func (l *loader) resolve(value Value) (name string, result Value) {
     var pos = value.Position()
     if !pos.IsValid() { pos = l.Position() }
     if _, y := value.(*selection); y {
@@ -1594,12 +1594,12 @@ func (l *loader) resolveObject(value Value) (name string, result Value) {
     if l.Scope() == nil {
         erro(ctx, "nil scope to resolve '%v'", name).debug(1)
         return
-    } else if _, result = l.Scope().Find(name); !isNull(result) {
+    } else if _, result = l.Scope().find(name); !isNull(result) {
         // okay!
     } else if project := l.project; project == nil {
         erro(ctx, "nil project to resolve '%v'", name).debug(1)
         return
-    } else if result = project.resolveObject(ctx, name); isNull(result) {
+    } else if result = project.resolve(ctx, name); isNull(result) {
         if o, y := value.(optional); y {
             result = unresolved{o.Value, project}
             return
@@ -1672,7 +1672,8 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
 
     assert(ctx.loader() == l, "require the same loader context")
 
-    defer d_trace(ctx, "source")
+    defer dtrace(ctx, "source")
+
     defer func(t time.Time, p *parser, m Mode) { if true { ctx = l.p.ctx(ctx) }
         if d := time.Now().Sub(t); d > uni.slow {
             warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, uni.slow).debug(2) //  → %s, filename
@@ -1801,7 +1802,7 @@ ListLoop:
 }
 
 func (l *loader) sources(ctx Context, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
-    defer d_trace(ctx, "sources")
+    defer dtrace(ctx, "sources")
 
     var uni = l.universe()
 
@@ -1994,10 +1995,9 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
 }
 
 func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileInfo) bool) (loadedOkay bool) {
-    var uni = ctx.universe()
-    if uni.traceLaunch { defer un(trace(t_launch, "loader.dir")) }
+    if ctx.universe().traceLaunch { defer un(trace(t_launch, "loader.dir")) }
 
-	defer d_trace(ctx, "dir (%s)", specName)
+	defer dtrace(ctx, "dir (%s)", specName)
 
     if !filepath.IsAbs(absDir) {
         errostack(ctx, 3, "needs absolute dir `%s' (%s)", absDir, specName).debug(10)
@@ -2010,6 +2010,8 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     var loaded *Project
     var globe = ctx.Globe()
     defer func(t time.Time, ver bool) {
+        if specName == "." { specName = absDir }
+
         if d := time.Now().Sub(t); ver && d>1*time.Second { if l.project == nil {
             noted(ctx, "load (%15s) ⇒ %s (%s)\n", d, loaded, specName).debug(1)
         } else {
@@ -2027,12 +2029,12 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
             if false { erro(ctx, "%v: no owner project for %s", loaded.name, l.Scope()).debug(1) }
         } else if name, _ := proj.scope.Lookup(loaded.name).(*projectname); name == nil {
             if _, alt := proj.scope.projectname(at(ctx,pos), loaded.name, loaded); alt != nil {
-                if val, ok := alt.(*projectname); !ok || val == nil {
+                if val, y := alt.(*projectname); !y || val == nil {
                     erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
                 }
             }
         }
-    } (time.Now(), uni.verboseLoads)
+    } (time.Now(), ctx.universe().verboseLoads)
 
     // Check loaded project.
     if loaded, loadedOkay = globe.loaded[absDir]; loadedOkay { return }
@@ -2042,7 +2044,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     var mods map[string]*Project
     if mods = l.sources(at(l, pos), absDir, filter, parseMode); mods == nil {
         errostack(ctx, 3, "failed parsing module: %s", specName).debug(12)
-        if uni.failOnErrors {
+        if ctx.universe().failOnErrors {
             panic(failure{"fail by %d errors",ia(l.Position(), l.dia().totalErrors())})
         }
         return

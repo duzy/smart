@@ -7,8 +7,8 @@ package smart
 
 import (
 	"path/filepath"
-	"unicode"
 	"unicode/utf8"
+	"unicode"
 	"fmt"
 )
 
@@ -111,14 +111,13 @@ const bom = 0xFEFF // byte order mark, only permitted as very first character
 // structure but must be initialized via Init before use.
 //
 // (See go.token)
-type Scanner struct {
-	// immutable state
-	file *TokFile  // source file handle
+type Scanner struct { // immutable state
+	file *TokFile     // source file handle
 	dir  string       // directory portion of file.Name()
 	src  []byte       // source
 	err  ErrorHandler // error reporting; or nil
 	war  ErrorHandler // warning handler; or nil
-	mode ScanMode         // scanning mode
+	mode ScanMode     // scanning mode
 
 	// scanning state
 	scanState

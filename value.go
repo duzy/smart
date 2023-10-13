@@ -461,7 +461,7 @@ ForScopes:
 func closureGet(ctx Context, name string) (res *def) {
     for _, scope := range ctx.closureScopes() {
         if scope.project == nil {
-            if _, obj := scope.Find(name); obj == nil {
+            if _, obj := scope.find(name); obj == nil {
                 continue
             } else if res, _ = obj.(*def); res != nil {
                 return
@@ -471,13 +471,13 @@ func closureGet(ctx Context, name string) (res *def) {
             if !pos.IsValid() { pos = scope.position }
             if !pos.IsValid() { pos = scope.project.position }
             if scope != scope.project.scope {
-                if _, obj := scope.Find(name); obj != nil {
+                if _, obj := scope.find(name); obj != nil {
                     if res, _ = obj.(*def); res != nil {
                         return
                     }
                 }
             }
-            if obj := scope.project.resolveObject(ctx, name); obj == nil {
+            if obj := scope.project.resolve(ctx, name); obj == nil {
                 if res = autoDef(ctx, name); res != nil { return }
             } else if res, _ = obj.(*def); res != nil {
                 return
@@ -527,7 +527,7 @@ func closureResolveObject(ctx Context, name string) (obj Object) {
         var ctx Context = at(ctx, scope.position)
         if infos { warn(ctx, "%s", scope).debug(1) }
         if scope.project == nil || scope != scope.project.scope {
-            if _, obj = scope.Find(name); isNull(obj) {
+            if _, obj = scope.find(name); isNull(obj) {
                 // fallthrough
             } else if a, y := obj.(*auto); y { // assert(a.name == name)
                 if d := autoDef(ctx, a.name(ctx)); d != nil { obj = d }
@@ -551,7 +551,7 @@ func closureResolveObject(ctx Context, name string) (obj Object) {
             }
         }
         if scope.project != nil {
-            obj = scope.project.resolveObject(ctx, name)
+            obj = scope.project.resolve(ctx, name)
         }
         if isNull(obj) && false { obj = closureResolveObject(ctx.inner(), name) }
         if!isNull(obj) { if infos { warn(ctx, "%v", obj).debug(1) }; break }

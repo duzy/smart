@@ -17,61 +17,49 @@ const TER = false
 func testAssert(t *testing.T) {
 	var boos []bool
 	var vals []Value
-	var ctx = load_testcase(t, "testdata/assert", "testassert", hooks{
+	runcase(t, "testdata/assert", "testassert", func (ctx *testcase) {
+		if foo := ctx.get("foo"); foo == nil {
+			ctx.err("foo")
+		} else if foo.string(ctx) != "foo" {
+			ctx.err("%T %v", foo, foo)
+		}
+
+		if len(boos) != 11 {
+			ctx.err("%v, %v, %v %v", vals, boos, len(vals), len(boos))
+		} else if len(vals) != len(boos) {
+			ctx.err("%v %v", vals, boos)
+		} else if i := 0; vals[i].String() != "true{}" || !boos[i] {
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 1; vals[i].String() != "false{}" || boos[i] {
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 2; vals[i].String() != "yes{}" || !boos[i] {
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 3; vals[i].String() != "no{}" || boos[i] {
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 4; vals[i].String() != "" || boos[i] { // none{}
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 5; vals[i].String() != "undef{}" || boos[i] {
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 6; vals[i].String() != "" || boos[i] { // null{}
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 7; vals[i].String() != "foobar{}" || !boos[i] {
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 8; vals[i].String() != "1" || !boos[i] {
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 9; vals[i].String() != "0" || boos[i] {
+			ctx.err("%v %v", vals[i], boos[i])
+		} else if i = 10; vals[i].String() != "$(equal $(foo),foo)" || !boos[i] {
+			ctx.err("%v %v", vals[i], boos[i])
+		}
+	}, hooks{
 		assert: func(ctx Context, v Value, b bool) (res bool) {
 			vals, boos = append(vals, v), append(boos, b)
 			return true
 		},
 	})
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
-	if foo := ctx.get("foo"); foo == nil {
-		ctx.err("foo")
-	} else if foo.string(ctx) != "foo" {
-		ctx.err("%T %v", foo, foo)
-	}
-
-	if len(boos) != 11 {
-		ctx.err("%v, %v, %v %v", vals, boos, len(vals), len(boos))
-	} else if len(vals) != len(boos) {
-		ctx.err("%v %v", vals, boos)
-	} else if i := 0; vals[i].String() != "true{}" || !boos[i] {
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 1; vals[i].String() != "false{}" || boos[i] {
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 2; vals[i].String() != "yes{}" || !boos[i] {
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 3; vals[i].String() != "no{}" || boos[i] {
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 4; vals[i].String() != "" || boos[i] { // none{}
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 5; vals[i].String() != "undef{}" || boos[i] {
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 6; vals[i].String() != "" || boos[i] { // null{}
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 7; vals[i].String() != "foobar{}" || !boos[i] {
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 8; vals[i].String() != "1" || !boos[i] {
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 9; vals[i].String() != "0" || boos[i] {
-		ctx.err("%v %v", vals[i], boos[i])
-	} else if i = 10; vals[i].String() != "$(equal $(foo),foo)" || !boos[i] {
-		ctx.err("%v %v", vals[i], boos[i])
-	}
-
-	ctx.flush()
 }
 
-func testWildcard(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/wildcard", "testwildcard")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testWildcard(ctx *testcase) {
 	var (
 		pat1 = ctx.get("pat1")
 		pat2 = ctx.get("pat2")
@@ -81,15 +69,16 @@ func testWildcard(t *testing.T) {
 		pat6 = ctx.get("pat6")
 		m = ctx.Project()
 	)
+
 	if true {
 		var f = func(a []Value) { a[0], a[1], a[4], a[5] = pat1, pat2, pat5, pat6 }
 		var a = []Value{ nil, nil, nil, nil, nil, nil } ; f(a)
-		if a[0] != pat1 { t.Errorf("%v", a) }
-		if a[1] != pat2 { t.Errorf("%v", a) }
-		if a[2] != nil  { t.Errorf("%v", a) }
-		if a[3] != nil  { t.Errorf("%v", a) }
-		if a[4] != pat5 { t.Errorf("%v", a) }
-		if a[5] != pat6 { t.Errorf("%v", a) }
+		if a[0] != pat1 { ctx.Errorf("%v", a) }
+		if a[1] != pat2 { ctx.Errorf("%v", a) }
+		if a[2] != nil  { ctx.Errorf("%v", a) }
+		if a[3] != nil  { ctx.Errorf("%v", a) }
+		if a[4] != pat5 { ctx.Errorf("%v", a) }
+		if a[5] != pat6 { ctx.Errorf("%v", a) }
 	}
 
 	if g, y := pat1.(*GlobPattern); !y || g == nil {
@@ -180,7 +169,7 @@ func testWildcard(t *testing.T) {
 	} else if a, y := r.(string); !y {
 		ctx.err("pat6: %T %v, %v ; %T %v", pat6, pat6, pat3, r, r)
 	} else if a != "foobar/config/*.def.am" {
-		ctx.err("pat6: %T %v, %v ; %v", pat6, pat6, pat3, t)
+		ctx.err("pat6: %T %v, %v", pat6, pat6, pat3)
 	} else if s == nil || len(s) != 1 {
 		ctx.err("pat6: %T %v, %v ; %v", pat6, pat6, pat3, s)
 	} else if s[0] != "foobar/config/*" {
@@ -194,7 +183,7 @@ func testWildcard(t *testing.T) {
 	var workDirInc = ctx.WorkDir() + "/inc"
 	invalid := func(name string) bool { return name == "" ||
 		name != "foobar/config/a.def.in" &&
-		name != "foobar/config/b.def.in" ;}
+			name != "foobar/config/b.def.in" ;}
 	{
 		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
 			if a := (&builtin_wildcard{builtin_:builtin_{Context:of(ctx,pat3)}, dir:workDirInc})._do(pat3); len(a) != 1 {
@@ -377,17 +366,9 @@ func testWildcard(t *testing.T) {
 	} else if strings.Count(s, "foobar/config/b.def.in") != 1 {
 		ctx.err("fix4: %T %v", fix4, fix4)
 	}
-
-	ctx.flush()
 }
 
-func testFiles(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/files", "testfiles")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testFiles(ctx *testcase) {
 	if t := unmap(ctx, ".test/a/b/c/foo.c"); t == nil {
 		ctx.err(".test/a/b/c/foo.c")
 	} else if len(t) != 1 {
@@ -1113,17 +1094,9 @@ func testFiles(t *testing.T) {
 	} else if t := unmap(ctx, v); t != nil {
 		ctx.err("%v", v)
 	}
-
-	ctx.flush()
 }
 
-func testForeach(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/foreach", "testforeach")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testForeach(ctx *testcase) {
 	var to_list func(v Value) (*List, bool)
 	var to_list_direct = func(v Value) (l *List, y bool) { l, y = v.(*List) ; return }
 	var to_list_unexpanded = func(v Value) (l *List, y bool) {
@@ -1161,10 +1134,10 @@ func testForeach(t *testing.T) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "x -" {
 		ctx.err("%T %v → %s", v, v, s)
-	// } else if u, y := v.(unexpanded); !y {
-	// 	ctx.err("%T %v", v, v)
-	// } else if l, y := u.Value.(*List); !y {
-	// 	ctx.err("%T %v", u.Value, u.Value)
+		// } else if u, y := v.(unexpanded); !y {
+		// 	ctx.err("%T %v", v, v)
+		// } else if l, y := u.Value.(*List); !y {
+		// 	ctx.err("%T %v", u.Value, u.Value)
 	} else if l, y := v.(*List); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
@@ -1821,7 +1794,7 @@ func testForeach(t *testing.T) {
 	} else if v.String() != "x xq xp x-$1" {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.21"))
 	} else if s := v.string(ctx); s != "x xq xp x-" {
-		ctx.err("%v → %T %v → %s ; %v", v, t, t, s, ctx.def(".test.21"))
+		ctx.err("%v → %s ; %v", v, s, ctx.def(".test.21"))
 	}
 	if v := ctx.get(".test.21", []string{"a", "b", "c"}); v == nil {
 		ctx.err("%v", ctx.def(".test.21"))
@@ -2058,17 +2031,9 @@ func testForeach(t *testing.T) {
 	} else if !b.bool {
 		ctx.err("%v", b)
 	}
-
-	ctx.flush()
 }
 
-func testForeach1(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/foreach/1", "testforeach1")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testForeach1(ctx *testcase) {
 	if v := ctx.get(".test.4"); v == nil {
 		ctx.err(".test.4")
 	} else if v.String() != "&(.test.s) $(value .test~&(.test.s)) $(foreach $1 B b,$(value(-c) .test.$_) $(value(-c) .test~&(.test.s).$_))" {
@@ -2083,17 +2048,9 @@ func testForeach1(t *testing.T) {
 	} else if s := v.string(ctx); s != "foo test-foo test-a test-foo-a test-B test-foo-B test-b test-foo-b" {
 		ctx.err("%T %v → %s", v, v, s)
 	}
-
-	ctx.flush()
 }
 
-func testForeach2(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/foreach/2", "testforeach2")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testForeach2(ctx *testcase) {
 	if v := ctx.get(".test.1"); v == nil {
 		ctx.err(".test.1")
 	} else if v.String() != "$(foreach x$1 y$1 z$1 $(foreach xx$2 yy$2,a$_),b$_)" {
@@ -2125,17 +2082,9 @@ func testForeach2(t *testing.T) {
 	} else if s := v.string(ctx); s != "" {
 		ctx.err("%T %v → %s", v, v, s)
 	}
-
-	ctx.flush()
 }
 
-func testForeach3(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/foreach/3", "testforeach3")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testForeach3(ctx *testcase) {
 	if v := ctx.get(".test.x"); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
 	} else if v.String() != "$(foreach $1 $2,std=&(.test.$_))" {
@@ -2504,17 +2453,9 @@ func testForeach3(t *testing.T) {
 	} else if _, y := l.Elems[1].(*pair); !y {
 		ctx.err("%T %v", l.Elems[1], l.Elems[1])
 	}
-
-	ctx.flush()
 }
 
-func testForeach4(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/foreach/4", "testforeach4")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testForeach4(ctx *testcase) {
 	if v := ctx.get(".test.1", "a", "b"); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
 	} else if v.String() != "Xxa Xxb" {
@@ -2581,17 +2522,9 @@ func testForeach4(t *testing.T) {
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v %v", v, l.Elems, len(l.Elems))
 	}
-
-	ctx.flush()
 }
 
-func testForeach5(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/foreach/5", "testforeach5")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testForeach5(ctx *testcase) {
 	if v := ctx.get(".test.x"); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
 	} else if v.String() != "$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))" {
@@ -2606,12 +2539,12 @@ func testForeach5(t *testing.T) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "a~ ~a x.o.a b~ ~b x.o.b" {
 		ctx.err("%T %v → %s", v, v, s)
-	// } else if t := xa(ctx, v, "a", "b", expandDelegate); t == nil {
-	// 	ctx.err("%T %v", v, v)
-	// } else if t.String() != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -bo&(.test.x.o.a) -bo&(.test.x.o.b) ~b x.o.b" {
-	// 	ctx.err("%T %v", t, t) // &(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b)
-	// } else if s := t.string(ctx); s != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
-	// 	ctx.err("%T %v → %s", t, t, s)
+		// } else if t := xa(ctx, v, "a", "b", expandDelegate); t == nil {
+		// 	ctx.err("%T %v", v, v)
+		// } else if t.String() != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -bo&(.test.x.o.a) -bo&(.test.x.o.b) ~b x.o.b" {
+		// 	ctx.err("%T %v", t, t) // &(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b)
+		// } else if s := t.string(ctx); s != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
+		// 	ctx.err("%T %v → %s", t, t, s)
 	} else if t := xa(ctx, v, "a", "b", expandClosure|expandDelegate); t == nil {
 		ctx.err("%T %v", v, v)
 	} else if t.String() != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
@@ -2680,17 +2613,9 @@ func testForeach5(t *testing.T) {
 	} else if _, y := u.Value.(*delegate); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	}
-
-	ctx.flush()
 }
 
-func testAddPrefix(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/addprefix", "testaddprefix")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testAddPrefix(ctx *testcase) {
 	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
 	} else if v.String() != /* "$(addprefix -std=,foo)" */"-std=foo" {
@@ -2712,17 +2637,9 @@ func testAddPrefix(t *testing.T) {
 	} else if s := v.string(ctx); s != "-std=foo -std=bar -std=foobar" {
 		ctx.err("%T %v → %s", v, v, s)
 	}
-
-	ctx.flush()
 }
 
-func testPushContext(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/pushcontext", "pushcontext")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testPushContext(ctx *testcase) {
 	if v := ctx.get("foo"); v == nil {
 		ctx.err("foo")
 	} else if v.String() != "foobar" {
@@ -2754,17 +2671,9 @@ func testPushContext(t *testing.T) {
 	} else if s := v.string(ctx); s != "foobar" {
 		ctx.err("%T %v → %s", v, v, s)
 	}
-
-	ctx.flush()
 }
 
-func testContains(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/contains", "testcontains")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testContains(ctx *testcase) {
 	if v := ctx.get(".test.1"); v == nil {
 		ctx.err(".test.1")
 	} else if v.String() != "true{}" {
@@ -2796,17 +2705,9 @@ func testContains(t *testing.T) {
 	} else if s := v.string(ctx); s != "true" {
 		ctx.err("%T %v → %s", v, v, s)
 	}
-
-	ctx.flush()
 }
 
-func testLogic(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/logic", "testlogic")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testLogic(ctx *testcase) {
 	if v := ctx.get("val1"); v == nil {
 		ctx.err("val1")
 	} else if v.String() != "a" {
@@ -2933,17 +2834,9 @@ func testLogic(t *testing.T) {
 	} else if s := v.string(ctx); s != "bootstrap" {
 		ctx.err("%T %v → %s", v, v, s)
 	}
-
-	ctx.flush()
 }
 
-func testTrimPrefix(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/trimprefix", "testtrimprefix")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testTrimPrefix(ctx *testcase) {
 	if v0 := ctx.get("pat0.0"); v0 == nil {
 		ctx.err("pat0.0")
 	} else if s := v0.string(ctx); s != "**/testdata" {
@@ -3088,17 +2981,9 @@ func testTrimPrefix(t *testing.T) {
 	} else if s := v.string(ctx); s != "trimprefix" {
 		ctx.err("%T %v → %s", v, v, s)
 	}
-
-	ctx.flush()
 }
 
-func testBuiltins(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/builtins", "testbuiltins")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testBuiltins(ctx *testcase) {
 	if d := ctx.def("val1"); d == nil {
 		ctx.err("val1")
 	} else if v := d.value; v == nil {
@@ -3359,6 +3244,4 @@ func testBuiltins(t *testing.T) {
 	} else if _, y := f.Value.(*bareword); !y {
 		ctx.err("%T %v", f.Value, f.Value)
 	}
-
-	ctx.flush()
 }

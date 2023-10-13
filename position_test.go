@@ -14,17 +14,17 @@ import (
 )
 
 func testPositionExample(t *testing.T) {
-        src := []byte(`
+    src := []byte(`
 project foo
 include modules/*.smart
 `)
-        filename := filepath.Join("test", "TestPositionExample")
-        fs := NewFileSet()
-        f := fs.AddFile(filename, fs.Base(), len(src))
-        f.SetLinesForContent(src)
-        if x := f.LineCount(); x < 2 {
-                t.Errorf("LineCount: %v < 2", x)
-        } else {
-                
-        }
+    filename := filepath.Join("test", "TestPositionExample")
+    fs := NewFileSet()
+    f := fs.AddFile(filename, fs.Base(), len(src))
+    f.SetLinesForContent(src)
+    if x := f.LineCount(); x < 2 {
+        t.Errorf("LineCount: %v < 2", x)
+    } else {
+
+    }
 }

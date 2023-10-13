@@ -147,7 +147,7 @@ func (p unresolved) refs(ctx Context, v Value) (res bool) {
         if (p.project == o.project || p.project.hasBase(o.project)) &&
             p.Value.string(ctx) == o.Value.string(ctx) { return true }
     } else if d, y := v.(*def); false && y {
-        if o := p.project.resolveObject(ctx, p.Value.string(ctx)); o == nil {
+        if o := p.project.resolve(ctx, p.Value.string(ctx)); o == nil {
             if o == d || o.refs(ctx, d) { return true }
         }
     }
@@ -192,7 +192,7 @@ func (p unresolved) expand(ctx Context, w facet) (res Value) {
     if name := v.string(ctx); name == "" {
         warnstack(ctx, 3, "empty unresolved: %T %v ⇒ %T %v", p.Value, p.Value, v, v).debug(3)
         return p
-    } else if o := p.project.resolveObject(ctx, name); o == nil {
+    } else if o := p.project.resolve(ctx, name); o == nil {
         return p
     } else if o.refs(ctx, p) {
         if true { warnstack(ctx, 3, "recursive: %v ⇒ %v %v", p, typeof(o), o).debug(3) }
@@ -240,7 +240,7 @@ func (p *projectname) name(_ Context) string { return p.Project.name }
 func (p *projectname) true(_ Context) bool { return p.Project != nil }
 func (p *projectname) DeclScope() *Scope { return p.scope }
 func (p *projectname) OwnerProject() *Project { return p.scope.project }
-func (p *projectname) Get(ctx Context, name string) (Value, error) { return p.resolveObject(ctx, name), nil }
+func (p *projectname) Get(ctx Context, name string) (Value, error) { return p.resolve(ctx, name), nil }
 func (p *projectname) expand(_ Context, _ facet) (res Value) { return expanded{p} }
 // func (p *projectname) invoke(_ Context, _ facet, _, _ []Value) Value { return p }
 func (p *projectname) traverse(ctx Context) {
@@ -321,7 +321,7 @@ func (p *scopename) DeclScope() *Scope { return p.Scope.outer }
 // func (p *scopename) invoke(_ Context, _ facet, _, _ []Value) Value { return p }
 func (p *scopename) expand(_ Context, _ facet) (res Value) { return p }
 func (p *scopename) Get(ctx Context, name string) (value Value, err error) {
-    if s := p.Resolve(name); s != nil { if value, _ = s.(Value); value == nil {
+    if s := p.resolve(name); s != nil { if value, _ = s.(Value); value == nil {
         err = fmt.Errorf("`%s' in scope is invalid (%T)", name, s)
     }} else {
         err = fmt.Errorf("undefined `%s' in scope `%s'", name, p.name_)
@@ -1097,7 +1097,7 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
         return p
     }
 
-	defer d_trace(ctx, "builtin.expand")
+	defer dtrace(ctx, "builtin.expand")
 
     var ic = ctx.ic()
     if ic == nil {

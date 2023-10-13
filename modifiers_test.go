@@ -7,7 +7,6 @@ package smart
 
 import (
     "reflect"
-	"testing"
 )
 
 type test_mod_1 struct { modifier_ }
@@ -15,16 +14,12 @@ func (ctx *test_mod_1) v(args ...Value) (result interface{}) {
 	return append(args, MakeBareword(ctx.Position(), "test_mod_1"))
 }
 
-func testValueModifier(t *testing.T) {
+func testValueModifierInit() {
 	modifiers[`test-mod-1`] = reflect.TypeOf((*test_mod_1)(nil)).Elem()
+}
 
+func testValueModifier(ctx *testcase) {
 	defer func() { delete(modifiers, `test-mod-1`) } ()
-
-	var ctx = load_testcase(t, "testdata/modifier", "testmodifier")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
 
 	if v := ctx.get("val"); v == nil {
 		ctx.err("val")
@@ -45,6 +40,4 @@ func testValueModifier(t *testing.T) {
 	} else if s := v.string(ctx); s != "foobar test_mod_1" {
 		ctx.err("%T %v -> %s", v, v, s)
 	}
-
-	ctx.flush()
 }

@@ -31,17 +31,17 @@ func (p *Position) Same(o *Position) bool {
 }
 
 func makePosition(filename string, line, column int) (pos Position) {
-        pos.Filename = filename
-        pos.Line     = line
-        pos.Column   = column
-        return
+	pos.Filename = filename
+	pos.Line     = line
+	pos.Column   = column
+	return
 }
 
 func convPosition(filename, line, column string) (pos Position) {
-        pos.Filename  = filename
-        pos.Line, _   = strconv.Atoi(line)
-        pos.Column, _ = strconv.Atoi(column)
-        return
+	pos.Filename  = filename
+	pos.Line, _   = strconv.Atoi(line)
+	pos.Column, _ = strconv.Atoi(column)
+	return
 }
 
 const NoPos Pos = Pos(golang.NoPos)

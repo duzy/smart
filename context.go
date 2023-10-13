@@ -318,7 +318,7 @@ func (diag *diaContext) point(ctx Context, dt diagType, f string, args ...interf
   return diag.add(&diagPoint{ dt, ctx.Position(), fmt.Sprintf(f, args...), nil })
 }
 
-func d_trace(ctx Context, fmt string, a ...interface{}) {
+func dtrace(ctx Context, fmt string, a ...interface{}) {
   if diag := ctx.dia(); diag.error() {
     if diag.traced += 1; diag.traced > 1 { return }
     if false { erro(ctx, fmt, a...).debug(3) }
@@ -690,7 +690,7 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
       if _, e := os.Stat(s); e == nil { pos.Filename = s }
     }
     // if defer assured from top stack, this will dump the full stack of panics
-    errostack(ctx, 5, "failed, %d recovered", recovered).debug(/* 1, */128)
+    errostack(ctx, 5, "failed, %d recovered", recovered).debug(/*1,*/128)
   }
 
   var dia = ctx.dia() ; dia.flush()

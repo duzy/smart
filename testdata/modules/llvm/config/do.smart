@@ -2,8 +2,9 @@ project testllvmconfig (llvm/Config) #variant=darwin/arm64/bootstrap,
 
 rel.chop =+ $(dir4 $/)/
 
-val1 ::= $(fullname configuration.sm)
-val2 ::= $(file configuration.sm)
+conf ::= configuration.sm
+val1 ::= $(fullname $(conf))
+val2 ::= $(file $(conf))
 
 assert (
     $(rel.chop)

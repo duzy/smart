@@ -8,7 +8,6 @@ package smart
 import (
 	"regexp"
 	"strings"
-	"testing"
     "io/ioutil"
 	"path/filepath"
 	"fmt"
@@ -32,24 +31,21 @@ func validFlag(s string) (res bool) {
 	return
 }
 
-func validFlags(t testcase, v Value, s string) (res bool) {
+func validFlags(ctx *testcase, v Value, s string) (res bool) {
 	for _, s := range strings.Fields(s) { if res = validFlag(s); !res {
-		t.err("%s ; %v", s, v) ; break
+		ctx.err("%s ; %v", s, v) ; break
 	}}
 	return
 }
 
-func testVariantTarget(t *testing.T) {
-	if s := "variant/.target"; !testHasModule(s) { // variant/bootstrap
-		t.Logf("skip %s", s)
-		return
-	}
-
-	var ctx = load_testcase(t, "testdata/modules/target", "testtarget")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
+func testVariantTarget(ctx *testcase) {
+	langs  := strings.Fields("c c++ cl cuda cuda++ objc objc++ swift")
+	flags1 := strings.Fields("-D -I -L -O -W -Wl -Werror -Wno-error -f -f.ld -m -g -v -no -no.ld"+
+		" -isystem -isystem-after -cxx-isystem -stdlib -stdlib++-isystem -diagnostics")
+	flags2 := strings.Fields("-l -framework")
+	flags3 := strings.Fields("ar asm c cpp cxx oc ocxx cl cuda cudaxx ld")
+	flags4 := strings.Fields("ld")
+	flags5 := strings.Fields("ld.framework ldlibs loadlibs loadlibes")
 
 	for k, v := range map[string]string{
 		"asm": "c",
@@ -93,13 +89,6 @@ func testVariantTarget(t *testing.T) {
 		ctx.err("%v", d)
 	}
 
-	langs  := strings.Fields("c c++ cl cuda cuda++ objc objc++ swift")
-	flags1 := strings.Fields("-D -I -L -O -W -Wl -Werror -Wno-error -f -f.ld -m -g -v -no -no.ld"+
-		" -isystem -isystem-after -cxx-isystem -stdlib -stdlib++-isystem -diagnostics")
-	flags2 := strings.Fields("-l -framework")
-	flags3 := strings.Fields("ar asm c cpp cxx oc ocxx cl cuda cudaxx ld")
-	flags4 := strings.Fields("ld")
-	flags5 := strings.Fields("ld.framework ldlibs loadlibs loadlibes")
 
 	var usev, uses string
 	if d := ctx.def("use.*"); d == nil {
@@ -250,27 +239,9 @@ func testVariantTarget(t *testing.T) {
 	} else if cflags = v.string(ctx); cflags == "" {
 		ctx.err("%T %v -> %s", v, v, cflags)
 	}
-
-	if true {
-		info(ctx, "%v", cflagv)
-		info(ctx, "%v", cflags).debug(1)
-	}
-
-	ctx.flush()
 }
 
-func testApp(t *testing.T) {
-	if s := "app"; !testHasModule(s) {
-		t.Logf("skip %s", s)
-		return
-	}
-
-	var ctx = load_testcase(t, "testdata/modules/app", "testapp")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testApp(ctx *testcase) {
 	ss := func(s string) string { os := "darwin"
 		return strings.Replace(s, "<OS>", os, -1)
 	}
@@ -287,6 +258,19 @@ func testApp(t *testing.T) {
 	flag4 := func(a ...interface{}) string { // $(.flag $1,xxx,y,y)
 		return fmt.Sprintf("$(foreach(-unique) $(filter-out &(%[1]s!%[2]s) &(%[1]s~&(target.sys)!%[2]s) &(%[1]s!c) &(%[1]s~&(target.sys)!c),&(%[1]s) &(%[1]s~&(target.sys))) &(%[1]s.%[2]s) &(%[1]s~&(target.sys).%[2]s) &(%[1]s.%[3]s) &(%[1]s~&(target.sys).%[3]s),%[1]s$_$(or $4))", a...)
 	}
+
+	var foo1 = strings.Fields(ss(`cppflags-foo cppflags~foo~<OS>
+-std=foostd -ffooF -IfooI -DfooD
+-isystemfooisystem -isystem-afterfooisystem-after`))
+	var foo2 = strings.Fields(ss(`cxxflags-foo cxxflags~foo~<OS>
+-std=foostd -ffooF -IfooI -DfooD -gfooG -OfooO
+-isystemfooisystem -isystem-afterfooisystem-after
+-cxx-isystemfoocxxisystem -stdlib++-isystemfoostdlib++isystem`))
+	var foo3 = strings.Fields(ss(`ldflags-foo ldflags~foo~<OS> -ffooF -OfooO -LfooL
+-Wl,fooWl -Wl,-rpath,"foorpath"`))
+	var foo4 = strings.Fields(ss(`ldlibs-foo ldlibs~foo~<OS> -lfool`))
+	var foo5 = strings.Fields(ss(`loadlibes-foo loadlibes~foo~<OS>`))
+	var foo6 = strings.Fields(ss(`loadlibs-foo loadlibs~foo~<OS>`))
 
 	if d := ctx.def(".flag"); d == nil {
 		ctx.err(".flag")
@@ -682,19 +666,6 @@ func testApp(t *testing.T) {
 		ctx.err("%v", v2)
 	}
 
-	var foo1 = strings.Fields(ss(`cppflags-foo cppflags~foo~<OS>
--std=foostd -ffooF -IfooI -DfooD
--isystemfooisystem -isystem-afterfooisystem-after`))
-	var foo2 = strings.Fields(ss(`cxxflags-foo cxxflags~foo~<OS>
--std=foostd -ffooF -IfooI -DfooD -gfooG -OfooO
--isystemfooisystem -isystem-afterfooisystem-after
--cxx-isystemfoocxxisystem -stdlib++-isystemfoostdlib++isystem`))
-	var foo3 = strings.Fields(ss(`ldflags-foo ldflags~foo~<OS> -ffooF -OfooO -LfooL
--Wl,fooWl -Wl,-rpath,"foorpath"`))
-	var foo4 = strings.Fields(ss(`ldlibs-foo ldlibs~foo~<OS> -lfool`))
-	var foo5 = strings.Fields(ss(`loadlibes-foo loadlibes~foo~<OS>`))
-	var foo6 = strings.Fields(ss(`loadlibs-foo loadlibs~foo~<OS>`))
-
 	if v := ctx.get(".test.1"); v == nil {
 		ctx.err(".test.1")
 	} else if s := v.String(); s == "" {
@@ -716,7 +687,7 @@ func testApp(t *testing.T) {
 	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
 	}}} else if strings.Count(s, "-std=fxxbar") != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
+		ctx.err("%v", v)
 	}
 
 	if v := ctx.get(".test.3"); v == nil {
@@ -728,7 +699,7 @@ func testApp(t *testing.T) {
 	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v : %s ; %T %v", t, s, v, v)
 	}}} else if strings.Count(s, "-std=fxxbar") != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
+		ctx.err("%v", v)
 	}
 
 	if v := ctx.get(".test.4"); v == nil {
@@ -798,55 +769,600 @@ func testApp(t *testing.T) {
 	} else { for _, t := range foo6 { if n := strings.Count(s, t); n != 1 {
 		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
 	}}}
-
-	ctx.flush()
 }
 
-func checkLLVMConfig(ctx testcase, s string) {
-	if strings.Count(s, "FOO = $(.self)") != 1 {
-		ctx.Errorf("%s", s)
-	}
-}
+const testCxxincConfigLines = `
+_LIBCPP_ABI_VERSION = '2'
+_LIBCPP_ABI_NAMESPACE = '_extbit'
+_LIBCPP_ABI_DEFINES = ((plain c) '//TODO: #define ...')
+_LIBCPP_EXTRA_SITE_DEFINES = ((plain c) '//TODO: #define ...')
+_LIBCPP_HAS_MUSL_LIBC = no{}
+_LIBCPP_HAS_PARALLEL_ALGORITHMS = no{}
+_LIBCPP_PSTL_CPU_BACKEND_SERIAL = no{}
+_LIBCPP_PSTL_CPU_BACKEND_THREAD = yes{}
+_LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION = 1
+LIBCXX_ENABLE_FILESYSTEM = yes{}
+LIBCXX_ENABLE_FSTREAM = yes{}
+LIBCXX_ENABLE_LOCALIZATION = yes{}
+LIBCXX_ENABLE_THREADS = yes{}
+LIBCXX_ENABLE_WIDE_CHARACTERS = yes{}
+requires_LIBCXX_ENABLE_WIDE_CHARACTERS =
+requires_LIBCXX_ENABLE_FILESYSTEM =
+requires_LIBCXX_ENABLE_THREADS =
+requires_LIBCXX_ENABLE_LOCALIZATION =
+requires_LIBCXX_ENABLE_FSTREAM =
+`
 
-func testLLVMConfigConfigure(t *testing.T) {
-	var cl = init_commandline()
-	cl.configure = true
+const testCxxabiConfigLines = `
+LIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS = yes{}
+LIBCXXABI_ENABLE_EXCEPTIONS = yes{}
+LIBCXXABI_ENABLE_THREADS = yes{}
+`
 
-	var ctx = load_testcase(t, "testdata/modules/llvm/config", "", cl)
-	if ctx.Context == nil {
-		t.Errorf("configure fail")
-		return
-	}
-
-	defer assured(ctx, true)
-
-	var base, general *Project
-	var m = ctx.Project()
-	if m == nil {
-		ctx.Errorf("configure fail")
-		return
-	} else if len(m.bases) != 1 {
-		ctx.Errorf("bases: %v", m.bases)
-		return
-	} else if base = m.bases[0]; base.name != "llvm.Config" {
-		ctx.Errorf("base: %v", base)
-		return
+const testAppConfigLines = `
+VERSION = 0.0.1
+PACKAGE = extbit.app
+PACKAGE_NAME = 'app'
+PACKAGE_VERSION = 0.0.1
+PACKAGE_VENDOR = 'ExtBit LLC'
+PACKAGE_TARNAME = 'app'-0.0.1
+PACKAGE_STRING = "app-0.0.1"
+PACKAGE_URL = "https://extbit.dev/package/extbit.app/0.0.1"
+PACKAGE_BUGREPORT = "https://extbit.dev/package/extbit.app/0.0.1/bugs"
+HAVE_ALLOCA_H =
+HAVE_ARPA_INET_H =
+HAVE_ARPA_NAMESER_H =
+HAVE_ARPA_TFTP_H =
+HAVE_ASM_TYPES_H =
+HAVE_ASSERT_H =
+HAVE_ATOMIC_H =
+HAVE_BLUETOOTH_BLUETOOTH_H =
+HAVE_BLUETOOTH_H =
+HAVE_BSD_STDLIB_H =
+HAVE_BSD_STRING_H =
+HAVE_BSD_UNISTD_H =
+HAVE_COMPLEX_H =
+HAVE_CONIO_H =
+HAVE_CRASHREPORTERCLIENT_H =
+HAVE_CRYPT_H =
+HAVE_CTYPE_H =
+HAVE_CURSES_H =
+HAVE_DB_H =
+HAVE_DIRECT_H =
+HAVE_DIRENT_H =
+HAVE_DLFCN_H =
+HAVE_DL_H =
+HAVE_EDITLINE_READLINE_H =
+HAVE_ENDIAN_H =
+HAVE_ERRNO_H =
+HAVE_EXECINFO_H =
+HAVE_FCNTL_H =
+HAVE_FENV_H =
+HAVE_FFI_FFI_H =
+HAVE_FFI_H =
+HAVE_FLOAT_H =
+HAVE_FP_CLASS_H =
+HAVE_GDBM-NDBM_H =
+HAVE_GDBMERRNO_H =
+HAVE_GDBM_H =
+HAVE_GDBM_NDBM_H =
+HAVE_GRP_H =
+HAVE_IEEEFP_H =
+HAVE_IFADDRS_H =
+HAVE_INTRIN_H =
+HAVE_INTTYPES_H =
+HAVE_IO_H =
+HAVE_JEMALLOC_JEMALLOC_H =
+HAVE_LANGINFO_H =
+HAVE_LIBBSD =
+HAVE_LIBCRYPT =
+HAVE_LIBCURSES =
+HAVE_LIBDBM =
+HAVE_LIBDL =
+HAVE_LIBDLD =
+HAVE_LIBEDIT =
+HAVE_LIBGEN =
+HAVE_LIBGEN_H =
+HAVE_LIBHISTORY =
+HAVE_LIBIEEE =
+HAVE_LIBINTL =
+HAVE_LIBINTL_H =
+HAVE_LIBJEMALLOC =
+HAVE_LIBLZMA =
+HAVE_LIBNCURSES =
+HAVE_LIBNCURSESW =
+HAVE_LIBPFM =
+HAVE_LIBPSAPI =
+HAVE_LIBPTHREAD =
+HAVE_LIBREADLINE =
+HAVE_LIBRESOLV =
+HAVE_LIBRT =
+HAVE_LIBSENDFILE =
+HAVE_LIBTERMINFO =
+HAVE_LIBTINFO =
+HAVE_LIBUNWIND =
+HAVE_LIBUTIL =
+HAVE_LIBUUID =
+HAVE_LIBXAR =
+HAVE_LIBZ =
+HAVE_LIMITS_H =
+HAVE_LINK_H =
+HAVE_LINUX_CAN_BCM_H =
+HAVE_LINUX_CAN_H =
+HAVE_LINUX_CAN_J1939_H =
+HAVE_LINUX_CAN_RAW_H =
+HAVE_LINUX_CLOSE_RANGE_H =
+HAVE_LINUX_IF_ALG_H =
+HAVE_LINUX_MEMFD_H =
+HAVE_LINUX_NETLINK_H =
+HAVE_LINUX_QRTR_H =
+HAVE_LINUX_RANDOM_H =
+HAVE_LINUX_SOUNDCARD_H =
+HAVE_LINUX_TCP_H =
+HAVE_LINUX_TIPC_H =
+HAVE_LINUX_VM_SOCKETS_H =
+HAVE_LINUX_WAIT_H =
+HAVE_LOCALE_H =
+HAVE_LZMA_H =
+HAVE_MACH-O_DYLD_H =
+HAVE_MACH_MACH_H =
+HAVE_MACH_MACH_TIME_H =
+HAVE_MALLOC_H =
+HAVE_MALLOC_MALLOC_H =
+HAVE_MALLOC_NP_H =
+HAVE_MATH_H =
+HAVE_MBARRIER_H =
+HAVE_MEMORY_H =
+HAVE_MKDEV_H =
+HAVE_NCURSES_H =
+HAVE_NDBM_H =
+HAVE_NDIR_H =
+HAVE_NETDB_H =
+HAVE_NETINET_IN_H =
+HAVE_NETINET_TCP_H =
+HAVE_NETPACKET_PACKET_H =
+HAVE_NET_IF_H =
+HAVE_PERFMON_PERF_EVENT_H =
+HAVE_PERFMON_PFMLIB_H =
+HAVE_PERFMON_PFMLIB_PERF_EVENT_H =
+HAVE_POLL_H =
+HAVE_PROCESS_H =
+HAVE_PTHREAD_H =
+HAVE_PTY_H =
+HAVE_PWD_H =
+HAVE_READLINE_HISTORY_H =
+HAVE_READLINE_READLINE_H =
+HAVE_RESOLV_H =
+HAVE_SCHED_H =
+HAVE_SEMAPHORE_H =
+HAVE_SETJMP_H =
+HAVE_SHADOW_H =
+HAVE_SIGNAL_H =
+HAVE_SPAWN_H =
+HAVE_STDARG_H =
+HAVE_STDATOMIC_H =
+HAVE_STDBOOL_H =
+HAVE_STDDEF_H =
+HAVE_STDINT_H =
+HAVE_STDIO_H =
+HAVE_STDLIB_H =
+HAVE_STRINGS_H =
+HAVE_STRING_H =
+HAVE_STROPTS_H =
+HAVE_STRUCT_ADDRINFO =
+HAVE_STRUCT_PASSWD =
+HAVE_STRUCT_PASSWD_PW_GECOS =
+HAVE_STRUCT_PASSWD_PW_PASSWD =
+HAVE_STRUCT_SOCKADDR =
+HAVE_STRUCT_SOCKADDR_SA_LEN =
+HAVE_STRUCT_SOCKADDR_STORAGE =
+HAVE_STRUCT_SOCKADDR_STORAGE_SS_FAMILY =
+HAVE_STRUCT_SOCKADDR_STORAGE___SS_FAMILY =
+HAVE_STRUCT_STAT =
+HAVE_STRUCT_STATFS =
+HAVE_STRUCT_STATFS_F_FLAGS =
+HAVE_STRUCT_STATFS_F_FSTYPENAME =
+HAVE_STRUCT_STATVFS =
+HAVE_STRUCT_STATVFS_F_FLAGS =
+HAVE_STRUCT_STATVFS_F_FSTYPENAME =
+HAVE_STRUCT_STAT_ST_ATIMESPEC_TV_NSEC =
+HAVE_STRUCT_STAT_ST_ATIM_NSEC =
+HAVE_STRUCT_STAT_ST_ATIM_TV_NSEC =
+HAVE_STRUCT_STAT_ST_BIRTHTIME =
+HAVE_STRUCT_STAT_ST_BLKSIZE =
+HAVE_STRUCT_STAT_ST_BLOCKS =
+HAVE_STRUCT_STAT_ST_CTIMESPEC_TV_NSEC =
+HAVE_STRUCT_STAT_ST_CTIM_NSEC =
+HAVE_STRUCT_STAT_ST_CTIM_TV_NSEC =
+HAVE_STRUCT_STAT_ST_FLAGS =
+HAVE_STRUCT_STAT_ST_GEN =
+HAVE_STRUCT_STAT_ST_MTIMESPEC_TV_NSEC =
+HAVE_STRUCT_STAT_ST_MTIM_NSEC =
+HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC =
+HAVE_STRUCT_STAT_ST_RDEV =
+HAVE_STRUCT_TIMEVAL =
+HAVE_STRUCT_TIMEVAL_TV_SEC =
+HAVE_STRUCT_TIMEVAL_TV_USEC =
+HAVE_STRUCT_TM =
+HAVE_STRUCT_TM_TM_ZONE =
+HAVE_SYSEXITS_H =
+HAVE_SYSMACROS_H =
+HAVE_SYS_AUDIOIO_H =
+HAVE_SYS_AUDIO_H =
+HAVE_SYS_BSDTTY_H =
+HAVE_SYS_DEVPOLL_H =
+HAVE_SYS_DIR_H =
+HAVE_SYS_ENDIAN_H =
+HAVE_SYS_EPOLL_H =
+HAVE_SYS_EVENTFD_H =
+HAVE_SYS_EVENT_H =
+HAVE_SYS_FILE_H =
+HAVE_SYS_FILIO_H =
+HAVE_SYS_IOCTL_H =
+HAVE_SYS_KERN_CONTROL_H =
+HAVE_SYS_LOADAVG_H =
+HAVE_SYS_LOCK_H =
+HAVE_SYS_MEMFD_H =
+HAVE_SYS_MKDEV_H =
+HAVE_SYS_MMAN_H =
+HAVE_SYS_MODEM_H =
+HAVE_SYS_MOUNT_H =
+HAVE_SYS_NDIR_H =
+HAVE_SYS_PARAM_H =
+HAVE_SYS_POLLSET_H =
+HAVE_SYS_POLL_H =
+HAVE_SYS_RANDOM_H =
+HAVE_SYS_RESOURCE_H =
+HAVE_SYS_SELECT_H =
+HAVE_SYS_SENDFILE_H =
+HAVE_SYS_SOCKET_H =
+HAVE_SYS_SOCKIO_H =
+HAVE_SYS_SOUNDCARD_H =
+HAVE_SYS_STATFS_H =
+HAVE_SYS_STATVFS_H =
+HAVE_SYS_STAT_H =
+HAVE_SYS_SYSCALL_H =
+HAVE_SYS_SYSMACROS_H =
+HAVE_SYS_SYS_DOMAIN_H =
+HAVE_SYS_TERMIO_H =
+HAVE_SYS_TIMEB_H =
+HAVE_SYS_TIMES_H =
+HAVE_SYS_TIME_H =
+HAVE_SYS_TYPES_H =
+HAVE_SYS_UIO_H =
+HAVE_SYS_UN_H =
+HAVE_SYS_UTIME_H =
+HAVE_SYS_UTSNAME_H =
+HAVE_SYS_VFS_H =
+HAVE_SYS_WAIT_H =
+HAVE_SYS_XATTR_H =
+HAVE_TERMIOS_H =
+HAVE_TERMIO_H =
+HAVE_TERM_H =
+HAVE_TIME_H =
+HAVE_TYPE_ATOMIC_INT =
+HAVE_TYPE_ATOMIC_UINTPTR_T =
+HAVE_TYPE_BLKCNT_T =
+HAVE_TYPE_BLKSIZE_T =
+HAVE_TYPE_BOOL =
+HAVE_TYPE_CHAR =
+HAVE_TYPE_CLOCKID_T =
+HAVE_TYPE_CLOCK_T =
+HAVE_TYPE_CONST_CHAR =
+HAVE_TYPE_DEV_T =
+HAVE_TYPE_DOUBLE =
+HAVE_TYPE_FLOAT =
+HAVE_TYPE_FPOS_T =
+HAVE_TYPE_FSBLKCNT_T =
+HAVE_TYPE_FSFILCNT_T =
+HAVE_TYPE_GID_T =
+HAVE_TYPE_ID_T =
+HAVE_TYPE_INO_T =
+HAVE_TYPE_INT =
+HAVE_TYPE_KEY_T =
+HAVE_TYPE_LONG =
+HAVE_TYPE_LONG_DOUBLE =
+HAVE_TYPE_LONG_LONG =
+HAVE_TYPE_MODE_T =
+HAVE_TYPE_NLINK_T =
+HAVE_TYPE_OFF_T =
+HAVE_TYPE_PID_T =
+HAVE_TYPE_PTHREAD_ATTR_T =
+HAVE_TYPE_PTHREAD_CONDATTR_T =
+HAVE_TYPE_PTHREAD_COND_T =
+HAVE_TYPE_PTHREAD_KEY_T =
+HAVE_TYPE_PTHREAD_MUTEXATTR_T =
+HAVE_TYPE_PTHREAD_MUTEX_T =
+HAVE_TYPE_PTHREAD_ONCE_T =
+HAVE_TYPE_PTHREAD_RWLOCKATTR_T =
+HAVE_TYPE_PTHREAD_RWLOCK_T =
+HAVE_TYPE_PTHREAD_T =
+HAVE_TYPE_PTRDIFF_T =
+HAVE_TYPE_SA_FAMILY_T =
+HAVE_TYPE_SHORT =
+HAVE_TYPE_SIGINFO_T =
+HAVE_TYPE_SIGNED_CHAR =
+HAVE_TYPE_SIZE_T =
+HAVE_TYPE_SOCKLEN_T =
+HAVE_TYPE_SSIZE_T =
+HAVE_TYPE_SUSECONDS_T =
+HAVE_TYPE_TIMER_T =
+HAVE_TYPE_TIME_T =
+HAVE_TYPE_UID_T =
+HAVE_TYPE_UINT32_T =
+HAVE_TYPE_UINT64_T =
+HAVE_TYPE_UINTPTR_T =
+HAVE_TYPE_USECONDS_T =
+HAVE_TYPE_VOID_P =
+HAVE_TYPE_WCHAR_T =
+HAVE_TYPE__BOOL =
+HAVE_TYPE___INT64 =
+HAVE_TYPE___INT64_T =
+HAVE_UNISTD_H =
+HAVE_UNWIND_H =
+HAVE_UTIL_H =
+HAVE_UTIME_H =
+HAVE_UTMP_H =
+HAVE_UUID_H =
+HAVE_UUID_UUID_H =
+HAVE_VALGRIND_VALGRIND_H =
+HAVE_WCHAR_H =
+HAVE_ZLIB_H =
+ALIGNOF_ATOMIC_INT =
+ALIGNOF_ATOMIC_INT_CODE =
+ALIGNOF_ATOMIC_UINTPTR_T =
+ALIGNOF_ATOMIC_UINTPTR_T_CODE =
+ALIGNOF_BLKCNT_T =
+ALIGNOF_BLKCNT_T_CODE =
+ALIGNOF_BLKSIZE_T =
+ALIGNOF_BLKSIZE_T_CODE =
+ALIGNOF_BOOL =
+ALIGNOF_BOOL_CODE =
+ALIGNOF_CHAR =
+ALIGNOF_CHAR_CODE =
+ALIGNOF_CLOCKID_T =
+ALIGNOF_CLOCKID_T_CODE =
+ALIGNOF_CLOCK_T =
+ALIGNOF_CLOCK_T_CODE =
+ALIGNOF_CONST_CHAR =
+ALIGNOF_CONST_CHAR_CODE =
+ALIGNOF_DEV_T =
+ALIGNOF_DEV_T_CODE =
+ALIGNOF_DOUBLE =
+ALIGNOF_DOUBLE_CODE =
+ALIGNOF_FLOAT =
+ALIGNOF_FLOAT_CODE =
+ALIGNOF_FPOS_T =
+ALIGNOF_FPOS_T_CODE =
+ALIGNOF_FSBLKCNT_T =
+ALIGNOF_FSBLKCNT_T_CODE =
+ALIGNOF_FSFILCNT_T =
+ALIGNOF_FSFILCNT_T_CODE =
+ALIGNOF_GID_T =
+ALIGNOF_GID_T_CODE =
+ALIGNOF_ID_T =
+ALIGNOF_ID_T_CODE =
+ALIGNOF_INO_T =
+ALIGNOF_INO_T_CODE =
+ALIGNOF_INT =
+ALIGNOF_INT_CODE =
+ALIGNOF_KEY_T =
+ALIGNOF_KEY_T_CODE =
+ALIGNOF_LONG =
+ALIGNOF_LONG_CODE =
+ALIGNOF_LONG_DOUBLE =
+ALIGNOF_LONG_DOUBLE_CODE =
+ALIGNOF_LONG_LONG =
+ALIGNOF_LONG_LONG_CODE =
+ALIGNOF_MODE_T =
+ALIGNOF_MODE_T_CODE =
+ALIGNOF_NLINK_T =
+ALIGNOF_NLINK_T_CODE =
+ALIGNOF_OFF_T =
+ALIGNOF_OFF_T_CODE =
+ALIGNOF_PID_T =
+ALIGNOF_PID_T_CODE =
+ALIGNOF_PTHREAD_ATTR_T =
+ALIGNOF_PTHREAD_ATTR_T_CODE =
+ALIGNOF_PTHREAD_CONDATTR_T =
+ALIGNOF_PTHREAD_CONDATTR_T_CODE =
+ALIGNOF_PTHREAD_COND_T =
+ALIGNOF_PTHREAD_COND_T_CODE =
+ALIGNOF_PTHREAD_KEY_T =
+ALIGNOF_PTHREAD_KEY_T_CODE =
+ALIGNOF_PTHREAD_MUTEXATTR_T =
+ALIGNOF_PTHREAD_MUTEXATTR_T_CODE =
+ALIGNOF_PTHREAD_MUTEX_T =
+ALIGNOF_PTHREAD_MUTEX_T_CODE =
+ALIGNOF_PTHREAD_ONCE_T =
+ALIGNOF_PTHREAD_ONCE_T_CODE =
+ALIGNOF_PTHREAD_RWLOCKATTR_T =
+ALIGNOF_PTHREAD_RWLOCKATTR_T_CODE =
+ALIGNOF_PTHREAD_RWLOCK_T =
+ALIGNOF_PTHREAD_RWLOCK_T_CODE =
+ALIGNOF_PTHREAD_T =
+ALIGNOF_PTHREAD_T_CODE =
+ALIGNOF_PTRDIFF_T =
+ALIGNOF_PTRDIFF_T_CODE =
+ALIGNOF_SA_FAMILY_T =
+ALIGNOF_SA_FAMILY_T_CODE =
+ALIGNOF_SHORT =
+ALIGNOF_SHORT_CODE =
+ALIGNOF_SIGINFO_T =
+ALIGNOF_SIGINFO_T_CODE =
+ALIGNOF_SIGNED_CHAR =
+ALIGNOF_SIGNED_CHAR_CODE =
+ALIGNOF_SIZE_T =
+ALIGNOF_SIZE_T_CODE =
+ALIGNOF_SOCKLEN_T =
+ALIGNOF_SOCKLEN_T_CODE =
+ALIGNOF_SSIZE_T =
+ALIGNOF_SSIZE_T_CODE =
+ALIGNOF_SUSECONDS_T =
+ALIGNOF_SUSECONDS_T_CODE =
+ALIGNOF_TIMER_T =
+ALIGNOF_TIMER_T_CODE =
+ALIGNOF_TIME_T =
+ALIGNOF_TIME_T_CODE =
+ALIGNOF_UID_T =
+ALIGNOF_UID_T_CODE =
+ALIGNOF_UINT32_T =
+ALIGNOF_UINT32_T_CODE =
+ALIGNOF_UINT64_T =
+ALIGNOF_UINT64_T_CODE =
+ALIGNOF_UINTPTR_T =
+ALIGNOF_UINTPTR_T_CODE =
+ALIGNOF_USECONDS_T =
+ALIGNOF_USECONDS_T_CODE =
+ALIGNOF_VOID_P =
+ALIGNOF_VOID_P_CODE =
+ALIGNOF_WCHAR_T =
+ALIGNOF_WCHAR_T_CODE =
+ALIGNOF__BOOL =
+ALIGNOF__BOOL_CODE =
+ALIGNOF___INT64 =
+ALIGNOF___INT64_CODE =
+ALIGNOF___INT64_T =
+ALIGNOF___INT64_T_CODE =
+SIZEOF_ATOMIC_INT =
+SIZEOF_ATOMIC_INT_CODE =
+SIZEOF_ATOMIC_UINTPTR_T =
+SIZEOF_ATOMIC_UINTPTR_T_CODE =
+SIZEOF_BLKCNT_T =
+SIZEOF_BLKCNT_T_CODE =
+SIZEOF_BLKSIZE_T =
+SIZEOF_BLKSIZE_T_CODE =
+SIZEOF_BOOL =
+SIZEOF_BOOL_CODE =
+SIZEOF_CHAR =
+SIZEOF_CHAR_CODE =
+SIZEOF_CLOCKID_T =
+SIZEOF_CLOCKID_T_CODE =
+SIZEOF_CLOCK_T =
+SIZEOF_CLOCK_T_CODE =
+SIZEOF_CONST_CHAR =
+SIZEOF_CONST_CHAR_CODE =
+SIZEOF_DEV_T =
+SIZEOF_DEV_T_CODE =
+SIZEOF_DOUBLE =
+SIZEOF_DOUBLE_CODE =
+SIZEOF_FLOAT =
+SIZEOF_FLOAT_CODE =
+SIZEOF_FPOS_T =
+SIZEOF_FPOS_T_CODE =
+SIZEOF_FSBLKCNT_T =
+SIZEOF_FSBLKCNT_T_CODE =
+SIZEOF_FSFILCNT_T =
+SIZEOF_FSFILCNT_T_CODE =
+SIZEOF_GID_T =
+SIZEOF_GID_T_CODE =
+SIZEOF_ID_T =
+SIZEOF_ID_T_CODE =
+SIZEOF_INO_T =
+SIZEOF_INO_T_CODE =
+SIZEOF_INT =
+SIZEOF_INT_CODE =
+SIZEOF_KEY_T =
+SIZEOF_KEY_T_CODE =
+SIZEOF_LONG =
+SIZEOF_LONG_CODE =
+SIZEOF_LONG_DOUBLE =
+SIZEOF_LONG_DOUBLE_CODE =
+SIZEOF_LONG_LONG =
+SIZEOF_LONG_LONG_CODE =
+SIZEOF_MODE_T =
+SIZEOF_MODE_T_CODE =
+SIZEOF_NLINK_T =
+SIZEOF_NLINK_T_CODE =
+SIZEOF_OFF_T =
+SIZEOF_OFF_T_CODE =
+SIZEOF_PID_T =
+SIZEOF_PID_T_CODE =
+SIZEOF_PTHREAD_ATTR_T =
+SIZEOF_PTHREAD_ATTR_T_CODE =
+SIZEOF_PTHREAD_CONDATTR_T =
+SIZEOF_PTHREAD_CONDATTR_T_CODE =
+SIZEOF_PTHREAD_COND_T =
+SIZEOF_PTHREAD_COND_T_CODE =
+SIZEOF_PTHREAD_KEY_T =
+SIZEOF_PTHREAD_KEY_T_CODE =
+SIZEOF_PTHREAD_MUTEXATTR_T =
+SIZEOF_PTHREAD_MUTEXATTR_T_CODE =
+SIZEOF_PTHREAD_MUTEX_T =
+SIZEOF_PTHREAD_MUTEX_T_CODE =
+SIZEOF_PTHREAD_ONCE_T =
+SIZEOF_PTHREAD_ONCE_T_CODE =
+SIZEOF_PTHREAD_RWLOCKATTR_T =
+SIZEOF_PTHREAD_RWLOCKATTR_T_CODE =
+SIZEOF_PTHREAD_RWLOCK_T =
+SIZEOF_PTHREAD_RWLOCK_T_CODE =
+SIZEOF_PTHREAD_T =
+SIZEOF_PTHREAD_T_CODE =
+SIZEOF_PTRDIFF_T =
+SIZEOF_PTRDIFF_T_CODE =
+SIZEOF_SA_FAMILY_T =
+SIZEOF_SA_FAMILY_T_CODE =
+SIZEOF_SHORT =
+SIZEOF_SHORT_CODE =
+SIZEOF_SIGINFO_T =
+SIZEOF_SIGINFO_T_CODE =
+SIZEOF_SIGNED_CHAR =
+SIZEOF_SIGNED_CHAR_CODE =
+SIZEOF_SIZE_T =
+SIZEOF_SIZE_T_CODE =
+SIZEOF_SOCKLEN_T =
+SIZEOF_SOCKLEN_T_CODE =
+SIZEOF_SSIZE_T =
+SIZEOF_SSIZE_T_CODE =
+SIZEOF_SUSECONDS_T =
+SIZEOF_SUSECONDS_T_CODE =
+SIZEOF_TIMER_T =
+SIZEOF_TIMER_T_CODE =
+SIZEOF_TIME_T =
+SIZEOF_TIME_T_CODE =
+SIZEOF_UID_T =
+SIZEOF_UID_T_CODE =
+SIZEOF_UINT32_T =
+SIZEOF_UINT32_T_CODE =
+SIZEOF_UINT64_T =
+SIZEOF_UINT64_T_CODE =
+SIZEOF_UINTPTR_T =
+SIZEOF_UINTPTR_T_CODE =
+SIZEOF_USECONDS_T =
+SIZEOF_USECONDS_T_CODE =
+SIZEOF_VOID_P =
+SIZEOF_VOID_P_CODE =
+SIZEOF_WCHAR_T =
+SIZEOF_WCHAR_T_CODE =
+SIZEOF__BOOL =
+SIZEOF__BOOL_CODE =
+SIZEOF___INT64 =
+SIZEOF___INT64_CODE =
+SIZEOF___INT64_T =
+SIZEOF___INT64_T_CODE =
+`
+func testLLVMConfig1(ctx *testcase) {
+	var proj, base, general *Project
+	if proj = ctx.Project(); proj == nil {
+		ctx.err("configure fail")
+	} else if len(proj.bases) != 1 {
+		ctx.err("bases: %v", proj.bases)
+	} else if base = proj.bases[0]; base.name != "llvm.Config" {
+		ctx.err("base: %v", base)
 	} else if base.configure == nil {
-		ctx.Errorf("configure fail")
-		return
+		ctx.err("configure fail")
 	} else if f := file(ctx, ".configure/type/test.c", base.configure); f == nil {
-		ctx.Errorf("file .configure/type/test.c")
-		return
-	} else if f := file(ctx, ".configure/type/xxx/test.c", base.configure); f == nil {
-		ctx.Errorf("file .configure/type/xxx/test.c")
-		return
-	} else if f := file(ctx, ".configure/type/xxx/yyy/test.c", base.configure); f == nil {
-		ctx.Errorf("file .configure/type/xxx/yyy/test.c")
-		return
-	}
-
-	if o := m.resolveObject(ctx, "general"); o == nil {
-		ctx.Errorf("general")
+		ctx.err("file .configure/type/test.c")
+	} else if f := file(ctx, ".configure/type/align/test.c", base.configure); f == nil {
+		ctx.err("file .configure/type/test.c")
+	} else if f := file(ctx, ".configure/type/size/test.c", base.configure); f == nil {
+		ctx.err("file .configure/type/test.c")
+	} else if f := file(ctx, ".configure/type/xxx/test.c", base.configure); f != nil {
+		ctx.err("file .configure/type/xxx/test.c")
+	} else if f := file(ctx, ".configure/type/xxx/yyy/test.c", base.configure); f != nil {
+		ctx.err("file .configure/type/xxx/yyy/test.c")
+	} else if o := proj.resolve(ctx, "general"); o == nil {
+		ctx.err("general")
 	} else if p, y := o.(*projectname); !y {
 		ctx.err("%T %v", o, o)
 	} else {
@@ -854,10 +1370,10 @@ func testLLVMConfigConfigure(t *testing.T) {
 	}
 
 	if v := ctx.get("/"); v == nil {
-		ctx.Errorf("/")
-	} else if v.String() != m.absPath {
+		ctx.err("/")
+	} else if s := v.String(); s != proj.absPath {
 		ctx.err("%T %v", v, v)
-	} else if s := v.string(ctx); s != m.absPath {
+	} else if s := v.string(ctx); s != proj.absPath {
 		ctx.err("%T %v %s", v, v, s)
 	} else if _, y := v.(*Path); !y {
 		ctx.err("%T %v", v, v)
@@ -867,83 +1383,98 @@ func testLLVMConfigConfigure(t *testing.T) {
 		filepath.Dir(general.absPath),
 		filepath.Dir(filepath.Dir(general.absPath)),
 		filepath.Dir(filepath.Dir(filepath.Dir(general.absPath))))
+
 	if v := ctx.get("rel.chop"); v == nil { // from general
-		ctx.Errorf("rel.chop")
+		ctx.err("rel.chop")
 	} else if !strings.HasSuffix(v.String(), chop) {
 		ctx.err("%T %v", v, v)
 	}
 
 	var remnant = ctx.get("rel.remnant")
 	if v := remnant; v == nil {
-		ctx.Errorf("rel.remnant")
-	} else if v.String() != "&(trim-prefix &(rel.chop),&/)" { // from general
+		ctx.err("rel.remnant")
+	} else if s := v.String(); s != "$(trim-prefix &(rel.chop),&/)" { // from general
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if _, y := v.(unexpanded); !y {
+	} else if _, y := v.(*delegate); !y {
 		ctx.err("%T %v", v, v)
 	}
 
 	var cc1 = closureWith(ctx, base.configure.scope, base.scope)
 	var cc2 = closureWith(ctx, base.scope, base.configure.scope)
 	if v := remnant; v == nil {
-		ctx.Errorf("remnant")
+		ctx.err("remnant")
 	} else if s := v.string(cc1); s == "" {
 		ctx.err("%T %v", v, v)
 	}
 
 	if d := base.resolveDef(cc1, "rel.remnant"); d == nil {
-		ctx.Errorf("rel.remnant")
+		ctx.err("rel.remnant")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if v.String() != "&(trim-prefix &(rel.chop),&/)" { // from general
+	} else if v.String() != "$(trim-prefix &(rel.chop),&/)" { // from general
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(cc1); s == "" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(cc2); s == "" {
 		ctx.err("%T %v", v, v)
-	} else if _, y := v.(unexpanded); !y {
+	} else if _, y := v.(*delegate); !y {
 		ctx.err("%T %v", v, v)
 	}
 
-	p1 := strings.Split(m.absPath,PathSep)
-	p2 := strings.Split(base.absPath,PathSep)
-	t1 := filepath.Join(append(p1[len(p1)-4:], configuration_sm)...)
-	t2 := filepath.Join(append(p2[len(p2)-2:], configuration_sm)...)
+	p1 := strings.Split(proj.absPath,PathSep)
+	// p2 := strings.Split(base.absPath,PathSep)
+	t1 := strings.Join(append(p1[len(p1)-4:], configuration_sm),PathSep)
+	// t2 := strings.Join(append(p2[len(p2)-2:], configuration_sm),PathSep)
 
-	if f := m.tempFile(ctx, configuration_sm); f == nil {
-		ctx.err("%v: nil %s", m, configuration_sm)
-	} else if s1, s2 := f.fullname(), base.configurationFile.fullname(); s1 == s2 {
-		erro(ctx, "%v: %v: %v", m, base, s1)
-		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
-		ctx.Errorf("%v: %v", m, base)
-	} else if s1 != t1 {
-		ctx.Errorf("%v: %v", m, s1)
-	} else if s2 != t2 {
-		ctx.Errorf("%v: %v", m, s2)
+	var outtmp string
+	if v := ctx.get("outtmp"); v == nil {
+		ctx.err("%T %v", v, v)
+	} else if outtmp = v.string(ctx); outtmp == "" {
+		ctx.err("%T %v", v, v)
 	}
+
+	if f := proj.tempFile(ctx, configuration_sm); f == nil {
+		ctx.err("%v: nil %s", proj, configuration_sm)
+	} else if s1 := f.fullname(); !filepath.IsAbs(s1) {
+		ctx.err("%v: %v", f, base)
+	} else if s2 := base.configurationFile.fullname(); !filepath.IsAbs(s2) {
+		ctx.err("%v: %v", f, base)
+	} else if s1 == s2 {
+		ctx.err("%v: %v %v", f, s1, s2)
+	} else if s1 != strings.Join([]string{outtmp, configuration_sm}, PathSep) {
+		ctx.err("%v: %v %v %v", f, s1, outtmp, t1)
+		// } else if s2 != strings.Join([]string{r2, configuration_sm}, PathSep) {
+		// 	ctx.err("%v: %v %v %v", f, s2, r2, t2)
+	}
+
 	if f := base.tempFile(ctx, configuration_sm); f == nil {
-		ctx.err("%v: nil %s", m, configuration_sm)
-	} else if s1, s2 := f.fullname(), base.configurationFile.fullname(); s1 == s2 {
-		erro(ctx, "%v: %v: %v", m, base, s1)
-		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
-		ctx.Errorf("%v: %v", m, base)
-	} else if s1 != t1 {
-		ctx.Errorf("%v: %v", m, s1)
-	} else if s2 != t2 {
-		ctx.Errorf("%v: %v", m, s2)
+		ctx.err("%v: nil %s", proj, configuration_sm)
+	} else if s1 := f.fullname(); !filepath.IsAbs(s1) {
+		ctx.err("%v: %v", f, base)
+	} else if s2 := base.configurationFile.fullname(); !filepath.IsAbs(s2) {
+		ctx.err("%v: %v", f, base)
+	} else if s1 == s2 {
+		ctx.err("%v: %v %v", f, s1, s2)
+	} else if s1 != strings.Join([]string{outtmp, configuration_sm}, PathSep) {
+		ctx.err("%v: %v %v %v", f, s1, outtmp, t1)
+		// } else if s2 != strings.Join([]string{r2, configuration_sm}, PathSep) {
+		// 	ctx.err("%v: %v %v %v", f, s2, r2, t2)
 	}
 
 	if f := base.configuration(cc1); f == nil {
-		ctx.err("%v: %v: nil configuration", m, base)
-	} else if s1, s2 := f.fullname(), base.configurationFile.fullname(); s1 == s2 {
-		erro(ctx, "%v: %v: %v", m, base, s1)
-		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
-		ctx.Errorf("%v: %v", m, base)
-	} else if s1 != t1 {
-		ctx.Errorf("%v: %v", m, s1)
-	} else if s2 != t2 {
-		ctx.Errorf("%v: %v", m, s2)
+		ctx.err("%v: %v: nil configuration", proj, base)
+	} else if s1 := f.fullname(); !filepath.IsAbs(s1) {
+		ctx.err("%v: %v", f, base)
+	} else if s2 := base.configurationFile.fullname(); !filepath.IsAbs(s2) {
+		ctx.err("%v: %v", f, base)
+	} else if s1 == s2 {
+		ctx.err("%v: %v %v", f, s1, s2)
+	} else if s1 != strings.Join([]string{outtmp, configuration_sm}, PathSep) {
+		ctx.err("%v: %v %v %v", f, s1, outtmp, t1)
+		// } else if s2 != strings.Join([]string{r2, configuration_sm}, PathSep) {
+		// 	ctx.err("%v: %v %v %v", f, s2, r2, t2)
 	}
 
 	if v := ctx.get("val1"); v == nil {
@@ -951,14 +1482,15 @@ func testLLVMConfigConfigure(t *testing.T) {
 	} else if s := v.String(); s != base.configurationFile.name(ctx) {
 		ctx.err("%v , %v", v, base.configurationFile.name(ctx))
 	} else if s1, s2 := v.string(ctx), base.configurationFile.fullname(); s1 == s2 {
-		erro(ctx, "%v: %v: %v", m, base, s1)
-		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
-		ctx.Errorf("%v: %v", m, base)
-	} else if s1 != t1 {
-		ctx.Errorf("%v: %v", m, s1)
-	} else if s2 != t2 {
-		ctx.Errorf("%v: %v", m, s2)
+		erro(ctx, "%v: %v: %v", proj, base, s1)
+		erro(ctx, "%v: %v: %v", proj, base, s2).debug(1)
+		ctx.err("%v: %v", proj, base)
+	} else if s1 != strings.Join([]string{outtmp, configuration_sm}, PathSep) {
+		ctx.err("%v: %v %v %v", v, s1, outtmp, t1)
+		// } else if s2 != strings.Join([]string{r2, configuration_sm}, PathSep) {
+		// 	ctx.err("%v: %v %v %v", f, s2, r2, t2)
 	}
+
 	if v := ctx.get("val2"); v == nil {
 		ctx.err("val2")
 	} else if s := v.String(); s != base.configurationFile.name(ctx) {
@@ -966,43 +1498,110 @@ func testLLVMConfigConfigure(t *testing.T) {
 	} else if f, y := v.(*File); !y {
 		ctx.err("%T %v", v, v)
 	} else if s1, s2 := f.fullname(), base.configurationFile.fullname(); s1 == s2 {
-		erro(ctx, "%v: %v: %v", m, base, s1)
-		erro(ctx, "%v: %v: %v", m, base, s2).debug(1)
-		ctx.Errorf("%v: %v", m, base)
-	} else if s1 != t1 {
-		ctx.Errorf("%v: %v", m, s1)
-	} else if s2 != t2 {
-		ctx.Errorf("%v: %v", m, s2)
+		erro(ctx, "%v: %v: %v", proj, base, s1)
+		erro(ctx, "%v: %v: %v", proj, base, s2).debug(1)
+		ctx.err("%v: %v", proj, base)
+	} else if s1 != strings.Join([]string{outtmp, configuration_sm}, PathSep) {
+		ctx.err("%v: %v %v %v", v, s1, outtmp, t1)
+		// } else if s2 != strings.Join([]string{r2, configuration_sm}, PathSep) {
+		// 	ctx.err("%v: %v %v %v", f, s2, r2, t2)
 	}
-
-	var rm func(*Project)
-	rm = func(p *Project) {
-		if f := p.configurationFile; f == nil {
-			// skip
-		} else if s := f.fullname(); s == "" {
-			ctx.err("%v", f)
-		} else if e := os.RemoveAll(s); e != nil {
-			ctx.err("%v", e)
-		} else if e := os.RemoveAll(filepath.Join(filepath.Dir(s),".configure")); e != nil {
-			ctx.err("%v", e)
-		} else if false {
-			noted(ctx, "%v", s).debug(1)
-		}
-		for _, base := range p.bases { rm(base) }
-	}
-	rm(ctx.Project())
 
 	ctx.universe().configure(ctx)
 
-	if f := base.configurationFile; f == nil {
-		ctx.err("%v: nil configuration", base)
-	} else if i, e := os.Stat(f.fullname()); e != nil {
-		ctx.err("%s: %v", configuration_sm, e)
+	if s := filepath.Join(outtmp, "lib", "c++inc"); s == "" {
+		ctx.err("%s", s)
+	} else if i, e := os.Stat(s); e != nil {
+		ctx.err("%v", e)
 	} else if i == nil {
-		ctx.err("missing %s", f.fullname())
+		ctx.err("missing %s", s)
+	} else if b, e := ioutil.ReadFile(s); e != nil {
+		ctx.err("%v", e)
+	} else if s := string(b); s == "" {
+		ctx.err("%s", s)
+	} else {
+		lines := testCxxincConfigLines // TODO: specific lines for different OS
+		for i, l := range strings.Split(lines, "\n") {
+			if l != "" && strings.Count(s, l) != 1 { ctx.err("%d. %s", i, l) }
+			if n := strings.Index(l, " "); n <= 0 { ctx.err("%d. %s", i, l)	} else {
+				if name := strings.TrimSpace(l[:n]); name == "" {
+					ctx.err("%d. %s", i, l)
+				} else if strings.HasPrefix(name, "ALIGNOF_") && !strings.HasSuffix(name, "_CODE") {
+					ctx.err("%d. %s", i, l)
+				} else if strings.HasPrefix(name, "ALIGNOF_") &&  strings.HasSuffix(name, "_CODE") {
+					ctx.err("%d. %s", i, l)
+				} else if strings.HasPrefix(name, "SIZEOF_") && !strings.HasSuffix(name, "_CODE") {
+					ctx.err("%d. %s", i, l)
+				} else if strings.HasPrefix(name, "SIZEOF_") &&  strings.HasSuffix(name, "_CODE") {
+					ctx.err("%d. %s", i, l)
+				} else if strings.HasPrefix(name, "HAVE_LIB") {
+					ctx.err("%d. %s", i, l)
+				} else if strings.HasPrefix(name, "HAVE_STRUCT_") {
+					ctx.err("%d. %s", i, l)
+				} else if strings.HasPrefix(name, "HAVE_TYPE_") {
+					ctx.err("%d. %s", i, l)
+				} else if strings.HasPrefix(name, "HAVE_") && strings.HasSuffix(name, "_H") {
+					ctx.err("%d. %s", i, l)
+				} else {
+					ctx.err("%d. %s", i, l)
+				}
+			}
+		}
 	}
 
-	if o := base.configure.resolveObject(ctx, "outtmp"); o == nil {
+	if s := filepath.Join(outtmp, "lib", "c++abi"); s == "" {
+		ctx.err("%s", s)
+	} else if i, e := os.Stat(s); e != nil {
+		ctx.err("%v", e)
+	} else if i == nil {
+		ctx.err("missing %s", s)
+	} else if b, e := ioutil.ReadFile(s); e != nil {
+		ctx.err("%v", e)
+	} else if s := string(b); s == "" {
+		ctx.err("%s", s)
+	} else {
+		lines := testCxxabiConfigLines // TODO: specific lines for different OS
+		for i, l := range strings.Split(lines, "\n") {
+			if l != "" && strings.Count(s, l) != 1 { ctx.err("%d. %s", i, l) }
+		}
+	}
+
+	if s := filepath.Join(outtmp, "app"); s == "" {
+		ctx.err("%s", s)
+	} else if i, e := os.Stat(s); e != nil {
+		ctx.err("%v", e)
+	} else if i == nil {
+		ctx.err("missing %s", s)
+	} else if b, e := ioutil.ReadFile(s); e != nil {
+		ctx.err("%v", e)
+	} else if s := string(b); s == "" {
+		ctx.err("%s", s)
+	} else {
+		lines := testAppConfigLines // TODO: app configs for different OS
+		for i, l := range strings.Split(lines, "\n") {
+			if l != "" && strings.Count(s, l) != 1 { ctx.err("%d. %s", i, l) }
+		}
+	}
+
+	if f := base.configurationFile; f == nil {
+		ctx.err("%v: nil configuration", base)
+	} else if s := f.fullname(); s == "" {
+		ctx.err("%v", f)
+	} else if i, e := os.Stat(s); e != nil {
+		ctx.err("%s: %v", configuration_sm, e)
+	} else if i == nil {
+		ctx.err("missing %s", s)
+	} else if b, e := ioutil.ReadFile(s); e != nil {
+		ctx.err("%v", e)
+	} else if s := string(b); s == "" {
+		ctx.err("%s", s)
+	} else if !strings.Contains(s, "FOO1 = yes{}")  {
+		ctx.err("%s", b)
+	} else if true {
+		noted(ctx, "%v\n%s", f.fullname(), b).debug(1)
+	}
+
+	if o := base.configure.resolve(ctx, "outtmp"); o == nil {
 		ctx.err("outtmp: %v", base.configure)
 	} else if outtmp, y := o.(*def); !y || outtmp.value == nil {
 		ctx.err("outtmp: %T %v", o, o)
@@ -1011,27 +1610,12 @@ func testLLVMConfigConfigure(t *testing.T) {
 	} else if s := filepath.Join(outtmp.string(cc1), configuration_sm); s != base.configurationFile.fullname() {
 		ctx.err("outtmp: %v != %v", s, base.configurationFile.fullname())
 	} else if b, e := ioutil.ReadFile(s); e != nil {
-		ctx.Errorf("%v", e)
-	} else {
-		checkLLVMConfig(ctx, string(b))
+		ctx.err("%v", e)
+	} else if s := string(b); s == "" {
+		ctx.err("%v", outtmp.value)
+	} else if strings.Count(s, "FOO = $(.self)") != 1 {
+		ctx.err("%v %s", outtmp.value, s)
 	}
-
-	ctx.flush()
-}
-
-func testLLVMConfig(t *testing.T) {
-	if s := "llvm/Config"; !testHasModule(s) {
-		t.Logf("skip %s", s)
-		return
-	}
-
-	var ctx = load_testcase(t, "testdata/modules/llvm/config", "testllvmconfig")
-	if ctx.Context == nil {
-		t.Errorf("testllvmconfig fail")
-		return
-	}
-
-	defer assured(ctx, true)
 
 	if v := ctx.get("enum1", "*AsmPrinter.cpp", "LLVM_ASM_PRINTER"); v == nil {
 		ctx.err("enum1")
@@ -1042,45 +1626,30 @@ func testLLVMConfig(t *testing.T) {
 	} else if strings.Count(s, "LLVM_ASM_PRINTER") != 1 {
 		ctx.err("%v", v)
 	} else if true {
-		info(ctx, "%v", v).debug(1)
+		noted(ctx, "%v", v).debug(1)
 	}
-
-	ctx.flush()
 }
 
-func testToolchainBootingConfigure(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/modules/toolchain/booting", "testtoolchainbooting")
-	if ctx.Context == nil {
-		t.Errorf("testtoolchainbooting fail")
-		return
+func testLLVMConfig2(ctx *testcase) {
+	if v := ctx.get("enum1", "*AsmPrinter.cpp", "LLVM_ASM_PRINTER"); v == nil {
+		ctx.err("enum1")
+	} else if s := v.String(); s == "" {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "AsmPrinter.cpp") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "LLVM_ASM_PRINTER") != 1 {
+		ctx.err("%v", v)
+	} else if true {
+		noted(ctx, "%v", v).debug(1)
 	}
+}
 
-	defer assured(ctx, true)
-
+func testToolchainBooting(ctx *testcase) {
 	ctx.universe().configure(ctx)
-
-	ctx.flush()
-}
-
-func testToolchainBooting(t *testing.T) {
-	if s := "toolchain/booting"; !testHasModule(s) {
-		t.Logf("skip %s", s)
-		return
-	}
-
-	var ctx = load_testcase(t, "testdata/modules/toolchain/booting", "testtoolchainbooting")
-	if ctx.Context == nil {
-		t.Errorf("testtoolchainbooting fail")
-		return
-	}
-
-	defer assured(ctx, true)
 
 	if r := ctx.rule("stamp"); r == nil {
 		ctx.err("stamp")
 	} else if v, e := ctx.universe().run(); e != nil {
 		ctx.err("%v: %v (%v)", r, e, v)
 	}
-
-	ctx.flush()
 }

@@ -7,25 +7,28 @@ package smart
 
 import (
 	"strings"
-	"testing"
 )
 
-func testTemplate(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/template", "testtemplate")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testTemplate(ctx *testcase) {
 	if v := ctx.get(".test.1"); v == nil {
-		t.Errorf(".test.1")
+		ctx.err(".test.1")
 	} else if v.String() != "xxx yyy zzz xxx yyy zzz" {
+		ctx.err("%T %v", v, v)
+	} else if v.string(ctx) != "xxx yyy zzz xxx yyy zzz" {
 		ctx.err("%T %v", v, v)
 	}
 
 	if v := ctx.get(".test.2"); v == nil {
-		t.Errorf(".test.2")
+		ctx.err(".test.2")
 	} else if s := v.String(); s == "" {
+		ctx.err("%T %v", v, v)
+	} else if strings.Count(s, "xxx") != 2 {
+		ctx.err("%T %v", v, v)
+	} else if strings.Count(s, "yyy") != 2 {
+		ctx.err("%T %v", v, v)
+	} else if strings.Count(s, "zzz") != 2 {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s == "" {
 		ctx.err("%T %v", v, v)
 	} else if strings.Count(s, "xxx") != 2 {
 		ctx.err("%T %v", v, v)
@@ -36,7 +39,7 @@ func testTemplate(t *testing.T) {
 	}
 
 	if v := ctx.get(".test.3"); v == nil {
-		t.Errorf(".test.3")
+		ctx.err(".test.3")
 	} else if s := v.String(); s == "" {
 		ctx.err("%T %v", v, v)
 	} else if strings.Count(s, "xxx") != 2 {
@@ -46,19 +49,11 @@ func testTemplate(t *testing.T) {
 	} else if strings.Count(s, "zzz") != 2 {
 		ctx.err("%T %v", v, v)
 	}
-
-	ctx.flush()
 }
 
-func testTemplateForeach(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/template/foreach", "testtemplate")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testTemplateForeach(ctx *testcase) {
 	if r := ctx.rule(".test.a"); r == nil {
-		t.Errorf(".test.a")
+		ctx.err(".test.a")
 	} else if r.String() != ".test.a(1)" {
 		ctx.err("%T %v", r, r)
 	} else if t, y := r.Entry.(*rule); !y {
@@ -78,7 +73,7 @@ func testTemplateForeach(t *testing.T) {
 	}
 
 	if r := ctx.rule(".test.b"); r == nil {
-		t.Errorf(".test.b")
+		ctx.err(".test.b")
 	} else if r.String() != ".test.b(1)" {
 		ctx.err("%T %v", r, r)
 	} else if t, y := r.Entry.(*rule); !y {
@@ -98,7 +93,7 @@ func testTemplateForeach(t *testing.T) {
 	}
 
 	if r := ctx.rule(".test.c"); r == nil {
-		t.Errorf(".test.b")
+		ctx.err(".test.b")
 	} else if r.String() != ".test.c(1)" {
 		ctx.err("%T %v", r, r)
 	} else if t, y := r.Entry.(*rule); !y {
@@ -116,6 +111,4 @@ func testTemplateForeach(t *testing.T) {
 	} else if t.program_[0].depends[1].String() != "$(foreach c d e f,foo=$_)" {
 		ctx.err("%v: %v", t.target, t.program_[0].depends[1])
 	}
-
-	ctx.flush()
 }

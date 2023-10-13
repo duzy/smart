@@ -7,16 +7,9 @@ package smart
 
 import (
 	"strings"
-	"testing"
 )
 
-func testValueCache(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/valcache", "valcache")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testValueCache(ctx *testcase) {
 	var m = ctx.Project()
 
 	if m.filemap._fix == nil {
@@ -156,6 +149,4 @@ func testValueCache(t *testing.T) {
 	} else if strings.Count(s, "foo/bar.o") != 2 {
 		ctx.err("sources is wrong: %v", v)
 	}
-
-	ctx.flush()
 }

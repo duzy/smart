@@ -1,4 +1,4 @@
 # NOTE: outtmp must be set before configuration
 project -configure testdefaultconfigure # search for configure module globally
 
-FOO: [(configure)] ; $(.self)
+FOO : [(configure)] ; $(.self)

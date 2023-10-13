@@ -77,8 +77,11 @@ func (s *Scope) Names() []string {
 
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
-func (s *Scope) lookup(name string) (obj Object) { return s.elems[name] }
-func (s *Scope) Lookup(name string) (obj Object) {
+func (s *Scope) lookup(name string) (obj Object) {
+	if s.elems != nil { obj = s.elems[name] }
+	return
+}
+func (s *Scope) Lookup(name string) Object {
 	s.mutex.Lock(); defer s.mutex.Unlock()
 	return s.lookup(name)
 }
@@ -92,26 +95,21 @@ func (s *Scope) Lookup(name string) (obj Object) {
 // object was inserted into the scope and already had a outer at that
 // time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
-func (s *Scope) findouter(name string) (*Scope, Object) {
-	if s.outer != nil {
-		if p, obj := s.outer.Find(name); obj != nil {
-			return p, obj
+func (s *Scope) find(name string) (res *Scope, obj Object) {
+	if false { s.mutex.Lock(); defer s.mutex.Unlock() }
+	if obj = s.lookup(name); obj == nil && s.outer != nil {
+		if false { for t := s.outer; t != nil; t = s.outer {
+			if t == s { panic(name) }
+		}}
+		if p, o := s.outer.find(name); o != nil {
+			res, obj = p, o
 		}
 	}
-	return nil, nil
+	return s, obj
 }
 
-func (s *Scope) Find(name string) (*Scope, Object) {
-	if false { s.mutex.Lock(); defer s.mutex.Unlock() }
-	if obj := s.lookup(name); obj == nil {
-		return s.findouter(name)
-	} else {
-		return s, obj
-	}
-}
-
-func (s *Scope) Resolve(name string) (obj Object) {
-	_, obj = s.Find(name)
+func (s *Scope) resolve(name string) (obj Object) {
+	_, obj = s.find(name)
 	return
 }
 
@@ -178,7 +176,7 @@ func (s *Scope) string() string {
 }
 
 func (s *Scope) FindDef(name string) (res *def) {
-	if _, sym := s.Find(name); sym != nil {
+	if _, sym := s.find(name); sym != nil {
 		res, _ = sym.(*def)
 	}
 	return

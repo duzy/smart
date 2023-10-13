@@ -578,7 +578,7 @@ func with(ctx Context, target Value) (res bool) {
 
 // traverse - traverse the prerrequiste for the current target $@
 func (pc *programContext) traverse(ctx Context, prereqValue Value) (result travestates) {
-    defer d_trace(ctx, "traverse")
+    defer dtrace(ctx, "traverse")
 
     var (
         uni = ctx.universe()
@@ -1291,8 +1291,8 @@ func (prog *program) workDir(ctx Context) (workDir string) {
         workDir = prog.project.absPath
     } else if pc.changedWD == "" {
         var o Object
-        if _, o = prog.scope.Find("CWD"); isTrivial(o) {
-            if _, o = prog.scope.Find("/"); isTrivial(o) {
+        if _, o = prog.scope.find("CWD"); isTrivial(o) {
+            if _, o = prog.scope.find("/"); isTrivial(o) {
                 erro(ctx, "both $(CWD) and $/ are trivial").debug(1)
                 return
             }
@@ -1318,10 +1318,10 @@ func (prog *program) workDir(ctx Context) (workDir string) {
 
 func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
     var entry = ctx.entry()
-
-    defer d_trace(ctx, "execute "+entry.String())
-
     var dia = ctx.dia()
+
+    defer dtrace(ctx, "execute "+entry.String())
+
     if t := dia.countErrors(); t > 0 {
         erro(ctx, "%v: got %d errors, canceled execution (%v)", entry, t, prog.project).debug(1)
         return

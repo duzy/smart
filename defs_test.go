@@ -5,17 +5,7 @@
 //
 package smart
 
-import (
-	"testing"
-)
-
-func testDefs0(t *testing.T) {
-	var ctx = load_testcase(t, "testdata/defs", "testdefs")
-	if ctx.Context == nil {
-		t.Errorf("fail")
-		return
-	}
-
+func testDefs0(ctx *testcase) {
 	if d := ctx.def("val0"); d == nil {
 		ctx.err("val0")
 	} else if d.origin != DefDefault {
@@ -63,6 +53,4 @@ func testDefs0(t *testing.T) {
 	} else if _, y := val.(*List); !y {
 		ctx.err("%v", val)
 	}
-
-	ctx.flush()
 }
