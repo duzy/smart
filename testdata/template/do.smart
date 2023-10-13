@@ -1,16 +1,16 @@
 project testtemplate
 
-types ::= xxx yyy zzz
+xyz ::= xxx yyy zzz
 
-foreach $(types)
+foreach $(xyz)
 var.$_ ::= test-$_
 done
 
-.test.1 :=
-.test.2 :=
-.test.3 :=
+foreach 1 2 3
+.test.$_ :=
+done
 
-for type=$(types)
+for type=$(xyz)
 .test.1 += $(type)
 done
 
@@ -22,7 +22,7 @@ def foo(x)
 .test.3 += $(x)
 end
 
-for type=$(types) #template for type=$(types)
+for type=$(xyz) #template for type=$(xyz)
 .test.1 += $(type)
 done #template expand
 

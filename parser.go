@@ -1593,7 +1593,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 		return makeNull(position)
 	}}
 
-	if isNull(obj) {
+	if obj == nil {
 		erro(ctx, "'%v' is <nil> (resolved: %T %v)", s, resolved, resolved).debug(1)
 		return makeNull(position)
 	}
@@ -1777,12 +1777,14 @@ func (p *parser) text(ctx Context) (res []Value) {
 	return
 }
 
-func (p *parser) expr(ctx Context, lhs bool) (x Value) {
+func (p *parser) expr(ctx Context, ab... bool) (x Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
 
 	defer dtrace(ctx, "parser.expr")
 
 	var tok, lit = p.tok, p.lit
+	var lhs bool ; if len(ab)>0 { lhs = ab[0] }
+
 	if x = p.composite(ctx, lhs); x == nil {
 		erro(at(ctx, p.Position()), "invalid (tok=%v,%v; next=%v,%v)", tok, lit, p.tok, p.lit).debug(6)
 		return
@@ -2860,6 +2862,202 @@ func (p *parser) specialRule(ctx Context) Value {
 
 var pprofCounter int
 
+func (p *parser) def(ctx Context) {
+	defer dtrace(ctx, "parser.def")
+
+	if p.spaces(); p.tok == LINEND {
+		erro(p.ctx(ctx), "unexpected end of line").debug(1)
+		return
+	}
+
+	p.expect(DEF)
+	p.spaces()
+
+	var args []Value
+	var name = p.expr(ctx)
+
+	if a, y := name.(*argumented); y {
+		name, args = a.Value, a.args
+	}
+
+	t := &template{
+		pos: p.pos, tok: p.tok, lit: p.lit, // verb: "def",
+		state: p.scanner.scanState,
+		name: name, params: args,
+	}
+
+	p.spaces()
+	p.linend()
+
+	var nested = 0
+	for p.tok != EOF { switch pos := p.pos; p.tok {
+	case DEF:
+		p.next(true)
+		nested += 1
+
+	case END:
+		if nested > 0 { nested -= 1 ; continue }
+
+		p.next(true)
+		p.linend()
+
+		state := p.scanner.scanState
+		t.end, t.endPos = &state, pos
+		p.templates = append(p.templates, t)
+		return
+
+	default:
+		for p.tok != EOF {
+			if p.next(true); p.tok == LINEND { p.next(true) ; break }
+		}
+	}}
+}
+
+func (p *parser) foreach(ctx Context) {
+	defer dtrace(ctx, "parser.foreach")
+
+	if p.spaces(); p.tok == LINEND {
+		erro(p.ctx(ctx), "unexpected end of line").debug(1)
+		return
+	}
+
+	p.expect(FOREACH)
+	p.spaces()
+
+	var params = p.values(ctx, false)
+	var t = &template{
+		pos: p.pos, tok: p.tok, lit: p.lit,
+		state: p.scanner.scanState, // verb: "foreach",
+	}
+
+	p.spaces()
+	p.linend()
+
+	var nested = 0
+	for p.tok != EOF { switch pos := p.pos; p.tok {
+	case FOREACH:
+		p.next(true) // foreach
+		nested += 1
+
+	case DONE:
+		if nested > 0 { nested -= 1 ; continue }
+
+		p.next(true) // done
+		p.linend()
+
+		state := p.scanner.scanState
+		t.end, t.endPos = &state, pos
+
+		defer func(s Pos) { p.stop = s } (p.stop)
+		p.stop = t.endPos
+
+		var a = map[string]Value{ "_" : nil }
+		for _, elem := range xmerge(ctx, plain, params...) {
+			if !isTrivial(elem) { a["_"] = elem ; p.codeblock(ctx, t, a) }
+		}
+		return
+
+	default:
+		for p.tok != EOF {
+			if p.next(true); p.tok == LINEND { p.next(true) ; break }
+		}
+	}}
+}
+
+func (p *parser) _for(ctx Context) {
+	defer dtrace(ctx, "parser.for")
+
+	if p.spaces(); p.tok == LINEND {
+		erro(p.ctx(ctx), "unexpected end of line").debug(1)
+		return
+	}
+
+	p.expect(FOR)
+	p.spaces()
+
+	var params = p.values(ctx, false)
+	var t = &template{
+		pos: p.pos, tok: p.tok, lit: p.lit,
+		state: p.scanner.scanState, // verb: "for",
+	}
+
+	p.spaces()
+	p.linend()
+
+	var nested = 0
+	for p.tok != EOF { switch pos := p.pos; p.tok {
+	case FOR:
+		p.next(true) // for
+		nested += 1
+
+	case DONE:
+		if nested > 0 { nested -= 1 ; continue }
+
+		p.next(true) // done
+		p.linend()
+
+		state := p.scanner.scanState
+		t.end, t.endPos = &state, pos
+
+		defer func(s Pos) { p.stop = s } (p.stop)
+		p.stop = t.endPos
+
+		// for name1=(val1 val2 val3 ...) name2=(val1 val2 val3) and foo=(x y z)
+
+		var num int
+		var vars = make(map[string]struct{
+			elems []Value
+		})
+
+		for _, a := range xmerge(ctx, plain, params...) {
+			var (
+				pos Position
+				elems []Value
+				s string
+			)
+			if pair, y := a.(*pair); !y {
+				erro(of(ctx,a), "unexpected value: %T %v", a, a).debug(1)
+				return
+			} else if s = pair.Key.string(at(ctx, pair.Key.Position())); s == "" {
+				erro(of(ctx,a), "empty key: %T %v", pair.Key, pair.Key).debug(1)
+				return
+			} else if g, y := pair.Value.(*group); y {
+				pos = pair.Value.Position()
+				elems = g.Elems
+			} else {
+				pos = pair.Value.Position()
+				elems = append(elems, pair.Value)
+			}
+
+			var m = vars[s]
+			m.elems = xmerge(at(ctx, pos), plain, elems...)
+			if n := len(m.elems); n > num { num = n }
+			vars[s] = m // overwrite
+		}
+
+		for i := 0; i < num; i += 1 {
+			var _1trivial bool
+			var m = map[string]Value{}
+			for name, s := range vars {
+				var elem Value
+				if i < len(s.elems) { elem = s.elems[i] }
+				_1trivial = isTrivial(elem)
+				m[name] = elem
+			}
+
+			_1trivial = _1trivial && len(m) == 1
+
+			if len(m) > 0 && !_1trivial { p.codeblock(ctx, t, m) }
+		}
+		return
+
+	default:
+		for p.tok != EOF {
+			if p.next(true); p.tok == LINEND { p.next(true) ; break }
+		}
+	}}
+}
+
 func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 	p.pos, p.tok, p.lit, p.scanner.scanState = t.pos, t.tok, t.lit, t.state
 
@@ -2875,7 +3073,7 @@ func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 		erro(at(ctx,p.loc(p.pos)), "bad range: [%v %v) (%v)", p.pos, p.stop, t.name).debug(10)
 	}
 	if true { if t.name == nil && len(vars) == 0 {
-		if true { noted(ctx, "%v", t).debug(1) }
+		if true { erro(ctx, "%v", t).debug(3) }
 		return
 	}}
 
@@ -2899,7 +3097,7 @@ func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 	p.bits |= parseCodeBlock
 
 	for p.tok != EOF && p.pos < p.stop {
-		if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
+		if p.tok == SPACE || p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
 			p.next(true)
 		} else {
 			p.clause(ctx)
@@ -2907,15 +3105,12 @@ func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 	}
 }
 
-func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
-	var count int64
-
+func (p *parser) repeat(ctx Context, t *template, params []Value) {
 	defer func(t time.Time, pos Pos, tok Token, lit string, state scanState) {
-		if u := ctx.universe(); u.ddd == "template.expand" {
+		if u := ctx.universe(); u.ddd == "template.repeat" {
 			// dont check time in ddd mode
 		} else if d := time.Now().Sub(t); d > u.slow {
-			var c = time.Duration(count)
-            warnstack(ctx, 3, "slow: %v, %d * %v, prof-%d", d, count, d/c, pprofCounter).debug(1)
+            warnstack(ctx, 3, "slow: %v, prof-%d", d, pprofCounter).debug(1)
         }
 
 		if ctx.dia().error() { erro(ctx, "template errors").debug(1) }
@@ -2954,313 +3149,89 @@ func (p *parser) templateExpand(ctx Context, t *template, params []Value) {
 		} ()
 	}
 
-	switch t.verb {
-	case "": // call template
-		var a = map[string]Value{}
+	var a = map[string]Value{}
 
-		for i, v := range t.params { if s := v.string(ctx); s != "" {
-			if i < len(params) { a[s] = params[i] } else {
-				a[s] = makeNull(v.Position())
-			}
-		} else {
-			erro(of(ctx,v), "empty template param name: %v %v", v, v).debug(1)
-		}}
-
-		if false { erro(ctx, "template %s: DEPRECATED", t.verb).debug(1) }
-
-		p.codeblock(ctx, t, a)
-
-		count = 1
-	case "foreach": // foreach val1 val2 val3 val4 ...
-		for _, elem := range xmerge(ctx, plain, t.params...) {
-			if isTrivial(elem) { continue }
-			p.codeblock(ctx, t, map[string]Value{ "_" : elem })
-			count += 1
+	for i, v := range t.params { if s := v.string(ctx); s != "" {
+		if i < len(params) { a[s] = params[i] } else {
+			a[s] = makeNull(v.Position())
 		}
-	case "for": // for name1=(val1 val2 val3 ...) name2=(val1 val2 val3)
-		var (
-			vars = make(map[string]struct{
-				elems []Value
-			})
-			num int
-		)
-		for _, a := range t.params {
-			var (
-				pos Position
-				elems []Value
-				s string
-			)
-			if pair, ok := a.(*pair); !ok {
-				erro(of(ctx,a), "unexpected value: %T %v", a, a).debug(1)
-				return
-			} else if s = pair.Key.string(at(ctx, pair.Key.Position())); s == "" {
-				erro(of(ctx,a), "empty key: %T %v", pair.Key, pair.Key).debug(1)
-				return
-			} else if g, ok := pair.Value.(*group); ok {
-				pos = pair.Value.Position()
-				elems = g.Elems
-			} else {
-				pos = pair.Value.Position()
-				elems = append(elems, pair.Value)
-			}
+	} else {
+		erro(of(ctx,v), "empty template param name: %v %v", v, v).debug(1)
+	}}
 
-			var m = vars[s]
-			m.elems = xmerge(at(ctx, pos), plain, elems...)
-			if n := len(m.elems); n > num { num = n }
-			vars[s] = m // overwrite
-		}
-		for i := 0; i < num; i += 1 {
-			var _1trivial bool
-			var m = make(map[string]Value)
-			for name, s := range vars {
-				var elem Value
-				if i < len(s.elems) { elem = s.elems[i] }
-				if false { warn(ctx, "%s %v", name, elem) }
-				_1trivial = isTrivial(elem)
-				m[name] = elem
-			}
-
-			_1trivial = _1trivial && len(m) == 1
-
-			if len(m) > 0 && !_1trivial {
-				p.codeblock(ctx, t, m)
-			}
-
-			count += 1
-		}
-	default:
-		erro(p, "expand template '%v' %v %v", t.verb, t.params, params).debug(1)
-	}
+	p.codeblock(ctx, t, a)
 }
-func (p *parser) templateCall(ctx Context, name Value, args []Value) {
+
+func (p *parser) call(ctx Context, name Value, args []Value) (result bool) {
+	ctx = p.ctx(ctx)
+
 	for _, t := range p.templates { if t.name != nil && eq(ctx, t.name, name) {
 		stop := p.stop
 		p.stop = t.endPos
-		p.templateExpand(ctx, t, args)
+		p.repeat(ctx, t, args)
 		p.stop = stop
-		return
+		return true
 	}}
 
-	erro(of(ctx,name), "undefined template: %v", name).debug(1)
-}
-func (p *parser) template(ctx Context, verb string) {
-	defer dtrace(ctx, "parser.template."+verb)
-
-	var arged *argumented
-	var startingPos, startingTok = p.Position(), p.tok
-	if verb == "" { // lead by the 'template' keyword (DEPRECATED)
-		p.expect(TEMPLATE) // expect and skip 'template'
-		p.spaces()
-
-		var op = p.expr(ctx, false) ; p.spaces()
-
-		if true { erro(of(ctx,op), "template %s: DEPRECATED", verb).debug(1) }
-
-		if p.tok == EOF {
-			erro(of(ctx,op), "unexpected end of file after %v", op).debug(1)
-			return
-		} else if w, y := op.(*bareword); y {
-			verb = w.s
-		} else if arged, y = op.(*argumented); !y {
-			erro(of(ctx,op), "unknown template verb: %v", op).debug(1)
-			return
-		}
-
-		switch verb {
-		case "end", "expand":
-			erro(of(ctx,op), "unexpected verb: %s", verb).debug(1)
-			return
-		case "": if verb == "" && arged != nil {
-			p.expect(LINEND)
-			p.templateCall(ctx, arged.Value, arged.args)
-			return //true
-		}}
-	} else {
-		switch verb {
-		case "def": p.expect(DEF)
-		case "for": p.expect(FOR)
-		case "foreach": p.expect(FOREACH)
-		case "done", "end":
-			erro(ctx, "unexpected verb: %s", verb).debug(1)
-			return
-		}
-
-		p.spaces()
-	}
-
-	var params = xmerge(ctx, strval, p.values(ctx, false)...)
-
-	// TODO: parse template options - parseOpts
-
-	var tmpl = &template{ state:p.scanner.scanState, pos:p.pos, tok:p.tok, lit:p.lit }
-	if verb == "def" {
-		if len(params) != 1 {
-			erro(at(ctx,startingPos), "too many def params: %v", params)
-			return
-		} else if a, y := params[0].(*argumented); !y {
-			erro(at(ctx,startingPos), "too many def params: %v", params)
-			return
-		} else {
-			tmpl.name, tmpl.params = a.Value, a.args
-			p.templates = append(p.templates, tmpl)
-		}
-	} else {
-		tmpl.verb, tmpl.params = verb, params
-	}
-
-	var nested int
-
-outer:
-	for p.tok != EOF { switch pos, stop := p.pos, p.stop; p.tok {
-	case TEMPLATE: p.next(true)
-		if false {
-			erro(p, "%v %v: %v %v: %d, %v", startingTok, verb, p.tok, p.lit, nested, p.scanner.scanState).debug(1)
-		} else { switch p.tok {
-		case BAREWORD:
-			if p.lit == "expand" && (verb == "for" || verb == "foreach") {
-				if nested > 0 { nested -= 1 ; continue }
-
-				p.next(true) // consumes the 'expand'
-
-				params := p.values(ctx, false)
-				if p.tok != EOF { p.expect(LINEND) }
-
-				p.stop = pos
-				p.templateExpand(ctx, tmpl, params)
-				p.stop = stop
-				return
-			}
-		case END:
-			if verb == "def" {
-				if nested > 0 { nested -= 1 ; continue }
-
-				p.next(true) // consumes the 'end'
-				if p.tok != EOF { p.expect(LINEND) }
-
-				state := p.scanner.scanState
-				tmpl.end, tmpl.endPos = &state, pos
-				return
-			}
-		case DEF, FOR, FOREACH:
-			p.next(true)
-			nested += 1
-		default:
-			erro(p, "%v %v: %v %v (nested=%v)", startingTok, verb, p.tok, p.lit, nested).debug(1)
-			return
-		}}
-	case DONE:
-		switch p.next(true); startingTok {
-		case FOR, FOREACH:
-			if nested > 0 { nested -= 1 ; continue }
-			if p.tok != EOF { p.expect(LINEND) }
-
-			p.stop = pos
-			p.templateExpand(ctx, tmpl, nil)
-			p.stop = stop
-			return
-		default:
-			erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
-			return
-		}
-	case END:
-		if p.next(true); startingTok == DEF {
-			if nested > 0 { nested -= 1 ; continue }
-			if p.tok != EOF { p.expect(LINEND) }
-
-			state := p.scanner.scanState
-			tmpl.end, tmpl.endPos = &state, pos
-			return
-		} else {
-			erro(p, "%v: %v (nested=%v)", p.tok, p.lit, nested).debug(1)
-			return
-		}
-	case DEF, FOR, FOREACH:
-		p.next(true)
-		nested += 1
-	default:
-		for p.tok != EOF { var l bool
-			if p.tok == LINEND { p.next(true) ; l = true }
-			if l || p.lineComment != nil {
-				switch p.tok { case DONE, END, DEF, FOR, FOREACH, TEMPLATE: continue outer }
-			}
-			p.next(true)
-		}
-	}}
-}
-
-func (p *parser) expandTemplateDef(ctx Context, x Value) (result bool) {
-	if a, y := x.(*argumented); y {
-		ctx = at(ctx, a.Value.Position())
-
-		p.templateCall(ctx, a.Value, a.args)
-
-		result = true
-	}
+	erro(ctx, "undefined template: %v", name).debug(3)
 	return
 }
 
 func (p *parser) clause(ctx Context) {
 	if t_traverse.enabled { defer un(tracef(t_traverse, "clause(%v, %v)", p.tok, p.pos)) }
 
+	var x Value
+	var tok = p.tok // TODO: allow assigns like: `eval := xxx`
+
 	defer dtrace(ctx, "parser.clause")
 
-	var x Value
 	defer func() { if ctx.universe().debugParsing(ctx, "clause") {
-		warn(ctx, "clause: %s %v; %v %v", typeof(x), x, p.tok, p.lit).debug(6)
+		warn(ctx, "clause: %v %v ; %v %v", typeof(x), x, p.tok, p.lit).debug(6)
 	}} ()
 
-	var tok = p.tok // TODO: allow assigns like: `eval := xxx`
-	if /* TODO: p.spaces(); !p.tok.IsAssign() && !p.tok.IsRuleDelim() */true {
-		switch p.spaces(); tok {
-		case  INCLUDE: p.spec(ctx, tok, p.expect(tok), p.include); return
-		case    FILES: p.spec(ctx, tok, p.expect(tok), p.files); return
-		case   ASSERT: p.spec(ctx, tok, p.expect(tok), p.assert); return
-		case   APPEND: p.spec(ctx, tok, p.expect(tok), p.append); return
-		case     EVAL: p.spec(ctx, tok, p.expect(tok), p.eval); return
-		case    COLON: p.specialRule(ctx); return
-		case TEMPLATE: p.template(ctx, ""); return // DEPRECATED
-		case      FOR: p.template(ctx, "for"); return
-		case  FOREACH: p.template(ctx, "foreach"); return
-		case     DONE: p.template(ctx, "done"); return
-		case      DEF: p.template(ctx, "def"); return
-		case      END: p.template(ctx, "end"); return
-		case USE:
-			erro(ctx, "`%v` unexpected here", p.tok).debug(10)
-			return
-		default:
-			x = p.expr(ctx, true) ; p.spaces()
-			if p.expandTemplateDef(ctx, x) { return }
-		}
+	switch p.spaces(); tok {
+	case  INCLUDE: p.spec(ctx, tok, p.expect(tok), p.include); return
+	case    FILES: p.spec(ctx, tok, p.expect(tok), p.files); return
+	case   ASSERT: p.spec(ctx, tok, p.expect(tok), p.assert); return
+	case   APPEND: p.spec(ctx, tok, p.expect(tok), p.append); return
+	case     EVAL: p.spec(ctx, tok, p.expect(tok), p.eval); return
+	case    COLON: p.specialRule(ctx); return
+	case      DEF: p.def(ctx); return
+	case      FOR: p._for(ctx); return
+	case  FOREACH: p.foreach(ctx); return
+	case   LINEND, SPACE: p.next(true) // skip empty lines
+	case USE, TEMPLATE:
+		erro(ctx, "`%v` unexpected here", p.tok).debug(10)
+		return
 	}
 
-	if t_traverse.enabled { defer un(trace(t_traverse, "Clause(?)")) }
+	x = p.expr(ctx, true)
 
-	if p.tok.IsAssign() {
+	var list = []Value{x}
+
+	if p.spaces(); p.tok.IsAssign() {
 		if ctx.universe().debugParsing(ctx, "define") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			ctx.dia().flush()
 		}
 		p.define(ctx, p.tok, x)
 		return
-	}
-
-	var list = []Value{x}
-	if !p.tok.IsRuleDelim() {
-		list = append(list, p.left(ctx)...)
-	}
-
-	if p.tok.IsRuleDelim() {
+	} else if p.tok.IsRuleDelim() {
 		if ctx.universe().debugParsing(ctx, "rule") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			ctx.dia().flush()
 		}
 		p.rule(ctx, specialRuleNor, nil, list)
 		return
+	} else if a, y := x.(*argumented); y {
+		p.call(ctx, a.Value, a.args)
+		return
 	}
 
-	if p.tok != EOF { return }
+	if list = append(list, p.left(ctx)...); p.tok != EOF { return }
 
 	var isIncludingConf = p.isIncludingConf
+
 	if false {
 		var loader = ctx.loader()
 		for pp := loader.p; !isIncludingConf && pp != nil && pp != p; {
@@ -3528,40 +3499,19 @@ func (p *parser) file(ctx Context) *parsedFile {
 	var auto = (loader.mode&Flat == 0) && isMainFile //&& isEntryFileName(filename)
 	if auto { loader.after(p.ctx(ctx), "declare") }
 	if loader.mode&ModuleClauseOnly == 0 {
-		if loader.mode&Flat == 0 {
-			ForInit: for p.tok != EOF {
-				switch tok := p.tok; tok {
-				case   LINEND: p.next(true) // skip empty lines
-				case      USE: p.spec(ctx, tok, p.expect(tok), p.use)
-				case   ASSERT: p.spec(ctx, tok, p.expect(tok), p.assert)
-				case   APPEND: p.spec(ctx, tok, p.expect(tok), p.append)
-				case     EVAL: p.spec(ctx, tok, p.expect(tok), p.eval)
-				case TEMPLATE: p.template(ctx, "") // DEPRECATED
-				case      FOR: p.template(ctx, "for")
-				case  FOREACH: p.template(ctx, "foreach")
-				case     DONE: p.template(ctx, "done")
-				case      DEF: p.template(ctx, "def")
-				case      END: p.template(ctx, "end")
-				default:
-					if p.tok.IsKeyword() { break ForInit }
-					var x = p.expr(ctx, true); p.spaces()
-					if p.tok.IsAssign() { p.define(ctx, p.tok, x) } else
-					if p.tok.IsRuleDelim() {
-						if ctx.Project() == nil {
-							erro(ctx, "no project declared before defining rules").debug(1)
-						} else {
-							x = p.rule(ctx, specialRuleNor, nil, []Value{x})
-						}
-						break ForInit
-					} else if !p.expandTemplateDef(ctx, x) {
-						erro(ctx, "unexpected %v (after %v %v)", p.tok, typeof(x), x).debug(1)
-					}
-				}
+		if loader.mode&Flat == 0 { ForDeclare: for p.tok != EOF {
+			switch tok := p.tok; tok {
+			case USE: p.spec(ctx, tok, p.expect(tok), p.use)
+			case LINEND, SPACE: p.next(true) // skip empty lines
+			case ASSERT, EVAL, FILES, INCLUDE: p.clause(ctx)
+			default: break ForDeclare
 			}
-		}
+		}}
+
 		if false && auto { loader.after(p.ctx(ctx), "amid") }
+
 		if loader.mode&ImportsOnly == 0 { // rest of module body
-			for /* p.dia().totalErrors() == 0 && */ p.tok != EOF {
+			for /* !p.dia().error() && */ p.tok != EOF {
 				if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
 					p.next(true)
 				} else if p.clause(p.ctx(ctx)); ctx.dia().flush() > 0 {

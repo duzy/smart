@@ -1,5 +1,7 @@
 project testvalues4
 
+eval -ddd=template.expand
+
 .test.* :=
 # TODO: for flag=(D I) and lang=(c c++)
 for flag=(D I) #template for flag=(D I)
@@ -13,6 +15,8 @@ done #template expand
 # assert $(.test.I.c++) $(equal(-d) $(.test.I.c++),I c++)
 # assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c)
 # assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c)
+
+eval -ddd=none{}
 
 .test.D.c += $(value &(.test.x))
 .test.v := xx
