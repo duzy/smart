@@ -185,6 +185,29 @@ func testTemplate(ctx *testcase) {
 		ctx.err(s)
 	} else if s := v.String(); s == "" {
 		ctx.err("%v", v)
+	} else if len(strings.Fields(s)) != 9+9-6 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "a1=x a2=x") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "a1=y a2=y") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "a1=z a2=z") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "b1=x b2=x") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "b1=y b2=y") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "b1=z b2=z") != 1 {
+		ctx.err("%v", v)
+	} else if s != "a1=x a2=x a1=y a2=y a1=z a2=z b1=x b2=x b1=y b2=y b1=z b2=z" {
+		ctx.err("%v", v)
+	}
+
+	if s := ".test.10"; false {
+	} else if v := ctx.get(s); v == nil {
+		ctx.err(s)
+	} else if s := v.String(); s == "" {
+		ctx.err("%v", v)
 	} else if len(strings.Fields(s)) != 9+9 {
 		ctx.err("%v", v)
 	} else if strings.Count(s, "a1=x a2=x") != 1 {
@@ -209,7 +232,30 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", v)
 	}
 
-	if s := ".test.10"; false {
+	if s := ".test.11"; false {
+	} else if v := ctx.get(s); v == nil {
+		ctx.err(s)
+	} else if s := v.String(); s == "" {
+		ctx.err("%v", v)
+	} else if len(strings.Fields(s)) != 9+9-6 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "a1=x a2=x") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "a1=y a2=y") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "a1=z a2=z") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "b1=x b2=x") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "b1=y b2=y") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "b1=z b2=z") != 1 {
+		ctx.err("%v", v)
+	} else if s != "a1=x a2=x a1=y a2=y a1=z a2=z b1=x b2=x b1=y b2=y b1=z b2=z" {
+		ctx.err("%v", v)
+	}
+
+	if s := ".test.12"; false {
 	} else if v := ctx.get(s); v == nil {
 		ctx.err(s)
 	} else if s := v.String(); s == "" {
@@ -235,6 +281,25 @@ func testTemplate(ctx *testcase) {
 	} else if strings.Count(s, "c1= =z2") != 1 {
 		ctx.err("%v", v)
 	} else if s != "a1=x1 a2=x2 a1=y1 a2=y2 a1= a2=z2 b1=x1 b2=x2 b1=y1 b2=y2 b1= b2=z2 c1=x1 =x2 c1=y1 =y2 c1= =z2" {
+		ctx.err("%v", v)
+	}
+
+	if s := ".test.13"; false {
+	} else if v := ctx.get(s); v == nil {
+		ctx.err(s)
+	} else if s := v.String(); s == "" {
+		ctx.err("%v", v)
+	} else if len(strings.Fields(s)) != 8 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "a1=x1 a2=x2") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "a1=y1 a2=y2") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "b1=x1 b2=x2") != 1 {
+		ctx.err("%v", v)
+	} else if strings.Count(s, "b1=y1 b2=y2") != 1 {
+		ctx.err("%v", v)
+	} else if s != "a1=x1 a2=x2 a1=y1 a2=y2 b1=x1 b2=x2 b1=y1 b2=y2" {
 		ctx.err("%v", v)
 	}
 }

@@ -1240,9 +1240,9 @@ func (p *parser) expandTemplateBlockAuto(ctx Context, obj, val Value) (result Va
 func (p *parser) closuredelegate(ctx Context) (result Value) {
 	if t_traverse.enabled {	defer un(trace(t_traverse, "ClosureDelegate")) }
 
-	const allowClosureName = true
-
 	ctx = at(ctx, p.Position())
+
+	const allowClosureName = true
 
 	defer dtrace(ctx, "parser.closuredelegate")
 
@@ -1347,7 +1347,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 					return
 				}
 
-				erro(of(ctx,name), "nil: %v %v ⇒ '%s'", typeof(name), name, str).debug(2)
+				erro(of(ctx,name), "%v(%v)", typeof(name), name).debug(20) // ⇒
 				return
 			} else if _, okay = resolved.(invoker); okay {
 				return str, resolved, okay
@@ -2972,7 +2972,18 @@ func (p *parser) for_(ctx Context) {
 		return
 	}
 
-	p.expect(FOR)
+	var opts struct {
+		skipNil bool `sn,skip-nil,skipnil,skip-null,skipnull`
+		loose bool `loose`
+	}
+
+	if p.expect(FOR); p.tok == LPAREN { p.next(true) // LPAREN
+		if vals := parseOpts(ctx, &opts, 0, p.values(ctx, false)...); vals != nil {
+			erro(of(ctx, vals[0]), "unexpected opts: %v", vals).debug(1)
+		}
+		p.expect(RPAREN)
+	}
+
 	p.spaces()
 
 	type param struct {
@@ -3018,6 +3029,9 @@ func (p *parser) for_(ctx Context) {
 				elems = append(elems, x.Value)
 			}
 
+			// Make sure all elements are expanded.
+			elems = xmerge(of(ctx, a), plain, elems...)
+
 			if _, y := vars[s]; y {
 				erro(of(ctx, a), "duplicated key: %v", s).debug(1)
 				return
@@ -3061,15 +3075,13 @@ func (p *parser) for_(ctx Context) {
 
 		var l int = len(params)-1
 		outer: for n := 0; n < num; n += 1 {
-			var trivial bool
-
 			for _i, _v := range params {
 				// i[0]    = (n % 1) / b    (a = n * n * ..., k-1)
 				// i[1..l] = (n % a) / b    (b = n * ..., k-2)
 				// i[l+1]  = (n % a) / 1
 				var i int = n
 
-				// Two implements: 1. compact, 2. TODO: expand
+				// Two implements: 1. compact, 2. TODO: expand (loose)
 				//    1. compact: use the minimum nparam, skip elements after it (DONE)
 				//    2. expand: use the maximum nparam, treat every part the same (TODO)
 
@@ -3084,17 +3096,15 @@ func (p *parser) for_(ctx Context) {
 
 				for _, v := range _v.a { if i < len(v.elems) {
 					vars[v.name] = v.elems[i]
-				} else if true {
-					vars[v.name] = nil
 				} else {
-					// TODO: add option to skip nil elements
-					continue outer
+					vars[v.name] = nil
+					if opts.skipNil { continue outer }
 				}}
 			}
 
-			if len(vars) > 0 && !(trivial && len(vars) == 1) {
-				p.codeblock(ctx, t, vars)
-			}
+			// if len(vars) > 0 && !(trivial && len(vars) == 1)
+
+			p.codeblock(ctx, t, vars)
 		}
 		return
 
