@@ -2964,7 +2964,7 @@ func (p *parser) foreach(ctx Context) {
 	}}
 }
 
-func (p *parser) _for(ctx Context) {
+func (p *parser) for_(ctx Context) {
 	defer dtrace(ctx, "parser.for")
 
 	if p.spaces(); p.tok == LINEND {
@@ -2975,7 +2975,60 @@ func (p *parser) _for(ctx Context) {
 	p.expect(FOR)
 	p.spaces()
 
-	var params = p.values(ctx, false)
+	type param struct {
+		name string
+		elems []Value
+	}
+
+	type nparam struct {
+		a []*param
+		n int
+	}
+
+	var params []*nparam
+	var vars = map[string]Value{}
+	for p.spaces(); p.tok != EOF && !p.isEndOfLine(); p.spaces() {
+		if p.tok == AND && params == nil {
+			erro(p.ctx(ctx), "unexpected 'and'").debug(1)
+			continue
+		} else if p.tok == AND || params == nil {
+			params = append(params, &nparam{})
+			if p.tok == AND {
+				p.next(true) // and
+				continue
+			}
+		}
+
+		var _v = params[len(params)-1]
+		for _, a := range xmerge(p.ctx(ctx), plain, p.expr(ctx)) {
+			var (
+				elems []Value
+				s string
+			)
+
+			if x, y := a.(*pair); !y {
+				erro(of(ctx,a), "unexpected value: %v(%v)", typeof(a), a).debug(1)
+				return
+			} else if s = x.Key.string(at(ctx, x.Key.Position())); s == "" {
+				erro(of(ctx,a), "empty key: %v(%v)", typeof(x.Key), x.Key).debug(1)
+				return
+			} else if g, y := x.Value.(*group); y {
+				elems = g.Elems
+			} else {
+				elems = append(elems, x.Value)
+			}
+
+			if _, y := vars[s]; y {
+				erro(of(ctx, a), "duplicated key: %v", s).debug(1)
+				return
+			} else { vars[s] = nil }
+
+			if n := len(elems); n > _v.n { _v.n = n }
+
+			_v.a = append(_v.a, &param{s, elems})
+		}
+	}
+
 	var t = &template{
 		pos: p.pos, tok: p.tok, lit: p.lit,
 		state: p.scanner.scanState, // verb: "for",
@@ -2996,58 +3049,52 @@ func (p *parser) _for(ctx Context) {
 		p.next(true) // done
 		p.linend()
 
-		state := p.scanner.scanState
-		t.end, t.endPos = &state, pos
-
 		defer func(s Pos) { p.stop = s } (p.stop)
-		p.stop = t.endPos
 
-		// for name1=(val1 val2 val3 ...) name2=(val1 val2 val3) and foo=(x y z)
+		state := p.scanner.scanState
+		t.end, t.endPos, p.stop = &state, pos, pos
 
 		var num int
-		var vars = make(map[string]struct{
-			elems []Value
-		})
+		for _, _v := range params { if _v.n > 0 {
+			if num == 0 { num = _v.n } else { num *= _v.n }
+		}}
 
-		for _, a := range xmerge(ctx, plain, params...) {
-			var (
-				pos Position
-				elems []Value
-				s string
-			)
-			if pair, y := a.(*pair); !y {
-				erro(of(ctx,a), "unexpected value: %T %v", a, a).debug(1)
-				return
-			} else if s = pair.Key.string(at(ctx, pair.Key.Position())); s == "" {
-				erro(of(ctx,a), "empty key: %T %v", pair.Key, pair.Key).debug(1)
-				return
-			} else if g, y := pair.Value.(*group); y {
-				pos = pair.Value.Position()
-				elems = g.Elems
-			} else {
-				pos = pair.Value.Position()
-				elems = append(elems, pair.Value)
+		var l int = len(params)-1
+		outer: for n := 0; n < num; n += 1 {
+			var trivial bool
+
+			for _i, _v := range params {
+				// i[0]    = (n % 1) / b    (a = n * n * ..., k-1)
+				// i[1..l] = (n % a) / b    (b = n * ..., k-2)
+				// i[l+1]  = (n % a) / 1
+				var i int = n
+
+				// Two implements: 1. compact, 2. TODO: expand
+				//    1. compact: use the minimum nparam, skip elements after it (DONE)
+				//    2. expand: use the maximum nparam, treat every part the same (TODO)
+
+				// 1. compact mode
+				for k, t := range params { if t.n == 0 {
+					if true { continue outer }
+				} else if k <= _i {
+					if 0 < _i { i %= t.n }
+				} else {
+					if _i < l { i /= t.n }
+				}}
+
+				for _, v := range _v.a { if i < len(v.elems) {
+					vars[v.name] = v.elems[i]
+				} else if true {
+					vars[v.name] = nil
+				} else {
+					// TODO: add option to skip nil elements
+					continue outer
+				}}
 			}
 
-			var m = vars[s]
-			m.elems = xmerge(at(ctx, pos), plain, elems...)
-			if n := len(m.elems); n > num { num = n }
-			vars[s] = m // overwrite
-		}
-
-		for i := 0; i < num; i += 1 {
-			var _1trivial bool
-			var m = map[string]Value{}
-			for name, s := range vars {
-				var elem Value
-				if i < len(s.elems) { elem = s.elems[i] }
-				_1trivial = isTrivial(elem)
-				m[name] = elem
+			if len(vars) > 0 && !(trivial && len(vars) == 1) {
+				p.codeblock(ctx, t, vars)
 			}
-
-			_1trivial = _1trivial && len(m) == 1
-
-			if len(m) > 0 && !_1trivial { p.codeblock(ctx, t, m) }
 		}
 		return
 
@@ -3072,20 +3119,18 @@ func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 	if !(p.pos < p.stop) {
 		erro(at(ctx,p.loc(p.pos)), "bad range: [%v %v) (%v)", p.pos, p.stop, t.name).debug(10)
 	}
-	if true { if t.name == nil && len(vars) == 0 {
-		if true { erro(ctx, "%v", t).debug(3) }
-		return
-	}}
 
 	var loader = ctx.loader()
-	defer loader.closeScope(loader.openScope("code block"))
+
+	defer loader.closeScope(loader.openScope("codeblock"))
 
 	ctx = &autoContext{
-		Context: at(ctx, p.Position()),
+		Context: p.ctx(ctx),
 		defs: make(autoDefMap),
 	}
 
 	var scope = loader.Scope()
+
 	for s, v := range vars { if a := scope.auto(ctx, s); a != nil {
 		a.set(ctx, v)
 	} else {
@@ -3149,17 +3194,17 @@ func (p *parser) repeat(ctx Context, t *template, params []Value) {
 		} ()
 	}
 
-	var a = map[string]Value{}
+	var m = map[string]Value{}
 
 	for i, v := range t.params { if s := v.string(ctx); s != "" {
-		if i < len(params) { a[s] = params[i] } else {
-			a[s] = makeNull(v.Position())
+		if i < len(params) { m[s] = params[i] } else {
+			m[s] = makeNull(v.Position())
 		}
 	} else {
 		erro(of(ctx,v), "empty template param name: %v %v", v, v).debug(1)
 	}}
 
-	p.codeblock(ctx, t, a)
+	p.codeblock(ctx, t, m)
 }
 
 func (p *parser) call(ctx Context, name Value, args []Value) (result bool) {
@@ -3197,7 +3242,7 @@ func (p *parser) clause(ctx Context) {
 	case     EVAL: p.spec(ctx, tok, p.expect(tok), p.eval); return
 	case    COLON: p.specialRule(ctx); return
 	case      DEF: p.def(ctx); return
-	case      FOR: p._for(ctx); return
+	case      FOR: p.for_(ctx); return
 	case  FOREACH: p.foreach(ctx); return
 	case   LINEND, SPACE: p.next(true) // skip empty lines
 	case USE, TEMPLATE:

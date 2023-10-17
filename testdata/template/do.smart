@@ -6,7 +6,7 @@ foreach $(xyz)
 var.$_ ::= test-$_
 done
 
-foreach 1 2 3
+foreach 1 2 3 4 5 6 7 8 9 10
 .test.$_ :=
 done
 
@@ -22,21 +22,55 @@ def foo(x)
 .test.3 += $(x)
 end
 
-for type=$(xyz) #template for type=$(xyz)
+for type=$(xyz)
 .test.1 += $(type)
-done #template expand
+done
 
-foreach $(defs(-rn=1 -r='^var\.([xyz]+)$')) #template foreach $(defs(-rn=1 -r='^var\.([xyz]+)$'))
+foreach $(defs(-rn=1 -r='^var\.([xyz]+)$'))
 .test.2 += $_
-done #template expand
+done
 
-def bar(x) #template def bar(x)
+def bar(x)
 .test.3 += $(x)
-end #template end
+end
 
-foo(xxx) #template foo(xxx)
-foo(yyy) #template foo(yyy)
-foo(zzz) #template foo(zzz)
-bar(xxx) #template bar(xxx)
-bar(yyy) #template bar(yyy)
-bar(zzz) #template bar(zzz)
+foo(xxx)
+foo(yyy)
+foo(zzz)
+bar(xxx)
+bar(yyy)
+bar(zzz)
+
+for k=(a b c) and v=(x y z)
+.test.4 += $(k)=$(v)
+done
+
+# compact-for
+for k=(a b) and v=(x y z)
+.test.5 += $(k)=$(v)
+done
+
+# compact-for
+for k=(a b c) and v=(x y)
+.test.6 += $(k)=$(v)
+done
+
+# compact-for
+for k1=(a1 b1 c1) k2=(a2 b2 c2) and v=(x y z)
+.test.7 += $(k1)=$(v) $(k2)=$(v)
+done
+
+# compact-for
+for k1=(a1 b1) k2=(a2 b2 c2) and v=(x y z)
+.test.8 += $(k1)=$(v) $(k2)=$(v)
+done
+
+# compact-for
+for k1=(a1 b1 c1) k2=(a2 b2) and v=(x y z)
+.test.9 += $(k1)=$(v) $(k2)=$(v)
+done
+
+# compact-for
+for k1=(a1 b1 c1) k2=(a2 b2) and v1=(x1 y1) v2=(x2 y2 z2)
+.test.10 += $(k1)=$(v1) $(k2)=$(v2)
+done

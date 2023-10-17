@@ -168,6 +168,7 @@ const (
 	INSTANCE   // instance
 	FILES      // files
 	TEMPLATE   // template
+	AND        // and
 	FOR        // for
 	FOREACH    // foreach
 	DONE       // done
@@ -333,6 +334,7 @@ var tokens = [...]string{
 	INSTANCE:   "instance",
 	FILES:      "files",
 	TEMPLATE:   "template",
+	AND:        "and",
 	FOR:        "for",
 	FOREACH:    "foreach",
 	DONE:       "done",
