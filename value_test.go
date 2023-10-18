@@ -55,7 +55,7 @@ func testAutoContext(ctx *testcase) {
 	}
 	{
 		ac := autoContext{ Context:ctx, defs:make(autoDefMap) }
-		ac.args(ctx, nil, ease(ctx, []string{"a", "b", "c"}).(*List).Elems)
+		ac.args(ctx, nil, ease(ctx, []string{"a", "b", "c"}).(*list).Elems)
 		if len(ac.defs) != 3 {
 			ctx.err("%v", ac.defs)
 		} else if d, y := ac.defs["1"]; !y {
@@ -75,7 +75,7 @@ func testAutoContext(ctx *testcase) {
 		ctx.err("%T %v ; %s", foo.value, foo.value, s)
 	} else if s := foo.value.string(ctx); s != "" {
 		ctx.err("%T %v ; %s", foo.value, foo.value, s)
-	} else if l, y := foo.value.(*List); !y {
+	} else if l, y := foo.value.(*list); !y {
 		ctx.err("%T %v", foo.value, foo.value)
 	} else if len(l.Elems) != 10 {
 		ctx.err("%v", l.Elems)
@@ -185,9 +185,9 @@ func testAutoContext(ctx *testcase) {
 		ctx.err("%T %v", v1, v1)
 	} else if u2, y := v2.(unexpanded); !y {
 		ctx.err("%T %v", v2, v2)
-	} else if l1, y := u1.Value.(*List); !y || l1.Len() != 1 {
+	} else if l1, y := u1.Value.(*list); !y || l1.Len() != 1 {
 		ctx.err("%T %v , %v", u1.Value, u1.Value, l1)
-	} else if l2, y := u2.Value.(*List); !y || l2.Len() != 1 {
+	} else if l2, y := u2.Value.(*list); !y || l2.Len() != 1 {
 		ctx.err("%T %v , %v", u2.Value, u2.Value, l2)
 	} else if u1, y := l1.Elems[0].(unexpanded); !y {
 		ctx.err("%T %v", l1.Elems[0], l1.Elems[0])
@@ -676,7 +676,7 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("val1 is nil")
 	} else if s := d.value.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
 		ctx.err("%T %v -> %s", d.value, d.value, s)
-	} else if l, y := d.value.(*List); !y {
+	} else if l, y := d.value.(*list); !y {
 		ctx.err("%T %v", d.value, d.value)
 	} else if len(l.Elems) != 10 {
 		ctx.err("%v", l)
@@ -696,7 +696,7 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%T %v", v, v)
-	} else if l, y := u.Value.(*List); !y {
+	} else if l, y := u.Value.(*list); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	} else if u, y := l.Elems[0].(unexpanded); !y {
 		ctx.err("%T %v", l.Elems[0], l.Elems[0])
@@ -754,7 +754,7 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if s := v.string(ctx); s != "a b c d e f" {
 		ctx.err("%T %v -> %s", v, v, s)
-	} else if _, y := v.(*List); !y {
+	} else if _, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	}
 
@@ -764,7 +764,7 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("%T %v -> %s", v, v, s)
 	} else if s := v.string(ctx); s != "1 2 3 4 5 6 7 8 9" {
 		ctx.err("%T %v -> %s", v, v, s)
-	} else if _, y := v.(*List); !y {
+	} else if _, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	}
 }

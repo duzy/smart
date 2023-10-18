@@ -1097,9 +1097,9 @@ func testFiles(ctx *testcase) {
 }
 
 func testForeach(ctx *testcase) {
-	var to_list func(v Value) (*List, bool)
-	var to_list_direct = func(v Value) (l *List, y bool) { l, y = v.(*List) ; return }
-	var to_list_unexpanded = func(v Value) (l *List, y bool) {
+	var to_list func(v Value) (*list, bool)
+	var to_list_direct = func(v Value) (l *list, y bool) { l, y = v.(*list) ; return }
+	var to_list_unexpanded = func(v Value) (l *list, y bool) {
 		if a, b := v.(unexpanded); !b { l, y = to_list_direct(a.Value) }
 		return
 	}
@@ -1114,7 +1114,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v", d.value, d.value)
 	} else if s := d.value.string(ctx); s != "x -" {
 		ctx.err("%T %v → %s", d.value, d.value, s)
-	} else if l, y := d.value.(*List); !y {
+	} else if l, y := d.value.(*list); !y {
 		ctx.err("%T %v", d.value, d.value)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1136,9 +1136,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v → %s", v, v, s)
 		// } else if u, y := v.(unexpanded); !y {
 		// 	ctx.err("%T %v", v, v)
-		// } else if l, y := u.Value.(*List); !y {
+		// } else if l, y := u.Value.(*list); !y {
 		// 	ctx.err("%T %v", u.Value, u.Value)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1178,7 +1178,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%T %v", v, v)
-	} else if l, y := u.Value.(*List); !y {
+	} else if l, y := u.Value.(*list); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1216,7 +1216,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.1"))
 	} else if s := v.string(ctx); s != "x -a -b -c" {
 		ctx.err("%T %v → %s ; %v", v, v, s, ctx.def(".test.1"))
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.1"))
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1224,7 +1224,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v", l.Elems[0], l.Elems[0])
 	} else if w.s != "x" {
 		ctx.err("%v", w.s)
-	} else if l1, y := l.Elems[1].(*List); !y {
+	} else if l1, y := l.Elems[1].(*list); !y {
 		ctx.err("%T %v", l.Elems[1], l.Elems[1])
 	} else if len(l1.Elems) != 3 {
 		ctx.err("%v", l.Elems)
@@ -1248,7 +1248,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%T %v", v, v)
-	} else if l, y := u.Value.(*List); !y {
+	} else if l, y := u.Value.(*list); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1282,7 +1282,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.1"))
 	} else if s := v.string(ctx); s != "x -x -y -z" {
 		ctx.err("%T %v → %s ; %v", v, v, s, ctx.def(".test.1"))
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1290,7 +1290,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v", l.Elems[0], l.Elems[0])
 	} else if w.s != "x" {
 		ctx.err("%v ; %v", w.s, v)
-	} else if l1, y := l.Elems[1].(*List); !y {
+	} else if l1, y := l.Elems[1].(*list); !y {
 		ctx.err("%T %v ; %v", l.Elems[1], l.Elems[1], v)
 	} else if len(l1.Elems) != 3 {
 		ctx.err("%v ; %v", l1.Elems, v)
@@ -1354,7 +1354,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "x -x -y -z" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1362,11 +1362,11 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v", l.Elems[0], l.Elems[0])
 	} else if w.s != "x" {
 		ctx.err("%v", w.s)
-	} else if l1, y := l.Elems[1].(*List); !y {
+	} else if l1, y := l.Elems[1].(*list); !y {
 		ctx.err("%T %v", l.Elems[1], l.Elems[1])
 	} else if len(l1.Elems) != 3 {
 		ctx.err("%v", l1.Elems)
-	} else if l1, y := l.Elems[1].(*List); !y {
+	} else if l1, y := l.Elems[1].(*list); !y {
 		ctx.err("%T %v", l.Elems[1], l.Elems[1])
 	} else if len(l1.Elems) != 3 {
 		ctx.err("%v", l1.Elems)
@@ -1424,7 +1424,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "x -x -y -z" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1432,7 +1432,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v", l.Elems[0], l.Elems[0])
 	} else if w.s != "x" {
 		ctx.err("%v", w.s)
-	} else if d, y := l.Elems[1].(*List); !y {
+	} else if d, y := l.Elems[1].(*list); !y {
 		ctx.err("%T %v", l.Elems[1], l.Elems[1])
 	} else if s := d.String(); s != "-x -y -z" {
 		ctx.err("%T %v → %s", d.Elems, d.Elems, s)
@@ -1458,7 +1458,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%T %v", v, v)
-	} else if l, y := u.Value.(*List); !y {
+	} else if l, y := u.Value.(*list); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1490,7 +1490,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v", d.a[0], d.a[0])
 	} else if len(l.Elems) != 1 {
 		ctx.err("%v", l.Elems)
-	} else if l, y := d.a[1].(*List); !y {
+	} else if l, y := d.a[1].(*list); !y {
 		ctx.err("%T %v", d.a[1], d.a[1])
 	} else if len(l.Elems) != 1 {
 		ctx.err("%v", l.Elems)
@@ -1528,7 +1528,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "x -x -y -z" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1538,7 +1538,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v", w.s)
 	} else if s := l.Elems[1].String(); s != "&(.test.h)x &(.test.h)y &(.test.h)z" {
 		ctx.err("%T %v → %s", l.Elems[1], l.Elems[1], s)
-	} else if l1, y := l.Elems[1].(*List); !y {
+	} else if l1, y := l.Elems[1].(*list); !y {
 		ctx.err("%T %v", l.Elems[1], l.Elems[1])
 	} else if len(l1.Elems) != 3 {
 		ctx.err("%v", l1.Elems)
@@ -1604,7 +1604,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v - %v", d.value, d.value, test_1_str)
 	} else if test_1_value == nil || test_1_value.String() != test_1_str {
 		ctx.err("%T %v - %v", test_1_value, test_1_value, test_1_str)
-	} else if l, y := d.value.(*List); !y {
+	} else if l, y := d.value.(*list); !y {
 		ctx.err("%T %v", d.value, d.value)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -1686,7 +1686,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%T %v → %s ; %v", d.value, d.value, s, d)
 	} else if s := d.value.string(ctx); s != "x xq xp x-" {
 		ctx.err("%T %v → %s ; %v", d.value, d.value, s, d)
-	} else if l, y := d.value.(*List); !y {
+	} else if l, y := d.value.(*list); !y {
 		ctx.err("%T %v ; %v", d.value, d.value, d)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v ; %v", l.Elems, d) // "$(foreach q p $(foreach $1,&(.test.h)$_),x$_)"
@@ -1700,7 +1700,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v ; %v", d, d.a)
 	} else if u, y := d.a[0].(unexpanded); !y {
 		ctx.err("%v ; %T %v", d, d.a[0], d.a[0])
-	} else if l, y := u.Value.(*List); !y {
+	} else if l, y := u.Value.(*list); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	} else if len(l.Elems) != 3 {
 		ctx.err("%v : %v", d, l.Elems)
@@ -1762,7 +1762,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v → %s ; %v", v, s, ctx.def(".test.21"))
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.21"))
-	} else if l, y := u.Value.(*List); !y {
+	} else if l, y := u.Value.(*list); !y {
 		ctx.err("%T %v ; %v", u.Value, u.Value, ctx.def(".test.21"))
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v ; %v", l.Elems, ctx.def(".test.21")) // "$(foreach q p $(foreach $1,&(.test.h)$_),x$_)"
@@ -1776,7 +1776,7 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v ; %v", d, d.a)
 	} else if u, y := d.a[0].(unexpanded); !y {
 		ctx.err("%v ; %T %v", d, d.a[0], d.a[0])
-	} else if l, y := u.Value.(*List); !y {
+	} else if l, y := u.Value.(*list); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	} else if len(l.Elems) != 3 {
 		ctx.err("%v : %v", d, l.Elems)
@@ -2091,7 +2091,7 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v", v, v) // "$(foreach $1 $2,$(addprefix std=,&(.test.$_)))"
 	} else if s := v.string(ctx); s != "" {
 		ctx.err("%T %v → %s", v, v, s)
-		if l, y := v.(*List); y { for i, elem := range l.Elems {
+		if l, y := v.(*list); y { for i, elem := range l.Elems {
 			ctx.err("%v %v %v → %s", i, typeof(elem), elem, elem.string(ctx))
 		}}
 	} else if u, y := v.(unexpanded); !y {
@@ -2107,7 +2107,7 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v ; %v", v, v, ctx.def(".test.x"))
 	} else if s := v.string(ctx); s != "" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -2130,7 +2130,7 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v", v, v) // "$(foreach a $2,$(addprefix std=,&(.test.$_)))"
 	} else if s := v.string(ctx); s != "" {
 		ctx.err("%T %v → %s", v, v, s)
-		if l, y := v.(*List); y { for i, elem := range l.Elems {
+		if l, y := v.(*list); y { for i, elem := range l.Elems {
 			ctx.err("%v %v %v → %s", i, typeof(elem), elem, elem.string(ctx))
 		}}
 	} else if u, y := v.(unexpanded); !y {
@@ -2145,7 +2145,7 @@ func testForeach3(ctx *testcase) {
 	} else if s := v.string(ctx); s != "" {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if false {
-		if l, y := v.(*List); !y {
+		if l, y := v.(*list); !y {
 			ctx.err("%T %v", v, v)
 		} else if len(l.Elems) != 2 {
 			ctx.err("%v", l.Elems)
@@ -2175,11 +2175,11 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "" {
 		ctx.err("%T %v → %s", v, v, s)
-		if l, y := v.(*List); y { for i, elem := range l.Elems {
+		if l, y := v.(*list); y { for i, elem := range l.Elems {
 			ctx.err("%v %v %v → %s", i, typeof(elem), elem, elem.string(ctx))
 		}}
 	} else if false {
-		if l, y := v.(*List); !y {
+		if l, y := v.(*list); !y {
 			ctx.err("%T %v", v, v)
 		} else if len(l.Elems) != 2 {
 			ctx.err("%v", l.Elems)
@@ -2209,11 +2209,11 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "" {
 		ctx.err("%T %v → %s", v, v, s)
-		if l, y := v.(*List); y { for i, elem := range l.Elems {
+		if l, y := v.(*list); y { for i, elem := range l.Elems {
 			ctx.err("%v %v %v → %s", i, typeof(elem), elem, elem.string(ctx))
 		}}
 	} else if false {
-		if l, y := v.(*List); !y {
+		if l, y := v.(*list); !y {
 			ctx.err("%T %v", v, v)
 		} else if len(l.Elems) != 2 {
 			ctx.err("%v", l.Elems)
@@ -2243,10 +2243,10 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "" {
 		ctx.err("%T %v → %s", v, v, s)
-		if l, y := v.(*List); y { for i, elem := range l.Elems {
+		if l, y := v.(*list); y { for i, elem := range l.Elems {
 			ctx.err("%v %v %v → %s", i, typeof(elem), elem, elem.string(ctx))
 		}}
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -2284,7 +2284,7 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v → %s ; %v", v, v, s, ctx.def(".test.y"))
 	} else if _, y := v.(*none); y {
 		ctx.Logf("%T %v", v, v) // FIXME: ...
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -2296,9 +2296,9 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%v → %s", u1.Value, s)
 	} else if s := u2.string(ctx); s != "" {
 		ctx.err("%v → %s", u1.Value, s)
-	} else if p1, y := u1.Value.(*List); !y { // delegate
+	} else if p1, y := u1.Value.(*list); !y { // delegate
 		ctx.err("%T %v", u1.Value, u1.Value)
-	} else if p2, y := u2.Value.(*List); !y { // delegate
+	} else if p2, y := u2.Value.(*list); !y { // delegate
 		ctx.err("%T %v", u2.Value, u2.Value)
 	} else if s := p1.string(ctx); s != "" {
 		ctx.err("%v → %s", p1, s)
@@ -2323,7 +2323,7 @@ func testForeach3(ctx *testcase) {
 	} else if s := v.string(ctx); s != "std=xxx" {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if false {
-		if l, y := v.(*List); !y {
+		if l, y := v.(*list); !y {
 			ctx.err("%T %v", v, v)
 		} else if len(l.Elems) != 2 {
 			ctx.err("%v", l.Elems)
@@ -2339,15 +2339,15 @@ func testForeach3(ctx *testcase) {
 			ctx.err("%T %v", l.Elems[0], l.Elems[0])
 		} else if u2, y := l.Elems[1].(unexpanded); !y {
 			ctx.err("%T %v", l.Elems[1], l.Elems[1])
-		} else if _, y := u1.Value.(*List); !y { // delegate
+		} else if _, y := u1.Value.(*list); !y { // delegate
 			ctx.err("%T %v", u1.Value, u1.Value)
-		} else if _, y := u2.Value.(*List); !y { // delegate
+		} else if _, y := u2.Value.(*list); !y { // delegate
 			ctx.err("%T %v", u2.Value, u2.Value)
 		}
 	} else if true {
 		if u1, y := v.(unexpanded); !y {
 			ctx.err("%T %v", v, v)
-		} else if _, y := u1.Value.(*List); !y { // delegate
+		} else if _, y := u1.Value.(*list); !y { // delegate
 			ctx.err("%T %v", u1.Value, u1.Value)
 		}
 	} else if _, y := v.(*pair); !y {
@@ -2360,7 +2360,7 @@ func testForeach3(ctx *testcase) {
 	} else if s := v.string(ctx); s != "std=xxx" {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if false {
-		if l, y := v.(*List); !y {
+		if l, y := v.(*list); !y {
 			ctx.err("%T %v", v, v)
 		} else if len(l.Elems) != 2 {
 			ctx.err("%v", l.Elems)
@@ -2372,14 +2372,14 @@ func testForeach3(ctx *testcase) {
 			ctx.err("%T %v", l.Elems[0], l.Elems[0])
 		} else if u2, y := l.Elems[1].(unexpanded); !y {
 			ctx.err("%T %v", l.Elems[1], l.Elems[1])
-		} else if _, y := u1.Value.(*List); !y { // delegate
+		} else if _, y := u1.Value.(*list); !y { // delegate
 			ctx.err("%T %v", u1.Value, u1.Value)
-		} else if _, y := u2.Value.(*List); !y { // delegate
+		} else if _, y := u2.Value.(*list); !y { // delegate
 			ctx.err("%T %v", u2.Value, u2.Value)
 		}
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%T %v", v, v)
-	} else if _, y := u.Value.(*List); !y {
+	} else if _, y := u.Value.(*list); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	}
 	if v := ctx.get(".test.y", nil, "if.y"); v == nil {
@@ -2389,7 +2389,7 @@ func testForeach3(ctx *testcase) {
 	} else if s := v.string(ctx); s != "std=yyy" {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if false {
-		if l, y := v.(*List); !y {
+		if l, y := v.(*list); !y {
 			ctx.err("%T %v", v, v)
 		} else if len(l.Elems) != 2 {
 			ctx.err("%v", l.Elems)
@@ -2401,14 +2401,14 @@ func testForeach3(ctx *testcase) {
 			ctx.err("%T %v", l.Elems[0], l.Elems[0])
 		} else if u2, y := l.Elems[1].(unexpanded); !y {
 			ctx.err("%T %v", l.Elems[1], l.Elems[1])
-		} else if _, y := u1.Value.(*List); !y { // delegate
+		} else if _, y := u1.Value.(*list); !y { // delegate
 			ctx.err("%T %v", u1.Value, u1.Value)
-		} else if _, y := u2.Value.(*List); !y { // delegate
+		} else if _, y := u2.Value.(*list); !y { // delegate
 			ctx.err("%T %v", u2.Value, u2.Value)
 		}
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%T %v", v, v)
-	} else if _, y := u.Value.(*List); !y {
+	} else if _, y := u.Value.(*list); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	}
 	if v := ctx.get(".test.y", "if.x", "if.y"); v == nil {
@@ -2417,7 +2417,7 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "std=xxx std=yyy" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -2429,9 +2429,9 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v", l.Elems[0], l.Elems[0])
 	} else if u2, y := l.Elems[1].(unexpanded); !y {
 		ctx.err("%T %v", l.Elems[1], l.Elems[1])
-	} else if _, y := u1.Value.(*List); !y { // delegate
+	} else if _, y := u1.Value.(*list); !y { // delegate
 		ctx.err("%T %v", u1.Value, u1.Value)
-	} else if _, y := u2.Value.(*List); !y { // delegate
+	} else if _, y := u2.Value.(*list); !y { // delegate
 		ctx.err("%T %v", u2.Value, u2.Value)
 	}
 	if v := ctx.get(".test.y", "if.x", "if.y", expandClosure); v == nil {
@@ -2440,7 +2440,7 @@ func testForeach3(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "std=xxx std=yyy" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%v", l.Elems)
@@ -2470,12 +2470,12 @@ func testForeach4(ctx *testcase) {
 	} else if s := v.string(ctx); s != "X~1~ x- x- ~1~x- ~1~x- X~2~ x- x- ~2~x- ~2~x- ~~~~ ~~~~" {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if u, y := v.(unexpanded); y {
-		if l, y := u.Value.(*List); !y {
+		if l, y := u.Value.(*list); !y {
 			ctx.err("%T %v", u.Value, u.Value)
 		} else if len(l.Elems) != 2 {
 			ctx.err("%T %v", v, l.Elems)
 		}
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v", v, l.Elems)
@@ -2487,12 +2487,12 @@ func testForeach4(ctx *testcase) {
 	} else if s := v.string(ctx); s != "YX~1~ x- x- ~1~x- ~1~x- YX~2~ x- x- ~2~x- ~2~x- ~~~~ ~~~~" {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if u, y := v.(unexpanded); y {
-		if l, y := u.Value.(*List); !y {
+		if l, y := u.Value.(*list); !y {
 			ctx.err("%T %v", u.Value, u.Value)
 		} else if len(l.Elems) != 2 {
 			ctx.err("%T %v", v, l.Elems)
 		}
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v", v, l.Elems)
@@ -2512,12 +2512,12 @@ func testForeach4(ctx *testcase) {
 	} else if s := v.string(ctx); s != "Xxa Xxb X~1~ x- x- ~1~x- ~1~x- X~2~ x- x- ~2~x- ~2~x- ~~~~ ~~~~" {
 		ctx.err("%T %v → %s", v, v, s)
 	} else if u, y := v.(unexpanded); y {
-		if l, y := u.Value.(*List); !y {
+		if l, y := u.Value.(*list); !y {
 			ctx.err("%T %v", u.Value, u.Value)
 		} else if len(l.Elems) != 2 {
 			ctx.err("%T %v", v, l.Elems)
 		}
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v %v", v, l.Elems, len(l.Elems))
@@ -2559,7 +2559,7 @@ func testForeach5(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if l.Len() != 10 {
 		ctx.err("%v %v", l.Elems, l.Len())
@@ -2588,7 +2588,7 @@ func testForeach5(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "a~ -ao -ao ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if l.Len() != 10 {
 		ctx.err("%v %v", l.Elems, l.Len())
@@ -2992,7 +2992,7 @@ func testBuiltins(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "-foo=bar" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v %v", v, v, l.Elems)
@@ -3007,7 +3007,7 @@ func testBuiltins(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "-foo=bar" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v %v", v, v, l.Elems)
@@ -3045,7 +3045,7 @@ func testBuiltins(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "foobar" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v %v", v, v, l.Elems)
@@ -3060,7 +3060,7 @@ func testBuiltins(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "foobar" {
 		ctx.err("%T %v → %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v %v", v, v, l.Elems)
@@ -3198,7 +3198,7 @@ func testBuiltins(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "-no -yes -false -true" {
 		ctx.err("%T %v ⇒ %s", v, v, s)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else { for _, t := range l.Elems {
 		if f, y := t.(flag); !y {

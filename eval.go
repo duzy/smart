@@ -65,7 +65,7 @@ ForRecipes:
             } else if n := len(a); n == 1 {
                 v = a[0]
             } else if n > 1 {
-                v = MakeList(recipe.Position(), a...)
+                v = makeList(recipe.Position(), a...)
             }
             for _, brk := range traves {
                 erro(at(ctx,brk.pos), "eval '%v': %v", vals, brk).debug(1)

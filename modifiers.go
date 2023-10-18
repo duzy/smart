@@ -623,7 +623,7 @@ func (ctx *modifier_closure) x(pc *programContext, args ...Value) (result interf
             t = val
         }
 
-        if l, y := t.(*List); y && len(l.Elems) == 1 { t = l.Elems[0] }
+        if l, y := t.(*list); y && len(l.Elems) == 1 { t = l.Elems[0] }
         if !noop && isTrivial(t) { t = autoVal(ctx, name)  }
 
         if t != nil {
@@ -758,12 +758,12 @@ func (ctx *modifier_sudo) x(args ...Value) (result interface{}) {
     return
 }
 
-func parseDependList(ctx Context, dependList *List) (depends *List) {
+func parseDependList(ctx Context, dependList *list) (depends *list) {
     var pc = ctx.pc()
-    depends = new(List)
+    depends = new(list)
     for _, depend := range dependList.Elems {
         switch d := depend.(type) {
-        case *List:
+        case *list:
             if dl := parseDependList(ctx, d); dl != nil {
                 depends.Elems = append(depends.Elems, dl.Elems...)
             }

@@ -705,8 +705,8 @@ func (p *parser) values(ctx Context, lhs bool) (values []Value) {
 	return
 }
 
-func (p *parser) list(ctx Context, lhs bool) *List {
-	return MakeList(p.Position(), p.values(ctx, lhs)...)
+func (p *parser) list(ctx Context, lhs bool) *list {
+	return makeList(p.Position(), p.values(ctx, lhs)...)
 }
 
 func (p *parser) setRHS(v bool) (old bool) {
@@ -747,10 +747,10 @@ func (p *parser) group(ctx Context, lhs bool) *group {
 			elems = append(elems, p.punctuation())
 			p.spaces()
 		}
-		var next *List
+		var next *list
 		next = p.list(ctx, false)
 		if !converted {
-			elems = []Value{ MakeList(p.Position(), elems...), next }
+			elems = []Value{ makeList(p.Position(), elems...), next }
 			converted = true
 		} else {
 			elems = append(elems, next)
@@ -2391,7 +2391,7 @@ func (p *parser) define(ctx Context, tok Token, ident Value) (def *def) {
 	if n := len(elems); n == 1 {
 		value = elems[0]
 	} else if n > 1 {
-		value = MakeList(elems[0].Position(), elems...)
+		value = makeList(elems[0].Position(), elems...)
 	}
 
 	if false { if value != nil { if strings.Contains(value.String(), "-f.ld") {
@@ -2474,13 +2474,13 @@ SwitchDialect:
 				}
 				if cmdargs = append(cmdargs, x); p.tok == COMMA {
 					p.next(true)
-					elems = append(elems, MakeList(p.Position(), cmdargs...))
+					elems = append(elems, makeList(p.Position(), cmdargs...))
 					cmdargs = []Value{}
 				}
 				if p.lineComment != nil { break }
 			}
 			p.clearbit(parseRecipeBuiltin)
-			elems = append(elems, MakeList(p.Position(), cmdargs...))
+			elems = append(elems, makeList(p.Position(), cmdargs...))
 		}
 
 	default:
@@ -2504,7 +2504,7 @@ SwitchDialect:
     if len(elems) == 0 {
         return makeNone(position)
     } else if isList {
-        return MakeList(position, elems...)
+        return makeList(position, elems...)
     } else {
         return MakeCompound(position, elems...)
     }
@@ -2598,7 +2598,7 @@ ForModifiersExpr:
 			erro(at(ctx,x.Position()), "modifier: %T %v   →   %T %v", x, x, xv, xv).debug(1)
 			continue ForModifiersExpr
 		}
-		if l, y := g.Elems[0].(*List); y {
+		if l, y := g.Elems[0].(*list); y {
 			g.Elems = append([]Value{ l.Elems[0] }, append(l.Elems[1:], g.Elems[1:]...)...)
 		}
 
@@ -2801,7 +2801,7 @@ func (p *parser) rule(ctx Context, special specialRule, optvals, targets []Value
 		if res = loader.rule(parsedData); len(res) == 1 {
 			result = res[0]
 		} else if len(res) > 1 {
-			var list = MakeList(res[0].Position())
+			var list = makeList(res[0].Position())
 			for _, v := range res { list.Elems = append(list.Elems, v) }
 			result = list
 		} else {
@@ -3102,9 +3102,11 @@ func (p *parser) for_(ctx Context) {
 				}}
 			}
 
-			// if len(vars) > 0 && !(trivial && len(vars) == 1)
-
-			p.codeblock(ctx, t, vars)
+			var trivial bool = len(vars) == 0
+			if !trivial { for _, v := range vars {
+				if trivial = isTrivial(v); !trivial { break }
+			}}
+			if !trivial { p.codeblock(ctx, t, vars) }
 		}
 		return
 

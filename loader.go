@@ -796,13 +796,13 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
     }
     for _, depend := range clause.depends {
         switch dep := depend.(type) {
-        case *List: depends = append(depends, dep.Elems...)
+        case *list: depends = append(depends, dep.Elems...)
         default:    depends = append(depends, dep)
         }
     }
     for _, depend := range clause.ordered {
         switch dep := depend.(type) {
-        case *List: ordered = append(ordered, dep.Elems...)
+        case *list: ordered = append(ordered, dep.Elems...)
         default:    ordered = append(ordered, dep)
         }
     }
@@ -1030,7 +1030,7 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
     if ns := strings.Split(l.project.name, "."); len(ns) > 2 && ns[len(ns)-1] == "base" {
         var numBaseParams int
         for _, elem := range params {
-            if l, y := elem.(*List); y && len(l.Elems) == 1 { elem = l.Elems[0] }
+            if l, y := elem.(*list); y && len(l.Elems) == 1 { elem = l.Elems[0] }
             if a, y := elem.(*argumented); y { elem = a.Value }
             if _, y := elem.(*pair); y { continue }
             numBaseParams += 1
@@ -1064,7 +1064,7 @@ ParamsLoop:
             args []Value
             isDir bool
         )
-        if list, y := elem.(*List); y && len(list.Elems) == 1 { elem = list.Elems[0] }
+        if list, y := elem.(*list); y && len(list.Elems) == 1 { elem = list.Elems[0] }
         if a, y := elem.(*argumented); y { elem, args = a.Value, a.args }
         if p, y := elem.(*pair); y {
             var (

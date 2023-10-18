@@ -533,7 +533,7 @@ func (ctx *builtin_noop) x(ic *invocation, w facet) (res interface{}) { return }
 
 func typeof(arg interface{}) (s string) {
     switch a := arg.(type) {
-    case *List:
+    case *list:
         if n := len(a.Elems); n == 1 {
             switch v := a.Elems[0].(type) {
             case *delegate: // FIXME: recursively undelegate types
@@ -888,7 +888,7 @@ func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
     } else if n := ctx.debug; n>0 {
         if u, y := a.(unexpanded); y {
             warn(of(ctx,a), "unequal: a: %T %v (unexpanded)", u.Value, a)
-        } else if l, y := a.(*List); y {
+        } else if l, y := a.(*list); y {
             var v = l.Elems[0]
             warn(of(ctx,a), "unequal: a: %T(len=%d), %T %v", a, len(l.Elems), v, v)
         } else {
@@ -896,7 +896,7 @@ func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
         }
         if u, y := b.(unexpanded); y {
             warn(of(ctx,a), "unequal: b: %T %v (unexpanded)", u.Value, b)
-        } else if l, y := b.(*List); y {
+        } else if l, y := b.(*list); y {
             var v = l.Elems[0]
             warn(of(ctx,b), "unequal: b: %T(len=%d), %T %v", b, len(l.Elems), v, v)
         } else {
@@ -919,7 +919,7 @@ func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
         if a := umerge(true, ic.a[0]); len(a) == 1 {
             ic.a[0] = a[0]
         } else {
-            ic.a[0] = MakeList(ic.a[0].Position(), a...)
+            ic.a[0] = makeList(ic.a[0].Position(), a...)
         }
     }
 
@@ -943,14 +943,14 @@ func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
     } else if n := ctx.debug; n>0 {
         if u, y := a.(unexpanded); y {
             warn(of(ctx,a), "equal: a: %T %v (unexpanded, %s)", u.Value, a, a.string(ctx))
-        } else if l, y := a.(*List); y { var v = l.Elems[0]
+        } else if l, y := a.(*list); y { var v = l.Elems[0]
             warn(of(ctx,a), "equal: a: %T(len=%d), %T %v", a, len(l.Elems), v, v)
         } else {
             warn(of(ctx,a), "equal: a: %T %v (%s)", a, a, a.string(ctx))
         }
         if u, y := b.(unexpanded); y {
             warn(of(ctx,a), "equal: b: %T %v (unexpanded, %s)", u.Value, b, b.string(ctx))
-        } else if l, y := b.(*List); y { var v = l.Elems[0]
+        } else if l, y := b.(*list); y { var v = l.Elems[0]
             warn(of(ctx,b), "equal: b: %T(len=%d), %T %v", b, len(l.Elems), v, v)
         } else {
             warn(of(ctx,b), "equal: b: %T %v (%s)", b, b, b.string(ctx))
@@ -1872,7 +1872,7 @@ func (ctx *builtin_splitstring) x(ic *invocation, w facet) (res interface{}) {
 func quotestrings(value Value) {
     switch v := value.(type) {
     case *String: v.s = strconv.Quote(v.s)
-    case *List:
+    case *list:
         for _, elem := range v.Elems {
             quotestrings(elem)
         }
@@ -1885,7 +1885,7 @@ func joinstrings(ctx Context, value Value, sep string) (res Value, err error) {
 ValueType:
     switch v := value.(type) {
     case *String: res = value
-    case *List:
+    case *list:
         var strs []string
         for _, elem := range v.Elems {
             var ( v Value; s string )
@@ -3357,7 +3357,7 @@ func (ctx *builtin_mkdir) c(ic *invocation, w facet) (res interface{}) {
                 erro(ctx, "Wrong size of list `%v'", t).debug(1)
                 break
             }
-        case *List: // mkdir name perm, name perm, ...
+        case *list: // mkdir name perm, name perm, ...
             if t.Len() == 2 {
                 name = t.Get(0).string(ctx)
                 perm = permVal(ctx, t.Get(1), uint32(perm))
@@ -3419,7 +3419,7 @@ func (ctx *builtin_rename) c(ic *invocation, w facet) (res interface{}) {
                 erro(of(ctx,t), "wrong size of group `%v'", t).debug(1)
                 break
             }
-        case *List: // rename oldname newname, old new, ...
+        case *list: // rename oldname newname, old new, ...
             if t.Len() == 2 {
                 oldname = t.Get(0).string(ctx)
                 newname = t.Get(1).string(ctx)
@@ -3501,7 +3501,7 @@ func (ctx *builtin_remove) c(ic *invocation, w facet) (res interface{}) {
         } else if u, y := v.(unexpanded); y {
             if !opts.verbose && opts.debug == 0 { return }
             warnstack(ctx, 5, "unexpended: %v (%T)", u.Value, u.Value).debug(6)
-        } else if l, y := v.(*List); y {
+        } else if l, y := v.(*list); y {
             for _, v := range l.Elems { remove(ctx, v) }
         } else if d, y := v.(*delegate); y {
             if u, y := d.x.(unresolved); y {
@@ -3559,7 +3559,7 @@ func (ctx *builtin_truncate) c(ic *invocation, w facet) (res interface{}) {
                 erro(ctx, "Wrong size of group `%v'", t).debug(1)
                 break
             }
-        case *List: // truncate name size, old new, ...
+        case *list: // truncate name size, old new, ...
             if t.Len() == 2 {
                 name = t.Get(0).string(ctx)
                 if size, e = t.Get(1).int(ctx); e != nil {
@@ -3608,7 +3608,7 @@ func (ctx *builtin_link) c(ic *invocation, w facet) (res interface{}) {
                 erro(ctx, "Wrong size of group `%v'", t).debug(1)
                 break
             }
-        case *List: // link oldname newname, old new, ...
+        case *list: // link oldname newname, old new, ...
             if t.Len() == 2 {
                 oldname = t.Get(0).string(ctx)
                 newname = t.Get(1).string(ctx)
@@ -3664,7 +3664,7 @@ ForArgs:
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
             }
-        case *List: // XXX: symlink old new, old new, ...
+        case *list: // XXX: symlink old new, old new, ...
             if aa = parseOpts(ctx, &opts, plain, t.Elems...); len(aa) != 2 {
                 erro(of(ctx,t), "expects two values for list").debug(1)
                 return
@@ -4026,7 +4026,7 @@ func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
         if db { defer func(){ noted(ctx, "subcard: %T %v, %v, %v", pat, pat, sub.dn, files).debug(3) }() }
 
         if t, y := pat.(*compositePattern); y { pat = t.Value }
-        if t, y := pat.(*List); y {
+        if t, y := pat.(*list); y {
             warn(ctx, "pattern is a list: %T %v %v", pat, pat, t.Elems).debug(1)
             if len(t.Elems) == 1 { pat = t.Elems[0] }
         }
@@ -4171,7 +4171,7 @@ func (ctx *builtin_readdir) x(ic *invocation, w facet) (res interface{}) {
     var l []Value
     for _, a := range ic.a {
         if fis, err := ioutil.ReadDir(a.string(ctx)); err == nil {
-            v := new(List)
+            v := new(list)
             for _, fi := range fis {
                 v.Append(MakeString(a.Position(), fi.Name()))
             }
@@ -4234,7 +4234,7 @@ ForArgs:
                 erro(ctx, "Wrong size of group `%v'", t).debug(1)
                 break
             }
-        case *List: // write-file name text, name text 0660, ...
+        case *list: // write-file name text, name text 0660, ...
             if n := t.Len(); n < 4 && n > 0 {
                 name = t.Get(0).string(ctx)
                 if n > 1 { data = t.Get(1).string(ctx) }

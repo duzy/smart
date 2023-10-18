@@ -75,7 +75,7 @@ func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
         if p.owner == a.owner && p.scope == a.scope && p.name_ == a.name_ {
             res = cmpEqual
         }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+    } else if l, ok := v.(*list); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
     return
@@ -260,7 +260,7 @@ func (p *projectname) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*projectname); y {
         assert(y, "value is not projectname")
         if p.Project == a.Project { res = cmpEqual }
-    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
+    } else if l, y := v.(*list); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
     return
@@ -331,7 +331,7 @@ func (p *scopename) Get(ctx Context, name string) (value Value, err error) {
 func (p *scopename) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*scopename); y {
         if p.Scope == a.Scope { res = cmpEqual }
-    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
+    } else if l, y := v.(*list); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
     return
@@ -489,8 +489,8 @@ outer:
     for _, a := range args {
         if p, y := a.(*pair); y { for _, ca := range compact {
             if c, y := ca.(*pair); y && eq(ac, p.Key, c.Key) { var vals = merge(p.Value)
-                if l, y := c.Value.(*List); y { l.Elems = append(l.Elems, vals...) } else {
-                    c.Value = MakeList(c.Position(), append(merge(c.Value), vals...)...)
+                if l, y := c.Value.(*list); y { l.Elems = append(l.Elems, vals...) } else {
+                    c.Value = makeList(c.Position(), append(merge(c.Value), vals...)...)
                 }
                 continue outer
             }
@@ -834,7 +834,7 @@ func (d *def) cmp(ctx Context, v Value) (res cmpres) {
         } else if !isNull(val2) {
             res = val1.cmp(ctx, val2)
         }
-    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
+    } else if l, y := v.(*list); y && len(l.Elems) == 1 {
         res = d.cmp(ctx, l.Elems[0])
     }
     return
@@ -1053,7 +1053,7 @@ func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
                 res = cmpEqual
             }
         }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+    } else if l, ok := v.(*list); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
     return
@@ -1188,7 +1188,7 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
         f = func(v Value) (res bool) {
             var args []Value
             switch t := v.(type) {
-            case *List: for _, v := range t.Elems { if f(v) { return true } }
+            case *list: for _, v := range t.Elems { if f(v) { return true } }
             case *delegate: if f(t.x) { return true } else { args = t.a }
             case *closure: if f(t.x) { return true } else { args = t.a }
             case unexpanded: return f(t.Value)
@@ -1224,7 +1224,7 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
 func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*builtin); y { assert(y, "value is not builtin")
         if /*p.f == a.f &&*/ p.name_ == a.name_ { res = cmpEqual }
-    } else if l, y := v.(*List); y && len(l.Elems) == 1 {
+    } else if l, y := v.(*list); y && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
     return
@@ -1600,7 +1600,7 @@ func (entry *rule) cmp(ctx Context, v Value) (res cmpres) {
                 res = cmpEqual
             }
         }
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+    } else if l, ok := v.(*list); ok && len(l.Elems) == 1 {
         res = entry.cmp(ctx, l.Elems[0])
     }
     return
@@ -1700,7 +1700,7 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
             if stem != a.stems[i] { return }
         }
         res = p.rule.cmp(ctx, a.rule)
-    } else if l, ok := v.(*List); ok && len(l.Elems) == 1 {
+    } else if l, ok := v.(*list); ok && len(l.Elems) == 1 {
         res = p.cmp(ctx, l.Elems[0])
     }
     return

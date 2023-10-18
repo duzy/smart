@@ -33,7 +33,7 @@ func testValueModifier(ctx *testcase) {
 		ctx.err("foo")
 	} else if v.String() != "$(val) test_mod_1" {
 		ctx.err("%T %v", v, v)
-	} else if l, y := v.(*List); !y {
+	} else if l, y := v.(*list); !y {
 		ctx.err("%T %v", v, v)
 	} else if len(l.Elems) != 2 {
 		ctx.err("%T %v -> %v", v, v, l.Elems)
