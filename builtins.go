@@ -31,8 +31,9 @@ import (
 )
 
 const (
-    builtinCallable int = 0
-    builtinCommand      = 1<<(iota-1)
+    builtinCallable uint = 0
+    builtinCommand       = 1<<(iota-1)
+    builtinForth
 )
 
 type builtin_ struct {
@@ -44,6 +45,7 @@ type builtin_c interface{ c(*invocation,facet) interface{} }
 type builtin_x interface{ x(*invocation,facet) interface{} }
 type builtin_1 interface{ x(*invocation) interface{} }
 type builtin_0 interface{ x() interface{} }
+type builtin_m interface{ m() uint }
 
 var builtin_a_t = reflect.TypeOf((*builtin_a)(nil)).Elem()
 var builtin_c_t = reflect.TypeOf((*builtin_c)(nil)).Elem()
@@ -171,7 +173,7 @@ var builtins = map[string]reflect.Type {
     `decode-csv` */
 
     `fullname`:   reflect.TypeOf((*builtin_fullname)(nil)).Elem(),
-    `ext`:    reflect.TypeOf((*builtin_ext)(nil)).Elem(),
+    `ext`:        reflect.TypeOf((*builtin_ext)(nil)).Elem(),
 
     `base`:       reflect.TypeOf((*builtin_base)(nil)).Elem(),
     `bases`:      reflect.TypeOf((*builtin_bases)(nil)).Elem(),
@@ -186,7 +188,7 @@ var builtins = map[string]reflect.Type {
 
     `chopdir`:    reflect.TypeOf((*builtin_chopdir)(nil)).Elem(),
 
-    `dir`:    reflect.TypeOf((*builtin_dir)(nil)).Elem(),
+    `dir`:        reflect.TypeOf((*builtin_dir)(nil)).Elem(),
     `dirs`:       reflect.TypeOf((*builtin_dirs)(nil)).Elem(),
     `dir2`:       reflect.TypeOf((*builtin_dir2)(nil)).Elem(),
     `dir3`:       reflect.TypeOf((*builtin_dir3)(nil)).Elem(),
@@ -208,7 +210,7 @@ var builtins = map[string]reflect.Type {
     `undir8`:     reflect.TypeOf((*builtin_undir8)(nil)).Elem(),
     `undir9`:     reflect.TypeOf((*builtin_undir9)(nil)).Elem(),
 
-    `reldir`: reflect.TypeOf((*builtin_reldir)(nil)).Elem(),
+    `reldir`:       reflect.TypeOf((*builtin_reldir)(nil)).Elem(),
     `relative-dir`: reflect.TypeOf((*builtin_reldir)(nil)).Elem(),
 
     `file`:       reflect.TypeOf((*builtin_file)(nil)).Elem(),
@@ -240,12 +242,12 @@ var builtins = map[string]reflect.Type {
     `push-context`: reflect.TypeOf((*builtin_pushcontext)(nil)).Elem(),
     `pop-context`:  reflect.TypeOf((*builtin_popcontext)(nil)).Elem(),
 
-    `mkdir`:    reflect.TypeOf((*builtin_mkdir)(nil)).Elem(),     // os/file.go
-    `chdir`:    reflect.TypeOf((*builtin_chdir)(nil)).Elem(),     // os/file.go
+    `mkdir`:        reflect.TypeOf((*builtin_mkdir)(nil)).Elem(),     // os/file.go
+    `chdir`:        reflect.TypeOf((*builtin_chdir)(nil)).Elem(),     // os/file.go
     `rename`:       reflect.TypeOf((*builtin_rename)(nil)).Elem(),    // os/file.go
     `remove`:       reflect.TypeOf((*builtin_remove)(nil)).Elem(),    // os/file_*.go
     `truncate`:     reflect.TypeOf((*builtin_truncate)(nil)).Elem(),  // os/file_*.go
-    `link`:     reflect.TypeOf((*builtin_link)(nil)).Elem(),      // os/file_*.go
+    `link`:         reflect.TypeOf((*builtin_link)(nil)).Elem(),      // os/file_*.go
     `symlink`:      reflect.TypeOf((*builtin_symlink)(nil)).Elem(),   // os/file_*.go
 
     `serve-http`:   reflect.TypeOf((*builtin_servehttp)(nil)).Elem(),
@@ -253,7 +255,7 @@ var builtins = map[string]reflect.Type {
     `return`:       reflect.TypeOf((*builtin_return)(nil)).Elem(),
 }
 
-func EscapedString(ctx Context, v Value) (s string) {
+func escapedString(ctx Context, v Value) (s string) {
     if p, ok := v.(*String); ok {
         s = strings.Replace(p.string(ctx), "\\'", "'", -1)
     } else {
@@ -1223,6 +1225,7 @@ type builtin_foreach struct { builtin_
     empty bool `empty,allow-empty`
     unique bool `u,uni,unique`
 }
+func (ctx *builtin_foreach) m() uint { return builtinForth }
 func (ctx *builtin_foreach) String() string {
     if true || fullContextStringer {
         return fmt.Sprintf("foreach{%s}", ctx.Context)
@@ -2836,7 +2839,7 @@ func (ctx *builtin_print) x(ic *invocation, w facet) (res interface{}) {
     for i, a := range ic.a {
         if a == nil { continue } else
         if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
-        fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
+        fmt.Fprintf(&sb, "%s", escapedString(ctx, a))
     }
     prompt(ctx, sb.String())
     return
@@ -2858,7 +2861,7 @@ func (ctx *builtin_printl) x(ic *invocation, w facet) (res interface{}) {
     )
     for i, a := range ic.a {
         if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
-        var s = EscapedString(ctx, a)
+        var s = escapedString(ctx, a)
         fmt.Fprintf(&sb, "%s", s)
         if i == x && !strings.HasSuffix(s, "\n") {
             fmt.Fprintf(&sb, "\n")
@@ -2885,7 +2888,7 @@ func (ctx *builtin_println) x(ic *invocation, w facet) (res interface{}) {
     for i, a := range ic.a {
         if a == nil { continue } else
         if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
-        fmt.Fprintf(&sb, "%s", EscapedString(ctx, a))
+        fmt.Fprintf(&sb, "%s", escapedString(ctx, a))
     }
     fmt.Fprintf(&sb, "\n")
     prompt(ctx, sb.String())

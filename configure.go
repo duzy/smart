@@ -453,7 +453,8 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
         }}
     }
 
-    if ctx.universe().configuration.silent {
+    var silent = ctx.universe().configuration.silent
+    if silent {
         // silent
     } else if len(infos) == 0 {
         var a interface{} = opName; if len(args) > 0 { a = args }
@@ -468,7 +469,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
     if dia.error() { return }
 
     defer func() {
-        if ctx.universe().configuration.silent {
+        if silent {
             return
         } else if dia.count(diagInfo, diagWarn, diagError) > 0 {
             return
@@ -485,7 +486,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
         } else if isNone(result) {
             prompt(ctx, "… <none>\n")
         } else if s := result.string(ctx); s == "" {
-            prompt(ctx, "… ? (%s %v)\n", typeof(result), result)
+            prompt(ctx, "… ? (%v(%v))\n", typeof(result), result)
         } else {
             prompt(ctx, "… %v\n", s)
         }

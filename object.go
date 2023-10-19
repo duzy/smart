@@ -1163,6 +1163,9 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
     }}
 
     var forth bool = w&expandUnexpandedForth != 0
+    if !forth { if t, y := bi.(builtin_m); y && t.m()&builtinForth != 0 {
+        // TODO: forth = true ???
+    }}
     if f := bv.Elem().FieldByName("forth"); f.IsValid() && f.Kind() == reflect.Bool {
         if forth {
             if f.CanSet() { f.SetBool(true) } else {

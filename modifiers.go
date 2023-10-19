@@ -31,7 +31,7 @@ import (
 type generalOpts struct {
     debug    int  `d,db,dbg,debug` // NOTE: compatible with 'bool'
     fail     bool `fail` // fail on errors
-    forth    bool `forth` // forth expand
+    forth    bool `force,forth` // forth expand
     fullname bool `fn,ful,full,fullname,full-name,ff,fullfile,full-file`
     silent   bool `silent` // force silent, contrast 'verbose'
     stack    int  `sn,stack,stacknum,stack-num,stack-number`
