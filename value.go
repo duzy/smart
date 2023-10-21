@@ -5476,7 +5476,7 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
     if w&expandDefDefArgs != 0 { _, y = p.x.(*auto) }
 
     if y || w&(expandDelegate|expandUnexpandedForth) != 0 {
-        x, a, y = forth(ctx, p.x, w, p.o, p.a) ; t1 = time.Now()
+        x, a, y = evoke(ctx, p.x, w, p.o, p.a) ; t1 = time.Now()
 
         if db { if p.x == x {
             noted(ctx, "%v: %v: %v ; %v ⇒ %v ; %v", p, typeof(p.x), p.x, p.a, a, y).debug(1)
@@ -7163,41 +7163,41 @@ func (p *invocation) ind(v Value) (n int) {
 
 const max_invoke = 999
 
-// NOTE: forthTraceDots is for debugging call trace, if this finally goes into a formal
+// NOTE: evokeTraceDots is for debugging call trace, if this finally goes into a formal
 //       feature, it should need a sync-lock protection.
-var forthTraceDots string
-func forth(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _ bool) {
+var evokeTraceDots string
+
+func evoke(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _ bool) {
     if d, y := v.(*delegate); y {
         errostack(ctx, 3, "illicit invocation: %v (%v, %v)", d, o, a).debug(16)
         return
     }
 
     if true && w&expandTrace != 0 {
-        s := fmt.Sprintf("forth:%s %s %v", forthTraceDots, typeof(v), v)
+        s := fmt.Sprintf("evoke:%s %s %v", evokeTraceDots, typeof(v), v)
 
-        forthTraceDots += "."
+        evokeTraceDots += "."
 
         noted(of(ctx,v), "%s", s)
 
         defer func() { noted(of(ctx,v), "%s ⇒ %v %v", s, typeof(res), res)
-            if len(forthTraceDots) > 0 { forthTraceDots = forthTraceDots[:len(forthTraceDots)-1] }
+            if len(evokeTraceDots) > 0 { evokeTraceDots = evokeTraceDots[:len(evokeTraceDots)-1] }
         } ()
     }
+
+    const erroAutoDef = false
 
     for ic, n := ctx.ic(), 1; ic != nil; ic = ic.Context.ic() {
         var d *diagPoint
         if n += 1; n > max_invoke {
             d = errostack(of(ctx,v), 10, "invocation exceeds limitation (%d): %v", n, v).debug(100)
-        } else if x, y := v.(*auto); false && y && ic.v == v { if true { return unexpanded{v}, nil, false }
-            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v ; %v", n, v, autoDef(ctx, x.name(ctx))).debug(100)
-        } else if _, y := v.(*def);  false && y && ic.v == v { if true { return unexpanded{v}, nil, false }
-            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v", n, v).debug(100)
-        } else if _, y := v.(*builtin); !y && ic.v == v {
-            if u, y := v.(unexpanded); y {
-                d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v (%v)", n, typeof(v), v, typeof(u.Value)).debug(100)
-            } else {
-                d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v %v", n, typeof(v), v).debug(100)
-            }
+        } else if u, y := v.(unexpanded); y && ic.v == v {
+            switch u.Value.(type) { case *auto, *def: return v, nil, false }
+            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v(%v)", n, typeof(u.Value), u.Value).debug(100)
+        } else if _, y = v.(*builtin); !y && ic.v == v {
+            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v(%v)", n, typeof(v), v).debug(100)
+        } else if ic.v == v {
+            switch v.(type) { case *auto, *def: return unexpanded{v}, nil, false }
         }
         if d != nil { panic(failure{"unsafe invocation: %v",ia(v.Position(), v)}) }
     }
@@ -7215,7 +7215,7 @@ func forth(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
 }
 
 func invoke(ctx Context, v Value, w facet, o, a []Value) (res Value) {
-    res, _, _ = forth(ctx, v, w, o, a)
+    res, _, _ = evoke(ctx, v, w, o, a)
     return
 }
 
@@ -7223,7 +7223,8 @@ func xauto(ctx Context, v Value, w facet, a ...Value) (res Value) {
     if len(a)>0 {
         ac := &autoContext{ Context:ctx, defs:make(autoDefMap) }
         ac.args(ctx, nil, a)
-        ctx, w = ac, w|expandAuto|expandDigits
+        w = w|expandAuto|expandDigits
+        ctx = ac
     }
     return v.expand(ctx, w)
 }
@@ -7239,7 +7240,8 @@ func iwa(ctx Context, ii ...interface{}) (w facet, a []Value) {
     return
 }
 
-func xa(ctx Context, v Value, ii ...interface{}) (res Value) { w, a := iwa(ctx, ii...)
+func xa(ctx Context, v Value, ii ...interface{}) (res Value) {
+    var w, a = iwa(ctx, ii...)
     return xauto(ctx, v, w, a...)
 }
 

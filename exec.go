@@ -1141,7 +1141,8 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
     if !recipePos.IsValid() { recipePos = recipe.Position() }
 
-    if exe.checkRecipe { v := recipe
+    if false && exe.checkRecipe {
+      var v = recipe
       if u, y := v.(unexpanded); y { v = u.Value }
       if l, y := v.(*compound); y {
         if exe.fullname { for i, t := range umerge(true, l.Elems...) {
@@ -1171,12 +1172,12 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
                 noted(ctx, "%v [%d] ⇒ %v: %v", c, i, typeof(t), t).debug(1)
               }
             }} else {
-              noted(ctx, "%T %v", t, t).debug(1)
+              noted(ctx, "%v(%v)", typeof(t), t).debug(1)
             }
           }
         }}
       } else {
-        erro(ctx, "recipe %d: %T %v", i, recipe, recipe).debug(1)
+        erro(ctx, "recipe %d: %v(%v)", i, typeof(recipe), recipe).debug(1)
       }
     }
 

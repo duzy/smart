@@ -472,53 +472,57 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
     if prereqValue = val; prereqValue == nil {
         if prereqStrval == "" {
             errostack(ctx, 3, "prerequisite is nothing").debug(8)
-        } else {
-            mapPrereqFile(prereqStrval)
-            return
-        }
-    } else if prereqObj, _ = prereqValue.(Object); prereqObj != nil {
-        if false { info(ctx, "%v: %T %v %s", prereqObj, prereqObj, prereqObj, prereqStrval).debug(1) }
-    } else if prereqValue.patterned(ctx) {
-        var stems = ctx.stems()
-        if len(stems) == 0 {
-            if false { errostack(ctx, 3, "%v: no stems, %v", prereqValue, ctx).debug(8) }
             return
         }
 
-        var rest []string
-        prereqPattern = prereqValue
-        prereqValue, rest = prereqPattern.stencil(ctx, stems)
-        if isTrivial(prereqValue) {
-            errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems).debug(8)
-            return
-        } else if len(rest) > 0 {
-            errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest).debug(8)
-            return
-        } else if prereqStrval == "" {
-            prereqStrval = prereqValue.string(ctx);
-        }
-
-        if prereqStrval == "" {
-            errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems).debug(8)
-            return
-        }
-
-        mapPrereqFile(prereqValue)
+        mapPrereqFile(prereqStrval)
         return
-     } else {
-        if prereqStrval = prereqValue.string(ctx); prereqStrval == "" { // just reject empty strval
+    } else if o, y := prereqValue.(Object); y {
+        prereqObj = o
+        return
+    }
+
+    if !prereqValue.patterned(ctx) {
+        prereqStrval = prereqValue.string(ctx)
+
+        if prereqStrval == "" { // just reject empty strval
             errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, ctx.stems()).debug(8)
             return
         }
 
         switch prereqValue.(type) {
-        case *String, *compound: // skip checking files for performance
-        default:
-            mapPrereqFile(prereqValue)
-            return
+        case flag, *String, *compound:
+            return // skip checking files for performance
         }
+
+        mapPrereqFile(prereqValue)
+        return
     }
 
+    var stems = ctx.stems()
+    if len(stems) == 0 {
+        if false { errostack(ctx, 3, "%v: no stems, %v", prereqValue, ctx).debug(8) }
+        return
+    }
+
+    var rest []string
+    prereqPattern = prereqValue
+    prereqValue, rest = prereqPattern.stencil(ctx, stems)
+    if isTrivial(prereqValue) {
+        errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems).debug(8)
+        return
+    } else if len(rest) > 0 {
+        errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest).debug(8)
+        return
+    }
+
+    if prereqStrval == "" { prereqStrval = prereqValue.string(ctx); }
+    if prereqStrval == "" {
+        errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems).debug(8)
+        return
+    }
+
+    mapPrereqFile(prereqValue)
     return
 }
 
@@ -1022,7 +1026,7 @@ CheckPrereqResult:
         } else if prereqObj != nil {
             noted(ctx, "%T %v: %T %v; obj=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqObj).debug(1)
         } else {
-            noted(ctx, "%T %v: %T %v\n", targetValue, targetValue, prereqValue, prereqValue).debug(1)
+            noted(ctx, "%T %v: %T %v\n", targetValue, targetValue, prereqValue, prereqValue).debug(10)
         }
 
         if val := prereqValue; val != nil { erro(at(ctx,val.Position()), "value: %T %v ; %s %v", val, val, prereqStrval, files(ctx, prereqStrval)) }
