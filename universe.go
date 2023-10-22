@@ -1115,7 +1115,7 @@ func (dc *universe) loadTopWork() (err error) {
 
     if text := strings.Join(os.Args[1:], " "); text == "" {
         // Relax!
-    } else if args = dc.globe.top.text("@", text); len(args) == 0 {
+    } else if args = dc.globe.top.text(ctx, "@", text); len(args) == 0 {
         // ohh...
     } else {
         args = parseOpts(ctx, &dc.commandline, 0, args...)
@@ -1203,7 +1203,7 @@ func (dc *universe) loadTopWork() (err error) {
     }} (time.Now())
 
     if dc.verboseImport { prompt(ctx, "┌→%s\n", base) }
-    if!dc.globe.top.path(base, nil) { return }
+    if!dc.globe.top.path(ctx, base, nil) { return }
     if dc.globe.main == nil { erro(ctx, "nothing loaded\n").debug(1) }
     return
 }

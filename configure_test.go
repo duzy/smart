@@ -37,6 +37,10 @@ func testConfigure1(ctx *testcase) {
 		ctx.err("%v: nil configure", m)
 	} else if w := filepath.Join(_tmodules, "configure"); m.configure.absPath != w {
 		ctx.err("%v.%v: %s != %s", m, m.configure, m.configure.absPath, w)
+	} else if len(m.configure.bases) != 1 {
+		ctx.err("configure: %v", m.configure.bases)
+	} else if m.configure.bases[0].name != "configure.base" {
+		ctx.err("configure: %v", m.configure.bases[0])
 	} else if o := m.configure.resolve(ctx, "workspace"); o == nil {
 		ctx.err("workspace: %v", m.configure)
 	} else if workspace, y := o.(*def); !y || workspace.value == nil {

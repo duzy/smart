@@ -27,3 +27,8 @@ val11.0 := -no -yes -false -true
 val11 := $(or -no,-yes,xx)
 val12 := $(or -yes,-no,xx)
 val13 := $(or -false,-no,xx)
+
+val14.1 := $(xor true{},true{})
+val14.2 := $(xor true{},false{})
+val14.3 := $(xor false{},true{})
+val14.4 := $(xor false{},false{})

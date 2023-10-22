@@ -1361,7 +1361,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 			if allowClosureName && name.expandable(ctx, expandDelegate|expandClosure) {
 				erro(of(ctx,name), "%v: name '%v' (%T) is closured", proj, name, name).debug(1)
 				return
-			} else if resolved = loader.resolveEntries(name); isNull(resolved) {
+			} else if resolved = loader.project.resolveEntries(ctx, name, false); isNull(resolved) {
 				if name.expandable(ctx, plain) {
 					var s = name.string(ctx)
 					erro(of(ctx,name), "resolved '%v' (aka. %s) is nil (project=%v)", name, s, proj).debug(1)
@@ -3304,8 +3304,46 @@ func (p *parser) clause(ctx Context) {
 	}
 }
 
+func (p *parser) setDefaultVars(ctx Context, filename, abs, rel, tmp string) (res bool) {
+	var s = ctx.Scope()
+	if s == nil {
+		erro(ctx, "opened invalid scope for %s", filename).debug(1)
+		return
+	}
+
+	var d *def
+
+	//defer p.closeScope()
+
+	if loader := ctx.loader(); loader.mode&Flat == 0 {
+		var position = ctx.Position()
+
+		d, _ = loader.def(position, ".")
+		d.set(ctx, DefVoid, pathStr(ctx, position, rel))
+
+		d, _ = loader.def(position, "/")
+		d.set(ctx, DefVoid, pathStr(ctx, position, abs))
+
+		d, _ = loader.def(position, "CTD") // Current Temp Directory, TODO: make it $:ctd:
+		d.set(ctx, DefVoid, pathStr(ctx, position, tmp))
+
+		d, _ = loader.def(position, "CWD") // Current Work Directory, TODO: make it $:cwd:
+		d.set(ctx, DefVoid, pathStr(ctx, position, abs))
+	} else if d = s.FindDef("/");   d == nil {
+		erro(ctx, "/ not in the scope: %v", s.comment)
+	} else if d = s.FindDef(".");   d == nil {
+		erro(ctx, ". not in the scope: %v", s.comment)
+	} else if d = s.FindDef("CTD"); d == nil {
+		erro(ctx, "CTD not in the scope: %v", s.comment)
+	} else if d = s.FindDef("CWD"); d == nil {
+		erro(ctx, "CWD not in the scope: %v", s.comment)
+	}
+
+	return true
+}
+
 type projectDeclOpts struct {
-	configureFlag Value `c,conf,configure` // detects dotConfigure if empty
+	configure Value `c,conf,configure` // detects dotConfigure if empty
 	noDock bool `n,nd,nod,nodock,no-dock` // don't load container project
     traveUseLoop bool `b,break;l,loop` // don't recursively use this project
     multiUseAllowed bool `m,multi`  // this project is used multiple times
@@ -3313,8 +3351,8 @@ type projectDeclOpts struct {
 }
 
 func (p *parser) file(ctx Context) *parsedFile {
-	if ctx.universe().traceLaunch { defer un(trace(t_launch, "parser.file")) }
 	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
+	if ctx.universe().traceLaunch { defer un(trace(t_launch, "parser.file")) }
 	if ctx.dia().error() { return nil }
 
 	defer dtrace(ctx, "parser.file")
@@ -3324,54 +3362,27 @@ func (p *parser) file(ctx Context) *parsedFile {
 		identStr string
 		implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
 		abs, rel, tmp string
-		loader = ctx.loader()
+		loader   = ctx.loader()
 		position = ctx.Position()
 		keyword  = p.tok
 		filename = p.scanner.File().Name()
 		isMainFile = isEntryFileName(filename)
 	)
+
 	assert(loader != nil, "nil loader")
-	assert(loader == loader, "bad loader")
+
 	defer loader.closeScope(loader.openScope(fmt.Sprintf("file %s", filename)))
-	if ctx.universe().debugFileEntry {
-		warn(p, "parser.file: %v %v", p.tok, p.scanner.scanState).debug(1)
-	}
 
 	if loader.mode&Flat != 0 {
 		abs = ctx.Project().absPath
 	} else {
 		abs = filepath.Dir(filename)
 	}
+
 	rel, _ = filepath.Rel(loader.WorkDir(), abs)
 	tmp = joinTmpPath(ctx,loader.WorkDir(), rel)
 
-	if s := ctx.Scope(); s != nil { var d *def
-		//defer p.closeScope()
-		if loader.mode&Flat == 0 {
-			d, _ = loader.def(position, ".")
-			d.set(ctx, DefVoid, pathStr(ctx, position, rel))
-
-			d, _ = loader.def(position, "/")
-			d.set(ctx, DefVoid, pathStr(ctx, position, abs))
-
-			d, _ = loader.def(position, "CTD") // Current Temp Directory, TODO: make it $:ctd:
-			d.set(ctx, DefVoid, pathStr(ctx, position, tmp))
-
-			d, _ = loader.def(position, "CWD") // Current Work Directory, TODO: make it $:cwd:
-			d.set(ctx, DefVoid, pathStr(ctx, position, abs))
-		} else if d = s.FindDef("/");   d == nil {
-			erro(ctx, "/ not in the scope: %v", s.comment)
-		} else if d = s.FindDef(".");   d == nil {
-			erro(ctx, ". not in the scope: %v", s.comment)
-		} else if d = s.FindDef("CTD"); d == nil {
-			erro(ctx, "CTD not in the scope: %v", s.comment)
-		} else if d = s.FindDef("CWD"); d == nil {
-			erro(ctx, "CWD not in the scope: %v", s.comment)
-		}
-	} else {
-		erro(ctx, "opened invalid scope for %s", filename).debug(1)
-		return nil
-	}
+	if !p.setDefaultVars(ctx, filename, abs, rel, tmp) { return nil }
 
 	switch position = p.Position(); keyword {
 	case PACKAGE, MODULE:
@@ -3548,13 +3559,8 @@ func (p *parser) file(ctx Context) *parsedFile {
 		}
 	}
 
-	var u = ctx.universe()
-	if ctx.universe().debugFiles != nil && u.ddd == "" { for _, s := range ctx.universe().debugFiles {
-		if strings.Contains(filename, s) { u.ddd = "parser.files" ; break }
-	}}
-
 	var auto = (loader.mode&Flat == 0) && isMainFile //&& isEntryFileName(filename)
-	if auto { loader.after(p.ctx(ctx), "declare") }
+	if auto { loader.autoload(p.ctx(ctx), "declared") }
 	if loader.mode&ModuleClauseOnly == 0 {
 		if loader.mode&Flat == 0 { ForDeclare: for p.tok != EOF {
 			switch tok := p.tok; tok {
@@ -3565,7 +3571,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			}
 		}}
 
-		if false && auto { loader.after(p.ctx(ctx), "amid") }
+		if false && auto { loader.autoload(p.ctx(ctx), "amid") }
 
 		if loader.mode&ImportsOnly == 0 { // rest of module body
 			for /* !p.dia().error() && */ p.tok != EOF {
@@ -3577,8 +3583,11 @@ func (p *parser) file(ctx Context) *parsedFile {
 			}
 		}
 	}
-	if auto { loader.after(ctx, "appendix") }
-	if ctx.universe().debugFiles != nil && u.ddd == "parser.files" { u.ddd = "" }
+	if auto { loader.autoload(p.ctx(ctx), "appendix") }
+
+	if  ctx.universe().ddd == "parser.files" {
+		ctx.universe().ddd = ""
+	}
 
 	return &parsedFile{
 		// TODO: doc: doc,

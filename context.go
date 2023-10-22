@@ -34,8 +34,6 @@ type commandline struct {
   debugWarns      bool `dw,dbwarn,debug-warns`
   debugInfos      bool `di,dbinfo,debug-infos`
   debugPrompt     bool `dp,dbprom,debug-prompt`
-  debugFileEntry  bool `debug-file-entry`
-  debugFiles  []string `df,dbfile,debug-file`
   debugSyn    []string `ds,dbsyntax,debug-syntax`
 
   autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
@@ -199,7 +197,7 @@ const (
   diagWarn
   diagError
   diagPrompt
-  diagPromptNL
+  diagPromptNewline
 )
 
 var (
@@ -290,6 +288,7 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
 type diaContext struct {
   Context
   sync.Mutex
+  newlines []*diagPoint
   points   []*diagPoint
   nested [][]*diagPoint
   errs, traced int
@@ -306,8 +305,19 @@ func (diag *diaContext) String() string {
 }
 func (diag *diaContext) reset() { defer diag.aquireLock()(); diag.points = []*diagPoint{}}
 func (diag *diaContext) add(point *diagPoint) *diagPoint { defer diag.aquireLock()()
-  diag.points = append(diag.points, point)
-  return point
+  if point.dt == diagPromptNewline {
+    diag.newlines = append(diag.newlines, point)
+    return point
+  } else if strings.HasSuffix(point.message, "\n") {
+    if diag.points = append(diag.points, point); diag.newlines != nil {
+      diag.points = append(diag.points, diag.newlines...)
+      diag.newlines = nil
+    }
+    return point
+  } else {
+    diag.points = append(diag.points, point)
+    return point
+  }
 }
 func (diag *diaContext) nest(points []*diagPoint) { defer diag.aquireLock()()
   diag.nested = append(diag.nested, points)
@@ -351,7 +361,7 @@ func (diag *diaContext) flush() (errs int) {
     case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg); errs += 1
     case diagInfo : fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
     case diagWarn : fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
-    case diagPromptNL: if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
+    case diagPromptNewline: if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
     case diagPrompt  : if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
       if pend && !strings.HasSuffix(msg, "\n") { return true }
     }
@@ -406,6 +416,13 @@ func noted(ctx Context, f string, a ...interface{}) *diagPoint {
   } else {
     return prompt(ctx, ctx.Position().String()+": "+f, a...)
   }
+}
+
+func diagEnteringDirectory(ctx Context, dir string) {
+  diag(ctx, diagPromptNewline, "smart: Entering directory '%s'", dir)
+}
+func diagLeavingDirectory(ctx Context, dir string) {
+  diag(ctx, diagPromptNewline, "smart:  Leaving directory '%s'", dir)
 }
 
 func infostack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagInfo  , a...) }
@@ -788,5 +805,5 @@ func CommandLine() { var context = init_universe() ; defer assured(context, fals
     fmt.Fprintf(stderr, "\n")
   }
 
-  printLeavingDirectory(context)
+  promptLeavingDirectory(context)
 }

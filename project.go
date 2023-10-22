@@ -967,6 +967,7 @@ func lockCD(dir string, dura time.Duration) error {
 
 func enter(ctx Context, dir string) (err error) {
   var uni = ctx.universe()
+
   uni.cds.mutex.Lock(); defer uni.cds.mutex.Unlock()
 
   if uni.traceEntering {
@@ -1028,7 +1029,7 @@ func leave(ctx Context, prog *program, stop *enterec) (err error) {
   return
 }
 
-func printEnteringDirectory(ctx Context) {
+func promptEnteringDirectory(ctx Context) {
   var uni = ctx.universe()
 
   uni.cds.mutex.Lock() ; defer uni.cds.mutex.Unlock()
@@ -1039,17 +1040,17 @@ func printEnteringDirectory(ctx Context) {
     for _, p := range uni.cds.stack {
       if p.print && p != enter {
         p.print = false
-        diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'", p.dir)
+        diagLeavingDirectory(ctx, p.dir)
       }
     }
     if !enter.print {
       enter.print = true
-      diag(ctx, diagPromptNL, "smart: Entering directory '%s'", enter.dir)
+      diagEnteringDirectory(ctx, enter.dir)
     }
   }
 }
 
-func printLeavingDirectory(ctx Context) {
+func promptLeavingDirectory(ctx Context) {
   var uni = ctx.universe()
 
   uni.cds.mutex.Lock() ; defer uni.cds.mutex.Unlock()
@@ -1058,7 +1059,7 @@ func printLeavingDirectory(ctx Context) {
     for _, enter := range uni.cds.stack {
       if enter.print {
         enter.print = false
-        diag(ctx, diagPromptNL, "smart:  Leaving directory '%s'", enter.dir)
+        diagLeavingDirectory(ctx, enter.dir)
       }
     }
   }

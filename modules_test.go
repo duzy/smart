@@ -242,6 +242,10 @@ func testVariantTarget(ctx *testcase) {
 }
 
 func testApp(ctx *testcase) {
+	if ctx.Project().configure != nil {
+		ctx.err("%v: nil configure", ctx.Project())
+	}
+
 	ss := func(s string) string { os := "darwin"
 		return strings.Replace(s, "<OS>", os, -1)
 	}
@@ -1350,7 +1354,7 @@ func testLLVMConfig1(ctx *testcase) {
 	} else if base = proj.bases[0]; base.name != "llvm.Config" {
 		ctx.err("base: %v", base)
 	} else if base.configure == nil {
-		ctx.err("configure fail")
+		ctx.err("nil configure")
 	} else if f := file(ctx, ".configure/type/test.c", base.configure); f == nil {
 		ctx.err("file .configure/type/test.c")
 	} else if f := file(ctx, ".configure/type/align/test.c", base.configure); f == nil {
@@ -1361,13 +1365,136 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("file .configure/type/xxx/test.c")
 	} else if f := file(ctx, ".configure/type/xxx/yyy/test.c", base.configure); f != nil {
 		ctx.err("file .configure/type/xxx/yyy/test.c")
-	} else if o := proj.resolve(ctx, "general"); o == nil {
+	}
+
+	if v1 := ctx.get("LLVM_VERSION_MAJOR"); v1 == nil {
+		ctx.err("LLVM_VERSION_MAJOR")
+	} else if v2 := ctx.get("LLVM_VERSION_MINOR"); v2 == nil {
+		ctx.err("LLVM_VERSION_MINOR")
+	} else if v3 := ctx.get("LLVM_VERSION_PATCH"); v3 == nil {
+		ctx.err("LLVM_VERSION_PATCH")
+	} else if v1.String() != `$(grep '^ *set\(LLVM_VERSION_MAJOR +([0-9]+) *\)',$1,CMakeLists.txt)` {
+		ctx.err("LLVM_VERSION_MAJOR: %v; %v", v1, typeof(v1))
+	} else if v2.String() != `$(grep '^ *set\(LLVM_VERSION_MINOR +([0-9]+) *\)',$1,CMakeLists.txt)` {
+		ctx.err("LLVM_VERSION_MINOR: %v; %v", v2, typeof(v2))
+	} else if v3.String() != `$(grep '^ *set\(LLVM_VERSION_PATCH +([0-9]+) *\)',$1,CMakeLists.txt)` {
+		ctx.err("LLVM_VERSION_PATCH: %v; %v", v3, typeof(v3))
+	} else if ver1 := v1.string(ctx); ver1 == "" {
+		ctx.err("LLVM_VERSION_MAJOR: %v", v1)
+	} else if ver2 := v2.string(ctx); ver2 == "" {
+		ctx.err("LLVM_VERSION_MINOR: %v", v2)
+	} else if ver3 := v3.string(ctx); ver3 == "" {
+		ctx.err("LLVM_VERSION_PATCH: %v", v3)
+	} else if o := proj/*.configure*/.resolve(ctx, "configure.version"); o == nil {
+		ctx.err("configure.version, %v", proj.configure.bases)
+	} else if d, y := o.(*def); !y {
+		ctx.err("configure.version: %v", o)
+	} else if ver := d.value; ver == nil {
+		ctx.err("configure.version: %v", o)
+	} else if ver.string(ctx) != fmt.Sprintf("%v.%v.%v", ver1, ver2, ver3) {
+		ctx.err("configure.version: %v: %v (%v.%v.%v)", typeof(ver), ver.string(ctx), ver1, ver2, ver3)
+	} else if d, y = ver.(*def); !y {
+		ctx.err("configure.version: %v", o)
+	} else if ver = d.value; ver == nil {
+		ctx.err("configure.version: %v", o)
+	} else if ver.String() != fmt.Sprintf("%v.%v.%v", v1, v2, v3) {
+		ctx.err("configure.version: %v: %v", typeof(ver), ver)
+	// } else if u, y := ver.(unexpanded); !y {
+	// 	ctx.err("configure.version: %v: %v", typeof(ver), ver)
+	// } else if l, y := u.Value.(*list); !y {
+	// 	ctx.err("configure.version: %v: %v", typeof(u.Value), u.Value)
+	// } else if c, y := l.Elems[0].(*barecomp); !y {
+	// 	ctx.err("configure.version: %v: %v", typeof(l.Elems[0]), l.Elems[0])
+	// } else if len(c.Elems) != 5 {
+	// 	ctx.err("configure.version: %v: %v", c, c.Elems)
+	} else if o := proj/* .configure */.resolve(ctx, "configure.package"); o == nil {
+		ctx.err("configure.package")
+	} else if d, y := o.(*def); !y {
+		ctx.err("configure.package: %v", o)
+	} else if d.value == nil {
+		ctx.err("configure.package: %v", o)
+	} else if pkg := "extbit.llvm"; d.value.String() != pkg { // "&(name)"
+		ctx.err("configure.package: %v: %v", typeof(d.value), d.value)
+	} else if r := proj/* .configure */.resolveEntries(ctx, MakeString(ctx.Position(), "VERSION"), false); r == nil {
+		ctx.err("VERSION")
+	} else if len(r.programs()) != 1 {
+		ctx.err("VERSION: %v", r)
+	} else if len(r.programs()[0].recipes) != 1 {
+		ctx.err("VERSION: %v", r)
+	} else if r.programs()[0].recipes[0].String() != ver.expand(ctx, strval).String() {
+		ctx.err("VERSION: %v (%v)", r.programs()[0].recipes[0], ver.expand(ctx, strval))
+	} else if r = proj.resolveEntries(ctx, MakeString(ctx.Position(), "PACKAGE"), false); r == nil {
+		ctx.err("PACKAGE")
+	} else if len(r.programs()) != 1 {
+		ctx.err("PACKAGE: %v", r)
+	} else if len(r.programs()[0].recipes) != 1 {
+		ctx.err("PACKAGE: %v", r)
+	} else if r.programs()[0].recipes[0].String() != pkg {
+		ctx.err("PACKAGE: %v", r.programs()[0].recipes[0])
+	} else if r = proj.resolveEntries(ctx, MakeString(ctx.Position(), "PACKAGE_NAME"), false); r == nil {
+		ctx.err("PACKAGE_NAME")
+	} else if len(r.programs()) != 1 {
+		ctx.err("PACKAGE_NAME: %v", r)
+	} else if len(r.programs()[0].recipes) != 1 {
+		ctx.err("PACKAGE_NAME: %v", r)
+	} else if r.programs()[0].recipes[0].String() == "" {
+		ctx.err("PACKAGE_NAME: %v", r.programs()[0].recipes[0])
+	} else if r = proj.resolveEntries(ctx, MakeString(ctx.Position(), "PACKAGE_VERSION"), false); r == nil {
+		ctx.err("PACKAGE_VERSION")
+	} else if len(r.programs()) != 1 {
+		ctx.err("PACKAGE_VERSION: %v", r)
+	} else if len(r.programs()[0].recipes) != 1 {
+		ctx.err("PACKAGE_VERSION: %v", r)
+	} else if r.programs()[0].recipes[0].String() == "" {
+		ctx.err("PACKAGE_VERSION: %v", r.programs()[0].recipes[0])
+	} else if r = proj.resolveEntries(ctx, MakeString(ctx.Position(), "PACKAGE_VENDOR"), false); r == nil {
+		ctx.err("PACKAGE_VENDOR")
+	} else if len(r.programs()) != 1 {
+		ctx.err("PACKAGE_VENDOR: %v", r)
+	} else if len(r.programs()[0].recipes) != 1 {
+		ctx.err("PACKAGE_VENDOR: %v", r)
+	} else if r.programs()[0].recipes[0].String() == "" {
+		ctx.err("PACKAGE_VENDOR: %v", r.programs()[0].recipes[0])
+	} else if r = proj.resolveEntries(ctx, MakeString(ctx.Position(), "PACKAGE_TARNAME"), false); r == nil {
+		ctx.err("PACKAGE_TARNAME")
+	} else if len(r.programs()) != 1 {
+		ctx.err("PACKAGE_TARNAME: %v", r)
+	} else if len(r.programs()[0].recipes) != 1 {
+		ctx.err("PACKAGE_TARNAME: %v", r)
+	} else if r.programs()[0].recipes[0].String() == "" {
+		ctx.err("PACKAGE_TARNAME: %v", r.programs()[0].recipes[0])
+	} else if r = proj.resolveEntries(ctx, MakeString(ctx.Position(), "PACKAGE_STRING"), false); r == nil {
+		ctx.err("PACKAGE_STRING")
+	} else if len(r.programs()) != 1 {
+		ctx.err("PACKAGE_STRING: %v", r)
+	} else if len(r.programs()[0].recipes) != 1 {
+		ctx.err("PACKAGE_STRING: %v", r)
+	} else if r.programs()[0].recipes[0].String() == "" {
+		ctx.err("PACKAGE_STRING: %v", r.programs()[0].recipes[0])
+	} else if r = proj.resolveEntries(ctx, MakeString(ctx.Position(), "PACKAGE_URL"), false); r == nil {
+		ctx.err("PACKAGE_URL")
+	} else if len(r.programs()) != 1 {
+		ctx.err("PACKAGE_URL: %v", r)
+	} else if len(r.programs()[0].recipes) != 1 {
+		ctx.err("PACKAGE_URL: %v", r)
+	} else if r.programs()[0].recipes[0].String() == "" {
+		ctx.err("PACKAGE_URL: %v", r.programs()[0].recipes[0])
+	} else if r = proj.resolveEntries(ctx, MakeString(ctx.Position(), "PACKAGE_BUGREPORT"), false); r == nil {
+		ctx.err("PACKAGE_BUGREPORT")
+	} else if len(r.programs()) != 1 {
+		ctx.err("PACKAGE_BUGREPORT: %v", r)
+	} else if len(r.programs()[0].recipes) != 1 {
+		ctx.err("PACKAGE_BUGREPORT: %v", r)
+	}
+
+	if o := proj.resolve(ctx, "general"); o == nil {
 		ctx.err("general")
 	} else if p, y := o.(*projectname); !y {
 		ctx.err("%T %v", o, o)
 	} else {
 		general = p.Project
 	}
+
 
 	if v := ctx.get("/"); v == nil {
 		ctx.err("/")

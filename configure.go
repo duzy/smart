@@ -177,7 +177,7 @@ func (uni *universe) configure(ctx Context) {
         }
     }
 
-    printLeavingDirectory(ctx)
+    promptLeavingDirectory(ctx)
     return
 }
 
@@ -797,7 +797,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
         }
 
         var d = time.Now().Sub(st)
-        printEnteringDirectory(ctx)
+        promptEnteringDirectory(ctx)
         prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(filename), status, d)
         if d := opts.debug; d>0 { infostack(ctx, opts.stack, "%v (%v)", autoVal(ctx, "@"), d).debug(d) }
     }(time.Now())}

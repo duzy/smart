@@ -493,19 +493,19 @@ func (p *execResult) String() string {
 type execOpts struct {
   generalOpts
   logFileName *fullnameOpt "l,log"
-  checkRecipe bool `checkrecipe,checkrecipes,check-recipe,check-recipes`
+  // checkRecipe bool `checkrecipe,checkrecipes,check-recipe,check-recipes`
   deprecated  bool `dump,deprecate`
   dropFailed  bool `df,drop,drop-fail,drop-failure,fail-drop,remove-on-fail`
   infos       bool `sci,scan-infos`
-  silentErrs  bool `s,silent,silent-errors` // silent errors
+  silentErrs  bool `silent,silent-errors` // silent errors
   zeroErrs    bool `ze,zero-errors` // require zero error scaned from STDERR
   tieStdout   bool `to,tie-out,tie-stdout` // tied with log
   tieStderr   bool `te,tie-err,tie-stderr` // tied with log
   bufStdout   bool `o,stdout;bo,buffer-stdout;so,save-stdout`
   bufStderr   bool `e,stderr;be,buffer-stderr;se,save-stderr`
   stdin       bool `i,stdin;in,input`
-  stamp       bool `st,stamp;sf,stamp-file`
-  noStamp     bool `ns,nostamp,no-stamp,no-stamp-file`
+  stamp       bool `stamp,stamp-file`
+  noStamp     bool `nostamp,no-stamp,no-stamp-file`
   waitRes     bool `wr,wait,waitres,wait-res,waitresult,wait-result` // wait for execution finished
   report      bool `r,rs,report,report-stamp;vs,verbose-stamp`
   retStdout   bool `ro,return-stdout,result-stdout,stdout`
@@ -560,9 +560,9 @@ func (p *execContext) Position() Position {
 }
 func (p *execContext) onFirstWrote() {
   if p.printEnteringOnFirstWrote {
-    printEnteringDirectory(p.Context)
+    promptEnteringDirectory(p.Context)
 
-    // Call diagFlush to ensure printEnteringDirectory works immediately
+    // Call diagFlush to ensure promptEnteringDirectory works immediately
     if errs := p.Context.dia().flush(); errs > 0 {
       warn(p.Context, "exec: encountered %d errors", errs).debug(1)
     }
@@ -1042,7 +1042,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   } else if m := program.getModifiers(ctx, "wait"); len(m) > 0 {
     // should be good to work
   } else if t := exe.target.Value; !(exe.stamp || exe.noStamp || exe.silentErrs) {
-    warn(ctx, "add -stamp to (shell); target=%v (%T)", t, t).debug(1)
+    warn(ctx, "add -stamp or -nostamp to (shell); target=%v(%v)", typeof(t), t).debug(1)
   }
 
   if (exe.retStdout && exe.retStatus) || (exe.retStderr && exe.retStatus) {
@@ -1133,7 +1133,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   var source string
   var recipePos Position
   for i, recipe := range program.recipes {
-    if recipe = recipe.expand(ctx, w); true && exe.fullname {
+    if recipe = recipe.expand(ctx, w); !fixEvokedFullnames && exe.fullname {
       // NOTE: do a second expand for fullname because delegate to file
       //       skipped fullname expansion (FIXME)
       recipe = recipe.expand(ctx, expandFullName)
@@ -1141,60 +1141,20 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
     if !recipePos.IsValid() { recipePos = recipe.Position() }
 
-    if false && exe.checkRecipe {
-      var v = recipe
-      if u, y := v.(unexpanded); y { v = u.Value }
-      if l, y := v.(*compound); y {
-        if exe.fullname { for i, t := range umerge(true, l.Elems...) {
-          if f, y := t.(fullfile); y {
-            if false { noted(of(ctx,t), "fullname: %v ⇒ %v", f, f.string(ctx)).debug(1) }
-          } else if f, y := t.(*File); y {
-            if s := f.name(ctx); !filepath.IsAbs(s) {
-              erro(of(ctx,t), "not fullname: %v ⇒ %s", s, f.fullname()).debug(1)
-            }
-          } else if p, y := t.(*Path); y && !filepath.IsAbs(p.string(ctx)) {
-            erro(of(ctx,t), "not fullname: [%d] ⇒ %v", i, p).debug(1)
-          } else if s := t.string(ctx); strings.Contains(s, PathSep) && !filepath.IsAbs(s) {
-            if c, y := t.(*barecomp); y { for i, t := range c.Elems {
-              if f, y := t.(*File); y {
-                if !filepath.IsAbs(f.name(ctx)) {
-                  if true { erro(ctx, "not fullname: %v , %s", f, f.fullname()).debug(1) }
-                }
-              } else if p, y := t.(*Path); y && !filepath.IsAbs(p.string(ctx)) {
-                erro(of(ctx,t), "not fullname: %v [%d] ⇒ %v", c, i, t).debug(1)
-              } else if s := t.string(ctx); strings.Contains(s, "-rpath") {
-                if false { noted(ctx, "%v [%d] ⇒ %v: %v", c, i, typeof(t), t).debug(1) }
-              } else if true {
-                // continue...
-              } else if strings.Contains(s, PathSep) && !filepath.IsAbs(s) {
-                noted(ctx, "not fullname: %v [%d] ⇒ %v: %v", c, i, typeof(t), t).debug(1)
-              } else if false {
-                noted(ctx, "%v [%d] ⇒ %v: %v", c, i, typeof(t), t).debug(1)
-              }
-            }} else {
-              noted(ctx, "%v(%v)", typeof(t), t).debug(1)
-            }
-          }
-        }}
-      } else {
-        erro(ctx, "recipe %d: %v(%v)", i, typeof(recipe), recipe).debug(1)
-      }
-    }
-
-    var str = recipe.string(ctx)
-
-    if str = strings.TrimRightFunc(str, unicode.IsSpace); str == "" {
+    if s := strings.TrimRightFunc(recipe.string(ctx), unicode.IsSpace); s == "" {
       source += "\n" // an empty line
       continue
     } else {
       // Escape '$$' sequences.
-      str = strings.Replace(str, "$$", "$", -1)
+      s = strings.Replace(s, "$$", "$", -1)
 
       // Duplicate all %
-      //str = strings.Replace(str, "%", "%%", -1)
+      //s = strings.Replace(s, "%", "%%", -1)
+
+      source += s
     }
 
-    if source += str; strings.HasSuffix(source, "\\") {
+    if strings.HasSuffix(source, "\\") {
       source += "\n" // append the line feed
       if i < len(program.recipes) { continue }
     }

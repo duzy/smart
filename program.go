@@ -444,12 +444,9 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
                     break
                 }
 
-                // if y, v, s := m.Match(ctx, name); y { en += 1
-                //     erro(of(ctx, v), "%v: skipped match: %s, %v (%T)", p, s, v, v)
-                // }
-
-                info(ctx, "%T %v %v", name, name, c).debug(1)
+                noted(ctx, "%T %v %v", name, name, c).debug(1)
             }
+
             if en > 0 { errostack(ctx, 3).debug(8) }
         }}() }
 
@@ -494,6 +491,9 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
         case flag, *String, *compound:
             return // skip checking files for performance
         }
+        for _, p := range ctx.entry().programs() { if p.configure {
+            return
+        }}
 
         mapPrereqFile(prereqValue)
         return
@@ -658,16 +658,21 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     prereqValue, prereqPattern, prereqStrval, prereqFile, prereqObj =
         probPrereqValue(ctx, projects, prereqValue)
 
-    if uni.db("traverse") || (false && (
-        strings.HasPrefix(targetValue.string(ctx), ".configure/library/"))) {
+    if uni.db("traverse") || (true && (
+        // strings.HasPrefix(targetValue.string(ctx), "HAVE_PTHREAD_IN_LIBC") ||
+        // strings.HasPrefix(targetValue.string(ctx), "HAVE_LIBPTHREAD") ||
+        false)) {
+
         if f, y := targetValue.(*File); y {
             prompt(ctx, "%v:0: @\n", f.fullname()).debug(1)
         } else {
             var s, _, _ = entryIndicator(ctx, targetValue)
-            prompt(ctx, "%v : %v (%T)\n", s, prereqStrval, prereqValue)
+            prompt(ctx, "%v : %v(%v)\n", s, typeof(prereqValue), prereqStrval).debug(1)
         }
 
-        noted(of(ctx,targetValue), "@: %T %v", targetValue, targetValue).debug(1)
+        noted(of(ctx,targetValue), "@: %v(%v) %v(%v)",
+            typeof(targetValue), targetValue,
+            typeof(prereqValue), prereqValue).debug(1)
 
         if prereqFile != nil { if false { s := prereqFile.fullname()
             noted(ctx, ">: %T %v ⇒ %v", prereqValue, prereqValue, s).debug(1)
@@ -1020,13 +1025,13 @@ CheckPrereqResult:
         }
 
         if prereqFile != nil && prereqValue != prereqFile {
-            noted(ctx, "%T %v: %T %v; file=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile).debug(1)
+            noted(ctx, "%v(%v): %v(%v); file=%v\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue, prereqFile).debug(1)
         } else if prereqFile != nil {
-            noted(ctx, "%T %v: %T %v; path=%s\n", targetValue, targetValue, prereqValue, prereqValue, prereqFile.fullname()).debug(1)
+            noted(ctx, "%v(%v): %v(%v); path=%s\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue, prereqFile.fullname()).debug(1)
         } else if prereqObj != nil {
-            noted(ctx, "%T %v: %T %v; obj=%v\n", targetValue, targetValue, prereqValue, prereqValue, prereqObj).debug(1)
+            noted(ctx, "%v(%v): %v(%v); obj=%v\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue, prereqObj).debug(1)
         } else {
-            noted(ctx, "%T %v: %T %v\n", targetValue, targetValue, prereqValue, prereqValue).debug(10)
+            noted(ctx, "%v(%v): %v(%v)\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue).debug(1)
         }
 
         if val := prereqValue; val != nil { erro(at(ctx,val.Position()), "value: %T %v ; %s %v", val, val, prereqStrval, files(ctx, prereqStrval)) }
@@ -1091,8 +1096,7 @@ func (pc *programContext) prerequisite(ctx Context, prerequisites []Value) {
 ForPrerequisites:
     for _, prerequisite := range prerequisites {
         var (
-            pos = prerequisite.Position()
-            ctx = at(ctx, pos)
+            ctx = at(ctx, prerequisite.Position())
             k = len(pc.traves)
             t0 = time.Now()
         )
@@ -1108,17 +1112,32 @@ ForPrerequisites:
         var isPatternStemmedForTarget = stem != nil && stem.target != nil &&
             eq(ctx, stem.target, target)
 
-        if /* strings.HasPrefix(target.String(), ".configure/library/") */false {
-            var v Value
-            if _, y := prerequisite.(*modification); !y {
-                v = prerequisite.expand(ctx, strval|expandUnexpandedForth)
+        if false {
+            var p = prerequisite
+            if _, y := p.(*modification); !y {
+                v := p.expand(ctx, strval|expandUnexpandedForth)
+                noted(ctx, "%v %v(%v) → %v(%v)", target, typeof(p), p, typeof(v), v).debug(1)
             } else {
-                v = prerequisite
+                noted(ctx, "%v %v(%v) ⇒ %v", target, typeof(p), p, depend).debug(1)
             }
-            noted(ctx, "%v %v %v %v", target, prerequisite, v, depend).debug(1)
         }
 
-        if depend != nil { depends.add(depend) }
+        if depend != nil {
+            if u, y := depend.(unexpanded); y { v := u.Value
+                erro(ctx, "%v: %v(%v) ⇒ %v(%v)", target, typeof(prerequisite), prerequisite, typeof(v), v).debug(1)
+            } else {
+                depends.add(depend)
+            }
+        } else if _, y := prerequisite.(*modification); y {
+            // noop
+        } else if p, y := prerequisite.(*delegate); y && p.x.kind() == KindUseList {
+            // noop
+        } else if p := prerequisite.expand(ctx, strval|expandUnexpandedForth); p == nil {
+            // noop
+        } else if u, y := p.(unexpanded); y {
+            noted(ctx, "%v: %v(%v) → %v(%v), %v(%v)",
+                target, typeof(prerequisite), prerequisite, typeof(u.Value), u.Value).debug(1)
+        }
 
         if d, f := time.Now().Sub(t0), time.Duration(pc.countFiles); d > 15*time.Second &&
             (f == 0 || (d/f > 10*time.Millisecond)) {
@@ -1127,6 +1146,7 @@ ForPrerequisites:
             var t = autoVal(ctx, "^")
             var c = autoVal(ctx, "<")
             var q = depend
+            var pos = ctx.Position()
             if f != 0 {
                 prompt(ctx, "%v: program.traverse slow: %v %v %d\n", pos, d, d/f, pc.countFiles)
             } else {

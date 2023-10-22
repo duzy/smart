@@ -74,7 +74,7 @@ const (
     expandPathStr   // "/path/to"/foo    -> /path/to/foo
     expandPairVal   // foo=$(bar)        -> foo=...
     expandModifier  // [(...) ...]       -> ...
-    expandInvoke    // via invoke
+    expandEvoke    // via evoke/invoke
     expandArgs      // special care for args
     expandDefAssign
     expandDefDefArgs
@@ -108,7 +108,7 @@ func (w facet) noted(ctx Context, p Value, i ...interface{}) {
     noted(ctx, "%v: %030b - PathStr", p, expandPathStr)
     noted(ctx, "%v: %030b - PairVal", p, expandPairVal)
     noted(ctx, "%v: %030b - Modifier", p, expandModifier)
-    noted(ctx, "%v: %030b - Invoke", p, expandInvoke)
+    noted(ctx, "%v: %030b - Invoke", p, expandEvoke)
     noted(ctx, "%v: %030b - Args", p, expandArgs)
     noted(ctx, "%v: %030b - DefDefArgs", p, expandDefDefArgs)
     noted(ctx, "%v: %030b - DefUnorigin", p, expandDefOriginOff)
@@ -2734,9 +2734,7 @@ func (p rearcomp) cmp(ctx Context, v Value) (res cmpres) {
 type barecomp struct { valbase ; elements }
 func (_ *barecomp) kind() Kind { return KindBarecomp }
 func (p *barecomp) elemstr(ctx Context, o Object, k elembits) (s string) {
-    for _, elem := range p.Elems {
-        s += elemstr(ctx, o, elem, k)
-    }
+    for _, elem := range p.Elems { s += elemstr(ctx, o, elem, k) }
     return
 }
 func (p *barecomp) String() (s string) { return p.elemstr(nil, nil, 0) }
@@ -2799,7 +2797,6 @@ func (p *barecomp) obsolete_hit2(ctx Context, cache hitch, bits int) (res *filem
 
     var cache0 = cache.filemapCache
     for i, elem := range elems {
-        if p.String() == ".configure" { info(ctx, "%08b: %v[%d] %T %v ; %s", bits, elems, i, elem, elem, part).debug(6) }
         if v, y := elem.(*punctuation); y {
             if v.tok == DOT { hit(i, nil) } else {
                 errostack(ctx, 3, "%08b: %v[%d]: unsupported punctuation: %v", bits, elems, i, v.tok).debug(64)
@@ -3600,7 +3597,7 @@ func (p *Path) refs(ctx Context, v Value) (res bool) { return p.elements.refs(ct
 func (p *Path) defs(ctx Context, s ...string) (res []*def) { return p.elements.defs(ctx, s...) }
 func (p *Path) expandable(ctx Context, w facet) bool { return p.elements.expandable(ctx, w) }
 func (p *Path) expand(ctx Context, w facet) (res Value) {
-    var elems, u, n = expandPathElems(ctx, w, p.Elems...)
+    var elems, u, n = pathElems(ctx, w, p.Elems...)
     if n > 0 { res = &Path{p.valbase, elements{elems}} } else { res = p }
     if u > 0 { res = unexpanded{res} }
     return
@@ -3680,7 +3677,7 @@ func (p *Path) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *Path) obsolete_hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
+    var elems, u, _ = pathElems(ctx, plain, p.Elems...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
     for i, elem := range elems {
         var c = elem.hit(ctx, cache, bits|cachePath)
@@ -3706,7 +3703,7 @@ func (p *Path) obsolete_hit(ctx Context, cache hitch, bits int) (res *filemapCac
     return
 }
 func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
+    var elems, u, _ = pathElems(ctx, plain, p.Elems...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
 
     var ( stopPat, stopVal Value ; ss []string )
@@ -3761,14 +3758,14 @@ func (p *Path) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return
 }
 func (p *Path) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
-    var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
+    var elems, u, _ = pathElems(ctx, plain, p.Elems...)
     if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
 
     for _, elem := range elems { cache = cache.slot(ctx, elem, bits) }
     return cache
 }
 func (p *Path) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
-    var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
+    var elems, u, _ = pathElems(ctx, plain, p.Elems...)
     if false && u > 0 { warn(ctx, "unexpended: %v: %v", p, elems).debug(1) }
 
     bits |= cachePath
@@ -3813,12 +3810,11 @@ func (p *Path) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
     return
 }
 
-func expandPathElems(ctx Context, w facet, elems ...Value) (res []Value, u, n int) {
-    var xelems []Value
-    xelems, u, n = w.expand(ctx, elems...)
-    for _, elem := range xelems {
+func pathElems(ctx Context, w facet, elems ...Value) (res []Value, u, n int) {
+    elems, u, n = w.expand(ctx, elems...)
+    for _, elem := range elems {
         if p, y := elem.(*Path); y {
-            var v, u1, n1 = expandPathElems(ctx, w, p.Elems...)
+            var v, u1, n1 = pathElems(ctx, w, p.Elems...)
             res = append(res, v...)
             u += u1
             n += n1
@@ -3868,7 +3864,7 @@ func (p *Path) matchN(ctx Context, srcs ...string) (full bool, res []string, ste
         return
     }
 
-    var segs, un, _ = expandPathElems(ctx, plain, p.Elems...)
+    var segs, un, _ = pathElems(ctx, plain, p.Elems...)
     if un > 0 {
         errostack(ctx, 3, "cannot expand path: %v", p).debug(1)
         return
@@ -4761,7 +4757,7 @@ func (p *compound) cache(ctx Context, cache *valcache, bits int) (res *valcache)
     if cache = cache.str(ctx, "\"\"", bits); true {
         cache = cache.strx(ctx, p.string(ctx), bits)
     } else {
-        var elems, u, _ = expandPathElems(ctx, plain, p.Elems...)
+        var elems, u, _ = pathElems(ctx, plain, p.Elems...)
         if false && u > 0 { warn(ctx, "%08b: unexpended: %v: %v", bits, p, elems).debug(1) }
         for _, elem := range elems { cache = cache.slot(ctx, elem, bits) }
     }
@@ -4783,7 +4779,8 @@ func (p *list) Position() (pos Position) { return p.position }
 func (p *list) elemstr(ctx Context, o Object, k elembits) (s string) {
     var strs []string
     for _, elem := range p.Elems {
-        strs = append(strs, elemstr(ctx, o, elem, k))
+        var s = elemstr(ctx, o, elem, k)
+        if s != "" { strs = append(strs, s) }
     }
     return strings.Join(strs, " ")
 }
@@ -5184,12 +5181,8 @@ type selected struct { Value }
 type expanded struct { Value }
 type unexpanded struct { Value }
 func (u unexpanded) true(ctx Context) bool { return false }
-func (u unexpanded) traverse(ctx Context) {}
-func (u unexpanded) match(_ Context, _ interface{}) (b bool, s interface{}, a []string) { return }
-func (u unexpanded) refs(ctx Context, v Value) (res bool) {
-    res = u.Value == v || u.Value.refs(ctx, v)
-    return
-}
+func (u unexpanded) match(_ Context, _ interface{}) (_ bool, _ interface{}, _ []string) { return }
+func (u unexpanded) refs(ctx Context, v Value) (res bool) { return u.Value == v || u.Value.refs(ctx, v) }
 func (u unexpanded) expandable(ctx Context, w facet) (res bool) {
     if w&expandUnexpandedKept == 0 { res = u.Value.expandable(ctx, w) }
     return
@@ -5200,6 +5193,24 @@ func (u unexpanded) expand(ctx Context, w facet) (res Value) {
     }()}}
     if w&expandUnexpandedKept != 0 { return u }
     return u.Value.expand(ctx, w)
+}
+func (u unexpanded) traverse(ctx Context) {
+    traverse := func(val Value) {
+        if u, y := val.(unexpanded); y {
+            u.traverse(ctx) // unnest unexpanded value
+        } else if a, y := val.(*argumented); !y {
+            // noop
+        } else if _, y = a.Value.(unexpanded); y {
+            // noop
+        } else {
+            a.traverse(ctx)
+        }
+    }
+    if l, y := u.Value.(*list); y {
+        for _, val := range l.Elems { traverse(val) }
+    } else {
+        traverse(u.Value)
+    }
 }
 func (u unexpanded) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(unexpanded); y {
@@ -5407,9 +5418,9 @@ func (p *delegate) string_(ctx Context, o Object, k elembits) (s string) { // so
 
     if p.l == STRING || p.l == COMPOUND {
         // ...
-    } else if p.l == LPAREN || (p.l == LBRACK && k&elemNoBrace != 0) {
+    } else if p.l == LPAREN || (p.l == LBRACE && k&elemNoBrace != 0) {
         s = "("+s+")"
-    } else if p.l == LBRACK {
+    } else if p.l == LBRACE {
         s = "{"+s+"}"
     } else if p.l.IsClosure() || p.l.IsDelegate() {
         s = p.l.String()
@@ -5495,7 +5506,7 @@ func (p *delegate) expand(ctx Context, w facet) (res Value) {
         }}
     } else if w&expandDefDefArgs != 0 {
         a, _, _ = (w|expandArgs).expand(ctx, p.a...)
-        x = p.x.expand(ctx, w&^expandInvoke) ; t1 = time.Now()
+        x = p.x.expand(ctx, w&^expandEvoke) ; t1 = time.Now()
 
         if db { if x == p.x {
             noted(ctx, "%v: %v %v ; %v ⇒ %v", p, typeof(p.x), p.x, p.a, a).debug(1)
@@ -5684,7 +5695,7 @@ func (p *closure) expand(ctx Context, w facet) (res Value) {
         return unexpanded{p}
     }}
 
-    if x = p.x.expand(ctx, w&^expandInvoke); x == nil {
+    if x = p.x.expand(ctx, w&^expandEvoke); x == nil {
         erro(ctx, "%v: nil: %v %v → %v (%030b)", p, typeof(p.x), p.x, x, w).debug(1)
         return ux()
     } else if w&expandClosure == 0 {
@@ -7162,6 +7173,7 @@ func (p *invocation) ind(v Value) (n int) {
 }
 
 const max_invoke = 999
+const fixEvokedFullnames = false
 
 // NOTE: evokeTraceDots is for debugging call trace, if this finally goes into a formal
 //       feature, it should need a sync-lock protection.
@@ -7210,7 +7222,12 @@ func evoke(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
     } else {
         ic.a = make([]Value, len(a)) ; copy(ic.a, a)
     }
-    if v != nil { res = v.expand(ic, w|expandInvoke) }
+    if v != nil {
+        res = v.expand(ic, w|expandEvoke)
+        if fixEvokedFullnames && res != nil && w&expandFullName != 0 {
+            res = res.expand(ctx, expandFullName) // FIXME: buggy
+        }
+    }
     return res, ic.a, ic.x
 }
 

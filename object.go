@@ -165,7 +165,7 @@ func (p unresolved) expand(ctx Context, w facet) (res Value) {
         noted(ctx, "%v: %v %v (same=%v)", p, typeof(res), res, (res == p)).debug(24)
     }(); db = true ; w |= expandDebug }}
 
-    if v = p.Value.expand(ctx, w); w&expandInvoke == 0 {
+    if v = p.Value.expand(ctx, w); w&expandEvoke == 0 {
         if v != nil && v != p.Value {
             return unresolved{v, p.project}
         } else {
@@ -771,7 +771,7 @@ func (d *def) expand(ctx Context, w facet) (res Value) { var db bool
         noted(ctx, "%v: %v %v (same=%v)", d.name_, typeof(res), res, (res==d.value)).debug(16)
     }(w); db = true }}
 
-    if w&expandInvoke == 0 {
+    if w&expandEvoke == 0 {
         if false { warnstack(ctx, 3, "def.expand: invalid (%030b)", w).debug(16) }
         return d
     } else if false {
@@ -1092,7 +1092,7 @@ func (p *builtin) refs(ctx Context, v Value) (res bool) {
     return
 }
 func (p *builtin) expand(ctx Context, w facet) (res Value) {
-    if w&expandInvoke == 0 {
+    if w&expandEvoke == 0 {
         if false { warnstack(ctx, 3, "builtin.expand: invalid (%030b)", w).debug(16) }
         return p
     }
@@ -1359,9 +1359,7 @@ func (entry *rule) DeclScope() *Scope { return entry.OwnerProject().scope }
 func (entry *rule) OwnerProject() *Project { return entry.program_[0].project }
 func (entry *rule) setPrograms(programs []*program) { entry.program_ = programs }
 func (entry *rule) setPosition(position Position) { entry.position = position }
-func (entry *rule) setTarget(v Value) {
-    entry.target = v
-}
+func (entry *rule) setTarget(v Value) { entry.target = v }
 func (entry *rule) Position() (pos Position) {
     if pos = entry.position; !pos.IsValid() {
         if pos = entry.target.Position(); !pos.IsValid() {
@@ -1496,7 +1494,7 @@ func (entry *rule) expand(ctx Context, w facet) (res Value) {
         return
     }
 
-    if w&expandInvoke != 0 {
+    if w&expandEvoke != 0 {
         if ic := ctx.ic(); ic == nil {
             erro(ctx, "not an invocation (w=%030b)", w).debug(1)
         } else if reses, t := entry.execute(ctx, ic.a...); reses != nil {

@@ -3244,4 +3244,53 @@ func testBuiltins(ctx *testcase) {
 	} else if _, y := f.Value.(*bareword); !y {
 		ctx.err("%T %v", f.Value, f.Value)
 	}
+
+	if v := ctx.get("val14.1"); v == nil {
+		ctx.err("val14.1")
+	} else if v.String() != "" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "" {
+		ctx.err("%T %v ⇒ %s", v, v, s)
+	} else if v.true(ctx) {
+		ctx.err("%T %v", v, v)
+	} else if _, y := v.(*none); !y {
+		ctx.err("%T %v", v, v)
+	}
+	if v := ctx.get("val14.2"); v == nil {
+		ctx.err("val14.2")
+	} else if v.String() != "true{}" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "true" {
+		ctx.err("%T %v ⇒ %s", v, v, s)
+	} else if !v.true(ctx) {
+		ctx.err("%T %v", v, v)
+	} else if t, y := v.(*boolean); !y {
+		ctx.err("%T %v", v, v)
+	} else if !t.bool {
+		ctx.err("%T %v", v, v)
+	}
+	if v := ctx.get("val14.3"); v == nil {
+		ctx.err("val14.3")
+	} else if v.String() != "true{}" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "true" {
+		ctx.err("%T %v ⇒ %s", v, v, s)
+	} else if !v.true(ctx) {
+		ctx.err("%T %v", v, v)
+	} else if t, y := v.(*boolean); !y {
+		ctx.err("%T %v", v, v)
+	} else if !t.bool {
+		ctx.err("%T %v", v, v)
+	}
+	if v := ctx.get("val14.4"); v == nil {
+		ctx.err("val14.4")
+	} else if v.String() != "" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "" {
+		ctx.err("%T %v ⇒ %s", v, v, s)
+	} else if v.true(ctx) {
+		ctx.err("%T %v", v, v)
+	} else if _, y := v.(*none); !y {
+		ctx.err("%T %v", v, v)
+	}
 }

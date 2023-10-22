@@ -696,8 +696,8 @@ type modifier_cd struct{ modifier_
     printLeave bool `l,print-leave`
 }
 func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
-    if ctx.printEnter { printEnteringDirectory(ctx) }
-    if ctx.printLeave { printLeavingDirectory(ctx) }
+    if ctx.printEnter { promptEnteringDirectory(ctx) }
+    if ctx.printLeave { promptLeavingDirectory(ctx) }
     if (ctx.printEnter || ctx.printLeave) && len(args) == 0 { return }
     if len(args) == 1 {
         var dir = args[0].string(ctx)
@@ -2709,7 +2709,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
             } else {
                 s = fmt.Sprintf("changed (%d bytes)", wrote)
             }
-            //printEnteringDirectory(ctx)
+            //promptEnteringDirectory(ctx)
             prompt(ctx, "update %v …… %s (in %v)\n", f, s, time.Now().Sub(st)).debug(ctx.debug)
         } (time.Now())
     }
@@ -2727,7 +2727,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
         return
     }
 
-    printEnteringDirectory(ctx)
+    promptEnteringDirectory(ctx)
 
     // Create or update the file with new content
 
@@ -2935,9 +2935,9 @@ func (ctx *modifier_assert) z(w facet, args ...Value) (_ interface{}) {
         if (uni.hooks.assert != nil && uni.hooks.assert(ctx, v, b)) || b {
             continue
         } else if s := ctx.msg; s == "" {
-            erro(of(ctx,a), "assert: %s %v → %s %v → %s", typeof(a), a, typeof(v), v, v.string(ctx)).debug(1)
+            erro(of(ctx,a), "assert: %s(%v) → %s(%v) → '%s'", typeof(a), a, typeof(v), v, v.string(ctx)).debug(1)
         } else {
-            erro(of(ctx,a), "assert: %s %v: %v: %s", typeof(a), a, v, s).debug(1)
+            erro(of(ctx,a), "assert: %s(%v) → %s(%v): %s", typeof(a), a, typeof(v), v, s).debug(1)
         }
 
         pc.traves.add(ctx, traveFail, target).error = fmt.Errorf("assert(%v)", a)

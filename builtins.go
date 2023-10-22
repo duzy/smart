@@ -67,14 +67,14 @@ var builtins = map[string]reflect.Type {
 
     // $(defor) (aka. defined-or)
     `defor`:     reflect.TypeOf((*builtin_defor)(nil)).Elem(), // $(defor $(x),$(y),$(z))  <=>  $(if $(defined $(x)),$(x),...)
-    `or`:    reflect.TypeOf((*builtin_or)(nil)).Elem(),
+    `or`:        reflect.TypeOf((*builtin_or)(nil)).Elem(),
     `and`:       reflect.TypeOf((*builtin_and)(nil)).Elem(),
     `not`:       reflect.TypeOf((*builtin_not)(nil)).Elem(),
-    //`xor`:       reflect.TypeOf((*builtin_xor)(nil)).Elem(),
+    `xor`:       reflect.TypeOf((*builtin_xor)(nil)).Elem(),
 
     `equal`:     reflect.TypeOf((*builtin_equal)(nil)).Elem(),
     `equals`:    reflect.TypeOf((*builtin_equal)(nil)).Elem(),
-    `ne`:    reflect.TypeOf((*builtin_unequal)(nil)).Elem(),
+    `ne`:        reflect.TypeOf((*builtin_unequal)(nil)).Elem(),
     `not-equal`: reflect.TypeOf((*builtin_unequal)(nil)).Elem(),
     `match`:     reflect.TypeOf((*builtin_match)(nil)).Elem(),
 
@@ -82,7 +82,7 @@ var builtins = map[string]reflect.Type {
     `less`:      reflect.TypeOf((*builtin_less)(nil)).Elem(),
 
     `case`:      reflect.TypeOf((*builtin_case)(nil)).Elem(),
-    `if`:    reflect.TypeOf((*builtin_if)(nil)).Elem(),
+    `if`:        reflect.TypeOf((*builtin_if)(nil)).Elem(),
     `ifeq`:      reflect.TypeOf((*builtin_ifeq)(nil)).Elem(),
     `ifne`:      reflect.TypeOf((*builtin_ifne)(nil)).Elem(),
 
@@ -213,17 +213,17 @@ var builtins = map[string]reflect.Type {
     `reldir`:       reflect.TypeOf((*builtin_reldir)(nil)).Elem(),
     `relative-dir`: reflect.TypeOf((*builtin_reldir)(nil)).Elem(),
 
-    `file`:       reflect.TypeOf((*builtin_file)(nil)).Elem(),
-    `stat`:       reflect.TypeOf((*builtin_stat)(nil)).Elem(),// stat (deprecates file-exists)
-    `glob`:       reflect.TypeOf((*builtin_glob)(nil)).Elem(),
-    `wildcard`:   reflect.TypeOf((*builtin_wildcard)(nil)).Elem(),
+    `file`:         reflect.TypeOf((*builtin_file)(nil)).Elem(),
+    `stat`:         reflect.TypeOf((*builtin_stat)(nil)).Elem(),// stat (deprecates file-exists)
+    `glob`:         reflect.TypeOf((*builtin_glob)(nil)).Elem(),
+    `wildcard`:     reflect.TypeOf((*builtin_wildcard)(nil)).Elem(),
 
-    `read-dir`:   reflect.TypeOf((*builtin_readdir)(nil)).Elem(),  // io/ioutil/ioutil.go
-    `read-file`:  reflect.TypeOf((*builtin_readfile)(nil)).Elem(),  // io/ioutil/ioutil.go
+    `read-dir`:     reflect.TypeOf((*builtin_readdir)(nil)).Elem(),  // io/ioutil/ioutil.go
+    `read-file`:    reflect.TypeOf((*builtin_readfile)(nil)).Elem(),  // io/ioutil/ioutil.go
 
-    `grep`:       reflect.TypeOf((*builtin_grep)(nil)).Elem(),
+    `grep`:         reflect.TypeOf((*builtin_grep)(nil)).Elem(),
 
-    `untraversed`: reflect.TypeOf((*builtin_untraversed)(nil)).Elem(),
+    `untraversed`:  reflect.TypeOf((*builtin_untraversed)(nil)).Elem(),
 
     // commands ------------------------------------------------------------------
     `print`:        reflect.TypeOf((*builtin_print)(nil)).Elem(),
@@ -234,7 +234,7 @@ var builtins = map[string]reflect.Type {
     `plain`:        reflect.TypeOf((*builtin_plain)(nil)).Elem(),
 
     `append`:       reflect.TypeOf((*builtin_append)(nil)).Elem(),
-    // `pop`:      reflect.TypeOf((*builtin_pop)(nil)).Elem(),
+    // `pop`:          reflect.TypeOf((*builtin_pop)(nil)).Elem(),
 
     `write-file`:   reflect.TypeOf((*builtin_writefile)(nil)).Elem(),  // io/ioutil/ioutil.go
     `touch-file`:   reflect.TypeOf((*builtin_readfile)(nil)).Elem(),  // io/ioutil/ioutil.go
@@ -796,7 +796,7 @@ func (ctx *builtin_sure) x(ic *invocation, w facet) (res interface{}) {
 }
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
-type builtin_defor struct { builtin_ }
+type builtin_defor struct { builtin_ } // aka. defined-or
 func (ctx *builtin_defor) x(ic *invocation, w facet) (res interface{}) {
     for _, a := range umerge(true, ic.a...) { if _, y := a.(unresolved); y {
         continue
@@ -846,7 +846,7 @@ func (ctx *builtin_and) _a(ic *invocation, w facet) (skip bool) {
 }
 func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
     for _, a := range umerge(true, ic.a...) {
-        if !ctx.forth {
+        if false && !ctx.forth {
             if _, y := a.(unexpanded); y { return skip{} }
         }
         if a.true(ctx) { res = a } else { return nil }
@@ -862,6 +862,17 @@ func (ctx *builtin_not) x(ic *invocation, w facet) (res interface{}) {
     for _, a := range ic.a { if t = a.true(ctx); t { break } }
     if n := ctx.debug; n>0 { warnstack(ctx, 3).debug(n) }
     return !t
+}
+
+type builtin_xor struct { builtin_ }
+func (ctx *builtin_xor) x(ic *invocation, w facet) (res interface{}) {
+    if vals := umerge(true, ic.a...); len(vals) > 1 {
+        var t = vals[0].true(ctx)
+        for _, a := range vals[1:] { if a.true(ctx) != t {
+            return MakeBoolean(a.Position(), true)
+        }}
+    }
+    return
 }
 
 type builtin_unequal struct { builtin_
@@ -1234,7 +1245,7 @@ func (ctx *builtin_foreach) String() string {
     }
 }
 func (ctx *builtin_foreach) a1(ic *invocation, w facet) {
-    w &= ^(expandPlaceholder|expandInvoke)
+    w &= ^(expandPlaceholder|expandEvoke)
     for i, a := range ic.a { if i > 0 { ic.a[i] = a.expand(ctx, w) }}
 }
 func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
