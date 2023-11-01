@@ -1131,9 +1131,11 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   var w = strval
   if exe.fullname { w |= expandFullName }
 
-  var ac *autoContext
+  var ( ac *autoContext; a1 *String; a2 *Int )
   if exe.forRecipe != nil {
+    a1, a2 = &String{}, &Int{}
     ac = &autoContext{ Context:ctx, defs:make(autoDefMap) }
+    ac.args(ac.Context, nil, []Value{a1, a2})
   }
 
   var source string
@@ -1169,23 +1171,14 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     source = strings.Replace(source, "\\\n\t", "\\\n", -1)
 
     if exe.forRecipe != nil {
-      var a = []Value{
-        MakeString(recipePos, source),
-        MakeInt(recipePos, int64(len(exe.sources)+1)),
-      }
-
-      var val Value
-      if false {
-        val = xauto(at(ctx, recipePos), exe.forRecipe, strval, a...)
-      } else {
-        ac.Context = at(ctx, recipePos)
-        ac.args(ac.Context, nil, a)
-        val = exe.forRecipe.expand(ac, strval)
-        for i := 0; val != nil && val.expandable(ac, strval); i += 1 {
-          if i < max_evoke { val = val.expand(ac, strval) } else {
-            erro(of(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1)
-            break
-          }
+      a1.position, a1.s = recipePos, source
+      a2.position, a2.int64 = recipePos, int64(len(exe.sources)+1)
+      ac.Context = at(ctx, recipePos)
+      val := exe.forRecipe.expand(ac, strval) // aka. xauto(...)
+      for i := 0; val != nil && val.expandable(ac, strval); i += 1 {
+        if i < max_evoke { val = val.expand(ac, strval) } else {
+          erro(of(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1)
+          break
         }
       }
       if false { noted(of(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1) }
