@@ -1969,15 +1969,15 @@ func (ctx *modifier_touch) x(args ...Value) (result interface{}) {
 // (check var=(NAME,VALUE))
 type modifier_check struct { modifier_
     trim bool `trim,trim-string`
-    answer bool `a,answer`
-    boolean bool `b,boolean;r,result`
-    silent bool `s,slient`
-    exists bool `e,ex,exists`
+    answer bool `answer`
+    boolean bool `bool,boolean,res,result`
+    silent bool `slient`
+    exists bool `exist,exists`
     regular bool `reg,regular`
-    isdir bool `isdir`
-    good bool `g,good`
-    file Value `f,file`
-    dir Value `di,dir`
+    isdir bool `isdir,is-dir`
+    good bool `good`
+    file Value `file`
+    dir Value `dir`
 }
 
 func (ctx *modifier_check) x(args ...Value) (result interface{}) {

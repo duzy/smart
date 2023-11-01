@@ -7172,7 +7172,7 @@ func (p *invocation) ind(v Value) (n int) {
     return
 }
 
-const max_invoke = 999
+const max_evoke = 999
 const fixEvokedFullnames = false
 
 // NOTE: evokeTraceDots is for debugging call trace, if this finally goes into a formal
@@ -7201,7 +7201,7 @@ func evoke(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
 
     for ic, n := ctx.ic(), 1; ic != nil; ic = ic.Context.ic() {
         var d *diagPoint
-        if n += 1; n > max_invoke {
+        if n += 1; n > max_evoke {
             d = errostack(of(ctx,v), 10, "invocation exceeds limitation (%d): %v", n, v).debug(100)
         } else if u, y := v.(unexpanded); y && ic.v == v {
             switch u.Value.(type) { case *auto, *def: return v, nil, false }
@@ -7225,7 +7225,7 @@ func evoke(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
     if v != nil {
         res = v.expand(ic, w|expandEvoke)
         if fixEvokedFullnames && res != nil && w&expandFullName != 0 {
-            res = res.expand(ctx, expandFullName) // FIXME: buggy
+            res = res.expand(ctx, expandFullName) // FIXME: buggy (fixEvokedFullnames)
         }
     }
     return res, ic.a, ic.x

@@ -493,6 +493,7 @@ func (p *execResult) String() string {
 type execOpts struct {
   generalOpts
   logFileName *fullnameOpt "l,log"
+  forRecipe Value `forrecipe,forrecipes,for-recipe,for-recipes`
   // checkRecipe bool `checkrecipe,checkrecipes,check-recipe,check-recipes`
   deprecated  bool `dump,deprecate`
   dropFailed  bool `df,drop,drop-fail,drop-failure,fail-drop,remove-on-fail`
@@ -1130,12 +1131,17 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   var w = strval
   if exe.fullname { w |= expandFullName }
 
+  var ac *autoContext
+  if exe.forRecipe != nil {
+    ac = &autoContext{ Context:ctx, defs:make(autoDefMap) }
+  }
+
   var source string
   var recipePos Position
   for i, recipe := range program.recipes {
     if recipe = recipe.expand(ctx, w); !fixEvokedFullnames && exe.fullname {
       // NOTE: do a second expand for fullname because delegate to file
-      //       skipped fullname expansion (FIXME)
+      //       skipped fullname expansion (FIXME: fixEvokedFullnames)
       recipe = recipe.expand(ctx, expandFullName)
     }
 
@@ -1161,6 +1167,29 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
     // Remove tabs in line breakings.
     source = strings.Replace(source, "\\\n\t", "\\\n", -1)
+
+    if exe.forRecipe != nil {
+      var a = []Value{
+        MakeString(recipePos, source),
+        MakeInt(recipePos, int64(len(exe.sources)+1)),
+      }
+
+      var val Value
+      if false {
+        val = xauto(at(ctx, recipePos), exe.forRecipe, strval, a...)
+      } else {
+        ac.Context = at(ctx, recipePos)
+        ac.args(ac.Context, nil, a)
+        val = exe.forRecipe.expand(ac, strval)
+        for i := 0; val != nil && val.expandable(ac, strval); i += 1 {
+          if i < max_evoke { val = val.expand(ac, strval) } else {
+            erro(of(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1)
+            break
+          }
+        }
+      }
+      if false { noted(of(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1) }
+    }
 
     exe.sources = append(exe.sources, &raw{valbase{recipePos}, source})
     recipePos, source = Position{}, ""
