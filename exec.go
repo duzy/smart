@@ -71,12 +71,12 @@ var (
   rxUndefReference     = rx(`undef: *(.+)`)
   rxShellCmdNotFound   = rx(`(.+?): (.+?):( command)? not found`)
   rxIgnoringDirectory  = rx(`ignoring (duplicate|nonexistent) directory "(.*?)"`)
-  rxExitStatus = rx(`exit status (\-?[0-9]+)`)
+  rxExitStatus         = rx(`exit status (\-?[0-9]+)`)
 
   // NOTE: python standard errors
-  rxPyErrorTrace = rx(`^\s*File "(.+?)", line (\d+), in (.+)`)
+  rxPyErrorTrace          = rx(`^\s*File "(.+?)", line (\d+), in (.+)`)
   rxPyModuleNotFoundError = rx(`ModuleNotFoundError: No module named '(.*?)'`)
-  rxPyFileNotFoundError = rx(`FileNotFoundError: \[Errno (\d+)\] No such file or directory: '(.*?)'`)
+  rxPyFileNotFoundError   = rx(`FileNotFoundError: \[Errno (\d+)\] No such file or directory: '(.*?)'`)
 
   workingMutex = new(sync.Mutex)
   working atomic.Value // number of working executions
@@ -84,6 +84,9 @@ var (
   stdout = &stdWriter{std:os.Stdout}
   stderr = &stdWriter{std:os.Stderr}
   udots = []byte("…")
+
+  testCheckExecRecipe func(Context, string, Value)
+  testCheckExecOutput func(Context, string, int)
 )
 
 const (
@@ -185,20 +188,12 @@ type ExecBuffer struct {
   Buf *bytes.Buffer
   Tie  io.Writer
   line bytes.Buffer
-  filters []string
   wrote uint64
 
   includedFrom struct { pos1, pos2 Position }
 }
-func (p *ExecBuffer) filter(s string) { p.filters = append(p.filters, s) }
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
   if p.wrote == 0 { p.onFirstWrote() }
-
-  for _, s := range p.filters {
-    if bytes.Equal(b, []byte(s)) { // string(b) == s
-      return len(b), nil
-    }
-  }
 
   var l int
   if p.Buf != nil {
@@ -240,6 +235,22 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
       l += 1
 
       var line = p.line.Bytes()
+
+      if testCheckExecOutput != nil {
+        var ctx Context = p.execContext
+        if p.log != nil && !p.logPos.IsValid() {
+          var pos Position
+          pos.Filename, pos.Line = p.log.filename, l
+          ctx = at(p.execContext, pos)
+        }
+
+        testCheckExecOutput(ctx, string(line), l)
+
+        if false && ctx.dia().error() {
+          noted(p.execContext, "%s", line).debug(1)
+        }
+      }
+
       for _, rx := range knownerrors {
         if rx == nil { continue }
         if all := rx.FindAllSubmatch(line, -1); all != nil {
@@ -495,6 +506,8 @@ type execOpts struct {
   logFileName *fullnameOpt "l,log"
   forRecipe Value `forrecipe,forrecipes,for-recipe,for-recipes`
   // checkRecipe bool `checkrecipe,checkrecipes,check-recipe,check-recipes`
+  correction  bool `correction,correct-flags,correct-command-flags`
+  warnCorrection bool `correction-warning,warn-correction`
   deprecated  bool `dump,deprecate`
   dropFailed  bool `df,drop,drop-fail,drop-failure,fail-drop,remove-on-fail`
   infos       bool `sci,scan-infos`
@@ -804,15 +817,17 @@ func (p *execContext) check() (err error) {
 }
 
 func (ctx *execContext) exec(cmd, opt string, err error) {
+  if ctx.dia().error() { return }
+
+  defer dtrace(ctx, "exec")
+
   var (
+    pc = ctx.pc()
+    env, sep = pc.env(ctx)
     envstr string
     logFile *os.File
   )
 
-  if ctx.dia().error() { return } else { defer dtrace(ctx, "exec") }
-
-  var pc = ctx.pc()
-  var env, sep = pc.env(ctx)
   for i, s := range env[sep:] {
     if i > 0 { envstr += " && " }
     if k := strings.Index(s, "="); k > 0 {
@@ -915,8 +930,10 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
   ctx.Stderr.execContext = ctx
   ctx.start = time.Now()
 
+  var _ctx = ctx.Context
   var uni = ctx.universe()
   for i, src := range ctx.sources {
+    ctx.Context = at(_ctx, src.Position())
     ctx.current = i
 
     if a := "@"; strings.HasPrefix(src.s, a) {
@@ -1170,6 +1187,10 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     // Remove tabs in line breakings.
     source = strings.Replace(source, "\\\n\t", "\\\n", -1)
 
+    if exe.correction {
+      source = correctCommandFlags(ctx, source, exe.warnCorrection)
+    }
+
     if exe.forRecipe != nil {
       a1.position, a1.s = recipePos, source
       a2.position, a2.int64 = recipePos, int64(len(exe.sources)+1)
@@ -1183,6 +1204,8 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
       }
       if false { noted(of(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1) }
     }
+
+    if testCheckExecRecipe != nil { testCheckExecRecipe(ctx, source, recipe) }
 
     exe.sources = append(exe.sources, &raw{valbase{recipePos}, source})
     recipePos, source = Position{}, ""
@@ -1221,4 +1244,47 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     result = ease(ctx, exe.vals)
   }
   return
+}
+
+var execCommandClang = regexp.MustCompile(`^@?(?:/(?:[^/]*/)+)?(clang(?:\+{2})?)$`)
+var execExistFlagPath = map[*regexp.Regexp][]*regexp.Regexp{
+  execCommandClang: []*regexp.Regexp{
+    regexp.MustCompile(`^-([IL]|include|(?:cxx-|stdlib(?:\+\+)?)?isystem(?:-after)?)=?([[:alnum:]_\-/]+)?$`),
+  },
+}
+
+func correctCommandFlags(ctx Context, source string, w bool) string {
+  var flags []string
+  var fields = strings.Fields(source)
+  if len(fields) > 0 { flags = fields[:1] }
+
+forFields:
+  for i := 1; i < len(fields); i += 1 {
+    var field = fields[i]
+
+    for rx, rxs := range execExistFlagPath {
+      if rx.MatchString(fields[0]) { for _, rx := range rxs {
+        var m = rx.FindStringSubmatch(field)
+        if len(m) == 0 { continue }
+
+        var f bool
+        var s = m[2]
+        if s == "" {
+          if i += 1; i == len(fields) { break forFields }
+          s, f = fields[i], true
+        }
+
+        if _, e := os.Stat(s); e != nil {
+          if w { warn(ctx, "ignoring nonexistent path: %v", s).debug(1) }
+          continue forFields // skip nonexistent path flags
+        } else if f {
+          flags = append(flags, field)
+          field = s
+        }
+      }}
+    }
+
+    flags = append(flags, field)
+  }
+  return strings.Join(flags, " ")
 }

@@ -15,27 +15,135 @@ import (
 )
 
 var testValidFlag = []*regexp.Regexp{
-	regexp.MustCompile(`^--target=[[:alnum:]-]+$`),
+	regexp.MustCompile(`^-(?:-target|triple)=[[:alnum:]-]+$`),
 	regexp.MustCompile(`^-(?:shared|static|ObjC(?:\+\+)?)$`),
 	regexp.MustCompile(`^-(?:std|Werror)=[[:alnum:]_\-]+$`),
 	regexp.MustCompile(`^-(?:(?:(?:cxx|stdlib\+\+)-)?isystem(?:-after)?)=?[[:alnum:]_\-/]+$`),
+	regexp.MustCompile(`^-Wl,(?:-v|-demangle|-triple=.+|-rpath,"[^"]+")$`),
 	regexp.MustCompile(`^-[IL]=?[[:alnum:]_\-/]+$`),
 	regexp.MustCompile(`^-[DWfl][[:alnum:]_\-]+$`),
 	regexp.MustCompile(`^-no[[:alnum:]_\-+]+$`),
+	regexp.MustCompile(`^-X(?:clang)$`),
+	regexp.MustCompile(`^-x(?:c(?:\+\+)?)$`),
 	regexp.MustCompile(`^-O[0-6]$`),
-	regexp.MustCompile(`^-[vg]$`),
+	regexp.MustCompile(`^-l[^/]+$`),
+	regexp.MustCompile(`^-[cvg]$`),
+	regexp.MustCompile(`^(?:/(?:[^/]*/)+)?.+\.(?:[coh])$`), // /a/b/c/foo.c
 }
 
-func validFlag(s string) (res bool) {
-	for _, x := range testValidFlag { if res = x.MatchString(s); res { break }}
+var testValidFlagVal = map[*regexp.Regexp][]*regexp.Regexp{
+	regexp.MustCompile(`^-(?:std|Werror)$`): []*regexp.Regexp{
+		regexp.MustCompile(`^[[:alnum:]\-_]+$`),
+	},
+	regexp.MustCompile(`^-(?:-target|triple)$`): []*regexp.Regexp{
+		regexp.MustCompile(`^[[:alnum:]\-_]+$`),
+	},
+	regexp.MustCompile(`^-D$`): []*regexp.Regexp{
+		regexp.MustCompile(`^[[:alnum:]\-_]+$`),
+	},
+	regexp.MustCompile(`^-([I]|include)$`): []*regexp.Regexp{
+		regexp.MustCompile(`^(?:/(?:[^/]*/)+)?.+\.(?:[ch](?:xx|pp)|inc)$`), // /a/b/c/foo.c
+	},
+	regexp.MustCompile(`^-o$`): []*regexp.Regexp{
+		regexp.MustCompile(`^(?:/(?:[^/]*/)+)?.+\.(?:[o]|out|exe)$`), // /a/b/c/foo.c
+	},
+	regexp.MustCompile(`^-L$`): []*regexp.Regexp{
+		regexp.MustCompile(`^(?:/(?:[^/]*/)+)?.+$`),
+	},
+	regexp.MustCompile(`^-l$`): []*regexp.Regexp{
+		regexp.MustCompile(`^[^/]+$`),
+	},
+}
+
+var testInvalidArg = []*regexp.Regexp{
+	regexp.MustCompile(`<[^>]*>`),
+}
+
+func validFlag(s string) (res bool, vxs []*regexp.Regexp) {
+	for _, x := range testValidFlag { if res = x.MatchString(s); res { return }}
+	for x, v := range testValidFlagVal { if x.MatchString(s) { return true, v }}
 	return
 }
 
 func validFlags(ctx *testcase, v Value, s string) (res bool) {
-	for _, s := range strings.Fields(s) { if res = validFlag(s); !res {
-		ctx.err("%s ; %v", s, v) ; break
-	}}
+	var rxs []*regexp.Regexp
+	var fields = strings.Fields(s)
+	for i := 0; i < len(fields); i += 1 {
+		flag := fields[i]
+
+		if res, rxs = validFlag(flag); !res {
+			ctx.err("invalid flag: %s ; %v(%v)", flag, typeof(v), v) ; break
+		} else if len(rxs) == 0 {
+			continue
+		}
+
+		if i += 1; i == len(fields) {
+			ctx.err("wrong flag: %s ; %v(%v)", flag, typeof(v), v)
+			return
+		}
+
+		val := fields[i]
+
+		for _, rx := range rxs {
+			if !rx.MatchString(val) {
+				ctx.err("wrong flag: %s %s, %v ; %v(%v)", flag, val, rx, typeof(v), v)
+			} else if false {
+				noted(of(ctx,v), "%v: %v ; %v", flag, val, rx).debug(1)
+			}
+		}
+	}
 	return
+}
+
+var testValidateClang = regexp.MustCompile(`^@?(?:/(?:[^/]*/)+)?(clang(?:\+{2})?)[[:space:]]+`)
+func testValidateExecRecipe(tc *testcase, ctx Context, source string, recipe Value) {
+	if source == "" || recipe == nil {
+		return
+	} else if m := testValidateClang.FindStringSubmatch(source); m != nil {
+		if !validFlags(tc, recipe, source[len(m[0]):]) {
+			tc.err("validate: %v; %v", m, source)
+		}
+	} else {
+		noted(of(ctx, recipe), "TODO: validate: %v", source).debug(1)
+	}
+}
+
+var testWrongExecOutput = []*regexp.Regexp{
+	regexp.MustCompile(`^clang: error: unknown argument '[^']+'; did you mean '[^']+'\?`),
+	regexp.MustCompile(`^ld: (missing OS version in target triple '([^']+)') in '([^']+)'`),
+	regexp.MustCompile(`^ld: (unknown OS in target triple '([^']+)') in '([^']+)'`),
+	regexp.MustCompile(`^ld: (unknown options: (.+))`),
+}
+var testSuspiciousExecOutput = []*regexp.Regexp{
+	regexp.MustCompile(`^clang: warning: (argument unused during compilation: '[^']+' \[[^\]]+\])`),
+	regexp.MustCompile(`^ld:(?: warning:)? (search path '[^']+' not found)`),
+	regexp.MustCompile(`^ld:(?: warning:)? ignoring duplicate libraries: '[^']+'`),
+	regexp.MustCompile(`^ignoring nonexistent directory "([^"]+)"`),
+}
+var testIgnoreSuspicious = map[string]struct{}{
+	"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/Library/Frameworks": struct{}{},
+	"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/local/include": struct{}{},
+	"/usr/local/include": struct{}{},
+}
+func testValidateExecOutput(tc *testcase, ctx Context, line string, l int) {
+	for _, rx := range testWrongExecOutput {
+		if m := rx.FindStringSubmatch(line); len(m) > 0 {
+			if len(m) < 2 {
+				errostack(ctx, 2, "%v", m[0]).debug(1)
+			} else {
+				errostack(ctx, 2, "%v", m[1]).debug(1)
+			}
+		}
+	}
+	for _, rx := range testSuspiciousExecOutput {
+		if m := rx.FindStringSubmatch(line); len(m) > 0 {
+			var s string
+			if len(m) < 2 { s = m[0] } else { s = m[1] }
+			if _, y := testIgnoreSuspicious[s]; !y {
+				errostack(ctx, 2, "%v", s).debug(1)
+			}
+		}
+	}
 }
 
 func testVariantTarget(ctx *testcase) {
@@ -437,7 +545,7 @@ func testApp(ctx *testcase) {
 	} else if d1.value == nil || d2.value == nil {
 		ctx.err("%v", d1)
 		ctx.err("%v", d2)
-	} else if s := d1.value.String(); strings.Count(s, "&(patsubst %,--target=%,&(target.triple))") != 1 {
+	} else if s := d1.value.String(); strings.Count(s, "$(foreach(-unique) &(target.triple),--target=$_ -Xclang -triple=$_)") != 1 {
 		ctx.err("%v", d1.value)
 	} else if strings.Count(s, "$(foreach(-unique) $1 $2,&(-v.$_))") != 1 {
 		ctx.err("%v", d1.value)
@@ -455,7 +563,7 @@ func testApp(ctx *testcase) {
 		ctx.err("%v", d1.value)
 	} else if strings.Count(s, flag1("cppflags")) != 1 {
 		ctx.err("%v", d1.value)
-	} else if s := d2.value.String(); strings.Count(s, "&(patsubst %,--target=%,&(target.triple))") != 1 {
+	} else if s := d2.value.String(); strings.Count(s, "$(foreach(-unique) &(target.triple),--target=$_ -Xclang -triple=$_)") != 1 {
 		ctx.err("%v", d2.value)
 	} else if strings.Count(s, "$(foreach(-unique) $1 $2,&(-v.$_))") != 1 {
 		ctx.err("%v", d1.value)
@@ -485,7 +593,7 @@ func testApp(ctx *testcase) {
 		ctx.err("xflags")
 	} else if s := v1.String(); s == "" {
 		ctx.err("%T %v", v1, v1)
-	} else if strings.Count(s, "&(patsubst %,--target=%,&(target.triple))") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) &(target.triple),--target=$_ -Xclang -triple=$_)") != 1 {
 		ctx.err("%v", v1)
 	} else if strings.Count(s, "$(foreach(-unique) $1 c,&(-v.$_))") != 1 {
 		ctx.err("%v", v1)
@@ -517,7 +625,7 @@ func testApp(ctx *testcase) {
 		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if s := v2.String(); s == "" {
 		ctx.err("%T %v", v2, v2)
-	} else if strings.Count(s, "&(patsubst %,--target=%,&(target.triple))") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) &(target.triple),--target=$_ -Xclang -triple=$_)") != 1 {
 		ctx.err("%v", v2)
 	} else if strings.Count(s, "$(foreach(-unique) $1 c,&(-v.$_))") != 1 {
 		ctx.err("%v", v2)
@@ -567,7 +675,7 @@ func testApp(ctx *testcase) {
 		ctx.err("xflags")
 	} else if s := v1.String(); s == "" {
 		ctx.err("%T %v", v1, v1)
-	} else if strings.Count(s, "&(patsubst %,--target=%,&(target.triple))") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) &(target.triple),--target=$_ -Xclang -triple=$_)") != 1 {
 		ctx.err("%v", s)
 	} else if strings.Count(s, "&(-v.fxxbxx)") != 1 {
 		ctx.err("%v", s)
@@ -607,7 +715,7 @@ func testApp(ctx *testcase) {
 		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if s := v2.String(); s == "" {
 		ctx.err("%T %v", v2, v2)
-	} else if strings.Count(s, "&(patsubst %,--target=%,&(target.triple))") != 1 {
+	} else if strings.Count(s, "$(foreach(-unique) &(target.triple),--target=$_ -Xclang -triple=$_)") != 1 {
 		ctx.err("%v", s)
 	} else if strings.Count(s, "&(-v.fxxbxx)") != 1 {
 		ctx.err("%v", s)
@@ -1634,7 +1742,15 @@ func testLLVMConfig1(ctx *testcase) {
 		// 	ctx.err("%v: %v %v %v", f, s2, r2, t2)
 	}
 
+	testCheckExecRecipe = func(_ctx Context, source string, recipe Value) {
+		testValidateExecRecipe(ctx, _ctx, source, recipe)
+	}
+	testCheckExecOutput = func(_ctx Context, line string, l int) {
+		testValidateExecOutput(ctx, _ctx, line, l)
+	}
 	ctx.universe().configure(ctx)
+	testCheckExecRecipe = nil
+	testCheckExecOutput = nil
 
 	if s := filepath.Join(outtmp, "lib", "c++inc"); s == "" {
 		ctx.err("%s", s)
@@ -1772,7 +1888,14 @@ func testLLVMConfig2(ctx *testcase) {
 }
 
 func testToolchainBooting(ctx *testcase) {
+	testCheckExecRecipe = func(_ctx Context, source string, recipe Value) {
+		testValidateExecRecipe(ctx, _ctx, source, recipe)
+	}
+	testCheckExecOutput = func(_ctx Context, line string, l int) {
+		testValidateExecOutput(ctx, _ctx, line, l)
+	}
 	ctx.universe().configure(ctx)
+	testCheckExecRecipe = nil
 
 	if r := ctx.rule("stamp"); r == nil {
 		ctx.err("stamp")

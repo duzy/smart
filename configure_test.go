@@ -138,10 +138,14 @@ func testConfigure1(ctx *testcase) {
 		ctx.err("%v: %v", m, e)
 	}
 
+	testCheckExecRecipe = func(_ctx Context, source string, recipe Value) {
+		testValidateExecRecipe(ctx, _ctx, source, recipe)
+	}
 	testPromptConfiguration = false//true
 	ctx.universe().configuration.silent = true
 	ctx.universe().configure(ctx)
 	testPromptConfiguration = false
+	testCheckExecRecipe = nil
 
 	if d, v := ctx.get("FOO"), ctx.get("FOO"); v == nil {
 		ctx.err("%v %v", d, v)
@@ -265,12 +269,16 @@ func testConfigure2(ctx *testcase) {
 		ctx.err("%v", e)
 	}
 
+	testCheckExecRecipe = func(_ctx Context, source string, recipe Value) {
+		testValidateExecRecipe(ctx, _ctx, source, recipe)
+	}
 	testPromptConfiguration = false//true
 	testConfigurationDiverged = true
 	ctx.universe().configuration.silent = true
 	ctx.universe().configure(cc)
 	testConfigurationDiverged = false
 	testPromptConfiguration = false
+	testCheckExecRecipe = nil
 
 	if f := m.configurationFile; f == nil {
 		ctx.err("%v: nil configuration", m)
@@ -435,8 +443,12 @@ func testConfigure3(ctx *testcase, spec, name string) {
 		ctx.err("%v: %v", m, e)
 	}
 
+	testCheckExecRecipe = func(_ctx Context, source string, recipe Value) {
+		testValidateExecRecipe(ctx, _ctx, source, recipe)
+	}
 	ctx.universe().configuration.silent = true
 	ctx.universe().configure(ctx)
+	testCheckExecRecipe = nil
 
 	if e, d := testConfigItem(ctx, "FOO1"); len(e) != 1 {
 		ctx.err("FOO1")
