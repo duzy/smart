@@ -290,7 +290,7 @@ func (p *ExecBuffer) startDockerDaemon(pos Position, ctx Context, container *Pro
   return
 }
 func (p *ExecBuffer) filepath(s string) string {
-  if p.workDir != "" && !filepath.IsAbs(s) { s = filepath.Join(p.workDir, s) }
+  if p._workdir != "" && !filepath.IsAbs(s) { s = filepath.Join(p._workdir, s) }
   return s
 }
 func (p *ExecBuffer) pos(s1, s2, s3 string) Position { return convPosition(p.filepath(s1), s2, s3) }
@@ -503,9 +503,8 @@ func (p *execResult) String() string {
 
 type execOpts struct {
   generalOpts
-  logFileName *fullnameOpt "l,log"
+  logFileName *fullname "l,log"
   forRecipe Value `forrecipe,forrecipes,for-recipe,for-recipes`
-  // checkRecipe bool `checkrecipe,checkrecipes,check-recipe,check-recipes`
   correction  bool `correction,correct-flags,correct-command-flags`
   warnCorrection bool `correction-warning,warn-correction`
   deprecated  bool `dump,deprecate`
@@ -532,8 +531,8 @@ type execOpts struct {
   noCD        bool `n,nocd`
   prompt      bool `pm,prompt;m,msg`
   promptSrc   bool `ps,prompt-src,prompt-source;vs,verbose-source`
-  promStr     string `c,cmd;m,msg`
-  workDir     string `cd,change-dir,wd,workdir,work-dir,work-directory`
+  promStr     string `cmd,m,msg`
+  _workdir    string `cd,change-dir,wd,workdir,work-dir,work-directory`
   tie         string `t,tie` // all, both, stdout, stderr, out, err
 }
 
@@ -574,7 +573,7 @@ func (p *execContext) Position() Position {
 }
 func (p *execContext) onFirstWrote() {
   if p.printEnteringOnFirstWrote {
-    promptEnteringDirectory(p.Context)
+    // if false { promptEnteringDirectory(p.Context) }
 
     // Call diagFlush to ensure promptEnteringDirectory works immediately
     if errs := p.Context.dia().flush(); errs > 0 {
@@ -805,7 +804,7 @@ func (p *execContext) check() (err error) {
 
     if p.retStatus {
       if p.zeroErrs && en == 0 && err == nil {
-        p.vals = append(p.vals, MakeInt(p.logPos, int64(p.Status)))
+        p.vals = append(p.vals, makeInt(p.logPos, int64(p.Status)))
       } else {
         p.vals = append(p.vals, makeNone(p.logPos))
       }
@@ -924,14 +923,14 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     return
   } else {
     cmdline := joinRaws("\n", ctx.sources...)
-    ctx.log.createWriter(logFile, ctx.workDir, cmdline)
+    ctx.log.createWriter(logFile, ctx._workdir, cmdline)
   }
   ctx.Stdout.execContext = ctx
   ctx.Stderr.execContext = ctx
   ctx.start = time.Now()
 
   var _ctx = ctx.Context
-  var uni = ctx.universe()
+  var u = cast[*universe](ctx)
   for i, src := range ctx.sources {
     ctx.Context = at(_ctx, src.Position())
     ctx.current = i
@@ -947,13 +946,13 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
 
     if src.s = strings.TrimSpace(src.s); src.s == "" { continue }
 
-    if false && !ctx.noCD && ctx.workDir != "" {
+    if false && !ctx.noCD && ctx._workdir != "" {
       if strings.HasPrefix(src.s, "#") {
-        src.s = fmt.Sprintf("cd '%s' %s", ctx.workDir, src.s)
+        src.s = fmt.Sprintf("cd '%s' %s", ctx._workdir, src.s)
       } else {
         // Insert a "\n" before the right paren ')' to ensure that
         // it's working with comments like "true #comment...".
-        src.s = fmt.Sprintf("cd '%s' && (%s\n)", ctx.workDir, src.s)
+        src.s = fmt.Sprintf("cd '%s' && (%s\n)", ctx._workdir, src.s)
       }
     }
 
@@ -961,14 +960,14 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
       src.s = fmt.Sprintf("%s && %s", envstr, src.s)
     }
 
-    if uni.noExec { continue }
+    if u.noExec { continue }
 
     if !ctx.silentErrs || ctx.prompt || ctx.promptSrc {
       ctx.printEnteringOnFirstWrote = true
     }
 
     ctx.sh = exec.Command(cmd, ctx.args...)
-    ctx.sh.Dir = ctx.workDir // always set command work directory
+    ctx.sh.Dir = ctx._workdir // always set command work directory
     ctx.sh.Env = env
     ctx.sh.Stdout = &ctx.Stdout
     ctx.sh.Stderr = &ctx.Stderr
@@ -976,23 +975,22 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
       ctx.sh.Stdin = os.Stdin
       ctx.sh.Args = append(ctx.sh.Args, "-ti")
     }
-    if opt != "" { ctx.sh.Args = append(ctx.sh.Args, opt) }
+    if   opt != "" { ctx.sh.Args = append(ctx.sh.Args, opt) }
     if src.s != "" { ctx.sh.Args = append(ctx.sh.Args, src.s) }
 
     err = ctx.run()
 
-    d := ctx.debug
-    if d > 0 {
+    if d := ctx.debug; d > 0 {
       entry := ctx.entry()
       prompt(ctx, "%v\n", ctx.sh)
-      if _, s, y := ctx.target.fullname(ctx); y {
+      if _, s, y := ctx.target.fullnameFile(ctx); y {
         prompt(ctx, "%v:1: %v: %v\n", s, entry, err)
       } else {
         noted(ctx, "%v: %v ; status=%v", entry, ctx.target, ctx.Status)
       }
       noted(ctx, "%v: status=%v", entry, ctx.Status).debug(d)
 
-      uni.configuration.silent = true
+      // u.configuration.silent = true
     }
 
     if ctx.Status != 0 || err != nil { break }
@@ -1004,7 +1002,7 @@ type executor struct {
   contained bool
 }
 func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error) {
-  var uni = ctx.universe()
+  var uni = cast[*universe](ctx)
   if uni.traceExecutor {
     var t = autoVal(ctx, "@")
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
@@ -1129,12 +1127,10 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
   // FIXME: work directory conflicts sometimes even the 'sh.Dir' is set to cwd.
   // Because the current work directory is not thread safe.
-  if exe.workDir != "" {
-    // good
-  } else if exe.workDir = program.workDir(ctx); exe.workDir == "" {
+  if exe._workdir == "" { if exe._workdir = program.workDir(ctx); exe._workdir == "" {
     erro(ctx, "CWD is empty").debug(1)
     return
-  }
+  }}
 
   if exe.path { var s string
     if s = filepath.Dir(exe.targetName); s != "" && s != "." && s != "/" {
@@ -1148,9 +1144,9 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   var w = strval
   if exe.fullname { w |= expandFullName }
 
-  var ( ac *autoContext; a1 *String; a2 *Int )
+  var ( ac *autoContext; a1 *strlit; a2 *Int )
   if exe.forRecipe != nil {
-    a1, a2 = &String{}, &Int{}
+    a1, a2 = &strlit{}, &Int{}
     ac = &autoContext{ Context:ctx, defs:make(autoDefMap) }
     ac.args(ac.Context, nil, []Value{a1, a2})
   }
@@ -1226,14 +1222,14 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   if exe.retStdout {
     var s string
     if exe.Stdout.Buf != nil { s = exe.Stdout.Buf.String() }
-    exe.vals = append(exe.vals, MakeString(pos, s))
+    exe.vals = append(exe.vals, makeStrlit(pos, s))
   }
 
   // Add stderr result
   if exe.retStderr {
     var s string
     if exe.Stderr.Buf != nil { s = exe.Stderr.Buf.String() }
-    exe.vals = append(exe.vals, MakeString(pos, s))
+    exe.vals = append(exe.vals, makeStrlit(pos, s))
   }
 
   // The execution is performed asynchronously, the result can't be fetched immediately.
@@ -1249,7 +1245,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 var execCommandClang = regexp.MustCompile(`^@?(?:/(?:[^/]*/)+)?(clang(?:\+{2})?)$`)
 var execExistFlagPath = map[*regexp.Regexp][]*regexp.Regexp{
   execCommandClang: []*regexp.Regexp{
-    regexp.MustCompile(`^-([IL]|include|(?:cxx-|stdlib(?:\+\+)?)?isystem(?:-after)?)=?([[:alnum:]_\-/]+)?$`),
+    regexp.MustCompile(`^-([IL]|include|(?:i(?:(?:framework)?with)|-)?sysroot|(?:cxx-|stdlib(?:\+\+)?)?isystem(?:-after)?|iframework)=?([[:alnum:]_\-/]+)?$`),
   },
 }
 

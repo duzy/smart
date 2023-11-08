@@ -368,7 +368,7 @@ func (cache *filemapCache) val(ctx Context, key Value, bits int) (res *filemapCa
         res, _ = cache.vals[key]
     }
 
-    if res == nil && ctx.universe().errorUncache {
+    if res == nil && cast[*universe](ctx).errorUncache {
         errostack(ctx, 10, "%08b: %s(%v) → %s", bits, typeof(key), key, key.string(ctx)).debug(32)
     }
     return
@@ -419,44 +419,21 @@ type packageinfo struct {
     t packagetype // smart, pkgconfig, cmake, etc.
 }
 
-type configuration struct{
-    packages map[string]packageinfo
-    done map[*def]struct{}
-    entries []Entry // order list
-    clean []string
-    silent bool
-}
-
-type enterec struct {
-  wd, dir string
-  print, silent bool
-  num int
-}
-
-func (rec *enterec) String() string { return rec.dir }
-
-type cdstack struct{
-  stack []*enterec // entered directories
-  enters map[string]*enterec // enters
-  mutex sync.Mutex
-}
-
 type universe struct {
     diaContext
     commandline
-    configuration
     hooks
-
-    cds cdstack
 
     workdir string
     prefix  string // FIXME: prefix for distribution
 
     scope   *Scope
-    globe   *Globe
+    globe   *globe
 
     fset    *FileSet
     paths   searchlist
+
+    packages map[string]packageinfo
 
     statmutex sync.Mutex
     filemaps filemapCache // value -> dirs
@@ -470,7 +447,7 @@ type universe struct {
 // func (ctx *universe) aquireLock() (unlock func()) { return nil }
 // func (ctx *universe) argumentedSet([]Value) []Value { return nil }
 // func (ctx *universe) arguments() []Value { return nil }
-// func (ctx *universe) closure() *closureContext { return nil }
+// func (ctx *universe) closure() *closurecontext { return nil }
 // func (ctx *universe) dirty(Context, ...Value) (res bool) { return }
 // func (ctx *universe) dirtyOpts() *dirtyOpts { return nil }
 // func (ctx *universe) mustExists() bool { return false }
@@ -480,7 +457,8 @@ type universe struct {
 // func (ctx *universe) stemmed() *stemmed { return nil }
 // func (ctx *universe) traverse(_ Context, prereqValue Value) (traves travestates) { return }
 // func (ctx *universe) traversed(_ Context, target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
-func (ctx *universe) String() (s string) { return }
+// func (ctx *universe) universe() *universe { return ctx }
+func (ctx *universe) String() (s string) { return /*"universe"*/ }
 func (ctx *universe) dirtyMark(vals ...Value) { return }
 func (ctx *universe) ref(_ Context, _ Value) bool { return false }
 func (ctx *universe) isConfigure() bool { return false }
@@ -495,25 +473,21 @@ func (ctx *universe) sc() *stemmedContext { return nil }
 func (ctx *universe) stems() []string { return nil }
 func (ctx *universe) poco() *positionContext { return nil }
 func (ctx *universe) entry() Entry { return nil }
-func (ctx *universe) universe() *universe { return ctx }
 func (ctx *universe) loader() *loader { return ctx.globe.top }
-func (ctx *universe) Globe() *Globe { return ctx.globe }
+func (ctx *universe) Globe() *globe { return ctx.globe }
 func (ctx *universe) Scope() *Scope { return ctx.scope }
 func (ctx *universe) string() (s string) { if fullContextStringer { s = "{}" }; return }
-func (ctx *universe) WorkDir() (s string) { if s = ctx.workdir; s == "" { s = baseWorkDir }; return }
+func (ctx *universe) workDir() (s string) { if s = ctx.workdir; s == "" { s = baseWorkDir }; return }
 func (ctx *universe) Project() *Project { return ctx.globe.main }
 func (ctx *universe) Position() (p Position) {
     if ctx.globe == nil || ctx.globe.main == nil {
-        p.Filename, p.Line = ctx.WorkDir(), 1
+        p.Filename, p.Line = ctx.workDir(), 1
     } else {
         p = ctx.globe.main.position
     }
     return
 }
-func (ctx *universe) cast(t reflect.Type) (res Context) {
-    if t == reflect.TypeOf(ctx) { res = ctx }
-    return
-}
+func (ctx *universe) cast(t reflect.Type) Context { return castImpl(ctx, t) }
 func (ctx *universe) projects(_ Context, projs ...*Project) []*Project {
     if len(projs) > 0 { panic(failure{"%v",ia(ctx.Position(), projs)}) }
     return nil
@@ -552,32 +526,32 @@ func init_commandline() commandline { return commandline{
     slow: 9990 * time.Millisecond,
 }}
 
-func init_universe(ii ...interface{}) (ctx *universe) { ctx = &universe{}
-    if s, e := os.Getwd(); e != nil { erro(ctx, "%v", e).debug(6); return } else {
+func init_universe(ii ...interface{}) (ctx *universe) {
+    ctx = &universe{}
+
+    if s, e := os.Getwd(); e != nil {
+        erro(ctx, "%v", e).debug(6)
+        return
+    } else {
         ctx.workdir = s
         ctx.paths = searchPaths
         ctx.fset = NewFileSet()
         ctx.filecache = make(map[string]*filebase)
         ctx.scope = NewScope(ctx.Position(), nil, nil, `universe`)
-        ctx.cds.enters = make(map[string]*enterec)
-        ctx.configuration = configuration{
-            packages: make(map[string]packageinfo),
-            done: make(map[*def]struct{}),
-        }
     }
 
-    var cl bool = true
-    for _, i := range ii { switch t := i.(type) {
-    case  commandline: ctx.commandline, cl =  t, false
-    case *commandline: ctx.commandline, cl = *t, false
-    case hooks: if t.assert != nil { ctx.hooks.assert = t.assert }
-    }}
+    var cl = true
+    for _, i := range ii {
+        switch t := i.(type) {
+        case  commandline: ctx.commandline, cl =  t, false
+        case *commandline: ctx.commandline, cl = *t, false
+        case hooks: if t.assert != nil { ctx.hooks.assert = t.assert }
+        }
+    }
     if cl { ctx.commandline = init_commandline() }
 
-    var (
-        bin = ease(ctx, os.Args[0])
-        args = ease(ctx, os.Args[1:])
-    )
+    var bin  = ease(ctx, os.Args[0])
+    var args = ease(ctx, os.Args[1:])
     _, _ = ctx.scope.define(ctx, DefVoid, "SMART.ARGS", args)
     _, _ = ctx.scope.define(ctx, DefVoid, "SMART.BIN", bin)
     _, _ = ctx.scope.define(ctx, DefVoid, "SMART", bin)
@@ -591,16 +565,16 @@ func init_universe(ii ...interface{}) (ctx *universe) { ctx = &universe{}
     var pos = ctx.Position()
     var dotos Value
     if strings.Contains(runtime.GOOS, " ") {
-        dotos = MakeString(pos, runtime.GOOS)
+        dotos = makeStrlit(pos, runtime.GOOS)
     } else {
-        dotos = MakeBareword(pos, runtime.GOOS)
+        dotos = makeBareword(pos, runtime.GOOS)
     }
 
-    ctx.globe = &Globe{
+    ctx.globe = &globe{
         Scope: NewScope(pos, ctx.scope, nil, `globe "smart"`),
+        flagEntries: make(map[string][]Entry),
         loaded: make(map[string]*Project),
         args: make(map[Value][]Value),
-        flagEntries: make(map[string][]Entry),
     }
     ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
     ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os", dotos)
@@ -610,13 +584,13 @@ func init_universe(ii ...interface{}) (ctx *universe) { ctx = &universe{}
     return
 }
 
-func (uc *universe) file(filename string, src []byte) *TokFile {
-    return uc.fset.AddFile(filename, -1, len(src))
+func (u *universe) file(filename string, src []byte) *TokFile {
+    return u.fset.AddFile(filename, -1, len(src))
 }
 
 type filestub struct {
     dir  string      // full directory where the file was or should be found
-    sub  string      // matched sub path (see Project.search), may be Dir (absoletep path)
+    sub  string      // matched sub path (see Project.search), may be Dir (absolete path)
     name string      // constant represented name (e.g. relative filename)
     filemap *FileMap // matched pattern (see 'files' directive)
     other *filestub  // pointed to another stub (in a different project) of the same file
@@ -641,14 +615,36 @@ type filebase struct {
 }
 func (p *filebase) exists() bool { return p.info != nil }
 
-func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File) {
+type stat_dir struct { string }
+type stat_sub struct { string }
+type stat_nonexist struct { bool }
+type stat_fileinfo struct{ os.FileInfo }
+
+func stat(ctx Context, name string, ii ...interface{}) (file *File) {
+    var sub, dir string
+    var nonexist bool
+    var fileInfo os.FileInfo
+    for _, i := range ii {
+        switch t := i.(type) {
+        case *Project: dir = t.absPath
+        case stat_dir: dir = t.string
+        case stat_sub: sub = t.string
+        case stat_fileinfo: fileInfo = t.FileInfo
+        case stat_nonexist: nonexist = t.bool
+        default:
+            erro(ctx, "stat: invalid arg: %v(%v)", typeof(i), i).debug(2)
+            return
+        }
+    }
+
     var (
         base *filebase
         stub *filestub
         fullname string
-        uc = ctx.universe()
+        u = cast[*universe](ctx)
     )
-    uc.statmutex.Lock(); defer uc.statmutex.Unlock()
+
+    u.statmutex.Lock(); defer u.statmutex.Unlock()
 
     // Trims / suffix
     if dir != "" { dir = filepath.Clean(dir) }
@@ -698,29 +694,16 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
     } else if filepath.IsAbs(dir) {
         fullname = filepath.Join(dir, sub, name)
     } else {
-        dir = filepath.Join(ctx.WorkDir(), dir)
+        dir = filepath.Join(ctx.workDir(), dir)
         fullname = filepath.Join(dir, sub, name)
-    }
-
-    var addNotExisted bool
-    var fileInfo os.FileInfo
-    if len(infos) == 1 {
-        if fileInfo = infos[0]; fileInfo == nil {
-            addNotExisted = true
-        }
-        if enable_assertions && fileInfo != nil {
-            assert(fileInfo.Name() == filepath.Base(fullname), "`%s` file name conflicted", fileInfo.Name())
-        }
-    } else if len(infos) > 1 {
-        unreachable("too many file infos")
     }
 
     // NOTE: filepath.Join can have the same efffect as filepath.Clean
     var cleanFullname = filepath.Clean(fullname) // clean paths like /path/to/foo/../bar -> /path/to/bar
-    if base, _ = uc.filecache[cleanFullname]; base != nil {
+    if base, _ = u.filecache[cleanFullname]; base != nil {
         if base.info == nil {
             if fileInfo == nil { fileInfo, _ = os.Stat(fullname) }
-            if fileInfo == nil && !addNotExisted { return nil }
+            if fileInfo == nil && !nonexist { return nil }
             base.info = fileInfo
         }
 
@@ -749,13 +732,13 @@ func stat(ctx Context, name, sub, dir string, infos ...os.FileInfo) (file *File)
         head.other = stub
     } else {
         if fileInfo == nil { fileInfo, _ = os.Stat(fullname)
-            if fileInfo == nil && !addNotExisted { return nil }
+            if fileInfo == nil && !nonexist { return nil }
         }
 
         base = &filebase{ filestub{ dir, sub, name, nil, nil }, fileInfo, false, nil, 0, 0, 0 }
         base.stub.other = &base.stub
         stub = &base.stub
-        uc.filecache[cleanFullname] = base
+        u.filecache[cleanFullname] = base
     }
 
 GotFile:
@@ -763,10 +746,10 @@ GotFile:
     return
 }
 
-func (uc *universe) cache(ctx Context, p *Project, patts, paths []Value) (res []FileMap) {
+func (u *universe) cache(ctx Context, p *Project, patts, paths []Value) (res []FileMap) {
     var base = &filemap{ p, patts, paths }
     for _, patt := range patts {
-        if c := patt.hit(of(ctx, patt), hitch{&uc.filemaps, hitched{patt}}, cacheStore); c != nil {
+        if c := patt.hit(of(ctx, patt), hitch{&u.filemaps, hitched{patt}}, cacheStore); c != nil {
             var m = FileMap{ base, patt }
             c.maps, res = append(c.maps, m), append(res, m)
         } else {
@@ -806,8 +789,8 @@ func unmap(ctx Context, name interface{}) (maps []matchedFileMap) {
 
     const S = ""
 
-    var uc = ctx.universe()
-    var h = hitch{&uc.filemaps, hitched{name}}
+    var u = cast[*universe](ctx)
+    var h = hitch{&u.filemaps, hitched{name}}
     if v, y := name.(Value); y {
         if cache = v.hit(ctx, h, cacheZero); cache == nil {
             var s = v.string(ctx) ; if S != "" { db = S == s }
@@ -882,7 +865,7 @@ func (dc *universe) search(ctx Context, linfo *loadinfo, specName string) (absPa
             if filepath.IsAbs(base) {
                 s = filepath.Join(base, specName)
             } else {
-                s = filepath.Join(dc.WorkDir(), base, specName)
+                s = filepath.Join(dc.workDir(), base, specName)
             }
             if fi, err := os.Stat(s); err == nil && fi != nil {
                 return s, fi.IsDir()
@@ -897,7 +880,7 @@ func startCPUProfile(ctx Context, name string, heap ...bool) (stop func()) {
     if filepath.IsAbs(name) { fn = name } else
     if m := ctx.Globe().main; m == nil {} else
     if f := m.tempFile(ctx, name); f == nil {
-        fn = filepath.Join(ctx.WorkDir(), name)
+        fn = filepath.Join(ctx.workDir(), name)
     } else {
         fn = f.fullname()
     }
@@ -924,7 +907,7 @@ func startHeapProfile(ctx Context, name string) (stop func()) {
     if filepath.IsAbs(name) { fn = name } else
     if m := ctx.Globe().main; m == nil {} else
     if f := m.tempFile(ctx, name); f == nil {
-        fn = filepath.Join(ctx.WorkDir(), name)
+        fn = filepath.Join(ctx.workDir(), name)
     } else {
         fn = f.fullname()
     }
@@ -1084,16 +1067,16 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
 }
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
-func (dc *universe) loadTopWork() (err error) {
-    if dc.traceLaunch { defer un(trace(t_launch, "universe.load")) }
+func (uni *universe) load() (err error) {
+    if uni.traceLaunch { defer un(trace(t_launch, "universe.load")) }
 
     var (
         args []Value
-        base = dc.WorkDir()
-        ctx Context = dc
+        base = uni.workDir()
+        ctx Context = uni
     )
     if s := filepath.Join(base, ".smart", "modules"); s != "" {
-        if _, e := os.Stat(s); e == nil { dc.AddSearchPaths(s) }
+        if _, e := os.Stat(s); e == nil { uni.AddSearchPaths(s) }
     }
     if s := filepath.Join(base, entryFileName); s != "" {
         if _, e := os.Stat(s); e != nil { s = filepath.Join(base, "build.smart")
@@ -1107,35 +1090,35 @@ func (dc *universe) loadTopWork() (err error) {
         }
     }
 
-    defer func(l *loader) { dc.globe.top = l } (dc.globe.top)
+    defer func(l *loader) { uni.globe.top = l } (uni.globe.top)
 
-    dc.globe.top = &loader{ closureContext: closureContext{
-        ctx, []*Scope{dc.globe.Scope},
+    uni.globe.top = &loader{ closurecontext: closurecontext{
+        ctx, []*Scope{uni.globe.Scope},
     }}
 
     if text := strings.Join(os.Args[1:], " "); text == "" {
         // Relax!
-    } else if args = dc.globe.top.text(ctx, "@", text); len(args) == 0 {
+    } else if args = uni.globe.top.text(ctx, "@", text); len(args) == 0 {
         // ohh...
     } else {
-        args = parseOpts(ctx, &dc.commandline, 0, args...)
+        args = parseOpts(ctx, &uni.commandline, 0, args...)
     }
 
-    if v := dc.reconfigure; v { dc.commandline.configure = v }
-    if v := dc.fastMode; v { // Turn off many things for fast mode:
-        //dc.noImportFiles = v
-        dc.noDepsGrep = v
-        dc.noDeps = v
-        dc.noGrep = v
+    if v := uni.reconfigure; v { uni.commandline.configure = v }
+    if v := uni.fastMode; v { // Turn off many things for fast mode:
+        //uni.noImportFiles = v
+        uni.noDepsGrep = v
+        uni.noDeps = v
+        uni.noGrep = v
     }
 
-    if dc.verbose { defer func(t time.Time) {
-        prompt(ctx, "Goals %v (%s)\n", dc.globe.goals, time.Now().Sub(t))
+    if uni.verbose { defer func(t time.Time) {
+        prompt(ctx, "Goals %v (%s)\n", uni.globe.goals, time.Now().Sub(t))
     } (time.Now()) }
 
-    assert(dc.globe.args != nil, "globe args is nil")
+    assert(uni.globe.args != nil, "globe args is nil")
 
-    if dc.autoProfs {
+    if uni.autoProfs {
         if f, e := os.Create(filepath.Join(baseWorkDir, "load.cpu.auto.prof")); e != nil {
             erro(ctx, "%v", e).debug(1)
             return
@@ -1148,7 +1131,7 @@ func (dc *universe) loadTopWork() (err error) {
             defer pprof.StopCPUProfile()
         }
         defer func() {
-            var prof string //= dc.memProf
+            var prof string //= uni.memProf
             if prof == "" { prof = filepath.Join(baseWorkDir, "load.mem.auto.prof") }
             if f, e := os.Create(prof); e != nil {
                 erro(ctx, "%v", e).debug(1)
@@ -1167,49 +1150,49 @@ func (dc *universe) loadTopWork() (err error) {
     var mode = new(bareword)
     for _, target := range args {
         switch t := target.(type) {
-        case *pair: dc.globe.pairs = append(dc.globe.pairs, t)
-        case flag: dc.globe.flags = append(dc.globe.flags, t)
+        case *pair: uni.globe.pairs = append(uni.globe.pairs, t)
+        case flag: uni.globe.flags = append(uni.globe.flags, t)
             if s := t.Value.string(ctx); s == "clean" {
                 mode.position, mode.s = t.Position(), "clean"
             }
         case *argumented:
-            dc.globe.args[t.Value] = t.args
+            uni.globe.args[t.Value] = t.args
             if f, ok := t.Value.(flag); ok {
-                dc.globe.flags = append(dc.globe.flags, f)
+                uni.globe.flags = append(uni.globe.flags, f)
             } else {
-                dc.globe.goals.append(ctx, t/*.value*/)
+                uni.globe.goals.append(ctx, t/*.value*/)
             }
         default:
-            dc.globe.goals.append(ctx, t)
+            uni.globe.goals.append(ctx, t)
         }
     }
-    if mode.s == "" { if dc.commandline.configure {
+    if mode.s == "" { if uni.commandline.configure {
         mode.s = "configure"
     } else {
         mode.s = "goals"
     }}
-    dc.globe.mode.value = mode
+    uni.globe.mode.value = mode
 
-    defer func(t time.Time) { if d := time.Now().Sub(t); dc.verboseImport {
+    defer func(t time.Time) { if d := time.Now().Sub(t); uni.verboseImport {
         var name string
-        if p := dc.globe.top.Project(); p != nil { name = p.name }
+        if p := uni.globe.top.Project(); p != nil { name = p.name }
         prompt(ctx, "└·%s … (%s)\n", name, d)
-    } else if d > dc.slow {
-        if m := dc.globe.main; m != nil {
+    } else if d > uni.slow {
+        if m := uni.globe.main; m != nil {
             warn(at(ctx, m.position), "slow loading (%v)!!\n", d).debug(6)
         } else {
             prompt(ctx, "%s:1:warning: slow loading (%v)!!\n", base, d).debug(6)
         }
     }} (time.Now())
 
-    if dc.verboseImport { prompt(ctx, "┌→%s\n", base) }
-    if!dc.globe.top.path(ctx, base, nil) { return }
-    if dc.globe.main == nil { erro(ctx, "nothing loaded\n").debug(1) }
+    if uni.verboseImport { prompt(ctx, "┌→%s\n", base) }
+    if!uni.globe.top.path(ctx, base, nil) { return }
+    if uni.globe.main == nil { erro(ctx, "nothing loaded\n").debug(1) }
     return
 }
 
-// A Globe represents a global execution context. 
-type Globe struct {
+// A globe represents a global execution context.
+type globe struct {
     *Scope
 
     loads []*loadinfo
@@ -1231,11 +1214,11 @@ type Globe struct {
 }
 
 // Main returns the main project.
-func (g *Globe) Main() *Project { return g.main }
+func (g *globe) Main() *Project { return g.main }
 
-func (g *Globe) SetScopeOuter(scope *Scope) { scope.outer = g.Scope }
+func (g *globe) SetScopeOuter(scope *Scope) { scope.outer = g.Scope }
 
-func (g *Globe) AddFlagEntry(name string, entry Entry) {
+func (g *globe) AddFlagEntry(name string, entry Entry) {
     flags, _ := g.flagEntries[name]
     flags     = append(flags, entry)
     g.flagEntries[name] = flags
@@ -1245,7 +1228,7 @@ func (g *Globe) AddFlagEntry(name string, entry Entry) {
 // project returns a new Project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
-func (g *Globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *Project) {
+func (g *globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *Project) {
     if outer == nil { outer = g.Scope }
 
     m = &Project{

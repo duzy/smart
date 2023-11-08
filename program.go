@@ -118,7 +118,7 @@ func (pc *programContext) traversed(ctx Context, target Value) []Value {
     if !isTrivial(target) {
         pc.targets = append(pc.targets, target)
 
-        if false { if cc, y := pc.Context.(*closureContext); y {
+        if false { if cc, y := pc.Context.(*closurecontext); y {
             pc.targets = cc.traversed(ctx, target)
         } }
 
@@ -158,7 +158,7 @@ func (pc *programContext) Position() Position {
     return pc.autoContext.Position()
 }
 func (pc *programContext) Project() *Project {
-    if cc, ok := pc.Context.(*closureContext); ok && true {
+    if cc, ok := pc.Context.(*closurecontext); ok && true {
         return cc.Project()
     } else if pc.prog != nil {
         return pc.prog.project
@@ -172,7 +172,7 @@ func (pc *programContext) Scope() *Scope {
 func (pc *programContext) appendCallerUpdated() bool { return true }
 func (pc *programContext) mustExists() bool { return false }
 func (pc *programContext) closureScopes() (scopes []*Scope) {
-    if cc, ok := pc.Context.(*closureContext); ok {
+    if cc, ok := pc.Context.(*closurecontext); ok {
         if true {
             scopes = cc.closureScopes()
         } else if up := cc.pc(); up != nil {
@@ -347,7 +347,7 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
     var opts, args = _opts[dirtyOpts](ctx, plain, aa...)
 
     var y bool
-    if targetFile, targetFull, y = target.fullname(ctx); !y {
+    if targetFile, targetFull, y = target.fullnameFile(ctx); !y {
         targetFull = target.string(ctx)
     } else if n := targetFile._traved; n > 1 {
         if false { warnstack(ctx, 5, "%v, %v, %d", targetFile, targetFull, n).debug(10) }
@@ -458,11 +458,11 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
         }
 
         if prereqValue == nil {
-            prereqValue = MakeString(ctx.Position(), prereqStrval)
+            prereqValue = makeStrlit(ctx.Position(), prereqStrval)
         } else if f, y := toFile(prereqValue); y {
             prereqFile = f
         } else if _, y := prereqValue.(*Path); y {
-            if f := stat(ctx, prereqStrval, "", ""); f != nil { prereqFile, prereqValue = f, f }
+            if f := stat(ctx, prereqStrval); f != nil { prereqFile, prereqValue = f, f }
         }
     }
 
@@ -488,7 +488,7 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
         }
 
         switch prereqValue.(type) {
-        case flag, *String, *compound:
+        case flag, *strlit, *compound:
             return // skip checking files for performance
         }
         for _, p := range ctx.entry().programs() { if p.configure {
@@ -585,7 +585,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     defer dtrace(ctx, "traverse")
 
     var (
-        uni = ctx.universe()
+        uni = cast[*universe](ctx)
         verb = uni.verbose || uni.verboseBreaks
 
         projects = ctx.projects(ctx)
@@ -759,7 +759,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
         travedPrereqFile = func (s *travestate) (res *File) { return }
     } else {
-        // If the prereqValue is not a *File, for example a (*String) or (*compound)
+        // If the prereqValue is not a *File, for example a (*strlit) or (*compound)
         // %.h <-> 'llvm/PassSupport.h' <-> [
         //   file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h
         //   file@llvm/PassSupport.h>/Volumes/workspace/external/llvm-project/llvm/include/llvm/PassSupport.h
@@ -889,7 +889,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
                     var op = traveResReturn // assuming file processed
                     if !entry.hasRecipes() { op = traveResContinue }
                     return op
-                } else if _, y := prereqValue.(*String); false && y {
+                } else if _, y := prereqValue.(*strlit); false && y {
                     if prereqFile == nil { prompt(ctx, "nonfile: %T %v: %T %v : %T %v ; %v\n",
                         targetValue, targetValue, prereqValue, prereqValue, s.target, s.target, s).debug(1) }
                 }
@@ -981,7 +981,7 @@ CheckPrereqResult:
         if !pc.traves.has() { return }
     }
     if p == nil && prereqObj == nil && !pc.traves.has() {
-        if p = stat(ctx, prereqStrval, "", ""); p != nil {
+        if p = stat(ctx, prereqStrval); p != nil {
             trave := pc.traves.add(ctx, traveFile, targetValue)
             trave.dependPat = prereqPattern
             trave.depend = p
@@ -1050,7 +1050,7 @@ CheckPrereqResult:
 
 func (pc *programContext) prerequisite(ctx Context, prerequisites []Value) {
     var (
-        uni = ctx.universe()
+        uni = cast[*universe](ctx)
         verb = uni.verbose || uni.verboseBreaks
         ent  = autoVal(ctx, "@")
         stem *stemmed
@@ -1371,9 +1371,9 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
             }}
 
             if tar != "" && tar != ent {
-                erro(ctx, "%s: %s: got %d errors", ent, tar, errs).debug(1)
+                noted(ctx, "%s: %s: got %d errors", ent, tar, errs).debug(1)
             } else {
-                erro(ctx, "%s: got %d errors", ent, errs).debug(1)
+                noted(ctx, "%s: got %d errors", ent, errs).debug(1)
             }
 
             if false && !ctx.isConfigure() {
@@ -1473,7 +1473,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         if t := ctx.stems(); t != nil { autoSet(ctx, "*", ease(ctx, t)) }
     }
 
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
 
     // NOTE: set "@" before setting auto args
     // Select the right target value before setting parameters,
@@ -1483,7 +1483,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         return
     } else {
         switch a := target.(type) {
-        case *String, *compound: // NOTE: skip strings to optimize speed from searching
+        case *strlit, *compound: // NOTE: skip strings to optimize speed from searching
         case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
         case    *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
         case     flag: pc.print = false // Flag target (-foo) turns off printing automatically
@@ -1502,19 +1502,6 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
     }
 
     pc.initializeArgs()
-
-    var enterBack *enterec
-    if len(uni.cds.stack) > 0 { enterBack = uni.cds.stack[0] }
-    if err := enter(ctx, prog.project.absPath); err != nil {
-        erro(ctx, "enter project '%v' failed: %v", prog.project, err).debug(1)
-        return
-    }
-    defer func() { if err := leave(ctx, prog, enterBack); err != nil {
-        erro(ctx, "leave project '%v' failed: %v", prog.project, err).debug(1)
-    }} ()
-
-    if pc.print && prog.configure { pc.print = false }
-    uni.cds.stack[0].silent = !pc.print
 
     if uni.traceExec {
         var d = pc.depth()

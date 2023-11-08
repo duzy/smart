@@ -30,15 +30,15 @@ import (
 
 type generalOpts struct {
     debug    int  `d,db,dbg,debug` // NOTE: compatible with 'bool'
+    stack    int  `sn,stack,stacknum,stack-num,stack-number`
     fail     bool `fail` // fail on errors
     forth    bool `force,forth` // forth expand
-    fullname bool `fn,ful,full,fullname,full-name,ff,fullfile,full-file`
+    fullname bool `full,fullname,full-name,fullfile,full-file`
     silent   bool `silent` // force silent, contrast 'verbose'
-    stack    int  `sn,stack,stacknum,stack-num,stack-number`
+    timing   bool `time,timing`
     trace    bool `trace`
-    timing   bool `t,time,timing`
-    verbose  bool `v,verb,verbose` // prompts more information
-    warn     bool `w,warn,warning` // prompts more warnings
+    verbose  bool `verb,verbose` // prompts more information
+    warn     bool `warn,warning` // prompts more warnings
 }
 
 type modifier_ struct { Context ; generalOpts }
@@ -65,6 +65,7 @@ var (
         `select`:       reflect.TypeOf((*modifier_select)(nil)).Elem(),
 
         `env`:          reflect.TypeOf((*modifier_env)(nil)).Elem(), // interpreter environments
+        `var`:          reflect.TypeOf((*modifier_var)(nil)).Elem(),
         `set`:          reflect.TypeOf((*modifier_set)(nil)).Elem(),
         `defer`:        reflect.TypeOf((*modifier_defer)(nil)).Elem(),
 
@@ -119,7 +120,7 @@ var (
 )
 
 func modify(x Context, g *group, hyphen bool) (res Value) {
-    var uni = x.universe()
+    var uni = cast[*universe](x)
     var pc = x.pc()
     var ctx = at(x, g.position)
     var name = g.Elems[0].string(ctx)
@@ -286,7 +287,7 @@ func (g *modification) traverse(ctx Context) {
     var pc = ctx.pc()
     if pc != nil { pc.Wait() }
 
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     for _, m := range g.list {
         var ctx = at(ctx, m.position)
         if m.traverse(ctx); pc == nil { continue }
@@ -517,6 +518,12 @@ func (ctx *modifier_env) x(args ...Value) (result interface{}) {
     return
 }
 
+type modifier_var struct { modifier_ }
+func (ctx *modifier_var) x(args ...Value) (_ interface{}) {
+    // noop; TODO: do something better
+    return
+}
+
 // examples:
 //     [(set name=value)]    set $(name) to 'value'
 //     [(set name)]          clear $(name)
@@ -570,7 +577,7 @@ ForArgs:
         }
 
         if isauto && name == "@" {
-            var f, s, y = as{value}.fullname(ctx)
+            var f, s, y = as{value}.fullnameFile(ctx)
             if ctx.verbose {
                 var ts = trimPromptString(s)
                 prompt(ctx, "%s …… traversed (%d)\n", ts, f._traved)
@@ -645,7 +652,7 @@ func (ctx *modifier_closure) x(pc *programContext, args ...Value) (result interf
     }
     if target != nil {
         var ( t = as{set("@", target)} ; f *File ; s string ; y bool ; n int )
-        if f, s, y = t.fullname(ctx); !y {
+        if f, s, y = t.fullnameFile(ctx); !y {
             s = t.string(ctx)
         } else {
             n = f._traved
@@ -678,7 +685,7 @@ func (ctx *modifier_closure) x(pc *programContext, args ...Value) (result interf
         erro(at(ctx,scope.position), "&/ is empty").debug(1)
     } else if !filepath.IsAbs(dir) {
         erro(at(ctx,scope.position), "&/ is relative").debug(1)
-    } else if err := enter(ctx, dir); err == nil {
+    } else /* if err := enter(ctx, dir); err == nil */ {
         pc.changedWD = dir
     }
     return
@@ -696,8 +703,8 @@ type modifier_cd struct{ modifier_
     printLeave bool `l,print-leave`
 }
 func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
-    if ctx.printEnter { promptEnteringDirectory(ctx) }
-    if ctx.printLeave { promptLeavingDirectory(ctx) }
+    // if false && ctx.printEnter { promptEnteringDirectory(ctx) }
+    // if false && ctx.printLeave { promptLeavingDirectory(ctx) }
     if (ctx.printEnter || ctx.printLeave) && len(args) == 0 { return }
     if len(args) == 1 {
         var dir = args[0].string(ctx)
@@ -714,9 +721,9 @@ func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
                 return
             }
         }
-        if err := enter(ctx, dir); err == nil {
-            if pc := ctx.pc(); pc != nil { pc.changedWD = dir }
-        }
+        // if err := enter(ctx, dir); err == nil {
+        if pc := ctx.pc(); pc != nil { pc.changedWD = dir }
+        // }
     } else {
         erro(ctx, "wrong number of cd args: %v", args).debug(1)
     }
@@ -735,17 +742,21 @@ func (ctx *modifier_path) x(args ...Value) (result interface{}) {
     if len(args) == 0 { if v := autoVal(ctx, "@"); !isTrivial(v) {
         args = append(args, v)
     }}
-    for _, a := range args {
-        v := a.expand(ctx, strval)
-
+    for _, a := range xmerge(ctx, strval, args...) {
         var s string
-        if f, y := v.(*File); y {
+        if f, y := a.(*File); y {
             s = f.fullname()
         } else {
             s = a.string(ctx)
         }
+        if strings.Contains(s, " /") || strings.Contains(s, " ./") || strings.Contains(s, " ../") {
+            erro(of(ctx, a), "multiple paths (%v): '%v'", typeof(a), s).debug(1)
+            break
+        } else if strings.Contains(s, " ") {
+            warn(of(ctx, a), "path containing spaces (%v): '%v'", typeof(a), s).debug(1)
+        }
         if err := os.MkdirAll(s, ctx.mode); err != nil {
-            erro(ctx, "path: %T %v ⇒ %T %v ⇒ %s: %v", a, a, v, v, s, err).debug(1)
+            erro(ctx, "path: %v(%v) ⇒ %s: %v", typeof(a), a, s, err).debug(1)
             break
         }
     }
@@ -782,7 +793,7 @@ func parseDependList(ctx Context, dependList *list) (depends *list) {
             default:
                 erro(ctx, "unsupported entry depend `%v' (%v)", d, d.class).debug(1)
             }
-        case *String:
+        case *strlit:
             depends.Append(d)
         case *File:
             depends.Append(d)
@@ -926,7 +937,7 @@ func loadGrepCache(ctx Context) {
         } else {
             a := strings.Split(s, "|")
             if len(a) == 3 {
-                file := stat(ctx, a[0], a[1], a[2])
+                file := stat(ctx, a[0], stat_sub{a[1]}, stat_dir{a[2]})
                 if file != nil {
                     list = append(list, file)
                 }
@@ -955,9 +966,9 @@ func saveGrepCache(ctx Context) {
 func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name string) (res *File) {
     var isAbs, isRel bool
     if isAbs = filepath.IsAbs(name); isAbs {
-        res = stat(ctx, name, "", "", nil)
+        res = stat(ctx, name, stat_nonexist{true})
     } else if isRel = isRelPath(name); isRel { // relative to targetDir
-        res = stat(ctx, name, "", gc.targetDir, nil)
+        res = stat(ctx, name, stat_dir{gc.targetDir}, stat_nonexist{true})
     } else if res = file(ctx, name); res != nil && res.exists() {
         return // found existed file
     }
@@ -978,7 +989,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
     if sys || res.exists() { return }
 
     // relative to target directory
-    var alt = stat(ctx, name, "", gc.targetDir)
+    var alt = stat(ctx, name, stat_dir{gc.targetDir})
     if alt != nil { res = alt; return }
 
     // Check for bare non-system sub-paths:
@@ -1000,12 +1011,12 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
         }
     } else if res == nil {
         for _, inc := range gc.incs {
-            if res = stat(ctx, name, "", inc.string(ctx)); res != nil {
+            if res = stat(ctx, name, stat_dir{inc.string(ctx)}); res != nil {
                 if false { info(ctx, "%v in %v", res, inc).debug(1) }
                 return
             }
         }
-        if res == nil { res = stat(ctx, name, "", "", nil) }
+        if res == nil { res = stat(ctx, name, stat_nonexist{true}) }
         warn(at(ctx,gp), "'%s' not found in %v", name, ctx.Project())
         warn(ctx, "grepped '%s' has no target dir in %v", name, ctx.Project())
         warn(at(ctx,ctx.Project().position), "from project %v (for %v)", ctx.Project(), name).debug(8)
@@ -1084,7 +1095,7 @@ func tempFile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file
 }
 
 func removeTempDirs(ctx Context, cleanDirs ...string) {
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     if len(cleanDirs) == 0 {
         var clean =  uni.cleanTmpDirs
         if  clean || uni.cleanDotCache { cleanDirs = append(cleanDirs, ".cache") }
@@ -1137,13 +1148,13 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
     if gc.savedGrepFileName, err = getSavedGrepFileName(ctx, gc.targetFullName); err != nil {
         erro(ctx, "get saved grep filename failed: %v", err).debug(1)
         return
-    } else if gc.savedGrepFile = stat(ctx, gc.savedGrepFileName, "", ""); gc.savedGrepFile == nil {
+    } else if gc.savedGrepFile = stat(ctx, gc.savedGrepFileName); gc.savedGrepFile == nil {
         return // No saved grepfile yet!
     }
 
     var file, ok = toFile(gc.target)
     if !ok {
-        file = stat(ctx, gc.targetFullName, "", "")
+        file = stat(ctx, gc.targetFullName)
         if file != nil { gc.target.Value = file }
     }
     if file != nil && file.info != nil {
@@ -1256,7 +1267,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
         } else {
             gc.targetFullName = filepath.Join(gc.targetDir, targetName)
         }
-        if file := stat(ctx, gc.targetFullName, "", ""); file == nil {
+        if file := stat(ctx, gc.targetFullName); file == nil {
             erro(of(ctx,gc.target), "grep: '%s' not found (%v)", gc.targetFullName, gc.target).debug(16)
             return
         } else {
@@ -1352,7 +1363,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
         }
     }
 
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     if uni.saveGrepSource {
         var (
             perm = os.FileMode(0600)
@@ -1404,7 +1415,7 @@ type modifier_grep struct { modifier_
     noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
 }
 func (ctx *modifier_grep) x(args ...Value) (result interface{}) {
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     if false && uni.noDepsGrep || uni.noGrep { return }
 
     var gc = grepctx{ modifier_grep:ctx }
@@ -1521,7 +1532,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
     )
     var findDepFile = func(name string) (file *File) {
         if filepath.IsAbs(name) {
-            file = stat(ctx, name, "", "", nil)
+            file = stat(ctx, name, stat_nonexist{true})
         } else if file = proj.file(ctx, name); file != nil && file.exists() {
             // good!
         } else {
@@ -1645,7 +1656,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                     // keep going...
                 } else if firstDep = word; savedDepsFile == nil {
                     // no need to compare
-                } else if firstDepFile := stat(ctx, firstDep, "", ""); firstDepFile == nil {
+                } else if firstDepFile := stat(ctx, firstDep); firstDepFile == nil {
                     return nil // requests to update savedDepsFile
                 } else if firstDepFile.info.ModTime().After(savedDepsFile.info.ModTime()) {
                     return nil // requests to update savedDepsFile
@@ -1690,7 +1701,7 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
         erro(ctx, "get saved deps filename failed: %v", err).debug(1)
     } else if savedDepsFileName == "" {
         erro(ctx, "empty saved deps filename", savedDepsFileName).debug(1)
-    } else if savedDepsFile := stat(ctx, savedDepsFileName, "", ""); savedDepsFile == nil {
+    } else if savedDepsFile := stat(ctx, savedDepsFileName); savedDepsFile == nil {
         // no saved deps file
     } else if savedDepsBytes, err = ioutil.ReadFile(savedDepsFileName); err != nil {
         erro(ctx, "can'ctx open saved deps file: %v", savedDepsFileName, err).debug(1)
@@ -1798,7 +1809,7 @@ type modifier_deps struct { modifier_
     cc string `c,cc,compiler`
 }
 func (ctx *modifier_deps) x(args ...Value) (result interface{}) {
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     if uni.noDepsGrep || uni.noDeps { return }
 
     // NOTE: parse opts for (deps) before expanding the args, because we share args
@@ -1918,7 +1929,7 @@ CorrectCC:
             stdout.Reset(); return
         }
 
-        var savedDepsFile *File = nil//stat(ctx, savedDepsFileName, "", "")
+        var savedDepsFile *File = nil//stat(ctx, savedDepsFileName)
         if files = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, stdout.String()); len(files) == 0 {
             warn(ctx, "parse deps file failed").debug(1) // not saving if failed
         } else if err = os.MkdirAll(filepath.Dir(savedDepsFileName), os.FileMode(0755)); err != nil {
@@ -1995,7 +2006,7 @@ func (ctx *modifier_check) x(args ...Value) (result interface{}) {
     if makeResult == nil && ( ctx.boolean ||
         (ctx.file != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
         (ctx.dir  != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
-        (ctx.silent)) { makeResult = func(v bool) Value { return MakeBoolean(pos, v) } }
+        (ctx.silent)) { makeResult = func(v bool) Value { return makeBoolean(pos, v) } }
 
     var checkFile = func (val Value, dir bool) {
         var ( s string; f *File )
@@ -2009,7 +2020,7 @@ func (ctx *modifier_check) x(args ...Value) (result interface{}) {
         } else if f, res = toFile(val); res {
             // best case
         } else if s = val.string(ctx); filepath.IsAbs(s) {
-            if f = stat(at(ctx, val.Position()), s, "", ""); f != nil { res = true }
+            if f = stat(at(ctx, val.Position()), s); f != nil { res = true }
         } else if f = file(ctx, s); f != nil { res = true }
 
         if f != nil {
@@ -2140,7 +2151,7 @@ ForPairs:
             if f, res = toFile(p.Value); res {
                 // ok
             } else if str = p.Value.string(ctx); filepath.IsAbs(str) {
-                if f = stat(at(ctx, p.Value.Position()), str, "", ""); f != nil {
+                if f = stat(at(ctx, p.Value.Position()), str); f != nil {
                     // ok
                 }
             } else if f = file(ctx, str); f != nil {
@@ -2214,8 +2225,8 @@ func copyRegular(ctx Context, src, dst string, opts *copyopts) (err error) {
     defer func(v1, v2 Value) { def1.value, def2.value = v1, v2 } (def1.value, def2.value)
 
     var pos = ctx.Position()
-    def1.value = MakeString(pos, dst)
-    def2.value = MakeString(pos, src)
+    def1.value = makeStrlit(pos, dst)
+    def2.value = makeStrlit(pos, src)
 
     var head, foot string
     if opts.head != nil { head = opts.head.string(ctx) }
@@ -2392,7 +2403,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result interface{}) {
     }
 
     if ctx.quick {
-        var file = stat(ctx,filename,"","",nil)
+        var file = stat(ctx,filename, stat_nonexist{true})
         if file == nil || file.info != nil {
             if ctx.verbose { prompt(ctx, "… Good\n") }
             return
@@ -2406,7 +2417,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result interface{}) {
         0, 0, 0,
     }
     var file *File
-    if file = stat(ctx,srcname,"","",nil); file == nil || file.info == nil {
+    if file = stat(ctx,srcname, stat_nonexist{true}); file == nil || file.info == nil {
         erro(ctx, "'%s' source file not found", srcname).debug(1)
     } else if !file.info.IsDir() {
         if ctx.mode == 0 { ctx.mode = file.info.Mode() }
@@ -2474,7 +2485,7 @@ func (ctx *modifier_writefile) x(args ...Value) (result interface{}) {
         erro(ctx, "%v", err).debug(1)
         return
     } else {
-        result = stat(ctx, filename, "", "")
+        result = stat(ctx, filename)
         f.Close()
     }
     return
@@ -2503,7 +2514,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result interface{}) {
     if isTrivial(target) {
         errostack(ctx, 3, "target for reading is invalid (%T) (%v)", target.Value, args).debug(10)
         return
-    } else if file, filename, _ = target.fullname(ctx); file == nil {
+    } else if file, filename, _ = target.fullnameFile(ctx); file == nil {
         if val := autoVal(ctx, ">"); val != nil {
             s := pc.traves.add(ctx, traveFail, target.Value)
             s.error = traveTargetNotDefinedFile
@@ -2524,7 +2535,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result interface{}) {
         if ctx.head != nil { s = ctx.head.string(ctx) }
         if len(bytes) > 0   { s += string(bytes) }
         if ctx.foot != nil { s = ctx.foot.string(ctx) }
-        autoSet(ctx.Context, "-", MakeString(ctx.Position(), s))
+        autoSet(ctx.Context, "-", makeStrlit(ctx.Position(), s))
         autoSet(ctx.Context, "-file", file)
     } else {
         brk := pc.traves.add(ctx, traveFail, target)
@@ -2597,7 +2608,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
         return
     } else if f, y := target.Value.(*File); y {
         filename = f.fullname()
-    } else if o, y := target.fullnameOpt(ctx); !y {
+    } else if o, y := target.fullname(ctx); !y {
         erro(ctx, "update-file: not a file (%T: %v)\n", target.Value, target).debug(1)
         return
     } else {
@@ -2656,7 +2667,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
     } else {
         if ctx.keep {
             // keep file
-        } else if file := stat(at(ctx, target.Position()), filename, "", ""); file != nil && file.info != nil && file.info.Size() == 0 {
+        } else if file := stat(at(ctx, target.Position()), filename); file != nil && file.info != nil && file.info.Size() == 0 {
             file.info = nil
             if err := os.Remove(filename); err != nil {
                 erro(ctx, "remove file failed: %v", err).debug(1)
@@ -2709,7 +2720,6 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
             } else {
                 s = fmt.Sprintf("changed (%d bytes)", wrote)
             }
-            //promptEnteringDirectory(ctx)
             prompt(ctx, "update %v …… %s (in %v)\n", f, s, time.Now().Sub(st)).debug(ctx.debug)
         } (time.Now())
     }
@@ -2723,11 +2733,11 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
         }
     } else if same {
         //removeCallerUpdated(ctx, target) // remove timestamp updated
-        result = stat(ctx, filename, "", "")
+        result = stat(ctx, filename)
         return
     }
 
-    promptEnteringDirectory(ctx)
+    // if false { promptEnteringDirectory(ctx) }
 
     // Create or update the file with new content
 
@@ -2749,7 +2759,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
                 return
             }
 
-            if file := stat(ctx, filename, "", ""); file == nil {
+            if file := stat(ctx, filename); file == nil {
                 prompt(ctx, "%s: invalid file\n", filename)
                 errostack(ctx, 6, "%v: invalid file '%s'", ctx.Project(), filename).debug(1)
                 panic(failure{"invalid file %s",ia(ctx.Position(), filename)})
@@ -2816,8 +2826,8 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
         if ctx.trim { s = strings.TrimSpace(s) }
         switch ctx.asType {
         case "answer": v = makeAnswer (pos,(s == "yes"))
-        case "bool":   v = MakeBoolean(pos,(s == "true"))
-        default:       v = MakeString (pos,s)
+        case "bool":   v = makeBoolean(pos,(s == "true"))
+        default:       v = makeStrlit (pos,s)
         }
         a = append(a, v)
     }
@@ -2827,14 +2837,14 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
         if ctx.trim { s = strings.TrimSpace(s) }
         switch ctx.asType {
         case "answer": v = makeAnswer (pos,(s == "yes"))
-        case "bool":   v = MakeBoolean(pos,(s == "true"))
-        default:       v = MakeString (pos,s)
+        case "bool":   v = makeBoolean(pos,(s == "true"))
+        default:       v = makeStrlit (pos,s)
         }
         a = append(a, v)
     }
     if ctx.status {
         // TODO: warn(ctx, "deprecated (wait -status), use (shell -status) instead; %v", execRes).debug(1)
-        a = append(a, MakeInt(pos,int64(execRes.Status)))
+        a = append(a, makeInt(pos,int64(execRes.Status)))
     }
 
     if len(a) > 0 { result = ease(ctx, a) }
@@ -2923,7 +2933,7 @@ func (ctx *modifier_assert) z(w facet, args ...Value) (_ interface{}) {
     defer dtrace(ctx, "modifier_assert")
 
     var pc = ctx.pc()
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     var target = autoVal(ctx, "@")
     for _, a := range args {
         if a == nil { erro(ctx, "assert: nil").debug(1); return }
@@ -2959,7 +2969,7 @@ func (ctx *modifier_cond) x(args ...Value) (result interface{}) {
             return
         }
     }
-    return MakeBoolean(ctx.Position(), true)
+    return makeBoolean(ctx.Position(), true)
 }
 
 type modifier_case struct { modifier_ }
@@ -3087,7 +3097,7 @@ func (ctx *modifier_predictTargetMaxVisit) x(args ...Value) (result interface{})
 }
 
 type modifier_fork struct { modifier_
-    workDir string `w,wd,workdir,work-dir`
+    wd string `w,wd,workdir,work-dir`
 }
 func (ctx *modifier_fork) _x(args ...Value) (result Value, traves travestates) {
     var (
@@ -3097,8 +3107,8 @@ func (ctx *modifier_fork) _x(args ...Value) (result Value, traves travestates) {
     )
     for _, a := range args { argv = append(argv, a.string(ctx)) }
 
-    if ctx.workDir != "" {
-        attr.Dir = ctx.workDir
+    if ctx.wd != "" {
+        attr.Dir = ctx.wd
     } else if attr.Dir = prog.workDir(ctx); attr.Dir == "" {
         erro(ctx, "empty workdir").debug(1)
         return
@@ -3130,8 +3140,8 @@ func (ctx *modifier_fork) x(args ...Value) (result interface{}) {
     )
     for _, a := range args { argv = append(argv, a.string(ctx)) }
 
-    if ctx.workDir != "" {
-        wd = ctx.workDir
+    if ctx.wd != "" {
+        wd = ctx.wd
     } else if wd = prog.workDir(ctx); wd == "" {
         erro(ctx, "empty workdir").debug(1)
         return

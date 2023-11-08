@@ -6,13 +6,11 @@
 package smart
 
 import (
-	"reflect"
-	"testing"
 	"fmt"
 )
 
 func testAutoContext(ctx *testcase) {
-	if c := ctx.cast(reflect.TypeOf((*universe)(nil))); c == nil {
+	if c := cast[*universe](ctx); c == nil {
 		ctx.err("Context.cast")
 	} else if c := cast[*universe](ctx); c == nil {
 		ctx.err("Context.cast")
@@ -769,414 +767,425 @@ func testPlaceholders(ctx *testcase) {
 	}
 }
 
-func testOptional(t *testing.T) {
-	cl := init_commandline()
-	cl.silentOptionalSelection = true
-	runcase(t, "testdata/value/optional", "testoptional", func (ctx *testcase) {
-		if v := ctx.get("val1"); v == nil {
-			ctx.err("val1")
-		} else if v.String() != "$(name)" {
-			ctx.err("%T %v", v, v)
-		} else if s := v.string(ctx); s != "" {
-			ctx.err("%T %v -> %s", v, v, s)
-		} else if u, y := v.(unexpanded); !y {
-			ctx.err("%T %v", v, v)
-		} else if d, y := u.Value.(*delegate); !y {
-			ctx.err("%T %v", u.Value, u.Value)
-		} else if u, y := d.x.(unresolved); !y { // optional
-			ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
-		} else if w, y := u.Value.(*bareword); !y {
-			ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
-		} else if w.s != "name" {
-			ctx.err("%T %v , %v", v, v, w)
-		} else if false {
-			info(of(ctx,v), "%T %v, %T", v, v, u.Value).debug(1)
-		}
+func testOptional(ctx *testcase) {
+	if v := ctx.get("val1"); v == nil {
+		ctx.err("val1")
+	} else if v.String() != "$(name)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v", u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y { // optional
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if w, y := u.Value.(*bareword); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	} else if w.s != "name" {
+		ctx.err("%T %v , %v", v, v, w)
+	} else if false {
+		info(of(ctx,v), "%T %v, %T", v, v, u.Value).debug(1)
+	}
 
-		if v := ctx.get("val2"); v == nil {
-			ctx.err("val2")
-		} else if v.String() != ".self" {
-			ctx.err("%T %v", v, v)
-		} else if s := v.string(ctx); s != "foo" {
-			ctx.err("%T %v -> %s", v, v, s)
-			// } else if x, y := v.(expanded); !y {
-			// 	ctx.err("%T %v", v, v)
-			// } else if p, y := x.Value.(*self); !y {
-			// 	ctx.err("%T %v", x.Value, x.Value)
-		} else if p, y := v.(*self); !y {
-			ctx.err("%T %v", v, v)
-		} else if p.Project.name != "foo" {
-			ctx.err("%T %v -> %v", v, v, p)
-		} else if false {
-			info(of(ctx,v), "%T %v", v, v).debug(1)
-		}
+	if v := ctx.get("val2"); v == nil {
+		ctx.err("val2")
+	} else if v.String() != ".self" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "foo" {
+		ctx.err("%T %v -> %s", v, v, s)
+		// } else if x, y := v.(expanded); !y {
+		// 	ctx.err("%T %v", v, v)
+		// } else if p, y := x.Value.(*self); !y {
+		// 	ctx.err("%T %v", x.Value, x.Value)
+	} else if p, y := v.(*self); !y {
+		ctx.err("%T %v", v, v)
+	} else if p.Project.name != "foo" {
+		ctx.err("%T %v -> %v", v, v, p)
+	} else if false {
+		info(of(ctx,v), "%T %v", v, v).debug(1)
+	}
 
-		if v := ctx.get("val3"); v == nil {
-			ctx.err("val3")
-		} else if v.String() != "$(foo→baz?)" {
-			ctx.err("%T %v", v, v)
-		} else if s := v.string(ctx); s != "" {
-			ctx.err("%T %v -> %s", v, v, s)
-		} else if u, y := v.(unexpanded); !y {
-			ctx.err("%T %v", v, v)
-		} else if d, y := u.Value.(*delegate); !y {
-			ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
-		} else if u, y := d.x.(unresolved); !y {
-			ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
-		} else if _, y := u.Value.(*selection); !y {
-			ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
-		}
+	if v := ctx.get("val3"); v == nil {
+		ctx.err("val3")
+	} else if v.String() != "$(foo→baz?)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y {
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if _, y := u.Value.(*selection); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	}
 
-		if v := ctx.get("val4"); v == nil {
-			ctx.err("val4")
-		} else if v.String() != "$(fo?→bar)" {
-			ctx.err("%T %v", v, v)
-		} else if s := v.string(ctx); s != "" {
-			ctx.err("%T %v -> %s", v, v, s)
-		} else if u, y := v.(unexpanded); !y {
-			ctx.err("%T %v", v, v)
-		} else if d, y := u.Value.(*delegate); !y {
-			ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
-		} else if u, y := d.x.(unresolved); !y {
-			ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
-		} else if _, y := u.Value.(*selection); !y {
-			ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
-		}
+	if v := ctx.get("val4"); v == nil {
+		ctx.err("val4")
+	} else if v.String() != "$(fo?→bar)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y {
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if _, y := u.Value.(*selection); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	}
 
-		if v := ctx.get("val5"); v == nil {
-			ctx.err("val5")
-		} else if v.String() != "$(fo?→bar?)" {
-			ctx.err("%T %v", v, v)
-		} else if s := v.string(ctx); s != "" {
-			ctx.err("%T %v -> %s", v, v, s)
-		} else if u, y := v.(unexpanded); !y {
-			ctx.err("%T %v", v, v)
-		} else if d, y := u.Value.(*delegate); !y {
-			ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
-		} else if u, y := d.x.(unresolved); !y {
-			ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
-		} else if _, y := u.Value.(*selection); !y {
-			ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
-		}
+	if v := ctx.get("val5"); v == nil {
+		ctx.err("val5")
+	} else if v.String() != "$(fo?→bar?)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y {
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if _, y := u.Value.(*selection); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	}
 
-		if d := ctx.def("val6"); d == nil {
-			ctx.err("val6")
-		} else if d.value == nil {
-			ctx.err("%v", d)
-		} else if d.value.String() != "foo" {
-			ctx.err("%T %v", d.value, d.value)
-		}
-		if v := ctx.get("val6"); v == nil {
-			ctx.err("val6")
-		} else if v.String() != "foo" {
-			ctx.err("%T %v", v, v)
-		} else if s := v.string(ctx); s != "foo" {
-			ctx.err("%T %v -> %s", v, v, s)
-		} else if p, y := v.(*projectname); !y {
-			ctx.err("%T %v", v, v)
-		} else if p.Project.name != "foo" {
-			ctx.err("%T %v ; %v", v, v, p)
-		}
+	if d := ctx.def("val6"); d == nil {
+		ctx.err("val6")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "foo" {
+		ctx.err("%T %v", d.value, d.value)
+	}
+	if v := ctx.get("val6"); v == nil {
+		ctx.err("val6")
+	} else if v.String() != "foo" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "foo" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if p, y := v.(*projectname); !y {
+		ctx.err("%T %v", v, v)
+	} else if p.Project.name != "foo" {
+		ctx.err("%T %v ; %v", v, v, p)
+	}
 
-		if v := ctx.get("val7"); v == nil {
-			ctx.err("val7")
-		} else if v.String() != "foo" {
-			ctx.err("%T %v", v, v)
-		} else if s := v.string(ctx); s != "foo" {
-			ctx.err("%T %v -> %s", v, v, s)
-		} else if p, y := v.(*projectname); !y {
-			ctx.err("%T %v", v, v)
-		} else if p.Project.name != "foo" {
-			ctx.err("%T %v ; %v", v, v, p)
-		}
+	if v := ctx.get("val7"); v == nil {
+		ctx.err("val7")
+	} else if v.String() != "foo" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "foo" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if p, y := v.(*projectname); !y {
+		ctx.err("%T %v", v, v)
+	} else if p.Project.name != "foo" {
+		ctx.err("%T %v ; %v", v, v, p)
+	}
 
-		if d := ctx.def("val8"); d == nil {
-			ctx.err("val8")
-		} else if d.value == nil {
-			ctx.err("%v", d)
-		} else if d.value.String() != "$(foo→bar?)" {
-			ctx.err("%T %v", d.value, d.value)
-		}
-		if v := ctx.get("val8"); v == nil {
-			ctx.err("val8")
-		} else if v.String() != "$(foo→bar?)" {
-			ctx.err("%T %v", v, v)
-		} else if s := v.string(ctx); s != "" {
-			ctx.err("%T %v -> %s", v, v, s)
-		} else if u, y := v.(unexpanded); !y {
-			ctx.err("%T %v", v, v)
-		} else if d, y := u.Value.(*delegate); !y {
-			ctx.err("%T %v", u.Value, u.Value)
-		} else if u, y := d.x.(unresolved); !y { // optional
-			ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
-		} else if _, y := u.Value.(*selection); !y {
-			ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
-		}
-	}, cl)
+	if d := ctx.def("val8"); d == nil {
+		ctx.err("val8")
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if d.value.String() != "$(foo→bar?)" {
+		ctx.err("%T %v", d.value, d.value)
+	}
+	if v := ctx.get("val8"); v == nil {
+		ctx.err("val8")
+	} else if v.String() != "$(foo→bar?)" {
+		ctx.err("%T %v", v, v)
+	} else if s := v.string(ctx); s != "" {
+		ctx.err("%T %v -> %s", v, v, s)
+	} else if u, y := v.(unexpanded); !y {
+		ctx.err("%T %v", v, v)
+	} else if d, y := u.Value.(*delegate); !y {
+		ctx.err("%T %v", u.Value, u.Value)
+	} else if u, y := d.x.(unresolved); !y { // optional
+		ctx.err("%T %v ; %T %v", v, v, d.x, d.x)
+	} else if _, y := u.Value.(*selection); !y {
+		ctx.err("%T %v ; %T %v", v, v, u.Value, u.Value)
+	}
 }
 
-func testGlobMatch(t *testing.T) {
-	var ctx Context = init_universe()//&uni
-
+func testGlobMatch(ctx *testcase) { // var ctx Context = init_universe()
 	if a, b, c := globMatch(ctx, "*.c", "foo.c"); !a || c != nil {
-		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
+		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
-		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
+		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
 	} else if b[0] != "foo" {
-		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
+		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
 	}
 	if a, b, c := globMatch(ctx, "**.c", "foo.c"); !a || c != nil {
-		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
+		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
-		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
+		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
 	} else if b[0] != "foo" {
-		t.Errorf("glob(*.c, foo.c): %v %v %v", a, b, c)
+		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "*.c", "foo/bar.c"); a == true || c != nil {
-		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
+		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
 	} else if len(b) != 0 {
-		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
+		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
 	}
 	if a, b, c := globMatch(ctx, "**.c", "foo/bar.c"); !a || c != nil {
-		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
+		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
-		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
+		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
 	} else if b[0] != "foo/bar" {
-		t.Errorf("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
+		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "*", "foobar"); !a || c != nil {
-		t.Errorf("glob(*, foobar): %v %v %v", a, b, c)
+		ctx.err("glob(*, foobar): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
-		t.Errorf("glob(*, foobar): %v %v %v", a, b, c)
+		ctx.err("glob(*, foobar): %v %v %v", a, b, c)
 	}
 	if a, b, c := globMatch(ctx, "**", "foobar"); !a || c != nil {
-		t.Errorf("glob(**, foobar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foobar): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
-		t.Errorf("glob(**, foobar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foobar): %v %v %v", a, b, c)
 	} else if b[0] != "foobar" {
-		t.Errorf("glob(**, foobar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foobar): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "*", "foobar/"); a == true || c != nil {
-		t.Errorf("glob(*, foobar/): %v %v %v", a, b, c)
+		ctx.err("glob(*, foobar/): %v %v %v", a, b, c)
 	} else if len(b) != 0 {
-		t.Errorf("glob(*, foobar/): %v %v %v", a, b, c)
+		ctx.err("glob(*, foobar/): %v %v %v", a, b, c)
 	}
 	if a, b, c := globMatch(ctx, "**", "foobar/"); !a || c != nil {
-		t.Errorf("glob(**, foobar/): %v %v %v", a, b, c)
+		ctx.err("glob(**, foobar/): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
-		t.Errorf("glob(**, foobar/): %v %v %v", a, b, c)
+		ctx.err("glob(**, foobar/): %v %v %v", a, b, c)
 	} else if b[0] != "foobar/" {
-		t.Errorf("glob(**, foobar/): %v %v %v", a, b, c)
+		ctx.err("glob(**, foobar/): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "**", "foo/bar/"); !a || c != nil {
-		t.Errorf("glob(**, foo/bar/): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
-		t.Errorf("glob(**, foo/bar/): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/): %v %v %v", a, b, c)
 	} else if b[0] != "foo/bar/" {
-		t.Errorf("glob(**, foo/bar/): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "**xx**", "foo/bar/xx/foo/bar"); !a || c != nil {
-		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if len(b) != 2 {
-		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if b[0] != "foo/bar/" {
-		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if b[1] != "/foo/bar" {
-		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "**/xx/**", "foo/bar/xx/foo/bar"); !a || c != nil {
-		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if len(b) != 2 {
-		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if b[0] != "foo/bar" {
-		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if b[1] != "foo/bar" {
-		t.Errorf("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "**/??/**", "foo/bar/xx/foo/bar"); !a || c != nil {
-		t.Errorf("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if len(b) != 4 {
-		t.Errorf("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if b[0] != "foo/bar" {
-		t.Errorf("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if b[1] != "x" {
-		t.Errorf("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if b[2] != "x" {
-		t.Errorf("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	} else if b[3] != "foo/bar" {
-		t.Errorf("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "**/[xyz]/**", "foo/bar/z/foo/bar"); !a || c != nil {
-		t.Errorf("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
 	} else if len(b) != 3 {
-		t.Errorf("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
 	} else if b[0] != "foo/bar" {
-		t.Errorf("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
 	} else if b[1] != "z" {
-		t.Errorf("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
 	} else if b[2] != "foo/bar" {
-		t.Errorf("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
+		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "foo/???/bar", "foo/xyz/bar"); !a || c != nil {
-		t.Errorf("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
+		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
 	} else if len(b) != 3 {
-		t.Errorf("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
+		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
 	} else if b[0] != "x" {
-		t.Errorf("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
+		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
 	} else if b[1] != "y" {
-		t.Errorf("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
+		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
 	} else if b[2] != "z" {
-		t.Errorf("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
+		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
 	}
 
 	if a, b, c := globMatch(ctx, "foo/[xyz]/bar", "foo/z/bar"); !a || c != nil {
-		t.Errorf("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
+		ctx.err("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
 	} else if len(b) != 1 {
-		t.Errorf("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
+		ctx.err("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
 	} else if b[0] != "z" {
-		t.Errorf("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
+		ctx.err("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
 	}
 }
 
-func testValueGeneral(t *testing.T) {
-	var assert_bool bool
-	var assert_value Value
-	runcase(t, "testdata/value", "testvalues", func (ctx *testcase) {
-		if assert_value == nil {
-			t.Errorf("assert: %v", assert_value)
-		} else if assert_bool {
-			t.Errorf("assert")
-		}
+type testValueGeneralStruct struct {
+	assert_bool bool
+	assert_value Value
+}
+func testValueGeneralAssertHook(ctx Context, v Value, b bool, i interface{}) {
+	st := i.(*testValueGeneralStruct)
+	st.assert_bool = b
+	st.assert_value = v
+}
+func testValueGeneral(ctx testcase1) {
+	st := ctx.i.(*testValueGeneralStruct)
+	if st.assert_value == nil {
+		ctx.err("assert: %v", st.assert_value)
+	} else if st.assert_bool {
+		ctx.err("assert")
+	}
 
-		// Globs
+	var (
+		glob1 = ctx.get("glob1")
+		glob2 = ctx.get("glob2")
+		regexp1 = ctx.get("regexp1")
+		regexp2 = ctx.get("regexp2")
+		regexp3 = ctx.get("regexp3")
+		regexp4 = ctx.get("regexp4")
+		regexp5 = ctx.get("regexp5")
+		regexp6 = ctx.get("regexp6")
+	)
 
-		var (
-			glob1 = ctx.get("glob1")
-			glob2 = ctx.get("glob2")
-			val1 = ctx.get("val1")
-			val2 = ctx.get("val2")
-			val3 = ctx.get("val3")
-		)
+	if glob1.string(ctx) != "*.c" {
+		ctx.err("glob1 is wrong: %T %v", glob1, glob1)
+	}
 
-		if glob1.string(ctx) != "*.c" {
-			ctx.err("glob1 is wrong: %T %v", glob1, glob1)
-		}
+	if glob2.string(ctx) != "**.c" {
+		ctx.err("glob2 is wrong: %T %v", glob2, glob2)
+	}
 
-		if glob2.string(ctx) != "**.c" {
-			ctx.err("glob2 is wrong: %T %v", glob2, glob2)
-		}
+	if regexp1.string(ctx) != `x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}` {
+		ctx.err("regexp1 is wrong: %T %v", regexp1, regexp1)
+	}
 
-		if val1.string(ctx) != "foo.c" {
-			ctx.err("val1 is wrong: %T %v", val1, val1)
-		}
+	if regexp2.string(ctx) != `(re) (?P<name>re) (?:re) (?im) (?sU:re) \x{10ffff} \x1f \123 \* \. \? \$` {
+		ctx.err("regexp2 is wrong: %T %v", regexp2, regexp2)
+	}
 
-		if val2.string(ctx) != "foo/bar.c" {
-			ctx.err("val2 is wrong: %T %v", val2, val2)
-		}
+	if regexp3.string(ctx) != `[[:xdigit:]]*, [[:^alpha:]], [^xyz] [a-z] \A \B \b \Q**??^:[]{}\E \^ \z` {
+		ctx.err("regexp3 is wrong: %T %v", regexp3, regexp3)
+	}
 
-		if val3.string(ctx) != "foo/bar.c" {
-			if false { ctx.err("val3 is wrong: %T %v", val3, val3) }
-		}
+	if regexp4.string(ctx) != `fo{2}\.c` {
+		ctx.err("regexp4 is wrong: %T %v", regexp4, regexp4)
+	}
 
-		if a, b, c := glob1.match(ctx, val1); !a {
-			ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
-		}
-		if a, b, c := glob2.match(ctx, val1); !a {
-			ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
-		}
+	if regexp5.string(ctx) != `fo{2}/bar\.c` {
+		ctx.err("regexp5 is wrong: %T %v", regexp5, regexp5)
+	}
 
-		if a, b, c := glob1.match(ctx, val2); a == true {
-			if false { ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c) }
-		}
-		if a, b, c := glob2.match(ctx, val2); !a {
-			ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
-		}
+	if regexp6.string(ctx) != `fo{2}(/o{2}){3}/bar\.c` {
+		ctx.err("regexp6 is wrong: %T %v", regexp6, regexp6)
+	}
 
-		if a, b, c := glob1.match(ctx, val3); a == true {
-			if false { ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c) }
-		}
-		if a, b, c := glob2.match(ctx, val3); !a {
-			ctx.err("match(%v, %v): %v %v %v", glob1, val1, a, b, c)
-		}
+	if val := ctx.get("val1"); val == nil {
+		ctx.err("val1")
+	} else if val.string(ctx) != "foo.c" {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if a, b, c := glob1.match(ctx, val); !a {
+		ctx.err("match(%v, %v): %v %v %v", glob1, val, a, b, c)
+	} else if a, b, c := glob2.match(ctx, val); !a {
+		ctx.err("match(%v, %v): %v %v %v", glob2, val, a, b, c)
+	} else if a, b, c := regexp4.match(ctx, val); !a {
+		ctx.err("match(%v, %v): %v %v %v", regexp4, val, a, b, c)
+	} else if s, y := b.(string); !y {
+		ctx.err("match(%v, %v): %v %v %v", regexp4, val, a, b, c)
+	} else if s != val.string(ctx) {
+		ctx.err("match(%v, %v): %v %v %v", regexp4, val, a, b, c)
+	} else if len(c) != 0 {
+		ctx.err("match(%v, %v): %v %v %v", regexp4, val, a, b, c)
+	}
 
-		// TODO: test glob.stencil(...)
+	if val := ctx.get("val2"); val == nil {
+		ctx.err("val2")
+	} else if val.string(ctx) != "foo/bar.c" {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if p, y := val.(*Path); !y {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if len(p.Elems) != 2 {
+		ctx.err("%v: %v: %v", typeof(val), val, p.Elems)
+	} else if a, b, c := glob1.match(ctx, val); a == true {
+		if false { ctx.err("match(%v, %v): %v %v %v", glob1, val, a, b, c) }
+	} else if a, b, c := glob2.match(ctx, val); !a {
+		ctx.err("match(%v, %v): %v %v %v", glob2, val, a, b, c)
+	} else if a, b, c := regexp5.match(ctx, val); !a {
+		ctx.err("match(%v, %v): %v %v %v", regexp5, val, a, b, c)
+	} else if s, y := b.(string); !y {
+		ctx.err("match(%v, %v): %v %v %v", regexp5, val, a, b, c)
+	} else if s != val.string(ctx) {
+		ctx.err("match(%v, %v): %v %v %v", regexp5, val, a, b, c)
+	} else if len(c) != 0 {
+		ctx.err("match(%v, %v): %v %v %v", regexp5, val, a, b, c)
+	}
 
-		// Regexps
+	if val := ctx.get("val3"); val == nil {
+		ctx.err("val3")
+	} else if val.string(ctx) != "foo/oo/oo/oo/bar.c" {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if p, y := val.(*Path); !y {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if len(p.Elems) != 5 {
+		ctx.err("%v: %v: %v", typeof(val), val, p.Elems)
+	} else if a, b, c := glob1.match(ctx, val); a == true {
+		if false { ctx.err("match(%v, %v): %v %v %v", glob1, val, a, b, c) }
+	} else if a, b, c := glob2.match(ctx, val); !a {
+		ctx.err("match(%v, %v): %v %v %v", glob2, val, a, b, c)
+	} else if a, b, c := regexp6.match(ctx, val); !a {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val, a, b, c)
+	} else if s, y := b.(string); !y {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val, a, b, c)
+	} else if s != val.string(ctx) {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val, a, b, c)
+	} else if len(c) != 1 {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val, a, b, c)
+	} else if c[0] != "/oo" {
+		ctx.err("match(%v, %v): %v %v %v", regexp6, val, a, b, c)
+	}
 
-		var (
-			regexp1 = ctx.get("regexp1")
-			regexp2 = ctx.get("regexp2")
-			regexp3 = ctx.get("regexp3")
-			regexp4 = ctx.get("regexp4")
-			regexp5 = ctx.get("regexp5")
-			regexp6 = ctx.get("regexp6")
-		)
+	// TODO: test glob.stencil(...)
 
-		if regexp1.string(ctx) != `x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}` {
-			ctx.err("regexp1 is wrong: %T %v", regexp1, regexp1)
-		}
+	if val := ctx.get("val4"); val == nil {
+		ctx.err("val4")
+	} else if val.String() != "a\\,b\\,c,x\\,y\\,z" {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if val.string(ctx) != "a,b,c,x,y,z" {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if p, y := val.(*barecomp); !y {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if len(p.Elems) != 11 {
+		ctx.err("%v: %v %v", typeof(val), val, p.Elems)
+	}
 
-		if regexp2.string(ctx) != `(re) (?P<name>re) (?:re) (?im) (?sU:re) \x{10ffff} \x1f \123 \* \. \? \$` {
-			ctx.err("regexp2 is wrong: %T %v", regexp2, regexp2)
-		}
+	if val := ctx.get("val5"); val == nil {
+		ctx.err("val5")
+	} else if val.String() != `'"a,b,c x,y,z"'` {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if val.string(ctx) != `"a,b,c x,y,z"` {
+		ctx.err("%v: %v", typeof(val), val)
+	} else if _, y := val.(*strlit); !y {
+		ctx.err("%v: %v", typeof(val), val)
+	}
 
-		if regexp3.string(ctx) != `[[:xdigit:]]*, [[:^alpha:]], [^xyz] [a-z] \A \B \b \Q**??^:[]{}\E \^ \z` {
-			ctx.err("regexp3 is wrong: %T %v", regexp3, regexp3)
-		}
-
-		if regexp4.string(ctx) != `fo{2}\.c` {
-			ctx.err("regexp4 is wrong: %T %v", regexp4, regexp4)
-		} else if a, b, c := regexp4.match(ctx, val1); !a {
-			ctx.err("match(%v, %v): %v %v %v", regexp4, val1, a, b, c)
-		} else if s, y := b.(string); !y {
-			ctx.err("match(%v, %v): %v %v %v", regexp4, val1, a, b, c)
-		} else if s != val1.string(ctx) {
-			ctx.err("match(%v, %v): %v %v %v", regexp4, val1, a, b, c)
-		} else if len(c) != 0 {
-			ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		}
-
-		if regexp5.string(ctx) != `fo{2}/bar\.c` {
-			ctx.err("regexp5 is wrong: %T %v", regexp5, regexp5)
-		} else if a, b, c := regexp5.match(ctx, val2); !a {
-			ctx.err("match(%v, %v): %v %v %v", regexp5, val2, a, b, c)
-		} else if s, y := b.(string); !y {
-			ctx.err("match(%v, %v): %v %v %v", regexp5, val2, a, b, c)
-		} else if s != val2.string(ctx) {
-			ctx.err("match(%v, %v): %v %v %v", regexp5, val2, a, b, c)
-		} else if len(c) != 0 {
-			ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		}
-
-		if regexp6.string(ctx) != `fo{2}(/o{2}){3}/bar\.c` {
-			ctx.err("regexp6 is wrong: %T %v", regexp6, regexp6)
-		} else if a, b, c := regexp6.match(ctx, val3); !a {
-			ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		} else if s, y := b.(string); !y {
-			ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		} else if s != val3.string(ctx) {
-			ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		} else if len(c) != 1 {
-			ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		} else if c[0] != "/oo" {
-			ctx.err("match(%v, %v): %v %v %v", regexp6, val3, a, b, c)
-		}
-
-		// TODO: test regexp.stencil(...)
-
-	}, hooks{
-		assert: func(ctx Context, v Value, b bool) (res bool) {
-			assert_bool, assert_value = b, v
-			return true
-		},
-	})
+	// TODO: test regexp.stencil(...)
 }

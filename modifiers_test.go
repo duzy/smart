@@ -11,7 +11,7 @@ import (
 
 type test_mod_1 struct { modifier_ }
 func (ctx *test_mod_1) v(args ...Value) (result interface{}) {
-	return append(args, MakeBareword(ctx.Position(), "test_mod_1"))
+	return append(args, makeBareword(ctx.Position(), "test_mod_1"))
 }
 
 func testValueModifierInit() {

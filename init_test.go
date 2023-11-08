@@ -12,52 +12,56 @@ import (
 	"os"
 )
 
-type testcase struct { Context ; *testing.T }
+type testcase_f1 func (*testcase)
+type testcase_f2 func (*testcase, string, string)
+type testcase  struct { Context ; *testing.T ; run func(testcase_f1) }
+type testcase1 struct { *testcase ; i interface{} }
 
-const _tmodules = "/Volumes/workspace/.smart/modules"
+const testModulesPath = "/Volumes/workspace/.smart/modules"
 
 func testHasModule(name string) (res bool) {
-	if i, e := os.Stat(filepath.Join(_tmodules, name)); e == nil { res = i.IsDir() }
+	if i, e := os.Stat(filepath.Join(testModulesPath, name)); e == nil { res = i.IsDir() }
 	return
 }
 
-func loadcase(t *testing.T, dir, name string, ii ...interface{}) testcase {
+func loadcase(t *testing.T, dir, name string, ii ...interface{}) (tc testcase) {
 	if !filepath.IsAbs(dir) { dir = filepath.Join(baseWorkDir, dir) }
 	if _, e := os.Stat(dir); e != nil {
 		t.Errorf("%v", e)
-		return testcase{}
+		return
 	}
+
+	tc.T = t
 
 	var ctx = init_universe(ii...)
 
 	defer assured(ctx, false)
 
-	ctx.workdir = dir
+	ctx.filecache = make(map[string]*filebase) // must reset the filecache
 	ctx.globe.main = nil
-	ctx.filecache = make(map[string]*filebase) // NOTE: must reset the filecache
+	ctx.workdir = dir
 
-	if testHasModule("variant") { var tm bool
-		for _, s := range ctx.paths { if tm = s == _tmodules; tm { break }}
-		if !tm { ctx.paths = append(ctx.paths, _tmodules) }
+	if testHasModule("configure") {
+		for _, s := range ctx.paths { if s == testModulesPath { goto after_app_paths }}
+		ctx.paths = append(ctx.paths, testModulesPath)
+	after_app_paths:
 	}
 
-	var tc = testcase{ctx, t}
-
-	if e := ctx.loadTopWork(); e != nil {
+	if e := ctx.load(); e != nil {
 		erro(ctx, "%v", e).debug(2)
 	} else if m := ctx.globe.main; m == nil {
 		erro(ctx, "%s", dir).debug(2)
 	} else if name != "" && m.name != name {
-		erro(ctx, "%v <-> %v", m.name, name).debug(1, skipint{3})
+		erro(ctx, "project %v != %v", m.name, name).debug(1, skipint{3})
 	} else {
-		tc.Context = closureWith(tc.Context, m.scope) // TODO: add projectContext{ctx, m}
+		tc.Context = _closureWith(ctx, m) // TODO: add projectContext{ctx, m}
 		testRemoveConfigureDir(tc, tc.Project())
 	}
 
 	if tc.dia().flush(); tc.dia().error() {
 		tc.Errorf("%d errors in %s", tc.dia().totalErrors(), tc.Position().Filename)
 	}
-	return tc
+	return
 }
 
 func (tc *testcase) err(f string, i ...interface{}) {
@@ -104,11 +108,15 @@ func (tc *testcase) def(name string) (d *def) {
 func (tc *testcase) get(name string, ii ...interface{}) (res Value) {
 	var d *def
     var y bool
-	var s = skipint{2} // tRunner + testcase.get
 	var w facet
 	var a []Value
+	var s = skipint{2} // tRunner + testcase.get
+	var ctx Context = tc
+	var proj = tc.Project()
 	for _, i := range ii {
-		if t, y := i.(skipint); y {
+		if t, y := i.(*Project); y {
+			proj, ctx = t, closureWith(ctx, t.scope)
+		} else if t, y := i.(skipint); y {
 			s.int = t.int+1
 		}else if t, y := i.(facet); y {
 			w |= t
@@ -117,19 +125,19 @@ func (tc *testcase) get(name string, ii ...interface{}) (res Value) {
 		}
 	}
 
-	if o := tc.Project().resolve(tc, name); o == nil {
-		erro(tc, "%v: %s is nil", tc.Project(), name)
+	if o := proj.resolve(ctx, name); o == nil {
+		erro(ctx, "%v: %s is nil", proj, name)
 	} else if d, y = o.(*def); !y {
-		erro(tc, "%v: %s is not def: %T", tc.Project(), name, o)
+		erro(ctx, "%v: %s is not def: %T", proj, name, o)
 	} else if len(a) > 0 {
-		if t := invoke(tc, d, w, nil, a); t != o { res = t }
+		if t := invoke(ctx, d, w, nil, a); t != o { res = t }
 	} else if d.value != nil { if res = d.value; w != 0 {
-		res = res.expand(tc, w)
+		res = res.expand(ctx, w)
 	}}
 
 	if res == nil && d != nil { res = makeNull(d.position)
 		if false { tc.Errorf("%s: %v", name, d.value) }
-		erro(at(tc,d.position), "%v", d).debug(1, s)
+		erro(at(ctx,d.position), "%v", d).debug(1, s)
 	}
 	return
 }
@@ -151,15 +159,14 @@ func testRemoveConfigureDir(ctx testcase, p *Project) {
 	for _, base := range p.bases { testRemoveConfigureDir(ctx, base) }
 }
 
-type testcase_f1 func (*testcase)
-type testcase_f2 func (*testcase, string, string)
-
 func runcase(t *testing.T, spec, name string, f testcase_f1, ii ...interface{}) {
-	var ctx = loadcase(t, spec, name, ii...)
+	var ctx = loadcase(t, joinPath("testdata", spec), name, ii...)
 	if ctx.Context == nil {
-		t.Errorf(spec)
+		t.Errorf("testdata/%s", spec)
 		return
 	}
+
+	ctx.run = func(f testcase_f1) { runcase(t, spec, name, f) }
 
 	defer ctx.flush()
 	defer assured(ctx, true)
@@ -167,51 +174,82 @@ func runcase(t *testing.T, spec, name string, f testcase_f1, ii ...interface{}) 
 	f(&ctx)
 }
 
+type (
+	test_casedata    struct { i interface{} }
+	test_caseinit    struct { f func() }
+	test_configure   struct { bool }
+	test_hook_assert struct { f func(Context, Value, bool, interface{}) }
+	test_variant     struct { string }
+	test_silentOptionalSelection struct { bool }
+)
+
 func Test(t *testing.T) {
-	run := func (str, spec, name string, i interface{}, b ...bool) {
+	run := func (str, spec, name string, ii ...interface{}) {
 		t.Run(str, func (t *testing.T) {
 			var a []interface{}
-			if len(b) > 0 && b[0] {
-				c := init_commandline()
-				c.configure = true
-				a = append(a, c)
-			}
-
-			spec = "testdata/" + spec
-
+			var d   interface{}
 			var f testcase_f1
-			switch v := i.(type) {
-			case func(*testcase): f = v // testcase_f1
-			case func(*testcase, string, string): // testcase_f2
-				f = func(ctx *testcase) { v(ctx, spec, name) }
-			default: t.Errorf("%T", i) ; return
+			var _hooks *hooks
+			var c = init_commandline()
+			for _, i := range ii {
+				switch v := i.(type) {
+				case func(*testcase): f = v // testcase_f1
+				case func(*testcase, string, string): // testcase_f2
+					f = func(ctx *testcase) { v(ctx, spec, name) }
+				case func(testcase):
+					f = func(ctx *testcase) { v(*ctx) }
+				case func(testcase1):
+					f = func(ctx *testcase) { v(testcase1{ctx, d}) }
+				case test_hook_assert:
+					if _hooks == nil { _hooks = &hooks{} }
+					_hooks.assert = func(c Context, a Value, b bool) bool {
+						v.f(c, a, b, d)
+						return true
+					}
+				case test_caseinit:
+					v.f()
+				case test_casedata:
+					d = v.i
+				case test_configure:
+					c.configure = v.bool
+				case test_silentOptionalSelection:
+					c.silentOptionalSelection = v.bool
+				case test_variant:
+					t.Errorf("TODO: variant=%s", v.string)
+				default:
+					a = append(a, v)
+				}
 			}
-
-			runcase(t, spec, name, f, a...)
+			if f == nil {
+				t.Errorf("%v: %v", str, ii)
+			} else {
+				if _hooks != nil { a = append(a, *_hooks) }
+				runcase(t, spec, name, f, append(a,c)...)
+			}
 		})
 	}
 
 	// scanner_test.go
-	t.Run("init",        testInit)
-	t.Run("strings",     testStrings)
-	// t.Run("integers",    testIntegers)
-	// t.Run("floats",      testFloats)
-	// t.Run("datetime",    testDatetime)
-	// t.Run("arrays",      testArrays)
-	// t.Run("maps",        testMaps)
-	// t.Run("calls",       testCalls)
-	// t.Run("rules",       testRules)
-	// t.Run("prog",        testProgConstructs)
-
+	t.Run("scanner", testInit)
+	t.Run("scanner", testStrings)
+	// t.Run("scanner", testIntegers)
+	// t.Run("scanner", testFloats)
+	// t.Run("scanner", testDatetime)
+	// t.Run("scanner", testArrays)
+	// t.Run("scanner", testMaps)
+	// t.Run("scanner", testCalls)
+	// t.Run("scanner", testRules)
+	// t.Run("scanner", testProgConstructs)
 	// parser_test.go
-	t.Run("file",        testParseFile)
-	t.Run("dir",         testParseDir)
-
+	t.Run("parser",  testParseFile)
+	t.Run("parser",  testParseDir)
 	// position_test.go
-	t.Run("position",    testPositionExample)
+	t.Run("position", testPositionExample)
 
 	// builtins_test.go
-	t.Run("assert", testAssert)
+	run("assert", "assert", "testassert", testAssert,
+		test_casedata{&testAssertStruct{}},
+		test_hook_assert{testAssertHook})
 	run("wildcard", "wildcard", "testwildcard", testWildcard)
 	run("files", "files", "testfiles", testFiles)
 	run("auto", "value/0", "testvalues0", testAutoContext) // value_test.go
@@ -233,29 +271,31 @@ func Test(t *testing.T) {
 	run("template", "template/foreach", "testtemplate", testTemplateForeach)
 
 	// modifiers_test.go
-	{   testValueModifierInit()
-		run("modifier", "modifier", "testmodifier", testValueModifier)
-	}
+	run("modifier", "modifier", "testmodifier", testValueModifier,
+		test_caseinit{testValueModifierInit})
 
 	// value_test.go
 	// run("auto", "value/0", "testvalues0", testAutoContext) // value_test.go
-	run("value", "value/1",  "testvalues1",  testValues1)
-	run("value", "value/2",  "testvalues2",  testValues2)
-	run("value", "value/3",  "testvalues3",  testValues3)
-	run("value", "value/4",  "testvalues4",  testValues4)
-	run("value", "value/5",  "testvalues5",  testValues5)
-	run("value", "value/6",  "testvalues6",  testValues6)
-	run("value", "value/7",  "testvalues7",  testValues7)
-	run("value", "value/8",  "testvalues8",  testValues8)
-	run("value", "value/9",  "testvalues9",  testValues9)
-	run("value", "value/10", "testvalues10", testValues10)
-	run("value", "value/11", "testvalues11", testValues11)
-	run("value", "value/12", "testvalues12", testValues12)
-	run("value", "value/13", "testvalues13", testValues13)
+	run("value", "value/1",           "testvalues1",     testValues1)
+	run("value", "value/2",           "testvalues2",     testValues2)
+	run("value", "value/3",           "testvalues3",     testValues3)
+	run("value", "value/4",           "testvalues4",     testValues4)
+	run("value", "value/5",           "testvalues5",     testValues5)
+	run("value", "value/6",           "testvalues6",     testValues6)
+	run("value", "value/7",           "testvalues7",     testValues7)
+	run("value", "value/8",           "testvalues8",     testValues8)
+	run("value", "value/9",           "testvalues9",     testValues9)
+	run("value", "value/10",          "testvalues10",    testValues10)
+	run("value", "value/11",          "testvalues11",    testValues11)
+	run("value", "value/12",          "testvalues12",    testValues12)
+	run("value", "value/13",          "testvalues13",    testValues13)
 	run("value", "value/placeholder", "testplaceholder", testPlaceholders)
-	t.Run("value",       testOptional)
-	t.Run("value",       testGlobMatch)
-	t.Run("value",       testValueGeneral)
+	run("value", "value/glob",        "testglobmatch",   testGlobMatch)
+	run("value", "value/optional",    "testoptional",    testOptional,
+		test_silentOptionalSelection{true})
+	run("value", "value",             "testvalues",      testValueGeneral,
+		test_casedata{&testValueGeneralStruct{}},
+		test_hook_assert{testValueGeneralAssertHook})
 
 	// defs_test.go
 	run("defs", "defs", "testdefs", testDefs0)
@@ -268,19 +308,17 @@ func Test(t *testing.T) {
 	run("rules", "rule/1", "testrules1", testRules1)
 
 	// loader_test.go
-	// run("load", , , testLoad)
-	// run("build", , , testBuildExample)
-	run("load", "none", "none", testLoadTopWork)
+	run("load", "none", "none", testLoader)
 
 	// configure_test.go
-	run("configure", "configuration",          "testdefaultconfigure",  testConfigure1)
-	run("configure", "configuration/diverged", "testdivergedconfigure", testConfigure2)
-	run("configure", "configuration/custom",   "testcustomconfigure",   testConfigure3)
+	run("configure", "configuration",          "testdefaultconfigure",  testConfigureFoo)
+	run("configure", "configuration/diverged", "testdivergedconfigure", testConfigureDivergedOuttmp)
+	run("configure", "configuration/custom",   "testcustomconfigure",   testConfigureCustom)
 
 	// modules_test.go
-	run("variant", "modules/target", "testtarget", testVariantTarget)
-	run("app", "modules/app", "testapp", testApp)
-	run("llvm/Config", "modules/llvm/config", "testllvmconfig", testLLVMConfig1, true)
-	run("llvm/Config", "modules/llvm/config", "testllvmconfig", testLLVMConfig2)
-	run("toolchain/booting", "modules/toolchain/booting", "testtoolchainbooting",  testToolchainBooting)
+	run("variant",           "modules/target/arm64-darwin",            "", testVariantTarget_arm64_darwin)
+	run("app",               "modules/app/arm64-darwin",               "", testApp_arm64_darwin)
+	run("llvm/Config",       "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1_arm64_darwin, test_configure{true})
+	run("llvm/Config",       "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2_arm64_darwin)
+	run("toolchain/booting", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting_arm64_darwin)
 }

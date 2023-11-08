@@ -126,7 +126,7 @@ type uselist struct {
 }
 func (_ *uselist) kind() Kind { return KindUseList }
 func (p *uselist) name(_ Context) string { return p.name_ }
-func (p *uselist) DeclScope() *Scope { return p.scope }
+func (p *uselist) declScope() *Scope { return p.scope }
 func (p *uselist) OwnerProject() *Project { return p.owner }
 func (p *uselist) Position() (pos Position) {
         if len(p.list) > 0 {

@@ -632,7 +632,7 @@ func (s *Scanner) scanEscape(quote rune) bool {
 	return true
 }
 
-func (s *Scanner) scanRawString(ml bool) string {
+func (s *Scanner) scanStrliting(ml bool) string {
 	// '\'' opening already consumed
 	offs := s.offset - 1
 	if ml { offs -= 1 }
@@ -824,14 +824,14 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 	case '\'':
 		if tok = STRING; s.ch == '\'' {
 			if s.next(); s.ch == '\'' { // '''
-				lit = s.scanRawString(true)
+				lit = s.scanStrliting(true)
 			} else if offs := s.offset - 2; false {
 				lit = string(s.src[offs:s.offset])
 			} else {
 				lit = "" // empty string ''
 			}
 		} else {
-			lit = s.scanRawString(false)
+			lit = s.scanStrliting(false)
 		}
 	case '"':
 		if s.bits.isCompoundString() { s.error(offs, "composed") }

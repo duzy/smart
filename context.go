@@ -65,7 +65,6 @@ type commandline struct {
 
   checkLoadGraph  bool `ckld,check-loads`
 
-  cleanConf       bool `cc,clean-conf,clean-configure`
   configure       bool `c,con,conf,configure`               // optionConfigure
   reconfigure     bool `rc,rec,reconf,reconfig,reconfigure` // optionReconfig
 
@@ -95,7 +94,7 @@ type commandline struct {
 }
 
 func (o *commandline) debugParsing(ctx Context, syntax string) (res bool) {
-  if ctx.universe().ddd == syntax { for _, s := range o.debugSyn {
+  if cast[*universe](ctx).ddd == syntax { for _, s := range o.debugSyn {
     if res = s == syntax; res { break }
   }}
   return
@@ -107,16 +106,12 @@ type Context interface {
   Position() Position
 
   String() string // for debug
-  WorkDir() string
+  workDir() string
 
   Scope() *Scope
-  Globe() *Globe
+  Globe() *globe
 
   aquireLock() (unlock func())
-
-  universe() *universe
-  // unmap(Context, interface{}) []matchedFileMap
-  // cache(Context, []Value, []Value)
 
   loader() *loader // only in load stage
   parser() *parser // only in parse stage
@@ -131,7 +126,7 @@ type Context interface {
   rc() *refContext
   ic() *invocation
 
-  closure() *closureContext
+  closure() *closurecontext
   closureScopes() []*Scope
 
   Project() *Project
@@ -163,9 +158,30 @@ type Context interface {
   mustExists() bool
 }
 
-func cast[C Context](ctx Context) (res C) {
-  if t := ctx.cast(reflect.TypeOf(res)); t != nil {
-    if c, y := t.(C); y { res = c } else { errostack(ctx, 3, "%T", t).debug(10) }
+func cast[C Context](ctx Context) (c C) {
+  if t := ctx.cast(reflect.TypeOf(c)); t != nil { c, _ = t.(C) }
+  return
+}
+
+func castImpl(ctx Context, t reflect.Type) (c Context) {
+  var v = reflect.ValueOf(ctx)
+  if t == reflect.TypeOf(ctx) { c = ctx } else {
+    if i := _innerContext(v); i != nil { c = i.(Context).cast(t) }
+  }
+  return
+}
+
+func innerContext(ctx Context) (c Context) {
+  if i := _innerContext(reflect.ValueOf(ctx)); i != nil { c = i.(Context) }
+  return
+}
+func _innerContext(v reflect.Value) (i interface{}) {
+  if t := v.Type(); t.Kind() == reflect.Struct {
+    if f, y := t.FieldByName("Context"); y && f.Anonymous {
+      if v = v.FieldByIndex(f.Index); v.IsValid() { i = v.Interface() }
+    }
+  } else if t.Kind() == reflect.Pointer {
+    i = _innerContext(v.Elem())
   }
   return
 }
@@ -409,6 +425,7 @@ func info(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx,
 func warn(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagWarn, f, a...) }
 func erro(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagError, f, a...) }
 func prompt(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagPrompt, f, a...) }
+
 func noted(ctx Context, f string, a ...interface{}) *diagPoint {
   if !strings.HasSuffix(f, "\n") { f += "\n" }
   if false {
@@ -416,13 +433,6 @@ func noted(ctx Context, f string, a ...interface{}) *diagPoint {
   } else {
     return prompt(ctx, ctx.Position().String()+": "+f, a...)
   }
-}
-
-func diagEnteringDirectory(ctx Context, dir string) {
-  diag(ctx, diagPromptNewline, "smart: Entering directory '%s'", dir)
-}
-func diagLeavingDirectory(ctx Context, dir string) {
-  diag(ctx, diagPromptNewline, "smart:  Leaving directory '%s'", dir)
 }
 
 func infostack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagInfo  , a...) }
@@ -538,12 +548,18 @@ func (pc *positionContext) String() string {
     return pc.Context.String()
   }
 }
+func (ctx *positionContext) cast(t reflect.Type) Context { return castImpl(ctx, t) }
+func (ctx *positionContext) _cast(t reflect.Type) (c Context) {
+  if t == reflect.TypeOf(ctx) { c = ctx } else
+  if ctx.Context != nil { c = ctx.Context.cast(t) }
+  return
+}
 
 func of(ctx Context, val Value) Context { return at(ctx, val.Position()) }
 func at(ctx Context, pos Position) Context {
   if ctx == nil { panic("nil context") } else
   if p := ctx.Position(); p._valid() && pos._valid() && !p.Same(&pos) {
-    for c, i, n := ctx, 0, 0; c != /* ctx.universe() */nil; c, i = c.inner(), i+1 {
+    for c, i, n := ctx, 0, 0; c != /* cast[*universe](ctx) */nil; c, i = c.inner(), i+1 {
       if _, y := c.(*positionContext); y { n += 1 ; if n > /* 999 */100 {
         if false { prompt(ctx, "%v: too many positions: %T\n", p, c) }
         warnstack(ctx, 3, "too many positions: %v/%v; %v", n, i, ctx).debug(16)
@@ -612,7 +628,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
 func walkSmartBaseDirs(ctx Context, cwd string, vis func(string)bool) (s string) {
   s = cwd
   for s != "" {
-    file := stat(ctx, ".smart", "", s)
+    file := stat(ctx, ".smart", stat_dir{s})
     if file != nil && file.info.IsDir() && !vis(s) { break }
     if up := filepath.Dir(s); up == s {
       break
@@ -726,8 +742,9 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
   return
 }
 
-func CommandLine() { var context = init_universe() ; defer assured(context, false)
-  if context.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
+func CommandLine() {
+  var context = init_universe() ; defer assured(context, false)
+  if  context.traceLaunch { defer un(trace(t_launch, "CommandLine")) }
 
   var modulesPaths, packagePaths searchlist
   walkSmartBaseDirs(context, context.workdir, func(s string) bool {
@@ -772,7 +789,7 @@ func CommandLine() { var context = init_universe() ; defer assured(context, fals
 
   if false { loadGrepCache(context) }
 
-  if err := context.loadTopWork(); err != nil {
+  if err := context.load(); err != nil {
     erro(context, "loading work failed: %v", err)
   } else if context.dia().flush() > 0 {
     prompt(context, "loading work got %d errors\n", context.dia().totalErrors())
@@ -785,7 +802,7 @@ func CommandLine() { var context = init_universe() ; defer assured(context, fals
   } else if numUpdatedPlugins > 0 { // see buildPlugin
     prompt(context, "plugins updated, please relaunch.\n")
   } else if context.commandline.configure {
-    context.configure(context)
+    configure(context)
   } else if result, err := context.run(); err != nil {
     erro(context, "run work failed: %v", err)
   } else if context.dia().flush() > 0 {
@@ -805,5 +822,5 @@ func CommandLine() { var context = init_universe() ; defer assured(context, fals
     fmt.Fprintf(stderr, "\n")
   }
 
-  promptLeavingDirectory(context)
+  // if false { promptLeavingDirectory(context) }
 }

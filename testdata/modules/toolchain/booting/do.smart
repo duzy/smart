@@ -1,4 +1,4 @@
-project testtoolchainbooting (variant=darwin/arm64/bootstrap,app)
+project testtoolchainbooting (app)
 
 use toolchain/booting
 

@@ -156,15 +156,15 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
                 case xml_enc.ProcInst:
                         // TODO: ...
                 case xml_enc.StartElement:
-                        nn := MakeGroup(pos, &bareword{valbase{pos},elem.Name.Local})
+                        nn := makeGroup(pos, &bareword{valbase{pos},elem.Name.Local})
                         for _, a := range elem.Attr {
                                 var k, v Value
                                 k = &bareword{valbase{pos},a.Name.Local}
-                                v = &String{valbase{pos},a.Value}
+                                v = &strlit{valbase{pos},a.Value}
                                 if s := a.Name.Space; s != "" {
-                                        k = MakeGroup(pos, &String{valbase{pos},s}, k)
+                                        k = makeGroup(pos, &strlit{valbase{pos},s}, k)
                                 }
-                                nn.Append(MakePair(pos, k, v))
+                                nn.Append(makePair(pos, k, v))
                         }
                         if x := len(stack); x > 0 {
                                 stack[x-1].Append(nn)
@@ -182,10 +182,10 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
                         if x := len(stack); x > 0 {
                                 node, s := stack[x-1], string(elem)
                                 if ws {
-                                        node.Append(&String{valbase{pos},s})
+                                        node.Append(&strlit{valbase{pos},s})
                                 } else {
                                         if s = strings.TrimSpace(s); s != "" {
-                                                node.Append(&String{valbase{pos},s})
+                                                node.Append(&strlit{valbase{pos},s})
                                         }
                                 }
                         }
@@ -196,7 +196,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
                 }
         }
         if x := len(nodes); x > 1 {
-                g := MakeGroup(pos)
+                g := makeGroup(pos)
                 for _, node := range nodes {
                         g.Append(node)
                 }
@@ -277,7 +277,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                 case json_enc.Delim:
                         switch d {
                         case '[':
-                                nn := MakeGroup(pos, MakeBareword(pos, JsonArray))
+                                nn := makeGroup(pos, makeBareword(pos, JsonArray))
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -286,7 +286,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                 stack = append(stack, nn) // APPEND
                                 break SwitchNodeType
                         case '{':
-                                nn := MakeGroup(pos, MakeBareword(pos, JsonObject))
+                                nn := makeGroup(pos, makeBareword(pos, JsonObject))
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -320,7 +320,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                 err = ErrorIllJson; break LoopJSON
                         }
                 case string:
-                        var sv = &String{valbase{pos},d}
+                        var sv = &strlit{valbase{pos},d}
                         if x == 0 {
                                 nodes = append(nodes, sv)
                                 break
@@ -347,30 +347,30 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                         case json_enc.Delim:
                                 var vn *group
                                 switch vd {
-                                case '[': vn = MakeGroup(pos, MakeBareword(pos, JsonArray))
-                                case '{': vn = MakeGroup(pos, MakeBareword(pos, JsonObject))
+                                case '[': vn = makeGroup(pos, makeBareword(pos, JsonArray))
+                                case '{': vn = makeGroup(pos, makeBareword(pos, JsonObject))
                                 default: err = ErrorIllJson; break LoopJSON
                                 }
                                 stack = append(stack, vn)
-                                node.Append(MakePair(pos, sv, vn))
+                                node.Append(makePair(pos, sv, vn))
                         case string:
-                                node.Append(MakePair(pos, sv, MakeString(pos, vd)))
+                                node.Append(makePair(pos, sv, makeStrlit(pos, vd)))
                         case float64:
-                                node.Append(MakePair(pos, sv, MakeFloat(pos, vd)))
+                                node.Append(makePair(pos, sv, makeFloat(pos, vd)))
                         case nil: // null
-                                node.Append(MakePair(pos, sv, MakeBareword(pos, "null")))
+                                node.Append(makePair(pos, sv, makeBareword(pos, "null")))
                         default:
                                 err = ErrorIllJson; break LoopJSON
                         }
                         //prompt(ctx, "node: %v\n", node)
                 case float64:
-                        if v := Value(MakeFloat(pos, d)); x == 0 {
+                        if v := Value(makeFloat(pos, d)); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v
                         }
                 case nil: // null
-                        if v := Value(MakeBareword(pos, "null")); x == 0 {
+                        if v := Value(makeBareword(pos, "null")); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v
@@ -394,7 +394,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
         if x := len(nodes); x == 1 {
                 result = nodes[0]
         } else {
-                g := MakeGroup(pos)
+                g := makeGroup(pos)
                 for _, v := range nodes {
                         g.Append(v)
                 }

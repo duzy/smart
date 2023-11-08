@@ -1,26 +1,30 @@
-project testllvmconfig (llvm/Config) #variant=darwin/arm64/bootstrap,
+project testllvmconfig (llvm/Config)
 
-rel.chop =+ $(dir4 $/)/
+root1  := $/
+root2 ::= &/
+root3  := &/
+
+chop0 ::= $(rel.chop)
+chop1 ::= $(dir4 $/)/
+
+rel.chop =+ $(chop1) # see $(rel.remnant)
+
+remnant0 ::= testdata/modules/llvm/config
+remnant1 ::= $(base4 $/)
 
 conf ::= configuration.sm
 val1 ::= $(fullname $(conf))
-val2 ::= $(file $(conf))
+val2 ::=     $(file $(conf))
+
+val3.a ::= $(fullname llvm/Config/llvm-config.h.cmake)
+val3.b ::=  $(srcinc)/llvm/Config/llvm-config.h.cmake
+
+val4.a ::= $(fullname llvm/Config/llvm-config.h)
+val4.b ::=  $(outinc)/llvm/Config/llvm-config.h
 
 assert (
-    $(rel.chop)
-    $(rel.remnant)
-
-    $(equal(-d) $(rel.remnant),$(base4 $/))
-    $(equal(-d) $(rel.remnant),testdata/modules/llvm/config)
-    $(equal(-d) $(fullname llvm/Config/llvm-config.h.cmake), $(srcinc)/llvm/Config/llvm-config.h.cmake)
-    $(equal(-d) $(fullname llvm/Config/llvm-config.h),       $(outinc)/llvm/Config/llvm-config.h)
-
-    $(val1)
-    $(val2)
-
     $(src.def.in)
     $(src.h.cmake)
-
     $(headers)
 )
 

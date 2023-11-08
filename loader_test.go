@@ -9,20 +9,8 @@ import (
     "strings"
 )
 
-func testLoad(ctx *testcase) {
-    // var l = &loader{
-    //	 closureContext: closureContext{&uni, nil},
-    // }
-    // l.path("testdata", nil)
-    // TODO: loader
-}
-
-func testBuildExample(ctx *testcase) {
-    // TODO: test `testdata/example-build.smart`
-}
-
-func testLoadTopWork(ctx *testcase) {
-    if !strings.HasSuffix(ctx.WorkDir(), "/testdata/none") {
-        ctx.err("wrong workdir: %s", ctx.WorkDir())
+func testLoader(ctx *testcase) {
+    if !strings.HasSuffix(ctx.workDir(), "/testdata/none") {
+        ctx.err("workdir: %s", ctx.workDir())
     }
 }

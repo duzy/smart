@@ -8,55 +8,57 @@ package smart
 import (
 	"sync"
 	"strings"
-	"testing"
 	"path/filepath"
 )
 
 const TER = false
 
-func testAssert(t *testing.T) {
-	var boos []bool
-	var vals []Value
-	runcase(t, "testdata/assert", "testassert", func (ctx *testcase) {
-		if foo := ctx.get("foo"); foo == nil {
-			ctx.err("foo")
-		} else if foo.string(ctx) != "foo" {
-			ctx.err("%T %v", foo, foo)
-		}
+type testAssertStruct struct {
+	boos []bool
+	vals []Value
+}
+func testAssertHook(ctx Context, v Value, b bool, i interface{}) {
+	st := i.(*testAssertStruct)
+	st.boos = append(st.boos, b)
+	st.vals = append(st.vals, v)
+}
+func testAssert(ctx testcase1) {
+	if foo := ctx.get("foo"); foo == nil {
+		ctx.err("foo")
+	} else if foo.string(ctx) != "foo" {
+		ctx.err("%T %v", foo, foo)
+	}
 
-		if len(boos) != 11 {
-			ctx.err("%v, %v, %v %v", vals, boos, len(vals), len(boos))
-		} else if len(vals) != len(boos) {
-			ctx.err("%v %v", vals, boos)
-		} else if i := 0; vals[i].String() != "true{}" || !boos[i] {
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 1; vals[i].String() != "false{}" || boos[i] {
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 2; vals[i].String() != "yes{}" || !boos[i] {
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 3; vals[i].String() != "no{}" || boos[i] {
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 4; vals[i].String() != "" || boos[i] { // none{}
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 5; vals[i].String() != "undef{}" || boos[i] {
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 6; vals[i].String() != "" || boos[i] { // null{}
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 7; vals[i].String() != "foobar{}" || !boos[i] {
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 8; vals[i].String() != "1" || !boos[i] {
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 9; vals[i].String() != "0" || boos[i] {
-			ctx.err("%v %v", vals[i], boos[i])
-		} else if i = 10; vals[i].String() != "$(equal $(foo),foo)" || !boos[i] {
-			ctx.err("%v %v", vals[i], boos[i])
-		}
-	}, hooks{
-		assert: func(ctx Context, v Value, b bool) (res bool) {
-			vals, boos = append(vals, v), append(boos, b)
-			return true
-		},
-	})
+	st := ctx.i.(*testAssertStruct)
+	boos, vals := st.boos, st.vals
+
+	if len(boos) != 11 {
+		ctx.err("%v, %v, %v %v", vals, boos, len(vals), len(boos))
+	} else if len(vals) != len(boos) {
+		ctx.err("%v %v", vals, boos)
+	} else if i := 0; vals[i].String() != "true{}" || !boos[i] {
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 1; vals[i].String() != "false{}" || boos[i] {
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 2; vals[i].String() != "yes{}" || !boos[i] {
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 3; vals[i].String() != "no{}" || boos[i] {
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 4; vals[i].String() != "" || boos[i] { // none{}
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 5; vals[i].String() != "undef{}" || boos[i] {
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 6; vals[i].String() != "" || boos[i] { // null{}
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 7; vals[i].String() != "foobar{}" || !boos[i] {
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 8; vals[i].String() != "1" || !boos[i] {
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 9; vals[i].String() != "0" || boos[i] {
+		ctx.err("%v %v", vals[i], boos[i])
+	} else if i = 10; vals[i].String() != "$(equal $(foo),foo)" || !boos[i] {
+		ctx.err("%v %v", vals[i], boos[i])
+	}
 }
 
 func testWildcard(ctx *testcase) {
@@ -180,7 +182,7 @@ func testWildcard(ctx *testcase) {
 
 	const N = 1
 	var wg sync.WaitGroup
-	var workDirInc = ctx.WorkDir() + "/inc"
+	var workDirInc = ctx.workDir() + "/inc"
 	invalid := func(name string) bool { return name == "" ||
 		name != "foobar/config/a.def.in" &&
 			name != "foobar/config/b.def.in" ;}
@@ -2275,7 +2277,7 @@ func testForeach3(ctx *testcase) {
 	} else if _, y := u.Value.(*delegate); !y {
 		ctx.err("%T %v", u.Value, u.Value)
 	}
-	if true { ctx.universe().ddd = "test.if" }
+	if true { cast[*universe](ctx).ddd = "test.if" }
 	if v := ctx.get(".test.y", expandUnexpandedForth); v == nil {
 		ctx.err("%v", ctx.def(".test.y"))
 	} else if v.String() != "$(if &(.test.$1),std=&(.test.$1)) $(if &(.test.$2),std=&(.test.$2))" {
@@ -2850,14 +2852,14 @@ func testTrimPrefix(ctx *testcase) {
 	} else if b1, y := b0.([]string); !y {
 		ctx.err("%T %v %v ; %v %v %v", v1, v1, v0, a, b0, c)
 	} else if p := strings.Split(v1.string(ctx), PathSep); len(b1) > 0 && len(b1) != len(p)-1 {
-		ctx.err("%v %v ; %v %v", v1, v0, strings.Join(b1, PathSep), v1)
+		ctx.err("%v %v ; %v %v", v1, v0, joinPath(b1...), v1)
 	} else if p[0] != b1[0] {
-		ctx.err("%v %v ; %v %v", v1, v0, strings.Join(b1, PathSep), v1)
-	} else if strings.Join(b1, PathSep) != strings.Join(p[:len(p)-1], PathSep) {
+		ctx.err("%v %v ; %v %v", v1, v0, joinPath(b1...), v1)
+	} else if joinPath(b1...) != joinPath(p[:len(p)-1]...) {
 		ctx.err("%v %v ; %v %v", v1, v0, b1, p)
 	} else if len(c) != 1 {
 		ctx.err("%v %v ; %v %v", v1, v0, c, v1)
-	} else if c[0] != strings.Join(p[:len(p)-1], PathSep) {
+	} else if c[0] != joinPath(p[:len(p)-1]...) {
 		ctx.err("%v %v ; %v %v", v1, v0, c, v1)
 	} else {
 		for i, s := range b1 { if s != p[i] {
@@ -2881,14 +2883,14 @@ func testTrimPrefix(ctx *testcase) {
 	} else if b1, y := b0.([]string); !y {
 		ctx.err("%T %v %v ; %v %v %v", v1, v1, v0, a, b0, c)
 	} else if p := strings.Split(v1.string(ctx), PathSep); len(b1) > 0 && len(b1) != len(p)-1 {
-		ctx.err("%v %v ; %v %v", v1, v0, strings.Join(b1, PathSep), v1)
+		ctx.err("%v %v ; %v %v", v1, v0, joinPath(b1...), v1)
 	} else if p[0] != b1[0] {
-		ctx.err("%v %v ; %v %v", v1, v0, strings.Join(b1, PathSep), v1)
-	} else if strings.Join(b1, PathSep) != strings.Join(p[:len(p)-1], PathSep) {
+		ctx.err("%v %v ; %v %v", v1, v0, joinPath(b1...), v1)
+	} else if joinPath(b1...) != joinPath(p[:len(p)-1]...) {
 		ctx.err("%v %v ; %v %v", v1, v0, b1, p)
 	} else if len(c) != 1 {
 		ctx.err("%v %v ; %v %v", v1, v0, c, v1)
-	} else if c[0] != strings.Join(p[:len(p)-1], PathSep) {
+	} else if c[0] != joinPath(p[:len(p)-1]...) {
 		ctx.err("%v %v ; %v %v", v1, v0, c, v1)
 	} else {
 		for i, s := range b1 { if s != p[i] {
@@ -2909,14 +2911,14 @@ func testTrimPrefix(ctx *testcase) {
 	} else if b1, y := b0.([]string); !y {
 		ctx.err("%T %v %v ; %v %v %v", v1, v1, v0, a, b0, c)
 	} else if p := strings.Split(v1.string(ctx), PathSep); len(b1) > 0 && len(b1) != len(p)-1 {
-		ctx.err("%v %v ; %v %v", v1, v0, strings.Join(b1, PathSep), v1)
+		ctx.err("%v %v ; %v %v", v1, v0, joinPath(b1...), v1)
 	} else if p[0] != b1[0] {
-		ctx.err("%v %v ; %v %v", v1, v0, strings.Join(b1, PathSep), v1)
-	} else if strings.Join(b1, PathSep) != strings.Join(p[:len(p)-1], PathSep) {
+		ctx.err("%v %v ; %v %v", v1, v0, joinPath(b1...), v1)
+	} else if joinPath(b1...) != joinPath(p[:len(p)-1]...) {
 		ctx.err("%v %v ; %v %v", v1, v0, b1, p)
 	} else if len(c) != 1 {
 		ctx.err("%v %v ; %v %v", v1, v0, c, v1)
-	} else if c[0] != strings.Join(p[1:len(p)-1], PathSep) {
+	} else if c[0] != joinPath(p[1:len(p)-1]...) {
 		ctx.err("%v %v ; %v %v", v1, v0, c, v1)
 	} else {
 		for i, s := range b1 { if s != p[i] {
@@ -2937,14 +2939,14 @@ func testTrimPrefix(ctx *testcase) {
 	} else if b1, y := b0.([]string); !y {
 		ctx.err("%T %v %v ; %v %v %v", v1, v1, v0, a, b0, c)
 	} else if p := strings.Split(v1.string(ctx), PathSep); len(b1) > 0 && len(b1) != len(p)-1 {
-		ctx.err("%v %v ; %v %v", v1, v0, strings.Join(b1, PathSep), v1)
+		ctx.err("%v %v ; %v %v", v1, v0, joinPath(b1...), v1)
 	} else if p[0] != b1[0] {
-		ctx.err("%v %v ; %v %v", v1, v0, strings.Join(b1, PathSep), v1)
-	} else if strings.Join(b1, PathSep) != strings.Join(p[:len(p)-1], PathSep) {
+		ctx.err("%v %v ; %v %v", v1, v0, joinPath(b1...), v1)
+	} else if joinPath(b1...) != joinPath(p[:len(p)-1]...) {
 		ctx.err("%v %v ; %v %v", v1, v0, b1, p)
 	} else if len(c) != 1 {
 		ctx.err("%v %v ; %v %v", v1, v0, c, v1)
-	} else if c[0] != strings.Join(p[1:len(p)-1], PathSep) {
+	} else if c[0] != joinPath(p[1:len(p)-1]...) {
 		ctx.err("%v %v ; %v %v", v1, v0, c, v1)
 	} else {
 		for i, s := range b1 { if s != p[i] {
@@ -3111,14 +3113,14 @@ func testBuiltins(ctx *testcase) {
 		ctx.err("val7")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if v.String() != "$(join &(target.arch) &(target.vendor) &(target.sys) &(target.abi),-)" {
+	} else if v.String() != "$(join &(target.arch) &(target.vendor) &(target.os) &(target.abi),-)" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "foo-bar-a-0" {
 		ctx.err("%T %v → %s", v, v, s)
 	}
 	if v := ctx.get("val7"); v == nil {
 		ctx.err("val7")
-	} else if v.String() != "$(join &(target.arch) &(target.vendor) &(target.sys) &(target.abi),-)" {
+	} else if v.String() != "$(join &(target.arch) &(target.vendor) &(target.os) &(target.abi),-)" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "foo-bar-a-0" {
 		ctx.err("%T %v → %s", v, v, s)
@@ -3127,13 +3129,13 @@ func testBuiltins(ctx *testcase) {
 		ctx.err("val7.1")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if v.String() != "&(target.arch)-&(XXX)-&(target.vendor)-&(target.sys)-&(target.abi)" {
+	} else if v.String() != "&(target.arch)-&(XXX)-&(target.vendor)-&(target.os)-&(target.abi)" {
 		ctx.err("%T %v", v, v)
 	} else if s := v.string(ctx); s != "foo-bar-a-0" {
 		ctx.err("%T %v → %s", v, v, s)
 	}
 
-	fullFooTxt := filepath.Join(ctx.WorkDir(), "foo.txt")
+	fullFooTxt := filepath.Join(ctx.workDir(), "foo.txt")
 	if v := ctx.get("val8"); v == nil {
 		ctx.err("val8")
 	} else if v.String() != "foo.txt" {
@@ -3144,7 +3146,7 @@ func testBuiltins(ctx *testcase) {
 		ctx.err("%T %v", v, v)
 	} else if f := (as{v}.file(ctx)); f == nil {
 		ctx.err("%T %v", v, v)
-	} else if o, y := (as{v}.fullnameOpt(ctx)); !y || o.Value == nil {
+	} else if o, y := (as{v}.fullname(ctx)); !y || o.Value == nil {
 		ctx.err("%T %v ; %T %v %v", v, v, o.Value, o.Value, y)
 	} else if f, y := o.Value.(*File); !y || f == nil {
 		ctx.err("%T %v", o.Value, o.Value)
@@ -3182,9 +3184,9 @@ func testBuiltins(ctx *testcase) {
 		ctx.err("val10")
 	} else if v.String() != "foo.txt" {
 		ctx.err("%T %v", v, v)
-	} else if v.string(ctx) != fullFooTxt { o, y := v.(fullnameOpt)
+	} else if v.string(ctx) != fullFooTxt { o, y := v.(fullname)
 		ctx.err("%T %v ; %T %v %v", v, v, o.Value, o.Value, y)
-	} else if o, y := v.(fullnameOpt); !y {
+	} else if o, y := v.(fullname); !y {
 		ctx.err("%T %v", v, v)
 	} else if f, y := o.Value.(*File); !y || f == nil {
 		ctx.err("%T %v", o.Value, o.Value)

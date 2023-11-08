@@ -13,7 +13,6 @@ import (
   "sync"
   "time"
   "fmt"
-  "io/fs"
   "os"
 )
 
@@ -113,7 +112,7 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
   } else if s, y := res.(string); y {
     name = s
   } else if a, y := res.([]string); y {
-    name = strings.Join(a, PathSep)
+    name = joinPath(a...)
   } else {
     erro(ctx, "unexpected result: %T %v", res, res).debug(1)
   }
@@ -190,7 +189,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
       // dir = filepath.Clean(base)
     }
 
-    if file = stat(ctx, name, sub, dir, nil); file != nil { break }
+    if file = stat(ctx, name, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true}); file != nil { break }
 
     var pre string // Not used!
     if filepath.IsAbs(sub) {
@@ -199,7 +198,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
         //   xxx.c  <->  (*.c => /path/to/source)
         // Become:
         //   /path/to/source  ""  xxx.c
-        file = stat(ctx, name, "", sub, nil)
+        file = stat(ctx, name, stat_dir{sub}, stat_nonexist{true})
       } else if strings.HasSuffix(sub, PathSep+pre) {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
@@ -207,14 +206,14 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
         //   /path/to/source  foo/bar  xxx.c
         s := strings.TrimSuffix(sub, PathSep+pre)
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(ctx, n, pre, s, nil)
+        file = stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
       } else if false { // This is wrong, only base name matched!!
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
         // Become:
         //   /path/to/source  foo/bar  xxx.c
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(ctx, n, pre, sub, nil)
+        file = stat(ctx, n, stat_sub{pre}, stat_dir{sub}, stat_nonexist{true})
       }
     } else {
       if pre == "" { // Fullmatch!
@@ -222,14 +221,14 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
         //   xxx.c  <->  (*.c => source)
         // Become:
         //   <p.absPath>  source  xxx.c
-        file = stat(ctx, name, sub, dir, nil)
+        file = stat(ctx, name, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true})
       } else if sub == pre {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => foo/bar)
         // Become:
         //   <dir>  foo/bar  xxx.c
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(ctx, n, sub, dir, nil)
+        file = stat(ctx, n, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true})
       } else if strings.HasSuffix(sub, PathSep+pre) {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
@@ -237,7 +236,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
         //   <dir>  source/foo/bar  xxx.c
         s := strings.TrimSuffix(sub, PathSep+pre)
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(ctx, n, pre, s, nil)
+        file = stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
       } else if false { // This is wrong, only base name matched!!
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => source)
@@ -245,7 +244,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
         //   <dir>  source/foo/bar  xxx.c
         s := filepath.Join(sub, pre)
         n := strings.TrimPrefix(name, pre+PathSep)
-        file = stat(ctx, n, s, dir, nil)
+        file = stat(ctx, n, stat_sub{s}, stat_dir{dir}, stat_nonexist{true})
       }
     }
   }
@@ -256,7 +255,7 @@ type Project struct {
   position Position
   keyword  Token // project, package, module
 
-  configurationFile *File // decided at load time
+  configurationFile *File // default file, decided at load time
   configure *Project // .configure
   configured bool
 
@@ -303,11 +302,6 @@ func (p *Project) wildcard(ctx *builtin_wildcard, patterns ...Value) (files []*F
     }
   } (time.Now())
 
-  var a []fs.FileInfo
-  if ctx.includeMissing && !ctx.ignoreMissing {
-    a = []fs.FileInfo{nil}
-  }
-
   var m sync.Mutex
   var g sync.WaitGroup
   var collect = func(t ...*File) {
@@ -316,6 +310,8 @@ func (p *Project) wildcard(ctx *builtin_wildcard, patterns ...Value) (files []*F
     m.Unlock()
     g.Done()
   }
+
+  var nonexist = ctx.includeMissing && !ctx.ignoreMissing
   var f0 = func(lVal, rVal Value, lPat, rPat bool, fm *FileMap) {
     var o = *ctx
     for _, loc := range fm.locs {
@@ -326,16 +322,16 @@ func (p *Project) wildcard(ctx *builtin_wildcard, patterns ...Value) (files []*F
         }
         g.Add(1) ; go collect(o._do(pat)...)
       } else if lPat && !rPat {
-        if file := stat(ctx, rVal.string(ctx), "", o.dir, a...); file != nil {
+        if file := stat(ctx, rVal.string(ctx), stat_dir{o.dir}, stat_nonexist{nonexist}); file != nil {
           g.Add(1) ; go collect(file)
         } else if false {
-          erro(ctx, "nil: %v: %T %v (%s, %v)", lVal, rVal, rVal, o.dir, a).debug(1)
+          erro(ctx, "nil: %v: %T %v (%s)", lVal, rVal, rVal, o.dir).debug(1)
         }
       } else if !lPat && rPat {
-        if file := stat(ctx, lVal.string(ctx), o.dir, "", a...); file != nil {
+        if file := stat(ctx, lVal.string(ctx), stat_dir{o.dir}, stat_nonexist{nonexist}); file != nil {
           g.Add(1) ; go collect(file)
         } else if false {
-          erro(ctx, "nil: %v: %T %v (%s, %v)", rVal, lVal, lVal, o.dir, a).debug(1)
+          erro(ctx, "nil: %v: %T %v (%s)", rVal, lVal, lVal, o.dir).debug(1)
         }
       } else {
         warn(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, o.dir)
@@ -465,28 +461,24 @@ func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
 }
 
 func (p *Project) file(ctx Context, iname interface{}) (file *File) {
-  if file = p.selectFile(ctx, /*files(ctx, iname, p)*/unmap(ctx, iname)); false && file == nil {
-    var s, d string // TODO: s = iname
-    if s != "" {
-      if !filepath.IsAbs(s) { d = p.absPath }
-      file = stat(ctx, s, "", d)
-    }
-  }
-  return
+  return p.selectFile(ctx, unmap(ctx, iname))
 }
 
 func (p *Project) tempFile(ctx Context, name string) (file *File) {
+  if false { ctx = closureWith(ctx, p.scope) }
+
   if file = p.file(ctx, name); file != nil {
-    // good
-  } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
-    erro(ctx, "%v: CTD is not defined for temp file: %v", p, name).debug(1)
-  } else if file = stat(ctx, filepath.Join(ctd.string(ctx), name), "", "", nil); file == nil {
-    erro(ctx, "%v: nil stat %v %v", p, ctd.string(ctx), name).debug(1)
-  } else if false {
-    warn(of(ctx,ctd), "using default temp file: %v/%v", ctd.string(ctx), name)
-    warn(at(ctx,p.position), "suggesting define files rule for '%s' in %v", name, p).debug(12)
+    return
   }
-  return // NOTE: temp file may not exists
+
+  if d := p.resolveDef(ctx, "CTD"); d == nil {
+    erro(ctx, "%v: $(CTD) is not defined: %v", p, name).debug(1)
+  } else if ctd := d.value; isTrivial(ctd) {
+    erro(ctx, "%v: $(CTD) is trivial for %v", p, name).debug(1)
+  } else if file = stat(ctx, name, stat_dir{ctd.string(ctx)}, stat_nonexist{true}); file == nil {
+    erro(ctx, "%v: not a file: %v (%v)", p, name, ctd.string(ctx)).debug(1)
+  }
+  return
 }
 
 func (p *Project) configuration(ctx Context) (file *File) {
@@ -505,7 +497,7 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   if p == nil { erro(ctx, "nil project").debug(1) ; return }
 
   var bits = cacheStore // cacheMatchPatts
-  for mi, m := range ctx.universe().cache(ctx, p, patts, paths) {
+  for mi, m := range cast[*universe](ctx).cache(ctx, p, patts, paths) {
     var ctx = of(ctx, m.pattern)
     for i, pat := range xmerge(ctx, plain, m.pattern) {
       if pat.expandable(ctx, plain) {
@@ -851,7 +843,7 @@ func (p *Project) hasBase(proj *Project) (res bool) {
 }
 
 func (p *Project) hasLoaded(ctx Context, proj *Project, traveUseLoop bool) (rp *Project, res, isb bool, err error) {
-  var uni = ctx.universe()
+  var uni = cast[*universe](ctx)
   if uni.checkLoadGraph || !uni.fastMode {
     rp, res, isb, err = p.hasLoadedRecur(ctx, p, proj, 1, traveUseLoop)
   }
@@ -947,10 +939,8 @@ func (p *Project) usees(bases, basesRecur, useeRecur, pre bool) (res []*Project)
   return
 }
 
-//var cdUnlocked = make(chan bool, 1)
 // Note: this is okay not using an atomic value, because
 // chdirMutex can serve to protect the whole timeframe.
-//var cdUnlockTime atomic.Value
 var chdirMutex = new(sync.Mutex)
 
 func lockCD(dir string, dura time.Duration) error {
@@ -963,104 +953,4 @@ func lockCD(dir string, dura time.Duration) error {
     chdirMutex.Unlock()
   } ()
   return os.Chdir(dir)
-}
-
-func enter(ctx Context, dir string) (err error) {
-  var uni = ctx.universe()
-
-  uni.cds.mutex.Lock(); defer uni.cds.mutex.Unlock()
-
-  if uni.traceEntering {
-    prompt(ctx, "entering: %v (%v)\n", dir, ctx.Project().name)
-  }
-
-  var wd string
-  if wd, err = os.Getwd(); err != nil { return }
-  if err = lockCD(dir, 0); err != nil { return } // FIXME: not thread safe
-  if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
-  autoSet(ctx, "CWD", MakeString(ctx.program().position, dir))
-
-  var ( enter *enterec ; y bool )
-  if enter, y = uni.cds.enters[dir]; !y {
-    enter = &enterec{ wd:wd, dir:dir }
-    uni.cds.enters[dir] = enter
-  }
-  enter.num += 1
-  uni.cds.stack = append([]*enterec{enter}, uni.cds.stack...)
-  return
-}
-
-func leave(ctx Context, prog *program, stop *enterec) (err error) {
-  var uni = ctx.universe()
-
-  uni.cds.mutex.Lock(); defer uni.cds.mutex.Unlock()
-
-  var size = len(uni.cds.stack)
-  if uni.traceEntering {
-    prompt(ctx, "leaving: %v (%v %v %v)\n", stop.dir, prog.project.name, stop.num, size)
-  }
-
-  for _, enter := range uni.cds.stack {
-    if enter.num == 0 { continue } else {
-      enter.num -= 1
-    }
-    if enter == stop {
-      if enter.print && false {
-        enter.print = false
-        prompt(ctx, "smart:  Leaving directory '%s'\n", enter.dir)
-      }
-      err = lockCD(enter.wd, 0) // FIXME: not thread safe
-      break
-    }
-  }
-
-  // Erase 'zero' and unprint records, the first record is always kept.
-  // So that the right entering/leaving pairs are printed.
-  if size > 1 {
-    var stack = []*enterec{ uni.cds.stack[0] }
-    for i := 1; i < size; i += 1 {
-      var rec = uni.cds.stack[i]
-      if rec.num > 0 || rec.print {
-        stack = append(stack, rec)
-      }
-    }
-    uni.cds.stack = stack
-  }
-  return
-}
-
-func promptEnteringDirectory(ctx Context) {
-  var uni = ctx.universe()
-
-  uni.cds.mutex.Lock() ; defer uni.cds.mutex.Unlock()
-
-  if size := len(uni.cds.stack); size > 0 {
-    var enter = uni.cds.stack[0]
-    if enter.silent { return }
-    for _, p := range uni.cds.stack {
-      if p.print && p != enter {
-        p.print = false
-        diagLeavingDirectory(ctx, p.dir)
-      }
-    }
-    if !enter.print {
-      enter.print = true
-      diagEnteringDirectory(ctx, enter.dir)
-    }
-  }
-}
-
-func promptLeavingDirectory(ctx Context) {
-  var uni = ctx.universe()
-
-  uni.cds.mutex.Lock() ; defer uni.cds.mutex.Unlock()
-
-  if size := len(uni.cds.stack); size > 0 {
-    for _, enter := range uni.cds.stack {
-      if enter.print {
-        enter.print = false
-        diagLeavingDirectory(ctx, enter.dir)
-      }
-    }
-  }
 }

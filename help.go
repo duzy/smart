@@ -75,44 +75,43 @@ func print_help_entries(ctx Context) {
 }
 
 func print_options(ctx Context) {
-        type opt struct { entry Entry; infos []Value }
-        var opts []opt
-        for _, entry := range ctx.universe().configuration.entries {
-                okay, infos := entry.option(ctx)
-                if okay { opts = append(opts, opt{entry, infos}) }
-        }
+    type opt struct { entry Entry; infos []Value }
 
-        if len(opts) == 0 { return }
+    var opts []opt
+    cast[*universe](ctx).forConfigs(func(proj *Project, entry Entry) {
+        y, infos := entry.option(ctx)
+        if y { opts = append(opts, opt{entry, infos}) }
+    })
+    if len(opts) == 0 { return }
 
-        prompt(ctx, "Configure:\n\n")
-        for _, opt := range opts {
-                prompt(ctx, "    %v:\n", opt.entry)
-                for _, info := range opt.infos {
-                        prompt(ctx, "        %s\n", info.string(ctx))
-                }
+    prompt(ctx, "Configure:\n\n")
+    for _, opt := range opts {
+        prompt(ctx, "    %v:\n", opt.entry)
+        for _, info := range opt.infos {
+            prompt(ctx, "        %s\n", info.string(ctx))
         }
+    }
 }
 
 func print_configuration(ctx Context) {
-        prompt(ctx, `Configuration:
+    prompt(ctx, `Configuration:
 `)
 
-        var configs = make(map[*Project][]Entry)
-        for _, entry := range ctx.universe().configuration.entries {
-                project := entry.OwnerProject()
-                entries, _ := configs[project]
-                entries = append(entries, entry)
-                configs[project] = entries
-        }
+    var configs = make(map[*Project][]Entry)
+    cast[*universe](ctx).forConfigs(func(proj *Project, entry Entry) {
+        entries, _ := configs[proj]
+        entries = append(entries, entry)
+        configs[proj] = entries
+    })
 
-        for project, entries := range configs {
-                prompt(ctx, `
+    for project, entries := range configs {
+        prompt(ctx, `
     %s`, project.spec)
-                for _, entry := range entries {
-                        prompt(ctx, `
+        for _, entry := range entries {
+            prompt(ctx, `
         %s`, entry)
-                }
         }
+    }
 
-        prompt(ctx, "\n")
+    prompt(ctx, "\n")
 }

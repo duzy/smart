@@ -290,7 +290,6 @@ texts = this is a text array
     }
 }
 
-// TODO: TestIntegers
 func testIntegers(t *testing.T) {
     src := `
 integer1 = +100
@@ -404,7 +403,6 @@ bin2 = 0b1100110011
     }
 }
 
-// TODO: TestDatetime
 func testDatetime(t *testing.T) {
     src := `
 t1 = 1979-05-27T07:32:00Z
@@ -481,7 +479,6 @@ t7 = 07:32:00.999999
     }
 }
 
-// TODO: TestFloats
 func testFloats(t *testing.T) {
     src := `
 float1 = +1.0
@@ -560,7 +557,6 @@ float8 = 6.18_16_18_16
     }
 }
 
-// TODO: TestArrays
 func testArrays(t *testing.T) {
     src := `
 array1 = text1 text2 text3 '' 1 2 3 1.2 ( a b c 1 2 3 '' "")
@@ -629,7 +625,6 @@ array2 = \
     }
 }
 
-// TODO: TestMaps
 func testMaps(t *testing.T) {
     src := `
 map1 = (
@@ -698,7 +693,6 @@ map2 = (  k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4  )
     }
 }
 
-// TODO: TestCalls
 func testCalls(t *testing.T) {
     var s Scanner
 
@@ -861,7 +855,6 @@ v2 = $(concat "a" 'b' c)
     }
 }
 
-// TODO: TestRules
 func testRules(t *testing.T) {
     var s Scanner
 
@@ -1078,7 +1071,6 @@ start:?[shell]:
     }
 }
 
-// TODO: TestProgConstructs
 func testProgConstructs(t *testing.T) {
     var s Scanner
 

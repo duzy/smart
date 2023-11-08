@@ -1,6 +1,6 @@
-project testtarget (variant=darwin/arm64/bootstrap,variant/bootstrap)
+project testtarget (variant/bootstrap)
 
-target.sys := foo
+target.os := foo
 
 foo := foobar
 neg1 := !$(foo)

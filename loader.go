@@ -120,7 +120,7 @@ func (li *loadinfo) traveUseLoop() (result bool) {
 }
 
 type loader struct {
-    closureContext
+    closurecontext
     p *parser
     mode Mode // parsing mode
     project *Project
@@ -133,14 +133,14 @@ type loader struct {
 }
 func (l *loader) String() string {
     if fullContextStringer {
-        return fmt.Sprintf("loader{%s}", &l.closureContext)
+        return fmt.Sprintf("loader{%s}", &l.closurecontext)
     } else {
-        return l.closureContext.String()
+        return l.closurecontext.String()
     }
 }
 func (l *loader) loader() *loader { return l }
 func (l *loader) parser() *parser { return l.p }
-func (l *loader) inner() Context { return &l.closureContext }
+func (l *loader) inner() Context { return &l.closurecontext }
 func (l *loader) Project() (project *Project) { return l.project }
 
 func restoreLoadingInfo(l *loader) {
@@ -183,7 +183,7 @@ func saveLoadingInfo(l *loader, specName, absDir, baseName string) *loader {
 }
 
 type useOpts struct {
-	noUse  bool `nu,nouse;uu,unuse` // TODO
+	noUse  bool `nu,nouse,uu,unuse` // TODO
     noVars bool `nv,novars,no-vars`
 	files  bool `f,files` // NOTE: see also '-import(xxxx)'
 	reuse  bool `r,ru,reuse,reusing`
@@ -191,7 +191,7 @@ type useOpts struct {
 }
 
 type usevar struct {
-    unique bool `u,uni,uniq,unique`
+    unique bool `uni,uniq,unique`
     remainder []Value // will be opts for unique
 }
 func (uo *usevar) apply(ctx Context, d *def, u ...*def) {
@@ -228,7 +228,7 @@ func usefor(ctx Context, user *Project, f func(usevar, Value, Value, string)) {
     }}}
 }
 func usevars(ctx Context, user, usee *Project) {
-    var ddd = ctx.universe().ddd == "use"
+    var ddd = cast[*universe](ctx).ddd == "use"
     usefor(ctx, user, func(op usevar, spec, val Value, name string) {
         var useDef *def
         if o := usee.scope.Lookup("use."+name); o != nil {
@@ -290,7 +290,7 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
 	if true { defer dtrace(ctx, "usespec") }
 
     var (
-        uni = l.universe()
+        u = cast[*universe](l.Context)
         globe = l.Globe()
         linfo = globe.loads[len(globe.loads)-1]
         absPath, specName string
@@ -303,8 +303,8 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
     } else if specName = specVal.string(ctx); specName == "" {
         errostack(ctx, 3, "empty spec: %v (%T)", specVal, specVal).debug(6)
         return
-    } else if absPath, isDir = uni.search(ctx, linfo, specName); absPath == "" {
-        errostack(ctx, 3, "missing `%s` (in %v)", specName, uni.paths).debug(6)
+    } else if absPath, isDir = u.search(ctx, linfo, specName); absPath == "" {
+        errostack(ctx, 3, "missing `%s` (in %v)", specName, u.paths).debug(6)
         return
     } else {
         if loaded, y = globe.loaded[absPath]; !y {
@@ -333,7 +333,7 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
 
                 if traveUseLoop = (loopTravestates != nil); !traveUseLoop {
                     erro(ctx, "%s: loop detected: %s", l.project, s).debug(10)
-                } else if uni.verboseImport || uni.verboseUsing || uni.verboseLoads {
+                } else if u.verboseImport || u.verboseUsing || u.verboseLoads {
                     prompt(ctx, "%s: loop detected: %v\n", l.project, s).debug(10)
                 }
             }
@@ -378,7 +378,7 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
     // ││└──→    ·         │     │  ├─⇥     ↓
     // │└──→───⇥─┴─⇤────┬──┴──┬──┘  │
     // └──→           ⇠─┘     ↓     └─→ ⇒ …
-    if uni.verboseImport {
+    if u.verboseImport {
         if len(l.loadStack) > 1 {
             defer func(s string) { l.verpre = s } (l.verpre)
             l.verpre += "│"
@@ -491,7 +491,7 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
         }
     }
 
-    if uni.verboseImport { defer func(t time.Time) {
+    if u.verboseImport { defer func(t time.Time) {
         prompt(ctx, "%s├┤ %s:import(%s) (%s)\n", l.verpre, l.project, specName, time.Now().Sub(t))
     } (time.Now()) } //*time.Millisecond // µs, ms, s ┼
 
@@ -506,8 +506,8 @@ const pluginDifferentVersionError = `plugin was built with a different version o
 var numUpdatedPlugins = 0
 
 func buildPlugin(ctx Context, s, src string) (err error) {
-    var uni = ctx.universe()
-    if uni.traceLaunch { defer un(trace(t_launch, "loader.buildPlugin")) }
+    var u = cast[*universe](ctx)
+    if u.traceLaunch { defer un(trace(t_launch, "loader.buildPlugin")) }
 
     prompt(ctx, "smart: Build %v …", src)
     dir, _ := filepath.Split(src)
@@ -527,14 +527,14 @@ func buildPlugin(ctx Context, s, src string) (err error) {
 }
 
 func (l *loader) loadPlugin(ctx Context) (err error) {
-    var uni = ctx.universe()
-    if uni.traceLaunch { defer un(trace(t_launch, "loader.loadPlugin")) }
+    var u = cast[*universe](ctx)
+    if u.traceLaunch { defer un(trace(t_launch, "loader.loadPlugin")) }
     if l.project == nil {
         erro(ctx, "current project is nil").debug(32)
         return
     }
 
-    var g = stat(ctx, "smart.go", "", l.project.absPath)
+    var g = stat(ctx, "smart.go", l.project)
     if g == nil { return /* smart.go was not presented */ }
 
     var src = g.string(ctx)
@@ -543,11 +543,11 @@ func (l *loader) loadPlugin(ctx Context) (err error) {
 
     var build = true
 
-    so := stat(ctx, /*l.project.name*/"plugin", "", s, nil)
+    so := stat(ctx, /*l.project.name*/"plugin", stat_dir{s}, stat_nonexist{true})
     if s = so.fullname(); s == "" {
         erro(of(ctx,so), "file '%v' has empty fullname", so)
         return
-    } else if so.exists() && !uni.buildPlugins {
+    } else if so.exists() && !u.buildPlugins {
         if so.info.ModTime().After(g.info.ModTime()) {
             build = false // Plugin already updated.
         }
@@ -574,8 +574,8 @@ func (l *loader) loadPlugin(ctx Context) (err error) {
 }
 
 func (l *loader) use(ctx Context, usee *Project, params []Value, opts useOpts) (err error) {
-    var uni = ctx.universe()
-    if uni.verboseUsing { defer func(t time.Time) {
+    var u = cast[*universe](ctx)
+    if u.verboseUsing { defer func(t time.Time) {
         var d = time.Now().Sub(t)
         prompt(ctx, "use(%15s) %s ⇒ %v\n", d, l.project, l.project.use)
     } (time.Now())}
@@ -636,13 +636,13 @@ func iterateArgumentedIdentifiers(ctx Context, identifier Value, f func(ident Va
             var pos = ident.Position()
             for _, arg := range args {
                 if isTrivial(arg) { continue }
-                f(MakeBarecomp(pos, ident, arg), append(stems, arg))
+                f(makeBarecomp(pos, ident, arg), append(stems, arg))
             }
         })
     case *barecomp:
         iterateArgumentedIdentElems(ctx, t.Elems, nil, func(elems, stems []Value) {
             if len(stems) == 0 { f(t, stems) } else {
-                f(MakeBarecomp(t.Position(), elems...), stems)
+                f(makeBarecomp(t.Position(), elems...), stems)
             }
         })
     default:
@@ -807,7 +807,6 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
         }
     }
 
-    var u = ctx.universe()
     var prog = &program{
         language: l.p.dialect,
         project:  l.project,
@@ -846,7 +845,6 @@ func (l *loader) rule(clause *parsedRuleData) (entries []Entry) {
                 return
             } else {
                 l.project.configs = append(l.project.configs, entry)
-                u.configuration.entries = append(u.configuration.entries, entry)
             }
         }
     }
@@ -862,7 +860,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     defer dtrace(ctx, "include")
 
     var (
-        uni = ctx.universe()
+        u = cast[*universe](ctx)
         globe = l.Globe()
         linfo = globe.loads[len(globe.loads)-1]
         specName, fullname string
@@ -870,9 +868,9 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     )
 
     defer func(t time.Time) {
-        if d := time.Now().Sub(t); d > uni.slow {
-            warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, uni.slow).debug(1) //  → %s, filename
-        } else if uni.verbose {
+        if d := time.Now().Sub(t); d > u.slow {
+            warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, u.slow).debug(1) //  → %s, filename
+        } else if u.verbose {
             info(ctx, "included %v (%v)", spec, d).debug(1)
         }
         if err != nil { erro(ctx, "parse file failed: %v", err).debug(2) }
@@ -921,9 +919,9 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
         var file = l.project.file(ctx, spec)
         if file == nil {
             if filepath.IsAbs(specName) {
-                file = stat(ctx, specName, "", "")
+                file = stat(ctx, specName)
             } else {
-                file = stat(ctx, specName, "", linfo.absDir)
+                file = stat(ctx, specName, stat_dir{linfo.absDir})
             }
         } else if !file.exists() { _ = file.stat(ctx) }
 
@@ -958,20 +956,20 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     }
 
     if n := ctx.dia().flush(); n > 0 { warn(ctx, "got %d errors", n).debug(1)
-        if uni.failOnErrors { total := ctx.dia().totalErrors()
+        if u.failOnErrors { total := ctx.dia().totalErrors()
             panic(failure{"fail by %d errors",ia(ctx.Position(), total)})
         }
     }
     return
 }
 func (l *loader) closureScopes() (scopes []*Scope) {
-    scopes = append(l.closureContext.closureScopes(), l.Scope())
+    scopes = append(l.closurecontext.closureScopes(), l.Scope())
     return
 }
 
 func (l *loader) openScope(comment string) (scopes []*Scope) {
-    var uni = l.universe()
-    if false && uni.traceLaunch { defer un(trace(t_launch, "loader.openScope")) }
+    var u = cast[*universe](l.Context)
+    if false && u.traceLaunch { defer un(trace(t_launch, "loader.openScope")) }
     var pos Position
     if l.p != nil { pos = l.Position() } else {
         // TODO: pos.Filename = l.path(), 1
@@ -984,8 +982,8 @@ func (l *loader) openScope(comment string) (scopes []*Scope) {
 }
 
 func (l *loader) closeScope(scopes []*Scope) {
-    var uni = l.universe()
-    if false && uni.traceLaunch { defer un(trace(t_launch, "loader.closeScope")) }
+    var u = cast[*universe](l.Context)
+    if false && u.traceLaunch { defer un(trace(t_launch, "loader.closeScope")) }
     if scope := l.Scope(); scope == nil {
         // nil scope
     } else if s := scope.comment; strings.HasPrefix(s, "dir ") {
@@ -1004,8 +1002,8 @@ func (l *loader) setArgs(args []Value) (oldArgs []Value) {
 
 // project example (base(var=value))
 func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params ...Value) (result bool) {
-    var uni = ctx.universe()
-    if uni.traceLaunch { defer un(trace(t_launch, "loader.bases")) }
+    var u = cast[*universe](ctx)
+    if u.traceLaunch { defer un(trace(t_launch, "loader.bases")) }
 
     // For &(foobar) set from loadArgs
     ctx = closureWith(ctx, l.scopes...)
@@ -1015,7 +1013,7 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
         implicitBases []Value
         position = ctx.Position()
     )
-    if file := stat(ctx, dotBase, "", l.project.absPath); file != nil {
+    if file := stat(ctx, dotBase, l.project); file != nil {
         if true { var s = file.string(ctx)
             assert(s == file.name(ctx) && s == dotBase, "invalid strval: %v => %v", file, s)
         }
@@ -1038,9 +1036,9 @@ func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params
         if numBaseParams == 0 {
             var segs []Value
             for _, s := range ns[:len(ns)-2] {
-                segs = append(segs, MakeBareword(position, s))
+                segs = append(segs, makeBareword(position, s))
             }
-            implicitBases = append(implicitBases, MakePath(position, segs...))
+            implicitBases = append(implicitBases, makePath(position, segs...))
             if false { warn(ctx, "%v, %v, %v; %v, %v, %v", l.project.name, ns, segs,
                 implicitBase, implicitBases, params).debug(1) }
             implicitBase = "" // discard the implicit base
@@ -1073,7 +1071,7 @@ ParamsLoop:
                 name string
             )
             if name = p.Key.string(ctx); len(name) > 0 && name[0] == '.' {
-                identifier = MakeBarecomp(position, MakeBareword(position, "project"), p.Key)
+                identifier = makeBarecomp(position, makeBareword(position, "project"), p.Key)
             }
 
             var defs = l.define(at(ctx, position), ASSIGN, identifier, p.Value)
@@ -1117,8 +1115,8 @@ ParamsLoop:
         } else if f, y := toFile(elem); y && f.info != nil {
             absPath, isDir = f.fullname(), f.info.IsDir()
             if true { assert(filepath.IsAbs(absPath), "invalid abs path: %v", f) }
-        } else if absPath, isDir = uni.search(at(ctx,position), linfo, specName); absPath == "" {
-            erro(at(ctx,elemPos), "%v: search base failed: %v -> %v", l.project, elem, specName).debug(1)
+        } else if absPath, isDir = u.search(at(ctx,position), linfo, specName); absPath == "" {
+            erro(at(ctx,elemPos), "%v: search base failed: %v → %v", l.project, elem, specName).debug(1)
             break ParamsLoop
         }
 
@@ -1175,8 +1173,8 @@ ParamsLoop:
 }
 
 func (l *loader) loadDotContainer(ctx Context, ident *barecomp, identStr string, file *File) (result bool) {
-    var uni = ctx.universe()
-    if uni.traceLaunch { defer un(trace(t_launch, "loader.loadDotContainer")) }
+    var u = cast[*universe](ctx)
+    if u.traceLaunch { defer un(trace(t_launch, "loader.loadDotContainer")) }
     if file.info == nil {
         erro(ctx, "%s: file not exists: %s", ident, file.fullname()).debug(1)
         return
@@ -1195,7 +1193,7 @@ func (l *loader) loadDotContainer(ctx Context, ident *barecomp, identStr string,
         if name == nil {
             erro(ctx, "%v: %v: `dock` is not a project", l.project.name, file).debug(1)
         } else {
-            if false && uni.verboseLoads {
+            if false && u.verboseLoads {
                 prompt(l, "smart: %v (%v)\n", name, file.fullname())
             }
 
@@ -1210,8 +1208,8 @@ func (l *loader) loadDotContainer(ctx Context, ident *barecomp, identStr string,
 }
 
 func (l *loader) DEPRECATED_loadDotConfigure(ctx Context, ident *barecomp, identStr string, file *File) (result bool) {
-    var uni = ctx.universe()
-    if uni.traceLaunch { defer un(trace(t_launch, "loader.loadDotConfigure")) }
+    var u = cast[*universe](ctx)
+    if u.traceLaunch { defer un(trace(t_launch, "loader.loadDotConfigure")) }
 
     var position = ident.Position()
     if file.info == nil {
@@ -1288,13 +1286,13 @@ func (l *loader) declare(ctx Context, keyword Token, ident *barecomp, identStr s
     )
     if !declared {
         var (
-            wd = l.WorkDir()
+            wd = l.workDir()
             outer = l.Scope()
             absDir = linfo.absDir
             relPath, tmpPath string
         )
         if !filepath.IsAbs(absDir) {
-            //absDir = filepath.Join(l.WorkDir(), absDir)
+            //absDir = filepath.Join(l.workDir(), absDir)
             absDir, _ = filepath.Abs(absDir)
         }
         relPath, _ = filepath.Rel(wd, absDir)
@@ -1382,9 +1380,9 @@ func (l *loader) autoload(ctx Context, tag string) {
     } else if val := scalarize(d.value.expand(ctx, strval)); isTrivial(val) {
         // skip...
     } else {
-        var u = ctx.universe()
+        var u = cast[*universe](ctx)
         const ( o = true ; t = false ; s = "autoload" )
-        if t && u.ddd == s { prompt(ctx, "%s: autoload - %s\n", l.Position(), tag) }
+        if t && u.ddd == s { prompt(ctx, "%s: autoload - %s,\n", l.Position(), tag) }
         if o { l.include(ctx, includeOpts{}, val) }
         if t && u.ddd == s { prompt(ctx, "%s: autoload - %s.\n", l.Position(), tag) }
     }
@@ -1421,13 +1419,13 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
 
     var isDir bool
     var absPath string
-    if filepath.IsAbs(configure) { if file := stat(ctx, configure, "", ""); file.exists() {
+    if filepath.IsAbs(configure) { if file := stat(ctx, configure); file.exists() {
         absPath, isDir = file.fullname(), file.info.IsDir()
-    }} else if file := stat(ctx, configure, "", l.project.absPath); file.exists() {
+    }} else if file := stat(ctx, configure, l.project); file.exists() {
         absPath, isDir = file.fullname(), file.info.IsDir()
     }
     if absPath == "" && v != nil {
-        if !local { absPath, isDir = ctx.universe().search(ctx, linfo, configure) }
+        if !local { absPath, isDir = cast[*universe](ctx).search(ctx, linfo, configure) }
         if absPath == "" {
             erro(ctx, "%v: no such project: %s", l.project, configure).debug(1)
         }
@@ -1459,7 +1457,7 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
         }
     }
 
-    var uni = ctx.universe()
+    var u = cast[*universe](ctx)
 
     // Load configuration.sm after .configure was loaded.
     l.project.configure = loaded // must set .configure first to get the correct configuration file
@@ -1467,31 +1465,21 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
     if f := l.project.configurationFile; f == nil {
         erro(ctx, "%v: nil configuration file", ident).debug(1)
         return
-    } else if declared || uni.commandline.configure {
-        var ( s string = f.fullname(); exists bool )
-        for _, v := range uni.configuration.clean { if s == v { exists = true; break }}
-        if !exists { uni.configuration.clean = append(uni.configuration.clean, s) }
+    } else if declared || u.commandline.configure {
+        // u.configuration.clean[f] = struct{}{}
     } else if f.exists() || f.stat(ctx) != nil {
-        if false && (uni.verboseImport || uni.verboseLoads) {
+        if false && (u.verboseImport || u.verboseLoads) {
             var cp Position; cp.Filename, cp.Line = f.fullname(), 1
             info(at(ctx,cp), "%s (%s)", l.project, l.project.spec).debug(true, 1)
-        } else if uni.verbose {
+        } else if u.verbose {
             info(ctx, "%v for %s (%s)", f, l.project.spec, l.project).debug(16)
         }
-        if testPromptConfiguration { if l.project.name == "testdefaultconfigure" {
-            prompt(ctx, "%v:1: %v\n", f.fullname(), l.project)
-            noted(ctx, "%v", f).debug(1)
-        }}
-        // Include it in flat mode.
+
         var isIncludingConf = l.p.isIncludingConf
         l.p.isIncludingConf = true
         l.include(ctx, includeOpts{isConfigure:true}, f)
         l.p.isIncludingConf = isIncludingConf
-    } else if testPromptConfiguration { if l.project.name == "testdefaultconfigure" {
-        i, _ := os.Stat(f.fullname())
-        prompt(ctx, "%v:1: %v\n", f.fullname(), l.project)
-        noted(ctx, "%v %v %v", f, f.stat(ctx), i).debug(16)
-    }}
+    }
     return true
 }
 
@@ -1503,14 +1491,14 @@ func (l *loader) container(ctx Context, ident *barecomp, identStr string) (resul
             return
         }
 
-        var uni = ctx.universe()
+        var u = cast[*universe](ctx)
 
         // Looking for project specific .container module
-        if f := stat(ctx, dotContainer, "", l.project.absPath); f.exists() {
+        if f := stat(ctx, dotContainer, l.project); f.exists() {
             if !l.loadDotContainer(ctx, ident, identStr, f) {
                 //erro(ctx, "declare %s: %s/.container", name, l.project.absPath)
             }
-            if uni.verbose {
+            if u.verbose {
                 info(ctx, "%v for %s (%s)\n", f, l.project.spec, l.project).debug(1)
             }
             return
@@ -1518,7 +1506,7 @@ func (l *loader) container(ctx Context, ident *barecomp, identStr string) (resul
 
         // Looking for .smart/.container
         walkSmartBaseDirs(ctx, l.project.absPath, func(s string) bool {
-            var f = stat(ctx, dotContainer, "", filepath.Join(s, ".smart"))
+            var f = stat(ctx, dotContainer, stat_dir{filepath.Join(s, ".smart")})
             if !f.exists() {
                 // no docking enabled
             } else if !l.loadDotContainer(ctx, ident, identStr, f) {
@@ -1658,9 +1646,9 @@ func readSource(filename string, source... interface{}) ([]byte, error) {
 }
 
 func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode, opts *includeOpts) (f *parsedFile, res []Value, err error) {
-    var uni = ctx.universe()
-    if uni.traceLaunch { defer un(trace(t_launch, "loader.ParseFile")) }
-    if uni.verbose { if ctx.Position().Filename == filename {
+    var u = cast[*universe](ctx)
+    if u.traceLaunch { defer un(trace(t_launch, "loader.ParseFile")) }
+    if u.verbose { if ctx.Position().Filename == filename {
         info(ctx, "loading ...")
     } else {
         prompt(ctx, "%s:1:info: loading ...\n", filename)
@@ -1672,9 +1660,9 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
     defer dtrace(ctx, "source")
 
     defer func(t time.Time, p *parser, m Mode) { if true { ctx = l.p.ctx(ctx) }
-        if d := time.Now().Sub(t); d > uni.slow {
-            warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, uni.slow).debug(2) //  → %s, filename
-        } else if uni.verbose {
+        if d := time.Now().Sub(t); d > u.slow {
+            warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, u.slow).debug(2) //  → %s, filename
+        } else if u.verbose {
             info(ctx, "loaded %v (%v)", filename, d).debug(2)
         }
 
@@ -1710,7 +1698,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
 		//scanMode = scanner.ScanComments
 	}
 
-    var file = uni.file(filename, text)
+    var file = u.file(filename, text)
     l.p.scanner.Init(file, text, scanMode,
         func(p Position, s string) {
             var pos = Position(p)
@@ -1731,7 +1719,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
         f = &parsedFile{ scope:l.Scope() }
         f.position.Filename = filename
         // TODO: validate basename as a valid identifier
-        f.name = MakeBarecomp(f.position, MakeBareword(f.position, filepath.Base(filepath.Dir(filename))))
+        f.name = makeBarecomp(f.position, makeBareword(f.position, filepath.Base(filepath.Dir(filename))))
     }
     return
 }
@@ -1789,7 +1777,7 @@ ListLoop:
                 erro(ctx, "%s: invalid UTF8 content", fullname)
                 break ListLoop
             }
-            def.set(ctx, DefConfDir, MakeString(ctx.Position(), s))
+            def.set(ctx, DefConfDir, makeStrlit(ctx.Position(), s))
         } else if s != nil {
             erro(ctx, "Name `%s' already taken, not def (%T).", name, s)
             break ListLoop
@@ -1799,20 +1787,19 @@ ListLoop:
 }
 
 func (l *loader) sources(ctx Context, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
+    var u = cast[*universe](l.Context)
+
     defer dtrace(ctx, "sources")
 
-    var uni = l.universe()
-
     defer func(t time.Time) {
-        if d := time.Now().Sub(t); uni.verboseParse || d > 1*time.Second {
-            prompt(ctx, "sources:(%15s) %20s ⇒ %s\n", d, l.project, path)
-        }
-		if uni.debugParsing(ctx, "sources") {
-			warn(ctx, "sources: %s", path).debug(6)
+        if d := time.Now().Sub(t); u.verboseParse || d > 3*time.Second {
+            noted(ctx, "slow: %s (%v)", l.project, d).debug(1)
+        } else if u.debugParsing(ctx, "sources") {
+			noted(ctx, "sources: %s (%v)", l.project, time.Now().Sub(t)).debug(6)
 		}
     } (time.Now())
 
-    fd, err := os.Open(path)
+    var fd, err = os.Open(path)
     if err != nil {
         erro(ctx, "%v", err).debug(1)
         return
@@ -1900,7 +1887,7 @@ ListLoop:
 
                 s := filepath.Base(filename)
                 d = erro(ctx, "got %d errors in file '%s'", n, s)
-                if uni.failOnErrors {
+                if u.failOnErrors {
                     panic(failure{"got %d errors, %s",ia(ctx.Position(),total,s)})
                 }
             } else if err != nil {
@@ -1937,12 +1924,12 @@ ListLoop:
 
 // loader.Load loads script from a file or source code (string, []byte).
 func (l *loader) load(ctx Context, specName, absPath string, source interface{}) (result bool) {
-    var uni = ctx.universe()
-    if uni.traceLaunch { defer un(trace(t_launch, "loader.load")) }
+    var u = cast[*universe](ctx)
+    if u.traceLaunch { defer un(trace(t_launch, "loader.load")) }
 
     var globe = l.Globe()
     defer func(t time.Time) {
-        if d := time.Now().Sub(t); uni.verboseLoads && d>1*time.Second {
+        if d := time.Now().Sub(t); u.verboseLoads && d>1*time.Second {
             loaded, _ := globe.loaded[absPath]
             if l.project == nil {
                 prompt(ctx, "load (%15s) ⇒ %s (%s)\n", d, loaded, specName)
@@ -1953,7 +1940,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     } (time.Now())
 
     if absPath == "" {
-        erro(ctx, "no such module `%s' (in paths %v)", specName, uni.paths)
+        erro(ctx, "no such module `%s' (in paths %v)", specName, u.paths)
         return
     } else if !filepath.IsAbs(absPath) {
         erro(ctx, "invalid abs name `%s' (%s)", absPath, specName)
@@ -1977,7 +1964,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     var doc, _, err = l.source(ctx, absPath, source, parseMode, nil)
     if n := l.dia().flush(); n > 0 {
         warn(ctx, "load '%s' got %d errors", specName, n).debug(1)
-        if uni.failOnErrors {
+        if u.failOnErrors {
             panic(failure{"fail by %d errors",ia(l.Position(), l.dia().totalErrors())})
         }
         return
@@ -1992,7 +1979,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
 }
 
 func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileInfo) bool) (loadedOkay bool) {
-    if ctx.universe().traceLaunch { defer un(trace(t_launch, "loader.dir")) }
+    if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "loader.dir")) }
 
 	defer dtrace(ctx, "dir (%s)", specName)
 
@@ -2031,7 +2018,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
                 }
             }
         }
-    } (time.Now(), ctx.universe().verboseLoads)
+    } (time.Now(), cast[*universe](ctx).verboseLoads)
 
     // Check loaded project.
     if loaded, loadedOkay = globe.loaded[absDir]; loadedOkay { return }
@@ -2041,7 +2028,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     var mods map[string]*Project
     if mods = l.sources(at(l, pos), absDir, filter, parseMode); mods == nil {
         errostack(ctx, 3, "failed parsing module: %s", specName).debug(12)
-        if ctx.universe().failOnErrors {
+        if cast[*universe](ctx).failOnErrors {
             panic(failure{"fail by %d errors",ia(l.Position(), l.dia().totalErrors())})
         }
         return
@@ -2068,12 +2055,12 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
 }
 
 func (l *loader) file(ctx Context, filename string, source interface{}) (res bool) {
-    if ctx.universe().traceLaunch { defer un(trace(t_launch, "loader.file")) }
+    if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "loader.file")) }
 
     var spec string
     switch dir, base := filepath.Split(filename); base {
     case dotBase, dotConfigure: spec = base
-    default: spec, _  = filepath.Rel(l.WorkDir(), dir)
+    default: spec, _  = filepath.Rel(l.workDir(), dir)
     }
 
     var position Position
@@ -2082,9 +2069,9 @@ func (l *loader) file(ctx Context, filename string, source interface{}) (res boo
 }
 
 func (l *loader) path(ctx Context, path string, filter func(os.FileInfo) bool) bool {
-    if ctx.universe().traceLaunch { defer un(trace(t_launch, "loader.path")) }
+    if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "loader.path")) }
 
-    var spec, _ = filepath.Rel(l.WorkDir(), path)
+    var spec, _ = filepath.Rel(l.workDir(), path)
 
     var position Position
     position.Filename = spec
@@ -2092,7 +2079,7 @@ func (l *loader) path(ctx Context, path string, filter func(os.FileInfo) bool) b
 }
 
 func (l *loader) text(ctx Context, filename string, text string) (res []Value) {
-    if ctx.universe().traceLaunch { defer un(trace(t_launch, "loader.text")) }
+    if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "loader.text")) }
 
     defer func(saved *parser) { l.p = saved } (l.p)
 

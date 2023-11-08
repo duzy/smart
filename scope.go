@@ -129,7 +129,7 @@ func (s *Scope) insert(ctx Context, obj Object) Object {
 }
 
 func (s *Scope) replace(ctx Context, name string, obj Object) {
-	if s.elems[name] = obj; obj.DeclScope() == nil {
+	if s.elems[name] = obj; obj.declScope() == nil {
 		obj.rescope(ctx, s)
 	}
 }

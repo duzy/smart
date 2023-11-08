@@ -3,10 +3,6 @@ project testvalues
 glob1 =  *.c
 glob2 = **.c
 
-val1 = foo.c
-val2 = foo/bar.c
-val3 = foo/oo/oo/oo/bar.c
-
 # Regexp Syntax (see go/src/regexp/syntax/doc.go)
 #
 # The regular expression syntax understood by this package when parsing with the Perl flag is as follows.
@@ -141,5 +137,10 @@ regexp5 ::= {fo{2}/bar\.c}
 regexp6 ::= {fo{2}(/o{2}){3}/bar\.c}
 
 modifiers := [(assert no{}) (plain cxx)]
-# eval println $(modifiers)
-# eval modifiers
+
+val1 = foo.c
+val2 = foo/bar.c
+val3 = foo/oo/oo/oo/bar.c
+
+val4 := a\,b\,c,x\,y\,z
+val5 := $(quote a\,b\,c,x\,y\,z)

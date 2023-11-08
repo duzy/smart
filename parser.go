@@ -444,11 +444,11 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 		if p.tok == LBRACE { // answer{...}, bool{...}
 			if p.next(true); p.tok == RBRACE {
 				switch p.step(); tok {
-				case BIN:   x = MakeBin(p.Position(), 0)
-				case OCT:   x = MakeOct(p.Position(), 0)
-				case INT:   x = MakeInt(p.Position(), 0)
-				case HEX:   x = MakeHex(p.Position(), 0)
-				case FLOAT: x = MakeFloat(p.Position(), 0.)
+				case BIN:   x = makeBin(p.Position(), 0)
+				case OCT:   x = makeOct(p.Position(), 0)
+				case INT:   x = makeInt(p.Position(), 0)
+				case HEX:   x = makeHex(p.Position(), 0)
+				case FLOAT: x = makeFloat(p.Position(), 0.)
 				}
 			} else if v := p.expr(ctx, false); v == nil {
 				// TODO: true{ expr }, yes{ expr }, ...
@@ -456,13 +456,13 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 			} else if p.spaces(); p.tok == RBRACE {
 				if p.step(); tok == FLOAT {
 					var n, _ = v.float(ctx)
-					return MakeFloat(p.Position(), n)
+					return makeFloat(p.Position(), n)
 				}
 				switch n, _ := v.int(ctx); tok {
-				case BIN: return MakeBin(p.Position(), n)
-				case OCT: return MakeOct(p.Position(), n)
-				case INT: return MakeInt(p.Position(), n)
-				case HEX: return MakeHex(p.Position(), n)
+				case BIN: return makeBin(p.Position(), n)
+				case OCT: return makeOct(p.Position(), n)
+				case INT: return makeInt(p.Position(), n)
+				case HEX: return makeHex(p.Position(), n)
 				}
 			}
 			return
@@ -472,7 +472,7 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 			if p.next(true); p.tok == RBRACE {
 				switch tok {
 				case ANSWER: x = makeAnswer(p.Position(), false)
-				case   BOOL: x = MakeBoolean(p.Position(), false)
+				case   BOOL: x = makeBoolean(p.Position(), false)
 				case   NONE: x = makeNone(p.Position())
 				}
 				p.step()
@@ -500,7 +500,7 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 
 			switch p.expect(RBRACE); tok {
 			case ANSWER: x = makeAnswer(p.Position(), v)
-			case   BOOL: x = MakeBoolean(p.Position(), v)
+			case   BOOL: x = makeBoolean(p.Position(), v)
 			}
 			return
 		}
@@ -509,7 +509,7 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 			if p.next(true); p.tok == RBRACE {
 				switch p.step(); tok {
 				case YES , NO   : x = makeAnswer( p.Position(), tok == YES)
-				case TRUE, FALSE: x = MakeBoolean(p.Position(), tok == TRUE)
+				case TRUE, FALSE: x = makeBoolean(p.Position(), tok == TRUE)
 				case NULL: x = makeNull(p.Position())
 				}
 			} else {
@@ -531,7 +531,7 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 			p.expect(BAREWORD)
 		}
 	}
-	return MakeBareword(ctx.Position(), lit)
+	return makeBareword(ctx.Position(), lit)
 }
 
 func (p *parser) selector(ctx Context) (res Value) {
@@ -604,7 +604,7 @@ func (p *parser) selectExpr(ctx Context, lhs Value) (res Value) {
 		res = makeNull(ctx.Position())
 	} else {
 		if v, y := optionalize(ctx, rhs); y { rhs = v } // foo→bar?
-		res = MakeSelection(ctx.Position(), tok, lhs, rhs)
+		res = makeSelection(ctx.Position(), tok, lhs, rhs)
 	}
 
 	if (p.tok == SELECT_PROP || p.tok == SELECT_PROG1 || p.tok == SELECT_PROG2) {
@@ -757,7 +757,7 @@ func (p *parser) group(ctx Context, lhs bool) *group {
 		}
 	}
 	p.expect(RPAREN)
-	return MakeGroup(ctx.Position(), elems...)
+	return makeGroup(ctx.Position(), elems...)
 }
 
 func (p *parser) argumentedExpr(ctx Context, x Value) *argumented {
@@ -790,7 +790,7 @@ func (p *parser) argumentedExpr(ctx Context, x Value) *argumented {
 func (p *parser) globMeta(ctx Context) (x *GlobMeta) {
 	pos, tok := p.Position(), p.tok
 	p.step()
-	return MakeGlobMeta(pos, tok)
+	return makeGlobMeta(pos, tok)
 }
 
 func (p *parser) globRange(ctx Context) (x *GlobRange) {
@@ -802,7 +802,7 @@ func (p *parser) globRange(ctx Context) (x *GlobRange) {
 	chars := p.expr(ctx, false)
 	p.expect(RBRACK) // skip ']'
 
-	return MakeGlobRange(ctx.Position(), chars)
+	return makeGlobRange(ctx.Position(), chars)
 }
 
 func (p *parser) globExpr(ctx Context, x Value) Value {
@@ -859,13 +859,13 @@ func (p *parser) percExpr(ctx Context, lhs bool, x Value) Value {
 		case PERC: // %%
 			p.step() // consume the second %
 			position := p.Position()
-			perc2 := MakePercPattern(position, nil, nil)
+			perc2 := makePercPattern(position, nil, nil)
 			if pos+2 == p.pos {
 				switch p.tok {
 				case PERC: // %%%
 					erro(p, "too many %")
 				case PCON: // FIXES: %%/xxx -> Path(%% xxx)
-					x = MakePercPattern(position, x, perc2)
+					x = makePercPattern(position, x, perc2)
 					return p.path(ctx, lhs, x)
 				case COLON,    DOLON,
 					LPAREN,    RPAREN,
@@ -888,7 +888,7 @@ func (p *parser) percExpr(ctx Context, lhs bool, x Value) Value {
 			y = p.expr(ctx, false)
 		}
 	}
-	return MakePercPattern(p.loc(pos), x, y)
+	return makePercPattern(p.loc(pos), x, y)
 }
 
 func (p *parser) regexp(ctx Context) (x Value) {
@@ -961,7 +961,7 @@ func (p *parser) pair(ctx Context, x Value) *pair {
 	} else {
 		y = p.expr(ctx, false)
 	}
-	return MakePair(ctx.Position(), x, y)
+	return makePair(ctx.Position(), x, y)
 }
 
 func (p *parser) flagExpr(ctx Context, lhs bool) flag {
@@ -1006,6 +1006,12 @@ func (p *parser) punctuation() *punctuation {
 	return &punctuation{valbase{pos}, tok}
 }
 
+func (p *parser) escape(ctx Context, lhs bool) (v Value) {
+	var pos, lit = p.Position(), p.lit
+	p.expect(ESCAPE)
+	return &escaped{valbase{pos}, lit}
+}
+
 func (p *parser) literal(ctx Context, lhs bool) (v Value) {
 	var tok, lit = p.tok, p.lit
 	ctx = p.ctx(ctx)
@@ -1023,10 +1029,9 @@ func (p *parser) literal(ctx Context, lhs bool) (v Value) {
     case DATE:        v = ParseDate(position, lit)
     case TIME:        v = ParseTime(position, lit)
     case URI:         v = ParseURL(position, lit)
-    case BAREWORD:    v = MakeBareword(position, lit)
-    case STRING:      v = MakeString(position, lit)
-    case ESCAPE:      v = MakeRaw(position, EscapeChar(lit))
-    case RAW:         v = MakeRaw(position, lit)
+    case BAREWORD:    v = makeBareword(position, lit)
+    case STRING:      v = makeStrlit(position, lit)
+    case RAW:         v = makeRaw(position, lit)
     default: unreachable()
     }
 	return
@@ -1047,7 +1052,7 @@ func (p *parser) compound(ctx Context, lhs bool) *compound {
 		}
 	}
 	p.expect(COMPOSED)
-	return MakeCompound(p.loc(lpos), elems...)
+	return makeCompound(p.loc(lpos), elems...)
 }
 
 // Parses dot composing expressions (TODO: check against file extensions).
@@ -1069,7 +1074,7 @@ func (p *parser) dot(ctx Context, lhs bool, x Value) (res *barecomp) {
 
 	var comp *barecomp
 	if comp, _ = x.(*barecomp); comp == nil {
-		comp = MakeBarecomp(x.Position())//(p.Position())
+		comp = makeBarecomp(x.Position())//(p.Position())
 		comp.Elems = append(comp.Elems, x)
 	}
 
@@ -1089,7 +1094,7 @@ func (p *parser) dot(ctx Context, lhs bool, x Value) (res *barecomp) {
 	return comp
 }
 
-func makePathPun(ctx Context, tok Token) *PathPun {
+func pathpun(ctx Context, tok Token) *PathPun {
 	var r rune
     switch tok {
     case 0:            r = 0 // the tailing empty segment after '/', e.g. /foo/bar/
@@ -1101,7 +1106,7 @@ func makePathPun(ctx Context, tok Token) *PathPun {
 		erro(ctx, "invalid path segment `%v`", tok)
 		return nil
     }
-	return MakePathPun(ctx.Position(), r)
+	return makePathPun(ctx.Position(), r)
 }
 
 func (p *parser) path(ctx Context, lhs bool, start Value) *Path {
@@ -1117,9 +1122,9 @@ func (p *parser) path(ctx Context, lhs bool, start Value) *Path {
 	if ctx = at(ctx, position); start == nil {
 		erro(ctx, "bad closure/delegate name").debug(1)
 		p.step()
-		return MakePath(position) // empty path
+		return makePath(position) // empty path
 	} else if path, ok = start.(*Path); !ok {
-		path = MakePath(position, start)
+		path = makePath(position, start)
 	}
 
 BuildPath:
@@ -1129,7 +1134,7 @@ BuildPath:
 		switch p.tok {
 		case RPAREN, LPAREN, RBRACE, LBRACE, COMMA, SPACE, LINEND:
 			// Encountered the tailing '/', append 'zero' segment.
-			path.Elems = append(path.Elems, MakePathPun(pos, 0))
+			path.Elems = append(path.Elems, makePathPun(pos, 0))
 			break BuildPath
 		}
 
@@ -1204,7 +1209,7 @@ func (p *parser) url(ctx Context, lhs bool, scheme Value) (res Value) {
 		}
 	}
 	if p.tok == PCON {
-		url.Path = p.path(ctx, lhs, makePathPun(ctx, p.tok))
+		url.Path = p.path(ctx, lhs, pathpun(ctx, p.tok))
 	}
 	// scanning '#' as HASH instead of COMMENT
 	defer p.scanner.SetBits(p.scanner.CommentsOff())
@@ -1228,8 +1233,8 @@ func (p *parser) expandTemplateBlockAuto(ctx Context, obj, val Value) (result Va
 	if a, y := obj.(*auto); y && !(p.bits&parseForeachTempl != 0 && a.name_ == "_") {
 		// Make clone to barecomp and Path for compose() and x.comp().
 		switch t := val.expand(ctx, /* p.facet */strval); v := t.(type) {
-		case  *barecomp: return MakeBarecomp(v.Position(), v.Elems...)
-		case      *Path: return MakePath(v.Position(), v.Elems...)
+		case  *barecomp: return makeBarecomp(v.Position(), v.Elems...)
+		case      *Path: return makePath(v.Position(), v.Elems...)
 		case unexpanded: /*return v.Value*/ break
 		default: return v
 		}
@@ -1347,12 +1352,12 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 					return
 				}
 
-				erro(of(ctx,name), "%v(%v)", typeof(name), name).debug(20) // ⇒
+				errostack(of(ctx,name), 6, "undefined '%v' (%v)", name, typeof(name)).debug(6) // ⇒
 				return
 			} else if _, okay = resolved.(invoker); okay {
 				return str, resolved, okay
 			} else if obj, okay = resolved.(Object); !okay {
-				erro(at(ctx,lPos), "%v is not object: %T", name, resolved).debug(16)
+				errostack(at(ctx,lPos), 6, "%v is not object: %T", name, resolved).debug(6)
 				return
 			} else {
 				return
@@ -1545,14 +1550,14 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 	}
 
 	if pos := ctx.Position(); tok.IsDelegate() {
-		var t = MakeDelegate(pos, tokLp, obj, opts, rest...)
+		var t = makeDelegate(pos, tokLp, obj, opts, rest...)
 		result = p.expandTemplateBlockAuto(ctx, obj, t)
 		if p.bits&parseCodeBlock != 0 && nameStr == "foreach" { if u, y := result.(unexpanded); y {
 			noted(ctx, "%v %v", typeof(u.Value), u.Value).debug(1)
 		}}
 		return
 	} else {
-		return MakeClosure(pos, tokLp, obj, opts, rest...)
+		return makeClosure(pos, tokLp, obj, opts, rest...)
 	}
 }
 
@@ -1576,7 +1581,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 		a := &auto{knownobject{objbase{valbase{position}, scope, scope.project}, s}}
 		p.autos = append([]*auto{a}, p.autos...)
 		obj = a
-	} else if w := MakeBareword(position, s); s == "_" {
+	} else if w := makeBareword(position, s); s == "_" {
 		if p.bits&parseCodeBlock != 0 {
 			if _, resolved = loader.resolve(w); resolved != nil {
 				obj, _ = resolved.(Object)
@@ -1598,21 +1603,21 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 		return makeNull(position)
 	}
 
-	if p.bits&parseCodeBlock != 0 && ctx.universe().ddd == "template" { defer func() {
+	if p.bits&parseCodeBlock != 0 && cast[*universe](ctx).ddd == "template" { defer func() {
 		var v Value
 		if a, y := obj.(*auto); y { v = autoVal(ctx, a.name_) }
 		noted(ctx, "%T %v ; %T %v ; %v", obj, obj, result, result, v).debug(16)
 	}()}
 
 	if tok.IsDelegate() {
-		if result = MakeDelegate(position, tok, obj, nil); tok == DELEGATE__ {
+		if result = makeDelegate(position, tok, obj, nil); tok == DELEGATE__ {
 			result = placeholder{result}
 		} else if DELEGATE_0 <= tok && tok <= DELEGATE_9 {
 			result = digital{result}
 		}
 		return p.expandTemplateBlockAuto(ctx, obj, result)
 	} else {
-		if result = MakeClosure(position, tok, obj, nil); tok == CLOSURE__ {
+		if result = makeClosure(position, tok, obj, nil); tok == CLOSURE__ {
 			result = placeholder{result}
 		} else if CLOSURE_0 <= tok && tok <= CLOSURE_9 {
 			result = digital{result}
@@ -1630,7 +1635,7 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 	case BAREWORD, AT:
 		return p.bare(ctx, lhs)
 
-	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URI, STRING, ESCAPE/*, RAW*/:
+	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URI, STRING/*, RAW*/:
 		return p.literal(ctx, lhs)
 
 	case COMPOUND:
@@ -1638,6 +1643,9 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 
 	case DELEGATE, CLOSURE: // delegate, closure
 		return p.closuredelegate(ctx)
+
+	case ESCAPE:
+		return p.escape(ctx, lhs)
 
 	case LPAREN:
 		return p.group(ctx, lhs)
@@ -1657,23 +1665,23 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 			// '~', '.' or '..' used as bareword
 			return &punctuation{valbase{position}, tok}
 		} else if p.tok == PCON { // check /
-			return p.path(ctx, lhs, makePathPun(at(ctx, position), tok))
+			return p.path(ctx, lhs, pathpun(at(ctx, position), tok))
 		} else if tok == DOT || tok == DOTDOT { // TODO: parse to Qualiword instead
 			x = &punctuation{valbase{position}, tok}
 			if p.bits&parseDOT == 0 { x = p.dot(ctx, lhs, x) }
 			return
 		} else if tok == TILDE { // TODO: ~user
-			return makePathPun(at(ctx, position), tok)
+			return pathpun(at(ctx, position), tok)
 		} else {
 			erro(ctx, "unexpected path: %v", tok).debug(1)
 			return makeNull(position)
 		}
 
 	case PCON: // The root of the path
-		return p.path(ctx, lhs, makePathPun(ctx, p.tok))
+		return p.path(ctx, lhs, pathpun(ctx, p.tok))
 
 	case LBRACK:
-		return p.modifiers(ctx)
+		return p.modification(ctx)
 
 	case STAR, DAST, QUE/*, LBRACK*/: // * ? [
 		return p.globExpr(ctx, nil) // (ie. no prefix)
@@ -1734,10 +1742,10 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 		if p.isParametersGroup(x) { break }
 		if p.bits&parseModifier == 0 {
 			// FIXME: compose lhs x
-			if m := p.modifiers(ctx); false {
-				erro(of(ctx,m), "composing modifiers is ignored (unimplemented yet)")
+			if m := p.modification(ctx); false {
+				erro(of(ctx,m), "composing modification is ignored (unimplemented yet)")
 			} else {
-				errostack(of(ctx,m), 3, "composing modifiers is ignored (%T %v)", x, x).debug(12)
+				errostack(of(ctx,m), 3, "composing modification is ignored (%T %v)", x, x).debug(12)
 			}
 		}
 	case STAR, DAST, QUE/*, LBRACK*/: // foo*bar foo?bar foo[a-z]bar
@@ -1769,7 +1777,7 @@ func (p *parser) text(ctx Context) (res []Value) {
 		res = append(res, p.expr(ctx, false))
 		if ctx.dia().flush() > 0 { total := ctx.dia().totalErrors()
 			warn(ctx, "parse text got %d errors", total).debug(16)
-			if ctx.universe().failOnErrors {
+			if cast[*universe](ctx).failOnErrors {
 				panic(failure{"fail by %d errors",ia(p.Position(), total)})
 			}
 		}
@@ -1843,15 +1851,15 @@ SwitchCompose:
 		case  flag: // okay: -Ifoo/bar, -Lfoo/bar
 		case *Path: // okay: combine two paths
 		case *barecomp:
-		case *String, *compound, *delegate, *closure, *punctuation:
+		case *strlit, *compound, *delegate, *closure, *punctuation:
 		default: warn(of(ctx,y), "barecomp path: %T %v ; %v (next=%v)", x, x, y, p.tok).debug(1)
 		}
 	}
 
 	// Make the first a clone, because $(auto-xxx) 'points' to the same value
     if false && n == 0 { switch t := x.(type) {
-    case *barecomp: x = MakeBarecomp(t.Position(), t.Elems...)
-    case *Path: x = MakePath(t.Position(), t.Elems...)
+    case *barecomp: x = makeBarecomp(t.Position(), t.Elems...)
+    case *Path: x = makePath(t.Position(), t.Elems...)
     }}
 
 	x, n = compose(ctx, x, y), n+1 // concat
@@ -2025,11 +2033,11 @@ func (p *parser) include(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	}
 
 	var x = g.spec[0]//.expand(ctx, strval|expandPlaceholder)
-	var loader = ctx.loader()
+	var l = ctx.loader()
 	if p.spaces(); p.tok == COLON {
 		switch x.(type) {
-		case *File, *String, *compound: // escape from file searching
-		default: if file := loader.project.file(ctx, x.string(ctx)); file != nil {
+		case *File, *strlit, *compound: // escape from file searching
+		default: if file := l.project.file(ctx, x.string(ctx)); file != nil {
 			x = file
 		} else if val := x.expand(ctx, strval); !isNull(val) && val != x {
 			x = val
@@ -2037,7 +2045,8 @@ func (p *parser) include(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 		x = p.rule(ctx, specialRuleNor, nil, []Value{x}) // this should return a Rule
 	}
-	if !g.skip { loader.include(ctx, opts, x) }
+
+	if !g.skip { l.include(ctx, opts, x) }
 }
 
 func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
@@ -2105,7 +2114,7 @@ func (p *parser) files(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 			pats = newPats
 		}
 		if len(pats) > 0 {
-			var paths = []Value{ MakeString(val.Position(), ctx.Project().absPath) }
+			var paths = []Value{ makeStrlit(val.Position(), ctx.Project().absPath) }
 			opts.cache(ctx, pats, paths)
 		}
 	} else {
@@ -2166,12 +2175,7 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 		return
 	}
 
-	var (
-		okay bool
-		cp *Project
-		ce = configureExecutor{Context:ctx}
-	)
-	defer ce.close()
+	var ce = configureExecutor{Context:ctx} ; defer ce.close()
 
 	for _, dep := range xmerge(ctx, strval, props/* [1:] */...) {
 		if re, y := dep.(*rule); !y {
@@ -2185,14 +2189,12 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 
 	if ctx.dia().flush()>0 { return }
 
-	for _, entry := range project.configs {
-		if cp, okay = ce.execute(cp, entry); !okay {
-			erro(ctx, "configure '%v' failed", entry).debug(1)
-			break
-		}
-	}
+	/***/ promptEnteringDirectory(ctx, project.absPath)
+	defer promptLeavingDirectory(ctx, project.absPath)
 
-	project.configured = true // relaxes universeContext.configure
+	for _, entry := range project.configs { ce.execute(entry) }
+
+	project.configured = true // relaxes configure()
 }
 
 func (p *parser) assert(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
@@ -2223,7 +2225,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 				switch t := val != nil && val.true(ctx); v.Value.string(ctx) {
 				case "dd": p.dd = t
 				case "ddd":
-					if u := ctx.universe(); val == nil {
+					if u := cast[*universe](ctx); val == nil {
 						u.ddd = "yes"
 					} else if t, y := boolVal(val); y {
 						if t { u.ddd = "yes" } else { u.ddd = "" }
@@ -2506,7 +2508,7 @@ SwitchDialect:
     } else if isList {
         return makeList(position, elems...)
     } else {
-        return MakeCompound(position, elems...)
+        return makeCompound(position, elems...)
     }
 }
 
@@ -2569,98 +2571,92 @@ func (p *parser) ruleParams(ctx Context, args []Value) (err error) {
 	return
 }
 
-func (p *parser) modifiers(ctx Context) *modification {
-	if t_traverse.enabled { defer un(trace(t_traverse, "Modifiers")) }
+func (p *parser) modifier(ctx Context) (res *modifier) {
+	p.spaces()
+
+	ctx = p.ctx(ctx)
+
+	var g = p.group(ctx, false)
+
+	if len(g.Elems) == 0 {
+		erro(ctx, "empty modifier").debug(1)
+		return
+	}
+
+	var name string
+
+checkModifierName:
+	switch n := g.Elems[0].(type) {
+	case *bareword:
+		if name = n.s; name == "var" {
+			p.movar(ctx, merge(g.Elems[1:]...))
+		} else if name == "configure" {
+			p.defineConfigureTargets(ctx)
+			p.configure = true // set configure flag and define configure variables
+		}
+	case *delegate, *closure:
+		var ctx = at(ctx, n.Position())
+		var v = xmerge(ctx, strval, n)
+		if name = v[0].string(ctx); name == "" {
+			erro(ctx, "empty modifier name: %v{%v}", typeof(n), n).debug(1)
+			return
+		}
+	case *list:
+		if len(n.Elems) == 0 {
+			erro(ctx, "empty modifier name: %v", g).debug(1)
+			return
+		}
+		g.Elems = append(n.Elems[:1], append(n.Elems[1:], g.Elems[1:]...)...)
+		goto checkModifierName
+	default:
+		erro(ctx, "unsupported modifier: %v{%v}", typeof(n), n).debug(1)
+		return
+	}
+
+	if _, ok := dialects[name]; ok {
+		if p.dialect == "" { p.dialect = name } else {
+			erro(ctx, "multi-dialects unsupported, already defined '%s'", p.dialect).debug(1)
+			return
+		}
+	} else if _, ok = modifiers[name]; !ok {
+		erro(ctx, "`%s` no such dialect or modifier", name).debug(1)
+		return
+	}
+
+	if len(g.Elems) == 0 {
+		erro(ctx, "empty modifier").debug(1)
+	} else {
+		res = &modifier{*g}
+	}
+	return
+}
+
+func (p *parser) modification(ctx Context) *modification {
+	if t_traverse.enabled { defer un(trace(t_traverse, "modification")) }
 
 	var (
-		posLp = p.loc(p.expect(LBRACK))
-		hasParameters bool // ((foo bar))
 		elems []*modifier
+		posL = p.loc(p.expect(LBRACK))
 	)
+
+	ctx = at(ctx, posL)
 
 	defer func(a parseBits) { p.bits = a }(p.bits)
 	p.bits |= parseModifier
 
-ForModifiersExpr:
-	for p.tok != RBRACK && p.tok != EOF {
-		if p.spaces(); p.tok == RBRACK { goto rBrack }
-
-		var (
-			x = p.expr(ctx, false)
-			g *group
-			name string
-		)
-		if y := false; ctx.dia().flush() > 0 {
-			erro(at(ctx,x.Position()), "modifier: %T %v", x, x).debug(1)
-			return nil
-		} else if g, y = x.(*group); !y {
-			var xv = x.expand(ctx, expandDelegate/*TODO: expandInline or expandAuto*/)
-			erro(at(ctx,x.Position()), "modifier: %T %v   →   %T %v", x, x, xv, xv).debug(1)
-			continue ForModifiersExpr
-		}
-		if l, y := g.Elems[0].(*list); y {
-			g.Elems = append([]Value{ l.Elems[0] }, append(l.Elems[1:], g.Elems[1:]...)...)
-		}
-
-		switch n := g.Elems[0].(type) {
-		case *bareword:
-			if name = n.s; name == "var" {
-				p.movar(ctx, merge(g.Elems[1:]...))
-				continue ForModifiersExpr
-			} else if name == "configure" {
-				p.defineConfigureTargets(ctx)
-				p.configure = true // set configure flag and define configure variables
-			}
-			goto checkNameAndAdd
-		case *group: // parameters: ((foo bar))
-			hasParameters = true
-			if p.ruleParams(ctx, n.Elems); true {
-				warn(ctx, "move parameters into depend list: %v", n).debug(1)
-			}
-			continue ForModifiersExpr
-		case *delegate, *closure, *barecomp, *String:
-			var ctx = at(ctx, n.Position())
-			var v = xmerge(ctx, plain, n)
-			if name = v[0].string(ctx); name == "" {
-				erro(of(ctx,n), "name '%v' is empty", n).debug(1)
-				continue ForModifiersExpr
-			}
-			goto checkNameAndAdd
-		default:
-			erro(of(ctx,n), "unsupported dialect or modifier (%T): %v", g.Elems[0], g.Elems[0]).debug(1)
-			continue ForModifiersExpr
-		}
-
-		goto addModifier
-
-	checkNameAndAdd:
-		if _, ok := dialects[name]; ok {
-			if p.dialect == "" { p.dialect = name } else {
-				erro(of(ctx,x), "multi-dialects unsupported, already defined '%s'", p.dialect).
-					debug(1)
-				continue ForModifiersExpr
-			}
-		} else if _, ok = modifiers[name]; !ok {
-			erro(of(ctx,x), "`%s` no such dialect or modifier", name).debug(1)
-			continue ForModifiersExpr
-		}
-
-	addModifier:
-		if len(g.Elems) == 0 {
-			erro(of(ctx,x), "empty modifier: %v", x).debug(1)
-		} else {
-			elems = append(elems, &modifier{ *g })
-		}
+	for p.tok != EOF && p.tok != LINEND && p.tok != RBRACK {
+		if m := p.modifier(ctx); m != nil { elems = append(elems, m) }
 	}
-	p.spaces()
-	rBrack: p.expect(RBRACK)
-	if len(elems) == 0 && !hasParameters {
-		erro(at(ctx,posLp), "empty modifier group").debug(1)
+
+	p.expect(RBRACK)
+
+	if len(elems) == 0 {
+		errostack(ctx, 5, "empty modifier group").debug(1)
 	}
 	if p.tok == COLON {
-		erro(at(ctx,posLp), "unexpected colon after modifer").debug(1)
+		errostack(ctx, 5, "unexpected colon after modifer").debug(1)
 	}
-    return &modification{ valbase: valbase{posLp}, list: elems }
+    return &modification{ valbase: valbase{posL}, list: elems }
 }
 
 // 
@@ -2847,7 +2843,7 @@ func (p *parser) specialRule(ctx Context) Value {
 			p.setbits(bits) // restore bits
 			if p.tok.IsRuleDelim() {
 				return p.rule(ctx, specialRuleUse, options, []Value{
-					MakeBareword(p.loc(pos), name),
+					makeBareword(p.loc(pos), name),
 				})
 			}
 
@@ -3164,7 +3160,7 @@ func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 
 func (p *parser) repeat(ctx Context, t *template, params []Value) {
 	defer func(t time.Time, pos Pos, tok Token, lit string, state scanState) {
-		if u := ctx.universe(); u.ddd == "template.repeat" {
+		if u := cast[*universe](ctx); u.ddd == "template.repeat" {
 			// dont check time in ddd mode
 		} else if d := time.Now().Sub(t); d > u.slow {
             warnstack(ctx, 3, "slow: %v, prof-%d", d, pprofCounter).debug(1)
@@ -3242,7 +3238,7 @@ func (p *parser) clause(ctx Context) {
 
 	defer dtrace(ctx, "parser.clause")
 
-	defer func() { if ctx.universe().debugParsing(ctx, "clause") {
+	defer func() { if cast[*universe](ctx).debugParsing(ctx, "clause") {
 		warn(ctx, "clause: %v %v ; %v %v", typeof(x), x, p.tok, p.lit).debug(6)
 	}} ()
 
@@ -3267,14 +3263,14 @@ func (p *parser) clause(ctx Context) {
 	var list = []Value{x}
 
 	if p.spaces(); p.tok.IsAssign() {
-		if ctx.universe().debugParsing(ctx, "define") {
+		if cast[*universe](ctx).debugParsing(ctx, "define") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			ctx.dia().flush()
 		}
 		p.define(ctx, p.tok, x)
 		return
 	} else if p.tok.IsRuleDelim() {
-		if ctx.universe().debugParsing(ctx, "rule") {
+		if cast[*universe](ctx).debugParsing(ctx, "rule") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			ctx.dia().flush()
 		}
@@ -3352,7 +3348,7 @@ type projectDeclOpts struct {
 
 func (p *parser) file(ctx Context) *parsedFile {
 	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
-	if ctx.universe().traceLaunch { defer un(trace(t_launch, "parser.file")) }
+	if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "parser.file")) }
 	if ctx.dia().error() { return nil }
 
 	defer dtrace(ctx, "parser.file")
@@ -3379,8 +3375,8 @@ func (p *parser) file(ctx Context) *parsedFile {
 		abs = filepath.Dir(filename)
 	}
 
-	rel, _ = filepath.Rel(loader.WorkDir(), abs)
-	tmp = joinTmpPath(ctx,loader.WorkDir(), rel)
+	rel, _ = filepath.Rel(loader.workDir(), abs)
+	tmp = joinTmpPath(ctx,loader.workDir(), rel)
 
 	if !p.setDefaultVars(ctx, filename, abs, rel, tmp) { return nil }
 
@@ -3398,7 +3394,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			}
 
 			var basename = filepath.Base(filepath.Dir(filename))
-			ident = MakeBarecomp(position, MakeBareword(position, basename))
+			ident = makeBarecomp(position, makeBareword(position, basename))
 
 		default:
 			erro(ctx, "unknown configuration '%v', currently only 'configure .' is supported", p.tok)
@@ -3433,13 +3429,13 @@ func (p *parser) file(ctx Context) *parsedFile {
 		if p.tok == LPAREN || p.tok == EOF || p.tok == LINEND || p.lineComment != nil {
 			var dir = filepath.Dir(filename)
 			if linfo.loadee != nil && linfo.absDir == dir {
-				ident = MakeBarecomp(position, MakeBareword(position, linfo.loadee.name))
+				ident = makeBarecomp(position, makeBareword(position, linfo.loadee.name))
 			} else if name := filepath.Base(filename); name == dotBase || name == dotConfigure {
 				// NOTE: loading the .base or .configure file
-				ident = MakeBarecomp(position, MakeBareword(position, name))
+				ident = makeBarecomp(position, makeBareword(position, name))
 			} else if base := filepath.Base(dir); base != "" {
 				// TODO: validate basename as a valid identifier
-				ident = MakeBarecomp(position, MakeBareword(position, base))
+				ident = makeBarecomp(position, makeBareword(position, base))
 			} else {
 				erro(ctx, "invalid file: %v", filename).debug(1)
 			}
@@ -3449,7 +3445,7 @@ func (p *parser) file(ctx Context) *parsedFile {
             } else*/ if ext := filepath.Ext(filename); ext != ".smart" {
 				erro(p, "`%v` not a smart file", filepath.Base(filename)).debug(1)
 			} else if s := strings.TrimSuffix(filepath.Base(filename), ext); s != "" {
-				ident = MakeBarecomp(position, MakeBareword(position, s))
+				ident = makeBarecomp(position, makeBareword(position, s))
 			} else {
 				erro(p, "`%v` not tilde name", filepath.Base(filename)).debug(1)
 			}
@@ -3457,7 +3453,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 		} else {
 			// var t = p.tok
 			var implicitBaseSegs []string
-			ident = MakeBarecomp(p.Position())
+			ident = makeBarecomp(p.Position())
 		ForProjectName:
 			for p.tok != EOF && p.tok != SPACE {
 				if w := p.bare(ctx, false); w == nil {
@@ -3585,8 +3581,8 @@ func (p *parser) file(ctx Context) *parsedFile {
 	}
 	if auto { loader.autoload(p.ctx(ctx), "appendix") }
 
-	if  ctx.universe().ddd == "parser.files" {
-		ctx.universe().ddd = ""
+	if  cast[*universe](ctx).ddd == "parser.files" {
+		cast[*universe](ctx).ddd = ""
 	}
 
 	return &parsedFile{

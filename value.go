@@ -89,7 +89,7 @@ const (
 
     ident = expandClosure | expandDelegate | expandSelection | expandPathStr | expandArgedArgs
     plain = ident | expandAuto | expandOptimal
-    strval = plain | expandUnexpandedForth | expandPlaceholder // NOTE: expand $_ in template
+    strval = plain | expandUnexpandedForth | expandUnexpandedMerge | expandPlaceholder // NOTE: expand $_ in template
     temporate = plain // TODO: Temporate Expanding - only expand what's possible and requested
 )
 
@@ -391,19 +391,19 @@ const (
     recursiveTraversalClosurePost = false
     recursiveTraversalClosure = true
 )
-type closureContext struct {
+type closurecontext struct {
     Context
     scopes []*Scope
 }
-func (cc *closureContext) inner() Context { return cc.Context }
-func (cc *closureContext) String() string {
+func (cc *closurecontext) String() string {
     if fullContextStringer {
         return fmt.Sprintf("closure{%s}", cc.Context)
     } else {
         return cc.Context.String()
     }
 }
-func (cc *closureContext) Scope() (scope *Scope) {
+func (cc *closurecontext) Project() (proj *Project) { return cc.Scope().project }
+func (cc *closurecontext) Scope() (scope *Scope) {
     if len(cc.scopes) > 0 {
         scope = cc.scopes[0]
     } else {
@@ -411,33 +411,15 @@ func (cc *closureContext) Scope() (scope *Scope) {
     }
     return
 }
-func (cc *closureContext) forScopes(work func(*Scope) bool) (scopes []*Scope) {
+func (cc *closurecontext) inner() Context { return cc.Context }
+func (cc *closurecontext) closure() *closurecontext { return cc }
+func (cc *closurecontext) closureScopes() []*Scope {
+    return append(cc.scopes, cc.Context.closureScopes()...)
+}
+func (cc *closurecontext) forScopes(work func(*Scope) bool) (scopes []*Scope) {
     if scopes = cc.closureScopes(); work != nil {
         for _, scope := range scopes {
             if scope != nil && work(scope) { break }
-        }
-    }
-    return
-}
-func (cc *closureContext) Project() (proj *Project) {
-    for _, scope := range cc.closureScopes() {
-        if proj = scope.project; proj != nil { break }
-    }
-    if proj == nil { proj = cc.Context.Project() }
-    return
-}
-func (cc *closureContext) closure() *closureContext { return cc }
-func (cc *closureContext) closureScopes() (scopes []*Scope) {
-    if scopes = cc.Context.closureScopes(); true {
-        scopes = append(scopes, cc.scopes...)
-    } else if false {
-    ForScopes:
-        for _, s1 := range cc.scopes {
-            for _, s2 := range scopes {
-                // discard if s2 has s1 as outer scope (as a sub scope)
-                if s2 == s1 || s2.hasOuter(s1) { continue ForScopes }
-            }
-            scopes = append(scopes, s1)
         }
     }
     return
@@ -572,11 +554,22 @@ func closureResolveEntry(ctx Context, name string) (entries *resolvedEntries) {
     return
 }
 
+func _closureWith(ctx Context, ii ...interface{}) (res Context) {
+    var scopes []*Scope
+    for _, i := range ii {
+        switch s := i.(type) {
+        case   *Scope: scopes = append(scopes, s)
+        case *Project: scopes = append(scopes, s.scope)
+        case   Object: scopes = append(scopes, s.declScope())
+        }
+    }
+    return closureWith(ctx, scopes...)
+}
 func closureWith(ctx Context, scopes ...*Scope) (res Context) {
-    if c, y := ctx.(*closureContext); false && y {
+    if c, y := ctx.(*closurecontext); false && y {
         res = closureWith(c.Context, scopes...)
     } else {
-        res = &closureContext{ ctx, scopes }
+        res = &closurecontext{ ctx, scopes }
     }
     return
 }
@@ -781,6 +774,7 @@ const (
     KindNone
     KindNull
     KindAny
+    KindEscaped
     KindBoolean
     KindList
     KindGroup
@@ -848,18 +842,18 @@ const (
     cacheUnwind
 )
 
-type fullnameOpt struct { Value }
-func (o fullnameOpt) string(ctx Context) (res string) {
+type fullname struct { Value }
+func (o fullname) string(ctx Context) (res string) {
     if f, y := o.Value.(*File); y && f != nil { return f.fullname() }
     return o.Value.string(ctx)
 }
-func (o fullnameOpt) expand(ctx Context, w facet) Value {
+func (o fullname) expand(ctx Context, w facet) Value {
     if v := o.Value.expand(ctx, w); v != nil && v != o.Value {
-        return fullnameOpt{v}
+        return fullname{v}
     }
     return o
 }
-func (o fullnameOpt) cmp(ctx Context, v Value) (res cmpres) {
+func (o fullname) cmp(ctx Context, v Value) (res cmpres) {
     if f, y := o.Value.(*File); y && f != nil { if res = f.cmp(ctx, v); res == cmpUnknown {
         if a, b := f.fullname(), v.string(ctx); a == b {
             res = cmpEqual
@@ -871,8 +865,6 @@ func (o fullnameOpt) cmp(ctx Context, v Value) (res cmpres) {
     }} else { res = o.Value.cmp(ctx, v) }
     return
 }
-
-func fullnameOption(x Value) fullnameOpt { return fullnameOpt{x} }
 
 type as struct { Value }
 
@@ -898,7 +890,7 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
     case *def      : if !isTrivial(t.value) { return as{t.value   }.file(ctx) }
     case *list     : if len(t.Elems) == 1   { return as{t.Elems[0]}.file(ctx) }
     case *rule:                               return as{t.target  }.file(ctx)
-    case *String, *compound:
+    case *strlit, *compound:
         // NOTE: escape 'string' and "compound" values from file parsing,
         // NOTE: this optimized the performance.
     case *bareword, *barecomp, *Path:
@@ -910,7 +902,7 @@ func (a as) file(ctx Context, projects ...*Project) (f *File) {
     return
 }
 
-func (a as) fullname(ctx Context, projects ...*Project) (f *File, s string, ok bool) {
+func (a as) fullnameFile(ctx Context, projects ...*Project) (f *File, s string, ok bool) {
     if f = a.file(ctx, projects...); f == nil {
         // no fullname
     } else if s = f.fullname(); filepath.IsAbs(s) {
@@ -922,12 +914,12 @@ func (a as) fullname(ctx Context, projects ...*Project) (f *File, s string, ok b
 }
 
 // TODO: deprecation
-func (a as) fullnameOrStrval(ctx Context, projects ...*Project) (s string, f bool) {
-    if _, s, f = a.fullname(ctx, projects...); !f { s = a.string(ctx) }
+func (a as) fullnameOrStrval(ctx Context, projects ...*Project) (s string, y bool) {
+    if _, s, y = a.fullnameFile(ctx, projects...); !y { s = a.string(ctx) }
     return
 }
 
-func (a as) fullnameOpt(ctx Context, projects ...*Project) (o fullnameOpt, y bool) {
+func (a as) fullname(ctx Context, projects ...*Project) (o fullname, y bool) {
     if v := a.Value; v == nil { return } else { v = scalarize(v)
         if f, _ := v.(*File); f == nil { if f = a.file(ctx, projects...); f != nil {
             o.Value = f ; return o, true
@@ -942,12 +934,15 @@ func (a as) fullnameOpt(ctx Context, projects ...*Project) (o fullnameOpt, y boo
     return
 }
 
+// NOTE: different from filepath.Join, which trims and discards empty segments
+func joinPath(segs ...string) string { return strings.Join(segs, PathSep) }
+
 func joinMatchRes(ctx Context, res interface{}) (str string) {
     if s, y := res.(string); y {
         str = s
     } else if a, y := res.([]string); y {
         // NOTE: cannot use filepath.Join() to avoid trimming empty strings
-        str = strings.Join(a, PathSep)
+        str = joinPath(a...)
     } else if res != nil {
         warn(ctx, "unexpected result: %T %v", res, res).debug(6)
     }
@@ -1285,7 +1280,7 @@ func optionalize(ctx Context, val Value) (res optional, okay bool) {
         res, okay = optional{v}, true
     } else if t, y := val.(*barecomp); y {
         if v, y := _optionalize(t.Elems[len(t.Elems)-1]); y {
-            x := MakeBarecomp(ctx.Position(), t.Elems[:len(t.Elems)-1]...)
+            x := makeBarecomp(ctx.Position(), t.Elems[:len(t.Elems)-1]...)
             x.Elems = append(x.Elems, v)
             res, okay = optional{x}, true
         }
@@ -1381,7 +1376,7 @@ func (p *argumented) traverse(ctx Context) {
                 } else if file := proj.file(ctx, val.string(ctx)); file != nil {
                     a = file
                 } else {
-                    a = val //MakeString(a.Position(), str)
+                    a = val //makeStrlit(a.Position(), str)
                 }
             }}
             args = append(args, a)
@@ -1417,7 +1412,7 @@ func (p *none) cmp(ctx Context, v Value) (res cmpres) {
         res = cmpEqual
     } else if u, o := v.(unexpanded); o && u.Value != nil {
         res = p.cmp(ctx, u.Value)
-    } else if s, ok := v.(*String); ok && s.s == "" {
+    } else if s, ok := v.(*strlit); ok && s.s == "" {
         res = cmpEqual
     } else if l, ok := v.(*list); ok && len(l.Elems) == 0 {
         res = cmpEqual
@@ -1468,8 +1463,8 @@ func isTrivial(v Value) (t bool) {
     switch a := v.(type) {
     case *none, *null, unresolved: t = true
     case *list: t = len(a.Elems) == 0 || (len(a.Elems) == 1 && isTrivial(a.Elems[0]))
-    case *String: t = a.s == ""
-    case fullnameOpt: t = isTrivial(a.Value)
+    case *strlit: t = a.s == ""
+    case fullname: t = isTrivial(a.Value)
     case as: t = isTrivial(a.Value)
     default: t = isNull(v)
     }
@@ -1482,25 +1477,18 @@ func isEmptyList(v Value) (t bool) {
 func isEmpty(v Value) (t bool) {
     switch a := v.(type) {
     case *none, *null, *undef: t = true
-    case *String: t = a.s == ""
+    case *strlit: t = a.s == ""
     case *list: t = len(a.Elems) == 0 || len(a.Elems) == 1 && isEmpty(a.Elems[0])
     }
     return
 }
 func xEmpty(ctx Context, v Value) (t bool) {
     switch a := v.(type) {
-    case unexpanded:
-        if false { switch a.Value.(type) { case *closure, *delegate: return true }}
-        if s := a.string(ctx); s == "" { return true } else
-        if false { v := a.Value; noted(ctx, "%v: %v -> '%v'", typeof(v), v, s).debug(2) }
-    // case *closure : if _, y := a.x.(unresolved); y { return true }
-    // case *delegate: if _, y := a.x.(unresolved); y { return true }
-    case *list: t = len(a.Elems) == 0 || len(a.Elems) == 1 && xEmpty(ctx, a.Elems[0])
+    case unexpanded: t = xEmpty(ctx, a.Value) || a.Value.string(ctx) == ""
+    case *list: t = len(a.Elems) == 0 || (len(a.Elems) == 1 && xEmpty(ctx, a.Elems[0]))
     case *none, *null, *undef: t = true
-    case *String: t = a.s == ""
-    // case digital: return false
+    case *strlit: t = a.s == ""
     }
-    if false { if !t && v.string(ctx) == "" { noted(ctx, "%v: %v", typeof(v), v).debug(1) }}
     return
 }
 func isUndef(v Value) (t bool) { _, t = v.(unresolved); return }
@@ -1774,10 +1762,58 @@ func stringMatch(ctx Context, p Value, i interface{}) (full bool, s string, stem
     case []string:
         if n := len(t); n > 0 { if t[0] == v { full, s = (n == 1), v } }
     default:
-        errostack(of(ctx,p), 3, "%v(%v) :matching unsupported value: %v(%v)", typeof(p), p, typeof(i), i).debug(16)
+        errostack(of(ctx,p), 3, "%v(%v): matching unsupported value: %v(%v)", typeof(p), p, typeof(i), i).debug(16)
     }
     return
 }
+
+type escaped struct { valbase; s string }
+func (_ *escaped) kind() Kind { return KindEscaped }
+func (p *escaped) String() string { return "\\" + p.s }
+func (p *escaped) string(_ Context) (s string) {
+    switch p.s {
+    case "n": s = "\n"
+    case "r": s = "\r"
+    default : s = p.s
+    }
+    return
+}
+func (p *escaped) true(_ Context) bool { return p.s != "" }
+func (p *escaped) float(_ Context) (_ float64, _ error) { return }
+func (p *escaped) int(_ Context) (_ int64, _ error) { return }
+func (p *escaped) expand(_ Context, _ facet) Value { return p }
+func (p *escaped) cmp(ctx Context, v Value) (res cmpres) {
+    if o, y := v.(*escaped); y {
+        if p.s == o.s {
+            res = cmpEqual
+        }
+    } else if u, o := v.(unexpanded); o && u.Value != nil {
+        res = p.cmp(ctx, u.Value)
+    } else if l, ok := v.(*list); ok && len(l.Elems) == 1 {
+        res = p.cmp(ctx, l.Elems[0])
+    }
+    return
+}
+func (p *escaped) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
+    return stringMatch(ctx, p, i)
+}
+func (p *escaped) stencil(ctx Context, stems []string) (val Value, rest []string) {
+    val, rest = p, stems
+    return
+}
+func (_ *escaped) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *escaped) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *escaped) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
+}
+
 
 type boolean struct { valbase; bool }
 func (_ *boolean) kind() Kind { return KindBoolean }
@@ -2281,14 +2317,14 @@ func (_ *raw) collect(ctx Context, cache *valcache, bits int) (res []*valcache) 
     return
 }
 
-type String struct { valbase; s string }
-func (_ *String) kind() Kind { return KindString }
-func (p *String) elemstr(_ Context, o Object, k elembits) (s string) {
+type strlit struct { valbase; s string }
+func (_ *strlit) kind() Kind { return KindString }
+func (p *strlit) elemstr(_ Context, o Object, k elembits) (s string) {
     if k&elemNoQuote == 0 { s = `'`+p.s+`'` } else { s = p.s }
     return
 }
-func (p *String) String() string { return p.elemstr(nil, nil, 0) }
-func (p *String) string(ctx Context) (s string) {
+func (p *strlit) String() string { return p.elemstr(nil, nil, 0) }
+func (p *strlit) string(ctx Context) (s string) {
     if false {
         s = strings.Replace(p.s, "\\\"", "\"", -1)
     } else {
@@ -2296,21 +2332,21 @@ func (p *String) string(ctx Context) (s string) {
     }
     return
 }
-func (p *String) true(ctx Context) (v bool) {
+func (p *strlit) true(ctx Context) (v bool) {
     switch p.s {
     case "no", "false": v = false
     default: v = p.s != ""
     }
     return
 }
-func (p *String) int(ctx Context) (i int64, err error) {
+func (p *strlit) int(ctx Context) (i int64, err error) {
     return strconv.ParseInt(p.s, 10, 64)
 }
-func (p *String) float(ctx Context) (f float64, err error) {
+func (p *strlit) float(ctx Context) (f float64, err error) {
     return strconv.ParseFloat(p.s, 64)
 }
-func (p *String) expand(_ Context, _ facet) Value { return p }
-func (p *String) cmp(ctx Context, v Value) (res cmpres) {
+func (p *strlit) expand(_ Context, _ facet) Value { return p }
+func (p *strlit) cmp(ctx Context, v Value) (res cmpres) {
     switch t := v.(type) {
     case *group:
     case *list: if len(t.Elems) == 1 { res = p.cmp(ctx, t.Elems[0]) }
@@ -2325,23 +2361,23 @@ func (p *String) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *String) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
+func (p *strlit) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
     full, s, stems = stringMatch(ctx, p, i)
     return
 }
-func (p *String) stencil(ctx Context, stems []string) (val Value, rest []string) {
+func (p *strlit) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *String) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
-func (p *String) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (p *strlit) traverse(ctx Context) { ctx.traverse(at(ctx, p.position), p) }
+func (p *strlit) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
     return cache.strx(at(ctx, p.position), p.s, bits)
 }
-func (p *String) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (p *strlit) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     if false { ctx = at(ctx, p.position) }
     cache = cache.str(ctx, "''", bits)
     return cache.strx(ctx, p.s, bits)
 }
-func (p *String) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (p *strlit) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
     if cache.fast != nil { if c := cache.str(ctx, "''", cacheZero); c != nil {
         if c = c.strx(ctx, p.s, cacheZero); c != nil { res = append(res, c) }
     }}
@@ -2604,7 +2640,7 @@ func (p *elements) expandable(ctx Context, w facet) (res bool) {
 }
 
 func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     if len(elemsL) != len(elemsR) {
         elemsL = merge(elemsL...)
         elemsR = merge(elemsR...)
@@ -3013,7 +3049,7 @@ func (p *barecomp) stencil(ctx Context, stems []string) (val Value, rest []strin
         elems = append(elems, t)
     }
     if changed > 0 {
-        val = MakeBarecomp(p.position, elems...)
+        val = makeBarecomp(p.position, elems...)
     } else {
         val = p
     }
@@ -3034,7 +3070,7 @@ func compose(ctx Context, x, y Value) (_ Value) {
         t.comp(ctx, y)
         return x
     } else {
-        c := MakeBarecomp(x.Position(), x)
+        c := makeBarecomp(x.Position(), x)
         c.comp(ctx, y)
         return c
     }
@@ -3607,7 +3643,7 @@ func (p *Path) delete(ctx Context) (files []*File, err error) {
     // var s string
     // if s = p.string(ctx); s == "" {
     //     erro(ctx, "no path name for `%s`", p)
-    // } else if file := stat(ctx, s, "", "", nil); file != nil {
+    // } else if file := stat(ctx, s, stat_nonexist{rue}); file != nil {
     //     if files, err = file.delete(ctx); err != nil {
     //         erro(ctx, "stamp: %v (%v)", err, file)
     //     }
@@ -3643,7 +3679,7 @@ func (p *Path) stat(ctx Context) (si *statinfo) {
     }
 
     if filepath.IsAbs(s) {
-        if file := stat(ctx, s, "", "", nil); file != nil {
+        if file := stat(ctx, s, stat_nonexist{true}); file != nil {
             return &statinfo{ file:file }
         }
     }
@@ -3667,7 +3703,7 @@ func (p *Path) cmp(ctx Context, v Value) (res cmpres) {
         res = p.cmp(ctx, l.Elems[0])
     } else if u, o := v.(unexpanded); o && u.Value != nil {
         res = p.cmp(ctx, u.Value)
-    } else if o, y := v.(fullnameOpt); y && o.Value != nil {
+    } else if o, y := v.(fullname); y && o.Value != nil {
         if res = o.cmp(ctx, p); res != cmpUnknown && res != cmpEqual {
             res = cmpres(-res)
         }
@@ -3826,7 +3862,7 @@ func pathElems(ctx Context, w facet, elems ...Value) (res []Value, u, n int) {
         var vals []Value
         for _, elem := range res {
             switch v := elem.(type) {
-            case *String:
+            case *strlit:
                 if v.s != "" {
                     vals = append(vals, splitPathStr(ctx, v.position, v.s)...)
                 }
@@ -4125,7 +4161,7 @@ func (p *Path) stencil(ctx Context, stems []string) (result Value, rest []string
         }
     }
     if rest = stems; changed > 0 {
-        result = MakePath(p.position, elems...)
+        result = makePath(p.position, elems...)
     } else {
         result = p
     }
@@ -4148,14 +4184,14 @@ func (p *Path) comp(ctx Context, val Value) {
         p.Elems[ti] = val
         return
     } else if seg, y := tail.(*PathPun); y {
-        comp = MakeBarecomp(tail.Position())
+        comp = makeBarecomp(tail.Position())
         switch seg.rune {
         case 0, '/': break // discard
         default: comp.comp(ctx, tail)
         }
         p.Elems[ti] = comp
     } else if comp, y = tail.(*barecomp); !y || comp == nil {
-        comp = MakeBarecomp(tail.Position(), tail)
+        comp = makeBarecomp(tail.Position(), tail)
         p.Elems[ti] = comp
     }
 
@@ -4253,7 +4289,7 @@ func toFile(v Value) (f *File, y bool) {
     if f, y = v.(*File); !y {
         switch t := v.(type) {
         case fullfile: f, y = t.File, true
-        case fullnameOpt: f, y = toFile(t.Value)
+        case fullname: f, y = toFile(t.Value)
         case as: f, y = toFile(t.Value)
         }
     }
@@ -4485,7 +4521,7 @@ func (p *File) change(dir, sub, name string) (okay bool) {
     return
 }
 
-type FileContent struct { *File ; content []byte }
+type filecontent struct { *File ; content []byte }
 
 type flag struct { Value }
 func (p flag) kind() Kind { return KindFlag }
@@ -4522,7 +4558,7 @@ func (p flag) match(ctx Context, i interface{}) (full bool, res interface{}, ste
     switch t := i.(type) {
     case *none, *null, unresolved:
     case flag:
-        full, res, stems = p.Value.match(ctx, t.name)
+        full, res, stems = p.Value.match(ctx, t.Value)
         if s, y := res.(string); y { res = "-" + s }
     case Value:
         if v := t.string(ctx); strings.HasPrefix(v, "-") {
@@ -4573,7 +4609,7 @@ func (p flag) opts(ctx Context, try bool, opts ...string) (runes []rune, names [
     switch t := p.Value.(type) {
     case flag:
         runes, names, err = t.opts(ctx, try, opts...)
-    case *String:
+    case *strlit:
         for _, opt := range opts {
             if t.s == opt { names = append(names, opt) }
         }
@@ -4959,8 +4995,8 @@ func (p *list) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return
 }
 
-func (_ *list) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+func (p *list) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+    errostack(ctx, 5, "cache unsupported: %v (bits=%08b)", p, bits).debug(32)
     return
 }
 func (p *list) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
@@ -5188,7 +5224,7 @@ func (u unexpanded) expandable(ctx Context, w facet) (res bool) {
     return
 }
 func (u unexpanded) expand(ctx Context, w facet) (res Value) {
-    if false { if u.Value.String() == "a b c $1" { defer func() {
+    if false { if u.Value.String() == "$1" { defer func() {
         noted(ctx, "%T %v → %T %v", u.Value, u.Value, res, res).debug(3)
     }()}}
     if w&expandUnexpandedKept != 0 { return u }
@@ -5324,7 +5360,7 @@ func (p *delegate) float(ctx Context) (f float64, e error) {
     return
 }
 func (p *delegate) value(ctx Context, w facet) (v Value) {
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     if t := p.expand(ctx, w); t == nil || t == p {
         if false { erro(of(ctx,p), "expand: %v is nil", p).debug(10) }
     } else if u, y := t.(unexpanded); y && u.Value == p {
@@ -5447,7 +5483,7 @@ func (p *delegate) expandable(ctx Context, w facet) (res bool) {
 func (p *delegate) expand(ctx Context, w facet) (res Value) {
     db, remake, unexp := false, false, true
 
-    if true { if w&expandDebug != 0 || (ctx.universe().db("delegate.expand") && p.String() == "$(if &(.test.$_),std=&(.test.$_))") { defer func() {
+    if true { if w&expandDebug != 0 || (cast[*universe](ctx).db("delegate.expand") && p.String() == "$(if &(.test.$_),std=&(.test.$_))") { defer func() {
         var s string
         if a, y := p.x.(*auto); !y {
             s = sf("a=%v", p.a)
@@ -5681,7 +5717,7 @@ func (p *closure) resolve(ctx Context, x Value) (res Value) {
     return
 }
 func (p *closure) expand(ctx Context, w facet) (res Value) {
-    if false { if w&expandDebug != 0 || (ctx.universe().db("closure.expand") && p.String() == "&(.test.$_)") { defer func() {
+    if false { if w&expandDebug != 0 || (cast[*universe](ctx).db("closure.expand") && p.String() == "&(.test.$_)") { defer func() {
         if true { var a []Value ; if ic := ctx.ic(); ic != nil { a = ic.a }; w.noted(ctx, p, p.a, a) }
         noted(ctx, "%v: %v %v ⇒ %v %v", p, typeof(p.x), p, typeof(res), res).debug(32)
     }()}}
@@ -5851,7 +5887,7 @@ func (p *selection) value(ctx Context, w facet) (res Value) {
         noted(ctx, "%T %v → %T %v → %T %v", p.o, p.o, t, t, res, res).debug(16)
     }()}}
 
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
 
     var o Object
     if s, y := p.o.(*selection); y {
@@ -6168,7 +6204,7 @@ func (p *PercPattern) stencil(ctx Context, stems []string) (val Value, rest []st
     }
 
     if len(stems) > 0 {
-        if s := stems[0]; s != "" { vals = append(vals, MakeBareword(p.position, s)) }
+        if s := stems[0]; s != "" { vals = append(vals, makeBareword(p.position, s)) }
         rest = stems[1:]
     } else {
         // return
@@ -6213,7 +6249,7 @@ DoneVals:
     if n := len(vals); n == 1 {
         val = vals[0]
     } else if n > 1 {
-        val = MakeBarecomp(p.position, vals...)
+        val = makeBarecomp(p.position, vals...)
     } else {
         val = p
     }
@@ -6316,7 +6352,7 @@ func multia(ctx Context, p Value) (result bool, prefix, suffix Value) {
                 if n = i; n > 0 { if glob {
                     suffix = makeGlobPattern(ctx, t...)
                 } else {
-                    prefix = MakeBarecomp(comp.Position(), t...)
+                    prefix = makeBarecomp(comp.Position(), t...)
                 }}
                 break
             } else {
@@ -6331,7 +6367,7 @@ func multia(ctx Context, p Value) (result bool, prefix, suffix Value) {
             if glob {
                 suffix = makeGlobPattern(ctx, t...)
             } else if len(t) > 1 {
-                suffix = MakeBarecomp(t[0].Position(), t...)
+                suffix = makeBarecomp(t[0].Position(), t...)
             } else if len(t) > 0 {
                 suffix = t[0]
             }
@@ -6713,14 +6749,14 @@ func mergeBare(args... Value) (elems []Value) {
 
 // Merge lists recursively into a single list. Previously called Join.
 // FIXME: merge all unexpanded.value may cause deadloop.
-func merge(args ...Value) (elems []Value) { return umerge(false, args...) }
+func  merge(args ...Value) (elems []Value) { return umerge(false, args...) }
 func umerge(un bool, args ...Value) (elems []Value) {
     for _, a := range args {
         if a == nil {
             continue
         } else if l, y := a.(*list); y && l != nil {
             elems = append(elems, umerge(un, l.Elems...)...)
-        } else if u, y := a.(unexpanded); un && y && u.Value != nil {
+        } else if u, y := a.(unexpanded); y && un && u.Value != nil {
             // NOTE: merge unexpanded value unconditionally may cause deadloop
             // NOTE: it's commonly necessary to preserve unexpanded values.
             elems = append(elems, _umerge(u)...)
@@ -6745,6 +6781,7 @@ func _umerge(u unexpanded) (elems []Value) {
 
 func xmerge(ctx Context, w facet, values ...Value) (res []Value) {
     var t1 time.Time
+
     defer func(t0 time.Time) { t2 := time.Now()
         if d := t2.Sub(t0); d > 1*time.Second {
             var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; p = ctx.Position() )
@@ -6752,7 +6789,9 @@ func xmerge(ctx Context, w facet, values ...Value) (res []Value) {
             prompt(ctx, "%v: slow: %v⇒%v+%v\n", p, d, d1, d2).debug(1)
         }
     } (time.Now())
+
     res, _, _ = w.expand(ctx, values...) ; t1 = time.Now()
+
     return umerge(w&expandUnexpandedMerge != 0, res...)
 }
 
@@ -6792,7 +6831,7 @@ func permVal(ctx Context, v Value, i uint32) (res os.FileMode) {
 }
 
 func (w facet) expand(ctx Context, values ...Value) (elems []Value, u, n int) {
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     for _, elem := range values {
         if w&expandArgs == 0 && elem == nil { continue }
 
@@ -6848,19 +6887,19 @@ func splitPathStr(ctx Context, pos Position, str string) (segments []Value) {
         var v Value
         if i == 0 {
             switch s {
-            case ""  : v = MakePathPun(pos, '/')
-            case "~" : v = MakePathPun(pos, '~')
-            case "." : v = MakePathPun(pos, '.')
-            case "..": v = MakePathPun(pos, '^')
-            default  : v = MakeBareword(pos, s)
+            case ""  : v = makePathPun(pos, '/')
+            case "~" : v = makePathPun(pos, '~')
+            case "." : v = makePathPun(pos, '.')
+            case "..": v = makePathPun(pos, '^')
+            default  : v = makeBareword(pos, s)
             }
         } else if s == "" {
-           if i+1 == len(a) { v = MakePathPun(pos, 0) } else {
+           if i+1 == len(a) { v = makePathPun(pos, 0) } else {
                warn(at(ctx, pos), "%s: %v[%d]: empty path seg", str, a, i).debug(1)
                continue
            }
         } else {
-            v = MakeBareword(pos, s)
+            v = makeBareword(pos, s)
         }
         // TODO: calculate position of each segment
         segments = append(segments, v)
@@ -6880,21 +6919,21 @@ func ease(ctx Context, iv interface{}) (res Value) {
     case nil: return
     case    Value: elems = append(elems, merge(t)...)
     case  []Value: elems = append(elems, merge(t...)...)
-    case     bool: elems = append(elems, MakeBoolean(ctx.Position(), t))
-    case    int  : elems = append(elems, MakeInt(ctx.Position(), int64(t)))
-    case    int16: elems = append(elems, MakeInt(ctx.Position(), int64(t)))
-    case    int32: elems = append(elems, MakeInt(ctx.Position(), int64(t)))
-    case    int64: elems = append(elems, MakeInt(ctx.Position(),       t ))
-    case   uint  : elems = append(elems, MakeInt(ctx.Position(), int64(t)))
-    case   uint16: elems = append(elems, MakeInt(ctx.Position(), int64(t)))
-    case   uint32: elems = append(elems, MakeInt(ctx.Position(), int64(t)))
-    case   uint64: elems = append(elems, MakeInt(ctx.Position(), int64(t)))
-    case  float32: elems = append(elems, MakeFloat(ctx.Position(), float64(t)))
-    case  float64: elems = append(elems, MakeFloat(ctx.Position(),         t))
-    case   string: elems = append(elems, MakeString(ctx.Position(), t))
-    case []string: for _, s := range t { elems = append(elems, MakeString(ctx.Position(), s)) }
-    case     bare: elems = append(elems, MakeBareword(ctx.Position(), t.s))
-    case   []bare: for _, s := range t { elems = append(elems, MakeBareword(ctx.Position(), s.s)) }
+    case     bool: elems = append(elems, makeBoolean(ctx.Position(), t))
+    case    int  : elems = append(elems, makeInt(ctx.Position(), int64(t)))
+    case    int16: elems = append(elems, makeInt(ctx.Position(), int64(t)))
+    case    int32: elems = append(elems, makeInt(ctx.Position(), int64(t)))
+    case    int64: elems = append(elems, makeInt(ctx.Position(),       t ))
+    case   uint  : elems = append(elems, makeInt(ctx.Position(), int64(t)))
+    case   uint16: elems = append(elems, makeInt(ctx.Position(), int64(t)))
+    case   uint32: elems = append(elems, makeInt(ctx.Position(), int64(t)))
+    case   uint64: elems = append(elems, makeInt(ctx.Position(), int64(t)))
+    case  float32: elems = append(elems, makeFloat(ctx.Position(), float64(t)))
+    case  float64: elems = append(elems, makeFloat(ctx.Position(),         t))
+    case   string: elems = append(elems, makeStrlit(ctx.Position(), t))
+    case []string: for _, s := range t { elems = append(elems, makeStrlit(ctx.Position(), s)) }
+    case     bare: elems = append(elems, makeBareword(ctx.Position(), t.s))
+    case   []bare: for _, s := range t { elems = append(elems, makeBareword(ctx.Position(), s.s)) }
     default: erro(ctx, "unsupported result: %T %v", t, t).debug(3) ; return
     }
     if elems == nil { // FIXME: return nil here caused dead-loop ???
@@ -6911,19 +6950,19 @@ func va(ctx Context, i interface{}) (v Value) {
     switch t := i.(type) {
     case   Value: v = t
     case []Value: v = makeList(ctx.Position(), t...)
-    case  int:    v = MakeInt(ctx.Position(), int64(t))
-    case  int16:  v = MakeInt(ctx.Position(), int64(t))
-    case  int32:  v = MakeInt(ctx.Position(), int64(t))
-    case  int64:  v = MakeInt(ctx.Position(), int64(t))
-    case uint:    v = MakeInt(ctx.Position(), int64(t))
-    case uint16:  v = MakeInt(ctx.Position(), int64(t))
-    case uint32:  v = MakeInt(ctx.Position(), int64(t))
-    case uint64:  v = MakeInt(ctx.Position(), int64(t))
+    case  int:    v = makeInt(ctx.Position(), int64(t))
+    case  int16:  v = makeInt(ctx.Position(), int64(t))
+    case  int32:  v = makeInt(ctx.Position(), int64(t))
+    case  int64:  v = makeInt(ctx.Position(), int64(t))
+    case uint:    v = makeInt(ctx.Position(), int64(t))
+    case uint16:  v = makeInt(ctx.Position(), int64(t))
+    case uint32:  v = makeInt(ctx.Position(), int64(t))
+    case uint64:  v = makeInt(ctx.Position(), int64(t))
     case string:
         if t == "" {
             v = makeNone(ctx.Position())
         } else {
-            v = MakeBareword(ctx.Position(), t)
+            v = makeBareword(ctx.Position(), t)
         }
     case []string: {
         var l = makeList(ctx.Position())
@@ -6931,7 +6970,7 @@ func va(ctx Context, i interface{}) (v Value) {
             if s == "" {
                 v = makeNone(ctx.Position())
             } else {
-                v = MakeBareword(ctx.Position(), s)
+                v = makeBareword(ctx.Position(), s)
             }
             l.Elems = append(l.Elems, v)
         }
@@ -6960,24 +6999,24 @@ func scalarize(v Value) (res Value) {
     return v
 }
 
-func EscapeChar(s string) string {
-    switch s {
-    case "a":  s = "\a"
-    case "b":  s = "\b"
-    case "f":  s = "\f"
-    case "n":  s = "\n"
-    case "r":  s = "\r"
-    case "t":  s = "\t"
-    case "v":  s = "\v"
-    case "\\": s = "\\"
-    case "\"": s = "\""
-    case "'":  s = "'"
-    case "$":  s = "$"
-    case "&":  s = "&"
-    default:   s = "\\" + s // give back the '\' character
-    }
-    return s
-}
+// func EscapeChar(s string) string {
+//     switch s {
+//     case "a":  s = "\a"
+//     case "b":  s = "\b"
+//     case "f":  s = "\f"
+//     case "n":  s = "\n"
+//     case "r":  s = "\r"
+//     case "t":  s = "\t"
+//     case "v":  s = "\v"
+//     case "\\": s = "\\"
+//     case "\"": s = "\""
+//     case "'":  s = "'"
+//     case "$":  s = "$"
+//     case "&":  s = "&"
+//     default:   s = "\\" + s // give back the '\' character
+//     }
+//     return s
+// }
 
 func makeArgumented(val Value, args... Value) *argumented { return &argumented{val, args} }
 func makeAnswer(pos Position, v bool) *answer { return &answer{boolean{valbase{pos},v}} }
@@ -6986,56 +7025,56 @@ func makeFlag(pos Position, s string) flag    { return flag{&bareword{valbase{po
 
 func makeNull(pos Position) *null { return &null{valbase{pos}} }
 func makeNone(pos Position) *none { return &none{valbase{pos}, nil} }
-func MakeSelection(pos Position, tok Token, lhs, rhs Value) *selection { return &selection{valbase{pos}, tok, lhs, rhs} }
-func MakeBoolean(pos Position, v bool) *boolean { return &boolean{valbase{pos},v} }
-func MakeBin(pos Position, i int64) *Bin { return &Bin{integer{valbase{pos},i}} }
-func MakeOct(pos Position, i int64) *Oct { return &Oct{integer{valbase{pos},i}} }
-func MakeInt(pos Position, i int64) *Int { return &Int{integer{valbase{pos},i}} }
-func MakeHex(pos Position, i int64) *Hex { return &Hex{integer{valbase{pos},i}} }
-func MakeFloat(pos Position, f float64) *Float  { return &Float{valbase{pos},f} }
-func MakeDate(pos Position, s time.Time) *Date  { return &Date{DateTime{valbase{pos},s}} }
-func MakeTime(pos Position, t time.Time) *Time  { return &Time{DateTime{valbase{pos},t}} }
-func MakeRaw(pos Position, s string) *raw       { return &raw{valbase{pos},s} }
-func MakeString(pos Position, s string) *String { return &String{valbase{pos},s} }
-func MakeURL(pos Position, s *url.URL) *URL {
+func makeSelection(pos Position, tok Token, lhs, rhs Value) *selection { return &selection{valbase{pos}, tok, lhs, rhs} }
+func makeBoolean(pos Position, v bool) *boolean { return &boolean{valbase{pos},v} }
+func makeBin(pos Position, i int64) *Bin { return &Bin{integer{valbase{pos},i}} }
+func makeOct(pos Position, i int64) *Oct { return &Oct{integer{valbase{pos},i}} }
+func makeInt(pos Position, i int64) *Int { return &Int{integer{valbase{pos},i}} }
+func makeHex(pos Position, i int64) *Hex { return &Hex{integer{valbase{pos},i}} }
+func makeFloat(pos Position, f float64) *Float  { return &Float{valbase{pos},f} }
+func makeDate(pos Position, s time.Time) *Date  { return &Date{DateTime{valbase{pos},s}} }
+func makeTime(pos Position, t time.Time) *Time  { return &Time{DateTime{valbase{pos},t}} }
+func makeRaw(pos Position, s string) *raw       { return &raw{valbase{pos},s} }
+func makeStrlit(pos Position, s string) *strlit { return &strlit{valbase{pos},s} }
+func makeURL(pos Position, s *url.URL) *URL {
     var host, port string
     v := strings.Split(s.Host, ":")
     if len(v) == 1 { host = v[0] }
     if len(v) == 2 { host, port = v[0], v[1] }
     var password Value
-    if t, ok := s.User.Password(); ok {password = MakeString(pos, t)}
+    if t, ok := s.User.Password(); ok {password = makeStrlit(pos, t)}
     return &URL{ // FIXME: calculate component positions
         valbase: valbase{pos},
-        Scheme: MakeString(pos, s.Scheme),
-        Username: MakeString(pos, s.User.Username()),
+        Scheme: makeStrlit(pos, s.Scheme),
+        Username: makeStrlit(pos, s.User.Username()),
         Password: password,
-        Host: MakeString(pos, host),
-        Port: MakeString(pos, port),
-        Path: MakeString(pos, s.Path),
-        Query: MakeString(pos, s.RawQuery),
-        Fragment: MakeString(pos, s.Fragment),
+        Host: makeStrlit(pos, host),
+        Port: makeStrlit(pos, port),
+        Path: makeStrlit(pos, s.Path),
+        Query: makeStrlit(pos, s.RawQuery),
+        Fragment: makeStrlit(pos, s.Fragment),
     }
 }
-func MakeBareword(pos Position, word string) *bareword { return &bareword{valbase{pos},word} }
-func MakeBarecomp(pos Position, elems... Value) *barecomp { return &barecomp{valbase{pos},elements{merge(elems...)}} }
-func MakeCompound(pos Position, elems... Value) *compound { return &compound{valbase{pos},elements{merge(elems...)}} }
+func makeBareword(pos Position, word string) *bareword { return &bareword{valbase{pos},word} }
+func makeBarecomp(pos Position, elems... Value) *barecomp { return &barecomp{valbase{pos},elements{merge(elems...)}} }
+func makeCompound(pos Position, elems... Value) *compound { return &compound{valbase{pos},elements{merge(elems...)}} }
 func makeList(pos Position, elems... Value) *list {
     if !pos.IsValid() && len(elems) > 0 { pos = elems[0].Position() }
     return &list{pos,elements{elems}}
 }
-func MakeGroup(pos Position, elems... Value) (v *group) { return &group{valbase{pos},elements{elems}} }
-func MakeGlobMeta(pos Position, tok Token) *GlobMeta { return &GlobMeta{valbase{pos},tok} }
-func MakeGlobRange(pos Position, v Value) *GlobRange { return &GlobRange{valbase{pos},v} }
-func MakePath(pos Position, segments... Value) (v *Path) { return &Path{valbase{pos},elements{segments}/*, nil*/} }
-func MakePathPun(pos Position, ch rune) *PathPun { return &PathPun{valbase{pos},ch} }
-func pathStr(ctx Context, pos Position, str string) *Path { return MakePath(pos, splitPathStr(ctx, pos, str)...) }
-func MakePair(pos Position, k, v Value) (p *pair) {
+func makeGroup(pos Position, elems... Value) (v *group) { return &group{valbase{pos},elements{elems}} }
+func makeGlobMeta(pos Position, tok Token) *GlobMeta { return &GlobMeta{valbase{pos},tok} }
+func makeGlobRange(pos Position, v Value) *GlobRange { return &GlobRange{valbase{pos},v} }
+func makePath(pos Position, segments... Value) (v *Path) { return &Path{valbase{pos},elements{segments}/*, nil*/} }
+func makePathPun(pos Position, ch rune) *PathPun { return &PathPun{valbase{pos},ch} }
+func pathStr(ctx Context, pos Position, str string) *Path { return makePath(pos, splitPathStr(ctx, pos, str)...) }
+func makePair(pos Position, k, v Value) (p *pair) {
     p = &pair{valbase{pos},nil,nil}
     p.SetKey(k)
     p.SetValue(v)
     return
 }
-func MakePercPattern(pos Position, prefix, suffix Value) *PercPattern {
+func makePercPattern(pos Position, prefix, suffix Value) *PercPattern {
     if prefix == nil { prefix = makeNone(pos) }
     if suffix == nil { suffix = makeNone(pos) }
     return &PercPattern{
@@ -7047,22 +7086,22 @@ func MakePercPattern(pos Position, prefix, suffix Value) *PercPattern {
 func makeGlobPattern(ctx Context, components... Value) Value {
     return &GlobPattern{valbase:valbase{ctx.Position()}, components:components}
 }
-func MakeDelegate(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
+func makeDelegate(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
     return &delegate{valbase{pos}, tok, obj, opts, args}
 }
-func MakeClosure(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
+func makeClosure(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
     if isNull(obj) { panic(failure{"making closure on <nil> object",ia(pos)}) }
     return &closure{delegate{valbase{pos}, tok, obj, opts, args}}
 }
 
 func Make(pos Position, in interface{}) (out Value) {
     switch v := in.(type) {
-    case int:       out = MakeInt(pos,int64(v))
-    case int32:     out = MakeInt(pos,int64(v))
-    case int64:     out = MakeInt(pos,v)
-    case float32:   out = MakeFloat(pos,float64(v))
-    case float64:   out = MakeFloat(pos,v)
-    case string:    out = MakeString(pos, v)
+    case int:       out = makeInt(pos,int64(v))
+    case int32:     out = makeInt(pos,int64(v))
+    case int64:     out = makeInt(pos,v)
+    case float32:   out = makeFloat(pos,float64(v))
+    case float64:   out = makeFloat(pos,v)
+    case string:    out = makeStrlit(pos, v)
     case time.Time: out = &DateTime{valbase{pos},v} // FIXME: NewDate, NewTime
     case Value:     out = v
     default:    out = &any{in} // TODO: position for any
@@ -7083,7 +7122,7 @@ func ParseBin(pos Position, s string) *Bin {
         s = s[2:]
     }
     if i, e := strconv.ParseInt(s, 2, 64); e == nil {
-        return MakeBin(pos,i)
+        return makeBin(pos,i)
     } else {
         panic(e)
     }
@@ -7094,7 +7133,7 @@ func ParseOct(pos Position, s string) *Oct {
         s = s[1:]
     }
     if i, e := strconv.ParseInt(s, 8, 64); e == nil {
-        return MakeOct(pos,i)
+        return makeOct(pos,i)
     } else {
         panic(e)
     }
@@ -7102,7 +7141,7 @@ func ParseOct(pos Position, s string) *Oct {
 
 func ParseInt(pos Position, s string) *Int {
     if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-        return MakeInt(pos,i)
+        return makeInt(pos,i)
     } else {
         panic(e)
     }
@@ -7113,7 +7152,7 @@ func ParseHex(pos Position, s string) *Hex {
         s = s[2:]
     }
     if i, e := strconv.ParseInt(s, 16, 64); e == nil {
-        return MakeHex(pos,i)
+        return makeHex(pos,i)
     } else {
         panic(e)
     }
@@ -7121,7 +7160,7 @@ func ParseHex(pos Position, s string) *Hex {
 
 func ParseFloat(pos Position, s string) *Float {
     if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
-        return MakeFloat(pos,f)
+        return makeFloat(pos,f)
     } else {
         panic(e)
     }
@@ -7129,7 +7168,7 @@ func ParseFloat(pos Position, s string) *Float {
 
 func ParseDate(pos Position, s string) *Date {
     if t, e := time.Parse("2006-01-02", s); e == nil {
-        return MakeDate(pos,t)
+        return makeDate(pos,t)
     } else {
         panic(e)
     }
@@ -7137,7 +7176,7 @@ func ParseDate(pos Position, s string) *Date {
 
 func ParseTime(pos Position, s string) *Time {
     if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
-        return MakeTime(pos,t)
+        return makeTime(pos,t)
     } else {
         panic(e)
     }
@@ -7145,7 +7184,7 @@ func ParseTime(pos Position, s string) *Time {
 
 func ParseURL(pos Position, s string) *URL {
     if u, e := url.Parse(s); e == nil {
-        return MakeURL(pos,u)
+        return makeURL(pos,u)
     } else {
         panic(e)
     }
@@ -7267,7 +7306,7 @@ func inv(ctx Context, v Value, ii ...interface{}) (res Value) { w, a := iwa(ctx,
 }
 
 func call(ctx Context, name string, w facet, o []Value, a ...Value) (res Value) {
-    if v := ctx.universe().scope.Lookup(name); v != nil {
+    if v := cast[*universe](ctx).scope.Lookup(name); v != nil {
         if t := invoke(ctx, v, w, o, a); t != v { res = t }
     }
     return

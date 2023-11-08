@@ -86,6 +86,7 @@ var builtins = map[string]reflect.Type {
     `ifeq`:      reflect.TypeOf((*builtin_ifeq)(nil)).Elem(),
     `ifne`:      reflect.TypeOf((*builtin_ifne)(nil)).Elem(),
 
+    `for`:       reflect.TypeOf((*builtin_for)(nil)).Elem(),
     `foreach`:   reflect.TypeOf((*builtin_foreach)(nil)).Elem(),
     `count`:     reflect.TypeOf((*builtin_count)(nil)).Elem(),
 
@@ -115,7 +116,8 @@ var builtins = map[string]reflect.Type {
     `quote`:      reflect.TypeOf((*builtin_quote)(nil)).Elem(),
     `quote-join`: reflect.TypeOf((*builtin_quotejoin)(nil)).Elem(),
 
-    `split-string`:      reflect.TypeOf((*builtin_splitstring)(nil)).Elem(),
+    `split`:             reflect.TypeOf((*builtin_splitstring)(nil)).Elem(),
+    `split-string`:      reflect.TypeOf((*builtin_splitstring)(nil)).Elem(), // TODO: remove it?
     `split-quote`:       reflect.TypeOf((*builtin_splitquote)(nil)).Elem(),
     `split-quote-join`:  reflect.TypeOf((*builtin_splitquotejoin)(nil)).Elem(),
     `split-join-quote`:  reflect.TypeOf((*builtin_splitjoinquote)(nil)).Elem(),
@@ -256,7 +258,7 @@ var builtins = map[string]reflect.Type {
 }
 
 func escapedString(ctx Context, v Value) (s string) {
-    if p, ok := v.(*String); ok {
+    if p, ok := v.(*strlit); ok {
         s = strings.Replace(p.string(ctx), "\\'", "'", -1)
     } else {
         s = v.string(ctx)
@@ -324,14 +326,14 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.Value":
             val.Set(reflect.ValueOf(v))
         default:
-            erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+            erro(of(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
         }
     case reflect.Ptr:
         switch val.Type().Elem().String() {
-        case "smart.fullnameOpt":
+        case "smart.fullname":
             if x := v.expand(ctx, plain|expandFullName); isTrivial(x) {
                 erro(of(ctx, v), "expecting file value: %T %v", v, v).debug(1)
-            } else if o, y := (as{x}.fullnameOpt(ctx)); y && o.Value != nil {
+            } else if o, y := (as{x}.fullname(ctx)); y && o.Value != nil {
                 val.Set(reflect.ValueOf(&o))
             } else {
                 erro(of(ctx,v), "%v: not a file: %v → %T %v", ctx.Project(), v, x, x)
@@ -356,7 +358,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
                 val.Set(reflect.ValueOf(rx))
             }
         default:
-            erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).debug(1)
+            erro(of(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Elem().Kind(), val.Type().Elem()).debug(1)
         }
     default:
         switch val.Type().String() {
@@ -368,9 +370,9 @@ func _set(ctx Context, val reflect.Value, v Value) {
                 erro(ctx, "%v: %v", v, t).debug(1)
             }
         case "regex.Regex": // aka. reflect.Ptr
-            erro(of(ctx,v), "TODO: regexp: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+            erro(of(ctx,v), "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
         default:
-            erro(of(ctx,v), "option type unsupported: %T %v -> %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+            erro(of(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
         }
     }
 }
@@ -409,7 +411,7 @@ ForArgs:
 
         // don't parse patterns, e.g. -I%
         if !a.patterned(ctx) { switch t := a.(type) {
-        case  flag: f, value = t, MakeBoolean(t.Position(), true)
+        case  flag: f, value = t, makeBoolean(t.Position(), true)
         case *pair: if f, y = t.Key.(flag); y { value = t.Value }
         case *argumented: if f, y = t.Value.(flag); y { value = ease(ctx, t.args) }
         }}
@@ -439,11 +441,11 @@ func _parseOpts(ctx Context, opts reflect.Value, w facet, args []Value) (rest []
     } else if false {
         if false && // FIXME: the args[1].expand(ctx, w) causes 'd.x == nil'
             w == 0 && len(args)>1 && args[0].String() == "-plain" &&
-            args[1].String() == "$(configure~$(target.sys).features)" {
+            args[1].String() == "$(configure~$(target.os).features)" {
             var d = args[1].(*delegate)
             var t = args[1].expand(ctx, w)
             warn(ctx, "%v ; w=%016b", args, w)
-            warn(ctx, "%T %v %p -> %T %v %p %p", d.x, args[1], d,
+            warn(ctx, "%T %v %p → %T %v %p %p", d.x, args[1], d,
                 t.(*delegate).x, t, t, t.(*delegate)).debug(1)
         }
         rest = xmerge(ctx, w, args...)
@@ -577,7 +579,7 @@ func (ctx *builtin_typeof) x(ic *invocation, w facet) (res interface{}) {
         //   $(fun abc)             args: (abc)
         //   $(fun a,b,c)           args: (a),(b),(c)
         //   $(fun a b c,1 2 3)     args: (a b c),(1 2 3)
-        elems = append(elems, MakeBareword(arg.Position(), typeof(arg)))
+        elems = append(elems, makeBareword(arg.Position(), typeof(arg)))
     }
     return elems
 }
@@ -589,7 +591,7 @@ func (ctx *builtin_origin) x(ic *invocation, w facet) (res interface{}) {
     for _, arg := range ic.a { if s := arg.string(ctx); s == "" {
         elems = append(elems, makeNull(arg.Position()))
     } else if d := scope.FindDef(s); d != nil {
-        elems = append(elems, MakeString(arg.Position(), d.origin.String()))
+        elems = append(elems, makeStrlit(arg.Position(), d.origin.String()))
     } else {
         elems = append(elems, makeNull(arg.Position()))
     }}
@@ -601,7 +603,7 @@ func (ctx *builtin_defined) x(ic *invocation, w facet) (res interface{}) {
     var elems []Value
     for _, arg := range ic.a {
         var _, unresolved = arg.(unresolved)
-        elems = append(elems, MakeBoolean(arg.Position(), !unresolved))
+        elems = append(elems, makeBoolean(arg.Position(), !unresolved))
     }
     return elems
 }
@@ -610,7 +612,7 @@ type builtin_pushcontext struct { builtin_ }
 func (ctx *builtin_pushcontext) c(ic *invocation, w facet) (res interface{}) {
     var (
         scope = ctx.Scope()
-        uc = ctx.universe()
+        uc = cast[*universe](ctx)
         m map[string]*def
     )
     for _, arg := range ic.a {
@@ -645,7 +647,7 @@ func (ctx *builtin_popcontext) c(ic *invocation, w facet) (res interface{}) {
     }}
 
     var scope = ctx.Scope()
-    var uc = ctx.universe()
+    var uc = cast[*universe](ctx)
     var l = len(uc.globe.stack)
     if l == 0 { return }
     for s, d := range uc.globe.stack[l-1] { if d == nil { if s == "" { continue }
@@ -671,16 +673,16 @@ func (ctx *builtin_position) x(ic *invocation, w facet) (res interface{}) {
     var vals []Value
     var pos = ctx.Position()
     if ctx.filename {
-        vals = append(vals, MakeString(pos, pos.Filename))
+        vals = append(vals, makeStrlit(pos, pos.Filename))
     } else if ctx.filenameQuoted {
         var s = pos.Filename //strconv.Quote(pos.Filename)
-        vals = append(vals, MakeString(pos, "\""+s+"\""))
+        vals = append(vals, makeStrlit(pos, "\""+s+"\""))
     }
 
-    if ctx.line   { vals = append(vals, MakeInt(pos, int64(pos.Line + ctx.addLine))) }
-    if ctx.column { vals = append(vals, MakeInt(pos, int64(pos.Column + ctx.addColumn))) }
+    if ctx.line   { vals = append(vals, makeInt(pos, int64(pos.Line + ctx.addLine))) }
+    if ctx.column { vals = append(vals, makeInt(pos, int64(pos.Column + ctx.addColumn))) }
 
-    if len(vals) == 0 { return MakeString(pos, pos.String()) }
+    if len(vals) == 0 { return makeStrlit(pos, pos.String()) }
     if len(vals) == 1 { return vals[0] }
     return vals
 }
@@ -698,13 +700,13 @@ func (ctx *builtin_date) x(ic *invocation, w facet) (res interface{}) {
             } else if s = t.Format(s); s == "" {
                 s = fmt.Sprintf("%v", t)
             }
-            vals = append(vals, MakeString(a.Position(), s))
+            vals = append(vals, makeStrlit(a.Position(), s))
         }
         return vals
     } else if ctx.time {
-        res = MakeTime(ctx.Position(), t)
+        res = makeTime(ctx.Position(), t)
     } else {
-        res = MakeDate(ctx.Position(), t)
+        res = makeDate(ctx.Position(), t)
     }
     return
 }
@@ -760,7 +762,7 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
     var s = ctx.stack ; if s < 1 { s = 1 }
     var t = diagError ; if ctx.warn { t = diagWarn }
 
-    var hook = ctx.universe().hooks.assert
+    var hook = cast[*universe](ctx).hooks.assert
     if ic.a == nil && hook != nil && !hook(ctx, nil, false) {
         prompt(ctx, "assert: %v\n", ic.a)
         diagstack(ctx, s, t).debug(d)
@@ -813,7 +815,7 @@ func (ctx *builtin_or) _a(ic *invocation, w facet) (skip bool) {
         if false && !ctx.forth {
             if _, y := a.(unexpanded); y { skip = true }
         }
-        if false && ctx.universe().db("or") {
+        if false && cast[*universe](ctx).db("or") {
             noted(ctx, "or: %v %d. %v ; %v %v %v", ic.a, i, a.expand(ctx, w), autoDef(ctx, "1"), autoDef(ctx, "2"), autoDef(ctx, "3"))
         }
         ic.a[i] = a.expand(ctx, w)
@@ -824,7 +826,7 @@ func (ctx *builtin_or) x(ic *invocation, w facet) (res interface{}) {
     for _, a := range umerge(true, ic.a...) {
         if a.expandable(ctx, w) { a = a.expand(ctx, w) }
         if !ctx.forth { if u, y := a.(unexpanded); y {
-            if false && ctx.universe().db("or") { v := u.Value
+            if false && cast[*universe](ctx).db("or") { v := u.Value
                 noted(ctx, "or: %T %v %030b", v, v, w&expandDefAssign).debug(1)
             }
             return skip{}
@@ -854,8 +856,8 @@ func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
     return
 }
 
-// $(not x y z) => (not (or x y z))
-// $(not x,y,z) => (and (not x) (not y) (not z))
+// $(not x y z) ⇒ (not (or x y z))
+// $(not x,y,z) ⇒ (and (not x) (not y) (not z))
 type builtin_not struct { builtin_ }
 func (ctx *builtin_not) x(ic *invocation, w facet) (res interface{}) {
     var t bool
@@ -869,7 +871,7 @@ func (ctx *builtin_xor) x(ic *invocation, w facet) (res interface{}) {
     if vals := umerge(true, ic.a...); len(vals) > 1 {
         var t = vals[0].true(ctx)
         for _, a := range vals[1:] { if a.true(ctx) != t {
-            return MakeBoolean(a.Position(), true)
+            return makeBoolean(a.Position(), true)
         }}
     }
     return
@@ -897,7 +899,7 @@ func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
     }
 
     if t {
-        res = MakeBoolean(ctx.Position(), true)
+        res = makeBoolean(ctx.Position(), true)
     } else if n := ctx.debug; n>0 {
         if u, y := a.(unexpanded); y {
             warn(of(ctx,a), "unequal: a: %T %v (unexpanded)", u.Value, a)
@@ -952,7 +954,7 @@ func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
     }
 
     if t {
-        res = MakeBoolean(ctx.Position(), true)
+        res = makeBoolean(ctx.Position(), true)
     } else if n := ctx.debug; n>0 {
         if u, y := a.(unexpanded); y {
             warn(of(ctx,a), "equal: a: %T %v (unexpanded, %s)", u.Value, a, a.string(ctx))
@@ -980,7 +982,7 @@ func (ctx *builtin_greater) x(ic *invocation, w facet) (res interface{}) {
     if n := len(ic.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
     } else if cmp := ic.a[0].cmp(ctx, ic.a[1]); cmp == cmpGreater {
-        res = MakeBoolean(ctx.Position(), true)
+        res = makeBoolean(ctx.Position(), true)
     }
     return
 }
@@ -990,7 +992,7 @@ func (ctx *builtin_less) x(ic *invocation, w facet) (res interface{}) {
     if n := len(ic.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
     } else if cmp := ic.a[0].cmp(ctx, ic.a[1]); cmp == cmpSmaller {
-        res = MakeBoolean(ctx.Position(), true)
+        res = makeBoolean(ctx.Position(), true)
     }
     return
 }
@@ -1031,9 +1033,9 @@ ForValList:
             if ctx.negated { matched = !matched }
             if matched {
                 if ctx.all {
-                    if res == nil { res = MakeBoolean(pos, true) }
+                    if res == nil { res = makeBoolean(pos, true) }
                 } else {
-                    return MakeBoolean(pos, true)
+                    return makeBoolean(pos, true)
                 }
             } else if ctx.all {
                 return nil
@@ -1044,9 +1046,9 @@ ForValList:
             if ctx.negated { matched = !matched }
             if matched {
                 if ctx.all {
-                    if res == nil { res = MakeBoolean(pos, true) }
+                    if res == nil { res = makeBoolean(pos, true) }
                 } else {
-                    return MakeBoolean(pos, true)
+                    return makeBoolean(pos, true)
                 }
             } else if ctx.all {
                 return nil
@@ -1224,17 +1226,19 @@ func (ctx *builtin_ifne) x(ic *invocation, w facet) (res interface{}) {
 }
 
 // $(for x=(a b c),$(x))
-// type builtin_for struct {
-//     Context
-//     generalOpts
-// }
-// func (ctx *builtin_for) x(ic *invocation, w facet) (res interface{}) {
-//     return
-// }
+type builtin_for struct { builtin_
+    empty bool `empty,allow-empty`
+}
+func (ctx *builtin_for) x(ic *invocation, w facet) (res interface{}) {
+    erro(ctx, "TODO: $(for): %v", ic.a).debug(1)
+    return
+}
 
 type builtin_foreach struct { builtin_
-    empty bool `empty,allow-empty`
-    unique bool `u,uni,unique`
+    empty     bool `empty,allow-empty`
+    unique    bool `uni,uniq,unique`
+    x_values  bool `x-values`
+    x_closure bool `x-closure`
 }
 func (ctx *builtin_foreach) m() uint { return builtinForth }
 func (ctx *builtin_foreach) String() string {
@@ -1243,10 +1247,6 @@ func (ctx *builtin_foreach) String() string {
     } else {
         return ctx.Context.String()
     }
-}
-func (ctx *builtin_foreach) a1(ic *invocation, w facet) {
-    w &= ^(expandPlaceholder|expandEvoke)
-    for i, a := range ic.a { if i > 0 { ic.a[i] = a.expand(ctx, w) }}
 }
 func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
     if n := len(ic.a); n < 2 {
@@ -1257,52 +1257,77 @@ func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
     // NOTE: only expand the first arg with placeholder bit
     ic.a[0] = ic.a[0].expand(ctx, w|expandPlaceholder)
 
-    if !ctx.forth {
-        if _, skip = ic.a[0].(unexpanded); skip { ctx.a1(ic, w) }
-    }
+    if !ctx.forth { if _, skip = ic.a[0].(unexpanded); skip {
+        w &= ^(expandPlaceholder|expandEvoke)
+        for i, a := range ic.a { if i > 0 { ic.a[i] = a.expand(ctx, w) }}
+    }}
     return
 }
 func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
-    var ( values, temps []Value ; db bool )
-    if false { if w&expandDebug != 0 && ic.a != nil { defer func() {
-        w.noted(ctx, ic.a[0], ic.a[1:])
-        noted(ctx, "%v %v -> %v", typeof(ic.a[0]), values, res).debug(16)
-    }(); db = true }}
-
-    if values, temps = umerge(true, ic.a[0]), ic.a[1:]; len(values) == 0 {
-        var d = ctx.debug ; if d < 1 { d = 1 }
-        errostack(ctx, 3, "$(foreach <list>,<templates>): insurficient arguments: %v", ic.a).debug(d)
+    var values []Value
+    if ctx.x_values {
+        values = xmerge(ctx, w, ic.a[0])
+    } else {
+        values = umerge(true, ic.a[0])
+    }
+    if len(values) == 0 {
+        errostack(ctx, 3, "$(foreach <values>,<templates>): insufficient values: %v", ic.a).debug(1)
         return
-    } else if ctx.unique {
-        t := call(ctx, "unique", w, nil, values...)
-        if !isTrivial(t) { values = merge(t) }
     }
 
-    var list []Value
-    var d = ctx.debug
-    var vw = (w|expandPairVal|expandPlaceholder)&^expandPlaceholderKept
-    var cc = &autoContext{ Context:ctx, defs:make(autoDefMap) }
+    var temps []Value
+    if temps = ic.a[1:]; len(temps) == 0 {
+        errostack(ctx, 3, "$(foreach <values>,<templates>): insufficient templates: %v", ic.a).debug(1)
+        return
+    }
+
+    var vals []Value
+    if ctx.x_closure {
+        for _, val := range values {
+            if _, y := val.(*closure); y {
+                vals = append(vals, xmerge(ctx, strval, val)...)
+            } else {
+                vals = append(vals, val)
+            }
+        }
+        values = vals
+        vals = nil
+    }
+
+    if ctx.unique { if t := call(ctx, "unique", w, nil, values...); t != nil {
+        values = merge(t)
+    }}
+
+    var cc = &autoContext{ Context: ctx, defs: make(autoDefMap) }
+    w = (w|expandPairVal|expandPlaceholder) & ^expandPlaceholderKept
     for _, val := range values {
         if !ctx.empty && xEmpty(ctx, val) { continue }
+        if temps[0].String() == "$(or $3,$2)$_$(or $4)" &&
+            strings.HasPrefix(val.string(ctx), "<") &&
+            strings.HasSuffix(val.string(ctx), ">") {
+            noted(ctx, "%v{%v}", typeof(val), val)
+        }
 
         cc.set(ctx, "_", val)
 
         var l []Value
-        for _, a := range temps { v := scalarize(scalarize(a).expand(cc, vw))
+        for _, a := range temps {
+            var v = scalarize(scalarize(a).expand(cc, w))
             if ctx.empty || !isTrivial(v) && !isEmpty(v) { l = append(l, v) }
-            if db { noted(ctx, "%T %v -> %v %v", a, a, typeof(v), v).debug(1) }
         }
         if l == nil { if ctx.empty {
-            list = append(list, makeNone(ctx.Position()))
+            vals = append(vals, makeNone(ctx.Position()))
         }} else if false {
-            list = append(list, ease(ctx, l))
+            vals = append(vals, ease(ctx, l))
         } else {
-            list = append(list, l...)
+            vals = append(vals, l...)
         }
-        if d>0 { warnstack(ctx, 3, "foreach: %v %v -> %v -> %v", typeof(val), val, temps, l).debug(d) }
-        if db { noted(ctx, "%v %v => %v -> %v", typeof(val), val, temps, l).debug(1) }
+
+        if ctx.debug>0 {
+            warnstack(ctx, 3, "foreach: %v %v → %v → %v", typeof(val), val, temps, l).debug(ctx.debug)
+        }
     }
-    return list
+    return vals
 }
 
 type builtin_count struct { builtin_
@@ -1325,7 +1350,7 @@ func (ctx *builtin_env) x(ic *invocation, w facet) (res interface{}) {
     for _, a := range ic.a { if val := a.expand(ctx, expandDelegate); isTrivial(val) {
         continue
     } else if s := strings.TrimSpace(val.string(ctx)); s != "" {
-        vals = append(vals, MakeString(a.Position(), os.Getenv(s)))
+        vals = append(vals, makeStrlit(a.Position(), os.Getenv(s)))
     }}
     return vals
 }
@@ -1394,12 +1419,12 @@ func (ctx *builtin_value) x(ic *invocation, w facet) (res interface{}) {
             }
         }
         if !closure && val == nil { val = autoVal(ctx,name) }
-        if d := ctx.debug; d>0 { warnstack(ctx, 3, "value: %v ; %v -> %v -> %v (closure=%v)",
+        if d := ctx.debug; d>0 { warnstack(ctx, 3, "value: %v ; %v → %v → %v (closure=%v)",
             ic.a, a, name, val, closure).debug(2*d) }
         if val != nil {
             if ctx.unexp { val = unexpanded{val} }
         } else if closure {
-            val = MakeClosure(ctx.Position(), LPAREN, unresolved{a, ctx.Project()}, nil)
+            val = makeClosure(ctx.Position(), LPAREN, unresolved{a, ctx.Project()}, nil)
         } else if false {
             val = makeNone(a.Position())
         } else {
@@ -1539,7 +1564,7 @@ func (ctx *builtin_shell) x(ic *invocation, w facet) (res interface{}) {
             panic(failure{"%v",ia(ctx.Position(), err)})
             return
         }
-        val := MakeString(pos, strings.TrimSpace(bufout.String()))
+        val := makeStrlit(pos, strings.TrimSpace(bufout.String()))
         vals = append(vals, val)
         bufout.Reset()
         buferr.Reset()
@@ -1555,7 +1580,7 @@ func (ctx *builtin_which) x(ic *invocation, w facet) (res interface{}) {
             erro(ctx, "%v", err).debug(1)
             return
         } else if s != "" {
-            vals = append(vals, MakeString(ctx.Position(), s))
+            vals = append(vals, makeStrlit(ctx.Position(), s))
         }
     }
     return vals
@@ -1592,7 +1617,7 @@ func (ctx *builtin_servehttp) c(ic *invocation, w facet) (res interface{}) {
     http.HandleFunc("/-/shut", quit)
 
     if ic.a == nil {
-        var s = ctx.WorkDir()
+        var s = ctx.workDir()
         http.Handle("/", http.FileServer(http.Dir(s)))
     } else {
         for _, a := range ic.a {
@@ -1661,7 +1686,7 @@ func (ctx *builtin_plus) x(ic *invocation, w facet) (res interface{}) {
                 erro(ctx, "%v: %v", a, e).debug(1)
             }
         }
-        return MakeInt(ctx.Position(), num)
+        return makeInt(ctx.Position(), num)
     } else {
         var num float64
         for n, a := range ic.a {
@@ -1671,7 +1696,7 @@ func (ctx *builtin_plus) x(ic *invocation, w facet) (res interface{}) {
                 erro(ctx, "%v: %v", a, e).debug(1)
             }
         }
-        return MakeFloat(ctx.Position(), num)
+        return makeFloat(ctx.Position(), num)
     }
 }
 
@@ -1688,7 +1713,7 @@ func (ctx *builtin_minus) x(ic *invocation, w facet) (res interface{}) {
                 erro(ctx, "%v: %v", a, e).debug(1)
             }
         }
-        return MakeInt(ctx.Position(), num)
+        return makeInt(ctx.Position(), num)
     } else {
         var num float64
         for n, a := range ic.a {
@@ -1698,7 +1723,7 @@ func (ctx *builtin_minus) x(ic *invocation, w facet) (res interface{}) {
                 erro(ctx, "%v: %v", a, e).debug(1)
             }
         }
-        return MakeFloat(ctx.Position(), num)
+        return makeFloat(ctx.Position(), num)
     }
 }
 
@@ -1818,7 +1843,7 @@ func (ctx *builtin_join) x(ic *invocation, w facet) (res interface{}) {
         }
         if len(vals) == 0 { return }
         if ctx.comp {
-            var comp = MakeBarecomp(ctx.Position())
+            var comp = makeBarecomp(ctx.Position())
             for i, a := range vals {
                 if i > 0 && !isTrivial(sep) { a = rearcomp{sep,a} }
                 comp.Elems = append(comp.Elems, a)
@@ -1829,7 +1854,7 @@ func (ctx *builtin_join) x(ic *invocation, w facet) (res interface{}) {
             for _, a := range vals {
                 if v := a.string(ctx); v != "" { fields = append(fields, v) }
             }
-            res = MakeString(ctx.Position(), strings.Join(fields, s))
+            res = makeStrlit(ctx.Position(), strings.Join(fields, s))
         }
     }
     return
@@ -1843,7 +1868,7 @@ func (ctx *builtin_quote) x(ic *invocation, w facet) (res interface{}) {
         for _, a := range args {
             if v := a.string(ctx); v != "" { fields = append(fields, v) }
         }
-        res = MakeString(ctx.Position(), strconv.Quote(strings.Join(fields, " ")))
+        res = makeStrlit(ctx.Position(), strconv.Quote(strings.Join(fields, " ")))
     } else {
         res = makeNone(ctx.Position())
     }
@@ -1863,7 +1888,7 @@ func (ctx *builtin_quotejoin) x(ic *invocation, w facet) (res interface{}) {
         for _, a := range args[1:] {
             if v := a.string(ctx); v != "" { fields = append(fields, v) }
         }
-        res = MakeString(ctx.Position(), strconv.Quote(strings.Join(fields, sep)))
+        res = makeStrlit(ctx.Position(), strconv.Quote(strings.Join(fields, sep)))
     } else {
         res = makeNone(ctx.Position())
     }
@@ -1871,13 +1896,16 @@ func (ctx *builtin_quotejoin) x(ic *invocation, w facet) (res interface{}) {
 }
 
 // $(split-string .,1.2.3)
-type builtin_splitstring struct { builtin_ }
+type builtin_splitstring struct { builtin_
+    sep string `sep,separator`
+}
 func (ctx *builtin_splitstring) x(ic *invocation, w facet) (res interface{}) {
     var fields []Value
     if len(ic.a) > 0 {
-        var sep = ic.a[0].string(ctx)
+        var sep = ctx.sep
+        if sep == "" { sep = ic.a[0].string(ctx) }
         for _, a := range ic.a[1:] { for _, s := range strings.Split(a.string(ctx), sep) {
-            fields = append(fields, MakeString(a.Position(), s))
+            fields = append(fields, makeStrlit(a.Position(), s))
         }}
     }
     return fields
@@ -1885,7 +1913,7 @@ func (ctx *builtin_splitstring) x(ic *invocation, w facet) (res interface{}) {
 
 func quotestrings(value Value) {
     switch v := value.(type) {
-    case *String: v.s = strconv.Quote(v.s)
+    case *strlit: v.s = strconv.Quote(v.s)
     case *list:
         for _, elem := range v.Elems {
             quotestrings(elem)
@@ -1898,7 +1926,7 @@ func joinstrings(ctx Context, value Value, sep string) (res Value, err error) {
     if sep == "" { sep = " " }
 ValueType:
     switch v := value.(type) {
-    case *String: res = value
+    case *strlit: res = value
     case *list:
         var strs []string
         for _, elem := range v.Elems {
@@ -1906,12 +1934,12 @@ ValueType:
             if v, err = joinstrings(ctx, elem, sep); err != nil { break ValueType }
             if s = v.string(ctx); s != "" { strs = append(strs, s) }
         }
-        res = MakeString(value.Position(), strings.Join(strs, sep))
+        res = makeStrlit(value.Position(), strings.Join(strs, sep))
     }
     return
 }
 
-// TODO: deprecate this and add -quote to _builtin.SplitString
+// TODO: deprecate this and add -quote to builtin_splitstring
 type builtin_splitquote struct { builtin_splitstring }
 func (ctx *builtin_splitquote) x(ic *invocation, w facet) (res interface{}) {
     res = ctx.builtin_splitstring.x(ic, w)
@@ -1919,7 +1947,7 @@ func (ctx *builtin_splitquote) x(ic *invocation, w facet) (res interface{}) {
     return
 }
 
-// TODO: deprecate this and add -quote to _builtin.SplitString
+// TODO: deprecate this and add -quote to builtin_splitstring
 type builtin_splitquotejoin struct { builtin_splitstring }
 func (ctx *builtin_splitquotejoin) x(ic *invocation, w facet) (res interface{}) {
     res = ctx.builtin_splitstring.x(ic, w)
@@ -1952,7 +1980,7 @@ func (ctx *builtin_splitjoinquote) x(ic *invocation, w facet) (res interface{}) 
         if v, err = joinstrings(ctx, val, sep); err != nil {
             erro(ctx, "%v", err).debug(1)
         } else {
-            res = MakeString(ctx.Position(), strconv.Quote(v.string(ctx)))
+            res = makeStrlit(ctx.Position(), strconv.Quote(v.string(ctx)))
         }
     }
     return
@@ -2054,15 +2082,15 @@ func (ctx *builtin_bare) x(ic *invocation, w facet) (res interface{}) {
     for _, a := range ic.a {
         var val Value
         switch t := a.(type) {
-        case *String, *compound:
-            val = MakeBareword(a.Position(), a.string(ctx));
+        case *strlit, *compound:
+            val = makeBareword(a.Position(), a.string(ctx));
         case *File:
-            val = MakeBareword(a.Position(), t.name(ctx));
+            val = makeBareword(a.Position(), t.name(ctx));
         case fullfile:
             if ctx.name {
-                val = MakeBareword(a.Position(), t.name(ctx));
+                val = makeBareword(a.Position(), t.name(ctx));
             } else {
-                val = MakeBareword(a.Position(), t.string(ctx));
+                val = makeBareword(a.Position(), t.string(ctx));
             }
         default: val = a
         }
@@ -2078,7 +2106,7 @@ func (ctx *builtin_bareword) x(ic *invocation, w facet) (res interface{}) {
         var val Value
         switch a.(type) {
         case *bareword: val = a
-        default: val = MakeBareword(a.Position(), a.string(ctx));
+        default: val = makeBareword(a.Position(), a.string(ctx));
         }
         vals = append(vals, val)
     }
@@ -2114,7 +2142,7 @@ func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
             if ctx.expand && v != nil { v = v.expand(ctx, w) }
             if v == nil { t = "<nil>" } else
             if ctx.strval { t = v.string(ctx) } else { t = v.String() }
-            if ctx.debug>0 { warn(ctx, "%T %v -> %v", d.value, d.value, t) }
+            if ctx.debug>0 { warn(ctx, "%T %v → %v", d.value, d.value, t) }
             strs = append(strs, t)
         }
         for _, a := range ic.a {
@@ -2122,7 +2150,7 @@ func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
             if f, y := a.(fullfile); y && ctx.name { a = f.File }
             if ctx.expand { a = a.expand(ctx, w) }
             if ctx.strval { t = a.string(ctx) } else { t = a.String() }
-            if ctx.debug>0 { warn(ctx, "%T %v -> %v", a, a, t) }
+            if ctx.debug>0 { warn(ctx, "%T %v → %v", a, a, t) }
             strs = append(strs, t)
         }
 
@@ -2138,7 +2166,7 @@ func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
             var pos = ctx.Position()
             var vals []Value
             for _, t := range strs {
-                vals = append(vals, MakeString(pos, t))
+                vals = append(vals, makeStrlit(pos, t))
             }
             res = vals
         }
@@ -2177,7 +2205,7 @@ func (ctx *builtin_filter) do(pats []Value, values... Value) (result []Value) {
             if ctx.neg { v = nil } else if ctx.stem {
                 var vals []Value
                 for _, s := range stems {
-                    vals = append(vals, MakeString(v.Position(), s))
+                    vals = append(vals, makeStrlit(v.Position(), s))
                 }
                 v = ease(ctx, vals)
             } else if true {
@@ -2185,11 +2213,11 @@ func (ctx *builtin_filter) do(pats []Value, values... Value) (result []Value) {
             } else if t, r := pat.stencil(ctx, stems); t != nil && len(r) == 0 {
                 v = t
             } else if s, y := res.(string); y {
-                v = MakeString(v.Position(), s)
+                v = makeStrlit(v.Position(), s)
             } else if a, y := res.([]string); y {
                 var vals []Value
                 for _, s := range a {
-                    vals = append(vals, MakeString(v.Position(), s))
+                    vals = append(vals, makeStrlit(v.Position(), s))
                 }
                 v = ease(ctx, vals)
             }
@@ -2225,7 +2253,7 @@ func (ctx *builtin_filter) x(ic *invocation, w facet) (res interface{}) {
         if len(vals) > 0 { res = vals }
         if false {
             w.noted(ctx, pats[0], ic.a)
-            noted(ctx, "%v %v -> %v", pats, ic.a[i:], vals).debug(10)
+            noted(ctx, "%v %v → %v", pats, ic.a[i:], vals).debug(10)
         }
     }
     return
@@ -2272,7 +2300,7 @@ func (ctx *builtin_substring) x(ic *invocation, w facet) (res interface{}) {
             var s = arg.string(ctx)
             if i := len(s); i <= a { s = "" } else
             if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
-            list = append(list, MakeString(arg.Position(), s))
+            list = append(list, makeStrlit(arg.Position(), s))
         }
     }
     return list
@@ -2289,7 +2317,7 @@ func (ctx *builtin_subst) x(ic *invocation, w facet) (res interface{}) {
         )
         for _, arg := range xmerge(ctx, expandDelegate, ic.a[2:]...) {
             var s = strings.Replace(arg.string(ctx), s1, s2, -1)
-            list = append(list, MakeString(arg.Position(), s))
+            list = append(list, makeStrlit(arg.Position(), s))
         }
     }
     return list
@@ -2364,7 +2392,7 @@ ForSources:
             }
         } else if !ctx.fullname {
             source = src
-        } else if o, y := (as{src}.fullnameOpt(ctx, closured...)); y {
+        } else if o, y := (as{src}.fullname(ctx, closured...)); y {
             source = o.string(ctx)
         } else {
             erro(of(ctx,src), "fullname '%v' failed", src)
@@ -2392,7 +2420,7 @@ ForSources:
                 erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dstPat, dstPat, stems, ramnant).debug(1)
                 return
             } else if ctx.debug>0 {
-                warnstack(ctx, ctx.debug, "patsubst: %v: %v -> %v -> %v %v -> %v %v",
+                warnstack(ctx, ctx.debug, "patsubst: %v: %v → %v → %v %v → %v %v",
                     srcPat, src, source, stems, dstPat, nameVal, ramnant).debug(ctx.debug)
             }
 
@@ -2418,7 +2446,7 @@ ForSources:
                         warn(of(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
                         warnstack(of(ctx,dstPat), 16, a...).debug(5)
                     }
-                    dstFile = stat(ctx, nameStr, srcFile.sub, srcFile.dir, nil)
+                    dstFile = stat(ctx, nameStr, stat_sub{srcFile.sub}, stat_dir{srcFile.dir}, stat_nonexist{true})
                 }
                 if dstFile.position = srcPat.Position(); full {
                     list = append(list, fullfile{dstFile})
@@ -2431,8 +2459,8 @@ ForSources:
             // Deal with source value types
             switch pos := dstPat.Position(); src.(type) {
             case *File, fullfile:
-            case *String, *compound:
-                list = append(list, MakeString(pos, nameStr))
+            case *strlit, *compound:
+                list = append(list, makeStrlit(pos, nameStr))
                 continue stencilTargetPats
             case *Path:
                 list = append(list, pathStr(ctx, pos, nameStr))
@@ -2441,16 +2469,16 @@ ForSources:
                 if strings.Contains(nameStr, PathSep) {
                     list = append(list, pathStr(ctx, pos, nameStr))
                 } else {
-                    list = append(list, MakeBareword(pos, nameStr))
+                    list = append(list, makeBareword(pos, nameStr))
                 }
                 continue stencilTargetPats
             default:
                 if strings.Contains(nameStr, PathSep) {
                     list = append(list, pathStr(ctx, pos, nameStr))
                 } else if true {
-                    list = append(list, MakeBareword(pos, nameStr))
+                    list = append(list, makeBareword(pos, nameStr))
                 } else {
-                    list = append(list, MakeString(pos, nameStr))
+                    list = append(list, makeStrlit(pos, nameStr))
                 }
                 continue stencilTargetPats
             }
@@ -2471,7 +2499,7 @@ type builtin_title struct { builtin_ }
 func (ctx *builtin_title) x(ic *invocation, w facet) (res interface{}) {
     var list []Value
     for _, a := range ic.a { if s := a.string(ctx); s != "" {
-        list = append(list, MakeString(a.Position(), strings.Title(s)))
+        list = append(list, makeStrlit(a.Position(), strings.Title(s)))
     }}
     return list
 }
@@ -2480,7 +2508,7 @@ type builtin_uppercase struct { builtin_ }
 func (ctx *builtin_uppercase) x(ic *invocation, w facet) (res interface{}) {
     var list []Value
     for _, a := range ic.a { if s := a.string(ctx); s != "" {
-        list = append(list, MakeString(a.Position(), strings.ToUpper(s)))
+        list = append(list, makeStrlit(a.Position(), strings.ToUpper(s)))
     }}
     return list
 }
@@ -2489,7 +2517,7 @@ type builtin_lowercase struct { builtin_ }
 func (ctx *builtin_lowercase) x(ic *invocation, w facet) (res interface{}) {
     var list []Value
     for _, a := range ic.a { if s := a.string(ctx); s != "" {
-        list = append(list, MakeString(a.Position(), strings.ToLower(s)))
+        list = append(list, makeStrlit(a.Position(), strings.ToLower(s)))
     }}
     return list
 }
@@ -2516,9 +2544,9 @@ func (ctx *builtin_trim) x(ic *invocation, w facet) (res interface{}) {
     for i, a := range ic.a { if s := a.string(ctx); s != "" { if i == 0 {
         cutset = s
     } else if cutset == "" {
-        list = append(list, MakeString(a.Position(), strings.TrimSpace(s)))
+        list = append(list, makeStrlit(a.Position(), strings.TrimSpace(s)))
     } else {
-        list = append(list, MakeString(a.Position(), strings.Trim(s, cutset)))
+        list = append(list, makeStrlit(a.Position(), strings.Trim(s, cutset)))
     }}}
     return list
 }
@@ -2532,9 +2560,9 @@ func (ctx *builtin_trimleft) x(ic *invocation, w facet) (res interface{}) {
     for i, a := range ic.a { if s := a.string(ctx); s != "" { if i == 0 {
         cutset = s
     } else if cutset == "" {
-        list = append(list, MakeString(a.Position(), strings.TrimLeftFunc(s, unicode.IsSpace)))
+        list = append(list, makeStrlit(a.Position(), strings.TrimLeftFunc(s, unicode.IsSpace)))
     } else {
-        list = append(list, MakeString(a.Position(), strings.TrimLeft(s, cutset)))
+        list = append(list, makeStrlit(a.Position(), strings.TrimLeft(s, cutset)))
     }}}
     return list
 }
@@ -2548,9 +2576,9 @@ func (ctx *builtin_trimright) x(ic *invocation, w facet) (res interface{}) {
     for i, a := range ic.a { if s := a.string(ctx); s != "" { if i == 0 {
         cutset = s
     } else if cutset == "" {
-        list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
+        list = append(list, makeStrlit(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
     } else {
-        list = append(list, MakeString(a.Position(), strings.TrimRight(s, cutset)))
+        list = append(list, makeStrlit(a.Position(), strings.TrimRight(s, cutset)))
     }}}
     return list
 }
@@ -2621,7 +2649,7 @@ ForValues:
                 break ForPrefix
             }
         }
-        if s != "" { list = append(list, MakeString(pos, s)) }
+        if s != "" { list = append(list, makeStrlit(pos, s)) }
     }
     return list
 }
@@ -2635,9 +2663,9 @@ func (ctx *builtin_trimsuffix) x(ic *invocation, w facet) (res interface{}) {
     for i, a := range ic.a { if s = a.string(ctx); s != "" { if i == 0 {
         cutset = s
     } else if cutset == "" {
-        list = append(list, MakeString(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
+        list = append(list, makeStrlit(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
     } else {
-        list = append(list, MakeString(a.Position(), strings.TrimSuffix(s, cutset)))
+        list = append(list, makeStrlit(a.Position(), strings.TrimSuffix(s, cutset)))
     }}}
     return list
 }
@@ -2657,9 +2685,9 @@ func (ctx *builtin_trimext) x(ic *invocation, w facet) (res interface{}) {
                 s = strings.TrimSuffix(s, ext)
                 if ctx.all { ext = filepath.Ext(s) } else { break }
             }
-            list = append(list, MakeString(a.Position(), s))
+            list = append(list, makeStrlit(a.Position(), s))
         } else if ext == filepath.Ext(s) {
-            list = append(list, MakeString(a.Position(), strings.TrimRight(s, ext)))
+            list = append(list, makeStrlit(a.Position(), strings.TrimRight(s, ext)))
         }
     }}
     return list
@@ -2688,7 +2716,7 @@ func (ctx *builtin_addprefix) x(ic *invocation, w facet) (res interface{}) {
     for _, prefix := range prefixs { if isTrivial(prefix) { continue }; p, y := prefix.(*pair)
         for _, val := range vals { if isTrivial(val) { continue }; pos := val.Position()
             if y && !isTrivial(p.Value) {
-                c := MakeBarecomp(pos, p.Value)
+                c := makeBarecomp(pos, p.Value)
                 c.comp(ctx, val)
                 val = c
             }
@@ -2696,14 +2724,14 @@ func (ctx *builtin_addprefix) x(ic *invocation, w facet) (res interface{}) {
                 if b { val = unexpanded{val}}
                 if y { key := p.Key
                     if a { key = unexpanded{key}}
-                    val = paircomp{MakePair(pos, key, val)}
+                    val = paircomp{makePair(pos, key, val)}
                 } else {
                     val = precomp{prefix, val}
                 }
             } else if y {
-                val = MakePair(pos, p.Key, val)
+                val = makePair(pos, p.Key, val)
             } else {
-                c := MakeBarecomp(pos, prefix)
+                c := makeBarecomp(pos, prefix)
                 c.comp(ctx, val)
                 val = c
             }
@@ -2731,7 +2759,7 @@ func (ctx *builtin_addsuffix) x(ic *invocation, w facet) (res interface{}) {
     }
 
     var list []Value
-    var vals = xmerge(ctx.Context, plain, ic.a[1:]...)
+    var vals = xmerge(ctx.Context, strval, ic.a[1:]...)
 
     for _, suffix := range suffixs {
         if !suffix.true(ctx) { continue }
@@ -2742,18 +2770,18 @@ func (ctx *builtin_addsuffix) x(ic *invocation, w facet) (res interface{}) {
             var pos = val.Position()
             var p, y = val.(*pair)
             if y && !isTrivial(p.Value) {
-                val = MakeBarecomp(p.Key.Position(), val, p.Key)
+                val = makeBarecomp(p.Key.Position(), val, p.Key)
             }
             if val.expandable(ctx, expandDelegate|expandClosure) {
                 if y {
-                    val = paircomp{MakePair(pos, val, p.Value)}
+                    val = paircomp{makePair(pos, val, p.Value)}
                 } else {
                     val = rearcomp{val, suffix}
                 }
             } else if y {
-                val = MakePair(pos, val, p.Value)
+                val = makePair(pos, val, p.Value)
             } else {
-                val = MakeBarecomp(pos, val, suffix)
+                val = makeBarecomp(pos, val, suffix)
             }
             list = append(list, val)
         }
@@ -2925,7 +2953,7 @@ func (ctx *builtin_indent) x(ic *invocation, w facet) (res interface{}) {
         for _, line := range strings.Split(a.string(ctx), "\n") {
             lines = append(lines, s + line)
         }
-        l = append(l, MakeString(a.Position(), strings.Join(lines, "\n")))
+        l = append(l, makeStrlit(a.Position(), strings.Join(lines, "\n")))
     }
     return l
 }
@@ -2960,7 +2988,7 @@ func (ctx *builtin_contains) x(ic *invocation, w facet) (res interface{}) {
         return
     }
 
-    var ddd = ctx.universe().ddd == "contains"
+    var ddd = cast[*universe](ctx).ddd == "contains"
     var n int
 outer:
     for i, val := range vals { var s string ; if ctx.string { s = val.string(ctx) }
@@ -2981,7 +3009,7 @@ outer:
 
     var y = (n == len(vals))
     if ctx.debug>0 && !y { warn(ctx, "found %d/%d: %v ; %v", n, len(vals), list, ic.a).debug(ctx.debug) }
-    return MakeBoolean(ctx.Position(), y)
+    return makeBoolean(ctx.Position(), y)
 }
 
 type builtin_sort struct { builtin_ }
@@ -3028,7 +3056,7 @@ func (ctx *builtin_encodebase64) x(ic *invocation, w facet) (res interface{}) {
         enc := base64.NewEncoder(base64.StdEncoding, buf)
         for _, a := range ic.a { enc.Write([]byte(a.string(ctx))) }
         enc.Close()
-        res = MakeString(pos, buf.String())
+        res = makeStrlit(pos, buf.String())
     }
     return
 }
@@ -3043,7 +3071,7 @@ func (ctx *builtin_decodebase64) x(ic *invocation, w facet) (res interface{}) {
                 erro(ctx, "decode '%s' failed: %v", s, err).debug(1)
                 return
             } else {
-                list = append(list, MakeString(a.Position(), string(dat)))
+                list = append(list, makeStrlit(a.Position(), string(dat)))
             }
         }
         res = ease(ctx, list)
@@ -3061,7 +3089,7 @@ func (ctx *builtin_fullname) x(ic *invocation, w facet) (res interface{}) {
             warn(ctx, "%T %v", a, a).debug(ctx.debug,1)
         }}
 
-        if o, y := (as{a}.fullnameOpt(ctx, p...)); y { a = o }
+        if o, y := (as{a}.fullname(ctx, p...)); y { a = o }
         l = append(l, a)
     }
     return l
@@ -3071,7 +3099,7 @@ type builtin_ext struct { builtin_ }
 func (ctx *builtin_ext) x(ic *invocation, w facet) (res interface{}) {
     var list []Value
     for _, a := range ic.a {
-        list = append(list, MakeString(a.Position(), filepath.Ext(a.string(ctx))))
+        list = append(list, makeStrlit(a.Position(), filepath.Ext(a.string(ctx))))
     }
     return list
 }
@@ -3095,7 +3123,7 @@ func (ctx *builtin_bases) x(ic *invocation, w facet) (res interface{}) {
             s = filepath.Join(filepath.Base(d), s)
             d = filepath.Dir(d)
         }
-        l = append(l, MakeString(a.Position(), s))
+        l = append(l, makeStrlit(a.Position(), s))
     }
     return l
 }
@@ -3164,9 +3192,9 @@ func (ctx *builtin_dirs) x(ic *invocation, w facet) (res interface{}) {
         var d = ctx.debug
         if f, y := a.(*File); y {
             if ctx.fullname {
-                f = stat(ctx, s, "", "", nil)
+                f = stat(ctx, s, stat_nonexist{true})
             } else {
-                f = stat(ctx, s, f.sub, f.dir, nil)
+                f = stat(ctx, s, stat_sub{f.sub}, stat_dir{f.dir}, stat_nonexist{true})
             }
             if d>0 { noted(ctx, "%T %v ⇒ %v %v", a, a, f, f.fullname()).debug(d) }
             v = f
@@ -3324,7 +3352,7 @@ func (ctx *builtin_chopdir) x(ic *invocation, w facet) (res interface{}) {
                 v[0] = PathSep // for absolute paths
             }
         }
-        l = append(l, MakeString(a.Position(), filepath.Join(v...)))
+        l = append(l, makeStrlit(a.Position(), filepath.Join(v...)))
     }
     return l
 }
@@ -3340,7 +3368,7 @@ func (ctx *builtin_reldir) x(ic *invocation, w facet) (res interface{}) {
         if s := a.string(ctx); i == 0 {
             t = s
         } else if s, err = filepath.Rel(t, s); err == nil {
-            l = append(l, MakeString(a.Position(), s))
+            l = append(l, makeStrlit(a.Position(), s))
         } else {
             erro(ctx, "%v", err)
             return
@@ -3360,7 +3388,7 @@ func (ctx *builtin_mkdir) c(ic *invocation, w facet) (res interface{}) {
             name string
         )
         switch t := a.(type) {
-        case *pair: // mkdir name => perm name => perm
+        case *pair: // mkdir name ⇒ perm name ⇒ perm
             name = t.Key.string(ctx)
             perm = permVal(ctx, t.Value, uint32(perm))
         case *group: // mkdir (name perm) (name perm)
@@ -3478,7 +3506,7 @@ func (ctx *builtin_remove) c(ic *invocation, w facet) (res interface{}) {
         if opts.all { err = os.RemoveAll(s) } else { err = os.Remove(s) }
         if err != nil {
             erro(ctx, "remove: %v", err)
-            erro(ctx, "remove: %v -> %s", f, s).debug(6)
+            erro(ctx, "remove: %v → %s", f, s).debug(6)
             return
         }
         if d := opts.debug; d>0 { warn(ctx, "remove %s (%s)", f, s).debug(d) }
@@ -3504,7 +3532,7 @@ func (ctx *builtin_remove) c(ic *invocation, w facet) (res interface{}) {
     }
     var removePat = func(ctx Context, pat Value) {
         var val = (&builtin_wildcard{builtin_:builtin_{Context:ctx}}).do(pat)
-        erro(ctx, "TODO: remove: %T %v -> %T %v", pat, pat, val, val).debug(1)
+        erro(ctx, "TODO: remove: %T %v → %T %v", pat, pat, val, val).debug(1)
     }
 
     remove = func(ctx Context, v Value) {
@@ -3558,7 +3586,7 @@ func (ctx *builtin_truncate) c(ic *invocation, w facet) (res interface{}) {
             e error
         )
         switch t := a.(type) {
-        case *pair: // truncate name => size old => new
+        case *pair: // truncate name ⇒ size old ⇒ new
             name = t.Key.string(ctx)
             if size, e = t.Value.int(ctx); e != nil {
                 erro(ctx, "%v: %v", t.Value, e).debug(1)
@@ -3611,7 +3639,7 @@ func (ctx *builtin_link) c(ic *invocation, w facet) (res interface{}) {
             a = ic.a[i]
         )
         switch t := a.(type) {
-        case *pair: // link oldname => newname old => new
+        case *pair: // link oldname ⇒ newname old ⇒ new
             oldname = t.Key.string(ctx)
             newname = t.Value.string(ctx)
         case *group: // link (oldname newname) (old new)
@@ -3696,7 +3724,7 @@ ForArgs:
                 var a = autoVal(ctx,"@")
                 var l = autoVal(ctx,"<")
                 var r = autoVal(ctx,">")
-                prompt(ctx, "symlink: args=%v -> %v\n", ic.a, t)
+                prompt(ctx, "symlink: args=%v → %v\n", ic.a, t)
                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
                 errostack(of(ctx,t), 5, "expects pair of names (%T %v)", t, t).debug(6)
                 return
@@ -3771,7 +3799,7 @@ ForArgs:
         } else if opts.verbose {
             var d = trimPromptString(dstName)
             var s = filepath.Base(srcName)
-            prompt(ctx, "%s -> %s …… ok\n", d, s)
+            prompt(ctx, "%s → %s …… ok\n", d, s)
         }
     }
     return
@@ -3793,8 +3821,8 @@ func (ctx *builtin_stat) x(ic *invocation, w facet) (res interface{}) {
 
     var (
         pos = ctx.Position()
-        valF = MakeBoolean(pos, false)
-        valT = MakeBoolean(pos, true)
+        valF = makeBoolean(pos, false)
+        valT = makeBoolean(pos, true)
         vals []Value
     )
     var check = func(file *File) {
@@ -3817,9 +3845,9 @@ func (ctx *builtin_stat) x(ic *invocation, w facet) (res interface{}) {
             s string
         )
         if s = a.string(ctx); filepath.IsAbs(s) {
-            file = stat(ctx, s, "", "")
+            file = stat(ctx, s)
         } else {
-            file = stat(ctx, s, "", proj.absPath)
+            file = stat(ctx, s, proj.absPath)
         }
         if file == nil { file = proj.file(ctx, s) }
         if file != nil { check(file) }
@@ -3984,7 +4012,7 @@ type builtin_wildcard struct { builtin_
 func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
     var db = false //ctx.debug == 1000
     if false { if pats != nil { defer func() { if files == nil {
-        noted(ctx, "%v %v -> %v", ctx.dir, pats, files).debug(10)
+        noted(ctx, "%v %v → %v", ctx.dir, pats, files).debug(10)
     }}(); db = pats[0].String() == "[foobar/config/*.def.am, **.def.am]" }}
 
     type subr struct {
@@ -4020,8 +4048,7 @@ func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
     }
     var missing = ctx.includeMissing && !ctx.ignoreMissing
     var collect = func(name string) {
-        var a []os.FileInfo ; if missing { a = append(a, nil) }
-        var f = stat(ctx, name, "", ctx.dir, a...)
+        var f = stat(ctx, name, stat_dir{ctx.dir}, stat_nonexist{missing})
         if true { assert(f != nil, "stat %s %s", name, ctx.dir) }
 
         top.Lock()
@@ -4147,7 +4174,7 @@ func (ctx *builtin_wildcard) _do(pats ...Value) (files []*File) {
 }
 func (ctx *builtin_wildcard) do(pats ...Value) (files []*File) {
     if false { if ctx.dir == "" && pats != nil { defer func() { if files == nil {
-        noted(ctx, "%v %v -> %v", ctx.dir, pats, files).debug(5)
+        noted(ctx, "%v %v → %v", ctx.dir, pats, files).debug(5)
     }}()}}
 
     if ctx.dir != "" {
@@ -4159,7 +4186,7 @@ func (ctx *builtin_wildcard) do(pats ...Value) (files []*File) {
 func (ctx *builtin_wildcard) x(ic *invocation, w facet) (res interface{}) {
     var vals []Value
     if false { if ctx.dir == "" && ic.a != nil { defer func() { if vals == nil {
-        noted(ctx, "%v %v %v -> %v", ctx.dir, ic.o, ic.a, res).debug(10)
+        noted(ctx, "%v %v %v → %v", ctx.dir, ic.o, ic.a, res).debug(10)
     }}()}}
 
     if len(ctx.exclude) > 0 { ctx.exclude = umerge(true, ctx.exclude...) }
@@ -4170,11 +4197,11 @@ func (ctx *builtin_wildcard) x(ic *invocation, w facet) (res interface{}) {
         } else if !(ctx.names || ctx.strs) {
             vals = append(vals, file)
         } else if ctx.strs {
-            vals = append(vals, MakeString(file.position, file.name(ctx)))
+            vals = append(vals, makeStrlit(file.position, file.name(ctx)))
         } else if strings.Contains(file.name(ctx), PathSep) {
             vals = append(vals, pathStr(ctx, file.position, file.name(ctx)))
         } else {
-            vals = append(vals, MakeBareword(file.position, file.name(ctx)))
+            vals = append(vals, makeBareword(file.position, file.name(ctx)))
         }
     }
     return vals
@@ -4187,7 +4214,7 @@ func (ctx *builtin_readdir) x(ic *invocation, w facet) (res interface{}) {
         if fis, err := ioutil.ReadDir(a.string(ctx)); err == nil {
             v := new(list)
             for _, fi := range fis {
-                v.Append(MakeString(a.Position(), fi.Name()))
+                v.Append(makeStrlit(a.Position(), fi.Name()))
             }
             l = append(l, v)
         } else {
@@ -4206,7 +4233,7 @@ func (ctx *builtin_readfile) x(ic *invocation, w facet) (res interface{}) {
     var l []Value
     var closured = closureProjects(ctx)
     for _, v := range ic.a {
-        if o, y := (as{v}.fullnameOpt(ctx, closured...)); !y {
+        if o, y := (as{v}.fullname(ctx, closured...)); !y {
             errostack(of(ctx,v), 5, "%v is not a file", v).debug(1)
             break
         } else if s, e := ioutil.ReadFile(o.string(ctx)); e != nil {
@@ -4216,7 +4243,7 @@ func (ctx *builtin_readfile) x(ic *invocation, w facet) (res interface{}) {
             if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
             if ctx.trimLeft  { s = bytes.TrimLeftFunc (s, unicode.IsSpace) } else
             if ctx.trimRight { s = bytes.TrimRightFunc(s, unicode.IsSpace) }
-            l = append(l, MakeString(v.Position(), string(s)))
+            l = append(l, makeStrlit(v.Position(), string(s)))
         }
     }
     return l
@@ -4285,7 +4312,7 @@ ForArgs:
 }
 
 func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
-    var a, filename, c = as{file}.fullname(ctx)
+    var a, filename, c = as{file}.fullnameFile(ctx)
     if filename == "" {
         errostack(of(ctx,file), 3, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c).debug(24)
         return
@@ -4385,7 +4412,7 @@ func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
     var greped = func(line int, match []string) (done bool) {
         var vals []Value
         for i, s := range match {
-            if d, v := cc.set(ctx, fmt.Sprintf("%d",i), MakeString(pos, s)); d == nil {
+            if d, v := cc.set(ctx, fmt.Sprintf("%d",i), makeStrlit(pos, s)); d == nil {
                 erro(ctx, "set $%d to '%s' failed", i, s).debug(1)
                 return
             } else { vals = append(vals, v) }
@@ -4583,7 +4610,7 @@ func configureString(ctx Context, out *bytes.Buffer, project *Project, str strin
                     } else {
                         s = fmt.Sprintf("#undef %s /* %T %v */", name, v, v)
                     }
-                case *String:
+                case *strlit:
                     s = strings.Replace(v.s, "\"", "\\\"", -1)
                     s = fmt.Sprintf("#define %s \"%s\"", name, v.s)
                 default:

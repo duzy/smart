@@ -23,7 +23,7 @@ import (
 type Object interface {
     Value
 
-    DeclScope() *Scope
+    declScope() *Scope
     OwnerProject() *Project
 
     // Get object's named property.
@@ -39,7 +39,7 @@ type objbase struct { // generally unnamed objects
     owner *Project
 }
 func (_ *objbase) kind() Kind { return KindObject }
-func (p *objbase) DeclScope() *Scope { return p.scope }
+func (p *objbase) declScope() *Scope { return p.scope }
 func (p *objbase) OwnerProject() *Project { return p.owner }
 func (p *objbase) String() string { return fmt.Sprintf("{unknown %p}", p) }
 func (p *objbase) string(ctx Context) string { return fmt.Sprintf("{unknown %p}", p) }
@@ -115,7 +115,7 @@ func (p unresolved) float(_ Context) (float64, error) { return 0.0, nil }
 func (p unresolved) int(_ Context) (int64, error) { return 0, nil }
 func (p unresolved) true(_ Context) bool { return false }
 func (p unresolved) OwnerProject() *Project { return p.project }
-func (p unresolved) DeclScope() *Scope { return p.project.scope }
+func (p unresolved) declScope() *Scope { return p.project.scope }
 func (p unresolved) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p unresolved) patterned(_ Context) bool { return false }
 func (p unresolved) invoke(_ Context, _ facet, _, _ []Value) Value { return p }
@@ -238,7 +238,7 @@ func (p *projectname) String() string { return p.Project.name }
 func (p *projectname) string(_ Context) string { return p.Project.name }
 func (p *projectname) name(_ Context) string { return p.Project.name }
 func (p *projectname) true(_ Context) bool { return p.Project != nil }
-func (p *projectname) DeclScope() *Scope { return p.scope }
+func (p *projectname) declScope() *Scope { return p.scope }
 func (p *projectname) OwnerProject() *Project { return p.scope.project }
 func (p *projectname) Get(ctx Context, name string) (Value, error) { return p.resolve(ctx, name), nil }
 func (p *projectname) expand(_ Context, _ facet) (res Value) { return expanded{p} }
@@ -317,7 +317,7 @@ func (p *scopename) string(_ Context) string { return p.name_ }
 func (p *scopename) name(_ Context) string { return p.name_ }
 func (p *scopename) true(_ Context) bool { return p.Scope != nil }
 func (p *scopename) OwnerProject() *Project { return p.Scope.project }
-func (p *scopename) DeclScope() *Scope { return p.Scope.outer }
+func (p *scopename) declScope() *Scope { return p.Scope.outer }
 // func (p *scopename) invoke(_ Context, _ facet, _, _ []Value) Value { return p }
 func (p *scopename) expand(_ Context, _ facet) (res Value) { return p }
 func (p *scopename) Get(ctx Context, name string) (value Value, err error) {
@@ -878,7 +878,7 @@ func (d *def) set(ctx Context, origin Origin, value Value, ii ...interface{}) {
 
     for i, val := range vals { if o, y := val.(*def); y { vals[i] = o.value }}
 
-    var uni = ctx.universe()
+    var uni = cast[*universe](ctx)
     switch origin {
     case DefExpand1: vals, _, _ = (w&^expandClosure).expand(ctx, vals...) //  :=
     case DefExpand2: vals, _, _ = (w| expandClosure).expand(ctx, vals...) // ::=
@@ -945,14 +945,14 @@ func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
 
     var pos = value.Position()
     if !pos.IsValid() { pos = ctx.Position() }
-    res = MakeString(pos, strings.TrimSpace(stdout.String()))
+    res = makeStrlit(pos, strings.TrimSpace(stdout.String()))
     stdout.Reset()
     stderr.Reset()
     return
 }
 func (d *def) Get(ctx Context, name string) (res Value, err error) {
     switch name {
-    case "name" : res = MakeString(d.position, d.name_)
+    case "name" : res = makeStrlit(d.position, d.name_)
     case "value":
         // d.mutex.Lock()
         res = d.value
@@ -1105,7 +1105,7 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
         return p
     }
 
-    if false { if w&expandDebug != 0 || (ctx.universe().db("delegate.expand") && p.name_ == "if") { defer func() {
+    if false { if w&expandDebug != 0 || (cast[*universe](ctx).db("delegate.expand") && p.name_ == "if") { defer func() {
         noted(ctx, "%v: %v ⇒ %v %v", p, ic.a, typeof(res), res).debug(24)
     }()}}
 
@@ -1201,7 +1201,7 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
             return
         }
         for _, a := range ic.a { if w&ad != 0 && a.expandable(ctx, ad) {
-            if false && ctx.universe().db("builtin") { noted(ctx, "builtin: %T %v", a, a).debug(1) }
+            if false && cast[*universe](ctx).db("builtin") { noted(ctx, "builtin: %T %v", a, a).debug(1) }
             if f(a) { return p }
         }}
     }
@@ -1355,7 +1355,7 @@ func (_ *rule) kind() Kind { return KindObject|KindRule }
 func (entry *rule) Target() Value { return entry.target }
 func (entry *rule) Class() ruleClass { return entry.class }
 func (entry *rule) programs() []*program { return entry.program_ }
-func (entry *rule) DeclScope() *Scope { return entry.OwnerProject().scope }
+func (entry *rule) declScope() *Scope { return entry.OwnerProject().scope }
 func (entry *rule) OwnerProject() *Project { return entry.program_[0].project }
 func (entry *rule) setPrograms(programs []*program) { entry.program_ = programs }
 func (entry *rule) setPosition(position Position) { entry.position = position }
@@ -1426,8 +1426,8 @@ ForPrograms:
 }
 func (entry *rule) Get(_ Context, name string) (Value, error) {
     switch name {
-    case "class": return MakeString(entry.position, entry.class.String()), nil
-    case "name" : return entry.target, nil //return MakeString(entry.position, entry.name()), nil
+    case "class": return makeStrlit(entry.position, entry.class.String()), nil
+    case "name" : return entry.target, nil //return makeStrlit(entry.position, entry.name()), nil
     //case "prerequisites": ...
     }
     return nil, fmt.Errorf("no such entry property (%s)", name)

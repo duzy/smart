@@ -1,0 +1,1 @@
+project (variant=darwin/arm64/bootstrap,..)
