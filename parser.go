@@ -733,10 +733,12 @@ func (p *parser) group(ctx Context, lhs bool) *group {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Group")) }
 
 	defer p.setbits(p.setbit(parseGroup))
-	p.clearbit(parseCall)
+	p.clearbit(parseCall) // for commas
 
 	ctx = p.ctx(ctx)
-	p.next(true)
+
+	p.expect(LPAREN)
+	p.spaces()
 
 	var elems, converted = p.values(ctx, false), false
 	for p.tok != RPAREN && p.tok != EOF {
@@ -1834,9 +1836,9 @@ SwitchCompose:
 		if _, y := x.(*group); y { return } // in case of: [(var)|...]
 
 	case COMMA:
-		if p.bits&(parseArged|parseCall|parseGroup) != 0 { return }
-		if p.bits&parseDefineClause == 0 {
-			warn(p, "%016b: %T %v ; %v %v", p.bits, x, x, p.tok, p.lit).debug(1)
+		if p.bits&(parseArged|parseCall|parseGroup|parseModifier) != 0 { return }
+		if p.bits&(parseDefineClause) == 0 {
+			warn(p, "%v{%v} %v '%v' (%016b)", typeof(x), x, p.tok, p.lit, p.bits).debug(1)
 			return
 		}
 
@@ -2513,7 +2515,7 @@ SwitchDialect:
 }
 
 // Parsing (var a=xxx,b=yyy) definitions
-func (p *parser) movar(ctx Context, args []Value) (err error) {
+func (p *parser) movar(ctx Context, args ...Value) (err error) {
 	var loader = ctx.loader()
 	for _, elem := range args {
 		var kv, ok = elem.(*pair)
@@ -2574,42 +2576,40 @@ func (p *parser) ruleParams(ctx Context, args []Value) (err error) {
 func (p *parser) modifier(ctx Context) (res *modifier) {
 	p.spaces()
 
+	defer p.setbits(p.setbit(parseModifier))
+	p.clearbit(parseCall) // for commas
+
 	ctx = p.ctx(ctx)
 
-	var g = p.group(ctx, false)
+	p.expect(LPAREN)
+	p.spaces()
 
-	if len(g.Elems) == 0 {
-		erro(ctx, "empty modifier").debug(1)
+	var name string
+	var nameVal = p.expr(ctx, false)
+	var elems []Value
+	switch n := nameVal.(type) {
+	case *bareword: name = n.s
+	case *delegate, *closure:
+		var ctx = at(ctx, n.Position())
+		var v = xmerge(ctx, strval, nameVal)
+		if len(v) == 0 {
+			erro(ctx, "empty modifier name: %v", n).debug(1)
+			return
+		}
+		name, elems = v[0].string(ctx), v[1:]
+	default:
+		erro(ctx, "unsupported modifier: %v{%v}", typeof(n), n).debug(1)
 		return
 	}
 
-	var name string
-
-checkModifierName:
-	switch n := g.Elems[0].(type) {
-	case *bareword:
-		if name = n.s; name == "var" {
-			p.movar(ctx, merge(g.Elems[1:]...))
-		} else if name == "configure" {
-			p.defineConfigureTargets(ctx)
-			p.configure = true // set configure flag and define configure variables
-		}
-	case *delegate, *closure:
-		var ctx = at(ctx, n.Position())
-		var v = xmerge(ctx, strval, n)
-		if name = v[0].string(ctx); name == "" {
-			erro(ctx, "empty modifier name: %v{%v}", typeof(n), n).debug(1)
-			return
-		}
-	case *list:
-		if len(n.Elems) == 0 {
-			erro(ctx, "empty modifier name: %v", g).debug(1)
-			return
-		}
-		g.Elems = append(n.Elems[:1], append(n.Elems[1:], g.Elems[1:]...)...)
-		goto checkModifierName
-	default:
-		erro(ctx, "unsupported modifier: %v{%v}", typeof(n), n).debug(1)
+	var movar bool
+	switch name {
+	case "var": movar = true
+	case "configure":
+		p.defineConfigureTargets(ctx)
+		p.configure = true // set configure flag and define configure variables
+	case "":
+		erro(ctx, "empty modifier name: %v{%v}", typeof(nameVal), nameVal).debug(1)
 		return
 	}
 
@@ -2623,10 +2623,41 @@ checkModifierName:
 		return
 	}
 
-	if len(g.Elems) == 0 {
+	for p.tok != RPAREN && p.tok != EOF {
+		p.spaces()
+
+		t := p.pos
+
+		if vals := p.values(ctx, false); movar {
+			p.movar(ctx, vals...) // TODO: define var one by one
+		} else if n := len(vals); n == 1 {
+			elems = append(elems, vals[0])
+		} else if n > 1 {
+			l := new(list)
+			l.position = vals[0].Position()
+			l.Elems = vals
+			elems = append(elems, l)
+		} else {
+			n := new(none)
+			n.position = p.Position()
+			elems = append(elems, n)
+		}
+
+		if p.tok == COMMA { p.next(true) }
+		if p.pos == t {
+			erro(ctx, "unsupported modifier arg: %v '%v'", p.tok, p.lit).debug(1)
+			return
+		}
+	}
+
+	p.expect(RPAREN)
+
+	if nameVal == nil && len(elems) == 0 {
 		erro(ctx, "empty modifier").debug(1)
 	} else {
-		res = &modifier{*g}
+		res = new(modifier)
+		res.position = ctx.Position()
+		res.Elems = append([]Value{nameVal}, elems...)
 	}
 	return
 }
@@ -2634,16 +2665,11 @@ checkModifierName:
 func (p *parser) modification(ctx Context) *modification {
 	if t_traverse.enabled { defer un(trace(t_traverse, "modification")) }
 
-	var (
-		elems []*modifier
-		posL = p.loc(p.expect(LBRACK))
-	)
+	// defer p.setbits(p.setbit(parseModification))
 
-	ctx = at(ctx, posL)
+	ctx = at(ctx, p.loc(p.expect(LBRACK)))
 
-	defer func(a parseBits) { p.bits = a }(p.bits)
-	p.bits |= parseModifier
-
+	var elems []*modifier
 	for p.tok != EOF && p.tok != LINEND && p.tok != RBRACK {
 		if m := p.modifier(ctx); m != nil { elems = append(elems, m) }
 	}
@@ -2656,7 +2682,7 @@ func (p *parser) modification(ctx Context) *modification {
 	if p.tok == COLON {
 		errostack(ctx, 5, "unexpected colon after modifer").debug(1)
 	}
-    return &modification{ valbase: valbase{posL}, list: elems }
+    return &modification{valbase{ctx.Position()}, elems }
 }
 
 // 

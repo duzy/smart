@@ -1302,11 +1302,6 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
     w = (w|expandPairVal|expandPlaceholder) & ^expandPlaceholderKept
     for _, val := range values {
         if !ctx.empty && xEmpty(ctx, val) { continue }
-        if temps[0].String() == "$(or $3,$2)$_$(or $4)" &&
-            strings.HasPrefix(val.string(ctx), "<") &&
-            strings.HasSuffix(val.string(ctx), ">") {
-            noted(ctx, "%v{%v}", typeof(val), val)
-        }
 
         cc.set(ctx, "_", val)
 
