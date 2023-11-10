@@ -1216,7 +1216,15 @@ func (_ *valbase) traverse(ctx Context) { }
 type undef struct { Value }
 func (p undef) kind() Kind { return KindUndef }
 func (p undef) expand(Context, facet) Value { return p }
-func (p undef) String() string { return fmt.Sprintf("undef{%s}",p.Value) }
+func (p undef) String() (s string) {
+    s = "undef{"
+    switch v := p.Value.(type) {
+    case *none, *null: break
+    default: s += v.String()
+    }
+    s += "}"
+    return
+}
 func (p undef) string(Context) (s string) { return }
 func (p undef) int(Context) (i int64, e error) { return }
 func (p undef) float(Context) (f float64, e error) { return }
@@ -1400,11 +1408,18 @@ func (_ *argumented) collect(ctx Context, cache *valcache, bits int) (res []*val
     return
 }
 
-type none struct { valbase ; v Value }
+type none struct { valbase ; x Value }
 func (_ *none) kind() Kind { return KindNone }
+func (p *none) String() (s string) {
+    s = "none{"
+    if p.x != nil { s += p.x.String() }
+    s += "}"
+    return
+}
+func (p *none) string(_ Context) (s string) { return }
 func (p *none) expand(_ Context, _ facet) Value { return p }
 func (p *none) true(ctx Context) (res bool) {
-    if p.v != nil { res = p.v.true(ctx) }
+    if p.x != nil { res = p.x.true(ctx) }
     return
 }
 func (p *none) cmp(ctx Context, v Value) (res cmpres) {
@@ -2592,7 +2607,7 @@ func (_ *qualiword) collect(ctx Context, cache *valcache, bits int) (res []*valc
 
 type elements struct { Elems []Value }
 func (p *elements) Len() int                { return len(p.Elems) }
-func (p *elements) Append(v... Value)       { p.Elems = append(p.Elems, v...) }
+func (p *elements) Append(v ...Value)       { p.Elems = append(p.Elems, v...) }
 func (p *elements) Get(n int) (v Value)     { if n>=0 && n<len(p.Elems) { v = p.Elems[n] }; return }
 func (p *elements) Slice(n int) (a []Value) {
     if n>=0 && n<len(p.Elems) {
@@ -2609,7 +2624,7 @@ func (p *elements) take(n int) (v Value) {
 }
 func (p *elements) barecomp(pos Position) *barecomp { return &barecomp{valbase{pos},*p} }
 func (p *elements) compound(pos Position) *compound { return &compound{valbase{pos},*p} }
-func (p *elements) list(pos Position) *list { return &list{pos, *p} }
+func (p *elements) list() *list { return &list{*p} }
 func (p *elements) true(ctx Context) (t bool) { // (or elems...)
     for _, elem := range p.Elems {
         if elem != nil { if t = elem.true(ctx); t { break }}
@@ -4806,12 +4821,12 @@ func (p *compound) collect(ctx Context, cache *valcache, bits int) (res []*valca
     return
 }
 
-type list struct {
-    position Position
-    elements
-}
+type list struct { elements }
 func (_ *list) kind() Kind { return KindList }
-func (p *list) Position() (pos Position) { return p.position }
+func (p *list) Position() (pos Position) {
+    if len(p.Elems) > 0 { pos = p.Elems[0].Position() }
+    return
+}
 func (p *list) elemstr(ctx Context, o Object, k elembits) (s string) {
     var strs []string
     for _, elem := range p.Elems {
@@ -4849,7 +4864,7 @@ func (p *list) int(ctx Context) (i int64, err error) {
 func (p *list) expand(ctx Context, w facet) (res Value) {
     elems, u, n := w.expand(ctx, p.Elems...)
     if n > 0 {
-        res = &list{p.position, elements{elems}}
+        res = &list{elements{elems}}
     } else {
         res = p
     }
@@ -4988,7 +5003,7 @@ func (p *list) stencil(ctx Context, stems []string) (val Value, rest []string) {
         elems = append(elems, t)
     }
     if changed > 0 {
-        val = makeList(p.position, elems...)
+        val = &list{elements{elems}}
     } else {
         val = p
     }
@@ -5107,7 +5122,7 @@ func parseGroupValue(ctx Context, g *group) (result Value) {
         if word != nil {
             switch word.s {
             case "plain", "json", "yaml", "xml":
-                result = makeList(g.Elems[1].Position(), g.Elems[1:]...)
+                result = makeList(g.Elems[1:]...)
             }
         }
         if isNull(result) { result = g }
@@ -5483,6 +5498,9 @@ func (p *delegate) expandable(ctx Context, w facet) (res bool) {
 func (p *delegate) expand(ctx Context, w facet) (res Value) {
     db, remake, unexp := false, false, true
 
+    defer func() { if res != nil && res != p { if s := res.String(); strings.HasSuffix(s, ">PIC") {
+        noted(ctx, "%v: %v{%v}", p, typeof(res), res).debug(1)
+    }}} ()
     if true { if w&expandDebug != 0 || (cast[*universe](ctx).db("delegate.expand") && p.String() == "$(if &(.test.$_),std=&(.test.$_))") { defer func() {
         var s string
         if a, y := p.x.(*auto); !y {
@@ -6281,7 +6299,7 @@ func (p *PercPattern) cache(ctx Context, cache *valcache, bits int) (res *valcac
     switch t := p.Prefix.(type) {
     case *barecomp: fix = t.string(ctx)
     case *bareword: fix = t.s
-    case *none,nil: fix = ""
+    case *null,nil: fix = ""
     default:
         errostack(of(ctx, p.Prefix), 3, "unsupported prefix: %T %v", t, t).debug(16)
         return
@@ -6293,7 +6311,7 @@ func (p *PercPattern) cache(ctx Context, cache *valcache, bits int) (res *valcac
     switch t := p.Suffix.(type) {
     case *barecomp: fix = t.string(ctx)
     case *bareword: fix = t.s
-    case *none,nil: fix = ""
+    case *null,nil: fix = ""
     case *PercPattern: return t.cache(ctx, cache, bits)
     default:
         errostack(of(ctx, p.Suffix), 3, "unsupported suffix: %T %v", t, t).debug(16)
@@ -6625,7 +6643,7 @@ func (p *GlobPattern) collect(ctx Context, cache *valcache, bits int) (res []*va
 }
 
 type RegexpPattern struct { valbase ; *regexp.Regexp }
-func (p *RegexpPattern) String() string { return "{"+p.Regexp.String()+"}" }
+func (p *RegexpPattern) String() string { return "regex{"+p.Regexp.String()+"}" }
 func (p *RegexpPattern) string(ctx Context) (s string) { return p.Regexp.String() }
 func (p *RegexpPattern) patterned(ctx Context) bool { return true }
 func (p *RegexpPattern) match(ctx Context, i interface{}) (full bool, result interface{}, stems []string) {
@@ -6732,7 +6750,7 @@ func values(args ...interface{}) (elems []Value) {
     return
 }
 
-func mergeBare(args... Value) (elems []Value) {
+func mergeBare(args ...Value) (elems []Value) {
     for _, arg := range args {
         if l, o := arg.(*barecomp); o && l != nil {
             elems = append(elems, mergeBare(l.Elems...)...)
@@ -6874,7 +6892,7 @@ func expand(ctx Context, w facet, values ...Value) (res Value) {
         if n = len(a); n == 1 {
             res = a[0]
         } else if n > 1 {
-            res = &list{ctx.Position(), elements{a}}
+            res = &list{elements{a}}
             if u > 0 { res = unexpanded{res} }
         }
     }
@@ -6936,11 +6954,10 @@ func ease(ctx Context, iv interface{}) (res Value) {
     case   []bare: for _, s := range t { elems = append(elems, makeBareword(ctx.Position(), s.s)) }
     default: erro(ctx, "unsupported result: %T %v", t, t).debug(3) ; return
     }
-    if elems == nil { // FIXME: return nil here caused dead-loop ???
-        if false { noted(ctx, "%T %v", iv, iv).debug(1) }
-        res = makeNone(ctx.Position())
+    if elems == nil {
+        res = makeNull(ctx.Position())
     } else if len(elems) > 1 {
-        res = makeList(elems[0].Position(), elems...)
+        res = makeList(elems...)
     } else {
         res = elems[0]
     }
@@ -6949,7 +6966,7 @@ func ease(ctx Context, iv interface{}) (res Value) {
 func va(ctx Context, i interface{}) (v Value) {
     switch t := i.(type) {
     case   Value: v = t
-    case []Value: v = makeList(ctx.Position(), t...)
+    case []Value: v = makeList(t...)
     case  int:    v = makeInt(ctx.Position(), int64(t))
     case  int16:  v = makeInt(ctx.Position(), int64(t))
     case  int32:  v = makeInt(ctx.Position(), int64(t))
@@ -6965,7 +6982,7 @@ func va(ctx Context, i interface{}) (v Value) {
             v = makeBareword(ctx.Position(), t)
         }
     case []string: {
-        var l = makeList(ctx.Position())
+        var l = makeList()
         for _, s := range t {
             if s == "" {
                 v = makeNone(ctx.Position())
@@ -6977,7 +6994,7 @@ func va(ctx Context, i interface{}) (v Value) {
         v = l
     }
     case []interface{}:
-        var l = makeList(ctx.Position())
+        var l = makeList()
         for _, i := range t { l.Elems = append(l.Elems, va(ctx, i)) }
         v = l
     case nil:
@@ -6989,12 +7006,14 @@ func va(ctx Context, i interface{}) (v Value) {
 }
 
 func scalarize(v Value) (res Value) {
-    if l, _ := v.(*list); l != nil { n := l.Len()
-        if n == 0 { return makeNone(l.position) }
-        if n == 1 { return scalarize(l.Elems[0]) }
-    } else if u, y := res.(unexpanded); y {
-        u.Value = scalarize(u.Value)
-        return u
+    switch t := v.(type) {
+    case unexpanded:
+        t.Value = scalarize(t.Value)
+    case *none:
+        t.x = scalarize(t.x)
+    case *list: n := t.Len()
+        if n == 0 { return makeNull(t.Position()) }
+        if n == 1 { return scalarize(t.Elems[0]) }
     }
     return v
 }
@@ -7018,7 +7037,7 @@ func scalarize(v Value) (res Value) {
 //     return s
 // }
 
-func makeArgumented(val Value, args... Value) *argumented { return &argumented{val, args} }
+func makeArgumented(val Value, args ...Value) *argumented { return &argumented{val, args} }
 func makeAnswer(pos Position, v bool) *answer { return &answer{boolean{valbase{pos},v}} }
 func makeOption(pos Position, v bool) *option { return &option{boolean{valbase{pos},v}} }
 func makeFlag(pos Position, s string) flag    { return flag{&bareword{valbase{pos},s}} }
@@ -7056,16 +7075,18 @@ func makeURL(pos Position, s *url.URL) *URL {
     }
 }
 func makeBareword(pos Position, word string) *bareword { return &bareword{valbase{pos},word} }
-func makeBarecomp(pos Position, elems... Value) *barecomp { return &barecomp{valbase{pos},elements{merge(elems...)}} }
-func makeCompound(pos Position, elems... Value) *compound { return &compound{valbase{pos},elements{merge(elems...)}} }
-func makeList(pos Position, elems... Value) *list {
-    if !pos.IsValid() && len(elems) > 0 { pos = elems[0].Position() }
-    return &list{pos,elements{elems}}
+func makeBarecomp(pos Position, elems ...Value) *barecomp { return &barecomp{valbase{pos},elements{merge(elems...)}} }
+func makeCompound(pos Position, elems ...Value) *compound { return &compound{valbase{pos},elements{merge(elems...)}} }
+func makeList(elems ...Value) *list { return &list{elements{elems}} }
+func _makeList[V Value](ii ...V) *list {
+    var elems []Value
+    for _, i := range ii { elems = append(elems, i) }
+    return &list{elements{elems}}
 }
-func makeGroup(pos Position, elems... Value) (v *group) { return &group{valbase{pos},elements{elems}} }
+func makeGroup(pos Position, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
 func makeGlobMeta(pos Position, tok Token) *GlobMeta { return &GlobMeta{valbase{pos},tok} }
 func makeGlobRange(pos Position, v Value) *GlobRange { return &GlobRange{valbase{pos},v} }
-func makePath(pos Position, segments... Value) (v *Path) { return &Path{valbase{pos},elements{segments}/*, nil*/} }
+func makePath(pos Position, segments ...Value) (v *Path) { return &Path{valbase{pos},elements{segments}/*, nil*/} }
 func makePathPun(pos Position, ch rune) *PathPun { return &PathPun{valbase{pos},ch} }
 func pathStr(ctx Context, pos Position, str string) *Path { return makePath(pos, splitPathStr(ctx, pos, str)...) }
 func makePair(pos Position, k, v Value) (p *pair) {
@@ -7075,21 +7096,17 @@ func makePair(pos Position, k, v Value) (p *pair) {
     return
 }
 func makePercPattern(pos Position, prefix, suffix Value) *PercPattern {
-    if prefix == nil { prefix = makeNone(pos) }
-    if suffix == nil { suffix = makeNone(pos) }
-    return &PercPattern{
-        valbase: valbase{pos},
-        Prefix: prefix,
-        Suffix: suffix,
-    }
+    if prefix == nil { prefix = &null{valbase{pos}} }
+    if suffix == nil { suffix = &null{valbase{pos}} }
+    return &PercPattern{valbase{pos},prefix,suffix}
 }
-func makeGlobPattern(ctx Context, components... Value) Value {
+func makeGlobPattern(ctx Context, components ...Value) Value {
     return &GlobPattern{valbase:valbase{ctx.Position()}, components:components}
 }
-func makeDelegate(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
+func makeDelegate(pos Position, tok Token, obj Value, opts []Value, args ...Value) Value {
     return &delegate{valbase{pos}, tok, obj, opts, args}
 }
-func makeClosure(pos Position, tok Token, obj Value, opts []Value, args... Value) Value {
+func makeClosure(pos Position, tok Token, obj Value, opts []Value, args ...Value) Value {
     if isNull(obj) { panic(failure{"making closure on <nil> object",ia(pos)}) }
     return &closure{delegate{valbase{pos}, tok, obj, opts, args}}
 }

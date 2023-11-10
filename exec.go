@@ -1154,6 +1154,17 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   var source string
   var recipePos Position
   for i, recipe := range program.recipes {
+    if true { if y, _ := regexp.MatchString(` '<[^>]+>'PIC `, recipe.expand(ctx, w).String()); y {
+      builtin_foreach_d = true
+      x := recipe.expand(ctx, w)
+      builtin_foreach_d = false
+
+      noted(of(ctx, recipe), "%v: %v", typeof(ctx), ctx)
+      noted(of(ctx, recipe), "recipe: %v: %v", typeof(recipe), recipe)
+      noted(of(ctx, recipe), "recipe: %v: %v", typeof(recipe), x)
+      noted(of(ctx, recipe), "recipe: %v: %v", typeof(recipe), x.string(ctx))
+      infostack(ctx, 10).debug(1)
+    }}
     if recipe = recipe.expand(ctx, w); !fixEvokedFullnames && exe.fullname {
       // NOTE: do a second expand for fullname because delegate to file
       //       skipped fullname expansion (FIXME: fixEvokedFullnames)
@@ -1166,6 +1177,15 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
       source += "\n" // an empty line
       continue
     } else {
+      if false { if y, _ := regexp.MatchString(" <[^>]+>PIC ", s); y {
+        builtin_foreach_d = true
+        x := recipe.string(ctx)
+        builtin_foreach_d = false
+
+        noted(of(ctx, recipe), "%v: %v", typeof(recipe), recipe)
+        noted(of(ctx, recipe), "%v: %v", typeof(recipe), x).debug(1)
+      }}
+
       // Escape '$$' sequences.
       s = strings.Replace(s, "$$", "$", -1)
 

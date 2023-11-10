@@ -180,6 +180,8 @@ const (
 	NULL    // `null`
 	NONE    // `none`
 	BARE    // `bare`  // TODO
+	PATH    // `path`  // TODO
+	GLOB    // `glob`  // TODO
 	REGEX   // `regex` // TODO
 	FILE    // `file`  // TODO
 	BIN     // `bin`
@@ -189,6 +191,7 @@ const (
 	FLOAT   // `float`
 	ANSWER  // `answer`
 	BOOL    // `bool`
+	BOOLEAN // `boolean`
 	TRUE    // boolean `true`
 	FALSE   // boolean `false`
 	YES     // answer `yes`
@@ -223,7 +226,7 @@ var tokens = [...]string{
 	RECIPE:   "RECIPE",
 	LINEND:   "\\n", //"LINEND",
 
-	CARET: "^",
+	CARET:  "^",
 	LANGLE: "<",
 	LBRACE: "{",
 	LBRACK: "[",
@@ -232,7 +235,7 @@ var tokens = [...]string{
 	DOT:    ".",
 	DOTDOT: "..",
 	TILDE:  "~",
-	SELECT_PROP: "→", // foo->bar
+	SELECT_PROP:  "→", // foo->bar
 	SELECT_PROG1: "⇒", // foo=>bar foo⇒bar
 	SELECT_PROG2: "⇢", // foo~>bar foo⇢bar
 
@@ -345,6 +348,8 @@ var tokens = [...]string{
 	NULL:   "null",
 	NONE:   "none",
 	BARE:   "bare",
+	PATH:   "path",
+	GLOB:   "glob",
 	REGEX:  "regex",
 	FILE:   "file",
 	BIN:    "bin",
@@ -354,6 +359,7 @@ var tokens = [...]string{
 	FLOAT:  "float",
 	ANSWER: "answer",
 	BOOL:   "bool",
+	BOOLEAN:"boolean",
 	TRUE:   "true",
 	FALSE:  "false",
 	YES:    "yes",

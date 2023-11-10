@@ -1,5 +1,9 @@
 project testvalues
 
+# TODO: float{.1}
+vals = answer{yes} bool{false} boolean{true} path{foo} file{foobar} glob{**.c} regex{xx} \
+    {word foo/bar 'barelit' "compound" int{0} int{1}} none{anything goes} null{}
+
 glob1 =  *.c
 glob2 = **.c
 
@@ -129,12 +133,12 @@ glob2 = **.c
 # 	[[:upper:]]    upper case (== [A-Z])
 # 	[[:word:]]     word characters (== [0-9A-Za-z_])
 # 	[[:xdigit:]]   hex digit (== [0-9A-Fa-f])
-regexp1 ::= {x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}}
-regexp2 ::= {(re) (?P<name>re) (?:re) (?im) (?sU:re) \x{10ffff} \x1f \123 \* \. \? \$}
-regexp3 ::= {[[:xdigit:]]*, [[:^alpha:]], [^xyz] [a-z] \A \B \b \Q**??^:[]{}\E \^ \z}
-regexp4 ::= {fo{2}\.c}
-regexp5 ::= {fo{2}/bar\.c}
-regexp6 ::= {fo{2}(/o{2}){3}/bar\.c}
+regexp1 ::= regex{x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}}
+regexp2 ::= regex{(re) (?P<name>re) (?:re) (?im) (?sU:re) \x{10ffff} \x1f \123 \* \. \? \$}
+regexp3 ::= regex{[[:xdigit:]]*, [[:^alpha:]], [^xyz] [a-z] \A \B \b \Q**??^:[]{}\E \^ \z}
+regexp4 ::= regex{fo{2}\.c}
+regexp5 ::= regex{fo{2}/bar\.c}
+regexp6 ::= regex{fo{2}(/o{2}){3}/bar\.c}
 
 modifiers := [(assert no{}) (plain cxx)]
 

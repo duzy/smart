@@ -437,11 +437,30 @@ func (ac *autoContext) amend(ctx Context, name string, val Value) (out *def, res
     return
 }
 func (ac *autoContext) get(ctx Context, name string) (res *def) {
-    var y bool
     ac.RLock()
-    res, y = ac.defs[name]
+    res, _ = ac.defs[name]
     ac.RUnlock()
-    if !y && ac.Context != nil { if t := ac.Context.ac(); t != nil {
+
+    if res != nil { return }
+
+    var skipDigits = true
+    switch ac.Context.(type) {
+    case *builtin_foreach, defExpandContext:
+        skipDigits = false
+    case *builtin_grep:
+        skipDigits = true
+    }
+    if skipDigits && _isDigits(name) {
+        i, e := strconv.Atoi(name)
+        if e == nil && 0 <= i && i <= maxDigitAutoNum {
+            return // Fixes calling-args-pollution: avoid pollution of digit autos ($0, $1, ..., $9)
+        } else {
+            warn(ctx, "digit auto too big: %v (max %v)", name, maxDigitAutoNum).debug(1)
+            return
+        }
+    }
+
+    if ac.Context != nil { if t := ac.Context.ac(); t != nil {
         if ac != t { res = t.get(ctx, name) } else {
             errostack(ctx, 3, "deadloop: %v", name).debug(32)
         }
@@ -490,7 +509,7 @@ outer:
         if p, y := a.(*pair); y { for _, ca := range compact {
             if c, y := ca.(*pair); y && eq(ac, p.Key, c.Key) { var vals = merge(p.Value)
                 if l, y := c.Value.(*list); y { l.Elems = append(l.Elems, vals...) } else {
-                    c.Value = makeList(c.Position(), append(merge(c.Value), vals...)...)
+                    c.Value = makeList(append(merge(c.Value), vals...)...)
                 }
                 continue outer
             }
@@ -534,6 +553,12 @@ outer:
         names = append(names, name)
         argnum += 1
     }
+
+    // // Explicitly 'clear' other digit autos
+    // for i := argnum; i <= maxDigitAutoNum; i += 1 {
+    //     ac.set(ctx, strconv.Itoa(argnum+1), nil)
+    // }
+
     named = nil
     return
 }
@@ -657,6 +682,8 @@ func (_ *auto) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
+
+type defExpandContext struct { Context }
 
 // A Def represents a definition, it's a Caller but mustn't be a Valuer.
 type def struct {
@@ -852,8 +879,17 @@ func (d *def) val(ctx Context, value Value, ii ...interface{}) {
     d.set(ctx, d.origin, value, ii...)
 }
 func (d *def) set(ctx Context, origin Origin, value Value, ii ...interface{}) {
+    if value != nil && d.value == value {
+        if d.origin != origin { d.origin = origin }
+        return
+    }
+
+    if false && !d.position.IsValid() {
+        erro(ctx, "%s: invalid def position", d.name_).debug(16)
+    }
+
+    var w = plain
     var app []Value
-    var w = plain/* |expandAuto *//* &^expandOptimal */
     for _, i := range ii {
         switch v := i.(type) {
         case Value: app = append(app, v)
@@ -861,47 +897,64 @@ func (d *def) set(ctx Context, origin Origin, value Value, ii ...interface{}) {
         }
     }
 
-    if value != nil && d.value == value {
-        if d.origin != origin { d.origin = origin }
-        return
-    }
+    var vals []Value
+    if value != nil { if l, y := value.(*list); y {
+        vals = l.Elems
+    } else {
+        vals = []Value{ value }
+    }}
+    if app != nil { vals = append(vals, app...) }
 
     var pos = d.position
-    if !pos.IsValid() {
-        if value != nil { pos =  value.Position() } else
-        if len(app) > 0 { pos = app[0].Position() }
+    if !pos.IsValid() && len(vals) > 0 {
+        pos = vals[0].Position()
     }
 
-    var vals []Value
-    if value != nil { vals = merge(value) }
-    if   app != nil { vals = append(vals, app...) }
+    for i, val := range vals { if o, y := val.(*def); y {
+        if o.value == nil {
+            vals[i] = makeNull(pos)
+        } else {
+            vals[i] = o.value
+        }
+    }}
 
-    for i, val := range vals { if o, y := val.(*def); y { vals[i] = o.value }}
-
-    var uni = cast[*universe](ctx)
     switch origin {
     case DefExpand1: vals, _, _ = (w&^expandClosure).expand(ctx, vals...) //  :=
     case DefExpand2: vals, _, _ = (w| expandClosure).expand(ctx, vals...) // ::=
-    default: for _, val := range vals { if val != nil && val.refs(ctx, d) { ctx = at(ctx, pos)
-        if uni.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name_, val) }
-        if uni.debug { warn(ctx, "from here").debug(1) }
-        errostack(ctx, 3, "value refers to assigning Def '%s': %v (%T)", d.name_, val, val).debug(10)
-        return
-    }}}
+    default:
+        var u = cast[*universe](ctx)
+        for _, val := range vals {
+            var ctx = at(ctx, val.Position())
+            if val != nil && val.refs(ctx, d) {
+                if u.verbose { prompt(ctx, "set %s (%v): %v\n", origin, d.name_, val) }
+                if u.debug   { noted(ctx, "from here").debug(1) }
+                errostack(ctx, 3, "value refers to assigning Def '%s': %v (%T)", d.name_, val, val).debug(10)
+                return
+            }
+        }
+    }
 
-    if value == nil { if len(app) > 0 {
+    if value == nil && len(app) > 0 {
         // d.mutex.Lock()
-        if !isTrivial(d.value) { vals = append(merge(d.value), vals...) }
+        if d.value != nil { if l, y := d.value.(*list); y {
+            vals = append(l.Elems, vals...)
+        } else if !isNull(d.value) {
+            vals = append([]Value{d.value}, vals...)
+        }}
         // d.mutex.Unlock()
+    }
+
+    if n := len(vals); n == 1 {
+        value = vals[0]
+    } else if n > 1 {
+        value = makeList(vals...)
     } else if origin != DefExecute {
-        // d.mutex.Lock()
-        d.origin, d.value = origin, makeNone(d.position)
-        // d.mutex.Unlock()
-        return
-    }}
+        value = makeNull(pos)
+    }
 
     // d.mutex.Lock()
-    d.origin, d.value = origin, ease(ctx, vals)
+    if !d.position.IsValid() { d.position = pos }
+    d.origin, d.value = origin, value
     // d.mutex.Unlock()
     return
 }
@@ -915,7 +968,7 @@ func (d *def) xauto(ctx Context, w facet, a ...Value) (res Value) {
     // d.mutex.Lock()
     // var bits = d.bits
     // d.bits |= defUnavail
-    res = xauto(ctx, d.value, w, a...)
+    res = xauto(defExpandContext{ctx}, d.value, w, a...)
     // d.bits = bits
     // d.mutex.Unlock()
     return

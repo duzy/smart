@@ -934,7 +934,7 @@ func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
         if a := umerge(true, ic.a[0]); len(a) == 1 {
             ic.a[0] = a[0]
         } else {
-            ic.a[0] = makeList(ic.a[0].Position(), a...)
+            ic.a[0] = makeList(a...)
         }
     }
 
@@ -1263,6 +1263,7 @@ func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
     }}
     return
 }
+var builtin_foreach_d bool
 func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
     var values []Value
     if ctx.x_values {
@@ -1316,6 +1317,10 @@ func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
             vals = append(vals, ease(ctx, l))
         } else {
             vals = append(vals, l...)
+        }
+
+        if builtin_foreach_d && val.String() == "PIC" {
+            noted(ctx, "%v{%v} %v %v", typeof(val), val, temps, l).debug(64)
         }
 
         if ctx.debug>0 {

@@ -20,8 +20,6 @@ import (
     "os"
 )
 
-const maxNumVarVal = 9
-
 var baseWorkDir, _ = os.Getwd()
 var launchTime = time.Now()
 var searchPaths searchlist

@@ -733,9 +733,7 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *de
     case CO1_ASSIGN: d.set(ctx, DefExpand1, value, expandDefAssign) //  :=
     case CO2_ASSIGN: d.set(ctx, DefExpand2, value, expandDefAssign) // ::=
     case EXC_ASSIGN: d.set(ctx, DefExecute, value, expandDefAssign) //  !=
-    case QUE_ASSIGN: if alt == nil { // ?=
-        d.set(ctx, DefDefault, value, expandDefAssign)
-    }
+    case QUE_ASSIGN: if alt == nil { d.set(ctx, DefDefault, value, expandDefAssign) } // ?=
     case ADD_ASSIGN: if !isTrivial(value) { // +=
         var ii []interface{}
         if !isTrivial(d.value) { ii = vi(umerge(true, d.value)...) }

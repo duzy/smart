@@ -1,11 +1,11 @@
 project testforeach
 
-.test.1 := x
+.test.1 := x $0 $1 $2 $3 $4
 .test.1 += $(foreach $1,&(.test.h)$_)
 .test.h := -
 # assert $(.test.1 a b c) $(equal(-d) $(.test.1 x y z),x -x -y -z)
 
-.test.2 := x
+.test.2 := x #$5 $6 $7 $8 $9
 .test.2 += $(foreach q p $(foreach $1,&(.test.h)$_),x$_)
 # assert $(.test.2 a b c) $(equal(-d) $(.test.2 x y z),x xq xp x-x x-y x-z)
 
@@ -33,3 +33,6 @@ project testforeach
 .test.5 := $(foreach do.smart,&(.test.x $_))
 .test.x := $(stat(-full) $//$1)
 # assert $(foreach do.smart,$(.test.x $_))
+
+.test.61 := $0 $1 $2 $3 $9
+.test.6  := $(.test.61) - $0 $1 $2 $3 $9

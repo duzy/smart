@@ -1295,7 +1295,7 @@ type normalTraverseContext struct { Context }
 type orderTraverseContext struct { Context }
 func (t normalTraverseContext) traversed(ctx Context, target Value) (targets []Value) {
     if targets = t.Context.traversed(ctx, target); len(targets) > 0 {
-        autoSet(ctx, "^", makeList(t.Position(), targets...))
+        autoSet(ctx, "^", makeList(targets...))
         autoSet(ctx, "<", targets[0])
         autoSet(ctx, ">", targets[len(targets)-1])
     }
@@ -1304,7 +1304,7 @@ func (t normalTraverseContext) traversed(ctx Context, target Value) (targets []V
 }
 func (t orderTraverseContext) traversed(ctx Context, target Value) (targets []Value) {
     if targets = t.Context.traversed(ctx, target); len(targets) > 0 {
-        autoSet(ctx, "|", makeList(t.Position(), targets...))
+        autoSet(ctx, "|", makeList(targets...))
     }
     if false { noted(ctx, "%v %v", target, targets).debug(1) }
     return
