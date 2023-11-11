@@ -436,42 +436,6 @@ func (ac *autoContext) amend(ctx Context, name string, val Value) (out *def, res
     if res = d.value; d.value != val { out, d.value = d, val }
     return
 }
-func (ac *autoContext) _get(ctx Context, name string) (res *def) {
-    ac.RLock()
-    res, _ = ac.defs[name]
-    ac.RUnlock()
-
-    if res != nil { return }
-
-    var skipDigits = true
-    switch ac.Context.(type) {
-    case *builtin_foreach, defExpandContext:
-        skipDigits = false
-    case *builtin_grep:
-        skipDigits = true
-    default:
-        if true { if c := cast[defExpandContext](ac.Context); c.Context != nil {
-            noted(ctx, "%v: %v", name, ac.Context).debug(1)
-            skipDigits = false
-        }}
-    }
-    if skipDigits && _isDigits(name) {
-        i, e := strconv.Atoi(name)
-        if e == nil && 0 <= i && i <= maxDigitAutoNum {
-            return // Fixes calling-args-pollution: avoid pollution of digit autos ($0, $1, ..., $9)
-        } else {
-            warn(ctx, "digit auto too big: %v (max %v)", name, maxDigitAutoNum).debug(1)
-            return
-        }
-    }
-
-    if ac.Context != nil { if t := _autoContext(ac.Context); t != nil {
-        if ac != t { res = t.get(ctx, name) } else {
-            errostack(ctx, 3, "deadloop: %v", name).debug(32)
-        }
-    }}
-    return
-}
 func (ac *autoContext) get(ctx Context, name string) (res *def) {
     ac.RLock()
     res, _ = ac.defs[name]
@@ -479,17 +443,17 @@ func (ac *autoContext) get(ctx Context, name string) (res *def) {
 
     if res != nil { return }
 
-    switch ac.Context.(type) {
-    case *builtin_foreach:  if name == "_" { return }
-    case *builtin_grep: if _isDigits(name) { return }
-    default: return
+    if t, y := ac.Context.(interface{ suppressAuto(string) bool }); !y || t.suppressAuto(name) {
+        return
     }
 
-    if ac.Context != nil { if t := _autoContext(ac.Context); t != nil {
-        if ac != t { res = t.get(ctx, name) } else {
-            errostack(ctx, 3, "deadloop: %v", name).debug(32)
+    if t := _autoContext(ac.Context); t != nil {
+        if t == ac {
+            errostack(ctx, 3, "%v: loop auto context", name).debug(32)
+            return
         }
-    }}
+        res = t.get(ctx, name)
+    }
     return
 }
 func (ac *autoContext) set(ctx Context, name string, val Value) (out *def, res Value) {

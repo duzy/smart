@@ -1248,6 +1248,7 @@ func (ctx *builtin_foreach) String() string {
         return ctx.Context.String()
     }
 }
+func (ctx *builtin_foreach) suppressAuto(name string) bool { return name == "_" }
 func (ctx *builtin_foreach) a(ic *evocation, w facet) (skip bool) {
     if n := len(ic.a); n < 2 {
         errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, ic.a).debug(32)
@@ -1356,6 +1357,7 @@ func (ctx *builtin_env) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_auto struct { builtin_ }
+func (ctx *builtin_auto) suppressAuto(name string) bool { return false }
 func (ctx *builtin_auto) a(ic *evocation, w facet) (skip bool) {
     if n := len(ic.a); n < 2 {
         errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, ic.a).debug(32)
@@ -1368,7 +1370,7 @@ func (ctx *builtin_auto) a(ic *evocation, w facet) (skip bool) {
 func (ctx *builtin_auto) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) == 0 { return }
 
-    var ac = &autoContext{ Context:ctx, defs:make(autoDefMap) }
+    var ac = autoContext{ Context:ctx, defs:make(autoDefMap) }
     for _, a := range umerge(true, ic.a[0]) {
         if p, y := a.(*pair); y { if s := p.Key.string(ctx); s != "" {
             ac.set(ctx, s, p.Value)
@@ -1376,7 +1378,7 @@ func (ctx *builtin_auto) x(ic *evocation, w facet) (res interface{}) {
     }
 
     var vals []Value
-    for _, v := range ic.a[1:] { vals = append(vals, v.expand(ac, w|expandAuto)) }
+    for _, v := range ic.a[1:] { vals = append(vals, v.expand(&ac, w|expandAuto)) }
     return vals
 }
 
@@ -4375,6 +4377,7 @@ func (ctx *builtin_touchfile) x(ic *evocation, w facet) (res interface{}) {
 // $(grep 'status=1',$@)
 // $(grep 'status=([0-9]+)',$1,$@)
 type builtin_grep struct { builtin_ }
+func (ctx *builtin_grep) suppressAuto(name string) bool { return _isDigits(name) }
 func (ctx *builtin_grep) x(ic *evocation, w facet) (res interface{}) {
     var (
         args = ic.a
