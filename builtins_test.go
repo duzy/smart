@@ -1136,9 +1136,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v{%v} ; %v", typeof(l.Elems[1]), l.Elems[1], d)
 	}
 	if test_1_value == nil {
-		ctx.err("%v %p", ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v %p", ctx.def(".test.1"), _evocation(ctx))
 	} else if test_1_value.String() != test_1_str {
-		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), _evocation(ctx))
 	}
 	if v := ctx.get(".test.1", expandZero); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
@@ -1178,9 +1178,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v", d.a)
 	}
 	if test_1_value == nil {
-		ctx.err("%v %p", ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v %p", ctx.def(".test.1"), _evocation(ctx))
 	} else if test_1_value.String() != test_1_str {
-		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), _evocation(ctx))
 	}
 	if v := ctx.get(".test.1", expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
@@ -1218,9 +1218,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v", d.a)
 	}
 	if test_1_value == nil {
-		ctx.err("%v %p", ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v %p", ctx.def(".test.1"), _evocation(ctx))
 	} else if test_1_value.String() != test_1_str {
-		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), _evocation(ctx))
 	}
 	if v := ctx.get(".test.1", []string{"a", "b", "c"}); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
@@ -1250,9 +1250,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v{%v} → %s", typeof(l1.Elems[2]), l1.Elems[2], s)
 	}
 	if test_1_value == nil {
-		ctx.err("%v %p", ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v %p", ctx.def(".test.1"), _evocation(ctx))
 	} else if test_1_value.String() != test_1_str {
-		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), _evocation(ctx))
 	}
 	if v := ctx.get(".test.1", expandDelegate|expandDigitsKept, []string{"x", "y", "z"}); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
@@ -1286,9 +1286,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v", d)
 	}
 	if test_1_value == nil {
-		ctx.err("%v %p", ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v %p", ctx.def(".test.1"), _evocation(ctx))
 	} else if test_1_value.String() != test_1_str {
-		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), _evocation(ctx))
 	}
 	if v := ctx.get(".test.1", expandDelegate, []string{"x", "y", "z"}); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
@@ -1360,9 +1360,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v → %v", c, s)
 	}
 	if test_1_value == nil {
-		ctx.err("%v %p", ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v %p", ctx.def(".test.1"), _evocation(ctx))
 	} else if test_1_value.String() != test_1_str {
-		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), _evocation(ctx))
 	}
 	if v := ctx.get(".test.1", expandDelegate|expandDigits, []string{"x", "y", "z"}); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
@@ -1434,9 +1434,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v → %v", c, s)
 	}
 	if test_1_value == nil {
-		ctx.err("%v %p", ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v %p", ctx.def(".test.1"), _evocation(ctx))
 	} else if test_1_value.String() != test_1_str {
-		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), _evocation(ctx))
 	}
 	if v := ctx.get(".test.1", expandClosure|expandDelegate, []string{"x", "y", "z"}); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
@@ -1464,9 +1464,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v{%v} → %s", typeof(d.Elems), d.Elems, s)
 	}
 	if test_1_value == nil {
-		ctx.err("%v %p", ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v %p", ctx.def(".test.1"), _evocation(ctx))
 	} else if test_1_value.String() != test_1_str {
-		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), _evocation(ctx))
 	}
 	if true { to_list = to_list_direct } else { to_list = to_list_unexpanded }
 	if v := ctx.get(".test.1", expandClosure, []string{"x", "y", "z"}); v == nil {
@@ -1544,9 +1544,9 @@ func testForeach(ctx *testcase) {
 		ctx.err("%v → %s", d, s)
 	}
 	if test_1_value == nil {
-		ctx.err("%v %p", ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v %p", ctx.def(".test.1"), _evocation(ctx))
 	} else if test_1_value.String() != test_1_str {
-		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), ctx.ic())
+		ctx.err("%v{%v} - %v - %v %p", typeof(test_1_value), test_1_value, test_1_str, ctx.def(".test.1"), _evocation(ctx))
 	}
 	if v := ctx.get(".test.1", expandDelegate, []string{"x", "y", "z"}); v == nil {
 		ctx.err("%v", ctx.def(".test.1"))
@@ -1837,229 +1837,350 @@ func testForeach(ctx *testcase) {
 	}
 	if v := ctx.get(".test.21", expandDelegate|expandUnexpandedForth); v == nil {
 		ctx.err("%v", ctx.def(".test.21")) // "x xq xp x&(.test.h)$1"
-	} else if v.String() != "x xq xp x-$1" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.21"))
-	} else if s := v.string(ctx); s != "x xq xp x-" {
-		ctx.err("%v → %s ; %v", v, s, ctx.def(".test.21"))
+	} else if s := "x xq xp x-$1"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x xq xp x-"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.21", []string{"a", "b", "c"}); v == nil {
 		ctx.err("%v", ctx.def(".test.21"))
-	} else if v.String() != "x xq xp x-a x-b x-c" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.21"))
-	} else if s := v.string(ctx); s != "x xq xp x-a x-b x-c" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.21"))
+	} else if s := "x xq xp x-a x-b x-c"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x xq xp x-a x-b x-c"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.21", []string{"x", "y", "z"}); v == nil {
 		ctx.err("%v", ctx.def(".test.21"))
-	} else if v.String() != "x xq xp x-x x-y x-z" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.21"))
-	} else if s := v.string(ctx); s != "x xq xp x-x x-y x-z" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.21"))
+	} else if s := "x xq xp x-x x-y x-z"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x xq xp x-x x-y x-z"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.21", []string{"a", "b", "c"}, expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.21"))
-	} else if v.String() != "x xq xp x-a x-b x-c" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.21"))
-	} else if s := v.string(ctx); s != "x xq xp x-a x-b x-c" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.21"))
+	} else if s := "x xq xp x-a x-b x-c"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x xq xp x-a x-b x-c"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.21", []string{"x", "y", "z"}, expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.21"))
-	} else if v.String() != "x xq xp x-x x-y x-z" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.21"))
-	} else if s := v.string(ctx); s != "x xq xp x-x x-y x-z" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.21"))
+	} else if s := "x xq xp x-x x-y x-z"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x xq xp x-x x-y x-z"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 
 	if v := ctx.get(".test.22"); v == nil {
 		ctx.err("%v", ctx.def(".test.22")) // "x $(foreach - $(foreach $1,&(.test.h)$_),x$_)"
-	} else if v.String() != "x $(foreach - $(foreach $1,-$_),x$_)" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.22"))
-	} else if s := v.string(ctx); s != "x x- x-" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.22"))
+	} else if s := "x $(foreach - $(foreach $1,-$_),x$_)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x x- x-"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.22", "a"); v == nil {
 		ctx.err("%v", ctx.def(".test.22"))
-	} else if v.String() != "x x- x-a" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.22"))
-	} else if s := v.string(ctx); s != "x x- x-a" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.22"))
+	} else if s := "x x- x-a"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x x- x-a"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 
-	if v := ctx.get(".test.3"/* , expandDebug */); v == nil {
+	if v := ctx.get(".test.3"); v == nil {
 		ctx.err("%v", ctx.def(".test.3"))
-	} else if v.String() != "x $(foreach $1,&(.test.$_)$1) y $(foreach $1,$(value(-c) .test.$_)$1) z" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.3"))
-	} else if s := v.string(ctx); s != "x y z" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.3"))
+	} else if s := "x $(foreach $1,&(.test.$_)$1) y $(foreach $1,$(value(-c) .test.$_)$1) z"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x y z"; s != v.string(ctx) {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
-	if v := ctx.get(".test.3", []string{"foo", "bar"}/* , expandDebug */); v == nil {
+	if v := ctx.get(".test.3", []string{"foo", "bar"}); v == nil {
 		ctx.err("%v", ctx.def(".test.3"))
-	} else if v.String() != "x &(.test.foo)foo bar &(.test.bar)foo bar y &(.test.foo)foo bar &(.test.bar)foo bar z" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.3"))
-	} else if s := v.string(ctx); s != "x foo bar foo bar y foo bar foo bar z" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.3"))
+	} else if s := "x &(.test.foo)foo bar &(.test.bar)foo bar y &(.test.foo)foo bar &(.test.bar)foo bar z"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x foo bar foo bar y foo bar foo bar z"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.3", []string{"foo", "bar"}, expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.3"))
-	} else if v.String() != "x &(.test.foo)foo bar &(.test.bar)foo bar y &(.test.foo)foo bar &(.test.bar)foo bar z" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.3"))
-	} else if s := v.string(ctx); s != "x foo bar foo bar y foo bar foo bar z" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.3"))
+	} else if s := "x &(.test.foo)foo bar &(.test.bar)foo bar y &(.test.foo)foo bar &(.test.bar)foo bar z"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x foo bar foo bar y foo bar foo bar z"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.3", []string{"foo", "bar"}, expandClosure); v == nil {
 		ctx.err("%v", ctx.def(".test.3"))
-	} else if v.String() != "x &(.test.foo)foo bar &(.test.bar)foo bar y &(.test.foo)foo bar &(.test.bar)foo bar z" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.3"))
-	} else if s := v.string(ctx); s != "x foo bar foo bar y foo bar foo bar z" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.3"))
+	} else if s := "x &(.test.foo)foo bar &(.test.bar)foo bar y &(.test.foo)foo bar &(.test.bar)foo bar z"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x foo bar foo bar y foo bar foo bar z"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
-	if false { // TODO: add expandClosureKept and expandDelegateKept
-		if v := ctx.get(".test.3", []string{"foo", "bar"}, expandClosure|expandDebug); v == nil {
-			ctx.err("%v", ctx.def(".test.3"))
-		} else if v.String() != "x foo bar foo bar y foo bar foo bar z" {
-			ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.3"))
-		} else if s := v.string(ctx); s != "x foo bar foo bar y foo bar foo bar z" {
-			ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.3"))
-		}
-		if v := ctx.get(".test.3", []string{"foo", "bar"}, expandClosure|expandDelegate|expandDebug); v == nil {
-			ctx.err("%v", ctx.def(".test.3"))
-		} else if v.String() != "x foo bar foo bar y foo bar foo bar z" {
-			ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.3"))
-		} else if s := v.string(ctx); s != "x foo bar foo bar y foo bar foo bar z" {
-			ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.3"))
-		}
+	// TODO: add expandClosureKept and expandDelegateKept
+	if v := ctx.get(".test.3", []string{"foo", "bar"}, expandClosure); v == nil {
+		ctx.err("%v", ctx.def(".test.3"))
+	} else if s := "x &(.test.foo)foo bar &(.test.bar)foo bar y &(.test.foo)foo bar &(.test.bar)foo bar z"; v.String() != s {
+		noted(of(ctx,v), "%v", s) // "x foo bar foo bar y foo bar foo bar z"
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x foo bar foo bar y foo bar foo bar z"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	}
+	if v := ctx.get(".test.3", []string{"foo", "bar"}, expandClosure|expandDelegate); v == nil {
+		ctx.err("%v", ctx.def(".test.3"))
+	} else if s := "x &(.test.foo)foo bar &(.test.bar)foo bar y &(.test.foo)foo bar &(.test.bar)foo bar z"; v.String() != s {
+		noted(of(ctx,v), "%v", s) // "x foo bar foo bar y foo bar foo bar z"
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x foo bar foo bar y foo bar foo bar z"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 
 	if v := ctx.get(".test.4"); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "$(foreach $1 $2,&(.test.$_.$(or $4,$3)))" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
+	} else if s := "$(foreach $1 $2,&(.test.$_.$(or $4,$3)))"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if s := v.string(ctx); s != "" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y"); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "&(.test.x.$(or $4,$3)) &(.test.y.$(or $4,$3))" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
+	} else if s := "&(.test.x.$(or $4,$3)) &(.test.y.$(or $4,$3))"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if s := v.string(ctx); s != "" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y", "a", "b"); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "&(.test.x.b) &(.test.y.b)" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
+	} else if s := "&(.test.x.b) &(.test.y.b)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if s := v.string(ctx); s != "xb yb" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y", "a", []string{}); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "&(.test.x.a) &(.test.y.a)" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
-	} else if s := v.string(ctx); s != "xa ya" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+	} else if s := "&(.test.x.a) &(.test.y.a)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "xa ya"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y", []string{}, "b"); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "&(.test.x.b) &(.test.y.b)" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
-	} else if s := v.string(ctx); s != "xb yb" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+	} else if s := "&(.test.x.b) &(.test.y.b)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "xb yb"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y", "a", "b", expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "&(.test.x.b) &(.test.y.b)" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
-	} else if s := v.string(ctx); s != "xb yb" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+	} else if s := "&(.test.x.b) &(.test.y.b)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "xb yb"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y", []Value{}, "b", expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "&(.test.x.b) &(.test.y.b)" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
-	} else if s := v.string(ctx); s != "xb yb" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+	} else if s := "&(.test.x.b) &(.test.y.b)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "xb yb"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y", "a", []Value{}, expandClosure|expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "xa ya" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
-	} else if s := v.string(ctx); s != "xa ya" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+	} else if s := "xa ya"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "xa ya"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y", "a", "b", expandClosure|expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "xb yb" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
-	} else if s := v.string(ctx); s != "xb yb" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+	} else if s := "xb yb"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "xb yb"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y", []Value{}, "b", expandClosure|expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "xb yb" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
-	} else if s := v.string(ctx); s != "xb yb" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+	} else if s := "xb yb"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "xb yb"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "x", "y", "a", []Value{}, expandClosure|expandDelegate); v == nil {
 		ctx.err("%v", ctx.def(".test.4"))
-	} else if v.String() != "xa ya" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.4"))
-	} else if s := v.string(ctx); s != "xa ya" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.4"))
+	} else if s := "xa ya"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "xa ya"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 
 	if d := ctx.def(".test.5"); d == nil || d.value == nil {
 		ctx.err("%v", ctx.def(".test.5"))
-	} else if s := d.value.String(); s != "&(.test.x do.smart)" {
-		ctx.err("%v{%v} ; %v", typeof(d.value), d.value, ctx.def(".test.5"))
-	} else if s := d.value.string(ctx); s != "true" {
-		ctx.err("%v{%v} → %s ; %v", typeof(d.value), d.value, s, ctx.def(".test.5"))
-	} else if u, y := d.value.(unexpanded); !y {
+	} else if s, v := "&(.test.x do.smart)", d.value; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "true"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%v{%v}", typeof(d.value), d.value)
 	} else if c, y := u.Value.(*closure); !y {
 		ctx.err("%v{%v}", typeof(u.Value), u.Value)
-	} else if c.x.String() != ".test.x" {
-		ctx.err("%v{%v}", typeof(c.x), c.x)
-	} else if s := c.string(ctx); s != "true" {
-		ctx.err("%v → %s", c, s)
+	} else if s := ".test.x"; c.x.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", c.x)
+		ctx.err("%v{%v}", typeof(c.x), c.x) // → %s
+	} else if s := "true"; c.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", c.string(ctx))
+		ctx.err("%v{%v}", typeof(c), c) // → %s
 	}
 	if v := ctx.get(".test.5"); v == nil {
 		ctx.err("%v", ctx.def(".test.5"))
-	} else if v.String() != "&(.test.x do.smart)" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.5"))
-	} else if s := v.string(ctx); s != "true" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.5"))
+	} else if s := "&(.test.x do.smart)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "true"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if c, y := u.Value.(*closure); !y {
 		ctx.err("%v{%v}", typeof(u.Value), u.Value)
-	} else if c.x.String() != ".test.x" {
-		ctx.err("%v{%v}", typeof(c.x), c.x)
-	} else if s := c.string(ctx); s != "true" {
-		ctx.err("%v → %s", c, s)
+	} else if s := ".test.x"; c.x.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "true"; c.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.5", "xxx"); v == nil {
 		ctx.err("%v", ctx.def(".test.5"))
-	} else if v.String() != "&(.test.x do.smart)" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.5"))
-	} else if s := v.string(ctx); s != "true" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.5"))
+	} else if s := "&(.test.x do.smart)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "true"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if c, y := u.Value.(*closure); !y {
 		ctx.err("%v{%v}", typeof(u.Value), u.Value)
-	} else if c.x.String() != ".test.x" {
-		ctx.err("%v{%v}", typeof(c.x), c.x)
-	} else if s := c.string(ctx); s != "true" {
+	} else if s := ".test.x"; c.x.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(c.x), c.x) // → %s
+	} else if s := "true"; c.string(ctx) != s {
 		ctx.err("%v → %s", c, s)
 	}
 	if v := ctx.get(".test.5", "xxx", expandClosure); v == nil {
 		ctx.err("%v", ctx.def(".test.5"))
-	} else if v.String() != "true{}" { // do.smart
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.5"))
-	} else if s := v.string(ctx); s != "true" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.5"))
+	} else if s := "true{}"; v.String() != s { // do.smart
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "true"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if b, y := v.(*boolean); !y {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if !b.bool {
@@ -2068,10 +2189,14 @@ func testForeach(ctx *testcase) {
 
 	if v := ctx.get(".test.6", "x", "y", "z"); v == nil {
 		ctx.err("%v", ctx.def(".test.6"))
-	} else if v.String() != "$0 x y z $9 - $0 x y z $9" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.6"))
-	} else if v.string(ctx) != "x y z - x y z" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, v.string(ctx), ctx.def(".test.6"))
+	} else if s := "$0 x y z $9 - $0 x y z $9"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "x y z - x y z"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if u, y := v.(unexpanded); !y {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if l, y := u.Value.(*list); !y {
@@ -2082,10 +2207,14 @@ func testForeach(ctx *testcase) {
 
 	if v := ctx.get(".test.x", "do.smart"); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
-	} else if v.String() != "true{}" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.x"))
-	} else if s := v.string(ctx); s != "true" {
-		ctx.err("%v{%v} → %s ; %v", typeof(v), v, s, ctx.def(".test.x"))
+	} else if s := "true{}"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "true"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if b, y := v.(*boolean); !y {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if !b.bool {
@@ -2096,51 +2225,74 @@ func testForeach(ctx *testcase) {
 func testForeach1(ctx *testcase) {
 	if v := ctx.get(".test.4"); v == nil {
 		ctx.err(".test.4")
-	} else if v.String() != "&(.test.s) $(value .test~&(.test.s)) $(foreach $1 B b,$(value(-c) .test.$_) $(value(-c) .test~&(.test.s).$_))" {
-		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "foo test-foo test-B test-foo-B test-b test-foo-b" {
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if s := "&(.test.s) $(value .test~&(.test.s)) $(foreach $1 B b,$(value(-c) .test.$_) $(value(-c) .test~&(.test.s).$_))"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "foo test-foo test-B test-foo-B test-b test-foo-b"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.4", "a"); v == nil {
 		ctx.err(".test.4")
-	} else if v.String() != "&(.test.s) $(value .test~&(.test.s)) test-a $(value(-c) .test~&(.test.s).a) test-B $(value(-c) .test~&(.test.s).B) test-b $(value(-c) .test~&(.test.s).b)" {
-		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "foo test-foo test-a test-foo-a test-B test-foo-B test-b test-foo-b" {
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if s := "&(.test.s) $(value .test~&(.test.s)) test-a $(value(-c) .test~&(.test.s).a) test-B $(value(-c) .test~&(.test.s).B) test-b $(value(-c) .test~&(.test.s).b)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "foo test-foo test-a test-foo-a test-B test-foo-B test-b test-foo-b"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 }
 
 func testForeach2(ctx *testcase) {
 	if v := ctx.get(".test.1"); v == nil {
 		ctx.err(".test.1")
-	} else if v.String() != "$(foreach x$1 y$1 z$1 $(foreach xx$2 yy$2,a$_),b$_)" {
-		ctx.err("%v{%v} ; %v", typeof(v), v, ctx.def(".test.1"))
-	} else if s := v.string(ctx); s != "bx by bz baxx bayy" {
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if s := "$(foreach x$1 y$1 z$1 $(foreach xx$2 yy$2,a$_),b$_)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "bx by bz baxx bayy"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v.string(ctx))
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 
 	if v := ctx.get(".test.2"); v == nil {
 		ctx.err(".test.2")
-	} else if v.String() != "$(foreach x$1 y$1 z$1 $(foreach xx$2 yy$2,a$_),b$_) $(foreach &(.test.foreach.x) $(foreach $1 $2,$(value(-c) .test.foreach.x.$_)),-x$_)" {
-		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "bx by bz baxx bayy -xVW -x -x" { // FIXME: exclude "-x -x" (xEmpty)
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if s := "$(foreach x$1 y$1 z$1 $(foreach xx$2 yy$2,a$_),b$_) $(foreach &(.test.foreach.x) $(foreach $1 $2,$(value(-c) .test.foreach.x.$_)),-x$_)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v) // → %s
+	} else if s := "bx by bz baxx bayy -xVW"; v.string(ctx) != s {
+		noted(of(ctx,v), "%s", s)
+		noted(of(ctx,v), "%v", v.string(ctx))
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 
 	if v := ctx.get(".test.3"); v == nil {
 		ctx.err(".test.3")
-	} else if v.String() != "$(foreach x$1 y$1 z$1 axx4 ayy4,b$_) $(foreach &(.test.foreach.x) $(foreach $1 4,$(value(-c) .test.foreach.x.$_)),-x$_)" {
+	} else if s := "$(foreach x$1 y$1 z$1 axx4 ayy4,b$_) $(foreach &(.test.foreach.x) $(foreach $1 4,$(value(-c) .test.foreach.x.$_)),-x$_)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "bx by bz baxx4 bayy4 -xVW -xW" {
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if s := "bx by bz baxx4 bayy4 -xVW -xW"; v.string(ctx) != s {
+		noted(of(ctx,v), "%s", s)
+		noted(of(ctx,v), "%v", v.string(ctx))
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 
 	if v := ctx.get(".test.4"); v == nil {
 		ctx.err(".test.4")
-	} else if v.String() != "$(foreach $1 $2,$(.test.foreach.d.$_))" {
+	} else if s := "$(foreach $1 $2,$(.test.foreach.d.$_))"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "" {
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if v.string(ctx) != "" {
+		noted(of(ctx,v), "%v", v.string(ctx))
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 }
 
@@ -2527,8 +2679,10 @@ func testForeach4(ctx *testcase) {
 		ctx.err("%v", ctx.def(".test.2"))
 	} else if v.String() != "X&(.test.xa) X&(.test.xb)" {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "X~1~ x- x- ~1~x- ~1~x- X~2~ x- x- ~2~x- ~2~x- ~~~~ ~~~~" {
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if v.string(ctx) != `X~1~ X~2~` { // "X~1~ x- x- ~1~x- ~1~x- X~2~ x- x- ~2~x- ~2~x- ~~~~ ~~~~"
+		noted(of(ctx,v), "%s", `X~1~ X~2~`)
+		noted(of(ctx,v), "%v", v.string(ctx))
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if u, y := v.(unexpanded); y {
 		if l, y := u.Value.(*list); !y {
 			ctx.err("%v{%v}", typeof(u.Value), u.Value)
@@ -2544,8 +2698,10 @@ func testForeach4(ctx *testcase) {
 		ctx.err("%v", ctx.def(".test.3"))
 	} else if v.String() != "YX&(.test.xa) YX&(.test.xb)" {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "YX~1~ x- x- ~1~x- ~1~x- YX~2~ x- x- ~2~x- ~2~x- ~~~~ ~~~~" {
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if v.string(ctx) != `YX~1~ YX~2~` { // "YX~1~ x- x- ~1~x- ~1~x- YX~2~ x- x- ~2~x- ~2~x- ~~~~ ~~~~"
+		noted(of(ctx,v), "%s", `YX~1~ YX~2~`)
+		noted(of(ctx,v), "%v", v.string(ctx))
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if u, y := v.(unexpanded); y {
 		if l, y := u.Value.(*list); !y {
 			ctx.err("%v{%v}", typeof(u.Value), u.Value)
@@ -2562,15 +2718,19 @@ func testForeach4(ctx *testcase) {
 		ctx.err("%v", ctx.def(".test.x"))
 	} else if v.String() != "$(foreach $(foreach $1 $2,x$_),X$_) $(foreach $(foreach $1 $2,&(.test.x$_)),X$_)" {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "Xx Xx" { // X X
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if v.string(ctx) != "Xx Xx" { // X X
+		noted(of(ctx,v), "%s", `Xx Xx`)
+		noted(of(ctx,v), "%v", v.string(ctx))
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	}
 	if v := ctx.get(".test.x", "a", "b"); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
 	} else if v.String() != "Xxa Xxb X&(.test.xa) X&(.test.xb)" {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "Xxa Xxb X~1~ x- x- ~1~x- ~1~x- X~2~ x- x- ~2~x- ~2~x- ~~~~ ~~~~" {
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if v.string(ctx) != `Xxa Xxb X~1~ X~2~` { // "Xxa Xxb X~1~ x- x- ~1~x- ~1~x- X~2~ x- x- ~2~x- ~2~x- ~~~~ ~~~~"
+		noted(of(ctx,v), "%s", `Xxa Xxb X~1~ X~2~`)
+		noted(of(ctx,v), "%v", v.string(ctx))
+		ctx.err("%v{%v}", typeof(v), v) // → %s
 	} else if u, y := v.(unexpanded); y {
 		if l, y := u.Value.(*list); !y {
 			ctx.err("%v{%v}", typeof(u.Value), u.Value)
@@ -2587,37 +2747,41 @@ func testForeach4(ctx *testcase) {
 func testForeach5(ctx *testcase) {
 	if v := ctx.get(".test.x"); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
-	} else if v.String() != "$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))" {
+	} else if s := "$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "" {
-		ctx.err("%v{%v} → %s", typeof(v), v, s)
+	} else if v.string(ctx) != "" {
+		ctx.err("%v{%v} → %s", typeof(v), v, v.string(ctx))
 	}
 
 	if v := ctx.get(".test.x", "a", "b"); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
-	} else if v.String() != "&(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b)" {
+	} else if s := "&(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "a~ ~a x.o.a b~ ~b x.o.b" {
+	} else if s := "a~ ~a x.o.a b~ ~b x.o.b"; v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
 		ctx.err("%v{%v} → %s", typeof(v), v, s)
-		// } else if t := xa(ctx, v, "a", "b", expandDelegate); t == nil {
-		// 	ctx.err("%v{%v}", typeof(v), v)
-		// } else if t.String() != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -bo&(.test.x.o.a) -bo&(.test.x.o.b) ~b x.o.b" {
-		// 	ctx.err("%v{%v}", typeof(t), t) // &(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b)
-		// } else if s := t.string(ctx); s != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
-		// 	ctx.err("%v{%v} → %s", typeof(t), t, s)
 	} else if t := xa(ctx, v, "a", "b", expandClosure|expandDelegate); t == nil {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if t.String() != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
+	} else if s := "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b"; t.String() != s {
+		noted(of(ctx,t), "%v", s)
+		noted(of(ctx,t), "%v", t)
 		ctx.err("%v{%v}", typeof(t), t)
-	} else if s := t.string(ctx); s != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
-		ctx.err("%v{%v} → %s", typeof(t), t, s)
+	} else if t.string(ctx) != s {
+		noted(of(ctx,t), "%v", s)
+		noted(of(ctx,t), "%v", t)
+		ctx.err("%v{%v}", typeof(t), t) //  → %s
 	}
 
 	if v := ctx.get(".test.x", "a", "b", expandClosure); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
-	} else if v.String() != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
+	} else if s := "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b"; v.String() != s {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
+	} else if v.string(ctx) != s {
 		ctx.err("%v{%v} → %s", typeof(v), v, s)
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v{%v}", typeof(v), v)
@@ -2644,9 +2808,9 @@ func testForeach5(ctx *testcase) {
 	if true {} else
 	if v := ctx.get(".test.x", "a", "b", expandClosure); v == nil {
 		ctx.err("%v", ctx.def(".test.x"))
-	} else if v.String() != "a~ -ao$(.test.x.o.a) -ao$(.test.x.o.b) ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
+	} else if s := "a~ -ao$(.test.x.o.a) -ao$(.test.x.o.b) ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b"; v.String() != s {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "a~ -ao -ao ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b" {
+	} else if s := "a~ -ao -ao ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b"; v.string(ctx) != s {
 		ctx.err("%v{%v} → %s", typeof(v), v, s)
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v{%v}", typeof(v), v)
@@ -2692,9 +2856,9 @@ func testAddPrefix(ctx *testcase) {
 
 	if v := ctx.get("val2"); v == nil {
 		ctx.err("val2")
-	} else if v.String() != /* "$(addprefix -std=,foo bar foobar)" */"-std=foo -std=bar -std=foobar" {
+	} else if s := "-std=foo -std=bar -std=foobar"; v.String() != s {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != "-std=foo -std=bar -std=foobar" {
+	} else if v.string(ctx) != s {
 		ctx.err("%v{%v} → %s", typeof(v), v, s)
 	}
 }

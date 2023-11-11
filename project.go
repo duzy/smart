@@ -654,8 +654,8 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
     if d := t.Sub(t0); d > 1*time.Second {
       var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; d3 = t.Sub(t2) ; n int )
       var a = autoVal(ctx, "@")
-      for sc := ctx.sc(); sc != nil; n += 1 {
-        if c := sc.inner(); c != nil { sc = c.sc() } else { break }
+      for sc := cast[*stemmedContext](ctx); sc != nil; n += 1 {
+        if c := inner(sc); c != nil { sc = cast[*stemmedContext](c) } else { break }
       }
 
       var pos = ctx.Position()
@@ -704,9 +704,9 @@ ForPatterns:
     if full, r, stems := pat.target.match(ctx, s); full {
       var m = joinMatchRes(ctx, r)
 
-      if true { for sc := ctx.sc(); sc != nil; { // pattern loop detection
+      if true { for sc := cast[*stemmedContext](ctx); sc != nil; { // pattern loop detection
         if s := sc.stem.target.string(ctx); s == m { continue ForPatterns }
-        if c := sc.inner(); c != nil { sc = c.sc() } else { break }
+        if c := inner(sc); c != nil { sc = cast[*stemmedContext](c) } else { break }
       }}
 
       if pa := pat.arged; len(pa) > 0 {

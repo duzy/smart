@@ -16,6 +16,7 @@ import (
   "os/exec"
   "path/filepath"
   "regexp"
+  "reflect"
   "strconv"
   "strings"
   "sync"
@@ -246,7 +247,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
 
         testCheckExecOutput(ctx, string(line), l)
 
-        if false && ctx.dia().error() {
+        if false && _diaContext(ctx).error() {
           noted(p.execContext, "%s", line).debug(1)
         }
       }
@@ -403,7 +404,8 @@ func (p *ExecBuffer) scan(pos Position, m *knownMatch) {
         erro(at(ctx,lpos), "%s", v[0].string)
         erro(at(ctx,lpos), "%s", obj)
         if !isNull(obj) {
-          if val := obj.expand(ctx.closure().pc(), plain); !isNull(val) {
+          pc := cast[*programContext](cast[*closurecontext](ctx))
+          if val := obj.expand(pc, plain); !isNull(val) {
             erro(at(ctx,lpos), "%s -> %v", obj.name(ctx), val)
           }
         }
@@ -566,6 +568,7 @@ type execContext struct {
   scannedDiags []*scannedExecDiag
 }
 
+func (p *execContext) cast(t reflect.Type) Context { return implCast(p,t) }
 func (p *execContext) String() string { return p.Context.String() }
 func (p *execContext) Position() Position {
   if p.current < 0 { return p.program().position }
@@ -576,7 +579,7 @@ func (p *execContext) onFirstWrote() {
     // if false { promptEnteringDirectory(p.Context) }
 
     // Call diagFlush to ensure promptEnteringDirectory works immediately
-    if errs := p.Context.dia().flush(); errs > 0 {
+    if errs := _diaContext(p.Context).flush(); errs > 0 {
       warn(p.Context, "exec: encountered %d errors", errs).debug(1)
     }
   }
@@ -708,7 +711,7 @@ func (p *execContext) run() (err error) {
     return
   }
 
-  var pc = p.Context.pc()
+  var pc = cast[*programContext](p.Context)
 
   pc.Add(1)
   p.num += 1
@@ -816,12 +819,12 @@ func (p *execContext) check() (err error) {
 }
 
 func (ctx *execContext) exec(cmd, opt string, err error) {
-  if ctx.dia().error() { return }
+  if _diaContext(ctx).error() { return }
 
   defer dtrace(ctx, "exec")
 
   var (
-    pc = ctx.pc()
+    pc = cast[*programContext](ctx)
     env, sep = pc.env(ctx)
     envstr string
     logFile *os.File
@@ -1039,7 +1042,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   case "all"   , "both": exe.tieStdout, exe.tieStderr = true, true
   }
 
-  var pc = ctx.pc()
+  var pc = cast[*programContext](ctx)
   var program = pc.program()
   if exe.target.Value = getTargetValue(ctx); program == nil {
     erro(ctx, "needs program context to exec: %v", ctx).debug(16)

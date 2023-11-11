@@ -48,7 +48,7 @@ type configureExecutor struct {
     defs map[string]struct{}
     done map[*def]struct{}
 }
-func (ctx *configureExecutor) cast(t reflect.Type) Context { return castImpl(ctx, t) }
+func (ctx *configureExecutor) cast(t reflect.Type) Context { return implCast(ctx, t) }
 func (ctx *configureExecutor) openConfigurationFile(p *Project) (file *os.File) {
     defer dtrace(ctx, "configuration-file")
 
@@ -324,7 +324,6 @@ func scanExitStatus(err error) (n, status int) {
 
 type configureContext struct { Context }
 func (cc *configureContext) String() string { return fmt.Sprintf("configure{%s}", cc.Context) }
-func (cc *configureContext) inner() Context { return cc.Context }
 func (cc *configureContext) isConfigure() bool { return true }
 
 type commonConfigureOpts struct {
@@ -421,7 +420,7 @@ ForInParams:
 
         reses, traves = entry.execute(ctx, params...)
 
-        if ctx.dia().error() { return }
+        if _diaContext(ctx).error() { return }
         if traves = traves.not(traveDone, traveRule, traveFile); traves.has() {
             for i, s := range traves { erro(ctx, "%v: %d. %v", entry, i, s) }
             erro(ctx, "%v: %d trave states", entry, len(traves)).debug(16)
@@ -505,7 +504,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
         if s != "" { prompt(ctx, "%s …", s) }
     }
 
-    var dia = ctx.dia()
+    var dia = _diaContext(ctx)
     if dia.error() { return }
 
     defer func() {
@@ -745,7 +744,7 @@ type (
 func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData configureConvertFunc, opts *configureConvertOpts, args ...Value) (result Value) {
     var (
         project = ctx.Project()
-        pc = ctx.pc()
+        pc = cast[*programContext](ctx)
         closured = closureProjects(ctx)
         filename string
         file *File
@@ -852,7 +851,7 @@ func configureConvert(ctx Context, dealArgs configureConvertArgs, dealData confi
             return
         } else if same {
             var tt = file.info.ModTime()
-            for _, d := range merge(ctx.pc().targets...) {
+            for _, d := range merge(cast[*programContext](ctx).targets...) {
                 if f, ok := toFile(d); !ok { continue } else
                 if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
             }

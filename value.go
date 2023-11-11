@@ -402,7 +402,6 @@ func (cc *closurecontext) String() string {
         return cc.Context.String()
     }
 }
-func (cc *closurecontext) Project() (proj *Project) { return cc.Scope().project }
 func (cc *closurecontext) Scope() (scope *Scope) {
     if len(cc.scopes) > 0 {
         scope = cc.scopes[0]
@@ -411,13 +410,13 @@ func (cc *closurecontext) Scope() (scope *Scope) {
     }
     return
 }
-func (cc *closurecontext) inner() Context { return cc.Context }
-func (cc *closurecontext) closure() *closurecontext { return cc }
-func (cc *closurecontext) closureScopes() []*Scope {
-    return append(cc.scopes, cc.Context.closureScopes()...)
+func (cc *closurecontext) Project() (proj *Project) { return cc.Scope().project }
+func (cc *closurecontext) cast(t reflect.Type) Context { return implCast(cc,t) }
+func (cc *closurecontext) closure() []*Scope {
+    return append(cc.scopes, cc.Context.closure()...)
 }
 func (cc *closurecontext) forScopes(work func(*Scope) bool) (scopes []*Scope) {
-    if scopes = cc.closureScopes(); work != nil {
+    if scopes = cc.closure(); work != nil {
         for _, scope := range scopes {
             if scope != nil && work(scope) { break }
         }
@@ -427,7 +426,7 @@ func (cc *closurecontext) forScopes(work func(*Scope) bool) (scopes []*Scope) {
 
 func closureProjects(ctx Context) (projects []*Project) {
 ForScopes:
-    for _, scope := range ctx.closureScopes() {
+    for _, scope := range ctx.closure() {
         if proj := scope.project; proj != nil {
             for _, project := range projects {
                 if project == proj || project.hasBase(proj) {
@@ -441,7 +440,7 @@ ForScopes:
 }
 
 func closureGet(ctx Context, name string) (res *def) {
-    for _, scope := range ctx.closureScopes() {
+    for _, scope := range ctx.closure() {
         if scope.project == nil {
             if _, obj := scope.find(name); obj == nil {
                 continue
@@ -470,7 +469,7 @@ func closureGet(ctx Context, name string) (res *def) {
 }
 
 func closureSet(ctx Context, name string, val Value) (prev Value, okay bool) {
-    for _, scope := range ctx.closureScopes() {
+    for _, scope := range ctx.closure() {
         if def := scope.FindDef(name); def != nil {
             prev = def.value
             def.val(ctx, val)
@@ -505,7 +504,7 @@ func closureResolveObject(ctx Context, name string) (obj Object) {
         warn(ctx, "%s: %T, %v", scope.project, obj, obj)
         warn(ctx, "%s: %T, %v", scope.project, val, val).debug(24)
     } () }
-    for _, scope = range ctx.closureScopes() {
+    for _, scope = range ctx.closure() {
         var ctx Context = at(ctx, scope.position)
         if infos { warn(ctx, "%s", scope).debug(1) }
         if scope.project == nil || scope != scope.project.scope {
@@ -515,8 +514,9 @@ func closureResolveObject(ctx Context, name string) (obj Object) {
                 if d := autoDef(ctx, a.name(ctx)); d != nil { obj = d }
                 if infos {
                     var proj = a.OwnerProject()
-                    val := obj.expand(ctx.closure(), plain)
-                    va2 := autoVal(ctx.closure(), name)
+                    var cc = cast[*closurecontext](ctx)
+                    val := obj.expand(cc, plain)
+                    va2 := autoVal(cc, name)
                     ob1 := autoDef(ctx, name)
                     warn(ctx, "%v: %v", proj, a.name)
                     warn(ctx, "%v: obj = %T %v", proj, obj, obj)
@@ -535,18 +535,18 @@ func closureResolveObject(ctx Context, name string) (obj Object) {
         if scope.project != nil {
             obj = scope.project.resolve(ctx, name)
         }
-        if isNull(obj) && false { obj = closureResolveObject(ctx.inner(), name) }
+        if isNull(obj) && false { obj = closureResolveObject(inner(ctx), name) }
         if!isNull(obj) { if infos { warn(ctx, "%v", obj).debug(1) }; break }
     }
     return
 }
 
 func closureResolveEntry(ctx Context, name string) (entries *resolvedEntries) {
-    for _, scope := range ctx.closureScopes() {
+    for _, scope := range ctx.closure() {
         if project := scope.project; project != nil {
             entries = project.resolveEntries(ctx, name, /*true*/false)
             if entries == nil && false {
-                entries = closureResolveEntry(ctx.inner(), name)
+                entries = closureResolveEntry(inner(ctx), name)
             }
         }
         if entries != nil { break }
@@ -699,7 +699,7 @@ type waitOpts struct {
 }
 func wait(ctx Context, opts waitOpts) (target Value, files []*File, execRes *execResult, err error) {
     var calleeErrs []error
-    var pc = ctx.pc()
+    var pc = cast[*programContext](ctx)
     if pc != nil {
         // wait for all jobs done
         if false { pc.WaitGroup.Wait() } // FIXME: deadlock
@@ -4452,7 +4452,7 @@ func (p *File) isSysFile() (res bool) {
 func (p *File) traverse(ctx Context) {
     if !p.isSysFile() && p._traved == 0 {
         ctx.traverse(ctx, p)
-    } else if pc := ctx.pc(); pc != nil {
+    } else if pc := cast[*programContext](ctx); pc != nil {
         pc.deferTrave(ctx, getTargetValue(ctx), p, nil, p)
     }
 }
@@ -4872,7 +4872,7 @@ func (p *list) expand(ctx Context, w facet) (res Value) {
     return
 }
 func (p *list) traverse(ctx Context) {
-    var pc = ctx.pc()
+    var pc = cast[*programContext](ctx)
     for _, elem := range p.Elems {
         elem.traverse(ctx)
 
@@ -5285,8 +5285,7 @@ func (u unexpanded) cmp(ctx Context, v Value) (res cmpres) {
 // }
 
 type refContext struct { Context ; v Value }
-func (rc *refContext) inner() Context { return rc.Context }
-func (rc *refContext) rc() *refContext { return rc }
+func (rc *refContext) cast(t reflect.Type) Context { return implCast(rc,t) }
 func (rc *refContext) ref(ctx Context, v Value) bool {
     if rc.v == v || rc.v.refs(ctx, v) { return true }
     return rc.Context.ref(ctx, v)
@@ -5496,12 +5495,9 @@ func (p *delegate) expandable(ctx Context, w facet) (res bool) {
     return
 }
 func (p *delegate) expand(ctx Context, w facet) (res Value) {
-    db, remake, unexp := false, false, true
+    var db, remake, unexp = false, false, true
 
-    defer func() { if res != nil && res != p { if s := res.String(); strings.HasSuffix(s, ">PIC") {
-        noted(ctx, "%v: %v{%v}", p, typeof(res), res).debug(1)
-    }}} ()
-    if true { if w&expandDebug != 0 || (cast[*universe](ctx).db("delegate.expand") && p.String() == "$(if &(.test.$_),std=&(.test.$_))") { defer func() {
+    if false { if w&expandDebug != 0 || (cast[*universe](ctx).db("delegate.expand") && p.String() == "$(if &(.test.$_),std=&(.test.$_))") { defer func() {
         var s string
         if a, y := p.x.(*auto); !y {
             s = sf("a=%v", p.a)
@@ -5735,8 +5731,10 @@ func (p *closure) resolve(ctx Context, x Value) (res Value) {
     return
 }
 func (p *closure) expand(ctx Context, w facet) (res Value) {
-    if false { if w&expandDebug != 0 || (cast[*universe](ctx).db("closure.expand") && p.String() == "&(.test.$_)") { defer func() {
-        if true { var a []Value ; if ic := ctx.ic(); ic != nil { a = ic.a }; w.noted(ctx, p, p.a, a) }
+    if false { if w&expandDebug != 0 || (_universe(ctx).db("closure.expand") && p.String() == "&(.test.$_)") { defer func() {
+        var a []Value
+        if ic := _evocation(ctx); ic != nil { a = ic.a }
+        w.noted(ctx, p, p.a, a)
         noted(ctx, "%v: %v %v ⇒ %v %v", p, typeof(p.x), p, typeof(res), res).debug(32)
     }()}}
 
@@ -7207,22 +7205,23 @@ func ParseURL(pos Position, s string) *URL {
     }
 }
 
-type invocation struct {
+func _evocation(c Context) *evocation { return cast[*evocation](c) }
+
+type evocation struct {
     Context
     int32 // expand N
     o, a []Value
     v Value
     x bool
 }
-func (p *invocation) ic() *invocation { return p }
-func (p *invocation) inner() Context { return p.Context }
-func (p *invocation) caller() Context { return p.Context.ic() }
-func (p *invocation) in(v Value) (res bool) {
-    for ; p != nil; p = p.Context.ic() { if p.v == v { return true } }
+func (p *evocation) cast(t reflect.Type) Context { return implCast(p,t) }
+func (p *evocation) caller() Context { return _evocation(p.Context) }
+func (p *evocation) in(v Value) (res bool) {
+    for ; p != nil; p = _evocation(p.Context) { if p.v == v { return true }}
     return
 }
-func (p *invocation) ind(v Value) (n int) {
-    for t := 1; p != nil; p, t = p.Context.ic(), t+1 {
+func (p *evocation) ind(v Value) (n int) {
+    for t := 1; p != nil; p, t = _evocation(p.Context), t+1 {
         if p.v == v { return t }
     }
     return
@@ -7237,7 +7236,7 @@ var evokeTraceDots string
 
 func evoke(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _ bool) {
     if d, y := v.(*delegate); y {
-        errostack(ctx, 3, "illicit invocation: %v (%v, %v)", d, o, a).debug(16)
+        errostack(ctx, 3, "illicit evoke: %v (%v, %v)", d, o, a).debug(16)
         return
     }
 
@@ -7255,24 +7254,24 @@ func evoke(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
 
     const erroAutoDef = false
 
-    for ic, n := ctx.ic(), 1; ic != nil; ic = ic.Context.ic() {
+    for ic, n := _evocation(ctx), 1; ic != nil; ic = _evocation(ic.Context) {
         var d *diagPoint
         if n += 1; n > max_evoke {
-            d = errostack(of(ctx,v), 10, "invocation exceeds limitation (%d): %v", n, v).debug(100)
+            d = errostack(of(ctx,v), 10, "evocation exceeds limitation (%d): %v", n, v).debug(100)
         } else if u, y := v.(unexpanded); y && ic.v == v {
             switch u.Value.(type) { case *auto, *def: return v, nil, false }
-            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v(%v)", n, typeof(u.Value), u.Value).debug(100)
+            d = errostack(of(ctx,v), 10, "evocation loop detected (%d): %v(%v)", n, typeof(u.Value), u.Value).debug(100)
         } else if _, y = v.(*builtin); !y && ic.v == v {
-            d = errostack(of(ctx,v), 10, "invocation loop detected (%d): %v(%v)", n, typeof(v), v).debug(100)
+            d = errostack(of(ctx,v), 10, "evocation loop detected (%d): %v(%v)", n, typeof(v), v).debug(100)
         } else if ic.v == v {
             switch v.(type) { case *auto, *def: return unexpanded{v}, nil, false }
         }
-        if d != nil { panic(failure{"unsafe invocation: %v",ia(v.Position(), v)}) }
+        if d != nil { panic(failure{"unsafe evocation: %v",ia(v.Position(), v)}) }
     }
 
     // NOTE: the ic.a represents the arguments, which is a COPY of the original slice;
     // NOTE: making a COPY for the arguments FIXES the bug of delegate-altered-args mistake
-    ic := &invocation{Context:ctx, v:v, o:o}
+    ic := &evocation{Context:ctx, v:v, o:o}
     if true {
         ic.a = append(ic.a, a...) // make a copy
     } else {
@@ -7287,22 +7286,13 @@ func evoke(ctx Context, v Value, w facet, o, a []Value) (res Value, _ []Value, _
     return res, ic.a, ic.x
 }
 
+type invocation evocation
 func invoke(ctx Context, v Value, w facet, o, a []Value) (res Value) {
     res, _, _ = evoke(ctx, v, w, o, a)
     return
 }
 
-func xauto(ctx Context, v Value, w facet, a ...Value) (res Value) {
-    if len(a)>0 {
-        ac := &autoContext{ Context:ctx, defs:make(autoDefMap) }
-        ac.args(ctx, nil, a)
-        w = w|expandAuto|expandDigits
-        ctx = ac
-    }
-    return v.expand(ctx, w)
-}
-
-func iwa(ctx Context, ii ...interface{}) (w facet, a []Value) {
+func wa(ctx Context, ii ...interface{}) (w facet, a []Value) {
     for _, i := range ii {
         if t, y := i.(facet); y {
             w |= t
@@ -7314,16 +7304,19 @@ func iwa(ctx Context, ii ...interface{}) (w facet, a []Value) {
 }
 
 func xa(ctx Context, v Value, ii ...interface{}) (res Value) {
-    var w, a = iwa(ctx, ii...)
-    return xauto(ctx, v, w, a...)
+    var w, a = wa(ctx, ii...)
+    ac := autoContext{ Context:ctx, defs:make(autoDefMap) }
+    ac.args(ctx, nil, a)
+    return v.expand(&ac, w/*|expandAuto|expandDigits*/)
 }
 
-func inv(ctx Context, v Value, ii ...interface{}) (res Value) { w, a := iwa(ctx, ii...)
+func inv(ctx Context, v Value, ii ...interface{}) (res Value) {
+    var w, a = wa(ctx, ii...)
     return invoke(ctx, v, w, nil, a)
 }
 
 func call(ctx Context, name string, w facet, o []Value, a ...Value) (res Value) {
-    if v := cast[*universe](ctx).scope.Lookup(name); v != nil {
+    if v := _universe(ctx).scope.Lookup(name); v != nil {
         if t := invoke(ctx, v, w, o, a); t != v { res = t }
     }
     return

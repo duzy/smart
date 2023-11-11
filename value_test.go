@@ -19,7 +19,7 @@ func testAutoContext(ctx *testcase) {
 	{
 		ac := autoContext{ Context:ctx, defs:make(autoDefMap) }
 		ac.args(ctx, nil, []Value{ease(ctx, []string{"a", "b", "c"})})
-		if Context(&ac).ac() != &ac {
+		if _autoContext(&ac) != &ac {
 			ctx.err("%v", Context(&ac))
 		} else if len(ac.defs) != 1 { // maxDigitAutoNum
 			ctx.err("%v", ac.defs)

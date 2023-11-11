@@ -40,10 +40,10 @@ type builtin_ struct {
     Context
     generalOpts
 }
-type builtin_a interface{ a(*invocation,facet) bool }
-type builtin_c interface{ c(*invocation,facet) interface{} }
-type builtin_x interface{ x(*invocation,facet) interface{} }
-type builtin_1 interface{ x(*invocation) interface{} }
+type builtin_a interface{ a(*evocation,facet) bool }
+type builtin_c interface{ c(*evocation,facet) interface{} }
+type builtin_x interface{ x(*evocation,facet) interface{} }
+type builtin_1 interface{ x(*evocation) interface{} }
 type builtin_0 interface{ x() interface{} }
 type builtin_m interface{ m() uint }
 
@@ -532,8 +532,8 @@ func _parseHeadArgsRequired(ctx Context, store interface{}, w facet, args ...Val
 }
 
 type builtin_noop struct { builtin_ }
-func (ctx *builtin_noop) c(ic *invocation, w facet) (res interface{}) { return }
-func (ctx *builtin_noop) x(ic *invocation, w facet) (res interface{}) { return }
+func (ctx *builtin_noop) c(ic *evocation, w facet) (res interface{}) { return }
+func (ctx *builtin_noop) x(ic *evocation, w facet) (res interface{}) { return }
 
 func typeof(arg interface{}) (s string) {
     switch a := arg.(type) {
@@ -570,8 +570,8 @@ func typeof(arg interface{}) (s string) {
 type builtin_typeof struct { builtin_
     expand bool `x,e,ex,exp,expand`
 }
-func (ctx *builtin_typeof) a(ic *invocation, w facet) (skip bool) { return }
-func (ctx *builtin_typeof) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_typeof) a(ic *evocation, w facet) (skip bool) { return }
+func (ctx *builtin_typeof) x(ic *evocation, w facet) (res interface{}) {
     var elems []Value
     for _, arg := range ic.a {
         if ctx.expand { arg = arg.expand(ctx, w) }
@@ -585,7 +585,7 @@ func (ctx *builtin_typeof) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_origin struct { builtin_ }
-func (ctx *builtin_origin) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_origin) x(ic *evocation, w facet) (res interface{}) {
     var elems []Value
     var scope = ctx.Scope()
     for _, arg := range ic.a { if s := arg.string(ctx); s == "" {
@@ -599,7 +599,7 @@ func (ctx *builtin_origin) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_defined struct { builtin_ }
-func (ctx *builtin_defined) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_defined) x(ic *evocation, w facet) (res interface{}) {
     var elems []Value
     for _, arg := range ic.a {
         var _, unresolved = arg.(unresolved)
@@ -609,7 +609,7 @@ func (ctx *builtin_defined) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_pushcontext struct { builtin_ }
-func (ctx *builtin_pushcontext) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_pushcontext) c(ic *evocation, w facet) (res interface{}) {
     var (
         scope = ctx.Scope()
         uc = cast[*universe](ctx)
@@ -633,7 +633,7 @@ func (ctx *builtin_pushcontext) c(ic *invocation, w facet) (res interface{}) {
 type builtin_popcontext struct { builtin_
     rules []Value `r,rule,rules`
 }
-func (ctx *builtin_popcontext) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_popcontext) c(ic *evocation, w facet) (res interface{}) {
     for _, arg := range ic.a {
         warn(ctx, "unused argument: %T %v", arg, arg).debug(1)
         break
@@ -669,7 +669,7 @@ type builtin_position struct { builtin_
     addLine int `a,add;al,add-line`
     addColumn int `ac,add-column`
 }
-func (ctx *builtin_position) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_position) x(ic *evocation, w facet) (res interface{}) {
     var vals []Value
     var pos = ctx.Position()
     if ctx.filename {
@@ -690,7 +690,7 @@ func (ctx *builtin_position) x(ic *invocation, w facet) (res interface{}) {
 type builtin_date struct { builtin_
     time bool `t,tm,time,n,now`
 }
-func (ctx *builtin_date) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_date) x(ic *evocation, w facet) (res interface{}) {
     if t := time.Now(); len(ic.a) > 0 {
         var vals []Value
         for _, a := range ic.a {
@@ -715,7 +715,7 @@ type builtin_debug struct { builtin_
     s int `s,stack`
     n int `n,num`
 }
-func (ctx *builtin_debug) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_debug) x(ic *evocation, w facet) (res interface{}) {
     var s bytes.Buffer
     for i, a := range ic.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
@@ -726,7 +726,7 @@ func (ctx *builtin_debug) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_error struct { builtin_ }
-func (ctx *builtin_error) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_error) x(ic *evocation, w facet) (res interface{}) {
     defer dtrace(ctx, "builtin_error")
 
     var s bytes.Buffer
@@ -740,7 +740,7 @@ func (ctx *builtin_error) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_warning struct { builtin_ }
-func (ctx *builtin_warning) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_warning) x(ic *evocation, w facet) (res interface{}) {
     var s bytes.Buffer
     for i, a := range ic.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
@@ -753,9 +753,9 @@ func (ctx *builtin_warning) x(ic *invocation, w facet) (res interface{}) {
 type builtin_assert struct { builtin_
     msg string `m,msg,message`
 }
-func (ctx *builtin_assert) a(ic *invocation, w facet) (skip bool) { return }
-func (ctx *builtin_assert) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
-func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_assert) a(ic *evocation, w facet) (skip bool) { return }
+func (ctx *builtin_assert) c(ic *evocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_assert) x(ic *evocation, w facet) (res interface{}) {
     defer dtrace(ctx, "builtin_assert")
 
     var d = ctx.debug ; if d < 1 { d = 1 }
@@ -788,7 +788,7 @@ func (ctx *builtin_assert) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_sure struct { builtin_ }
-func (ctx *builtin_sure) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_sure) x(ic *evocation, w facet) (res interface{}) {
     defer dtrace(ctx, "builtin_sure")
 
     for _, a := range ic.a { if !a.true(ctx) {
@@ -799,7 +799,7 @@ func (ctx *builtin_sure) x(ic *invocation, w facet) (res interface{}) {
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
 type builtin_defor struct { builtin_ } // aka. defined-or
-func (ctx *builtin_defor) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_defor) x(ic *evocation, w facet) (res interface{}) {
     for _, a := range umerge(true, ic.a...) { if _, y := a.(unresolved); y {
         continue
     } else {
@@ -810,7 +810,7 @@ func (ctx *builtin_defor) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_or struct { builtin_ }
-func (ctx *builtin_or) _a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_or) _a(ic *evocation, w facet) (skip bool) {
     for i, a := range ic.a {
         if false && !ctx.forth {
             if _, y := a.(unexpanded); y { skip = true }
@@ -822,7 +822,7 @@ func (ctx *builtin_or) _a(ic *invocation, w facet) (skip bool) {
     }
     return
 }
-func (ctx *builtin_or) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_or) x(ic *evocation, w facet) (res interface{}) {
     for _, a := range umerge(true, ic.a...) {
         if a.expandable(ctx, w) { a = a.expand(ctx, w) }
         if !ctx.forth { if u, y := a.(unexpanded); y {
@@ -837,7 +837,7 @@ func (ctx *builtin_or) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_and struct { builtin_ }
-func (ctx *builtin_and) _a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_and) _a(ic *evocation, w facet) (skip bool) {
     for i, a := range ic.a {
         if false && !ctx.forth {
             if _, y := a.(unexpanded); y { skip = true }
@@ -846,7 +846,7 @@ func (ctx *builtin_and) _a(ic *invocation, w facet) (skip bool) {
     }
     return
 }
-func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_and) x(ic *evocation, w facet) (res interface{}) {
     for _, a := range umerge(true, ic.a...) {
         if false && !ctx.forth {
             if _, y := a.(unexpanded); y { return skip{} }
@@ -859,7 +859,7 @@ func (ctx *builtin_and) x(ic *invocation, w facet) (res interface{}) {
 // $(not x y z) ⇒ (not (or x y z))
 // $(not x,y,z) ⇒ (and (not x) (not y) (not z))
 type builtin_not struct { builtin_ }
-func (ctx *builtin_not) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_not) x(ic *evocation, w facet) (res interface{}) {
     var t bool
     for _, a := range ic.a { if t = a.true(ctx); t { break } }
     if n := ctx.debug; n>0 { warnstack(ctx, 3).debug(n) }
@@ -867,7 +867,7 @@ func (ctx *builtin_not) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_xor struct { builtin_ }
-func (ctx *builtin_xor) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_xor) x(ic *evocation, w facet) (res interface{}) {
     if vals := umerge(true, ic.a...); len(vals) > 1 {
         var t = vals[0].true(ctx)
         for _, a := range vals[1:] { if a.true(ctx) != t {
@@ -880,7 +880,7 @@ func (ctx *builtin_xor) x(ic *invocation, w facet) (res interface{}) {
 type builtin_unequal struct { builtin_
     strval bool `s,sv,strval`
 }
-func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_unequal) x(ic *evocation, w facet) (res interface{}) {
     if ctx.trace { dtrace(ctx, "unequal") }
 
     if len(ic.a) != 2 {
@@ -927,7 +927,7 @@ func (ctx *builtin_unequal) x(ic *invocation, w facet) (res interface{}) {
 type builtin_equal struct { builtin_
     strval bool `s,sv,strval`
 }
-func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_equal) x(ic *evocation, w facet) (res interface{}) {
     if ctx.trace { dtrace(ctx, "equal") }
 
     if len(ic.a) > 0 {
@@ -978,7 +978,7 @@ func (ctx *builtin_equal) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_greater struct { builtin_ }
-func (ctx *builtin_greater) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_greater) x(ic *evocation, w facet) (res interface{}) {
     if n := len(ic.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
     } else if cmp := ic.a[0].cmp(ctx, ic.a[1]); cmp == cmpGreater {
@@ -988,7 +988,7 @@ func (ctx *builtin_greater) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_less struct { builtin_ }
-func (ctx *builtin_less) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_less) x(ic *evocation, w facet) (res interface{}) {
     if n := len(ic.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
     } else if cmp := ic.a[0].cmp(ctx, ic.a[1]); cmp == cmpSmaller {
@@ -1004,7 +1004,7 @@ type builtin_match struct { builtin_
     negated bool `n,ne,neg,negated,negative,not`
     all bool `a,all`
 }
-func (ctx *builtin_match) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_match) x(ic *evocation, w facet) (res interface{}) {
     var patList, valList []Value
     if n := len(ic.a); n < 1 {
         erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").debug(1)
@@ -1068,8 +1068,8 @@ ForValList:
 // 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
 // 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
 type builtin_case struct { builtin_ }
-func (ctx *builtin_case) a(ic *invocation, w facet) (skip bool) { return }
-func (ctx *builtin_case) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_case) a(ic *evocation, w facet) (skip bool) { return }
+func (ctx *builtin_case) x(ic *evocation, w facet) (res interface{}) {
     var val Value
     var args = umerge(true, ic.a...)
     if len(args) == 0 { return } else
@@ -1118,7 +1118,7 @@ func (ctx *builtin_case) x(ic *invocation, w facet) (res interface{}) {
 type builtin_if struct { builtin_
     def bool `de,def,defined`
 }
-func (ctx *builtin_if) a(ic *invocation, w facet) (skip bool) { // NOTE: optional
+func (ctx *builtin_if) a(ic *evocation, w facet) (skip bool) { // NOTE: optional
     if w&expandTraverse != 0 { ctx.def = true }
     for i, v := range ic.a {
         v = v.expand(ctx, w)
@@ -1131,7 +1131,7 @@ func (ctx *builtin_if) a(ic *invocation, w facet) (skip bool) { // NOTE: optiona
     }
     return
 }
-func (ctx *builtin_if) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_if) x(ic *evocation, w facet) (res interface{}) {
     if w&expandTraverse != 0 { ctx.def = true }
     if n := len(ic.a); n > 1 {
         var t = ic.a[0]//.expand(ctx, strval)
@@ -1152,7 +1152,7 @@ func (ctx *builtin_if) x(ic *invocation, w facet) (res interface{}) {
 type builtin_ifeq struct { builtin_
     strval bool `s,sv,str,strval`
 }
-func (ctx *builtin_ifeq) a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_ifeq) a(ic *evocation, w facet) (skip bool) {
     for i, v := range ic.a { v = v.expand(ctx, w)
         if i < 2 && !skip && w&expandTraverse == 0 {
             _, skip = v.(unexpanded)
@@ -1161,7 +1161,7 @@ func (ctx *builtin_ifeq) a(ic *invocation, w facet) (skip bool) {
     }
     return
 }
-func (ctx *builtin_ifeq) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_ifeq) x(ic *evocation, w facet) (res interface{}) {
     if n := len(ic.a); n > 2 {
         var (
             a = ic.a[0]//.expand(ctx, plain)
@@ -1190,7 +1190,7 @@ func (ctx *builtin_ifeq) x(ic *invocation, w facet) (res interface{}) {
 type builtin_ifne struct { builtin_
     strval bool `s,sv,str,strval`
 }
-func (ctx *builtin_ifne) a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_ifne) a(ic *evocation, w facet) (skip bool) {
     for i, v := range ic.a { v = v.expand(ctx, w)
         if i < 2 && !skip && w&expandTraverse == 0 {
             _, skip = v.(unexpanded)
@@ -1199,7 +1199,7 @@ func (ctx *builtin_ifne) a(ic *invocation, w facet) (skip bool) {
     }
     return
 }
-func (ctx *builtin_ifne) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_ifne) x(ic *evocation, w facet) (res interface{}) {
     if n := len(ic.a); n > 2 {
         var (
             a = ic.a[0]//.expand(ctx, plain)
@@ -1229,7 +1229,7 @@ func (ctx *builtin_ifne) x(ic *invocation, w facet) (res interface{}) {
 type builtin_for struct { builtin_
     empty bool `empty,allow-empty`
 }
-func (ctx *builtin_for) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_for) x(ic *evocation, w facet) (res interface{}) {
     erro(ctx, "TODO: $(for): %v", ic.a).debug(1)
     return
 }
@@ -1248,7 +1248,7 @@ func (ctx *builtin_foreach) String() string {
         return ctx.Context.String()
     }
 }
-func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_foreach) a(ic *evocation, w facet) (skip bool) {
     if n := len(ic.a); n < 2 {
         errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, ic.a).debug(32)
         return true
@@ -1264,7 +1264,7 @@ func (ctx *builtin_foreach) a(ic *invocation, w facet) (skip bool) {
     return
 }
 var builtin_foreach_d bool
-func (ctx *builtin_foreach) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_foreach) x(ic *evocation, w facet) (res interface{}) {
     var values []Value
     if ctx.x_values {
         values = xmerge(ctx, w, ic.a[0])
@@ -1335,7 +1335,7 @@ type builtin_count struct { builtin_
     // incs []string `add,inc,increase`
     // num int64 `n,num`
 }
-func (ctx *builtin_count) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_count) x(ic *evocation, w facet) (res interface{}) {
     var num int64
     var vals = valvec(ctx.vals)
     for _, a := range ic.a { if a.true(ctx) || vals.has2(ctx, a) {
@@ -1345,7 +1345,7 @@ func (ctx *builtin_count) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_env struct { builtin_ }
-func (ctx *builtin_env) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_env) x(ic *evocation, w facet) (res interface{}) {
     var vals []Value
     for _, a := range ic.a { if val := a.expand(ctx, expandDelegate); isTrivial(val) {
         continue
@@ -1356,7 +1356,7 @@ func (ctx *builtin_env) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_auto struct { builtin_ }
-func (ctx *builtin_auto) a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_auto) a(ic *evocation, w facet) (skip bool) {
     if n := len(ic.a); n < 2 {
         errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, ic.a).debug(32)
         return true
@@ -1365,7 +1365,7 @@ func (ctx *builtin_auto) a(ic *invocation, w facet) (skip bool) {
     ic.a[0] = ic.a[0].expand(ctx, w)
     return
 }
-func (ctx *builtin_auto) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_auto) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) == 0 { return }
 
     var ac = &autoContext{ Context:ctx, defs:make(autoDefMap) }
@@ -1381,11 +1381,11 @@ func (ctx *builtin_auto) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_var struct { builtin_ }
-func (ctx *builtin_var) a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_var) a(ic *evocation, w facet) (skip bool) {
     noted(ctx, "%030b %v", w, ic.a).debug(6)
     return
 }
-func (ctx *builtin_var) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_var) x(ic *evocation, w facet) (res interface{}) {
     noted(ctx, "%030b %v", w, ic.a).debug(6)
     return
 }
@@ -1396,7 +1396,7 @@ type builtin_value struct { builtin_
     unexp bool `ux,unexpand,unexpanded`
     undef bool `u,un,undef`
 }
-func (ctx *builtin_value) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_value) x(ic *evocation, w facet) (res interface{}) {
     var vals []Value
     if ctx.undef {
         vals = append(vals, &undef{&none{valbase{ctx.Position()}, nil}})
@@ -1441,7 +1441,7 @@ func (ctx *builtin_value) x(ic *invocation, w facet) (res interface{}) {
 type builtin_call struct { builtin_
     _closure bool `c,clo,closure`
 }
-func (ctx *builtin_call) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_call) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) == 0 { return }
     var obj Object
     var name = ic.a[0]
@@ -1464,13 +1464,13 @@ func (ctx *builtin_call) x(ic *invocation, w facet) (res interface{}) {
 type builtin_closure struct { builtin_
     required bool `required,require-def,require-defs`
 }
-func (ctx *builtin_closure) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_closure) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) < 1 { return }
 
     var vals []Value
     outer: for _, val := range umerge(true, ic.a[0]) {
         var name = val.string(ctx)
-        for _, scope := range ctx.closureScopes() {
+        for _, scope := range ctx.closure() {
             if d := scope.FindDef(name); d != nil {
                 vals = append(vals, d.invoke(ctx, w, nil, ic.a[1:]))
                 continue outer
@@ -1489,7 +1489,7 @@ type builtin_defs struct { builtin_
     n int `n,num,g`
     rn int `rn`
 }
-func (ctx *builtin_defs) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_defs) x(ic *evocation, w facet) (res interface{}) {
     var names []bare
 outer:
     for name, _ := range ctx.Project().scope.elems {
@@ -1521,14 +1521,14 @@ outer:
 }
 
 type builtin_list struct { builtin_ }
-func (ctx *builtin_list) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_list) x(ic *evocation, w facet) (res interface{}) {
     return ic.a
 }
 
 type builtin_plain struct { builtin_
     scope bool `findscope,find-scope,scope`
 }
-func (ctx *builtin_plain) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_plain) c(ic *evocation, w facet) (res interface{}) {
     var scope = ctx.Scope()
     for _, a := range ic.a {
         var ( o Object ; s = a.string(ctx) )
@@ -1545,7 +1545,7 @@ func (ctx *builtin_plain) c(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_shell struct { builtin_ }
-func (ctx *builtin_shell) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_shell) x(ic *evocation, w facet) (res interface{}) {
     var (
         pos = ctx.Position()
         vals []Value
@@ -1573,7 +1573,7 @@ func (ctx *builtin_shell) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_which struct { builtin_ }
-func (ctx *builtin_which) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_which) x(ic *evocation, w facet) (res interface{}) {
     var vals []Value
     for _, a := range ic.a {
         if s, err := exec.LookPath(a.string(ctx)); err != nil {
@@ -1591,7 +1591,7 @@ type builtin_servehttp struct { builtin_
     host string `h,host`
     port int `p,port`
 }
-func (ctx *builtin_servehttp) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_servehttp) c(ic *evocation, w facet) (res interface{}) {
     if ctx.port == 0 { ctx.port = 80 }
     if ctx.ssl {
         erro(ctx, "'serve-http(-ssl)' is unimplemented yet").debug(1)
@@ -1627,7 +1627,7 @@ func (ctx *builtin_servehttp) c(ic *invocation, w facet) (res interface{}) {
         }
     }
 
-    ctx.dia().flush() // flush
+    _diaContext(ctx).flush()
 
     var err = server.ListenAndServe()
     if err != nil && err != http.ErrServerClosed { erro(ctx, "%s", err).debug(1) }
@@ -1639,7 +1639,7 @@ type builtin_append struct { builtin_
     _closure bool `c,closure`
     // _string bool `s,str,string`
 }
-func (ctx *builtin_append) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_append) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) < 2 {
         erro(ctx, "insufficient number of arguments: %v", ic.a).debug(1)
         return
@@ -1676,7 +1676,7 @@ func (ctx *builtin_append) x(ic *invocation, w facet) (res interface{}) {
 type builtin_plus struct { builtin_
     int bool `i,int,integer`
 }
-func (ctx *builtin_plus) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_plus) x(ic *evocation, w facet) (res interface{}) {
     if ctx.int {
         var num int64
         for n, a := range ic.a {
@@ -1703,7 +1703,7 @@ func (ctx *builtin_plus) x(ic *invocation, w facet) (res interface{}) {
 type builtin_minus struct { builtin_
     int bool `i,int,integer`
 }
-func (ctx *builtin_minus) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_minus) x(ic *evocation, w facet) (res interface{}) {
     if ctx.int {
         var num int64
         for n, a := range ic.a {
@@ -1730,7 +1730,7 @@ func (ctx *builtin_minus) x(ic *invocation, w facet) (res interface{}) {
 type builtin_multiply struct { builtin_
     int bool `i,int,integer`
 }
-func (ctx *builtin_multiply) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_multiply) x(ic *evocation, w facet) (res interface{}) {
     if ctx.int {
         var num int64
         for n, a := range ic.a {
@@ -1757,7 +1757,7 @@ func (ctx *builtin_multiply) x(ic *invocation, w facet) (res interface{}) {
 type builtin_divide  struct { builtin_
     int bool `i,int,integer`
 }
-func (ctx *builtin_divide) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_divide) x(ic *evocation, w facet) (res interface{}) {
     if ctx.int {
         var num int64
         for n, a := range ic.a {
@@ -1787,7 +1787,7 @@ type builtin_unique struct { builtin_
     unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`
     plain bool `pl,pla,plain,pv,plainvalue,plain-value`
 }
-func (ctx *builtin_unique) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_unique) x(ic *evocation, w facet) (res interface{}) {
     var args = ic.a
     if ctx.unexpand {
         args = merge(args...)
@@ -1824,11 +1824,11 @@ ForArgs:
 type builtin_join struct { builtin_
     comp bool `comp,compose,compose-value`
 }
-func (ctx *builtin_join) a(ic *invocation, w facet) (skip bool) { var u int
+func (ctx *builtin_join) a(ic *evocation, w facet) (skip bool) { var u int
     ic.a, u, _ = w.expand(ctx, ic.a...)
     return !ctx.comp && u > 0
 }
-func (ctx *builtin_join) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_join) x(ic *evocation, w facet) (res interface{}) {
     if l := len(ic.a); l > 0 {
         var (
             fields []string
@@ -1861,7 +1861,7 @@ func (ctx *builtin_join) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_quote struct { builtin_ }
-func (ctx *builtin_quote) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_quote) x(ic *evocation, w facet) (res interface{}) {
     var args = merge(ic.a...)
     if l := len(args); l > 0 {
         var fields []string
@@ -1876,7 +1876,7 @@ func (ctx *builtin_quote) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_quotejoin struct { builtin_ }
-func (ctx *builtin_quotejoin) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_quotejoin) x(ic *evocation, w facet) (res interface{}) {
     var sep string
     var args = merge(ic.a...)
     if l := len(args); l > 1 {
@@ -1899,7 +1899,7 @@ func (ctx *builtin_quotejoin) x(ic *invocation, w facet) (res interface{}) {
 type builtin_splitstring struct { builtin_
     sep string `sep,separator`
 }
-func (ctx *builtin_splitstring) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_splitstring) x(ic *evocation, w facet) (res interface{}) {
     var fields []Value
     if len(ic.a) > 0 {
         var sep = ctx.sep
@@ -1941,7 +1941,7 @@ ValueType:
 
 // TODO: deprecate this and add -quote to builtin_splitstring
 type builtin_splitquote struct { builtin_splitstring }
-func (ctx *builtin_splitquote) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_splitquote) x(ic *evocation, w facet) (res interface{}) {
     res = ctx.builtin_splitstring.x(ic, w)
     if val, y := res.(Value); y && val != nil { quotestrings(val) }
     return
@@ -1949,7 +1949,7 @@ func (ctx *builtin_splitquote) x(ic *invocation, w facet) (res interface{}) {
 
 // TODO: deprecate this and add -quote to builtin_splitstring
 type builtin_splitquotejoin struct { builtin_splitstring }
-func (ctx *builtin_splitquotejoin) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_splitquotejoin) x(ic *evocation, w facet) (res interface{}) {
     res = ctx.builtin_splitstring.x(ic, w)
     if val, y := res.(Value); y && val != nil {
         var err error
@@ -1966,7 +1966,7 @@ func (ctx *builtin_splitquotejoin) x(ic *invocation, w facet) (res interface{}) 
 }
 
 type builtin_splitjoinquote struct { builtin_splitstring }
-func (ctx *builtin_splitjoinquote) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_splitjoinquote) x(ic *evocation, w facet) (res interface{}) {
     res = ctx.builtin_splitstring.x(ic, w)
     if val, y := res.(Value); y && val != nil {
         var err error
@@ -1987,7 +1987,7 @@ func (ctx *builtin_splitjoinquote) x(ic *invocation, w facet) (res interface{}) 
 }
 
 type builtin_field struct { builtin_ }
-func (ctx *builtin_field) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_field) x(ic *evocation, w facet) (res interface{}) {
     var fields []string
     if l := len(ic.a); l >= 2 {
         var (
@@ -2012,13 +2012,13 @@ func (ctx *builtin_field) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_fields struct { builtin_ }
-func (ctx *builtin_fields) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_fields) x(ic *evocation, w facet) (res interface{}) {
     // TODO: ...
     return
 }
 
 type builtin_usee struct { builtin_ }
-func (ctx *builtin_usee) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_usee) x(ic *evocation, w facet) (res interface{}) {
     var (
         proj = ctx.Project() //current()
         list []Value
@@ -2043,7 +2043,7 @@ func (ctx *builtin_usee) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_uses struct { builtin_ }
-func (ctx *builtin_uses) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_uses) x(ic *evocation, w facet) (res interface{}) {
     var proj = ctx.Project() //current()
     if proj == nil {
         erro(ctx, "unknown current context").debug(1)
@@ -2066,7 +2066,7 @@ ForArgs:
 }
 
 type builtin_path struct { builtin_ }
-func (ctx *builtin_path) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_path) x(ic *evocation, w facet) (res interface{}) {
     var list []Value
     for _, a := range ic.a {
         list = append(list, pathStr(ctx, a.Position(), a.string(ctx)))
@@ -2077,7 +2077,7 @@ func (ctx *builtin_path) x(ic *invocation, w facet) (res interface{}) {
 type builtin_bare struct { builtin_
     name bool `n,name,file-name,non-full`
 }
-func (ctx *builtin_bare) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_bare) x(ic *evocation, w facet) (res interface{}) {
     var vals []Value
     for _, a := range ic.a {
         var val Value
@@ -2100,7 +2100,7 @@ func (ctx *builtin_bare) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_bareword struct { builtin_ }
-func (ctx *builtin_bareword) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_bareword) x(ic *evocation, w facet) (res interface{}) {
     var vals []Value
     for _, a := range ic.a {
         var val Value
@@ -2122,7 +2122,7 @@ type builtin_str struct { builtin_
     clo  []string `clo,closure`
     def  []string `def,var`
 }
-func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_str) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a)+len(ctx.clo)+len(ctx.def) > 0 {
         var defs []*def
         for _, name := range ctx.clo {
@@ -2177,12 +2177,12 @@ func (ctx *builtin_str) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_string struct { builtin_str }
-func (ctx *builtin_string) x(ic *invocation, w facet) (res interface{}) { ctx.strval = false
+func (ctx *builtin_string) x(ic *evocation, w facet) (res interface{}) { ctx.strval = false
     return ctx.builtin_str.x(ic, w)
 }
 
 type builtin_strval struct { builtin_str }
-func (ctx *builtin_strval) x(ic *invocation, w facet) (res interface{}) { ctx.strval = true
+func (ctx *builtin_strval) x(ic *evocation, w facet) (res interface{}) { ctx.strval = true
     return ctx.builtin_str.x(ic, w)
 }
 
@@ -2229,7 +2229,7 @@ func (ctx *builtin_filter) do(pats []Value, values... Value) (result []Value) {
     for _, v := range values { if t := f(v); t != nil { result = append(result, t) }}
     return
 }
-func (ctx *builtin_filter) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_filter) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) > 1 {
         var i int
         var vals []Value
@@ -2264,12 +2264,12 @@ type builtin_filterout struct { builtin_filter }
 func (ctx *builtin_filterout) do(pats []Value, values... Value) (result []Value) { ctx.neg = true
     return ctx.builtin_filter.do(pats, values...)
 }
-func (ctx *builtin_filterout) x(ic *invocation, w facet) (res interface{}) { ctx.neg = true
+func (ctx *builtin_filterout) x(ic *evocation, w facet) (res interface{}) { ctx.neg = true
     return ctx.builtin_filter.x(ic, w)
 }
 
 type builtin_substring struct { builtin_ }
-func (ctx *builtin_substring) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_substring) x(ic *evocation, w facet) (res interface{}) {
     var list []Value
     if n := len(ic.a); n > 1 {
         var ( i1, i2 int; e error )
@@ -2308,7 +2308,7 @@ func (ctx *builtin_substring) x(ic *invocation, w facet) (res interface{}) {
 
 // $(subst from,to,text)
 type builtin_subst struct { builtin_ }
-func (ctx *builtin_subst) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_subst) x(ic *evocation, w facet) (res interface{}) {
     var list []Value
     if nargs := len(ic.a); nargs > 2 {
         var (
@@ -2335,7 +2335,7 @@ type builtin_patsubst struct { builtin_
     erroDstNomap bool `err-dst-nomap,error-dst-nomap`
     warnDstNomap bool `warn-dst-nomap`
 }
-func (ctx *builtin_patsubst) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_patsubst) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) < 3 {
         erro(ctx, "not enough arguments").debug(1)
         return
@@ -2496,7 +2496,7 @@ ForSources:
 }
 
 type builtin_title struct { builtin_ }
-func (ctx *builtin_title) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_title) x(ic *evocation, w facet) (res interface{}) {
     var list []Value
     for _, a := range ic.a { if s := a.string(ctx); s != "" {
         list = append(list, makeStrlit(a.Position(), strings.Title(s)))
@@ -2505,7 +2505,7 @@ func (ctx *builtin_title) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_uppercase struct { builtin_ }
-func (ctx *builtin_uppercase) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_uppercase) x(ic *evocation, w facet) (res interface{}) {
     var list []Value
     for _, a := range ic.a { if s := a.string(ctx); s != "" {
         list = append(list, makeStrlit(a.Position(), strings.ToUpper(s)))
@@ -2514,7 +2514,7 @@ func (ctx *builtin_uppercase) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_lowercase struct { builtin_ }
-func (ctx *builtin_lowercase) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_lowercase) x(ic *evocation, w facet) (res interface{}) {
     var list []Value
     for _, a := range ic.a { if s := a.string(ctx); s != "" {
         list = append(list, makeStrlit(a.Position(), strings.ToLower(s)))
@@ -2523,22 +2523,22 @@ func (ctx *builtin_lowercase) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_strip struct { builtin_trimspace }
-func (ctx *builtin_strip) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_strip) x(ic *evocation, w facet) (res interface{}) {
     return ctx.builtin_trimspace.x(ic, w)
 }
 
 type builtin_trimspace struct { builtin_trim }
-func (ctx *builtin_trimspace) a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_trimspace) a(ic *evocation, w facet) (skip bool) {
     a, _, _ := w.expand(ctx, ic.a...)
     ic.a = append([]Value{makeNone(ctx.Position())}, a...)
     return
 }
-func (ctx *builtin_trimspace) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_trimspace) x(ic *evocation, w facet) (res interface{}) {
     return ctx.builtin_trim.x(ic, w)
 }
 
 type builtin_trim struct { builtin_ }
-func (ctx *builtin_trim) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_trim) x(ic *evocation, w facet) (res interface{}) {
     var cutset string
     var list []Value
     for i, a := range ic.a { if s := a.string(ctx); s != "" { if i == 0 {
@@ -2552,7 +2552,7 @@ func (ctx *builtin_trim) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_trimleft struct { builtin_ }
-func (ctx *builtin_trimleft) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_trimleft) x(ic *evocation, w facet) (res interface{}) {
     var (
         cutset string
         list []Value
@@ -2568,7 +2568,7 @@ func (ctx *builtin_trimleft) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_trimright struct { builtin_ }
-func (ctx *builtin_trimright) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_trimright) x(ic *evocation, w facet) (res interface{}) {
     var (
         cutset string
         list []Value
@@ -2587,7 +2587,7 @@ func (ctx *builtin_trimright) x(ic *invocation, w facet) (res interface{}) {
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 type builtin_trimprefix struct { builtin_ }
-func (ctx *builtin_trimprefix) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_trimprefix) x(ic *evocation, w facet) (res interface{}) {
     if false { if ctx.verbose = ctx.Project().name == "testtrimprefix" && ic.a != nil && ic.a[0].string(ctx) == "**/testdata/"; ctx.verbose { defer func() {
         noted(ctx, "%v: %v %v", ctx.Project(), ic.a, res).debug(2)
     }()}}
@@ -2655,7 +2655,7 @@ ForValues:
 }
 
 type builtin_trimsuffix struct { builtin_ }
-func (ctx *builtin_trimsuffix) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_trimsuffix) x(ic *evocation, w facet) (res interface{}) {
     var (
         cutset, s string
         list []Value
@@ -2674,7 +2674,7 @@ type builtin_trimext struct { builtin_
     all bool `a,all`
     ext []string `e,ext`
 }
-func (ctx *builtin_trimext) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_trimext) x(ic *evocation, w facet) (res interface{}) {
     var ext string
     var list []Value
     for i, a := range ic.a { if s := a.string(ctx); s != "" {
@@ -2694,11 +2694,11 @@ func (ctx *builtin_trimext) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_addprefix struct { builtin_ }
-func (ctx *builtin_addprefix) a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_addprefix) a(ic *evocation, w facet) (skip bool) {
     ic.a, _, _ = w.expand(ctx, ic.a...) // NOTE: discard unexpanded-number
     return
 }
-func (ctx *builtin_addprefix) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_addprefix) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) < 1 {
         erro(ctx, "not enough args, try $(addprefix 'prefix', ...)").debug(1)
         return
@@ -2742,11 +2742,11 @@ func (ctx *builtin_addprefix) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_addsuffix struct { builtin_ }
-func (ctx *builtin_addsuffix) a(ic *invocation, w facet) (skip bool) {
+func (ctx *builtin_addsuffix) a(ic *evocation, w facet) (skip bool) {
     ic.a, _, _ = w.expand(ctx, ic.a...) // NOTE: discard unexpanded-number
     return
 }
-func (ctx *builtin_addsuffix) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_addsuffix) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) < 1 {
         erro(ctx, "not enough args, try $(addsuffix 'suffix', ...)").debug(1)
         return
@@ -2792,8 +2792,8 @@ func (ctx *builtin_addsuffix) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_printf struct{ builtin_ }
-func (ctx *builtin_printf) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
-func (ctx *builtin_printf) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_printf) c(ic *evocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_printf) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) < 1 {
         erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
         return
@@ -2865,9 +2865,9 @@ type builtin_print struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
 }
-func (ctx *builtin_print) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
-func (ctx *builtin_print) x(ic *invocation, w facet) (res interface{}) {
-    var diag = ctx.dia()
+func (ctx *builtin_print) c(ic *evocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_print) x(ic *evocation, w facet) (res interface{}) {
+    var diag = _diaContext(ctx)
     if ctx.noErrs && diag.count(diagError) > 0 { return }
     if ctx.noWarn && diag.count(diagWarn) > 0 { return }
 
@@ -2888,9 +2888,9 @@ type builtin_printl struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
 }
-func (ctx *builtin_printl) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
-func (ctx *builtin_printl) x(ic *invocation, w facet) (res interface{}) {
-    var diag = ctx.dia()
+func (ctx *builtin_printl) c(ic *evocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_printl) x(ic *evocation, w facet) (res interface{}) {
+    var diag = _diaContext(ctx)
     if ctx.noErrs && diag.count(diagError) > 0 { return }
     if ctx.noWarn && diag.count(diagWarn) > 0 { return }
 
@@ -2914,9 +2914,9 @@ type builtin_println struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
 }
-func (ctx *builtin_println) c(ic *invocation, w facet) (res interface{}) { return ctx.x(ic, w) }
-func (ctx *builtin_println) x(ic *invocation, w facet) (res interface{}) {
-    var dia = ctx.dia()
+func (ctx *builtin_println) c(ic *evocation, w facet) (res interface{}) { return ctx.x(ic, w) }
+func (ctx *builtin_println) x(ic *evocation, w facet) (res interface{}) {
+    var dia = _diaContext(ctx)
     if ctx.noErrs && dia.count(diagError) > 0 { return }
     if ctx.noWarn && dia.count(diagWarn) > 0 { return }
 
@@ -2935,7 +2935,7 @@ func (ctx *builtin_println) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_indent struct { builtin_ }
-func (ctx *builtin_indent) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_indent) x(ic *evocation, w facet) (res interface{}) {
     var (
         l []Value
         s string // indent
@@ -2959,7 +2959,7 @@ func (ctx *builtin_indent) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_findstring struct { builtin_ }
-func (ctx *builtin_findstring) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_findstring) x(ic *evocation, w facet) (res interface{}) {
     // TODO: $(findstring find,text)
     return
 }
@@ -2972,8 +2972,8 @@ type builtin_contains struct { builtin_
     match  bool `m,mat,match,p,pat,pattern`
     string bool `s,str,string`
 }
-func (ctx *builtin_contains) a(ic *invocation, w facet) (skip bool) { return }
-func (ctx *builtin_contains) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_contains) a(ic *evocation, w facet) (skip bool) { return }
+func (ctx *builtin_contains) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) < 2 {
         erro(ctx, "unexpected number of arguments, try $(contains a b c1 c2, v1 v2 …)").debug(1)
         return
@@ -3013,43 +3013,43 @@ outer:
 }
 
 type builtin_sort struct { builtin_ }
-func (ctx builtin_sort) x(ic *invocation, w facet) (res interface{}) {
+func (ctx builtin_sort) x(ic *evocation, w facet) (res interface{}) {
     // TODO: $(sort list)
     return
 }
 
 type builtin_word struct { builtin_ }
-func (ctx builtin_word) x(ic *invocation, w facet) (res interface{}) {
+func (ctx builtin_word) x(ic *evocation, w facet) (res interface{}) {
     // TODO: $(word n,text)
     return
 }
 
 type builtin_wordlist struct { builtin_ }
-func (ctx builtin_wordlist) x(ic *invocation, w facet) (res interface{}) {
+func (ctx builtin_wordlist) x(ic *evocation, w facet) (res interface{}) {
     // TODO: $(wordlist s,e,text)
     return
 }
 
 type builtin_words struct { builtin_ }
-func (ctx builtin_words) x(ic *invocation, w facet) (res interface{}) {
+func (ctx builtin_words) x(ic *evocation, w facet) (res interface{}) {
     // TODO: $(words n,text)
     return
 }
 
 type builtin_firstword struct { builtin_ }
-func (ctx builtin_firstword) x(ic *invocation, w facet) (res interface{}) {
+func (ctx builtin_firstword) x(ic *evocation, w facet) (res interface{}) {
     // TODO: $(firstword names...)
     return
 }
 
 type builtin_lastword struct { builtin_ }
-func (ctx builtin_lastword) x(ic *invocation, w facet) (res interface{}) {
+func (ctx builtin_lastword) x(ic *evocation, w facet) (res interface{}) {
     // TODO: $(lastword names...)
     return
 }
 
 type builtin_encodebase64 struct { builtin_ }
-func (ctx *builtin_encodebase64) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_encodebase64) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) > 0 {
         pos := ctx.Position()
         buf := new(bytes.Buffer)
@@ -3062,7 +3062,7 @@ func (ctx *builtin_encodebase64) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_decodebase64 struct { builtin_ }
-func (ctx *builtin_decodebase64) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_decodebase64) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) > 0 {
         var list []Value
         for _, a := range ic.a {
@@ -3080,7 +3080,7 @@ func (ctx *builtin_decodebase64) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_fullname struct { builtin_ }
-func (ctx *builtin_fullname) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_fullname) x(ic *evocation, w facet) (res interface{}) {
     var ( l []Value ; p = /* closureProjects(ctx) */[]*Project{ctx.Project()} )
     for _, a := range umerge(true, ic.a...) {
         if ctx.debug > 0 { if f, y := toFile(a); y {
@@ -3096,7 +3096,7 @@ func (ctx *builtin_fullname) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_ext struct { builtin_ }
-func (ctx *builtin_ext) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_ext) x(ic *evocation, w facet) (res interface{}) {
     var list []Value
     for _, a := range ic.a {
         list = append(list, makeStrlit(a.Position(), filepath.Ext(a.string(ctx))))
@@ -3107,7 +3107,7 @@ func (ctx *builtin_ext) x(ic *invocation, w facet) (res interface{}) {
 type builtin_bases struct { builtin_
     n int `n,num,size,count`
 }
-func (ctx *builtin_bases) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_bases) x(ic *evocation, w facet) (res interface{}) {
     var l []Value
     for _, a := range ic.a {
         var s string
@@ -3129,54 +3129,54 @@ func (ctx *builtin_bases) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_base struct { builtin_bases }
-func (ctx *builtin_base) x(ic *invocation, w facet) (res interface{}) { ctx.n = 1
+func (ctx *builtin_base) x(ic *evocation, w facet) (res interface{}) { ctx.n = 1
     return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_base2 struct { builtin_bases }
-func (ctx *builtin_base2) x(ic *invocation, w facet) (res interface{}) { ctx.n = 2
+func (ctx *builtin_base2) x(ic *evocation, w facet) (res interface{}) { ctx.n = 2
     return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_base3 struct { builtin_bases }
-func (ctx *builtin_base3) x(ic *invocation, w facet) (res interface{}) { ctx.n = 3
+func (ctx *builtin_base3) x(ic *evocation, w facet) (res interface{}) { ctx.n = 3
     return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_base4 struct { builtin_bases }
-func (ctx *builtin_base4) x(ic *invocation, w facet) (res interface{}) { ctx.n = 4
+func (ctx *builtin_base4) x(ic *evocation, w facet) (res interface{}) { ctx.n = 4
     return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_base5 struct { builtin_bases }
-func (ctx *builtin_base5) x(ic *invocation, w facet) (res interface{}) { ctx.n = 5
+func (ctx *builtin_base5) x(ic *evocation, w facet) (res interface{}) { ctx.n = 5
     return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_base6 struct { builtin_bases }
-func (ctx *builtin_base6) x(ic *invocation, w facet) (res interface{}) { ctx.n = 6
+func (ctx *builtin_base6) x(ic *evocation, w facet) (res interface{}) { ctx.n = 6
     return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_base7 struct { builtin_bases }
-func (ctx *builtin_base7) x(ic *invocation, w facet) (res interface{}) { ctx.n = 7
+func (ctx *builtin_base7) x(ic *evocation, w facet) (res interface{}) { ctx.n = 7
     return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_base8 struct { builtin_bases }
-func (ctx *builtin_base8) x(ic *invocation, w facet) (res interface{}) { ctx.n = 8
+func (ctx *builtin_base8) x(ic *evocation, w facet) (res interface{}) { ctx.n = 8
     return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_base9 struct { builtin_bases }
-func (ctx *builtin_base9) x(ic *invocation, w facet) (res interface{}) { ctx.n = 9
+func (ctx *builtin_base9) x(ic *evocation, w facet) (res interface{}) { ctx.n = 9
     return ctx.builtin_bases.x(ic, w)
 }
 
 type builtin_dirs struct { builtin_
     n int `n,num,size,count`
 }
-func (ctx *builtin_dirs) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_dirs) x(ic *evocation, w facet) (res interface{}) {
     var l []Value
     for _, a := range merge(ic.a...) {
         var s string
@@ -3210,54 +3210,54 @@ func (ctx *builtin_dirs) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_dir struct { builtin_dirs }
-func (ctx *builtin_dir) x(ic *invocation, w facet) (res interface{}) { ctx.n = 1
+func (ctx *builtin_dir) x(ic *evocation, w facet) (res interface{}) { ctx.n = 1
     return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_dir2 struct { builtin_dirs }
-func (ctx *builtin_dir2) x(ic *invocation, w facet) (res interface{}) { ctx.n = 2
+func (ctx *builtin_dir2) x(ic *evocation, w facet) (res interface{}) { ctx.n = 2
     return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_dir3 struct { builtin_dirs }
-func (ctx *builtin_dir3) x(ic *invocation, w facet) (res interface{}) { ctx.n = 3
+func (ctx *builtin_dir3) x(ic *evocation, w facet) (res interface{}) { ctx.n = 3
     return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_dir4 struct { builtin_dirs }
-func (ctx *builtin_dir4) x(ic *invocation, w facet) (res interface{}) { ctx.n = 4
+func (ctx *builtin_dir4) x(ic *evocation, w facet) (res interface{}) { ctx.n = 4
     return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_dir5 struct { builtin_dirs }
-func (ctx *builtin_dir5) x(ic *invocation, w facet) (res interface{}) { ctx.n = 5
+func (ctx *builtin_dir5) x(ic *evocation, w facet) (res interface{}) { ctx.n = 5
     return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_dir6 struct { builtin_dirs }
-func (ctx *builtin_dir6) x(ic *invocation, w facet) (res interface{}) { ctx.n = 6
+func (ctx *builtin_dir6) x(ic *evocation, w facet) (res interface{}) { ctx.n = 6
     return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_dir7 struct { builtin_dirs }
-func (ctx *builtin_dir7) x(ic *invocation, w facet) (res interface{}) { ctx.n = 7
+func (ctx *builtin_dir7) x(ic *evocation, w facet) (res interface{}) { ctx.n = 7
     return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_dir8 struct { builtin_dirs }
-func (ctx *builtin_dir8) x(ic *invocation, w facet) (res interface{}) { ctx.n = 8
+func (ctx *builtin_dir8) x(ic *evocation, w facet) (res interface{}) { ctx.n = 8
     return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_dir9 struct { builtin_dirs }
-func (ctx *builtin_dir9) x(ic *invocation, w facet) (res interface{}) { ctx.n = 9
+func (ctx *builtin_dir9) x(ic *evocation, w facet) (res interface{}) { ctx.n = 9
     return ctx.builtin_dirs.x(ic, w)
 }
 
 type builtin_undirs struct { builtin_
     n int `n,num,size,count`
 }
-func (ctx *builtin_undirs) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_undirs) x(ic *evocation, w facet) (res interface{}) {
     var l []Value
     for _, a := range ic.a {
         var s string
@@ -3280,52 +3280,52 @@ func (ctx *builtin_undirs) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_undir struct { builtin_undirs }
-func (ctx *builtin_undir) x(ic *invocation, w facet) (res interface{}) { ctx.n = 1
+func (ctx *builtin_undir) x(ic *evocation, w facet) (res interface{}) { ctx.n = 1
     return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_undir2 struct { builtin_undirs }
-func (ctx *builtin_undir2) x(ic *invocation, w facet) (res interface{}) { ctx.n = 2
+func (ctx *builtin_undir2) x(ic *evocation, w facet) (res interface{}) { ctx.n = 2
     return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_undir3 struct { builtin_undirs }
-func (ctx *builtin_undir3) x(ic *invocation, w facet) (res interface{}) { ctx.n = 3
+func (ctx *builtin_undir3) x(ic *evocation, w facet) (res interface{}) { ctx.n = 3
     return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_undir4 struct { builtin_undirs }
-func (ctx *builtin_undir4) x(ic *invocation, w facet) (res interface{}) { ctx.n = 4
+func (ctx *builtin_undir4) x(ic *evocation, w facet) (res interface{}) { ctx.n = 4
     return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_undir5 struct { builtin_undirs }
-func (ctx *builtin_undir5) x(ic *invocation, w facet) (res interface{}) { ctx.n = 5
+func (ctx *builtin_undir5) x(ic *evocation, w facet) (res interface{}) { ctx.n = 5
     return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_undir6 struct { builtin_undirs }
-func (ctx *builtin_undir6) x(ic *invocation, w facet) (res interface{}) { ctx.n = 6
+func (ctx *builtin_undir6) x(ic *evocation, w facet) (res interface{}) { ctx.n = 6
     return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_undir7 struct { builtin_undirs }
-func (ctx *builtin_undir7) x(ic *invocation, w facet) (res interface{}) { ctx.n = 7
+func (ctx *builtin_undir7) x(ic *evocation, w facet) (res interface{}) { ctx.n = 7
     return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_undir8 struct { builtin_undirs }
-func (ctx *builtin_undir8) x(ic *invocation, w facet) (res interface{}) { ctx.n = 8
+func (ctx *builtin_undir8) x(ic *evocation, w facet) (res interface{}) { ctx.n = 8
     return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_undir9 struct { builtin_undirs }
-func (ctx *builtin_undir9) x(ic *invocation, w facet) (res interface{}) { ctx.n = 9
+func (ctx *builtin_undir9) x(ic *evocation, w facet) (res interface{}) { ctx.n = 9
     return ctx.builtin_undirs.x(ic, w)
 }
 
 type builtin_chopdir struct { builtin_ }
-func (ctx *builtin_chopdir) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_chopdir) x(ic *evocation, w facet) (res interface{}) {
     var l []Value
     var n = 0
     if x := len(ic.a); x > 0 {
@@ -3358,7 +3358,7 @@ func (ctx *builtin_chopdir) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_reldir struct { builtin_ }
-func (ctx *builtin_reldir) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_reldir) x(ic *evocation, w facet) (res interface{}) {
     var (
         err error
         l []Value
@@ -3380,7 +3380,7 @@ func (ctx *builtin_reldir) x(ic *invocation, w facet) (res interface{}) {
 type builtin_mkdir struct { builtin_
     all bool `a,all,p,path`
 }
-func (ctx *builtin_mkdir) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_mkdir) c(ic *evocation, w facet) (res interface{}) {
     for i, nargs := 0, len(ic.a); i < nargs; i += 1 {
         var (
             a = ic.a[i]
@@ -3430,7 +3430,7 @@ func (ctx *builtin_mkdir) c(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_chdir struct { builtin_ }
-func (ctx *builtin_chdir) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_chdir) c(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) == 1 {
         var str = ic.a[0].string(ctx)
         if err := lockCD(str, 0); err != nil {
@@ -3443,7 +3443,7 @@ func (ctx *builtin_chdir) c(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_rename struct { builtin_ }
-func (ctx *builtin_rename) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_rename) c(ic *evocation, w facet) (res interface{}) {
     for i, nargs := 0, len(ic.a); i < nargs; i += 1 {
         var (
             a = ic.a[i]
@@ -3493,7 +3493,7 @@ type builtin_remove struct { builtin_
     warnNotFile bool `warn-not-file`
     all bool `a,all,r,recursive`
 }
-func (ctx *builtin_remove) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_remove) c(ic *evocation, w facet) (res interface{}) {
     var opts = ctx
     var remove func(Context, Value)
     var removeFile = func(ctx Context, f *File) {
@@ -3570,14 +3570,14 @@ func (ctx *builtin_remove) c(ic *invocation, w facet) (res interface{}) {
     }
 
     if opts.debug > 0 { warn(ctx, "%v", ic.a).debug(1) }
-    if opts.debug > 0 && ctx.dia().flush() > 0 {
+    if opts.debug > 0 && _diaContext(ctx).flush() > 0 {
         errostack(ctx, 3, "remove errors").debug(1)
     }
     return
 }
 
 type builtin_truncate struct { builtin_ }
-func (ctx *builtin_truncate) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_truncate) c(ic *evocation, w facet) (res interface{}) {
     for i, nargs := 0, len(ic.a); i < nargs; i += 1 {
         var (
             a = ic.a[i]
@@ -3632,7 +3632,7 @@ func (ctx *builtin_truncate) c(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_link struct { builtin_ }
-func (ctx *builtin_link) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_link) c(ic *evocation, w facet) (res interface{}) {
     for i, nargs := 0, len(ic.a); i < nargs; i += 1 {
         var (
             oldname, newname string
@@ -3686,7 +3686,7 @@ type builtin_symlink struct { builtin_
     update   bool `u,update`
     relative bool `r,rel,relative;l`
 }
-func (ctx *builtin_symlink) c(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_symlink) c(ic *evocation, w facet) (res interface{}) {
 ForArgs:
     for i, na := 0, len(ic.a); i < na; i += 1 {
         var (
@@ -3810,7 +3810,7 @@ type builtin_stat struct { builtin_
     file bool `fi,file`
     symbol bool `s,sym,symlink,symbol,l,link`
 }
-func (ctx *builtin_stat) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_stat) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) == 0 { return }
 
     var proj = ctx.Project()
@@ -3871,13 +3871,13 @@ type builtin_file struct { builtin_
     ignore bool `i,ig,ignore,ignore-missing,missing,nonexists`
     match  bool `map,mapped,matched,must-map,must-mapped,must-match,must-matched`
 }
-func (ctx *builtin_file) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_file) x(ic *evocation, w facet) (res interface{}) {
     var proj *Project = ctx.Project()
     if false { if ctx.caller {
         if false {
-            proj = ctx.closure().Project()
+            proj = cast[*closurecontext](ctx).Project()
         } else {
-            proj = ctx.pc().Project()
+            proj = cast[*programContext](ctx).Project()
         }
     }}
     return ctx.do([]*Project{proj}, ic.a...)
@@ -3947,7 +3947,7 @@ type builtin_glob struct { builtin_
     file bool `fi,file`
     symbol bool `s,sym,symlink,symbol,symbolic`
 }
-func (ctx *builtin_glob) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_glob) x(ic *evocation, w facet) (res interface{}) {
     var cwd string // TODO: get current work directory
     var proj *Project
     if proj = ctx.Project(); proj == nil {
@@ -4183,7 +4183,7 @@ func (ctx *builtin_wildcard) do(pats ...Value) (files []*File) {
         return ctx.Project().wildcard(ctx, pats...)
     }
 }
-func (ctx *builtin_wildcard) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_wildcard) x(ic *evocation, w facet) (res interface{}) {
     var vals []Value
     if false { if ctx.dir == "" && ic.a != nil { defer func() { if vals == nil {
         noted(ctx, "%v %v %v → %v", ctx.dir, ic.o, ic.a, res).debug(10)
@@ -4208,7 +4208,7 @@ func (ctx *builtin_wildcard) x(ic *invocation, w facet) (res interface{}) {
 }
 
 type builtin_readdir struct { builtin_ }
-func (ctx *builtin_readdir) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_readdir) x(ic *evocation, w facet) (res interface{}) {
     var l []Value
     for _, a := range ic.a {
         if fis, err := ioutil.ReadDir(a.string(ctx)); err == nil {
@@ -4229,7 +4229,7 @@ type builtin_readfile struct { builtin_
     trimLeft  bool `tl,trim-left`
     trimRight bool `tr,trim-right`
 }
-func (ctx *builtin_readfile) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_readfile) x(ic *evocation, w facet) (res interface{}) {
     var l []Value
     var closured = closureProjects(ctx)
     for _, v := range ic.a {
@@ -4252,7 +4252,7 @@ func (ctx *builtin_readfile) x(ic *invocation, w facet) (res interface{}) {
 type builtin_writefile struct { builtin_
     path bool `p,path`
 }
-func (ctx *builtin_writefile) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_writefile) x(ic *evocation, w facet) (res interface{}) {
     // $(write-file filename,content)
     // $(write-file -p filename,content)
 ForArgs:
@@ -4360,7 +4360,7 @@ type builtin_touchfile struct { builtin_
     mode os.FileMode `m,mode;fm,filemode,file-mode`
     path bool `p,path`
 }
-func (ctx *builtin_touchfile) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_touchfile) x(ic *evocation, w facet) (res interface{}) {
     // $(touch-file filename)
     // $(touch-file -p filename)
     for i := 0; i < len(ic.a); i += 1 {
@@ -4375,7 +4375,7 @@ func (ctx *builtin_touchfile) x(ic *invocation, w facet) (res interface{}) {
 // $(grep 'status=1',$@)
 // $(grep 'status=([0-9]+)',$1,$@)
 type builtin_grep struct { builtin_ }
-func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_grep) x(ic *evocation, w facet) (res interface{}) {
     var (
         args = ic.a
         nargs = len(args)
@@ -4439,7 +4439,7 @@ func (ctx *builtin_grep) x(ic *invocation, w facet) (res interface{}) {
         }
 
         if c := of(ctx, a); filename == "" {
-            var pc = ctx.pc()
+            var pc = cast[*programContext](ctx)
             erro(c, "empty filename: %T %v", a, a)
             erro(c, "%v %v", rvs, args)
             errostack(c, 5, "%p %v", pc, pc.get(ctx, "^")).debug(64)
@@ -4647,11 +4647,11 @@ func configureString(ctx Context, out *bytes.Buffer, project *Project, str strin
 }
 
 type builtin_untraversed struct { builtin_ }
-func (ctx *builtin_untraversed) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_untraversed) x(ic *evocation, w facet) (res interface{}) {
     return untraversed{ease(ctx, ic.a)}
 }
 
 type builtin_return struct { builtin_ }
-func (ctx *builtin_return) x(ic *invocation, w facet) (res interface{}) {
+func (ctx *builtin_return) x(ic *evocation, w facet) (res interface{}) {
     return &returner{valbase{ctx.Position()}, ic.a }
 }

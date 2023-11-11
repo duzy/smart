@@ -7,17 +7,18 @@
 package smart
 
 import (
-	"path/filepath"
-	"runtime/pprof"
-	"runtime"
-	"strconv"
-	"strings"
-	"unicode"
-	"regexp"
-	"sync"
-	"time"
 	"fmt"
 	"os"
+	"path/filepath"
+	"reflect"
+	"regexp"
+	"runtime"
+	"runtime/pprof"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode"
 )
 
 type parseBits uint64
@@ -156,8 +157,7 @@ type parser struct {
 	dd bool // helps debug parsing via `eval -dd=true{}`
 }
 
-func (p *parser) parser() *parser { return p }
-func (p *parser) inner() Context { return p.Context }
+func (p *parser) cast(t reflect.Type) Context { return implCast(p,t) }
 
 func (p *parser) setbits(bits parseBits) { p.bits = bits }
 func (p *parser) setbit(bit parseBits) (bits parseBits) {
@@ -196,7 +196,7 @@ func (p *parser) scan() {
 
 	var pos = p.pos
 	p.pos, p.tok, p.lit = p.scanner.Scan()
-	if false && p.lit == "none" { warn(p, "%v %v", p.tok, p.lit).debug(64); p.dia().flush() }
+	if false && p.lit == "none" { warn(p, "%v %v", p.tok, p.lit).debug(64); _diaContext(p.Context).flush() }
 	if false && p.tok == EOF {
 		erro(at(p,p.loc(pos)), "unexpected end of file").debug(1)
 	}
@@ -295,7 +295,7 @@ func (p *parser) step() {
 		var t = warn(p, "%v %v %v", p.tok, p.lit, p.scanner.scanState)
 		if p.tok == COMPOUND { t.debug(12) }
 		if p.tok == LINEND { t.debug(24) }
-		p.dia().flush()
+		_diaContext(p.Context).flush()
 	} else if false {
 		p.scanner.Debug = false
 	}
@@ -408,7 +408,6 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 	if true { defer dtrace(ctx, "parser.bare") }
 
 	ctx = p.ctx(ctx)
-
 	defer p.setbits(p.setbit(parseBARE))
 
 	var tok, lit = p.tok, p.lit
@@ -627,7 +626,7 @@ func (p *parser) selectExpr(ctx Context, lhs Value) (res Value) {
 
 	var (
 		tok = p.tok // the arrow '->' or '=>'
-		loader = ctx.loader()
+		loader = _loader(ctx)
 		proj = loader.Project()
 	)
 	ctx = p.ctx(ctx)
@@ -744,7 +743,7 @@ func (p *parser) depends(ctx Context, normal bool) (list []Value) {
 			}
 
 			var val = p.expr(ctx)
-			if ctx.dia().flush() > 0 {
+			if _diaContext(ctx).flush() > 0 {
 				erro(ctx, "depend: %T %v", val, val).debug(1)
 				return
 			}
@@ -1036,7 +1035,7 @@ func (p *parser) pair(ctx Context, x Value) *pair {
 	return makePair(ctx.Position(), x, y)
 }
 
-func (p *parser) flagExpr(ctx Context, lhs bool) flag {
+func (p *parser) flag(ctx Context, lhs bool) flag {
 	if t_traverse.enabled { defer un(trace(t_traverse, "flag")) }
 
 	ctx = p.ctx(ctx)
@@ -1065,7 +1064,7 @@ func (p *parser) flagExpr(ctx Context, lhs bool) flag {
 	return flag{x}
 }
 
-func (p *parser) negExpr(ctx Context, lhs bool) *negative {
+func (p *parser) neg(ctx Context, lhs bool) *negative {
 	if t_traverse.enabled { defer un(trace(t_traverse, "Negative")) }
 	p.expect(EXC)
 	return Negative(p.expr(ctx, lhs))
@@ -1324,7 +1323,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 	defer dtrace(ctx, "parser.closuredelegate")
 
 	var (
-		loader = ctx.loader()
+		loader = _loader(ctx)
 		scope = loader.Scope()
 		proj = loader.Project()
 		tok = p.tok
@@ -1645,7 +1644,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 	p.step()
 
 	var obj Object
-	var loader = ctx.loader()
+	var loader = _loader(ctx)
 	var scope = loader.Scope()
 
 	for _, a := range p.autos { if a.name(ctx) == s { obj = a ; break } }
@@ -1775,10 +1774,10 @@ func (p *parser) unary(ctx Context, lhs bool) (x Value) {
 		return p.perc(ctx, lhs, nil)
 
 	case MINUS:
-		return p.flagExpr(ctx, lhs)
+		return p.flag(ctx, lhs)
 
 	case EXC:
-		return p.negExpr(ctx, lhs)
+		return p.neg(ctx, lhs)
 
 	case SEMICOLON, BAR, PLUS:
 		return p.punctuation()
@@ -1857,7 +1856,7 @@ func (p *parser) text(ctx Context) (res []Value) {
 	if false && t_traverse.enabled { defer un(trace(t_traverse, "Text")) }
 	for p.tok != EOF { if p.tok == SPACE { p.next(true) } else {
 		res = append(res, p.expr(ctx))
-		if ctx.dia().flush() > 0 { total := ctx.dia().totalErrors()
+		if _diaContext(ctx).flush() > 0 { total := _diaContext(ctx).totalErrors()
 			warn(ctx, "parse text got %d errors", total).debug(16)
 			if cast[*universe](ctx).failOnErrors {
 				panic(failure{"fail by %d errors",ia(p.Position(), total)})
@@ -2080,15 +2079,15 @@ func (p *parser) use(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	}
 
 	var wg sync.WaitGroup
-	var loader = ctx.loader()
+	var loader = _loader(ctx)
 	for _, specVal := range specVals {
 		if ctx := at(ctx, specVal.Position()); true {
 			loader.usespec(ctx, opts, specVal, arged, args...)
 		} else {
-			var dc = diaContext{ Context: ctx } // redefine ctx
+			var dc = diaContext{ Context: ctx }
 			wg.Add(1); go func() {
 				defer func() { if false { assured(&dc, true) }
-					if len(dc.points) > 0 { dc.inner().dia().nest(dc.points) }
+					if len(dc.points) > 0 { _diaContext(ctx).nest(dc.points) }
 					wg.Done()
 				} ()
 				loader.usespec(ctx, opts, specVal, arged, args...)
@@ -2115,7 +2114,7 @@ func (p *parser) include(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 	}
 
 	var x = g.spec[0]//.expand(ctx, strval|expandPlaceholder)
-	var l = ctx.loader()
+	var l = _loader(ctx)
 	if p.spaces(); p.tok == COLON {
 		switch x.(type) {
 		case *File, *strlit, *compound: // escape from file searching
@@ -2251,7 +2250,7 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 		}
 	}
 
-	if ctx.dia().flush()>0 { return }
+	if _diaContext(ctx).flush()>0 { return }
 	if project.configured {
 		prompt(ctx, "configuration: %v already configured\n", project)
 		return
@@ -2269,7 +2268,7 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 		}
 	}
 
-	if ctx.dia().flush()>0 { return }
+	if _diaContext(ctx).flush()>0 { return }
 
 	/***/ promptEnteringDirectory(ctx, project.absPath)
 	defer promptLeavingDirectory(ctx, project.absPath)
@@ -2333,7 +2332,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 
 	ctx = at(ctx, prop0.Position())
 
-	var loader = ctx.loader()
+	var loader = _loader(ctx)
 	if name, resolved = loader.resolve(prop0); false {
 		erro(ctx, "resolve '%v' failed", prop0).debug(1)
 		return
@@ -2471,7 +2470,7 @@ func (p *parser) assign(ctx Context, ident Value) (def *def) {
 
 	// NOTE: Put all explicit defs into project scope. It's important for defs enclosed
 	//       in templates work.
-	var loader = ctx.loader()
+	var loader = _loader(ctx)
 	if scope := loader.project.scope; len(loader.scopes) == 0 || loader.scopes[0] != scope {
 		defer func(s []*Scope) { loader.scopes = s } (loader.scopes)
 		loader.scopes = append([]*Scope{ scope }, loader.scopes...)
@@ -2489,7 +2488,7 @@ func (p *parser) recipe(ctx Context) Value {
 		// TODO: comment *CommentGroup
 		// TODO: doc = p.leadComment
 		position = p.Position()
-		loader = ctx.loader()
+		loader = _loader(ctx)
 		elems []Value
 		isList bool
 	)
@@ -2576,7 +2575,7 @@ func (p *parser) recipe(ctx Context) Value {
 
 // Parsing (var a=xxx,b=yyy) definitions
 func (p *parser) movar(ctx Context, args ...Value) (err error) {
-	var loader = ctx.loader()
+	var loader = _loader(ctx)
 	for _, elem := range args {
 		var kv, ok = elem.(*pair)
 		if !ok || kv == nil {
@@ -2603,7 +2602,7 @@ func (p *parser) movar(ctx Context, args ...Value) (err error) {
 }
 
 func (p *parser) defineConfigureTargets(ctx Context) {
-	var loader = ctx.loader()
+	var loader = _loader(ctx)
 	for _, t := range p.targets {
 		var pos = t.Position()
 		if !pos.IsValid() { pos = p.Position() }
@@ -2781,7 +2780,7 @@ func (p *parser) rule(ctx Context, special specialRule, optvals, targets []Value
 		position = ctx.Position()
 	)
 
-	var loader = ctx.loader()
+	var loader = _loader(ctx)
 	defer loader.closeScope(loader.openScope(scopeComment))
 	p.params = nil
 	p.dialect = ""
@@ -2856,7 +2855,7 @@ func (p *parser) rule(ctx Context, special specialRule, optvals, targets []Value
 
 	if special != specialRuleRec {
 		var res []Entry
-		var loader = ctx.loader()
+		var loader = _loader(ctx)
 		if res = loader.rule(parsedData); len(res) == 1 {
 			result = res[0]
 		} else if len(res) > 1 {
@@ -3191,7 +3190,7 @@ func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 		erro(at(ctx,p.loc(p.pos)), "bad range: [%v %v) (%v)", p.pos, p.stop, t.name).debug(10)
 	}
 
-	var loader = ctx.loader()
+	var loader = _loader(ctx)
 
 	defer loader.closeScope(loader.openScope("codeblock"))
 
@@ -3229,7 +3228,7 @@ func (p *parser) repeat(ctx Context, t *template, params []Value) {
             warnstack(ctx, 3, "slow: %v, prof-%d", d, pprofCounter).debug(1)
         }
 
-		if ctx.dia().error() { erro(ctx, "template errors").debug(1) }
+		if _diaContext(ctx).error() { erro(ctx, "template errors").debug(1) }
 
 		p.pos, p.tok, p.lit, p.scanner.scanState = pos, tok, lit, state
 	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.scanState)
@@ -3326,7 +3325,7 @@ func (p *parser) clause(ctx Context) {
 	if p.spaces(); p.tok.IsAssign() {
 		if cast[*universe](ctx).debugParsing(ctx, "define") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
-			ctx.dia().flush()
+			_diaContext(ctx).flush()
 		}
 		p.assign(ctx, x)
 		return
@@ -3335,7 +3334,7 @@ func (p *parser) clause(ctx Context) {
 	if p.tok.IsRuleDelim() {
 		if cast[*universe](ctx).debugParsing(ctx, "rule") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
-			ctx.dia().flush()
+			_diaContext(ctx).flush()
 		}
 		p.rule(ctx, specialRuleNor, nil, []Value{x})
 		return
@@ -3364,7 +3363,7 @@ func (p *parser) setDefaultVars(ctx Context, filename, abs, rel, tmp string) (re
 
 	var d *def
 
-	if loader := ctx.loader(); loader.mode&Flat == 0 {
+	if loader := _loader(ctx); loader.mode&Flat == 0 {
 		var position = ctx.Position()
 
 		d, _ = loader.def(position, ".")
@@ -3403,7 +3402,7 @@ type projectDeclOpts struct {
 func (p *parser) file(ctx Context) *parsedFile {
 	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
 	if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "parser.file")) }
-	if ctx.dia().error() { return nil }
+	if _diaContext(ctx).error() { return nil }
 
 	defer dtrace(ctx, "parser.file")
 
@@ -3412,7 +3411,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 		identStr string
 		implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
 		abs, rel, tmp string
-		loader   = ctx.loader()
+		loader   = _loader(ctx)
 		position = ctx.Position()
 		keyword  = p.tok
 		filename = p.scanner.File().Name()
@@ -3536,7 +3535,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 		}
 
 		// Don't bother parsing the rest if we had errors parsing the package clause.
-		if n := loader.dia().countErrors(); n > 0 {
+		if n := _diaContext(loader.Context).countErrors(); n > 0 {
 			erro(p, "got %d errors parsing file: %s", filename).debug(1)
 			return nil
 		}
@@ -3624,10 +3623,10 @@ func (p *parser) file(ctx Context) *parsedFile {
 		if false && auto { loader.autoload(p.ctx(ctx), "amid") }
 
 		if loader.mode&ImportsOnly == 0 { // rest of module body
-			for /* !p.dia().error() && */ p.tok != EOF {
+			for /* !_diaContext(p.Context).error() && */ p.tok != EOF {
 				if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
 					p.next(true)
-				} else if p.clause(p.ctx(ctx)); ctx.dia().flush() > 0 {
+				} else if p.clause(p.ctx(ctx)); _diaContext(ctx).flush() > 0 {
 					break
 				}
 			}

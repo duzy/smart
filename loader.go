@@ -7,17 +7,18 @@ package smart
 
 import (
     "bytes"
-    "io/ioutil"
-    "io"
-    "unicode/utf8"
-    "path/filepath"
-    "strings"
-    "plugin"
-    "time"
     "fmt"
-    "os/exec"
-    "os"
+    "io"
     "io/fs"
+    "io/ioutil"
+    "os"
+    "os/exec"
+    "path/filepath"
+    "plugin"
+    "reflect"
+    "strings"
+    "time"
+    "unicode/utf8"
 )
 
 const (
@@ -119,6 +120,8 @@ func (li *loadinfo) traveUseLoop() (result bool) {
     return
 }
 
+func _loader(c Context) *loader { return cast[*loader](c) }
+
 type loader struct {
     closurecontext
     p *parser
@@ -131,6 +134,12 @@ type loader struct {
     implicit bool // loading current project implicitly, aka. via foo.bar.Baz (implicit foo/bar loaded)
     verpre string // verbose prefix
 }
+func (l *loader) inner() Context { return &l.closurecontext }
+func (l *loader) cast(t reflect.Type) Context {
+    if reflect.TypeOf(l)   == t { return l }
+    if reflect.TypeOf(l.p) == t { return l.p }
+    return l.closurecontext.cast(t)
+}
 func (l *loader) String() string {
     if fullContextStringer {
         return fmt.Sprintf("loader{%s}", &l.closurecontext)
@@ -138,9 +147,6 @@ func (l *loader) String() string {
         return l.closurecontext.String()
     }
 }
-func (l *loader) loader() *loader { return l }
-func (l *loader) parser() *parser { return l.p }
-func (l *loader) inner() Context { return &l.closurecontext }
 func (l *loader) Project() (project *Project) { return l.project }
 
 func restoreLoadingInfo(l *loader) {
@@ -953,15 +959,15 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
         }
     }
 
-    if n := ctx.dia().flush(); n > 0 { warn(ctx, "got %d errors", n).debug(1)
-        if u.failOnErrors { total := ctx.dia().totalErrors()
+    if n := _diaContext(ctx).flush(); n > 0 { warn(ctx, "got %d errors", n).debug(1)
+        if u.failOnErrors { total := _diaContext(ctx).totalErrors()
             panic(failure{"fail by %d errors",ia(ctx.Position(), total)})
         }
     }
     return
 }
-func (l *loader) closureScopes() (scopes []*Scope) {
-    scopes = append(l.closurecontext.closureScopes(), l.Scope())
+func (l *loader) closure() (scopes []*Scope) {
+    scopes = append(l.closurecontext.closure(), l.Scope())
     return
 }
 
@@ -1107,7 +1113,7 @@ ParamsLoop:
             }
         }
 
-        if n := ctx.dia().flush(); n > 0 {
+        if n := _diaContext(ctx).flush(); n > 0 {
             warn(at(ctx,position), "%v: %d errors: %v -> %v", l.project, n, elem, specName).debug(1)
             break ParamsLoop
         } else if f, y := toFile(elem); y && f.info != nil {
@@ -1653,7 +1659,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
         info(ctx, "loading %v", filename)
     }}
 
-    assert(ctx.loader() == l, "require the same loader context")
+    if false { assert(_loader(ctx) == l, "require the same loader context (%s)", typeof(inner(ctx))) }
 
     defer dtrace(ctx, "source")
 
@@ -1764,7 +1770,7 @@ ListLoop:
                 erro(ctx, "parse config failed: %v", err).debug(1)
                 break ListLoop
             }
-            if ctx.dia().flush() > 0 { return }
+            if _diaContext(ctx).flush() > 0 { return }
         } else if s, a := l.def(l.Position(), name); a != nil {
             erro(ctx, "declare project: %v", err).debug(1)
             break ListLoop
@@ -1880,7 +1886,8 @@ ListLoop:
             var src, _, err = l.source(ctx, filename, nil, mode|parsingDir, nil)
 
             var d *diagPoint
-            if n := ctx.dia().flush(); n > 0 { total := ctx.dia().totalErrors()
+            if n := _diaContext(ctx).flush(); n > 0 {
+                total := _diaContext(ctx).totalErrors()
                 if err != nil { erro(ctx, "parse failed: %v", err) }
 
                 s := filepath.Base(filename)
@@ -1960,10 +1967,10 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
 
     var doc, _, err = l.source(ctx, absPath, source, parseMode, nil)
-    if n := l.dia().flush(); n > 0 {
+    if n := _diaContext(l.Context).flush(); n > 0 {
         warn(ctx, "load '%s' got %d errors", specName, n).debug(1)
         if u.failOnErrors {
-            panic(failure{"fail by %d errors",ia(l.Position(), l.dia().totalErrors())})
+            panic(failure{"fail by %d errors",ia(l.Position(), _diaContext(l.Context).totalErrors())})
         }
         return
     } else if err != nil {
@@ -2027,7 +2034,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     if mods = l.sources(at(l, pos), absDir, filter, parseMode); mods == nil {
         errostack(ctx, 3, "failed parsing module: %s", specName).debug(12)
         if cast[*universe](ctx).failOnErrors {
-            panic(failure{"fail by %d errors",ia(l.Position(), l.dia().totalErrors())})
+            panic(failure{"fail by %d errors",ia(l.Position(), _diaContext(l.Context).totalErrors())})
         }
         return
     }

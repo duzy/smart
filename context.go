@@ -111,29 +111,12 @@ type Context interface {
   Scope() *Scope
   Globe() *globe
 
-  aquireLock() (unlock func())
-
-  loader() *loader // only in load stage
-  parser() *parser // only in parse stage
-
-  inner() Context
   cast(reflect.Type) Context
-
-  argumented() *argumentedContext
-  dia() *diaContext
-
-  ac() *autoContext
-  rc() *refContext
-  ic() *invocation
-
-  closure() *closurecontext
-  closureScopes() []*Scope
+  closure() []*Scope
 
   Project() *Project
   projects(Context, ...*Project) []*Project
 
-  poco() *positionContext
-  pc() *programContext
   program() *program
 
   dirtyMark(...Value)
@@ -143,13 +126,9 @@ type Context interface {
   traversed(ctx Context, target Value) []Value
   traverse(ctx Context, prereqValue Value) (traves travestates)
 
-  ruleContext() *ruleContext
   entry() Entry
 
-  sc() *stemmedContext
   stems() []string
-
-  // TODO: call(Context, string, facet, []Value, ...Value) Value
 
   ref(Context, Value) bool
 
@@ -159,30 +138,36 @@ type Context interface {
 }
 
 func cast[C Context](ctx Context) (c C) {
-  if t := ctx.cast(reflect.TypeOf(c)); t != nil { c, _ = t.(C) }
-  return
-}
-
-func castImpl(ctx Context, t reflect.Type) (c Context) {
-  var v = reflect.ValueOf(ctx)
-  if t == reflect.TypeOf(ctx) { c = ctx } else {
-    if i := _innerContext(v); i != nil { c = i.(Context).cast(t) }
+  if ctx != nil {
+    if t := ctx.cast(reflect.TypeOf(c)); t != nil { c = t.(C) }
   }
   return
 }
 
-func innerContext(ctx Context) (c Context) {
-  if i := _innerContext(reflect.ValueOf(ctx)); i != nil { c = i.(Context) }
+func implCast(ctx Context, t reflect.Type) (c Context) {
+  if v := reflect.ValueOf(ctx); v.Type() == t {
+    c = ctx
+  } else if i := _inner(v); i != nil {
+    c = i.(Context).cast(t)
+  }
   return
 }
-func _innerContext(v reflect.Value) (i interface{}) {
+
+func _inner(v reflect.Value) (i interface{}) {
   if t := v.Type(); t.Kind() == reflect.Struct {
     if f, y := t.FieldByName("Context"); y && f.Anonymous {
       if v = v.FieldByIndex(f.Index); v.IsValid() { i = v.Interface() }
+    } else if f, y := v.Interface().(interface{ inner() Context }); y && f != nil {
+      i = f.inner()
     }
   } else if t.Kind() == reflect.Pointer {
-    i = _innerContext(v.Elem())
+    i = _inner(v.Elem())
   }
+  return
+}
+
+func inner(ctx Context) (c Context) {
+  if i := _inner(reflect.ValueOf(ctx)); i != nil { c = i.(Context) }
   return
 }
 
@@ -301,6 +286,8 @@ func (d *diagPoint) debug(args ...interface{}) *diagPoint {
   return d
 }
 
+func _diaContext(c Context) *diaContext { return cast[*diaContext](c) }
+
 type diaContext struct {
   Context
   sync.Mutex
@@ -309,9 +296,8 @@ type diaContext struct {
   nested [][]*diagPoint
   errs, traced int
 }
-func (diag *diaContext) inner() Context { return diag.Context }
-func (diag *diaContext) dia() *diaContext { return diag }
-func (diag *diaContext) aquireLock() (unlock func()) { diag.Lock(); return func(){ diag.Unlock() }}
+func (diag *diaContext) aquire() (unlock func()) { diag.Lock(); return func(){ diag.Unlock() }}
+func (diag *diaContext) cast(t reflect.Type) Context { return implCast(diag,t) }
 func (diag *diaContext) String() string {
   if fullContextStringer {
     return fmt.Sprintf("diag{%s}", diag.Context)
@@ -319,8 +305,8 @@ func (diag *diaContext) String() string {
     return diag.Context.String()
   }
 }
-func (diag *diaContext) reset() { defer diag.aquireLock()(); diag.points = []*diagPoint{}}
-func (diag *diaContext) add(point *diagPoint) *diagPoint { defer diag.aquireLock()()
+func (diag *diaContext) reset() { defer diag.aquire()(); diag.points = []*diagPoint{}}
+func (diag *diaContext) add(point *diagPoint) *diagPoint { defer diag.aquire()()
   if point.dt == diagPromptNewline {
     diag.newlines = append(diag.newlines, point)
     return point
@@ -335,7 +321,7 @@ func (diag *diaContext) add(point *diagPoint) *diagPoint { defer diag.aquireLock
     return point
   }
 }
-func (diag *diaContext) nest(points []*diagPoint) { defer diag.aquireLock()()
+func (diag *diaContext) nest(points []*diagPoint) { defer diag.aquire()()
   diag.nested = append(diag.nested, points)
 }
 
@@ -344,13 +330,13 @@ func (diag *diaContext) point(ctx Context, dt diagType, f string, args ...interf
   return diag.add(&diagPoint{ dt, ctx.Position(), fmt.Sprintf(f, args...), nil })
 }
 
-func dtrace(ctx Context, fmt string, a ...interface{}) {
-  if diag := ctx.dia(); diag.error() {
+func dtrace(ctx Context, s string, a ...interface{}) {
+  if diag := _diaContext(ctx); diag.error() {
     if diag.traced += 1; diag.traced > 1 { return }
-    if false { erro(ctx, fmt, a...).debug(3) }
+    if false { erro(ctx, s, a...).debug(3) }
     if len(a) == 0 { a = append(a, ctx.Position()) } else
     if _, y := a[0].(Position); !y { a = append([]interface{}{ctx.Position()}, a...) }
-    panic(failure{fmt, a})
+    panic(failure{s, a})
   }
   return
 }
@@ -358,7 +344,7 @@ func dtrace(ctx Context, fmt string, a ...interface{}) {
 func (diag *diaContext) error() bool { return diag.errs > 0 || diag.countErrors() > 0 }
 func (diag *diaContext) totalErrors() (errs int) { return diag.errs }
 func (diag *diaContext) countErrors() (errs int) { return diag.count(diagError) }
-func (diag *diaContext) count(dt ...diagType) (errs int) { defer diag.aquireLock()()
+func (diag *diaContext) count(dt ...diagType) (errs int) { defer diag.aquire()()
   for _, d := range diag.points {
     for _, t := range dt {
       if d.dt == t { errs += 1 ; break }
@@ -418,7 +404,9 @@ func (diag *diaContext) flush() (errs int) {
 
 func diagnostic(ctx Context) Context { return &diaContext{ Context: ctx } }
 func diag(ctx Context, dt diagType, f string, a ...interface{}) (p *diagPoint) {
-  if p = ctx.dia().point(ctx, dt, f, a...); false && p != nil { p.position = ctx.Position() }
+  var diag = _diaContext(ctx)
+  if diag != nil { p = diag.point(ctx, dt, f, a...) }
+  if false && p != nil { p.position = ctx.Position() }
   return
 }
 func info(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagInfo, f, a...) }
@@ -466,7 +454,7 @@ func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPo
         if point = diag(ctx, dt, "#%d: in project %v:", n, proj); proj != nil {
             point.position = proj.position
         }
-        for last, i := ctx.Position(), ctx.inner(); i != nil; i = i.inner() {
+        for last, i := ctx.Position(), inner(ctx); i != nil; i = inner(i) {
             if pos := i.Position(); !pos.Same(&last) {
                 point = diag(ctx, dt, "%v: from here", proj)
                 point.position = pos
@@ -500,7 +488,7 @@ func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPo
         point = diag(ctx, dt, "%v: %v: %v", proj, str, ctx)
     }
 
-    if pc := ctx.poco(); pc != nil {
+    if pc := _positionContext(ctx); pc != nil {
         point.position = pc.position
 
         if s == "#>" && len(a) > 0 { for _, t := range a {
@@ -514,7 +502,7 @@ func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPo
             }
         }}
 
-        for last := &pc.position; pc != nil && n > 0; pc = pc.Context.poco() {
+        for last := &pc.position; pc != nil && n > 0; pc = _positionContext(pc.Context) {
             var pos = &pc.position
             if last == pos || last.Same(pos) { continue }  else { n -= 1 }
 
@@ -536,10 +524,11 @@ func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPo
     return
 }
 
+func _positionContext(c Context) *positionContext { return cast[*positionContext](c) }
+
 type positionContext struct { Context; position Position }
-func (pc *positionContext) poco() *positionContext { return pc }
-func (pc *positionContext) inner() Context { return pc.Context }
-func (pc *positionContext) caller() *positionContext { return pc.Context.poco() }
+func (pc *positionContext) caller() *positionContext { return _positionContext(pc.Context) }
+func (pc *positionContext) cast(t reflect.Type) Context { return implCast(pc, t) }
 func (pc *positionContext) Position() Position { return pc.position }
 func (pc *positionContext) String() string {
   if fullContextStringer {
@@ -548,22 +537,16 @@ func (pc *positionContext) String() string {
     return pc.Context.String()
   }
 }
-func (ctx *positionContext) cast(t reflect.Type) Context { return castImpl(ctx, t) }
-func (ctx *positionContext) _cast(t reflect.Type) (c Context) {
-  if t == reflect.TypeOf(ctx) { c = ctx } else
-  if ctx.Context != nil { c = ctx.Context.cast(t) }
-  return
-}
 
 func of(ctx Context, val Value) Context { return at(ctx, val.Position()) }
 func at(ctx Context, pos Position) Context {
   if ctx == nil { panic("nil context") } else
   if p := ctx.Position(); p._valid() && pos._valid() && !p.Same(&pos) {
-    for c, i, n := ctx, 0, 0; c != /* cast[*universe](ctx) */nil; c, i = c.inner(), i+1 {
+    for c, i, n := ctx, 0, 0; c != /* cast[*universe](ctx) */nil; c, i = inner(c), i+1 {
       if _, y := c.(*positionContext); y { n += 1 ; if n > /* 999 */100 {
         if false { prompt(ctx, "%v: too many positions: %T\n", p, c) }
         warnstack(ctx, 3, "too many positions: %v/%v; %v", n, i, ctx).debug(16)
-        ctx.dia().flush()
+        _diaContext(ctx).flush()
         return ctx
       }}
     }
@@ -573,8 +556,10 @@ func at(ctx Context, pos Position) Context {
 }
 func _at(ctx Context, pos Position) Context { return &positionContext{ ctx, pos } }
 
+func _argumentedContext(c Context) *argumentedContext { return cast[*argumentedContext](c) }
+
 type argumentedContext struct { Context ; args []Value }
-func (ac *argumentedContext) inner() Context { return ac.Context }
+func (ac *argumentedContext) cast(t reflect.Type) Context { return implCast(ac,t) }
 func (ac *argumentedContext) argumented() *argumentedContext { return ac }
 func (ac *argumentedContext) String() string {
   if fullContextStringer {
@@ -726,7 +711,7 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
     errostack(ctx, 5, "failed, %d recovered", recovered).debug(/*1,*/128)
   }
 
-  var dia = ctx.dia() ; dia.flush()
+  var dia = _diaContext(ctx) ; dia.flush()
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
     return
   }
@@ -785,14 +770,15 @@ func CommandLine() {
     if err != nil { fmt.Fprintf(stderr, "%v: %v", file, err); return }
   }
 
-  if context.dia().countErrors() > 0 { return }
+  var dia = _diaContext(context)
+  if dia.countErrors() > 0 { return }
 
   if false { loadGrepCache(context) }
 
   if err := context.load(); err != nil {
     erro(context, "loading work failed: %v", err)
-  } else if context.dia().flush() > 0 {
-    prompt(context, "loading work got %d errors\n", context.dia().totalErrors())
+  } else if dia.flush() > 0 {
+    prompt(context, "loading work got %d errors\n", dia.totalErrors())
   } else if context.help {
     context.doHelp()
   } else if context.printFlags {
@@ -805,8 +791,8 @@ func CommandLine() {
     configure(context)
   } else if result, err := context.run(); err != nil {
     erro(context, "run work failed: %v", err)
-  } else if context.dia().flush() > 0 {
-    prompt(context, "run work got %d errors\n", context.dia().totalErrors())
+  } else if dia.flush() > 0 {
+    prompt(context, "run work got %d errors\n", dia.totalErrors())
   } else if result != nil {
     for i, v := range result {
       if s := ""; isNull(v) {

@@ -7,5 +7,3 @@ project testforeach5
 .test.x.b := b~ $(foreach $(foreach $1 $2,&(.test.x.o.$_)),-bo$_) ~b
 .test.x.o.a := x.o.a
 .test.x.o.b := x.o.b
-# assert $(equal(-d) $(string(-def=.test.x)),'$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))')
-# assert $(equal(-d) $(.test.3 a b),a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b)

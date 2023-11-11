@@ -58,8 +58,9 @@ func loadcase(t *testing.T, dir, name string, ii ...interface{}) (tc testcase) {
 		testRemoveConfigureDir(tc, tc.Project())
 	}
 
-	if tc.dia().flush(); tc.dia().error() {
-		tc.Errorf("%d errors in %s", tc.dia().totalErrors(), tc.Position().Filename)
+	var dia = _diaContext(tc.Context)
+	if dia.flush(); dia.error() {
+		tc.Errorf("%d errors in %s", dia.totalErrors(), tc.Position().Filename)
 	}
 	return
 }
@@ -83,10 +84,11 @@ func (tc *testcase) err(f string, i ...interface{}) {
 }
 
 func (tc *testcase) flush() {
-	if n := tc.dia().countErrors(); n > 0 { var pos Position
+	var dia = _diaContext(tc.Context)
+	if n := dia.countErrors(); n > 0 { var pos Position
 		if p := tc.Project(); p != nil { pos = p.position } else { pos = tc.Position() }
 		noted(at(tc.Context, pos), "%v: %v errors", tc.Project(), n).debug(1, skipint{2})
-		tc.Errorf("%d errors in %s", tc.dia().flush(), pos.Filename)
+		tc.Errorf("%d errors in %s", dia.flush(), pos.Filename)
 	}
 }
 

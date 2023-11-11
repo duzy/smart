@@ -417,6 +417,8 @@ type packageinfo struct {
     t packagetype // smart, pkgconfig, cmake, etc.
 }
 
+func _universe(c Context) *universe { return cast[*universe](c) }
+
 type universe struct {
     diaContext
     commandline
@@ -441,35 +443,11 @@ type universe struct {
 
     ddd string // debug parsing via `eval -ddd=example`, also project.dd
 }
-// func (ctx *universe) appendCallerUpdated() bool { return false }
-// func (ctx *universe) aquireLock() (unlock func()) { return nil }
-// func (ctx *universe) argumentedSet([]Value) []Value { return nil }
-// func (ctx *universe) arguments() []Value { return nil }
-// func (ctx *universe) closure() *closurecontext { return nil }
-// func (ctx *universe) dirty(Context, ...Value) (res bool) { return }
-// func (ctx *universe) dirtyOpts() *dirtyOpts { return nil }
-// func (ctx *universe) mustExists() bool { return false }
-// func (ctx *universe) parser() *parser { return nil }
-// func (ctx *universe) program() *program { return nil }
-// func (ctx *universe) spawn(c Context) Context { return c }
-// func (ctx *universe) stemmed() *stemmed { return nil }
-// func (ctx *universe) traverse(_ Context, prereqValue Value) (traves travestates) { return }
-// func (ctx *universe) traversed(_ Context, target Value) []Value { fail(ctx.Position(), "%v", target); return nil }
-// func (ctx *universe) universe() *universe { return ctx }
 func (ctx *universe) String() (s string) { return /*"universe"*/ }
 func (ctx *universe) dirtyMark(vals ...Value) { return }
 func (ctx *universe) ref(_ Context, _ Value) bool { return false }
 func (ctx *universe) isConfigure() bool { return false }
-func (ctx *universe) inner() Context { return nil }
-func (ctx *universe) ruleContext() *ruleContext { return nil }
-func (ctx *universe) argumented() *argumentedContext { return nil }
-func (ctx *universe) ac() *autoContext { return nil }
-func (ctx *universe) ic() *invocation { return nil }
-func (ctx *universe) rc() *refContext { return nil }
-func (ctx *universe) pc() *programContext { return nil }
-func (ctx *universe) sc() *stemmedContext { return nil }
 func (ctx *universe) stems() []string { return nil }
-func (ctx *universe) poco() *positionContext { return nil }
 func (ctx *universe) entry() Entry { return nil }
 func (ctx *universe) loader() *loader { return ctx.globe.top }
 func (ctx *universe) Globe() *globe { return ctx.globe }
@@ -485,12 +463,20 @@ func (ctx *universe) Position() (p Position) {
     }
     return
 }
-func (ctx *universe) cast(t reflect.Type) Context { return castImpl(ctx, t) }
+func (ctx *universe) cast(t reflect.Type) (c Context) {
+    if false {
+        if c = implCast(ctx, t); c == nil { c = ctx.diaContext.cast(t) }
+        return
+    } else {
+        if reflect.TypeOf(ctx) == t { return ctx }
+        return ctx.diaContext.cast(t)
+    }
+}
 func (ctx *universe) projects(_ Context, projs ...*Project) []*Project {
     if len(projs) > 0 { panic(failure{"%v",ia(ctx.Position(), projs)}) }
     return nil
 }
-func (ctx *universe) closureScopes() (scopes []*Scope) {
+func (ctx *universe) closure() (scopes []*Scope) {
     if m := ctx.globe.main; m != nil && m.scope != nil {
         if false { scopes = append(scopes, m.scope) }
     }
@@ -959,7 +945,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
             var ctx = at(ctx, entry.Position())
             if dc.verboseExecFlags {
                 info(ctx, "%v", entry)
-                ctx.dia().flush()
+                _diaContext(ctx).flush()
             }
 
             var ( res []Value; traves []*travestate )

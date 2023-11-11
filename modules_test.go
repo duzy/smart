@@ -1765,15 +1765,15 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 
 	var cc1 = _closureWith(ctx.Context, base.configure, base)
 	var cc2 = _closureWith(ctx.Context, base, base.configure)
-	if cc1.inner() != ctx.Context {
-		ctx.err("%v != %v", typeof(cc1.inner()), typeof(ctx.Context))
+	if inner(cc1) != ctx.Context {
+		ctx.err("%v != %v", typeof(inner(cc1)), typeof(ctx.Context))
 	} else if cc1.Scope() != base.configure.scope {
 		ctx.err("%v != %v", cc1.Project(), base.configure)
 	} else if cc1.Project() != base.configure {
 		ctx.err("%v != %v", cc1.Project(), base.configure)
 	}
-	if cc2.inner() != ctx.Context {
-		ctx.err("%v != %v", typeof(cc2.inner()), typeof(ctx.Context))
+	if inner(cc2) != ctx.Context {
+		ctx.err("%v != %v", typeof(inner(cc2)), typeof(ctx.Context))
 	} else if cc2.Scope() != base.scope {
 		ctx.err("%v != %v", cc2.Project(), base)
 	} else if cc2.Project() != base {
@@ -1842,7 +1842,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if p.Elems[len(p.Elems)-1].String() != filepath.Base(tail) {
 		ctx.err("%v: %v → %v ; %v", proj, c, p, tail)
 	} else if cc := _closureWith(ctx.Context, proj); cc.Project() != proj {
-		ctx.err("%v: %v != %v ; %v{%v}", c, cc.Project(), proj, typeof(cc), typeof(cc.inner()))
+		ctx.err("%v: %v != %v ; %v{%v}", c, cc.Project(), proj, typeof(cc), typeof(inner(cc)))
 	} else if t := c.expand(cc, strval); t == nil {
 		ctx.err("%v", c)
 	} else if p, y := t.(*Path); !y {
@@ -1856,19 +1856,19 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if v3.string(cc) != v1.string(ctx) {
 		noted(of(ctx,v3), "%v: %v", ctx.Project(), v1.string(ctx))
 		noted(of(ctx,v3), "%v: %v", ctx.Project(), v3.string(ctx))
-		ctx.err("%v: %v ; %v{%v}",  ctx.Project(), v3, typeof(ctx.Context), typeof(ctx.Context.inner()))
+		ctx.err("%v: %v ; %v{%v}",  ctx.Project(), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if v3.string(cc) != v2.string(ctx) {
 		noted(of(ctx,v3), "%v: %v", ctx.Project(), v2.string(ctx))
 		noted(of(ctx,v3), "%v: %v", ctx.Project(), v3.string(ctx))
-		ctx.err("%v: %v ; %v{%v}",  ctx.Project(), v3, typeof(ctx.Context), typeof(ctx.Context.inner()))
+		ctx.err("%v: %v ; %v{%v}",  ctx.Project(), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if v3.string(ctx) == v1.string(ctx) {
 		noted(of(ctx,v3), "%v: %v", ctx.Project(), v1.string(ctx))
 		noted(of(ctx,v3), "%v: %v", ctx.Project(), v3.string(ctx))
-		ctx.err("%v: %v ; %v{%v}",  ctx.Project(), v3, typeof(ctx.Context), typeof(ctx.Context.inner()))
+		ctx.err("%v: %v ; %v{%v}",  ctx.Project(), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if v3.string(ctx) == v2.string(ctx) {
 		noted(of(ctx,v3), "%v: %v", ctx.Project(), v2.string(ctx))
 		noted(of(ctx,v3), "%v: %v", ctx.Project(), v3.string(ctx))
-		ctx.err("%v: %v ; %v{%v}",  ctx.Project(), v3, typeof(ctx.Context), typeof(ctx.Context.inner()))
+		ctx.err("%v: %v ; %v{%v}",  ctx.Project(), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if !strings.HasSuffix(v3.string(ctx), tail) {
 		ctx.err("%v: %v %v", typeof(v3), v3, tail)
 	} else if strings.HasSuffix(v3.string(cc), tail) {

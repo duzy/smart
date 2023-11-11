@@ -8,8 +8,9 @@ package smart
 
 import (
     "path/filepath"
-    "io/fs"
+    "reflect"
     "strings"
+    "io/fs"
     "sync"
     "time"
     "fmt"
@@ -68,8 +69,11 @@ type programContext struct {
 
     print bool // printing work directories (Entering/Leaving)
 }
-func (pc *programContext) inner() Context { return &pc.autoContext }
-func (pc *programContext) caller() *programContext { return pc.Context.pc() }
+func (pc *programContext) cast(t reflect.Type) Context {
+    if reflect.TypeOf(pc) == t { return pc }
+    return pc.autoContext.cast(t)
+}
+func (pc *programContext) caller() *programContext { return cast[*programContext](pc.Context) }
 func (pc *programContext) aquireLock() func() { pc.Lock() ; return func(){ pc.Unlock() }}
 //XXX: func (pc *programContext) stems() []string { return nil }
 func (pc *programContext) String() string {
@@ -82,7 +86,7 @@ func (pc *programContext) String() string {
 }
 
 func (pc *programContext) initializeArgs() {
-    if a := pc.Context.argumented(); a != nil {
+    if a := _argumentedContext(pc.Context); a != nil {
         pc.params = pc.args(pc.Context, pc.prog.params, a.args)
     }
 }
@@ -142,7 +146,6 @@ func (pc *programContext) env(ctx Context) (env []string, osi int) {
     return
 }
 
-func (pc *programContext) pc() *programContext { return pc }
 func (pc *programContext) program() *program { return pc.prog }
 func (pc *programContext) projects(ctx Context, projects ...*Project) []*Project {
     if len(pc.projs) == 0 { pc.projs = closureProjects(ctx) }
@@ -171,17 +174,17 @@ func (pc *programContext) Scope() *Scope {
 }
 func (pc *programContext) appendCallerUpdated() bool { return true }
 func (pc *programContext) mustExists() bool { return false }
-func (pc *programContext) closureScopes() (scopes []*Scope) {
+func (pc *programContext) closure() (scopes []*Scope) {
     if cc, ok := pc.Context.(*closurecontext); ok {
         if true {
-            scopes = cc.closureScopes()
-        } else if up := cc.pc(); up != nil {
-            scopes = up.closureScopes()
+            scopes = cc.closure()
+        } else if up := cast[*programContext](cc); up != nil {
+            scopes = up.closure()
         }
     } else if true {
         // fallthrough
-    } else if cc = pc.closure(); cc != nil {
-        scopes = cc.closureScopes()
+    } else if cc = cast[*closurecontext](pc); cc != nil {
+        scopes = cc.closure()
     }
     if pc.prog != nil { scopes = append(scopes, pc.prog.scope) }
     return
@@ -572,10 +575,10 @@ func (pc *programContext) deferTrave(ctx Context, targetValue, prereqValue, prer
 }
 
 func with(ctx Context, target Value) (res bool) {
-    if a := ctx.ac(); a != nil { if d := a.get(ctx, "@"); target == d || eq(ctx, target, d) {
+    if a := _autoContext(ctx); a != nil { if d := a.get(ctx, "@"); target == d || eq(ctx, target, d) {
         res = true
     } else {
-        res = with(a.inner(), target)
+        res = with(inner(a), target)
     }}
     return
 }
@@ -629,18 +632,18 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
         if d := time.Now().Sub(t0); d > 60*time.Second {
             if false {
-                var ac = ctx.ac()
+                var ac = _autoContext(ctx)
                 for ac != nil {
                     if d := ac.get(ctx, "@"); d != nil && d.value == targetValue {
                         warn(ctx, "%v", targetValue).debug(1)
                     }
-                    ac = ac.Context.ac()
+                    ac = _autoContext(ac.Context)
                 }
             }
             for i, c := range concreteList { warn(at(ctx,c.Position()), "%v : C#%d %v", targetValue, i, c) }
             for i, s := range stemmedList  { warn(at(ctx,s.position), "%v : S#%d %v", targetValue, i, s) }
             warnstack(ctx, 5, "slow: %v: %v: %v", targetValue, prereqValue, d).debug(10)
-            ctx.dia().flush()
+            _diaContext(ctx).flush()
         }
     } (time.Now())
 
@@ -854,7 +857,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         // NOTE: foo.pdf foo.tex [next@foo.tex:%%.org>foo.org]
         if tt := t.of(traveNext); tt.has() {
             var stemmedThisTarget bool
-            if sc := ctx.sc(); sc != nil && sc.stem != nil && sc.stem.target != nil {
+            if sc := cast[*stemmedContext](ctx); sc != nil && sc.stem != nil && sc.stem.target != nil {
                 stemmedThisTarget = eq(ctx, sc.stem.target, targetValue)
             }
             for _, s := range tt {
@@ -1038,7 +1041,7 @@ CheckPrereqResult:
         if fil := prereqFile;  fil != nil { erro(at(ctx,fil.Position()), "file: %v, exists=%v", fil, fil.exists()) }
         if obj := prereqObj;   obj != nil { erro(at(ctx,obj.Position()), "object: %T %v", obj, obj) }
         for i, s := range pc.traves { erro(at(ctx,s.pos), "trave.%d: %v: %v: %v", i, targetValue, prereqValue, s) }
-        for i, c := range ctx.closureScopes() { erro(ctx, "closure.%d: %v", i, c) }
+        for i, c := range ctx.closure() { erro(ctx, "closure.%d: %v", i, c) }
         for i, concrete := range concreteList { erro(at(ctx,concrete.Position()), "concrete: %d. %v (%d programs)", i, concrete, len(concrete.programs())) }
         for i, stemmed  := range stemmedList  { erro(at(ctx,stemmed.position), "stemmed: %d. %v", i, stemmed) }
         errostack(of(ctx, prereqValue), 6).debug(512)
@@ -1071,7 +1074,7 @@ func (pc *programContext) prerequisite(ctx Context, prerequisites []Value) {
                 prompt(ctx, "%v: %d. %v\n", target, i, s)
                 if i > 10 { break }
             }
-            warnstack(ctx, 5, "%d errors", ctx.dia().flush()).debug(16)
+            warnstack(ctx, 5, "%d errors", _diaContext(ctx).flush()).debug(16)
         }
 
         if f, y := target.(*File); false && y && !f.exists() {
@@ -1091,7 +1094,7 @@ func (pc *programContext) prerequisite(ctx Context, prerequisites []Value) {
         // FIXME: optimization: the pc.traves may grow into large number of traveFile
     } ()
 
-    if sc := ctx.sc(); sc != nil { stem = sc.stem }
+    if sc := cast[*stemmedContext](ctx); sc != nil { stem = sc.stem }
 
 ForPrerequisites:
     for _, prerequisite := range prerequisites {
@@ -1311,7 +1314,7 @@ func (t orderTraverseContext) traversed(ctx Context, target Value) (targets []Va
 }
 
 func (prog *program) workDir(ctx Context) (workDir string) {
-    if pc := ctx.pc(); pc == nil {
+    if pc := cast[*programContext](ctx); pc == nil {
         workDir = prog.project.absPath
     } else if pc.changedWD == "" {
         var o Object
@@ -1342,7 +1345,7 @@ func (prog *program) workDir(ctx Context) (workDir string) {
 
 func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
     var entry = ctx.entry()
-    var dia = ctx.dia()
+    var dia = _diaContext(ctx)
 
     defer dtrace(ctx, "execute "+entry.String())
 
@@ -1411,7 +1414,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         }}
 
         if 0 <= loop { var t = autoVal(cc, "@")
-            if o := cc.closure(); o != nil { if v := autoVal(o, "@"); v != nil && eq(cc, v, t) {
+            if o := cast[*closurecontext](cc); o != nil { if v := autoVal(o, "@"); v != nil && eq(cc, v, t) {
                 if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug(1) }
                 // FIXES: skip execution as it's closure, for example:
                 //
@@ -1426,7 +1429,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
                 return
             }}
 
-            prompt(ctx, "%v: %v: %v, %v\n", a[0], autoVal(cc.closure(), "@"), cc, cc.closure())
+            prompt(ctx, "%v: %v: %v, %v\n", a[0], autoVal(cast[*closurecontext](cc), "@"), cc, cast[*closurecontext](cc))
             for i, t := range a { erro(of(ctx,t), "loop: %v: %v", i, t) }
             errostack(at(ctx,prog.position), 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).debug(6)
             return
