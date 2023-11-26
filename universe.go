@@ -366,7 +366,7 @@ func (cache *filemapCache) val(ctx Context, key Value, bits int) (res *filemapCa
         res, _ = cache.vals[key]
     }
 
-    if res == nil && cast[*universe](ctx).errorUncache {
+    if res == nil && _universe(ctx).errorUncache {
         errostack(ctx, 10, "%08b: %s(%v) → %s", bits, typeof(key), key, key.string(ctx)).debug(32)
     }
     return
@@ -446,9 +446,9 @@ type universe struct {
 func (ctx *universe) String() (s string) { return /*"universe"*/ }
 func (ctx *universe) dirtyMark(vals ...Value) { return }
 func (ctx *universe) ref(_ Context, _ Value) bool { return false }
-func (ctx *universe) isConfigure() bool { return false }
+// func (ctx *universe) isConfigure() bool { return false }
 func (ctx *universe) stems() []string { return nil }
-func (ctx *universe) entry() Entry { return nil }
+// func (ctx *universe) entry() Entry { return nil }
 func (ctx *universe) loader() *loader { return ctx.globe.top }
 func (ctx *universe) Globe() *globe { return ctx.globe }
 func (ctx *universe) Scope() *Scope { return ctx.scope }
@@ -479,13 +479,6 @@ func (ctx *universe) projects(_ Context, projs ...*Project) []*Project {
 func (ctx *universe) closure() (scopes []*Scope) {
     if m := ctx.globe.main; m != nil && m.scope != nil {
         if false { scopes = append(scopes, m.scope) }
-    }
-    return
-}
-
-func (ctx *universe) db(ss ...string) (res bool) {
-    for _, d := range strings.Fields(ctx.ddd) {
-        for _, s := range ss { if d == s { return true }}
     }
     return
 }
@@ -564,7 +557,7 @@ func init_universe(ii ...interface{}) (ctx *universe) {
     ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os", dotos)
     ctx.globe.goals, _ = ctx.globe.define(ctx, DefVoid, ".goals", makeNone(pos))
     ctx.globe.mode,  _ = ctx.globe.define(ctx, DefVoid, ".mode",  makeNull(pos))
-    ctx.Context = &positionContext{ctx.Context/* = nil */, pos}
+    ctx.Context = &positional{ctx.Context/* = nil */, pos}
     return
 }
 
@@ -625,7 +618,7 @@ func stat(ctx Context, name string, ii ...interface{}) (file *File) {
         base *filebase
         stub *filestub
         fullname string
-        u = cast[*universe](ctx)
+        u = _universe(ctx)
     )
 
     u.statmutex.Lock(); defer u.statmutex.Unlock()
@@ -773,7 +766,7 @@ func unmap(ctx Context, name interface{}) (maps []matchedFileMap) {
 
     const S = ""
 
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     var h = hitch{&u.filemaps, hitched{name}}
     if v, y := name.(Value); y {
         if cache = v.hit(ctx, h, cacheZero); cache == nil {
@@ -1235,8 +1228,8 @@ func (g *globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
     m.scope.elems[".usee"] = m.use
     m.scope.mutex.Unlock()
     m.use.name_ = "usee"
+    m.use.owner_ = m
     m.use.scope = m.scope
-    m.use.owner = m
 
     if g.main == nil && spec != "" && name != "@" && name != "~" {
         for outer != nil && outer != g.Scope {

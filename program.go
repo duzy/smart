@@ -71,11 +71,12 @@ type programContext struct {
 }
 func (pc *programContext) cast(t reflect.Type) Context {
     if reflect.TypeOf(pc) == t { return pc }
+    if reflect.TypeOf((*argumentedContext)(nil)) == t { return nil }
+    if reflect.TypeOf((*stemmedContext)(nil)) == t { return nil }
     return pc.autoContext.cast(t)
 }
 func (pc *programContext) caller() *programContext { return cast[*programContext](pc.Context) }
-func (pc *programContext) aquireLock() func() { pc.Lock() ; return func(){ pc.Unlock() }}
-//XXX: func (pc *programContext) stems() []string { return nil }
+func (pc *programContext) aquire() func() { pc.Lock() ; return func(){ pc.Unlock() }}
 func (pc *programContext) String() string {
     if fullContextStringer {
         var s = strings.TrimPrefix(pc.prog.scope.comment, "rule ")
@@ -85,22 +86,6 @@ func (pc *programContext) String() string {
     }
 }
 
-func (pc *programContext) initializeArgs() {
-    if a := _argumentedContext(pc.Context); a != nil {
-        pc.params = pc.args(pc.Context, pc.prog.params, a.args)
-    }
-}
-
-// func (pc *programContext) spawn(ctx Context) Context {
-//     return &traverseContext{
-//         Context: pc.Context.spawn(ctx),
-//         print:   pc.print,
-//         execRec: make(map[Value]int),
-//         start:   time.Now(),
-//     }
-// }
-
-func (pc *programContext) argumented() *argumentedContext { return nil }
 func (pc *programContext) depth() (res int) {
     for c := pc.caller(); c != nil; c = c.caller() { res += 1 }
     return
@@ -172,7 +157,6 @@ func (pc *programContext) Scope() *Scope {
     if pc.prog != nil { return pc.prog.scope }
     return pc.autoContext.Scope()
 }
-func (pc *programContext) appendCallerUpdated() bool { return true }
 func (pc *programContext) mustExists() bool { return false }
 func (pc *programContext) closure() (scopes []*Scope) {
     if cc, ok := pc.Context.(*closurecontext); ok {
@@ -239,7 +223,7 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
     }
 
     if false && i == dialects["shell"] { defer func() {
-        warnstack(ctx, 3, "shell: %v %v", params, ctx.isConfigure()).debug(10)
+        warnstack(ctx, 3, "shell: %v %v", params, isConfigure(ctx)).debug(10)
     }()}
 
     var err error
@@ -253,11 +237,11 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
         return
     }
 
-    if ctx.isConfigure() {/* no dirty-checks for configure */} else
+    if isConfigure(ctx) {/* no dirty-checks for configure */} else
     if f, y := target.(*File); y && pc != nil && !ctx.dirty(ctx) {
         pc.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
 
-        if false { if e := ctx.entry(); e != nil { if r, y := e.(*rule); y {
+        if false { if e := _entry(ctx); e != nil { if r, y := e.(*rule); y {
             if t, y := r.target.(flag); y {
                 warnstack(ctx, 3, "interpret: %v", t, f).debug(1)
             }
@@ -268,7 +252,7 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
     var value Value
     if value, err = i.evaluate(ctx, params...); err != nil {
         var (
-            _, ent, _ = entryIndicator(ctx, ctx.entry())
+            _, ent, _ = entryIndicator(ctx, _entry(ctx))
             nam = intername(i)
         )
         prompt(ctx, "%v: interpret '%s' recipes failed\n", ent, nam)
@@ -278,7 +262,7 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
     } else if value == nil {
         // disgard nil value
     } else if def, prev := autoSet(ctx, "-", value); def == nil {
-        var _, ent, _ = entryIndicator(ctx, ctx.entry())
+        var _, ent, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
         erro(ctx, "set buffer value failed: %v -> %v", prev, value)
         errostack(ctx, 3, "%v", ctx).debug(1)
@@ -286,7 +270,7 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
     }
 
     if _, _, err = updateRecipesHash(ctx, target); err != nil {
-        var _, ent, _ = entryIndicator(ctx, ctx.entry())
+        var _, ent, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
         erro(ctx, "update recipes hash failed: %v", err)
         errostack(ctx, 3, "%v", ctx).debug(1)
@@ -486,7 +470,7 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
         prereqStrval = prereqValue.string(ctx)
 
         if prereqStrval == "" { // just reject empty strval
-            errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, ctx.stems()).debug(8)
+            errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, _stems(ctx)).debug(8)
             return
         }
 
@@ -494,7 +478,7 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
         case flag, *strlit, *compound:
             return // skip checking files for performance
         }
-        for _, p := range ctx.entry().programs() { if p.configure {
+        for _, p := range _entry(ctx).programs() { if p.configure {
             return
         }}
 
@@ -502,7 +486,7 @@ func probPrereqValue(ctx Context, projects []*Project, val Value) (prereqValue, 
         return
     }
 
-    var stems = ctx.stems()
+    var stems = _stems(ctx)
     if len(stems) == 0 {
         if false { errostack(ctx, 3, "%v: no stems, %v", prereqValue, ctx).debug(8) }
         return
@@ -588,7 +572,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     defer dtrace(ctx, "traverse")
 
     var (
-        uni = cast[*universe](ctx)
+        uni = _universe(ctx)
         verb = uni.verbose || uni.verboseBreaks
 
         projects = ctx.projects(ctx)
@@ -605,7 +589,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
         t1, t2 time.Time
 
-        db = false
+        _db = false
     )
     defer func(t0 time.Time) {
         pc.deferTrave(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
@@ -661,7 +645,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     prereqValue, prereqPattern, prereqStrval, prereqFile, prereqObj =
         probPrereqValue(ctx, projects, prereqValue)
 
-    if uni.db("traverse") || (true && (
+    if db(ctx, "traverse") || (true && (
         // strings.HasPrefix(targetValue.string(ctx), "HAVE_PTHREAD_IN_LIBC") ||
         // strings.HasPrefix(targetValue.string(ctx), "HAVE_LIBPTHREAD") ||
         false)) {
@@ -706,7 +690,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             notestack(ctx, 5).debug(2)
         } ()
 
-        db = true
+        _db = true
     }
 
     if f := prereqFile; f != nil { if f._travin += 1; f._travin > 1 { return }}
@@ -784,7 +768,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         traveResReturn
     )
     var traverseEntry = func(project *Project, entry Entry, pattern bool) (result traveResT) {
-        if false && db { defer func() { noted(ctx, "%v: %v", entry, pc.traves).debug(2) } () }
+        if false && _db { defer func() { noted(ctx, "%v: %v", entry, pc.traves).debug(2) } () }
 
         entry.traverse(ctx) // NOTE: this adds traveRule to pc.traves
 
@@ -795,7 +779,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
         if tt := t.of(traveFail); tt.has() {
             if !pattern || verb {
-                var stems = ctx.stems()
+                var stems = _stems(ctx)
                 prompt(ctx, "%v: traverse entry failed (%v)\n", entry, project)
                 warn(of(ctx,entry), "%v: %v: %v (stems=%v)", entry, targetValue, prereqValue, stems)
                 for i, s := range pc.traves {
@@ -809,7 +793,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             }
             for _, s := range tt {
                 if g := s.target; g != nil && eq(ctx, prereqValue, g) && true {
-                    warn(of(ctx,entry), "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue, entry.OwnerProject()).debug(1)
+                    warn(of(ctx,entry), "%v (%T) (by %v, in %v)", entry, entry.Target(), targetValue, entry.owner()).debug(1)
                     return traveResContinue
                 }
             }
@@ -845,7 +829,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
                         erro(at(ctx,s.pos), "%v: %v", targetValue, prereqFile.fullname())
                         erro(at(ctx,s.pos), "%v: %v", targetValue, entry)
                         errostack(at(ctx,s.pos), 3, "").debug(10)
-                    } else if true && db {
+                    } else if true && _db {
                         info(at(ctx,s.pos), "%v %v %v %v, %v %v",
                             targetValue, entry, prereqValue, prereqFile, g, s).debug(10)
                     }
@@ -905,7 +889,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
 
     for _, project := range projects {
         var entries = project.resolveEntries(ctx, prereqValue, false)
-        if false && db {
+        if false && _db {
             noted(ctx, "entries: %T %v ⇒ %v (%v)", prereqValue, prereqValue, entries, project).debug(1)
         }
         if entries == nil || len(entries.all) == 0 { continue }
@@ -940,7 +924,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         }}
         for _, p := range project.patterns { assert(p.target.patterned(ctx), "not pattern") }
         var patterns = project.resolvePatterns(ctx, prereqValue, prereqStrval)
-        if false && db {
+        if false && _db {
             noted(ctx, "stemmed: %T %v ⇒ %v (%v)", prereqValue, prereqValue, patterns, project).debug(1)
         }
         if len(patterns) == 0 { continue }
@@ -1016,9 +1000,9 @@ CheckPrereqResult:
         return
     }
 
-    if ctx.isConfigure() { return }
+    if isConfigure(ctx) { return }
 
-    if len(ctx.stems()) == 0 || ctx.mustExists() {
+    if len(_stems(ctx)) == 0 || cast[*modifier_deps](ctx) != nil {
         if s := pc.traves.add(ctx, traveFail, targetValue); prereqFile != nil {
             s.error = fileNotFoundError{ctx.Project(), prereqFile}
             ctx = at(ctx, prereqFile.position)
@@ -1053,7 +1037,7 @@ CheckPrereqResult:
 
 func (pc *programContext) prerequisite(ctx Context, prerequisites []Value) {
     var (
-        uni = cast[*universe](ctx)
+        uni = _universe(ctx)
         verb = uni.verbose || uni.verboseBreaks
         ent  = autoVal(ctx, "@")
         stem *stemmed
@@ -1118,7 +1102,7 @@ ForPrerequisites:
         if false {
             var p = prerequisite
             if _, y := p.(*modification); !y {
-                v := p.expand(ctx, strval|expandUnexpandedForth)
+                v := p.expand(ctx, strval|expandUnexpanded)
                 noted(ctx, "%v %v(%v) → %v(%v)", target, typeof(p), p, typeof(v), v).debug(1)
             } else {
                 noted(ctx, "%v %v(%v) ⇒ %v", target, typeof(p), p, depend).debug(1)
@@ -1135,7 +1119,7 @@ ForPrerequisites:
             // noop
         } else if p, y := prerequisite.(*delegate); y && p.x.kind() == KindUseList {
             // noop
-        } else if p := prerequisite.expand(ctx, strval|expandUnexpandedForth); p == nil {
+        } else if p := prerequisite.expand(ctx, strval|expandUnexpanded); p == nil {
             // noop
         } else if u, y := p.(unexpanded); y {
             noted(ctx, "%v: %v(%v) → %v(%v), %v(%v)",
@@ -1213,7 +1197,7 @@ ForPrerequisites:
             if verb {
                 var p = ctx.Project()
                 prompt(ctx, "%v:(%T): %T %v ; project=%s, stems=%v ; %v\n",
-                    pc.traves, target, prerequisite, prerequisite, p, ctx.stems(), stem)
+                    pc.traves, target, prerequisite, prerequisite, p, _stems(ctx), stem)
 
                 var a = []interface{}{ "#>" }
                 for _, s := range tt {
@@ -1344,7 +1328,7 @@ func (prog *program) workDir(ctx Context) (workDir string) {
 }
 
 func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
-    var entry = ctx.entry()
+    var entry = _entry(ctx)
     var dia = _diaContext(ctx)
 
     defer dtrace(ctx, "execute "+entry.String())
@@ -1379,7 +1363,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
                 noted(ctx, "%s: got %d errors", ent, errs).debug(1)
             }
 
-            if false && !ctx.isConfigure() {
+            if false && !isConfigure(ctx) {
                 pc.traves.add(ctx, traveFail, targets).
                     error = fmt.Errorf("got %d error(s) for %v", errs, str)
             }
@@ -1473,10 +1457,10 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
             return
         }
 
-        if t := ctx.stems(); t != nil { autoSet(ctx, "*", ease(ctx, t)) }
+        if t := _stems(ctx); t != nil { autoSet(ctx, "*", ease(ctx, t)) }
     }
 
-    var uni = cast[*universe](ctx)
+    var u = _universe(ctx)
 
     // NOTE: set "@" before setting auto args
     // Select the right target value before setting parameters,
@@ -1497,16 +1481,18 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         }
 
         if pc.execRec[target] += 1; false { if pc.execRec[target] > 1 {
-            if uni.traceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
+            if u.traceExec { t_exec.trace(fmt.Sprintf("exec: %v", target)) }
             return
         }}
 
         autoSet(ctx, "@", target)
     }
 
-    pc.initializeArgs()
+    if a := _argumentedContext(pc.Context); a != nil {
+        pc.params = pc.args(ctx, pc.prog.params, a.args)
+    }
 
-    if uni.traceExec {
+    if u.traceExec {
         var d = pc.depth()
         var t = autoVal(ctx, "@")
         var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)

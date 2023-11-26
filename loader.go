@@ -234,7 +234,7 @@ func usefor(ctx Context, user *Project, f func(usevar, Value, Value, string)) {
     }}}
 }
 func usevars(ctx Context, user, usee *Project) {
-    var ddd = cast[*universe](ctx).ddd == "use"
+    var ddd = _universe(ctx).ddd == "use"
     usefor(ctx, user, func(op usevar, spec, val Value, name string) {
         var useDef *def
         if o := usee.scope.Lookup("use."+name); o != nil {
@@ -296,7 +296,7 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
 	if true { defer dtrace(ctx, "usespec") }
 
     var (
-        u = cast[*universe](l.Context)
+        u = _universe(l.Context)
         globe = l.Globe()
         linfo = globe.loads[len(globe.loads)-1]
         absPath, specName string
@@ -512,7 +512,7 @@ const pluginDifferentVersionError = `plugin was built with a different version o
 var numUpdatedPlugins = 0
 
 func buildPlugin(ctx Context, s, src string) (err error) {
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if u.traceLaunch { defer un(trace(t_launch, "loader.buildPlugin")) }
 
     prompt(ctx, "smart: Build %v …", src)
@@ -533,7 +533,7 @@ func buildPlugin(ctx Context, s, src string) (err error) {
 }
 
 func (l *loader) loadPlugin(ctx Context) (err error) {
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if u.traceLaunch { defer un(trace(t_launch, "loader.loadPlugin")) }
     if l.project == nil {
         erro(ctx, "current project is nil").debug(32)
@@ -580,7 +580,7 @@ func (l *loader) loadPlugin(ctx Context) (err error) {
 }
 
 func (l *loader) use(ctx Context, usee *Project, params []Value, opts useOpts) (err error) {
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if u.verboseUsing { defer func(t time.Time) {
         var d = time.Now().Sub(t)
         prompt(ctx, "use(%15s) %s ⇒ %v\n", d, l.project, l.project.use)
@@ -701,9 +701,9 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *de
             }
         } else if tok == ASSIGN || tok == EXC_ASSIGN {
             if a, y := alt.(*def); !y {
-                erro(ctx, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project).debug(1)
+                erro(ctx, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.owner(), l.project).debug(1)
                 return
-            } else if a.owner == l.project && a.origin != DefConfRef {
+            } else if a.owner() == l.project && a.origin != DefConfRef {
                 erro(ctx, "`%v` already defined (%T) (%v)", identifier, alt, l.project).debug(1)
                 return
             } else {
@@ -715,7 +715,7 @@ func (l *loader) define1(ctx Context, tok Token, identifier, value Value) (d *de
 
         if prev == nil {
             // no derived value
-        } else if prev.OwnerProject() == l.project {
+        } else if prev.owner() == l.project {
             // not derivable def if they are from the same project
         } else if derived, y := prev.(*def); !y {
             // not a def
@@ -864,7 +864,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     defer dtrace(ctx, "include")
 
     var (
-        u = cast[*universe](ctx)
+        u = _universe(ctx)
         globe = l.Globe()
         linfo = globe.loads[len(globe.loads)-1]
         specName, fullname string
@@ -972,7 +972,7 @@ func (l *loader) closure() (scopes []*Scope) {
 }
 
 func (l *loader) openScope(comment string) (scopes []*Scope) {
-    var u = cast[*universe](l.Context)
+    var u = _universe(l.Context)
     if false && u.traceLaunch { defer un(trace(t_launch, "loader.openScope")) }
     var pos Position
     if l.p != nil { pos = l.Position() } else {
@@ -986,7 +986,7 @@ func (l *loader) openScope(comment string) (scopes []*Scope) {
 }
 
 func (l *loader) closeScope(scopes []*Scope) {
-    var u = cast[*universe](l.Context)
+    var u = _universe(l.Context)
     if false && u.traceLaunch { defer un(trace(t_launch, "loader.closeScope")) }
     if scope := l.Scope(); scope == nil {
         // nil scope
@@ -1006,7 +1006,7 @@ func (l *loader) setArgs(args []Value) (oldArgs []Value) {
 
 // project example (base(var=value))
 func (l *loader) bases(ctx Context, linfo *loadinfo, implicitBase string, params ...Value) (result bool) {
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if u.traceLaunch { defer un(trace(t_launch, "loader.bases")) }
 
     // For &(foobar) set from loadArgs
@@ -1177,7 +1177,7 @@ ParamsLoop:
 }
 
 func (l *loader) loadDotContainer(ctx Context, ident *barecomp, identStr string, file *File) (result bool) {
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if u.traceLaunch { defer un(trace(t_launch, "loader.loadDotContainer")) }
     if file.info == nil {
         erro(ctx, "%s: file not exists: %s", ident, file.fullname()).debug(1)
@@ -1212,7 +1212,7 @@ func (l *loader) loadDotContainer(ctx Context, ident *barecomp, identStr string,
 }
 
 func (l *loader) DEPRECATED_loadDotConfigure(ctx Context, ident *barecomp, identStr string, file *File) (result bool) {
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if u.traceLaunch { defer un(trace(t_launch, "loader.loadDotConfigure")) }
 
     var position = ident.Position()
@@ -1384,7 +1384,7 @@ func (l *loader) autoload(ctx Context, tag string) {
     } else if val := scalarize(d.value.expand(ctx, strval)); isTrivial(val) {
         // skip...
     } else {
-        var u = cast[*universe](ctx)
+        var u = _universe(ctx)
         const ( o = true ; t = false ; s = "autoload" )
         if t && u.ddd == s { prompt(ctx, "%s: autoload - %s,\n", l.Position(), tag) }
         if o { l.include(ctx, includeOpts{}, val) }
@@ -1401,7 +1401,7 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
     var v = l.project.opts.configure
     if v != nil {
         if t, y := v.(*boolean); y { if !t.bool { return } } else
-        if !Is(v, KindNumber) { configure = v.string(ctx) }
+        if !is(v, KindNumber) { configure = v.string(ctx) }
     }
     if local = configure == "."; local || configure == "" { configure = "configure" }
 
@@ -1429,7 +1429,7 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
         absPath, isDir = file.fullname(), file.info.IsDir()
     }
     if absPath == "" && v != nil {
-        if !local { absPath, isDir = cast[*universe](ctx).search(ctx, linfo, configure) }
+        if !local { absPath, isDir = _universe(ctx).search(ctx, linfo, configure) }
         if absPath == "" {
             erro(ctx, "%v: no such project: %s", l.project, configure).debug(1)
         }
@@ -1461,7 +1461,7 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
         }
     }
 
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
 
     // Load configuration.sm after .configure was loaded.
     l.project.configure = loaded // must set .configure first to get the correct configuration file
@@ -1495,7 +1495,7 @@ func (l *loader) container(ctx Context, ident *barecomp, identStr string) (resul
             return
         }
 
-        var u = cast[*universe](ctx)
+        var u = _universe(ctx)
 
         // Looking for project specific .container module
         if f := stat(ctx, dotContainer, l.project); f.exists() {
@@ -1650,7 +1650,7 @@ func readSource(filename string, source... interface{}) ([]byte, error) {
 }
 
 func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode, opts *includeOpts) (f *parsedFile, res []Value, err error) {
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if u.traceLaunch { defer un(trace(t_launch, "loader.ParseFile")) }
     if u.verbose { if ctx.Position().Filename == filename {
         info(ctx, "loading ...")
@@ -1791,14 +1791,14 @@ ListLoop:
 }
 
 func (l *loader) sources(ctx Context, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
-    var u = cast[*universe](l.Context)
+    var u = _universe(l.Context)
 
     defer dtrace(ctx, "sources")
 
     defer func(t time.Time) {
         if d := time.Now().Sub(t); u.verboseParse || d > 3*time.Second {
             noted(ctx, "slow: %s (%v)", l.project, d).debug(1)
-        } else if u.debugParsing(ctx, "sources") {
+        } else if u.debugSyntax(ctx, "sources") {
 			noted(ctx, "sources: %s (%v)", l.project, time.Now().Sub(t)).debug(6)
 		}
     } (time.Now())
@@ -1929,7 +1929,7 @@ ListLoop:
 
 // loader.Load loads script from a file or source code (string, []byte).
 func (l *loader) load(ctx Context, specName, absPath string, source interface{}) (result bool) {
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if u.traceLaunch { defer un(trace(t_launch, "loader.load")) }
 
     var globe = l.Globe()
@@ -1984,7 +1984,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
 }
 
 func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileInfo) bool) (loadedOkay bool) {
-    if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "loader.dir")) }
+    if _universe(ctx).traceLaunch { defer un(trace(t_launch, "loader.dir")) }
 
 	defer dtrace(ctx, "dir (%s)", specName)
 
@@ -2023,7 +2023,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
                 }
             }
         }
-    } (time.Now(), cast[*universe](ctx).verboseLoads)
+    } (time.Now(), _universe(ctx).verboseLoads)
 
     // Check loaded project.
     if loaded, loadedOkay = globe.loaded[absDir]; loadedOkay { return }
@@ -2033,7 +2033,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
     var mods map[string]*Project
     if mods = l.sources(at(l, pos), absDir, filter, parseMode); mods == nil {
         errostack(ctx, 3, "failed parsing module: %s", specName).debug(12)
-        if cast[*universe](ctx).failOnErrors {
+        if _universe(ctx).failOnErrors {
             panic(failure{"fail by %d errors",ia(l.Position(), _diaContext(l.Context).totalErrors())})
         }
         return
@@ -2060,7 +2060,7 @@ func (l *loader) dir(ctx Context, specName, absDir string, filter func(os.FileIn
 }
 
 func (l *loader) file(ctx Context, filename string, source interface{}) (res bool) {
-    if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "loader.file")) }
+    if _universe(ctx).traceLaunch { defer un(trace(t_launch, "loader.file")) }
 
     var spec string
     switch dir, base := filepath.Split(filename); base {
@@ -2074,7 +2074,7 @@ func (l *loader) file(ctx Context, filename string, source interface{}) (res boo
 }
 
 func (l *loader) path(ctx Context, path string, filter func(os.FileInfo) bool) bool {
-    if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "loader.path")) }
+    if _universe(ctx).traceLaunch { defer un(trace(t_launch, "loader.path")) }
 
     var spec, _ = filepath.Rel(l.workDir(), path)
 
@@ -2084,12 +2084,12 @@ func (l *loader) path(ctx Context, path string, filter func(os.FileInfo) bool) b
 }
 
 func (l *loader) text(ctx Context, filename string, text string) (res []Value) {
-    if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "loader.text")) }
+    if _universe(ctx).traceLaunch { defer un(trace(t_launch, "loader.text")) }
 
     defer func(saved *parser) { l.p = saved } (l.p)
 
     if g := l.Globe(); g.main == nil {
-        l.scopes[0] = g.os.scope
+        l.scopes[0] = g.os.scope_
     } else {
         l.scopes[0] = g.main.scope
     }

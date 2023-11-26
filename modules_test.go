@@ -78,6 +78,11 @@ var testWrongExecOutput = []*regexp.Regexp{
 	regexp.MustCompile(`^ld: (unknown options: (.+))`),
 	regexp.MustCompile(`^ld: (Missing -platform_version option)`),
 	regexp.MustCompile(`^ld: (-platform_version unknown platform: (.+))`),
+	regexp.MustCompile(`^(ld: library '[^=]+=.+?' not found)`), // ld: library 'NAME=bsd' not found
+
+	// Errors caused by wrong #include, example: #include TARGET=HAVE_LIBIEEE
+	regexp.MustCompile(`^.+:[[:digit:]]+:[[:digit:]]+: (error: expected "FILENAME" or <FILENAME>)`),
+	regexp.MustCompile(`^(#include [^=]+=.+)`),
 }
 type testSuspicious struct {
 	rx *regexp.Regexp
@@ -152,6 +157,7 @@ func validFlags(ctx *testcase, v Value, s string) (res bool) {
 }
 
 var testValidateClang = regexp.MustCompile(`^@?(?:/(?:[^/]*/)+)?(clang(?:\+{2})?)[[:space:]]+`)
+var testValidateOutFilename = regexp.MustCompile(`\.configure/[^/=]+?/[^/=]+$`)
 
 func testValidateExecRecipe(tc *testcase, ctx Context, source string, recipe Value) {
 	if source == "" || recipe == nil { return }
@@ -168,19 +174,24 @@ func testValidateExecRecipe(tc *testcase, ctx Context, source string, recipe Val
 }
 
 func testValidateExecOutput(tc *testcase, ctx Context, line string, l int) {
+	pos := ctx.Position()
+	if !testValidateOutFilename.MatchString(pos.Filename) {
+		errostack(ctx, 2, "invalid output filename").debug(5)
+	}
+
 	for _, rx := range testWrongExecOutput {
 		if m := rx.FindStringSubmatch(line); len(m) > 0 {
 			if len(m) < 2 {
-				errostack(ctx, 2, "%v", m[0]).debug(1)
+				errostack(ctx, 2, "%v", m[0]).debug(5)
 			} else {
-				errostack(ctx, 2, "%v", m[1]).debug(1)
+				errostack(ctx, 2, "%v", m[1]).debug(5)
 			}
 		}
 	}
 	for _, t := range testSuspiciousExecOutput {
 		if m := t.rx.FindStringSubmatch(line); len(m) > 0 {
 			if _, y := t.ignore[m[t.k]]; !y {
-				errostack(ctx, 2, "%v", m[t.i]).debug(1)
+				errostack(ctx, 2, "%v", m[t.i]).debug(5)
 			}
 		}
 	}
@@ -1608,11 +1619,11 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if v3 := ctx.get("LLVM_VERSION_PATCH"); v3 == nil {
 		ctx.err("LLVM_VERSION_PATCH")
 	} else if v1.String() != `$(grep '^ *set\(LLVM_VERSION_MAJOR +([0-9]+) *\)',$1,CMakeLists.txt)` {
-		ctx.err("LLVM_VERSION_MAJOR: %v; %v", v1, typeof(v1))
+		ctx.err("LLVM_VERSION_MAJOR: %v{%v}", typeof(v1), v1)
 	} else if v2.String() != `$(grep '^ *set\(LLVM_VERSION_MINOR +([0-9]+) *\)',$1,CMakeLists.txt)` {
-		ctx.err("LLVM_VERSION_MINOR: %v; %v", v2, typeof(v2))
+		ctx.err("LLVM_VERSION_MINOR: %v{%v}", typeof(v2), v2)
 	} else if v3.String() != `$(grep '^ *set\(LLVM_VERSION_PATCH +([0-9]+) *\)',$1,CMakeLists.txt)` {
-		ctx.err("LLVM_VERSION_PATCH: %v; %v", v3, typeof(v3))
+		ctx.err("LLVM_VERSION_PATCH: %v{%v}", typeof(v3), v3)
 	} else if ver1_val, ver1 = v1, v1.string(ctx); ver1 == "" {
 		ctx.err("LLVM_VERSION_MAJOR: %v", v1)
 	} else if ver2_val, ver2 = v2, v2.string(ctx); ver2 == "" {
@@ -2306,7 +2317,7 @@ func testToolchainBooting(ctx *testcase) {
 
 	if r := ctx.rule("stamp"); r == nil {
 		ctx.err("stamp")
-	} else if v, e := cast[*universe](ctx).run(); e != nil {
+	} else if v, e := _universe(ctx).run(); e != nil {
 		ctx.err("%v: %v (%v)", r, e, v)
 	}
 }

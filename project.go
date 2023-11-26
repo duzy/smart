@@ -497,7 +497,7 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   if p == nil { erro(ctx, "nil project").debug(1) ; return }
 
   var bits = cacheStore // cacheMatchPatts
-  for mi, m := range cast[*universe](ctx).cache(ctx, p, patts, paths) {
+  for mi, m := range _universe(ctx).cache(ctx, p, patts, paths) {
     var ctx = of(ctx, m.pattern)
     for i, pat := range xmerge(ctx, plain, m.pattern) {
       if pat.expandable(ctx, plain) {
@@ -563,11 +563,13 @@ func (p *Project) resolve(ctx Context, s string) (obj Object) {
       }
     }
     if obj == nil && p.configure != nil && p.configure != p {
-      obj = p.configure.resolve(ctx, s) // ctx.isConfigure()
+      obj = p.configure.resolve(ctx, s) // isConfigure(ctx)
     }
   }}
   return
 }
+
+var testResolveEntries bool
 
 func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBases bool) (entries *resolvedEntries) {
   var add = func(a ...Entry) {
@@ -585,11 +587,13 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBas
       // good
     } else if c := p.entries.strx(ctx, "''", bits); c != nil {
       if c = c.strx(ctx, s, bits); c != nil {
+        if testResolveEntries { return }
         errostack(ctx, 3, "%s: no such entry, do you mean '%s'?", s, s).debug(16)
         return
       }
     } else if c := p.entries.strx(ctx, "\"\"", bits); c != nil {
       if c = c.strx(ctx, s, bits); c != nil {
+        if testResolveEntries { return }
         errostack(ctx, 3, "%v: no such entry, do you mean \"%s\"?", s, s).debug(16)
         return
       }
@@ -619,7 +623,7 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBas
     add(cache._val.(*rule))
   }
 
-  if p.configure != nil && ctx.isConfigure() {
+  if p.configure != nil && isConfigure(ctx) {
     var t = p.configure.resolveEntries(ctx, name, true)
     if t != nil && t.all != nil { add(t.all...) }
   }
@@ -737,7 +741,7 @@ func (p *Project) resolvePatterns2(ctx Context, val Value, s string) (res []*ste
     var a, _, _ = base.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
   }
-  if p.configure != nil && ctx.isConfigure() {
+  if p.configure != nil && isConfigure(ctx) {
     var a, _, _ = p.configure.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
   }
@@ -843,7 +847,7 @@ func (p *Project) hasBase(proj *Project) (res bool) {
 }
 
 func (p *Project) hasLoaded(ctx Context, proj *Project, traveUseLoop bool) (rp *Project, res, isb bool, err error) {
-  var uni = cast[*universe](ctx)
+  var uni = _universe(ctx)
   if uni.checkLoadGraph || !uni.fastMode {
     rp, res, isb, err = p.hasLoadedRecur(ctx, p, proj, 1, traveUseLoop)
   }

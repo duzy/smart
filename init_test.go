@@ -111,35 +111,33 @@ func (tc *testcase) get(name string, ii ...interface{}) (res Value) {
 	var d *def
     var y bool
 	var w facet
-	var a []Value
+	var a, o []Value
 	var s = skipint{2} // tRunner + testcase.get
 	var ctx Context = tc
 	var proj = tc.Project()
 	for _, i := range ii {
-		if t, y := i.(*Project); y {
-			proj, ctx = t, closureWith(ctx, t.scope)
-		} else if t, y := i.(skipint); y {
-			s.int = t.int+1
-		}else if t, y := i.(facet); y {
-			w |= t
-		} else {
-			a = append(a, va(tc, i))
+		switch t := i.(type) {
+		case *Project: proj, ctx = t, closureWith(ctx, t.scope)
+		case  skipint: s.int = t.int+1
+		case    facet: w |= t
+		case     opt : o = append(o, t.Value)
+		case     opts: o = append(o, t.vals...)
+		default:       a = append(a, va(tc, i))
 		}
 	}
 
-	if o := proj.resolve(ctx, name); o == nil {
+	if t := proj.resolve(ctx, name); t == nil {
 		erro(ctx, "%v: %s is nil", proj, name)
-	} else if d, y = o.(*def); !y {
-		erro(ctx, "%v: %s is not def: %T", proj, name, o)
+	} else if d, y = t.(*def); !y {
+		erro(ctx, "%v: %s is not def: %v", proj, name, typeof(t))
 	} else if len(a) > 0 {
-		if t := invoke(ctx, d, w, nil, a); t != o { res = t }
-	} else if d.value != nil { if res = d.value; w != 0 {
-		res = res.expand(ctx, w)
-	}}
-
-	if res == nil && d != nil { res = makeNull(d.position)
-		if false { tc.Errorf("%s: %v", name, d.value) }
-		erro(at(ctx,d.position), "%v", d).debug(1, s)
+		res, _, _ = evoke(ctx, d, w, o, a)
+	} else if d.value == nil {
+		// nil
+	} else if w != 0 {
+		res = d.value.expand(ctx, w)
+	} else {
+		res = d.value
 	}
 	return
 }

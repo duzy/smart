@@ -568,7 +568,7 @@ func typeof(arg interface{}) (s string) {
 }
 
 type builtin_typeof struct { builtin_
-    expand bool `x,e,ex,exp,expand`
+    expand bool `ex,exp,expand`
 }
 func (ctx *builtin_typeof) a(ic *evocation, w facet) (skip bool) { return }
 func (ctx *builtin_typeof) x(ic *evocation, w facet) (res interface{}) {
@@ -612,7 +612,7 @@ type builtin_pushcontext struct { builtin_ }
 func (ctx *builtin_pushcontext) c(ic *evocation, w facet) (res interface{}) {
     var (
         scope = ctx.Scope()
-        uc = cast[*universe](ctx)
+        uc = _universe(ctx)
         m map[string]*def
     )
     for _, arg := range ic.a {
@@ -647,7 +647,7 @@ func (ctx *builtin_popcontext) c(ic *evocation, w facet) (res interface{}) {
     }}
 
     var scope = ctx.Scope()
-    var uc = cast[*universe](ctx)
+    var uc = _universe(ctx)
     var l = len(uc.globe.stack)
     if l == 0 { return }
     for s, d := range uc.globe.stack[l-1] { if d == nil { if s == "" { continue }
@@ -751,7 +751,7 @@ func (ctx *builtin_warning) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_assert struct { builtin_
-    msg string `m,msg,message`
+    msg string `msg,message`
 }
 func (ctx *builtin_assert) a(ic *evocation, w facet) (skip bool) { return }
 func (ctx *builtin_assert) c(ic *evocation, w facet) (res interface{}) { return ctx.x(ic, w) }
@@ -762,7 +762,7 @@ func (ctx *builtin_assert) x(ic *evocation, w facet) (res interface{}) {
     var s = ctx.stack ; if s < 1 { s = 1 }
     var t = diagError ; if ctx.warn { t = diagWarn }
 
-    var hook = cast[*universe](ctx).hooks.assert
+    var hook = _universe(ctx).hooks.assert
     if ic.a == nil && hook != nil && !hook(ctx, nil, false) {
         prompt(ctx, "assert: %v\n", ic.a)
         diagstack(ctx, s, t).debug(d)
@@ -815,7 +815,7 @@ func (ctx *builtin_or) _a(ic *evocation, w facet) (skip bool) {
         if false && !ctx.forth {
             if _, y := a.(unexpanded); y { skip = true }
         }
-        if false && cast[*universe](ctx).db("or") {
+        if false && db(ctx, "or") {
             noted(ctx, "or: %v %d. %v ; %v %v %v", ic.a, i, a.expand(ctx, w), autoDef(ctx, "1"), autoDef(ctx, "2"), autoDef(ctx, "3"))
         }
         ic.a[i] = a.expand(ctx, w)
@@ -826,7 +826,7 @@ func (ctx *builtin_or) x(ic *evocation, w facet) (res interface{}) {
     for _, a := range umerge(true, ic.a...) {
         if a.expandable(ctx, w) { a = a.expand(ctx, w) }
         if !ctx.forth { if u, y := a.(unexpanded); y {
-            if false && cast[*universe](ctx).db("or") { v := u.Value
+            if false && db(ctx, "or") { v := u.Value
                 noted(ctx, "or: %T %v %030b", v, v, w&expandDefAssign).debug(1)
             }
             return skip{}
@@ -878,7 +878,7 @@ func (ctx *builtin_xor) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_unequal struct { builtin_
-    strval bool `s,sv,strval`
+    strval bool `sv,str,strval`
 }
 func (ctx *builtin_unequal) x(ic *evocation, w facet) (res interface{}) {
     if ctx.trace { dtrace(ctx, "unequal") }
@@ -925,7 +925,7 @@ func (ctx *builtin_unequal) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_equal struct { builtin_
-    strval bool `s,sv,strval`
+    strval bool `sv,str,strval`
 }
 func (ctx *builtin_equal) x(ic *evocation, w facet) (res interface{}) {
     if ctx.trace { dtrace(ctx, "equal") }
@@ -957,20 +957,20 @@ func (ctx *builtin_equal) x(ic *evocation, w facet) (res interface{}) {
         res = makeBoolean(ctx.Position(), true)
     } else if n := ctx.debug; n>0 {
         if u, y := a.(unexpanded); y {
-            warn(of(ctx,a), "equal: a: %T %v (unexpanded, %s)", u.Value, a, a.string(ctx))
+            noted(of(ctx,a), "equal: a: %v{%v} (unexpanded, %s)", typeof(u.Value), a, a.string(ctx))
         } else if l, y := a.(*list); y { var v = l.Elems[0]
-            warn(of(ctx,a), "equal: a: %T(len=%d), %T %v", a, len(l.Elems), v, v)
+            noted(of(ctx,a), "equal: a: %v{%v} (len=%d)", typeof(v), v, len(l.Elems))
         } else {
-            warn(of(ctx,a), "equal: a: %T %v (%s)", a, a, a.string(ctx))
+            noted(of(ctx,a), "equal: a: %v{%v} (%s)", typeof(a), a, a.string(ctx))
         }
         if u, y := b.(unexpanded); y {
-            warn(of(ctx,a), "equal: b: %T %v (unexpanded, %s)", u.Value, b, b.string(ctx))
+            noted(of(ctx,a), "equal: b: %v{%v} (unexpanded, %s)", typeof(u.Value), b, b.string(ctx))
         } else if l, y := b.(*list); y { var v = l.Elems[0]
-            warn(of(ctx,b), "equal: b: %T(len=%d), %T %v", b, len(l.Elems), v, v)
+            noted(of(ctx,b), "equal: b: %v{%v} (len=%d)", typeof(v), v, len(l.Elems))
         } else {
-            warn(of(ctx,b), "equal: b: %T %v (%s)", b, b, b.string(ctx))
+            noted(of(ctx,b), "equal: b: %v{%v} (%s)", typeof(b), b, b.string(ctx))
         }
-        warnstack(ctx, n).debug(n)
+        notestack(ctx, n).debug(n)
     } else if len(ic.a)>2 {
         warnstack(of(ctx,ic.a[2]), 1, "equal: extra args specified: %v", ic.a[2]).debug(1)
     }
@@ -1000,9 +1000,9 @@ func (ctx *builtin_less) x(ic *evocation, w facet) (res interface{}) {
 // $(match val1 val2 val3, a b c d...)
 // $(match -rx=r1 -rx=r2 -rx=r3, a b c d...)
 type builtin_match struct { builtin_
-    regexps []*regexp.Regexp `r,re,rx,reg,regex,regexp`
-    negated bool `n,ne,neg,negated,negative,not`
-    all bool `a,all`
+    regexps []*regexp.Regexp `re,rx,reg,regex,regexp`
+    negated bool `ne,neg,negated,negative,not`
+    all bool `all`
 }
 func (ctx *builtin_match) x(ic *evocation, w facet) (res interface{}) {
     var patList, valList []Value
@@ -1019,7 +1019,7 @@ func (ctx *builtin_match) x(ic *evocation, w facet) (res interface{}) {
     }
     if ctx.debug > 0 {
         var ( n = len(ic.a) ; d = ctx.debug )
-        warn(ctx, "match: %v %v %v, %d", ctx.regexps, patList, valList, n).debug(d)
+        noted(ctx, "match: %v %v %v, %d", ctx.regexps, patList, valList, n).debug(d)
     }
 
     var pos = ctx.Position()
@@ -1056,8 +1056,8 @@ ForValList:
         }
 
         if ctx.debug > 0 {
-            warn(ctx, "match: %v", str)
-            warn(ctx, "match: %v %T", val, val).debug(1)
+            noted(ctx, "match: %v", str)
+            noted(ctx, "match: %v %T", val, val).debug(1)
         }
     }
     return
@@ -1234,11 +1234,12 @@ func (ctx *builtin_for) x(ic *evocation, w facet) (res interface{}) {
     return
 }
 
+var  builtin_foreach_d bool
 type builtin_foreach struct { builtin_
     empty     bool `empty,allow-empty`
     unique    bool `uni,uniq,unique`
-    x_values  bool `x-values`
     x_closure bool `x-closure`
+    x_values  bool `x-values`
 }
 func (ctx *builtin_foreach) m() uint { return builtinForth }
 func (ctx *builtin_foreach) String() string {
@@ -1248,23 +1249,27 @@ func (ctx *builtin_foreach) String() string {
         return ctx.Context.String()
     }
 }
-func (ctx *builtin_foreach) suppressAuto(name string) bool { return name == "_" }
+func (ctx *builtin_foreach) suppress(name string) bool { return name == "_" }
 func (ctx *builtin_foreach) a(ic *evocation, w facet) (skip bool) {
     if n := len(ic.a); n < 2 {
         errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, ic.a).debug(32)
         return true
     }
 
-    // NOTE: only expand the first arg with placeholder bit
-    ic.a[0] = ic.a[0].expand(ctx, w|expandPlaceholder)
+    var tw = w
+    if cast[*builtin_foreach](ctx.Context) != nil {
+        // NOTE: only expand the first arg with placeholder bit if nested foreach
+        tw |= expandPlaceholder
+    }
+
+    ic.a[0] = ic.a[0].expand(ctx, tw)
 
     if !ctx.forth { if _, skip = ic.a[0].(unexpanded); skip {
-        w &= ^(expandPlaceholder|expandEvoke)
+        w &= ^(expandEvoke|expandPlaceholder)
         for i, a := range ic.a { if i > 0 { ic.a[i] = a.expand(ctx, w) }}
     }}
     return
 }
-var builtin_foreach_d bool
 func (ctx *builtin_foreach) x(ic *evocation, w facet) (res interface{}) {
     var values []Value
     if ctx.x_values {
@@ -1301,19 +1306,19 @@ func (ctx *builtin_foreach) x(ic *evocation, w facet) (res interface{}) {
     }}
 
     var cc = &autoContext{ Context: ctx, defs: make(autoDefMap) }
-    w = (w|expandPairVal|expandPlaceholder) & ^expandPlaceholderKept
+    w = (w & ^expandRetainPlaceholder) | expandPairVal | expandPlaceholder
     for _, val := range values {
-        if !ctx.empty && xEmpty(ctx, val) { continue }
+        if !ctx.empty && unexEmpty(ctx, val) { continue }
 
         cc.set(ctx, "_", val)
 
         var l []Value
         for _, a := range temps {
             var v = scalarize(scalarize(a).expand(cc, w))
-            if ctx.empty || !isTrivial(v) && !isEmpty(v) { l = append(l, v) }
+            if v != nil && (ctx.empty || !isTrivial(v)) { l = append(l, v) }
         }
         if l == nil { if ctx.empty {
-            vals = append(vals, makeNone(ctx.Position()))
+            vals = append(vals, makeNull(ctx.Position()))
         }} else if false {
             vals = append(vals, ease(ctx, l))
         } else {
@@ -1332,9 +1337,9 @@ func (ctx *builtin_foreach) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_count struct { builtin_
-    vals []Value `v,val,value`
+    vals []Value `val,value`
     // incs []string `add,inc,increase`
-    // num int64 `n,num`
+    // num int64 `num`
 }
 func (ctx *builtin_count) x(ic *evocation, w facet) (res interface{}) {
     var num int64
@@ -1357,7 +1362,7 @@ func (ctx *builtin_env) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_auto struct { builtin_ }
-func (ctx *builtin_auto) suppressAuto(name string) bool { return false }
+func (ctx *builtin_auto) suppress(name string) bool { return false }
 func (ctx *builtin_auto) a(ic *evocation, w facet) (skip bool) {
     if n := len(ic.a); n < 2 {
         errostack(ctx, 3, "insurficient arguments (%d); $(foreach <list>,<template>): %v", n, ic.a).debug(32)
@@ -1394,9 +1399,9 @@ func (ctx *builtin_var) x(ic *evocation, w facet) (res interface{}) {
 
 // $(value <name1>,<name2>...)  -- this is specially useful when <name> is a closure.
 type builtin_value struct { builtin_
-    clo bool `c,clo,closure`
-    unexp bool `ux,unexpand,unexpanded`
-    undef bool `u,un,undef`
+    clo bool `clo,closure`
+    unexp bool `ux,unex,unexpand,unexpanded`
+    undef bool `ud,undef`
 }
 func (ctx *builtin_value) x(ic *evocation, w facet) (res interface{}) {
     var vals []Value
@@ -1427,8 +1432,6 @@ func (ctx *builtin_value) x(ic *evocation, w facet) (res interface{}) {
             if ctx.unexp { val = unexpanded{val} }
         } else if closure {
             val = makeClosure(ctx.Position(), LPAREN, unresolved{a, ctx.Project()}, nil)
-        } else if false {
-            val = makeNone(a.Position())
         } else {
             val = makeNull(a.Position())
         }
@@ -1441,7 +1444,7 @@ func (ctx *builtin_value) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_call struct { builtin_
-    _closure bool `c,clo,closure`
+    clo bool `clo,closure`
 }
 func (ctx *builtin_call) x(ic *evocation, w facet) (res interface{}) {
     if len(ic.a) == 0 { return }
@@ -1449,7 +1452,7 @@ func (ctx *builtin_call) x(ic *evocation, w facet) (res interface{}) {
     var name = ic.a[0]
     if _, y := name.(unexpanded); y {
         return skip{}//ctx
-    } else if s := name.string(ctx); ctx._closure {
+    } else if s := name.string(ctx); ctx.clo {
         obj = closureResolveObject(ctx, s)
     } else {
         obj = resolve(ctx, s)
@@ -1486,10 +1489,10 @@ func (ctx *builtin_closure) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_defs struct { builtin_
-    rxs []*regexp.Regexp `r,re,rx,reg,regex,regexp`
-    not   *regexp.Regexp `nr,neg,not,ex,except,exclude`
-    n int `n,num,g`
-    rn int `rn`
+    rxs []*regexp.Regexp `re,rx,reg,regex,regexp`
+    not   *regexp.Regexp `neg,not,exc,except,exclude`
+    n int `num`
+    rn int `rn` // Nth capture-group in rxs
 }
 func (ctx *builtin_defs) x(ic *evocation, w facet) (res interface{}) {
     var names []bare
@@ -1784,8 +1787,8 @@ func (ctx *builtin_divide) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_unique struct { builtin_
-    reverse bool `r,rev,reverse`
-    keepAuto bool `a,auto,keepauto,keep-auto`
+    reverse bool `rev,reverse`
+    keepAuto bool `auto,keepauto,keep-auto`
     unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`
     plain bool `pl,pla,plain,pv,plainvalue,plain-value`
 }
@@ -1798,7 +1801,7 @@ func (ctx *builtin_unique) x(ic *evocation, w facet) (res interface{}) {
         if ctx.keepAuto { x &= ^expandAuto }
         args = xmerge(ctx, x, args...)
     } else {
-        var x = expandDelegate | expandPathStr | expandPairVal
+        var x = expandDelegate /* | expandStrPath */ | expandPairVal
         if ctx.keepAuto { x &= ^expandAuto }
         args = xmerge(ctx, x, args...)
     }
@@ -2077,7 +2080,7 @@ func (ctx *builtin_path) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_bare struct { builtin_
-    name bool `n,name,file-name,non-full`
+    name bool `name,file-name,non-full`
 }
 func (ctx *builtin_bare) x(ic *evocation, w facet) (res interface{}) {
     var vals []Value
@@ -2254,7 +2257,7 @@ func (ctx *builtin_filter) x(ic *evocation, w facet) (res interface{}) {
         vals = ctx.do(pats, vals...)
         if len(vals) > 0 { res = vals }
         if false {
-            w.noted(ctx, pats[0], ic.a)
+            w.breakdown(ctx, pats[0], ic.a)
             noted(ctx, "%v %v → %v", pats, ic.a[i:], vals).debug(10)
         }
     }
@@ -2718,9 +2721,7 @@ func (ctx *builtin_addprefix) x(ic *evocation, w facet) (res interface{}) {
     for _, prefix := range prefixs { if isTrivial(prefix) { continue }; p, y := prefix.(*pair)
         for _, val := range vals { if isTrivial(val) { continue }; pos := val.Position()
             if y && !isTrivial(p.Value) {
-                c := makeBarecomp(pos, p.Value)
-                c.comp(ctx, val)
-                val = c
+                val = makeBarecomp(pos, p.Value).compose(ctx, false, val)
             }
             if a, b := y && p.Key.expandable(ctx, tw), val.expandable(ctx, tw); a||b {
                 if b { val = unexpanded{val}}
@@ -2733,9 +2734,7 @@ func (ctx *builtin_addprefix) x(ic *evocation, w facet) (res interface{}) {
             } else if y {
                 val = makePair(pos, p.Key, val)
             } else {
-                c := makeBarecomp(pos, prefix)
-                c.comp(ctx, val)
-                val = c
+                val = makeBarecomp(pos, prefix).compose(ctx, false, val)
             }
             list = append(list, val)
         }
@@ -2981,7 +2980,7 @@ func (ctx *builtin_contains) x(ic *evocation, w facet) (res interface{}) {
         return
     }
 
-    w |= expandPairVal|expandUnexpandedMerge
+    w |= expandPairVal|expandMergeUnexpanded
 
     var vals = xmerge(ctx, w, ic.a[0])
     var list = xmerge(ctx, w, ic.a[1:]...)
@@ -2990,7 +2989,7 @@ func (ctx *builtin_contains) x(ic *evocation, w facet) (res interface{}) {
         return
     }
 
-    var ddd = cast[*universe](ctx).ddd == "contains"
+    var ddd = db(ctx, "contains")
     var n int
 outer:
     for i, val := range vals { var s string ; if ctx.string { s = val.string(ctx) }
@@ -3380,7 +3379,7 @@ func (ctx *builtin_reldir) x(ic *evocation, w facet) (res interface{}) {
 }
 
 type builtin_mkdir struct { builtin_
-    all bool `a,all,p,path`
+    all bool `all,p,path`
 }
 func (ctx *builtin_mkdir) c(ic *evocation, w facet) (res interface{}) {
     for i, nargs := 0, len(ic.a); i < nargs; i += 1 {
@@ -3491,9 +3490,9 @@ func (ctx *builtin_rename) c(ic *evocation, w facet) (res interface{}) {
 
 type builtin_remove struct { builtin_
     skip string `skip`
-    ignoreMissing bool `i,ig,ignore,ignore-missing`
+    ignoreMissing bool `ig,ignore,ignore-missing,ignore-not-found`
     warnNotFile bool `warn-not-file`
-    all bool `a,all,r,recursive`
+    all bool `all,recursive`
 }
 func (ctx *builtin_remove) c(ic *evocation, w facet) (res interface{}) {
     var opts = ctx
@@ -4377,7 +4376,7 @@ func (ctx *builtin_touchfile) x(ic *evocation, w facet) (res interface{}) {
 // $(grep 'status=1',$@)
 // $(grep 'status=([0-9]+)',$1,$@)
 type builtin_grep struct { builtin_ }
-func (ctx *builtin_grep) suppressAuto(name string) bool { return _isDigits(name) }
+func (ctx *builtin_grep) suppress(name string) bool { return _isDigits(name) }
 func (ctx *builtin_grep) x(ic *evocation, w facet) (res interface{}) {
     var (
         args = ic.a

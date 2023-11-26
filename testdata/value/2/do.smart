@@ -1,19 +1,19 @@
 project testvalues2
 
-#TEST: delegate calling parameters to value of closure, $(value(-c) &(.text-x))
-.test.ab  = foobar $1-$2
-.test.ba  = foobaz $2-$1
-.test    := $(value(-c) &(.test.x)) b $(&(.test.x) $1$1,$2$2)
-.test.0 ::= $(.test) $3
-.test.1  := $(.test) $3
+#TEST: delegate calling parameters to value of closure, $(value(-clo) &(.text-x))
+.test.ab   = foobar $1-$2
+.test.ba   = foobaz $2-$1
+.test     := $(value(-closure) &(.test.x)) b $(&(.test.x) $1$1,$2$2)
+.test.0  ::= $(.test) $3
+.test.1   := $(.test) $3
 .test.s1 ::= $(string $(.test.0))
 .test.s2 ::= $(strval $(.test.0))
 
-.test.x  := .test.ba
-.test.2 ::= $(.test) $3
-.test.3  := $(.test) $3
+.test.x   := .test.ba
+.test.2  ::= $(.test) $3
+.test.3   := $(.test) $3
 
-.test    += c $(call(-c) &(.test.x),$1$1,$2$2)
-.test.x  := .test.ab
-.test.4 ::= $(.test) $3
-.test.5  := $(.test) $3
+.test     += c $(call(-closure) &(.test.x),$1$1,$2$2)
+.test.x   := .test.ab
+.test.4  ::= $(.test) $3
+.test.5   := $(.test) $3

@@ -24,7 +24,7 @@ type Object interface {
     Value
 
     declScope() *Scope
-    OwnerProject() *Project
+    owner() *Project
 
     // Get object's named property.
     Get(ctx Context, name string) (Value, error)
@@ -35,12 +35,12 @@ type Object interface {
 
 type objbase struct { // generally unnamed objects
     valbase
-    scope *Scope
-    owner *Project
+    scope_ *Scope
+    owner_ *Project
 }
 func (_ *objbase) kind() Kind { return KindObject }
-func (p *objbase) declScope() *Scope { return p.scope }
-func (p *objbase) OwnerProject() *Project { return p.owner }
+func (p *objbase) owner() *Project { return p.owner_ }
+func (p *objbase) declScope() *Scope { return p.scope_ }
 func (p *objbase) String() string { return fmt.Sprintf("{unknown %p}", p) }
 func (p *objbase) string(ctx Context) string { return fmt.Sprintf("{unknown %p}", p) }
 func (p *objbase) name(ctx Context) string { panic("inquiring name of an unknown object") }
@@ -59,20 +59,19 @@ func (p *knownobject) string(_ Context) string { return fmt.Sprintf("{object %s}
 func (p *knownobject) true(_ Context) bool { return p.name_ != "" }
 func (p *knownobject) name(_ Context) string { return p.name_ }
 func (p *knownobject) rescope(_ Context, scope *Scope) {
-    if p.scope != scope {
-        if p.scope != nil {
-            delete(p.scope.elems, p.name_)
+    if p.scope_ != scope {
+        if p.scope_ != nil {
+            delete(p.scope_.elems, p.name_)
         }
-        if p.scope = scope; p.scope != nil {
-            p.scope.elems[p.name_] = p
+        if p.scope_ = scope; p.scope_ != nil {
+            p.scope_.elems[p.name_] = p
         }
     }
 }
 func (p *knownobject) expand(_ Context, _ facet) Value { return p }
 func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*knownobject); ok {
-        assert(ok, "value is not knownobject")
-        if p.owner == a.owner && p.scope == a.scope && p.name_ == a.name_ {
+    if a, y := v.(*knownobject); y {
+        if p.owner_ == a.owner_ && p.scope_ == a.scope_ && p.name_ == a.name_ {
             res = cmpEqual
         }
     } else if l, ok := v.(*list); ok && len(l.Elems) == 1 {
@@ -108,13 +107,11 @@ func (p unresolved) name(ctx Context) (name string) {
     }
     return
 }
-// func (p unresolved) Position() Position { return p.Value.Position() }
-// func (p unresolved) String() string { return p.Value.String() }
-// func (p unresolved) string(ctx Context) (s string) { return /* p.Value.string(ctx) */ }
+// func (p unresolved) string(ctx Context) (s string) { return p.Value.string(ctx) }
 func (p unresolved) float(_ Context) (float64, error) { return 0.0, nil }
 func (p unresolved) int(_ Context) (int64, error) { return 0, nil }
 func (p unresolved) true(_ Context) bool { return false }
-func (p unresolved) OwnerProject() *Project { return p.project }
+func (p unresolved) owner() *Project { return p.project }
 func (p unresolved) declScope() *Scope { return p.project.scope }
 func (p unresolved) Get(_ Context, name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p unresolved) patterned(_ Context) bool { return false }
@@ -155,10 +152,11 @@ func (p unresolved) refs(ctx Context, v Value) (res bool) {
 }
 func (p unresolved) expandable(_ Context, _ facet) bool { return false }
 func (p unresolved) expand(ctx Context, w facet) (res Value) {
-    var v Value
     var db bool
+    var v Value
+
     if false { if w&expandDebug != 0 { defer func() {
-        w.noted(ctx, p, p.Value, _evocation(ctx).a)
+        w.breakdown(ctx, p, p.Value, _evocation(ctx).a)
         if false { infostack(of(ctx,p), 3) }
 
         noted(ctx, "%v: %v %v ⇒ %v %v", p, typeof(p.Value), p.Value, typeof(v), v)
@@ -173,10 +171,10 @@ func (p unresolved) expand(ctx Context, w facet) (res Value) {
         }
     }
 
-    if ic := _evocation(ctx); ic != nil && ic.a != nil { // Always expand evocation args.
-        a, _, _ := (w|expandAuto|expandArgs).expand(ctx, ic.a...)
-        if db { noted(ctx, "%v: %v ⇒ %v", p, ic.a, a).debug(1) }
-        ic.a = a
+    if evo := _evocation(ctx); evo != nil && evo.a != nil { // Always expand evocation args.
+        a, _, _ := (w|expandAuto|expandArgs).expand(ctx, evo.a...)
+        if db { noted(ctx, "%v: %v ⇒ %v", p, evo.a, a).debug(1) }
+        evo.a = a
     }
 
     if u, y := v.(unexpanded); y {
@@ -239,7 +237,7 @@ func (p *projectname) string(_ Context) string { return p.Project.name }
 func (p *projectname) name(_ Context) string { return p.Project.name }
 func (p *projectname) true(_ Context) bool { return p.Project != nil }
 func (p *projectname) declScope() *Scope { return p.scope }
-func (p *projectname) OwnerProject() *Project { return p.scope.project }
+func (p *projectname) owner() *Project { return p.scope.project }
 func (p *projectname) Get(ctx Context, name string) (Value, error) { return p.resolve(ctx, name), nil }
 func (p *projectname) expand(_ Context, _ facet) (res Value) { return expanded{p} }
 // func (p *projectname) invoke(_ Context, _ facet, _, _ []Value) Value { return p }
@@ -316,9 +314,8 @@ func (p *scopename) String() string  { return fmt.Sprintf("{scope %s}", p.name_)
 func (p *scopename) string(_ Context) string { return p.name_ }
 func (p *scopename) name(_ Context) string { return p.name_ }
 func (p *scopename) true(_ Context) bool { return p.Scope != nil }
-func (p *scopename) OwnerProject() *Project { return p.Scope.project }
+func (p *scopename) owner() *Project { return p.Scope.project }
 func (p *scopename) declScope() *Scope { return p.Scope.outer }
-// func (p *scopename) invoke(_ Context, _ facet, _, _ []Value) Value { return p }
 func (p *scopename) expand(_ Context, _ facet) (res Value) { return p }
 func (p *scopename) Get(ctx Context, name string) (value Value, err error) {
     if s := p.resolve(name); s != nil { if value, _ = s.(Value); value == nil {
@@ -422,7 +419,6 @@ type autoContext struct {
     sync.RWMutex
     defs autoDefMap
 }
-func (ac *autoContext) aquireLock() func() { ac.Lock() ; return func() { ac.Unlock() }}
 func (ac *autoContext) cast(t reflect.Type) Context { return implCast(ac, t) }
 func (ac *autoContext) String() string {
     if fullContextStringer {
@@ -436,41 +432,44 @@ func (ac *autoContext) amend(ctx Context, name string, val Value) (out *def, res
     if res = d.value; d.value != val { out, d.value = d, val }
     return
 }
+func (ac *autoContext) def(ctx Context, name string) (res *def, y bool) {
+    ac.Lock() ; defer ac.Unlock()
+    res, y = ac.defs[name]
+    return
+}
 func (ac *autoContext) get(ctx Context, name string) (res *def) {
-    ac.RLock()
-    res, _ = ac.defs[name]
-    ac.RUnlock()
+    res, _ = ac.def(ctx, name)
 
     if res != nil { return }
 
-    if t, y := ac.Context.(interface{ suppressAuto(string) bool }); !y || t.suppressAuto(name) {
+    if t, y := ac.Context.(interface{ suppress(string) bool }); !y || t.suppress(name) {
         return
     }
 
-    if t := _autoContext(ac.Context); t != nil {
-        if t == ac {
-            errostack(ctx, 3, "%v: loop auto context", name).debug(32)
-            return
-        }
-        res = t.get(ctx, name)
+    if t := _autoContext(ac.Context); t == ac {
+        errostack(ctx, 3, "%v: loop auto context", name).debug(32)
+        return
+    } else if t != nil {
+        return t.get(ctx, name)
     }
     return
 }
-func (ac *autoContext) set(ctx Context, name string, val Value) (out *def, res Value) {
+func (ac *autoContext) set(ctx Context, name string, val Value) (out *def, old Value) {
     if name == "-" { if d, y := val.(*def); y && d.origin != DefConfig {
         warnstack(ctx, 3, "set $- to def (%v): %v", d.origin, d).debug(16)
     }}
 
-    var ok bool
-    ac.RLock()
-    out, ok = ac.defs[name]
-    ac.RUnlock()
+    if false && name == "INCLUDE" && val != nil && strings.HasPrefix(val.String(),"TARGET=") {
+        defer func() { notestack(ctx, 10, "%v{%v}", typeof(val), val).debug(24) } ()
+    }
 
-    if ok && out != nil {
-        res = out.value
+    out, _ = ac.def(ctx, name)
+
+    if out != nil {
+        old = out.value
     } else {
-        var scope = ac.Scope()
-        out = &def{knownobject:knownobject{objbase{scope:scope, owner:scope.project}, name}}
+        s := ac.Scope()
+        out = &def{knownobject:knownobject{objbase{scope_:s, owner_:s.project}, name}}
         ac.Lock()
         ac.defs[name] = out
         ac.Unlock()
@@ -485,80 +484,84 @@ func (ac *autoContext) set(ctx Context, name string, val Value) (out *def, res V
     // out.Unlock()
     return
 }
-func (ac *autoContext) args(ctx Context, params []*auto, args []Value) (names []string) {
+func (ac *autoContext) args(ctx Context, params []*auto, vals []Value) (names []string) {
+    type argType struct {
+        id, name string
+        value Value
+    }
+
     var (
         argnum int // setup named/number parameters ($1, $2, etc.)
-        compact []Value // compacted args: combine duplicated pairs
+        args []*argType // compacted args: combine duplicated pairs
         named = make(map[string]struct{}, len(params))
     )
+
     for _, param := range params { named[param.name_] = struct{}{} }
 
 outer:
-    for _, a := range args {
-        if p, y := a.(*pair); y { for _, ca := range compact {
-            if c, y := ca.(*pair); y && eq(ac, p.Key, c.Key) { var vals = merge(p.Value)
-                if l, y := c.Value.(*list); y { l.Elems = append(l.Elems, vals...) } else {
-                    c.Value = makeList(append(merge(c.Value), vals...)...)
-                }
-                continue outer
+    for _, a := range vals {
+        var autoId, name string
+        if p, y := a.(*pair); y {
+            if name = p.Key.string(ctx); name == "" {
+                errostack(ctx, 10, "empty name: %v", p.Key).debug(10)
+                return
+            } else if _, y = named[name]; !y {
+                errostack(ctx, 10, "unknown named arg: %v", name).debug(10)
+                return
             }
-        }}
-        compact = append(compact, a)
+
+            for _, ca := range args {
+                if c, y := ca.value.(*pair); y && ca.name == name {
+                    var l, y = c.Value.(*list)
+                    if !y {
+                        l = makeList(c.Value)
+                        c.Value = l
+                    }
+                    l.Elems = append(l.Elems, merge(p.Value)...)
+                    continue outer
+                }
+            }
+
+            a = p.Value
+        } else {
+            autoId = strconv.Itoa(argnum+1)
+            if argnum < len(params) {
+                name = params[argnum].name(ctx)
+            } else {
+                name = autoId
+            }
+            argnum += 1
+        }
+        args = append(args, &argType{autoId, name, scalarize(a)})
     }
 
-    for _, a := range compact {
-        //<!IMPORTANT: Don't translate flag, flag values are valid regular arguments.
-        //             Pair values are special.
-        if a = scalarize(a); false && (isNull(a) || isNone(a)) {
-            erro(of(ac,a), "%T '%v' is invalid scalar", a, a).debug(1)
+    for _, a := range args {
+        if d, _ := ac.set(ctx, a.name, a.value); d == nil {
+            erro(of(ac,a.value), "arg '%s' not set", a.name).debug(1)
             return
-        }
-
-        var name string
-        if p, y := a.(*pair); y { s := p.Key.string(ctx)
-            if _, y = named[s]; y { name, a = s, p.Value }
-        }
-
-        var id = strconv.Itoa(argnum+1)
-        if name != "" {
-            // Got the name!
-        } else if argnum < len(params) {
-            name = params[argnum].name(ctx)
-        } else {
-            name = id
-        }
-
-        if d, _ := ac.set(ctx, name, a); d == nil {
-            erro(of(ac,a), "arg '%s' not set ($%s)", name, id).debug(1)
+        } else if d, y := ac.defs[a.name]; !y || d == nil {
+            erro(of(ac,a.value), "arg '%s' not set", a.name).debug(1)
             return
-        } else if d, y := ac.defs[name]; !y || d == nil {
-            erro(of(ac,a), "arg '%s' not set ($%s)", name, id).debug(1)
-            return
-        } else if id != "" && id != name {
+        } else if a.id != "" && a.id != a.name {
             ac.Lock()
-            ac.defs[id] = d // NOTE: set an alias or replace it
+            ac.defs[a.name] = d // NOTE: set an alias or replace it
             ac.Unlock()
         }
-        names = append(names, name)
-        argnum += 1
-    }
 
-    // // Explicitly 'clear' other digit autos
-    // for i := argnum; i <= maxDigitAutoNum; i += 1 {
-    //     ac.set(ctx, strconv.Itoa(argnum+1), nil)
-    // }
+        names = append(names, a.name)
+    }
 
     named = nil
     return
 }
 
-func autoVal(ctx Context, name string) (res Value) {
-    if d := autoDef(ctx, name); d != nil { res = d.value }
+func autoDef(ctx Context, name string) (d *def) {
+    if a := _autoContext(ctx); a != nil { d = a.get(ctx, name) }
     return
 }
 
-func autoDef(ctx Context, name string) (d *def) {
-    if a := _autoContext(ctx); a != nil { d = a.get(ctx, name) }
+func autoVal(ctx Context, name string) (res Value) {
+    if d := autoDef(ctx, name); d != nil { res = d.value }
     return
 }
 
@@ -613,22 +616,25 @@ func (a *auto) set(ctx Context, value Value, app ...Value) {
     }
 }
 func (a *auto) expandable(ctx Context, w facet) (res bool) {
-    if w&expandAuto != 0 && w&expandAutoKept == 0 { res = true } else
-    if w&expandUnexpandedForth != 0 { if d := autoDef(ctx, a.name_); d != nil {
+    if w&expandAuto != 0 && w&expandRetainAuto == 0 { res = true } else
+    if w&expandUnexpanded != 0 { if d := autoDef(ctx, a.name_); d != nil {
         res = d.expandable(ctx, w)
     }}
     return
 }
 func (a *auto) expand(ctx Context, w facet) (res Value) {
     if false { if w&expandDebug != 0 || a.name_ == "flag" { if d := autoDef(ctx, a.name_); true/* d != nil && d.value != res */ { defer func() {
-        if true { w.noted(ctx, a, d) }
+        if true { w.breakdown(ctx, a, d) }
         noted(ctx, "%v ⇒ %v %v (same=%v,%p)", a, typeof(res), res, (res==a), res).debug(10)
     }()}}}
-    g := w&expandAuto != 0 && w&expandAutoKept == 0 || w&expandDefDefArgs != 0 || w&expandUnexpandedForth != 0
+
+    g := w&expandAuto != 0 && w&expandRetainAuto == 0 || w&expandDefDefault != 0 || w&expandUnexpanded != 0
+
     if g && !ctx.ref(ctx, a) { if d := autoDef(ctx, a.name_); d != nil {
         var recured bool
-        if ic := _evocation(ctx); ic != nil {
-            if ic = _evocation(ic.Context); ic != nil && ic.in(a) { if false { w.noted(ctx, a) }
+        if evo := _evocation(ctx); evo != nil {
+            if evo = _evocation(evo.Context); evo != nil && evo.in(a) {
+                if false { w.breakdown(ctx, a) }
                 noted(ctx, "recursive: %v ⇒ %v ; %v", a, d, autoDef(_autoContext(ctx).Context, a.name_)).debug(5)
                 recured = true
             }
@@ -674,13 +680,14 @@ func (_ *auto) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
     return
 }
 
-type defExpandContext struct { Context }
-func (x defExpandContext) cast(t reflect.Type) Context { return implCast(x, t) }
+type defContext struct { Context }
+func (x defContext) cast(t reflect.Type) Context { return implCast(x, t) }
+func (_ defContext) suppress(name string) bool { return name == "_" || _isDigits(name) }
+func (_ defContext) suppres_(name string) bool { return true }
 
 // A Def represents a definition, it's a Caller but mustn't be a Valuer.
 type def struct {
-    knownobject // mutex sync.Mutex
-    // facet //
+    knownobject // sync.Mutex
     origin Origin
     value Value
 }
@@ -781,47 +788,21 @@ func (d *def) expandable(ctx Context, w facet) (res bool) {
     return
 }
 func (d *def) expand(ctx Context, w facet) (res Value) {
-    var db bool
+    if w&expandEvoke == 0 { return d }
 
-    if false { if w&expandDebug != 0 { defer func(w0 facet) {
-        if d.value != nil { ctx = of(ctx, d.value) } else { ctx = of(ctx, d) }
-        if true { w0.noted(ctx, d) }
-        var a []Value ; if i := _evocation(ctx); i != nil { a = i.a }
-        noted(ctx, "%v: %v %v", d, d.origin, a)
-        noted(ctx, "%v: %v %v", d.name_, typeof(d.value), d.value)
-        noted(ctx, "%v: %v %v (same=%v)", d.name_, typeof(res), res, (res==d.value)).debug(16)
-    }(w); db = true }}
-
-    if w&expandEvoke == 0 {
-        if false { warnstack(ctx, 3, "def.expand: invalid (%030b)", w).debug(16) }
-        return d
-    } else if false {
-        if ctx.ref(ctx, d) { return unexpanded{d} }
-
-        var recured bool
-        if ic := _evocation(ctx); ic != nil {
-            if ic = _evocation(ic.Context); ic != nil && ic.in(d) {
-                noted(ctx, "recursive: %v", d).debug(5)
-                recured = true
-            }
-        }
-        if recured || (d.value != nil && d.value.refs(ctx, d)) {
-            if false { noted(ctx, "nested: %v (%v)", d, recured).debug(16) }
-            return d.value.expand(&refContext{ctx,d}, w)
-        }
-    }
-
-    var ic = _evocation(ctx)
-    if ic == nil {
-        errostack(ctx, 3, "def.expand: nil delegate context (%030b)", w).debug(16)
+    var evo = _evocation(ctx)
+    if evo == nil {
+        errostack(ctx, 3, "nil delegate context").debug(16)
         return
     }
 
-    if w&expandDefOriginOff == 0 { switch d.origin {
-    case DefDefault: if ic.a != nil { w |= expandDefDefArgs }
+    if w&expandDefRandom == 0 { switch d.origin {
+    case DefDefault: w |= expandDefDefault
     case DefExpand1: w |= expandDelegate
     case DefExpand2: w |= expandDelegate|expandClosure
     }}
+
+    evo.a, _, _ = (w|expandArgs).expand(ctx, evo.a...)
 
     var ori Origin
     {
@@ -829,18 +810,19 @@ func (d *def) expand(ctx Context, w facet) (res Value) {
         ori, res = d.origin, d.value
         // d.mutex.Unlock()
     }
-    if ic.a, _, _ = (w|expandArgs).expand(ctx, ic.a...); res != nil {
-        ac := autoContext{Context:defExpandContext{ctx}, defs:make(autoDefMap)}
-        ac.args(ctx, nil, ic.a)
+    if res != nil {
+        ac := autoContext{Context:defContext{ctx}, defs:make(autoDefMap)}
+        ac.args(ctx, nil, evo.a)
         if res = res.expand(&ac, w|expandAuto|expandDigits); res != nil {
             if ori == DefExecute { res = d.xexec(ctx, res) }
         }
     }
 
-    if db { noted(ctx, "%v %v → %v ; %v", d.origin, d, res, ic.a).debug(1) }
-
-    if ic.x = true; res == nil { return d }
-    return scalarize(res)
+    if evo.x = true; res == nil {
+        return d
+    } else {
+        return scalarize(res)
+    }
 }
 func (d *def) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*def); y {
@@ -872,7 +854,7 @@ func (d *def) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (d *def) elemstr(_ Context, o Object, k elembits) (s string) {
     if o != nil {
-        if p := d.OwnerProject(); p != o.OwnerProject() {
+        if p := d.owner(); p != o.owner() {
             return fmt.Sprintf("$(%s→%s)", p.name, d.name_)
         }
     }
@@ -926,7 +908,7 @@ func (d *def) set(ctx Context, origin Origin, value Value, ii ...interface{}) {
     case DefExpand1: vals, _, _ = (w&^expandClosure).expand(ctx, vals...) //  :=
     case DefExpand2: vals, _, _ = (w| expandClosure).expand(ctx, vals...) // ::=
     default:
-        var u = cast[*universe](ctx)
+        var u = _universe(ctx)
         for _, val := range vals {
             var ctx = at(ctx, val.Position())
             if val != nil && val.refs(ctx, d) {
@@ -1147,29 +1129,29 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
 
 	defer dtrace(ctx, "builtin.expand")
 
-    var ic = _evocation(ctx)
-    if ic == nil {
+    var evo = _evocation(ctx)
+    if evo == nil {
         errostack(ctx, 3, "builtin.expand: nil delegate context (%030b)", w).debug(16)
         return p
     }
 
-    if false { if w&expandDebug != 0 || (cast[*universe](ctx).db("delegate.expand") && p.name_ == "if") { defer func() {
-        noted(ctx, "%v: %v ⇒ %v %v", p, ic.a, typeof(res), res).debug(24)
+    if false { if w&expandDebug != 0 || (db(ctx, "delegate.expand") && p.name_ == "if") { defer func() {
+        noted(ctx, "%v: %v ⇒ %v %v", p, evo.a, typeof(res), res).debug(24)
     }()}}
 
     // Check builtin maximum expand-depth per evocation.
-    if t := atomic.AddInt32(&ic.int32, 1); t > int32(max_expand) {
-        if len(ic.a) > 0 && ic.a[0].String() == "unique" {
-            noted(ctx, "%v: %v", p, ic.a).debug(1)
+    if t := atomic.AddInt32(&evo.int32, 1); t > int32(max_expand) {
+        if len(evo.a) > 0 && evo.a[0].String() == "unique" {
+            noted(ctx, "%v: %v", p, evo.a).debug(1)
         }
-        errostack(of(ctx, p), 3, "max expand: %v %v (depth=%v,facet=%030b)", p, ic.a, t, w).debug(t)
-        panic(failure{"max expand: %v %v (depth=%d)",ia(p, ic.a, t)})
+        errostack(of(ctx, p), 3, "max expand: %v %v (depth=%v,facet=%030b)", p, evo.a, t, w).debug(t)
+        panic(failure{"max expand: %v %v (depth=%d)",ia(p, evo.a, t)})
     }
-    defer atomic.AddInt32(&ic.int32, -1)
+    defer atomic.AddInt32(&evo.int32, -1)
 
     // Check self-dependency in arguments.
-    for i, a := range ic.a { if a == p /* || a.refs(ctx, p) */ {
-        errostack(of(ctx,a), 5, "self-dependency: %v ⇒ %v [%d]", p, ic.a, i).debug(10)
+    for i, a := range evo.a { if a == p /* || a.refs(ctx, p) */ {
+        errostack(of(ctx,a), 5, "self-dependency: %v ⇒ %v [%d]", p, evo.a, i).debug(10)
         panic(failure{"self-dependency: %v ⇒ %d %v",ia(p, a, i)})
     }}
 
@@ -1197,20 +1179,21 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
     }
 
     if c := bv.Elem().FieldByName("Context"); !c.IsValid() {
-        errostack(ctx, 3, "no field: %s.Context (%030b)", typeof(bi), w).debug(16)
+        errostack(ctx, 3, "%030b: no field: %s.Context", w, typeof(bi)).debug(16)
         return // c.Type().String() == "smart.Context"
     } else { c.Set(reflect.ValueOf(ctx)) }
 
-    if ic.o == nil {} else if t := _parseOpts(ctx, bv, plain, ic.o); t != nil {
-        errostack(ctx, 3, "%v: unsupported opts: %v (%v, %030b)", p.name_, t, typeof(bv), w).debug(16)
+    if evo.o == nil {} else if t := _parseOpts(ctx, bv, plain, evo.o); t != nil {
+        if false { w.breakdown(ctx, bi.(Value)) }
+        errostack(ctx, 3, "%030b: %v: unsupported opts: %v (%v)", w, p.name_, t, bv).debug(16)
         return
     }
 
-    if false { if _, y := bi.(*builtin_or); y && len(ic.a) == 2 && ic.a[0].String() == "$3" && ic.a[1].String() == "$2" {
-        defer func(a []Value) { noted(ctx, "%v: %v %v %v", p, ic.o, a, ic.a).debug(2) }(ic.a)
+    if false { if _, y := bi.(*builtin_or); y && len(evo.a) == 2 && evo.a[0].String() == "$3" && evo.a[1].String() == "$2" {
+        defer func(a []Value) { noted(ctx, "%v: %v %v %v", p, evo.o, a, evo.a).debug(2) }(evo.a)
     }}
 
-    var forth bool = w&expandUnexpandedForth != 0
+    var forth bool = w&expandUnexpanded != 0
     if !forth { if t, y := bi.(builtin_m); y && t.m()&builtinForth != 0 {
         // TODO: forth = true ???
     }}
@@ -1221,15 +1204,15 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
             }
         } else {
             if forth = f.Bool(); false && forth {
-                w |= expandUnexpandedForth
+                w |= expandUnexpanded
             }
         }
     }
 
     if x, y := bi.(builtin_a); y {
-        if x.a(ic, w|expandArgs) && !forth { return p }
+        if x.a(evo, w|expandArgs) && !forth { return p }
     } else { var u int
-        if ic.a, u, _ = (w|expandArgs).expand(ctx, ic.a...); u>0 && !forth { return p }
+        if evo.a, u, _ = (w|expandArgs).expand(ctx, evo.a...); u>0 && !forth { return p }
     }
 
     // FIXES unexpected expansion for autos on def-assigns.
@@ -1248,27 +1231,27 @@ func (p *builtin) expand(ctx Context, w facet) (res Value) {
             if false { for _, a := range args { if f(a) { return true } }}
             return
         }
-        for _, a := range ic.a { if w&ad != 0 && a.expandable(ctx, ad) {
-            if false && cast[*universe](ctx).db("builtin") { noted(ctx, "builtin: %T %v", a, a).debug(1) }
+        for _, a := range evo.a { if w&ad != 0 && a.expandable(ctx, ad) {
+            if false && db(ctx, "builtin") { noted(ctx, "builtin: %T %v", a, a).debug(1) }
             if f(a) { return p }
         }}
     }
 
     if f != nil {
-        if t := f.x(ic, w); t == f {
+        if t := f.x(evo, w); t == f {
             noted(ctx, "%v: use skip{} instead: %T %v", p, typeof(t), t).debug(1)
             return p
         } else if _, y := t.(skip); y {
             return p
         } else {
-            ic.x = true
+            evo.x = true
             return ease(ctx, t)
         }
     } else if g != nil {
-        if t := g.c(ic, w); t != nil {
+        if t := g.c(evo, w); t != nil {
             warnstack(ctx, 3, "discarded command result: %v", t).debug(5)
         }
-        ic.x = true
+        evo.x = true
     }
     return
 }
@@ -1315,10 +1298,15 @@ func (c ruleClass) String() string {
     return fmt.Sprintf("ruleClass(%d)", i)
 }
 
+func _ruleContext(ctx Context) *ruleContext { return cast[*ruleContext](ctx) }
+func _entry(ctx Context) (res Entry) {
+    if p := _ruleContext(ctx); p != nil { res = p.rule }
+    return
+}
+
 type ruleContext struct { Context ; rule *rule }
 func (ec *ruleContext) Position() Position { return ec.rule.position }
 func (ec *ruleContext) cast(t reflect.Type) Context { return implCast(ec,t) }
-func (ec *ruleContext) entry() Entry { return ec.rule }
 func (ec *ruleContext) String() string {
     if fullContextStringer {
         return fmt.Sprintf("entry{%s,%s}", ec.rule, ec.Context)
@@ -1338,12 +1326,6 @@ func (ec *ruleContext) String() string {
         return fmt.Sprintf("%s", s)
     }
 }
-// func (ec *ruleContext) stems() (stems []string) {
-//     if sc, ok := ec.Context.(*stemmedContext); ok {
-//         stems = sc.stem.Stems // only if the inner is stemmed
-//     }
-//     return
-// }
 
 func isInnerAuto(ctx Context, target Value) (res bool) {
     if ac, n := _autoContext(ctx), 0; ac != nil {
@@ -1402,8 +1384,8 @@ func (_ *rule) kind() Kind { return KindObject|KindRule }
 func (entry *rule) Target() Value { return entry.target }
 func (entry *rule) Class() ruleClass { return entry.class }
 func (entry *rule) programs() []*program { return entry.program_ }
-func (entry *rule) declScope() *Scope { return entry.OwnerProject().scope }
-func (entry *rule) OwnerProject() *Project { return entry.program_[0].project }
+func (entry *rule) declScope() *Scope { return entry.owner().scope }
+func (entry *rule) owner() *Project { return entry.program_[0].project }
 func (entry *rule) setPrograms(programs []*program) { entry.program_ = programs }
 func (entry *rule) setPosition(position Position) { entry.position = position }
 func (entry *rule) setTarget(v Value) { entry.target = v }
@@ -1542,13 +1524,13 @@ func (entry *rule) expand(ctx Context, w facet) (res Value) {
     }
 
     if w&expandEvoke != 0 {
-        if ic := _evocation(ctx); ic == nil {
+        if evo := _evocation(ctx); evo == nil {
             erro(ctx, "not an evocation (w=%030b)", w).debug(1)
-        } else if reses, t := entry.execute(ctx, ic.a...); reses != nil {
+        } else if reses, t := entry.execute(ctx, evo.a...); reses != nil {
             if t.has(traveFail) { for _, s := range t { erro(at(ctx,s.pos), "%v", s) }
                 errostack(ctx, 3).debug(3) }
-            res, ic.x = ease(ctx, reses), true
-        } else { ic.x = true }
+            res, evo.x = ease(ctx, reses), true
+        } else { evo.x = true }
         return
     }
 
@@ -1576,7 +1558,7 @@ func (entry *rule) traverse(ctx Context) {
     if target == nil {
         erro(ctx, "$@ is not defined").debug(1)
         return
-    } else if ctx.entry() == entry {
+    } else if _entry(ctx) == entry {
         var proj = ctx.Project()
 
         if c := cast[*closurecontext](ctx); c != nil {
@@ -1644,7 +1626,7 @@ func (entry *rule) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*rule); ok {
         assert(ok, "value is not rule")
         if /*entry.class == a.class &&*/ entry.target.cmp(ctx, a.target) == cmpEqual {
-            if entry.OwnerProject() == a.OwnerProject() {
+            if entry.owner() == a.owner() {
                 res = cmpEqual
             }
         }
@@ -1706,12 +1688,17 @@ func (_ *rule) collect(ctx Context, cache *valcache, bits int) (res []*valcache)
     return
 }
 
+func _stemmedContext(ctx Context) *stemmedContext { return cast[*stemmedContext](ctx) }
+func _stems(ctx Context) (res []string) {
+    if p := _stemmedContext(ctx); p != nil { res = p.stem.stems }
+    return
+}
+
 type stemmedContext struct {
     Context
     stem *stemmed
 }
 func (sc *stemmedContext) cast(t reflect.Type) Context { return implCast(sc,t) }
-func (sc *stemmedContext) stems() []string { return sc.stem.stems }
 func (sc *stemmedContext) String() string {
     if fullContextStringer {
         return fmt.Sprintf("stemmed{%s}", sc.Context)

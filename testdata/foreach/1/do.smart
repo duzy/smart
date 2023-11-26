@@ -1,7 +1,7 @@
 project testforeach1
 
 .test.x := &(.test.s) $(value .test~&(.test.s)) \
-    $(foreach $1 $2,$(value(-c) .test.$_) $(value(-c) .test~&(.test.s).$_))
+    $(foreach $1 $2,$(value(-closure) .test.$_) $(value(-closure) .test~&(.test.s).$_))
 .test.4 := $(.test.x $1,B b)
 # TODO:FIXME: assert $(equal(-d)=64 $(string(-e -def=.test )),'&(.test.s) $(value .test~&(.test.s)) $(foreach $1 B b,$(value .test.$_) $(value .test~&(.test.s).$_))')
 # assert $(equal(-d) $(string(-e) $(.test)),'&(.test.s) $(value .test~&(.test.s)) $(foreach $1 B b,$(value .test.$_) $(value .test~&(.test.s).$_))')

@@ -206,8 +206,8 @@ func (scope *Scope) builtin(ctx Context, name string, f reflect.Type) (bui *buil
 		bui = &builtin{
 			knownobject{
 				objbase{
-					scope: scope,
-					owner: nil,
+					scope_: scope,
+					owner_: nil,
 				}, name,
 			}, f,
 		}
@@ -260,8 +260,8 @@ func (scope *Scope) define(ctx Context, origin Origin, name string, value Value)
 			origin: origin, value: value,
 			knownobject: knownobject{
 				objbase{
-					scope: scope,
-					owner: scope.project, //ctx.Project(),
+					scope_: scope,
+					owner_: scope.project, //ctx.Project(),
 				}, name,
 			},
 		}

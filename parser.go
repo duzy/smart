@@ -325,7 +325,7 @@ func (p *parser) spaces() {
 
 func (p *parser) Position() Position { return p.loc(p.pos) }
 func (p *parser) loc(pos Pos) Position { return Position(p.scanner.File().Position(pos)) }
-func (p *parser) ctx(ctx Context) Context { return &positionContext{ctx, p.Position()} }
+func (p *parser) ctx(ctx Context) Context { return &positional{ctx, p.Position()} }
 
 // A bailout panic is raised to indicate early termination.
 type bailout struct{}
@@ -391,7 +391,8 @@ func (p *parser) isRecipeStart() (res bool) {
 // may be past the file's EOF position, which would lead to panics if used
 // later on.
 //
-/*func (p *parser) _safePos(pos Pos) (res Pos) {
+/*
+func (p *parser) _safePos(pos Pos) (res Pos) {
 	defer func() {
 		if recover() != nil {
 			res = Pos(p.scanner.File().Base() + p.scanner.File().Size()) // EOF position
@@ -399,7 +400,8 @@ func (p *parser) isRecipeStart() (res bool) {
 	}()
 	_ = p.scanner.File().Offset(pos) // trigger a panic if position is out-of-range
 	return pos
-}*/
+}
+*/
 
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
@@ -600,13 +602,12 @@ func (p *parser) bare(ctx Context, lhs bool) (x Value) {
 			return &undef{x}
 		}
 	case AT, DOT, DOTDOT: // TODO: parse DOT into Qualiword
-		return &punctuation{valbase{p.Position()}, tok} // lit = tok.String() // Special bareword.
+		return &punctuation{valbase{p.Position()}, tok} // Special bareword.
 	default:
 		if tok.IsKeyword() {
 			lit = tok.String()
 		} else if true {
 			erro(ctx, "%v %v -> %v %v", tok, lit, p.tok, p.lit).debug(1)
-			// panic(failure{"parsing: %v %v",ia(p.Position(), p.tok, p.lit)})
 			return
 		} else {
 			p.expect(BAREWORD)
@@ -1052,9 +1053,9 @@ func (p *parser) flag(ctx Context, lhs bool) flag {
 		l: for p.tok == DOT || !(operator_beg < p.tok && p.tok < closure_beg) {
 			switch p.tok {
 			case COMMENT, HASH, SPACE, RECIPE, LINEND, EOF: break l
-			case DELEGATE, CLOSURE: x = compose(ctx, x, p.unary(ctx, false))
+			case DELEGATE, CLOSURE: x = compose(ctx, x, p.unary(ctx, false), false)
 			default: if p.tok.IsClosure() || p.tok.IsDelegate() {
-				x = compose(ctx, x, p.unary(ctx, false))
+				x = compose(ctx, x, p.unary(ctx, false), false)
 			} else {
 				break l
 			}}
@@ -1150,10 +1151,12 @@ func (p *parser) dot(ctx Context, lhs bool, x Value) (res *barecomp) {
 	}
 
 	for !p.isEndOfDotConcat(lhs) {
-		comp.comp(ctx, p.composite(ctx, false))
+		var val = p.composite(ctx, false)
+		if comp.compose(ctx, false, val) == nil {
+			erro(ctx, "fail to compose: %v{%v}, %v{%v}", typeof(x), x, typeof(val), val).debug(1)
+		}
 		if p.tok == DOT /*&& comp.End() == p.pos*/ {
-			var dot Value = &punctuation{valbase{p.Position()}, p.tok}
-			comp.Elems = append(comp.Elems, dot)
+			comp.Elems = append(comp.Elems, &punctuation{valbase{p.Position()}, p.tok})
 			p.step() // '.'
 		}
 	}
@@ -1439,10 +1442,9 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 				return
 			} else if resolved = loader.project.resolveEntries(ctx, name, false); isNull(resolved) {
 				if name.expandable(ctx, plain) {
-					var s = name.string(ctx)
-					erro(of(ctx,name), "resolved '%v' (aka. %s) is nil (project=%v)", name, s, proj).debug(1)
+					erro(of(ctx,name), "resolved '%v' (aka. %s) is nil (project=%v)", name, name.string(ctx), proj).debug(3)
 				} else {
-					erro(of(ctx,name), "resolved '%v' is nil (project=%v)", name, proj).debug(1)
+					erro(of(ctx,name), "resolved %v{%v} is nil (project=%v)", typeof(name), name, proj).debug(3)
 				}
 			} else if obj, okay = resolved.(Object); !okay {
 				erro(at(ctx,lPos), "resolved '%v' of '%T' is not Object", name, resolved).debug(1)
@@ -1500,7 +1502,7 @@ func (p *parser) closuredelegate(ctx Context) (result Value) {
 			if v, y := optionalize(ctx, name); y { name = v } // foo?(a,b,c)
 		}
 
-		if isNull(name) {
+		if name == nil {
 			// error
 		} else if !allowClosureName && name.expandable(ctx, expandClosure|expandDelegate) {
 			erro(at(ctx,posName), "%v: name '%v' (%T) is closured", proj, name, name).debug(1)
@@ -1677,7 +1679,7 @@ func (p *parser) specialClosureDelegate(ctx Context, lhs bool) (result Value) {
 		return makeNull(position)
 	}
 
-	if p.bits&parseCodeBlock != 0 && cast[*universe](ctx).ddd == "template" { defer func() {
+	if p.bits&parseCodeBlock != 0 && _universe(ctx).ddd == "template" { defer func() {
 		var v Value
 		if a, y := obj.(*auto); y { v = autoVal(ctx, a.name_) }
 		noted(ctx, "%T %v ; %T %v ; %v", obj, obj, result, result, v).debug(16)
@@ -1809,7 +1811,7 @@ func (p *parser) isParametersGroup(x Value) (res bool) {
 }
 
 func (p *parser) composite(ctx Context, lhs bool) (x Value) {
-	if t_traverse.enabled { defer un(trace(t_traverse, "Composed")) }
+	if t_traverse.enabled { defer un(trace(t_traverse, "composite")) }
 
 	defer dtrace(ctx, "parser.composite")
 
@@ -1853,12 +1855,12 @@ func (p *parser) composite(ctx Context, lhs bool) (x Value) {
 }
 
 func (p *parser) text(ctx Context) (res []Value) {
-	if false && t_traverse.enabled { defer un(trace(t_traverse, "Text")) }
+	if false && t_traverse.enabled { defer un(trace(t_traverse, "text")) }
 	for p.tok != EOF { if p.tok == SPACE { p.next(true) } else {
 		res = append(res, p.expr(ctx))
 		if _diaContext(ctx).flush() > 0 { total := _diaContext(ctx).totalErrors()
 			warn(ctx, "parse text got %d errors", total).debug(16)
-			if cast[*universe](ctx).failOnErrors {
+			if _universe(ctx).failOnErrors {
 				panic(failure{"fail by %d errors",ia(p.Position(), total)})
 			}
 		}
@@ -1867,7 +1869,7 @@ func (p *parser) text(ctx Context) (res []Value) {
 }
 
 func (p *parser) expr(ctx Context, ab ...bool) (x Value) {
-	if false && t_traverse.enabled { defer un(trace(t_traverse, "Expression")) }
+	if false && t_traverse.enabled { defer un(trace(t_traverse, "expr")) }
 
 	defer dtrace(ctx, "parser.expr")
 
@@ -1884,7 +1886,7 @@ func (p *parser) expr(ctx Context, ab ...bool) (x Value) {
 
 	var n int
 
-SwitchCompose:
+composeNext:
 	switch p.tok {
 	case ASSIGN: // Example: '*.o = obj'
 		if !lhs && p.bits&parseNoPair == 0 { x = p.pair(ctx, x) }
@@ -1892,12 +1894,12 @@ SwitchCompose:
 
 	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
 		// For example: foobar⇒run(-gen)
-		if p.bits&parseNoSelect == 0 { x = p.selectExpr(ctx, x); goto SwitchCompose }
+		if p.bits&parseNoSelect == 0 { x = p.selectExpr(ctx, x); goto composeNext }
 		return
 
 	case LPAREN:
 		if p.bits&parseNoArg == 0 { if x = p.argumentedExpr(ctx, x); x != nil {
-			goto SwitchCompose
+			goto composeNext
 		}}
 		return
 
@@ -1927,28 +1929,19 @@ SwitchCompose:
 
 	var y = p.composite(ctx, lhs)
 
-	if _, t := y.(*Path); t {
-		switch x.(type) {
-		case  flag: // okay: -Ifoo/bar, -Lfoo/bar
-		case *Path: // okay: combine two paths
-		case *barecomp:
-		case *strlit, *compound, *delegate, *closure, *punctuation:
-		default: warn(of(ctx,y), "barecomp path: %T %v ; %v (next=%v)", x, x, y, p.tok).debug(1)
-		}
+	// Clone the first for that $(auto xxx) may point to the same value
+	if t := compose(ctx, x, y, /* clone x if */n == 0); t != nil {
+		x = t
+	} else {
+		erro(ctx, "cannot combine: %v{%v} %v{%v}", typeof(x), x, typeof(y), y)
+		notestack(/* of(ctx,y) */ctx, 5).debug(1)
 	}
 
-	// Make the first a clone, because $(auto-xxx) 'points' to the same value
-    if false && n == 0 { switch t := x.(type) {
-    case *barecomp: x = makeBarecomp(t.Position(), t.Elems...)
-    case *Path: x = makePath(t.Position(), t.Elems...)
-    }}
+	n += 1
 
-	x, n = compose(ctx, x, y), n+1 // concat
-
-	// Keep trying composing as long as possible
 	switch p.tok {
-	case SPACE, LINEND, EOF: return
-	default: goto SwitchCompose
+	case SPACE, COMMENT, LINEND, EOF:
+	default: goto composeNext // compose as many as possible
 	}
 	return
 }
@@ -2256,7 +2249,7 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseOpts, props []Value) {
 		return
 	}
 
-	var ce = configureExecutor{Context:ctx} ; defer ce.close()
+	var ce = configureContext{Context:ctx} ; defer ce.close()
 
 	for _, dep := range xmerge(ctx, strval, props/* [1:] */...) {
 		if re, y := dep.(*rule); !y {
@@ -2306,7 +2299,7 @@ func (p *parser) eval(ctx Context, doc *CommentGroup, g *clauseOpts, _ int) {
 				switch t := val != nil && val.true(ctx); v.Value.string(ctx) {
 				case "dd": p.dd = t
 				case "ddd":
-					if u := cast[*universe](ctx); val == nil {
+					if u := _universe(ctx); val == nil {
 						u.ddd = "yes"
 					} else if t, y := boolVal(val); y {
 						if t { u.ddd = "yes" } else { u.ddd = "" }
@@ -2795,7 +2788,7 @@ func (p *parser) rule(ctx Context, special specialRule, optvals, targets []Value
 
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
-	targets, _, _ = (plain&^expandArgedArgs).expand(ctx, targets...)
+	targets, _, _ = (plain&^(expandArgedArgs|expandStrPath)).expand(ctx, targets...)
 
 	defer func(t []Value) { p.targets = t } (p.targets)
 	p.next(true) // skip rule delimeters and spaces
@@ -3175,10 +3168,15 @@ func (p *parser) for_(ctx Context) {
 	}}
 }
 
+type codeblockContext struct { Context ; defs autoDefMap }
+func (ctx codeblockContext) suppress(name string) (res bool) {
+	_, res = ctx.defs[name]
+	return
+}
+
 func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 	p.pos, p.tok, p.lit, p.scanner.scanState = t.pos, t.tok, t.lit, t.state
 
-	// NOTE: comment here will affect loader.def()
 	if false { pprofCounter += 1
 		var name = fmt.Sprintf("template-%05d.prof", pprofCounter)
 		defer startCPUProfile(ctx, name, true)()
@@ -3194,10 +3192,8 @@ func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 
 	defer loader.closeScope(loader.openScope("codeblock"))
 
-	ctx = &autoContext{
-		Context: p.ctx(ctx),
-		defs: make(autoDefMap),
-	}
+	cc := codeblockContext{ p.ctx(ctx) , make(autoDefMap) }
+	ctx = &autoContext{ Context: cc, defs: cc.defs }
 
 	var scope = loader.Scope()
 
@@ -3207,9 +3203,7 @@ func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 		erro(ctx, "`%s` not defined", s).debug(1)
 	}}
 
-	defer func(v parseBits) { p.bits = v } (p.bits)
-
-	p.bits |= parseCodeBlock
+	defer p.setbits(p.setbit(parseCodeBlock))
 
 	for p.tok != EOF && p.pos < p.stop {
 		if p.tok == SPACE || p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
@@ -3222,7 +3216,7 @@ func (p *parser) codeblock(ctx Context, t *template, vars map[string]Value) {
 
 func (p *parser) repeat(ctx Context, t *template, params []Value) {
 	defer func(t time.Time, pos Pos, tok Token, lit string, state scanState) {
-		if u := cast[*universe](ctx); u.ddd == "template.repeat" {
+		if u := _universe(ctx); u.ddd == "template.repeat" {
 			// dont check time in ddd mode
 		} else if d := time.Now().Sub(t); d > u.slow {
             warnstack(ctx, 3, "slow: %v, prof-%d", d, pprofCounter).debug(1)
@@ -3300,7 +3294,7 @@ func (p *parser) clause(ctx Context) {
 
 	defer dtrace(ctx, "parser.clause")
 
-	defer func() { if cast[*universe](ctx).debugParsing(ctx, "clause") {
+	defer func() { if _universe(ctx).debugSyntax(ctx, "clause") {
 		warn(ctx, "clause: %v %v ; %v %v", typeof(x), x, p.tok, p.lit).debug(6)
 	}} ()
 
@@ -3323,7 +3317,7 @@ func (p *parser) clause(ctx Context) {
 	x = p.expr(ctx, true)
 
 	if p.spaces(); p.tok.IsAssign() {
-		if cast[*universe](ctx).debugParsing(ctx, "define") {
+		if _universe(ctx).debugSyntax(ctx, "define") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			_diaContext(ctx).flush()
 		}
@@ -3332,7 +3326,7 @@ func (p *parser) clause(ctx Context) {
 	}
 
 	if p.tok.IsRuleDelim() {
-		if cast[*universe](ctx).debugParsing(ctx, "rule") {
+		if _universe(ctx).debugSyntax(ctx, "rule") {
 			warn(p, "parser.clause: %s(%v); %v %v", typeof(x), x, p.tok, p.lit).debug(1)
 			_diaContext(ctx).flush()
 		}
@@ -3401,7 +3395,7 @@ type projectDeclOpts struct {
 
 func (p *parser) file(ctx Context) *parsedFile {
 	if t_traverse.enabled  { defer un(trace(t_traverse, "File '"+p.scanner.File().Name()+"'")) }
-	if cast[*universe](ctx).traceLaunch { defer un(trace(t_launch, "parser.file")) }
+	if _universe(ctx).traceLaunch { defer un(trace(t_launch, "parser.file")) }
 	if _diaContext(ctx).error() { return nil }
 
 	defer dtrace(ctx, "parser.file")
@@ -3511,10 +3505,14 @@ func (p *parser) file(ctx Context) *parsedFile {
 			for p.tok != EOF && p.tok != SPACE {
 				if w := p.bare(ctx, false); w == nil {
 					erro(at(ctx,ident.Position()), "expecting a bareword").debug(1)
-				} else if word, ok := w.(*bareword); !ok {
+				} else if word, y := w.(*bareword); !y {
 					erro(at(ctx,ident.Position()), "expecting a bareword: %v (%T)", w, w).debug(1)
-				} else if ident.comp(ctx, word); p.tok == DOT {
-					ident.comp(ctx, &punctuation{valbase{p.Position()}, p.tok}) // TODO: parse to Qualiword
+				} else if ident.compose(ctx, false, word) == nil {
+					erro(ctx, "fail to compose: %v{%v}, %v{%v}", typeof(ident), ident, typeof(w), w).debug(1)
+				} else if p.tok == DOT { // TODO: parse to Qualiword
+					if ident.compose(ctx, false, &punctuation{valbase{p.Position()}, p.tok}) == nil {
+						erro(ctx, "fail to compose: %v{%v}", typeof(ident), ident).debug(1)
+					}
 					implicitBaseSegs = append(implicitBaseSegs, word.s)
 					p.step() // '.'
 				} else { break ForProjectName }
@@ -3544,10 +3542,10 @@ func (p *parser) file(ctx Context) *parsedFile {
 		if (loader.mode&Flat == 0) && loader.declare(at(ctx, ident.Position()), keyword, ident, identStr, &opts) {
 			// Change the 'default' owners into the new declared project
 			if s := ctx.Scope(); s != nil {
-				if def := s.FindDef("."  ); def != nil { def.owner = ctx.Project() }
-				if def := s.FindDef("/"  ); def != nil { def.owner = ctx.Project() }
-				if def := s.FindDef("CTD"); def != nil { def.owner = ctx.Project() }
-				if def := s.FindDef("CWD"); def != nil { def.owner = ctx.Project() }
+				if def := s.FindDef("."  ); def != nil { def.owner_ = ctx.Project() }
+				if def := s.FindDef("/"  ); def != nil { def.owner_ = ctx.Project() }
+				if def := s.FindDef("CTD"); def != nil { def.owner_ = ctx.Project() }
+				if def := s.FindDef("CWD"); def != nil { def.owner_ = ctx.Project() }
 			} else {
 				erro(ctx, "file scope is nil").debug(1)
 			}
@@ -3634,8 +3632,8 @@ func (p *parser) file(ctx Context) *parsedFile {
 	}
 	if auto { loader.autoload(p.ctx(ctx), "appendix") }
 
-	if  cast[*universe](ctx).ddd == "parser.files" {
-		cast[*universe](ctx).ddd = ""
+	if  _universe(ctx).ddd == "parser.files" {
+		_universe(ctx).ddd = ""
 	}
 
 	return &parsedFile{

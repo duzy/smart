@@ -120,14 +120,14 @@ func (_ *use) collect(ctx Context, cache *valcache, bits int) (res []*valcache) 
 
 type uselist struct {
         name_ string
+        owner_ *Project
         scope *Scope
-        owner *Project
         list []*use
 }
 func (_ *uselist) kind() Kind { return KindUseList }
 func (p *uselist) name(_ Context) string { return p.name_ }
+func (p *uselist) owner() *Project { return p.owner_ }
 func (p *uselist) declScope() *Scope { return p.scope }
-func (p *uselist) OwnerProject() *Project { return p.owner }
 func (p *uselist) Position() (pos Position) {
         if len(p.list) > 0 {
                 pos = p.list[0].Position()
@@ -197,7 +197,7 @@ func (p *uselist) delete(ctx Context) (files []*File, err error) {
 }
 func (p *uselist) cmp(ctx Context, v Value) (res cmpres) {
         if a, y := v.(*uselist); y { assert(y, "value is not uselist")
-                if p.name_ == a.name_ && p.owner == a.owner { res = cmpEqual }
+                if p.name_ == a.name_ && p.owner_ == a.owner_ { res = cmpEqual }
         }
         return
 }
@@ -230,7 +230,7 @@ func (p *uselist) expand(ctx Context, w facet) (res Value) {
                 list = append(list, v.(*use))
         }
         if num > 0 {
-                res = &uselist{ p.name_, p.scope, p.owner, list }
+                res = &uselist{ p.name_, p.owner_, p.scope, list }
         } else {
                 res = p
         }

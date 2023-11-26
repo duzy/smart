@@ -66,7 +66,7 @@ func tt(t tracer, ctx Context, i Value) tracer {
     // target execution args and argumented-prerequisite args.
     var a string
 	var pc = cast[*programContext](ctx)
-    if tar := ctx.entry().Target(); len(pc.params) > 0 {
+    if tar := _entry(ctx).Target(); len(pc.params) > 0 {
         a = fmt.Sprintf("%s{%s}%s", typeof(tar), tar, pc.params)
     } else {
         a = fmt.Sprintf("%s{%v}", typeof(tar), tar)

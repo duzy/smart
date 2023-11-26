@@ -44,7 +44,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 		ctx.err("workspace: %v", proj.configure)
 	} else if workspace, y := o.(*def); !y || workspace.value == nil {
 		ctx.err("workspace: %T %v", o, o)
-	} else if p := workspace.OwnerProject(); p == nil {
+	} else if p := workspace.owner(); p == nil {
 		ctx.err("workspace: %T %v", o, o)
 	} else if p.name != "general" {
 		ctx.err("workspace: %T %v ; %v", o, o, p)

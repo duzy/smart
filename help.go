@@ -78,7 +78,7 @@ func print_options(ctx Context) {
     type opt struct { entry Entry; infos []Value }
 
     var opts []opt
-    cast[*universe](ctx).forConfigs(func(proj *Project, entry Entry) {
+    _universe(ctx).forConfigs(func(proj *Project, entry Entry) {
         y, infos := entry.option(ctx)
         if y { opts = append(opts, opt{entry, infos}) }
     })
@@ -98,7 +98,7 @@ func print_configuration(ctx Context) {
 `)
 
     var configs = make(map[*Project][]Entry)
-    cast[*universe](ctx).forConfigs(func(proj *Project, entry Entry) {
+    _universe(ctx).forConfigs(func(proj *Project, entry Entry) {
         entries, _ := configs[proj]
         entries = append(entries, entry)
         configs[proj] = entries

@@ -11,9 +11,9 @@ import (
 )
 
 func testAutoContext(ctx *testcase) {
-	if c := cast[*universe](ctx); c == nil {
+	if c := _universe(ctx); c == nil {
 		ctx.err("Context.cast")
-	} else if c := cast[*universe](ctx); c == nil {
+	} else if c := _universe(ctx); c == nil {
 		ctx.err("Context.cast")
 	}
 	{
@@ -147,7 +147,7 @@ func testAutoContext(ctx *testcase) {
 		ctx.err("%v{%v} -> %s", typeof(foo), foo, s)
 	}
 
-	if foo := ctx.get("foo", expandAutoKept|expandDelegate, "1"); foo == nil {
+	if foo := ctx.get("foo", expandRetainAuto|expandDelegate, "1"); foo == nil {
 		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
 		ctx.err("%v{%v} -> %s", typeof(foo), foo, s)
@@ -155,7 +155,7 @@ func testAutoContext(ctx *testcase) {
 		ctx.err("%v{%v} -> %s", typeof(foo), foo, s)
 	}
 
-	if foo := ctx.get("foo", "1", "2", "3", expandAutoKept|expandDelegate); foo == nil {
+	if foo := ctx.get("foo", "1", "2", "3", expandRetainAuto|expandDelegate); foo == nil {
 		ctx.err("foo")
 	} else if s := foo.String(); s != "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9" {
 		ctx.err("%v{%v} -> %s", typeof(foo), foo, s)
@@ -295,7 +295,7 @@ func testValues2(ctx *testcase) {
 
 	if v := ctx.get(".test", "a", "b", "c"); v == nil {
 		ctx.err(".test")
-	} else if s := v.String(); s != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c $(call(-c) &(.test.x),aa,bb)" {
+	} else if s := v.String(); s != "$(value(-closure) &(.test.x)) b $(&(.test.x) aa,bb) c $(call(-closure) &(.test.x),aa,bb)" {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if s := v.string(ctx); s != "foobar - b foobar aa-bb c foobar aa-bb" {
 		ctx.err("%v{%v} -> %s", typeof(v), v, s)
@@ -340,7 +340,7 @@ func testValues2(ctx *testcase) {
 
 	if v := ctx.get(".test.1", "a", "b", "c"); v == nil {
 		ctx.err(".test.1")
-	} else if v.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c" {
+	} else if v.String() != "$(value(-closure) &(.test.x)) b $(&(.test.x) aa,bb) c" {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if s := v.string(ctx); s != "foobar - b foobar aa-bb c" {
 		ctx.err("%v{%v} -> %s", typeof(v), v, s)
@@ -375,12 +375,12 @@ func testValues2(ctx *testcase) {
 
 	if d := ctx.def(".test.3"); d == nil || d.value == nil {
 		ctx.err("%v", d)
-	} else if d.value.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) $1$1,$2$2) $3" {
+	} else if d.value.String() != "$(value(-closure) &(.test.x)) b $(&(.test.x) $1$1,$2$2) $3" {
 		ctx.err("%v", d) // "foobaz $2-$1 b foobaz $22-$11 $3"
 	}
 	if v := ctx.get(".test.3", "a", "b", "c"); v == nil {
 		ctx.err(".test.3")
-	} else if v.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c" {
+	} else if v.String() != "$(value(-closure) &(.test.x)) b $(&(.test.x) aa,bb) c" {
 		ctx.err("%v{%v}", typeof(v), v) // foobar $1-$2 $(.test.ab $1$1,$2$2) $3
 	} else if s := v.string(ctx); s != "foobar - b foobar aa-bb c" {
 		ctx.err("%v{%v} -> %s", typeof(v), v, s)
@@ -402,7 +402,7 @@ func testValues2(ctx *testcase) {
 	}
 	if v := ctx.get(".test.5", "a", "b", "x"); v == nil {
 		ctx.err(".test.5")
-	} else if v.String() != "$(value(-c) &(.test.x)) b $(&(.test.x) aa,bb) c $(call(-c) &(.test.x),aa,bb) x" {
+	} else if v.String() != "$(value(-closure) &(.test.x)) b $(&(.test.x) aa,bb) c $(call(-closure) &(.test.x),aa,bb) x" {
 		ctx.err("%v{%v}", typeof(v), v) // foobar $1-$2 b foobar aa-bb c foobar aa-bb x
 	} else if s := v.string(ctx); s != "foobar - b foobar aa-bb c foobar aa-bb x" {
 		ctx.err("%v{%v} -> %s", typeof(v), v, s)
@@ -483,12 +483,16 @@ func testValues3(ctx *testcase) {
 func testValues4(ctx *testcase) {
 	if d := ctx.def(".test.*"); d == nil {
 		ctx.err(".test.*")
-	} else if d.value == nil {
+	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if d.value.String() != "D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique)" {
-		ctx.err("%v", d)
-	} else if s := d.value.string(ctx); s != "D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique)" {
-		ctx.err("%v -> %v", d, s)
+	} else if s := "D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique)"; v.String() != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v)
+		ctx.err("%v{%v}", typeof(v), v)
+	} else if v.string(ctx) != s {
+		noted(of(ctx,v), "%v", s)
+		noted(of(ctx,v), "%v", v.string(ctx))
+		ctx.err("%v{%v}", typeof(v), v)
 	}
 
 	if v := ctx.get(".test.D.c"); v == nil {

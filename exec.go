@@ -244,12 +244,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
           pos.Filename, pos.Line = p.log.filename, l
           ctx = at(p.execContext, pos)
         }
-
         testCheckExecOutput(ctx, string(line), l)
-
-        if false && _diaContext(ctx).error() {
-          noted(p.execContext, "%s", line).debug(1)
-        }
       }
 
       for _, rx := range knownerrors {
@@ -783,7 +778,7 @@ func (p *execContext) check() (err error) {
     }
 
     var diffLogPos = !p.logPos.SameLine(&pos)
-    var str, _, _ = entryIndicator(ctx, ctx.entry())
+    var str, _, _ = entryIndicator(ctx, _entry(ctx))
     if (!p.retStatus && p.Status != 0) || en > 0 {
       if p.dropFailed {
         if e := os.RemoveAll(p.targetName); e != nil {
@@ -854,7 +849,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     ctx.x = nil
 
     // Stamp the target file.
-    if !ctx.stamp || ctx.isConfigure() {
+    if !ctx.stamp || isConfigure(ctx) {
       // no stamp for target files
     } else if err != nil {
       var files, e = ctx.target.delete(ctx)
@@ -891,7 +886,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
       reportFileUpdates(ctx, files)
     }
 
-    if err != nil && ctx.isConfigure() { err = nil }
+    if err != nil && isConfigure(ctx) { err = nil }
     if err != nil {
       erro(ctx, "shell: %v", err).debug(1)
       return
@@ -933,7 +928,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
   ctx.start = time.Now()
 
   var _ctx = ctx.Context
-  var u = cast[*universe](ctx)
+  var u = _universe(ctx)
   for i, src := range ctx.sources {
     ctx.Context = at(_ctx, src.Position())
     ctx.current = i
@@ -984,7 +979,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     err = ctx.run()
 
     if d := ctx.debug; d > 0 {
-      entry := ctx.entry()
+      entry := _entry(ctx)
       prompt(ctx, "%v\n", ctx.sh)
       if _, s, y := ctx.target.fullnameFile(ctx); y {
         prompt(ctx, "%v:1: %v: %v\n", s, entry, err)
@@ -1005,7 +1000,7 @@ type executor struct {
   contained bool
 }
 func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error) {
-  var uni = cast[*universe](ctx)
+  var uni = _universe(ctx)
   if uni.traceExecutor {
     var t = autoVal(ctx, "@")
     defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
@@ -1031,7 +1026,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
   } else if d := exe.debug; false && d>0 { defer func() {
-    noted(ctx, "%v: %v (%v)", ctx.entry(), exe.target.Value, result).debug(d)
+    noted(ctx, "%v: %v (%v)", _entry(ctx), exe.target.Value, result).debug(d)
   }()}
 
   if !exe.prompt { exe.prompt = exe.promStr != "" }
@@ -1054,7 +1049,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     // no stamp required for Flags
   } else if _, ok = toFile(exe.target.Value); !ok {
     // no stamp required for non-file targets
-  } else if exe.targetName, _ = exe.target.fullnameOrStrval(ctx); exe.isConfigure() {
+  } else if exe.targetName, _ = exe.target.fullnameOrStrval(ctx); isConfigure(exe) {
     // does nothing
   } else if exe.waitRes {
     // good to work without (stamp) or (wait) with the -wait flag

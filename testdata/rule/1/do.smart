@@ -1,9 +1,15 @@
 project testrules1
 
+-:
+
 .test.foobar: .test.fxx ; &(foo fxxbar)
 .test.foobaz: .test.fxx ; &(foo $<)
 .test.foobay: .test.fxx ; &(foo $>)
 .test.fxx: ; 'fxx'
+
+'.test.foo':
+
+v1 := '.test.foo'
 
 c = 0
 foo = $1

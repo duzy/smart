@@ -93,11 +93,18 @@ type commandline struct {
   traceConfig     bool `tc,trace-config`
 }
 
-func (o *commandline) debugParsing(ctx Context, syntax string) (res bool) {
-  if cast[*universe](ctx).ddd == syntax { for _, s := range o.debugSyn {
+func (o *commandline) debugSyntax(ctx Context, syntax string) (res bool) {
+  if _universe(ctx).ddd == syntax { for _, s := range o.debugSyn {
     if res = s == syntax; res { break }
   }}
   return
+}
+
+func db(ctx Context, ss ...string) (res bool) {
+    for _, d := range strings.Fields(_universe(ctx).ddd) {
+        for _, s := range ss { if d == s { return true }}
+    }
+    return
 }
 
 const fullContextStringer bool = false
@@ -126,16 +133,12 @@ type Context interface {
   traversed(ctx Context, target Value) []Value
   traverse(ctx Context, prereqValue Value) (traves travestates)
 
-  entry() Entry
-
-  stems() []string
-
   ref(Context, Value) bool
 
-  appendCallerUpdated() bool
-  isConfigure() bool
   mustExists() bool
 }
+
+// func is_ctx[C Context](ctx Context) bool { return cast[C](ctx) != nil }
 
 func cast[C Context](ctx Context) (c C) {
   if ctx != nil {
@@ -427,28 +430,39 @@ func infostack(ctx Context, n int, a ...interface{}) *diagPoint { return diagsta
 func warnstack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagWarn  , a...) }
 func errostack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagError , a...) }
 func promstack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagPrompt, a...) }
-func notestack(ctx Context, n int, a ...interface{}) *diagPoint { var f string
-  if len(a) > 0 { if s, y := a[0].(string); y { f, a = s, a[1:] } }
-  a = append([]interface{}{ "%v: "+f+"\n", ctx.Position() }, a...)
+func notestack(ctx Context, n int, a ...interface{}) *diagPoint {
+  if true {
+    var f string
+    if len(a) > 0 { if s, y := a[0].(string); y {
+      f, a = s, a[1:]
+    }}
+
+    a = append([]interface{}{
+      "%v: "+f+"\n", ctx.Position(),
+    }, a...)
+  }
   return diagstack(ctx, n, diagPrompt, a...)
 }
 func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPoint) {
     var (
         proj = ctx.Project()
-        entry = ctx.entry()
+        entry = _entry(ctx)
         s, str string
     )
-    if len(a) > 0 { if t, y := a[0].(string); y { s, a = t, a[1:] }}
+    if y := len(a) > 0; y {
+      if s, y = a[0].(string); y { a = a[1:] }
+    }
+
     if s != "" && s != "<#" && s != "#>" {
-      if len(a) > 0 { if p, y := a[0].(Position); y && p.IsValid() && strings.HasPrefix(s, "%") {
-        if strings.HasSuffix(s, "\n") {
-          s = strings.TrimSuffix(s, "\n") + "#%d\n"
-          a = append([]interface{}{p, n}, a[1:]...)
-        }
+      if len(a) == 0 {/* noops */} else
+      if p, y := a[0].(Position); y && strings.HasPrefix(s, "%v:") /* && p.IsValid() */ {
+        s = "%v: #%d: " + strings.TrimSpace(s[3:])
+        a = append([]interface{}{p, n}, a[1:]...)
       } else {
         s = "#%d: " + s
         a = append([]interface{}{n}, a...)
-      }}
+      }
+      if !strings.HasSuffix(s, "\n") { s += "\n" }
       point = diag(ctx, dt, s, a...)
     } else if entry == nil {
         if point = diag(ctx, dt, "#%d: in project %v:", n, proj); proj != nil {
@@ -463,7 +477,7 @@ func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPo
         }
         return
     } else {
-        if proj == nil { proj = entry.OwnerProject() }
+        if proj == nil { proj = entry.owner() }
         str, _, _ = entryIndicator(ctx, entry)
     }
 
@@ -488,7 +502,7 @@ func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPo
         point = diag(ctx, dt, "%v: %v: %v", proj, str, ctx)
     }
 
-    if pc := _positionContext(ctx); pc != nil {
+    if pc := _positional(ctx); pc != nil {
         point.position = pc.position
 
         if s == "#>" && len(a) > 0 { for _, t := range a {
@@ -502,14 +516,14 @@ func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPo
             }
         }}
 
-        for last := &pc.position; pc != nil && n > 0; pc = _positionContext(pc.Context) {
+        for last := &pc.position; pc != nil && n > 0; pc = _positional(pc.Context) {
             var pos = &pc.position
             if last == pos || last.Same(pos) { continue }  else { n -= 1 }
 
             var suf string
             if n == 0 && pc.caller() != nil { suf = " ..." }
 
-            if entry := pc.entry(); entry == nil {
+            if entry := _entry(pc); entry == nil {
                 point = diag(ctx, /* dt */diagInfo, "#%d: %v%s", n, proj, suf)
             } else if str, _, _ := entryIndicator(pc, entry); str != "" {
                 point = diag(ctx, /* dt */diagInfo, "#%d: %v: %v%s", n, proj, str, suf)
@@ -524,13 +538,13 @@ func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPo
     return
 }
 
-func _positionContext(c Context) *positionContext { return cast[*positionContext](c) }
+func _positional(c Context) *positional { return cast[*positional](c) }
 
-type positionContext struct { Context; position Position }
-func (pc *positionContext) caller() *positionContext { return _positionContext(pc.Context) }
-func (pc *positionContext) cast(t reflect.Type) Context { return implCast(pc, t) }
-func (pc *positionContext) Position() Position { return pc.position }
-func (pc *positionContext) String() string {
+type positional struct { Context; position Position }
+func (pc *positional) caller() *positional { return _positional(pc.Context) }
+func (pc *positional) cast(t reflect.Type) Context { return implCast(pc, t) }
+func (pc *positional) Position() Position { return pc.position }
+func (pc *positional) String() string {
   if fullContextStringer {
     return fmt.Sprintf("positional{%s}", pc.Context)
   } else {
@@ -542,8 +556,8 @@ func of(ctx Context, val Value) Context { return at(ctx, val.Position()) }
 func at(ctx Context, pos Position) Context {
   if ctx == nil { panic("nil context") } else
   if p := ctx.Position(); p._valid() && pos._valid() && !p.Same(&pos) {
-    for c, i, n := ctx, 0, 0; c != /* cast[*universe](ctx) */nil; c, i = inner(c), i+1 {
-      if _, y := c.(*positionContext); y { n += 1 ; if n > /* 999 */100 {
+    for c, i, n := ctx, 0, 0; c != /* _universe(ctx) */nil; c, i = inner(c), i+1 {
+      if _, y := c.(*positional); y { n += 1 ; if n > /* 999 */100 {
         if false { prompt(ctx, "%v: too many positions: %T\n", p, c) }
         warnstack(ctx, 3, "too many positions: %v/%v; %v", n, i, ctx).debug(16)
         _diaContext(ctx).flush()
@@ -554,7 +568,7 @@ func at(ctx Context, pos Position) Context {
   }
   return ctx
 }
-func _at(ctx Context, pos Position) Context { return &positionContext{ ctx, pos } }
+func _at(ctx Context, pos Position) Context { return &positional{ ctx, pos } }
 
 func _argumentedContext(c Context) *argumentedContext { return cast[*argumentedContext](c) }
 

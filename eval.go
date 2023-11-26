@@ -22,7 +22,7 @@ func (p *evaluer) evaluate(ctx Context, args ...Value) (result Value, err error)
 
 ForRecipes:
     for _, recipe := range program.recipes {
-        var w = plain | expandPathStr | expandPairVal
+        var w = plain /* | expandStrPath */ | expandPairVal
         if opts.fullname { w |= expandFullName }
         if !p.accumulation { list = nil }
 

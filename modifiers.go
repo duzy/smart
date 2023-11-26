@@ -28,6 +28,7 @@ import (
     "time"
 )
 
+// NOTE: all single character opt names/shortcuts should be preserved for general purposes.
 type generalOpts struct {
     debug    int  `d,db,dbg,debug` // NOTE: compatible with 'bool'
     stack    int  `sn,stack,stacknum,stack-num,stack-number`
@@ -120,7 +121,7 @@ var (
 )
 
 func modify(x Context, g *group, hyphen bool) (res Value) {
-    var uni = cast[*universe](x)
+    var uni = _universe(x)
     var pc = cast[*programContext](x)
     var ctx = at(x, g.position)
     var name = g.Elems[0].string(ctx)
@@ -129,7 +130,7 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
 	defer dtrace(ctx, "modify")
 
     if t, y := modifiers[name]; !y {
-        var _, ent, _ = entryIndicator(ctx, ctx.entry())
+        var _, ent, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s failed for %s\n", ent, name, ctx.Project())
         erro(ctx, "unknown modifier: %s (args=%v)", name, args)
         errostack(ctx, 5, "%v", ctx).debug(10)
@@ -178,7 +179,7 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
         if t := pc.traves.not(traveCase, traveNext, traveDone); false && t.has() {
             if uni.verbose || uni.verboseBreaks {
                 proj := ctx.Project()
-                var _, ent, _ = entryIndicator(ctx, ctx.entry())
+                var _, ent, _ = entryIndicator(ctx, _entry(ctx))
                 prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
                 for _, s := range t { warn(at(ctx,s.pos), "%v: %s: %v", proj, name, s) }
                 warnstack(ctx, 5, "").debug(16)
@@ -287,14 +288,14 @@ func (g *modification) traverse(ctx Context) {
     var pc = cast[*programContext](ctx)
     if pc != nil { pc.Wait() }
 
-    var uni = cast[*universe](ctx)
+    var u = _universe(ctx)
     for _, m := range g.list {
         var ctx = at(ctx, m.position)
         if m.traverse(ctx); pc == nil { continue }
         if t := pc.traves.of(traveFail); t.has() { return }
         if t := pc.traves.not(traveCase, traveDone, traveNext, traveRule, traveFile); t.has() {
-            if true || (uni.verbose || uni.verboseBreaks) {
-                var _, ent, _ = entryIndicator(ctx, ctx.entry())
+            if true || (u.verbose || u.verboseBreaks) {
+                var _, ent, _ = entryIndicator(ctx, _entry(ctx))
                 warn(ctx, "%v: %s failed\n", ent, m.Elems[0])
                 for _, s := range t { warn(at(ctx,s.pos), "%v: %v", m.Elems[0], s) }
                 warnstack(ctx, 5, "").debug(16)
@@ -407,7 +408,7 @@ func (ctx *modifier_debug) x(args ...Value) (result interface{}) {
         }
     }
     if len(ctx.info) == 0 && len(ctx.warn) == 0 && len(ctx.erro) == 0 {
-        var ( p = ctx.Position() ; s = ctx.stems() ; m *diagPoint )
+        var ( p = ctx.Position() ; s = _stems(ctx) ; m *diagPoint )
         if len(args) == 0 {
             m = prompt(ctx, "%v: target=%v stems=%v depends=%v\n", p, target, s, depends)
         } else if ctx.verbose {
@@ -983,7 +984,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
     }
     if !sys && gc.debug>0 {
         erro(ctx, "%v: %v → %v (exists=%v, sys=%v, from %v)\n",
-            ctx.entry(), gc.target, name, res.exists(), sys, ctx.Project()).
+            _entry(ctx), gc.target, name, res.exists(), sys, ctx.Project()).
             debug(gc.debug)
     }
     if sys || res.exists() { return }
@@ -1095,7 +1096,7 @@ func tempFile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file
 }
 
 func removeTempDirs(ctx Context, cleanDirs ...string) {
-    var uni = cast[*universe](ctx)
+    var uni = _universe(ctx)
     if len(cleanDirs) == 0 {
         var clean =  uni.cleanTmpDirs
         if  clean || uni.cleanDotCache { cleanDirs = append(cleanDirs, ".cache") }
@@ -1363,7 +1364,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
         }
     }
 
-    var uni = cast[*universe](ctx)
+    var uni = _universe(ctx)
     if uni.saveGrepSource {
         var (
             perm = os.FileMode(0600)
@@ -1415,7 +1416,7 @@ type modifier_grep struct { modifier_
     noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
 }
 func (ctx *modifier_grep) x(args ...Value) (result interface{}) {
-    var uni = cast[*universe](ctx)
+    var uni = _universe(ctx)
     if false && uni.noDepsGrep || uni.noGrep { return }
 
     var gc = grepctx{ modifier_grep:ctx }
@@ -1524,7 +1525,6 @@ func (ctx *depContext) String() string {
         return ctx.diaContext.String()
     }
 }
-func (ctx *depContext) appendCallerUpdated() bool { return false }
 
 func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *File, savedDepsFileName, deps string) (files []Value) {
     const parallel = true
@@ -1798,16 +1798,6 @@ func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool
     return
 }
 
-type modifierDepsContext struct { Context }
-func (mdc *modifierDepsContext) mustExists() bool { return true }
-func (mdc *modifierDepsContext) String() string {
-    if fullContextStringer {
-        return fmt.Sprintf("deps{%s}", mdc.Context)
-    } else {
-        return mdc.Context.String()
-    }
-}
-
 type modifier_deps struct { modifier_
     useClang bool `cl,clang`
     useGcc bool `g,gcc`
@@ -1817,7 +1807,7 @@ type modifier_deps struct { modifier_
     cc string `c,cc,compiler`
 }
 func (ctx *modifier_deps) x(args ...Value) (result interface{}) {
-    var uni = cast[*universe](ctx)
+    var uni = _universe(ctx)
     if uni.noDepsGrep || uni.noDeps { return }
 
     // NOTE: parse opts for (deps) before expanding the args, because we share args
@@ -1903,7 +1893,6 @@ CorrectCC:
         savedDepsFileName string
     )
 
-    ctx.Context = &modifierDepsContext{ ctx.Context }
     if savedDepsFileName, files = loadSavedDepsAndCheckOutdated(ctx, ca); pc.traves.has() {
         for _, brk := range pc.traves { erro(at(ctx,brk.pos), "%v", brk) }
         errostack(ctx, 5, "%v: %v", proj, ctx).debug(16)
@@ -2101,7 +2090,7 @@ ForPairs:
             if ctx.debug>0 {
                 var tar = autoVal(ctx, "@")
                 var val = autoVal(ctx, "-")
-                warn(at(ctx,program.position), "%v: %v", ctx.entry(), tar)
+                warn(at(ctx,program.position), "%v: %v", _entry(ctx), tar)
                 warn(ctx, "status=%v", exeres.Status)
                 warn(ctx, "hyphen=%v", val)
                 warn(ctx, "context: %v", ctx).debug(ctx.debug)
@@ -2127,7 +2116,7 @@ ForPairs:
             if ctx.debug>0 {
                 var tar = autoVal(ctx, "@")
                 var val = autoVal(ctx, "-")
-                warn(at(ctx,program.position), "%v: %v", ctx.entry(), tar)
+                warn(at(ctx,program.position), "%v: %v", _entry(ctx), tar)
                 warn(ctx, "status=%v", exeres.Status)
                 warn(ctx, "hyphen=%v", val)
                 warn(ctx, "context: %v", ctx).debug(ctx.debug)
@@ -2550,7 +2539,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result interface{}) {
         brk.error = err
     }
     if ctx.debug>0 && err != nil {
-        warn(ctx, "%v: %v ; stems=%v\n", target, err, ctx.stems())
+        warn(ctx, "%v: %v ; stems=%v\n", target, err, _stems(ctx))
         warnstack(ctx, 5).debug(ctx.debug)
     }
     return
@@ -2941,7 +2930,7 @@ func (ctx *modifier_assert) z(w facet, args ...Value) (_ interface{}) {
     defer dtrace(ctx, "modifier_assert")
 
     var pc = cast[*programContext](ctx)
-    var uni = cast[*universe](ctx)
+    var uni = _universe(ctx)
     var target = autoVal(ctx, "@")
     for _, a := range args {
         if a == nil { erro(ctx, "assert: nil").debug(1); return }
@@ -3238,7 +3227,7 @@ var (
 
 func onceCacheTest0(ctx Context, target Value) (n int) {
     var (
-        entry = ctx.entry()
+        entry = _entry(ctx)
         rec map[Value]int
     )
     if stemmed, ok := entry.(*stemmed); ok {
@@ -3280,7 +3269,7 @@ func onceCacheTest2(ctx Context, target Value) (n int) {
     var (
         program = ctx.program()
         h = sha256.New()
-        entry = ctx.entry()
+        entry = _entry(ctx)
     )
     if stemmed, ok := entry.(*stemmed); ok {
         entry = stemmed.rule
@@ -3323,7 +3312,7 @@ func onceSHA256Test(ctx Context, sum HashBytes) (n int) {
 func onceSHA256(ctx *modifier_once, target Value, args ...Value) (n int) {
     var (
         program = ctx.program()
-        entry = ctx.entry()
+        entry = _entry(ctx)
         h = sha256.New()
     )
     if stemmed, ok := entry.(*stemmed); ok {
@@ -3393,7 +3382,7 @@ func (ctx *modifier_once) x(args ...Value) (result interface{}) {
             targets map[Value]int // prerequisites
         }
 
-        var entry = ctx.entry()
+        var entry = _entry(ctx)
         var traverseMap = make(map[Entry]*traverseRec)
 
         if rec, _ := traverseMap[entry]; false {

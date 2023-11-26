@@ -29,7 +29,6 @@ var configureOps = map[string] func(*modifier_configure, Value, ...Value) (Value
     "b":       (*modifier_configure)._bool,
     "bool":    (*modifier_configure)._bool,
     "boolean": (*modifier_configure)._bool,
-    "v":       (*modifier_configure)._value,
     "val":     (*modifier_configure)._value,
     "value":   (*modifier_configure)._value,
     "o":       (*modifier_configure)._option,
@@ -39,7 +38,10 @@ var configureOps = map[string] func(*modifier_configure, Value, ...Value) (Value
     "package": (*modifier_configure)._package,
 }
 
-type configureExecutor struct {
+func _configureContext(c Context) *configureContext { return cast[*configureContext](c) }
+func isConfigure(ctx Context) bool { return _configureContext(ctx) != nil }
+
+type configureContext struct {
     Context
     current *Project
     silent bool
@@ -48,8 +50,8 @@ type configureExecutor struct {
     defs map[string]struct{}
     done map[*def]struct{}
 }
-func (ctx *configureExecutor) cast(t reflect.Type) Context { return implCast(ctx, t) }
-func (ctx *configureExecutor) openConfigurationFile(p *Project) (file *os.File) {
+func (ctx *configureContext) cast(t reflect.Type) Context { return implCast(ctx, t) }
+func (ctx *configureContext) openConfigurationFile(p *Project) (file *os.File) {
     defer dtrace(ctx, "configuration-file")
 
     if f := p.configurationFile; f == nil {
@@ -78,10 +80,10 @@ func (ctx *configureExecutor) openConfigurationFile(p *Project) (file *os.File) 
 
     return
 }
-func (ctx *configureExecutor) execute(entry Entry) {
+func (ctx *configureContext) execute(entry Entry) {
     defer dtrace(ctx, "execute")
 
-    if p := entry.OwnerProject(); p != ctx.current && p != nil {
+    if p := entry.owner(); p != ctx.current && p != nil {
         if p.configured { return } // already configured
 
         ctx.defs = make(map[string]struct{}) // reset defs for p
@@ -137,7 +139,7 @@ func (ctx *configureExecutor) execute(entry Entry) {
     }
     return
 }
-func (ctx *configureExecutor) close() {
+func (ctx *configureContext) close() {
     if ctx.writer != nil { if err := ctx.writer.Flush(); err != nil {} }
     if ctx.file != nil   { if err := ctx.file.Close();   err != nil {} }
 }
@@ -177,9 +179,10 @@ type configure_silent struct{}
 func configure(ctx Context, ii ...interface{}) {
     defer dtrace(ctx, "configure")
 
-    var u = cast[*universe](ctx)
-    var c = configureExecutor{
-        Context: ctx, done: make(map[*def]struct{}),
+    var u = _universe(ctx)
+    var c = configureContext{
+        Context: ctx,
+        done: make(map[*def]struct{}, 8),
     }
 
     defer c.close()
@@ -214,6 +217,20 @@ func configure(ctx Context, ii ...interface{}) {
     })
 
     return
+}
+
+// configure - configures a variable, example usage:
+//     (configure -answer)
+//     (configure -option(info='...'))
+//     (configure -package(xxx))
+//     (configure -include('xxx.h'))
+//     (configure -function(function,include='<xxx.h>'))
+//     (configure -library(lib,function))
+//     (configure -library(lib,function,include='<xxx.h>'))
+//     (configure -symbol(symbol,include='<xxx.h>'))
+//     (configure -compiles(info="..."))
+type modifier_configure struct { modifier_
+    accumulate bool `add,acc,accumulate`
 }
 
 func (ctx *modifier_configure) _param(name string, i interface{}) *pair {
@@ -288,7 +305,7 @@ func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
         names = append(names, a.string(ctx))
     }}
 
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if  u.packages == nil {
         u.packages = make(map[string]packageinfo, 4)
     }
@@ -301,7 +318,7 @@ func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
             prompt(ctx, "%v: package `%v`: unknown type\n", name)
         }
         if err != nil { return } else if info.Project != nil {
-            cast[*universe](ctx).packages[name] = info
+            _universe(ctx).packages[name] = info
             result = makeAnswer(ctx.Position(), true)
             break
         }
@@ -322,16 +339,12 @@ func scanExitStatus(err error) (n, status int) {
     return
 }
 
-type configureContext struct { Context }
-func (cc *configureContext) String() string { return fmt.Sprintf("configure{%s}", cc.Context) }
-func (cc *configureContext) isConfigure() bool { return true }
-
 type commonConfigureOpts struct {
     silent bool `silent`
     noResetHyphen bool `reset` // reset hyphen value, aka. "-"
 }
 func (ctx *modifier_configure) executeEntry(entryName interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
-    if cast[*universe](ctx).traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
+    if _universe(ctx).traceConfig { defer un(trace(t_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
 
     var entries *resolvedEntries
     if program := ctx.program(); program == nil {
@@ -409,8 +422,6 @@ ForInParams:
         }
     }
 
-    ctx.Context = &configureContext{ ctx.Context }
-
     var reses []Value
     var traves travestates
     for _, entry := range entries.all {
@@ -447,7 +458,7 @@ ForInParams:
 }
 
 func (ctx *modifier_configure) execute(target, name Value, args []Value) (configured bool, result Value) {
-    if cast[*universe](ctx).traceConfig { defer un(trace(t_config, "configureExecute")) }
+    if _universe(ctx).traceConfig { defer un(trace(t_config, "configureExecute")) }
 
 	defer dtrace(ctx, "configureExecute")
 
@@ -475,23 +486,23 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
         noted(ctx, "%v %v: %v -> %v %v", typeof(target), target, args, infos, params).debug(1+d)
     }()}
 
-    for _, arg := range xmerge(ctx, w, args...) {
+    for _, arg := range xmerge(ctx, w&^expandStrPath, args...) {
         if !isTrivial(arg) { switch t := arg.(type) {
         case *raw, *strlit, *compound:
             params, infos = append(params, ctx._param("INFO", t)), append(infos, t)
         case *pair:
             params = append(params, t)
         case unexpanded:
-            erro(of(ctx,arg), " unexpanded(%v): %v", typeof(t.Value), t.Value).debug(1)
+            erro(of(ctx,arg), " unexpanded(%v{%v})", typeof(t.Value), t.Value).debug(1)
             return
         default:
-            erro(of(ctx,arg), " unsupported parameter: %v: %v", typeof(t), t).debug(1)
+            erro(of(ctx,arg), " unsupported parameter: %v{%v}, %v{%v}", typeof(t), t, typeof(arg), arg).debug(1)
             return
         }}
     }
 
     var silent bool
-    if p := cast[*configureExecutor](ctx); p != nil { silent = p.silent }
+    if p := _configureContext(ctx); p != nil { silent = p.silent }
 
     if silent {
         // silent
@@ -539,21 +550,8 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
     return
 }
 
-// configure - configures a variable, example usage:
-//     (configure -answer)
-//     (configure -option(info='...'))
-//     (configure -package(xxx))
-//     (configure -include('xxx.h'))
-//     (configure -function(function,include='<xxx.h>'))
-//     (configure -library(lib,function))
-//     (configure -library(lib,function,include='<xxx.h>'))
-//     (configure -symbol(symbol,include='<xxx.h>'))
-//     (configure -compiles(info="..."))
-type modifier_configure struct { modifier_
-    accumulate bool `add,acc,accumulate`
-}
 func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
-    var u = cast[*universe](ctx)
+    var u = _universe(ctx)
     if u.traceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, u.reconfigure))) }
 
     var project = ctx.Project()
@@ -610,8 +608,8 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
 
     if result = d; !isNull(d.value) { // Check if it's already configured?
         if !u.reconfigure { return } // return if not reconfigure
-        if p := ctx.cast(reflect.TypeOf((*configureExecutor)(nil))); p != nil {
-            if _, y := p.(*configureExecutor).done[d]; y { return }
+        if p := _configureContext(ctx); p != nil {
+            if _, y := p.done[d]; y { return }
         }
     }
 
@@ -639,7 +637,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
     }
 
     var configured bool
-    var ce = cast[*configureExecutor](ctx)
+    var ce = _configureContext(ctx)
 
 ForConfig:
     for i, a := range ops {
