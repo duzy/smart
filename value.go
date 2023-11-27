@@ -4018,6 +4018,12 @@ func (p *Path) matchN(ctx Context, srcs ...string) (full bool, res []string, ste
         numSrc = 0
     )
 
+    if false { if p.String() == ".configure/**.c" { defer func() {
+        if len(res) == 2 && res[1] == "test_xxx.c" && len(stems) == 1 && stems[0] == "test_xxx.c" {
+            erro(ctx, "%v: %v %v %v ; %v %v", p, full, res, stems, numSeg, numSrc).debug(5)
+        }
+    }()}}
+
     if true { defer func() { if full && len(stems) == 0 && len(res) > 0 && p.patterned(ctx) {
         if lenSegs == 1 /* && lenSrcs == 1 */ && len(res) == 1 && segs[0].patterned(ctx) {
             stems = res
@@ -4039,7 +4045,7 @@ SegsSrcsLoop:
         }
 
         var multi, pre, suf = multia(ctx, seg) // %% or **
-        if false { if p.string(ctx) == ".test/x**y" { noted(of(ctx, seg),
+        if false { if p.string(ctx) == ".configure/**.c" { noted(of(ctx, seg),
             "%v %v: %v %v %v %v", segs, srcs, seg, multi, pre, suf).debug(1) }}
 
         var src = srcs[numSrc]; numSrc += 1 // move forward to the next src
@@ -4053,22 +4059,30 @@ SegsSrcsLoop:
             if !isTrivial(pre) { prefix = pre.string(ctx) }
             if !isTrivial(suf) { suffix = suf.string(ctx) }
 
-            if prefix != "" { if strings.HasPrefix(src, prefix) {
+            if prefix == "" {
+                st = src[:]
+            } else if strings.HasPrefix(src, prefix) {
                 st = strings.TrimPrefix(src, prefix)
             } else {
                 break SegsSrcsLoop
-            }}
+            }
 
-            var noful bool
+            var nful bool
             var tail []string // stem
             if suffix != "" {
                 for {
-                    if false { if p.string(ctx) == "**/testdata" { noted(of(ctx, seg),
-                        "%v %v ; %v %v ; %v %v %v", segs, srcs, seg, src, res, stems, stem).debug(1) }}
+                    res = append(res, src)
 
-                    if res = append(res, src); strings.HasSuffix(st, suffix) {
+                    if false { if p.string(ctx) == ".configure/**.c" && srcs[lenSrcs-1] == "test_xxx.c" {
+                        var   _c = of(ctx, seg)
+                        noted(_c, "%v %v ; %v %v ; %v, %v %v, %v %v", segs, seg, srcs, src, st, pre, prefix, suf, suffix)
+                        noted(_c, "res=%v stem=%v (%v, %v)", res, stem, numSeg, numSrc).debug(1)
+                    }}
+
+                    if strings.HasSuffix(st, suffix) {
                         st = strings.TrimSuffix(st, suffix)
-                        if stem = append(stem, st); numSeg == lenSegs {
+                        stem = append(stem, st)
+                        if numSeg == lenSegs {
                             full = numSrc == lenSrcs
                         } else {
                             full = numSeg == lenSegs-1
@@ -4085,14 +4099,16 @@ SegsSrcsLoop:
                         st = src[:]
                     } else {
                         full = numSeg == lenSegs-1
-                        noful = !full
+                        nful = !full
                         break
                     }
                 }
 
-                if false { if p.string(ctx) == "**/testdata" { noted(of(ctx, seg),
-                    "%v %v ; %v %v ; %v, %v %v %v",
-                    segs, srcs, seg, src, noful, full, res, stem).debug(1) }}
+                if false { if len(stem) == 1 && stem[0] == "test_xxx.c" && p.string(ctx) == ".configure/**.c" {
+                    var   _c = of(ctx, seg)
+                    noted(_c, "%v %v ; %v %v ; %v %v", segs, srcs, seg, src, numSeg, numSrc)
+                    noted(_c, "res=%v stem=%v (%v, %v)", res, stem, nful, full).debug(1)
+                }}
             } else if numSeg < lenSegs {
                 if prefix == "" || st != "" { res = append(res, src) }
                 if st == "" { st = src } ;   stem = append(stem, st)
@@ -4175,7 +4191,7 @@ SegsSrcsLoop:
                     segs, srcs, seg, src, full, res, stem).debug(1) }
             }
 
-            if !full && !noful { full = numSrc == lenSrcs }
+            if !full && !nful { full = numSrc == lenSrcs }
 
             if len(stem) > 0 { stems = append(stems, strings.Join(stem, PathSep)) }
             if len(tail) > 0 { stems = append(stems, tail...) }
@@ -4210,15 +4226,18 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, res interface{}, st
     } (p.string(ctx)) }
 
     var result []string
-    defer func() { if n := len(result); n == 1 {
-        res = result[0]
-    } else if n > 1 {
-        res = result
-    }} ()
+
+    defer func() {
+        if n := len(result); n == 1 {
+            res = result[0]
+        } else if n > 1 {
+            res = result
+        }
+    } ()
 
     switch t := i.(type) {
-    case   string : full, result, stems = p.match1(ctx, t)
-    case []string :
+    case   string: full, result, stems = p.match1(ctx, t)
+    case []string:
         if n := len(t); n == 1 {
             full, result, stems = p.match1(ctx, t[0])
         } else if n > 1 {
@@ -4240,7 +4259,7 @@ func (p *Path) match(ctx Context, i interface{}) (full bool, res interface{}, st
             full, result, stems = p.match1(ctx, t.fullname()) // NOTE: matching the fullname form
             return
         }
-    case Value :
+    case Value:
         if str := t.string(ctx); str != "" {
             full, result, stems = p.match1(ctx, str)
             return

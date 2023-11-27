@@ -23,7 +23,7 @@ import (
 
 const (
   clocks = "🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧"
-  productVerTag = "dev" // dev, alpha, beta, stable
+  productVerTag = "dev" // dev, alpha, beta, final
 )
 
 type commandline struct {

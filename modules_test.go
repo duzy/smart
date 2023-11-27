@@ -1608,6 +1608,42 @@ func testLLVMConfig1_arm64_darwin(ctx *testcase) {
 	testLLVMConfig1(ctx, "/arm64-darwin")
 }
 func testLLVMConfig1(ctx *testcase, tail string) {
+	var names = []string{
+		".configure/type/align/test.c",
+		".configure/type/size/test.c",
+		".configure/type/test.c",
+		".configure/type/xxx/test.c",
+		".configure/type/xxx/yyy/test.c",
+		".configure/xxx/yyy/zzz/test.c",
+		".configure/xxx/yyy/zzz/test.c++",
+		".configure/xxx/yyy/zzz/test.o",
+		".configure/xxx/yyy/zzz/test.log",
+		".configure/test_xxx.c",
+		".configure/test_xxx.c++",
+		".configure/test_xxx.log",
+		".configure/xxx.x",
+		".configure/xxx.o",
+		".configure/xxx.c",
+		".configure/xxx.c++",
+		".configure/xxx.log",
+		".configure/std/x.stdc.headers.o",
+		".configure/std/x.stdc.headers.c",
+		".configure/std/x.stdc.headers.c++",
+		".configure/std/x.words.bigendian",
+		".configure/std/x.words.bigendian.o",
+		".configure/std/x.words.bigendian.c",
+		".configure/std/x.words.bigendian.c++",
+		".configure/std/x.float.words.bigendian.o",
+		".configure/std/x.float.words.bigendian.c",
+		".configure/std/x.float.words.bigendian.c++",
+	}
+
+	for _, name := range names {
+		if f := unmap(ctx, name); f == nil {
+			ctx.err("unmap %s", name)
+		}
+	}
+
 	var ver1, ver2, ver3 string
 	var ver1_val, ver2_val, ver3_val Value
 	if !strings.HasSuffix(ctx.Project().absPath, tail) {
@@ -1664,17 +1700,11 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("base: %v", base)
 	} else if base.configure == nil {
 		ctx.err("base.configure")
-	} else if f := file(ctx, ".configure/type/test.c", base.configure); f == nil {
-		ctx.err("file .configure/type/test.c")
-	} else if f := file(ctx, ".configure/type/align/test.c", base.configure); f == nil {
-		ctx.err("file .configure/type/test.c")
-	} else if f := file(ctx, ".configure/type/size/test.c", base.configure); f == nil {
-		ctx.err("file .configure/type/test.c")
-	} else if f := file(ctx, ".configure/type/xxx/test.c", base.configure); f != nil {
-		ctx.err("file .configure/type/xxx/test.c")
-	} else if f := file(ctx, ".configure/type/xxx/yyy/test.c", base.configure); f != nil {
-		ctx.err("file .configure/type/xxx/yyy/test.c")
-	}
+	} else { for _, name := range names {
+		if f := file(ctx, name, base.configure); f == nil {
+			ctx.err("file %s", name)
+		}
+	}}
 
 	if o := proj.resolve(ctx, "configure.version"); o == nil {
 		ctx.err("%v: configure.version", proj)

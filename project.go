@@ -428,27 +428,15 @@ func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
       continue
     }
 
-    var f *File //, _ = toFile(m.pattern)
-    // if filepath.IsAbs(m.name) {
-    //   f = m.stat(ctx, "", m.name)
-    // } else {
-    //   if m.project.changedWD != "" { f = m.stat(ctx, m.project.changedWD, m.name) }
-    //   if f == nil { f = m.stat(ctx, m.project.absPath, m.name) }
-    //   if f == nil {
-    //     if p.changedWD != "" { f = m.stat(ctx, p.changedWD, m.name) }
-    //     if f == nil { f = m.stat(ctx, p.absPath, m.name) }
-    //   }
-    // }
-
-    f = m.stat(ctx, m.name)
+    var f = m.stat(ctx, m.name)
     if f != nil {
       f.filemap = &m.FileMap
       files = append(files, f)
     }
 
-    if false && strings.HasSuffix(m.name, ".log") {
-      info(ctx, "%v: %v %v → %v %v\n", p, m.FileMap, m.name, f, files).debug(16)
-    }
+    if false { if strings.HasPrefix(m.name, ".configure/") && strings.HasSuffix(m.name, ".log") {
+      noted(ctx, "%v: %v %v → %v %v\n", p, m.FileMap, m.name, f, files).debug(16)
+    }}
   }
   return
 }

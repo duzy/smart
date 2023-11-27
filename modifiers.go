@@ -74,7 +74,7 @@ var (
         `for`:          reflect.TypeOf((*modifier_for)(nil)).Elem(),
 
         `cd`:           reflect.TypeOf((*modifier_cd)(nil)).Elem(),
-        `path`:         reflect.TypeOf((*modifier_path)(nil)).Elem(),
+        `mkdir`:        reflect.TypeOf((*modifier_mkdir)(nil)).Elem(),
 
         `sudo`:         reflect.TypeOf((*modifier_sudo)(nil)).Elem(),
 
@@ -731,10 +731,10 @@ func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
     return
 }
 
-type modifier_path struct { modifier_
+type modifier_mkdir struct { modifier_
     mode os.FileMode `m,mode`
 }
-func (ctx *modifier_path) x(args ...Value) (result interface{}) {
+func (ctx *modifier_mkdir) x(args ...Value) (result interface{}) {
     if ctx.mode == 0 {
         ctx.mode = os.FileMode(0755)
     } else {

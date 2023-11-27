@@ -229,6 +229,8 @@ func Test(t *testing.T) {
 		})
 	}
 
+	loader_sources_bench = false
+
 	// scanner_test.go
 	t.Run("scanner", testInit)
 	t.Run("scanner", testStrings)

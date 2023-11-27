@@ -81,7 +81,7 @@ type filemapCachePat struct {
 type hitched struct { v interface{} } // Value, string, []string
 
 func (h hitched) String() (s string) { // for debug
-    return fmt.Sprintf("hitched{%v(%v)}", typeof(h.v), h.v)
+    return fmt.Sprintf("hitched{%v{%v}}", typeof(h.v), h.v)
 }
 
 func (h hitched) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
@@ -276,31 +276,35 @@ func (cache *filemapCache) comp(ctx Context, a []string, bits int) (res *filemap
     return
 }
 
+const filemapCache_match_no_check = productVerTag == "final"
+
 func (cache *filemapCache) match(ctx Context, val interface{}) (res *filemapCachePat) {
     for _, m := range cache.pats { for _, p := range m {
         if len(p.maps) == 0 { continue }
 
         a, b, c := p.value.match(ctx, val)
 
-        if false && !a { if k, v := p.key, p.value.v; k.string(ctx) == "**.c" {
-            noted(ctx, "%v(%v) %v -> %v %v %v", typeof(v), v, val, a, b, c).debug(1)
+        if false && !a { if k, v := p.key, p.value.v; k.string(ctx) == "**.c" { if x, y, z := k.match(ctx, val); x {
+            noted(ctx, "%v{%v} %v → %v %v ; %v %v %v", typeof(v), v, val, b, c, x, y, z).debug(1)
 
             if false { if t, y := k.(*GlobPattern); y && len(t.components) > 1 {
                 t1, t2 := t.components[0], t.components[1]
-                noted(ctx, "%v(%v) %v(%v)", typeof(t1), t1, typeof(t2), t2)
+                noted(ctx, "%v{%v} %v{%v}", typeof(t1), t1, typeof(t2), t2)
             }}
 
             if false {
                 var a, b, c = k.match(ctx, val)
-                noted(ctx, "%v(%v) %v -> %v %v %v", typeof(k), k, val, a, b, c).debug(1)
+                noted(ctx, "%v{%v} %v → %v %v %v", typeof(k), k, val, a, b, c).debug(1)
             }
-        }}
+        }}}
 
-        if a { return p } else if false { continue }
-        if t, r, s := multia(ctx, p.key); t {
+        if a { return p } else if filemapCache_match_no_check { continue }
+
+        if t, prefix, suffix := multia(ctx, p.key); t {
             if x, y, z := p.key.match(ctx, val); x {
-                erro(ctx, "wrong match: %v %v → %v %v ; %v → %v %v %v",
-                    p.key, val, r, s,    p.value/*.v*/, x, y, z).debug(10)
+                var  _c = of(ctx,p.key)
+                erro(_c, "FIXME: %v %v → res=%v, stems=%v", val, p.value, b, c)
+                erro(_c, "(prefix=%v, suffix=%v) %v → %v %v", prefix, suffix, p.key, y, z).debug(16)
             }
         }
     }}
@@ -609,7 +613,7 @@ func stat(ctx Context, name string, ii ...interface{}) (file *File) {
         case stat_fileinfo: fileInfo = t.FileInfo
         case stat_nonexist: nonexist = t.bool
         default:
-            erro(ctx, "stat: invalid arg: %v(%v)", typeof(i), i).debug(2)
+            erro(ctx, "stat: invalid arg: %v{%v}", typeof(i), i).debug(2)
             return
         }
     }

@@ -1790,18 +1790,20 @@ ListLoop:
     return
 }
 
+var loader_sources_bench = true
+
 func (l *loader) sources(ctx Context, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*Project) {
     var u = _universe(l.Context)
 
     defer dtrace(ctx, "sources")
 
-    defer func(t time.Time) {
-        if d := time.Now().Sub(t); u.verboseParse || d > 3*time.Second {
+    if loader_sources_bench { defer func(t time.Time) {
+        if d := time.Now().Sub(t); u.verboseParse || d > time.Second {
             noted(ctx, "slow: %s (%v)", l.project, d).debug(1)
         } else if u.debugSyntax(ctx, "sources") {
 			noted(ctx, "sources: %s (%v)", l.project, time.Now().Sub(t)).debug(6)
 		}
-    } (time.Now())
+    }(time.Now())}
 
     var fd, err = os.Open(path)
     if err != nil {
