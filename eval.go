@@ -6,91 +6,76 @@
 
 package smart
 
-// evaluer evaluates smart statements
-type evaluer struct { accumulation bool }
-type evaluerOpts struct { generalOpts }
-func (p *evaluer) evaluate(ctx Context, args ...Value) (result Value, err error) {
-    var program = ctx.program()
+// eval evaluates smart statements
+type eval struct { accumulation, eval bool }
+func (p *eval) evaluate(ctx Context, args ...Value) (result Value, err error) {
+    var program = _program(ctx)
     if program == nil {
         erro(ctx, "needs program context to evaluate: %v", ctx).debug(16)
         return
     }
 
     var list []Value
-    var opts evaluerOpts
-    args = parseOpts(ctx, &opts, plain, args...)
+    var opts struct { generalOpts }
+    args = parseOpts(final{ctx}, &opts, args...)
 
-ForRecipes:
     for _, recipe := range program.recipes {
-        var w = plain /* | expandStrPath */ | expandPairVal
-        if opts.fullname { w |= expandFullName }
-        if !p.accumulation { list = nil }
+        var vals = merge(recipe)//xmerge(of(ctx, recipe), recipe)
 
-        var (
-            ctx = at(ctx, recipe.Position())
-            vals = xmerge(ctx, w, recipe)
-            n = len(vals)
-        )
-        if n < 1 {
-            list = append(list, recipe)
+        if n := len(vals); n < 1 {
+            if false { list = append(list, recipe) }
             continue
         }
 
-        var (
-            name = vals[0]
-            ov []Value
-        )
-        if a, y := name.(*argumented); y { name, ov = a.Value, a.args }
+        var op = vals[0]
+        var ov []Value // opt-vals
+        if a, y := op.(*argumented); y { op, ov = a.Value, a.args }
 
-        ctx = at(ctx, name.Position())
+        var ctx = at(ctx, op.Position())
 
-        var v Value
-        switch tv := name.(type) {
-        case *undetermined:
-            // Noop, just return v to the caller.
-
+        switch t := op.(type) {
         case *returner:
-            list = append(list, tv.Values...)
-            break ForRecipes
+            result = ease(ctx, t.vals)
+            return
 
         case invoker:
-            v = tv.invoke(ctx, plain, ov, vals[1:])
+            if v := t.invoke(ctx, ov, vals[1:]); v != nil {
+                if p.accumulation {
+                    list = append(list, v)
+                } else {
+                    list = []Value{ v }
+                }
+            }
 
         case executer:
-            var a, traves = tv.execute(ctx, vals[1:]...)
-            if a == nil {
-                // no return value
-            } else if t := traves.not(traveCase, traveDone, traveNext); t.has() {
-                traves = t
-            } else if n := len(a); n == 1 {
-                v = a[0]
-            } else if n > 1 {
-                v = makeList(a...)
+            var a, traves = t.execute(ctx, vals[1:]...)
+            if s := traves.not(traveCase, traveDone, traveNext); s.has() {
+                for _, brk := range s {
+                    erro(at(ctx,brk.pos), "%v: %v", vals, brk).debug(1)
+                }
+            } else if p.accumulation {
+                list = append(list, a...)
+            } else {
+                list = a
             }
-            for _, brk := range traves {
-                erro(at(ctx,brk.pos), "eval '%v': %v", vals, brk).debug(1)
+
+        case *undetermined:
+            if p.accumulation {
+                list = append(list, vals...)
+            } else {
+                list = vals
             }
 
         default:
-            list = append(list, vals...)
-            continue
-        }
-
-        if /*isNil*/isTrivial(v) { continue }
-
-        list = append(list, v)
-        if g, ok := v.(*group); ok && g != nil && g.Len() > 0 {
-            if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
-                var str = s.string(ctx)
-                if num, e := c.int(ctx); e != nil {
-                    erro(ctx, "%v: %v", c, e).debug(1)
-                } else if str == "shell" && num != 0 {
-                    //prompt(ctx, "evaluate: %v\n", v)
-                    break ForRecipes
-                }
+            if p.eval { vals = expand(ctx, vals...) }
+            if p.accumulation {
+                list = append(list, vals...)
+            } else {
+                list = vals
             }
         }
     }
+
     result = ease(ctx, list)
     return
 }

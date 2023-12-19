@@ -10,7 +10,7 @@ import (
 )
 
 type test_mod_1 struct { modifier_ }
-func (ctx *test_mod_1) v(args ...Value) (result interface{}) {
+func (ctx *test_mod_1) v(args ...Value) interface{} {
 	return append(args, makeBareword(ctx.Position(), "test_mod_1"))
 }
 
@@ -21,23 +21,74 @@ func testValueModifierInit() {
 func testValueModifier(ctx *testcase) {
 	defer func() { delete(modifiers, `test-mod-1`) } ()
 
-	if v := ctx.get("val"); v == nil {
-		ctx.err("val")
+	if s := "val"; false {
+	} else if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", ust{d})
 	} else if v.String() != "foobar" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", ust{v})
 	} else if s := v.string(ctx); s != "foobar" {
-		ctx.err("%T %v -> %s", v, v, s)
+		ctx.err("%v → %s", ust{v}, s)
 	}
 
-	if v := ctx.get("foo"); v == nil {
-		ctx.err("foo")
-	} else if v.String() != "$(val) test_mod_1" {
-		ctx.err("%T %v", v, v)
+	if s := "val1"; false {
+	} else if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", ust{d})
 	} else if l, y := v.(*list); !y {
-		ctx.err("%T %v", v, v)
-	} else if len(l.Elems) != 2 {
-		ctx.err("%T %v -> %v", v, v, l.Elems)
-	} else if s := v.string(ctx); s != "foobar test_mod_1" {
-		ctx.err("%T %v -> %s", v, v, s)
+		ctx.err("%v", ust{v})
+	} else if l.len() != 2 {
+		ctx.err("%v ; %v", ust{v}, l.len())
+	} else if _, y := l.elems[0].(*delegate); !y {
+		ctx.err("%v", ust{l.elems[0]})
+	} else if _, y := l.elems[1].(*bareword); !y {
+		ctx.err("%v", ust{l.elems[1]})
+	} else if s, t := "$(val) test_mod_1", v.String(); s != t {
+		ctx.err("%v → %s != %s", ust{v}, t, s)
+	} else if s, t := "foobar test_mod_1", v.string(ctx); s != t {
+		ctx.err("%v → %s != %s", ust{v}, t, s)
+	}
+
+	if s := "val2"; false {
+	} else if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", ust{d})
+	} else if l, y := v.(*modification); !y {
+		ctx.err("%v", ust{v})
+	} else if len(l.list) != 1 {
+		ctx.err("%v ; %v", ust{v}, len(l.list))
+	} else if s, t := "{(test-mod-1 $(val))}", v.String(); s != t {
+		ctx.err("%v → %s != %s", ust{v}, t, s)
+	} else if s, t := "foobar test_mod_1", v.string(ctx); s != t {
+		ctx.err("%v → %s != %s", ust{v}, t, s)
+	}
+
+	if s := "val3"; true {
+	} else if d := ctx.def(s); d == nil { // TODO: {(plain text) text goes here...}
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", ust{d})
+	} else if t, y := v.(*strlit); !y {
+		ctx.err("%v", ust{v})
+	} else if s := "this is a 'string' of plain  `text`."; s != t.s {
+		ctx.err("%v", ust{v})
+	} else if t := v.String(); s != t {
+		ctx.err("%v → %s != %s", ust{v}, t, s)
+	}
+
+	if s := "val4"; true {
+	} else if d := ctx.def(s); d == nil { // TODO: {(plain c++) c++ code goes here...}
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", ust{d})
+	} else if t, y := v.(*strlit); !y {
+		ctx.err("%v", ust{v})
+	} else if s := "int main() { return 0; }"; s != t.s {
+		ctx.err("%v", ust{v})
+	} else if t := v.String(); s != t {
+		ctx.err("%v → %s != %s", ust{v}, t, s)
 	}
 }

@@ -1,0 +1,15 @@
+project testbuiltins
+
+p := $/
+
+pat0 :=  **/testdata
+pat1 :=  %%/testdata
+pat2 := /**/testdata
+pat3 := /%%/testdata
+
+val1 := $(trim-prefix          $(dir  $/),$/)
+val2 := $(trim-prefix $(pat0)/ $(dir2 $/),$/)
+val3 := $(trim-prefix $(pat0)/,$/)
+val4 := $(trim-prefix $(pat1)/,$/)
+val5 := $(trim-prefix $(pat2)/,$/)
+val6 := $(trim-prefix $(pat3)/,$/)

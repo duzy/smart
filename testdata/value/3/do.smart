@@ -1,8 +1,8 @@
-project testvalues3
+project testvalue
 
 .test.x := $(auto           a3=3,$(a1)-$(a2)-$(a3))
 .test.y := $(auto a1=x a2=y a3=z,$(.test.x)-$(a1)$(a2)$(a3))
-.test.z := $(auto,$(.test.x)-$(a1)$(a2)$(a3))
+.test.z := $(auto,               $(.test.x)-$(a1)$(a2)$(a3))
 .test.1 := $(auto a1=a a2=b a3=c,$(.test.y))
 .test.2 := $(auto a1=x a2=y a3=z,$(.test.z))
 .test.3 := $(.test.y)

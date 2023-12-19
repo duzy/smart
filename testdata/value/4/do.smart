@@ -1,42 +1,36 @@
-project testvalues4
-
-eval -ddd=template.expand
+project testvalue
 
 .test.* :=
-# TODO: for flag=(D I) and lang=(c c++)
-for flag=(D I) #template for flag=(D I)
- for lang=(c c++) #template  for lang=(c c++)
-.test.* += $(flag).$(lang)(-unique)
-.test.$(flag).$(lang) := $(flag) $(lang)
- done #template  expand
-done #template expand
-# assert $(.test.*)     $(equal(-d) $(.test.*),D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique))
-# assert $(.test.D.c++) $(equal(-d) $(.test.D.c++),D c++)
-# assert $(.test.I.c++) $(equal(-d) $(.test.I.c++),I c++)
-# assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c)
-# assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c)
 
-eval -ddd=none{}
+for flag=(D I)
+ for lang=(c c++)
+ .test.* += $(flag).$(lang)(-unique)
+ .test.$(flag).$(lang) := $(flag) $(lang)
+ done
+done
+
+for a=(x y) and n=(1 2)
+.test.and.$(a).$(n) = $(a)$(n)
+done
 
 .test.D.c += $(value &(.test.x))
+.test.D.c += $(value   .test.v)
+
 .test.v := xx
 .test.x := .test.v
-# assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c xx)
 
 .test.D.c += &(value $(.test.x))
-# assert $(.test.D.c)   $(equal(-d) $(.test.D.c),D c xx xx)
 
 .test.I.c += &(value &(.test.x))
 .test.I.c += &(value $(.test.x))
 .test.I.c += $(value &(.test.x))
 .test.I.c += $(value $(.test.x))
-# assert $(.test.I.c)   $(equal(-d) $(.test.I.c),I c xx xx xx xx)
 
 .test.foreach = ($1)
+
 .test.D.c += $(.test.foreach $1,&(.test.none)) ($1)
 .test.D.c += $(foreach $1,&(.test.x.$_)) ($1)
+
 .test.x.a := x
 .test.x.b := y
 .test.x.c := z
-# # assert $(.test.D.c a b c) $(equal(-d) $(.test.D.c a b c),D c xx xx (a b c) (a b c) x y z (a b c))
-# assert $(equal(-d) $(.test.D.c a b c),D c xx xx (a b c) (a b c) x y z (a b c))

@@ -10,7 +10,9 @@ import (
 )
 
 func testLoader(ctx *testcase) {
-    if !strings.HasSuffix(ctx.workDir(), "/testdata/none") {
-        ctx.err("workdir: %s", ctx.workDir())
+    if s := _workdir(ctx); s == "" {
+        ctx.err("%s", us(ctx))
+    } else if !strings.HasSuffix(s, "/testdata/empty") {
+        ctx.err("%s", s)
     }
 }

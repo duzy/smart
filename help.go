@@ -75,10 +75,10 @@ func print_help_entries(ctx Context) {
 }
 
 func print_options(ctx Context) {
-    type opt struct { entry Entry; infos []Value }
+    type opt struct { entry entry; infos []Value }
 
     var opts []opt
-    _universe(ctx).forConfigs(func(proj *Project, entry Entry) {
+    _universe(ctx).forConfigs(func(proj *project, entry entry) {
         y, infos := entry.option(ctx)
         if y { opts = append(opts, opt{entry, infos}) }
     })
@@ -97,8 +97,8 @@ func print_configuration(ctx Context) {
     prompt(ctx, `Configuration:
 `)
 
-    var configs = make(map[*Project][]Entry)
-    _universe(ctx).forConfigs(func(proj *Project, entry Entry) {
+    var configs = make(map[*project][]entry)
+    _universe(ctx).forConfigs(func(proj *project, entry entry) {
         entries, _ := configs[proj]
         entries = append(entries, entry)
         configs[proj] = entries

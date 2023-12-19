@@ -1,0 +1,8 @@
+project testbuiltins
+
+val1 := $(addprefix -std=,foo)
+val2 := $(addprefix -std=,foo bar)
+val3 := $(addprefix -foo=,bar &(bar))
+val4  = $(addprefix -foo=,bar &(bar))
+val5 := $(addprefix  foo ,bar &(bar))
+val6  = $(addprefix  foo ,bar &(bar))

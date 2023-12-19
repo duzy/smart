@@ -1,4 +1,4 @@
-project pushcontext
+project testbuiltins
 
 foo := foobar
 

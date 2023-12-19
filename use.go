@@ -12,11 +12,11 @@ import (
 )
 
 // FIXME: locking for MT processing
-var usePrepared = make(map[*Project]int)
+var usePrepared = make(map[*project]int)
 
 type use struct {
         valbase
-        project *Project
+        project *project
         params []Value
         opts useOpts
 }
@@ -34,16 +34,18 @@ func (p *use) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *use) expandable(ctx Context, w facet) (res bool) {
+func (p *use) expandable(ctx Context) (res bool) {
         for _, a := range p.params {
-                if res = a.expandable(ctx, w); res { return }
+                if res = a.expandable(ctx); res { return }
         }
         return
 }
-func (p *use) expand(ctx Context, w facet) (res Value) {
-        var params, une, num = w.expand(ctx, p.params...)
-        if num > 0 { res = &use{p.valbase,p.project,params,p.opts} } else { res = p }
-        if une > 0 { res = unexpanded{res} }
+func (p *use) expand(ctx Context) (res Value) {
+        if params := expand(ctx, p.params...); diff(ctx, params, p.params) {
+                res = &use{p.valbase,p.project,params,p.opts}
+        } else {
+                res = p
+        }
         return
 }
 func (p *use) stat(ctx Context) (si *statinfo) {
@@ -105,7 +107,7 @@ func (p *use) string(ctx Context) (s string) {
         s = fmt.Sprintf("use %s %v", p.project.name, p.params)
         return
 }
-func (_ *use) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (_ *use) hit(ctx Context, cache hitch, bits int) (res *filecache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -119,14 +121,14 @@ func (_ *use) collect(ctx Context, cache *valcache, bits int) (res []*valcache) 
 }
 
 type uselist struct {
-        name_ string
-        owner_ *Project
+        owner_ *project
+        name string
         scope *Scope
         list []*use
 }
 func (_ *uselist) kind() Kind { return KindUseList }
-func (p *uselist) name(_ Context) string { return p.name_ }
-func (p *uselist) owner() *Project { return p.owner_ }
+func (p *uselist) ident(_ Context) string { return p.name }
+func (p *uselist) owner() *project { return p.owner_ }
 func (p *uselist) declScope() *Scope { return p.scope }
 func (p *uselist) Position() (pos Position) {
         if len(p.list) > 0 {
@@ -134,6 +136,7 @@ func (p *uselist) Position() (pos Position) {
         }
         return
 }
+func (p *uselist) srclit(Object) string { return "usee" }
 func (p *uselist) String() string {
         var s string
         for i, elem := range p.list {
@@ -197,7 +200,7 @@ func (p *uselist) delete(ctx Context) (files []*File, err error) {
 }
 func (p *uselist) cmp(ctx Context, v Value) (res cmpres) {
         if a, y := v.(*uselist); y { assert(y, "value is not uselist")
-                if p.name_ == a.name_ && p.owner_ == a.owner_ { res = cmpEqual }
+                if p.name == a.name && p.owner_ == a.owner_ { res = cmpEqual }
         }
         return
 }
@@ -216,21 +219,21 @@ func (p *uselist) defs(ctx Context, s ...string) (res []*def) {
     }
     return
 }
-func (p *uselist) expandable(ctx Context, w facet) (res bool) {
+func (p *uselist) expandable(ctx Context) (res bool) {
         for _, a := range p.list {
-                if res = a.expandable(ctx, w); res { break }
+                if res = a.expandable(ctx); res { break }
         }
         return
 }
-func (p *uselist) expand(ctx Context, w facet) (res Value) {
+func (p *uselist) expand(ctx Context) (res Value) {
         var ( list []*use; num int )
         for _, elem := range p.list {
-                var v = elem.expand(ctx, w)
+                var v = elem.expand(ctx)
                 if v != elem { num += 1 }
                 list = append(list, v.(*use))
         }
         if num > 0 {
-                res = &uselist{ p.name_, p.owner_, p.scope, list }
+                res = &uselist{ p.owner_, p.name, p.scope, list }
         } else {
                 res = p
         }
@@ -240,8 +243,7 @@ func (p *uselist) traverse(ctx Context) {
         erro(at(ctx,p.list[0].position), "cant traverse 'uselist'").debug(1)
         return
 }
-func (p *uselist) rescope(ctx Context, scope *Scope) { panic("rescoping use list") }
-func (p *uselist) append(ctx Context, proj *Project, params []Value, opts useOpts) {
+func (p *uselist) append(ctx Context, proj *project, params []Value, opts useOpts) {
         for _, elem := range p.list {
                 if elem.project == proj {
                         return
@@ -250,7 +252,7 @@ func (p *uselist) append(ctx Context, proj *Project, params []Value, opts useOpt
         p.list = append(p.list, &use{valbase{ctx.Position()},proj,params,opts})
 }
 
-func (p *uselist) Get(ctx Context, name string) (result Value, err error) {
+func (p *uselist) get(ctx Context, name string) (result Value) {
         var vals []Value
         var n = "use."+name
         for _, u := range p.list { if u.opts.noVars { continue }
@@ -258,10 +260,10 @@ func (p *uselist) Get(ctx Context, name string) (result Value, err error) {
                         vals = append(vals, o)
                 }
         }
-        return ease(ctx, vals), nil
+        return ease(ctx, vals)
 }
 
-func (p *uselist) invoke(ctx Context, w facet, o, a []Value) (result Value) {
+func (p *uselist) invoke(ctx Context, o, a []Value) (result Value) {
         var targets []Value
         if p.list != nil { for _, usee := range p.list {
                 if entry := usee.project.defaultEntry; entry != nil {
@@ -276,7 +278,7 @@ func (p *uselist) invoke(ctx Context, w facet, o, a []Value) (result Value) {
         return
 }
 
-func (_ *uselist) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (_ *uselist) hit(ctx Context, cache hitch, bits int) (res *filecache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }

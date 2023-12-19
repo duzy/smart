@@ -17,11 +17,11 @@ import (
 )
 
 const configuration_sm = "configuration.sm"
-const PathSepByte = filepath.Separator
-const PathSep = string(PathSepByte)
+const pathSepByte = filepath.Separator
+const pathSep = string(pathSepByte)
 
 type filemap struct {
-  project *Project
+  project *project
   patts []Value
   locs []Value
 }
@@ -54,13 +54,12 @@ func (p *FileMap) primePatterns(ctx Context) (pats []Value) {
   if patts[0] == nil { patts = p.patts }
 
   for _, pattern := range patts {
-    if pattern.expandable(ctx, expandClosure) {
-      var u int
+    if pattern.expandable(ctx) {//, expandDef2
       // FIXME+TODO: this could be time consuming to expand clousre in the filemap
       /*if pats, err = xmerge(ctx, plain, pattern); err != nil {
         erro(of(ctx,pattern), "merge pattern '%v' failed: %v", pattern, err)
-      } else*/ if pats, u, _ = plain.expand(ctx, pattern); u == 0 {
-        if pats != nil { pats = xmerge(ctx, plain, pats...) }
+      } else*/ if pats = expand(ctx, pattern); !expandable(ctx, pats...) {
+        if pats != nil { pats = xmerge(ctx, pats...) }
       } else {
         errostack(of(ctx,pattern), 3, "unexpanded file pattern: %v", pats).debug(15)
       }
@@ -87,22 +86,22 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
 
   if false && !matched && !(isNone(pat) || isNull(pat)) {
     var str string // NOOP
-    if n := strings.Index(str, PathSep); n < 0 { return }
+    if n := strings.Index(str, pathSep); n < 0 { return }
 
     // NOTE: Dealing with these files:
     //     files (
     //         (foo.c) => $(srcdir)/sub/dir
     //         (sub/dir/foo.c) => $(srcdir)
     //     )
-    for _, p := range filemap.locs { // FIXME: performance, operate on p.(*Path) instead
-      if _, ok := p.(*Path); !ok { continue } // NOTE: only work with paths to improve performance
+    for _, p := range filemap.locs { // FIXME: performance, operate on p.(*path) instead
+      if _, ok := p.(*path); !ok { continue } // NOTE: only work with paths to improve performance
       var ps = p.string(ctx)
-      for i := strings.LastIndex(ps, PathSep); -1 <= i; {
+      for i := strings.LastIndex(ps, pathSep); -1 <= i; {
         var ( prefix = ps[i+1:]; l = len(prefix) ) // NOTE: -1 <= i < len(ps)
         if has := strings.HasPrefix(str, prefix) && str[l] == '/'; has {
           if matched, _, _ = pat.match(ctx, str[len(prefix)+1:]); matched { break }
         }
-        if 0 < i { i = strings.LastIndex(ps[:i], PathSep) } else { break }
+        if 0 < i { i = strings.LastIndex(ps[:i], pathSep) } else { break }
       }
     }
   }
@@ -137,7 +136,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
 
   if len(p.locs) == 0 {
     for _, pat := range p.patts {
-      if f, y := pat.(*File); y && f.name(ctx) == name { return f }
+      if f, y := pat.(*File); y && f.ident(ctx) == name { return f }
     }
 
     for i, pat := range p.patts {
@@ -156,7 +155,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
     if isNull(path) {
       erro(at(ctx,pos), "nil path: name=%s",  name)
       erro(at(ctx,pos), "nil path: %v", p).debug(32)
-      panic(failure{"file mapping nil path: %v",ia(pos, p)})
+      panic(_failure(ctx))
     } else if isNone(path) {
       warn(at(ctx,pos), "nil path: name=%s",  name)
       warn(at(ctx,pos), "nil path: %v", p).debug(32)
@@ -169,7 +168,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
       if true {
         erro(at(ctx,path.Position()), "filemap path '%v' is empty (%T)", path, path)
         erro(at(ctx,pos), "filemap path '%v' is empty (pattern=%v)", path, patts)
-        erro(ctx, "filemap path '%v' is empty (project=%v)", path, ctx.Project())//.at(pos)
+        erro(ctx, "filemap path '%v' is empty (project=%v)", path, ctx.project())//.at(pos)
         erro(ctx, "filemap path '%v' is empty in %v", path, ctx).debug(64)
       }
       return
@@ -179,7 +178,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
 
     if filepath.IsAbs(sub) {    // 'sub' is abs
       if filepath.IsAbs(name) { // 'name' is abs too
-        if s := sub+PathSep; strings.HasPrefix(name, s) { // 'name' should have 'sub' prefix
+        if s := sub+pathSep; strings.HasPrefix(name, s) { // 'name' should have 'sub' prefix
           name = strings.TrimPrefix(name, s)
         } else {
           continue
@@ -199,20 +198,20 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
         // Become:
         //   /path/to/source  ""  xxx.c
         file = stat(ctx, name, stat_dir{sub}, stat_nonexist{true})
-      } else if strings.HasSuffix(sub, PathSep+pre) {
+      } else if strings.HasSuffix(sub, pathSep+pre) {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
         // Become:
         //   /path/to/source  foo/bar  xxx.c
-        s := strings.TrimSuffix(sub, PathSep+pre)
-        n := strings.TrimPrefix(name, pre+PathSep)
+        s := strings.TrimSuffix(sub, pathSep+pre)
+        n := strings.TrimPrefix(name, pre+pathSep)
         file = stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
       } else if false { // This is wrong, only base name matched!!
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
         // Become:
         //   /path/to/source  foo/bar  xxx.c
-        n := strings.TrimPrefix(name, pre+PathSep)
+        n := strings.TrimPrefix(name, pre+pathSep)
         file = stat(ctx, n, stat_sub{pre}, stat_dir{sub}, stat_nonexist{true})
       }
     } else {
@@ -227,15 +226,15 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
         //   foo/bar/xxx.c  <->  (*.c => foo/bar)
         // Become:
         //   <dir>  foo/bar  xxx.c
-        n := strings.TrimPrefix(name, pre+PathSep)
+        n := strings.TrimPrefix(name, pre+pathSep)
         file = stat(ctx, n, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true})
-      } else if strings.HasSuffix(sub, PathSep+pre) {
+      } else if strings.HasSuffix(sub, pathSep+pre) {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
         // Become:
         //   <dir>  source/foo/bar  xxx.c
-        s := strings.TrimSuffix(sub, PathSep+pre)
-        n := strings.TrimPrefix(name, pre+PathSep)
+        s := strings.TrimSuffix(sub, pathSep+pre)
+        n := strings.TrimPrefix(name, pre+pathSep)
         file = stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
       } else if false { // This is wrong, only base name matched!!
         // For example of:
@@ -243,7 +242,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
         // Become:
         //   <dir>  source/foo/bar  xxx.c
         s := filepath.Join(sub, pre)
-        n := strings.TrimPrefix(name, pre+PathSep)
+        n := strings.TrimPrefix(name, pre+pathSep)
         file = stat(ctx, n, stat_sub{s}, stat_dir{dir}, stat_nonexist{true})
       }
     }
@@ -251,137 +250,154 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
   return
 }
 
-type Project struct {
+type project_box struct { *project }
+func (p project_box) cmp(ctx Context, v Value) (res cmpres) {
+    if x, y := v.(project_box); y {
+        if x.project == p.project { res = cmpEqual }
+    } else if x, y := v.(condval); y {
+        res = p.project.cmp(ctx, x.Value)
+    } else if l, y := v.(*list); y && len(l.elems) == 1 {
+        res = p.project.cmp(ctx, l.elems[0])
+    }
+    if checkpoints {
+        switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
+        if res != cmpEqual && p.String() == v.String() {
+            erro(ctx, "%v != %v, %v", us(p), us(v), res).debug(5)
+            panic(_failure(ctx))
+        }
+    }
+    return
+}
+
+type project struct {
   position Position
-  keyword  Token // project, package, module
+  keyword  token // aka kind: project, package, module
 
   configurationFile *File // default file, decided at load time
-  configure *Project // .configure
+  configure *project // .configure
   configured bool
 
 	absPath string
 	relPath string
   tmpPath string
-	spec    string
 	name    string
+	spec    string
 
   scope   *Scope
 
-  bases []*Project
+  bases []*project
   use     *uselist
 
   filemapx []*valcache_kv // closure cache
   filemap valcache
   entries valcache
   patterns []*rule // order is important
-  configs []Entry // configure entries
-  defaultEntry Entry
+  configs []entry // configure entries
+  defaultEntry entry
 
   plugin *plugin.Plugin
   pluginScope *Scope
 
   opts *projectDeclOpts
 }
-
-func (p *Project) AbsPath() string { return p.absPath }
-func (p *Project) RelPath() string { return p.relPath }
-func (p *Project) String() string { return p.name }
-func (p *Project) Scope() *Scope { return p.scope }
-func (p *Project) Bases() []*Project { return p.bases }
-func (p *Project) NewScope(pos Position, comment string) *Scope {
-  return NewScope(pos, p.scope, p, comment)
+func (_ *project) kind() Kind { return KindObject|KindKnownObject|Kindproject }
+func (_ *project) int(Context) (int64, error) { return 0, nil }
+func (_ *project) float(Context) (float64, error) { return .0, nil }
+func (_ *project) updated(Context) bool { return false }
+func (_ *project) updatedDeps(Context, ...Value) []Value { return nil }
+func (_ *project) stamp(ctx Context) (files []*File, err error) { return }
+func (_ *project) delete(Context) (files []*File, err error) { return }
+func (_ *project) defs(Context, ...string) (res []*def) { return }
+func (_ *project) refs(Context, Value) (res bool) { return }
+func (_ *project) patterned(Context) bool { return false }
+func (_ *project) expandable(Context) bool { return false }
+func (p *project) expand(Context) Value { return project_box{p} }
+func (p *project) evoke(ctx *evocation) (res Value) { return project_box{p} }
+func (p *project) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
+func (p *project) match(ctx Context, i interface{}) (bool, interface{}, []string) { return stringMatch(ctx, p, i) }
+func (p *project) Position() Position { return p.position }
+func (p *project) String() string { return p.name }
+func (p *project) string(Context) string { return p.name }
+func (p *project) ident(Context) string { return p.name }
+func (p *project) true(Context) bool { return p.name != "" }
+func (p *project) declScope() *Scope { return p.scope }
+func (p *project) owner() *project { return p.scope.project }
+func (p *project) get(ctx Context, s string) Value { return p.resolve(ctx, s) }
+func (p *project) traverse(ctx Context) {
+    if t := p.defaultEntry; t != nil {
+        switch t.Target().(type) { case flag: return }
+        t.traverse(ctx)
+    }
+}
+func (p *project) stat(ctx Context) (si *statinfo) {
+    if t := p.defaultEntry; t != nil { si = t.stat(ctx) }
+    return
+}
+func (p *project) cmp(ctx Context, v Value) (res cmpres) {
+    if x, y := v.(*project); y {
+        if x == p { res = cmpEqual }
+    } else if x, y := v.(condval); y {
+        res = p.cmp(ctx, x.Value)
+    } else if l, y := v.(*list); y && len(l.elems) == 1 {
+        res = p.cmp(ctx, l.elems[0])
+    }
+    if checkpoints {
+        switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
+        if res != cmpEqual && p.String() == v.String() {
+            erro(ctx, "%v != %v, %v", us(p), us(v), res).debug(5)
+            panic(_failure(ctx))
+        }
+    }
+    return
+}
+func (_ *project) hit(ctx Context, cache hitch, bits int) (res *filecache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *project) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
+    return
+}
+func (_ *project) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
+    return
 }
 
-func (p *Project) wildcard(ctx *builtin_wildcard, patterns ...Value) (files []*File) {
-  defer func(t0 time.Time) {
-    if d := time.Now().Sub(t0); d > 1*time.Second {
-      var pos = ctx.Position()
-      prompt(ctx, "%v: slow: %d patterns, %v\n", pos, len(patterns), patterns)
-      prompt(ctx, "%v: slow: %d files\n", pos, len(files))
-      prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
+type self struct { *project }
+func (p self) kind() Kind { return p.project.kind()|KindSelf }
+func (_ self) ident(Context) string { return ".self" }
+func (p self) String() string { return p.srclit(nil, nil) }
+func (_ self) srclit(Context, Object) string { return "$(.self)" }
+func (p self) expand(Context) Value { return p }
+func (p self) cmp(ctx Context, v Value) (res cmpres) {
+    if x, y := v.(self); y {
+        res = p.project.cmp(ctx, x.project)
+    } else if x, y := v.(*project); y && false {
+        if p.project == x { res = cmpEqual }
+    } else if l, y := v.(*list); y && len(l.elems) == 1 {
+        res = p.cmp(ctx, l.elems[0])
     }
-  } (time.Now())
-
-  var m sync.Mutex
-  var g sync.WaitGroup
-  var collect = func(t ...*File) {
-    m.Lock()
-    files = append(files, t...)
-    m.Unlock()
-    g.Done()
-  }
-
-  var nonexist = ctx.includeMissing && !ctx.ignoreMissing
-  var f0 = func(lVal, rVal Value, lPat, rPat bool, fm *FileMap) {
-    var o = *ctx
-    for _, loc := range fm.locs {
-      if o.dir = loc.string(ctx); lPat && rPat {
-        var pat Value
-        if lVal.cmp(ctx, rVal) == cmpEqual { pat = lVal } else {
-          pat = &compositePattern{lVal, []Value{rVal}}
+    if checkpoints {
+        switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
+        if res != cmpEqual && p.String() == v.String() {
+            erro(ctx, "%v != %v, %v", us(p), us(v), res).debug(5)
+            panic(_failure(ctx))
         }
-        g.Add(1) ; go collect(o._do(pat)...)
-      } else if lPat && !rPat {
-        if file := stat(ctx, rVal.string(ctx), stat_dir{o.dir}, stat_nonexist{nonexist}); file != nil {
-          g.Add(1) ; go collect(file)
-        } else if false {
-          erro(ctx, "nil: %v: %T %v (%s)", lVal, rVal, rVal, o.dir).debug(1)
-        }
-      } else if !lPat && rPat {
-        if file := stat(ctx, lVal.string(ctx), stat_dir{o.dir}, stat_nonexist{nonexist}); file != nil {
-          g.Add(1) ; go collect(file)
-        } else if false {
-          erro(ctx, "nil: %v: %T %v (%s)", rVal, lVal, lVal, o.dir).debug(1)
-        }
-      } else {
-        warn(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, o.dir)
-      }
     }
-    g.Done()
-  }
-
-  var f1 = func(inVal, mapVal Value, inPat, mapPat bool, fm *FileMap) {
-    if y, _, _ := inVal.match(ctx, mapVal); y { // e.g. inVal=**.am <-> mapVal=foo/bar/*.am
-      g.Add(1) ; go f0(inVal, mapVal, inPat, mapPat, fm)
-    } else if y, _, _ = mapVal.match(ctx, inVal); y { // e.g. mapVal=**.am <-> inVal=foo/bar/*.am
-      if g.Add(1) ; true {
-        go f0(inVal, mapVal, inPat, mapPat, fm)
-      } else {
-        go f0(mapVal, inVal, mapPat, inPat, fm)
-      }
-    } else {
-      warn(ctx, "TODO: wildcard: %v %v", mapVal, inVal).debug(1)
-    }
-    g.Done()
-  }
-
-  var f2 = func(inVal Value, inPat bool, c *valcache) {
-    var fm, y = c._val.(FileMap)
-    if y && fm.filemap != nil {
-      for _, mapVal := range fm.primePatterns(ctx) {
-        g.Add(1) ; go f1(inVal, mapVal, inPat, mapVal.patterned(ctx), &fm)
-      }
-    } else {
-      erro(ctx, "Not FileMap: %T %v", c._val, c._val).debug(1)
-    }
-    g.Done()
-  }
-
-  var f3 = func(inVal Value) {
-    var inPat = inVal.patterned(ctx)
-    for _, c := range inVal.collect(ctx, &p.filemap, cacheMatchPatts) {
-      g.Add(1) ; go f2(inVal, inPat, c)
-    }
-    g.Done()
-  }
-
-  for _, inVal := range patterns { g.Add(1) ; go f3(inVal) }; g.Wait()
-  return
+    return
 }
 
-func file(ctx Context, s string, projects ...*Project) (res *File) {
+func (p *project) AbsPath() string { return p.absPath }
+func (p *project) RelPath() string { return p.relPath }
+func (p *project) Scope() *Scope { return p.scope }
+func (p *project) Bases() []*project { return p.bases }
+func (p *project) newScope(pos Position, comment string) *Scope {
+  return newScope(pos, p.scope, p, comment)
+}
+
+func file(ctx Context, s string, projects ...*project) (res *File) {
   if len(projects) == 0 {
-    projects = append(projects, ctx.Project())
+    projects = append(projects, ctx.project())
   }
   for _, p := range projects {
     if res = p.file(ctx, s); res != nil { break }
@@ -389,12 +405,12 @@ func file(ctx Context, s string, projects ...*Project) (res *File) {
   return
 }
 
-func files(ctx Context, iname interface{}, projects ...*Project) (maps []matchedFileMap) {
+func files(ctx Context, iname interface{}, projects ...*project) (maps []matchedFileMap) {
   var a, b, c, d []matchedFileMap // four sections
   var ms = unmap(ctx, iname)
 
   if len(projects) == 0 {
-    projects = append(projects, ctx.Project())
+    projects = append(projects, ctx.project())
   }
 
 outer:
@@ -416,7 +432,7 @@ outer:
   return
 }
 
-func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
+func (p *project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
   for _, m := range maps {
     if m.project == p {
       // mine
@@ -441,18 +457,18 @@ func (p *Project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
   return
 }
 
-func (p *Project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
+func (p *project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
   if a := p.selectFiles(ctx, maps); len(a) > 0 { if file = a[0]; !file.exists() {
     for _, f := range a { if f.exists() { return f } }
   }}
   return
 }
 
-func (p *Project) file(ctx Context, iname interface{}) (file *File) {
+func (p *project) file(ctx Context, iname interface{}) (file *File) {
   return p.selectFile(ctx, unmap(ctx, iname))
 }
 
-func (p *Project) tempFile(ctx Context, name string) (file *File) {
+func (p *project) tempFile(ctx Context, name string) (file *File) {
   if false { ctx = closureWith(ctx, p.scope) }
 
   if file = p.file(ctx, name); file != nil {
@@ -469,7 +485,7 @@ func (p *Project) tempFile(ctx Context, name string) (file *File) {
   return
 }
 
-func (p *Project) configuration(ctx Context) (file *File) {
+func (p *project) configuration(ctx Context) (file *File) {
   var s = []*Scope{ p.scope }
   if p.configure != nil { s = append(s, p.configure.scope) }
   if file = p.tempFile(closureWith(ctx, s...), configuration_sm); file == nil {
@@ -481,14 +497,19 @@ func (p *Project) configuration(ctx Context) (file *File) {
 type cacher struct { generalOpts }
 
 func (opts *cacher) cache(ctx Context, patts, paths []Value) {
-  var p = ctx.Project()
-  if p == nil { erro(ctx, "nil project").debug(1) ; return }
+  defer trace(ctx)
+
+  var p = ctx.project()
+  if p == nil {
+    erro(ctx, "nil project").debug(1)
+    return
+  }
 
   var bits = cacheStore // cacheMatchPatts
   for mi, m := range _universe(ctx).cache(ctx, p, patts, paths) {
     var ctx = of(ctx, m.pattern)
-    for i, pat := range xmerge(ctx, plain, m.pattern) {
-      if pat.expandable(ctx, plain) {
+    for i, pat := range xmerge(ctx, m.pattern) {
+      if pat.expandable(ctx) {
         p.filemapx = append(p.filemapx, &valcache_kv{ pat, m })
       } else if c := p.filemap.slot(ctx, pat, bits|cacheKey); c != nil && c._val == nil {
         c._val = m
@@ -527,20 +548,17 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   }
 }
 
-func resolveTempFile(c Context, s string) *File { return c.Project().tempFile(c, s) }
-func resolve(c Context, s string) Object {
-  if scope := c.Scope(); scope != nil { if o := scope.resolve(s); o != nil { return o }}
-  return c.Project().resolve(c, s)
-}
-func resolveEntries(c Context, s string, a bool) *resolvedEntries { return c.Project().resolveEntries(c, s, a) }
-func resolvePatterns(c Context, v Value, s string) []*stemmed { return c.Project().resolvePatterns(c, v, s) }
+func resolveTempFile(c Context, s string) *File { return c.project().tempFile(c, s) }
+func resolve(c Context, s string) Object { return c.project().resolve(c, s) }
+func resolveEntries(c Context, s string, a ...bool) entryArray { return c.project().resolveEntries(c, s, a...) }
+func resolvePatterns(c Context, v Value, s string) []*stemmed { return c.project().resolvePatterns(c, v, s) }
 
-func (p *Project) resolveDef(ctx Context, name string) (res *def) {
+func (p *project) resolveDef(ctx Context, name string) (res *def) {
   if o := p.resolve(ctx, name); o != nil { res, _ = o.(*def) }
   return
 }
 
-func (p *Project) resolve(ctx Context, s string) (obj Object) {
+func (p *project) resolve(ctx Context, s string) (obj Object) {
   if p != nil && p.scope != nil { if _, obj = p.scope.find(s); obj == nil {
     if p.pluginScope != nil { if obj = p.pluginScope.Lookup(s); obj != nil {
         return
@@ -559,12 +577,13 @@ func (p *Project) resolve(ctx Context, s string) (obj Object) {
 
 var testResolveEntries bool
 
-func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBases bool) (entries *resolvedEntries) {
-  var add = func(a ...Entry) {
+func (p *project) resolveEntries(ctx Context, name interface{}, _b ...bool) (entries entryArray) {
+  var add = func(a ...entry) {
     if len(a) > 0 {
-      if entries == nil { entries = new(resolvedEntries) }
-      entries.add(a[0])
-      entries.all = append(entries.all, a[1:]...)
+      // if entries == nil { entries = new(entryArray) }
+      // entries.add(a[0])
+      // entries = append(entries, a[1:]...)
+      entries = append(entries, a...)
     }
   }
 
@@ -613,13 +632,15 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBas
 
   if p.configure != nil && isConfigure(ctx) {
     var t = p.configure.resolveEntries(ctx, name, true)
-    if t != nil && t.all != nil { add(t.all...) }
+    if t != nil { add(t...) }
   }
 
+  var alwaysResolveBases bool
+  if n := len(_b); n > 0 { alwaysResolveBases = _b[n-1] }
   if alwaysResolveBases || entries == nil {
     for _, base := range p.bases {
       if t := base.resolveEntries(ctx, name, alwaysResolveBases); t != nil {
-        add(t.all...)
+        add(t...)
         break
       }
     }
@@ -630,7 +651,7 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBas
   } else if entries == nil { /* SLOW */
     for _, use := range p.use.list {
       if t := use.project.resolveEntries(ctx, name, alwaysResolveBases); t != nil {
-        add(t.all...)
+        add(t...)
         break
       }
     }
@@ -638,7 +659,7 @@ func (p *Project) resolveEntries(ctx Context, name interface{}, alwaysResolveBas
   return
 }
 
-func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed) {
+func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed) {
   var t1, t2 time.Time
 
   defer func(t0 time.Time) {
@@ -657,7 +678,7 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
       for _, pat := range p.patterns {
         var ( pt = pat.target ; pa = pat.arged )
         var full, r, stems = pt.match(ctx, s)
-        var m = joinMatchRes(ctx, r)
+        var m = joinPathStr(ctx, r)
         prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
       }
       warnstack(ctx, 3).debug(6)
@@ -677,14 +698,14 @@ func (p *Project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
   return
 }
 
-func (p *Project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed, t1, t2 time.Time) {
+func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed, t1, t2 time.Time) {
   if true  { res = append(res, p.resolvePatterns1(ctx, v, s)...) } ; t1 = time.Now()
   if true  { res = append(res, p.resolvePatterns2(ctx, v, s)...) } ; t2 = time.Now()
   if false { res = append(res, p.resolvePatterns3(ctx, v, s)...)/* heavy work, VERY SLOW! */ }
   return
 }
 
-func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed) {
+func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed) {
   defer func(t0 time.Time) {
     if d := time.Now().Sub(t0); d > 1*time.Second {
       prompt(ctx, "%v: slow: %v %v", ctx.Position(), val, d).debug(1)
@@ -694,7 +715,7 @@ func (p *Project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
 ForPatterns:
   for _, pat := range p.patterns {
     if full, r, stems := pat.target.match(ctx, s); full {
-      var m = joinMatchRes(ctx, r)
+      var m = joinPathStr(ctx, r)
 
       if true { for sc := cast[*stemmedContext](ctx); sc != nil; { // pattern loop detection
         if s := sc.stem.target.string(ctx); s == m { continue ForPatterns }
@@ -704,7 +725,7 @@ ForPatterns:
       if pa := pat.arged; len(pa) > 0 {
         var y bool
         var t1 = time.Now()
-        var av = xmerge(ctx, plain, pa...)
+        var av = xmerge(ctx, pa...)
         var t2 = time.Now()
         for _, a := range av { if y, _, _ = a.match(ctx, s); y { break } }
 
@@ -724,7 +745,7 @@ ForPatterns:
   return
 }
 
-func (p *Project) resolvePatterns2(ctx Context, val Value, s string) (res []*stemmed) {
+func (p *project) resolvePatterns2(ctx Context, val Value, s string) (res []*stemmed) {
   for _, base := range p.bases {
     var a, _, _ = base.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
@@ -736,7 +757,7 @@ func (p *Project) resolvePatterns2(ctx Context, val Value, s string) (res []*ste
   return
 }
 
-func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*stemmed) {
+func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*stemmed) {
   for _, use := range p.use.list {
     var a, _, _ = use.project.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
@@ -744,7 +765,7 @@ func (p *Project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
   return
 }
 
-func (p *Project) entry(ctx Context, special specialRule, options []Value, target Value, prog *program) (entry Entry, err error) {
+func (p *project) entry(ctx Context, special specialRule, options []Value, target Value, prog *program) (entry entry, err error) {
   var name string
   if name = target.string(ctx); name == "" {
     erro(of(ctx, target), "empty target name: %v", target).debug(1)
@@ -755,7 +776,7 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   if true && !patterned {
     // NOTE: it should work too if not checking against files
     switch target.(type) {
-    case *File, *Path, *barefile, *PercPattern, *GlobPattern, *RegexpPattern:
+    case *File, *path, *barefile, *percpat, *globpat, *regexpat:
     default:
       if file := p.file(ctx, name); file != nil {
         file.position = target.Position()
@@ -771,11 +792,11 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   } ()
 
   // The 'use' rule entries.
-  var closured = target.expandable(ctx, expandClosure)
+  var closured = target.expandable(ctx)//, expandDef2
   if special == specialRuleUse && !closured {
-    var _, _ = _opts[struct{
-      postExec bool `p,post;pe,post-execute;pe,post-exec`
-    }](ctx, expandZero, options...)
+    var _, _ = _opts_[struct{
+      postExec bool `post,post-execute,post-exec`
+    }](ctx, options...)
     panic(":use: rule entry is deprecated")
     return
   }
@@ -801,8 +822,8 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
     }
 
     if patterned {
-      if _, y := target.(*Path); y {
-        rule.class = PathPattRule
+      if _, y := target.(*path); y {
+        rule.class = pathPatRule
       } else {
         rule.class = PatternRule
       }
@@ -820,21 +841,21 @@ func (p *Project) entry(ctx Context, special specialRule, options []Value, targe
   return
 }
 
-func (p *Project) isa(proj *Project) (res bool) {
+func (p *project) isa(proj *project) (res bool) {
   for _, base := range p.bases {
     if base == proj { res = true; break }
   }
   return
 }
 
-func (p *Project) hasBase(proj *Project) (res bool) {
+func (p *project) hasBase(proj *project) (res bool) {
   for _, base := range p.bases {
     if res = base == proj || base.hasBase(proj); res { break }
   }
   return
 }
 
-func (p *Project) hasLoaded(ctx Context, proj *Project, traveUseLoop bool) (rp *Project, res, isb bool, err error) {
+func (p *project) hasLoaded(ctx Context, proj *project, traveUseLoop bool) (rp *project, res, isb bool, err error) {
   var uni = _universe(ctx)
   if uni.checkLoadGraph || !uni.fastMode {
     rp, res, isb, err = p.hasLoadedRecur(ctx, p, proj, 1, traveUseLoop)
@@ -842,7 +863,7 @@ func (p *Project) hasLoaded(ctx Context, proj *Project, traveUseLoop bool) (rp *
   return
 }
 
-func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, traveUseLoop bool) (rp *Project, res, isb bool, err error) {
+func (p *project) hasLoadedRecur(ctx Context, top, proj *project, depth int, traveUseLoop bool) (rp *project, res, isb bool, err error) {
   if depth > 1 && top == p && true {
     err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
     erro(at(ctx,p.position), "%v: %v", p, err).debug(128)
@@ -879,8 +900,8 @@ func (p *Project) hasLoadedRecur(ctx Context, top, proj *Project, depth int, tra
   return
 }
 
-func (p *Project) loopLoadPath() (s string) { return p.loopLoadRecur(p) }
-func (p *Project) loopLoadRecur(top *Project) (s string) {
+func (p *project) loopLoadPath() (s string) { return p.loopLoadRecur(p) }
+func (p *project) loopLoadRecur(top *project) (s string) {
   for _, use := range /*p.loads*/p.use.list {
     var imp = use.project
     if imp == top {
@@ -897,22 +918,22 @@ func (p *Project) loopLoadRecur(top *Project) (s string) {
   return
 }
 
-func (p *Project) isUsingProject(usee *Project) (res bool) {
+func (p *project) isUsingproject(usee *project) (res bool) {
   for _, use := range p.use.list {
     if res = use.project == usee; res { break  }
-    if res = use.project.isUsingProject(usee); res { break }
+    if res = use.project.isUsingproject(usee); res { break }
   }
   return
 }
 
-func (p *Project) isUsingDirectly(proj *Project) (res bool) {
+func (p *project) isUsingDirectly(proj *project) (res bool) {
   for _, u := range p.use.list {
     if res = u.project == proj; res { break }
   }
   return
 }
 
-func (p *Project) usees(bases, basesRecur, useeRecur, pre bool) (res []*Project) {
+func (p *project) usees(bases, basesRecur, useeRecur, pre bool) (res []*project) {
   if p.opts.traveUseLoop { return }
   if bases {
     for _, base := range p.bases {

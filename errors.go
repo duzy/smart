@@ -11,75 +11,67 @@ import (
 )
 
 var (
-    ErrorIllImport = errors.New("illegal import spec")
-    ErrorIllJson   = errors.New("illegal json format")
-    ErrorIllName   = errors.New("illegal name")
-    ErrorIllXml    = errors.New("illegal xml format")
-    ErrorNilExec   = errors.New("execute nil program")
-    ErrorNoEntry   = errors.New("no matched rule")
-    ErrorUpdated   = errors.New("target updated")
+    errorIllImport = errors.New("illegal import spec")
+    errorIllJson   = errors.New("illegal json format")
+    errorIllName   = errors.New("illegal name")
+    errorIllXml    = errors.New("illegal xml format")
+    errorNilExec   = errors.New("execute nil program")
+    errorNoEntry   = errors.New("no matched rule")
+    errorUpdated   = errors.New("target updated")
 )
 
 type (
-    failure struct {
-        fmt string
-        a []interface{}
-    }
-
-    termination struct {
-        position Position
-    }
-
-    FailedAssertion string
-    Unreachable string
-
-    targetNotFoundError struct { project *Project; target string }
-    pathNotFoundError   struct { project *Project; path *Path }
-    fileNotFoundError   struct { project *Project; file *File }
+    failureAssert      string
+    failureUnreachable string
+    failureTargetNotFound struct { project *project; target string }
+    failurePathNotFound   struct { project *project; path *path }
+    failureFileNotFound   struct { project *project; file *File }
+    failure     struct { Context; reason string }
+    termination struct { position Position }
 )
 
-func assert(cond bool, s string, a ...interface{}) {
-    if !cond { panic(FailedAssertion(fmt.Sprintf(s, a...))) }
+func _failure(ctx Context, a ...interface{}) failure {
+    var s string
+    if y := false; 0 < len(a) {
+        if s, y = a[0].(string); y {
+            if 1 < len(a) {
+                s = fmt.Sprintf(s, a[1:]...)
+            }
+        }
+    }
+    return failure{ctx, s}
 }
 
-func unreachable(a ...interface{}) {
-    panic(Unreachable(fmt.Sprint(a...)))
-}
-
-func ia(a ...interface{}) []interface{} { return a }
-
-func (f *failure) Error() string { var a []interface{}
-    for _, v := range f.a { if _, y := v.(Position); !y { a = append(a, v) }}
-    return fmt.Sprintf(f.fmt, a...)
-}
-func (f *failure) at(ctx Context) Context {
-    for _, a := range f.a { switch t := a.(type) {
-    case []Value: if len(t) > 0 { return at(ctx, t[0].Position()) }
-    case Value: return at(ctx, t.Position())
-    case Position: return at(ctx, t)
-    }}
-    return ctx
-}
-func (f *failure) ia() (res []interface{}) {
-    for i, a := range f.a { if _, y := a.(Position); i > 0 || !y { res = append(res, a) }}
+func (f *failure) Error() (s string) {
+    s = "failed"
+    if f.Context != nil { s += " : "+us(f.Context) }
+    if f.reason != "" { s += " : "+f.reason }
     return
 }
 
-func (s FailedAssertion) Error() string { return string(s) }
-func (s Unreachable) Error() string { return string(s) }
+func (s failureAssert) Error() string { return string(s) }
+func (s failureUnreachable) Error() string { return string(s) }
 
-func (e targetNotFoundError) Error() string {
+func (e failureTargetNotFound) Error() string {
     return fmt.Sprintf("%s: %v: target not found", e.project.name, e.target)
 }
 
-func (e pathNotFoundError) Error() string {
+func (e failurePathNotFound) Error() string {
     return fmt.Sprintf("%s: %v: path not found", e.project.name, e.path)
 }
 
-func (e fileNotFoundError) Error() string {
+func (e failureFileNotFound) Error() string {
     if s, t := e.file.fullname(), e.file.filestub.name; t == s { // e.project.name
         return fmt.Sprintf(`"%v" not found`, t)
     } else {
         return fmt.Sprintf(`"%v" not found (at %s)`, t, s) //trimPromptString(s)
     }
+}
+
+func assert(cond bool, s string, a ...interface{}) {
+    if !cond { panic(failureAssert(fmt.Sprintf(s, a...))) }
+}
+
+func unreachable(a ...interface{}) {
+    panic(failureUnreachable(fmt.Sprint(a...)))
 }

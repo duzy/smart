@@ -8,7 +8,7 @@ package smart
 func testDefs0(ctx *testcase) {
 	if d := ctx.def("val0"); d == nil {
 		ctx.err("val0")
-	} else if d.origin != DefDefault {
+	} else if d.origin != DefExpand0 {
 		ctx.err("%v %v", d, d.origin)
 	} else if val := d.value; val == nil {
 		ctx.err("%v", d)

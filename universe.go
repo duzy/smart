@@ -24,25 +24,25 @@ var baseWorkDir, _ = os.Getwd()
 var launchTime = time.Now()
 var searchPaths searchlist
 
+type char rune
+func (c char) String() string { return string(rune(c)) }
+
 type searchlist []string
-func (sl *searchlist) string() string { return fmt.Sprint(*sl) }
+func (sl *searchlist) String() string { return fmt.Sprint(*sl) }
 func (sl *searchlist) Set(value string) error {
     *sl = append(*sl, strings.Split(value, ",")...)
     return nil
 }
 
-type char rune
-func (c char) string() string { return string(rune(c)) }
-
-type filemapCache struct {
+type filecache struct {
     maps []FileMap
-    chars map[char  ]*filemapCache // chars; char(0) goes for patterns without bare prefixs
-    vals  map[Value ]*filemapCache
-    strs  map[string]*filemapCache
-    pats  map[string][]*filemapCachePat
+    chars map[char  ]*filecache // chars; char(0) goes for patterns without bare prefixs
+    vals  map[Value ]*filecache // indeterminate values
+    strs  map[string]*filecache
+    pats  map[string][]*filecachePat
 }
 
-func (p *filemapCache) String() (s string) { // NOTE: for debug only
+func (p *filecache) String() (s string) { // NOTE: for debug only
     s += "{"
     if m := p.maps; m != nil {
         s += "maps=["
@@ -72,8 +72,8 @@ func (p *filemapCache) String() (s string) { // NOTE: for debug only
     return strings.TrimSuffix(s, ",") + "}"
 }
 
-type filemapCachePat struct {
-    filemapCache
+type filecachePat struct {
+    filecache
     key Value
     value hitched
 }
@@ -106,7 +106,7 @@ func (h hitched) match(ctx Context, i interface{}) (full bool, res interface{}, 
 }
 
 type hitch struct {
-    *filemapCache
+    *filecache
     value hitched // aka full pattern
 }
 
@@ -114,29 +114,29 @@ func (cache hitch) String() (s string) {
     s += "hitch{"
     s += fmt.Sprintf("%v(%v)", typeof(cache.value.v), cache.value.v)
     s += ","
-    s += cache.filemapCache.String()
+    s += cache.filecache.String()
     s += "}"
     return
 }
 
-func (cache hitch) strx(ctx Context, s string, bits int) (res *filemapCache) {
-    if res = cache.str(ctx, strings.Split(s, PathSep), 0, bits); false && res == nil {
+func (cache hitch) strx(ctx Context, s string, bits int) (res *filecache) {
+    if res = cache.str(ctx, strings.Split(s, pathSep), 0, bits); false && res == nil {
         if c := cache.char0(bits); c != nil {
-            cache.filemapCache = c
+            cache.filecache = c
             res = cache.strx(ctx, s, bits)
         }
     }
     return
 }
 
-func (cache hitch) strs(ctx Context, ss []string, bits int) (res *filemapCache) {
+func (cache hitch) strs(ctx Context, ss []string, bits int) (res *filecache) {
     return cache.str(ctx, ss, 0, bits)
 }
 
-func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache) (res *filemapCache) {
+func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filecache) (res *filecache) {
     var j = i+1
 
-    defer func(v interface{}, c *filemapCache) {
+    defer func(v interface{}, c *filecache) {
         if false { if bits&cacheStore == 0 && res == nil && (
             ss[0] == ".test" ||
             false) && (
@@ -152,23 +152,23 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
             warnstack(ctx, 3, "%08b: %v[%d]: empty cache (%p, %v)\n", bits, ss, i, c, res).debug(12)
             res = nil // it doesn't make sense to fetch a 'empty' cache
         }
-    } (cache.value.v, cache.filemapCache)
+    } (cache.value.v, cache.filecache)
 
-    a = append(a, cache.filemapCache)
+    a = append(a, cache.filecache)
 
     var comps []string = strings.Split(ss[i], ".")
     if c := cache.comp(ctx, comps, bits); c != nil {
         if j == len(ss) {
             if bits&cacheStore != 0 || c.maps != nil { return c }
-        } else if c != cache.filemapCache {
+        } else if c != cache.filecache {
             return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
         }
     }
 
     if m := cache.match(ctx, ss); m != nil {
-        if c := &m.filemapCache; j == len(ss) {
+        if c := &m.filecache; j == len(ss) {
             if bits&cacheStore != 0 || c.maps != nil { return c }
-        } else if c != cache.filemapCache {
+        } else if c != cache.filecache {
             return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
         } else {
             errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
@@ -178,9 +178,9 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
 
     if c := cache.charstr(ss[i], bits, true); c != nil { // prefixed-patterns: lib*.a test_*.c
         if m := c.match(ctx, ss); m != nil {
-            if c := &m.filemapCache; j == len(ss) {
+            if c := &m.filecache; j == len(ss) {
                 if bits&cacheStore != 0 || c.maps != nil { return c }
-            } else if c != cache.filemapCache {
+            } else if c != cache.filecache {
                 return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
             } else {
                 errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
@@ -195,7 +195,7 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
         if c := cache.comp(ctx, comps, bits); c != nil {
             if j == len(ss) {
                 if bits&cacheStore != 0 || c.maps != nil { return c }
-            } else if c != cache.filemapCache {
+            } else if c != cache.filecache {
                 return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
             } else {
                 errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
@@ -210,42 +210,42 @@ func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filemapCache
 
     if bits&cacheStore != 0 { return }
 
-    var cs []*filemapCache
+    var cs []*filecache
     for k := len(a)-2; 0 <= k; k-- {
         var c = a[k].char0(bits)
         if c == nil { continue }
-        if p := c.match(ctx, ss); p != nil { return &p.filemapCache }
+        if p := c.match(ctx, ss); p != nil { return &p.filecache }
         cs = append(cs, c)
     }
 
     var s string = filepath.Join(ss...)
     for _, c := range cs {
-        if p := c.match(ctx, s); p != nil { return &p.filemapCache }
+        if p := c.match(ctx, s); p != nil { return &p.filecache }
     }
     return
 }
 
 func (cache hitch) expand(ctx Context, s string) (res bool) {
     var num int
-    var p = ctx.Project()
+    var p = ctx.project()
     for v, m := range cache.vals {
         var good bool
         for _, m := range m.maps {
             if good = p == m.project || p.hasBase(m.project); good { break }
         }
         if good {
-            for _, elem := range merge(v.expand(ctx, plain)) {
-                if elem.expandable(ctx, plain) {
-                    if false { warn(ctx, "%s: %s %v ⇒ %s %v", s, typeof(v), v, typeof(elem), elem).debug(1) }
+            for _, elem := range merge(v.expand(ctx)) {
+                if elem.expandable(ctx) {
+                    if false { warn(ctx, "%s: %v ⇒ %v", s, us(v), us(elem)).debug(1) }
                 } else if elem.patterned(ctx) {
-                    erro(ctx, "%s: unexpected: %s %v ⇒ %s %v", s, typeof(v), v, typeof(elem), elem).debug(1)
+                    erro(ctx, "%s: unexpected: %v ⇒ %v", s, us(v), us(elem)).debug(1)
                 } else if c := elem.hit(ctx, cache, cacheStore); c != nil {
                     if a, b, c := elem.match(ctx, s); a {
-                        if true { warn(ctx, "%v: %s: %v: %s %v ; %v %v %v", p, s, v, typeof(elem), elem, a, b, c) }
+                        if true { warn(ctx, "%v: %s: %v: %v ; %v %v %v", p, s, v, us(elem), a, b, c) }
                         num += 1
                     }
                 } else {
-                    if true { warn(ctx, "%s: %s %v -> %s %v", s, typeof(v), v, typeof(elem), elem).debug(1) }
+                    if true { warn(ctx, "%s: %v -> %v", s, us(v), us(elem)).debug(1) }
                 }
             }
         }
@@ -253,8 +253,8 @@ func (cache hitch) expand(ctx Context, s string) (res bool) {
     return num > 0
 }
 
-// NOTE: filemapCache.comp is the same as barecomp.hit
-func (cache *filemapCache) comp(ctx Context, a []string, bits int) (res *filemapCache) {
+// NOTE: filecache.comp is the same as barecomp.hit
+func (cache *filecache) comp(ctx Context, a []string, bits int) (res *filecache) {
     var (
         chars = (bits&(cacheGlob|cacheRegex)) != 0
         N = len(a)-1
@@ -276,9 +276,7 @@ func (cache *filemapCache) comp(ctx Context, a []string, bits int) (res *filemap
     return
 }
 
-const filemapCache_match_no_check = productVerTag == "final"
-
-func (cache *filemapCache) match(ctx Context, val interface{}) (res *filemapCachePat) {
+func (cache *filecache) match(ctx Context, val interface{}) (res *filecachePat) {
     for _, m := range cache.pats { for _, p := range m {
         if len(p.maps) == 0 { continue }
 
@@ -287,8 +285,8 @@ func (cache *filemapCache) match(ctx Context, val interface{}) (res *filemapCach
         if false && !a { if k, v := p.key, p.value.v; k.string(ctx) == "**.c" { if x, y, z := k.match(ctx, val); x {
             noted(ctx, "%v{%v} %v → %v %v ; %v %v %v", typeof(v), v, val, b, c, x, y, z).debug(1)
 
-            if false { if t, y := k.(*GlobPattern); y && len(t.components) > 1 {
-                t1, t2 := t.components[0], t.components[1]
+            if false { if t, y := k.(*globpat); y && len(t.elems) > 1 {
+                t1, t2 := t.elems[0], t.elems[1]
                 noted(ctx, "%v{%v} %v{%v}", typeof(t1), t1, typeof(t2), t2)
             }}
 
@@ -298,7 +296,7 @@ func (cache *filemapCache) match(ctx Context, val interface{}) (res *filemapCach
             }
         }}}
 
-        if a { return p } else if filemapCache_match_no_check { continue }
+        if a { return p } else if !checkpoints { continue }
 
         if t, prefix, suffix := multia(ctx, p.key); t {
             if x, y, z := p.key.match(ctx, val); x {
@@ -315,7 +313,7 @@ func (cache *filemapCache) match(ctx Context, val interface{}) (res *filemapCach
     return
 }
 
-func (cache *filemapCache) charstr(s string, bits int, chars bool) (res *filemapCache) {
+func (cache *filecache) charstr(s string, bits int, chars bool) (res *filecache) {
     if chars {
         if s == "" {
             res = cache.char0(bits)
@@ -330,13 +328,13 @@ func (cache *filemapCache) charstr(s string, bits int, chars bool) (res *filemap
         }
     } else if (bits&cacheStore) != 0 {
         if cache.strs == nil {
-            cache.strs = make(map[string]*filemapCache)
+            cache.strs = make(map[string]*filecache)
         } else {
             res, _ = cache.strs[s]
         }
 
         if res == nil {
-            res = &filemapCache{}
+            res = &filecache{}
             cache.strs[s] = res
         }
     } else if cache.strs != nil {
@@ -345,12 +343,12 @@ func (cache *filemapCache) charstr(s string, bits int, chars bool) (res *filemap
     return
 }
 
-func (cache *filemapCache) char0(bits int) (res *filemapCache) { return cache.char(char(0), bits) }
-func (cache *filemapCache) char(c char, bits int) (res *filemapCache) {
+func (cache *filecache) char0(bits int) (res *filecache) { return cache.char(char(0), bits) }
+func (cache *filecache) char(c char, bits int) (res *filecache) {
     if (bits&cacheStore) != 0 {
-        if cache.chars == nil { cache.chars = make(map[char]*filemapCache) }
+        if cache.chars == nil { cache.chars = make(map[char]*filecache) }
         if res, _ = cache.chars[c]; res == nil {
-            res = &filemapCache{}
+            res = &filecache{}
             cache.chars[c] = res
         }
     } else if cache.chars != nil {
@@ -359,11 +357,15 @@ func (cache *filemapCache) char(c char, bits int) (res *filemapCache) {
     return
 }
 
-func (cache *filemapCache) val(ctx Context, key Value, bits int) (res *filemapCache) {
+func (cache *filecache) val(ctx Context, key Value, bits int) (res *filecache) {
+    if isFinalValue(ctx, key) {
+        erro(ctx, "%v is a final-value", us(key)).debug(10)
+    }
+
     if (bits&cacheStore) != 0 {
-        if cache.vals == nil { cache.vals = make(map[Value]*filemapCache) }
+        if cache.vals == nil { cache.vals = make(map[Value]*filecache) }
         if res, _ = cache.vals[key]; res == nil {
-            res = &filemapCache{}
+            res = &filecache{}
             cache.vals[key] = res
         }
     } else if cache.vals != nil {
@@ -376,25 +378,25 @@ func (cache *filemapCache) val(ctx Context, key Value, bits int) (res *filemapCa
     return
 }
 
-func (cache hitch) pat(ctx Context, key Value, bits int) (res *filemapCache) {
-    var a []*filemapCachePat
+func (cache hitch) pat(ctx Context, key Value, bits int) (res *filecache) {
+    var a []*filecachePat
     if s := key.string(ctx); (bits&cacheStore) != 0 {
         if cache.pats != nil { a, _ = cache.pats[s] } else {
-            cache.pats = make(map[string][]*filemapCachePat)
+            cache.pats = make(map[string][]*filecachePat)
         }
 
-        t := &filemapCachePat{filemapCache{}, key, cache.value}
+        t := &filecachePat{filecache{}, key, cache.value}
         a = append(a, t)
         cache.pats[s] = a
-        return &t.filemapCache
+        return &t.filecache
     } else if cache.pats != nil {
         a, _ = cache.pats[s]
 
-        var p = ctx.Project()
+        var p = ctx.project()
         for i, t := range a {
             for j, m := range t.maps {
                 if m.project == p || p.hasBase(m.project) {
-                    return &t.filemapCache
+                    return &t.filecache
                 } else if false {
                     warn(of(ctx, t.key), "duplications[%d]: %v (%v, %v, %d)", i, t.value, t.key, m.project, j)
                 }
@@ -406,6 +408,11 @@ func (cache hitch) pat(ctx Context, key Value, bits int) (res *filemapCache) {
 
 type hooks struct {
     assert func(Context, Value, bool) bool
+    debug func(Context, string, []Value)
+}
+
+type benchmark struct {
+    benchmark_builtin_expand func(*builtin, Context, time.Time, reflect.Value)
 }
 
 type packagetype uint8
@@ -417,16 +424,19 @@ const (
 )
 
 type packageinfo struct {
-    *Project
+    *project
     t packagetype // smart, pkgconfig, cmake, etc.
 }
 
 func _universe(c Context) *universe { return cast[*universe](c) }
 
 type universe struct {
-    diaContext
+    diagnostic
     commandline
-    hooks
+
+    benchmark
+
+    hooks hooks
 
     workdir string
     prefix  string // FIXME: prefix for distribution
@@ -440,44 +450,47 @@ type universe struct {
     packages map[string]packageinfo
 
     statmutex sync.Mutex
-    filemaps filemapCache // value -> dirs
-    filecache map[string]*filebase // File.fullname() -> File
+    statcache map[string]*filebase // File.fullname() -> File
+    filemaps filecache // value -> dirs
 
-    facet_expand_n int64
+    expand_n int32
 
     ddd string // debug parsing via `eval -ddd=example`, also project.dd
 }
-func (ctx *universe) String() (s string) { return /*"universe"*/ }
 func (ctx *universe) dirtyMark(vals ...Value) { return }
 func (ctx *universe) ref(_ Context, _ Value) bool { return false }
-// func (ctx *universe) isConfigure() bool { return false }
-func (ctx *universe) stems() []string { return nil }
-// func (ctx *universe) entry() Entry { return nil }
 func (ctx *universe) loader() *loader { return ctx.globe.top }
 func (ctx *universe) Globe() *globe { return ctx.globe }
 func (ctx *universe) Scope() *Scope { return ctx.scope }
-func (ctx *universe) string() (s string) { if fullContextStringer { s = "{}" }; return }
-func (ctx *universe) workDir() (s string) { if s = ctx.workdir; s == "" { s = baseWorkDir }; return }
-func (ctx *universe) Project() *Project { return ctx.globe.main }
+func (ctx *universe) String() (s string) { return /*"universe"*/ }
+func (ctx *universe) do(prop property, a ...interface{}) (res interface{}) {
+    switch prop {
+    case propPosition: return ctx.Position()
+    case propWorkDir: if ctx.workdir == "" { return baseWorkDir }
+        return ctx.workdir
+    }
+    if ctx.Context == nil { return nil }
+    return ctx.Context.do(prop, a...)
+}
+func (ctx *universe) project() (p *project) {
+    if ctx != nil && ctx.globe != nil { p = ctx.globe.main }
+    return
+}
 func (ctx *universe) Position() (p Position) {
     if ctx.globe == nil || ctx.globe.main == nil {
-        p.Filename, p.Line = ctx.workDir(), 1
+        p.Filename = _workdir(ctx)
+        p.Line, p.Column = 0, 0
     } else {
         p = ctx.globe.main.position
     }
     return
 }
 func (ctx *universe) cast(t reflect.Type) (c Context) {
-    if false {
-        if c = implCast(ctx, t); c == nil { c = ctx.diaContext.cast(t) }
-        return
-    } else {
-        if reflect.TypeOf(ctx) == t { return ctx }
-        return ctx.diaContext.cast(t)
-    }
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.diagnostic.cast(t)
 }
-func (ctx *universe) projects(_ Context, projs ...*Project) []*Project {
-    if len(projs) > 0 { panic(failure{"%v",ia(ctx.Position(), projs)}) }
+func (ctx *universe) projects(_ Context, projs ...*project) []*project {
+    if len(projs) > 0 { panic(_failure(ctx, "%v", projs)) }
     return nil
 }
 func (ctx *universe) closure() (scopes []*Scope) {
@@ -491,7 +504,7 @@ func (ctx *universe) doHelp()       { do_helpscreen(ctx) }
 func (ctx *universe) doHelpFlags()  { print_flag_trace(ctx) }
 func (ctx *universe) doHelpConfig() { print_configuration(ctx) }
 
-func init_commandline() commandline { return commandline{
+func _commandline() commandline { return commandline{
     debugPrompt: true,
     debugErrors: true,
     debugWarns:  true,
@@ -507,18 +520,21 @@ func init_commandline() commandline { return commandline{
     slow: 9990 * time.Millisecond,
 }}
 
-func init_universe(ii ...interface{}) (ctx *universe) {
+func new_universe(ii ...interface{}) (ctx *universe) {
+    var p positional
     ctx = &universe{}
+    ctx.Context = &p
 
     if s, e := os.Getwd(); e != nil {
         erro(ctx, "%v", e).debug(6)
         return
     } else {
+        p.position.Filename = s
         ctx.workdir = s
         ctx.paths = searchPaths
         ctx.fset = NewFileSet()
-        ctx.filecache = make(map[string]*filebase)
-        ctx.scope = NewScope(ctx.Position(), nil, nil, `universe`)
+        ctx.statcache = make(map[string]*filebase)
+        ctx.scope = newScope(ctx.Position(), nil, nil, `universe`)
     }
 
     var cl = true
@@ -526,10 +542,12 @@ func init_universe(ii ...interface{}) (ctx *universe) {
         switch t := i.(type) {
         case  commandline: ctx.commandline, cl =  t, false
         case *commandline: ctx.commandline, cl = *t, false
-        case hooks: if t.assert != nil { ctx.hooks.assert = t.assert }
+        case *hooks: ctx.hooks = *t
+        case  hooks: ctx.hooks =  t
         }
     }
-    if cl { ctx.commandline = init_commandline() }
+    if cl { ctx.commandline = _commandline() }
+    if true { ctx.benchmark_builtin_expand = (*builtin).benchmark_expand }
 
     var bin  = ease(ctx, os.Args[0])
     var args = ease(ctx, os.Args[1:])
@@ -543,25 +561,27 @@ func init_universe(ii ...interface{}) (ctx *universe) {
         }
     }
 
-    var pos = ctx.Position()
-    var dotos Value
-    if strings.Contains(runtime.GOOS, " ") {
-        dotos = makeStrlit(pos, runtime.GOOS)
-    } else {
-        dotos = makeBareword(pos, runtime.GOOS)
+    var os Value // one of darwin, freebsd, linux, and so on.
+    var pos = p.position
+    {
+        var vs []Value
+        for _, s := range strings.Fields(runtime.GOOS) {
+            vs = append(vs, makeBareword(pos, s))
+        }
+        os = ease(ctx, vs)
     }
 
     ctx.globe = &globe{
-        Scope: NewScope(pos, ctx.scope, nil, `globe "smart"`),
-        flagEntries: make(map[string][]Entry),
-        loaded: make(map[string]*Project),
+        Scope: newScope(pos, ctx.scope, nil, `globe "smart"`),
+        flagEntries: make(map[string][]entry),
+        loaded: make(map[string]*project),
         args: make(map[Value][]Value),
     }
-    ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
-    ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os", dotos)
+
+    // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
+    ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os", os)
     ctx.globe.goals, _ = ctx.globe.define(ctx, DefVoid, ".goals", makeNone(pos))
     ctx.globe.mode,  _ = ctx.globe.define(ctx, DefVoid, ".mode",  makeNull(pos))
-    ctx.Context = &positional{ctx.Context/* = nil */, pos}
     return
 }
 
@@ -571,7 +591,7 @@ func (u *universe) file(filename string, src []byte) *TokFile {
 
 type filestub struct {
     dir  string      // full directory where the file was or should be found
-    sub  string      // matched sub path (see Project.search), may be Dir (absolete path)
+    sub  string      // matched sub path (see project.search), may be Dir (absolete path)
     name string      // constant represented name (e.g. relative filename)
     filemap *FileMap // matched pattern (see 'files' directive)
     other *filestub  // pointed to another stub (in a different project) of the same file
@@ -607,13 +627,13 @@ func stat(ctx Context, name string, ii ...interface{}) (file *File) {
     var fileInfo os.FileInfo
     for _, i := range ii {
         switch t := i.(type) {
-        case *Project: dir = t.absPath
+        case *project: dir = t.absPath
         case stat_dir: dir = t.string
         case stat_sub: sub = t.string
         case stat_fileinfo: fileInfo = t.FileInfo
         case stat_nonexist: nonexist = t.bool
         default:
-            erro(ctx, "stat: invalid arg: %v{%v}", typeof(i), i).debug(2)
+            erro(ctx, "invalid stat arg: %v", us(i)).debug(2)
             return
         }
     }
@@ -640,12 +660,12 @@ func stat(ctx Context, name string, ii ...interface{}) (file *File) {
         if fullname = name; dir == "" {
             //dir, sub = filepath.Dir(fullname), ""
             //name = filepath.Base(fullname)
-        } else if strings.HasPrefix(fullname, dir+PathSep) {
+        } else if strings.HasPrefix(fullname, dir+pathSep) {
             tail := fullname[len(dir)+1:]
             //sub  = filepath.Dir(tail)
             //name = filepath.Base(tail)
             if sub == "" { name = tail } else
-            if strings.HasPrefix(fullname, sub+PathSep) {
+            if strings.HasPrefix(fullname, sub+pathSep) {
                 name = tail[len(sub)+1:]
             }
         } else if dir != "" {
@@ -664,7 +684,7 @@ func stat(ctx Context, name string, ii ...interface{}) (file *File) {
             sub = "" // .
         } else if strings.HasPrefix(sub, dir) {
             sub = strings.TrimPrefix(sub, dir)
-            sub = strings.TrimPrefix(sub, PathSep)
+            sub = strings.TrimPrefix(sub, pathSep)
             sub = filepath.Clean(sub)
         } else if false {
             dir = sub
@@ -675,13 +695,13 @@ func stat(ctx Context, name string, ii ...interface{}) (file *File) {
     } else if filepath.IsAbs(dir) {
         fullname = filepath.Join(dir, sub, name)
     } else {
-        dir = filepath.Join(ctx.workDir(), dir)
+        dir = filepath.Join(_workdir(ctx), dir)
         fullname = filepath.Join(dir, sub, name)
     }
 
     // NOTE: filepath.Join can have the same efffect as filepath.Clean
     var cleanFullname = filepath.Clean(fullname) // clean paths like /path/to/foo/../bar -> /path/to/bar
-    if base, _ = u.filecache[cleanFullname]; base != nil {
+    if base, _ = u.statcache[cleanFullname]; base != nil {
         if base.info == nil {
             if fileInfo == nil { fileInfo, _ = os.Stat(fullname) }
             if fileInfo == nil && !nonexist { return nil }
@@ -719,7 +739,7 @@ func stat(ctx Context, name string, ii ...interface{}) (file *File) {
         base = &filebase{ filestub{ dir, sub, name, nil, nil }, fileInfo, false, nil, 0, 0, 0 }
         base.stub.other = &base.stub
         stub = &base.stub
-        u.filecache[cleanFullname] = base
+        u.statcache[cleanFullname] = base
     }
 
 GotFile:
@@ -727,14 +747,20 @@ GotFile:
     return
 }
 
-func (u *universe) cache(ctx Context, p *Project, patts, paths []Value) (res []FileMap) {
+func (u *universe) cache(ctx Context, p *project, patts, paths []Value) (res []FileMap) {
     var base = &filemap{ p, patts, paths }
     for _, patt := range patts {
+        if patt == nil {
+            errostack(ctx, 5, "nil pattern ; paths=%v", paths).debug(16)
+            continue
+        }
         if c := patt.hit(of(ctx, patt), hitch{&u.filemaps, hitched{patt}}, cacheStore); c != nil {
             var m = FileMap{ base, patt }
             c.maps, res = append(c.maps, m), append(res, m)
+        } else if patt.expandable(final{ctx}) {
+            errostack(of(ctx, patt), 5, "uncached for %v : %v", patt, us(patt)).debug(8)
         } else {
-            errostack(of(ctx, patt), 5, "%v: uncached (%T)", patt, patt).debug(16)
+            errostack(of(ctx, patt), 5, "uncached for %v : %v", patt, us(patt)).debug(16)
         }
     }
     return
@@ -754,7 +780,7 @@ func (m matchedFileMap) string() string {
 
 func unmap(ctx Context, name interface{}) (maps []matchedFileMap) {
     var db bool
-    var cache *filemapCache
+    var cache *filecache
     var t1 time.Time
     defer func (t0 time.Time) {
         var ( t2 = time.Now() ; d = t2.Sub(t0) )
@@ -776,7 +802,7 @@ func unmap(ctx Context, name interface{}) (maps []matchedFileMap) {
         if cache = v.hit(ctx, h, cacheZero); cache == nil {
             var s = v.string(ctx) ; if S != "" { db = S == s }
             if c := h.char0(cacheZero); c != nil { // FIXES: *.o <-> sub/foo.o
-                h.filemapCache = c
+                h.filecache = c
                 cache = h.strx(ctx, s, cacheZero)
             }
         } else if S != "" { db = S == v.string(ctx) }
@@ -819,7 +845,7 @@ func (dc *universe) search(ctx Context, linfo *loadinfo, specName string) (absPa
     if specName == "." {
         erro(ctx, "not possible to chain itself").debug(1)
     } else if abs := filepath.IsAbs(specName); abs || specName == "~" || specName == ".." ||
-        hasPrefix(specName, "~"+PathSep, "."+PathSep, ".."+PathSep) {
+        hasPrefix(specName, "~"+pathSep, "."+pathSep, ".."+pathSep) {
         var (
             s = specName
             sx string
@@ -846,7 +872,7 @@ func (dc *universe) search(ctx Context, linfo *loadinfo, specName string) (absPa
             if filepath.IsAbs(base) {
                 s = filepath.Join(base, specName)
             } else {
-                s = filepath.Join(dc.workDir(), base, specName)
+                s = filepath.Join(_workdir(dc), base, specName)
             }
             if fi, err := os.Stat(s); err == nil && fi != nil {
                 return s, fi.IsDir()
@@ -861,7 +887,7 @@ func startCPUProfile(ctx Context, name string, heap ...bool) (stop func()) {
     if filepath.IsAbs(name) { fn = name } else
     if m := ctx.Globe().main; m == nil {} else
     if f := m.tempFile(ctx, name); f == nil {
-        fn = filepath.Join(ctx.workDir(), name)
+        fn = filepath.Join(_workdir(ctx), name)
     } else {
         fn = f.fullname()
     }
@@ -888,7 +914,7 @@ func startHeapProfile(ctx Context, name string) (stop func()) {
     if filepath.IsAbs(name) { fn = name } else
     if m := ctx.Globe().main; m == nil {} else
     if f := m.tempFile(ctx, name); f == nil {
-        fn = filepath.Join(ctx.workDir(), name)
+        fn = filepath.Join(_workdir(ctx), name)
     } else {
         fn = f.fullname()
     }
@@ -942,7 +968,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
             var ctx = at(ctx, entry.Position())
             if dc.verboseExecFlags {
                 info(ctx, "%v", entry)
-                _diaContext(ctx).flush()
+                flush(ctx)
             }
 
             var ( res []Value; traves []*travestate )
@@ -961,8 +987,8 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
 
     var updated int
     var goals []Value
-    var collect func(proj *Project, vals []Value) bool
-    collect = func(proj *Project, vals []Value) bool {
+    var collect func(proj *project, vals []Value) bool
+    collect = func(proj *project, vals []Value) bool {
         if len(vals) == 0 {
             if entry := proj.defaultEntry; entry != nil {
                 goals = append(goals, entry)
@@ -979,7 +1005,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                     erro(ctx, "no such entry `%s`", t.s).debug(1)
                     return false
                 } else {
-                    for _, entry := range entries.all {
+                    for _, entry := range entries {
                         goals = append(goals, entry)
                     }
                 }
@@ -989,7 +1015,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
                     return false
                 } else {
-                    for _, entry := range entries.all {
+                    for _, entry := range entries {
                         goals = append(goals, entry)
                     }
                 }
@@ -999,7 +1025,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug(1)
                     return false
                 } else {
-                    for _, entry := range entries.all {
+                    for _, entry := range entries {
                         goals = append(goals, entry)
                     }
                 }
@@ -1049,11 +1075,11 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
 func (uni *universe) load() (err error) {
-    if uni.traceLaunch { defer un(trace(t_launch, "universe.load")) }
+    if uni.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
 
     var (
         args []Value
-        base = uni.workDir()
+        base = _workdir(uni)
         ctx Context = uni
     )
     if s := filepath.Join(base, ".smart", "modules"); s != "" {
@@ -1073,16 +1099,14 @@ func (uni *universe) load() (err error) {
 
     defer func(l *loader) { uni.globe.top = l } (uni.globe.top)
 
-    uni.globe.top = &loader{ closurecontext: closurecontext{
+    uni.globe.top = &loader{ terminal: terminal{
         ctx, []*Scope{uni.globe.Scope},
     }}
 
-    if text := strings.Join(os.Args[1:], " "); text == "" {
-        // Relax!
-    } else if args = uni.globe.top.text(ctx, "@", text); len(args) == 0 {
-        // ohh...
-    } else {
-        args = parseOpts(ctx, &uni.commandline, 0, args...)
+    if s := strings.Join(os.Args[1:], " "); s != "" {
+        if v := uni.globe.top.text(ctx, base, s); 0 < len(v) {
+            args = parseOpts(ctx, &uni.commandline, v...)
+        }
     }
 
     if v := uni.reconfigure; v { uni.commandline.configure = v }
@@ -1156,7 +1180,7 @@ func (uni *universe) load() (err error) {
 
     defer func(t time.Time) { if d := time.Now().Sub(t); uni.verboseImport {
         var name string
-        if p := uni.globe.top.Project(); p != nil { name = p.name }
+        if p := uni.globe.top.project(); p != nil { name = p.name }
         prompt(ctx, "└·%s … (%s)\n", name, d)
     } else if d > uni.slow {
         if m := uni.globe.main; m != nil {
@@ -1179,13 +1203,13 @@ type globe struct {
     loads []*loadinfo
     top     *loader
 
-    main   *Project
-    loaded map[string]*Project // loaded projects
+    main   *project
+    loaded map[string]*project // loaded projects
 
     stack  []map[string]*def
 
-    args    map[Value][]Value
-    flagEntries map[string][]Entry
+    args map[Value][]Value
+    flagEntries map[string][]entry
     flags []flag
     pairs []*pair
 
@@ -1195,24 +1219,24 @@ type globe struct {
 }
 
 // Main returns the main project.
-func (g *globe) Main() *Project { return g.main }
+func (g *globe) Main() *project { return g.main }
 
 func (g *globe) SetScopeOuter(scope *Scope) { scope.outer = g.Scope }
 
-func (g *globe) AddFlagEntry(name string, entry Entry) {
+func (g *globe) AddFlagEntry(name string, entry entry) {
     flags, _ := g.flagEntries[name]
     flags     = append(flags, entry)
     g.flagEntries[name] = flags
     return
 }
 
-// project returns a new Project for the given project path and name;
+// project returns a new project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
-func (g *globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *Project) {
+func (g *globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *project) {
     if outer == nil { outer = g.Scope }
 
-    m = &Project{
+    m = &project{
         position: ctx.Position(),
         absPath: absPath,
         relPath: relPath,
@@ -1221,17 +1245,17 @@ func (g *globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
         spec: spec,
         name: name,
     }
-    m.scope = NewScope(m.position, outer, m, fmt.Sprintf("project %q", name))
+    m.scope = newScope(m.position, outer, m, fmt.Sprintf("project %q", name))
     m.scope.mutex.Lock()
     // outer.mutex.Lock()
     // if s, y := outer.elems[".self"]; y { m.scope.elems[".base"] = s } else {
     //     if true { warn(ctx, "%v: no base", name).debug(12) }
     // }
     // outer.mutex.Unlock()
-    m.scope.elems[".self"] = &self{projectname{m,m.scope}}
+    m.scope.elems[".self"] = self{m}
     m.scope.elems[".usee"] = m.use
     m.scope.mutex.Unlock()
-    m.use.name_ = "usee"
+    m.use.name = "usee"
     m.use.owner_ = m
     m.use.scope = m.scope
 

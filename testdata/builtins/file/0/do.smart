@@ -1,0 +1,23 @@
+project testbuiltins
+
+files (
+    ( **.auto \
+      .test/a/**.c \
+      .test/xx/*.c \
+      .test/xx/yy/*.c \
+      .test/xx/yy/zz/*.c \
+    )
+)
+
+val1.1 := $(file(-mapped)  .test/a/b/c/foo.c)
+val1.2 := $(file(-missing) .test/a/b/c/foo.c)
+
+val2.1 := $(file(-mapped)  .test/xx/foo.c)
+val2.2 := $(file(-missing) .test/xx/foo.c)
+
+val3 := $(file(-mapped) .test/xx/yy/foo.c)
+val4 := $(file(-mapped) .test/xx/yy/zz/foo.c)
+val5 := $(file          .test/xx/yy/zz/aa/foo.c) # none
+
+pat1 := .test/a/b/c.auto
+pat2 := .test/a/b/c.test

@@ -17,17 +17,17 @@ import (
 )
 
 // A Scope maintains a set of objects;
-type Scope struct { // TODO: remote Scope struct, use scopeContext instead
+// TODO: remote Scope struct, use scopeContext instead
+type Scope struct {
 	mutex sync.Mutex
-
 	elems map[string]Object
 	position Position
-	project *Project
+	project *project
 	outer *Scope
 	comment string
 }
 
-func NewScope(pos Position, outer *Scope, project *Project, comment string) *Scope {
+func newScope(pos Position, outer *Scope, project *project, comment string) *Scope {
 	return &Scope{
 		elems: make(map[string]Object),
 		position: pos,
@@ -48,11 +48,6 @@ func (s *Scope) copyElems() (result map[string]Object) {
 	return
 }
 
-func (s *Scope) Comment() string { return s.comment }
-
-// Outer returns the scope's containing (outer) scope.
-//func (s *Scope) Outer() *Scope { return s.outer }
-
 // Len() returns the number of scope elements.
 func (s *Scope) Len() int {
 	s.mutex.Lock(); defer s.mutex.Unlock()
@@ -72,8 +67,8 @@ func (s *Scope) Names() []string {
 	return names
 }
 
-// Project returns the project where this scope is existed.
-//func (s *Scope) Project() *Project { return s.project }
+// project returns the project where this scope is existed.
+//func (s *Scope) project() *project { return s.project }
 
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
@@ -120,7 +115,7 @@ func (s *Scope) resolve(name string) (obj Object) {
 // if not already set, and returns nil.
 func (s *Scope) insert(ctx Context, obj Object) Object {
 	s.mutex.Lock(); defer s.mutex.Unlock()
-	var name = obj.name(ctx)
+	var name = obj.ident(ctx)
 	if alt := s.elems[name]; alt != nil {
 		return alt
 	}
@@ -129,8 +124,12 @@ func (s *Scope) insert(ctx Context, obj Object) Object {
 }
 
 func (s *Scope) replace(ctx Context, name string, obj Object) {
-	if s.elems[name] = obj; obj.declScope() == nil {
-		obj.rescope(ctx, s)
+	var o = obj.declScope()
+	if false && o == s { return }
+	if o != nil { delete(o.elems, name) }
+	s.elems[name] = obj
+	if i, y := obj.(interface{ setscope(*Scope) }); y {
+		i.setscope(s)
 	}
 }
 
@@ -182,28 +181,19 @@ func (s *Scope) FindDef(name string) (res *def) {
 	return
 }
 
-func (scope *Scope) projectname(ctx Context, name string, project *Project) (pn *projectname, alt Object) {
+func (scope *Scope) projectname(ctx Context, name string, project *project) (out *project, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
-		pn = &projectname{ project, scope }
-		scope.replace(ctx, name, pn)
+		out = project
+		scope.replace(ctx, name, out)
 	}
 	return
 }
 
-func (scope *Scope) scopename(ctx Context, name string, s *Scope) (sn *scopename, alt Object) {
+func (scope *Scope) builtin(ctx Context, name string, f reflect.Type) (res *builtin, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
 	if alt = scope.elems[name]; alt == nil {
-		sn = &scopename{ s, name } // TODO: scope,
-		scope.replace(ctx, name, sn)
-	}
-	return
-}
-
-func (scope *Scope) builtin(ctx Context, name string, f reflect.Type) (bui *builtin, alt Object) {
-	scope.mutex.Lock(); defer scope.mutex.Unlock()
-	if alt = scope.elems[name]; alt == nil {
-		bui = &builtin{
+		res = &builtin{
 			knownobject{
 				objbase{
 					scope_: scope,
@@ -211,7 +201,7 @@ func (scope *Scope) builtin(ctx Context, name string, f reflect.Type) (bui *buil
 				}, name,
 			}, f,
 		}
-		scope.replace(ctx, name, bui)
+		scope.replace(ctx, name, res)
 	}
 	return
 }
@@ -228,7 +218,7 @@ func (scope *Scope) auto2(ctx Context, name string) (a *auto, alt Object) {
 		p := ctx.Position()
 		a = &auto{
 			knownobject{
-				objbase{valbase{p}, scope, ctx.Project()},
+				objbase{valbase{p}, scope, ctx.project()},
 				name,
 			},
 		}
@@ -248,23 +238,26 @@ func (scope *Scope) auto(ctx Context, name string, alias ...string) (a *auto) {
 	return
 }
 
-func (scope *Scope) define(ctx Context, origin Origin, name string, value Value) (d *def, alt Object) {
-	var okay bool
+func (scope *Scope) define(ctx Context, origin origin, name string, value Value) (d *def, alt Object) {
 	scope.mutex.Lock(); defer scope.mutex.Unlock()
+
+	var okay bool
 	if alt, okay = scope.elems[name]; okay && alt == nil {
 		delete(scope.elems, name)
 		okay = false
 	}
+
 	if !okay {
 		d = &def{
 			origin: origin, value: value,
 			knownobject: knownobject{
 				objbase{
 					scope_: scope,
-					owner_: scope.project, //ctx.Project(),
+					owner_: scope.project, //ctx.project(),
 				}, name,
 			},
 		}
+		if value != nil { d.position = value.Position() }
 		scope.replace(ctx, name, d)
 	}
 	return

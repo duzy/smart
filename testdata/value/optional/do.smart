@@ -1,7 +1,8 @@
-project testoptional
+project testvalue
 
 use ./foo
 
+val0 := $(foo)
 val1 := $(name?)
 val2 := $(foo→name?)
 val3 := $(foo→baz?)

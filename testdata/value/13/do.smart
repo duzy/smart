@@ -1,4 +1,4 @@
-project testvalues13
+project testvalue
 
 foo := &(-g!foobar)
 

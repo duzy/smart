@@ -3,8 +3,11 @@ project testtemplate
 xyz ::= xxx yyy zzz
 
 foreach $(xyz)
-var.$_ ::= test-$_
+var.$_ = test-$_
 done
+
+vars := $(defs(-capture=1)  {=regex ^var\.([xyz]+)})
+var2 := $(defs(-capture=1) !{=regex ^var\.([xy]+)})
 
 foreach 1 2 3 4 5 6 7 8 9 10
 .test.$_ :=
@@ -14,7 +17,7 @@ for type=$(xyz)
 .test.1 += $(type)
 done
 
-foreach $(defs(-rx='^var\.([xyz]+)$' -rn=1))
+foreach $(defs(-capture=1) {=regex ^var\.([xyz]+)})
 .test.2 += $_
 done
 
@@ -26,7 +29,7 @@ for type=$(xyz)
 .test.1 += $(type)
 done
 
-foreach $(defs(-rx='^var\.([xyz]+)$' -rn=1))
+foreach $(defs(-capture=1) {=regex ^var\.([xyz]+)})
 .test.2 += $_
 done
 

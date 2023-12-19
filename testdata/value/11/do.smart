@@ -1,4 +1,4 @@
-project testvalues11
+project testvalue
 
 .test.x := &(.test$1)
 .test   := $(.test.x)

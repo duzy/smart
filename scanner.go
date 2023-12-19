@@ -16,19 +16,20 @@ const (
 	isCompoundLine scanbits = 1 << iota    // 0000000000000001
 	isCompoundString // 0000000000000010 "...."
 	isCall           // 0000000000000100 $.....
-	isCallParen      // 0000000000001000 $(...)            8
-	isCallBrace      // 0000000000010000 ${...}            16
-	isCallColonL     // 0000000000100000 $:....            32
-	isCallColonR     // 0000000001000000 $:...:            64
+	isCallParen      // 0000000000001000 $(...)              8
+	isCallBrace      // 0000000000010000 ${...}             16
+	isCallColonL     // 0000000000100000 $:....             32
+	isCallColonR     // 0000000001000000 $:...:             64
 	isGroup          // 0000000010000000 (...)             128
 	isBrace          // 0000000100000000 {...}             256
-	isRecipes        // 0000001000000000
-	isRecipeTab      // 0000010000000000 \t
-	isHashValid      // 0001000000000000 scan '#' as HASH token
-	isMaximumBit     // 1000000000000000
+	isBraceRaw       // 0000001000000000                   512
+	isRecipes        // 0000010000000000                  1024
+	isRecipeTab      // 0000100000000000 \t               2048
+	isHashValid      // 0001000000000000 scan '#' as HASH token (commentsOff)
+	isMaximumBit     // 1000000000000000                  8192
 )
 
-type scanState struct {
+type scanstate struct {
 	ch         rune  // current character
 	offset     int   // character offset
 	readOffset int   // reading offset (position after current character)
@@ -37,65 +38,68 @@ type scanState struct {
 	bits    scanbits // scan bits
 }
 
-func (s scanState) String() string {
+func (s scanstate) String() string {
 	var t string
 	switch s.ch {
 	case '\n': t = "\\n"
 	default  : t = string(s.ch)
 	}
-	// if s.ch != '\n' { t = string(s.ch) } else { t = "\\n" }
 	return fmt.Sprintf("{%s, {%v %v %v}, %016b %016b}", t,
 		s.lineOffset, s.offset, s.readOffset, s.bitss, s.bits)
 }
 
-func (s *scanState) push(bits scanbits) {
-	s.bitss = append(s.bitss, s.bits) // &^ isLineFeed
+func (s *scanstate) push(bits scanbits) (prev scanbits) {
+	if prev = s.bits; prev != 0 {
+		s.bitss = append(s.bitss, prev) // &^ isLineFeed
+	}
 	s.bits = bits
+	return
 }
-func (s *scanState) pop(bits scanbits) {
-	if bits == 0 || (s.bits&bits != 0) {
-		if n := len(s.bitss); 0 < n {
-			s.bits = s.bitss[n-1] //&^ isLineFeed
-			s.bitss = s.bitss[0:n-1]
-		} else {
+func (s *scanstate) pop(bits scanbits) (prev scanbits) {
+	if prev = s.bits ; bits == 0 || (s.bits&bits != 0) {
+		if i := len(s.bitss); 0 == i {
 			s.bits = 0
+		} else {
+			s.bits = s.bitss[i-1] //&^ isLineFeed
+			s.bitss = s.bitss[0:i-1]
 		}
 	}
+	return
 }
 
-func (s *scanState) SetBits(bits scanbits) (prev scanbits) {
+func (s *scanstate) setBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits = bits
 	return
 }
 
-func (s *scanState) AddBits(bits scanbits) (prev scanbits) {
+func (s *scanstate) addBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits |= bits
 	return
 }
 
-func (s *scanState) RemBits(bits scanbits) (prev scanbits) {
+func (s *scanstate) remBits(bits scanbits) (prev scanbits) {
 	prev = s.bits
 	s.bits &^= bits
 	return
 }
 
-func (s *scanState) CommentsOff() scanbits { return s.AddBits(isHashValid) }
-func (s *scanState) recipes(v bool) {
+func (s *scanstate) commentsOff() scanbits { return s.addBits(isHashValid) }
+func (s *scanstate) recipes(v bool) {
 	var bits = s.bits
 	if v { bits |= isRecipes } else { bits &^= isRecipes }
 	s.bits = bits
 }
 
-func (s *scanState) canRecipe() (res bool) {
+func (s *scanstate) canRecipe() (res bool) {
 	if t := s.bits; (s.lineOffset == s.offset-1) && t.canRecipe() {
 		res = !t.is(isCallParen|isCallBrace|isCallColonL|isCallColonR|isGroup)
 	}
 	return
 }
 
-func (s *scanState) bit(bits scanbits) (res bool) {
+func (s *scanstate) bit(bits scanbits) (res bool) {
 	if res = s.bits&bits != 0; !res {
 		for i := len(s.bitss)-1; 0 <= i; i -= 1 {
 			if res = s.bitss[i]&bits != 0; res { break }
@@ -106,33 +110,30 @@ func (s *scanState) bit(bits scanbits) (res bool) {
 
 const bom = 0xFEFF // byte order mark, only permitted as very first character
 
-// A Scanner holds the scanner's internal state while processing
+// A scanner holds the scanner's internal state while processing
 // a given text.  It can be allocated as part of another data
 // structure but must be initialized via Init before use.
 //
 // (See go.token)
-type Scanner struct { // immutable state
+type scanner struct { // immutable state
 	file *TokFile     // source file handle
 	dir  string       // directory portion of file.Name()
 	src  []byte       // source
-	err  ErrorHandler // error reporting; or nil
-	war  ErrorHandler // warning handler; or nil
-	mode ScanMode     // scanning mode
+	err  scanFeedbackFn // error reporting; or nil
+	war  scanFeedbackFn // warning handler; or nil
+	inf  scanFeedbackFn // info handler; or nil
+	mode scanmode     // scanning mode
 
 	// scanning state
-	scanState
+	scanstate
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
-
-	Debug bool
 }
-
-func (s *Scanner) File() *TokFile { return s.file }
 
 // Read the next Unicode char into s.ch.
 // s.ch < 0 means end-of-file.
-func (s *Scanner) next() {
+func (s *scanner) next() {
 	var newline = s.ch == '\n'
 
 	if s.readOffset < len(s.src) {
@@ -153,27 +154,21 @@ func (s *Scanner) next() {
 		s.ch = -1 // eof
 	}
 
-	switch {
-	case /* s.bits.isLineFeed() */newline && s.ch == '\t':
-		s.bits  |= isRecipeTab
+	if newline && s.ch == '\t' {
+		s.bits |= isRecipeTab
 		// s.bits &^= isLineFeed
-	// case s.ch == '\n':
-	// 	s.bits  |= isLineFeed
-	// 	s.bits &^= isRecipeTab
-	default:
+	} else {
 		// s.bits &^= isLineFeed | isRecipeTab
 		s.bits &^= isRecipeTab
 	}
-
-	if false && s.Debug { s.warn(s.offset, string(s.ch)) }
 }
 
-func (s *Scanner) pickNext() (ch rune, w int) {
+func (s *scanner) pickNext() (ch rune, w int) {
 	if n := s.readOffset + 1; n < len(s.src) { ch, w = s.pick(n) }
 	return
 }
 
-func (s *Scanner) pick(offset int) (ch rune, w int) {
+func (s *scanner) pick(offset int) (ch rune, w int) {
 	switch ch, w = rune(s.src[offset]), 1; {
 	case ch == 0: s.error(offset, "illegal character NUL")
 	case ch >= 0x80: // Non ASCII
@@ -187,17 +182,17 @@ func (s *Scanner) pick(offset int) (ch rune, w int) {
 	return
 }
 
-// An ErrorHandler may be provided to Scanner.Init. If a syntax error is
+// An scanFeedbackFn may be provided to scanner.init. If a syntax error is
 // encountered and a handler was installed, the handler is called with a
 // position and an error message. The position points to the beginning of
 // the offending token.
 //
-type ErrorHandler func(pos Position, msg string)
+type scanFeedbackFn func(pos Position, msg string, a ...interface{})
 
 // A mode value is a set of flags (or 0).
 // They control scanner behavior.
 //
-type ScanMode uint
+type scanmode uint
 type scanbits uint
 func (bits scanbits) is(t scanbits)     bool { return bits&t != 0 }
 func (bits scanbits) isCall()           bool { return bits&isCall != 0 }
@@ -211,6 +206,7 @@ func (bits scanbits) isCompoundLine()   bool { return bits&isCompoundLine != 0 }
 func (bits scanbits) isCompoundString() bool { return bits&isCompoundString != 0 }
 func (bits scanbits) isGroup()          bool { return bits&isGroup != 0 }
 func (bits scanbits) isBrace()          bool { return bits&isBrace != 0 }
+func (bits scanbits) isBraceRaw()       bool { return bits&isBraceRaw != 0 }
 func (bits scanbits) canRecipe()        bool { return bits&(isRecipeTab|isRecipes) != 0 }
 
 func IsLetter(ch rune) bool {
@@ -246,13 +242,13 @@ func IsIdentifier(ch rune) bool {
 //
 // Calls to Scan will invoke the error handler err if they encounter a
 // syntax error and err is not nil. Also, for each error encountered,
-// the Scanner field ErrorCount is incremented by one. The mode parameter
+// the scanner field ErrorCount is incremented by one. The mode parameter
 // determines how comments are handled.
 //
 // Note that Init may call err if there is an error in the first character
 // of the file.
 //
-func (s *Scanner) Init(file *TokFile, src []byte, mode ScanMode, err, war ErrorHandler) {
+func (s *scanner) init(file *TokFile, src []byte, mode scanmode, err, war, inf scanFeedbackFn) {
 	// Explicitly initialize all fields since a scanner may be reused.
 	if file.Size() != len(src) {
 		panic(fmt.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src)))
@@ -262,6 +258,7 @@ func (s *Scanner) Init(file *TokFile, src []byte, mode ScanMode, err, war ErrorH
 	s.src = src
 	s.err = err
 	s.war = war
+	s.inf = inf
 	s.mode = mode
 
 	s.ch = ' '
@@ -277,15 +274,18 @@ func (s *Scanner) Init(file *TokFile, src []byte, mode ScanMode, err, war ErrorH
 	if s.next(); s.ch == bom { s.next() }
 }
 
-func (s *Scanner) error(offs int, msg string) {
-	if s.err != nil { s.err(s.file.Position(s.file.Pos(offs)), msg) }
+func (s *scanner) error(offs int, msg string, a ...interface{}) {
+	if s.err != nil { s.err(s.file.Position(s.file.Pos(offs)), msg, a...) }
 	s.ErrorCount++
 }
-func (s *Scanner) warn(offs int, msg string) {
-	if s.war != nil { s.war(s.file.Position(s.file.Pos(offs)), msg) }
+func (s *scanner) warn(offs int, msg string, a ...interface{}) {
+	if s.war != nil { s.war(s.file.Position(s.file.Pos(offs)), msg, a...) }
+}
+func (s *scanner) info(offs int, msg string, a ...interface{}) {
+	if s.inf != nil { s.inf(s.file.Position(s.file.Pos(offs)), msg, a...) }
 }
 
-func (s *Scanner) scanComment() (res string) {
+func (s *scanner) scanComment() (res string) {
 	for s.ch == ' '  || s.ch == '\t' { s.next() } // skip preceding spaces
 
 	var offs = s.offset
@@ -293,7 +293,7 @@ func (s *Scanner) scanComment() (res string) {
 	return string(s.src[offs:s.offset])
 }
 
-func (s *Scanner) scanIdentifier() string {
+func (s *scanner) scanIdentifier() string {
 	var offs = s.offset
 	for IsIdentifier(s.ch) {
 		if s.next(); s.ch == '-' { // Looking for '->'
@@ -313,7 +313,7 @@ func digitVal(ch rune) int {
 	return 16 // larger than any legal digit val
 }
 
-func (s *Scanner) scanMantissa(base int) {
+func (s *scanner) scanMantissa(base int) {
 	if digitVal(s.ch) < base { // first digit
 		s.next()
 		if true {
@@ -335,7 +335,7 @@ func (s *Scanner) scanMantissa(base int) {
 	}
 }
 
-func (s *Scanner) scanDatetime() (tok Token) {
+func (s *scanner) scanDatetime() (tok token) {
 	var (
 		ch byte
 		hasDate = false
@@ -482,7 +482,7 @@ exit:
 	return
 }
 
-func (s *Scanner) scanNumber(seenDecimalPoint bool) (Token, string) {
+func (s *scanner) scanNumber(seenDecimalPoint bool) (token, string) {
 	// digitVal(s.ch) < 10
 	offs := s.offset
 	tok := INTEGER
@@ -582,7 +582,7 @@ exit:
 	return tok, string(s.src[offs:s.offset])
 }
 
-func (s *Scanner) scanEscape(quote rune) bool {
+func (s *scanner) scanEscape(quote rune) bool {
 	var n int
 	var base, max uint32
 	var offs = s.offset
@@ -632,7 +632,7 @@ func (s *Scanner) scanEscape(quote rune) bool {
 	return true
 }
 
-func (s *Scanner) scanStrliting(ml bool) string {
+func (s *scanner) scanStrliting(ml bool) string {
 	// '\'' opening already consumed
 	offs := s.offset - 1
 	if ml { offs -= 1 }
@@ -659,7 +659,7 @@ func (s *Scanner) scanStrliting(ml bool) string {
 	return string(s.src[offs+1:s.offset-1])
 }
 
-func (s *Scanner) scanString(ml bool) string {
+func (s *scanner) scanString(ml bool) string {
 	// '"' opening already consumed
 	offs := s.offset - 1
 	if ml { offs -= 1 }
@@ -690,7 +690,7 @@ func (s *Scanner) scanString(ml bool) string {
 	return string(s.src[offs:s.offset])
 }
 
-func (s *Scanner) scanCompound(q rune) (tok Token, lit string) {
+func (s *scanner) scanCompound(q rune) (tok token, lit string) {
 	var offs = s.offset
 	if q != 0 && s.ch == q {
 		tok = COMPOSED
@@ -698,6 +698,7 @@ func (s *Scanner) scanCompound(q rune) (tok Token, lit string) {
 		s.next() // take the ending '"'
 		return
 	}
+
 	switch s.ch {
 	case '\n': // mistaken compound string terminated with line feed
 		tok = LINEND
@@ -735,7 +736,7 @@ ScanLoop:
 	return
 }
 
-func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
+func (s *scanner) scan() (pos Pos, tok token, lit string) {
 	switch pos = s.file.Pos(s.offset); {
 	case s.offset >= len(s.src) || s.ch == -1: return pos, EOF, ""
 	case s.bits.isCompoundLine()  : tok, lit = s.scanCompound(0)
@@ -750,7 +751,7 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 	}
 	if IsLetter(s.ch) {
 		if lit = s.scanIdentifier(); len(lit) > 1 && s.ch != '/' && s.ch != '.' {
-			if tok = Lookup(lit); !tok.IsKeyword() && tok != BAREWORD {
+			if tok = lookupKeyword(lit); !tok.isKeyword() && tok != BAREWORD {
 				s.error(s.offset, "unexpected token '"+tok.String()+"' "+lit)
 			}
 		} else { tok = BAREWORD }
@@ -758,11 +759,34 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 		return
 	}
 
-	var (
-		offs = s.offset
-		ch = s.ch
-	)
-	switch s.next(); ch {
+	var ch, offs = s.ch, s.offset
+
+	s.next()
+
+	if s.bits.isBraceRaw() {
+		tok, lit = RAW, string(ch)
+
+		switch ch {
+		case '\\':
+			if tok = ESCAPE; IsDigit(s.ch) {
+				_, lit = s.scanNumber(false)
+			} else {
+				lit = string(s.ch)
+				s.next() // escape a single char
+			}
+		case '{':
+			s.push(isBraceRaw)
+		case '}':
+			if s.bits.isBrace() { tok, lit = RBRACE, "" }
+			if s.pop(isBrace|isBraceRaw); false {/* * */}
+			if s.bits.isBrace() && !s.bits.isBraceRaw() {
+				s.error(offs, fmt.Sprintf("wrong scanner states: tok=%v lit=%v", tok, lit))
+			}
+		}
+		return
+	}
+
+	switch ch {
 	case '#':
 		if s.bits.isCommentsOff() {
 			tok = HASH
@@ -774,17 +798,17 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 		}
 	case '!':
 		if tok = EXC; s.ch == '=' {
-			tok = EXC_ASSIGN
+			tok = ASSIGN_EXC
 			s.next()
 		}
 	case '?':
 		if tok = QUE; s.ch == '=' {
-			tok = QUE_ASSIGN
+			tok = ASSIGN_QUE
 			s.next()
 		}
 	case '+':
 		if tok = PLUS; s.ch == '=' {
-			tok = ADD_ASSIGN
+			tok = ASSIGN_ADD
 			s.next()
 		}
 	case '-':
@@ -795,16 +819,16 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 				tok = MINUS
 			}
 		} else if s.ch == '=' { // -=
-			tok = SUB_ASSIGN
+			tok = ASSIGN_SUB
 			s.next()
 			if s.ch == '+' { // -=+
-				tok = SSH_ASSIGN
+				tok = ASSIGN_SSH
 				s.next()
 			}
 		} else if s.ch == '+' { // -+
 			s.next()
 			if s.ch == '=' { // -+=
-				tok = SAD_ASSIGN
+				tok = ASSIGN_SAD
 				s.next()
 			} else {
 				tok = ILLEGAL
@@ -863,7 +887,7 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 		case '9' : tok = CLOSURE_9
 		case '_' : tok = CLOSURE__
 		}
-		if CLOSURE < tok {
+		if CLOSURE < tok && tok <= CLOSURE__ {
 			lit = string(ch)
 			s.next() // eat special
 		} else if ch == '(' || ch == '{' || ch == ':' {
@@ -871,27 +895,27 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 		} else {
 			s.push(isCall /* | isCallZero */)
 		}
-		if isDelegate { tok = Token(DELEGATE + (tok - CLOSURE)) }
+		if isDelegate { tok = token(DELEGATE + (tok - CLOSURE)) }
 	case '(':
 		tok, lit = LPAREN, string(ch)
 		if s.bits.isCallZero() { s.bits |= isCallParen } else { s.push(isGroup) }
 	case ')':
 		tok, lit = RPAREN, string(ch)
-		if s.bits&(isCallParen|isGroup) == 0 { s.error(offs, "unexpected paren") }
+		if s.bits&(isCallParen|isGroup) == 0 { s.error(offs, "unexpected right-paren") }
 		s.pop(isGroup|isCallParen)
 	case '{':
 		tok = LBRACE
 		if s.bits.isCallZero() { s.bits |= isCallBrace } else { s.push(isBrace) }
 	case '}':
 		tok = RBRACE
-		if s.bits&(isCallBrace|isBrace) == 0 { s.error(offs, "unexpected brace") }
+		if s.bits&(isCallBrace|isBrace) == 0 { s.error(offs, "unexpected right-brace") }
 		s.pop(isBrace|isCallBrace)
 	case '=':
 		if s.ch == '>' { // =>
 			tok = SELECT_PROG1
 			s.next() // concume the '>'
 		} else if s.ch == '+' {
-			tok = SHI_ASSIGN
+			tok = ASSIGN_SHI
 			s.next()
 		} else {
 			tok = ASSIGN
@@ -922,13 +946,13 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 		}
 	case ':':
 		if s.ch == '=' {
-			tok = CO1_ASSIGN
+			tok = ASSIGN_CO1
 			s.next() // consume '='
 		} else if s.ch == ':' {
 			tok = DOLON
 			s.next() // consume the second ':'
 			if s.ch == '=' {
-				tok = CO2_ASSIGN
+				tok = ASSIGN_CO2
 				s.next() // consume '='
 			}
 		} else {
@@ -939,7 +963,6 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 			tok = DAST
 			s.next() // consume the second '*'
 		}
-
 	case '%':
 		tok = PERC
 	case '@':
@@ -957,13 +980,13 @@ func (s *Scanner) Scan() (pos Pos, tok Token, lit string) {
 	case '⇢': // ~>
 		tok = SELECT_PROG2
 	case '≔':
-		tok = CO1_ASSIGN
+		tok = ASSIGN_CO1
 	case '⩴':
-		tok = CO2_ASSIGN
+		tok = ASSIGN_CO2
 	case ';':
-		if s.ch == '=' { tok = SM1_ASSIGN ; s.next() } else
+		if s.ch == '=' { tok = ASSIGN_SC1 ; s.next() } else
 		if s.ch == ':' { tok = SOLON ; s.next()
-			if s.ch == '=' { tok = SM2_ASSIGN ; s.next() }
+			if s.ch == '=' { tok = ASSIGN_CO3 ; s.next() }
 		} else {
 			tok = SEMICOLON
 		}

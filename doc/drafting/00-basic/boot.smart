@@ -66,7 +66,7 @@ integer5 = 1_2_3_4_5 # VALID but discouraged
 octal1 = 01234567
 octal2 = 0_10_000
 
-# Hex integers (leading with '0x' or '0X')
+# hexadecimal integers (leading with '0x' or '0X')
 hex1 = 0x123456789ABCDEF
 hex2 = 0xAAAA_BBBB_1111
 

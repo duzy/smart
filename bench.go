@@ -35,53 +35,53 @@ type _sum struct {
 }
 
 var (
-        benchmarkM sync.Mutex
-        benchmark *_benchmark = &_benchmark{ tag:"benchmark" }
+        // benchmarkM sync.Mutex
+        // benchmark_ *_benchmark = &_benchmark{ tag:"benchmark" }
         benchspotM sync.Mutex
         benchspot = make(map[string]*_benchspot,64)
 )
 
-func mark(tag string) (save *_benchmark, t time.Time) {
-        benchmarkM.Lock(); defer benchmarkM.Unlock()
-        save = benchmark
-        t = time.Now()
-        for _, frame := range save.frames {
-                if frame.tag == tag {
-                        benchmark = frame
-                        benchmark.spot = t
-                        return
-                }
-        }
-        benchmark = &_benchmark{ tag, t, t, 0, 0, nil }
-        save.frames = append(save.frames, benchmark)
-        return 
-}
+// func mark(tag string) (save *_benchmark, t time.Time) {
+//         benchmarkM.Lock(); defer benchmarkM.Unlock()
+//         save = benchmark
+//         t = time.Now()
+//         for _, frame := range save.frames {
+//                 if frame.tag == tag {
+//                         benchmark = frame
+//                         benchmark.spot = t
+//                         return
+//                 }
+//         }
+//         benchmark = &_benchmark{ tag, t, t, 0, 0, nil }
+//         save.frames = append(save.frames, benchmark)
+//         return
+// }
 
-func spot(tag string) (res *_benchspot, t time.Time) {
-        benchspotM.Lock(); defer benchspotM.Unlock()
-        var ok bool
-        if res, ok = benchspot[tag]; !ok {
-                res = &_benchspot{ tag, 0, 0, 0 }
-                benchspot[tag] = res
-        }
-        t = time.Now()
-        return 
-}
+// func spot(tag string) (res *_benchspot, t time.Time) {
+//         benchspotM.Lock(); defer benchspotM.Unlock()
+//         var ok bool
+//         if res, ok = benchspot[tag]; !ok {
+//                 res = &_benchspot{ tag, 0, 0, 0 }
+//                 benchspot[tag] = res
+//         }
+//         t = time.Now()
+//         return
+// }
 
-func (previous *_benchmark) bench(t time.Time) {
-        benchmarkM.Lock(); defer benchmarkM.Unlock()
-        benchmark.spent += time.Now().Sub(t)
-        benchmark.num += 1
-        benchmark = previous
-}
+// func (previous *_benchmark) bench(t time.Time) {
+//         benchmarkM.Lock(); defer benchmarkM.Unlock()
+//         benchmark.spent += time.Now().Sub(t)
+//         benchmark.num += 1
+//         benchmark = previous
+// }
 
-func (benchspot *_benchspot) bench(t time.Time) {
-        var d = time.Now().Sub(t)
-        benchspotM.Lock(); defer benchspotM.Unlock()
-        benchspot.n += 1
-        benchspot.d += d
-        if d > benchspot.x { benchspot.x = d }
-}
+// func (benchspot *_benchspot) bench(t time.Time) {
+//         var d = time.Now().Sub(t)
+//         benchspotM.Lock(); defer benchspotM.Unlock()
+//         benchspot.n += 1
+//         benchspot.d += d
+//         if d > benchspot.x { benchspot.x = d }
+// }
 
 type bencher interface { bench(t time.Time) }
 func bench(i bencher, t time.Time) { i.bench(t) }

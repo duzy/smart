@@ -1,4 +1,4 @@
-project testvalues5
+project testvalue
 
 .test.z := z-$1
 .test.y := $(.test.z)

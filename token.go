@@ -6,23 +6,26 @@
 package smart
 
 import (
+	got "go/token"
 	"strconv"
 )
 
-type Token int
+type token int
+
+const clocks = "🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧" // ⇒
 
 // https://en.wikipedia.org/wiki/Mathematical_operators_and_symbols_in_Unicode
 const (
 	// Special tokens.
-	ILLEGAL Token = iota
+	ILLEGAL = token(iota)
 	EOF
 	SPACE
 	COMMENT  // #
 	HASH     // # (same char as COMMENT, but different meaning)
 
-	literal_beg
+	_literal_beg
 	// Identifiers and basic type literals (these tokens stand for classes of literals)
-	BAREWORD // abc
+	BAREWORD
 	BINARY   // 0b010101, 0B0111001
 	OCTAL    // 0600, 0567
 	INTEGER  // 12345
@@ -36,13 +39,16 @@ const (
 	STRING   // 'abc'
 	ESCAPE   // \", \\n, etc. (see value.EscapeChar)
 	COMPOUND // "abc $(foo) 123"
-	literal_end
+	_literal_end
 
 	COMPOSED // the ending quote of a compound literal
 	RECIPE   // tab to indicate a command recipe
 	LINEND   // significant line break (LF or CRLF)
 
-	operator_beg
+	PROOT    // the root of a path, aka "" before the first '/' in a path
+	PTAIL    // the tail of a path, aka "" after the last '/' in a path
+
+	_operator_beg
 	CARET     // ^
 	LANGLE    // <
 	LBRACE    // {    left curly
@@ -52,7 +58,7 @@ const (
 	DOT       // .    period
 	DOTDOT    // ..
 	TILDE     // ~
-	SELECT_PROP // -> 'foo→xxx' (different from ' → ')
+	SELECT_PROP  // -> 'foo→xxx' (different from ' → ')
 	SELECT_PROG1 // => 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
 	SELECT_PROG2 // ~> 'foo⇢xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
 	// ⤌ ⤍	⤎ ⤏	⤐	⤑
@@ -76,16 +82,16 @@ const (
 	PCON  // path concatenation '/'
 	PERC  // percent sign '%'(REM)
 
-	ruledelim_beg
+	_ruledelim_beg
 	BAR       // |
 	COLON     // :
 	DOLON     // ::
 	SOLON     // ;:
-	ruledelim_end
+	_ruledelim_end
 
 	// NOTE: don't change the order of closures and delegates, scanner
 	// relys upon their order.
-	closure_beg
+	_closure_beg
 	CLOSURE      // &
 	CLOSURE_r    // &/
 	CLOSURE_D    // &.
@@ -109,9 +115,9 @@ const (
 	CLOSURE_8    // &8
 	CLOSURE_9    // &9
 	CLOSURE__    // &_
-	closure_end
+	_closure_end
 
-	delegate_beg
+	_delegate_beg
 	DELEGATE      // $
 	DELEGATE_r    // $/
 	DELEGATE_D    // $.
@@ -135,26 +141,26 @@ const (
 	DELEGATE_8    // $8
 	DELEGATE_9    // $9
 	DELEGATE__    // $_
-	delegate_end
+	_delegate_end
 
-	assign_beg
+	_assign_beg
 	ASSIGN     //   =       define a new symbol (don't override, neither !=)
-	SHI_ASSIGN //   =+      shift (insert to the front)
-	ADD_ASSIGN //  +=       append
-	QUE_ASSIGN //  ?=       set if absent (defined, including empty)
-	EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
+	ASSIGN_SHI //   =+      shift (insert to the front)
+	ASSIGN_ADD //  +=       append
+	ASSIGN_QUE //  ?=       set if absent (defined, including empty)
+	ASSIGN_EXC //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
 	// TODO: more assigns like !?=  !:=  !+=
-	CO1_ASSIGN //  := ≔     delegate-expanded (also override)
-	CO2_ASSIGN // ::= ⩴    all-expanded (POSIX standard)
-	SM2_ASSIGN // ;:=       all and unexpanded-forth
-	SM1_ASSIGN // ;=        unexpanded-forth
-	SUB_ASSIGN //  -=       remove
-	SAD_ASSIGN // -+=       remove-append assign
-	SSH_ASSIGN //  -=+      remove-shift assign
-	assign_end
-	operator_end
+	ASSIGN_CO1 //  := ≔     delegate-expanded (also override)
+	ASSIGN_CO2 // ::= ⩴    all-expanded (POSIX standard)
+	ASSIGN_CO3 // ;:=       all and unexpanded-force
+	ASSIGN_SC1 //  ;=       unexpanded-force
+	ASSIGN_SUB //  -=       remove
+	ASSIGN_SAD // -+=       remove-append assign
+	ASSIGN_SSH //  -=+      remove-shift assign
+	_assign_end
+	_operator_end
 
-	keyword_beg
+	_keyword_beg
 	PROJECT    // project a
 	PACKAGE    // package a
 	MODULE     // module a
@@ -175,7 +181,7 @@ const (
 	DEF        // def
 	END        // end
 
-	constant_beg
+	_constant_beg
 	UNDEF   // `undef`
 	NULL    // `null`
 	NONE    // `none`
@@ -196,12 +202,15 @@ const (
 	FALSE   // boolean `false`
 	YES     // answer `yes`
 	NO      // answer `no`
-	constant_end
-	keyword_end = constant_end
+	ON      // option `on`
+	OFF     // option `off`
+	_constant_end
+	_keyword_end = _constant_end
 )
 
 var tokens = [...]string{
 	ILLEGAL: "ILLEGAL",
+
 	EOF:     "EOF",
 	SPACE:   "SPACE",
 	COMMENT: "COMMENT",
@@ -225,6 +234,8 @@ var tokens = [...]string{
 	COMPOSED: "COMPOSED",
 	RECIPE:   "RECIPE",
 	LINEND:   "\\n", //"LINEND",
+	PROOT:    "", // the "" before the first '/' in a path
+	PTAIL:    "", // the "" after the last '/' in a path
 
 	CARET:  "^",
 	LANGLE: "<",
@@ -307,17 +318,17 @@ var tokens = [...]string{
 	DELEGATE__:    "$_",
 
 	ASSIGN:     "=",
-	SHI_ASSIGN: "=+",
-	ADD_ASSIGN: "+=",
-	QUE_ASSIGN: "?=",
-	EXC_ASSIGN: "!=",
-	CO1_ASSIGN: ":=",
-	CO2_ASSIGN: "::=",
-	SM2_ASSIGN: ";:=",
-	SM1_ASSIGN: ";=",
-	SUB_ASSIGN: "-=",
-	SAD_ASSIGN: "-+=",
-	SSH_ASSIGN: "-=+",
+	ASSIGN_SHI: "=+",
+	ASSIGN_ADD: "+=",
+	ASSIGN_QUE: "?=",
+	ASSIGN_EXC: "!=",
+	ASSIGN_CO1: ":=",
+	ASSIGN_CO2: "::=",
+	ASSIGN_CO3: ";:=",
+	ASSIGN_SC1: ";=",
+	ASSIGN_SUB: "-=",
+	ASSIGN_SAD: "-+=",
+	ASSIGN_SSH: "-=+",
 
 	PLUS:  "+",
 	MINUS: "-",
@@ -364,48 +375,143 @@ var tokens = [...]string{
 	FALSE:  "false",
 	YES:    "yes",
 	NO:     "no",
+	ON:     "on",
+	OFF:    "off",
 }
 
-func (tok Token) String() (s string) {
-	if 0 <= tok && tok < Token(len(tokens)) {
-		s = tokens[tok]
-	}
+func (tok token) String() (s string) {
+	if 0 <= tok && tok < token(len(tokens)) { s = tokens[tok] }
 	if s == "" {
-		s = "token(" + strconv.Itoa(int(tok)) + ")"
+		switch tok {
+		case PROOT, PTAIL: return
+		default:
+			return "token(" + strconv.Itoa(int(tok)) + ")"
+		}
 	}
 	return
 }
 
-var keywords = make(map[string]Token)
+var keywords = make(map[string]token)
 
 func init() {
-	for i := keyword_beg + 1; i < keyword_end; i++ {
-		keywords[tokens[i]] = i
+	if CLOSURE_r  != CLOSURE+1  { panic(CLOSURE_r) }
+	if DELEGATE_r != DELEGATE+1 { panic(DELEGATE_r) }
+
+	for i := _keyword_beg + 1; i < _keyword_end; i++ {
+		if s := tokens[i]; s != "" { keywords[s] = i }
 	}
 }
 
-// Lookup maps an identifier to its keyword token or IDENT (if not a keyword).
+// lookupKeyword maps an identifier to its keyword token or IDENT (if not a keyword).
 //
-func Lookup(ident string) Token {
-	if tok, is_keyword := keywords[ident]; is_keyword {
-		return tok
-	}
+func lookupKeyword(ident string) token {
+	if t, y := keywords[ident]; y { return t }
 	return BAREWORD
 }
 
-func (tok Token) IsLiteral() bool { return literal_beg < tok && tok < literal_end }
-func (tok Token) IsOperator() bool { return operator_beg < tok && tok < operator_end }
-func (tok Token) IsKeyword() bool { return keyword_beg < tok && tok < keyword_end }
-func (tok Token) IsConstant() bool { return constant_beg < tok && tok < constant_end }
-func (tok Token) IsClosure() bool { return closure_beg < tok && tok < closure_end }
-func (tok Token) IsDelegate() bool { return delegate_beg < tok && tok < delegate_end }
-func (tok Token) IsAssign() bool { return assign_beg < tok && tok < assign_end }
-func (tok Token) IsRuleDelim() bool { return ruledelim_beg < tok && tok < ruledelim_end }
-func (tok Token) IsSelectProg() bool { return SELECT_PROG1 == tok || tok == SELECT_PROG2 }
-func (tok Token) IsSelectProp() bool { return SELECT_PROP == tok }
-func (tok Token) IsListDelim() bool {
-	return tok.IsRuleDelim() ||
-		tok == RPAREN || tok == RBRACK || tok == RBRACE ||
-		tok == SEMICOLON || tok == COMMA || tok == LINEND ||
-		tok == EOF
+func (tok token) isLiteral() bool         { return _literal_beg   <  tok && tok <  _literal_end }
+func (tok token) isOperator() bool        { return _operator_beg  <  tok && tok <  _operator_end }
+func (tok token) isKeyword() bool         { return _keyword_beg   <  tok && tok <  _keyword_end }
+func (tok token) isConstant() bool        { return _constant_beg  <  tok && tok <  _constant_end }
+func (tok token) isClosure() bool         { return _closure_beg   <  tok && tok <  _closure_end }
+func (tok token) isClosureDelegate() bool { return _closure_beg   <  tok && tok <  _delegate_end }
+func (tok token) isDelegate() bool        { return _delegate_beg  <  tok && tok <  _delegate_end }
+func (tok token) isAssign() bool          { return _assign_beg    <  tok && tok <  _assign_end }
+func (tok token) isRuleDelim() bool       { return _ruledelim_beg <  tok && tok <  _ruledelim_end }
+func (tok token) isSelectProg() bool      { return SELECT_PROG1   == tok || tok == SELECT_PROG2 }
+func (tok token) isSelectProp() bool      { return SELECT_PROP    == tok }
+func (tok token) isListDelim() bool {
+	switch tok {
+	case RPAREN, RBRACK, RBRACE, SEMICOLON, COMMA, LINEND, EOF:
+		return true
+	}
+	return tok.isRuleDelim()
+}
+
+/*
+  Struct Position:
+	Filename string  -- filename, if any
+	Offset   int     -- offset, starting at 0
+	Line     int     -- line number, starting at 1
+	Column   int     -- column number, starting at 1 (byte count)
+*/
+type Position struct { got.Position }
+func (p *Position) _valid() bool { return p.Filename != "" && p.Line > 0 }
+func (p *Position) IsValid() bool { return p._valid() && p.Column > 0 && p.Offset >= 0 }
+func (p *Position) SameLine(o *Position) bool {
+	return p == o || (p.Filename == o.Filename && p.Line == o.Line)
+}
+func (p *Position) Same(o *Position) bool {
+	return p == o ||
+		p.Filename == o.Filename && p.Line == o.Line &&
+		p.Column == o.Column && p.Offset == o.Offset
+}
+
+func makePosition(filename string, line, column int) (pos Position) {
+	pos.Filename = filename
+	pos.Line     = line
+	pos.Column   = column
+	return
+}
+
+func convPosition(filename, line, column string) (pos Position) {
+	pos.Filename  = filename
+	pos.Line, _   = strconv.Atoi(line)
+	pos.Column, _ = strconv.Atoi(column)
+	return
+}
+
+const NoPos Pos = Pos(got.NoPos)
+
+type Pos got.Pos
+
+func (p Pos) IsValid() bool {
+	return got.Pos(p).IsValid()
+}
+
+type TokFile struct {
+	*got.File
+}
+
+func (f *TokFile) string() string {
+	return f.Name() //fmt.Sprintf("{%s}", f.Name())
+}
+
+func (f *TokFile) Offset(p Pos) int {
+	return f.File.Offset(got.Pos(p))
+}
+
+func (f *TokFile) Line(p Pos) int {
+	return f.File.Line(got.Pos(p))
+}
+
+func (f *TokFile) Pos(offset int) Pos {
+	return Pos(f.File.Pos(offset))
+}
+
+func (f *TokFile) PositionFor(p Pos, adjusted bool) (pos Position) {
+	return Position{ f.File.PositionFor(got.Pos(p), adjusted) }
+}
+
+func (f *TokFile) Position(p Pos) (pos Position) {
+	return Position{ f.File.Position(got.Pos(p)) }
+}
+
+type FileSet struct {
+	*got.FileSet
+}
+
+// NewFileSet creates a new file set.
+func NewFileSet() *FileSet {
+	return &FileSet{ got.NewFileSet() }
+}
+
+func (s *FileSet) AddFile(filename string, base, size int) *TokFile {
+	return &TokFile{ s.FileSet.AddFile(filename, base, size) }
+}
+
+func (s *FileSet) Iterate(f func(*TokFile) bool) {
+	s.FileSet.Iterate(func(file *got.File) bool {
+		return f(&TokFile{ file })
+	})
 }

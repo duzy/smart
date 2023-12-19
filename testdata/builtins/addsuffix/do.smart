@@ -1,0 +1,4 @@
+project testbuiltins
+
+val1 := $(addsuffix =xxx,foo)
+val2 := $(addsuffix =xxx,foo bar)

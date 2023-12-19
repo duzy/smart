@@ -14,37 +14,37 @@ var fset = NewFileSet()
 
 type scanResult struct {
     offset int
-    tok Token
+    tok token
     lit string
 }
 
 func testInit(t *testing.T) {
-    var s Scanner
+    var s scanner
 
     // 1st init
     src1 := "module a"
     f1 := fset.AddFile(filepath.Join("TestInit", "src1"), fset.Base(), len(src1))
-    s.Init(f1, []byte(src1), ScanMode(0), nil, nil)
+    s.init(f1, []byte(src1), scanmode(0), nil, nil, nil)
     if f1.Size() != len(src1) {
         t.Errorf("bad file size: got %d, expected %d", f1.Size(), len(src1))
     }
 
     var (
-        tok Token
+        tok token
         lit string
     )
 
-    _, tok, _ = s.Scan() // module
+    _, tok, _ = s.scan() // module
     if tok != MODULE {
         t.Errorf("bad token: got %s, expected %s", tok, MODULE)
     }
 
-    _, tok, lit = s.Scan()
+    _, tok, lit = s.scan()
     if tok != SPACE {
         t.Errorf("bad token: got %s, expected %s", tok, SPACE)
     }
 
-    _, tok, lit = s.Scan() // a
+    _, tok, lit = s.scan() // a
     if tok != BAREWORD {
         t.Errorf("bad token: got %s, expected %s", tok, BAREWORD)
     }
@@ -55,12 +55,12 @@ func testInit(t *testing.T) {
     // 2nd init
     src2 := "v = abc"
     f2 := fset.AddFile(filepath.Join("TestInit", "src2"), fset.Base(), len(src2))
-    s.Init(f2, []byte(src2), ScanMode(0), nil, nil)
+    s.init(f2, []byte(src2), scanmode(0), nil, nil, nil)
     if f2.Size() != len(src2) {
         t.Errorf("bad file size: got %d, expected %d", f2.Size(), len(src2))
     }
 
-    _, tok, lit = s.Scan() // v
+    _, tok, lit = s.scan() // v
     if tok != BAREWORD {
         t.Errorf("bad token: got %s, expected %s", tok, BAREWORD)
     }
@@ -68,22 +68,22 @@ func testInit(t *testing.T) {
         t.Errorf("bad literal: got %s, expected %s", lit, "v")
     }
 
-    _, tok, lit = s.Scan()
+    _, tok, lit = s.scan()
     if tok != SPACE {
         t.Errorf("bad token: got %s, expected %s", tok, SPACE)
     }
 
-    _, tok, _ = s.Scan() // =
+    _, tok, _ = s.scan() // =
     if tok != ASSIGN {
         t.Errorf("bad token: got %s, expected %s", tok, ASSIGN)
     }
 
-    _, tok, lit = s.Scan()
+    _, tok, lit = s.scan()
     if tok != SPACE {
         t.Errorf("bad token: got %s, expected %s", tok, SPACE)
     }
 
-    _, tok, lit = s.Scan() // abc
+    _, tok, lit = s.scan() // abc
     if tok != BAREWORD {
         t.Errorf("bad token: got %s, expected %s", tok, BAREWORD)
     }
@@ -113,9 +113,9 @@ empty3 =
 text1 = this-is-a-text
 texts = this is a text array
 `
-    var s Scanner
+    var s scanner
     f := fset.AddFile(filepath.Join("TestStrings", "src"), fset.Base(), len(src))
-    s.Init(f, []byte(src), ScanMode(0), nil, nil)
+    s.init(f, []byte(src), scanmode(0), nil, nil, nil)
     if f.Size() != len(src) {
         t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
     }
@@ -277,7 +277,7 @@ texts = this is a text array
         {-1, LINEND, `` },
     }
     for i, r := range results {
-        var pos, tok, lit = s.Scan()
+        var pos, tok, lit = s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -308,9 +308,9 @@ hex2 = 0xAAAA_BBBB_1111
 bin1 = 0b0011001100
 bin2 = 0b1100110011
 `
-    var s Scanner
+    var s scanner
     f := fset.AddFile(filepath.Join("TestIntegers", "src"), fset.Base(), len(src))
-    s.Init(f, []byte(src), ScanMode(0), nil, nil)
+    s.init(f, []byte(src), scanmode(0), nil, nil, nil)
     if f.Size() != len(src) {
         t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
     }
@@ -390,7 +390,7 @@ bin2 = 0b1100110011
         {-1, LINEND, `` },
     }
     for i, r := range results {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -417,9 +417,9 @@ d1 = 1979-05-27
 t6 = 07:32:00
 t7 = 07:32:00.999999
 `
-    var s Scanner
+    var s scanner
     f := fset.AddFile(filepath.Join("TestDatetime", "src"), fset.Base(), len(src))
-    s.Init(f, []byte(src), ScanMode(0), nil, nil)
+    s.init(f, []byte(src), scanmode(0), nil, nil, nil)
     if f.Size() != len(src) {
         t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
     }
@@ -466,7 +466,7 @@ t7 = 07:32:00.999999
         {-1, LINEND, `` },
     }
     for i, r := range results {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -492,9 +492,9 @@ float6 = -2E-2
 float7 = 3.1415e-100
 float8 = 6.18_16_18_16
 `
-    var s Scanner
+    var s scanner
     f := fset.AddFile(filepath.Join("TestFloats", "src"), fset.Base(), len(src))
-    s.Init(f, []byte(src), ScanMode(0), nil, nil)
+    s.init(f, []byte(src), scanmode(0), nil, nil, nil)
     if f.Size() != len(src) {
         t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
     }
@@ -544,7 +544,7 @@ float8 = 6.18_16_18_16
         {-1, LINEND, `` },
     }
     for i, r := range results {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -570,9 +570,9 @@ array2 = \
   2 \
   3
 `
-    var s Scanner
+    var s scanner
     f := fset.AddFile(filepath.Join("TestArrays", "src"), fset.Base(), len(src))
-    s.Init(f, []byte(src), ScanMode(0), nil, nil)
+    s.init(f, []byte(src), scanmode(0), nil, nil, nil)
     if f.Size() != len(src) {
         t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
     }
@@ -612,7 +612,7 @@ array2 = \
         {-1, LINEND, `` },
     }
     for i, r := range results {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -636,9 +636,9 @@ map1 = (
 
 map2 = (  k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4  )
 `
-    var s Scanner
+    var s scanner
     f := fset.AddFile(filepath.Join("TestMaps", "src"), fset.Base(), len(src))
-    s.Init(f, []byte(src), ScanMode(0), nil, nil)
+    s.init(f, []byte(src), scanmode(0), nil, nil, nil)
     if f.Size() != len(src) {
         t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
     }
@@ -680,7 +680,7 @@ map2 = (  k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4  )
         {-1, LINEND, `` },
     }
     for i, r := range results {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -694,7 +694,7 @@ map2 = (  k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4  )
 }
 
 func testCalls(t *testing.T) {
-    var s Scanner
+    var s scanner
 
     src1 := `
 # bare lets
@@ -708,7 +708,7 @@ $(let ( (a 1e-10) (b 2017-01-18) (c 19:25:30) )
       ( print "$a $b $c" ) )
 `
     f1 := fset.AddFile(filepath.Join("TestCalls", "src1"), fset.Base(), len(src1))
-    s.Init(f1, []byte(src1), ScanMode(0), nil, nil)
+    s.init(f1, []byte(src1), scanmode(0), nil, nil, nil)
     if f1.Size() != len(src1) {
         t.Errorf("bad file size: got %d, expected %d", f1.Size(), len(src1))
     }
@@ -775,7 +775,7 @@ $(let ( (a 1e-10) (b 2017-01-18) (c 19:25:30) )
         {-1, LINEND, `` },
     }
     for i, r := range results1 {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -798,7 +798,7 @@ v2 = $(concat "a" 'b' c)
 
 `
     f2 := fset.AddFile(filepath.Join("TestCalls", "src2"), fset.Base(), len(src2))
-    s.Init(f2, []byte(src2), ScanMode(0), nil, nil)
+    s.init(f2, []byte(src2), scanmode(0), nil, nil, nil)
     if f2.Size() != len(src2) {
         t.Errorf("bad file size: got %d, expected %d", f2.Size(), len(src2))
     }
@@ -842,7 +842,7 @@ v2 = $(concat "a" 'b' c)
         {-1, LINEND, `` },
     }
     for i, r := range results2 {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -856,7 +856,7 @@ v2 = $(concat "a" 'b' c)
 }
 
 func testRules(t *testing.T) {
-    var s Scanner
+    var s scanner
 
     src1 := `
 # rules
@@ -867,7 +867,7 @@ obj/file.o: src/file.c
     gcc -c -o $@ $^
 `
     f1 := fset.AddFile(filepath.Join("TestRules", "src1"), fset.Base(), len(src1))
-    s.Init(f1, []byte(src1), ScanMode(0), nil, nil)
+    s.init(f1, []byte(src1), scanmode(0), nil, nil, nil)
     if f1.Size() != len(src1) {
         t.Errorf("bad file size: got %d, expected %d", f1.Size(), len(src1))
     }
@@ -895,7 +895,7 @@ obj/file.o: src/file.c
         {-1, LINEND, `` },
     }
     for i, r := range results1 {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -924,7 +924,7 @@ start::
     echo three
 `
     f2 := fset.AddFile(filepath.Join("TestRules", "src2"), fset.Base(), len(src2))
-    s.Init(f2, []byte(src2), ScanMode(0), nil, nil)
+    s.init(f2, []byte(src2), scanmode(0), nil, nil, nil)
     if f2.Size() != len(src2) {
         t.Errorf("bad file size: got %d, expected %d", f2.Size(), len(src2))
     }
@@ -962,7 +962,7 @@ start::
         {-1, LINEND, `` },
     }
     for i, r := range results2 {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -983,7 +983,7 @@ start:?:
     test src/file.c
 `
     f3 := fset.AddFile(filepath.Join("TestRules", "src3"), fset.Base(), len(src3))
-    s.Init(f3, []byte(src3), ScanMode(0), nil, nil)
+    s.init(f3, []byte(src3), scanmode(0), nil, nil, nil)
     if f3.Size() != len(src3) {
         t.Errorf("bad file size: got %d, expected %d", f3.Size(), len(src3))
     }
@@ -1003,7 +1003,7 @@ start:?:
         {-1, LINEND, `` },
     }
     for i, r := range results3 {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -1026,7 +1026,7 @@ start:?[shell]:
     test ok ok
 `
     f4 := fset.AddFile(filepath.Join("TestRules", "src4"), fset.Base(), len(src4))
-    s.Init(f4, []byte(src4), ScanMode(0), nil, nil)
+    s.init(f4, []byte(src4), scanmode(0), nil, nil, nil)
     if f4.Size() != len(src4) {
         t.Errorf("bad file size: got %d, expected %d", f4.Size(), len(src4))
     }
@@ -1058,7 +1058,7 @@ start:?[shell]:
         {-1, LINEND, `` },
     }
     for i, r := range results4 {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -1072,7 +1072,7 @@ start:?[shell]:
 }
 
 func testProgConstructs(t *testing.T) {
-    var s Scanner
+    var s scanner
 
     src1 := `
 project A
@@ -1082,7 +1082,7 @@ include modules/foo.smart
 instance
 `
     f1 := fset.AddFile(filepath.Join("TestProgConstructs", "src1"), fset.Base(), len(src1))
-    s.Init(f1, []byte(src1), ScanMode(0), nil, nil)
+    s.init(f1, []byte(src1), scanmode(0), nil, nil, nil)
     if f1.Size() != len(src1) {
         t.Errorf("bad file size: got %d, expected %d", f1.Size(), len(src1))
     }
@@ -1101,7 +1101,7 @@ instance
         {-1, LINEND, `` },
     }
     for i, r := range results1 {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }
@@ -1123,7 +1123,7 @@ use (
 )
 `
     f2 := fset.AddFile(filepath.Join("TestProgConstructs", "src2"), fset.Base(), len(src2))
-    s.Init(f2, []byte(src2), ScanMode(0), nil, nil)
+    s.init(f2, []byte(src2), scanmode(0), nil, nil, nil)
     if f2.Size() != len(src2) {
         t.Errorf("bad file size: got %d, expected %d", f2.Size(), len(src2))
     }
@@ -1147,7 +1147,7 @@ use (
         {-1, LINEND, `` },
     }
     for i, r := range results2 {
-        pos, tok, lit := s.Scan()
+        pos, tok, lit := s.scan()
         if 0 <= r.offset && pos != s.file.Pos(r.offset) {
             t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
         }

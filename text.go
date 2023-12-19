@@ -19,21 +19,21 @@ import (
 )
 
 // Value returned by (plain) modifier.
-type Plain struct { raw ; name_ string }
+type Plain struct { raw ; name string }
 func (p *Plain) String() (s string) {
         var value = strings.Replace(p.s, "'", "\\'", -1)
-        if p.name_ == "" {
+        if p.name == "" {
                 s = fmt.Sprintf("(plain '%s')", value)
         } else {
-                s = fmt.Sprintf("((plain %s) '%s')", p.name_, value)
+                s = fmt.Sprintf("((plain %s) '%s')", p.name, value)
         }
         return
 }
-func (p *Plain) expand(_ Context, _ facet) (val Value) { return /* &p.raw */p }
-func (p *Plain) name(_ Context) string { return p.name_ }
+func (p *Plain) expand(_ Context) (val Value) { return /* &p.raw */p }
+func (p *Plain) ident(_ Context) string { return p.name }
 func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         if a, y := v.(*Plain); y {
-                if p.name_ == a.name(ctx) && p.s == a.s {
+                if p.name == a.ident(ctx) && p.s == a.s {
                         res = cmpEqual
                 }
         } else if v.string(ctx) == p.s {
@@ -41,7 +41,7 @@ func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (_ *Plain) hit(ctx Context, cache hitch, bits int) (res *filemapCache) {
+func (_ *Plain) hit(ctx Context, cache hitch, bits int) (res *filecache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
@@ -62,12 +62,12 @@ type (
 )
 func (_ *plainInt) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var (
-                program = ctx.program()
+                program = _program(ctx)
                 pos = ctx.Position()
                 str, name string
                 opts plainOpts
         )
-        if args = parseOpts(ctx, &opts, plain, args...); len(args) > 0 {
+        if args = parseOpts(ctx, &opts, args...); len(args) > 0 {
                 name = args[0].string(ctx)
                 program.language = name
         }
@@ -164,10 +164,10 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
                                 if s := a.Name.Space; s != "" {
                                         k = makeGroup(pos, &strlit{valbase{pos},s}, k)
                                 }
-                                nn.Append(makePair(pos, k, v))
+                                nn.append(makePair(k, v))
                         }
                         if x := len(stack); x > 0 {
-                                stack[x-1].Append(nn)
+                                stack[x-1].append(nn)
                         } else {
                                 nodes = append(nodes, nn)
                         }
@@ -182,10 +182,10 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
                         if x := len(stack); x > 0 {
                                 node, s := stack[x-1], string(elem)
                                 if ws {
-                                        node.Append(&strlit{valbase{pos},s})
+                                        node.append(&strlit{valbase{pos},s})
                                 } else {
                                         if s = strings.TrimSpace(s); s != "" {
-                                                node.Append(&strlit{valbase{pos},s})
+                                                node.append(&strlit{valbase{pos},s})
                                         }
                                 }
                         }
@@ -198,7 +198,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
         if x := len(nodes); x > 1 {
                 g := makeGroup(pos)
                 for _, node := range nodes {
-                        g.Append(node)
+                        g.append(node)
                 }
                 result = g
         } else if x == 1 {
@@ -213,7 +213,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
 type xml struct { whitespace bool }
 func (p *xml) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var source string
-        if source, err = multiline(ctx, ctx.program().recipes...); err != nil {
+        if source, err = multiline(ctx, _program(ctx).recipes...); err != nil {
                 erro(ctx, "%v", err).debug(1)
                 return
         }
@@ -296,28 +296,28 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                 break SwitchNodeType
                         case '}':
                                 if x == 0 {
-                                        err = ErrorIllJson; break LoopJSON
+                                        err = errorIllJson; break LoopJSON
                                 }
-                                if k := stack[x-1].Get(0); k == nil {
+                                if k := stack[x-1].at(0); k == nil {
                                         if s = k.string(ctx); s != JsonObject {
-                                                err = ErrorIllJson; break LoopJSON
+                                                err = errorIllJson; break LoopJSON
                                         }
                                 }
                                 stack = stack[0:x-1] // POP
                                 continue LoopJSON
                         case ']':
                                 if x == 0 {
-                                        err = ErrorIllJson; break LoopJSON
+                                        err = errorIllJson; break LoopJSON
                                 }
-                                if k := stack[x-1].Get(0); k == nil {
+                                if k := stack[x-1].at(0); k == nil {
                                         if s = k.string(ctx); s != JsonArray {
-                                                err = ErrorIllJson; break LoopJSON
+                                                err = errorIllJson; break LoopJSON
                                         }
                                 }
                                 stack = stack[0:x-1] // POP
                                 continue LoopJSON
                         default:
-                                err = ErrorIllJson; break LoopJSON
+                                err = errorIllJson; break LoopJSON
                         }
                 case string:
                         var sv = &strlit{valbase{pos},d}
@@ -327,18 +327,18 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                         }
 
                         node = stack[x-1]
-                        if k := node.Get(0); k != nil {
+                        if k := node.at(0); k != nil {
                                 var kind string
                                 if kind = k.string(ctx); kind == JsonArray {
-                                        node.Append(sv); continue
+                                        node.append(sv); continue
                                 } else if kind != JsonObject {
-                                        err = ErrorIllJson; break LoopJSON
+                                        err = errorIllJson; break LoopJSON
                                 }
                         }
 
                         // Get value token
                         if !jd.More() {
-                                err = ErrorIllJson; break LoopJSON
+                                err = errorIllJson; break LoopJSON
                         } else if v, err = jd.Token(); err != nil {
                                 break LoopJSON
                         }
@@ -349,18 +349,18 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                 switch vd {
                                 case '[': vn = makeGroup(pos, makeBareword(pos, JsonArray))
                                 case '{': vn = makeGroup(pos, makeBareword(pos, JsonObject))
-                                default: err = ErrorIllJson; break LoopJSON
+                                default: err = errorIllJson; break LoopJSON
                                 }
                                 stack = append(stack, vn)
-                                node.Append(makePair(pos, sv, vn))
+                                node.append(makePair(sv, vn))
                         case string:
-                                node.Append(makePair(pos, sv, makeStrlit(pos, vd)))
+                                node.append(makePair(sv, makeStrlit(pos, vd)))
                         case float64:
-                                node.Append(makePair(pos, sv, makeFloat(pos, vd)))
+                                node.append(makePair(sv, makeFloat(pos, vd)))
                         case nil: // null
-                                node.Append(makePair(pos, sv, makeBareword(pos, "null")))
+                                node.append(makePair(sv, makeBareword(pos, "null")))
                         default:
-                                err = ErrorIllJson; break LoopJSON
+                                err = errorIllJson; break LoopJSON
                         }
                         //prompt(ctx, "node: %v\n", node)
                 case float64:
@@ -376,15 +376,15 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                                 node, value = stack[x-1], v
                         }
                 default:
-                        err = ErrorIllJson; break LoopJSON
+                        err = errorIllJson; break LoopJSON
                 }
                 if node != nil && value != nil {
-                        if k := node.Get(0); k != nil {
+                        if k := node.at(0); k != nil {
                                 if s = k.string(ctx); s != JsonArray {
-                                        err = ErrorIllJson; break LoopJSON
+                                        err = errorIllJson; break LoopJSON
                                 }
                         }
-                        node.Append(value)
+                        node.append(value)
                 }
         }
         if err == io.EOF {
@@ -396,7 +396,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
         } else {
                 g := makeGroup(pos)
                 for _, v := range nodes {
-                        g.Append(v)
+                        g.append(v)
                 }
                 result = g
         }
@@ -406,7 +406,7 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
 type json struct {}
 
 func (_ *json) evaluate(ctx Context, args ...Value) (result Value, err error) {
-        var program = ctx.program()
+        var program = _program(ctx)
         if program == nil {
                 erro(ctx, `needs program context to evaluate: %v`, ctx).debug(16)
                 return
@@ -448,7 +448,7 @@ func DecodeYAML(ctx Context, source string, ws bool) (result Value, err error) {
 type yaml struct { whitespace bool }
 func (p *yaml) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var source string
-        if source, err = multiline(ctx, ctx.program().recipes...); err != nil {
+        if source, err = multiline(ctx, _program(ctx).recipes...); err != nil {
                 erro(ctx, "%v", err).debug(1)
                 return
         } else if result, err = DecodeYAML(ctx, source, p.whitespace); err == nil {
