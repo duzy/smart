@@ -826,7 +826,7 @@ func testValues3(ctx *testcase) {
 func testValues4(ctx *testcase) {
 	if d := ctx.def(".test.*"); d == nil {
 		ctx.err(".test.*")
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v", ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
@@ -851,7 +851,7 @@ func testValues4(ctx *testcase) {
 
 	if d := ctx.def(".test.D.c"); d == nil {
 		ctx.err(".test.D.c")
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v", ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", ust{d})
@@ -915,7 +915,7 @@ func testValues4(ctx *testcase) {
 
 	if d := ctx.def(".test.D.c++"); d == nil {
 		ctx.err(".test.D.c++")
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v", ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", ust{d})
@@ -927,7 +927,7 @@ func testValues4(ctx *testcase) {
 
 	if d := ctx.def(".test.I.c"); d == nil {
 		ctx.err(".test.I.c")
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v", ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", ust{d})
@@ -957,7 +957,7 @@ func testValues4(ctx *testcase) {
 
 	if d := ctx.def(".test.I.c++"); d == nil {
 		ctx.err(".test.I.c++")
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v", ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", ust{d})
@@ -969,7 +969,7 @@ func testValues4(ctx *testcase) {
 
 	if d := ctx.def(".test.and.x.1"); d == nil {
 		ctx.err(".test.and.x.1")
-	} else if d.origin != DefExpand0 {
+	} else if d.origin != defExpand0 {
 		ctx.err("%v", ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", ust{d})
@@ -981,7 +981,7 @@ func testValues4(ctx *testcase) {
 
 	if d := ctx.def(".test.and.x.2"); d == nil {
 		ctx.err(".test.and.x.2")
-	} else if d.origin != DefExpand0 {
+	} else if d.origin != defExpand0 {
 		ctx.err("%v", ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", ust{d})
@@ -993,7 +993,7 @@ func testValues4(ctx *testcase) {
 
 	if d := ctx.def(".test.and.y.1"); d == nil {
 		ctx.err(".test.and.y.1")
-	} else if d.origin != DefExpand0 {
+	} else if d.origin != defExpand0 {
 		ctx.err("%v", ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", ust{d})
@@ -1005,7 +1005,7 @@ func testValues4(ctx *testcase) {
 
 	if d := ctx.def(".test.and.y.2"); d == nil {
 		ctx.err(".test.and.y.2")
-	} else if d.origin != DefExpand0 {
+	} else if d.origin != defExpand0 {
 		ctx.err("%v", ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", ust{d})

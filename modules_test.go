@@ -147,7 +147,7 @@ func validFlags(ctx *testcase, v Value, s string) (res bool) {
 			if !rx.MatchString(s) {
 				ctx.err("wrong flag: %s %s, %v ; %v{%v}", flag, s, rx, typeof(v), v)
 			} else {
-				if false { noted(of(ctx,v), "%v: %v ; %v", flag, s, rx).debug(1) }
+				if false { noted(at(ctx,v), "%v: %v ; %v", flag, s, rx).debug(1) }
 				i += n
 				break
 			}
@@ -163,7 +163,7 @@ var testValidateOutFilename = regexp.MustCompile(`\.configure/[^/=]+?/[^/=]+$`)
 func testValidateExecRecipe(tc *testcase, ctx Context, source string, recipe Value) {
 	if source == "" || recipe == nil { return }
 
-	ctx = of(ctx, recipe)
+	ctx = at(ctx, recipe)
 
 	if m := testValidateClang.FindStringSubmatch(source); m != nil {
 		if !validFlags(tc, recipe, source[len(m[0]):]) {
@@ -302,7 +302,7 @@ func testVariantTarget(ctx *testcase) {
 		ctx.err("host.triple")
 	} else if d.value == nil {
 		ctx.err("%v", d)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, d)
 	} else if d.value.String() != "&(host.arch)&(host.sub)-&(host.vendor)-&(host.sys)-&(host.abi)" {
 		ctx.err("%v", d)
@@ -313,7 +313,7 @@ func testVariantTarget(ctx *testcase) {
 		ctx.err("target.triple")
 	} else if d.value == nil {
 		ctx.err("%v", d)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, d)
 	} else if d.value.String() != "&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi)" {
 		ctx.err("%v", d)
@@ -324,7 +324,7 @@ func testVariantTarget(ctx *testcase) {
 	var usev, uses string
 	if d := ctx.def("use.*"); d == nil {
 		ctx.err("use.*")
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, d)
 	}
 	if v := ctx.val("use.*"); v == nil {
@@ -347,7 +347,7 @@ func testVariantTarget(ctx *testcase) {
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v ; %v", s3, uses) }
 		if d := ctx.def(flag); d == nil {
 			ctx.err("%s", flag)
-		} else if d.origin != DefExpand1 && d.origin != DefExpand2 {
+		} else if d.origin != defExpand1 && d.origin != defExpand2 {
 			ctx.err("%v %v", d.origin, d)
 		}
 
@@ -361,7 +361,7 @@ func testVariantTarget(ctx *testcase) {
 			if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 			if d := ctx.def(s0); d == nil {
 				ctx.err("%s", s0)
-			} else if d.origin != DefExpand1 && d.origin != DefExpand2 {
+			} else if d.origin != defExpand1 && d.origin != defExpand2 {
 				ctx.err("%v %v", d.origin, d)
 			}
 		}
@@ -375,7 +375,7 @@ func testVariantTarget(ctx *testcase) {
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(flag); d == nil {
 			ctx.err("%s", flag)
-		} else if d.origin != DefExpand1 && d.origin != DefExpand2 {
+		} else if d.origin != defExpand1 && d.origin != defExpand2 {
 			ctx.err("%v %v", d.origin, d)
 		}
 	}
@@ -389,7 +389,7 @@ func testVariantTarget(ctx *testcase) {
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(s0); d == nil {
 			ctx.err("%s", s0)
-		} else if d.origin != DefExpand1 && d.origin != DefExpand2 {
+		} else if d.origin != defExpand1 && d.origin != defExpand2 {
 			ctx.err("%v %v", d.origin, d)
 		}
 	}
@@ -403,7 +403,7 @@ func testVariantTarget(ctx *testcase) {
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(s0); d == nil {
 			ctx.err("%s", s0)
-		} else if d.origin != DefExpand1 && d.origin != DefExpand2 {
+		} else if d.origin != defExpand1 && d.origin != defExpand2 {
 			ctx.err("%v %v", d.origin, d)
 		}
 	}}
@@ -417,7 +417,7 @@ func testVariantTarget(ctx *testcase) {
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(s0); d == nil {
 			ctx.err("%s", s0)
-		} else if d.origin != DefExpand1 && d.origin != DefExpand2 {
+		} else if d.origin != defExpand1 && d.origin != defExpand2 {
 			ctx.err("%v %v", d.origin, d)
 		}
 	}
@@ -736,27 +736,27 @@ func testApp(ctx *testcase) {
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.os)) $(foreach $1 c,&(-g.$_) &(-g~&(target.os).$_))),-g)") != 1 {
 		ctx.err("%v", v1)
 	} else if t := flag2("-g", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-O", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-D", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-f", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-m", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-W", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-I", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-no", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-isystem", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag2("-isystem-after", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag1("cflags"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if s := v2.String(); s == "" {
 		ctx.err("%T %v", v2, v2)
 	} else if true && strings.Count(s, "&(cross.target)") != 1 {
@@ -770,27 +770,27 @@ func testApp(ctx *testcase) {
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.os)) $(foreach $1 c,&(-g.$_) &(-g~&(target.os).$_))),-g)") != 1 {
 		ctx.err("%v", v2)
 	} else if t := flag2("-g", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-O", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-D", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-f", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-m", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-W", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-I", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-no", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-isystem", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag2("-isystem-after", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag1("cflags"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if s1, s2 := v1.string(ctx), v2.string(ctx); s1 != s2 {
 		ctx.err("%T %v -> %s", v2, v2, s)
 		ctx.err("%T %v -> %s", v2, v2, s)
@@ -841,27 +841,27 @@ func testApp(ctx *testcase) {
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.os)) &(-g.fxxbxx) &(-g~&(target.os).fxxbxx) &(-g.c) &(-g~&(target.os).c)),-g)") != 1 {
 		ctx.err("%v", s)
 	} else if t := flag4("-g", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-O", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-D", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-f", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-m", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-W", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-I", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-no", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-isystem", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag4("-isystem-after", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if t := flag3("cflags", "fxxbxx"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v1), "%v", t) ; ctx.err("%v", v1)
+		noted(at(ctx,v1), "%v", t) ; ctx.err("%v", v1)
 	} else if s := v2.String(); s == "" {
 		ctx.err("%T %v", v2, v2)
 	} else if true && strings.Count(s, "&(cross.target)") != 1 {
@@ -883,27 +883,27 @@ func testApp(ctx *testcase) {
 	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.os)) &(-g.fxxbxx) &(-g~&(target.os).fxxbxx) &(-g.c) &(-g~&(target.os).c)),-g)") != 1 {
 		ctx.err("%v", s)
 	} else if t := flag4("-g", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-O", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-D", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-f", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-m", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-W", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-I", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-no", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-isystem", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag4("-isystem-after", "fxxbxx", "c"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if t := flag3("cflags", "fxxbxx"); strings.Count(s, t) != 1 {
-		noted(of(ctx,v2), "%v", t) ; ctx.err("%v", v2)
+		noted(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if s1 := v1.string(ctx); s1 == "" {
 		ctx.err("%T %v -> %s", v2, v2, s1)
 	} else if s2 := v2.string(ctx); s2 == "" {
@@ -1640,7 +1640,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	}
 
 	for _, name := range names {
-		if f := unmap(ctx, name); f == nil {
+		if f := unmapfiles(ctx, name); f == nil {
 			ctx.err("unmap %s", name)
 		}
 	}
@@ -1894,20 +1894,20 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if v3.String() != "&/" {
 		ctx.err("%v: %v", typeof(v3), v3)
 	} else if v3.string(cc) != v1.string(ctx) {
-		noted(of(ctx,v3), "%v: %v", ctx.project(), v1.string(ctx))
-		noted(of(ctx,v3), "%v: %v", ctx.project(), v3.string(ctx))
+		noted(at(ctx,v3), "%v: %v", ctx.project(), v1.string(ctx))
+		noted(at(ctx,v3), "%v: %v", ctx.project(), v3.string(ctx))
 		ctx.err("%v: %v ; %v{%v}",  ctx.project(), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if v3.string(cc) != v2.string(ctx) {
-		noted(of(ctx,v3), "%v: %v", ctx.project(), v2.string(ctx))
-		noted(of(ctx,v3), "%v: %v", ctx.project(), v3.string(ctx))
+		noted(at(ctx,v3), "%v: %v", ctx.project(), v2.string(ctx))
+		noted(at(ctx,v3), "%v: %v", ctx.project(), v3.string(ctx))
 		ctx.err("%v: %v ; %v{%v}",  ctx.project(), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if v3.string(ctx) == v1.string(ctx) {
-		noted(of(ctx,v3), "%v: %v", ctx.project(), v1.string(ctx))
-		noted(of(ctx,v3), "%v: %v", ctx.project(), v3.string(ctx))
+		noted(at(ctx,v3), "%v: %v", ctx.project(), v1.string(ctx))
+		noted(at(ctx,v3), "%v: %v", ctx.project(), v3.string(ctx))
 		ctx.err("%v: %v ; %v{%v}",  ctx.project(), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if v3.string(ctx) == v2.string(ctx) {
-		noted(of(ctx,v3), "%v: %v", ctx.project(), v2.string(ctx))
-		noted(of(ctx,v3), "%v: %v", ctx.project(), v3.string(ctx))
+		noted(at(ctx,v3), "%v: %v", ctx.project(), v2.string(ctx))
+		noted(at(ctx,v3), "%v: %v", ctx.project(), v3.string(ctx))
 		ctx.err("%v: %v ; %v{%v}",  ctx.project(), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if !strings.HasSuffix(v3.string(ctx), tail) {
 		ctx.err("%v: %v %v", typeof(v3), v3, tail)
@@ -1970,25 +1970,25 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if v0.string(ctx) == v.string(ctx) {
 		ctx.err("%v: %v: %v", proj, typeof(v), v)
 	} else if v0.string(ctx) != v.string(_closureWith(ctx, proj)) {
-		noted(of(ctx,v), "%v → %v", v, v0.string(ctx))
-		noted(of(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx, proj)))
-		noted(of(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx.Context, base)))
-		noted(of(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx.Context, base.configure)))
+		noted(at(ctx,v), "%v → %v", v, v0.string(ctx))
+		noted(at(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx, proj)))
+		noted(at(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx.Context, base)))
+		noted(at(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx.Context, base.configure)))
 		ctx.err("%v: %v: %v", proj, typeof(v), v)
 	} else if v1 := ctx.val("remnant1"); v0 == nil {
 		ctx.err("%v: remnant1", proj)
 	} else if v1.string(ctx) == v.string(ctx) {
 		ctx.err("%v: %v: %v", proj, typeof(v), v)
 	} else if v1.string(ctx) != v.string(_closureWith(ctx, proj)) {
-		noted(of(ctx,v), "%v → %v", v, v1.string(ctx))
-		noted(of(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx, proj)))
-		noted(of(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx.Context, base)))
-		noted(of(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx.Context, base.configure)))
+		noted(at(ctx,v), "%v → %v", v, v1.string(ctx))
+		noted(at(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx, proj)))
+		noted(at(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx.Context, base)))
+		noted(at(ctx,v), "%v → %v", v,  v.string(_closureWith(ctx.Context, base.configure)))
 		ctx.err("%v: %v: %v", proj, typeof(v), v)
 	} else if strings.HasSuffix(s1, tail) {
-		noted(of(ctx,v), "%v → %v", v, s0)
-		noted(of(ctx,v), "%v → %v", v, s1)
-		noted(of(ctx,v), "%v → %v", v, s2)
+		noted(at(ctx,v), "%v → %v", v, s0)
+		noted(at(ctx,v), "%v → %v", v, s1)
+		noted(at(ctx,v), "%v → %v", v, s2)
 		ctx.err("%v: %v: %v", proj, typeof(v), v)
 	} else {
 		remnant = s1
@@ -2022,8 +2022,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if _, y := v2.(*path); !y {
 		ctx.err("%v: %v: %v", proj, typeof(v2), v2)
 	} else if v1.string(ctx) != v2.string(ctx) {
-		noted(of(ctx,v1), "%v: %v", proj, v1)
-		noted(of(ctx,v1), "%v: %v", proj, v2)
+		noted(at(ctx,v1), "%v: %v", proj, v1)
+		noted(at(ctx,v1), "%v: %v", proj, v2)
 		ctx.err("%v: %v: %v", proj, typeof(v1), v1)
 	}
 
@@ -2036,8 +2036,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if _, y := v2.(*path); false && !y {
 		ctx.err("%v: %v", typeof(v2), v2)
 	} else if v1.string(ctx) != v2.string(ctx) {
-		noted(of(ctx,v1), "%v: %v", proj, v1)
-		noted(of(ctx,v1), "%v: %v", proj, v2)
+		noted(at(ctx,v1), "%v: %v", proj, v1)
+		noted(at(ctx,v1), "%v: %v", proj, v2)
 		ctx.err("%v: %v: %v", proj, typeof(v1), v1)
 	}
 
@@ -2058,9 +2058,9 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
 	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
-		noted(of(ctx, f), "%v: %v", f, f.fullname())
-		noted(of(ctx, f), "%v: %v", x, x.fullname())
-		noted(of(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
+		noted(at(ctx, f), "%v: %v", f, f.fullname())
+		noted(at(ctx, f), "%v: %v", x, x.fullname())
+		noted(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
 		ctx.err("%v: different (%s)", f, proj.absPath)
 	}
 
@@ -2081,8 +2081,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
 	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
-		noted(of(ctx, f), "%v: %v", f, f.fullname())
-		noted(of(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
+		noted(at(ctx, f), "%v: %v", f, f.fullname())
+		noted(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
 		ctx.err("%v: different (%s)", f, proj.absPath)
 	}
 
@@ -2103,8 +2103,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
 	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
-		noted(of(ctx, f), "%v: %v", f, f.fullname())
-		noted(of(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
+		noted(at(ctx, f), "%v: %v", f, f.fullname())
+		noted(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
 		ctx.err("%v: different (%s)", f, proj.absPath)
 	}
 
@@ -2125,8 +2125,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
 	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
-		noted(of(ctx, f), "%v: %v", f, f.fullname())
-		noted(of(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
+		noted(at(ctx, f), "%v: %v", f, f.fullname())
+		noted(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
 		ctx.err("%v: different (%s)", f, proj.absPath)
 	}
 
@@ -2141,12 +2141,12 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if !filepath.IsAbs(c.fullname()) {
 		ctx.err("%v: %v", f, base)
 	} else if f.fullname() != c.fullname() {
-		noted(of(ctx, f), "%v: %v", f, f.fullname())
-		noted(of(ctx, f), "%v: %v", c, c.fullname())
+		noted(at(ctx, f), "%v: %v", f, f.fullname())
+		noted(at(ctx, f), "%v: %v", c, c.fullname())
 		ctx.err("%v: %v", f, proj)
 	} else if f.fullname() == joinPath(outtmp, configuration_sm) {
-		noted(of(ctx, f), "%v: %v", f, f.fullname())
-		noted(of(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
+		noted(at(ctx, f), "%v: %v", f, f.fullname())
+		noted(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
 		ctx.err("%v: different", f)
 	}
 
@@ -2159,8 +2159,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if v.string(ctx) == c.fullname() {
 		ctx.err("%v: %v", proj, base)
 	} else if v.string(ctx) != joinPath(outtmp, configuration_sm) {
-		noted(of(ctx, v), "%v: %v", v, v.string(ctx))
-		noted(of(ctx, v), "%v: %v/%v", v, outtmp, configuration_sm)
+		noted(at(ctx, v), "%v: %v", v, v.string(ctx))
+		noted(at(ctx, v), "%v: %v/%v", v, outtmp, configuration_sm)
 		ctx.err("%v: different (%v)", v, proj)
 	}
 
@@ -2175,8 +2175,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if f.fullname() == c.fullname() {
 		ctx.err("%v: %v", proj, base)
 	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
-		noted(of(ctx, v), "%v: %v", v, f.fullname())
-		noted(of(ctx, v), "%v: %v/%v", v, outtmp, configuration_sm)
+		noted(at(ctx, v), "%v: %v", v, f.fullname())
+		noted(at(ctx, v), "%v: %v/%v", v, outtmp, configuration_sm)
 		ctx.err("%v: different (%v)", v, proj)
 	}
 

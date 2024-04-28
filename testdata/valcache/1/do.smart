@@ -1,5 +1,5 @@
 project testvalcache
 
 files (
-    (foo/bar.c foo/bar.c++ foo.c foo.c++) ⇒ src
+    (foo.c foo.c++ foo/bar.c foo/bar.c++) ⇒ src
 )

@@ -13,7 +13,7 @@ func testTemplate(ctx *testcase) {
 	if s := "xyz"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand2 {
+	} else if d.origin != defExpand2 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -26,7 +26,7 @@ func testTemplate(ctx *testcase) {
 	if s := "var.xxx"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand0 {
+	} else if d.origin != defExpand0 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -45,7 +45,7 @@ func testTemplate(ctx *testcase) {
 	if s := "var.yyy"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand0 {
+	} else if d.origin != defExpand0 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -64,7 +64,7 @@ func testTemplate(ctx *testcase) {
 	if s := "var.zzz"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand0 {
+	} else if d.origin != defExpand0 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -83,7 +83,7 @@ func testTemplate(ctx *testcase) {
 	if s := "vars"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -112,7 +112,7 @@ func testTemplate(ctx *testcase) {
 	if s := "var2"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -147,7 +147,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.1"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -160,7 +160,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.2"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -185,7 +185,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.3"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -202,7 +202,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.4"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -235,7 +235,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.5"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -258,7 +258,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.6"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -283,7 +283,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.7"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -316,7 +316,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.8"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -373,7 +373,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.9"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -400,7 +400,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.10"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -457,7 +457,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.11"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefVoid {
+	} else if d.origin != defVoid {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -484,7 +484,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.12"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefVoid {
+	} else if d.origin != defVoid {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})
@@ -541,7 +541,7 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.13"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != DefVoid {
+	} else if d.origin != defVoid {
 		ctx.err("%v %v", d.origin, ust{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v %v", d.origin, ust{d})

@@ -271,8 +271,8 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	} else if o := proj.configure.resolveDef(ctx, "outtmp"); o == nil || o.value == nil { // &(target.tmp)/&(rel.remnant)
 		ctx.err("%v: %v: outtmp", proj, proj.configure)
 	} else if o.value.string(ctx) == x.value.string(ctx) { // diverged (different outtmp)
-		noted(of(ctx,o.value), "%v: %v", proj, o.value.string(ctx))
-		noted(of(ctx,o.value), "%v: %v", proj, x.value.string(ctx))
+		noted(at(ctx,o.value), "%v: %v", proj, o.value.string(ctx))
+		noted(at(ctx,o.value), "%v: %v", proj, x.value.string(ctx))
 		ctx.err("%v: %v == %v", proj, o.value, x.value)
 	} else {
 		outtmp = x.value // := $//tmp
@@ -294,8 +294,8 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	} else if proj.configurationFile == nil {
 		ctx.err("%v: nil configuration file", proj)
 	} else if    configurationFile     ==     proj.configurationFile.fullname() { // diverged (different outtmp)
-		noted(of(ctx,outtmp), "%v: %v", proj, proj.configurationFile.fullname())
-		noted(of(ctx,outtmp), "%v: %v", proj, configurationFile)
+		noted(at(ctx,outtmp), "%v: %v", proj, proj.configurationFile.fullname())
+		noted(at(ctx,outtmp), "%v: %v", proj, configurationFile)
 		ctx.err("%v: %v", proj, proj.configurationFile)
 	}
 
@@ -334,7 +334,7 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	}
 
 	if d, v := ctx.val("FOO"), ctx.val("FOO"); v == nil {
-		erro(of(ctx, d), "%v", d).debug(1)
+		erro(at(ctx, d), "%v", d).debug(1)
 	} else if v.String() != "$(.self)" {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if v.string(ctx) != proj.name {
@@ -586,7 +586,7 @@ FOO5 = true{}
 
 	ctx.run(func (c *testcase) {
 		if d, foo := c.def("FOO1"), c.val("FOO1"); foo == nil {
-			erro(of(c, d), "%v", d).debug(1)
+			erro(at(c, d), "%v", d).debug(1)
 		} else if foo.String() != "yes{}" {
 			c.err("%T %v ; %v", foo, foo, d)
 		} else if s := foo.string(ctx); s != "yes" {

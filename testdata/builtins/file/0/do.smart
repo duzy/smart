@@ -20,4 +20,4 @@ val4 := $(file(-mapped) .test/xx/yy/zz/foo.c)
 val5 := $(file          .test/xx/yy/zz/aa/foo.c) # none
 
 pat1 := .test/a/b/c.auto
-pat2 := .test/a/b/c.test
+pat2 := .test/a/b/c.none

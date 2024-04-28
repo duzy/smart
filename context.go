@@ -143,6 +143,8 @@ const (
   propExCondless
   propExFinal // aka x.string(ctx)
   propReversal
+  propCacheUnmap
+  propCachePath
 )
 
 func _position(ctx Context) (res Position) {
@@ -338,7 +340,7 @@ func getTargetValue(ctx Context) (res Value) {
   } else if vals := expand(ctx, val); len(vals) == 1 {
     res = scalarize(vals[0])
   } else {
-    erro(of(ctx,val), "multiple targets: %v → %v", val, vals)
+    erro(at(ctx,val), "multiple targets: %v → %v", val, vals)
   }
   return
 }
@@ -471,7 +473,7 @@ func trace(ctx Context, a ...interface{}) {
       case       bailout:
       case       tracend: te = t
       case       failure: erro(t.Context, t.Error()) ; t.Context = nil
-      case         Value: erro(of(ctx,t), "trace: %s", us(t))
+      case         Value: erro(at(ctx,t), "trace: %s", us(t))
       case        string: erro(   ctx   , "trace: %s", t)
       case runtime.Error: erro(   ctx   , "trace: %s", t.Error())
       default:            erro(   ctx   , "trace: %s", us(e))
@@ -704,30 +706,36 @@ func (pc *positional) do(prop property, a ...interface{}) interface{} {
   return nil
 }
 
-func of(ctx Context, a interface{}) Context {
-  switch i := a.(type) {
-  case positioner: return at(ctx, i.Position())
-  }
-  return ctx
-}
+func _at(ctx Context, p Position) Context { return &positional{ctx, p} }
+func at(ctx Context, a interface{}) Context {
+  if ctx == nil { panic("nil context") }
 
-func at(ctx Context, pos Position) Context {
-  if ctx == nil {
-    panic("nil context")
-  } else if p := ctx.Position(); p._valid() && pos._valid() && !p.Same(&pos) {
-    for c, i, n := ctx, 0, 0; c != /* _universe(ctx) */nil; c, i = inner(c), i+1 {
-      if _, y := c.(*positional); y { n += 1 ; if n > /* 999 */100 {
-        if false { prompt(ctx, "%v: too many positions: %T\n", p, c) }
-        warnstack(ctx, 3, "too many positions: %v/%v; %v", n, i, ctx).debug(16)
-        flush(ctx)
-        return ctx
-      }}
+  var pos Position
+
+  switch t := a.(type) {
+  case positioner: pos = t.Position()
+  case Position  : pos = t
+  default:
+    if false { erro(ctx, "non-position arg: %v", us(a)).debug(3) }
+    return ctx
+  }
+
+  if p := ctx.Position(); p._valid() && pos._valid() && !p.Same(&pos) {
+    for c, i, n := ctx, 0, 0; c != nil; c, i = inner(c), i+1 {
+      if _, y := c.(*positional); y {
+        if n += 1; n > /* 999 */100 {
+          if false { prompt(ctx, "%v: too many positions: %T\n", p, c) }
+          warnstack(ctx, 3, "too many positions: %v/%v; %v", n, i, ctx).debug(16)
+          if true { flush(ctx) }
+          return ctx
+        }
+      }
     }
+
     ctx = _at(ctx, pos)
   }
   return ctx
 }
-func _at(ctx Context, pos Position) Context { return &positional{ ctx, pos } }
 
 func _argumentedContext(c Context) *argumentedContext { return cast[*argumentedContext](c) }
 
@@ -777,7 +785,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
         erro(at(ctx,ctx.Position()), "update '%v' failed", g).debug(1)
       }
     default:
-      erro(of(ctx,goal), "'%v' is not an entry (%T)", goal, goal).debug(1)
+      erro(at(ctx,goal), "'%v' is not an entry (%T)", goal, goal).debug(1)
     }
   }
   return
@@ -871,7 +879,7 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
     case failure:
       erro(t.Context, t.Error()) ; t.Context = nil
       if f == nil { f = &t }
-    case         Value: erro(of(ctx,t), "assured: %s", us(t))
+    case         Value: erro(at(ctx,t), "assured: %s", us(t))
     case        string: erro(   ctx   , "assured: %s", t)
     case runtime.Error: erro(   ctx   , "assured: %s", t.Error())
     default:            erro(   ctx   , "assured: %s", us(e))

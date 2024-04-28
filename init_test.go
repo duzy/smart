@@ -119,15 +119,15 @@ func (tc *testcase) val(i0 interface{}, ii ...interface{}) (res Value) {
 	var a, o []Value
 	var s = skipint{2}
 	var ctx Context = tc
-	var origin = DefExpand1
+	var origin = defExpand1
 	var proj = tc.project()
 
 	for _, i := range ii {
 		var vb = valbase{tc.Position()}
 		switch t := i.(type) {
-		case test_def_1: origin = DefExpand1
-		case test_def_2: origin = DefExpand2
-		case test_def_3: origin = DefExpand3
+		case test_def_1: origin = defExpand1
+		case test_def_2: origin = defExpand2
+		case test_def_3: origin = defExpand3
 		case test_final: ctx = final{ctx}
 		case   *project: proj, ctx = t, closureWith(ctx, t.scope)
 		case    skipint: s.int = t.int+1

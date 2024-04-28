@@ -20,7 +20,7 @@ func (p *eval) evaluate(ctx Context, args ...Value) (result Value, err error) {
     args = parseOpts(final{ctx}, &opts, args...)
 
     for _, recipe := range program.recipes {
-        var vals = merge(recipe)//xmerge(of(ctx, recipe), recipe)
+        var vals = merge(recipe)//xmerge(at(ctx, recipe), recipe)
 
         if n := len(vals); n < 1 {
             if false { list = append(list, recipe) }

@@ -34,375 +34,175 @@ func (sl *searchlist) Set(value string) error {
     return nil
 }
 
-type filecache struct {
-    maps []FileMap
-    chars map[char  ]*filecache // chars; char(0) goes for patterns without bare prefixs
-    vals  map[Value ]*filecache // indeterminate values
-    strs  map[string]*filecache
-    pats  map[string][]*filecachePat
+type unmapping struct { Context }
+func (c unmapping) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c unmapping) do(prop property, a ...interface{}) interface{} {
+    return bitdo(c.Context, a, prop, propCacheUnmap)
 }
 
-func (p *filecache) String() (s string) { // NOTE: for debug only
+type pathcache struct { Context ; p *path ; i int }
+func (c *pathcache) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c *pathcache) do(prop property, a ...interface{}) interface{} {
+    return bitdo(c.Context, a, prop, propCachePath)
+}
+
+type pstrcache struct { Context ; p []string ; i int }
+func (c *pstrcache) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c *pstrcache) do(prop property, a ...interface{}) interface{} {
+    return bitdo(c.Context, a, prop, propCachePath)
+}
+
+func cacheMapping(ctx Context) bool { return !cacheUnmap(ctx) }
+func cacheUnmap(ctx Context) (res bool) {
+    res, _ = ctx.do(propCacheUnmap).(bool)
+    return
+}
+
+type filecache struct {
+    a []FileMap
+    m map[interface{}]*filecache
+}
+
+func (p *filecache) String() (s string) { // NOTE: for debug
     s += "{"
-    if m := p.maps; m != nil {
-        s += "maps=["
+    if m := p.a; m != nil {
+        s += "["
         for k, v := range m { s += fmt.Sprintf("%v:%v,", k, v) }
         s = strings.TrimSuffix(s, ",") + "],"
     }
-    if m := p.chars; m != nil {
-        s += "chars=["
+    if m := p.m; m != nil {
+        if strings.HasSuffix(s, "]") { s += "," }
         for k, v := range m { s += fmt.Sprintf("%v:%v,", k, v) }
-        s = strings.TrimSuffix(s, ",") + "],"
-    }
-    if m := p.vals; m != nil {
-        s += "vals=["
-        for k, v := range m { s += fmt.Sprintf("%v:%v,", k, v) }
-        s = strings.TrimSuffix(s, ",") + "],"
-    }
-    if m := p.strs; m != nil {
-        s += "strs=["
-        for k, v := range m { s += fmt.Sprintf("%v:%v,", k, v) }
-        s = strings.TrimSuffix(s, ",") + "],"
-    }
-    if m := p.pats; m != nil {
-        s += "pats=["
-        for k, v := range m { s += fmt.Sprintf("%v:%v,", k, v) }
-        s = strings.TrimSuffix(s, ",") + "],"
+        s = strings.TrimSuffix(s, ",")
     }
     return strings.TrimSuffix(s, ",") + "}"
 }
 
-type filecachePat struct {
-    filecache
-    key Value
-    value hitched
-}
-
-type hitched struct { v interface{} } // Value, string, []string
-
-func (h hitched) String() (s string) { // for debug
-    return fmt.Sprintf("hitched{%v{%v}}", typeof(h.v), h.v)
-}
-
-func (h hitched) match(ctx Context, i interface{}) (full bool, res interface{}, stems []string) {
-    if v, y := h.v.(Value); y {
-        full, res, stems = v.match(ctx, i)
-    } else if s, y := h.v.(string); y {
-        if o, y := i.(string); y {
-            if strings.HasPrefix(o, s) { res, full = s, (len(s) == len(o)) }
+func (p *filecache) hit(ctx Context, k interface{}) (res *filecache, done bool) {
+    switch t := k.(type) {
+    case interface{ filecache(Context, *filecache) (*filecache, bool) }:
+        if res, done = t.filecache(ctx, p) ; res == nil && cacheMapping(ctx) {
+            errostack(at(ctx,k), 3, "no filecache for %v : %v", us(k), p).debug(8)
         }
-    } else if s, y := h.v.([]string); y {
-        if o, y := i.([]string); y {
-            var ( n int ; f bool ; a []string )
-            for ; n < len(s) && n < len(o); n++ {
-                if strings.HasPrefix(o[n], s[n]) {
-                    a, f = append(a, s[n]), (len(o[n]) == len(s[n]))
-                }
-            }
-            res, full = a, (n == len(s) && n == len(o) && f)
-        }
-    }
-    return
-}
+        return
 
-type hitch struct {
-    *filecache
-    value hitched // aka full pattern
-}
-
-func (cache hitch) String() (s string) {
-    s += "hitch{"
-    s += fmt.Sprintf("%v(%v)", typeof(cache.value.v), cache.value.v)
-    s += ","
-    s += cache.filecache.String()
-    s += "}"
-    return
-}
-
-func (cache hitch) strx(ctx Context, s string, bits int) (res *filecache) {
-    if res = cache.str(ctx, strings.Split(s, pathSep), 0, bits); false && res == nil {
-        if c := cache.char0(bits); c != nil {
-            cache.filecache = c
-            res = cache.strx(ctx, s, bits)
-        }
-    }
-    return
-}
-
-func (cache hitch) strs(ctx Context, ss []string, bits int) (res *filecache) {
-    return cache.str(ctx, ss, 0, bits)
-}
-
-func (cache hitch) str(ctx Context, ss []string, i, bits int, a ...*filecache) (res *filecache) {
-    var j = i+1
-
-    defer func(v interface{}, c *filecache) {
-        if false { if bits&cacheStore == 0 && res == nil && (
-            ss[0] == ".test" ||
-            false) && (
-            true || // strings.HasSuffix(ss[i], ".o") ||
-            false) {
-            warn(ctx, "%08b: %v(%v) ⇒ %v", bits, typeof(v), v, c)
-            warn(ctx, "%08b: %v[%d]: %s", bits, ss, i, ss[i])
-            warn(ctx, "%08b: ⇒ %v", bits, res)
-            warnstack(ctx, 3).debug(32)
-        }}
-
-        if res != nil && res.maps == nil && (bits&cacheStore == 0) && (j == len(ss)) {
-            warnstack(ctx, 3, "%08b: %v[%d]: empty cache (%p, %v)\n", bits, ss, i, c, res).debug(12)
-            res = nil // it doesn't make sense to fetch a 'empty' cache
-        }
-    } (cache.value.v, cache.filecache)
-
-    a = append(a, cache.filecache)
-
-    var comps []string = strings.Split(ss[i], ".")
-    if c := cache.comp(ctx, comps, bits); c != nil {
-        if j == len(ss) {
-            if bits&cacheStore != 0 || c.maps != nil { return c }
-        } else if c != cache.filecache {
-            return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
-        }
+    case Value:
+        errostack(at(ctx,k), 5, "non-filecache-able %v : %v", us(k), p).debug(8)
+        return
     }
 
-    if m := cache.match(ctx, ss); m != nil {
-        if c := &m.filecache; j == len(ss) {
-            if bits&cacheStore != 0 || c.maps != nil { return c }
-        } else if c != cache.filecache {
-            return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
-        } else {
-            errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
-            return
+    var y bool
+    if cacheUnmap(ctx) {
+        if p.m == nil { return }
+        if res, y = p.m[k]; y { return }
+        if x, y := p.m[reflect.TypeOf(globpat{})]; y && x.m != nil {
+            if res, done = x.glob(ctx, k); res != nil || done { return }
         }
-    }
-
-    if c := cache.charstr(ss[i], bits, true); c != nil { // prefixed-patterns: lib*.a test_*.c
-        if m := c.match(ctx, ss); m != nil {
-            if c := &m.filecache; j == len(ss) {
-                if bits&cacheStore != 0 || c.maps != nil { return c }
-            } else if c != cache.filecache {
-                return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
-            } else {
-                errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
-                return
-            }
+        if x, y := p.m[reflect.TypeOf(regexpat{})]; y && x.m != nil {
+            if res, done = x.regex(ctx, k); res != nil || done { return }
         }
-    }
-
-    if s := ss[i]; s == "" {
-        return // nothing
-    } else if cache.expand(ctx, s) {
-        if c := cache.comp(ctx, comps, bits); c != nil {
-            if j == len(ss) {
-                if bits&cacheStore != 0 || c.maps != nil { return c }
-            } else if c != cache.filecache {
-                return hitch{c, cache.value}.str(ctx, ss, j, bits, a...)
-            } else {
-                errostack(ctx, 3, "%08b: %v[%d]: %s %s\n", bits, ss, i, ss[i], ss[j]).debug(16)
-                return
-            }
-        } else {
-            if true  { errostack(ctx, 3, "%08b: %v[%d]\n", bits, ss, i).debug(16) }
-            if false { warnstack(ctx, 3, "%08b: %v[%d]\n", bits, ss, i).debug(16) }
-            return
+        if false { errostack(at(ctx,k), 5, "filecache %v : %v", us(k), p).debug(6) }
+        return
+    } else {
+        if p.m == nil { p.m = make(map[interface{}]*filecache) }
+        if res, y = p.m[k]; !y || res == nil {
+            res = &filecache{}
+            p.m[k] = res
         }
+        return
     }
-
-    if bits&cacheStore != 0 { return }
-
-    var cs []*filecache
-    for k := len(a)-2; 0 <= k; k-- {
-        var c = a[k].char0(bits)
-        if c == nil { continue }
-        if p := c.match(ctx, ss); p != nil { return &p.filecache }
-        cs = append(cs, c)
-    }
-
-    var s string = filepath.Join(ss...)
-    for _, c := range cs {
-        if p := c.match(ctx, s); p != nil { return &p.filecache }
-    }
-    return
 }
 
-func (cache hitch) expand(ctx Context, s string) (res bool) {
-    var num int
-    var p = ctx.project()
-    for v, m := range cache.vals {
-        var good bool
-        for _, m := range m.maps {
-            if good = p == m.project || p.hasBase(m.project); good { break }
-        }
-        if good {
-            for _, elem := range merge(v.expand(ctx)) {
-                if elem.expandable(ctx) {
-                    if false { warn(ctx, "%s: %v ⇒ %v", s, us(v), us(elem)).debug(1) }
-                } else if elem.patterned(ctx) {
-                    erro(ctx, "%s: unexpected: %v ⇒ %v", s, us(v), us(elem)).debug(1)
-                } else if c := elem.hit(ctx, cache, cacheStore); c != nil {
-                    if a, b, c := elem.match(ctx, s); a {
-                        if true { warn(ctx, "%v: %s: %v: %v ; %v %v %v", p, s, v, us(elem), a, b, c) }
-                        num += 1
+func (p *filecache) glob(ctx Context, k interface{}) (res *filecache, done bool) {
+    var pc = cast[*pathcache](ctx)
+    var ps = cast[*pstrcache](ctx)
+    for t, c := range p.m {
+        var pat, y = t.(string)
+        if !y {
+            erro(ctx, "TODO: %v %v ; %v", us(k), us(t), c).debug(3)
+        } else if pc != nil {
+            if pc.i+1 == pc.p.len() {
+                var x = pc.p.elems[pc.i]
+                var f, st, e = globMatch(ctx, pat, x.string(ctx))
+                if checkpoints {
+                    if e != nil {
+                        erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
                     }
-                } else {
-                    if true { warn(ctx, "%s: %v -> %v", s, us(v), us(elem)).debug(1) }
+                    if f && pat == "*.c" && (len(st) != 1 || st[0] == "") {
+                        erro(ctx, "%v %v → %v %v", us(x), us(t), f, st).debug(8)
+                    }
+                }
+                if f { pc.i = pc.p.len() ; return c, true }
+                if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", x, us(t), f, st, c).debug(10) }
+            } else {
+                var x = &path{elements{pc.p.elems[pc.i:]}}
+                var f, st, e = globMatch(ctx, pat, x.string(ctx))
+                if checkpoints {
+                    if e != nil {
+                        erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
+                    }
+                    if f && pat == "**.c" && (len(st) != 1 || st[0] == "") {
+                        erro(ctx, "%v %v → %v %v", us(x), us(t), f, st).debug(8)
+                    }
+                }
+                if f { pc.i = pc.p.len() ; return c, true }
+                if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", x, us(t), f, st, c).debug(10) }
+            }
+        } else if ps != nil {
+            if ps.i+1 == len(ps.p) {
+                var f, st, e = globMatch(ctx, pat, ps.p[ps.i])
+                if checkpoints {
+                    if e != nil {
+                        erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
+                    }
+                }
+                if f { ps.i = len(ps.p) ; return c, true }
+                if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", k, us(t), f, st, c).debug(10) }
+            } else {
+                var f, st, e = globMatch(ctx, pat, joinPath(ps.p[ps.i:]...))
+                if checkpoints {
+                    if e != nil {
+                        erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
+                    }
+                }
+                if f { ps.i = len(ps.p) ; return c, true }
+                if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", k, us(t), f, st, c).debug(10) }
+            }
+        } else if s, y := k.(string); y {
+            var f, st, e = globMatch(ctx, pat, s)
+            if checkpoints {
+                if e != nil {
+                    erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
+                }
+                if f && pat == "*.c" && (len(st) != 1 || st[0] == "") {
+                    erro(ctx, "%v %v → %v %v", s, us(t), f, st).debug(8)
                 }
             }
-        }
-    }
-    return num > 0
-}
-
-// NOTE: filecache.comp is the same as barecomp.hit
-func (cache *filecache) comp(ctx Context, a []string, bits int) (res *filecache) {
-    var (
-        chars = (bits&(cacheGlob|cacheRegex)) != 0
-        N = len(a)-1
-    )
-
-    for j, k := range a {
-        var chars = chars && j == N
-        if c := cache.charstr(k, bits, chars); c != nil {
-            if cache = c; j == N { res = c }
-        } else if (bits&cacheStore) != 0 {
-            errostack(ctx, 3, "%08b: nil: %v[%d]: %s", bits, a, j, k).debug(64)
-            break
-        } else if j == 0 && k == "" {
-            continue // FIXES: .configure, /foo
-        } else if !chars && j == N {
-            if c = cache.charstr(k, bits, true); c != nil && (bits&cacheStore != 0 || c.maps != nil) { res = c }
-        } else { break }
-    }
-    return
-}
-
-func (cache *filecache) match(ctx Context, val interface{}) (res *filecachePat) {
-    for _, m := range cache.pats { for _, p := range m {
-        if len(p.maps) == 0 { continue }
-
-        a, b, c := p.value.match(ctx, val)
-
-        if false && !a { if k, v := p.key, p.value.v; k.string(ctx) == "**.c" { if x, y, z := k.match(ctx, val); x {
-            noted(ctx, "%v{%v} %v → %v %v ; %v %v %v", typeof(v), v, val, b, c, x, y, z).debug(1)
-
-            if false { if t, y := k.(*globpat); y && len(t.elems) > 1 {
-                t1, t2 := t.elems[0], t.elems[1]
-                noted(ctx, "%v{%v} %v{%v}", typeof(t1), t1, typeof(t2), t2)
-            }}
-
-            if false {
-                var a, b, c = k.match(ctx, val)
-                noted(ctx, "%v{%v} %v → %v %v %v", typeof(k), k, val, a, b, c).debug(1)
-            }
-        }}}
-
-        if a { return p } else if !checkpoints { continue }
-
-        if t, prefix, suffix := multia(ctx, p.key); t {
-            if x, y, z := p.key.match(ctx, val); x {
-                var  _c = of(ctx,p.key)
-                erro(_c, "FIXME: %v %v → res=%v, stems=%v", val, p.value, b, c)
-                erro(_c, "(prefix=%v, suffix=%v) %v → %v %v", prefix, suffix, p.key, y, z).debug(16)
-            }
-        }
-    }}
-
-    if cache.chars != nil { // for all patterns without prefixs, e.g.: *bar
-        if c, _ := cache.chars[char(0)]; c != nil { res = c.match(ctx, val) }
-    }
-    return
-}
-
-func (cache *filecache) charstr(s string, bits int, chars bool) (res *filecache) {
-    if chars {
-        if s == "" {
-            res = cache.char0(bits)
+            if f { return c, true }
+            if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", k, us(t), f, st, c).debug(10) }
         } else {
-            var n int
-            for _, r := range s {
-                if t := cache.char(char(r), bits); t != nil {
-                    cache, n = t, n+1
-                }
-            }
-            if n > 0 { res = cache }
+            erro(ctx, "TODO: %v %v ; %v", us(k), us(t), c).debug(3)
         }
-    } else if (bits&cacheStore) != 0 {
-        if cache.strs == nil {
-            cache.strs = make(map[string]*filecache)
-        } else {
-            res, _ = cache.strs[s]
-        }
-
-        if res == nil {
-            res = &filecache{}
-            cache.strs[s] = res
-        }
-    } else if cache.strs != nil {
-        res, _ = cache.strs[s]
     }
     return
 }
 
-func (cache *filecache) char0(bits int) (res *filecache) { return cache.char(char(0), bits) }
-func (cache *filecache) char(c char, bits int) (res *filecache) {
-    if (bits&cacheStore) != 0 {
-        if cache.chars == nil { cache.chars = make(map[char]*filecache) }
-        if res, _ = cache.chars[c]; res == nil {
-            res = &filecache{}
-            cache.chars[c] = res
-        }
-    } else if cache.chars != nil {
-        res, _ = cache.chars[c]
-    }
-    return
-}
-
-func (cache *filecache) val(ctx Context, key Value, bits int) (res *filecache) {
-    if isFinalValue(ctx, key) {
-        erro(ctx, "%v is a final-value", us(key)).debug(10)
-    }
-
-    if (bits&cacheStore) != 0 {
-        if cache.vals == nil { cache.vals = make(map[Value]*filecache) }
-        if res, _ = cache.vals[key]; res == nil {
-            res = &filecache{}
-            cache.vals[key] = res
-        }
-    } else if cache.vals != nil {
-        res, _ = cache.vals[key]
-    }
-
-    if res == nil && _universe(ctx).errorUncache {
-        errostack(ctx, 10, "%08b: %s(%v) → %s", bits, typeof(key), key, key.string(ctx)).debug(32)
-    }
-    return
-}
-
-func (cache hitch) pat(ctx Context, key Value, bits int) (res *filecache) {
-    var a []*filecachePat
-    if s := key.string(ctx); (bits&cacheStore) != 0 {
-        if cache.pats != nil { a, _ = cache.pats[s] } else {
-            cache.pats = make(map[string][]*filecachePat)
-        }
-
-        t := &filecachePat{filecache{}, key, cache.value}
-        a = append(a, t)
-        cache.pats[s] = a
-        return &t.filecache
-    } else if cache.pats != nil {
-        a, _ = cache.pats[s]
-
-        var p = ctx.project()
-        for i, t := range a {
-            for j, m := range t.maps {
-                if m.project == p || p.hasBase(m.project) {
-                    return &t.filecache
-                } else if false {
-                    warn(of(ctx, t.key), "duplications[%d]: %v (%v, %v, %d)", i, t.value, t.key, m.project, j)
-                }
+func (p *filecache) glob_dast(ctx Context, pa *path, _i int) (res *filecache) {
+    for k, c := range p.m {
+        for i := _i; i < pa.len(); i += 1 {
+            switch t := pa.elems[i].(type) {
+            case interface{ glob_dast(Context, interface{}, *filecache) *filecache }:
+                if c := t.glob_dast(ctx, k, c) ; c != nil { return c }
+            default:
+                noted(ctx, "TODO: %v : %d. %v : %v %v", pa, i, tv(t), us(k), c).debug(1)
             }
         }
     }
+    return
+}
+
+func (p *filecache) regex(ctx Context, k interface{}) (res *filecache, done bool) {
+    noted(ctx, "TODO: %v %v", us(k), p).debug(3)
     return
 }
 
@@ -551,9 +351,9 @@ func new_universe(ii ...interface{}) (ctx *universe) {
 
     var bin  = ease(ctx, os.Args[0])
     var args = ease(ctx, os.Args[1:])
-    _, _ = ctx.scope.define(ctx, DefVoid, "SMART.ARGS", args)
-    _, _ = ctx.scope.define(ctx, DefVoid, "SMART.BIN", bin)
-    _, _ = ctx.scope.define(ctx, DefVoid, "SMART", bin)
+    _, _ = ctx.scope.define(ctx, defVoid, "SMART.ARGS", args)
+    _, _ = ctx.scope.define(ctx, defVoid, "SMART.BIN", bin)
+    _, _ = ctx.scope.define(ctx, defVoid, "SMART", bin)
 
     for name, f := range builtins {
         if _, alt := ctx.scope.builtin(ctx, name, f); alt != nil {
@@ -579,9 +379,9 @@ func new_universe(ii ...interface{}) (ctx *universe) {
     }
 
     // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
-    ctx.globe.os,    _ = ctx.globe.define(ctx, DefVoid, ".os", os)
-    ctx.globe.goals, _ = ctx.globe.define(ctx, DefVoid, ".goals", makeNone(pos))
-    ctx.globe.mode,  _ = ctx.globe.define(ctx, DefVoid, ".mode",  makeNull(pos))
+    ctx.globe.os,    _ = ctx.globe.define(ctx, defVoid, ".os", os)
+    ctx.globe.goals, _ = ctx.globe.define(ctx, defVoid, ".goals", makeNone(pos))
+    ctx.globe.mode,  _ = ctx.globe.define(ctx, defVoid, ".mode",  makeNull(pos))
     return
 }
 
@@ -747,26 +547,48 @@ GotFile:
     return
 }
 
-func (u *universe) cache(ctx Context, p *project, patts, paths []Value) (res []FileMap) {
-    var base = &filemap{ p, patts, paths }
+func (u *universe) filemap(ctx Context, p *project, patts, paths []Value) (res []FileMap) {
+    var base = &_filemap{p, patts, paths}
     for _, patt := range patts {
         if patt == nil {
             errostack(ctx, 5, "nil pattern ; paths=%v", paths).debug(16)
-            continue
-        }
-        if c := patt.hit(of(ctx, patt), hitch{&u.filemaps, hitched{patt}}, cacheStore); c != nil {
-            var m = FileMap{ base, patt }
-            c.maps, res = append(c.maps, m), append(res, m)
-        } else if patt.expandable(final{ctx}) {
-            errostack(of(ctx, patt), 5, "uncached for %v : %v", patt, us(patt)).debug(8)
-        } else {
-            errostack(of(ctx, patt), 5, "uncached for %v : %v", patt, us(patt)).debug(16)
+        } else if c, _ := u.filemaps.hit(ctx, patt); c != nil {
+            m := FileMap{base, patt}
+            c.a = append(c.a, m)
+            res = append(res, m)
         }
     }
     return
 }
 
-const uncachedGetError = false
+func (u *universe) unmap(ctx Context, key interface{}) (res []matchedFileMap) {
+    var c = &u.filemaps
+    if s, y := key.(string); y && strings.ContainsAny(s, pathSep) {
+        var ss = strings.Split(s, pathSep)
+        for x := (pstrcache{unmapping{ctx}, ss, 0}); x.i < len(ss); x.i += 1 {
+            for j, t := range strings.Split(ss[x.i], DOT.String()) {
+                if c != nil &&  0 < j  { c, y = c.hit(&x, DOT) }
+                if c != nil && t != "" { c, y = c.hit(&x, t) }
+                // noted(ctx, "TODO: %v → %-4s → %v", s, t, c)
+            }
+        }
+        if false { noted(ctx, "TODO: %v → %v", s, c).debug(3) }
+    } else {
+        c, y = c.hit(unmapping{ctx}, key)
+    }
+
+    if c == nil { return }
+
+    for _, m := range c.a {
+        var matched, pattern, s = m.Match(ctx, key)
+        if  matched  {
+            res = append(res, matchedFileMap{m, pattern, s})
+        } else {
+            erro(ctx, "%v %v ; %v", tv(key), m, c).debug(5)
+        }
+    }
+    return
+}
 
 type matchedFileMap struct {
     FileMap
@@ -778,55 +600,8 @@ func (m matchedFileMap) string() string {
     return fmt.Sprintf("{%v, %v, %v}", m.name, m.pattern, m.project)
 }
 
-func unmap(ctx Context, name interface{}) (maps []matchedFileMap) {
-    var db bool
-    var cache *filecache
-    var t1 time.Time
-    defer func (t0 time.Time) {
-        var ( t2 = time.Now() ; d = t2.Sub(t0) )
-        if db {
-            prompt(ctx, "%v: %T %v %p ; %v\n", ctx.Position(), name, name, cache, d).debug(16)
-        } else if d > 1*time.Second {
-            var ( pos = ctx.Position() ; d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) )
-            prompt(ctx, "%v: slow: %T %v\n", pos, name, name)
-            prompt(ctx, "%v: slow:→%v\n", pos, maps)
-            prompt(ctx, "%v: slow: %v⇒%v\n", pos, d, d1, d2).debug(6)
-        }
-    } (time.Now())
-
-    const S = ""
-
-    var u = _universe(ctx)
-    var h = hitch{&u.filemaps, hitched{name}}
-    if v, y := name.(Value); y {
-        if cache = v.hit(ctx, h, cacheZero); cache == nil {
-            var s = v.string(ctx) ; if S != "" { db = S == s }
-            if c := h.char0(cacheZero); c != nil { // FIXES: *.o <-> sub/foo.o
-                h.filecache = c
-                cache = h.strx(ctx, s, cacheZero)
-            }
-        } else if S != "" { db = S == v.string(ctx) }
-    } else if s, y := name.(string); y {
-        if cache = h.strx(ctx, s, cacheZero); S != "" { db = S == s }
-    } else if a, y := name.([]string); y {
-        if cache = h.strs(ctx, a, cacheZero); S != "" { db = S == filepath.Join(a...) }
-    } else {
-        if uncachedGetError { errostack(ctx, 3, "uncached: %T %v", name, name).debug(16) }
-        return
-    }
-
-    if t1 = time.Now(); cache == nil { return }
-
-    for _, m := range cache.maps {
-        var matched, pattern, s = m.Match(ctx, name)
-        if matched { maps = append(maps, matchedFileMap{m, pattern, s}) }
-    }
-
-    if len(maps) == 0 && len(cache.maps) > 0 {
-        for i, m := range cache.maps { warn(ctx, "%v: %d. %v %v", name, i, m.pattern, m.locs) }
-        warn(ctx, "%v (%T)", name, name).debug(1)
-    }
-    return
+func unmapfiles(ctx Context, key interface{}) (maps []matchedFileMap) {
+    return _universe(ctx).unmap(ctx, key)
 }
 
 func (dc *universe) AddSearchPaths(paths... string) (err error) {
@@ -959,7 +734,7 @@ func (dc *universe) run() (result []Value, travestates []*travestate) {
 
     var done bool
     for _, flag := range dc.globe.flags {
-        if dc.verboseExecFlags { info(of(ctx, flag), "%v", flag) }
+        if dc.verboseExecFlags { info(at(ctx, flag), "%v", flag) }
 
         var s = flag.Value.string(ctx)
         var args, _ = dc.globe.args[flag]

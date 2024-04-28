@@ -214,7 +214,7 @@ func (m *modifier) string(ctx Context) string { return m.expand(final{ctx}).stri
 func (m *modifier) traverse(ctx Context) { ctx = at(ctx, m.position)
     var name = m.elems[0].string(ctx)
     if name == "" {
-        erro(of(ctx,m.elems[0]), "empty name: %v", m.elems[0]).debug(1)
+        erro(at(ctx,m.elems[0]), "empty name: %v", m.elems[0]).debug(1)
         return
     }
 
@@ -234,10 +234,6 @@ func (m *modifier) traverse(ctx Context) { ctx = at(ctx, m.position)
     if v := modify(ctx, &m.group, true); v != nil {
         // TODO: deal with modify result `v`
     }
-}
-func (_ *modifier) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
 }
 func (_ *modifier) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
@@ -321,10 +317,6 @@ func (g *modification) string(ctx Context) (s string) {
     }
     return
 }
-func (_ *modification) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
 func (_ *modification) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -374,9 +366,9 @@ func (ctx *modifier_debug) x(args ...Value) (result interface{}) {
     if ctx.cond != nil && !ctx.cond.true(ctx) { return }
     if ctx.s == 0 && ctx.stack > 0 { ctx.s = ctx.stack }
     if ctx.n == 0 && ctx.debug > 0 { ctx.n = ctx.debug }
-    for _, v := range ctx.info { info(of(ctx,v), "%s", v.string(ctx)).debug(1) }
-    for _, v := range ctx.warn { warn(of(ctx,v), "%s", v.string(ctx)).debug(1) }
-    for _, v := range ctx.erro { erro(of(ctx,v), "%s", v.string(ctx)).debug(1) }
+    for _, v := range ctx.info { info(at(ctx,v), "%s", v.string(ctx)).debug(1) }
+    for _, v := range ctx.warn { warn(at(ctx,v), "%s", v.string(ctx)).debug(1) }
+    for _, v := range ctx.erro { erro(at(ctx,v), "%s", v.string(ctx)).debug(1) }
 
     var (
         target  = autoVal(ctx, "@")
@@ -733,10 +725,10 @@ func (ctx *modifier_mkdir) x(args ...Value) (result interface{}) {
             s = a.string(ctx)
         }
         if strings.Contains(s, " /") || strings.Contains(s, " ./") || strings.Contains(s, " ../") {
-            erro(of(ctx, a), "multiple paths (%v): '%v'", typeof(a), s).debug(1)
+            erro(at(ctx, a), "multiple paths (%v): '%v'", typeof(a), s).debug(1)
             break
         } else if strings.Contains(s, " ") {
-            warn(of(ctx, a), "path containing spaces (%v): '%v'", typeof(a), s).debug(1)
+            warn(at(ctx, a), "path containing spaces (%v): '%v'", typeof(a), s).debug(1)
         }
         if err := os.MkdirAll(s, ctx.mode); err != nil {
             erro(ctx, "path: %v(%v) ⇒ %s: %v", typeof(a), a, s, err).debug(1)
@@ -958,9 +950,9 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
 
     // System files are not treated as missing nor collected
     // for further updating, just discard them immediately.
-    if !sys && res != nil && res.filemap != nil && len(res.filemap.locs) == 1 {
+    if !sys && res != nil && res.filemap != nil && len(res.filemap.paths) == 1 {
         // system files defined by `files ((foo.xxx) ⇒ -)`
-        if f, ok := res.filemap.locs[0].(flag); ok {
+        if f, ok := res.filemap.paths[0].(flag); ok {
             sys = isNone(f.Value) || isNull(f.Value)
         }
     }
@@ -1251,7 +1243,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
             gc.targetFullName = filepath.Join(gc.targetDir, targetName)
         }
         if file := stat(ctx, gc.targetFullName); file == nil {
-            erro(of(ctx,gc.target), "grep: '%s' not found (%v)", gc.targetFullName, gc.target).debug(16)
+            erro(at(ctx,gc.target), "grep: '%s' not found (%v)", gc.targetFullName, gc.target).debug(16)
             return
         } else {
             gc.targetInfo = file.info
@@ -1993,16 +1985,16 @@ func (ctx *modifier_check) x(args ...Value) (result interface{}) {
 
         if f != nil {
             if !dir || ctx.regular { res = f.exists()
-                if ctx.verbose { warnstack(of(ctx,val), 3, "check regular file '%v': %v", val, res).debug(1) }
+                if ctx.verbose { warnstack(at(ctx,val), 3, "check regular file '%v': %v", val, res).debug(1) }
             } else if dir || ctx.isdir { res = f.info != nil && f.info.Mode().IsDir()
-                if ctx.verbose { warnstack(of(ctx,val), 3, "check dir '%v': %v", val, res).debug(1) }
+                if ctx.verbose { warnstack(at(ctx,val), 3, "check dir '%v': %v", val, res).debug(1) }
             } else if ctx.exists { res = f.exists()
-                if ctx.verbose { warnstack(of(ctx,val), 3, "check file exists '%v': %v", val, res).debug(1) }
+                if ctx.verbose { warnstack(at(ctx,val), 3, "check file exists '%v': %v", val, res).debug(1) }
             } else if ctx.verbose {
-                warnstack(of(ctx,val), 3, "check file '%v': %v", val, res).debug(1)
+                warnstack(at(ctx,val), 3, "check file '%v': %v", val, res).debug(1)
             }
         } else if ctx.verbose {
-            warnstack(of(ctx,val), 3, "check file '%v': %v", val, res).debug(1)
+            warnstack(at(ctx,val), 3, "check file '%v': %v", val, res).debug(1)
         }
 
         if makeResult != nil {
@@ -2037,7 +2029,7 @@ ForPairs:
             var exeres, _ = value.(*execResult)
             if exeres == nil {
                 pc.traves.addf(ctx, optBreak, "value '%v' is not exec result", value)
-                erro(of(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
+                erro(at(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
                 return
             } else { /*exeres.wg.Wait()*/ }
 
@@ -2077,7 +2069,7 @@ ForPairs:
             var exeres, _ = value.(*execResult)
             if exeres == nil {
                 pc.traves.addf(ctx, optBreak, "not an exec result (%T)", value)
-                erro(of(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
+                erro(at(ctx,value), "value '%v' (%T) is not exec result", value, value).debug(6)
                 return
             } else { /*exeres.wg.Wait()*/ }
 
@@ -2493,7 +2485,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result interface{}) {
         }
         return
     } else if filename == "" {
-        errostack(of(ctx,target), 3, "%v: empty fullname", target).debug(32)
+        errostack(at(ctx,target), 3, "%v: empty fullname", target).debug(32)
         return
     }
 
@@ -2603,7 +2595,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
             }
             if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
                 if proj := ctx.project(); proj != nil {
-                    info(ctx, "%v: %v %v", filename, proj, unmap(ctx, filename))
+                    info(ctx, "%v: %v %v", filename, proj, unmapfiles(ctx, filename))
                     info(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
                     erro(ctx, "%v: %v (%T %v)", filename, e, target, target).debug(1)
                 }
@@ -2913,9 +2905,9 @@ func (ctx *modifier_assert) z(args ...Value) (_ interface{}) {
         if (uni.hooks.assert != nil && uni.hooks.assert(ctx, v, b)) || b {
             continue
         } else if s := ctx.msg; s == "" {
-            erro(of(ctx,a), "assert: %v → %v → '%s'", us(a), us(v), v.string(ctx)).debug(1)
+            erro(at(ctx,a), "assert: %v → %v → '%s'", us(a), us(v), v.string(ctx)).debug(1)
         } else {
-            erro(of(ctx,a), "assert: %v → %v: %s", us(a), us(v), s).debug(1)
+            erro(at(ctx,a), "assert: %v → %v: %s", us(a), us(v), s).debug(1)
         }
 
         pc.traves.add(ctx, traveFail, target).error = fmt.Errorf("assert(%v)", a)

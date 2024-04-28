@@ -268,7 +268,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		name != "foobar/config/a.def.in" &&
 		name != "foobar/config/b.def.in" ;}
 	{
-		var c = original{of(ctx, pat3), DefExpand1}
+		var c = original{at(ctx, pat3), defExpand1}
 		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
 			b := builtin_wildcard{}
 			b.evocation = &evocation{c, nil, nil}
@@ -280,7 +280,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		} (i) }
 	}
 	{
-		var c = original{of(ctx, pat4), DefExpand1}
+		var c = original{at(ctx, pat4), defExpand1}
 		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
 			b := builtin_wildcard{}
 			b.evocation = &evocation{c, nil, nil}
@@ -294,7 +294,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		} (i) }
 	}
 	{
-		var c = original{of(ctx, pat3), DefExpand1}
+		var c = original{at(ctx, pat3), defExpand1}
 		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
 			b := builtin_wildcard{dir:workdirInc}
 			b.evocation = &evocation{c, nil, nil}
@@ -306,7 +306,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		} (i) }
 	}
 	{
-		var c = original{of(ctx, pat4), DefExpand1}
+		var c = original{at(ctx, pat4), defExpand1}
 		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
 			b := builtin_wildcard{dir:workdirInc}
 			b.evocation = &evocation{c, nil, nil}
@@ -320,7 +320,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		} (i) }
 	}
 	{
-		var c = original{of(ctx, pat3), DefExpand1}
+		var c = original{at(ctx, pat3), defExpand1}
 		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
 			b := builtin_wildcard{}
 			b.evocation = &evocation{c, nil, nil}
@@ -332,7 +332,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		} (i) }
 	}
 	{
-		var c = original{of(ctx, pat4), DefExpand1}
+		var c = original{at(ctx, pat4), defExpand1}
 		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
 			b := builtin_wildcard{}
 			b.evocation = &evocation{c, nil, nil}
@@ -470,7 +470,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 }
 
 func testBuiltin_file0(ctx *testcase) {
-	if t := unmap(ctx, ".test/a/b/c/foo.c"); t == nil {
+	if t := unmapfiles(ctx, ".test/a/b/c/foo.c"); t == nil {
 		ctx.err(".test/a/b/c/foo.c")
 	} else if len(t) != 1 {
 		ctx.err(".test/a/b/c/foo.c: %v", t)
@@ -582,17 +582,23 @@ func testBuiltin_file0(ctx *testcase) {
 
 	if v := ctx.val("pat1"); v == nil {
 		ctx.err("pat1: %v", ctx.project())
-	} else if t := unmap(ctx, v); t == nil {
-		ctx.err("%v", v)
+	} else if _, y := v.(*path); !y {
+		ctx.err("%v", ust{v})
+	} else if t := unmapfiles(ctx, v); t == nil {
+		ctx.err("%v", ust{v})
 	} else if len(t) != 1 {
-		ctx.err("%v %v", v, t)
+		ctx.err("%v %v", ust{v}, t)
 	} else if m := t[0]; m.name != ".test/a/b/c.auto" {
-		ctx.err("%v: %v", v, m.name)
+		ctx.err("%v: %v", ust{v}, m.name)
 	} else if m.pattern.string(ctx) != "**.auto" {
-		ctx.err("%v: %v", v, m.pattern)
-	} else if v := ctx.val("pat2"); v == nil {
+		ctx.err("%v: %v", ust{v}, m.pattern)
+	}
+
+	if v := ctx.val("pat2"); v == nil {
 		ctx.err("pat2: %v", ctx.project())
-	} else if t := unmap(ctx, v); t != nil {
+	} else if _, y := v.(*path); !y {
+		ctx.err("%v", ust{v})
+	} else if t := unmapfiles(ctx, v); t != nil {
 		ctx.err("%v", v)
 	}
 }
@@ -1070,13 +1076,13 @@ func testBuiltin_foreach2(ctx *testcase) {
 	} else if l1.len() != 3 {
 		ctx.err("%v ; %d", ust{l.elems[1]}, l1.len())
 	} else if s, t := "bx$1? by$1? bz$1? baxx4 bayy4", l0.String(); s != t {
-		for i, v := range l0.elems { noted(of(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range l0.elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{l0}, t, s)
 	} else if s, t := "-xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?", l1.String(); s != t {
-		for i, v := range l1.elems { noted(of(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range l1.elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{l1}, t, s)
 	} else if s, t := "bx$1? by$1? bz$1? baxx4 bayy4 -xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?", x.String(); s != t {
-		for i, v := range l.elems { noted(of(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range l.elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{x}, t, s)
 	} else if v := ctx.val(d.name, "3"); v == nil {
 		ctx.err("%v", ust{d})
@@ -1864,15 +1870,15 @@ func testBuiltin_foreach5(ctx *testcase) {
 	} else if l, y := x.(*list); !y {
 		ctx.err("%v", ust{x})
 	} else if elems := merge(l.elems...); l.len() != 4 || len(elems) != 7 {
-		for i, v := range elems { noted(of(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v ; %d, %d", ust{x}, l.len(), len(elems))
 	} else if _, y := elems[2].(condval); !y {
 		ctx.err("%v", ust{elems[2]})
 	} else if s, t := "a~ -aox.o.a -ao{$(.test.x.o.{$2})}? ~a x.o.a &(.test.x.{$2} a,$2)? &(.test.x.o.{$2})?", x.String(); s != t {
-		for i, v := range elems { noted(of(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{x}, t, s)
 	} else if s, t := "a~ -aox.o.a ~a x.o.a", x.string(ctx); s != t {
-		for i, v := range elems { noted(of(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{x}, t, s)
 	} else if s, t := "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?", v.String(); s != t {
 		ctx.err("%v → %s != %s", ust{v}, t, s)

@@ -427,10 +427,6 @@ func (p *execResult) cmp(ctx Context, v Value) (res cmpres) {
   }
   return
 }
-func (_ *execResult) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
 func (_ *execResult) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -1086,7 +1082,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   if exe.path { var s string
     if s = filepath.Dir(exe.targetName); s != "" && s != "." && s != "/" {
       if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-        erro(of(ctx,exe.target), "make path '%s' for target failed: %v", s, err).debug(1)
+        erro(at(ctx,exe.target), "make path '%s' for target failed: %v", s, err).debug(1)
         return
       }
     }
@@ -1121,8 +1117,8 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
         x := recipe.string(ctx)
         // builtin_foreach_d = false
 
-        noted(of(ctx, recipe), "%v: %v", typeof(recipe), recipe)
-        noted(of(ctx, recipe), "%v: %v", typeof(recipe), x).debug(1)
+        noted(at(ctx, recipe), "%v: %v", typeof(recipe), recipe)
+        noted(at(ctx, recipe), "%v: %v", typeof(recipe), x).debug(1)
       }}
 
       // Escape '$$' sequences.
@@ -1153,11 +1149,11 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
       if val := exe.forRecipe.expand(final{ac}); false && val != nil {
         for i := 0; indeterminate(ac, val); i += 1 {
           if i < max_evoke { val = val.expand(final{ac}) } else {
-            erro(of(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1)
+            erro(at(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1)
             break
           }
         }
-        if false { noted(of(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1) }
+        if false { noted(at(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1) }
       }
     }
 

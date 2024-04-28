@@ -210,7 +210,7 @@ func configure(ctx Context, ii ...interface{}) {
             var e = p.configure.defaultEntry
             var _, a = e.execute(ctx)
             for _, b := range a { if b.what == traveFail {
-                erro(of(ctx, e), "execute failed: %v: %v", e, b).debug(1)
+                erro(at(ctx, e), "execute failed: %v: %v", e, b).debug(1)
             }}
         }
     })
@@ -391,7 +391,7 @@ ForInParams:
     for _, a := range paramsOrig {
         var p, y = a.(*pair)
         if !y {
-            erro(of(ctx,a), "unsupported parameter %v (%T)", a, a).debug(1)
+            erro(at(ctx,a), "unsupported parameter %v (%T)", a, a).debug(1)
             return
         }
 
@@ -484,7 +484,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
         case *pair:
             params = append(params, t)
         default:
-            erro(of(ctx,arg), " unsupported parameter: %v{%v}, %v{%v}", typeof(t), t, typeof(arg), arg).debug(1)
+            erro(at(ctx,arg), " unsupported parameter: %v{%v}, %v{%v}", typeof(t), t, typeof(arg), arg).debug(1)
             return
         }}
     }
@@ -586,7 +586,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
     var d *def
     if d = program.scope.FindDef(name); d == nil {
         var alt Object
-        d, alt = project.scope.define(ctx, DefConfig, name, nil)
+        d, alt = project.scope.define(ctx, defConfig, name, nil)
         if d == nil && alt != nil { d, _ = alt.(*def) }
     }
     if d == nil {
@@ -618,10 +618,10 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
             value = makeStrlit(ctx.Position(), s)
         }
 
-        d.set(ctx, DefConfig, value)
+        d.set(ctx, defConfig, value)
         return
     } else {
-        d.set(ctx, DefConfig, nil)
+        d.set(ctx, defConfig, nil)
     }
 
     var configured bool
@@ -637,17 +637,17 @@ ForConfig:
         case flag: name = arg.Value
         case *argumented:
             if _, y := arg.Value.(flag); !y {
-                erro(of(ctx,a), " `%v` is unsupported value (%T)", arg.Value, arg.Value).debug(1)
+                erro(at(ctx,a), " `%v` is unsupported value (%T)", arg.Value, arg.Value).debug(1)
                 return
             }
             name, para = arg.Value, arg.args
         default:
-            erro(of(ctx,a), " `%v` is unsupported (%T)", a, a).debug(1)
+            erro(at(ctx,a), " `%v` is unsupported (%T)", a, a).debug(1)
             return
         }
 
         if name == nil {
-            erro(of(ctx,a), " unknown configure `%v` (%T)", a, a).debug(1)
+            erro(at(ctx,a), " unknown configure `%v` (%T)", a, a).debug(1)
             return
         }
 
@@ -669,7 +669,7 @@ ForConfig:
         } else if ctx.accumulate {
             d.append(ctx, value)
         } else {
-            d.set(ctx, DefConfig, value)
+            d.set(ctx, defConfig, value)
         }
 
         if d == nil { ce.done[d] = struct{}{} }

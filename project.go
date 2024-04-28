@@ -20,18 +20,18 @@ const configuration_sm = "configuration.sm"
 const pathSepByte = filepath.Separator
 const pathSep = string(pathSepByte)
 
-type filemap struct {
+type _filemap struct {
   project *project
   patts []Value
-  locs []Value
+  paths []Value
 }
 
 type FileMap struct {
-  *filemap
+  *_filemap
   pattern Value
 }
 
-func (p *filemap) String() (s string) {
+func (p *_filemap) String() (s string) {
   if n := len(p.patts); n == 1 {
     s = p.patts[0].String()
   } else if n > 1 {
@@ -42,7 +42,7 @@ func (p *filemap) String() (s string) {
 
 func (p FileMap) String() (s string) {
   if p.pattern == nil {
-    s = p.filemap.String()
+    s = p._filemap.String()
   } else {
     s = p.pattern.String()
   }
@@ -57,11 +57,11 @@ func (p *FileMap) primePatterns(ctx Context) (pats []Value) {
     if pattern.expandable(ctx) {//, expandDef2
       // FIXME+TODO: this could be time consuming to expand clousre in the filemap
       /*if pats, err = xmerge(ctx, plain, pattern); err != nil {
-        erro(of(ctx,pattern), "merge pattern '%v' failed: %v", pattern, err)
+        erro(at(ctx,pattern), "merge pattern '%v' failed: %v", pattern, err)
       } else*/ if pats = expand(ctx, pattern); !expandable(ctx, pats...) {
         if pats != nil { pats = xmerge(ctx, pats...) }
       } else {
-        errostack(of(ctx,pattern), 3, "unexpanded file pattern: %v", pats).debug(15)
+        errostack(at(ctx,pattern), 3, "unexpanded file pattern: %v", pats).debug(15)
       }
     } else {
       pats = append(pats, pattern)
@@ -93,7 +93,7 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
     //         (foo.c) => $(srcdir)/sub/dir
     //         (sub/dir/foo.c) => $(srcdir)
     //     )
-    for _, p := range filemap.locs { // FIXME: performance, operate on p.(*path) instead
+    for _, p := range filemap.paths { // FIXME: performance, operate on p.(*path) instead
       if _, ok := p.(*path); !ok { continue } // NOTE: only work with paths to improve performance
       var ps = p.string(ctx)
       for i := strings.LastIndex(ps, pathSep); -1 <= i; {
@@ -134,7 +134,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
     return
   }
 
-  if len(p.locs) == 0 {
+  if len(p.paths) == 0 {
     for _, pat := range p.patts {
       if f, y := pat.(*File); y && f.ident(ctx) == name { return f }
     }
@@ -151,7 +151,7 @@ func (p *FileMap) stat(ctx Context, name string) (file *File) {
   }
 
   var pos = patts[0].Position()
-  for _, path := range p.locs {
+  for _, path := range p.paths {
     if isNull(path) {
       erro(at(ctx,pos), "nil path: name=%s",  name)
       erro(at(ctx,pos), "nil path: %v", p).debug(32)
@@ -350,10 +350,6 @@ func (p *project) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *project) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
 func (_ *project) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -407,7 +403,7 @@ func file(ctx Context, s string, projects ...*project) (res *File) {
 
 func files(ctx Context, iname interface{}, projects ...*project) (maps []matchedFileMap) {
   var a, b, c, d []matchedFileMap // four sections
-  var ms = unmap(ctx, iname)
+  var ms = unmapfiles(ctx, iname)
 
   if len(projects) == 0 {
     projects = append(projects, ctx.project())
@@ -451,7 +447,7 @@ func (p *project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
     }
 
     if false { if strings.HasPrefix(m.name, ".configure/") && strings.HasSuffix(m.name, ".log") {
-      noted(ctx, "%v: %v %v → %v %v\n", p, m.FileMap, m.name, f, files).debug(16)
+      noted(ctx, "%v: %v %v → %v %v\n", p, m._filemap, m.name, f, files).debug(16)
     }}
   }
   return
@@ -465,7 +461,7 @@ func (p *project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
 }
 
 func (p *project) file(ctx Context, iname interface{}) (file *File) {
-  return p.selectFile(ctx, unmap(ctx, iname))
+  return p.selectFile(ctx, unmapfiles(ctx, iname))
 }
 
 func (p *project) tempFile(ctx Context, name string) (file *File) {
@@ -506,8 +502,8 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   }
 
   var bits = cacheStore // cacheMatchPatts
-  for mi, m := range _universe(ctx).cache(ctx, p, patts, paths) {
-    var ctx = of(ctx, m.pattern)
+  for mi, m := range _universe(ctx).filemap(ctx, p, patts, paths) {
+    var ctx = at(ctx, m.pattern)
     for i, pat := range xmerge(ctx, m.pattern) {
       if pat.expandable(ctx) {
         p.filemapx = append(p.filemapx, &valcache_kv{ pat, m })
@@ -515,31 +511,31 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
         c._val = m
       } else if c != nil && c._val != nil {
         if t, y := c._val.(FileMap); y {
-          if t.filemap == m.filemap && eq(ctx, t.pattern, pat) {
+          if t._filemap == m._filemap && eq(ctx, t.pattern, pat) {
             if opts.silent {/* silent, simply ignore duplications */} else
             if foundDup := -1; /* (opts.debug>0 || opts.verbose) && */true {
               for i, t := range patts {
                 if eq(ctx, pat, t) {
                   if foundDup < 0 && i > 0 && i-foundDup>1 { info(ctx, "pats[%d...] ...", i) }
-                  info(of(ctx, t), "patts[%d]: %T %v, %v", i, t, t, paths)
+                  info(at(ctx, t), "patts[%d]: %T %v, %v", i, t, t, paths)
                   foundDup = i
                 }
                 if 0 <= foundDup && i-foundDup == 3 {
                   info(ctx, "patts[%d...%d] ... (%v %v)", i, len(patts), pat, t)
                 }
               }
-              d := warn(of(ctx,t.pattern), "%d. duplication: %v (%T, in %d patts)", mi, c._key, t.pattern, len(patts))
-              if true { warnstack(of(ctx,t.pattern), 3).debug(10) } else { d.debug(1) }
+              d := warn(at(ctx,t.pattern), "%d. duplication: %v (%T, in %d patts)", mi, c._key, t.pattern, len(patts))
+              if true { warnstack(at(ctx,t.pattern), 3).debug(10) } else { d.debug(1) }
             }
 
             continue // duplications are okay to go
           }
 
-          erro(of(ctx,t.pattern), "valcache conflict: %v: t=%v %p=%v", t.project, t, t.filemap, t.filemap)
+          erro(at(ctx,t.pattern), "valcache conflict: %v: t=%v %p=%v", t.project, t, t._filemap, t._filemap)
         } else {
           erro(ctx, "valcache conflict: %T %v", c._val, c._val)
         }
-        erro(of(ctx,pat), "valcache conflict: %v: m=%v %p=%v", m.project, m, m.filemap, m.filemap)
+        erro(at(ctx,pat), "valcache conflict: %v: m=%v %p=%v", m.project, m, m._filemap, m._filemap)
         errostack(ctx, 3, "valcache duplicated in %d patts", len(patts)).debug(1)
       } else {
         erro(ctx, "valcache slot: %v: %d: %T %v", m.pattern, i, pat, pat).debug(1)
@@ -768,7 +764,7 @@ func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
 func (p *project) entry(ctx Context, special specialRule, options []Value, target Value, prog *program) (entry entry, err error) {
   var name string
   if name = target.string(ctx); name == "" {
-    erro(of(ctx, target), "empty target name: %v", target).debug(1)
+    erro(at(ctx, target), "empty target name: %v", target).debug(1)
     return
   }
 

@@ -204,7 +204,7 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
 
     var o = user.resolve(ctx, "use.*")
     if o != nil { if d, y := o.(*def); y && d != nil { for _, spec := range merge(d.value) {
-        var ( val = spec ; name string ; op usevar ; ctx = of(ctx, spec) )
+        var ( val = spec ; name string ; op usevar ; ctx = at(ctx, spec) )
         if a, y := spec.(*argumented); y { val = a.Value
             op.remainder = parseOpts(final{ctx}, &op, a.args...)
         }
@@ -212,7 +212,7 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
             if c != nil { t := c.resolve(ctx, "use.*")
                 noted(ctx, "%v", us(t))
             }
-            erro(of(ctx,val), "%v: empty use spec: '%v' (%T)", user, spec, spec).debug(1)
+            erro(at(ctx,val), "%v: empty use spec: '%v' (%T)", user, spec, spec).debug(1)
         } else {
             f(op, spec, val, name)
         }
@@ -234,7 +234,7 @@ func usevars(ctx Context, user, usee *project) {
 
         // 1. use.XXX += $(use.XXX)
         {
-            var d, a = user.scope.define(ctx, DefVoid, useDef.ident(ctx), nil)
+            var d, a = user.scope.define(ctx, defVoid, useDef.ident(ctx), nil)
             var isNewDef = d != nil && a == nil
             if d == nil && a != nil { d, _ = a.(*def) }
             if d == nil { return }
@@ -252,7 +252,7 @@ func usevars(ctx Context, user, usee *project) {
 
         // 2. XXX += $(use.XXX)
         {
-            var d, a = user.scope.define(ctx, DefVoid, name, nil)
+            var d, a = user.scope.define(ctx, defVoid, name, nil)
             var isNewDef = d != nil && a == nil
             if d == nil && a != nil { d, _ = a.(*def) }
             if d == nil { return }
@@ -535,7 +535,7 @@ func (l *loader) loadPlugin(ctx Context) (err error) {
 
     so := stat(ctx, /*l.proj.name*/"plugin", stat_dir{s}, stat_nonexist{true})
     if s = so.fullname(); s == "" {
-        erro(of(ctx,so), "file '%v' has empty fullname", so)
+        erro(at(ctx,so), "file '%v' has empty fullname", so)
         return
     } else if so.exists() && !u.buildPlugins {
         if so.info.ModTime().After(g.info.ModTime()) {
@@ -587,7 +587,7 @@ func (l *loader) use(ctx Context, usee *project, params []Value, opts useOpts) (
         usevars(ctx, l.proj, usee)
         if 0 < len(opts.vars) {
             for _, v := range opts.vars {
-                warn(of(ctx,v), "var: %T %v", v, v)
+                warn(at(ctx,v), "var: %T %v", v, v)
             }
             warn(ctx, "TODO: %d vars to import", len(opts.vars)).debug(1)
         }
@@ -698,7 +698,7 @@ func (l *loader) define1(ctx Context, tok token, ident, value Value) (d *def) {
             if a, y := alt.(*def); !y {
                 erro(ctx, "`%v` already defined (%T) (%v,%v)", ident, alt, alt.owner(), l.proj).debug(1)
                 return
-            } else if a.owner() == l.proj && a.origin != DefConfRef {
+            } else if a.owner() == l.proj && a.origin != defConfRef {
                 erro(ctx, "`%v` already defined (%T) (%v)", ident, alt, l.proj).debug(1)
                 return
             } else {
@@ -719,7 +719,7 @@ func (l *loader) define1(ctx Context, tok token, ident, value Value) (d *def) {
         } else if derived == d || (d.value != nil && d.value.refs(ctx, derived)) {
             // same def
         } else if d != nil && (tok == ASSIGN_ADD || tok == ASSIGN_SHI) && alt == nil {
-            if d.origin == DefVoid { d.origin = derived.origin }
+            if d.origin == defVoid { d.origin = derived.origin }
             if !isTrivial(derived.value) { d.append(ctx, derived.value) }
         }
     }
@@ -732,10 +732,10 @@ func (l *loader) define1(ctx Context, tok token, ident, value Value) (d *def) {
     d.position = ident.Position()
 
     switch tok {
-    case ASSIGN    : d.set(ctx, DefExpand0, value) //   =
-    case ASSIGN_CO1: d.set(ctx, DefExpand1, value) //  :=
-    case ASSIGN_CO2: d.set(ctx, DefExpand2, value) // ::=
-    case ASSIGN_EXC: d.set(ctx, DefExecute, value) //  !=
+    case ASSIGN    : d.set(ctx, defExpand0, value) //   =
+    case ASSIGN_CO1: d.set(ctx, defExpand1, value) //  :=
+    case ASSIGN_CO2: d.set(ctx, defExpand2, value) // ::=
+    case ASSIGN_EXC: d.set(ctx, defExecute, value) //  !=
     case ASSIGN_QUE: if alt == nil { d.set(ctx, d.origin, value) } // ?=
     case ASSIGN_ADD: if!isTrivial(value) { d.set(ctx, d.origin, nil, merge(value)...) } // +=
     case ASSIGN_SHI: if!isTrivial(value) { d.set(ctx, d.origin, value, merge(d.value)...) } // =+
@@ -822,7 +822,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []entry) {
         var ctx = at(ctx, target.Position())
         var entry, err = l.proj.entry(ctx, clause.special, clause.options, target, prog)
         if err != nil {
-            erro(of(ctx,target), "creating entry '%v' failed: %v", target, err)
+            erro(at(ctx,target), "creating entry '%v' failed: %v", target, err)
             return
         } else {
             entries = append(entries, entry)
@@ -897,13 +897,13 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
         }
         if fullname, specName = t.fullname(), t.ident(ctx); t.info == nil {
             prompt(ctx, "%v: no source file %v, %v\n", fullname, t, t.stat(ctx))
-            erro(of(ctx,t), "%v: %v", ctx.project(), t)
+            erro(at(ctx,t), "%v: %v", ctx.project(), t)
             errostack(ctx, 5, "").debug(16)
             return
         }
     default:
         if specName = spec.string(ctx); specName == "" {
-            erro(of(ctx,spec), "include: empty string: %v", spec)
+            erro(at(ctx,spec), "include: empty string: %v", spec)
             errostack(ctx, 5, "").debug(16)
             return
         }
@@ -1148,7 +1148,7 @@ ParamsLoop:
             }
             l.proj.bases = append(l.proj.bases, loaded)
         } else if implicit {
-            warn(of(ctx,elem), "implicit base '%s' not defined (as %s)", specName, absPath).debug(1)
+            warn(at(ctx,elem), "implicit base '%s' not defined (as %s)", specName, absPath).debug(1)
         } else {
             erro(at(ctx,elemPos), "project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath).debug(1)
             break ParamsLoop
@@ -1157,7 +1157,7 @@ ParamsLoop:
 
     usefor(ctx, l.proj, func(op usevar, _, _ Value, name string) {
         var us = "use." + name
-        var d, a = l.proj.scope.define(ctx, DefVoid, us, nil)
+        var d, a = l.proj.scope.define(ctx, defVoid, us, nil)
         if d == nil && a != nil { d, _ = a.(*def) }
         if d == nil { return }
         op.apply(closureWith(ctx, l.proj.scope), d, baseNonTrivialDefs(ctx, l.proj, us)...)
@@ -1305,7 +1305,7 @@ func (l *loader) declare(ctx Context, keyword token, ident *barecomp, identStr s
     if loader := linfo.loader; loader != nil {
         if _, a := loader.scope.projectname(ctx, name, dec.project); a != nil {
             if v, y := a.(*project); !y || v == nil {
-                erro(of(ctx,a), "`%s` name already taken (%T).", name, a).debug(1)
+                erro(at(ctx,a), "`%s` name already taken (%T).", name, a).debug(1)
                 return
             }
         }
@@ -1324,7 +1324,7 @@ func (l *loader) declare(ctx Context, keyword token, ident *barecomp, identStr s
                 //if name[0] == '.' { name = "project" + name }
                 var d, a = l.def(l.Position(), name)
                 if d == nil && a != nil { d = a.(*def) }
-                d.set(ctx, DefDecl, t.val)
+                d.set(ctx, defDecl, t.val)
             case flag:
                 if false { warn(ctx, "%v: unknown flag: %v", l.proj, t).debug(1) }
             default:
@@ -1553,7 +1553,7 @@ func (l *loader) resolve(ctx Context, value Value) (name string, result Value) {
 
 func (l *loader) def(position Position, name string) (def *def, alt Object) {
     var scope = l.Scope()
-    def, alt = scope.define(at(l, position), DefVoid, name, nil)
+    def, alt = scope.define(at(l, position), defVoid, name, nil)
     if def != nil { def.position = position }
     return
 }
@@ -1724,7 +1724,7 @@ ListLoop:
                 erro(ctx, "%s: invalid UTF8 content", fullname)
                 break ListLoop
             }
-            def.set(ctx, DefConfDir, makeStrlit(ctx.Position(), s))
+            def.set(ctx, defConfDir, makeStrlit(ctx.Position(), s))
         } else if s != nil {
             erro(ctx, "Name `%s' already taken, not def (%T).", name, s)
             break ListLoop

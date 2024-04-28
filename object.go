@@ -60,10 +60,6 @@ func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *knownobject) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
 func (_ *knownobject) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -76,33 +72,33 @@ func (_ *knownobject) collect(ctx Context, cache *valcache, bits int) (res []*va
 type origin int
 
 const (
-    DefVoid origin = iota
-    DefConfig   // configure
-    DefConfDir  // configuration defs
-    DefConfRef  // referred by config
-    DefCodeBlockAuto
-    DefDecl     // declaration names
-    DefExpand0  //   =  normal value
-    DefExpand1  //  :=  expand delegates (simple expand)
-    DefExpand2  // ::=  expand all (delegates, closures, paths)
-    DefExpand3  // ;:=  TODO: expand as plain
-    DefExecute  //  !=  value to be executed
-    _DefAny // referred any def
+    defVoid origin = iota
+    defConfig   // configure
+    defConfDir  // configuration defs
+    defConfRef  // referred by config
+    defCodeBlockAuto
+    defDecl     // declaration names
+    defExpand0  //   =  normal value
+    defExpand1  //  :=  expand delegates (simple expand)
+    defExpand2  // ::=  expand all (delegates, closures, paths)
+    defExpand3  // ;:=  TODO: expand as plain
+    defExecute  //  !=  value to be executed
+    _defAny // referred any def
 )
 
 func (o origin) String() (s string) {
     switch o {
-    case DefVoid:    s = "void"
-    case DefConfDir: s = "confdir"
-    case DefConfRef: s = "confref"
-    case DefConfig:  s = "config"
-    case DefDecl:    s = "decl"
-    case DefExpand0: s = "expand0"
-    case DefExpand1: s = "expand1"
-    case DefExpand2: s = "expand2"
-    case DefExpand3: s = "expand3"
-    case DefExecute: s = "execute"
-    case _DefAny:    s = "any"
+    case defVoid:    s = "void"
+    case defConfDir: s = "confdir"
+    case defConfRef: s = "confref"
+    case defConfig:  s = "config"
+    case defDecl:    s = "decl"
+    case defExpand0: s = "expand_0"
+    case defExpand1: s = "expand_1"
+    case defExpand2: s = "expand_2"
+    case defExpand3: s = "expand_3"
+    case defExecute: s = "execute"
+    case _defAny:    s = "any"
     default: s = fmt.Sprintf("origin<%d>", o)
     }
     return
@@ -175,7 +171,7 @@ func (ac *automatic) search(ctx Context, name string) (res *def) {
     return
 }
 func (ac *automatic) set(ctx Context, name string, val Value) (out *def, old Value) {
-    if name == "-" { if d, y := val.(*def); y && d.origin != DefConfig {
+    if name == "-" { if d, y := val.(*def); y && d.origin != defConfig {
         notestack(ctx, 3, "set $- to def (%v): %v", d.origin, d).debug(16)
     }}
 
@@ -201,17 +197,17 @@ func (ac *automatic) set(ctx Context, name string, val Value) (out *def, old Val
     return
 }
 func (ac *automatic) args(ctx Context, vals []Value) {
-    type at struct {
+    type _at struct {
         id, name string
         value Value
     }
 
     var argnum int // setup named/number parameters ($1, $2, etc.)
-    var args = make(map[string]*at, len(vals)) // compact args: combine duplicated pairs
+    var args = make(map[string]*_at, len(vals)) // compact args: combine duplicated pairs
     var params = _parameters(ctx)
 
     for _, val := range vals {
-        var a = &at{ id: strconv.Itoa(argnum+1) }
+        var a = &_at{ id: strconv.Itoa(argnum+1) }
         if p, y := val.(*pair); y {
             if a.name = p.key.string(ctx); a.name == "" {
                 erro(ctx, "empty name: %v", p.key).debug(5)
@@ -244,10 +240,10 @@ func (ac *automatic) args(ctx Context, vals []Value) {
         argnum += 1
 
         if d, _ := ac.set(ctx, a.name, a.value); d == nil {
-            erro(of(ac,a.value), "arg '%s' not set", a.name).debug(1)
+            erro(at(ac,a.value), "arg '%s' not set", a.name).debug(1)
             return
         } else if d, y := ac.defs[a.name]; !y || d == nil {
-            erro(of(ac,a.value), "arg '%s' not set", a.name).debug(1)
+            erro(at(ac,a.value), "arg '%s' not set", a.name).debug(1)
             return
         } else if a.id != "" && a.id != a.name {
             const LOCK = true
@@ -321,7 +317,7 @@ func (a *auto) set(ctx Context, value Value, app ...Value) {
     if d != nil {
         d.position = a.position
     } else if true {
-        warnstack(of(ctx,a), 3, "set auto failed: %v: %v %v", a.name, value, app).debug(16)
+        warnstack(at(ctx,a), 3, "set auto failed: %v: %v %v", a.name, value, app).debug(16)
     }
 }
 func (a *auto) isDigit() bool { return _isDigits(a.name) }
@@ -360,10 +356,6 @@ func (a *auto) traverse(ctx Context) {
     if val := autoVal(ctx, a.name); val != nil { val.traverse(ctx) }
     return
 }
-func (_ *auto) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
 func (_ *auto) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -388,11 +380,11 @@ func (d *def) Position() (pos Position) {
 }
 func (d *def) streq() (s string) {
     switch d.origin {
-    case DefExpand0: s =   "="
-    case DefExpand1: s =  ":="
-    case DefExpand2: s = "::="
-    case DefExpand3: s = ";:="
-    case DefExecute: s =  "!="
+    case defExpand0: s =   "="
+    case defExpand1: s =  ":="
+    case defExpand2: s = "::="
+    case defExpand3: s = ";:="
+    case defExecute: s =  "!="
     default:         s =   "⇒"
     }
     return
@@ -508,7 +500,7 @@ func (d *def) evoke(ctx *evocation) (res Value) {
 
     res = v.expand(&x)
 
-    if res != nil && o == DefExecute { res = d.xexec(ctx, res) }
+    if res != nil && o == defExecute { res = d.xexec(ctx, res) }
     if res != nil { return scalarize(res) }
     return
 }
@@ -566,7 +558,7 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
     var vals []Value
     if !isTrivial(value) { vals = append(vals, merge(value)...) }
     if len(app) > 0      { vals = append(vals, merge(app...)...) }
-    if len(vals) > 0 && origin != DefExpand0 {
+    if len(vals) > 0 && origin != defExpand0 {
         vals = expand(original{ctx,origin}, vals...)
     }
 
@@ -581,7 +573,7 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
         value = vals[0]
     } else if 1 < n {
         value = makeList(vals...)
-    } else if origin == DefExecute {
+    } else if origin == defExecute {
         value = nil
     } else {
         value = makeNull(d.position)
@@ -666,10 +658,6 @@ func (d *def) stat(ctx Context) (si *statinfo) {
     if value != nil { si = value.stat(ctx) }
     return
 }
-func (_ *def) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
 func (_ *def) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -746,10 +734,6 @@ func (p *undetermined) patterned(ctx Context) bool { return false }
 func (p *undetermined) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
 func (p *undetermined) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
-}
-func (_ *undetermined) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
 }
 func (_ *undetermined) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
@@ -880,10 +864,6 @@ func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *builtin) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
 func (_ *builtin) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -975,7 +955,6 @@ func (p entryArray) expand(ctx Context) Value { return p[0].expand(ctx) }
 func (p entryArray) expandable(ctx Context) bool { return p[0].expandable(ctx) }
 func (p entryArray) float(ctx Context) (float64, error) { return p[0].float(ctx) }
 func (p entryArray) hasRecipes() bool { return p[0].hasRecipes() }
-func (p entryArray) hit(ctx Context, cache hitch, bits int) *filecache { return p[0].hit(ctx, cache, bits) }
 func (p entryArray) ident(ctx Context) string { return p[0].ident(ctx) }
 func (p entryArray) int(ctx Context) (int64, error) { return p[0].int(ctx) }
 func (p entryArray) kind() Kind { return p[0].kind() }
@@ -1299,10 +1278,6 @@ func (p *rule) option(ctx Context) (res bool, infos []Value) {
     return
 }
 
-func (_ *rule) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
 func (_ *rule) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return

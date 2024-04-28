@@ -335,53 +335,53 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.Value":
             val.Set(reflect.ValueOf(v))
         default:
-            erro(of(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+            erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
         }
     case reflect.Ptr:
         switch val.Type().Elem().String() {
         case "smart.fullname":
             if x := v.expand(expandFullFile{ctx}); isTrivial(x) {
-                erro(of(ctx, v), "expecting file value: %v{%v}", typeof(v), v).debug(1)
+                erro(at(ctx, v), "expecting file value: %v{%v}", typeof(v), v).debug(1)
             } else if o, y := (as{x}.fullname(ctx)); y && o.Value != nil {
                 val.Set(reflect.ValueOf(&o))
             } else {
-                erro(of(ctx,v), "%v: not a file: %v → %v{%v}", ctx.project(), v, typeof(x), x)
+                erro(at(ctx,v), "%v: not a file: %v → %v{%v}", ctx.project(), v, typeof(x), x)
                 errostack(ctx, 5).debug(32)
             }
         case "smart.File":
             if x := v.expand(final{ctx}); isNone(x) {
-                erro(of(ctx,v), "expecting file value: %v{%v}", typeof(x), v).debug(1)
+                erro(at(ctx,v), "expecting file value: %v{%v}", typeof(x), v).debug(1)
             } else if file, y := toFile(x); y {
                 val.Set(reflect.ValueOf(file))
             } else if proj := ctx.project(); proj == nil {
-                erro(of(ctx,x), "no current project to find file '%v'", x).debug(1)
+                erro(at(ctx,x), "no current project to find file '%v'", x).debug(1)
             } else if file = proj.file(ctx, x.string(ctx)); file != nil {
                 val.Set(reflect.ValueOf(file))
             } else {
-                erro(of(ctx,v), "'%v' is not a file", x).debug(1)
+                erro(at(ctx,v), "'%v' is not a file", x).debug(1)
             }
         case "regexp.Regexp":
             if rx, e := regexp.Compile(v.string(ctx)); e != nil {
-                erro(of(ctx,v), "compile regexp '%v' failed: %v", v, e).debug(1)
+                erro(at(ctx,v), "compile regexp '%v' failed: %v", v, e).debug(1)
             } else {
                 val.Set(reflect.ValueOf(rx))
             }
         default:
-            erro(of(ctx,v), "option type unsupported: %v{%v} → %v, %v", typeof(v), v, val.Elem().Kind(), val.Type().Elem()).debug(1)
+            erro(at(ctx,v), "option type unsupported: %v{%v} → %v, %v", typeof(v), v, val.Elem().Kind(), val.Type().Elem()).debug(1)
         }
     default:
         switch val.Type().String() {
         case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
             if t, e := v.int(ctx); e == nil {
-                if t == 0 { warn(of(ctx,v), "zero file mode").debug(1) }
+                if t == 0 { warn(at(ctx,v), "zero file mode").debug(1) }
                 val.SetUint(uint64(t))
             } else {
                 erro(ctx, "%v: %v", v, t).debug(1)
             }
         case "regex.Regex": // aka. reflect.Ptr
-            erro(of(ctx,v), "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+            erro(at(ctx,v), "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
         default:
-            erro(of(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+            erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
         }
     }
 }
@@ -757,7 +757,7 @@ func (ctx *builtin_sure) x() (res interface{}) {
     defer trace(ctx)
 
     for _, a := range ctx.evocation.a { if !a.true(ctx) {
-        erro(of(ctx,a), "assert: %v", us(a)).debug(1)
+        erro(at(ctx,a), "assert: %v", us(a)).debug(1)
     }}
 
     return ctx.evocation.a
@@ -847,19 +847,19 @@ func (ctx *builtin_unequal) x() (res interface{}) {
     } else if n := ctx.debug; n>0 {
         if l, y := a.(*list); y {
             var v = l.elems[0]
-            warn(of(ctx,a), "unequal: a: %T(len=%d), %T %v", a, len(l.elems), v, v)
+            warn(at(ctx,a), "unequal: a: %T(len=%d), %T %v", a, len(l.elems), v, v)
         } else {
-            warn(of(ctx,a), "unequal: a: %T %v", a, a)
+            warn(at(ctx,a), "unequal: a: %T %v", a, a)
         }
         if l, y := b.(*list); y {
             var v = l.elems[0]
-            warn(of(ctx,b), "unequal: b: %T(len=%d), %T %v", b, len(l.elems), v, v)
+            warn(at(ctx,b), "unequal: b: %T(len=%d), %T %v", b, len(l.elems), v, v)
         } else {
-            warn(of(ctx,b), "unequal: b: %T %v", b, b)
+            warn(at(ctx,b), "unequal: b: %T %v", b, b)
         }
         warnstack(ctx, n, "unequal: %v", t).debug(n)
     } else if len(ctx.evocation.a)>2 {
-        warnstack(of(ctx,ctx.evocation.a[2]), 1, "unequal: extra args specified: %v", ctx.evocation.a[2]).debug(1)
+        warnstack(at(ctx,ctx.evocation.a[2]), 1, "unequal: extra args specified: %v", ctx.evocation.a[2]).debug(1)
     }
     return
 }
@@ -900,18 +900,18 @@ func (ctx *builtin_equal) x() (res interface{}) {
         res = makeBoolean(ctx.Position(), true)
     } else if n := ctx.debug; n>0 {
         if l, y := a.(*list); y { var v = l.elems[0]
-            noted(of(ctx,a), "equal: a: %v{%v} (len=%d)", typeof(v), v, len(l.elems))
+            noted(at(ctx,a), "equal: a: %v{%v} (len=%d)", typeof(v), v, len(l.elems))
         } else {
-            noted(of(ctx,a), "equal: a: %v{%v} (%s)", typeof(a), a, a.string(ctx))
+            noted(at(ctx,a), "equal: a: %v{%v} (%s)", typeof(a), a, a.string(ctx))
         }
         if l, y := b.(*list); y { var v = l.elems[0]
-            noted(of(ctx,b), "equal: b: %v{%v} (len=%d)", typeof(v), v, len(l.elems))
+            noted(at(ctx,b), "equal: b: %v{%v} (len=%d)", typeof(v), v, len(l.elems))
         } else {
-            noted(of(ctx,b), "equal: b: %v{%v} (%s)", typeof(b), b, b.string(ctx))
+            noted(at(ctx,b), "equal: b: %v{%v} (%s)", typeof(b), b, b.string(ctx))
         }
         notestack(ctx, n).debug(n)
     } else if len(ctx.evocation.a)>2 {
-        warnstack(of(ctx,ctx.evocation.a[2]), 1, "equal: extra args specified: %v", ctx.evocation.a[2]).debug(1)
+        warnstack(at(ctx,ctx.evocation.a[2]), 1, "equal: extra args specified: %v", ctx.evocation.a[2]).debug(1)
     }
     return
 }
@@ -1091,7 +1091,7 @@ func (ctx *builtin_case) x() (res interface{}) {
         }}
         return vals
     } else {
-        erro(of(ctx,arg), "unexpected case: %T %v", arg, arg).debug(1)
+        erro(at(ctx,arg), "unexpected case: %T %v", arg, arg).debug(1)
         return
     }}
     return
@@ -1294,12 +1294,12 @@ func (ctx *builtin_auto) x() (res interface{}) {
             switch t := a.(type) {
             case *pair:
                 if s := t.key.string(&ac); s == "" {
-                    erro(of(ctx,t.key), "%v is empty for name", us(t.key)).debug(1)
+                    erro(at(ctx,t.key), "%v is empty for name", us(t.key)).debug(1)
                 } else {
                     ac.set(ctx, s, t.val)
                 }
             default:
-                erro(of(ctx,a), "%v is unsupported for auto", us(a)).debug(1)
+                erro(at(ctx,a), "%v is unsupported for auto", us(a)).debug(1)
             }
         }
 
@@ -1445,9 +1445,9 @@ func (ctx *builtin_plain) c() (res interface{}) {
         var ( o Object ; s = a.string(ctx) )
         if ctx.scope { _, o = scope.find(s) } else { o = resolve(ctx, s) }
         if o == nil {
-            erro(of(ctx,a), "no such symbol: %s", s).debug(1)
+            erro(at(ctx,a), "no such symbol: %s", s).debug(1)
         } else if d, y := o.(*def); !y {
-            erro(of(ctx,a), "not a def: %s: %v", s, typeof(o)).debug(1)
+            erro(at(ctx,a), "not a def: %s: %v", s, typeof(o)).debug(1)
         } else if d.value != nil {
             d.value = d.value.expand(ctx/* , plain */)
         }
@@ -1565,7 +1565,7 @@ func (ctx *builtin_append) x() (_ interface{}) {
         var s = a.string(ctx)
         var d *def
         if s == "" {
-            erro(of(ctx,a), "'%v' is empty for name", a).debug(1)
+            erro(at(ctx,a), "'%v' is empty for name", a).debug(1)
         } else if ctx._auto {
             d = autoDef(ctx, s)
         } else if ctx._closure {
@@ -1574,7 +1574,7 @@ func (ctx *builtin_append) x() (_ interface{}) {
             d, _ = o.(*def)
         }
         if d == nil {
-            erro(of(ctx,a), "%v → %s is undefined", a, s)
+            erro(at(ctx,a), "%v → %s is undefined", a, s)
             erro(ctx, "%v", us(ctx)).debug(1)
         } else {
             if vals == nil {
@@ -2282,7 +2282,7 @@ ForSources:
         } else if o, y := (as{src}.fullname(ctx, closured...)); y {
             source = o.string(ctx)
         } else {
-            erro(of(ctx,src), "fullname '%v' failed", src)
+            erro(at(ctx,src), "fullname '%v' failed", src)
             erro(ctx, "called from here", src).debug(1)
             return
         }
@@ -2328,11 +2328,11 @@ ForSources:
                         proj, nameStr, dstPat,
                     }
                     if t := files(ctx, nameVal, proj); ctx.erroDstNomap {
-                        erro(of(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
-                        errostack(of(ctx,dstPat), 16, a...).debug(16)
+                        erro(at(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
+                        errostack(at(ctx,dstPat), 16, a...).debug(16)
                     } else if ctx.warnDstNomap {
-                        warn(of(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
-                        warnstack(of(ctx,dstPat), 16, a...).debug(5)
+                        warn(at(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
+                        warnstack(at(ctx,dstPat), 16, a...).debug(5)
                     }
                     dstFile = stat(ctx, nameStr, stat_sub{srcFile.sub}, stat_dir{srcFile.dir}, stat_nonexist{true})
                 }
@@ -3152,7 +3152,7 @@ func (ctx *builtin_dirs) x() (res interface{}) {
             v = f
         } else if s != "" {
             if d>0 { noted(ctx, "%T %v ⇒ %v", a, a, s).debug(d) }
-            v = _pathstr(of(ctx, a), s)
+            v = _pathstr(at(ctx, a), s)
         } else {
             continue
         }
@@ -3226,7 +3226,7 @@ func (ctx *builtin_undirs) x() (res interface{}) {
         } else {
             v = v[i-1:] // empty
         }
-        l = append(l, _pathstr(of(ctx, a), filepath.Join(v...)))
+        l = append(l, _pathstr(at(ctx, a), filepath.Join(v...)))
     }
     return l
 }
@@ -3408,7 +3408,7 @@ func (ctx *builtin_rename) c() (res interface{}) {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(of(ctx,t), "wrong size of group `%v'", t).debug(1)
+                erro(at(ctx,t), "wrong size of group `%v'", t).debug(1)
                 break
             }
         case *list: // rename oldname newname, old new, ...
@@ -3416,7 +3416,7 @@ func (ctx *builtin_rename) c() (res interface{}) {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(of(ctx,t), "wrong size of list `%v'", t).debug(1)
+                erro(at(ctx,t), "wrong size of list `%v'", t).debug(1)
                 break
             }
         default: // rename newname oldname  newname oldname ...
@@ -3425,7 +3425,7 @@ func (ctx *builtin_rename) c() (res interface{}) {
                 newname = ctx.evocation.a[i+1].string(ctx)
                 i += 1
             } else {
-                erro(of(ctx,t), "Wrong arguments `%v'", ctx.evocation.a).debug(1)
+                erro(at(ctx,t), "Wrong arguments `%v'", ctx.evocation.a).debug(1)
                 break
             }
         }
@@ -3644,14 +3644,14 @@ outer:
             srcNameVal, dstNameVal = t.key, t.val
         case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
             if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                erro(of(ctx,t), "expects two values for group").debug(1)
+                erro(at(ctx,t), "expects two values for group").debug(1)
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
             }
         case *list: // XXX: symlink old new, old new, ...
             if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                erro(of(ctx,t), "expects two values for list").debug(1)
+                erro(at(ctx,t), "expects two values for list").debug(1)
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
@@ -3669,7 +3669,7 @@ outer:
                 var r = autoVal(ctx,">")
                 prompt(ctx, "symlink: args=%v → %v\n", ctx.evocation.a, t)
                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
-                errostack(of(ctx,t), 5, "expects pair of names (%T %v)", t, t).debug(6)
+                errostack(at(ctx,t), 5, "expects pair of names (%T %v)", t, t).debug(6)
                 return
             }
         }
@@ -3677,13 +3677,13 @@ outer:
         if srcDir, srcName = splitFileName(ctx, srcNameVal); srcName == "" {
             prompt(ctx, "symlink: args=%v\n", ctx.evocation.a)
             prompt(ctx, "symlink: src=%v\n", srcNameVal)
-            errostack(of(ctx,srcNameVal), 5, "empty src filename (%T)", srcNameVal).debug(6)
+            errostack(at(ctx,srcNameVal), 5, "empty src filename (%T)", srcNameVal).debug(6)
             return
         }
         if dstDir, dstName = splitFileName(ctx, dstNameVal); dstName == "" {
             prompt(ctx, "symlink: args=%v\n", ctx.evocation.a)
             prompt(ctx, "symlink: dest=%v\n", dstNameVal)
-            errostack(of(ctx,dstNameVal), 6, "empty dest filename (%T)", dstNameVal).debug(12)
+            errostack(at(ctx,dstNameVal), 6, "empty dest filename (%T)", dstNameVal).debug(12)
             return
         }
 
@@ -3693,14 +3693,14 @@ outer:
         if !filepath.IsAbs(dst) { dst = filepath.Join(dstDir, dstName) }
         if _, err := os.Stat(src); err != nil {
             prompt(ctx, "symlink: %v: %v\n", srcName, err)
-            errostack(of(ctx,srcNameVal), 6, "%v does not exist", srcName).debug(8)
+            errostack(at(ctx,srcNameVal), 6, "%v does not exist", srcName).debug(8)
             return
         }
 
         if !opts.relative {/* no rel required */} else
         if s, e := filepath.Rel(filepath.Dir(dst), src); e != nil {
             prompt(ctx, "symlink: %s: rel(%s, %s)\n", dstName, dst, src)
-            errostack(of(ctx,dstNameVal), 8, "%v", e).debug(10)
+            errostack(at(ctx,dstNameVal), 8, "%v", e).debug(10)
             return
         } else {
             if false {
@@ -3715,7 +3715,7 @@ outer:
         if dstDir == "" || dstDir == "." || dstDir == pathSep {
             // no need to mkdir: . or /
         } else if err := os.MkdirAll(dstDir, os.FileMode(0755)); err != nil {
-            erro(of(ctx,dstNameVal), "%v", err).debug(1)
+            erro(at(ctx,dstNameVal), "%v", err).debug(1)
             return
         }
 
@@ -3725,7 +3725,7 @@ outer:
         } else if s, e := os.Readlink(dst); e != nil {
             if false {
                 prompt(ctx, "%v: readlink failed (%T)\n", dstName, e)
-                errostack(of(ctx,dstNameVal), 6, "%v", e).debug(8)
+                errostack(at(ctx,dstNameVal), 6, "%v", e).debug(8)
             }
         } else if rm = s != src; !rm {
             continue outer
@@ -3733,7 +3733,7 @@ outer:
 
         if rm { if e := os.Remove(dst); e != nil {
             prompt(ctx, "%v: remove old symlink failed (%T)\n", dstName, e)
-            errostack(of(ctx,dstNameVal), 6, "%v", e).debug(8)
+            errostack(at(ctx,dstNameVal), 6, "%v", e).debug(8)
             return
         }}
         if err := os.Symlink(src, dst); err != nil {
@@ -3798,36 +3798,21 @@ func (ctx *builtin_stat) x() (res interface{}) {
 }
 
 type builtin_file struct { builtin_
-    caller bool `cc,caller,callercontext,caller-context`
-    exists bool `ex,exist,exists,existsist,must-exist,must,required`
-    report bool `er,err,error,report,reportmissing,rm,report-missing`
-    ignore bool `ig,ignore,ignore-missing,missing,nonexists`
-    match  bool `map,maps,mapped,must-map,must-mapped`
+    exists bool `exist,exists,must,must-exist,required`
+    report bool `report,reportmissing,report-missing`
+    ignore bool `ignore,ignore-missing,missing,nonexist,non-exist`
+    mapped bool `map,maps,mapped`
 }
 func (ctx *builtin_file) x() (res interface{}) {
-    var proj *project = ctx.project()
-    if false { if ctx.caller {
-        if false {
-            proj = cast[*terminal](ctx).project()
-        } else {
-            proj = cast[*programContext](ctx).project()
-        }
-    }}
-    return ctx._do([]*project{proj}, ctx.evocation.a...)
+    return ctx.z([]*project{ctx.project()}, ctx.evocation.a...)
 }
-func (ctx *builtin_file) _do(projs []*project, args ...Value) (res []Value) {
+func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
+    defer trace(ctx)
+
     var en int
     var cc = ctx.Context
-    var fil = func(a Value) {
-        ctx.Context = at(cc, a.Position())
-
-        if d := ctx.debug; 0 < d { defer func() {
-            if res != nil { if t, y := res[len(res)-1].(*File); y {
-                noted(ctx, "%v %v ⇒ %v %s", typeof(a), a, t, t.fullname()).debug(1+d)
-            }} else {
-                noted(ctx, "%v %v (%v)", typeof(a), a, projs).debug(1+d)
-            }
-        }()}
+    var f = func(a Value) {
+        ctx.Context = at(cc, a)
 
         var fs []*File
         var am []matchedFileMap
@@ -3840,40 +3825,52 @@ func (ctx *builtin_file) _do(projs []*project, args ...Value) (res []Value) {
             return
         }
 
-        if am = files(ctx, a, projs...); am == nil { if s := a.string(ctx); s != "" { const w = false
-            if am = files(ctx, s, projs...); am != nil {
-                if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", projs, a, a, ctx.project()).debug(6) }
-            } else if f := file(ctx, s, projs...); f != nil {
-                if w { warnstack(ctx, 3, "%v: incorrect files(%T %v) (%v)", projs, a, a, ctx.project()).debug(6) }
-                res = append(res, f)
-                return
-            } else {
-                if ctx.match { erro(ctx, "not a file (%v %v → %v)", typeof(a), a, unmap(ctx, a)).debug(1) }
+        if am = files(ctx, a, projs...); am == nil && false {
+            var s = a.string(ctx)
+            if s == "" {
+                erro(ctx, "%v is empty for searching file", us(a)).debug(3)
                 return
             }
-        }}
+            if am = files(ctx, s, projs...); am == nil {
+                if f := file(ctx, s, projs...); f != nil {
+                    res = append(res, f)
+                    return
+                } else {
+                    if ctx.mapped {
+                        var t = unmapfiles(ctx, a)
+                        erro(ctx, "not a file ; %v → %v", tv(a), t).debug(1)
+                    }
+                    return
+                }
+            }
+        }
 
-        for _, p := range projs { fs = append(fs, p.selectFiles(ctx, am)...) }
+        for _, p := range projs {
+            fs = append(fs, p.selectFiles(ctx, am)...)
+        }
+
         for _, f := range fs {
             if !ctx.exists || f.exists() {
                 res = append(res, f)
             } else if ctx.ignore {
-                if ctx.verbose { info(ctx, "%s(%v) → %v", typeof(a), a, f).debug(1) }
+                if ctx.verbose { info(ctx, "%v → %v", tv(a), f).debug(1) }
             } else if ctx.exists {
                 en += 1
             }
         }
 
         if en > 0 { for i, m := range am {
-            info(of(ctx,m.pattern), "found %d. %s → %s(%s) → %v", i, m.name, typeof(m.pattern), m.pattern, m.locs)
+            info(at(ctx,m.pattern), "found %d. %s → %s(%s) → %v", i, m.name, typeof(m.pattern), m.pattern, m.paths)
         }}
     }
 
-    for _, a := range merge(args...) { if fil(a); en > 0 {
-        erro(ctx, `%v: %v is not a file (%v)`, projs, us(a), res)
-        errostack(ctx, 5).debug(16)
-        break
-    }}
+    for _, a := range merge(args...) {
+        if f(a); en > 0 {
+            erro(ctx, `%v: %v is not a file (%v)`, projs, us(a), res)
+            errostack(ctx, 5).debug(16)
+            return
+        }
+    }
     return
 }
 
@@ -4117,7 +4114,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
 
     var doFileMap = func(lVal, rVal Value, lPat, rPat bool, fm *FileMap) {
         defer g.Done()
-        for _, loc := range fm.locs {
+        for _, loc := range fm.paths {
             if dir := loc.string(ctx); lPat && rPat {
                 var pat Value
                 if lVal.cmp(ctx, rVal) == cmpEqual {
@@ -4154,7 +4151,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
     var f2 = func(inVal Value, inPat bool, c *valcache) {
         defer g.Done()
         var fm, y = c._val.(FileMap)
-        if y && fm.filemap != nil {
+        if y && fm._filemap != nil {
             for _, mapVal := range fm.primePatterns(ctx) {
                 g.Add(1) ; go f1(inVal, mapVal, inPat, mapVal.patterned(ctx), &fm)
             }
@@ -4228,10 +4225,10 @@ func (ctx *builtin_readfile) x() (res interface{}) {
     var closured = closureprojects(ctx)
     for _, v := range ctx.evocation.a {
         if o, y := (as{v}.fullname(ctx, closured...)); !y {
-            errostack(of(ctx,v), 5, "%v is not a file", v).debug(1)
+            errostack(at(ctx,v), 5, "%v is not a file", v).debug(1)
             break
         } else if s, e := ioutil.ReadFile(o.string(ctx)); e != nil {
-            errostack(of(ctx,v), 5, "read file failed: %v", e).debug(1)
+            errostack(at(ctx,v), 5, "read file failed: %v", e).debug(1)
             break
         } else {
             if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
@@ -4308,22 +4305,22 @@ outer:
 func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
     var a, filename, c = as{file}.fullnameFile(ctx)
     if filename == "" {
-        errostack(of(ctx,file), 3, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c).debug(24)
+        errostack(at(ctx,file), 3, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c).debug(24)
         return
     } else if d := filepath.Dir(filename); optPath && d != "." && d != pathSep {
         if err = os.MkdirAll(d, os.FileMode(optMode|0733)); err != nil {
-            erro(of(ctx,file), "touch: %v", err).debug(1)
+            erro(at(ctx,file), "touch: %v", err).debug(1)
             return
         }
     }
 
     var (
         mode = os.FileMode(optMode)
-        at, mt time.Time
+        ta, tm time.Time
         m os.FileMode
     )
-    if len(ts) > 0 { at = ts[0] } else { at = time.Now() }
-    if len(ts) > 1 { mt = ts[1] } else { mt = time.Now() }
+    if len(ts) > 0 { ta = ts[0] } else { ta = time.Now() }
+    if len(ts) > 1 { tm = ts[1] } else { tm = time.Now() }
     if fi, k := toFile(file); k && fi.info != nil {
         m = fi.info.Mode()
     } else if fi, e := os.Stat(filename); e == nil && fi != nil {
@@ -4332,19 +4329,19 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
         var f *os.File
         if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
         if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm); err != nil {
-            erro(of(ctx,file), "touch: %v", err).debug(1)
+            erro(at(ctx,file), "touch: %v", err).debug(1)
         } else if err = f.Close(); err != nil {
-            erro(of(ctx,file), "touch: %v", err).debug(1)
+            erro(at(ctx,file), "touch: %v", err).debug(1)
         }
     }
     if err == nil {
-        if err = os.Chtimes(filename, at, mt); err != nil {
-            erro(of(ctx,file), "touch: %v", err).debug(1)
+        if err = os.Chtimes(filename, ta, tm); err != nil {
+            erro(at(ctx,file), "touch: %v", err).debug(1)
         }
     }
     if err == nil && mode != 0 && m != 0 && mode != m {
         if err = os.Chmod(filename, mode); err != nil {
-            erro(of(ctx,file), "touch: %v", err).debug(1)
+            erro(at(ctx,file), "touch: %v", err).debug(1)
         }
     }
     return
@@ -4391,10 +4388,10 @@ func (ctx *builtin_grep) x() (_ interface{}) {
     }
     for _, a := range rvs {
         if s := a.string(ctx); s == "" {
-            erro(of(ctx,a), "empty regexp").debug(1)
+            erro(at(ctx,a), "empty regexp").debug(1)
             return
         } else if r, e := regexp.Compile(s); e != nil {
-            erro(of(ctx,a), "%v", e).debug(1)
+            erro(at(ctx,a), "%v", e).debug(1)
             return
         } else {
             rxs = append(rxs, r)
@@ -4433,7 +4430,7 @@ func (ctx *builtin_grep) x() (_ interface{}) {
             filename = a.string(ctx)
         }
 
-        if c := of(ctx, a); filename == "" {
+        if c := at(ctx, a); filename == "" {
             var pc = cast[*programContext](ctx)
             erro(c, "empty filename: %v", us(a))
             erro(c, "%v %v", rvs, args)
@@ -4507,11 +4504,11 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
             continue
         } else if val = def.invoke(ctx, nil, nil); isNull(val) {
             if cf := project.configuration(ctx); cf == nil {
-                erro(of(ctx,def), "%v: configuration file not defined", name, cf).debug(1)
+                erro(at(ctx,def), "%v: configuration file not defined", name, cf).debug(1)
                 return
             } else if !cf.exists() {
                 prompt(ctx, "%s: file not exists (for %v)\n", cf.fullname(), name)
-                erro(of(ctx,def), "%v: configuration file not exists, try -conf first", name).debug(1)
+                erro(at(ctx,def), "%v: configuration file not exists, try -conf first", name).debug(1)
                 return
             }
             continue

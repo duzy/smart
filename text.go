@@ -41,10 +41,6 @@ func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (_ *Plain) hit(ctx Context, cache hitch, bits int) (res *filecache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
 func (_ *Plain) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
@@ -72,7 +68,7 @@ func (_ *plainInt) evaluate(ctx Context, args ...Value) (result Value, err error
                 program.language = name
         }
         if str, err = multiline(ctx, program.recipes...); err != nil {
-                erro(of(ctx,args[0]), "%v", err).debug(1)
+                erro(at(ctx,args[0]), "%v", err).debug(1)
                 return
         } else if len(program.recipes) > 0 {
                 pos = program.recipes[0].Position()

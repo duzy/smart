@@ -8,7 +8,7 @@ package smart
 func testDefs0(ctx *testcase) {
 	if d := ctx.def("val0"); d == nil {
 		ctx.err("val0")
-	} else if d.origin != DefExpand0 {
+	} else if d.origin != defExpand0 {
 		ctx.err("%v %v", d, d.origin)
 	} else if val := d.value; val == nil {
 		ctx.err("%v", d)
@@ -20,7 +20,7 @@ func testDefs0(ctx *testcase) {
 
 	if d := ctx.def("val1"); d == nil {
 		ctx.err("val1")
-	} else if d.origin != DefExpand1 {
+	} else if d.origin != defExpand1 {
 		ctx.err("%v %v", d, d.origin)
 	} else if val := d.value; val == nil {
 		ctx.err("%v", d)
@@ -32,7 +32,7 @@ func testDefs0(ctx *testcase) {
 
 	if d := ctx.def("val2"); d == nil {
 		ctx.err("val2")
-	} else if d.origin != DefExpand2 {
+	} else if d.origin != defExpand2 {
 		ctx.err("%v %v", d, d.origin)
 	} else if val := d.value; val == nil {
 		ctx.err("%v", d)
@@ -44,7 +44,7 @@ func testDefs0(ctx *testcase) {
 
 	if d := ctx.def("val3"); d == nil {
 		ctx.err("val3")
-	} else if d.origin != DefExpand2 {
+	} else if d.origin != defExpand2 {
 		ctx.err("%v %v", d, d.origin)
 	} else if val := d.value; val == nil {
 		ctx.err("%v", d)
