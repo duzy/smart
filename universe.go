@@ -558,7 +558,7 @@ func (u *universe) unmap(ctx Context, key interface{}) (res []matchedfilemap) {
     if c == nil { return }
 
     for _, m := range c.a {
-        var matched, pattern, s = m.Match(ctx, key)
+        var matched, pattern, s = m.match(ctx, key)
         if  matched  {
             if checkpoints {
                 if m.pattern.cmp(ctx, pattern) != cmpEqual {

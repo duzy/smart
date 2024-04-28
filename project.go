@@ -54,24 +54,22 @@ func (p *filemap) primePatterns(ctx Context) (pats []Value) {
   if patts[0] == nil { patts = p.patts }
 
   for _, pattern := range patts {
-    if pattern.expandable(ctx) {//, expandDef2
-      // FIXME+TODO: this could be time consuming to expand clousre in the filemap
-      /*if pats, err = xmerge(ctx, plain, pattern); err != nil {
-        erro(at(ctx,pattern), "merge pattern '%v' failed: %v", pattern, err)
-      } else*/ if pats = expand(ctx, pattern); !expandable(ctx, pats...) {
-        if pats != nil { pats = xmerge(ctx, pats...) }
+    if indeterminate(ctx, pattern) {
+      // NOTE it may preserve closure patterns after this expand:
+      if pat := pattern.expand(ctx); isFinalValue(ctx, pat) {
+        pats = append(pats, merge(pat)...)
       } else {
-        errostack(at(ctx,pattern), 3, "unexpanded file pattern: %v", pats).debug(15)
+        errostack(at(ctx,pattern), 3, "unexpanded file pattern: %v", us(pattern)).debug(15)
       }
     } else {
       pats = append(pats, pattern)
     }
   }
-  return merge(pats...)
+  return
 }
 
-// Match split filename into list and match each part with the pattern correspondingly.
-func (filemap *filemap) Match(ctx Context, val interface{}) (matched bool, pattern Value, name string) {
+// match split filename into list and match each part with the pattern correspondingly.
+func (filemap *filemap) match(ctx Context, val interface{}) (matched bool, pattern Value, name string) {
   // TODO: escape file matching for 'String' and "compound" values
   for _, pat := range filemap.primePatterns(ctx) {
     if matched, name = filemap._match(ctx, pat, val); matched {
