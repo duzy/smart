@@ -121,7 +121,7 @@ func testValueCache(ctx *testcase) {
 		ctx.err("wrong closure cache: %d", n)
 	} else if v := p.filemapx[0]; v._key.String() != "&(gen)" {
 		ctx.err("wrong closure cache: %v", us(v._key))
-	} else if a, y := v._val.(FileMap); !y {
+	} else if a, y := v._val.(filemap); !y {
 		ctx.err("wrong closure cache: %v (%v)", us(v._val), a)
 	}
 

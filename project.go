@@ -26,7 +26,7 @@ type _filemap struct {
   paths []Value
 }
 
-type FileMap struct {
+type filemap struct {
   *_filemap
   pattern Value
 }
@@ -40,7 +40,7 @@ func (p *_filemap) String() (s string) {
   return
 }
 
-func (p FileMap) String() (s string) {
+func (p filemap) String() (s string) {
   if p.pattern == nil {
     s = p._filemap.String()
   } else {
@@ -49,7 +49,7 @@ func (p FileMap) String() (s string) {
   return
 }
 
-func (p *FileMap) primePatterns(ctx Context) (pats []Value) {
+func (p *filemap) primePatterns(ctx Context) (pats []Value) {
   var patts = []Value{ p.pattern }
   if patts[0] == nil { patts = p.patts }
 
@@ -71,15 +71,18 @@ func (p *FileMap) primePatterns(ctx Context) (pats []Value) {
 }
 
 // Match split filename into list and match each part with the pattern correspondingly.
-func (filemap *FileMap) Match(ctx Context, val interface{}) (matched bool, pattern Value, name string) {
+func (filemap *filemap) Match(ctx Context, val interface{}) (matched bool, pattern Value, name string) {
   // TODO: escape file matching for 'String' and "compound" values
   for _, pat := range filemap.primePatterns(ctx) {
-    if matched, name = filemap.match(ctx, pat, val); matched { pattern = pat; break }
+    if matched, name = filemap._match(ctx, pat, val); matched {
+      pattern = pat
+      return
+    }
   }
   return
 }
 
-func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched bool, name string) {
+func (filemap *filemap) _match(ctx Context, pat Value, val interface{}) (matched bool, name string) {
   // TODO: escape file matching for 'String' and "compound" values
   var res interface{}
   matched, res, _ = pat.match(ctx, val)
@@ -118,7 +121,7 @@ func (filemap *FileMap) match(ctx Context, pat Value, val interface{}) (matched 
   return // NOTE: also `globMatchFile(ctx, pat, str, true)`
 }
 
-func (p *FileMap) stat(ctx Context, name string) (file *File) {
+func (p *filemap) stat(ctx Context, name string) (file *File) {
   if false && name == "der_dsa_gen.c" {
     defer func() {
       var ( d, s string ; e bool )
@@ -401,8 +404,8 @@ func file(ctx Context, s string, projects ...*project) (res *File) {
   return
 }
 
-func files(ctx Context, iname interface{}, projects ...*project) (maps []matchedFileMap) {
-  var a, b, c, d []matchedFileMap // four sections
+func files(ctx Context, iname interface{}, projects ...*project) (maps []matchedfilemap) {
+  var a, b, c, d []matchedfilemap // four sections
   var ms = unmapfiles(ctx, iname)
 
   if len(projects) == 0 {
@@ -428,7 +431,7 @@ outer:
   return
 }
 
-func (p *project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File) {
+func (p *project) selectFiles(ctx Context, maps []matchedfilemap) (files []*File) {
   for _, m := range maps {
     if m.project == p {
       // mine
@@ -442,7 +445,7 @@ func (p *project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
 
     var f = m.stat(ctx, m.name)
     if f != nil {
-      f.filemap = &m.FileMap
+      f.filemap = &m.filemap
       files = append(files, f)
     }
 
@@ -453,7 +456,7 @@ func (p *project) selectFiles(ctx Context, maps []matchedFileMap) (files []*File
   return
 }
 
-func (p *project) selectFile(ctx Context, maps []matchedFileMap) (file *File) {
+func (p *project) selectFile(ctx Context, maps []matchedfilemap) (file *File) {
   if a := p.selectFiles(ctx, maps); len(a) > 0 { if file = a[0]; !file.exists() {
     for _, f := range a { if f.exists() { return f } }
   }}
@@ -510,7 +513,7 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
       } else if c := p.filemap.slot(ctx, pat, bits|cacheKey); c != nil && c._val == nil {
         c._val = m
       } else if c != nil && c._val != nil {
-        if t, y := c._val.(FileMap); y {
+        if t, y := c._val.(filemap); y {
           if t._filemap == m._filemap && eq(ctx, t.pattern, pat) {
             if opts.silent {/* silent, simply ignore duplications */} else
             if foundDup := -1; /* (opts.debug>0 || opts.verbose) && */true {

@@ -64,7 +64,7 @@ var (
     regepat_t = reflect.TypeOf(regexpat{})
 )
 type filecache struct {
-    a []FileMap
+    a []filemap
     m map[interface{}]*filecache
 }
 
@@ -371,7 +371,7 @@ type filestub struct {
     dir  string      // full directory where the file was or should be found
     sub  string      // matched sub path (see project.search), may be Dir (absolete path)
     name string      // constant represented name (e.g. relative filename)
-    filemap *FileMap // matched pattern (see 'files' directive)
+    filemap *filemap // matched pattern (see 'files' directive)
     other *filestub  // pointed to another stub (in a different project) of the same file
 }
 func (p *filestub) subname() (s string) {
@@ -525,13 +525,13 @@ GotFile:
     return
 }
 
-func (u *universe) filemap(ctx Context, p *project, patts, paths []Value) (res []FileMap) {
+func (u *universe) filemap(ctx Context, p *project, patts, paths []Value) (res []filemap) {
     var base = &_filemap{p, patts, paths}
     for _, patt := range patts {
         if patt == nil {
             errostack(ctx, 5, "nil pattern ; paths=%v", paths).debug(16)
         } else if c, _ := u.filemaps.hit(ctx, patt); c != nil {
-            m := FileMap{base, patt}
+            m := filemap{base, patt}
             c.a = append(c.a, m)
             res = append(res, m)
         }
@@ -539,7 +539,7 @@ func (u *universe) filemap(ctx Context, p *project, patts, paths []Value) (res [
     return
 }
 
-func (u *universe) unmap(ctx Context, key interface{}) (res []matchedFileMap) {
+func (u *universe) unmap(ctx Context, key interface{}) (res []matchedfilemap) {
     var c = &u.filemaps
     if s, y := key.(string); y && strings.ContainsAny(s, pathSep) {
         var ss = strings.Split(s, pathSep)
@@ -560,7 +560,12 @@ func (u *universe) unmap(ctx Context, key interface{}) (res []matchedFileMap) {
     for _, m := range c.a {
         var matched, pattern, s = m.Match(ctx, key)
         if  matched  {
-            res = append(res, matchedFileMap{m, pattern, s})
+            if checkpoints {
+                if m.pattern.cmp(ctx, pattern) != cmpEqual {
+                    erro(ctx, "%v != %v", us(m.pattern), pattern).debug(3)
+                }
+            }
+            res = append(res, matchedfilemap{m, pattern, s})
         } else {
             erro(ctx, "%v %v ; %v", tv(key), m, c).debug(5)
         }
@@ -568,17 +573,17 @@ func (u *universe) unmap(ctx Context, key interface{}) (res []matchedFileMap) {
     return
 }
 
-type matchedFileMap struct {
-    FileMap
+type matchedfilemap struct {
+    filemap
     pattern Value
     name string
 }
 
-func (m matchedFileMap) string() string {
+func (m matchedfilemap) string() string {
     return fmt.Sprintf("{%v, %v, %v}", m.name, m.pattern, m.project)
 }
 
-func unmapfiles(ctx Context, key interface{}) (maps []matchedFileMap) {
+func unmapfiles(ctx Context, key interface{}) (maps []matchedfilemap) {
     return _universe(ctx).unmap(ctx, key)
 }
 

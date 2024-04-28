@@ -2213,7 +2213,7 @@ type builtin_patsubst struct { builtin_
     findFiles bool `find,find-file`
     fullFiles bool `ff,fullfile,fullfiles`
     cleanPath bool `c,clean,cleanpath`
-    noFileMap bool `nomap,no-map,nofile,nofiles,no-files,no-filemap`
+    nofilemap bool `nomap,no-map,nofile,nofiles,no-files,no-filemap`
     erroDstNomap bool `err-dst-nomap,error-dst-nomap`
     warnDstNomap bool `warn-dst-nomap`
 }
@@ -2321,7 +2321,7 @@ ForSources:
 
             if srcFile != nil {
                 var dstFile *File
-                if !ctx.noFileMap { dstFile = proj.file(ctx, nameStr) }
+                if !ctx.nofilemap { dstFile = proj.file(ctx, nameStr) }
                 if dstFile == nil {
                     a := []interface{}{
                         "%v: %v (%v): unmapped destination, aka files (...)",
@@ -3815,7 +3815,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
         ctx.Context = at(cc, a)
 
         var fs []*File
-        var am []matchedFileMap
+        var am []matchedfilemap
         if f, y := toFile(a); y {
             if !ctx.exists || f.exists() /* || f.stat(ctx) != nil */ {
                 res = append(res, f)
@@ -4112,7 +4112,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
         }
     }
 
-    var doFileMap = func(lVal, rVal Value, lPat, rPat bool, fm *FileMap) {
+    var dofilemap = func(lVal, rVal Value, lPat, rPat bool, fm *filemap) {
         defer g.Done()
         for _, loc := range fm.paths {
             if dir := loc.string(ctx); lPat && rPat {
@@ -4133,15 +4133,15 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
         }
     }
 
-    var f1 = func(inVal, mapVal Value, inPat, mapPat bool, fm *FileMap) {
+    var f1 = func(inVal, mapVal Value, inPat, mapPat bool, fm *filemap) {
         defer g.Done()
         if y, _, _ := inVal.match(ctx, mapVal); y { // e.g. inVal=**.am <-> mapVal=foo/bar/*.am
-            g.Add(1) ; go doFileMap(inVal, mapVal, inPat, mapPat, fm)
+            g.Add(1) ; go dofilemap(inVal, mapVal, inPat, mapPat, fm)
         } else if y, _, _ = mapVal.match(ctx, inVal); y { // e.g. mapVal=**.am <-> inVal=foo/bar/*.am
             if g.Add(1) ; true {
-                go doFileMap(inVal, mapVal, inPat, mapPat, fm)
+                go dofilemap(inVal, mapVal, inPat, mapPat, fm)
             } else {
-                go doFileMap(mapVal, inVal, mapPat, inPat, fm)
+                go dofilemap(mapVal, inVal, mapPat, inPat, fm)
             }
         } else {
             warn(ctx, "TODO: wildcard: %v %v", mapVal, inVal).debug(1)
@@ -4150,7 +4150,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
 
     var f2 = func(inVal Value, inPat bool, c *valcache) {
         defer g.Done()
-        var fm, y = c._val.(FileMap)
+        var fm, y = c._val.(filemap)
         if y && fm._filemap != nil {
             for _, mapVal := range fm.primePatterns(ctx) {
                 g.Add(1) ; go f1(inVal, mapVal, inPat, mapVal.patterned(ctx), &fm)

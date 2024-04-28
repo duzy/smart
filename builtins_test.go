@@ -154,7 +154,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat1: %T %v: %v", pat1, pat1, cs)
 	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
 		ctx.err("pat1: %T %v", cs[0]._key, cs[0]._key)
-	} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
+	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
 		ctx.err("pat1: %T %v", cs[0]._val, cs[0]._val)
 	} else if m.pattern.string(ctx) != "**.h" {
 		ctx.err("pat1: %T %v → %T %v", cs[0]._val, cs[0]._val, m.pattern, m.pattern)
@@ -167,7 +167,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat2: %T %v: %v", pat2, pat2, cs)
 	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
 		ctx.err("pat2: %T %v", cs[0]._key, cs[0]._key)
-	} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
+	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
 		ctx.err("pat2: %T %v", cs[0]._val, cs[0]._val)
 	} else if m.pattern.string(ctx) != "**.h" {
 		ctx.err("pat1: %T %v → %T %v", cs[0]._val, cs[0]._val, m.pattern, m.pattern)
@@ -186,7 +186,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat3: %v → %v", pat3, g.string(ctx))
 	} else if g.String() != "**.def.am" {
 		ctx.err("pat3: %v → %v", pat3, g)
-	} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
+	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
 		ctx.err("pat3: %T %v", cs[0]._val, cs[0]._val)
 	} else if m.pattern.string(ctx) != "**.def.am" {
 		ctx.err("pat1: %T %v → %T %v", cs[0]._val, cs[0]._val, m.pattern, m.pattern)
@@ -208,7 +208,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat5: %v: %v", ust{pat5}, cs)
 	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
 		ctx.err("pat5: %v", ust{cs[0]._key})
-	} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
+	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
 		ctx.err("pat5: %v", ust{cs[0]._val})
 	} else if y, r, s := pat5.match(ctx, pat3); y {
 		ctx.err("pat5: %v, %v ; %v %v", ust{pat5}, pat3, r, s)
@@ -225,7 +225,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat6: %v: %v", ust{pat6}, cs)
 	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
 		ctx.err("pat6: %v", ust{cs[0]._key})
-	} else if m, y := cs[0]._val.(FileMap); !y || m.pattern == nil {
+	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
 		ctx.err("pat6: %v", ust{cs[0]._val})
 	} else if m.pattern.string(ctx) != "**.def.am" {
 		ctx.err("pat1: %v → %v", ust{cs[0]._val}, ust{m.pattern})
@@ -479,7 +479,7 @@ func testBuiltin_file0(ctx *testcase) {
 	} else if m.pattern.string(ctx) != ".test/a/**.c" {
 		ctx.err(".test/a/b/c/foo.c: %v", m.pattern)
 	} else if false {
-		noted(ctx, ".test/a/b/c/foo.c: %v %v %v", m.pattern, m.name, m.FileMap).debug(1)
+		noted(ctx, ".test/a/b/c/foo.c: %v %v %v", m.pattern, m.name, m.filemap).debug(1)
 	}
 
 	if t := files(ctx, ".test/a/b/c/foo.c"); t == nil {
@@ -491,7 +491,7 @@ func testBuiltin_file0(ctx *testcase) {
 	} else if m.pattern.string(ctx) != ".test/a/**.c" {
 		ctx.err(".test/a/b/c/foo.c: %v", m.pattern)
 	} else if false {
-		noted(ctx, ".test/a/b/c/foo.c: %v %v %v", m.pattern, m.name, m.FileMap).debug(1)
+		noted(ctx, ".test/a/b/c/foo.c: %v %v %v", m.pattern, m.name, m.filemap).debug(1)
 	}
 
 	if val := ctx.val("val1.1"); val == nil {

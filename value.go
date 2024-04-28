@@ -3582,7 +3582,7 @@ func barefilize(ctx Context, targets ...Value) []Value {
     return targets
 }
 func exp_barefilize(ctx Context, targets ...Value) (res []Value) {
-    var ( project = ctx.project() ; maps []matchedFileMap )
+    var ( project = ctx.project() ; maps []matchedfilemap )
     for _, target := range targets {
         if !target.patterned(ctx) {
             maps = append(maps, files(ctx, target, project)...)
