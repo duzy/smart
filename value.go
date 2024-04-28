@@ -2734,21 +2734,6 @@ func (p *bareword) filecache(ctx Context, fc *filecache) (res *filecache, done b
     }
     return
 }
-func (p *bareword) glob_dast(ctx Context, k interface{}, c *filecache) (res *filecache) {
-    var s string
-    switch t := k.(type) {
-    case token: s = t.String()
-    default:
-        noted(ctx, "TODO: %v : %v %v", p, us(k), c).debug(1)
-        return
-    }
-
-    if i := strings.Index(p.s, s); 0 <= i {
-        noted(ctx, "TODO: %v , %s %s : %v %v", p, p.s[:i], p.s[i+1:], us(k), c).debug(1)
-    }
-
-    return
-}
 func (p *bareword) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
     return cache.str(at(ctx, p.position), p.s, bits)
 }
@@ -3282,37 +3267,6 @@ func (p *barecomp) filecache(ctx Context, _c *filecache) (res *filecache, done b
             if res = c ; done { return }
         }
     }
-    return
-}
-func (p *barecomp) glob_dast(ctx Context, k interface{}, c *filecache) (res *filecache) {
-    if checkpoints { defer func() {
-        s := fmt.Sprintf("%s", k)
-        if res == nil {
-            if 0 <= strings.Index(p.string(ctx), s) {
-                erro(ctx, "%v contains %v ; %v", us(p), us(k), c).debug(6)
-            }
-        }
-    }()}
-
-    var s string
-    switch t := k.(type) {
-    case token: s = t.String()
-        for i, elem := range p.elems {
-            if e := elem.String(); s == e {
-                noted(ctx, "TODO: %v : %v %v %v", p, us(elem), us(p.elems[i+1:]), c).debug(1)
-            }
-        }
-        return
-    default:
-        noted(ctx, "TODO: %v : %v %v", p, us(k), c).debug(1)
-        return
-    }
-
-    var t = p.String()
-    if i := strings.Index(t, s); 0 <= i {
-        noted(ctx, "TODO: %v , %s %s : %v %v", us(p), t[:i], t[i+1:], us(k), c).debug(1)
-    }
-
     return
 }
 func (p *barecomp) cache(ctx Context, cache *valcache, bits int) (res *valcache) {

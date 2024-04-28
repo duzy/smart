@@ -58,6 +58,11 @@ func cacheUnmap(ctx Context) (res bool) {
     return
 }
 
+var (
+    globpat_t = reflect.TypeOf(globpat{})
+    percpat_t = reflect.TypeOf(percpat{})
+    regepat_t = reflect.TypeOf(regexpat{})
+)
 type filecache struct {
     a []FileMap
     m map[interface{}]*filecache
@@ -95,10 +100,13 @@ func (p *filecache) hit(ctx Context, k interface{}) (res *filecache, done bool) 
     if cacheUnmap(ctx) {
         if p.m == nil { return }
         if res, y = p.m[k]; y { return }
-        if x, y := p.m[reflect.TypeOf(globpat{})]; y && x.m != nil {
+        if x, y := p.m[globpat_t]; y && x.m != nil {
             if res, done = x.glob(ctx, k); res != nil || done { return }
         }
-        if x, y := p.m[reflect.TypeOf(regexpat{})]; y && x.m != nil {
+        if x, y := p.m[percpat_t]; y && x.m != nil {
+            if res, done = x.perc(ctx, k); res != nil || done { return }
+        }
+        if x, y := p.m[regepat_t]; y && x.m != nil {
             if res, done = x.regex(ctx, k); res != nil || done { return }
         }
         if false { errostack(at(ctx,k), 5, "filecache %v : %v", us(k), p).debug(6) }
@@ -117,92 +125,62 @@ func (p *filecache) glob(ctx Context, k interface{}) (res *filecache, done bool)
     var pc = cast[*pathcache](ctx)
     var ps = cast[*pstrcache](ctx)
     for t, c := range p.m {
-        var pat, y = t.(string)
-        if !y {
+        if pat, y := t.(string) ; !y {
             erro(ctx, "TODO: %v %v ; %v", us(k), us(t), c).debug(3)
         } else if pc != nil {
+            var v Value
             if pc.i+1 == pc.p.len() {
-                var x = pc.p.elems[pc.i]
-                var f, st, e = globMatch(ctx, pat, x.string(ctx))
-                if checkpoints {
-                    if e != nil {
-                        erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
-                    }
-                    if f && pat == "*.c" && (len(st) != 1 || st[0] == "") {
-                        erro(ctx, "%v %v → %v %v", us(x), us(t), f, st).debug(8)
-                    }
-                }
-                if f { pc.i = pc.p.len() ; return c, true }
-                if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", x, us(t), f, st, c).debug(10) }
+                v = pc.p.elems[pc.i]
             } else {
-                var x = &path{elements{pc.p.elems[pc.i:]}}
-                var f, st, e = globMatch(ctx, pat, x.string(ctx))
-                if checkpoints {
-                    if e != nil {
-                        erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
-                    }
-                    if f && pat == "**.c" && (len(st) != 1 || st[0] == "") {
-                        erro(ctx, "%v %v → %v %v", us(x), us(t), f, st).debug(8)
-                    }
-                }
-                if f { pc.i = pc.p.len() ; return c, true }
-                if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", x, us(t), f, st, c).debug(10) }
+                v = &path{elements{pc.p.elems[pc.i:]}}
+            }
+            if c._glob(ctx, pat, v.string(ctx)) {
+                pc.i = pc.p.len()
+                return c, true
             }
         } else if ps != nil {
-            if ps.i+1 == len(ps.p) {
-                var f, st, e = globMatch(ctx, pat, ps.p[ps.i])
-                if checkpoints {
-                    if e != nil {
-                        erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
-                    }
-                }
-                if f { ps.i = len(ps.p) ; return c, true }
-                if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", k, us(t), f, st, c).debug(10) }
-            } else {
-                var f, st, e = globMatch(ctx, pat, joinPath(ps.p[ps.i:]...))
-                if checkpoints {
-                    if e != nil {
-                        erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
-                    }
-                }
-                if f { ps.i = len(ps.p) ; return c, true }
-                if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", k, us(t), f, st, c).debug(10) }
+            if c._glob(ctx, pat, joinPath(ps.p[ps.i:]...)) {
+                ps.i = len(ps.p)
+                return c, true
             }
         } else if s, y := k.(string); y {
-            var f, st, e = globMatch(ctx, pat, s)
-            if checkpoints {
-                if e != nil {
-                    erro(ctx, "%v %v → %v %v %v", st, us(t), f, st, e).debug(8)
-                }
-                if f && pat == "*.c" && (len(st) != 1 || st[0] == "") {
-                    erro(ctx, "%v %v → %v %v", s, us(t), f, st).debug(8)
-                }
+            if c._glob(ctx, pat, s) {
+                return c, true
             }
-            if f { return c, true }
-            if true && st != nil { erro(ctx, "%v %v ; %v %v ; %v", k, us(t), f, st, c).debug(10) }
         } else {
             erro(ctx, "TODO: %v %v ; %v", us(k), us(t), c).debug(3)
         }
     }
     return
 }
+func (p *filecache) _glob(ctx Context, pat, str string) bool {
+    var f, st, e = globMatch(ctx, pat, str)
 
-func (p *filecache) glob_dast(ctx Context, pa *path, _i int) (res *filecache) {
-    for k, c := range p.m {
-        for i := _i; i < pa.len(); i += 1 {
-            switch t := pa.elems[i].(type) {
-            case interface{ glob_dast(Context, interface{}, *filecache) *filecache }:
-                if c := t.glob_dast(ctx, k, c) ; c != nil { return c }
-            default:
-                noted(ctx, "TODO: %v : %d. %v : %v %v", pa, i, tv(t), us(k), c).debug(1)
-            }
+    if checkpoints {
+        if e != nil {
+            erro(ctx, "%v %v → %v %v %v", st, pat, f, st, e).debug(8)
+        }
+        if f && pat == "*.c" && (len(st) != 1 || st[0] == "") {
+            erro(ctx, "%v %v → %v %v", str, pat, f, st).debug(8)
+        }
+        if f && pat == "**.c" && (len(st) != 1 || st[0] == "") {
+            erro(ctx, "%v %v → %v %v", str, pat, f, st).debug(8)
         }
     }
+
+    if true && !f && st != nil {
+        erro(ctx, "%v %v ; %v %v ; %v", str, pat, f, st, p).debug(10)
+    }
+    return f
+}
+
+func (p *filecache) perc(ctx Context, k interface{}) (res *filecache, done bool) {
+    erro(ctx, "TODO: %v %v", us(k), p).debug(3)
     return
 }
 
 func (p *filecache) regex(ctx Context, k interface{}) (res *filecache, done bool) {
-    noted(ctx, "TODO: %v %v", us(k), p).debug(3)
+    erro(ctx, "TODO: %v %v", us(k), p).debug(3)
     return
 }
 
