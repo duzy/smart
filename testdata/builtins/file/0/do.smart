@@ -19,5 +19,5 @@ val3 := $(file(-mapped) .test/xx/yy/foo.c)
 val4 := $(file(-mapped) .test/xx/yy/zz/foo.c)
 val5 := $(file          .test/xx/yy/zz/aa/foo.c) # none
 
-pat1 := .test/a/b/c.auto
-pat2 := .test/a/b/c.none
+p1 := .test/a/b/c.auto
+p2 := .test/a/b/c.none

@@ -65,10 +65,10 @@ func testValueCache1(ctx *testcase) { testValueCache0(ctx)
 		ctx.err("universe filecache.a")
 	} else if u.filemaps.m == nil {
 		ctx.err("universe filecache.m")
-	} else if m, y := u.filemaps.m["foo"]; !y {
+	} else if x, y := u.filemaps.m["foo"]; !y {
 		ctx.err("universe filecache.m[foo] : %v", u.filemaps.m)
 	} else {
-		noted(ctx, "%v", m).debug(1)
+		noted(ctx, "%v", x).debug(1)
 	}
 }
 

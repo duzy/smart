@@ -470,108 +470,131 @@ func testBuiltin_wildcard(ctx *testcase) {
 }
 
 func testBuiltin_file0(ctx *testcase) {
-	if t := unmapfiles(ctx, ".test/a/b/c/foo.c"); t == nil {
-		ctx.err(".test/a/b/c/foo.c")
+	if pat, str := ".test/a/**.c", ".test/a/b/c/foo.c"; false {
+	} else if t := unmapfiles(ctx, str); t == nil {
+		ctx.err("unmapfiles %s", str)
 	} else if len(t) != 1 {
-		ctx.err(".test/a/b/c/foo.c: %v", t)
-	} else if m := t[0]; m.name != ".test/a/b/c/foo.c" {
-		ctx.err(".test/a/b/c/foo.c: %v", m.name)
-	} else if m.pattern.string(ctx) != ".test/a/**.c" {
-		ctx.err(".test/a/b/c/foo.c: %v", m.pattern)
-	} else if false {
-		noted(ctx, ".test/a/b/c/foo.c: %v %v %v", m.pattern, m.name, m.filemap).debug(1)
-	}
-
-	if t := files(ctx, ".test/a/b/c/foo.c"); t == nil {
-		ctx.err(".test/a/b/c/foo.c")
+		ctx.err("%s: %v", str, t)
+	} else if m := t[0]; m.name != str {
+		ctx.err("%s: %v", str, m.name)
+	} else if m.pattern.string(ctx) != pat {
+		ctx.err("%s: %v", str, m.pattern)
+	} else if t := files(ctx, str); t == nil {
+		ctx.err(str)
 	} else if len(t) != 1 {
-		ctx.err(".test/a/b/c/foo.c: %v", t)
-	} else if m := t[0]; m.name != ".test/a/b/c/foo.c" {
-		ctx.err(".test/a/b/c/foo.c: %v", m.name)
-	} else if m.pattern.string(ctx) != ".test/a/**.c" {
-		ctx.err(".test/a/b/c/foo.c: %v", m.pattern)
-	} else if false {
-		noted(ctx, ".test/a/b/c/foo.c: %v %v %v", m.pattern, m.name, m.filemap).debug(1)
-	}
-
-	if val := ctx.val("val1.1"); val == nil {
-		ctx.err("val1.1")
-	} else if val.string(ctx) != ".test/a/b/c/foo.c" {
+		ctx.err("%s: %v", str, t)
+	} else if m := t[0]; m.name != str {
+		ctx.err("%s: %v", str, m.name)
+	} else if m.pattern.string(ctx) != pat {
+		ctx.err("%s: %v", str, m.pattern)
+	} else if   s := "val1.1" ; false {
+	} else if val := ctx.val(s); val == nil {
+		ctx.err(s)
+	} else if val.string(ctx) != str {
 		ctx.err("%v", ust{val})
-	} else if val.String() != "{=file .test/a/b/c/foo.c}" {
+	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", ust{val})
 	} else if f, y := val.(*File); !y {
 		ctx.err("%v", ust{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
-	} else if f.filemap.String() != ".test/a/**.c" {
+	} else if f.filemap.String() != pat {
 		ctx.err("%v: %v", f, f.filemap)
-	}
-
-	if val := ctx.val("val1.2"); val == nil {
-		ctx.err("val1.2")
-	} else if val.string(ctx) != ".test/a/b/c/foo.c" {
+	} else if   s := "val1.2" ; false {
+	} else if val := ctx.val(s); val == nil {
+		ctx.err(s)
+	} else if val.string(ctx) != str {
 		ctx.err("%v", ust{val})
-	} else if val.String() != "{=file .test/a/b/c/foo.c}" {
+	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", ust{val})
 	} else if f, y := val.(*File); !y {
 		ctx.err("%v", ust{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
-	} else if f.filemap.String() != ".test/a/**.c" {
+	} else if f.filemap.String() != pat {
 		ctx.err("%v: %v", f, f.filemap)
 	}
 
-	if val := ctx.val("val2.1"); val == nil {
-		ctx.err("val2.1: %v", ctx.project())
-	} else if val.String() != "{=file .test/xx/foo.c}" {
+	if pat, str := ".test/xx/*.c", ".test/xx/foo.c"; false {
+	} else if t := unmapfiles(ctx, str); t == nil {
+		ctx.err("unmapfiles %s", str)
+	} else if len(t) != 1 {
+		ctx.err("%s: %v", str, t)
+	} else if m := t[0]; m.name != str {
+		ctx.err("%s: %v", str, m.name)
+	} else if m.pattern.string(ctx) != pat {
+		ctx.err("%s: %v", str, m.pattern)
+	} else if   s := "val2.1" ; false {
+	} else if val := ctx.val(s); val == nil {
+		ctx.err("%s: %v", s, ctx.project())
+	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", ust{val})
 	} else if f, y := val.(*File); !y {
 		ctx.err("%v", ust{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
-	} else if f.filemap.String() != ".test/xx/*.c" {
+	} else if f.filemap.String() != pat {
 		ctx.err("%v: %v", f, f.filemap)
-	}
-
-	if val := ctx.val("val2.2"); val == nil {
-		ctx.err("val2.2: %v", ctx.project())
-	} else if val.String() != "{=file .test/xx/foo.c}" {
+	} else if   s := "val2.2" ; false {
+	} else if val := ctx.val(s); val == nil {
+		ctx.err("%s: %v", s, ctx.project())
+	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", ust{val})
 	} else if f, y := val.(*File); !y {
 		ctx.err("%v", ust{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
-	} else if f.filemap.String() != ".test/xx/*.c" {
+	} else if f.filemap.String() != pat {
 		ctx.err("%v: %v", f, f.filemap)
 	}
 
-	if val := ctx.val("val3"); val == nil {
-		ctx.err("val3: %v", ctx.project())
-	} else if val.String() != "{=file .test/xx/yy/foo.c}" {
-		ctx.err("%v", ust{val})
+	if pat, str := ".test/xx/yy/*.c", ".test/xx/yy/foo.c"; false {
+	} else if t := unmapfiles(ctx, str); t == nil {
+		ctx.err("unmapfiles %s", str)
+	} else if len(t) != 1 {
+		ctx.err("%s: %v", str, t)
+	} else if m := t[0]; m.name != str {
+		ctx.err("%s: %v", str, m.name)
+	} else if m.pattern.string(ctx) != pat {
+		ctx.err("%s: %v", str, m.pattern)
+	} else if   s := "val3" ; false {
+	} else if val := ctx.val(s); val == nil {
+		ctx.err("%s: %v", s, ctx.project())
 	} else if f, y := val.(*File); !y {
 		ctx.err("%v", ust{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
-	} else if f.filemap.String() != ".test/xx/yy/*.c" {
+	} else if f.filemap.String() != pat {
 		ctx.err("%v: %v", f, f.filemap)
+	} else if val.String() != "{=file "+str+"}" {
+		ctx.err("%v", ust{val})
 	}
 
-	if val := ctx.val("val4"); val == nil {
-		ctx.err("val4: %v", ctx.project())
-	} else if val.String() != "{=file .test/xx/yy/zz/foo.c}" {
-		ctx.err("%v", ust{val})
+	if pat, str := ".test/xx/yy/zz/*.c", ".test/xx/yy/zz/foo.c"; false {
+	} else if t := unmapfiles(ctx, str); t == nil {
+		ctx.err("unmapfiles %s", str)
+	} else if len(t) != 1 {
+		ctx.err("%s: %v", str, t)
+	} else if m := t[0]; m.name != str {
+		ctx.err("%s: %v", str, m.name)
+	} else if m.pattern.string(ctx) != pat {
+		ctx.err("%s: %v", str, m.pattern)
+	} else if   s := "val4" ; false {
+	} else if val := ctx.val(s); val == nil {
+		ctx.err("%s: %v", s, ctx.project())
 	} else if f, y := val.(*File); !y {
 		ctx.err("%v", ust{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
-	} else if f.filemap.String() != ".test/xx/yy/zz/*.c" {
+	} else if f.filemap.String() != pat {
 		ctx.err("%v: %v", f, f.filemap)
+	} else if val.String() != "{=file "+str+"}" {
+		ctx.err("%v", ust{val})
 	}
 
-	if val := ctx.val("val5"); val == nil {
-		ctx.err("val5: %v", ctx.project())
+	if s := "val5" ; false {
+	} else if val := ctx.val(s); val == nil {
+		ctx.err("%s : %v", s, ctx.project())
 	} else if _, y := val.(*null); !y {
 		ctx.err("%v", ust{val})
 	} else if val.String() != "{}" {
@@ -580,26 +603,41 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%v", ust{val})
 	}
 
-	if v := ctx.val("pat1"); v == nil {
-		ctx.err("pat1: %v", ctx.project())
-	} else if _, y := v.(*path); !y {
+	if pat, str := "**.auto", ".test/a/b/c.auto"; false {
+	} else if t := unmapfiles(ctx, str); t == nil {
+		ctx.err("unmapfiles %s", str)
+	} else if len(t) != 1 {
+		ctx.err("%s: %v", str, t)
+	} else if m := t[0]; m.name != str {
+		ctx.err("%s: %v", str, m.name)
+	} else if m.pattern.string(ctx) != pat {
+		ctx.err("%s: %v", str, m.pattern)
+	} else if s := "p1" ; false {
+	} else if v := ctx.val(s); v == nil {
+		ctx.err("%s : %v", s, ctx.project())
+	} else if x, y := v.(*path); !y {
+		ctx.err("%v", ust{v})
+	} else if x.string(ctx) != str {
 		ctx.err("%v", ust{v})
 	} else if t := unmapfiles(ctx, v); t == nil {
-		ctx.err("%v", ust{v})
+		ctx.err("unmapfiles %v", ust{v})
 	} else if len(t) != 1 {
 		ctx.err("%v %v", ust{v}, t)
-	} else if m := t[0]; m.name != ".test/a/b/c.auto" {
+	} else if m := t[0]; m.name != str {
 		ctx.err("%v: %v", ust{v}, m.name)
-	} else if m.pattern.string(ctx) != "**.auto" {
+	} else if m.pattern.string(ctx) != pat {
 		ctx.err("%v: %v", ust{v}, m.pattern)
 	}
 
-	if v := ctx.val("pat2"); v == nil {
-		ctx.err("pat2: %v", ctx.project())
-	} else if _, y := v.(*path); !y {
+	if s := "p2" ; false {
+	} else if v := ctx.val(s); v == nil {
+		ctx.err("%s : %v", s, ctx.project())
+	} else if x, y := v.(*path); !y {
+		ctx.err("%v", ust{v})
+	} else if x.string(ctx) != ".test/a/b/c.none" {
 		ctx.err("%v", ust{v})
 	} else if t := unmapfiles(ctx, v); t != nil {
-		ctx.err("%v", v)
+		ctx.err("unmapfiles %v", ust{v})
 	}
 }
 

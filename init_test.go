@@ -326,7 +326,6 @@ func Test(t *testing.T) {
 
 	// builtins_test.go
 	run("builtins", "builtins/wildcard",   "testbuiltins", testBuiltin_wildcard)
-	run("builtins", "builtins/file/0",     "testbuiltins", testBuiltin_file0)
 	run("builtins", "builtins/foreach",    "testbuiltins", testBuiltin_foreach)
 	run("builtins", "builtins/foreach/1",  "testbuiltins", testBuiltin_foreach1)
 	run("builtins", "builtins/foreach/2",  "testbuiltins", testBuiltin_foreach2)
@@ -340,7 +339,6 @@ func Test(t *testing.T) {
 	run("builtins", "builtins/join",       "testbuiltins", testBuiltin_join)
 	run("builtins", "builtins/or",         "testbuiltins", testBuiltin_or)
 	run("builtins", "builtins/xor",        "testbuiltins", testBuiltin_xor)
-	run("builtins", "builtins/file",       "testbuiltins", testBuiltin_file)
 	run("builtins", "builtins/trimprefix", "testbuiltins", testBuiltin_trimprefix)
 	run("builtins", "builtins/trimsuffix", "testbuiltins", testBuiltin_trimsuffix)
 
@@ -358,6 +356,10 @@ func Test(t *testing.T) {
 	// valcache_test.go
 	run("valcache", "valcache/1", "testvalcache", testValueCache1)
 	run("valcache", "valcache",   "testvalcache", testValueCache)
+
+	// builtins_test.go
+	run("builtins", "builtins/file/0",     "testbuiltins", testBuiltin_file0)
+	run("builtins", "builtins/file",       "testbuiltins", testBuiltin_file)
 
 	// rules_test.go
 	run("rules", "rule/0",                "testrules", testRules0)

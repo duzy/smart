@@ -4069,20 +4069,30 @@ func (p *path) cmp_check(ctx Context, v Value, res cmpres) {
     }
 }
 func (p *path) filecache(ctx Context, _c *filecache) (res *filecache, done bool) {
+    var x = pathcache{ctx,p,0}
+    var cc Context = &x
     var c = _c
-    for x := (pathcache{ctx,p,0}); x.i < p.len(); x.i += 1 {
+    for c != nil {
         var elem = p.elems[x.i]
         if indeterminate(ctx, elem) {
-            erro(at(ctx,elem), "filecache %v : indeterminate element : %v", p, us(elem)).debug(3)
+            erro(at(ctx,elem), "filecache %v : indeterminate element : %d. %v", p, x.i, us(elem)).debug(3)
             return
-        } else if c, done = c.hit(&x, elem) ; c == nil {
+        }
+
+        _c = c
+
+        if c, done = c.hit(cc, elem) ; c == nil {
             if cacheMapping(ctx) {
                 erro(at(ctx,elem), "no filecache for %v : %v", us(elem), _c).debug(3)
             }
             return
-        } else {
-            if res = c ; done { return }
         }
+
+        res = c
+
+        if p.len() <= x.i+1 || done { return }
+        cc = filecache_context{cc, _c, p.elems[x.i]}
+        x.i += 1
     }
     return
 }
