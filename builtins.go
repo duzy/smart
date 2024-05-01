@@ -465,10 +465,10 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
         } else if ft.Name == "generalOpts" {
             general = fv.Addr()
         } else if strings.HasPrefix(ft.Name, "builtin_") {
-            if builtin.IsValid() { noted(ctx, "embedded multiple builtins: %v", ft).debug(3) }
+            if builtin.IsValid() { note(ctx, "embedded multiple builtins: %v", ft).debug(3) }
             builtin = fv.Addr()
         } else if strings.HasPrefix(ft.Name, "modifier_") {
-            if modifier.IsValid() { noted(ctx, "embedded multiple modifiers: %v", ft).debug(3) }
+            if modifier.IsValid() { note(ctx, "embedded multiple modifiers: %v", ft).debug(3) }
             modifier = fv.Addr()
         }
     }
@@ -893,21 +893,21 @@ func (ctx *builtin_equal) x() (res interface{}) {
         t = a.cmp(ctx, b) == cmpEqual
     }
     // if ctx.evocation.a[0].String() == "$(foo)" && ctx.evocation.a[1].String() == "foo" {
-    //     noted(ctx, "%v %v %v", us(a), us(b), t).debug(1)
+    //     note(ctx, "%v %v %v", us(a), us(b), t).debug(1)
     // }
 
     if t {
         res = makeBoolean(ctx.Position(), true)
     } else if n := ctx.debug; n>0 {
         if l, y := a.(*list); y { var v = l.elems[0]
-            noted(at(ctx,a), "equal: a: %v{%v} (len=%d)", typeof(v), v, len(l.elems))
+            note(at(ctx,a), "equal: a: %v{%v} (len=%d)", typeof(v), v, len(l.elems))
         } else {
-            noted(at(ctx,a), "equal: a: %v{%v} (%s)", typeof(a), a, a.string(ctx))
+            note(at(ctx,a), "equal: a: %v{%v} (%s)", typeof(a), a, a.string(ctx))
         }
         if l, y := b.(*list); y { var v = l.elems[0]
-            noted(at(ctx,b), "equal: b: %v{%v} (len=%d)", typeof(v), v, len(l.elems))
+            note(at(ctx,b), "equal: b: %v{%v} (len=%d)", typeof(v), v, len(l.elems))
         } else {
-            noted(at(ctx,b), "equal: b: %v{%v} (%s)", typeof(b), b, b.string(ctx))
+            note(at(ctx,b), "equal: b: %v{%v} (%s)", typeof(b), b, b.string(ctx))
         }
         notestack(ctx, n).debug(n)
     } else if len(ctx.evocation.a)>2 {
@@ -1002,7 +1002,7 @@ func (ctx *builtin_match) _x() (res interface{}) {
     }
     if ctx.debug > 0 {
         var ( n = len(ctx.evocation.a) ; d = ctx.debug )
-        noted(ctx, "match: %v %v %v, %d", ctx.regexps, patList, valList, n).debug(d)
+        note(ctx, "match: %v %v %v, %d", ctx.regexps, patList, valList, n).debug(d)
     }
 
     var pos = ctx.Position()
@@ -1039,8 +1039,8 @@ ForValList:
         }
 
         if ctx.debug > 0 {
-            noted(ctx, "match: %v", str)
-            noted(ctx, "match: %v %T", val, val).debug(1)
+            note(ctx, "match: %v", str)
+            note(ctx, "match: %v %T", val, val).debug(1)
         }
     }
     return
@@ -2563,8 +2563,8 @@ func (ctx *builtin_trimprefix) x() (_ interface{}) {
                     if len(m) != 1 {
                         erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug(1)
                     } else if strings.TrimPrefix(v, "/"+m[0]) != "/testdata/builtins/trimprefix" {
-                        noted(ctx, "/%v", m[0])
-                        noted(ctx, "%v", val)
+                        note(ctx, "/%v", m[0])
+                        note(ctx, "%v", val)
                         erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug(1)
                     }
                 }
@@ -3148,10 +3148,10 @@ func (ctx *builtin_dirs) x() (res interface{}) {
             } else {
                 f = stat(ctx, s, stat_sub{f.sub}, stat_dir{f.dir}, stat_nonexist{true})
             }
-            if d>0 { noted(ctx, "%T %v ⇒ %v %v", a, a, f, f.fullname()).debug(d) }
+            if d>0 { note(ctx, "%T %v ⇒ %v %v", a, a, f, f.fullname()).debug(d) }
             v = f
         } else if s != "" {
-            if d>0 { noted(ctx, "%T %v ⇒ %v", a, a, s).debug(d) }
+            if d>0 { note(ctx, "%T %v ⇒ %v", a, a, s).debug(d) }
             v = _pathstr(at(ctx, a), s)
         } else {
             continue
@@ -4128,7 +4128,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
             } else if !lPat && rPat {
                 st(dir, lVal)
             } else {
-                noted(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, dir)
+                note(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, dir)
             }
         }
     }

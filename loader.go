@@ -210,7 +210,7 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
         }
         if name = val.string(ctx); name == "" { c := user.configure
             if c != nil { t := c.resolve(ctx, "use.*")
-                noted(ctx, "%v", us(t))
+                note(ctx, "%v", us(t))
             }
             erro(at(ctx,val), "%v: empty use spec: '%v' (%T)", user, spec, spec).debug(1)
         } else {
@@ -239,8 +239,8 @@ func usevars(ctx Context, user, usee *project) {
             if d == nil && a != nil { d, _ = a.(*def) }
             if d == nil { return }
             if d.value != nil && d.value.String() == "unique" {
-                noted(ctx, "%v (%v, %v, %v)", d, user, isNewDef, a)
-                noted(ctx, "%v", useDef).debug(10)
+                note(ctx, "%v (%v, %v, %v)", d, user, isNewDef, a)
+                note(ctx, "%v", useDef).debug(10)
             }
             if isNewDef || isTrivial(d.value) {
                 dd = append(dd, baseNonTrivialDefs(ctx, user, useDef.ident(ctx))...)
@@ -263,7 +263,7 @@ func usevars(ctx Context, user, usee *project) {
             op.apply(closureWith(ctx, user.scope), d, append(dd, useDef)...)
         }
     })
-    if ddd { noted(ctx, "%v ⇒ %v ; %v", user, usee, user.resolve(ctx, "use.*")).debug(5) }
+    if ddd { note(ctx, "%v ⇒ %v ; %v", user, usee, user.resolve(ctx, "use.*")).debug(5) }
 }
 func baseNonTrivialDefs(ctx Context, user *project, name string) (dd []*def) {
     for _, base := range user.bases { if o := base.resolve(ctx, name); o != nil {
@@ -947,11 +947,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
         }
     }
 
-    if n := flush(ctx); n > 0 { warn(ctx, "got %d errors", n).debug(1)
-        if u.failOnErrors { total := _diagnostic(ctx).errs
-            panic(_failure(ctx, "fail by %d errors", total))
-        }
-    }
+    flush(ctx)
     return
 }
 func (l *loader) closure() (scopes []*Scope) {
@@ -1642,7 +1638,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
     l.p.scanner.init(u.file(filename, text), text, smod,
         func(p Position, s string, a ...interface{}) {
             if a == nil { a = append(a, 4, 4) }
-            noted(at(ctx,p), "%s", s)
+            note(at(ctx,p), "%s", s)
             erro(at(ctx,p), "scan=%v", l.p.scanner.scanstate).debug(a...)
         },
         func(p Position, s string, a ...interface{}) {
@@ -1742,9 +1738,9 @@ func (l *loader) sources(ctx Context, path string, filter func(os.FileInfo) bool
 
     if loader_sources_bench { defer func(t time.Time) {
         if d := time.Now().Sub(t); u.verboseParse || d > time.Second {
-            noted(ctx, "slow: %s (%v)", l.proj, d).debug(1)
+            note(ctx, "slow: %s (%v)", l.proj, d).debug(1)
         } else if debugSyntax(ctx, "sources") {
-			noted(ctx, "sources: %s (%v)", l.proj, time.Now().Sub(t)).debug(6)
+			note(ctx, "sources: %s (%v)", l.proj, time.Now().Sub(t)).debug(6)
 		}
     }(time.Now())}
 
@@ -1825,29 +1821,26 @@ ListLoop:
 
         if linked != "" { }
 
-        if mo.IsRegular() && (filter == nil || filter(d)) { var pos Position
+        if mo.IsRegular() && (filter == nil || filter(d)) {
+            var pos Position
             pos.Filename, pos.Line = filename, 1
 
             var src, _, err = l.source(ctx, filename, nil, mode|parsingDir, nil)
+            if err != nil { erro(ctx, "parse failed: %v", err) }
 
             var d *diagPoint
-            if n := flush(ctx); n > 0 {
-                total := _diagnostic(ctx).errs
-                if err != nil { erro(ctx, "parse failed: %v", err) }
-
+            if flush(ctx) > 0 {
+                e := _diagnostic(ctx).countError()
                 s := filepath.Base(filename)
-                d = erro(ctx, "got %d errors in file '%s'", n, s)
-                if u.failOnErrors {
-                    panic(_failure(ctx, "got %d errors, %s", total, s))
+                d = erro(ctx, "got %d errors in file '%s'", e, s)
+            } else if err == nil {
+                if src == nil {
+                    d = erro(ctx, "parsed nil module from")
+                } else if isNull(src.name) {
+                    d = erro(ctx, "parsed module name is <nil>")
+                } else if isNone(src.name) {
+                    d = erro(ctx, "parsed module name is <none>")
                 }
-            } else if err != nil {
-                d = erro(ctx, "parse file failed: %v", err)
-            } else if src == nil {
-                d = erro(ctx, "parsed nil module from")
-            } else if isNull(src.name) {
-                d = erro(ctx, "parsed module name is <nil>")
-            } else if isNone(src.name) {
-                d = erro(ctx, "parsed module name is <none>")
             }
             if d != nil {
                 if l.p != nil && l.p.scanner.file != nil {
@@ -1912,18 +1905,15 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
 
     var doc, _, err = l.source(ctx, absPath, source, parseMode, nil)
-    if n := flush(l.Context); n > 0 {
-        if false && u.failOnErrors {
-            panic(_failure(ctx, "fail by %d errors", n))
-        }
-        return
-    } else if err != nil {
+    if err != nil {
         erro(ctx, "load: %v", err).debug(1)
     } else if doc == nil {
         erro(ctx, "load: nil: %s", absPath).debug(1)
     } else {
         result = true
     }
+
+    flush(l.Context)
     return
 }
 
@@ -1947,9 +1937,9 @@ func (l *loader) directory(ctx Context, specName, absDir string, filter func(os.
         if specName == "." { specName = absDir }
 
         if d := time.Now().Sub(t); ver && d>1*time.Second { if l.proj == nil {
-            noted(ctx, "load (%15s) ⇒ %s (%s)\n", d, loadedProj, specName).debug(1)
+            note(ctx, "load (%15s) ⇒ %s (%s)\n", d, loadedProj, specName).debug(1)
         } else {
-            noted(ctx, "load (%15s) %s ⇒ %s (%s)\n", d, l.proj.name, loadedProj, specName).debug(1)
+            note(ctx, "load (%15s) %s ⇒ %s (%s)\n", d, l.proj.name, loadedProj, specName).debug(1)
         }}
 
         if loadedProj == nil { return }
@@ -1974,7 +1964,6 @@ func (l *loader) directory(ctx Context, specName, absDir string, filter func(os.
     var mods map[string]*project
     if mods = l.sources(at(l, pos), absDir, filter, parseMode); mods == nil {
         errostack(ctx, 3, "failed parsing module: %s", specName).debug(12)
-        if u.failOnErrors { panic(_failure(ctx, "%d errors", _diagnostic(l.Context).errs)) }
         return
     }
 

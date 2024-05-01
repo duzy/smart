@@ -46,7 +46,7 @@ func (c *pathcache) do(prop property, a ...interface{}) interface{} {
     return bitdo(c.Context, a, prop, propCachePath)
 }
 
-type pstrcache struct { Context ; p []string ; i int }
+type pstrcache struct { Context ; s string ; ss []string ; i int }
 func (c *pstrcache) cast(t reflect.Type) Context { return implcast(c, t) }
 func (c *pstrcache) do(prop property, a ...interface{}) interface{} {
     return bitdo(c.Context, a, prop, propCachePath)
@@ -58,14 +58,18 @@ func (c filecache_context) cast(t reflect.Type) Context { return implcast(c, t) 
 func cacheMapping(ctx Context) bool { return !cacheUnmap(ctx) }
 func cacheUnmap(ctx Context) bool { t, _ := ctx.do(propCacheUnmap).(bool); return t }
 
-
 var (
+    closure_t = reflect.TypeOf(closure{})
     globpat_t = reflect.TypeOf(globpat{})
     percpat_t = reflect.TypeOf(percpat{})
     regepat_t = reflect.TypeOf(regexpat{})
 )
+
 type filecache struct {
     a []filemap
+
+    // NOTE: some performance overhead when using interface{}-keys, comparing to
+    // string-keys, this is easier to implement and making code clean.
     m map[interface{}]*filecache
 }
 
@@ -92,6 +96,9 @@ func (p *filecache) hit(ctx Context, k interface{}) (res *filecache, done bool) 
         return
 
     case Value:
+        if indeterminate(ctx, t) {
+            return p.indeter(ctx, t)
+        }
         errostack(at(ctx,k), 5, "non-filecache-able %v : %v", us(k), p).debug(8)
         return
     }
@@ -110,7 +117,17 @@ func (p *filecache) hit(ctx Context, k interface{}) (res *filecache, done bool) 
         return
     }
 }
+func (p *filecache) indeter(ctx Context, v Value) (res *filecache, done bool) {
+    if cacheUnmap(ctx) {
+        note(at(ctx,v), "TODO: %v %v", us(v), reflect.TypeOf(v)).debug(1)
+    } else {
+        note(at(ctx,v), "TODO: %v %v", us(v), reflect.TypeOf(v)).debug(1)
+    }
+    return
+}
 func (p *filecache) unpats(ctx Context, k interface{}) (res *filecache, done bool) {
+    if checkpoints { defer trace(ctx) }
+
     if x, y := p.m[globpat_t]; y && x.m != nil {
         if res, done = x.glob(ctx, k);  res != nil { return }
     }
@@ -122,86 +139,147 @@ func (p *filecache) unpats(ctx Context, k interface{}) (res *filecache, done boo
     }
 
     if checkpoints {
-        if false { noted(at(ctx,k), "unmap: %v : %v", us(k), p).debug(5) }
+        if false { note(at(ctx,k), "unmap: %v : %v", us(k), p).debug(5) }
     }
 
     if fc, y := ctx.(filecache_context); y && fc.p != nil {
         if checkpoints {
+            if false && fc.k == k {
+                erro(ctx, "%v : %v", us(k), p).debug(5)
+                return
+            }
             if fc.p == p {
-                erro(ctx, "%v %v %v", k, fc.k, p).debug(5)
+                // erro(ctx, "%v : %v %v", us(k), us(fc.k), fc.p).debug(5)
                 return
             }
-            if fc.k == k {
-                erro(ctx, "%v %v %v", k, fc.k, p).debug(5)
-                return
+            if false {
+                note(ctx, "%v %v : %v %v", us(k), p, us(fc.k), fc.p).debug(5)
             }
-            if false { noted(ctx, "%v %v %v %v", k, fc.k, fc.p, p).debug(1) }
         }
-        return fc.p.unpats(fc.Context, fc.k)
+        if p != fc.p {
+            return fc.p.unpats(fc.Context, fc.k)
+        }
     }
     return
 }
 func (p *filecache) glob(ctx Context, k interface{}) (res *filecache, done bool) {
-    if pc := cast[*pathcache](ctx); pc != nil {
-        for t, c := range p.m {
-            var pat, y = t.(string)
-            if !y {
-                erro(ctx, "TODO: %v %v ; %v", us(k), us(t), c).debug(3)
-                continue
-            }
+    defer trace(ctx)
 
-            var v Value
-            if pc.i+1 == pc.p.len() {
-                v = pc.p.elems[pc.i]
-            } else {
-                v = &path{elements{pc.p.elems[pc.i:]}}
-            }
-            if c._glob(ctx, pat, v.string(ctx)) {
-                pc.i = pc.p.len()
-                return c, true
-            }
-        }
-    } else if ps := cast[*pstrcache](ctx); ps != nil {
-        for t, c := range p.m {
-            if pat, y := t.(string) ; !y {
-                erro(ctx, "TODO: %v %v ; %v", us(k), us(t), c).debug(3)
-                continue
-            } else if c._glob(ctx, pat, joinPath(ps.p[ps.i:]...)) {
-                ps.i = len(ps.p)
-                return c, true
-            }
-        }
-    } else if s, y := k.(string); y {
-        for t, c := range p.m {
-            if pat, y := t.(string) ; !y {
-                erro(ctx, "TODO: %v %v ; %v", us(k), us(t), c).debug(3)
-                continue
-            } else if c._glob(ctx, pat, s) {
-                return c, true
-            }
-        }
+    if pc := cast[*pathcache](ctx); pc != nil {
+        return p.glob_path(ctx, k, pc)
+    }
+
+    if pc := cast[*pstrcache](ctx); pc != nil {
+        return p.glob_pstr(ctx, k, pc)
+    }
+
+    if s, y := k.(string); y {
+        return p.glob_str(ctx, s)
     } else {
         erro(ctx, "TODO: %v ; %v", us(k), p).debug(3)
+        return
+    }
+}
+func (p *filecache) glob_path(ctx Context, k interface{}, pc *pathcache) (res *filecache, done bool) {
+    defer trace(ctx)
+    for t, c := range p.m {
+        var pat, y = t.(string)
+        if !y {
+            erro(ctx, "TODO: %v %v ; %v", us(k), us(t), c).debug(3)
+            continue
+        }
+
+        if checkpoints {
+            if strings.Contains(pat, "/") {
+                erro(ctx, "%v %v %v", k, t, c).debug(1)
+                return
+            }
+        }
+
+        var v Value
+        if pc.i == pc.p.len()-1 {
+            v = pc.p.elems[pc.i]
+        } else {
+            v = &path{elements{pc.p.elems[pc.i:]}}
+        }
+        if c._glob(ctx, pat, v.string(ctx)) {
+            pc.i = pc.p.len()
+            return c, true
+        }
+    }
+    return
+}
+func (p *filecache) glob_pstr(ctx Context, k interface{}, pc *pstrcache) (res *filecache, done bool) {
+    defer trace(ctx)
+    for t, c := range p.m {
+        var pat, y = t.(string)
+        if !y {
+            erro(ctx, "TODO: %v %v ; %v", us(k), us(t), c).debug(1)
+            continue
+        } else if strings.Contains(pat, "**") {
+            if c._glob(ctx, pat, pc.s) {
+                pc.i = len(pc.ss)
+                return c, true
+            }
+            continue
+        }
+
+        if checkpoints {
+            if strings.Contains(pat, "/") {
+                erro(ctx, "%v %v %v", k, t, c).debug(1)
+                return
+            }
+        }
+
+        var ssn = len(pc.ss)
+        var str = pc.ss[pc.i]
+
+        y = c._glob(ctx, pat, str)
+
+        if (pat == "*zzz" || pat == "**z") && (pc.s == "foo/xxxzzz" || pc.s == "foo/xx/yy/zzzz") {
+            note(ctx, "%v %v , %v %v %v , %v", pat, str, y, pc.i, ssn, c).debug(1)
+        }
+
+        if y && pc.i+1 == ssn {
+            for _, a := range c.a {
+                if t, y := a.pattern.(*path); y && t.len() == ssn {
+                    if done, _, _ = t.match(ctx, pc.ss) ; done { res = c }
+                    return
+                } else if false {
+                    note(at(ctx,a.pattern), "%v : %v ; %v %v ; %v , %v", pat, str, k, pc.s, c, p).debug(1)
+                }
+            }
+        } else if y {
+            if checkpoints {
+                if false && pat == "??" && fmt.Sprintf("%s", k) == "ab" {
+                    note(ctx, "%v %v %v", pat, str, c).debug(1)
+                }
+            }
+            return c, done
+        }
+    }
+    return
+}
+func (p *filecache) glob_str(ctx Context, s string) (res *filecache, done bool) {
+    defer trace(ctx)
+    for t, c := range p.m {
+        if pat, y := t.(string) ; !y {
+            erro(ctx, "TODO: %v : %v %v", s, us(t), c).debug(3)
+        } else if c._glob(ctx, pat, s) {
+            return c, /* true */done
+        }
     }
     return
 }
 func (p *filecache) _glob(ctx Context, pat, str string) bool {
-    var f, st, e = globMatch(ctx, pat, str)
+    if checkpoints { defer trace(ctx) }
+
+    var f, s, e = globMatch(ctx, pat, str)
 
     if checkpoints {
         if e != nil {
-            erro(ctx, "%v %v → %v %v %v", st, pat, f, st, e).debug(8)
+            erro(ctx, "%v %v → %v %v %v", str, pat, f, s, e).debug(1)
         }
-        if f && pat == "*.c" && (len(st) != 1 || st[0] == "") {
-            erro(ctx, "%v %v → %v %v", str, pat, f, st).debug(8)
-        }
-        if f && pat == "**.c" && (len(st) != 1 || st[0] == "") {
-            erro(ctx, "%v %v → %v %v", str, pat, f, st).debug(8)
-        }
-    }
-
-    if true && !f && st != nil {
-        erro(ctx, "%v %v ; %v %v ; %v", str, pat, f, st, p).debug(10)
     }
     return f
 }
@@ -275,12 +353,20 @@ func (ctx *universe) Scope() *Scope { return ctx.scope }
 func (ctx *universe) String() (s string) { return /*"universe"*/ }
 func (ctx *universe) do(prop property, a ...interface{}) (res interface{}) {
     switch prop {
+    case actOnErros:
+        if ctx.panicFailureOnErrosFlushed {
+            var errs int
+            for _, i := range a { errs += i.(int) }
+            if 0 < errs { panic(_failure(ctx, "got %d errors", errs)) }
+            res = true
+        }
+        return
+
     case propPosition: return ctx.Position()
     case propWorkDir: if ctx.workdir == "" { return baseWorkDir }
         return ctx.workdir
     }
-    if ctx.Context == nil { return nil }
-    return ctx.Context.do(prop, a...)
+    return ctx.diagnostic.do(prop, a...)
 }
 func (ctx *universe) project() (p *project) {
     if ctx != nil && ctx.globe != nil { p = ctx.globe.main }
@@ -320,12 +406,11 @@ func _commandline() commandline { return commandline{
     debugWarns:  true,
     debugInfos:  true,
 
-    silentOptionalSelection: false,
-
-    failOnErrors: true,
     fastMode: true,
-
     parallel: false, // FIXME: program.traverse not working in parallel
+
+    panicFailureOnErrosFlushed: true,
+    silentOptionalSelection: false,
 
     slow: 9990 * time.Millisecond,
 }}
@@ -558,10 +643,13 @@ GotFile:
 }
 
 func (u *universe) filemap(ctx Context, p *project, patts, paths []Value) (res []filemap) {
+    defer trace(ctx)
+
     var base = &_filemap{p, patts, paths}
+
     for _, patt := range patts {
         if patt == nil {
-            errostack(ctx, 5, "nil pattern ; paths=%v", paths).debug(16)
+            errostack(ctx, 5, "nil pattern ; paths=%v", paths).debug(1)
         } else if c, _ := u.filemaps.hit(ctx, patt); c != nil {
             m := filemap{base, patt}
             c.a = append(c.a, m)
@@ -572,10 +660,18 @@ func (u *universe) filemap(ctx Context, p *project, patts, paths []Value) (res [
 }
 
 func (u *universe) unmap(ctx Context, key interface{}) (res []matchedfilemap) {
+    defer trace(ctx)
+
     var c = &u.filemaps
+
+    if x, y := key.(Value); y && x.patterned(ctx) {
+        erro(at(ctx,x), "TODO: %v : %v", x, c).debug(1)
+        return
+    }
+
     if s, y := key.(string); y && strings.ContainsAny(s, pathSep) {
         var ss = strings.Split(s, pathSep)
-        var x = pstrcache{unmapping{ctx}, ss, 0}
+        var x = pstrcache{unmapping{ctx}, s, ss, 0}
         var cc Context = &x
     out:
         for c != nil {
@@ -584,19 +680,19 @@ func (u *universe) unmap(ctx Context, key interface{}) (res []matchedfilemap) {
                 if c != nil &&  0 < j  { c, y = c.hit(cc, DOT)
                     if y/* done */ { if checkpoints{break out}; goto fullhit }}
                 if c != nil && t != "" { c, y = c.hit(cc, t)
-                    if false && y { noted(ctx, "TODO: %v → %-4s → %v", s, t, c) }
+                    if false && y { note(ctx, "TODO: %v → %-4s → %v", s, t, c) }
                     if y/* done */ { if checkpoints{break out}; goto fullhit }}
             }
-            if len(ss) <= x.i+1 || c == nil { break }
+            if c == nil || len(ss) <= x.i+1 { break }
             cc = filecache_context{cc, _c, ss[x.i]}
             x.i += 1
         }
         if checkpoints {
             if false && y && len(ss) <= x.i { // full-matched
-                noted(ctx, "TODO: %v → %v", ss, c).debug(3)
+                note(ctx, "TODO: %v → %v", ss, c).debug(3)
             } else if true && c == nil && strings.HasPrefix(s, ".test/") {
-                // for i := len(cs)-1; 0 <= i; i -= 1 { noted(ctx, "%v. %v", i, cs[i]) }
-                noted(ctx, "TODO: %v → %v", ss, c).debug(3)
+                // for i := len(cs)-1; 0 <= i; i -= 1 { note(ctx, "%v. %v", i, cs[i]) }
+                note(ctx, "TODO: %v → %v", ss, c).debug(3)
             }
         }
     } else {
@@ -608,15 +704,15 @@ func (u *universe) unmap(ctx Context, key interface{}) (res []matchedfilemap) {
 fullhit:
     for _, m := range c.a {
         var matched, pattern, s = m.match(ctx, key)
-        if  matched  {
+        if  matched && pattern != nil  {
             if checkpoints {
                 if !equal(ctx, m.pattern, pattern) {
-                    noted(ctx, "%v != %v", us(m.pattern), pattern).debug(3)
+                    note(ctx, "%v != %v", us(m.pattern), pattern).debug(3)
                 }
             }
             res = append(res, matchedfilemap{m, s})
         } else {
-            erro(ctx, "%v %v ; %v", tv(key), m, c).debug(5)
+            erro(ctx, "%v %v ; %v %v", tv(key), m.pattern, pattern, c).debug(1)
         }
     }
     return

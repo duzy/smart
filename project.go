@@ -54,27 +54,25 @@ func (p *filemap) primePatterns(ctx Context) (pats []Value) {
   if patts[0] == nil { patts = p.patts }
 
   for _, pattern := range patts {
-    if indeterminate(ctx, pattern) {
-      // NOTE it may preserve closure patterns after this expand:
-      if pat := pattern.expand(ctx); isFinalValue(ctx, pat) {
-        pats = append(pats, merge(pat)...)
-      } else {
-        errostack(at(ctx,pattern), 3, "unexpanded file pattern: %v", us(pattern)).debug(15)
-      }
+    // NOTE it may preserve closure patterns after this expand:
+    var pat = pattern.expand(ctx)
+    if isFinalValue(ctx, pat) {
+      pats = append(pats, merge(pat)...)
     } else {
-      pats = append(pats, pattern)
+      erro(at(ctx,pattern), "unexpanded file pattern: %v", us(pat))
+      errostack(at(ctx,pattern), 3, "%v", us(ctx)).debug(15)
+      return nil
     }
   }
   return
 }
 
 // match split filename into list and match each part with the pattern correspondingly.
-func (filemap *filemap) match(ctx Context, val interface{}) (matched bool, pattern Value, name string) {
+func (filemap *filemap) match(ctx Context, val interface{}) (_ bool, _ Value, _ string) {
   // TODO: escape file matching for 'String' and "compound" values
   for _, pat := range filemap.primePatterns(ctx) {
-    if matched, name = filemap._match(ctx, pat, val); matched {
-      pattern = pat
-      return
+    if matched, name := filemap._match(ctx, pat, val); matched {
+      return matched, pat, name
     }
   }
   return
@@ -448,7 +446,7 @@ func (p *project) selectFiles(ctx Context, maps []matchedfilemap) (files []*File
     }
 
     if false { if strings.HasPrefix(m.name, ".configure/") && strings.HasSuffix(m.name, ".log") {
-      noted(ctx, "%v: %v %v → %v %v\n", p, m._filemap, m.name, f, files).debug(16)
+      note(ctx, "%v: %v %v → %v %v\n", p, m._filemap, m.name, f, files).debug(16)
     }}
   }
   return

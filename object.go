@@ -776,11 +776,11 @@ func (p *builtin) refs(ctx Context, v Value) (res bool) {
 }
 func (p *builtin) benchmark_expand(ctx Context, t0 time.Time, v reflect.Value) {
     if d := time.Now().Sub(t0); d > 1*time.Second {
-        noted(ctx, "%v: slow: %v", p, d).debug(3)
+        note(ctx, "%v: slow: %v", p, d).debug(3)
     } else if f := v.Elem().FieldByName("timing"); !f.IsValid() {
-        if false { noted(ctx, "%v: %v", p, d).debug(1) }
+        if false { note(ctx, "%v: %v", p, d).debug(1) }
     } else if f.Type().Kind() == reflect.Bool && f.Bool() {
-        noted(ctx, "%v: %v", p, d).debug(1)
+        note(ctx, "%v: %v", p, d).debug(1)
     }
 }
 func (p *builtin) expand(ctx Context) (res Value) {

@@ -123,8 +123,8 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 	} else if proj.configurationFile == nil {
 		ctx.err("%v: nil configuration file", proj)
 	} else if t := proj.configurationFile.fullname(); t != s {
-		noted(ctx, "%v: %v", proj, t)
-		noted(ctx, "%v: %v", proj, s)
+		note(ctx, "%v: %v", proj, t)
+		note(ctx, "%v: %v", proj, s)
 		ctx.err("%v != %v", outtmp.value, t)
 	}
 
@@ -225,8 +225,8 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	if proj.configure == nil {
 		ctx.err("%v: nil configure", proj)
 	} else if joinPath(testModulesPath, "configure") != proj.configure.absPath {
-		noted(ctx, "%v: %v", proj, joinPath(testModulesPath, "configure"))
-		noted(ctx, "%v: %v", proj, proj.configure.absPath)
+		note(ctx, "%v: %v", proj, joinPath(testModulesPath, "configure"))
+		note(ctx, "%v: %v", proj, proj.configure.absPath)
 		ctx.err("%v", proj)
 	} else if o := proj.configure.resolve(ctx, "configure.cc"); o == nil {
 		ctx.err("configure.cc: %v", proj.configure)
@@ -271,8 +271,8 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	} else if o := proj.configure.resolveDef(ctx, "outtmp"); o == nil || o.value == nil { // &(target.tmp)/&(rel.remnant)
 		ctx.err("%v: %v: outtmp", proj, proj.configure)
 	} else if o.value.string(ctx) == x.value.string(ctx) { // diverged (different outtmp)
-		noted(at(ctx,o.value), "%v: %v", proj, o.value.string(ctx))
-		noted(at(ctx,o.value), "%v: %v", proj, x.value.string(ctx))
+		note(at(ctx,o.value), "%v: %v", proj, o.value.string(ctx))
+		note(at(ctx,o.value), "%v: %v", proj, x.value.string(ctx))
 		ctx.err("%v: %v == %v", proj, o.value, x.value)
 	} else {
 		outtmp = x.value // := $//tmp
@@ -294,8 +294,8 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	} else if proj.configurationFile == nil {
 		ctx.err("%v: nil configuration file", proj)
 	} else if    configurationFile     ==     proj.configurationFile.fullname() { // diverged (different outtmp)
-		noted(at(ctx,outtmp), "%v: %v", proj, proj.configurationFile.fullname())
-		noted(at(ctx,outtmp), "%v: %v", proj, configurationFile)
+		note(at(ctx,outtmp), "%v: %v", proj, proj.configurationFile.fullname())
+		note(at(ctx,outtmp), "%v: %v", proj, configurationFile)
 		ctx.err("%v: %v", proj, proj.configurationFile)
 	}
 
@@ -306,8 +306,8 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	} else if proj.configurationFile == f { // diverged configuration file
 		ctx.err("%v: %v == %v", proj, proj.configurationFile, f)
 	} else if proj.configurationFile.fullname() == f.fullname() {
-		noted(ctx, "%v: %v", proj, proj.configurationFile.fullname())
-		noted(ctx, "%v: %v", proj, f.fullname())
+		note(ctx, "%v: %v", proj, proj.configurationFile.fullname())
+		note(ctx, "%v: %v", proj, f.fullname())
 		ctx.err("%v: %v == %v", proj, proj.configurationFile, f)
 	} else if f.stat(ctx) == nil {
 		// noop

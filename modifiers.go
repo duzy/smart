@@ -220,7 +220,7 @@ func (m *modifier) traverse(ctx Context) { ctx = at(ctx, m.position)
 
     if false { defer func(t0 time.Time) { var n time.Duration = 1*time.Second
         switch name { case "shell", "sh": n = 60*time.Second }
-        if d := time.Now().Sub(t0); d > n { noted(ctx, "slow: %v ⇒ %v\n", m, d).debug(1) }
+        if d := time.Now().Sub(t0); d > n { note(ctx, "slow: %v ⇒ %v\n", m, d).debug(1) }
     }(time.Now())}
 
     var pc, prog = cast[*programContext](ctx), _program(ctx)
@@ -381,12 +381,12 @@ func (ctx *modifier_debug) x(args ...Value) (result interface{}) {
             tt = target.stat(ctx).mod()
         )
         if tt.IsZero() {
-            noted(ctx, "target not exists: %v", target).debug(1)
+            note(ctx, "target not exists: %v", target).debug(1)
             return
         }
         for _, dep := range merge(depends, ordered, grepped) {
             if dt := dep.stat(ctx).mod(); dt.After(tt) {
-                noted(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt)).debug(1)
+                note(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt)).debug(1)
             }
         }
     }
@@ -623,7 +623,7 @@ func (ctx *modifier_closure) x(pc *programContext, args ...Value) (result interf
         }
     }
     if ctx.verbose { var t = target
-        noted(ctx, "%v: @: %v ⇒ %v %v", proj, ctx.target, typeof(t), t).debug(3)
+        note(ctx, "%v: @: %v ⇒ %v %v", proj, ctx.target, typeof(t), t).debug(3)
     }
     if target != nil {
         var ( t = as{set("@", target)} ; f *File ; s string ; y bool ; n int )
@@ -1601,7 +1601,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         } else {
             if n = _diagnostic(dc.Context).countError(); n > 0 {
                 // reset to reduce diags as we wish to continue with the errors
-                dc.points, dc.errs = nil, 0
+                dc.points, dc.erros = nil, 0
                 var s = trimPromptString(targetVal.String())
                 prompt(ctx, "%v: %d errors counted\n", word, n).debug(1)
                 if false {

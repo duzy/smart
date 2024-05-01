@@ -450,7 +450,7 @@ func (p *parser) braced(ctx Context, lhs bool) (x Value) {
 				// NOTE: the first SPACE and BAREWORD do not become RAW.
 				for p.tok == SPACE || (p.tok == RAW && p.lit == " ") { p.step() }
 				if false { switch p.tok { case BAREWORD: p.tok = RAW }}
-				if false { noted(p, "%v %v %v", p.tok, p.lit, p.scanner.scanstate) }
+				if false { note(p, "%v %v %v", p.tok, p.lit, p.scanner.scanstate) }
 
 			default:
 				p.next(true)
@@ -1002,7 +1002,7 @@ func (p *parser) regex(ctx Context) (_ Value) {
 	var err error
 	var x = &regexpat{valbase{pos}, nil} // TODO: correct regexp pattern value
 	if x.Regexp, err = regexp.Compile(rx); err != nil {
-		noted(ctx, "regex: %v", rx)
+		note(ctx, "regex: %v", rx)
 		erro(at(p,pos), "regex: %v", err).debug(6)
 	}
 	return x
@@ -1337,8 +1337,8 @@ func (p *parser) closuredelegate(ctx Context, isClosure bool) (result Value) {
 					return
 				}
 
-				if true { noted(ctx, "auto(%v) → %v", us(name), autoDef(ctx, str)) }
-				noted(at(ctx,name), "resolve(%v) ⇒ %v", us(name), us(obj))
+				if true { note(ctx, "auto(%v) → %v", us(name), autoDef(ctx, str)) }
+				note(at(ctx,name), "resolve(%v) ⇒ %v", us(name), us(obj))
 				erro(ctx, "%v", us(ctx)).debug(20)
 				return
 			} else {
@@ -1784,7 +1784,7 @@ composeLoop:
 	case COMMA:
 		if p.bits&(parseArged|parseCall|parseGroup|parseModifier) != 0 { return }
 		if p.bits&(parseDefineClause) == 0 {
-			noted(p, "%v %v '%v' (%016b)", us(x), p.tok, p.lit, p.bits).debug(1)
+			note(p, "%v %v '%v' (%016b)", us(x), p.tok, p.lit, p.bits).debug(1)
 			return
 		}
 
@@ -3166,7 +3166,7 @@ func (p *parser) clause(ctx Context) {
 
 	if p.spaces(); p.tok.isAssign() {
 		if debugSyntax(ctx, "define") {
-			noted(p, "parser.clause: %v; %v %v", us(x), p.tok, p.lit).debug(1)
+			note(p, "parser.clause: %v; %v %v", us(x), p.tok, p.lit).debug(1)
 			flush(ctx)
 		}
 		p.assign(ctx, x)
@@ -3175,7 +3175,7 @@ func (p *parser) clause(ctx Context) {
 
 	if p.tok.isRuleDelim() {
 		if debugSyntax(ctx, "rule") {
-			noted(p, "parser.clause: %v; %v %v", us(x), p.tok, p.lit).debug(1)
+			note(p, "parser.clause: %v; %v %v", us(x), p.tok, p.lit).debug(1)
 			flush(ctx)
 		}
 		p.rule(ctx, specialRuleNor, nil, []Value{x})
@@ -3188,9 +3188,9 @@ func (p *parser) clause(ctx Context) {
 	if vals := p.values(ctx, x); p.tok != EOF {
 		return
 	} else if strings.HasSuffix(p.scanner.file.Name(), pathSep+configuration_sm) {
-		if false { noted(ctx, "%v (kit=%s)", p.tok, p.lit).debug(1) }
+		if false { note(ctx, "%v (kit=%s)", p.tok, p.lit).debug(1) }
 	} else if p.bits&parseIncludingConf != 0 {
-		noted(ctx, "bad clause: %v (kit=%s) after %v", p.tok, p.lit, vals).debug(3)
+		note(ctx, "bad clause: %v (kit=%s) after %v", p.tok, p.lit, vals).debug(3)
 	} else {
 		erro(ctx, "bad clause: %v (lit=%s) after %v", p.tok, p.lit, vals).debug(10)
 	}

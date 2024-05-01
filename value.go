@@ -506,6 +506,13 @@ func (traves *travestates) addf(ctx Context, what travekind, s string, a... inte
 }
 
 type terminal struct { Context ; scopes []*Scope }
+func (cc *terminal) project() *project { return cc.Scope().project }
+func (cc *terminal) cast(t reflect.Type) Context { return implcast(cc,t) }
+func (cc *terminal) closure() []*Scope { return append(cc.scopes, cc.Context.closure()...) }
+func (cc *terminal) do(prop property, a ...interface{}) interface{} {
+  if cc.Context == nil { return nil }
+  return cc.Context.do(prop, a...)
+}
 func (cc *terminal) String() string {
     if fullContextStringer {
         return fmt.Sprintf("closure{%s}", cc.Context)
@@ -521,9 +528,6 @@ func (cc *terminal) Scope() (scope *Scope) {
     }
     return
 }
-func (cc *terminal) project() *project { return cc.Scope().project }
-func (cc *terminal) cast(t reflect.Type) Context { return implcast(cc,t) }
-func (cc *terminal) closure() []*Scope { return append(cc.scopes, cc.Context.closure()...) }
 
 func closureprojects(ctx Context) (projects []*project) {
 outter:
@@ -2927,7 +2931,7 @@ func condish(ctx Context, v Value) Value {
         if y {
             if checkpoints {
                 if cond(x.Value) {
-                    noted(at(ctx,v), "nested condval: %v : %v", v, us(v))
+                    note(at(ctx,v), "nested condval: %v : %v", v, us(v))
                     erro(ctx, "%v", us(ctx)).debug(10)
                 }
             }
@@ -2935,7 +2939,7 @@ func condish(ctx Context, v Value) Value {
         } else {
             if checkpoints {
                 if cond(v) {
-                    noted(at(ctx,v), "nested condval: %v : %v", v, us(v))
+                    note(at(ctx,v), "nested condval: %v : %v", v, us(v))
                     erro(ctx, "%v", us(ctx)).debug(10)
                 }
             }
@@ -2944,7 +2948,7 @@ func condish(ctx Context, v Value) Value {
     } else if y {
         if checkpoints {
             if cond(x.Value) {
-                noted(at(ctx,v), "nested condval: %v : %v", v, us(v))
+                note(at(ctx,v), "nested condval: %v : %v", v, us(v))
                 erro(ctx, "%v", us(ctx)).debug(10)
             }
         }
@@ -2952,7 +2956,7 @@ func condish(ctx Context, v Value) Value {
     } else {
         if checkpoints {
             if cond(v) {
-                noted(at(ctx,v), "nesting condval: %v : %v", v, us(v))
+                note(at(ctx,v), "nesting condval: %v : %v", v, us(v))
                 erro(ctx, "%v", us(ctx)).debug(10)
             }
         }
@@ -3012,26 +3016,26 @@ func (p condval) expand(ctx Context) (res Value) {
 }
 func (p condval) expand_check(ctx Context, v, res Value) {
     if cond(v) {
-        noted(at(ctx,p), "%v → %v → %v", p.Value, v, res)
-        noted(at(ctx,p), "%v\t: %v", p.Value, us(p.Value))
-        noted(at(ctx,p), "%v\t: %v", v,       us(v))
-        noted(at(ctx,p), "%v\t: %v", res,     us(res))
+        note(at(ctx,p), "%v → %v → %v", p.Value, v, res)
+        note(at(ctx,p), "%v\t: %v", p.Value, us(p.Value))
+        note(at(ctx,p), "%v\t: %v", v,       us(v))
+        note(at(ctx,p), "%v\t: %v", res,     us(res))
         erro(ctx, "%v", us(ctx)).debug(10)
     }
     if _exFinal(ctx) {
         // ...
     } else {
         if v == nil {
-            noted(at(ctx,p), "%v → %v", p.Value, res)
-            noted(at(ctx,p), "%v : %v", p.Value, us(p.Value))
+            note(at(ctx,p), "%v → %v", p.Value, res)
+            note(at(ctx,p), "%v : %v", p.Value, us(p.Value))
             erro(ctx, "%v", us(ctx)).debug(10)
             return
         }
         if !equal(ctx, v, p.Value) && p.Value.String() == v.String() {
-            noted(at(ctx,p), "%v → %v → %v", p.Value, v, res)
-            noted(at(ctx,p), "%v\t: %v", p.Value, us(p.Value))
-            noted(at(ctx,p), "%v\t: %v", v,       us(v))
-            noted(at(ctx,p), "%v\t: %v", res,     us(res))
+            note(at(ctx,p), "%v → %v → %v", p.Value, v, res)
+            note(at(ctx,p), "%v\t: %v", p.Value, us(p.Value))
+            note(at(ctx,p), "%v\t: %v", v,       us(v))
+            note(at(ctx,p), "%v\t: %v", res,     us(res))
             erro(ctx, "%v", us(ctx)).debug(5)
         }
     }
@@ -3178,16 +3182,16 @@ func (p *barecomp) defs(ctx Context, s ...string) []*def { return p.elements.def
 func (p *barecomp) expandable(ctx Context) bool { return p.elements.expandable(ctx) }
 func (p *barecomp) expand_check(ctx Context, res Value) {
     if res == nil {
-        noted(at(ctx,p), "%v, %v", p, res)
-        noted(at(ctx,p), "%v", us(p))
-        noted(at(ctx,p), "%v", us(res))
+        note(at(ctx,p), "%v, %v", p, res)
+        note(at(ctx,p), "%v", us(p))
+        note(at(ctx,p), "%v", us(res))
         erro(ctx, "%v", us(ctx)).debug(10)
     } else if p.expandable(ctx) && equal(ctx, p, res) {
         if s := p.String(); strings.Contains(s, "$_") {
             if r := res.String(); res == p || r == s || strings.Contains(r, "$_") {
                 if d := autoDef(ctx, "_"); d != nil {
-                    noted(at(ctx,d), "%v", us(d))
-                    noted(at(ctx,p), "%v → %v", us(p), us(res))
+                    note(at(ctx,d), "%v", us(d))
+                    note(at(ctx,p), "%v → %v", us(p), us(res))
                     erro(ctx, "%v", us(ctx)).debug(30)
                 }
             }
@@ -3372,9 +3376,9 @@ func (p *barecomp) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *barecomp) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && p.String() == v.String() {
-        noted(at(ctx,p), "%v, %v ; %v == %v", res, p==v, p, v)
-        noted(at(ctx,p), "%v", us(p))
-        noted(at(ctx,p), "%v", us(v))
+        note(at(ctx,p), "%v, %v ; %v == %v", res, p==v, p, v)
+        note(at(ctx,p), "%v", us(p))
+        note(at(ctx,p), "%v", us(v))
         erro(ctx, "%v", us(ctx)).debug(5)
     }
 }
@@ -4062,9 +4066,9 @@ func (p *path) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *path) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && p.String() == v.String() {
-        noted(at(ctx,p), "%v, %v, %v", p, p==v, res)
-        noted(at(ctx,p), "%v", us(p))
-        noted(at(ctx,v), "%v", us(v))
+        note(at(ctx,p), "%v, %v, %v", p, p==v, res)
+        note(at(ctx,p), "%v", us(p))
+        note(at(ctx,v), "%v", us(v))
         erro(ctx, "%v", us(ctx)).debug(5)
     }
 }
@@ -4162,9 +4166,9 @@ func (p *path) match2(ctx Context, srcs ...string) (full bool, res []string, ste
     if checkpoints {
         var s, t = joinPath(srcs...), p.string(ctx)
         if strings.HasPrefix(s, t) { defer func() { if res == nil {
-            noted(ctx, "%v →", p)
-            noted(ctx, "%v →", s)
-            noted(ctx, "→ %v %v %v", full, res, stems)
+            note(ctx, "%v →", p)
+            note(ctx, "%v →", s)
+            note(ctx, "→ %v %v %v", full, res, stems)
             erro(ctx, "%v", us(ctx)).debug(5)
         }}()}
     }
@@ -4308,7 +4312,7 @@ func (p *path) match2(ctx Context, srcs ...string) (full bool, res []string, ste
                 } else if y, s, ss := matchPathSeg(ctx, nxt, src); y || s == src {
                     if res = app(res, s); len(ss) == 0 {
                         if false { stem = app(stem, src) }
-                        if false { noted(ctx, "%v %v , %v %v", p, stem, nxt, src) }
+                        if false { note(ctx, "%v %v , %v %v", p, stem, nxt, src) }
                     } else {
                         tail = ss
                     }
@@ -4349,7 +4353,7 @@ func (p *path) match2(ctx Context, srcs ...string) (full bool, res []string, ste
                     erro(ctx, "%v : %s == %s, (%d,%d) ; %v ; %s %s", p, us(seg), us(src), nxtSeg, nxtSrc, srcs, s, ss).debug(3)
                 }
                 if false && y {
-                    noted(ctx, "%v: %d. %v , %d. %v ; %v %v", p, nxtSeg, us(seg), nxtSrc, us(src), s, ss).debug(1)
+                    note(ctx, "%v: %d. %v , %d. %v ; %v %v", p, nxtSeg, us(seg), nxtSrc, us(src), s, ss).debug(1)
                 }
             }
             return
@@ -4449,7 +4453,7 @@ func (p *path) suffix(ctx Context, val Value) (res Value) {
         return
     }
     if _, y := p.elems[0].(*pathpun); y /* && t.token == PLUS */ {
-        noted(at(ctx,p), "%v %v", p, val).debug(10)
+        note(at(ctx,p), "%v %v", p, val).debug(10)
     }
 
     var ti = p.len()-1
@@ -5640,11 +5644,11 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
     if false && _exDef1(ctx) { if s := p.String(); true &&
         "$(foo)" == s { defer func() {
             // _exDef1(ctx) _exFinal(ctx) _exEvaluation(ctx) _exDelegate(ctx, _x) _exClosure(ctx, _x)
-            noted(ctx, "%v", us(p))
-            noted(ctx, "x=%v → %v, e=%v", us(_x), us(x), e)//, x.expandable(ctx)
-            noted(ctx, "o=%v, a=%v→%v", us(_o), us(_a), us(a))
-            noted(ctx, "res=%v", us(res))
-            noted(ctx, "%v", us(ctx)).debug(32)
+            note(ctx, "%v", us(p))
+            note(ctx, "x=%v → %v, e=%v", us(_x), us(x), e)//, x.expandable(ctx)
+            note(ctx, "o=%v, a=%v→%v", us(_o), us(_a), us(a))
+            note(ctx, "res=%v", us(res))
+            note(ctx, "%v", us(ctx)).debug(32)
         }()}}
 
     x = _x.expand(ctx)
@@ -5741,28 +5745,28 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, res,
 
         var v = _x
         if a, y := v.(*auto); y { if d := autoDef(ctx, a.name); d != nil {
-            noted(ctx, "%v", us(_x))
-            noted(ctx, "%v", us(x))
-            noted(ctx, "%v", us(p))
+            note(ctx, "%v", us(_x))
+            note(ctx, "%v", us(x))
+            note(ctx, "%v", us(p))
             erro(ctx, "%v", us(ctx)).debug(24)
         }}
         if _cl {
             // TODO: closure checkpoints ...
         } else if _x == nil {
-            noted(ctx, "%v: nil", us(p))
+            note(ctx, "%v: nil", us(p))
             erro(ctx, "%v", us(ctx)).debug(24)
         } else {
             if d, y := _x.(*def); y { if d == nil {
                 erro(ctx, "%v", us(ctx)).debug(24)
             } else if d.value != nil {
-                noted(ctx, "%v", us(_x))
-                noted(ctx, "%v", us(x))
-                noted(ctx, "%v", us(p))
+                note(ctx, "%v", us(_x))
+                note(ctx, "%v", us(x))
+                note(ctx, "%v", us(p))
                 erro(ctx, "%v", us(ctx)).debug(24)
             }}
         }
     } else if false && p != res && equal(ctx, p, res) {
-        noted(ctx, "%v: %p != %p", us(res), res, p)
+        note(ctx, "%v: %p != %p", us(res), res, p)
         erro(ctx, "%v", us(ctx)).debug(3)
     }
 }
@@ -5837,27 +5841,27 @@ func (p *delegate) exstr(ctx Context, f func(Value)) {
 }
 func (p *delegate) exstr_check(ctx Context, v Value, nr bool) {
     if false && p.String() == "$/" {
-        noted(at(ctx,p), "%v → %v", us(p), us(v))
+        note(at(ctx,p), "%v → %v", us(p), us(v))
         erro(ctx, "%v", us(ctx)).debug(10)
     }
     if nr {
         var u = v.expandable(ctx)
         if v == p || (false && v.refs(ctx, p.x)) {
-            noted(at(ctx,p), "%v → %v (%v)", us(p), us(v), (v==p))
+            note(at(ctx,p), "%v → %v (%v)", us(p), us(v), (v==p))
             erro(ctx, "%v", us(ctx)).debug(16)
             return
         }
         if u && v == p {
-            noted(at(ctx,p), "%v → %v", us(p), us(v))
+            note(at(ctx,p), "%v → %v", us(p), us(v))
             erro(ctx, "%v", us(ctx)).debug(16)
             return
         }
         if p.String() == v.String() {
             if u {
-                noted(at(ctx,p), "%v → %v , %v", us(p), us(v), p.cmp(ctx, v))
+                note(at(ctx,p), "%v → %v , %v", us(p), us(v), p.cmp(ctx, v))
                 erro(ctx, "%v", us(ctx)).debug(16)
             } else {
-                noted(at(ctx,p), "%v → %v , %v", us(p), us(v), v.cmp(ctx, p))
+                note(at(ctx,p), "%v → %v , %v", us(p), us(v), v.cmp(ctx, p))
                 erro(ctx, "%v", us(ctx)).debug(16)
             }
             return
@@ -6244,7 +6248,7 @@ func (p *selection) traverse(ctx Context) {
 }
 func (p *selection) updated(ctx Context) (res bool) { // NOTE: this seems not affecting the result
     if val := p.expand(ctx); isTrivial(val) {
-        noted(ctx, "selected value '%v' is trivial", p).debug(1)
+        note(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
         res = val.updated(ctx)
     }
@@ -6252,7 +6256,7 @@ func (p *selection) updated(ctx Context) (res bool) { // NOTE: this seems not af
 }
 func (p *selection) updatedDeps(ctx Context, v ...Value) (res []Value) { // NOTE: this seems not affecting the result
     if val := p.expand(ctx); isTrivial(val) {
-        noted(ctx, "selected value '%v' is trivial", p).debug(1)
+        note(ctx, "selected value '%v' is trivial", p).debug(1)
     } else {
         res = val.updatedDeps(ctx, v...)
     }
@@ -6272,8 +6276,8 @@ func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
             if x, y := v.(*selection); y {
-                noted(ctx, "%v %v, %v", us(p.o), us(x.o), p.o.cmp(ctx, x.o))
-                noted(ctx, "%v %v, %v", us(p.s), us(x.s), p.s.cmp(ctx, x.s))
+                note(ctx, "%v %v, %v", us(p.o), us(x.o), p.o.cmp(ctx, x.o))
+                note(ctx, "%v %v, %v", us(p.s), us(x.s), p.s.cmp(ctx, x.s))
             }
             erro(ctx, "%v, %v ⇔ %v", res, us(p), us(v)).debug(5)
         }
@@ -6622,7 +6626,7 @@ func multia(ctx Context, p Value) (result bool, prefix, suffix Value) {
                 suffix = t[0]
             }
         }
-        if false && n != -1 { noted(at(ctx,p), "%v %v %v ; %v %v %v",
+        if false && n != -1 { note(at(ctx,p), "%v %v %v ; %v %v %v",
             p, g.elems[:n], g.elems[n+1:], result, prefix, suffix).debug(10) }
     }
     return
@@ -6827,7 +6831,11 @@ func (p *globpat) filecache(ctx Context, _c *filecache) (res *filecache, done bo
             }
             return
         }
-        if c, done = c.hit(ctx, p.String()); c == nil {
+        if indeterminate(ctx, p) {
+            erro(at(ctx,p), "filecache %v : indeterminate element : %v", p, us(p)).debug(3)
+            return
+        }
+        if c, done = c.hit(ctx, p.string(ctx)); c == nil {
             if cacheMapping(ctx) {
                 erro(at(ctx,p), "no filecache for %v : %v", p, c).debug(3)
             }
@@ -7344,8 +7352,12 @@ func us(i interface{}) (s string) {
     case *evocation:          return fmt.Sprintf("%s{%v}",      ts, us(t.Context))
     case *automatic:          return fmt.Sprintf("%s{%v}",      ts, us(t.Context))
     case *terminal:           return fmt.Sprintf("%s{%v}",      ts, us(t.Context))
+    case *pathcache:          return fmt.Sprintf("%s{%v,%v}",   ts, t.p,   us(t.Context))
+    case *pstrcache:          return fmt.Sprintf("%s{%v,%v}",   ts, t.s,   us(t.Context))
     case condless:            return fmt.Sprintf("%s{%v}",      ts, us(t.Context))
     case final:               return fmt.Sprintf("%s{%v}",      ts, us(t.Context))
+    case filecache_context:   return fmt.Sprintf("%s{%v}",      ts, us(t.Context))
+    case unmapping:           return fmt.Sprintf("%s{%v}",      ts, us(t.Context))
     case partial:             return fmt.Sprintf("%s{%b %v}",   ts, t.bit, us(t.Context))
     case evaluation:          return fmt.Sprintf("%s{%v %v}",   ts, t.o,   us(t.Context))
     case original:            return fmt.Sprintf("%s{%v %v}",   ts, t.o,   us(t.Context))

@@ -852,7 +852,7 @@ func testBuiltin_foreach(ctx *testcase) {
 		if v := ctx.val(d.name, []string{"foo", "bar"}); v == nil {
 			ctx.err("%v", d)
 		} else if s, t := "x &(.test.foo)foo? bar &(.test.bar)foo? bar y &(.test.foo)foo? bar &(.test.bar)foo? bar z", v.String(); s != t {
-			for i, v := range merge(v) { noted(ctx, "%d. %v", i, us(v)) }
+			for i, v := range merge(v) { note(ctx, "%d. %v", i, us(v)) }
 			ctx.err("%v != %s", ust{v}, s)
 		} else if s, t := "x bar bar y bar bar z", v.string(ctx); s != t {
 			ctx.err("%v → %s != %s", ust{v}, t, s)
@@ -1114,13 +1114,13 @@ func testBuiltin_foreach2(ctx *testcase) {
 	} else if l1.len() != 3 {
 		ctx.err("%v ; %d", ust{l.elems[1]}, l1.len())
 	} else if s, t := "bx$1? by$1? bz$1? baxx4 bayy4", l0.String(); s != t {
-		for i, v := range l0.elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range l0.elems { note(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{l0}, t, s)
 	} else if s, t := "-xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?", l1.String(); s != t {
-		for i, v := range l1.elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range l1.elems { note(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{l1}, t, s)
 	} else if s, t := "bx$1? by$1? bz$1? baxx4 bayy4 -xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?", x.String(); s != t {
-		for i, v := range l.elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range l.elems { note(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{x}, t, s)
 	} else if v := ctx.val(d.name, "3"); v == nil {
 		ctx.err("%v", ust{d})
@@ -1908,15 +1908,15 @@ func testBuiltin_foreach5(ctx *testcase) {
 	} else if l, y := x.(*list); !y {
 		ctx.err("%v", ust{x})
 	} else if elems := merge(l.elems...); l.len() != 4 || len(elems) != 7 {
-		for i, v := range elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range elems { note(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v ; %d, %d", ust{x}, l.len(), len(elems))
 	} else if _, y := elems[2].(condval); !y {
 		ctx.err("%v", ust{elems[2]})
 	} else if s, t := "a~ -aox.o.a -ao{$(.test.x.o.{$2})}? ~a x.o.a &(.test.x.{$2} a,$2)? &(.test.x.o.{$2})?", x.String(); s != t {
-		for i, v := range elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range elems { note(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{x}, t, s)
 	} else if s, t := "a~ -aox.o.a ~a x.o.a", x.string(ctx); s != t {
-		for i, v := range elems { noted(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range elems { note(at(ctx,v), "%d. %v", i, us(v)) }
 		ctx.err("%v → %s != %s", ust{x}, t, s)
 	} else if s, t := "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?", v.String(); s != t {
 		ctx.err("%v → %s != %s", ust{v}, t, s)

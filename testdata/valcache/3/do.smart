@@ -1,0 +1,5 @@
+project testvalcache
+
+files (
+    (foo/*/bar &(gen)) ⇒ src
+)

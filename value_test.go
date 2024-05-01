@@ -579,20 +579,20 @@ func testValues2(ctx *testcase) {
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", ust{v})
 	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) z $(call(-closure) &(.test.x),$1$2,$2$1) Z $3", v.String(); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if s, t := "x foobar - y foobar - z foobar - Z", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if v := ctx.val(d.name, "a", "b", "c"); v == nil {
 		ctx.err("%v", ust{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", ust{v})
 	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) z $(call(-closure) &(.test.x),ab,ba) Z c", v.String(); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if s, t := "x foobar - y foobar aa-bb z foobar ab-ba Z c", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if v := ctx.val(d.name, "a", "b", "c", test_def_1{}); v == nil {
 		ctx.err("%v", ust{d})
@@ -843,7 +843,7 @@ func testValues4(ctx *testcase) {
 	} else if _, y := l.elems[3].(*argumented); !y || l.elems[3].String() != "I.c++(-unique)" {
 		ctx.err("%v", ust{l.elems[3]})
 	} else if s, t := "D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique)", v.String(); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if t := v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", ust{v}, t, s)
@@ -882,10 +882,10 @@ func testValues4(ctx *testcase) {
 	} else if _, y := l.elems[8].(*group);    !y || l.elems[8].String() != "($1)" {
 		ctx.err("%v", ust{l.elems[8]})
 	} else if s, t := "D c $(value &(.test.x)) $(.test.v) &(value .test.v) $(.test.foreach $1,&(.test.none)) ($1) $(foreach $1,&(.test.x.$_)) ($1)", v.String(); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if s, t := "D c xx xx xx () () ()", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if v := ctx.val(d.name, "a"); v == nil {
 		ctx.err("%v", ust{d})
@@ -894,10 +894,10 @@ func testValues4(ctx *testcase) {
 	} else if l.len() != 9 {
 		ctx.err("%v ; (%d)", ust{v}, l.len())
 	} else if s, t := "D c $(value &(.test.x)) xx &(value .test.v) (a) (a) &(.test.x.a)? (a)", v.String(); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if s, t := "D c xx xx xx (a) (a) x (a)", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if v := ctx.val(d.name, "a", test_def_2{}); v == nil {
 		ctx.err("%v", ust{d})
@@ -906,10 +906,10 @@ func testValues4(ctx *testcase) {
 	} else if l.len() != 9 {
 		ctx.err("%v ; (%d)", ust{v}, l.len())
 	} else if s, t := "D c xx xx xx $(.test.foreach a,&(.test.none)) (a) x (a)", v.String(); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if s, t := "D c xx xx xx (a) (a) x (a)", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	}
 
@@ -948,10 +948,10 @@ func testValues4(ctx *testcase) {
 	} else if _, y := l.elems[5].(*bareword); !y || l.elems[5].String() != "xx" {
 		ctx.err("%v", ust{l.elems[5]})
 	} else if s, t := "I c &(value &(.test.x)) &(value .test.v) $(value &(.test.x)) xx", v.String(); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	} else if s, t := "I c xx xx xx xx", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { noted(ctx, "%d. %v", i, ust{v}) } }
+		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, ust{v}) } }
 		ctx.err("%v → %s != %s", ust{v}, t, s)
 	}
 

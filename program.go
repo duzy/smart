@@ -435,7 +435,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
                     break
                 }
 
-                noted(ctx, "%T %v %v", name, name, c).debug(1)
+                note(ctx, "%T %v %v", name, name, c).debug(1)
             }
 
             if en > 0 { errostack(ctx, 3).debug(8) }
@@ -605,17 +605,17 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             prompt(at(ctx, prereqValue), "%v:0: <- missing file\n", prereqFile.fullname())
 
             if m := prereqFile.filemap; m != nil {
-                noted(at(ctx, m.pattern), "%v ⇒ %v ⇒ %v", targetValue, m, prereqFile).debug(1)
+                note(at(ctx, m.pattern), "%v ⇒ %v ⇒ %v", targetValue, m, prereqFile).debug(1)
             }
 
             for i, s := range pc.traves { ctx := at(ctx, s.pos)
-                noted(ctx, "%v → traves[%d] ⇒ %v", targetValue, i, s).debug(1)
+                note(ctx, "%v → traves[%d] ⇒ %v", targetValue, i, s).debug(1)
             }
             for i, concrete := range concreteList { ctx := at(ctx, concrete.Position())
-                noted(ctx, "%v → concrete[%d] ⇒ %v", targetValue, i, concrete).debug(1)
+                note(ctx, "%v → concrete[%d] ⇒ %v", targetValue, i, concrete).debug(1)
             }
             for i, stemmed := range stemmedList  { ctx := at(ctx, stemmed.position)
-                noted(ctx, "%v → stemmed[%d] ⇒ %v", targetValue, i, stemmed).debug(1)
+                note(ctx, "%v → stemmed[%d] ⇒ %v", targetValue, i, stemmed).debug(1)
             }
 
             erro(at(ctx, prereqValue), "%v ⇒ %v", targetValue, prereqValue).debug(2)
@@ -655,19 +655,19 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
             prompt(ctx, "%v : %v(%v)\n", s, typeof(prereqValue), prereqFinal).debug(1)
         }
 
-        noted(at(ctx,targetValue), "@: %v(%v) %v(%v)",
+        note(at(ctx,targetValue), "@: %v(%v) %v(%v)",
             typeof(targetValue), targetValue,
             typeof(prereqValue), prereqValue).debug(1)
 
         if prereqFile != nil { if false { s := prereqFile.fullname()
-            noted(ctx, ">: %T %v ⇒ %v", prereqValue, prereqValue, s).debug(1)
+            note(ctx, ">: %T %v ⇒ %v", prereqValue, prereqValue, s).debug(1)
         }} else if f, y := prereqValue.(*File); y {
-            noted(at(ctx, f.position), "%v %v", f, f.exists()).debug(1)
+            note(at(ctx, f.position), "%v %v", f, f.exists()).debug(1)
         } else if f := file(ctx, prereqFinal); f == nil {
             var a = unmapfiles(ctx, prereqFinal)
             var b = files(ctx, prereqFinal, ctx.project())
-            noted(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, a)
-            noted(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, b).debug(1)
+            note(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, a)
+            note(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, b).debug(1)
             if p := ctx.project(); false {
                 warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFiles(ctx, a))
                 warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFiles(ctx, b))
@@ -677,14 +677,14 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
                 for i, m := range b { warn(at(ctx, f.position), "%v: %d. %v: %v %v", p, i, m.project, m.name, m.pattern) }
             }
         } else {
-            noted(ctx, ">: %T %v ⇒ %v", prereqValue, prereqValue, f).debug(1)
+            note(ctx, ">: %T %v ⇒ %v", prereqValue, prereqValue, f).debug(1)
         }
 
         defer func() {
             var s = targetValue.string(ctx)
-            for i, concrete := range concreteList { noted(at(ctx,concrete.Position()), "%v : concrete: %d. %v", targetValue, i, concrete).debug(1) }
-            for i, stemmed := range stemmedList { noted(at(ctx,stemmed.position), "%v : stemmed: %d. %v", targetValue, i, stemmed).debug(1) }
-            for i, t := range pc.traves { noted(at(ctx, t.pos), "%v: %d. %v", s, i, t).debug(1) }
+            for i, concrete := range concreteList { note(at(ctx,concrete.Position()), "%v : concrete: %d. %v", targetValue, i, concrete).debug(1) }
+            for i, stemmed := range stemmedList { note(at(ctx,stemmed.position), "%v : stemmed: %d. %v", targetValue, i, stemmed).debug(1) }
+            for i, t := range pc.traves { note(at(ctx, t.pos), "%v: %d. %v", s, i, t).debug(1) }
             notestack(ctx, 5).debug(2)
         } ()
 
@@ -766,7 +766,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         traveResReturn
     )
     var traverseEntry = func(project *project, entry entry, pattern bool) (result traveResT) {
-        if false && _db { defer func() { noted(ctx, "%v: %v", entry, pc.traves).debug(2) } () }
+        if false && _db { defer func() { note(ctx, "%v: %v", entry, pc.traves).debug(2) } () }
 
         entry.traverse(ctx) // NOTE: this adds traveRule to pc.traves
 
@@ -888,7 +888,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
     for _, project := range projects {
         var entries = project.resolveEntries(ctx, prereqValue, false)
         if false && _db {
-            noted(ctx, "entries: %T %v ⇒ %v (%v)", prereqValue, prereqValue, entries, project).debug(1)
+            note(ctx, "entries: %T %v ⇒ %v (%v)", prereqValue, prereqValue, entries, project).debug(1)
         }
         if len(entries) == 0 { continue }
         concreteList = append(concreteList, entries...)
@@ -917,13 +917,13 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         if false { for i, p := range project.patterns { t := p.target
             if s := t.string(ctx); s == ".configure/library/*.c" || strings.HasPrefix(s, ".configure/library/HAVE_") {
                 a, b, c := p.match(ctx, prereqFinal)
-                noted(ctx, "stemmed: %s ⇒ %d %v %v ⇒ %v %v %v %v", prereqFinal, i, typeof(t), p, s, a, b, c).debug(10)
+                note(ctx, "stemmed: %s ⇒ %d %v %v ⇒ %v %v %v %v", prereqFinal, i, typeof(t), p, s, a, b, c).debug(10)
             }
         }}
         for _, p := range project.patterns { assert(p.target.patterned(ctx), "not pattern") }
         var patterns = project.resolvePatterns(ctx, prereqValue, prereqFinal)
         if false && _db {
-            noted(ctx, "stemmed: %T %v ⇒ %v (%v)", prereqValue, prereqValue, patterns, project).debug(1)
+            note(ctx, "stemmed: %T %v ⇒ %v (%v)", prereqValue, prereqValue, patterns, project).debug(1)
         }
         if len(patterns) == 0 { continue }
         stemmedList = append(stemmedList, patterns...)
@@ -1010,13 +1010,13 @@ CheckPrereqResult:
         }
 
         if prereqFile != nil && prereqValue != prereqFile {
-            noted(ctx, "%v(%v): %v(%v); file=%v\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue, prereqFile).debug(1)
+            note(ctx, "%v(%v): %v(%v); file=%v\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue, prereqFile).debug(1)
         } else if prereqFile != nil {
-            noted(ctx, "%v(%v): %v(%v); path=%s\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue, prereqFile.fullname()).debug(1)
+            note(ctx, "%v(%v): %v(%v); path=%s\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue, prereqFile.fullname()).debug(1)
         } else if prereqObj != nil {
-            noted(ctx, "%v(%v): %v(%v); obj=%v\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue, prereqObj).debug(1)
+            note(ctx, "%v(%v): %v(%v); obj=%v\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue, prereqObj).debug(1)
         } else {
-            noted(ctx, "%v(%v): %v(%v)\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue).debug(1)
+            note(ctx, "%v(%v): %v(%v)\n", typeof(targetValue), targetValue, typeof(prereqValue), prereqValue).debug(1)
         }
 
         if val := prereqValue; val != nil { erro(at(ctx,val.Position()), "value: %T %v ; %s %v", val, val, prereqFinal, files(ctx, prereqFinal)) }
@@ -1086,7 +1086,7 @@ ForPrerequisites:
             t0 = time.Now()
         )
         switch by = prerequisite; u := prerequisite.(type) {
-        case untraversed: noted(ctx, "%v: %v", ent, us(u)).debug(1) ; continue
+        case untraversed: note(ctx, "%v: %v", ent, us(u)).debug(1) ; continue
         default: prerequisite.traverse(ctx)
         }
 
@@ -1266,14 +1266,14 @@ func (t normalTraverseContext) traversed(ctx Context, target Value) (targets []V
         autoSet(ctx, "<", targets[0])
         autoSet(ctx, ">", targets[len(targets)-1])
     }
-    if false { noted(ctx, "%v %v", target, targets).debug(1) }
+    if false { note(ctx, "%v %v", target, targets).debug(1) }
     return
 }
 func (t orderTraverseContext) traversed(ctx Context, target Value) (targets []Value) {
     if targets = t.Context.traversed(ctx, target); len(targets) > 0 {
         autoSet(ctx, "|", makeList(targets...))
     }
-    if false { noted(ctx, "%v %v", target, targets).debug(1) }
+    if false { note(ctx, "%v %v", target, targets).debug(1) }
     return
 }
 
@@ -1332,9 +1332,9 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
             }}
 
             if tar != "" && tar != ent {
-                noted(ctx, "%s: %s: got %d errors", ent, tar, errs).debug(1)
+                note(ctx, "%s: %s: got %d errors", ent, tar, errs).debug(1)
             } else {
-                noted(ctx, "%s: got %d errors", ent, errs).debug(1)
+                note(ctx, "%s: got %d errors", ent, errs).debug(1)
             }
 
             if false && !isConfigure(ctx) {
@@ -1423,7 +1423,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
                     erro(at(ctx,pos), "%v : %v", t, autoVal(c, ">"))
                 }
 
-                dia.flush() // dump immediately
+                dia.flush(ctx) // dump immediately
             }
 
             errostack(ctx, depth, "#>", entry).debug(512)

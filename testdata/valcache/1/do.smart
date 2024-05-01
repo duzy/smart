@@ -3,3 +3,7 @@ project testvalcache
 files (
     (foo.c foo.c++ foo/bar.c foo/bar.c++) ⇒ src
 )
+
+p1 :=  *.c
+p2 := **.c
+p3 := **.c++

@@ -24,24 +24,34 @@ type test_final struct{}
 
 const testModulesPath = "/Volumes/workspace/.smart/modules"
 
+var init_erros int
+var init_lines int
+
+func init() {
+	diagnostic_limit_erros = 2000
+	diagnostic_limit_lines = 20000 // est. lines
+}
+
 func testHasModule(name string) (res bool) {
 	if i, e := os.Stat(filepath.Join(testModulesPath, name)); e == nil { res = i.IsDir() }
 	return
 }
 
-func loadcase(t *testing.T, dir, name string, ii ...interface{}) (tc testcase) {
+func loadcase(t *testing.T, dir, name string, ii ...interface{}) (res *testcase) {
 	if !filepath.IsAbs(dir) { dir = filepath.Join(baseWorkDir, dir) }
 	if _, e := os.Stat(dir); e != nil {
 		t.Errorf("%v", e)
 		return
 	}
 
-	tc.T = t
-
-	var ctx = new_universe(ii...)
+	ctx := new_universe(ii...)
+	res = &testcase{ ctx, t, nil }
 
 	defer assured(ctx, false)
 
+	ctx.erros = init_erros
+	ctx.flued = init_lines
+	ctx.panicFailureOnErrosFlushed = false
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
 	ctx.globe.main = nil
 	ctx.workdir = dir
@@ -59,43 +69,59 @@ func loadcase(t *testing.T, dir, name string, ii ...interface{}) (tc testcase) {
 	} else if name != "" && m.name != name {
 		erro(ctx, "project %v != %v", m.name, name).debug(1, skipint{3})
 	} else {
-		tc.Context = _closureWith(ctx, m) // TODO: add projectContext{ctx, m}
-		testRemoveConfigureDir(tc, tc.project())
+		res.Context = _closureWith(ctx, m) // TODO: projectContext{ctx, m}
+		testRemoveConfigureDir(res, res.project())
 	}
 
-	var dia = _diagnostic(tc.Context)
-	if dia.flush(); dia.error() {
-		tc.Errorf("%d errors in %s", dia.errs, tc.Position().Filename)
+	ctx.diagnostic.flush(ctx)
+
+	if ctx.erros > 0 {
+		res.Errorf("%d errors in %s", ctx.erros, ctx.Position().Filename)
 	}
 	return
 }
 
 func (tc *testcase) err(f string, i ...interface{}) {
 	var ctx = tc.Context
-	if i == nil { var s string
+	if i == nil {
+		var s string
 		if n := strings.Index(f, ":"); n > 0 {
 			s = strings.TrimSpace(f[:n])
 		} else {
 			s = strings.TrimSpace(f)
 		}
-		if d, _ := tc.obj(s).(*def); d != nil { ctx = at(ctx, d.position) }
-	} else { for _, a := range i { if d, y := a.(*def); y {
-		if d != nil { ctx = at(ctx, d.position) }; break
-	} else if v, y := a.(Value); y {
-		ctx = at(ctx, v.Position()); break
-	} else if v, y := a.(ust); y {
-		ctx = at(ctx, v.Position()); break
-	}}}
+		if d, _ := tc.obj(s).(*def); d != nil {
+			ctx = at(ctx, d.position)
+		}
+	} else {
+		for _, a := range i {
+			if d, y := a.(*def); y && d != nil {
+				if d.value != nil {
+					ctx = at(ctx, d.value.Position())
+				} else {
+					ctx = at(ctx, d.position)
+				}
+				break
+			} else if v, y := a.(Value); y {
+				ctx = at(ctx, v.Position())
+				break
+			} else if v, y := a.(ust); y {
+				ctx = at(ctx, v.Position())
+				break
+			}
+		}
+	}
 	erro(ctx, f, i...).debug(1, skipint{2})
-	if false { tc.Errorf(f, i...) }
+	flush(ctx) // to avoid affecting any other defer-traces after this err
 }
 
 func (tc *testcase) flush() {
 	var dia = _diagnostic(tc.Context)
-	if n := dia.countError(); n > 0 { var pos Position
+	if n := dia.countError(); n > 0 {
+		var pos Position
 		if p := tc.project(); p != nil { pos = p.position } else { pos = tc.Position() }
-		noted(at(tc.Context, pos), "%v: %v errors", tc.project(), n).debug(1, skipint{2})
-		tc.Errorf("%d errors in %s", dia.flush(), pos.Filename)
+		note(at(tc.Context, pos), "%v: %v errors", tc.project(), n).debug(1, skipint{2})
+		tc.Errorf("%d errors in %s", dia.flush(tc.Context), pos.Filename)
 	}
 }
 
@@ -175,7 +201,7 @@ func (tc *testcase) val(i0 interface{}, ii ...interface{}) (res Value) {
 	}
 }
 
-func testRemoveConfigureDir(ctx testcase, p *project) {
+func testRemoveConfigureDir(ctx *testcase, p *project) {
 	if f := p.configurationFile; f == nil {
 		// skip
 	} else if s := f.fullname(); s == "" {
@@ -187,30 +213,23 @@ func testRemoveConfigureDir(ctx testcase, p *project) {
 	} else if e := os.RemoveAll(s); e != nil {
 		ctx.err("%v", e)
 	} else if false {
-		noted(ctx, "%v", s).debug(10)
+		note(ctx, "%v", s).debug(10)
 	}
 	for _, base := range p.bases { testRemoveConfigureDir(ctx, base) }
 }
 
 func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...interface{}) {
-	var ctx = loadcase(t, joinPath("testdata", spec), name, ii...)
-	if ctx.Context == nil {
-		t.Errorf("testdata/%s", spec)
-		return
-	}
-
+	ctx := loadcase(t, joinPath("testdata", spec), name, ii...)
 	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
 
 	defer assured(ctx, true)
 	defer ctx.flush()
+	defer func(u *universe) {
+		init_erros += u.erros
+		init_lines += u.flued
+	} (_universe(ctx))
 
-	const note = false
-
-	if note { noted(ctx, "case %s %s", name, spec); ctx.flush() }
-
-	f(&ctx)
-
-	if note { noted(ctx, "done %s %s", name, spec).debug(1) }
+	f(ctx)
 }
 
 type (
@@ -355,6 +374,8 @@ func Test(t *testing.T) {
 
 	// valcache_test.go
 	run("valcache", "valcache/1", "testvalcache", testValueCache1)
+	run("valcache", "valcache/2", "testvalcache", testValueCache2)
+	run("valcache", "valcache/3", "testvalcache", testValueCache3)
 	run("valcache", "valcache",   "testvalcache", testValueCache)
 
 	// builtins_test.go

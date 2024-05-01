@@ -84,7 +84,7 @@ type commandline struct {
   parallel        bool `p,par,para,parallel`
 
   fastMode        bool `f,fm,fast,fast-mode`
-  failOnErrors    bool `fe,foe,fail-on-errors`
+  panicFailureOnErrosFlushed    bool `fe,foe,fail-on-errors`
   errorUncache    bool `eu,error-uncache,error-no-cache`
 
   traceLaunch     bool `tl,trace-launch`
@@ -124,6 +124,7 @@ const (
   propParameters
   propParamName
   propWorkDir
+  propErros
   propExAuto
   propExClosure
   propExDelegate
@@ -145,6 +146,8 @@ const (
   propReversal
   propCacheUnmap
   propCachePath
+
+  actOnErros
 )
 
 func _position(ctx Context) (res Position) {
@@ -430,7 +433,7 @@ const (
   diagWarn
   diagError
   diagPrompt
-  diagPromptNewline
+  diagPromptLine
 )
 
 type diagPoint struct {
@@ -485,7 +488,7 @@ func trace(ctx Context, a ...interface{}) {
     te.Context = nil
   }
 
-  if d := _diagnostic(ctx); d.error() {
+  if d := _diagnostic(ctx); d.countError() > 0 {
     if d.traced += 1 ; 1 == d.traced {
       panic(tracend{ctx}) // break out of the call stack
     }
@@ -495,16 +498,29 @@ func trace(ctx Context, a ...interface{}) {
 
 func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
 
+const diagnostic_limit = 10_000
+var   diagnostic_limit_erros = 520
+var   diagnostic_limit_lines = 10_000_000
+
 type diagnostic struct {
   Context
   sync.Mutex
   newlines []*diagPoint
   points   []*diagPoint
-  nested [][]*diagPoint
-  errs, traced int
+  nested [][]*diagPoint // TODO: this shall perish
+  erros int // number of flushed erros
+  flued int
+  traced int
 }
 func (diag *diagnostic) aquire() (unlock func()) { diag.Lock(); return func(){ diag.Unlock() }}
 func (diag *diagnostic) cast(t reflect.Type) Context { return implcast(diag,t) }
+func (diag *diagnostic) do(prop property, a ...interface{}) interface{} {
+  switch prop {
+  case propErros: return diag.erros
+  }
+  if diag.Context == nil { return nil }
+  return diag.Context.do(prop, a...)
+}
 func (diag *diagnostic) String() string {
   if fullContextStringer {
     return fmt.Sprintf("diag{%s}", diag.Context)
@@ -515,7 +531,20 @@ func (diag *diagnostic) String() string {
 func (diag *diagnostic) reset() { defer diag.aquire()(); diag.points = []*diagPoint{} }
 func (diag *diagnostic) add(point *diagPoint) *diagPoint {
   defer diag.aquire()()
-  if point.dt == diagPromptNewline {
+
+  if diagnostic_limit < len(diag.points)+len(diag.newlines) {
+    panic("too many diagnostics")
+  } else if 0 < diagnostic_limit_lines {
+    var x = diag.flued
+    for _, t := range append(diag.points, diag.newlines...) {
+      x += 1 + bytes.Count(t.stack, []byte("\n"))
+    }
+    if diagnostic_limit_lines < x {
+      panic(fmt.Sprintf("too many diagnostics (%d)", x))
+    }
+  }
+
+  if point.dt == diagPromptLine {
     diag.newlines = append(diag.newlines, point)
     return point
   } else if strings.HasSuffix(point.message, "\n") {
@@ -537,7 +566,7 @@ func (diag *diagnostic) point(ctx Context, dt diagType, f string, args ...interf
   if dt != diagPrompt { f = strings.TrimSpace(f) }
   return diag.add(&diagPoint{ dt, ctx.Position(), fmt.Sprintf(f, args...), nil })
 }
-func (diag *diagnostic) error() bool { return diag.errs > 0 || diag.countError() > 0 }
+func (diag *diagnostic) error() bool { return diag.countError() > 0 }
 func (diag *diagnostic) countError() int { return diag.count(diagError) }
 func (diag *diagnostic) count(dt ...diagType) (errs int) {
   defer diag.aquire()()
@@ -548,27 +577,41 @@ func (diag *diagnostic) count(dt ...diagType) (errs int) {
   }
   return
 }
-func (diag *diagnostic) flush() (errs int) {
-  var flush = func(d *diagPoint, pend bool) (pended bool) {
-    var (
-      pos = d.position.String()
-      msg = d.message
-    )
+func (diag *diagnostic) flush(ctx Context) (errs int) {
+  var flush = func(d *diagPoint, pend bool) bool {
+    defer func() {
+      if x := diagnostic_limit_erros ; 0 < x && x < diag.erros {
+        panic(fmt.Sprintf("too many errors (%d)", diag.erros))
+      }
+      if x := diagnostic_limit_lines ; 0 < x && x < diag.flued {
+        panic(fmt.Sprintf("too many diagnostics (%d)", x))
+      }
+    } ()
+
+    pos, msg := d.position.String(), d.message
+
+    diag.flued += 1
 
     switch d.dt {
-    case diagError: fmt.Fprintf(stderr, "%v: %s\n",         pos, msg); errs += 1
+    case diagError: fmt.Fprintf(stderr, "%v:error: %s\n",   pos, msg); errs += 1
     case diagInfo : fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
     case diagWarn : fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
-    case diagPromptNewline: if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
-    case diagPrompt  : if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
+    case diagPromptLine: if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
+    case diagPrompt    : if msg != "" { fmt.Fprintf(stderr, "%s"  , msg) }
       if pend && !strings.HasSuffix(msg, "\n") { return true }
     }
 
-    if len(d.stack) > 0 { fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack)) }
-    return
+    if d.stack != nil {
+      fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
+      diag.flued += 1 + bytes.Count(d.stack, []byte("\n"))
+    }
+    return false
   }
 
-  defer func() { diag.errs += errs } ()
+  defer func() {
+    diag.erros += errs
+    ctx.do(actOnErros, errs)
+  } ()
 
   for {
     var point *diagPoint
@@ -598,7 +641,7 @@ func (diag *diagnostic) flush() (errs int) {
   return
 }
 
-func flush(ctx Context) int { return _diagnostic(ctx).flush() }
+func flush(ctx Context) int { return _diagnostic(ctx).flush(ctx) }
 
 func diag(ctx Context, dt diagType, f string, a ...interface{}) (_ *diagPoint) {
   if _diag := _diagnostic(ctx) ; _diag != nil {
@@ -611,7 +654,7 @@ func warn(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx,
 func erro(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagError, f, a...) }
 func prompt(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagPrompt, f, a...) }
 
-func noted(ctx Context, f string, a ...interface{}) *diagPoint {
+func note(ctx Context, f string, a ...interface{}) *diagPoint {
   if !strings.HasSuffix(f, "\n") { f += "\n" }
   if false {
     return prompt(ctx, "%v: "+f, append([]interface{}{ctx.Position()}, a...)...)
@@ -702,8 +745,8 @@ func (pc *positional) String() string {
 }
 func (pc *positional) do(prop property, a ...interface{}) interface{} {
   if prop == propPosition { return pc.position }
-  if pc.Context != nil { return pc.Context.do(prop, a...) }
-  return nil
+  if pc.Context == nil { return nil }
+  return pc.Context.do(prop, a...)
 }
 
 func _at(ctx Context, p Position) Context { return &positional{ctx, p} }
@@ -891,17 +934,17 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
   }
   te.Context = nil
 
-  var dia = _diagnostic(ctx) ; dia.flush()
+  var dia = _diagnostic(ctx) ; dia.flush(ctx)
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
     return
   }
 
   if errs = dia.countError(); errs > 0 && recovered == 0 {
-    noted(ctx, "got %d errors (total %d, recovered %d)", errs, dia.errs, recovered).debug(10)
+    note(ctx, "got %d errors (flushed %d, recovered %d)", errs, dia.erros, recovered).debug(10)
     if f != nil && (len(dontCheckErrors) == 0 || !dontCheckErrors[0]) {
       panic(_failure(ctx, "fail [assured]"))
     } else {
-      dia.flush()
+      dia.flush(ctx)
     }
   }
   return
@@ -957,8 +1000,8 @@ func CommandLine() {
 
   if err := context.load(); err != nil {
     erro(context, "loading work failed: %v", err)
-  } else if dia.flush() > 0 {
-    prompt(context, "loading work got %d errors\n", dia.errs)
+  } else if dia.flush(context) > 0 {
+    prompt(context, "loading work got %d errors\n", dia.erros)
   } else if context.help {
     context.doHelp()
   } else if context.printFlags {
@@ -971,8 +1014,8 @@ func CommandLine() {
     configure(context)
   } else if result, err := context.run(); err != nil {
     erro(context, "run work failed: %v", err)
-  } else if dia.flush() > 0 {
-    prompt(context, "run work got %d errors\n", dia.errs)
+  } else if dia.flush(context) > 0 {
+    prompt(context, "run work got %d errors\n", dia.erros)
   } else if result != nil {
     for i, v := range result {
       if s := ""; v == nil {

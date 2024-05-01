@@ -68,7 +68,7 @@ func (ctx *configureContext) openConfigurationFile(p *project) (file *os.File) {
         return
     } else if testPromptConfiguration {
         prompt(ctx, "%s:1: %v\n", s, p)
-        noted(ctx, "%v", p).debug(16)
+        note(ctx, "%v", p).debug(16)
     } else if testConfigurationDiverged || true {
         return
     } else if t := p.configuration(ctx); t != nil && t != f && t.fullname() != f.fullname() {
@@ -105,7 +105,7 @@ func (ctx *configureContext) execute(entry entry) {
         fmt.Fprintf(ctx.writer, "# %s (%s) configuration\n", p.spec, p.relPath)
 
         if !ctx.silent {
-            if false && p.name == "lib.c++.inc" { noted(ctx, "%v", p.spec).debug(16) }
+            if false && p.name == "lib.c++.inc" { note(ctx, "%v", p.spec).debug(16) }
             prompt(ctx, "configure %s …… (%s)\n", p.name, p.spec)
         }
 
@@ -471,7 +471,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
     var params, infos []Value
 
     if d := ctx.debug; d > 0 { defer func() {
-        noted(ctx, "%v: %v -> %v %v", us(target), args, infos, params).debug(1+d)
+        note(ctx, "%v: %v -> %v %v", us(target), args, infos, params).debug(1+d)
     }()}
 
     var cc Context = ctx
@@ -651,7 +651,7 @@ ForConfig:
             return
         }
 
-        if d := ctx.debug; d > 0 { noted(ctx, "%v: %v: %v", target, name, para).debug(d) }
+        if d := ctx.debug; d > 0 { note(ctx, "%v: %v: %v", target, name, para).debug(d) }
 
         if configured, value = ctx.execute(target, name, para); !configured {
             erro(ctx, "%v: not configured with: %T %v", target, name, name).debug(1)

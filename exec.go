@@ -338,13 +338,13 @@ func (p *execBuffer) Write(b []byte) (n int, err error) {
         c.line.s, c.lino.int64 = string(line), int64(l)
         v := p.forLine.expand(final{p.Context})
         if true { if t := p.forLine; t.String() == "${.test.for $1,$2}" {
-          noted(p, "%v → %v{%v} ; %v", t, typeof(v), v, autoVal(p, "1")).debug(1)
+          note(p, "%v → %v{%v} ; %v", t, typeof(v), v, autoVal(p, "1")).debug(1)
         } else if v != nil {
           if s := strings.TrimSpace(string(line)); true ||
             strings.HasPrefix(s, "test one\n") ||
             strings.HasPrefix(s, "test two\n") || (
             strings.HasPrefix(s, "ld: library '") && strings.HasSuffix(s, "' not found")) {
-            noted(p, "%v: %s → %v{%v} ; %v", p.forLine, s, typeof(v), v, autoVal(p.Context, "1")).debug(1)
+            note(p, "%v: %s → %v{%v} ; %v", p.forLine, s, typeof(v), v, autoVal(p.Context, "1")).debug(1)
           }
         }}
       }
@@ -935,9 +935,9 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
       if _, s, y := ctx.target.fullnameFile(ctx); y {
         prompt(ctx, "%v:1: %v: %v\n", s, entry, err)
       } else {
-        noted(ctx, "%v: %v ; status=%v", entry, ctx.target, ctx.Status)
+        note(ctx, "%v: %v ; status=%v", entry, ctx.target, ctx.Status)
       }
-      noted(ctx, "%v: status=%v", entry, ctx.Status).debug(d)
+      note(ctx, "%v: status=%v", entry, ctx.Status).debug(d)
 
       // u.configuration.silent = true
     }
@@ -977,7 +977,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug(1)
     return
   } else if d := exe.debug; false && d>0 { defer func() {
-    noted(ctx, "%v: %v (%v)", _entry(ctx), exe.target.Value, result).debug(d)
+    note(ctx, "%v: %v (%v)", _entry(ctx), exe.target.Value, result).debug(d)
   }()}
 
   if !exe.prompt { exe.prompt = exe.promStr != "" }
@@ -1117,8 +1117,8 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
         x := recipe.string(ctx)
         // builtin_foreach_d = false
 
-        noted(at(ctx, recipe), "%v: %v", typeof(recipe), recipe)
-        noted(at(ctx, recipe), "%v: %v", typeof(recipe), x).debug(1)
+        note(at(ctx, recipe), "%v: %v", typeof(recipe), recipe)
+        note(at(ctx, recipe), "%v: %v", typeof(recipe), x).debug(1)
       }}
 
       // Escape '$$' sequences.
@@ -1153,7 +1153,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
             break
           }
         }
-        if false { noted(at(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1) }
+        if false { note(at(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug(1) }
       }
     }
 
