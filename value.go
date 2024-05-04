@@ -173,16 +173,13 @@ func (n existence) String() (s string) {
     return
 }
 
-func dobits(ctx, ic Context, a []interface{}, op, bits operator) interface{} {
-    if op&bits == 0 {
-        if ic == nil { return nil }
-        return ic.do(ctx, op, a...)
-    } else {
-        return true
-    }
+func dobits(ctx, ic Context, op any, bits property) any {
+    if x, y := op.(property); y && x&bits != 0 { return true }
+    if ic != nil { return ic.do(ctx, op) }
+    return nil
 }
 
-func originalBits(o origin) (bits operator) {
+func originalBits(o origin) (bits property) {
     switch o {
     case _defAny:
     case  defConfig:
@@ -205,78 +202,80 @@ func originalBits(o origin) (bits operator) {
 // Original initiation of def values.
 type original struct { Context ; o origin }
 func (c original) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c original) do(ctx Context, op operator, a ...any) any {
-    return dobits(ctx, c.Context, a, op, originalBits(c.o))
+func (c original) do(ctx Context, op any) any {
+    return dobits(ctx, c.Context, op, originalBits(c.o))
 }
 
 // Optimize value to be most evaluated
 type evaluation struct { Context; o origin }
 func (c evaluation) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c evaluation) do(ctx Context, op operator, a ...any) any {
-    return dobits(ctx, c.Context, a, op, originalBits(c.o)|propExEvaluation)
+func (c evaluation) do(ctx Context, op any) any {
+    return dobits(ctx, c.Context, op, originalBits(c.o)|propExEvaluation)
 }
 
 // Optimize value for final strings
 type final struct { Context }
 func (c final) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c final) do(ctx Context, op operator, a ...any) any {
-    return dobits(ctx, c.Context, a, op, propExClosure|propExDelegate|propExAuto|
+func (c final) do(ctx Context, op any) any {
+    return dobits(ctx, c.Context, op, propExClosure|propExDelegate|propExAuto|
         propExPlaceholder|propExDefValue|propExDisjunction|propExPairVal|propExFinal)
 }
 
 type expandFullFile struct { Context }
 func (c expandFullFile) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c expandFullFile) do(ctx Context, op operator, a ...any) any {
-    return dobits(ctx, c.Context, a, op, propExFullFile)
+func (c expandFullFile) do(ctx Context, op any) any {
+    return dobits(ctx, c.Context, op, propExFullFile)
 }
 
 type expandPathStr struct { Context }
 func (c expandPathStr) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c expandPathStr) do(ctx Context, op operator, a ...any) any {
-    return dobits(ctx, c.Context, a, op, propExPathStr)
+func (c expandPathStr) do(ctx Context, op any) any {
+    return dobits(ctx, c.Context, op, propExPathStr)
 }
 
 type condless struct { Context }
 func (c condless) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c condless) do(ctx Context, op operator, a ...any) any {
-    return dobits(ctx, c.Context, a, op, propExCondless)
+func (c condless) do(ctx Context, op any) any {
+    return dobits(ctx, c.Context, op, propExCondless)
 }
 
 type reversal struct { Context }
 func (c reversal) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c reversal) do(ctx Context, op operator, a ...any) any {
-    return dobits(ctx, c.Context, a, op, propReversal)
+func (c reversal) do(ctx Context, op any) any {
+    return dobits(ctx, c.Context, op, propReversal)
 }
 
 type partialBit uint
 type partial struct { Context ; bit partialBit }
 func (c partial) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c partial) do(ctx Context, op operator, a ...any) any {
-    for _, v := range a {
-        switch t := v.(type) {
-        case *auto:
-            if true || op&(propExAuto) != 0 {
-                if c.bit&placeholderPart != 0 && t.isPlaceholder() { return true }
-                if c.bit&digitalPart != 0 && t.isDigit() { return true }
+func (c partial) do(ctx Context, op any) any {
+    if x, y := op.(propGoodWith) ; y {
+        for _, v := range x.a {
+            switch t := v.(type) {
+            case *auto:
+                if true || x.p&(propExAuto) != 0 {
+                    if c.bit&placeholderPart != 0 && t.isPlaceholder() { return true }
+                    if c.bit&digitalPart != 0 && t.isDigit() { return true }
+                }
+            // case *barecomp:
+            //     for _, e := range t.elems {
+            //         if t := c.do(ctx, op, e); t != nil && t.(bool) { return true }
+            //     }
+            case *closure : return c.do(ctx, op)
+            case *delegate: return c.do(ctx, op)
             }
-        case *barecomp:
-            for _, e := range t.elems {
-                if t := c.do(ctx, op, e); t != nil && t.(bool) { return true }
-            }
-        case *closure : return c.do(ctx, op, t.x)
-        case *delegate: return c.do(ctx, op, t.x)
         }
     }
     if c.Context == nil { return nil }
-    return c.Context.do(ctx, op, a...)
+    return c.Context.do(ctx, op)
 }
 
-type negate struct { Context; bits operator }
+type negate struct { Context ; property }
 func (c negate) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c negate) do(ctx Context, op operator, a ...any) any {
-    if op&c.bits != 0 { return false }
+func (c negate) do(ctx Context, op any) any {
+    if x, y := op.(property); y && x&c.property != 0 { return false }
     if c.Context == nil { return nil }
-    return c.Context.do(ctx, op, a...)
+    return c.Context.do(ctx, op)
 }
 
 // A Comment node represents a single #-style comment.
@@ -509,9 +508,9 @@ type terminal struct { Context ; scopes []*Scope }
 func (cc *terminal) project() *project { return cc.Scope().project }
 func (cc *terminal) cast(t reflect.Type) Context { return implcast(cc,t) }
 func (cc *terminal) closure() []*Scope { return append(cc.scopes, cc.Context.closure()...) }
-func (cc *terminal) do(ctx Context, op operator, a ...any) any {
+func (cc *terminal) do(ctx Context, op any) any {
   if cc.Context == nil { return nil }
-  return cc.Context.do(ctx, op, a...)
+  return cc.Context.do(ctx, op)
 }
 func (cc *terminal) String() string {
     if fullContextStringer {
@@ -5677,7 +5676,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
     if exable(ctx, x, _x) {
         e = false
     } else if _cl {
-        if _exClosure(ctx, x) {
+        if _exClosure(ctx) {
             var v Value
             var s string
             switch t := x.(type) {
@@ -5693,7 +5692,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
             }
             if v != nil { x, e = v, true }
         }
-    } else if _exDelegate(ctx, x) {
+    } else if _exDelegate(ctx) {
         if unresolved(ctx, x) {
             var v Value
             if s := x.string(ctx); s == "" {
@@ -5949,7 +5948,7 @@ func (p *delegate) expandable(ctx Context) (res bool) {
     if false {
         res = true
     } else {
-        if res = _exDelegate(ctx, p.x) || p.x.expandable(ctx); !res {
+        if res = _exDelegate(ctx) || p.x.expandable(ctx); !res {
             for _, a := range p.a { if a.expandable(ctx) { return true }}
         }
     }
@@ -6067,7 +6066,7 @@ func (p *closure) expandable(ctx Context) (res bool) {
     if false {
         res = true
     } else {
-        if res = _exClosure(ctx, p.x) || p.x.expandable(ctx); !res {
+        if res = _exClosure(ctx) ||  p.x.expandable(ctx); !res {
             for _, a := range p.a { if a.expandable(ctx) { return true }}
         }
     }
@@ -6527,7 +6526,7 @@ func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, done bool) {
     if indeterminate(ctx, p) {
         erro(at(ctx,p), "valcache %v : indeterminate element : %v", p, us(p)).debug()
         return
-    } else if x, y := do(ctx, actHitPerc, c, p.string(ctx)).(valcache_bool); y {
+    } else if x, y := do(ctx, actHitPerc{c, p.string(ctx)}).(valcache_bool); y {
         return x.valcache, x.bool
     } else {
         erro(at(ctx,p), "unhit: %v : %v", us(p), us(ctx)).debug()
@@ -6825,7 +6824,7 @@ func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, donePat bool) {
     if indeterminate(ctx, p) {
         erro(at(ctx,p), "valcache %v : indeterminate element : %v", p, us(p)).debug()
         return
-    } else if x, y := do(ctx, actHitGlob, c, p.string(ctx)).(valcache_bool); y {
+    } else if x, y := do(ctx, actHitGlob{c, p.string(ctx)}).(valcache_bool); y {
         return x.valcache, x.bool
     } else {
         erro(at(ctx,p), "unhit: %v : %v", us(p), us(ctx)).debug()
@@ -6940,7 +6939,7 @@ func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, done bool) {
     if indeterminate(ctx, p) {
         erro(at(ctx,p), "valcache %v : indeterminate element : %v", p, us(p)).debug()
         return
-    } else if x, y := do(ctx, actHitRege, c, p.string(ctx)).(valcache_bool); y {
+    } else if x, y := do(ctx, actHitRege{c, p.string(ctx)}).(valcache_bool); y {
         return x.valcache, x.bool
     } else {
         erro(at(ctx,p), "unhit: %v : %v", us(p), us(ctx)).debug()
@@ -7622,9 +7621,7 @@ type evocation struct {
     o []Value
 }
 func (p *evocation) cast(t reflect.Type) Context { return implcast(p, t) }
-func (p *evocation) do(ctx Context, op operator, a ...any) any {
-    return p.Context.do(ctx, op, a...)
-}
+func (p *evocation) do(ctx Context, op any) any { return p.Context.do(ctx, op) }
 
 func evoke(ctx Context, x Value, o, a []Value) (_ Value, _ []Value) {
     // NOTE: the evo.a represents the arguments, which is a COPY of the original slice;

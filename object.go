@@ -135,8 +135,8 @@ type automatic struct {
     suppress func(string) bool
 }
 func (ac *automatic) cast(t reflect.Type) Context { return implcast(ac, t) }
-func (ac *automatic) do(ctx Context, op operator, a ...any) any {
-    return dobits(ctx, ac.Context, a, op, propExAuto)
+func (ac *automatic) do(ctx Context, op any) any {
+    return dobits(ctx, ac.Context, op, propExAuto)
 }
 func (ac *automatic) String() string {
     if fullContextStringer {

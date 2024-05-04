@@ -36,87 +36,85 @@ func (sl *searchlist) Set(value string) error {
 
 type cache struct { Context } // versus `unmap`
 func (c cache) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c cache) do(ctx Context, op operator, a ...any) any {
-    switch op {
+func (c cache) do(ctx Context, op any) any {
+    switch t := op.(type) {
     case actHitPunc:
-        return _valcache_bool(c.hit_punc(ctx, a[0].(*valcache), a[1].(token)))
+        return _valcache_bool(c.hit_punc(ctx, t.valcache, t.token))
     case actHitWord:
-        return _valcache_bool(c.hit_word(ctx, a[0].(*valcache), a[1].(string)))
+        return _valcache_bool(c.hit_word(ctx, t.valcache, t.string))
     case actHitGlob:
-        return _valcache_bool(c.hit_glob(ctx, a[0].(*valcache), a[1].(string)))
+        return _valcache_bool(c.hit_glob(ctx, t.valcache, t.string))
     case actHitPerc:
-        return _valcache_bool(c.hit_perc(ctx, a[0].(*valcache), a[1].(string)))
+        return _valcache_bool(c.hit_perc(ctx, t.valcache, t.string))
     case actHitRege:
-        return _valcache_bool(c.hit_rege(ctx, a[0].(*valcache), a[1].(string)))
+        return _valcache_bool(c.hit_rege(ctx, t.valcache, t.string))
     default:
-        return c.Context.do(ctx, op, a...)
+        return c.Context.do(ctx, op)
     }
 }
 
 type unmap struct { Context } // versus `cache`
 func (un unmap) cast(t reflect.Type) Context { return implcast(un, t) }
-func (un unmap) do(ctx Context, op operator, a ...any) any {
-    switch op {
+func (un unmap) do(ctx Context, op any) any {
+    switch t := op.(type) {
     case actHitPunc:
-        return _valcache_bool(un.hit_punc(ctx, a[0].(*valcache), a[1].(token)))
+        return _valcache_bool(un.hit_punc(ctx, t.valcache, t.token))
     case actHitWord:
-        return _valcache_bool(un.hit_word(ctx, a[0].(*valcache), a[1].(string)))
+        return _valcache_bool(un.hit_word(ctx, t.valcache, t.string))
     case actHitGlob:
-        return _valcache_bool(un.hit_glob(ctx, a[0].(*valcache), a[1].(string)))
+        return _valcache_bool(un.hit_glob(ctx, t.valcache, t.string))
     case actHitPerc:
-        return _valcache_bool(un.hit_perc(ctx, a[0].(*valcache), a[1].(string)))
+        return _valcache_bool(un.hit_perc(ctx, t.valcache, t.string))
     case actHitRege:
-        return _valcache_bool(un.hit_rege(ctx, a[0].(*valcache), a[1].(string)))
+        return _valcache_bool(un.hit_rege(ctx, t.valcache, t.string))
     case actUnpat:
-        return _valcache_bool(un.pat(ctx, a[0].(*valcache), a[1].(string)))
+        return _valcache_bool(un.pat(ctx, t.valcache, t.string))
     case actUnglob:
-        return _valcache_bool(un.glob(ctx, a[0].(*valcache), a[1].(string)))
-    default:
-        if op&(propUnmap) != 0 { return true }
-        return un.Context.do(ctx, op, a...)
+        return _valcache_bool(un.glob(ctx, t.valcache, t.string))
+    case property:
+        if t&(propUnmap) != 0 { return true }
     }
+    return un.Context.do(ctx, op)
 }
 
 type unmap_path struct { Context ; p *path ; i int }
 func (p *unmap_path) cast(t reflect.Type) Context { return implcast(p, t) }
-func (p *unmap_path) do(ctx Context, op operator, a ...any) any {
-    switch op {
+func (p *unmap_path) do(ctx Context, op any) any {
+    switch t := op.(type) {
     case actUnglob:
-        x := _valcache_bool(p.glob(ctx, a[0].(*valcache), a[1].(string)))
+        x := _valcache_bool(p.glob(ctx, t.valcache, t.string))
         if x.valcache != nil { return x }
-        return p.Context.do(ctx, op, a...)
-    default:
-        if op&(propUnmapPath) != 0 { return true }
-        return p.Context.do(ctx, op, a...)
+        return p.Context.do(ctx, op)
+    case property:
+        if t&(propUnmapPath) != 0 { return true }
     }
+    return p.Context.do(ctx, op)
 }
 
 type unmap_pstr struct { Context ; s string ; ss []string ; i int }
 func (p *unmap_pstr) cast(t reflect.Type) Context { return implcast(p, t) }
-func (p *unmap_pstr) do(ctx Context, op operator, a ...any) any {
-    switch op {
+func (p *unmap_pstr) do(ctx Context, op any) any {
+    switch t := op.(type) {
     case actUnglob:
-        x := _valcache_bool(p.glob(ctx, a[0].(*valcache), a[1].(string)))
+        x := _valcache_bool(p.glob(ctx, t.valcache, t.string))
         if x.valcache != nil { return x }
-        return p.Context.do(ctx, op, a...)
-    default:
-        if op&(propUnmapPath) != 0 { return true }
-        return p.Context.do(ctx, op, a...)
+        return p.Context.do(ctx, op)
+    case property:
+        if t&(propUnmapPath) != 0 { return true }
     }
+    return p.Context.do(ctx, op)
 }
 
 type unmap_unwind struct { Context ; valcache *valcache ; k any }
 func (p *unmap_unwind) cast(t reflect.Type) Context { return implcast(p, t) }
-func (p *unmap_unwind) do(ctx Context, op operator, a ...any) any {
-    switch op {
+func (p *unmap_unwind) do(ctx Context, op any) any {
+    switch op.(type) {
     case actUnwind:
         x := _valcache_bool(p.unwind(ctx))
         if x.valcache != nil && x.bool { return x }
-        return p.Context.do(ctx, op, a...)
-    default:
-        if op&(propUnmapWord) != 0 { return true }
-        return p.Context.do(ctx, op, a...)
+        return p.Context.do(ctx, op)
     }
+    return p.Context.do(ctx, op)
 }
 func (x *unmap_unwind) unwind(ctx Context) (_ *valcache, _ bool) {
     var word string
@@ -131,7 +129,7 @@ func (x *unmap_unwind) unwind(ctx Context) (_ *valcache, _ bool) {
         return
     }
 
-    if t, y := do(x.Context, actUnpat, x.valcache, word).(valcache_bool); y {
+    if t, y := do(x.Context, actUnpat{x.valcache, word}).(valcache_bool); y {
         if t.valcache != nil { return t.valcache, t.bool }
     }
     return
@@ -204,14 +202,14 @@ func (p *valcache) hit(ctx Context, k interface{}) (res *valcache, donePat bool)
     defer trace(ctx)
     switch t := k.(type) {
     case string:
-        if x, y := do(ctx, actHitWord, p, t).(valcache_bool); y {
+        if x, y := do(ctx, actHitWord{p, t}).(valcache_bool); y {
             return x.valcache, x.bool
         } else {
             erro(at(ctx,k), "unhit: %v : %v", us(k), us(ctx)).debug()
             return
         }
     case token:
-        if x, y := do(ctx, actHitPunc, p, t).(valcache_bool); y {
+        if x, y := do(ctx, actHitPunc{p, t}).(valcache_bool); y {
             return x.valcache, x.bool
         } else {
             erro(at(ctx,k), "unhit: %v : %v", us(k), us(ctx)).debug()
@@ -357,20 +355,20 @@ func (un unmap) pat(ctx Context, p *valcache, k string) (res *valcache, donePat 
     if true && (k == "yyz" || k == "foo/xx/yyz") { defer func() {
         note(ctx, "%v ; %v %v ; %v %v", us(ctx), k, p, donePat, res).debug(30)
     }()}
-    if x, y := do(ctx, actUnglob, p, k).(valcache_bool); y {
+    if x, y := do(ctx, actUnglob{p, k}).(valcache_bool); y {
         if res, donePat = x.valcache, x.bool ; x.bool { return }
     }
-    if x, y := do(ctx, actUnperc, p, k).(valcache_bool); y {
+    if x, y := do(ctx, actUnperc{p, k}).(valcache_bool); y {
         if y || res == nil {
             if res, donePat = x.valcache, x.bool ; x.bool { return }
         }
     }
-    if x, y := do(ctx, actUnrege, p, k).(valcache_bool); y {
+    if x, y := do(ctx, actUnrege{p, k}).(valcache_bool); y {
         if y || res == nil {
             if res, donePat = x.valcache, x.bool ; x.bool { return }
         }
     }
-    if x, y := do(ctx, actUnwind).(valcache_bool); y {
+    if x, y := do(ctx, actUnwind{}).(valcache_bool); y {
         if x.bool || res == nil { return x.valcache, x.bool }
     }
     return
@@ -642,22 +640,26 @@ func (ctx *universe) loader() *loader { return ctx.globe.top }
 func (ctx *universe) Globe() *globe { return ctx.globe }
 func (ctx *universe) Scope() *Scope { return ctx.scope }
 func (ctx *universe) String() (s string) { return /*"universe"*/ }
-func (ctx *universe) do(_ctx Context, op operator, a ...any) (res any) {
-    switch op {
+func (ctx *universe) do(_ctx Context, op any) (res any) {
+    switch t := op.(type) {
     case actOnErros:
         if ctx.panicFailureOnErrosFlushed {
-            var errs int
-            for _, i := range a { errs += i.(int) }
-            if 0 < errs { panic(_failure(ctx, "got %d errors", errs)) }
+            if 0 < t.i { panic(_failure(ctx, "got %d errors", t.i)) }
             res = true
         }
         return
 
-    case propPosition: return ctx.Position()
-    case propWorkDir: if ctx.workdir == "" { return baseWorkDir }
-        return ctx.workdir
+    case property:
+        if t&propPosition != 0 { return ctx.Position() }
+        if t&propWorkDir != 0 {
+            if s := ctx.workdir ; s == "" {
+                return baseWorkDir
+            } else {
+                return s
+            }
+        }
     }
-    return ctx.diagnostic.do(_ctx, op, a...)
+    return ctx.diagnostic.do(_ctx, op)
 }
 func (ctx *universe) project() (p *project) {
     if ctx != nil && ctx.globe != nil { p = ctx.globe.main }
@@ -665,8 +667,7 @@ func (ctx *universe) project() (p *project) {
 }
 func (ctx *universe) Position() (p Position) {
     if ctx.globe == nil || ctx.globe.main == nil {
-        p.Filename = _workdir(ctx)
-        p.Line, p.Column = 0, 0
+        p.Filename, p.Line, p.Column = _workdir(ctx), 0, 0
     } else {
         p = ctx.globe.main.position
     }

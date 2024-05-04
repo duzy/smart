@@ -116,24 +116,21 @@ func cl(ctx Context) (res *commandline) {
 
 const fullContextStringer = false
 
-type operator uint64
+type property uint64
 
 const (
-  // NOTE: bitwise operators
-  propPosition operator = 1<<iota
-  propProgram
+  propPosition property = 1<<iota
   propParameters
-  propParamName
   propWorkDir
   propErros
   propExAuto
   propExClosure
   propExDelegate
-  propExDef // =, :=, ::=, ...
-  propExDef0      //   =
-  propExDef1      //  :=
-  propExDef2      // ::=
-  propExDef3      // ;:= (TODO)
+  propExDef  // =, :=, ::=, ...
+  propExDef0 //   =
+  propExDef1 //  :=
+  propExDef2 // ::=
+  propExDef3 // ;:= (TODO)
   propExDefValue
   propExDigital // $0, $1, ...
   propExDisjunction
@@ -147,36 +144,31 @@ const (
   propReversal
   propUnmap
   propUnmapPath
-  propUnmapWord
+)
 
-  // NOTE: non-bitwise serial operators
-  actOnErros // FIXME: operator = iota + propUnmapWord
-  actHitPunc
-  actHitWord
-  actHitGlob
-  actHitPerc
-  actHitRege
-  actUnwind
-  actUnpat
-  actUnglob
-  actUnperc
-  actUnrege
+type (
+  propParamName struct { i int }
+  propGoodWith  struct{ p property ; a []any }
+  actOnErros struct{ i int }
+  actHitPunc struct{ *valcache ; token }
+  actHitWord struct{ *valcache ; string }
+  actHitGlob struct{ *valcache ; string }
+  actHitPerc struct{ *valcache ; string }
+  actHitRege struct{ *valcache ; string }
+  actUnpat   struct{ *valcache ; string }
+  actUnglob  struct{ *valcache ; string }
+  actUnperc  struct{ *valcache ; string }
+  actUnrege  struct{ *valcache ; string }
+  actUnwind  struct{}
 )
 
 func _position(ctx Context) (res Position) {
   if i := do(ctx, propPosition); i == nil {
     erro(ctx, "no such operator: position, %v", us(ctx)).debug(24)
-  } else if t, y := i.(Position); y { res = t } else {
+  } else if x, y := i.(Position); !y {
     erro(ctx, "not position: %v", us(i)).debug(2)
-  }
-  return
-}
-
-func _programProp(ctx Context) (res *program) {
-  if i := do(ctx, propProgram); i == nil {
-    erro(ctx, "no such operator: program, %v", us(ctx)).debug(24)
-  } else if t, y := i.(*program); y { res = t } else {
-    erro(ctx, "not program: %v", us(i)).debug(2)
+  } else {
+    res = x
   }
   return
 }
@@ -189,7 +181,7 @@ func _parameters(ctx Context) (res map[string]*auto) {
 }
 
 func _paramName(ctx Context, n int) (res string) {
-  if i := do(ctx, propParamName, n); i != nil {
+  if i := do(ctx, propParamName{n}); i != nil {
     if s, y := i.(string); y { res = s }
   }
   return
@@ -209,13 +201,13 @@ func _exAuto(ctx Context) (res bool) {
   return
 }
 
-func _exClosure(ctx Context, x Value) (res bool) {
-  res, _ = do(ctx, propExClosure, x).(bool)
+func _exClosure(ctx Context) (res bool) {
+  res, _ = do(ctx, propExClosure).(bool)
   return
 }
 
-func _exDelegate(ctx Context, x Value) (res bool) {
-  res, _ = do(ctx, propExDelegate, x).(bool)
+func _exDelegate(ctx Context) (res bool) {
+  res, _ = do(ctx, propExDelegate).(bool)
   return
 }
 
@@ -289,6 +281,11 @@ func _exFinal(ctx Context) (res bool) {
   return
 }
 
+func goodwith(ctx Context, p property, a ...any) (res bool) {
+  res, _ = do(ctx, propGoodWith{p, a}).(bool)
+  return
+}
+
 type Context interface {
   Position() Position
 
@@ -312,11 +309,10 @@ type Context interface {
 
   ref(Context, Value) bool
 
-  // TODO: do(Context, any) any
-  do(Context, operator, ...any) any
+  do(Context, any) any
 }
 
-func do(ctx Context, op operator, a ...any) any { return ctx.do(ctx, op, a...) }
+func do(ctx Context, op any) any { return ctx.do(ctx, op) }
 
 func cast[Ctx Context](ctx Context) (c Ctx) {
   if ctx != nil {
@@ -530,12 +526,12 @@ type diagnostic struct {
 }
 func (diag *diagnostic) aquire() (unlock func()) { diag.Lock(); return func(){ diag.Unlock() }}
 func (diag *diagnostic) cast(t reflect.Type) Context { return implcast(diag,t) }
-func (diag *diagnostic) do(ctx Context, op operator, a ...any) any {
+func (diag *diagnostic) do(ctx Context, op any) any {
   switch op {
   case propErros: return diag.erros
   }
   if diag.Context == nil { return nil }
-  return diag.Context.do(ctx, op, a...)
+  return diag.Context.do(ctx, op)
 }
 func (diag *diagnostic) String() string {
   if fullContextStringer {
@@ -626,7 +622,7 @@ func (diag *diagnostic) flush(ctx Context) (errs int) {
 
   defer func() {
     diag.erros += errs
-    do(ctx, actOnErros, errs)
+    do(ctx, actOnErros{errs})
   } ()
 
   for {
@@ -759,10 +755,10 @@ func (pc *positional) String() string {
     return pc.Context.String()
   }
 }
-func (pc *positional) do(ctx Context, op operator, a ...any) any {
+func (pc *positional) do(ctx Context, op any) any {
   if op == propPosition { return pc.position }
   if pc.Context == nil { return nil }
-  return pc.Context.do(ctx, op, a...)
+  return pc.Context.do(ctx, op)
 }
 
 func _at(ctx Context, p Position) Context { return &positional{ctx, p} }

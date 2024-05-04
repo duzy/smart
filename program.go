@@ -68,26 +68,25 @@ func (pc *programContext) cast(t reflect.Type) Context {
     if reflect.TypeOf((*stemmedContext)(nil)) == t { return nil }
     return pc.automatic.cast(t)
 }
-func (pc *programContext) do(ctx Context, op operator, a ...any) (res any) {
-    if op&propProgram != 0 { return pc.prog }
-    if op&propParameters != 0 {
-        var params map[string]*auto
-        for _, param := range pc.prog.params {
-            if params == nil { params = make(map[string]*auto, len(pc.prog.params)) }
-            params[param.name] = param
-        }
-        return params
-    }
-    if op&propParamName != 0 && len(a) == 1 {
-        if i, y := a[0].(int); y {
-            if i < len(pc.prog.params) {
-                res = pc.prog.params[i].name
-            }
+func (pc *programContext) do(ctx Context, op any) (res any) {
+    switch t := op.(type) {
+    case propParamName:
+        if t.i < len(pc.prog.params) {
+            res = pc.prog.params[t.i].name
         }
         return
+    case property:
+        if t&propParameters != 0 {
+            var params map[string]*auto
+            for _, param := range pc.prog.params {
+                if params == nil { params = make(map[string]*auto, len(pc.prog.params)) }
+                params[param.name] = param
+            }
+            return params
+        }
     }
     if pc.Context == nil { return }
-    return pc.Context.do(ctx, op, a...)
+    return pc.Context.do(ctx, op)
 }
 func (pc *programContext) aquire() func() { pc.Lock() ; return func(){ pc.Unlock() }}
 func (pc *programContext) String() string {
