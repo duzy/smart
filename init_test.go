@@ -47,7 +47,7 @@ func loadcase(t *testing.T, dir, name string, ii ...interface{}) (res *testcase)
 	ctx := new_universe(ii...)
 	res = &testcase{ ctx, t, nil }
 
-	defer assured(ctx, false)
+	defer trace(ctx)
 
 	ctx.erros = init_erros
 	ctx.flued = init_lines
@@ -222,7 +222,7 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...interface{}) 
 	ctx := loadcase(t, joinPath("testdata", spec), name, ii...)
 	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
 
-	defer assured(ctx, true)
+	defer trace(ctx)
 	defer ctx.flush()
 	defer func(u *universe) {
 		init_erros += u.erros

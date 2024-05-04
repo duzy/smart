@@ -110,8 +110,8 @@ glob3 = {=glob x*z?.c}
 # 	[^\D]          not not digits (== \d)
 # 	[[:name:]]     named ASCII class inside character class (== [:name:])
 # 	[^[:name:]]    named ASCII class inside negated character class (== [:^name:])
-# 	[\p{Name}]     named Unicode property inside character class (== \p{Name})
-# 	[^\p{Name}]    named Unicode property inside negated character class (== \P{Name})
+# 	[\p{Name}]     named Unicode operator inside character class (== \p{Name})
+# 	[^\p{Name}]    named Unicode operator inside negated character class (== \P{Name})
 #
 # Perl character classes (all ASCII-only):
 #

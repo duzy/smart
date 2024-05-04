@@ -287,9 +287,9 @@ type project struct {
   bases []*project
   use     *uselist
 
-  filemapx []*valcache_kv // closure cache
-  filemap valcache
-  entries valcache
+  filemapx []*_DEPRECATED_vcache_kv // closure cache
+  filemap     _DEPRECATED_vcache
+  entries     _DEPRECATED_vcache
   patterns []*rule // order is important
   configs []entry // configure entries
   defaultEntry entry
@@ -349,11 +349,11 @@ func (p *project) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *project) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *project) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *project) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *project) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
@@ -505,7 +505,7 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
     var ctx = at(ctx, m.pattern)
     for i, pat := range xmerge(ctx, m.pattern) {
       if pat.expandable(ctx) {
-        p.filemapx = append(p.filemapx, &valcache_kv{ pat, m })
+        p.filemapx = append(p.filemapx, &_DEPRECATED_vcache_kv{ pat, m })
       } else if c := p.filemap.slot(ctx, pat, bits|cacheKey); c != nil && c._val == nil {
         c._val = m
       } else if c != nil && c._val != nil {
@@ -582,7 +582,7 @@ func (p *project) resolveEntries(ctx Context, name interface{}, _b ...bool) (ent
     }
   }
 
-  var cache *valcache
+  var cache *_DEPRECATED_vcache
   var bits = cacheMatchPatts
   if s, y := name.(string); y {
     if cache = p.entries.strx(ctx, s, bits); cache != nil {

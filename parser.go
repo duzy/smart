@@ -1934,7 +1934,8 @@ func (p *parser) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		} else {
 			var dc = diagnostic{ Context: ctx }
 			wg.Add(1); go func() {
-				defer func() { if false { assured(&dc, true) }
+				defer func() {
+					if false { trace(&dc) }
 					if len(dc.points) > 0 { _diagnostic(ctx).nest(dc.points) }
 					wg.Done()
 				} ()

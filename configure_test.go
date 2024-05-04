@@ -216,7 +216,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 }
 
 func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
-	defer assured(ctx, true)
+	defer trace(ctx)
 
 	var outtmp Value
 	var proj = ctx.project()

@@ -235,11 +235,11 @@ func (m *modifier) traverse(ctx Context) { ctx = at(ctx, m.position)
         // TODO: deal with modify result `v`
     }
 }
-func (_ *modifier) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *modifier) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *modifier) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *modifier) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported").debug(32)
     return
 }
@@ -317,11 +317,11 @@ func (g *modification) string(ctx Context) (s string) {
     }
     return
 }
-func (_ *modification) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *modification) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *modification) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *modification) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported").debug(32)
     return
 }

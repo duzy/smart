@@ -60,11 +60,11 @@ func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *knownobject) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *knownobject) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *knownobject) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *knownobject) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
@@ -135,8 +135,8 @@ type automatic struct {
     suppress func(string) bool
 }
 func (ac *automatic) cast(t reflect.Type) Context { return implcast(ac, t) }
-func (ac *automatic) do(prop property, a ...interface{}) interface{} {
-    return bitdo(ac.Context, a, prop, propExAuto)
+func (ac *automatic) do(ctx Context, op operator, a ...any) any {
+    return dobits(ctx, ac.Context, a, op, propExAuto)
 }
 func (ac *automatic) String() string {
     if fullContextStringer {
@@ -356,11 +356,11 @@ func (a *auto) traverse(ctx Context) {
     if val := autoVal(ctx, a.name); val != nil { val.traverse(ctx) }
     return
 }
-func (_ *auto) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *auto) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *auto) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *auto) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
@@ -635,7 +635,7 @@ func (d *def) get(ctx Context, name string) (res Value) {
         res = d.value
         // d.Unlock()
     default:
-        erro(at(ctx,d.position), "def: no such property `%s'", name).debug(1)
+        erro(at(ctx,d.position), "def: no such operator `%s'", name).debug(1)
     }
     return
 }
@@ -658,11 +658,11 @@ func (d *def) stat(ctx Context) (si *statinfo) {
     if value != nil { si = value.stat(ctx) }
     return
 }
-func (_ *def) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *def) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *def) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *def) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
@@ -735,11 +735,11 @@ func (p *undetermined) match(ctx Context, i interface{}) (full bool, s interface
 func (p *undetermined) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (_ *undetermined) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *undetermined) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *undetermined) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *undetermined) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
@@ -864,11 +864,11 @@ func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *builtin) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *builtin) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *builtin) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *builtin) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
@@ -945,9 +945,9 @@ type entry interface {
 type entryArray []entry
 func (p entryArray) Position() Position { return p[0].Position() }
 func (p entryArray) String() string { return p[0].String() }
-func (p entryArray) cache(ctx Context, cache *valcache, bits int) *valcache { return p[0].cache(ctx, cache, bits) }
+func (p entryArray) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) *_DEPRECATED_vcache { return p[0].cache(ctx, cache, bits) }
 func (p entryArray) cmp(ctx Context, v Value) cmpres { return p[0].cmp(ctx, v) }
-func (p entryArray) collect(ctx Context, cache *valcache, bits int) []*valcache { return p[0].collect(ctx, cache, bits) }
+func (p entryArray) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) []*_DEPRECATED_vcache { return p[0].collect(ctx, cache, bits) }
 func (p entryArray) declScope() *Scope { return p[0].declScope() }
 func (p entryArray) delete(ctx Context) ([]*File, error) { return p[0].delete(ctx) }
 func (p entryArray) execute(ctx Context, a ...Value) ([]Value, travestates) { return p[0].execute(ctx, a...) }
@@ -1278,11 +1278,11 @@ func (p *rule) option(ctx Context) (res bool, infos []Value) {
     return
 }
 
-func (_ *rule) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *rule) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *rule) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *rule) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }

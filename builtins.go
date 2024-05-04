@@ -4148,7 +4148,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
         }
     }
 
-    var f2 = func(inVal Value, inPat bool, c *valcache) {
+    var f2 = func(inVal Value, inPat bool, c *_DEPRECATED_vcache) {
         defer g.Done()
         var fm, y = c._val.(filemap)
         if y && fm._filemap != nil {

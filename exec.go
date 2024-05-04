@@ -278,7 +278,7 @@ func (p *execBuffer) Write(b []byte) (n int, err error) {
   var expandForLine = p.forLine != nil && !isTrivial(p.forLine)
 
   // Diagnostics assured only when expanding forLine.
-  if expandForLine { defer assured(p, false) }
+  if expandForLine { defer trace(p) }
 
   var l int
   if p.Buf != nil {
@@ -427,11 +427,11 @@ func (p *execResult) cmp(ctx Context, v Value) (res cmpres) {
   }
   return
 }
-func (_ *execResult) cache(ctx Context, cache *valcache, bits int) (res *valcache) {
+func (_ *execResult) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
     return
 }
-func (_ *execResult) collect(ctx Context, cache *valcache, bits int) (res []*valcache) {
+func (_ *execResult) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
     errostack(ctx, 5, "cache unsupported").debug(32)
     return
 }

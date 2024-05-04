@@ -116,10 +116,11 @@ func cl(ctx Context) (res *commandline) {
 
 const fullContextStringer = false
 
-type property uint
+type operator uint64
 
 const (
-  propPosition property = 1<<iota
+  // NOTE: bitwise operators
+  propPosition operator = 1<<iota
   propProgram
   propParameters
   propParamName
@@ -144,15 +145,27 @@ const (
   propExCondless
   propExFinal // aka x.string(ctx)
   propReversal
-  propCacheUnmap
-  propCachePath
+  propUnmap
+  propUnmapPath
+  propUnmapWord
 
-  actOnErros
+  // NOTE: non-bitwise serial operators
+  actOnErros // FIXME: operator = iota + propUnmapWord
+  actHitPunc
+  actHitWord
+  actHitGlob
+  actHitPerc
+  actHitRege
+  actUnwind
+  actUnpat
+  actUnglob
+  actUnperc
+  actUnrege
 )
 
 func _position(ctx Context) (res Position) {
-  if i := ctx.do(propPosition); i == nil {
-    erro(ctx, "no such property: position, %v", us(ctx)).debug(24)
+  if i := do(ctx, propPosition); i == nil {
+    erro(ctx, "no such operator: position, %v", us(ctx)).debug(24)
   } else if t, y := i.(Position); y { res = t } else {
     erro(ctx, "not position: %v", us(i)).debug(2)
   }
@@ -160,8 +173,8 @@ func _position(ctx Context) (res Position) {
 }
 
 func _programProp(ctx Context) (res *program) {
-  if i := ctx.do(propProgram); i == nil {
-    erro(ctx, "no such property: program, %v", us(ctx)).debug(24)
+  if i := do(ctx, propProgram); i == nil {
+    erro(ctx, "no such operator: program, %v", us(ctx)).debug(24)
   } else if t, y := i.(*program); y { res = t } else {
     erro(ctx, "not program: %v", us(i)).debug(2)
   }
@@ -169,22 +182,22 @@ func _programProp(ctx Context) (res *program) {
 }
 
 func _parameters(ctx Context) (res map[string]*auto) {
-  if i := ctx.do(propParameters); i != nil {
+  if i := do(ctx, propParameters); i != nil {
     if t, y := i.(map[string]*auto); y { res = t }
   }
   return
 }
 
 func _paramName(ctx Context, n int) (res string) {
-  if i := ctx.do(propParamName, n); i != nil {
+  if i := do(ctx, propParamName, n); i != nil {
     if s, y := i.(string); y { res = s }
   }
   return
 }
 
 func _workdir(ctx Context) (res string) {
-  if i := ctx.do(propWorkDir); i == nil {
-    erro(ctx, "no such property: workdir, %v", us(ctx)).debug(24)
+  if i := do(ctx, propWorkDir); i == nil {
+    erro(ctx, "no such operator: workdir, %v", us(ctx)).debug(24)
   } else if t, y := i.(string); y { res = t } else {
     erro(ctx, "not string: %v", us(i)).debug(2)
   }
@@ -192,87 +205,87 @@ func _workdir(ctx Context) (res string) {
 }
 
 func _exAuto(ctx Context) (res bool) {
-  res, _ = ctx.do(propExAuto).(bool)
+  res, _ = do(ctx, propExAuto).(bool)
   return
 }
 
 func _exClosure(ctx Context, x Value) (res bool) {
-  res, _ = ctx.do(propExClosure, x).(bool)
+  res, _ = do(ctx, propExClosure, x).(bool)
   return
 }
 
 func _exDelegate(ctx Context, x Value) (res bool) {
-  res, _ = ctx.do(propExDelegate, x).(bool)
+  res, _ = do(ctx, propExDelegate, x).(bool)
   return
 }
 
 func _exDef(ctx Context) (res bool) {
-  res, _ = ctx.do(propExDef).(bool)
+  res, _ = do(ctx, propExDef).(bool)
   return
 }
 
 func _exDef0(ctx Context) (res bool) {
-  res, _ = ctx.do(propExDef0).(bool)
+  res, _ = do(ctx, propExDef0).(bool)
   return
 }
 
 func _exDef1(ctx Context) (res bool) {
-  res, _ = ctx.do(propExDef1).(bool)
+  res, _ = do(ctx, propExDef1).(bool)
   return
 }
 
 func _exDef2(ctx Context) (res bool) {
-  res, _ = ctx.do(propExDef2).(bool)
+  res, _ = do(ctx, propExDef2).(bool)
   return
 }
 
 func _exDefValue(ctx Context) (res bool) {
-  res, _ = ctx.do(propExDefValue).(bool)
+  res, _ = do(ctx, propExDefValue).(bool)
   return
 }
 
 func _exDigital(ctx Context) (res bool) {
-  res, _ = ctx.do(propExDigital).(bool)
+  res, _ = do(ctx, propExDigital).(bool)
   return
 }
 
 func _exDisjunction(ctx Context) (res bool) {
-  res, _ = ctx.do(propExDisjunction).(bool)
+  res, _ = do(ctx, propExDisjunction).(bool)
   return
 }
 
 func _exFullFile(ctx Context) (res bool) {
-  res, _ = ctx.do(propExFullFile).(bool)
+  res, _ = do(ctx, propExFullFile).(bool)
   return
 }
 
 func _exEvaluation(ctx Context) (res bool) {
-  res, _ = ctx.do(propExEvaluation).(bool)
+  res, _ = do(ctx, propExEvaluation).(bool)
   return
 }
 
 func _exPairVal(ctx Context) (res bool) {
-  res, _ = ctx.do(propExPairVal).(bool)
+  res, _ = do(ctx, propExPairVal).(bool)
   return
 }
 
 func _exPathStr(ctx Context) (res bool) {
-  res, _ = ctx.do(propExPathStr).(bool)
+  res, _ = do(ctx, propExPathStr).(bool)
   return
 }
 
 func _exPlaceholder(ctx Context) (res bool) {
-  res, _ = ctx.do(propExPlaceholder).(bool)
+  res, _ = do(ctx, propExPlaceholder).(bool)
   return
 }
 
 func _exCondless(ctx Context) (res bool) {
-  res, _ = ctx.do(propExCondless).(bool)
+  res, _ = do(ctx, propExCondless).(bool)
   return
 }
 
 func _exFinal(ctx Context) (res bool) {
-  res, _ = ctx.do(propExFinal).(bool)
+  res, _ = do(ctx, propExFinal).(bool)
   return
 }
 
@@ -299,8 +312,11 @@ type Context interface {
 
   ref(Context, Value) bool
 
-  do(property,...interface{}) interface{}
+  // TODO: do(Context, any) any
+  do(Context, operator, ...any) any
 }
+
+func do(ctx Context, op operator, a ...any) any { return ctx.do(ctx, op, a...) }
 
 func cast[Ctx Context](ctx Context) (c Ctx) {
   if ctx != nil {
@@ -364,7 +380,7 @@ type skipint struct{ int }
 var (
   callstackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   callstackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
-  callstackSmartTrace = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.\(\*diagnostic\)\.trace\(.+\)$`)
+  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do|\(\*diagnostic\)\.trace)\(.+\)$`)
 )
 func _callstack(s string, i, j int, args ...interface{}) (res callstack) {
   i += 1 // skips this func
@@ -396,7 +412,7 @@ func _callstack(s string, i, j int, args ...interface{}) (res callstack) {
   var v = bytes.Split(debug.Stack(), []byte{'\n'})
   for ; 0 < j && i+1 < len(v); i = i+1 {
     // skip diagnostic.trace lines
-    if callstackSmartTrace.Match(v[i]) { continue }
+    if callstackSkips.Match(v[i]) { continue }
 
     var (
       sm1 = callstackLine1.FindSubmatch(v[i+0]) // versus FindAllSubmatch(v[i+0], 1)
@@ -514,12 +530,12 @@ type diagnostic struct {
 }
 func (diag *diagnostic) aquire() (unlock func()) { diag.Lock(); return func(){ diag.Unlock() }}
 func (diag *diagnostic) cast(t reflect.Type) Context { return implcast(diag,t) }
-func (diag *diagnostic) do(prop property, a ...interface{}) interface{} {
-  switch prop {
+func (diag *diagnostic) do(ctx Context, op operator, a ...any) any {
+  switch op {
   case propErros: return diag.erros
   }
   if diag.Context == nil { return nil }
-  return diag.Context.do(prop, a...)
+  return diag.Context.do(ctx, op, a...)
 }
 func (diag *diagnostic) String() string {
   if fullContextStringer {
@@ -610,7 +626,7 @@ func (diag *diagnostic) flush(ctx Context) (errs int) {
 
   defer func() {
     diag.erros += errs
-    ctx.do(actOnErros, errs)
+    do(ctx, actOnErros, errs)
   } ()
 
   for {
@@ -743,10 +759,10 @@ func (pc *positional) String() string {
     return pc.Context.String()
   }
 }
-func (pc *positional) do(prop property, a ...interface{}) interface{} {
-  if prop == propPosition { return pc.position }
+func (pc *positional) do(ctx Context, op operator, a ...any) any {
+  if op == propPosition { return pc.position }
   if pc.Context == nil { return nil }
-  return pc.Context.do(prop, a...)
+  return pc.Context.do(ctx, op, a...)
 }
 
 func _at(ctx Context, p Position) Context { return &positional{ctx, p} }
@@ -756,8 +772,8 @@ func at(ctx Context, a interface{}) Context {
   var pos Position
 
   switch t := a.(type) {
-  case positioner: pos = t.Position()
   case Position  : pos = t
+  case positioner: pos = t.Position()
   default:
     if false { erro(ctx, "non-position arg: %v", us(a)).debug(3) }
     return ctx

@@ -68,9 +68,9 @@ func (pc *programContext) cast(t reflect.Type) Context {
     if reflect.TypeOf((*stemmedContext)(nil)) == t { return nil }
     return pc.automatic.cast(t)
 }
-func (pc *programContext) do(prop property, a ...interface{}) (res interface{}) {
-    if prop&propProgram != 0 { return pc.prog }
-    if prop&propParameters != 0 {
+func (pc *programContext) do(ctx Context, op operator, a ...any) (res any) {
+    if op&propProgram != 0 { return pc.prog }
+    if op&propParameters != 0 {
         var params map[string]*auto
         for _, param := range pc.prog.params {
             if params == nil { params = make(map[string]*auto, len(pc.prog.params)) }
@@ -78,7 +78,7 @@ func (pc *programContext) do(prop property, a ...interface{}) (res interface{}) 
         }
         return params
     }
-    if prop&propParamName != 0 && len(a) == 1 {
+    if op&propParamName != 0 && len(a) == 1 {
         if i, y := a[0].(int); y {
             if i < len(pc.prog.params) {
                 res = pc.prog.params[i].name
@@ -87,7 +87,7 @@ func (pc *programContext) do(prop property, a ...interface{}) (res interface{}) 
         return
     }
     if pc.Context == nil { return }
-    return pc.Context.do(prop, a...)
+    return pc.Context.do(ctx, op, a...)
 }
 func (pc *programContext) aquire() func() { pc.Lock() ; return func(){ pc.Unlock() }}
 func (pc *programContext) String() string {
@@ -420,7 +420,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
             var en int
             for _, p := range projects {
-                var c *valcache
+                var c *_DEPRECATED_vcache
                 if v, y := name.(Value); y {
                     c = p.filemap.slot(ctx, v, cacheMatchPatts)
                 } else if s, y := name.(string); y {
