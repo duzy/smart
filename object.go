@@ -60,14 +60,6 @@ func (p *knownobject) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *knownobject) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *knownobject) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
-    return
-}
 
 type origin int
 
@@ -137,13 +129,6 @@ type automatic struct {
 func (ac *automatic) cast(t reflect.Type) Context { return implcast(ac, t) }
 func (ac *automatic) do(ctx Context, op any) any {
     return dobits(ctx, ac.Context, op, propExAuto)
-}
-func (ac *automatic) String() string {
-    if fullContextStringer {
-        return fmt.Sprintf("auto{%s}", ac.Context)
-    } else {
-        return ac.Context.String()
-    }
 }
 func (ac *automatic) amend(ctx Context, name string, val Value) (out *def, res Value) {
     if d := ac.search(ctx, name); d == nil {
@@ -354,14 +339,6 @@ func (a *auto) stat(ctx Context) (si *statinfo) {
 }
 func (a *auto) traverse(ctx Context) {
     if val := autoVal(ctx, a.name); val != nil { val.traverse(ctx) }
-    return
-}
-func (_ *auto) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *auto) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
     return
 }
 
@@ -658,14 +635,6 @@ func (d *def) stat(ctx Context) (si *statinfo) {
     if value != nil { si = value.stat(ctx) }
     return
 }
-func (_ *def) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *def) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
-    return
-}
 
 func _isDigits(s string) bool {
     return strings.IndexFunc(s, func(c rune) bool { return !IsDigit(c) }) < 0
@@ -734,14 +703,6 @@ func (p *undetermined) patterned(ctx Context) bool { return false }
 func (p *undetermined) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
 func (p *undetermined) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
-}
-func (_ *undetermined) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *undetermined) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
-    return
 }
 
 const max_expand = 32
@@ -864,26 +825,18 @@ func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *builtin) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *builtin) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
-    return
-}
 
 type ruleClass int
 
 const (
-    GeneralRule ruleClass = iota
-    PatternRule
+    generalRule ruleClass = iota
+    patternRule
     pathPatRule
 )
 
 var namesForRuleClass = []string{
-    GeneralRule:  "GeneralRule",
-    PatternRule:  "PatternRule",
+    generalRule: "generalRule",
+    patternRule: "patternRule",
     pathPatRule: "pathPatRule",
 }
 
@@ -904,25 +857,23 @@ func _entry(ctx Context) (res entry) {
 type ruleContext struct { Context ; rule *rule }
 func (ec *ruleContext) cast(t reflect.Type) Context { return implcast(ec,t) }
 func (ec *ruleContext) Position() Position { return ec.rule.position }
-func (ec *ruleContext) String() string {
-    if fullContextStringer {
-        return fmt.Sprintf("entry{%s,%s}", ec.rule, ec.Context)
-    } else if true {
-        var ( cc []*ruleContext; s string )
-        for c := ec; c != nil && len(cc) < 5; c = cast[*ruleContext](c.Context) {
-            if t := c.rule.string(c.Context); s != "" {
-                s = fmt.Sprintf("%s{%s}", t, s)
-            } else {
-                s = t
-            }
-        }
-        return s
-    } else if s, t := ec.rule.string(ec.Context), ec.Context.String(); t != "" {
-        return fmt.Sprintf("%s{%s}", s, t)
-    } else {
-        return fmt.Sprintf("%s", s)
-    }
-}
+// func (ec *ruleContext) String() string {
+//     if true {
+//         var ( cc []*ruleContext; s string )
+//         for c := ec; c != nil && len(cc) < 5; c = cast[*ruleContext](c.Context) {
+//             if t := c.rule.string(c.Context); s != "" {
+//                 s = fmt.Sprintf("%s{%s}", t, s)
+//             } else {
+//                 s = t
+//             }
+//         }
+//         return s
+//     } else if s, t := ec.rule.string(ec.Context), ec.Context.String(); t != "" {
+//         return fmt.Sprintf("%s{%s}", s, t)
+//     } else {
+//         return fmt.Sprintf("%s", s)
+//     }
+// }
 
 type invoker interface { invoke(Context, []Value, []Value) Value }
 type executer interface { execute(Context, ...Value) ([]Value, travestates) }
@@ -943,11 +894,11 @@ type entry interface {
 }
 
 type entryArray []entry
-func (p entryArray) Position() Position { return p[0].Position() }
 func (p entryArray) String() string { return p[0].String() }
-func (p entryArray) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) *_DEPRECATED_vcache { return p[0].cache(ctx, cache, bits) }
+func (p entryArray) Position() Position { return p[0].Position() }
+func (p entryArray) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) *_DEPRECATED_vcache { return _DEPR_cache(ctx, p[0], cache, bits) }
+func (p entryArray) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) []*_DEPRECATED_vcache { return _DEPR_collect(ctx, p[0], cache, bits) }
 func (p entryArray) cmp(ctx Context, v Value) cmpres { return p[0].cmp(ctx, v) }
-func (p entryArray) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) []*_DEPRECATED_vcache { return p[0].collect(ctx, cache, bits) }
 func (p entryArray) declScope() *Scope { return p[0].declScope() }
 func (p entryArray) delete(ctx Context) ([]*File, error) { return p[0].delete(ctx) }
 func (p entryArray) execute(ctx Context, a ...Value) ([]Value, travestates) { return p[0].execute(ctx, a...) }
@@ -1031,7 +982,7 @@ func (p *rule) String() string {
 }
 func (p *rule) updated(ctx Context) (res bool) {
     if res = p.target.updated(ctx); res {
-        ctx.dirtyMark(p.target)
+        do(ctx, actDirtyMark{[]Value{ p.target }})
     }
     return
 }
@@ -1041,7 +992,7 @@ func (p *rule) updatedDeps(ctx Context, v ...Value) []Value {
 // rule.execute executes the rule program only if the target is outdated.
 func (p *rule) execute(ctx Context, a ...Value) (result []Value, traves travestates) {
     switch p.class {
-    case PatternRule, pathPatRule:
+    case patternRule, pathPatRule:
         erro(ctx, "executing pattern entry '%v'", p.target).debug(1)
         return
     }
@@ -1278,33 +1229,14 @@ func (p *rule) option(ctx Context) (res bool, infos []Value) {
     return
 }
 
-func (_ *rule) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *rule) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
-    return
-}
-
 func _stemmedContext(ctx Context) *stemmedContext { return cast[*stemmedContext](ctx) }
 func _stems(ctx Context) (res []string) {
     if p := _stemmedContext(ctx); p != nil { res = p.stem.stems }
     return
 }
 
-type stemmedContext struct {
-    Context
-    stem *stemmed
-}
+type stemmedContext struct { Context ; stem *stemmed }
 func (sc *stemmedContext) cast(t reflect.Type) Context { return implcast(sc,t) }
-func (sc *stemmedContext) String() string {
-    if fullContextStringer {
-        return fmt.Sprintf("stemmed{%s}", sc.Context)
-    } else {
-        return sc.Context.String()
-    }
-}
 
 type stemmed struct {
     *rule

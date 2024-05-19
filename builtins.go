@@ -2571,7 +2571,7 @@ func (ctx *builtin_trimprefix) x() (_ interface{}) {
             }
             if f { return }
 
-            t = joinPathStr(ctx, r)
+            t = _path(ctx, r)
         } else {
             t = prefix.string(ctx)
         }
@@ -2635,7 +2635,7 @@ func (ctx *builtin_trimsuffix) x() (_ interface{}) {
             }
             if f { return }
 
-            t = joinPathStr(ctx, r)
+            t = _path(ctx, r)
         } else {
             t = suffix.string(ctx)
         }
@@ -3815,7 +3815,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
         ctx.Context = at(cc, a)
 
         var fs []*File
-        var am []matchedfilemap
+        var am []matched_filemap
         if f, y := toFile(a); y {
             if !ctx.exists || f.exists() /* || f.stat(ctx) != nil */ {
                 res = append(res, f)
@@ -3837,7 +3837,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
                     return
                 } else {
                     if ctx.mapped {
-                        var t = unmapfiles(ctx, a)
+                        var t = unmap_files(ctx, a)
                         erro(ctx, "not a file ; %v → %v", tv(a), t).debug(1)
                     }
                     return
@@ -4163,7 +4163,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
     var f3 = func(inVal Value) {
         defer g.Done()
         var inPat = inVal.patterned(ctx)
-        for _, c := range inVal.collect(ctx, &p.filemap, cacheMatchPatts) {
+        for _, c := range _DEPR_collect(ctx, inVal, &p.filemap, cacheMatchPatts) {
             g.Add(1) ; go f2(inVal, inPat, c)
         }
     }

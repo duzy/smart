@@ -124,12 +124,12 @@ func _loader(c Context) *loader { return cast[*loader](c) }
 
 type loader struct {
     terminal
-    p *parser
-    proj *project
     mode Mode // parsing mode
-    loadArgs []Value
-    loadStack []*project // load path
-    useStack  []*project // use path
+    p    *parser
+    proj *project
+    loadArgs      []Value
+    loadStack     []*project // load path
+    useStack      []*project // use path
     useesExecuted []*project // all executed usees
     implicit bool // loading current project implicitly, aka. via foo.bar.Baz (implicit foo/bar loaded)
     verpre string // verbose prefix
@@ -141,17 +141,10 @@ func (l *loader) cast(t reflect.Type) Context {
     if reflect.TypeOf(l.p) == t { return l.p }
     return l.terminal.cast(t)
 }
-func (l *loader) String() string {
-    if fullContextStringer {
-        return fmt.Sprintf("loader{%s}", &l.terminal)
-    } else {
-        return l.terminal.String()
-    }
-}
 
 func restoreLoadingInfo(l *loader) {
     var globe = l.Globe()
-    var last = len(globe.loads)-1
+    var last  = len(globe.loads)-1
     var linfo = globe.loads[last]
     globe.loads = globe.loads[0:last]
     l.useesExecuted = linfo.useesExecuted
@@ -832,7 +825,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []entry) {
             var s = t.Value.string(ctx)
             if l.proj.name != "~" { l.Globe().AddFlagEntry(s, entry) }
         } else if configure {
-            if entry.Class() == PatternRule {
+            if entry.Class() == patternRule {
                 erro(ctx, "unsupported pattern configures: %v", target).debug(1)
                 return
             } else {

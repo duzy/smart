@@ -41,14 +41,6 @@ func (p *Plain) cmp(ctx Context, v Value) (res cmpres) {
         }
         return
 }
-func (_ *Plain) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *Plain) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported").debug(32)
-    return
-}
 
 type (
         plainInt struct {}

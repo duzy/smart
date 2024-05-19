@@ -427,14 +427,6 @@ func (p *execResult) cmp(ctx Context, v Value) (res cmpres) {
   }
   return
 }
-func (_ *execResult) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *execResult) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported").debug(32)
-    return
-}
 func (p *execResult) true(ctx Context) (res bool) {
   res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
   return
@@ -524,7 +516,7 @@ type execContext struct {
 }
 
 func (p *execContext) cast(t reflect.Type) Context { return implcast(p,t) }
-func (p *execContext) String() string { return p.Context.String() }
+// func (p *execContext) String() string { return p.Context.String() }
 func (p *execContext) Position() Position {
   if p.current < 0 { return _program(p).position }
   return p.sources[p.current].position

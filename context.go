@@ -16,117 +16,30 @@ import (
   "bufio"
   "bytes"
   "sync"
-  "time"
   "fmt"
   "os"
   "io"
 )
 
 const (
-  productVerTag = "dev" // dev, alpha, beta, final
-  checkpoints = productVerTag != "final"
+  vertag = "dev" // dev, alpha, beta, final
+  checkpoints = vertag != "final"
   trace_recover = true
 )
-
-type commandline struct {
-  help            bool `h,help`
-
-  debug           bool `d,db,debug`
-  debugErrors     bool `de,dberro,debug-errors`
-  debugWarns      bool `dw,dbwarn,debug-warns`
-  debugInfos      bool `di,dbinfo,debug-infos`
-  debugPrompt     bool `dp,dbprom,debug-prompt`
-  debugSyntax []string `ds,dbsyntax,debug-syntax`
-
-  autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
-  cpuProf         string `cpuprof,cpu-profile`
-  memProf         string `memprof,memory-profile`
-
-  printConfig     bool `opts,print-options,printoptions`
-  printFlags      bool `flags,print-flags,printflags`
-
-  buildPlugins    bool `bp,bup,build-plugins,buildplugins`
-
-  silentOptionalSelection bool
-
-  verbose         bool `v,verb,verbose`
-  verboseBreaks   bool `vb,vbrk,verbose-breaks`
-  verboseChecks   bool `vc,vchk,verbose-checks`
-  verboseImport   bool `vi,vimp,verbose-import`
-  verboseLoads    bool `vl,vloa,verbose-loading`
-  verboseParse    bool `vp,vpar,verbose-parsing`
-  verboseUsing    bool `vu,vuse,verbose-using`
-  verboseExecFlags bool `vxf,verbose-exec-flag`
-
-  allowClosureFilemap bool `cf,closure-filemap,closure-files`
-
-  cleanDotCache   bool `clcac,clean-cache,clear-cache;rmc,rm-cache`
-  cleanDotDeps    bool `cldep,clean-deps,clear-deps;rmd,rm-deps`
-  cleanDotGrep    bool `clgrp,clean-grep,clear-grep;rmg,rm-grep`
-  cleanTmpDirs    bool `cltmp,clean-temp,clear-temp;rmt,rm-temp`
-
-  checkLoadGraph  bool `ckld,check-loads`
-
-  configure       bool `c,con,conf,configure`               // optionConfigure
-  reconfigure     bool `rc,rec,reconf,reconfig,reconfigure` // optionReconfig
-
-  saveGrepSource  bool `savgs,save-grep-source`
-
-  noRun           bool `nor,no-run`
-  noExec          bool `nox,ne,no-exec,no-execute`  // optionNoExec
-  noDeps          bool `nod,no-deps`
-  noGrep          bool `nog,no-grep`
-  noDepsGrep      bool `nodg,ngd,no-deps-grep,no-grep-deps`
-  noImportFiles   bool `noif,no-import-files`
-
-  slow time.Duration `sl,slow` // time.Millisecond
-
-  parallel        bool `p,par,para,parallel`
-
-  fastMode        bool `f,fm,fast,fast-mode`
-  panicFailureOnErrosFlushed    bool `fe,foe,fail-on-errors`
-  errorUncache    bool `eu,error-uncache,error-no-cache`
-
-  traceLaunch     bool `tl,trace-launch`
-  traceParsing    bool `tp,trace-parse`
-  traceExecutor   bool `te,trace-executor`
-  traceExec       bool `tx,trace-exec`
-  traceEntering   bool `ti,trace-entering`
-  traceConfig     bool `tc,trace-config`
-}
-
-func debugSyntax(ctx Context, s string) (res bool) {
-  if u := _universe(ctx); u != nil && u.ddd == s {
-    for _, t := range u.debugSyntax { if res = t == s; res { break } }
-  }
-  return
-}
-
-func db(ctx Context, ss ...string) (res bool) {
-    for _, d := range strings.Fields(_universe(ctx).ddd) {
-        for _, s := range ss { if d == s { return true }}
-    }
-    return
-}
-
-func cl(ctx Context) (res *commandline) {
-  if u := _universe(ctx); u != nil { res = &u.commandline }
-  return
-}
-
-const fullContextStringer = false
 
 type property uint64
 
 const (
   propPosition property = 1<<iota
   propParameters
+  propPath
   propWorkDir
+  propDirtyOpts
   propErros
   propExAuto
   propExClosure
   propExDelegate
-  propExDef  // =, :=, ::=, ...
+  propExDef  //   =, :=, ::=, ...
   propExDef0 //   =
   propExDef1 //  :=
   propExDef2 // ::=
@@ -143,23 +56,26 @@ const (
   propExFinal // aka x.string(ctx)
   propReversal
   propUnmap
-  propUnmapPath
 )
 
 type (
-  propParamName struct { i int }
   propGoodWith  struct{ p property ; a []any }
-  actOnErros struct{ i int }
-  actHitPunc struct{ *valcache ; token }
-  actHitWord struct{ *valcache ; string }
-  actHitGlob struct{ *valcache ; string }
-  actHitPerc struct{ *valcache ; string }
-  actHitRege struct{ *valcache ; string }
-  actUnpat   struct{ *valcache ; string }
-  actUnglob  struct{ *valcache ; string }
-  actUnperc  struct{ *valcache ; string }
-  actUnrege  struct{ *valcache ; string }
-  actUnwind  struct{}
+  propParamName struct{ i int }
+  actOnErros    struct{ i int }
+  actDirtyMark  struct{ a []Value }
+  actDirty      struct{ a []Value }
+  actTraversed  struct{ v Value }
+  actTraverse   struct{ v Value }
+  actHitValue   struct{ *valcache ; Value  }
+  actHitPunc    struct{ *valcache ; token  }
+  actHitWord    struct{ *valcache ; string }
+  actHitGlob    struct{ *valcache ; string }
+  actHitPerc    struct{ *valcache ; string }
+  actHitRege    struct{ *valcache ; string }
+  actUnpat      struct{ *valcache ; string }
+  actUnglob     struct{ *valcache ; string }
+  actUnperc     struct{ *valcache ; string }
+  actUnrege     struct{ *valcache ; string }
 )
 
 func _position(ctx Context) (res Position) {
@@ -286,10 +202,10 @@ func goodwith(ctx Context, p property, a ...any) (res bool) {
   return
 }
 
+type doer interface { do(Context,any) any }
+
 type Context interface {
   Position() Position
-
-  String() string
 
   Globe() *globe
 
@@ -298,18 +214,9 @@ type Context interface {
 
   Scope() *Scope
   project() *project
-  projects(Context,...*project) []*project
+  projects(Context, ...*project) []*project
 
-  dirtyMark(...Value)
-  dirtyOpts() *dirtyOpts
-  dirty(Context,...Value) bool
-
-  traversed(Context, Value) []Value
-  traverse(Context, Value) travestates
-
-  ref(Context, Value) bool
-
-  do(Context, any) any
+  doer
 }
 
 func do(ctx Context, op any) any { return ctx.do(ctx, op) }
@@ -331,7 +238,7 @@ func implcast(ctx Context, t reflect.Type) (c Context) {
   return
 }
 
-func _inner(v reflect.Value) (i interface{}) {
+func _inner(v reflect.Value) (i any) {
   if t := v.Type(); t.Kind() == reflect.Struct {
     if f, y := t.FieldByName("Context"); y && f.Anonymous {
       if v = v.FieldByIndex(f.Index); v.IsValid() { i = v.Interface() }
@@ -378,7 +285,8 @@ var (
   callstackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
   callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do|\(\*diagnostic\)\.trace)\(.+\)$`)
 )
-func _callstack(s string, i, j int, args ...interface{}) (res callstack) {
+func cstack(i, j int, a ...any) callstack { return _callstack("", i+1, j, a...) }
+func _callstack(s string, i, j int, args ...any) (res callstack) {
   i += 1 // skips this func
 
   var nums []int
@@ -436,9 +344,19 @@ func _callstack(s string, i, j int, args ...interface{}) (res callstack) {
   return
 }
 
-func cstack(i, j int, a ...interface{}) callstack { return _callstack("", i+1, j, a...) }
+func debugSyntax(ctx Context, s string) (res bool) {
+  if u := _universe(ctx); u != nil && u.ddd == s {
+    for _, t := range u.debugSyntax { if res = t == s; res { break } }
+  }
+  return
+}
 
-type diagType int
+func db(ctx Context, ss ...string) (res bool) {
+    for _, d := range strings.Fields(_universe(ctx).ddd) {
+        for _, s := range ss { if d == s { return true }}
+    }
+    return
+}
 
 const (
   diagInfo diagType = iota
@@ -448,18 +366,17 @@ const (
   diagPromptLine
 )
 
+type diagType int
 type diagPoint struct {
   dt diagType
   position Position
   message string
   stack []byte // see also debug.Stack()
 }
-func (d *diagPoint) debug(args ...interface{}) *diagPoint {
-  if d == nil {
-    panic("nil diag point")
-  }
+func (d *diagPoint) debug(args ...any) *diagPoint {
+  if d == nil { panic("nil diag point") }
 
-  switch productVerTag {
+  switch vertag {
   case "dev", "debug": // only print debug diags for dev and debug versions
   default: return d
   }
@@ -501,9 +418,7 @@ func trace(ctx Context, a ...interface{}) {
   }
 
   if d := _diagnostic(ctx); d.countError() > 0 {
-    if d.traced += 1 ; 1 == d.traced {
-      panic(tracend{ctx}) // break out of the call stack
-    }
+    if d.traced += 1 ; 1 == d.traced { panic(tracend{ctx}) } // break out of the call stack
   }
   return
 }
@@ -532,13 +447,6 @@ func (diag *diagnostic) do(ctx Context, op any) any {
   }
   if diag.Context == nil { return nil }
   return diag.Context.do(ctx, op)
-}
-func (diag *diagnostic) String() string {
-  if fullContextStringer {
-    return fmt.Sprintf("diag{%s}", diag.Context)
-  } else {
-    return diag.Context.String()
-  }
 }
 func (diag *diagnostic) reset() { defer diag.aquire()(); diag.points = []*diagPoint{} }
 func (diag *diagnostic) add(point *diagPoint) *diagPoint {
@@ -748,13 +656,6 @@ type positional struct { Context; position Position }
 func (pc *positional) caller() *positional { return _positional(pc.Context) }
 func (pc *positional) cast(t reflect.Type) Context { return implcast(pc, t) }
 func (pc *positional) Position() Position { return pc.position }
-func (pc *positional) String() string {
-  if fullContextStringer {
-    return fmt.Sprintf("positional{%s}", pc.Context)
-  } else {
-    return pc.Context.String()
-  }
-}
 func (pc *positional) do(ctx Context, op any) any {
   if op == propPosition { return pc.position }
   if pc.Context == nil { return nil }
@@ -797,13 +698,6 @@ func _argumentedContext(c Context) *argumentedContext { return cast[*argumentedC
 type argumentedContext struct { Context ; args []Value }
 func (ac *argumentedContext) cast(t reflect.Type) Context { return implcast(ac,t) }
 func (ac *argumentedContext) argumented() *argumentedContext { return ac }
-func (ac *argumentedContext) String() string {
-  if fullContextStringer {
-    return fmt.Sprintf(`argumented{%s}`, ac.Context)
-  } else {
-    return ac.Context.String()
-  }
-}
 
 func executeEntry(ctx Context, entry *rule, args ...Value) (result []Value, okay bool) {
   var traves travestates
@@ -923,7 +817,6 @@ func positionForDir(dir string) (pos Position) {
   return
 }
 
-// usage: defer assured(ctx, ...)
 func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
   var te tracend
   var f *failure
@@ -940,18 +833,18 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
     default:            erro(   ctx   , "assured: %s", us(e))
     }
   }
+
   if 0 < recovered {
     // if defer assured from top stack, this will dump the full stack of panics
     promstack(ctx, 5, "%v: %s (%d panics)", ctx.Position(), us(te.Context), recovered).debug(128)
   }
+
   te.Context = nil
 
   var dia = _diagnostic(ctx) ; dia.flush(ctx)
-  if len(dontCheckErrors) > 0 && dontCheckErrors[0] {
-    return
-  }
+  if len(dontCheckErrors) > 0 && dontCheckErrors[0] { return }
 
-  if errs = dia.countError(); errs > 0 && recovered == 0 {
+  if errs = dia.countError(); 0 < errs && recovered == 0 {
     note(ctx, "got %d errors (flushed %d, recovered %d)", errs, dia.erros, recovered).debug(10)
     if f != nil && (len(dontCheckErrors) == 0 || !dontCheckErrors[0]) {
       panic(_failure(ctx, "fail [assured]"))
@@ -1015,11 +908,11 @@ func CommandLine() {
   } else if dia.flush(context) > 0 {
     prompt(context, "loading work got %d errors\n", dia.erros)
   } else if context.help {
-    context.doHelp()
+    do_helpscreen(context)
   } else if context.printFlags {
-    context.doHelpFlags()
+    print_flag_trace(context)
   } else if context.printConfig {
-    context.doHelpConfig()
+    print_configuration(context)
   } else if numUpdatedPlugins > 0 { // see buildPlugin
     prompt(context, "plugins updated, please relaunch.\n")
   } else if context.commandline.configure {

@@ -349,14 +349,6 @@ func (p *project) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (_ *project) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *project) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
-    return
-}
 
 type self struct { *project }
 func (p self) kind() Kind { return p.project.kind()|KindSelf }
@@ -400,9 +392,9 @@ func file(ctx Context, s string, projects ...*project) (res *File) {
   return
 }
 
-func files(ctx Context, iname interface{}, projects ...*project) (maps []matchedfilemap) {
-  var a, b, c, d []matchedfilemap // four sections
-  var ms = unmapfiles(ctx, iname)
+func files(ctx Context, iname interface{}, projects ...*project) (maps []matched_filemap) {
+  var a, b, c, d []matched_filemap // four sections
+  var ms = unmap_files(ctx, iname)
 
   if len(projects) == 0 {
     projects = append(projects, ctx.project())
@@ -427,7 +419,7 @@ outer:
   return
 }
 
-func (p *project) selectFiles(ctx Context, maps []matchedfilemap) (files []*File) {
+func (p *project) selectFiles(ctx Context, maps []matched_filemap) (files []*File) {
   for _, m := range maps {
     if m.project == p {
       // mine
@@ -452,7 +444,7 @@ func (p *project) selectFiles(ctx Context, maps []matchedfilemap) (files []*File
   return
 }
 
-func (p *project) selectFile(ctx Context, maps []matchedfilemap) (file *File) {
+func (p *project) selectFile(ctx Context, maps []matched_filemap) (file *File) {
   if a := p.selectFiles(ctx, maps); len(a) > 0 { if file = a[0]; !file.exists() {
     for _, f := range a { if f.exists() { return f } }
   }}
@@ -460,7 +452,7 @@ func (p *project) selectFile(ctx Context, maps []matchedfilemap) (file *File) {
 }
 
 func (p *project) file(ctx Context, iname interface{}) (file *File) {
-  return p.selectFile(ctx, unmapfiles(ctx, iname))
+  return p.selectFile(ctx, unmap_files(ctx, iname))
 }
 
 func (p *project) tempFile(ctx Context, name string) (file *File) {
@@ -506,9 +498,11 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
     for i, pat := range xmerge(ctx, m.pattern) {
       if pat.expandable(ctx) {
         p.filemapx = append(p.filemapx, &_DEPRECATED_vcache_kv{ pat, m })
-      } else if c := p.filemap.slot(ctx, pat, bits|cacheKey); c != nil && c._val == nil {
+      } else if c := p.filemap.slot(ctx, pat, bits|cacheKey); c == nil {
+        erro(ctx, "valcache slot: %v: %v", us(pat), us(m)).debug()
+      } else if c._val == nil {
         c._val = m
-      } else if c != nil && c._val != nil {
+      } else {
         if t, y := c._val.(filemap); y {
           if t._filemap == m._filemap && eq(ctx, t.pattern, pat) {
             if opts.silent {/* silent, simply ignore duplications */} else
@@ -516,7 +510,7 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
               for i, t := range patts {
                 if eq(ctx, pat, t) {
                   if foundDup < 0 && i > 0 && i-foundDup>1 { info(ctx, "pats[%d...] ...", i) }
-                  info(at(ctx, t), "patts[%d]: %T %v, %v", i, t, t, paths)
+                  info(at(ctx, t), "patts[%d]: %v, %v", i, us(t), paths)
                   foundDup = i
                 }
                 if 0 <= foundDup && i-foundDup == 3 {
@@ -536,8 +530,6 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
         }
         erro(at(ctx,pat), "valcache conflict: %v: m=%v %p=%v", m.project, m, m._filemap, m._filemap)
         errostack(ctx, 3, "valcache duplicated in %d patts", len(patts)).debug(1)
-      } else {
-        erro(ctx, "valcache slot: %v: %d: %T %v", m.pattern, i, pat, pat).debug(1)
       }
     }
   }
@@ -673,7 +665,7 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
       for _, pat := range p.patterns {
         var ( pt = pat.target ; pa = pat.arged )
         var full, r, stems = pt.match(ctx, s)
-        var m = joinPathStr(ctx, r)
+        var m = _path(ctx, r)
         prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
       }
       warnstack(ctx, 3).debug(6)
@@ -710,7 +702,7 @@ func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
 ForPatterns:
   for _, pat := range p.patterns {
     if full, r, stems := pat.target.match(ctx, s); full {
-      var m = joinPathStr(ctx, r)
+      var m = _path(ctx, r)
 
       if true { for sc := cast[*stemmedContext](ctx); sc != nil; { // pattern loop detection
         if s := sc.stem.target.string(ctx); s == m { continue ForPatterns }
@@ -813,14 +805,14 @@ func (p *project) entry(ctx Context, special specialRule, options []Value, targe
 
   if cache._val == nil {
     var rule = &rule{
-      position: target.Position(), class: GeneralRule, target: target, arged: arged,
+      position: target.Position(), class: generalRule, target: target, arged: arged,
     }
 
     if patterned {
       if _, y := target.(*path); y {
         rule.class = pathPatRule
       } else {
-        rule.class = PatternRule
+        rule.class = patternRule
       }
       p.patterns = append(p.patterns, rule)
     }

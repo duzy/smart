@@ -235,14 +235,6 @@ func (m *modifier) traverse(ctx Context) { ctx = at(ctx, m.position)
         // TODO: deal with modify result `v`
     }
 }
-func (_ *modifier) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *modifier) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported").debug(32)
-    return
-}
 
 type modification struct {
     valbase
@@ -315,14 +307,6 @@ func (g *modification) string(ctx Context) (s string) {
         if i > 0 { s += " " }
         s += m.string(ctx)
     }
-    return
-}
-func (_ *modification) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *modification) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported").debug(32)
     return
 }
 
@@ -574,7 +558,8 @@ type modifier_setDirtyPats struct { modifier_
     pats []Value
 }
 func (ctx *modifier_setDirtyPats) x(args ...Value) (result interface{}) {
-    ctx.pats = parseOpts(ctx, ctx.dirtyOpts(), args...) //, plain
+    var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
+    if y { ctx.pats = parseOpts(final{ctx}, opts, args...) }
     return
 }
 
@@ -763,7 +748,7 @@ func parseDependList(ctx Context, dependList *list) (depends *list) {
             }
         case *rule:
             switch d.class {
-            case GeneralRule, PatternRule, pathPatRule:
+            case generalRule, patternRule, pathPatRule:
                 depends.append(d)
             default:
                 erro(ctx, "unsupported entry depend `%v' (%v)", d, d.class).debug(1)
@@ -1492,13 +1477,6 @@ func (ctx *depContext) cast(t reflect.Type) (c Context) {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.diagnostic.cast(t)
 }
-func (ctx *depContext) String() string {
-    if fullContextStringer {
-        return fmt.Sprintf("dep{%v}", ctx.diagnostic)
-    } else {
-        return ctx.diagnostic.String()
-    }
-}
 
 func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *File, savedDepsFileName, deps string) (files []Value) {
     const parallel = true
@@ -1538,13 +1516,12 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
     var depFile = func(ctx Context, depPos Position, word string) {
         var dc = depContext{diagnostic{ Context: ctx }}
 
-        ctx = &dc
-
         if parallel { defer func() {
-            if false { assured(ctx, true/* don't call diagFlush */) }
             if len(dc.points) > 0 { _diagnostic(inner(ctx)).nest(dc.points) }
             jobs.Done() // minus 1
         }()}
+
+        ctx = &dc
 
         if i := strings.Index(word, " "); i > 0 {
             warn(ctx, "ignore dep with spaces: %v", word).debug(1)
@@ -1715,8 +1692,9 @@ func traverseMissingDep(ctx Context, dep string) (res bool) {
     } else if file := proj.file(ctx, dep); file == nil {
         if false {
             // FIXME: traverse won't work with 'nil' target value
-            var t = ctx.traverse(ctx, nil/*, dep*/)
-            okay = !t.has(traveFail)
+            if x, y := do(ctx, actTraverse{nil/*, dep*/}).(travestates); y {
+                okay = !x.has(traveFail)
+            }
         } else {
             prompt(ctx, "%s: dep is unknown file; project %v\n", dep, proj)
             erro(ctx, "%v: %s is unknown file", proj, dep)
@@ -2595,7 +2573,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
             }
             if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
                 if proj := ctx.project(); proj != nil {
-                    info(ctx, "%v: %v %v", filename, proj, unmapfiles(ctx, filename))
+                    info(ctx, "%v: %v %v", filename, proj, unmap_files(ctx, filename))
                     info(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
                     erro(ctx, "%v: %v (%T %v)", filename, e, target, target).debug(1)
                 }
@@ -2770,7 +2748,7 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
     }
 
     // Wait for prerequisites and/or execution
-    if _, _, execRes, err = wait(ctx, waitOpts{
+    if _, _, execRes, err = wait(ctx, waitopts{
         ctx.verbose, waitForexecResult, stampCurrentTarget,
     }); execRes == nil { return }
 
@@ -2948,10 +2926,10 @@ func (ctx *modifier_case) x(args ...Value) (result interface{}) {
 
 type modifier_predictDirty struct { modifier_ }
 func (ctx *modifier_predictDirty) x(args ...Value) (result interface{}) {
-    if res := ctx.dirty(ctx, args...); res {
+    var pc = cast[*programContext](ctx)
+    if res := pc.dirty(ctx, args...); res {
         result = makePrediction(ctx.Position(), res, /*reason*/"")
     } else {
-        var pc = cast[*programContext](ctx)
         pc.traves.add(ctx, traveDone, nil)
     }
     return
@@ -3185,7 +3163,7 @@ var (
     onceCache0 map[entry]map[Value]int
     onceCache1 map[*program]map[Value]int
     onceSHA256Mutex sync.Mutex
-    onceSHA256Cache = make(map[hashBytes]int,64)
+    onceSHA256Cache = make(map[hashbytes]int,64)
 )
 
 func onceCacheTest0(ctx Context, target Value) (n int) {
@@ -3253,12 +3231,12 @@ func onceCacheTest2(ctx Context, target Value) (n int) {
         }
     }
 
-    var sum hashBytes
+    var sum hashbytes
     copy(sum[:], h.Sum(nil))
     return onceSHA256Test(ctx, sum)
 }
 
-func onceSHA256Test(ctx Context, sum hashBytes) (n int) {
+func onceSHA256Test(ctx Context, sum hashbytes) (n int) {
     onceSHA256Mutex.Lock()
     n = onceSHA256Cache[sum]+1
     onceSHA256Cache[sum] = n
@@ -3290,7 +3268,7 @@ func onceSHA256(ctx *modifier_once, target Value, args ...Value) (n int) {
         fmt.Fprintf(h, "%s", s)
     }
 
-    var sum hashBytes
+    var sum hashbytes
     copy(sum[:], h.Sum(nil))
     return onceSHA256Test(ctx, sum)
 }

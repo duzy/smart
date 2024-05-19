@@ -1640,7 +1640,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	}
 
 	for _, name := range names {
-		if f := unmapfiles(ctx, name); f == nil {
+		if f := unmap_files(ctx, name); f == nil {
 			ctx.err("unmap %s", name)
 		}
 	}

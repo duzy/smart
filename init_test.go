@@ -81,6 +81,8 @@ func loadcase(t *testing.T, dir, name string, ii ...interface{}) (res *testcase)
 	return
 }
 
+func (tc *testcase) String() string { return us(tc.Context) }
+
 func (tc *testcase) err(f string, i ...interface{}) {
 	var ctx = tc.Context
 	if i == nil {

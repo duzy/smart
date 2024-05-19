@@ -107,14 +107,6 @@ func (p *use) string(ctx Context) (s string) {
         s = fmt.Sprintf("use %s %v", p.project.name, p.params)
         return
 }
-func (_ *use) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *use) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
-    return
-}
 
 type uselist struct {
         owner_ *project
@@ -272,13 +264,4 @@ func (p *uselist) invoke(ctx Context, o, a []Value) (result Value) {
                 }
         }; result = ease(ctx, targets) }
         return
-}
-
-func (_ *uselist) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) (res *_DEPRECATED_vcache) {
-    errostack(ctx, 5, "cache unsupported (bits=%08b)", bits).debug(32)
-    return
-}
-func (_ *uselist) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) (res []*_DEPRECATED_vcache) {
-    errostack(ctx, 5, "collect unsupported: %v", cache).debug(32)
-    return
 }

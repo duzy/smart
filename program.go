@@ -70,12 +70,17 @@ func (pc *programContext) cast(t reflect.Type) Context {
 }
 func (pc *programContext) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
+    case actDirtyMark:        pc.dirtyMark(t.a...)
+    case actDirty:     return pc.dirty(ctx,t.a...)
+    case actTraverse:  return pc.traverse(ctx,t.v)
+    case actTraversed: return pc.traversed(ctx,t.v)
     case propParamName:
         if t.i < len(pc.prog.params) {
             res = pc.prog.params[t.i].name
         }
         return
     case property:
+        if t&propDirtyOpts != 0 { return &pc.by }
         if t&propParameters != 0 {
             var params map[string]*auto
             for _, param := range pc.prog.params {
@@ -89,14 +94,6 @@ func (pc *programContext) do(ctx Context, op any) (res any) {
     return pc.Context.do(ctx, op)
 }
 func (pc *programContext) aquire() func() { pc.Lock() ; return func(){ pc.Unlock() }}
-func (pc *programContext) String() string {
-    if fullContextStringer {
-        var s = strings.TrimPrefix(pc.prog.scope.comment, "rule ")
-        return fmt.Sprintf("program{%s,%s}", s, pc.automatic.String())
-    } else {
-        return pc.automatic.String()
-    }
-}
 
 func (pc *programContext) depth() (res int) {
     for c := pc.caller(); c != nil; c = c.caller() { res += 1 }
@@ -120,7 +117,7 @@ func (pc *programContext) traversed(ctx Context, target Value) []Value {
         pc.targets = append(pc.targets, target)
 
         if false { if cc, y := pc.Context.(*terminal); y {
-            pc.targets = cc.traversed(ctx, target)
+            pc.targets, _ = do(cc, actTraversed{target}).([]Value)
         } }
 
         if _, y := toFile(target); y { pc.addFilesCount(1) }
@@ -184,7 +181,6 @@ func (pc *programContext) closure() (scopes []*Scope) {
     return
 }
 
-func (pc *programContext) dirtyOpts() *dirtyOpts { return &pc.by }
 func (pc *programContext) dirtyMark(vals ...Value) {
     const (
         enableDirtyMark = true
@@ -199,10 +195,8 @@ func (pc *programContext) dirtyMark(vals ...Value) {
     } else if true {
         vals = merge(vals...)
 
-        var (
-            mat, dup bool
-            opts = pc.dirtyOpts()
-        )
+        var mat, dup bool
+        var opts = &pc.by
         for _, t := range targets {
         ForVals:
             for _, val := range vals {
@@ -225,14 +219,14 @@ func (pc *programContext) dirtyMark(vals ...Value) {
             if false { warn(pc, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup, t.updated(pc), t.updatedDeps(pc)).debug(18) }
         }
     }
-    if enableDirtyMark { pc.Context.dirtyMark(vals...) }
+    if enableDirtyMark { pc.dirtyMark(vals...) }
 }
 func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) {
     if pos := ctx.Position(); !pos.IsValid() && pc.prog.position.IsValid() {
         ctx = at(ctx, pc.prog.position)
     }
 
-    target, _, _, err := wait(ctx, waitOpts{
+    target, _, _, err := wait(ctx, waitopts{
         ReportUpdates: false,
         ExecResults: false,
         StampCurrentTarget: false,
@@ -243,7 +237,7 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
     }
 
     if isConfigure(ctx) {/* no dirty-checks for configure */} else
-    if f, y := target.(*File); y && pc != nil && !ctx.dirty(ctx) {
+    if f, y := target.(*File); y && pc != nil && !pc.dirty(ctx) {
         pc.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
 
         if false { if e := _entry(ctx); e != nil { if r, y := e.(*rule); y {
@@ -284,12 +278,20 @@ func (pc *programContext) interpret(ctx Context, i interpreter, params []Value) 
 }
 
 func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
-    var opts = ctx.dirtyOpts()
+    var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
+    if !y {
+        erro(ctx, "nil dirtyopts : %v", us(ctx)).debug()
+        return
+    }
     if len(target.updatedDeps(ctx)) > 0 { return true }
     if v := autoVal(ctx, "^"); v != nil { a = append(a, v) }
     for _, dep := range xmerge(ctx, a...) {
         var mat bool = len(opts.pats) == 0
-        if !mat { for _, pat := range opts.pats { if mat, _, _ = pat.match(ctx, dep); mat { break }}}
+        if !mat {
+            for _, pat := range opts.pats {
+                if mat, _, _ = pat.match(ctx, dep); mat { break }
+            }
+        }
         if mat && (dep.updated(ctx) || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
             return true
         }
@@ -309,7 +311,7 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
 
 func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
     var target as
-    if val, /*files*/_, /*execRes*/_, err := wait(pc, waitOpts{
+    if val, /*files*/_, /*execRes*/_, err := wait(pc, waitopts{
         ReportUpdates: false,
         ExecResults: false,
         StampCurrentTarget: false,
@@ -412,7 +414,7 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
 
 func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *File, prereqObj Object) {
     var mapPrereqFile = func(name interface{}) {
-        var maps = unmapfiles(ctx, name)
+        var maps = unmap_files(ctx, name)
         if maps != nil { defer func() { if prereqFile == nil {
             for _, m := range maps { warn(at(ctx, m.pattern), "%v, skipped %v", name, m) }
             warnstack(ctx, 3, "skipped %d, projects %v", len(maps), projects).debug(8)
@@ -517,14 +519,12 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 }
 
 func (pc *programContext) deferTrave(ctx Context, targetValue, prereqValue, prereqPattern Value, prereqFile *File) {
-    var (
-        av = targetValue
-        bv = prereqValue
-    )
+    var av = targetValue
+    var bv = prereqValue
     if prereqFile == nil {
-        ctx.traversed(ctx, prereqValue) // set $< $> $^ or $|
+        do(ctx, actTraversed{prereqValue}) // set $< $> $^ or $|
     } else if targetValue != prereqFile {
-        ctx.traversed(ctx, prereqFile) // set $< $> $^ or $|
+        do(ctx, actTraversed{prereqFile}) // set $< $> $^ or $|
         bv = prereqFile
     } else if t := pc.traves.of(traveFile); t.has() {
         for _, s := range t {
@@ -533,10 +533,8 @@ func (pc *programContext) deferTrave(ctx Context, targetValue, prereqValue, prer
     }
 
     if !isTrivial(av) && !isTrivial(bv) {
-        var (
-            a = av.stat(ctx).mod()
-            b = bv.stat(ctx).mod()
-        )
+        var a = av.stat(ctx).mod()
+        var b = bv.stat(ctx).mod()
         if (!a.IsZero() && b.After(a)) || bv.updated(ctx) || bv.updatedDeps(ctx) != nil {
             av.updatedDeps(ctx, bv)
         }
@@ -663,7 +661,7 @@ func (pc *programContext) traverse(ctx Context, prereqValue Value) (result trave
         }} else if f, y := prereqValue.(*File); y {
             note(at(ctx, f.position), "%v %v", f, f.exists()).debug(1)
         } else if f := file(ctx, prereqFinal); f == nil {
-            var a = unmapfiles(ctx, prereqFinal)
+            var a = unmap_files(ctx, prereqFinal)
             var b = files(ctx, prereqFinal, ctx.project())
             note(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, a)
             note(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, b).debug(1)
@@ -1260,7 +1258,7 @@ const maxCallRecursion  = 32 //64
 type normalTraverseContext struct { Context }
 type orderTraverseContext struct { Context }
 func (t normalTraverseContext) traversed(ctx Context, target Value) (targets []Value) {
-    if targets = t.Context.traversed(ctx, target); len(targets) > 0 {
+    if targets, _ = do(t.Context, actTraversed{target}).([]Value); len(targets) > 0 {
         autoSet(ctx, "^", makeList(targets...))
         autoSet(ctx, "<", targets[0])
         autoSet(ctx, ">", targets[len(targets)-1])
@@ -1269,7 +1267,7 @@ func (t normalTraverseContext) traversed(ctx Context, target Value) (targets []V
     return
 }
 func (t orderTraverseContext) traversed(ctx Context, target Value) (targets []Value) {
-    if targets = t.Context.traversed(ctx, target); len(targets) > 0 {
+    if targets, _ = do(t.Context, actTraversed{target}).([]Value); len(targets) > 0 {
         autoSet(ctx, "|", makeList(targets...))
     }
     if false { note(ctx, "%v %v", target, targets).debug(1) }

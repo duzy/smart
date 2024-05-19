@@ -150,7 +150,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat1: %T %v", pat1, pat1)
 	} else if s := pat1.string(ctx); s != "*.h" {
 		ctx.err("pat1: %T %v %s", pat1, pat1, s)
-	} else if cs := pat1.collect(ctx, &m.filemap, cacheZero); len(cs) != 1 {
+	} else if cs := _DEPR_collect(ctx, pat1, &m.filemap, cacheZero); len(cs) != 1 {
 		ctx.err("pat1: %T %v: %v", pat1, pat1, cs)
 	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
 		ctx.err("pat1: %T %v", cs[0]._key, cs[0]._key)
@@ -163,7 +163,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat2: %T %v", pat2, pat2)
 	} else if s := pat2.string(ctx); s != "**.h" {
 		ctx.err("pat2: %T %v %s", pat2, pat2, s)
-	} else if cs := pat2.collect(ctx, &m.filemap, cacheZero); len(cs) != 1 {
+	} else if cs := _DEPR_collect(ctx, pat2, &m.filemap, cacheZero); len(cs) != 1 {
 		ctx.err("pat2: %T %v: %v", pat2, pat2, cs)
 	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
 		ctx.err("pat2: %T %v", cs[0]._key, cs[0]._key)
@@ -176,9 +176,9 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat3: %T %v", pat3, pat3)
 	} else if s := pat3.string(ctx); s != "foobar/config/*.def.am" {
 		ctx.err("pat3: %T %v %s", pat3, pat3, s)
-	} else if cs0 := pat3.collect(ctx, &m.filemap, cacheZero); len(cs0) != 1 {
+	} else if cs0 := _DEPR_collect(ctx, pat3, &m.filemap, cacheZero); len(cs0) != 1 {
 		ctx.err("pat3: %T %v, %v", pat3, pat3, cs0)
-	} else if cs := pat3.collect(ctx, &m.filemap, cacheMatchPatts); len(cs) != 1 {
+	} else if cs := _DEPR_collect(ctx, pat3, &m.filemap, cacheMatchPatts); len(cs) != 1 {
 		ctx.err("pat3: %T %v, %v", pat3, pat3, cs)
 	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
 		ctx.err("pat3: %T %v", cs[0]._key, cs[0]._key)
@@ -195,7 +195,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat4: %T %v", pat4, pat4)
 	} else if s := pat4.string(ctx); s != "foobar/config/*.def.in" {
 		ctx.err("pat4: %T %v %s", pat4, pat4, s)
-	} else if cs := pat4.collect(ctx, &m.filemap, cacheMatchPatts); len(cs) != 0 {
+	} else if cs := _DEPR_collect(ctx, pat4, &m.filemap, cacheMatchPatts); len(cs) != 0 {
 		// NOTE: because the files spec only defined "**.def.am", no "**.def.in"
 		ctx.err("pat4: %T %v, %v", pat4, pat4, cs)
 	}
@@ -204,7 +204,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat5: %v", ust{pat5})
 	} else if s := pat5.string(ctx); s != "*.def.am" {
 		ctx.err("pat5: %v %s", ust{pat5}, s)
-	} else if cs := pat5.collect(ctx, &m.filemap, cacheZero); len(cs) != 1 {
+	} else if cs := _DEPR_collect(ctx, pat5, &m.filemap, cacheZero); len(cs) != 1 {
 		ctx.err("pat5: %v: %v", ust{pat5}, cs)
 	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
 		ctx.err("pat5: %v", ust{cs[0]._key})
@@ -221,7 +221,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("pat6: %v", ust{pat6})
 	} else if s := pat6.string(ctx); s != "**.def.am" {
 		ctx.err("pat6: %v %s", ust{pat6}, s)
-	} else if cs := pat6.collect(ctx, &m.filemap, cacheZero); len(cs) != 1 {
+	} else if cs := _DEPR_collect(ctx, pat6, &m.filemap, cacheZero); len(cs) != 1 {
 		ctx.err("pat6: %v: %v", ust{pat6}, cs)
 	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
 		ctx.err("pat6: %v", ust{cs[0]._key})
@@ -471,8 +471,8 @@ func testBuiltin_wildcard(ctx *testcase) {
 
 func testBuiltin_file0(ctx *testcase) {
 	if pat, str := ".test/a/**.c", ".test/a/b/c/foo.c"; false {
-	} else if t := unmapfiles(ctx, str); t == nil {
-		ctx.err("unmapfiles %s", str)
+	} else if t := unmap_files(ctx, str); t == nil {
+		ctx.err("unmap_files %s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
 	} else if m := t[0]; m.name != str {
@@ -516,8 +516,8 @@ func testBuiltin_file0(ctx *testcase) {
 	}
 
 	if pat, str := ".test/xx/*.c", ".test/xx/foo.c"; false {
-	} else if t := unmapfiles(ctx, str); t == nil {
-		ctx.err("unmapfiles %s", str)
+	} else if t := unmap_files(ctx, str); t == nil {
+		ctx.err("unmap_files %s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
 	} else if m := t[0]; m.name != str {
@@ -549,8 +549,8 @@ func testBuiltin_file0(ctx *testcase) {
 	}
 
 	if pat, str := ".test/xx/yy/*.c", ".test/xx/yy/foo.c"; false {
-	} else if t := unmapfiles(ctx, str); t == nil {
-		ctx.err("unmapfiles %s", str)
+	} else if t := unmap_files(ctx, str); t == nil {
+		ctx.err("unmap_files %s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
 	} else if m := t[0]; m.name != str {
@@ -571,8 +571,8 @@ func testBuiltin_file0(ctx *testcase) {
 	}
 
 	if pat, str := ".test/xx/yy/zz/*.c", ".test/xx/yy/zz/foo.c"; false {
-	} else if t := unmapfiles(ctx, str); t == nil {
-		ctx.err("unmapfiles %s", str)
+	} else if t := unmap_files(ctx, str); t == nil {
+		ctx.err("unmap_files %s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
 	} else if m := t[0]; m.name != str {
@@ -604,8 +604,8 @@ func testBuiltin_file0(ctx *testcase) {
 	}
 
 	if pat, str := "**.auto", ".test/a/b/c.auto"; false {
-	} else if t := unmapfiles(ctx, str); t == nil {
-		ctx.err("unmapfiles %s", str)
+	} else if t := unmap_files(ctx, str); t == nil {
+		ctx.err("unmap_files %s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
 	} else if m := t[0]; m.name != str {
@@ -619,8 +619,8 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%v", ust{v})
 	} else if x.string(ctx) != str {
 		ctx.err("%v", ust{v})
-	} else if t := unmapfiles(ctx, v); t == nil {
-		ctx.err("unmapfiles %v", ust{v})
+	} else if t := unmap_files(ctx, v); t == nil {
+		ctx.err("unmap_files %v", ust{v})
 	} else if len(t) != 1 {
 		ctx.err("%v %v", ust{v}, t)
 	} else if m := t[0]; m.name != str {
@@ -636,8 +636,8 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%v", ust{v})
 	} else if x.string(ctx) != ".test/a/b/c.none" {
 		ctx.err("%v", ust{v})
-	} else if t := unmapfiles(ctx, v); t != nil {
-		ctx.err("unmapfiles %v", ust{v})
+	} else if t := unmap_files(ctx, v); t != nil {
+		ctx.err("unmap_files %v", ust{v})
 	}
 }
 
