@@ -165,7 +165,7 @@ func (ac *automatic) set(ctx Context, name string, val Value) (out *def, old Val
     if out != nil {
         old = out.value
     } else {
-        s := ac.Scope()
+        s := ac.scope()
         out = &def{knownobject:knownobject{objbase{scope_:s, owner_:s.project}, name}}
         ac.Lock()
         ac.defs[name] = out
@@ -700,7 +700,7 @@ func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *undetermined) patterned(ctx Context) bool { return false }
-func (p *undetermined) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
+func (p *undetermined) match(ctx Context, i any) (full bool, s any, stems []string) { return }
 func (p *undetermined) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
@@ -896,8 +896,6 @@ type entry interface {
 type entryArray []entry
 func (p entryArray) String() string { return p[0].String() }
 func (p entryArray) Position() Position { return p[0].Position() }
-func (p entryArray) cache(ctx Context, cache *_DEPRECATED_vcache, bits int) *_DEPRECATED_vcache { return _DEPR_cache(ctx, p[0], cache, bits) }
-func (p entryArray) collect(ctx Context, cache *_DEPRECATED_vcache, bits int) []*_DEPRECATED_vcache { return _DEPR_collect(ctx, p[0], cache, bits) }
 func (p entryArray) cmp(ctx Context, v Value) cmpres { return p[0].cmp(ctx, v) }
 func (p entryArray) declScope() *Scope { return p[0].declScope() }
 func (p entryArray) delete(ctx Context) ([]*File, error) { return p[0].delete(ctx) }
@@ -909,7 +907,7 @@ func (p entryArray) hasRecipes() bool { return p[0].hasRecipes() }
 func (p entryArray) ident(ctx Context) string { return p[0].ident(ctx) }
 func (p entryArray) int(ctx Context) (int64, error) { return p[0].int(ctx) }
 func (p entryArray) kind() Kind { return p[0].kind() }
-func (p entryArray) match(ctx Context, i interface{}) (bool, interface{}, []string) { return p[0].match(ctx, i) }
+func (p entryArray) match(ctx Context, i any) (bool, any, []string) { return p[0].match(ctx, i) }
 func (p entryArray) option(ctx Context) (bool, []Value) { return p[0].option(ctx) }
 func (p entryArray) owner() *project { return p[0].owner() }
 func (p entryArray) patterned(ctx Context) bool { return p[0].patterned(ctx) }
@@ -947,7 +945,7 @@ func (_ *rule) kind() Kind { return KindObject|KindRule }
 func (p *rule) Target() Value { return p.target }
 func (p *rule) Class() ruleClass { return p.class }
 func (p *rule) programs() []*program { return p.program_ }
-func (p *rule) declScope() *Scope { return p.owner().scope }
+func (p *rule) declScope() *Scope { return p.owner().scope_ }
 func (p *rule) owner() *project { return p.program_[0].project }
 func (p *rule) setPrograms(programs []*program) { p.program_ = programs }
 func (p *rule) setPosition(position Position) { p.position = position }
@@ -1190,7 +1188,7 @@ func (p *rule) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *rule) patterned(ctx Context) bool { return p.target.patterned(ctx) }
-func (p *rule) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) {
+func (p *rule) match(ctx Context, i any) (full bool, s any, stems []string) {
     full, s, stems = p.target.match(ctx, i)
     return
 }

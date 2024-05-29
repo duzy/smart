@@ -66,9 +66,9 @@ func testAssert(ctx testcase1) {
 	} else if len(v.elems) != 2 {
 		ctx.err("%v %v %v", ust{s.vals[i]}, s.vals[i], v.elems)
 	} else if _, y := v.elems[0].(*bareword); !y {
-		ctx.err("%v", us(v.elems[0]))
+		ctx.err("%v", ust{v.elems[0]})
 	} else if _, y := v.elems[1].(*null); !y {
-		ctx.err("%v", us(v.elems[1]))
+		ctx.err("%v", ust{v.elems[1]})
 	} else if i = 9;  s.vals[i].String() != "1" || !s.bools[i] {
 		ctx.err("%v %v %v", ust{s.vals[i]}, s.vals[i], s.bools[i])
 	} else if i = 10;  s.vals[i].String() != "0" || s.bools[i] {
@@ -125,8 +125,48 @@ func testPushContext(ctx *testcase) {
 }
 
 func testBuiltin_wildcard(ctx *testcase) {
+	var m = ctx.project()
+	if len(m.filemap.globs) != 2 {
+		ctx.err("%v", &m.filemap)
+	} else if x, y := m.filemap.globs["**.h"]; !y {
+		ctx.err("%v", &m.filemap)
+	} else if len(x.a) != 1 {
+		ctx.err("%v", x)
+	} else if x.o != nil {
+		ctx.err("%v", x)
+	} else if x.puncs != nil {
+		ctx.err("%v", x)
+	} else if x.words != nil {
+		ctx.err("%v", x)
+	} else if x.globs != nil {
+		ctx.err("%v", x)
+	} else if x.percs != nil {
+		ctx.err("%v", x)
+	} else if x.reges != nil {
+		ctx.err("%v", x)
+	} else if x.value != nil {
+		ctx.err("%v", x)
+	} else if x, y := m.filemap.globs["**.def.am"]; !y {
+		ctx.err("%v", &m.filemap)
+	} else if len(x.a) != 1 {
+		ctx.err("%v", x)
+	} else if x.o != nil {
+		ctx.err("%v", x)
+	} else if x.puncs != nil {
+		ctx.err("%v", x)
+	} else if x.words != nil {
+		ctx.err("%v", x)
+	} else if x.globs != nil {
+		ctx.err("%v", x)
+	} else if x.percs != nil {
+		ctx.err("%v", x)
+	} else if x.reges != nil {
+		ctx.err("%v", x)
+	} else if x.value != nil {
+		ctx.err("%v", x)
+	}
+
 	var (
-		m = ctx.project()
 		pat1 = ctx.val("pat1")
 		pat2 = ctx.val("pat2")
 		pat3 = ctx.val("pat3")
@@ -147,102 +187,110 @@ func testBuiltin_wildcard(ctx *testcase) {
 	}
 
 	if g, y := pat1.(*globpat); !y || g == nil {
-		ctx.err("pat1: %T %v", pat1, pat1)
+		ctx.err("%v %v", pat1, ust{pat1})
 	} else if s := pat1.string(ctx); s != "*.h" {
-		ctx.err("pat1: %T %v %s", pat1, pat1, s)
-	} else if cs := _DEPR_collect(ctx, pat1, &m.filemap, cacheZero); len(cs) != 1 {
-		ctx.err("pat1: %T %v: %v", pat1, pat1, cs)
-	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
-		ctx.err("pat1: %T %v", cs[0]._key, cs[0]._key)
-	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
-		ctx.err("pat1: %T %v", cs[0]._val, cs[0]._val)
+		ctx.err("%v %v %s", pat1, ust{pat1}, s)
+	} else if cs := m.unmap_files(ctx, pat1); len(cs) != 1 {
+		ctx.err("%v %v %v %v", pat1, ust{pat1}, cs, &m.filemap)
+	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
+		ctx.err("%v %v %v", g, ust{cs[0].pattern}, &m.filemap)
+	} else if m := cs[0].filemap; m.pattern == nil {
+		ctx.err("%v", ust{cs[0].filemap})
 	} else if m.pattern.string(ctx) != "**.h" {
-		ctx.err("pat1: %T %v → %T %v", cs[0]._val, cs[0]._val, m.pattern, m.pattern)
+		ctx.err("%v → %v", ust{cs[0].filemap}, ust{m.pattern})
+	} else if g.string(ctx) != "**.h" {
+		ctx.err("%v → %v", ust{pat1}, ust{cs[0].pattern})
 	}
 	if g, y := pat2.(*globpat); !y || g == nil {
-		ctx.err("pat2: %T %v", pat2, pat2)
+		ctx.err("%v %v", pat2, ust{pat2})
 	} else if s := pat2.string(ctx); s != "**.h" {
-		ctx.err("pat2: %T %v %s", pat2, pat2, s)
-	} else if cs := _DEPR_collect(ctx, pat2, &m.filemap, cacheZero); len(cs) != 1 {
-		ctx.err("pat2: %T %v: %v", pat2, pat2, cs)
-	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
-		ctx.err("pat2: %T %v", cs[0]._key, cs[0]._key)
-	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
-		ctx.err("pat2: %T %v", cs[0]._val, cs[0]._val)
+		ctx.err("%v %v %s", pat2, ust{pat2}, s)
+	} else if cs := m.unmap_files(ctx, pat2); len(cs) != 1 {
+		ctx.err("%v %v %v", pat2, ust{pat2}, cs)
+	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
+		ctx.err("%v", ust{cs[0].pattern})
+	} else if m := cs[0].filemap; m.pattern == nil {
+		ctx.err("%v", ust{cs[0].filemap})
 	} else if m.pattern.string(ctx) != "**.h" {
-		ctx.err("pat1: %T %v → %T %v", cs[0]._val, cs[0]._val, m.pattern, m.pattern)
+		ctx.err("%v → %v", ust{cs[0].filemap}, ust{m.pattern})
+	} else if g.string(ctx) != "**.h" {
+		ctx.err("%v → %v", ust{pat2}, ust{cs[0].pattern})
 	}
-	if g, y := pat3.(*path); !y || g == nil {
-		ctx.err("pat3: %T %v", pat3, pat3)
+	if p, y := pat3.(*path); !y || p == nil {
+		ctx.err("%v %v", pat3, ust{pat3})
 	} else if s := pat3.string(ctx); s != "foobar/config/*.def.am" {
-		ctx.err("pat3: %T %v %s", pat3, pat3, s)
-	} else if cs0 := _DEPR_collect(ctx, pat3, &m.filemap, cacheZero); len(cs0) != 1 {
-		ctx.err("pat3: %T %v, %v", pat3, pat3, cs0)
-	} else if cs := _DEPR_collect(ctx, pat3, &m.filemap, cacheMatchPatts); len(cs) != 1 {
-		ctx.err("pat3: %T %v, %v", pat3, pat3, cs)
-	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
-		ctx.err("pat3: %T %v", cs[0]._key, cs[0]._key)
+		ctx.err("%v %v %s", pat3, ust{pat3}, s)
+	} else if false {
+		if t := m.unmap_files(ctx, pat3); t != nil {
+			ctx.err("%v %v %v", pat3, ust{pat3}, t)
+		}
+	} else if cs := m.unmap_files(ctx, pat3); len(cs) != 1 {
+		ctx.err("%v %v %v", pat3, ust{pat3}, cs)
+	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
+		ctx.err("%v %v", cs[0].pattern, ust{cs[0].pattern})
 	} else if g.string(ctx) != "**.def.am" {
-		ctx.err("pat3: %v → %v", pat3, g.string(ctx))
+		ctx.err("%v %v → %v", pat3, ust{pat3}, g.string(ctx))
 	} else if g.String() != "**.def.am" {
-		ctx.err("pat3: %v → %v", pat3, g)
-	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
-		ctx.err("pat3: %T %v", cs[0]._val, cs[0]._val)
+		ctx.err("%v %v → %v", pat3, ust{pat3}, g)
+	} else if m := cs[0].filemap; m.pattern == nil {
+		ctx.err("%v %v", cs[0].pattern, ust{cs[0].filemap})
 	} else if m.pattern.string(ctx) != "**.def.am" {
-		ctx.err("pat1: %T %v → %T %v", cs[0]._val, cs[0]._val, m.pattern, m.pattern)
+		ctx.err("%v %v → %v", m.pattern, ust{m.pattern}, ust{cs[0].filemap})
+	} else if m.pattern.String() != "**.def.am" {
+		ctx.err("%v %v → %v", m.pattern, ust{m.pattern}, ust{cs[0].filemap})
 	}
-	if g, y := pat4.(*path); !y || g == nil {
-		ctx.err("pat4: %T %v", pat4, pat4)
+	if p, y := pat4.(*path); !y || p == nil {
+		ctx.err("%v %v", pat4, ust{pat4})
 	} else if s := pat4.string(ctx); s != "foobar/config/*.def.in" {
-		ctx.err("pat4: %T %v %s", pat4, pat4, s)
-	} else if cs := _DEPR_collect(ctx, pat4, &m.filemap, cacheMatchPatts); len(cs) != 0 {
+		ctx.err("v %v %s", pat4, ust{pat4}, s)
+	} else if cs := m.unmap_files(ctx, pat4); len(cs) != 0 {
 		// NOTE: because the files spec only defined "**.def.am", no "**.def.in"
-		ctx.err("pat4: %T %v, %v", pat4, pat4, cs)
+		ctx.err("%v %v %v", pat4, ust{pat4}, cs)
 	}
 
 	if g, y := pat5.(*globpat); !y || g == nil {
-		ctx.err("pat5: %v", ust{pat5})
+		ctx.err("%v", ust{pat5})
 	} else if s := pat5.string(ctx); s != "*.def.am" {
-		ctx.err("pat5: %v %s", ust{pat5}, s)
-	} else if cs := _DEPR_collect(ctx, pat5, &m.filemap, cacheZero); len(cs) != 1 {
-		ctx.err("pat5: %v: %v", ust{pat5}, cs)
-	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
-		ctx.err("pat5: %v", ust{cs[0]._key})
-	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
-		ctx.err("pat5: %v", ust{cs[0]._val})
+		ctx.err("%v %s", ust{pat5}, s)
+	} else if cs := m.unmap_files(ctx, pat5); len(cs) != 1 {
+		ctx.err("%v %v : %v", pat5, ust{pat5}, cs)
+	} else if t := cs[0].filemap; t.pattern == nil {
+		ctx.err("%v", ust{t})
+	} else if _, y := t.pattern.(*globpat); !y {
+		ctx.err("%v", ust{t.pattern})
+	} else if t.pattern.string(ctx) != "**.def.am" {
+		ctx.err("%v → %v", ust{pat5}, t.pattern)
 	} else if y, r, s := pat5.match(ctx, pat3); y {
-		ctx.err("pat5: %v, %v ; %v %v", ust{pat5}, pat3, r, s)
+		ctx.err("%v %v ; %v %v", ust{pat5}, pat3, r, s)
 	} else if y, r, s := pat5.match(ctx, pat4); y {
-		ctx.err("pat5: %v, %v ; %v %v", ust{pat5}, pat4, r, s)
-	} else if m.pattern.string(ctx) != "**.def.am" {
-		ctx.err("pat1: %T %v → %T %v", cs[0]._val, cs[0]._val, m.pattern, m.pattern)
+		ctx.err("%v %v ; %v %v", ust{pat5}, pat4, r, s)
 	}
 	if g, y := pat6.(*globpat); !y || g == nil {
-		ctx.err("pat6: %v", ust{pat6})
+		ctx.err("%v", ust{pat6})
 	} else if s := pat6.string(ctx); s != "**.def.am" {
-		ctx.err("pat6: %v %s", ust{pat6}, s)
-	} else if cs := _DEPR_collect(ctx, pat6, &m.filemap, cacheZero); len(cs) != 1 {
-		ctx.err("pat6: %v: %v", ust{pat6}, cs)
-	} else if g, y := cs[0]._key.(*globpat); !y || g == nil {
-		ctx.err("pat6: %v", ust{cs[0]._key})
-	} else if m, y := cs[0]._val.(filemap); !y || m.pattern == nil {
-		ctx.err("pat6: %v", ust{cs[0]._val})
+		ctx.err("%v %s", ust{pat6}, s)
+	} else if cs := m.unmap_files(ctx, pat6); len(cs) != 1 {
+		ctx.err("%v %v : %v", pat6, ust{pat6}, cs)
+	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
+		ctx.err("%v", ust{cs[0].pattern})
+	} else if m := cs[0].filemap; m.pattern == nil {
+		ctx.err("%v", ust{cs[0].filemap})
 	} else if m.pattern.string(ctx) != "**.def.am" {
-		ctx.err("pat1: %v → %v", ust{cs[0]._val}, ust{m.pattern})
+		ctx.err("%v → %v", ust{cs[0].filemap}, ust{m.pattern})
 	} else if y, r, s := pat6.match(ctx, pat3); !y {
-		ctx.err("pat6: %v, %v ; %v %v", ust{pat6}, pat3, r, s)
+		ctx.err("%v, %v ; %v %v", ust{pat6}, pat3, r, s)
 	} else if r == nil {
-		ctx.err("pat6: %v, %v ; %v", ust{pat6}, pat3, ust{r})
+		ctx.err("%v, %v ; %v", ust{pat6}, pat3, ust{r})
 	} else if a, y := r.(string); !y {
-		ctx.err("pat6: %v, %v ; %v", ust{pat6}, pat3, ust{r})
+		ctx.err("%v, %v ; %v", ust{pat6}, pat3, ust{r})
 	} else if a != "foobar/config/*.def.am" {
-		ctx.err("pat6: %v, %v", ust{pat6}, pat3)
+		ctx.err("%v, %v", ust{pat6}, pat3)
 	} else if s == nil || len(s) != 1 {
-		ctx.err("pat6: %v, %v ; %v", ust{pat6}, pat3, s)
+		ctx.err("%v, %v ; %v", ust{pat6}, pat3, s)
 	} else if s[0] != "foobar/config/*" {
-		ctx.err("pat6: %v, %v ; %v", ust{pat6}, pat3, s)
+		ctx.err("%v, %v ; %v", ust{pat6}, pat3, s)
 	} else if y, r, s := pat6.match(ctx, pat4); y {
-		ctx.err("pat6: %v, %v ; %v %v", ust{pat6}, pat4, r, s)
+		ctx.err("%v, %v ; %v %v", ust{pat6}, pat4, r, s)
 	}
 
 	if s := _workdir(ctx); s == "" {
@@ -269,77 +317,101 @@ func testBuiltin_wildcard(ctx *testcase) {
 		name != "foobar/config/b.def.in" ;}
 	{
 		var c = original{at(ctx, pat3), defExpand1}
-		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
-			b := builtin_wildcard{}
-			b.evocation = &evocation{c, nil, nil}
-			if a := b._directory(workdirInc, pat3); len(a) != 1 {
-				ctx.err("_wildcard(%v) (%d): %v", pat3, n, a)
-			} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
-				ctx.err("_wildcard(%v) (%d): %v", pat3, n, a[0])
-			}
-		} (i) }
+		wg.Add(N)
+		for i := 0; i < N; i += 1 {
+			go func(n int) {
+				defer wg.Done()
+				b := builtin_wildcard{}
+				b.evocation = &evocation{c, nil, nil}
+				if a := b._directory(workdirInc, pat3); len(a) != 1 {
+					ctx.err("_wildcard(%v) (%d): %v", pat3, n, a)
+				} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
+					ctx.err("_wildcard(%v) (%d): %v", pat3, n, a[0])
+				}
+			} (i)
+		}
 	}
 	{
 		var c = original{at(ctx, pat4), defExpand1}
-		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
-			b := builtin_wildcard{}
-			b.evocation = &evocation{c, nil, nil}
-			if a := b._directory(workdirInc, pat4); len(a) != 2 {
-				ctx.err("_wildcard(%v) (%d): %v", pat4, n, a)
-			} else if invalid(a[0].ident(ctx)) {
-				ctx.err("_wildcard(%v) (%d): %v", pat4, n, a[0])
-			} else if invalid(a[1].ident(ctx)) {
-				ctx.err("_wildcard(%v) (%d): %v", pat4, n, a[1])
-			}
-		} (i) }
+		wg.Add(N)
+		for i := 0; i < N; i += 1 {
+			go func(n int) {
+				defer wg.Done()
+				b := builtin_wildcard{}
+				b.evocation = &evocation{c, nil, nil}
+				if a := b._directory(workdirInc, pat4); len(a) != 2 {
+					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a)
+				} else if invalid(a[0].ident(ctx)) {
+					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a[0])
+				} else if invalid(a[1].ident(ctx)) {
+					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a[1])
+				}
+			} (i)
+		}
 	}
 	{
 		var c = original{at(ctx, pat3), defExpand1}
-		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
-			b := builtin_wildcard{dir:workdirInc}
-			b.evocation = &evocation{c, nil, nil}
-			if a := b._do(pat3); len(a) != 1 {
-				ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
-			} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
-				ctx.err("wildcard(%v) (%d): %v", pat3, n, a[0])
-			}
-		} (i) }
+		wg.Add(N)
+		for i := 0; i < N; i += 1 {
+			go func(n int) {
+				defer wg.Done()
+				b := builtin_wildcard{dir:workdirInc}
+				b.evocation = &evocation{c, nil, nil}
+				if a := b._do(pat3); len(a) != 1 {
+					ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
+				} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
+					ctx.err("wildcard(%v) (%d): %v", pat3, n, a[0])
+				}
+			} (i)
+		}
 	}
 	{
 		var c = original{at(ctx, pat4), defExpand1}
-		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
-			b := builtin_wildcard{dir:workdirInc}
-			b.evocation = &evocation{c, nil, nil}
-			if a := b._do(pat4); len(a) != 2 {
-				ctx.err("wildcard(%v) (%d): %v", pat4, n, a)
-			} else if invalid(a[0].ident(ctx)) {
-				ctx.err("wildcard(%v) (%d): %v", pat4, n, a[0])
-			} else if invalid(a[1].ident(ctx)) {
-				ctx.err("wildcard(%v) (%d): %v", pat4, n, a[1])
-			}
-		} (i) }
+		wg.Add(N)
+		for i := 0; i < N; i += 1 {
+			go func(n int) {
+				defer wg.Done()
+				b := builtin_wildcard{dir:workdirInc}
+				b.evocation = &evocation{c, nil, nil}
+				if a := b._do(pat4); len(a) != 2 {
+					ctx.err("wildcard(%v) (%d): %v", pat4, n, a)
+				} else if invalid(a[0].ident(ctx)) {
+					ctx.err("wildcard(%v) (%d): %v", pat4, n, a[0])
+				} else if invalid(a[1].ident(ctx)) {
+					ctx.err("wildcard(%v) (%d): %v", pat4, n, a[1])
+				}
+			} (i)
+		}
 	}
 	{
 		var c = original{at(ctx, pat3), defExpand1}
-		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
-			b := builtin_wildcard{}
-			b.evocation = &evocation{c, nil, nil}
-			if a := b._do(pat3); len(a) != 1 {
-				ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
-			} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
-				ctx.err("wildcard(%v) (%d): %v", pat3, n, a[0])
-			}
-		} (i) }
+		wg.Add(N)
+		for i := 0; i < N; i += 1 {
+			go func(n int) {
+				defer wg.Done()
+				b := builtin_wildcard{}
+				b.evocation = &evocation{c, nil, nil}
+				if a := b._do(pat3); len(a) != 1 {
+					ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
+				} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
+					ctx.err("wildcard(%v) (%d): %v", pat3, n, a[0])
+				}
+			} (i)
+		}
 	}
 	{
 		var c = original{at(ctx, pat4), defExpand1}
-		wg.Add(N) ; for i := 0; i < N; i += 1 { go func(n int) { defer wg.Done()
-			b := builtin_wildcard{}
-			b.evocation = &evocation{c, nil, nil}
-			if a := b._do(pat4); a != nil {
-				ctx.err("wildcard(%v) (%d): %v", pat4, n, a)
-			}
-		} (i) }
+		wg.Add(N)
+		for i := 0; i < N; i += 1 {
+			go func(n int) {
+				defer wg.Done()
+				b := builtin_wildcard{}
+				b.evocation = &evocation{c, nil, nil}
+				if a := b._do(pat4); a != nil {
+					ctx.err("wildcard(%v) (%d): %v", pat4, n, a)
+				}
+			} (i)
+		}
 	}
 	wg.Wait()
 
@@ -351,93 +423,93 @@ func testBuiltin_wildcard(ctx *testcase) {
 		val5 = ctx.val("val5")
 	)
 	if s := val1.string(ctx); s == "" {
-		ctx.err("val1: %v %v", ust{val1}, val1)
+		ctx.err("%v %v", val1, ust{val1})
 	} else if strings.Count(s, "inc/bar.h") != 1 {
-		ctx.err("val1: %v %v", ust{val1}, val1)
+		ctx.err("%v %v", val1, ust{val1})
 	} else if strings.Count(s, "inc/foo.h") != 1 {
-		ctx.err("val1: %v %v", ust{val1}, val1)
+		ctx.err("%v %v", val1, ust{val1})
 	} else if strings.Count(s, "inc/foo/v1.h") != 1 {
-		ctx.err("val1: %v %v", ust{val1}, val1)
+		ctx.err("%v %v", val1, ust{val1})
 	} else if strings.Count(s, "inc/foo/v2.h") != 1 {
-		ctx.err("val1: %v %v", ust{val1}, val1)
+		ctx.err("%v %v", val1, ust{val1})
 	} else if strings.Count(s, "inc/foo/bar/v1.h") != 1 {
-		ctx.err("val1: %v %v", ust{val1}, val1)
+		ctx.err("%v %v", val1, ust{val1})
 	} else if strings.Count(s, "inc/foo/bar/v2.h") != 1 {
-		ctx.err("val1: %v %v", ust{val1}, val1)
+		ctx.err("%v %v", val1, ust{val1})
 	} else if strings.Count(s, "inc/foo/bar/zz/x.h") > 1 {
-		ctx.err("val1: %v %v", ust{val1}, val1)
+		ctx.err("%v %v", val1, ust{val1})
 	}
 
 	if s := val2.string(ctx); s == "" {
-		ctx.err("val2: %v %v", ust{val2}, val2)
+		ctx.err("%v %v", val2, ust{val2})
 	} else if strings.Count(s, "inc/bar.h") != 1 {
-		ctx.err("val2: %v %v", ust{val2}, val2)
+		ctx.err("%v %v", val2, ust{val2})
 	} else if strings.Count(s, "inc/foo.h") != 1 {
-		ctx.err("val2: %v %v", ust{val2}, val2)
+		ctx.err("%v %v", val2, ust{val2})
 	} else if strings.Count(s, "inc/foo/v1.h") != 1 {
-		ctx.err("val2: %v %v", ust{val2}, val2)
+		ctx.err("%v %v", val2, ust{val2})
 	} else if strings.Count(s, "inc/foo/v2.h") != 1 {
-		ctx.err("val2: %v %v", ust{val2}, val2)
+		ctx.err("%v %v", val2, ust{val2})
 	} else if strings.Count(s, "inc/foo/bar/v1.h") != 1 {
-		ctx.err("val2: %v %v", ust{val2}, val2)
+		ctx.err("%v %v", val2, ust{val2})
 	} else if strings.Count(s, "inc/foo/bar/v2.h") != 1 {
-		ctx.err("val2: %v %v", ust{val2}, val2)
+		ctx.err("%v %v", val2, ust{val2})
 	} else if strings.Count(s, "inc/foo/bar/zz/x.h") != 1 {
-		ctx.err("val2: %v %v", ust{val2}, val2)
+		ctx.err("%v %v", val2, ust{val2})
 	}
 
 	if s := val3.string(ctx); s == "" {
-		ctx.err("val3: %v %v", ust{val3}, val3)
+		ctx.err("%v %v", val3, ust{val3})
 	} else if strings.Count(s, "bar.h") != 1 {
-		ctx.err("val3: %v %v", ust{val3}, val3)
+		ctx.err("%v %v", val3, ust{val3})
 	} else if strings.Count(s, "foo.h") != 1 {
-		ctx.err("val3: %v %v", ust{val3}, val3)
+		ctx.err("%v %v", val3, ust{val3})
 	} else if strings.Count(s, "foo/v1.h") != 1 {
-		ctx.err("val3: %v %v", ust{val3}, val3)
+		ctx.err("%v %v", val3, ust{val3})
 	} else if strings.Count(s, "foo/v2.h") != 1 {
-		ctx.err("val3: %v %v", ust{val3}, val3)
+		ctx.err("%v %v", val3, ust{val3})
 	} else if strings.Count(s, "foo/bar/v1.h") != 1 {
-		ctx.err("val3: %v %v", ust{val3}, val3)
+		ctx.err("%v %v", val3, ust{val3})
 	} else if strings.Count(s, "foo/bar/v2.h") != 1 {
-		ctx.err("val3: %v %v", ust{val3}, val3)
+		ctx.err("%v %v", val3, ust{val3})
 	} else if strings.Count(s, "foo/bar/zz/x.h") != 1 {
-		ctx.err("val3: %v %v", ust{val3}, val3)
+		ctx.err("%v %v", val3, ust{val3})
 	}
 
 	if s := val4.string(ctx); s == "" {
-		ctx.err("val4: %v %v", ust{val4}, val4)
+		ctx.err("%v %v", val4, ust{val4})
 	} else if strings.Count(s, "bar.h") != 1 {
-		ctx.err("val4: %v %v", ust{val4}, val4)
+		ctx.err("%v %v", val4, ust{val4})
 	} else if strings.Count(s, "foo.h") != 1 {
-		ctx.err("val4: %v %v", ust{val4}, val4)
+		ctx.err("%v %v", val4, ust{val4})
 	} else if strings.Count(s, "foo/v1.h") != 1 {
-		ctx.err("val4: %v %v", ust{val4}, val4)
+		ctx.err("%v %v", val4, ust{val4})
 	} else if strings.Count(s, "foo/v2.h") != 1 {
-		ctx.err("val4: %v %v", ust{val4}, val4)
+		ctx.err("%v %v", val4, ust{val4})
 	} else if strings.Count(s, "foo/bar/v1.h") != 1 {
-		ctx.err("val4: %v %v", ust{val4}, val4)
+		ctx.err("%v %v", val4, ust{val4})
 	} else if strings.Count(s, "foo/bar/v2.h") != 1 {
-		ctx.err("val4: %v %v", ust{val4}, val4)
+		ctx.err("%v %v", val4, ust{val4})
 	} else if strings.Count(s, "foo/bar/zz/x.h") != 1 {
-		ctx.err("val4: %v %v", ust{val4}, val4)
+		ctx.err("%v %v", val4, ust{val4})
 	}
 
 	if s := val5.string(ctx); s == "" {
-		ctx.err("val5: %v %v", ust{val5}, val5)
+		ctx.err("%v %v", val5, ust{val5})
 	} else if strings.Count(s, "bar.h") != 1 {
-		ctx.err("val5: %v %v", ust{val5}, val5)
+		ctx.err("%v %v", val5, ust{val5})
 	} else if strings.Count(s, "foo.h") != 1 {
-		ctx.err("val5: %v %v", ust{val5}, val5)
+		ctx.err("%v %v", val5, ust{val5})
 	} else if strings.Count(s, "foo/v1.h") != 0 {
-		ctx.err("val5: %v %v", ust{val5}, val5)
+		ctx.err("%v %v", val5, ust{val5})
 	} else if strings.Count(s, "foo/v2.h") != 0 {
-		ctx.err("val5: %v %v", ust{val5}, val5)
+		ctx.err("%v %v", val5, ust{val5})
 	} else if strings.Count(s, "foo/bar/v1.h") != 0 {
-		ctx.err("val5: %v %v", ust{val5}, val5)
+		ctx.err("%v %v", val5, ust{val5})
 	} else if strings.Count(s, "foo/bar/v2.h") != 0 {
-		ctx.err("val5: %v %v", ust{val5}, val5)
+		ctx.err("%v %v", val5, ust{val5})
 	} else if strings.Count(s, "foo/bar/zz/x.h") != 0 {
-		ctx.err("val5: %v %v", ust{val5}, val5)
+		ctx.err("%v %v", val5, ust{val5})
 	}
 
 	var (
@@ -852,7 +924,7 @@ func testBuiltin_foreach(ctx *testcase) {
 		if v := ctx.val(d.name, []string{"foo", "bar"}); v == nil {
 			ctx.err("%v", d)
 		} else if s, t := "x &(.test.foo)foo? bar &(.test.bar)foo? bar y &(.test.foo)foo? bar &(.test.bar)foo? bar z", v.String(); s != t {
-			for i, v := range merge(v) { note(ctx, "%d. %v", i, us(v)) }
+			for i, v := range merge(v) { note(ctx, "%d. %v", i, ust{v}) }
 			ctx.err("%v != %s", ust{v}, s)
 		} else if s, t := "x bar bar y bar bar z", v.string(ctx); s != t {
 			ctx.err("%v → %s != %s", ust{v}, t, s)
@@ -1114,13 +1186,13 @@ func testBuiltin_foreach2(ctx *testcase) {
 	} else if l1.len() != 3 {
 		ctx.err("%v ; %d", ust{l.elems[1]}, l1.len())
 	} else if s, t := "bx$1? by$1? bz$1? baxx4 bayy4", l0.String(); s != t {
-		for i, v := range l0.elems { note(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range l0.elems { note(at(ctx,v), "%d. %v", i, ust{v}) }
 		ctx.err("%v → %s != %s", ust{l0}, t, s)
 	} else if s, t := "-xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?", l1.String(); s != t {
-		for i, v := range l1.elems { note(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range l1.elems { note(at(ctx,v), "%d. %v", i, ust{v}) }
 		ctx.err("%v → %s != %s", ust{l1}, t, s)
 	} else if s, t := "bx$1? by$1? bz$1? baxx4 bayy4 -xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?", x.String(); s != t {
-		for i, v := range l.elems { note(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range l.elems { note(at(ctx,v), "%d. %v", i, ust{v}) }
 		ctx.err("%v → %s != %s", ust{x}, t, s)
 	} else if v := ctx.val(d.name, "3"); v == nil {
 		ctx.err("%v", ust{d})
@@ -1908,15 +1980,15 @@ func testBuiltin_foreach5(ctx *testcase) {
 	} else if l, y := x.(*list); !y {
 		ctx.err("%v", ust{x})
 	} else if elems := merge(l.elems...); l.len() != 4 || len(elems) != 7 {
-		for i, v := range elems { note(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range elems { note(at(ctx,v), "%d. %v", i, ust{v}) }
 		ctx.err("%v ; %d, %d", ust{x}, l.len(), len(elems))
 	} else if _, y := elems[2].(condval); !y {
 		ctx.err("%v", ust{elems[2]})
 	} else if s, t := "a~ -aox.o.a -ao{$(.test.x.o.{$2})}? ~a x.o.a &(.test.x.{$2} a,$2)? &(.test.x.o.{$2})?", x.String(); s != t {
-		for i, v := range elems { note(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range elems { note(at(ctx,v), "%d. %v", i, ust{v}) }
 		ctx.err("%v → %s != %s", ust{x}, t, s)
 	} else if s, t := "a~ -aox.o.a ~a x.o.a", x.string(ctx); s != t {
-		for i, v := range elems { note(at(ctx,v), "%d. %v", i, us(v)) }
+		for i, v := range elems { note(at(ctx,v), "%d. %v", i, ust{v}) }
 		ctx.err("%v → %s != %s", ust{x}, t, s)
 	} else if s, t := "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?", v.String(); s != t {
 		ctx.err("%v → %s != %s", ust{v}, t, s)

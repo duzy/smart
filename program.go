@@ -161,9 +161,9 @@ func (pc *programContext) project() *project {
     }
     return pc.automatic.project()
 }
-func (pc *programContext) Scope() *Scope {
+func (pc *programContext) scope() *Scope {
     if pc.prog != nil { return pc.prog.scope }
-    return pc.automatic.Scope()
+    return pc.automatic.scope()
 }
 func (pc *programContext) closure() (scopes []*Scope) {
     if cc, ok := pc.Context.(*terminal); ok {
@@ -415,32 +415,14 @@ func (pc *programContext) dirty(ctx Context, aa ...Value) (outdated bool) {
 func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *File, prereqObj Object) {
     var mapPrereqFile = func(name interface{}) {
         var maps = unmap_files(ctx, name)
-        if maps != nil { defer func() { if prereqFile == nil {
-            for _, m := range maps { warn(at(ctx, m.pattern), "%v, skipped %v", name, m) }
-            warnstack(ctx, 3, "skipped %d, projects %v", len(maps), projects).debug(8)
+        if maps != nil {
+            defer func() {
+                if prereqFile != nil { return }
 
-            var en int
-            for _, p := range projects {
-                var c *_DEPRECATED_vcache
-                if v, y := name.(Value); y {
-                    c = p.filemap.slot(ctx, v, cacheMatchPatts)
-                } else if s, y := name.(string); y {
-                    c = p.filemap.strx(ctx, s, cacheMatchPatts)
-                } else {
-                    erro(at(ctx, v), "%v: skipped match: %s, %v (%T)", p, s, v, v).debug(1)
-                    break
-                }
-
-                if c == nil || c._val == nil {
-                    erro(ctx, "%v: %v: %v", p, name, name).debug(1)
-                    break
-                }
-
-                note(ctx, "%T %v %v", name, name, c).debug(1)
-            }
-
-            if en > 0 { errostack(ctx, 3).debug(8) }
-        }}() }
+                for _, m := range maps { warn(at(ctx, m.pattern), "%v, skipped %v", name, m) }
+                warnstack(ctx, 3, "skipped %d, projects %v", len(maps), projects).debug(8)
+            }()
+        }
 
         for _, project := range projects {
             if prereqFile = project.selectFile(ctx, maps); prereqFile != nil {

@@ -122,7 +122,7 @@ func (ctx *configureContext) execute(entry entry) {
     var s = entry.Target().string(ctx)
     if _, y := ctx.defs[s]; y { return }
 
-    var d = ctx.current.scope.FindDef(s)
+    var d = ctx.current.scope_.FindDef(s)
     if d == nil {
         erro(ctx, "%v: `%s` not configured", ctx.current, s).debug(1)
         return
@@ -162,7 +162,7 @@ func (u *universe) _forConfigs(cal func(*project, entry), pre func(*project) fun
         if cal != nil { for _, e := range p.configs { cal(p, e) } }
     }
 
-    f(u.globe.main)
+    f(u.globe_.main)
 }
 
 func promptEnteringDirectory(ctx Context, s string) *diagPoint {
@@ -353,9 +353,7 @@ func (ctx *modifier_configure) executeEntry(entryName interface{}, target Value,
         errostack(ctx, 3, "%v: .configure not provided for %v (%s)", program.project, target, entryName).debug(16)
         return
     } else if entries = program.project.configure.resolveEntries(ctx, entryName, false); entries == nil {
-        var t = &program.project.configure.entries
-        if t.fast != nil { t, _ = t.fast["-"] }
-        errostack(ctx, 3, "%T %v: unknown configuration action, %v", entryName, entryName, t).debug(16)
+        errostack(ctx, 3, "%T %v: unknown configuration action", entryName, entryName).debug(16)
         return
     }
 
@@ -555,7 +553,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
 
     if project.configure == nil {
         if project.name == "configure" {
-            if o := project.scope.Lookup(dotConfigure); o != nil {
+            if o := project.scope_.Lookup(dotConfigure); o != nil {
                 if d, y := o.(*def); y && d.value != nil && !isTrivial(d.value) {
                     if val := d.value.true(ctx); val {
                         if project.configure = project; ctx.verbose {
@@ -586,7 +584,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
     var d *def
     if d = program.scope.FindDef(name); d == nil {
         var alt Object
-        d, alt = project.scope.define(ctx, defConfig, name, nil)
+        d, alt = project.scope_.define(ctx, defConfig, name, nil)
         if d == nil && alt != nil { d, _ = alt.(*def) }
     }
     if d == nil {
@@ -875,7 +873,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
     var opts = configureConvertOpts{ mode: os.FileMode(0600) }
     var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
         var project = ctx.project()
-        if def, ok := project.scope.Lookup("configure.names").(*def); ok {
+        if def, ok := project.scope_.Lookup("configure.names").(*def); ok {
             args = append(args, xmerge(ctx, def.value)...)
         }
 
@@ -893,7 +891,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
         }
         for _, c := range project.configs {
             var name = c.ident(ctx)
-            if def, ok := project.scope.Lookup(name).(*def); ok {
+            if def, ok := project.scope_.Lookup(name).(*def); ok {
                 configs[name] = def
             }
         }

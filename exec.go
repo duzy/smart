@@ -1018,7 +1018,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   if p.contained {
     if program.project.name == dotContainer {
       exe.container = program.project
-    } else if _, sym := program.project.scope.find(dotContainer); sym != nil {
+    } else if _, sym := program.project.scope_.find(dotContainer); sym != nil {
       exe.container = sym.(*project)
     }
 
@@ -1028,7 +1028,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     }
 
     var stringify = func(name string) (str string) {
-      var ctx = closureWith(ctx, exe.container.Scope())
+      var ctx = closureWith(ctx, exe.container.scope())
       if obj := exe.container.resolve(ctx, name); obj != nil {
         if d, _ := obj.(*def); d != nil {
           if v := d.invoke(ctx, nil, nil); v != nil {

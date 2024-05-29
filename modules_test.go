@@ -1809,14 +1809,14 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	var cc2 = _closureWith(ctx.Context, base, base.configure)
 	if inner(cc1) != ctx.Context {
 		ctx.err("%v != %v", typeof(inner(cc1)), typeof(ctx.Context))
-	} else if cc1.Scope() != base.configure.scope {
+	} else if cc1.scope() != base.configure.scope_ {
 		ctx.err("%v != %v", cc1.project(), base.configure)
 	} else if cc1.project() != base.configure {
 		ctx.err("%v != %v", cc1.project(), base.configure)
 	}
 	if inner(cc2) != ctx.Context {
 		ctx.err("%v != %v", typeof(inner(cc2)), typeof(ctx.Context))
-	} else if cc2.Scope() != base.scope {
+	} else if cc2.scope() != base.scope_ {
 		ctx.err("%v != %v", cc2.project(), base)
 	} else if cc2.project() != base {
 		ctx.err("%v != %v", cc2.project(), base)
@@ -1825,19 +1825,19 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	if v := ctx.val("/", proj); v == nil {
 		ctx.err("/")
 	} else if _, y := v.(*path); !y {
-		ctx.err("%v: %v", typeof(v), v)
+		ctx.err("%v", us(v))
 	} else if v.String() != proj.absPath {
-		ctx.err("%v: %v != %v", typeof(v), v, proj.absPath)
+		ctx.err("%v != %v", us(v), proj.absPath)
 	} else if v.string(ctx) != proj.absPath {
-		ctx.err("%v: %v != %v", typeof(v), v, proj.absPath)
+		ctx.err("%v != %v", us(v), proj.absPath)
 	}
 
 	var outtmp string
 	var outtmp_val = ctx.val("outtmp", proj)
 	if v := outtmp_val; v == nil {
-		ctx.err("%v: %v", typeof(v), v)
+		ctx.err("%v", us(v))
 	} else if outtmp = v.string(/*_closureWith(ctx, proj)*/ctx); outtmp == "" {
-		ctx.err("%v: %v", typeof(v), v)
+		ctx.err("%v", us(v))
 	} else if strings.HasSuffix(outtmp, tail) {
 		outtmp = strings.TrimSuffix(outtmp, tail)
 	}
@@ -1854,19 +1854,19 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	if v1 := ctx.val("root1"); v1 == nil {
 		ctx.err("root1")
 	} else if _, y := v1.(*path); !y {
-		ctx.err("%v: %v", typeof(v1), v1)
+		ctx.err("%v", us(v1))
 	} else if v1.String() != proj.absPath {
-		ctx.err("%v: %v", typeof(v1), v1)
+		ctx.err("%v", us(v1))
 	} else if v1.string(ctx) != proj.absPath {
 		ctx.err("%v: %v: %v", ctx.project(), typeof(v1), v1)
 	} else if v2 := ctx.val("root2"); v2 == nil {
 		ctx.err("root2")
 	} else if _, y := v2.(*path); !y {
-		ctx.err("%v: %v", typeof(v2), v2)
+		ctx.err("%v", us(v2))
 	} else if v2.String() != proj.absPath {
-		ctx.err("%v: %v", typeof(v2), v2)
+		ctx.err("%v", us(v2))
 	} else if v2.string(ctx) != proj.absPath {
-		ctx.err("%v: %v", typeof(v2), v2)
+		ctx.err("%v", us(v2))
 	} else if v2.string(ctx) != v1.string(ctx) {
 		note(ctx, "%v", v2.string(ctx))
 		note(ctx, "%v", v1.string(ctx))
@@ -2030,11 +2030,11 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	if v1 := ctx.val("val4.a"); v1 == nil {
 		ctx.err("val4.a")
 	} else if _, y := v1.(fullname); !y {
-		ctx.err("%v: %v", typeof(v1), v1)
+		ctx.err("%v", us(v1))
 	} else if v2 := ctx.val("val4.b"); v2 == nil {
 		ctx.err("val4.b")
 	} else if _, y := v2.(*path); false && !y {
-		ctx.err("%v: %v", typeof(v2), v2)
+		ctx.err("%v", us(v2))
 	} else if v1.string(ctx) != v2.string(ctx) {
 		note(at(ctx,v1), "%v: %v", proj, v1)
 		note(at(ctx,v1), "%v: %v", proj, v2)

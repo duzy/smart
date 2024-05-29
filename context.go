@@ -32,7 +32,7 @@ type property uint64
 const (
   propPosition property = 1<<iota
   propParameters
-  propPath
+  propFullVal
   propWorkDir
   propDirtyOpts
   propErros
@@ -66,16 +66,13 @@ type (
   actDirty      struct{ a []Value }
   actTraversed  struct{ v Value }
   actTraverse   struct{ v Value }
-  actHitValue   struct{ *valcache ; Value  }
-  actHitPunc    struct{ *valcache ; token  }
-  actHitWord    struct{ *valcache ; string }
-  actHitGlob    struct{ *valcache ; string }
-  actHitPerc    struct{ *valcache ; string }
-  actHitRege    struct{ *valcache ; string }
-  actUnpat      struct{ *valcache ; string }
-  actUnglob     struct{ *valcache ; string }
-  actUnperc     struct{ *valcache ; string }
-  actUnrege     struct{ *valcache ; string }
+  actValuHit    struct{ *valcache ; Value  }
+  actPuncHit    struct{ *valcache ; token  }
+  actWordHit    struct{ *valcache ; string }
+  actGlobHit    struct{ *valcache ; string }
+  actPercHit    struct{ *valcache ; string }
+  actRegeHit    struct{ *valcache ; string }
+  actUnmap      struct{ *valcache ; string }
 )
 
 func _position(ctx Context) (res Position) {
@@ -207,12 +204,12 @@ type doer interface { do(Context,any) any }
 type Context interface {
   Position() Position
 
-  Globe() *globe
+  globe() *globe
 
   cast(reflect.Type) Context
   closure() []*Scope
 
-  Scope() *Scope
+  scope() *Scope
   project() *project
   projects(Context, ...*project) []*project
 
@@ -353,7 +350,7 @@ func debugSyntax(ctx Context, s string) (res bool) {
 
 func db(ctx Context, ss ...string) (res bool) {
     for _, d := range strings.Fields(_universe(ctx).ddd) {
-        for _, s := range ss { if d == s { return true }}
+        for _, s := range ss { if d == s { return true } }
     }
     return
 }
@@ -384,27 +381,29 @@ func (d *diagPoint) debug(args ...any) *diagPoint {
   var s string
   switch d.dt {
   case diagPrompt: if /* !options.debugPrompt */false { return d } else { s = "note:" }
-  case diagInfo:   if /* !options.debugInfos  */false { return d } else { s = "info:" }
-  case diagWarn:   if /* !options.debugWarns  */false { return d } else { s = "info:" }
-  case diagError:  if /* !options.debugErrors */false { return d } else { s = "info:" }
+  case diagInfo  : if /* !options.debugInfos  */false { return d } else { s = "info:" }
+  case diagWarn  : if /* !options.debugWarns  */false { return d } else { s = "info:" }
+  case diagError : if /* !options.debugErrors */false { return d } else { s = "info:" }
   }
 
-  var i = 5 // skips the standard stack lines, which are not informative
-  var j = 0 // number of frames to dump
-  d.stack = _callstack(s, i, j, args...)
+  // skips the standard stack lines, which are not informative
+  // number of frames to dump
+  d.stack = _callstack(s, 5, 0, args...)
   return d
 }
 
 type tracend struct { Context }
-func trace(ctx Context, a ...interface{}) {
+func (t tracend) String() string { return "trace "+us(t.Context) }
+
+func trace(ctx Context, a ...any) {
   if trace_recover {
-    var te tracend
+    var x Context
     var recovered int
-    for e := recover(); e != nil; e = recover() {
-      switch recovered += 1; t := e.(type) {
+    for e := recover() ; e != nil ; e = recover() {
+      switch recovered += 1 ; t := e.(type) {
       case       bailout:
-      case       tracend: te = t
-      case       failure: erro(t.Context, t.Error()) ; t.Context = nil
+      case       tracend:  x = t.Context
+      case       failure: erro(t.Context, t.Error())
       case         Value: erro(at(ctx,t), "trace: %s", us(t))
       case        string: erro(   ctx   , "trace: %s", t)
       case runtime.Error: erro(   ctx   , "trace: %s", t.Error())
@@ -412,13 +411,11 @@ func trace(ctx Context, a ...interface{}) {
       }
     }
     if 0 < recovered {
-      erro(ctx, "%s (%d panics)", us(te.Context), recovered).debug(32)
+      erro(ctx, "%s (%d panics)", us(x), recovered).debug(64)
     }
-    te.Context = nil
   }
-
-  if d := _diagnostic(ctx); d.countError() > 0 {
-    if d.traced += 1 ; 1 == d.traced { panic(tracend{ctx}) } // break out of the call stack
+  if d := _diagnostic(ctx) ; d.countError() > 0 {
+    if d.traced += 1 ; d.traced == 1 { panic(tracend{ctx}) }
   }
   return
 }
@@ -482,7 +479,7 @@ func (diag *diagnostic) nest(points []*diagPoint) {
   defer diag.aquire()()
   diag.nested = append(diag.nested, points)
 }
-func (diag *diagnostic) point(ctx Context, dt diagType, f string, args ...interface{}) *diagPoint {
+func (diag *diagnostic) point(ctx Context, dt diagType, f string, args ...any) *diagPoint {
   if dt != diagPrompt { f = strings.TrimSpace(f) }
   return diag.add(&diagPoint{ dt, ctx.Position(), fmt.Sprintf(f, args...), nil })
 }
@@ -563,42 +560,42 @@ func (diag *diagnostic) flush(ctx Context) (errs int) {
 
 func flush(ctx Context) int { return _diagnostic(ctx).flush(ctx) }
 
-func diag(ctx Context, dt diagType, f string, a ...interface{}) (_ *diagPoint) {
+func diag(ctx Context, dt diagType, f string, a ...any) (_ *diagPoint) {
   if _diag := _diagnostic(ctx) ; _diag != nil {
     return _diag.point(ctx, dt, f, a...)
   }
   return
 }
-func info(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagInfo, f, a...) }
-func warn(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagWarn, f, a...) }
-func erro(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagError, f, a...) }
-func prompt(ctx Context, f string, a ...interface{}) *diagPoint { return diag(ctx, diagPrompt, f, a...) }
+func info(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagInfo, f, a...) }
+func warn(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagWarn, f, a...) }
+func erro(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagError, f, a...) }
+func prompt(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagPrompt, f, a...) }
 
-func note(ctx Context, f string, a ...interface{}) *diagPoint {
+func note(ctx Context, f string, a ...any) *diagPoint {
   if !strings.HasSuffix(f, "\n") { f += "\n" }
   if false {
-    return prompt(ctx, "%v: "+f, append([]interface{}{ctx.Position()}, a...)...)
+    return prompt(ctx, "%v: "+f, append([]any{ctx.Position()}, a...)...)
   } else {
     return prompt(ctx, ctx.Position().String()+": "+f, a...)
   }
 }
 
-func infostack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagInfo  , a...) }
-func warnstack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagWarn  , a...) }
-func errostack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagError , a...) }
-func promstack(ctx Context, n int, a ...interface{}) *diagPoint { return diagstack(ctx, n, diagPrompt, a...) }
-func notestack(ctx Context, n int, a ...interface{}) *diagPoint {
+func infostack(ctx Context, n int, a ...any) *diagPoint { return diagstack(ctx, n, diagInfo  , a...) }
+func warnstack(ctx Context, n int, a ...any) *diagPoint { return diagstack(ctx, n, diagWarn  , a...) }
+func errostack(ctx Context, n int, a ...any) *diagPoint { return diagstack(ctx, n, diagError , a...) }
+func promstack(ctx Context, n int, a ...any) *diagPoint { return diagstack(ctx, n, diagPrompt, a...) }
+func notestack(ctx Context, n int, a ...any) *diagPoint {
   if true {
     var f string
     if len(a) > 0 { if s, y := a[0].(string); y {
       f, a = s, a[1:]
     }}
 
-    a = append([]interface{}{"%v: "+f+"\n", ctx.Position()}, a...)
+    a = append([]any{"%v: "+f+"\n", ctx.Position()}, a...)
   }
   return diagstack(ctx, n, diagPrompt, a...)
 }
-func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPoint) {
+func diagstack(ctx Context, n int, dt diagType, a ...any) (point *diagPoint) {
   var s string
   if 0 < len(a) {
     if x, y := a[0].(string); y {
@@ -652,18 +649,21 @@ func diagstack(ctx Context, n int, dt diagType, a ...interface{}) (point *diagPo
 
 func _positional(c Context) *positional { return cast[*positional](c) }
 
-type positional struct { Context; position Position }
+type positional struct { Context ; position Position }
+func (pc *positional) Position() Position { return pc.position }
 func (pc *positional) caller() *positional { return _positional(pc.Context) }
 func (pc *positional) cast(t reflect.Type) Context { return implcast(pc, t) }
-func (pc *positional) Position() Position { return pc.position }
 func (pc *positional) do(ctx Context, op any) any {
-  if op == propPosition { return pc.position }
+  switch t := op.(type) {
+  case property:
+    if t&propPosition != 0 { return pc.position }
+  }
   if pc.Context == nil { return nil }
   return pc.Context.do(ctx, op)
 }
 
 func _at(ctx Context, p Position) Context { return &positional{ctx, p} }
-func at(ctx Context, a interface{}) Context {
+func at(ctx Context, a any) Context {
   if ctx == nil { panic("nil context") }
 
   var pos Position

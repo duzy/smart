@@ -81,7 +81,7 @@ func (p *use) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *use) patterned(ctx Context) bool { return false }
-func (p *use) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
+func (p *use) match(ctx Context, i any) (full bool, s any, stems []string) { return }
 func (p *use) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
 func (p *use) true(ctx Context) bool { return p.project != nil }
 func (p *use) updated(ctx Context) (res bool) {
@@ -193,7 +193,7 @@ func (p *uselist) cmp(ctx Context, v Value) (res cmpres) {
         return
 }
 func (p *uselist) patterned(ctx Context) bool { return false }
-func (p *uselist) match(ctx Context, i interface{}) (full bool, s interface{}, stems []string) { return }
+func (p *uselist) match(ctx Context, i any) (full bool, s any, stems []string) { return }
 func (p *uselist) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
 func (p *uselist) refs(ctx Context, v Value) bool {
         for _, a := range p.list {
@@ -244,7 +244,7 @@ func (p *uselist) get(ctx Context, name string) (result Value) {
         var vals []Value
         var n = "use."+name
         for _, u := range p.list { if u.opts.noVars { continue }
-                if o := u.project.scope.Lookup(n); o != nil {
+                if o := u.project.scope_.Lookup(n); o != nil {
                         vals = append(vals, o)
                 }
         }
@@ -253,15 +253,18 @@ func (p *uselist) get(ctx Context, name string) (result Value) {
 
 func (p *uselist) invoke(ctx Context, o, a []Value) (result Value) {
         var targets []Value
-        if p.list != nil { for _, usee := range p.list {
-                if entry := usee.project.defaultEntry; entry != nil {
-                        if usee.project.opts.traveUseLoop {
-                                // FIXME: break use loop
-                        } else if false {
-                                usePrepared[usee.project] += 1
+        if p.list != nil {
+                for _, usee := range p.list {
+                        if entry := usee.project.defaultEntry; entry != nil {
+                                if usee.project.opts.traveUseLoop {
+                                        // FIXME: break use loop
+                                } else if false {
+                                        usePrepared[usee.project] += 1
+                                }
+                                targets = append(targets, entry)
                         }
-                        targets = append(targets, entry)
                 }
-        }; result = ease(ctx, targets) }
+                result = ease(ctx, targets)
+        }
         return
 }

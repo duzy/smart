@@ -15,7 +15,7 @@ Usage:
     smart -configure[(arguments)]
     smart -reconfigure[(arguments)]
 `)
-        for name, _ := range ctx.Globe().flagEntries {
+        for name, _ := range ctx.globe().flagEntries {
                 if name == "" { continue }
                 prompt(ctx, `
     smart -%s[(arguments)]`, name)
@@ -54,7 +54,7 @@ Issues:
 
 func print_flag_entries(ctx Context) {
         prompt(ctx, "Defined:\n")
-        for name, entries := range ctx.Globe().flagEntries {
+        for name, entries := range ctx.globe().flagEntries {
                 if len(entries) == 0 || name == "" { continue }
                 prompt(ctx, `
    -%s`, name)
@@ -63,7 +63,7 @@ func print_flag_entries(ctx Context) {
 }
 
 func print_flag_trace(ctx Context) {
-        for name, entries := range ctx.Globe().flagEntries {
+        for name, entries := range ctx.globe().flagEntries {
                 if name == "" { continue }
                 for _, entry := range entries {
                         prompt(ctx, "%s: %v\n", entry.Position(), entry)

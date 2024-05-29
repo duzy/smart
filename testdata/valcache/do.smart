@@ -5,9 +5,13 @@ files (
     (foo/bar.c foo/bar.c++ foo.c foo.c++) ⇒ $//src
 )
 
+val0 := **.c
 val1 := **.c++
 val2 := foo.c++
 val3 := foo.o
+val4 := .deps/xx/yy/zzzzzzzzzz
+val5 := foo/*.c
+val6 := foo/*.c++
 
 sources := &(wildcard(-missing) **.c **.c++)
 objects := &(patsubst(-err-dst-nomap) %.c %.c++,%.o,&(sources))

@@ -637,7 +637,7 @@ func (ctx *modifier_closure) x(pc *programContext, args ...Value) (result interf
 
     if proj == nil {
         errostack(ctx, 6, "%T: nil project in the context", ctx).debug(64)
-    } else if scope := proj.scope; scope == nil {
+    } else if scope := proj.scope_; scope == nil {
         erro(ctx, "empty closure context").debug(1)
     } else if def := scope.FindDef("/"); def == nil {
         erro(at(ctx,scope.position), "&/ is undefined").debug(1)
@@ -2117,7 +2117,7 @@ ForPairs:
                 case *pair:
                     var a, b string
                     var k = p.key.string(ctx)
-                    var def = program.project.scope.FindDef(k)
+                    var def = program.project.scope_.FindDef(k)
                     if def != nil {
                         a = p.val.string(ctx)
                         b = def.value.string(ctx)

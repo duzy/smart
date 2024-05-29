@@ -545,7 +545,7 @@ func (ctx *builtin_typeof) x() (res interface{}) {
 type builtin_origin struct { builtin_ }
 func (ctx *builtin_origin) x() (res interface{}) {
     var elems []Value
-    var scope = ctx.Scope()
+    var scope = ctx.scope()
     for _, arg := range ctx.evocation.a {
         if s := argstring(ctx, arg); s == "" {
             elems = append(elems, makeNull(arg.Position()))
@@ -572,7 +572,7 @@ func (ctx *builtin_defined) x() (res interface{}) {
 type builtin_pushcontext struct { builtin_ }
 func (ctx *builtin_pushcontext) c() (res interface{}) {
     var (
-        scope = ctx.Scope()
+        scope = ctx.scope()
         uc = _universe(ctx)
         m map[string]*def
     )
@@ -587,7 +587,7 @@ func (ctx *builtin_pushcontext) c() (res interface{}) {
         }}
         m[s] = t
     }
-    uc.globe.stack = append(uc.globe.stack, m)
+    uc.globe_.stack = append(uc.globe_.stack, m)
     return
 }
 
@@ -607,18 +607,18 @@ func (ctx *builtin_popcontext) c() (res interface{}) {
         rules = append(rules, v.elems...)
     }}
 
-    var scope = ctx.Scope()
+    var scope = ctx.scope()
     var uc = _universe(ctx)
-    var l = len(uc.globe.stack)
+    var l = len(uc.globe_.stack)
     if l == 0 { return }
-    for s, d := range uc.globe.stack[l-1] { if d == nil { if s == "" { continue }
+    for s, d := range uc.globe_.stack[l-1] { if d == nil { if s == "" { continue }
         scope.mutex.Lock()
         delete(scope.elems, s)
         scope.mutex.Unlock()
     } else if o := scope.Lookup(d.name); o != nil { if t, ok := o.(*def); ok {
         *t = *d
     }}}
-    uc.globe.stack = uc.globe.stack[0:l-1]
+    uc.globe_.stack = uc.globe_.stack[0:l-1]
     return
 }
 
@@ -1398,7 +1398,7 @@ func (ctx *builtin_defs) x() (res interface{}) {
     var find = func(pat Value) (res []bare) {
         var neg bool
         if x, y := pat.(negative); y { pat, neg = x.Value, y }
-        for name, _ := range ctx.project().scope.elems {
+        for name, _ := range ctx.project().scope_.elems {
             var a, _, c = pat.match(ctx, name)
             if a {
                 if neg {
@@ -1437,13 +1437,13 @@ func (ctx *builtin_list) x() (res interface{}) {
 }
 
 type builtin_plain struct { builtin_
-    scope bool `findscope,find-scope,scope`
+    scope_ bool `findscope,find-scope,scope`
 }
 func (ctx *builtin_plain) c() (res interface{}) {
-    var scope = ctx.Scope()
+    var scope = ctx.scope()
     for _, a := range ctx.evocation.a {
         var ( o Object ; s = a.string(ctx) )
-        if ctx.scope { _, o = scope.find(s) } else { o = resolve(ctx, s) }
+        if ctx.scope_ { _, o = scope.find(s) } else { o = resolve(ctx, s) }
         if o == nil {
             erro(at(ctx,a), "no such symbol: %s", s).debug(1)
         } else if d, y := o.(*def); !y {
@@ -1457,11 +1457,9 @@ func (ctx *builtin_plain) c() (res interface{}) {
 
 type builtin_shell struct { builtin_ }
 func (ctx *builtin_shell) x() (res interface{}) {
-    var (
-        pos = ctx.Position()
-        vals []Value
-        err error
-    )
+    var pos = ctx.Position()
+    var vals []Value
+    var err error
     for _, a := range ctx.evocation.a {
         var bufout, buferr bytes.Buffer
         var s = a.string(ctx)
@@ -3815,7 +3813,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
         ctx.Context = at(cc, a)
 
         var fs []*File
-        var am []matched_filemap
+        var am []filemap_name
         if f, y := toFile(a); y {
             if !ctx.exists || f.exists() /* || f.stat(ctx) != nil */ {
                 res = append(res, f)
@@ -3927,7 +3925,7 @@ func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
 }
 
 type builtin_wildcard struct { builtin_
-    includeMissing bool `includemissing,include-missing,missing`
+    includeMissing bool `includemissing,include-missing,missing,unpresented,all-matched-names`
     ignoreMissing bool `ignoremissing,ignore-missing`
     errorMissing bool `err,errormissing,error-missing,no-missing`
     names bool `name,names,nameonly`
@@ -4084,6 +4082,31 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
     top.Wait()
     return
 }
+func (ctx *builtin_wildcard) _project_0(p *project, pats ...Value) (files []*File) {
+    for _, pat := range pats {
+        for _, a := range p.unmap_files(ctx, pat) {
+            for _, loc := range a.paths {
+                var dir = loc.string(ctx)
+                note(ctx, "%v %v %v %v", pat, a.pattern, loc, dir).debug()
+            }
+        }
+    }
+    return
+}
+func (ctx *builtin_wildcard) _project_1(p *project, pats ...Value) (files []*File) {
+    var g sync.WaitGroup
+    for _, pat := range pats {
+        g.Add(1)
+        func() {
+            defer g.Done()
+            for _, a := range p.unmap_files(ctx, pat) {
+                note(ctx, "%v %v %v", pat, a.filemap.pattern, a.filemap.paths).debug()
+            }
+        } ()
+    }
+    g.Wait()
+    return
+}
 func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File) {
     if false { defer func(t0 time.Time) {
         if d := time.Now().Sub(t0); d > 1*time.Second {
@@ -4103,17 +4126,19 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
         g.Done()
     }
 
+    var ne = ctx.includeMissing && !ctx.ignoreMissing
     var st = func(dir string, val Value) {
-        var ne = ctx.includeMissing && !ctx.ignoreMissing
         if f := stat(ctx, val.string(ctx), stat_dir{dir}, stat_nonexist{ne}); f != nil {
             g.Add(1) ; go collect(f)
         } else if false {
-            erro(ctx, "nil: %v (%s)", us(val), dir).debug(1)
+            erro(ctx, "nil: %v : %s", us(val), dir).debug()
         }
     }
 
-    var dofilemap = func(lVal, rVal Value, lPat, rPat bool, fm *filemap) {
+    var dofilemap = func(lVal, rVal Value, fm filemap) {
         defer g.Done()
+        var lPat = lVal.patterned(ctx)
+        var rPat = rVal.patterned(ctx)
         for _, loc := range fm.paths {
             if dir := loc.string(ctx); lPat && rPat {
                 var pat Value
@@ -4128,47 +4153,43 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
             } else if !lPat && rPat {
                 st(dir, lVal)
             } else {
-                note(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, dir)
+                note(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, dir).debug()
             }
         }
     }
 
-    var f1 = func(inVal, mapVal Value, inPat, mapPat bool, fm *filemap) {
+    var f1 = func(lVal, rVal Value, fm filemap) {
         defer g.Done()
-        if y, _, _ := inVal.match(ctx, mapVal); y { // e.g. inVal=**.am <-> mapVal=foo/bar/*.am
-            g.Add(1) ; go dofilemap(inVal, mapVal, inPat, mapPat, fm)
-        } else if y, _, _ = mapVal.match(ctx, inVal); y { // e.g. mapVal=**.am <-> inVal=foo/bar/*.am
+        if y, _, _ := lVal.match(ctx, rVal); y { // e.g. **.am <-> foo/bar/*.am
+            g.Add(1) ; go dofilemap(lVal, rVal, fm)
+        } else if y, _, _ = rVal.match(ctx, lVal); y {
             if g.Add(1) ; true {
-                go dofilemap(inVal, mapVal, inPat, mapPat, fm)
+                go dofilemap(lVal, rVal, fm)
             } else {
-                go dofilemap(mapVal, inVal, mapPat, inPat, fm)
+                go dofilemap(rVal, lVal, fm)
             }
         } else {
-            warn(ctx, "TODO: wildcard: %v %v", mapVal, inVal).debug(1)
+            erro(ctx, "TODO: wildcard: %v %v", rVal, lVal).debug()
         }
     }
 
-    var f2 = func(inVal Value, inPat bool, c *_DEPRECATED_vcache) {
+    var f2 = func(pat Value, a filemap) {
         defer g.Done()
-        var fm, y = c._val.(filemap)
-        if y && fm._filemap != nil {
-            for _, mapVal := range fm.primePatterns(ctx) {
-                g.Add(1) ; go f1(inVal, mapVal, inPat, mapVal.patterned(ctx), &fm)
-            }
-        } else {
-            erro(ctx, "not filemap: %v", us(c._val)).debug(1)
+        for _, val := range a.primePatterns(ctx) {
+            g.Add(1) ; go f1(pat, val, a)
         }
     }
 
-    var f3 = func(inVal Value) {
+    var f3 = func(pat Value) {
         defer g.Done()
-        var inPat = inVal.patterned(ctx)
-        for _, c := range _DEPR_collect(ctx, inVal, &p.filemap, cacheMatchPatts) {
-            g.Add(1) ; go f2(inVal, inPat, c)
+        for _, a := range p.unmap_files(ctx, pat) {
+            g.Add(1) ; go f2(pat, a.filemap)
         }
     }
 
-    for _, pat := range pats { g.Add(1) ; go f3(pat) }
+    for _, pat := range pats {
+        g.Add(1) ; go f3(pat)
+    }
     g.Wait()
     return
 }

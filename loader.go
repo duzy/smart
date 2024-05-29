@@ -143,7 +143,7 @@ func (l *loader) cast(t reflect.Type) Context {
 }
 
 func restoreLoadingInfo(l *loader) {
-    var globe = l.Globe()
+    var globe = l.globe()
     var last  = len(globe.loads)-1
     var linfo = globe.loads[last]
     globe.loads = globe.loads[0:last]
@@ -153,7 +153,7 @@ func restoreLoadingInfo(l *loader) {
 }
 
 func saveLoadingInfo(l *loader, specName, absDir, baseName string) *loader {
-    var globe = l.Globe()
+    var globe = l.globe()
     globe.loads = append(globe.loads, &loadinfo{
         absDir: absDir,
         baseName: baseName,
@@ -215,7 +215,7 @@ func usevars(ctx Context, user, usee *project) {
     var ddd = _universe(ctx).ddd == "use"
     usefor(ctx, user, func(op usevar, spec, val Value, name string) {
         var useDef *def
-        if o := usee.scope.Lookup("use."+name); o != nil {
+        if o := usee.scope_.Lookup("use."+name); o != nil {
             if d, y := o.(*def); y && d != nil { useDef = d } else {
                 erro(ctx, "use.%s: nil def: %T %v", name, o, o).debug(3)
                 return
@@ -227,7 +227,7 @@ func usevars(ctx Context, user, usee *project) {
 
         // 1. use.XXX += $(use.XXX)
         {
-            var d, a = user.scope.define(ctx, defVoid, useDef.ident(ctx), nil)
+            var d, a = user.scope_.define(ctx, defVoid, useDef.ident(ctx), nil)
             var isNewDef = d != nil && a == nil
             if d == nil && a != nil { d, _ = a.(*def) }
             if d == nil { return }
@@ -238,14 +238,14 @@ func usevars(ctx Context, user, usee *project) {
             if isNewDef || isTrivial(d.value) {
                 dd = append(dd, baseNonTrivialDefs(ctx, user, useDef.ident(ctx))...)
             }
-            op.apply(closureWith(ctx, usee.scope), d, append(dd, useDef)...)
+            op.apply(closureWith(ctx, usee.scope_), d, append(dd, useDef)...)
         }
 
         if useDef.value == nil || isTrivial(useDef.value) { return }
 
         // 2. XXX += $(use.XXX)
         {
-            var d, a = user.scope.define(ctx, defVoid, name, nil)
+            var d, a = user.scope_.define(ctx, defVoid, name, nil)
             var isNewDef = d != nil && a == nil
             if d == nil && a != nil { d, _ = a.(*def) }
             if d == nil { return }
@@ -253,7 +253,7 @@ func usevars(ctx Context, user, usee *project) {
                 if dd == nil { dd = append(dd, baseNonTrivialDefs(ctx, user, useDef.ident(ctx))...) }
                 dd = append(dd, baseNonTrivialDefs(ctx, user, name)...)
             }
-            op.apply(closureWith(ctx, user.scope), d, append(dd, useDef)...)
+            op.apply(closureWith(ctx, user.scope_), d, append(dd, useDef)...)
         }
     })
     if ddd { note(ctx, "%v ⇒ %v ; %v", user, usee, user.resolve(ctx, "use.*")).debug(5) }
@@ -275,7 +275,7 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
 
     var (
         u = _universe(l.Context)
-        globe = l.Globe()
+        globe = l.globe()
         linfo = globe.loads[len(globe.loads)-1]
         absPath, specName string
         isDir, traveUseLoop bool
@@ -323,7 +323,7 @@ func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value
         }
     }
 
-    var scope = l.Scope()
+    var scope = l.scope()
     if false && traveUseLoop {
         if loaded == nil {
             // ...
@@ -770,7 +770,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []entry) {
         params []*auto
         depends []Value
         ordered []Value
-        progScope *Scope = l.Scope()
+        progScope *Scope = l.scope()
         configure = clause.config
         recipes = clause.recipes
     )
@@ -823,7 +823,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []entry) {
 
         if t, okay := entry.Target().(flag); okay && t.Value != nil {
             var s = t.Value.string(ctx)
-            if l.proj.name != "~" { l.Globe().AddFlagEntry(s, entry) }
+            if l.proj.name != "~" { l.globe().AddFlagEntry(s, entry) }
         } else if configure {
             if entry.Class() == patternRule {
                 erro(ctx, "unsupported pattern configures: %v", target).debug(1)
@@ -846,7 +846,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
 
     var (
         u = _universe(ctx)
-        globe = l.Globe()
+        globe = l.globe()
         linfo = globe.loads[len(globe.loads)-1]
         specName, fullname string
         err error
@@ -944,7 +944,7 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
     return
 }
 func (l *loader) closure() (scopes []*Scope) {
-    scopes = append(l.terminal.closure(), l.Scope())
+    scopes = append(l.terminal.closure(), l.scope())
     return
 }
 
@@ -957,7 +957,7 @@ func (l *loader) openScope(comment string) (scopes []*Scope) {
         // TODO: pos.Filename = l.path(), 1
     }
 
-    var scope = newScope(pos, l.Scope(), l.proj, comment)
+    var scope = newScope(pos, l.scope(), l.proj, comment)
     scopes = l.scopes
     l.scopes = append([]*Scope{scope}, scopes...)
     return
@@ -966,12 +966,12 @@ func (l *loader) openScope(comment string) (scopes []*Scope) {
 func (l *loader) closeScope(scopes []*Scope) {
     var u = _universe(l.Context)
     if false && u.traceLaunch { defer un(l_trace(l_launch, "loader.closeScope")) }
-    if scope := l.Scope(); scope == nil {
+    if scope := l.scope(); scope == nil {
         // nil scope
     } else if s := scope.comment; strings.HasPrefix(s, "dir ") {
         // Must change the outer of dir scope to globe to avoid Finding symbols
         // into the wrong context.
-        l.Globe().SetScopeOuter(scope)
+        l.globe().SetScopeOuter(scope)
     }
     l.scopes = scopes
 }
@@ -1122,7 +1122,7 @@ ParamsLoop:
         }
         l.implicit = implicitSaved // restore implicit flag
 
-        var globe = l.Globe()
+        var globe = l.globe()
         if !okay {
             var pos Position
             pos.Filename, pos.Line = absPath, 1
@@ -1133,7 +1133,7 @@ ParamsLoop:
         } else if loaded, y := globe.loaded[absPath]; y && loaded != nil {
             if l.proj.hasBase(loaded) { continue ParamsLoop }
             if l.proj.bases == nil { // set .base to the first project name
-                l.proj.scope.projectname(ctx, ".base", loaded)
+                l.proj.scope_.projectname(ctx, ".base", loaded)
             }
             l.proj.bases = append(l.proj.bases, loaded)
         } else if implicit {
@@ -1146,10 +1146,10 @@ ParamsLoop:
 
     usefor(ctx, l.proj, func(op usevar, _, _ Value, name string) {
         var us = "use." + name
-        var d, a = l.proj.scope.define(ctx, defVoid, us, nil)
+        var d, a = l.proj.scope_.define(ctx, defVoid, us, nil)
         if d == nil && a != nil { d, _ = a.(*def) }
         if d == nil { return }
-        op.apply(closureWith(ctx, l.proj.scope), d, baseNonTrivialDefs(ctx, l.proj, us)...)
+        op.apply(closureWith(ctx, l.proj.scope_), d, baseNonTrivialDefs(ctx, l.proj, us)...)
     })
     return true
 }
@@ -1170,8 +1170,8 @@ func (l *loader) loadDotContainer(ctx Context, ident *barecomp, identStr string,
         return
     }
 
-    if loaded, yes := l.Globe().loaded[file.fullname()]; yes && loaded != nil {
-        name, _ := l.Scope().Lookup(loaded.name).(*project)
+    if loaded, yes := l.globe().loaded[file.fullname()]; yes && loaded != nil {
+        name, _ := l.scope().Lookup(loaded.name).(*project)
         if name == nil {
             erro(ctx, "%v: %v: `dock` is not a project", l.proj.name, file).debug(1)
         } else {
@@ -1207,9 +1207,9 @@ func (l *loader) DEPRECATED_loadDotConfigure(ctx Context, ident *barecomp, ident
         return
     }
 
-    if loaded, y := l.Globe().loaded[file.fullname()]; y && loaded != nil {
-        if name, _ := l.Scope().Lookup(loaded.name).(*project); name == nil {
-            if _, alt := l.Scope().projectname(at(l, position), loaded.name, loaded); alt != nil {
+    if loaded, y := l.globe().loaded[file.fullname()]; y && loaded != nil {
+        if name, _ := l.scope().Lookup(loaded.name).(*project); name == nil {
+            if _, alt := l.scope().projectname(at(l, position), loaded.name, loaded); alt != nil {
                 if val, ok := alt.(*project); !ok || val == nil {
                     erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
                 }
@@ -1238,7 +1238,7 @@ func (l *loader) DEPRECATED_loadDotConfigure(ctx Context, ident *barecomp, ident
 func (l *loader) declare(ctx Context, keyword token, ident *barecomp, identStr string, declOpts *projectDeclOpts) (result bool) {
     defer trace(ctx)
 
-    var globe = l.Globe()
+    var globe = l.globe()
 
     if identStr == "@" {
         var (
@@ -1250,13 +1250,13 @@ func (l *loader) declare(ctx Context, keyword token, ident *barecomp, identStr s
             dec = &declare{ project: at }
             linfo.declares[identStr] = dec
         }
-        dec.backscope = l.Scope()
+        dec.backscope = l.scope()
         l.useesExecuted = nil
         l.proj = at
         //l.scope = l.scope
-        l.scopes[0] = at.scope
+        l.scopes[0] = at.scope_
         return true
-    } else if _, o := l.Scope().find(identStr); o != nil {
+    } else if _, o := l.scope().find(identStr); o != nil {
         if _, y := o.(*builtin); y {
             erro(ctx, "project name '%s' is a builtin name", identStr)
             return
@@ -1271,7 +1271,7 @@ func (l *loader) declare(ctx Context, keyword token, ident *barecomp, identStr s
     if !declared {
         var (
             wd = _workdir(l)
-            outer = l.Scope()
+            outer = l.scope()
             absDir = linfo.absDir
             relPath, tmpPath string
         )
@@ -1292,7 +1292,7 @@ func (l *loader) declare(ctx Context, keyword token, ident *barecomp, identStr s
         linfo.declares[name] = dec
     }
     if loader := linfo.loader; loader != nil {
-        if _, a := loader.scope.projectname(ctx, name, dec.project); a != nil {
+        if _, a := loader.scope_.projectname(ctx, name, dec.project); a != nil {
             if v, y := a.(*project); !y || v == nil {
                 erro(at(ctx,a), "`%s` name already taken (%T).", name, a).debug(1)
                 return
@@ -1301,10 +1301,10 @@ func (l *loader) declare(ctx Context, keyword token, ident *barecomp, identStr s
     }
 
     dec.project.opts = declOpts
-    dec.backscope = l.Scope()
+    dec.backscope = l.scope()
     l.useesExecuted = nil
     l.proj = dec.project
-    l.scopes[0] = dec.project.scope
+    l.scopes[0] = dec.project.scope_
     if globe.main != nil && globe.main == l.proj && l.proj.name != "~" {
         for _, t := range globe.pairs {
             switch k := t.key.(type) {
@@ -1396,7 +1396,7 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
             if !l.file(ctx, absPath, nil) { return }
         }
 
-        var globe = l.Globe()
+        var globe = l.globe()
         if loaded, res = globe.loaded[absPath]; loaded == nil { res = false }
         if !res { erro(ctx, "not loaded: %s (%s, dir=%v)", configure, absPath, isDir).debug(16) }
         return
@@ -1421,8 +1421,8 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
         return
     }
 
-    if name, _ := l.Scope().Lookup(dotConfigure).(*project); name == nil {
-        if _, alt := l.Scope().projectname(ctx, dotConfigure, loaded); alt != nil {
+    if name, _ := l.scope().Lookup(dotConfigure).(*project); name == nil {
+        if _, alt := l.scope().projectname(ctx, dotConfigure, loaded); alt != nil {
             if val, y := alt.(*project); !y || val == nil {
                 erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).debug(1)
             }
@@ -1498,7 +1498,7 @@ func (l *loader) container(ctx Context, ident *barecomp, identStr string) (resul
 }
 
 func (l *loader) closeCurrent(ident *barecomp, identStr string) (err error) {
-    var globe = l.Globe()
+    var globe = l.globe()
     if identStr == "@" {
         if dec, y := globe.loads[0].declares[identStr]; y {
             l.scopes[0] = dec.backscope
@@ -1541,7 +1541,7 @@ func (l *loader) resolve(ctx Context, value Value) (name string, result Value) {
 }
 
 func (l *loader) def(position Position, name string) (def *def, alt Object) {
-    var scope = l.Scope()
+    var scope = l.scope()
     def, alt = scope.define(at(l, position), defVoid, name, nil)
     if def != nil { def.position = position }
     return
@@ -1652,7 +1652,7 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
     } else if f = l.p.file(ctx); f == nil {
         // Source is not a valid source file, returnning a valid but empty parsedFile
         defer l.closeScope(l.openScope(fmt.Sprintf("file %s", filename)))
-        f = &parsedFile{ scope:l.Scope() }
+        f = &parsedFile{ scope:l.scope() }
         f.position.Filename = filename
         // TODO: validate basename as a valid identifier
         f.name = makeBarecomp(makeBareword(f.position, filepath.Base(filepath.Dir(filename))))
@@ -1766,11 +1766,11 @@ func (l *loader) sources(ctx Context, path string, filter func(os.FileInfo) bool
     // FIXES: use 'globe' scope as outer to avoid chaining scopes to other unrelated
     // projects which are in consequence load order. Setting dir scope outer to such
     // project scopes will cause resolving objects to the wrong ones.
-    l.Scope().outer = ctx.Globe().Scope
+    l.scope().outer = ctx.globe().Scope
 
-    if  l.Scope().position.Filename == "" {
-        l.Scope().position.Filename = path
-        l.Scope().position.Line = 1
+    if  l.scope().position.Filename == "" {
+        l.scope().position.Filename = path
+        l.scope().position.Line = 1
     }
 
     mods = make(map[string]*project)
@@ -1850,7 +1850,7 @@ ListLoop:
 
             var name = src.name.string(ctx)
             if mod, found := mods[name]; !found {
-                mod = &project{ name: name, scope: l.Scope() }
+                mod = &project{ name: name, scope_: l.scope() }
                 mods[name] = mod
             }
         }
@@ -1863,7 +1863,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     var u = _universe(ctx)
     if u.traceLaunch { defer un(l_trace(l_launch, "loader.load")) }
 
-    var globe = l.Globe()
+    var globe = l.globe()
     defer func(t time.Time) {
         if d := time.Now().Sub(t); u.verboseLoads && d>1*time.Second {
             loaded, _ := globe.loaded[absPath]
@@ -1885,7 +1885,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
 
     // Check loaded project.
     if loaded, yes := globe.loaded[absPath]; yes {
-        if _, a := l.Scope().projectname(at(l, l.Position()), loaded.name, loaded); a != nil {
+        if _, a := l.scope().projectname(at(l, l.Position()), loaded.name, loaded); a != nil {
             if val, ok := a.(*project); !ok || val == nil {
                 erro(ctx, "`%v` name already taken (%T).", loaded, a)
             }
@@ -1925,7 +1925,7 @@ func (l *loader) directory(ctx Context, specName, absDir string, filter func(os.
     if !pos.IsValid() { pos = positionForDir(absDir) }
 
     var loadedProj *project
-    var globe = ctx.Globe()
+    var globe = ctx.globe()
     defer func(t time.Time, ver bool) {
         if specName == "." { specName = absDir }
 
@@ -1938,10 +1938,10 @@ func (l *loader) directory(ctx Context, specName, absDir string, filter func(os.
         if loadedProj == nil { return }
         if globe.main == nil { globe.main = loadedProj }
 
-        if proj := l.Scope().project; proj == nil {
-            if false { erro(ctx, "%v: no owner project for %s", loadedProj.name, l.Scope()).debug(2) }
-        } else if name, _ := proj.scope.Lookup(loadedProj.name).(*project); name == nil {
-            if _, alt := proj.scope.projectname(at(ctx,pos), loadedProj.name, loadedProj); alt != nil {
+        if proj := l.scope().project; proj == nil {
+            if false { erro(ctx, "%v: no owner project for %s", loadedProj.name, l.scope()).debug(2) }
+        } else if name, _ := proj.scope_.Lookup(loadedProj.name).(*project); name == nil {
+            if _, alt := proj.scope_.projectname(at(ctx,pos), loadedProj.name, loadedProj); alt != nil {
                 if val, y := alt.(*project); !y || val == nil {
                     erro(ctx, "name `%s' already taken (%T).", loadedProj.name, alt).debug(2)
                 }
@@ -2008,10 +2008,10 @@ func (l *loader) text(ctx Context, filename string, text string) (res []Value) {
 
     defer func(saved *parser) { l.p = saved } (l.p)
 
-    if g := l.Globe(); g.main == nil {
+    if g := l.globe(); g.main == nil {
         l.scopes[0] = g.os.scope_
     } else {
-        l.scopes[0] = g.main.scope
+        l.scopes[0] = g.main.scope_
     }
     l.useesExecuted = nil
 

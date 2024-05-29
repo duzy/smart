@@ -728,7 +728,7 @@ func (p *parser) isEndOfDotConcat(lhs bool) bool {
 }
 
 func (p *parser) ruleParams(ctx Context, args []Value) (err error) {
-	var scope = ctx.Scope()
+	var scope = ctx.scope()
 	for _, elem := range args {
 		switch ctx := at(ctx, elem.Position()); elem.(type) {
 		case *bareword, *barecomp:
@@ -1319,7 +1319,7 @@ func (p *parser) closuredelegate(ctx Context, isClosure bool) (result Value) {
 
 				if p.bits&parseAutoName != 0 {
 					if d := autoDef(ctx, str); d == nil {
-						obj = ctx.Scope().auto(ctx, str)
+						obj = ctx.scope().auto(ctx, str)
 					} else {
 						obj = d
 					}
@@ -1548,7 +1548,7 @@ func (p *parser) special(ctx Context, isClosure, lhs bool) (result Value) {
 	p.step()
 
 	if _, t := _loader(ctx).resolve(ctx, makeBareword(position, s)); t == nil {
-		if obj = ctx.Scope().auto(ctx, s); obj == nil {
+		if obj = ctx.scope().auto(ctx, s); obj == nil {
 			erro(ctx, "%v is undefined, %v, %v", s, autoDef(ctx, s), resolve(ctx, s))
 			erro(ctx, "%v", us(ctx)).debug(10)
 			return makeNull(position)
@@ -2010,7 +2010,8 @@ func (p *parser) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 
 	var opts = cacher{ g.generalOpts }
 	if rest := parseOpts(ctx, &opts, g.remainder...); rest != nil {
-		erro(ctx, "unsupported opts: %v", rest).debug(3)
+		erro(ctx, "unsupported opts: %v", rest).debug()
+		return
 	}
 
 	var pats []Value
@@ -2028,11 +2029,15 @@ func (p *parser) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 			switch name {
 			default:
 				// TODO: parse files options
-				erro(at(ctx,f.Value), "invalid files flag: %v").debug(1)
+				erro(at(ctx,f.Value), "invalid files flag: %v").debug()
 				return
 			}
 		}}}
-		var ( files []*File; newPats []Value )
+
+		var (
+			files []*File
+			newPats []Value
+		)
 		for _, pat := range pats {
 			if f, ok := toFile(pat); ok {
 				files = append(files, f)
@@ -2065,15 +2070,17 @@ func (p *parser) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 			paths = []Value{ path }
 		}
 
-		if len(patsNew) == 1 { if f, ok := patsNew[0].(flag); ok {
-			var name = f.Value.string(ctx)
-			switch name {
-			default:
-				// TODO: parse files options
-				erro(at(ctx,f.Value), "invalid files flag: %v").debug(1)
-				return
+		if len(patsNew) == 1 {
+			if f, ok := patsNew[0].(flag); ok {
+				var name = f.Value.string(ctx)
+				switch name {
+				default:
+					// TODO: parse files options
+					erro(at(ctx,f.Value), "invalid files flag: %v").debug()
+					return
+				}
 			}
-		}}
+		}
 
 		opts.cache(ctx, patsNew, paths)
 	}
@@ -2314,7 +2321,7 @@ func (p *parser) assign(ctx Context, ident Value) (def *def) {
 	// NOTE: Put all explicit defs into project scope. It's important for defs enclosed
 	//       in templates work.
 	var l = _loader(ctx)
-	if scope := l.proj.scope; len(l.scopes) == 0 || l.scopes[0] != scope {
+	if scope := l.proj.scope_; len(l.scopes) == 0 || l.scopes[0] != scope {
 		defer func(s []*Scope) { l.scopes = s } (l.scopes)
 		l.scopes = append([]*Scope{ scope }, l.scopes...)
 	}
@@ -2459,7 +2466,7 @@ func (p *parser) defineConfigureTargets(ctx Context) {
 
 		var ctx = at(ctx, pos)
 		var name = t.string(ctx)
-		var d, a = l.proj.scope.define(ctx, defConfig, name, nil)
+		var d, a = l.proj.scope_.define(ctx, defConfig, name, nil)
 		if d == nil && a != nil { if d, _ = a.(*def); d == nil {
 			erro(ctx, "configure %v: already defined in '%v' as %v", t, l.project, a).debug(6)
 			return
@@ -2622,7 +2629,7 @@ func (p *parser) rule(ctx Context, special specialRule, optvals, targets []Value
 	p.params = nil
 	p.dialect = ""
 
-	var scope = l.Scope()
+	var scope = l.scope()
 	for _, s := range automatics {
 		if a := scope.auto(ctx, s); a == nil { erro(ctx, "'%s' is not defined", s).debug(1) }
 	}
@@ -2664,7 +2671,7 @@ func (p *parser) rule(ctx Context, special specialRule, optvals, targets []Value
 	var params []string
 	if t := targets[0]; p.configure {
 		name := t.string(ctx)
-		d, a := ctx.project().scope.define(ctx, defVoid, name, nil)
+		d, a := ctx.project().scope_.define(ctx, defVoid, name, nil)
 		if d == nil && a == nil {
 			erro(at(ctx,t), "cannot define configure target '%v'", name)
 		} else if a != nil {
@@ -3198,7 +3205,7 @@ func (p *parser) clause(ctx Context) {
 }
 
 func (p *parser) setDefaultVars(ctx Context, filename, abs, rel, tmp string) (res bool) {
-	var s = ctx.Scope()
+	var s = ctx.scope()
 	if s == nil {
 		erro(ctx, "invalid scope").debug(1)
 		return
@@ -3316,7 +3323,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 			return nil
 		}
 
-		var g = ctx.Globe()
+		var g = ctx.globe()
 		var linfo = g.loads[len(g.loads)-1]
 
 		// Smart-lang spec:
@@ -3383,7 +3390,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 		var _, declared = linfo.declares[identStr]
 		if (l.mode&Flat == 0) && l.declare(at(ctx, ident.Position()), keyword, ident, identStr, &opts) {
 			// Change the 'default' owners into the new declared project
-			if s := ctx.Scope(); s != nil {
+			if s := ctx.scope(); s != nil {
 				if def := s.FindDef("."  ); def != nil { def.owner_ = ctx.project() }
 				if def := s.FindDef("/"  ); def != nil { def.owner_ = ctx.project() }
 				if def := s.FindDef("CTD"); def != nil { def.owner_ = ctx.project() }
@@ -3483,7 +3490,7 @@ func (p *parser) file(ctx Context) *parsedFile {
 		keyword:  keyword,
 		position: position,
 		name:     ident,
-		scope:    ctx.Scope(),
+		scope:    ctx.scope(),
 		use:      p.imports,
 	}
 }

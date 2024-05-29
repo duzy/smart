@@ -15,8 +15,8 @@ import (
 type testcase_f1 func (*testcase)
 type testcase_f2 func (*testcase, string, string)
 type testcase  struct { Context ; *testing.T ; run func(testcase_f1) }
-type testcase1 struct { *testcase ; i interface{} }
-type test_arg struct { name string; val interface{} }
+type testcase1 struct { *testcase ; i any }
+type test_arg struct { name string; val any }
 type test_def_1 struct{}
 type test_def_2 struct{}
 type test_def_3 struct{}
@@ -37,7 +37,7 @@ func testHasModule(name string) (res bool) {
 	return
 }
 
-func loadcase(t *testing.T, dir, name string, ii ...interface{}) (res *testcase) {
+func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 	if !filepath.IsAbs(dir) { dir = filepath.Join(baseWorkDir, dir) }
 	if _, e := os.Stat(dir); e != nil {
 		t.Errorf("%v", e)
@@ -53,7 +53,7 @@ func loadcase(t *testing.T, dir, name string, ii ...interface{}) (res *testcase)
 	ctx.flued = init_lines
 	ctx.panicFailureOnErrosFlushed = false
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
-	ctx.globe.main = nil
+	ctx.globe_.main = nil
 	ctx.workdir = dir
 
 	if testHasModule("configure") {
@@ -63,9 +63,9 @@ func loadcase(t *testing.T, dir, name string, ii ...interface{}) (res *testcase)
 	}
 
 	if e := ctx.load(); e != nil {
-		erro(ctx, "%v", e).debug(2)
-	} else if m := ctx.globe.main; m == nil {
-		erro(ctx, "%s", dir).debug(2)
+		erro(ctx, "%v", e).debug()
+	} else if m := ctx.globe_.main; m == nil {
+		erro(ctx, "%s", dir).debug()
 	} else if name != "" && m.name != name {
 		erro(ctx, "project %v != %v", m.name, name).debug(1, skipint{3})
 	} else {
@@ -83,7 +83,7 @@ func loadcase(t *testing.T, dir, name string, ii ...interface{}) (res *testcase)
 
 func (tc *testcase) String() string { return us(tc.Context) }
 
-func (tc *testcase) err(f string, i ...interface{}) {
+func (tc *testcase) err(f string, i ...any) {
 	var ctx = tc.Context
 	if i == nil {
 		var s string
@@ -142,7 +142,7 @@ func (tc *testcase) def(name string) (d *def) {
 	return
 }
 
-func (tc *testcase) val(i0 interface{}, ii ...interface{}) (res Value) {
+func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	var x Value
 	var a, o []Value
 	var s = skipint{2}
@@ -157,7 +157,7 @@ func (tc *testcase) val(i0 interface{}, ii ...interface{}) (res Value) {
 		case test_def_2: origin = defExpand2
 		case test_def_3: origin = defExpand3
 		case test_final: ctx = final{ctx}
-		case   *project: proj, ctx = t, closureWith(ctx, t.scope)
+		case   *project: proj, ctx = t, closureWith(ctx, t.scope_)
 		case    skipint: s.int = t.int+1
 		case       opt : o = append(o, t.Value)
 		case       opts: o = append(o, t.vals...)
@@ -220,7 +220,7 @@ func testRemoveConfigureDir(ctx *testcase, p *project) {
 	for _, base := range p.bases { testRemoveConfigureDir(ctx, base) }
 }
 
-func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...interface{}) {
+func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	ctx := loadcase(t, joinPath("testdata", spec), name, ii...)
 	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
 
@@ -237,18 +237,18 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...interface{}) 
 type (
 	test_configure   struct { bool }
 	test_caseinit    struct { f func() }
-	test_hook_assert struct { f func(Context, Value, bool, interface{}); i interface{} }
-	test_hook_debug  struct { f func(Context, string, []Value, interface{}); i interface{} }
+	test_hook_assert struct { f func(Context, Value, bool, any); i any }
+	test_hook_debug  struct { f func(Context, string, []Value, any); i any }
 	test_variant     struct { string }
 	test_silentOptionalSelection struct { bool }
 )
 
 func Test(t *testing.T) {
-	run := func (str, spec, name string, ii ...interface{}) {
+	run := func (str, spec, name string, ii ...any) {
 		t.Run(str, func (t *testing.T) {
 			var c = _commandline()
-			var a []interface{}
-			var d interface{}
+			var a []any
+			var d   any
 			var f testcase_f1
 			var _hooks *hooks
 			for _, i := range ii {
@@ -365,7 +365,6 @@ func Test(t *testing.T) {
 
 	// template_test.go
 	run("template", "template",         "testtemplate", testTemplate)
-	run("template", "template/foreach", "testtemplate", testTemplateForeach)
 
 	// modifiers_test.go
 	run("modifiers", "modifier", "testmodifier", testValueModifier,
@@ -385,6 +384,7 @@ func Test(t *testing.T) {
 	run("builtins", "builtins/file",       "testbuiltins", testBuiltin_file)
 
 	// rules_test.go
+	run("template", "template/foreach", "testtemplate", testTemplateForeach) // template_test.go
 	run("rules", "rule/0",                "testrules", testRules0)
 	run("rules", "rule/1",                "testrules", testRules1)
 	run("rules", "rule/contains",         "testrules", testBuiltin_contains2)

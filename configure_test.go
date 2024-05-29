@@ -182,7 +182,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 		} else if p.configurationFile.stat(c) == nil {
 			prompt(c, "%s:1: %v: no configuration file\n", configurationFile, p)
 			c.err("%v", p.configurationFile)
-		} else if d := p.scope.FindDef("FOO"); d == nil {
+		} else if d := p.scope_.FindDef("FOO"); d == nil {
 			erro(c, "FOO").debug(1)
 		} else if v := d.value; v == nil {
 			c.err("%v ; %v", d, typeof(v))
@@ -391,8 +391,8 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 				c.err("%v: %v", c.project(), d.value)
 			} else if d.value.string(c) != c.project().name {
 				c.err("%v: %v", c.project(), d.value)
-			} else if d != c.project().scope.FindDef("FOO") {
-				c.err("%v: %v != %v", c.project(), d, c.project().scope.FindDef("FOO"))
+			} else if d != c.project().scope_.FindDef("FOO") {
+				c.err("%v: %v != %v", c.project(), d, c.project().scope_.FindDef("FOO"))
 			}
 		})
 
