@@ -15,7 +15,7 @@ import (
 )
 
 const test_hit = false
-const test_val = "foo.c++"
+const test_val = ".deps/xx/yy/zzzzzzzzzz"
 
 type char rune
 func (c char) String() string { return string(rune(c)) }
@@ -78,20 +78,7 @@ func (p *bare_hit) do(ctx Context, op any) any {
     return p.Context.do(ctx, op)
 }
 
-type unmap_pstr struct { Context ; s string ; ss []string ; i int }
-func (p *unmap_pstr) cast(t reflect.Type) Context { return implcast(p, t) }
-func (p *unmap_pstr) do(ctx Context, op any) any {
-    switch t := op.(type) {
-    case actUnmap:
-        x := _valcache_bool(p.unmap(ctx, t.valcache, t.string))
-        if x.valcache != nil { return x }
-    case property:
-        if t&(propFullVal) != 0 { return p.s }
-    }
-    return p.Context.do(ctx, op)
-}
-
-type path_hit struct { Context ; v *path ; i int }
+type path_hit struct { Context ; s string ; ss []string ; i int }
 func (p *path_hit) cast(t reflect.Type) Context { return implcast(p, t) }
 func (p *path_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
@@ -99,7 +86,7 @@ func (p *path_hit) do(ctx Context, op any) any {
         x := _valcache_bool(p.unmap(ctx, t.valcache, t.string))
         if x.valcache != nil { return x }
     case property:
-        if t&(propFullVal) != 0 { return p.v }
+        if t&(propFullVal) != 0 { return p.s }
     }
     return p.Context.do(ctx, op)
 }
@@ -499,7 +486,7 @@ func (p *bare_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fu
     }
     return
 }
-func (p *unmap_pstr) unmap(ctx Context, _c *valcache, k string) (res *valcache, fullmatch bool) {
+func (p *path_hit) unmap(ctx Context, _c *valcache, k string) (res *valcache, fullmatch bool) {
     if test_hit && do(ctx, propFullVal) == test_val { defer func() {
         note(ctx, "%5v %v", k, _c)
         note(ctx, "%5v %v ; %d/%d %v", fullmatch, res, p.i, len(p.ss), p.ss[p.i])
@@ -537,39 +524,6 @@ func (p *unmap_pstr) unmap(ctx Context, _c *valcache, k string) (res *valcache, 
             }
         }
     }
-    return
-}
-func (p *path_hit) unmap(ctx Context, _c *valcache, k string) (res *valcache, fullmatch bool) {
-    if test_hit && p.v.string(ctx) == test_val { defer func() {
-        note(ctx, "%5v %v", k, _c)
-        note(ctx, "%5v %v", fullmatch, res)
-        note(ctx, "%v", us(ctx)).debug(30)
-    }()}
-	if 0 < len(_c.o) {
-		defer trace(ctx)
-
-		for _, pat := range _c.o[0] {
-			var c = _c.globs[pat]
-
-			if checkpoints {
-				if strings.Contains(pat, "/") {
-					erro(ctx, "%v %v %v", k, pat, c).debug()
-					return
-				}
-			}
-
-			var s string
-			if p.i + 1 == p.v.len() {
-				s = p.v.elems[p.i].string(ctx)
-			} else {
-				s = (&path{elements{p.v.elems[p.i:]}}).string(ctx)
-			}
-
-			if y, _, _ := globMatch(ctx, pat, s); y {
-				return c, c.fullmatch(ctx, s)//true
-			}
-		}
-	}
     return
 }
 func (gc *globpat_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
@@ -674,8 +628,8 @@ func (p *project) unmap_bare(ctx Context, c *valcache, s string, solo bool) (_ C
 	return cc, c, y
 }
 
-func (p *project) unmap_pstr(ctx Context, c *valcache, s string, ss []string) (_ *valcache, y bool) {
-    var x = unmap_pstr{ctx, s, ss, 0}
+func (p *project) unmap_ps(ctx Context, c *valcache, s string, ss []string) (_ *valcache, y bool) {
+    var x = path_hit{ctx, s, ss, 0}
     for cc := Context(&x) ; c != nil && x.i < len(ss) ; x.i += 1 {
         if cc, c, y = p.unmap_bare(cc, c, ss[x.i], false); y {
             if false && cast[*unmap](ctx).a == nil {
@@ -709,7 +663,7 @@ func (p *project) unmap(ctx *unmap, c *valcache, key any) (res *valcache, fullma
 		if x == "" {
 			erro(ctx, "empty key : %v", c).debug()
 		} else if s := strings.Split(x, pathSep) ; len(s) > 1 {
-			return p.unmap_pstr(ctx, c, x, s)
+			return p.unmap_ps(ctx, c, x, s)
 		} else {
 			_, res, fullmatch = p.unmap_bare(ctx, c, x, true)
 			return

@@ -688,11 +688,11 @@ func testBuiltin_file0(ctx *testcase) {
 	} else if v := ctx.val(s); v == nil {
 		ctx.err("%s : %v", s, ctx.project())
 	} else if x, y := v.(*path); !y {
-		ctx.err("%v", ust{v})
+		ctx.err("%v %v", v, ust{v})
 	} else if x.string(ctx) != str {
-		ctx.err("%v", ust{v})
+		ctx.err("%v %v", v, ust{v})
 	} else if t := unmap_files(ctx, v); t == nil {
-		ctx.err("unmap_files %v", ust{v})
+		ctx.err("%v %v", v, ust{v})
 	} else if len(t) != 1 {
 		ctx.err("%v %v", ust{v}, t)
 	} else if m := t[0]; m.name != str {

@@ -2937,7 +2937,8 @@ func (p *barecomp) hit(ctx Context, c *valcache) (res *valcache, done bool) {
         return
     }
 
-    var cc = bare_hit{ctx, c, p.string(ctx), 0, cast[*path_hit](ctx) == nil}
+    var s = p.string(ctx)
+    var cc = bare_hit{ctx, c, s, 0, cast[*path_hit](ctx) == nil}
 
     for _, elem := range p.elems {
         if c, done = c.hit(&cc, elem); c == nil {
@@ -3717,23 +3718,24 @@ func (p *path) cmp_check(ctx Context, v Value, res cmpres) {
         erro(ctx, "%v", us(ctx)).debug(5)
     }
 }
-func (p *path) hit(ctx Context, _c *valcache) (res *valcache, done bool) {
-    defer trace(ctx)
-    var x = path_hit{ctx, p, 0}
+func (p *path) hit(ctx Context, c *valcache) (res *valcache, done bool) {
+    if indeterminate(ctx, p) {
+        erro(at(ctx,p), "%v : indeterminate : %v", p, us(p)).debug(3)
+        return
+    }
+
+    var s = p.string(ctx)
+    var x = path_hit{ctx, s, strings.Split(s, pathSep), 0}
     var cc Context = &x
-    for c := _c ; c != nil ; x.i += 1 {
+
+    defer trace(ctx)
+
+    for ; c != nil && x.i < len(p.elems) ; x.i += 1 {
         var elem = p.elems[x.i]
-
-        if indeterminate(ctx, elem) {
-            erro(at(ctx,elem), "valcache %v : indeterminate element : %d. %v", p, x.i, us(elem)).debug(3)
-            return
-        }
-
-        _c = c
 
         if c, done = c.hit(cc, elem) ; c == nil {
             if cacheMapping(ctx) {
-                erro(at(ctx,elem), "no valcache for %v : %v", us(elem), _c).debug(3)
+                erro(at(ctx,elem), "no valcache for %v : %v", us(elem), c).debug(3)
             }
             return
         }
@@ -6716,11 +6718,10 @@ func us(i any) (s string) {
     case *auto:               return fmt.Sprintf("{=%s %s}",      t, x.name)
     case *def:                return fmt.Sprintf("{=%s %s⇒%v}",   t, x.name, us(x.value)) // ⇒
     case *bare_hit:           return fmt.Sprintf("{=%s %v %v}",   t, x.s,    us(x.Context))
-    case *path_hit:           return fmt.Sprintf("{=%s %v %v}",   t, x.v,    us(x.Context))
+    case *path_hit:           return fmt.Sprintf("{=%s %v %v}",   t, x.s,    us(x.Context))
     case *globpat_hit:        return fmt.Sprintf("{=%s %v %v}",   t, x.x,    us(x.Context))
     case *percpat_hit:        return fmt.Sprintf("{=%s %v %v}",   t, x.x,    us(x.Context))
     case *regexpat_hit:       return fmt.Sprintf("{=%s %v %v}",   t, x.x,    us(x.Context))
-    case *unmap_pstr:         return fmt.Sprintf("{=%s %v %v}",   t, x.s,    us(x.Context))
     case  unmap:              return fmt.Sprintf("{=%s %v}",      t,         us(x.Context))
     case condless:            return fmt.Sprintf("{=%s %v}",      t,         us(x.Context))
     case final:               return fmt.Sprintf("{=%s %v}",      t,         us(x.Context))

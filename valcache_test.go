@@ -835,10 +835,12 @@ func testValueCache(ctx *testcase) {
 		ctx.err("%v %v", v, f)
 	}
 
-	if s := "val4" ; false {} else
+	if s, p := "val4", ".deps/xx/yy/zzzzzzzzzz" ; false {} else
 	if v := ctx.val(s); v == nil {
 		ctx.err(s)
-	} else if v.string(ctx) != ".deps/xx/yy/zzzzzzzzzz" {
+	} else if v.String() != p {
+		ctx.err("%v %v", v, ust{v})
+	} else if v.string(ctx) != p {
 		ctx.err("%v %v", v, ust{v})
 	} else if t := unmap_files(ctx, v); len(t) != 1 {
 		ctx.err("%v %v %v", v, ust{v}, t)
