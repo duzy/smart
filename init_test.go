@@ -28,8 +28,8 @@ var init_erros int
 var init_lines int
 
 func init() {
-	diagnostic_limit_erros = 2000
-	diagnostic_limit_lines = 20000 // est. lines
+	diagnostic_limit_erros = 1000
+	diagnostic_limit_lines = 2000 // est. lines
 }
 
 func testHasModule(name string) (res bool) {
@@ -383,8 +383,10 @@ func Test(t *testing.T) {
 	run("builtins", "builtins/file/0",     "testbuiltins", testBuiltin_file0)
 	run("builtins", "builtins/file",       "testbuiltins", testBuiltin_file)
 
+	// template_test.go
+	run("template", "template/foreach", "testtemplate", testTemplateForeach)
+
 	// rules_test.go
-	run("template", "template/foreach", "testtemplate", testTemplateForeach) // template_test.go
 	run("rules", "rule/0",                "testrules", testRules0)
 	run("rules", "rule/1",                "testrules", testRules1)
 	run("rules", "rule/contains",         "testrules", testBuiltin_contains2)

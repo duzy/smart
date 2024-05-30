@@ -586,7 +586,7 @@ FOO5 = true{}
 
 	ctx.run(func (c *testcase) {
 		if d, foo := c.def("FOO1"), c.val("FOO1"); foo == nil {
-			erro(at(c, d), "%v", d).debug(1)
+			erro(c, "%v", d).debug(1)
 		} else if foo.String() != "yes{}" {
 			c.err("%T %v ; %v", foo, foo, d)
 		} else if s := foo.string(ctx); s != "yes" {
@@ -602,42 +602,49 @@ FOO5 = true{}
 		ctx.err("%v", e)
 	}
 
-	var (
-		foo  = ctx.val("foo") // in configuration/custom/configure
-		foo1 = ctx.val("FOO1")
-		foo2 = ctx.val("FOO2")
-		foo3 = ctx.val("FOO3")
-		foo4 = ctx.val("FOO4")
-		foo5 = ctx.val("FOO5")
-	)
-	if foo == nil { // in configuration/custom/configure, aka proj.configure
+	if foo := ctx.val("foo") ; foo == nil { // in configuration/custom/configure, aka proj.configure
 		ctx.err("foo is nil")
 	} else if  foo.String() != "$(.self)" {
 		ctx.err("%v{%v}", typeof(foo), foo)
 	} else if s := foo.string(ctx); s != "configure" {
 		ctx.err("%v{%v} → %s", typeof(foo), foo, s)
 	}
-	if s := foo1.string(ctx); s != "yes" {
+
+	if foo1 := ctx.val("FOO1"); foo1 == nil {
+		ctx.err("FOO1 is nil")
+	} else if s := foo1.string(ctx); s != "yes" {
 		ctx.err("%T %v → %s", foo1, foo1, s)
 	} else if s = foo1.String(); s != "yes{}" {
 		ctx.err("%T %v → %s", foo1, foo1, s)
 	}
-	if s := foo2.string(ctx); s != "yes" {
+
+	if foo2 := ctx.val("FOO2"); foo2 == nil {
+		ctx.err("FOO2 is nil")
+	} else if s := foo2.string(ctx); s != "yes" {
 		ctx.err("%T %v → %s", foo2, foo2, s)
 	} else if s = foo2.String(); s != "yes{}" {
 		ctx.err("%T %v → %s", foo2, foo2, s)
 	}
-	if s := foo3.string(ctx); s != "true" {
+
+	if foo3 := ctx.val("FOO3"); foo3 == nil {
+		ctx.err("FOO3 is nil")
+	} else if s := foo3.string(ctx); s != "true" {
 		ctx.err("%T %v → %s", foo3, foo3, s)
 	} else if s = foo3.String(); s != "true{}" {
 		ctx.err("%T %v → %s", foo3, foo3, s)
 	}
-	if s := foo4.string(ctx); s != "true" {
+
+	if foo4 := ctx.val("FOO4"); foo4 == nil {
+		ctx.err("FOO4 is nil")
+	} else if s := foo4.string(ctx); s != "true" {
 		ctx.err("%T %v → %s", foo4, foo4, s)
 	} else if s = foo4.String(); s != "true{}" {
 		ctx.err("%T %v → %s", foo4, foo4, s)
 	}
-	if s := foo5.string(ctx); s != "true" {
+
+	if foo5 := ctx.val("FOO5"); foo5 == nil {
+		ctx.err("FOO5 is nil")
+	} else if s := foo5.string(ctx); s != "true" {
 		ctx.err("%T %v → %s", foo5, foo5, s)
 	} else if s = foo5.String(); s != "true{}" {
 		ctx.err("%T %v → %s", foo5, foo5, s)

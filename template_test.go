@@ -563,10 +563,18 @@ func testTemplate(ctx *testcase) {
 }
 
 func testTemplateForeach(ctx *testcase) {
-	if s := ".test.a"; false {
+	if s := ".test.a"; false {} else
+	if t := unmap_entries(ctx, s); t == nil {
+		ctx.err(s)
+	} else if len(t) != 1 {
+		ctx.err("%s %v", s, t)
+	} else if x, y := t[0].(rule_name); !y {
+		ctx.err("%v", ust{t[0]})
+	} else if x.String() != s {
+		ctx.err("%v", ust{x.rule})
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err(s)
-	} else if t, y := r[0].(*rule); !y {
+	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", ust{r[0]})
 	} else if _, y := t.target.(*barecomp); !y {
 		ctx.err("%v", ust{t.target})
@@ -588,10 +596,12 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%v", ust{r[0]})
 	}
 
-	if s := ".test.b"; false {
+	if s := ".test.b"; false {} else
+	if t := unmap_entries(ctx, s); t == nil {
+		ctx.err(s)
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err(s)
-	} else if t, y := r[0].(*rule); !y {
+	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", ust{r[0]})
 	} else if _, y := t.target.(*barecomp); !y {
 		ctx.err("%v", ust{t.target})
@@ -613,10 +623,12 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%v", ust{r[0]})
 	}
 
-	if s := ".test.c"; false {
+	if s := ".test.c"; false {} else
+	if t := unmap_entries(ctx, s); t == nil {
+		ctx.err(s)
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err(s)
-	} else if t, y := r[0].(*rule); !y {
+	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", ust{r[0]})
 	} else if _, y := t.target.(*barecomp); !y {
 		ctx.err("%v", ust{t.target})

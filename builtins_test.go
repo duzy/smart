@@ -677,7 +677,7 @@ func testBuiltin_file0(ctx *testcase) {
 
 	if pat, str := "**.auto", ".test/a/b/c.auto"; false {
 	} else if t := unmap_files(ctx, str); t == nil {
-		ctx.err("unmap_files %s", str)
+		ctx.err("%s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
 	} else if m := t[0]; m.name != str {
@@ -694,22 +694,25 @@ func testBuiltin_file0(ctx *testcase) {
 	} else if t := unmap_files(ctx, v); t == nil {
 		ctx.err("%v %v", v, ust{v})
 	} else if len(t) != 1 {
-		ctx.err("%v %v", ust{v}, t)
+		ctx.err("%v %v %v", v, ust{v}, t)
 	} else if m := t[0]; m.name != str {
 		ctx.err("%v: %v", ust{v}, m.name)
 	} else if m.pattern.string(ctx) != pat {
 		ctx.err("%v: %v", ust{v}, m.pattern)
 	}
 
-	if s := "p2" ; false {
+	if str := ".test/a/b/c.none" ; false {} else
+	if t := unmap_files(ctx, str); t != nil {
+		ctx.err("%v", str)
+	} else if s := "p2" ; false {
 	} else if v := ctx.val(s); v == nil {
-		ctx.err("%s : %v", s, ctx.project())
+		ctx.err("%v", s)
 	} else if x, y := v.(*path); !y {
-		ctx.err("%v", ust{v})
-	} else if x.string(ctx) != ".test/a/b/c.none" {
-		ctx.err("%v", ust{v})
+		ctx.err("%v %v", v, ust{v})
+	} else if x.string(ctx) != str {
+		ctx.err("%v %v", v, ust{v})
 	} else if t := unmap_files(ctx, v); t != nil {
-		ctx.err("unmap_files %v", ust{v})
+		ctx.err("%v %v", v, ust{v})
 	}
 }
 

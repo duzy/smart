@@ -1337,7 +1337,7 @@ func (p *parser) closuredelegate(ctx Context, isClosure bool) (result Value) {
 					return
 				}
 
-				if true { note(ctx, "auto(%v) → %v", us(name), autoDef(ctx, str)) }
+				if false { note(ctx, "auto(%v) → %v", us(name), autoDef(ctx, str)) }
 				note(at(ctx,name), "resolve(%v) ⇒ %v", us(name), us(obj))
 				erro(ctx, "%v", us(ctx)).debug(20)
 				return

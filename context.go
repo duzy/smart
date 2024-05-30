@@ -66,13 +66,6 @@ type (
   actDirty      struct{ a []Value }
   actTraversed  struct{ v Value }
   actTraverse   struct{ v Value }
-  actValuHit    struct{ *valcache ; Value  }
-  actPuncHit    struct{ *valcache ; token  }
-  actWordHit    struct{ *valcache ; string }
-  actGlobHit    struct{ *valcache ; string }
-  actPercHit    struct{ *valcache ; string }
-  actRegeHit    struct{ *valcache ; string }
-  actUnmap      struct{ *valcache ; string }
 )
 
 func _position(ctx Context) (res Position) {
@@ -424,7 +417,7 @@ func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
 
 const diagnostic_limit = 10_000
 var   diagnostic_limit_erros = 520
-var   diagnostic_limit_lines = 10_000_000
+var   diagnostic_limit_lines = 1_000_000
 
 type diagnostic struct {
   Context

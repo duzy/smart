@@ -6,26 +6,28 @@
 package smart
 
 func testRules0(ctx *testcase) {
-	if r := ctx.rule("rule"); r == nil {
-		ctx.err("rule")
+	if s := "rule0"; false {} else
+	if r := ctx.rule(s); r == nil {
+		ctx.err(s)
 	} else if v := inv(ctx, r); v == nil {
-		ctx.err("%v", r)
+		ctx.err("%v", ust{r})
 	} else if v.String() != "rule1 rule1" {
-		ctx.err("%v{%v}", typeof(v), v)
+		ctx.err("%v", ust{v})
 	} else if l, y := v.(*list); !y {
-		ctx.err("%v{%v}", typeof(v), v)
+		ctx.err("%v", ust{v})
 	} else if len(l.elems) != 2 {
 		ctx.err("%v", l.elems)
 	}
 
-	if r := ctx.rule("rule1"); r == nil {
-		ctx.err("rule1")
+	if s := "rule1"; false {} else
+	if r := ctx.rule(s); r == nil {
+		ctx.err(s)
 	} else if v := inv(ctx, r); v == nil {
-		ctx.err("%v", r)
+		ctx.err("%v", ust{r})
 	} else if v.String() == "" {
-		ctx.err("%v{%v}", typeof(v), v)
+		ctx.err("%v", ust{v})
 	} else if _, y := v.(*Plain); !y {
-		ctx.err("%v{%v}", typeof(v), v)
+		ctx.err("%v", ust{v})
 	}
 }
 

@@ -2356,9 +2356,6 @@ func (p *punctuation) stencil(ctx Context, stems []string) (val Value, rest []st
 func (p *punctuation) traverse(ctx Context) { }
 func (p *punctuation) hit(ctx Context, c *valcache) (_ *valcache, _ bool) { return c.hit(ctx, p.tok) }
 
-// func (s bare) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit_word(ctx, string(s)) }
-// func (t token) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit_punc(ctx, t) }
-
 type bare string
 type bareword struct { valbase; s string }
 func (_ *bareword) kind() Kind { return KindBareword }
@@ -2420,8 +2417,8 @@ func (p *bareword) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *bareword) hit(ctx Context, c *valcache) (res *valcache, done bool) {
-    if res, done = c.hit(ctx, p.s); res == nil {
+func (p *bareword) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    if res, fullmatch = c.hit(ctx, p.s); res == nil {
         if cacheMapping(ctx) {
             erro(at(ctx,p), "no valcache for %v : %v", us(p), c).debug(16)
         }
@@ -2929,7 +2926,7 @@ func (p *barecomp) expand(ctx Context) (res Value) {
     }
 }
 func (p *barecomp) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
-func (p *barecomp) hit(ctx Context, c *valcache) (res *valcache, done bool) {
+func (p *barecomp) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     defer trace(ctx)
 
     if indeterminate(ctx, p) {
@@ -2937,19 +2934,13 @@ func (p *barecomp) hit(ctx Context, c *valcache) (res *valcache, done bool) {
         return
     }
 
-    var s = p.string(ctx)
-    var cc = bare_hit{ctx, c, s, 0, cast[*path_hit](ctx) == nil}
+    t := do(ctx, actBareHit{c, p})
 
-    for _, elem := range p.elems {
-        if c, done = c.hit(&cc, elem); c == nil {
-            if cacheMapping(ctx) {
-                erro(at(ctx,elem), "no valcache for %v : %v : %v", p, us(elem), c).debug()
-            }
-            return
-        } else if res = c ; done {
-            return
-        }
+    if x, y := t.(valcache_bool); y {
+        return x.valcache, x.bool
     }
+
+    erro(at(ctx,p), "miss hit: %v : %v", us(p), us(ctx)).debug()
     return
 }
 func (p *barecomp) cmp(ctx Context, v Value) (res cmpres) {
@@ -3519,8 +3510,8 @@ func (p *globmeta) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *globmeta) hit(ctx Context, fc *valcache) (res *valcache, done bool) {
-    if res, done = fc.hit(ctx, p.token); res == nil {
+func (p *globmeta) hit(ctx Context, fc *valcache) (res *valcache, fullmatch bool) {
+    if res, fullmatch = fc.hit(ctx, p.token); res == nil {
         if cacheMapping(ctx) {
             erro(ctx, "no valcache for %v : %v", p.token, fc).debug(3)
         }
@@ -3718,32 +3709,21 @@ func (p *path) cmp_check(ctx Context, v Value, res cmpres) {
         erro(ctx, "%v", us(ctx)).debug(5)
     }
 }
-func (p *path) hit(ctx Context, c *valcache) (res *valcache, done bool) {
+func (p *path) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    defer trace(ctx)
+
     if indeterminate(ctx, p) {
         erro(at(ctx,p), "%v : indeterminate : %v", p, us(p)).debug(3)
         return
     }
 
-    var s = p.string(ctx)
-    var x = path_hit{ctx, s, strings.Split(s, pathSep), 0}
-    var cc Context = &x
+    t := do(ctx, actPathHit{c, p})
 
-    defer trace(ctx)
-
-    for ; c != nil && x.i < len(p.elems) ; x.i += 1 {
-        var elem = p.elems[x.i]
-
-        if c, done = c.hit(cc, elem) ; c == nil {
-            if cacheMapping(ctx) {
-                erro(at(ctx,elem), "no valcache for %v : %v", us(elem), c).debug(3)
-            }
-            return
-        }
-
-        if done || p.len() <= x.i+1 {
-            return c, true
-        }
+    if x, y := t.(valcache_bool); y {
+        return x.valcache, x.bool
     }
+
+    erro(at(ctx,p), "miss hit: %v : %v", us(p), us(ctx)).debug()
     return
 }
 
@@ -4545,6 +4525,34 @@ func (p flag) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p flag) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
+func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    defer trace(ctx)
+
+    if indeterminate(ctx, p.Value) {
+        erro(at(ctx,p), "%v : indeterminate : %v", p, us(p.Value)).debug()
+        return
+    }
+
+    if c, fullmatch = c.hit(ctx, MINUS); c == nil {
+        if cacheMapping(ctx) {
+            erro(at(ctx,p), "no valcache for %v : %v", us(p), c).debug(16)
+        }
+        return
+    }
+
+    if p.Value.kind()&(KindNull|KindNone) != 0 {
+        res = c
+        return
+    }
+
+    if res, fullmatch = c.hit(ctx, p.Value); c == nil {
+        if cacheMapping(ctx) {
+            erro(at(ctx,p), "no valcache for %v : %v", us(p), c).debug(16)
+        }
+        return
+    }
+    return
+}
 
 const escapedChars = "\"\r\n"
 
@@ -6012,7 +6020,7 @@ func (p *percpat) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, done bool) {
+func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     defer trace(ctx)
 
     if indeterminate(ctx, p) {
@@ -6246,7 +6254,7 @@ func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
     defer trace(ctx)
 
     if indeterminate(ctx, p) {
-        erro(at(ctx,p), "valcache %v : indeterminate element : %v", p, us(p)).debug()
+        erro(at(ctx,p), "%v : indeterminate : %v", p, us(p)).debug()
         return
     }
 
@@ -6256,7 +6264,7 @@ func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
         return x.valcache, x.bool
     }
 
-    erro(at(ctx,p), "hit: miss %v : %v", us(p), us(ctx)).debug()
+    erro(at(ctx,p), "miss hit: %v : %v", us(p), us(ctx)).debug()
     return
 }
 
@@ -6318,7 +6326,7 @@ func (p *regexpat) cmp_check(ctx Context, v Value, res cmpres) {
 }
 func (p *regexpat) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
 func (p *regexpat) expand(Context) Value { return p }
-func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, done bool) {
+func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     defer trace(ctx)
 
     if indeterminate(ctx, p) {
