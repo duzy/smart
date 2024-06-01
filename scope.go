@@ -29,11 +29,11 @@ type Scope struct {
 
 func newScope(pos Position, outer *Scope, project *project, comment string) *Scope {
 	return &Scope{
-		elems: make(map[string]Object),
+		outer: outer,
 		position: pos,
 		project: project,
-		outer: outer,
 		comment: comment,
+		elems: make(map[string]Object),
 	}
 }
 
@@ -45,6 +45,14 @@ func (s *Scope) copyElems() (result map[string]Object) {
 	s.mutex.Lock(); defer s.mutex.Unlock()
 	result = make(map[string]Object, len(s.elems))
 	for k, o := range s.elems { result[k] = o }
+	return
+}
+
+func (s *Scope) estr() (res string) {
+	for _, o := range s.elems {
+		if res != "" { res += " " }
+		res += fmt.Sprintf("%v", o)
+	}
 	return
 }
 
@@ -67,18 +75,15 @@ func (s *Scope) Names() []string {
 	return names
 }
 
-// project returns the project where this scope is existed.
-//func (s *Scope) project() *project { return s.project }
-
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
-func (s *Scope) lookup(name string) (obj Object) {
-	if s.elems != nil { obj = s.elems[name] }
-	return
-}
 func (s *Scope) Lookup(name string) Object {
-	s.mutex.Lock(); defer s.mutex.Unlock()
+	s.mutex.Lock() ; defer s.mutex.Unlock()
 	return s.lookup(name)
+}
+func (s *Scope) lookup(name string) (obj Object) {
+	if s.elems != nil { obj, _ = s.elems[name] }
+	return
 }
 
 // findouter follows the outer chain of scopes starting with s until
@@ -159,7 +164,7 @@ func (s *Scope) WriteTo(w io.Writer, n int) {
 }
 
 // String returns a string representation of the scope, for debugging.
-func (s *Scope) String() string { return fmt.Sprintf("scope{%s}", s.string()) }
+func (s *Scope) String() string { return fmt.Sprintf("{=scope %s}", s.string()) }
 func (s *Scope) string() string {
 	var buf bytes.Buffer //s.WriteTo(&buf, 0)
 	if s.outer != nil {

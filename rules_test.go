@@ -11,12 +11,14 @@ func testRules0(ctx *testcase) {
 		ctx.err(s)
 	} else if v := inv(ctx, r); v == nil {
 		ctx.err("%v", ust{r})
-	} else if v.String() != "rule1 rule1" {
+	} else if v.String() != "$< $> - $(ARG1) $(ARG2) $(ARG3)" {
 		ctx.err("%v", ust{v})
-	} else if l, y := v.(*list); !y {
+	} else if x, y := v.(*list); !y {
 		ctx.err("%v", ust{v})
-	} else if len(l.elems) != 2 {
-		ctx.err("%v", l.elems)
+	} else if len(x.elems) != 6 {
+		ctx.err("%v", ust{x})
+	} else if s := v.string(ctx); s != "rule1 rule1 -" {
+		ctx.err("%v : %s", ust{v}, s)
 	}
 
 	if s := "rule1"; false {} else
@@ -24,9 +26,11 @@ func testRules0(ctx *testcase) {
 		ctx.err(s)
 	} else if v := inv(ctx, r); v == nil {
 		ctx.err("%v", ust{r})
-	} else if v.String() == "" {
+	} else if v.String() == "$(ARG1)" {
 		ctx.err("%v", ust{v})
-	} else if _, y := v.(*Plain); !y {
+	} else if x, y := v.(*Plain); !y {
+		ctx.err("%v", ust{x})
+	} else if s := v.string(ctx); s != "" {
 		ctx.err("%v", ust{v})
 	}
 }

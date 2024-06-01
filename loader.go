@@ -124,7 +124,7 @@ func _loader(c Context) *loader { return cast[*loader](c) }
 
 type loader struct {
     terminal
-    mode Mode // parsing mode
+    mode  Mode
     p    *parser
     proj *project
     loadArgs      []Value
@@ -140,6 +140,16 @@ func (l *loader) cast(t reflect.Type) Context {
     if reflect.TypeOf(l)   == t { return l }
     if reflect.TypeOf(l.p) == t { return l.p }
     return l.terminal.cast(t)
+}
+func (l *loader) do(ctx Context, op any) (res any) {
+	return l.terminal.do(ctx, op)
+}
+func (l *loader) Position() Position {
+    if l.p != nil {
+        return l.p.Position()
+    } else {
+        return l.Context.Position()
+    }
 }
 
 func restoreLoadingInfo(l *loader) {
@@ -263,11 +273,6 @@ func baseNonTrivialDefs(ctx Context, user *project, name string) (dd []*def) {
         if t, y := o.(*def); y && !isTrivial(t.value) { dd = append(dd, t) }
     }}
     return
-}
-
-func (l *loader) Position() (res Position) {
-    if l.p != nil { return l.p.Position() }
-    return l.Context.Position()
 }
 
 func (l *loader) usespec(ctx Context, opts useOpts, specVal Value, arged []Value, params ...Value) (loaded *project) {
@@ -765,43 +770,30 @@ func (l *loader) define1(ctx Context, tok token, ident, value Value) (d *def) {
 }
 
 func (l *loader) rule(clause *parsedRuleData) (entries []entry) {
-    var (
-        ctx = at(l, l.Position())
-        params []*auto
-        depends []Value
-        ordered []Value
-        progScope *Scope = l.scope()
-        configure = clause.config
-        recipes = clause.recipes
-    )
-    for _, name := range clause.params { o := progScope.Lookup(name)
-        if a, y := o.(*auto); y { params = append(params, a) } else {
-            errostack(ctx, 3, "invalid param: %T %v", o, o).debug(5)
-        }
+    var ctx = at(l, l.Position())
+
+    var prog = &program{
+        configure: l.p.configure,
+        language:  l.p.dialect,
+        params:    l.p.params,
+        project:   l.proj,
+        scope:     l.scope(),
+        recipes:   clause.recipes,
+        position:  clause.position,
     }
+
     for _, depend := range clause.depends {
         switch dep := depend.(type) {
-        case *list: depends = append(depends, dep.elems...)
-        default:    depends = append(depends, dep)
-        }
-    }
-    for _, depend := range clause.ordered {
-        switch dep := depend.(type) {
-        case *list: ordered = append(ordered, dep.elems...)
-        default:    ordered = append(ordered, dep)
+        case *list: prog.depends = append(prog.depends, dep.elems...)
+        default:    prog.depends = append(prog.depends, dep)
         }
     }
 
-    var prog = &program{
-        language: l.p.dialect,
-        project:  l.proj,
-        scope:    progScope,
-        params:   params,
-        depends:  depends,
-        ordered:  ordered,
-        recipes:  recipes,
-        configure: configure,
-        position: clause.position,
+    for _, depend := range clause.ordered {
+        switch dep := depend.(type) {
+        case *list: prog.ordered = append(prog.ordered, dep.elems...)
+        default:    prog.ordered = append(prog.ordered, dep)
+        }
     }
 
     for _, target := range clause.targets {
@@ -824,7 +816,7 @@ func (l *loader) rule(clause *parsedRuleData) (entries []entry) {
         if t, okay := entry.Target().(flag); okay && t.Value != nil {
             var s = t.Value.string(ctx)
             if l.proj.name != "~" { l.globe().AddFlagEntry(s, entry) }
-        } else if configure {
+        } else if l.p.configure {
             if entry.Class() == patternRule {
                 erro(ctx, "unsupported pattern configures: %v", target).debug(1)
                 return
@@ -1527,14 +1519,30 @@ func (l *loader) closeCurrent(ident *barecomp, identStr string) (err error) {
     return
 }
 
-func (l *loader) resolve(ctx Context, value Value) (name string, result Value) {
-    var pos = value.Position()
+func (l *loader) resolve(ctx Context, name Value) (str string, result Value) {
+    var pos = name.Position()
     if !pos.IsValid() { pos = l.Position() }
-    if name = value.string(ctx); name != "" {
-        if d := autoDef(ctx, name); d == nil {
-            result = l.proj.resolve(ctx, name)
-        } else {
-            result = d
+    if str = name.string(ctx); str != "" {
+        if d := autoDef(ctx, str); d != nil {
+            return str, d
+        }
+        if _, o := l.scope().find(str); o != nil {
+            return str, o
+        }
+        if l.p.bits&parseIncludingConf != 0 {
+            // Create an empty def if referred in configuration.sm.
+            d, _ := l.def(name.Position(), str)
+            d.origin = defConfRef
+            return str, d
+        }
+        if l.p.bits&parseAutoName != 0 {
+            if d := autoDef(ctx, str); d != nil {
+                return str, d
+            }
+            return str, ctx.scope().auto(ctx, str)
+        }
+        if c := l.proj.configure; c != nil {
+            return str, c.resolve(ctx, str)
         }
     }
     return
@@ -1551,7 +1559,7 @@ func (l *loader) def(position Position, name string) (def *def, alt Object) {
 // otherwise it returns an error. If src == nil, readSource returns
 // the result of reading the file specified by filename.
 //
-func readSource(filename string, source... interface{}) ([]byte, error) {
+func readSource(filename string, source ...any) ([]byte, error) {
     if len(source) > 0 {
         var ( buf bytes.Buffer ; n int )
         for _, src := range source {
@@ -1569,7 +1577,7 @@ func readSource(filename string, source... interface{}) ([]byte, error) {
     return ioutil.ReadFile(filename)
 }
 
-func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode, opts *includeOpts) (f *parsedFile, res []Value, err error) {
+func (l *loader) source(ctx Context, filename string, src any, mode Mode, opts *includeOpts) (f *parsedFile, res []Value, err error) {
     var u = _universe(ctx)
     if u.traceLaunch { defer un(l_trace(l_launch, "loader.source")) }
     if u.verbose { if ctx.Position().Filename == filename {
@@ -1629,17 +1637,17 @@ func (l *loader) source(ctx Context, filename string, src interface{}, mode Mode
 	}
 
     l.p.scanner.init(u.file(filename, text), text, smod,
-        func(p Position, s string, a ...interface{}) {
+        func(p Position, s string, a ...any) {
             if a == nil { a = append(a, 4, 4) }
             note(at(ctx,p), "%s", s)
             erro(at(ctx,p), "scan=%v", l.p.scanner.scanstate).debug(a...)
         },
-        func(p Position, s string, a ...interface{}) {
+        func(p Position, s string, a ...any) {
             if a == nil { a = append(a, 4, 1) }
             warn(at(ctx,p), "%s", s)
             warn(at(ctx,p), "scan=%v", l.p.scanner.scanstate).debug(a...)
         },
-        func(p Position, s string, a ...interface{}) {
+        func(p Position, s string, a ...any) {
             if a == nil { a = append(a, 4, 1) }
             info(at(ctx,p), "%s", s)
             info(at(ctx,p), "scan=%v", l.p.scanner.scanstate).debug(a...)
@@ -1859,9 +1867,12 @@ ListLoop:
 }
 
 // loader.Load loads script from a file or source code (string, []byte).
-func (l *loader) load(ctx Context, specName, absPath string, source interface{}) (result bool) {
+func (l *loader) load(ctx Context, specName, absPath string, source any) (result bool) {
     var u = _universe(ctx)
     if u.traceLaunch { defer un(l_trace(l_launch, "loader.load")) }
+
+    defer trace(ctx)
+    defer flush(ctx)
 
     var globe = l.globe()
     defer func(t time.Time) {
@@ -1905,8 +1916,6 @@ func (l *loader) load(ctx Context, specName, absPath string, source interface{})
     } else {
         result = true
     }
-
-    flush(l.Context)
     return
 }
 
@@ -1979,7 +1988,7 @@ func (l *loader) directory(ctx Context, specName, absDir string, filter func(os.
     return
 }
 
-func (l *loader) file(ctx Context, filename string, source interface{}) (res bool) {
+func (l *loader) file(ctx Context, filename string, source any) (res bool) {
     if _universe(ctx).traceLaunch { defer un(l_trace(l_launch, "loader.file")) }
 
     var spec string

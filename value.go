@@ -305,7 +305,7 @@ var (
     traveTargetNotDefinedFile = fmt.Errorf("target not defined as file")
 )
 
-func sfmt(f string, i ...interface{}) string { return fmt.Sprintf(f, i...) }
+func sfmt(f string, i ...any) string { return fmt.Sprintf(f, i...) }
 
 const ( // larger value higher priority
     traveUnkn travekind = iota
@@ -480,7 +480,7 @@ func (traves *travestates) add(ctx Context, what travekind, target Value) *trave
     if *traves = append(*traves, s); false { }
     return s
 }
-func (traves *travestates) addf(ctx Context, what travekind, s string, a... interface{}) *travestate {
+func (traves *travestates) addf(ctx Context, what travekind, s string, a... any) *travestate {
     t := traves.add(ctx, what, nil)
     t.error = fmt.Errorf(s, a...)
     return t
@@ -632,7 +632,7 @@ func closureEntry(ctx Context, name string) (entries entryArray) {
     return
 }
 
-func _closureWith(ctx Context, ii ...interface{}) (res Context) {
+func _closureWith(ctx Context, ii ...any) (res Context) {
     var scopes []*Scope
     for _, i := range ii {
         switch s := i.(type) {
@@ -996,7 +996,7 @@ type Value interface {
     traverse(Context)
 }
 
-func typeof_0(arg interface{}) (s string) {
+func typeof_0(arg any) (s string) {
     switch a := arg.(type) {
     case *list:
         if n := len(a.elems); n == 1 {
@@ -1028,7 +1028,7 @@ func typeof_0(arg interface{}) (s string) {
     return
 }
 
-func typeof(arg interface{}) (s string) {
+func typeof(arg any) (s string) {
     defer func() { if s == "" { panic(fmt.Sprintf("typeof(%T) is empty", arg)) } } ()
 
     if arg == nil { return "nil" }
@@ -1057,7 +1057,7 @@ func typeof(arg interface{}) (s string) {
     }
 }
 
-func is(v Value, i interface{}) bool {
+func is(v Value, i any) bool {
     switch t := i.(type) {
     case Kind:         return v.kind() & t != 0
     case reflect.Type: return reflect.TypeOf(v) == t
@@ -1440,7 +1440,7 @@ func (p *argumented) traverse(ctx Context) {
 }
 
 // _any is used to box an arbitrary value
-type _any struct { value interface{} }
+type _any struct { value any }
 func (_ *_any) kind() Kind { return KindAny }
 func (p *_any) cmp(ctx Context, v Value) (res cmpres) {
     switch a := v.(type) {
@@ -6362,7 +6362,7 @@ type Scoper interface {
 // }
 // func (ns *namescoper) Scope() *Scope { return ns.scope }
 
-func values(args ...interface{}) (elems []Value) {
+func values(args ...any) (elems []Value) {
     for _, a := range args {
         if v, ok := a.(Value); ok {
             elems = append(elems, v)
@@ -6588,7 +6588,7 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
 }
 
 func refs(ctx Context, a Value, v Value) bool { return a == v || a.refs(ctx, v) }
-func ease(ctx Context, iv interface{}) (res Value) {
+func ease(ctx Context, iv any) (res Value) {
     defer trace(ctx)
 
     var elems []Value
@@ -6622,8 +6622,8 @@ func ease(ctx Context, iv interface{}) (res Value) {
     }
 }
 
-func ia(a ...interface{}) []interface{} { return a }
-func va(ctx Context, i interface{}) (v Value) {
+func ia(a ...any) []any { return a }
+func va(ctx Context, i any) (v Value) {
     switch t := i.(type) {
     case   Value: v = t
     case []Value: v = makeList(t...)
@@ -6653,7 +6653,7 @@ func va(ctx Context, i interface{}) (v Value) {
         }
         v = l
     }
-    case []interface{}:
+    case []any:
         var l = makeList()
         for _, i := range t { l.elems = append(l.elems, va(ctx, i)) }
         v = l
@@ -6664,7 +6664,7 @@ func va(ctx Context, i interface{}) (v Value) {
     }
     return
 }
-func vi(a ...Value) (ii []interface{}) {
+func vi(a ...Value) (ii []any) {
     for _, v := range a { ii = append(ii, v) }
     return
 }
@@ -6805,7 +6805,7 @@ func us(i any) (s string) {
     }
 }
 
-type ust struct { i interface{} }
+type ust struct { i any }
 func (p ust) String() string { return us(p.i) }
 func (p ust) Position() (pos Position) {
     if x, y := p.i.(Value); y { pos = x.Position() }
@@ -6852,10 +6852,10 @@ func makeBareword(pos Position, word string) *bareword { return &bareword{valbas
 func makeBarecomp(elems ...Value) *barecomp { return &barecomp{elements{elems}} }
 func makeCompound(elems ...Value) *compound { return &compound{elements{elems}} }
 func makeList(elems ...Value) *list { return &list{elements{elems}} }
-func _makeList[T Value](ii ...T) *list {
-    var l = &list{elements{}}
-    for _, i := range ii { l.elems = append(l.elems, i) }
-    return l
+func _list_t[T Value](ii ...T) *list {
+    var elems []Value
+    for _, i := range ii { elems = append(elems, i) }
+    return &list{elements{elems}}
 }
 func makeGroup(pos Position, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
 func makeGlobMeta(pos Position, tok token) *globmeta { return &globmeta{valbase{pos},tok} }
@@ -6877,7 +6877,7 @@ func makeClosure(pos Position, tok token, obj Value, opts []Value, args ...Value
     return &closure{delegate{valbase{pos}, tok, obj, opts, args}}
 }
 
-func Make(pos Position, in interface{}) (out Value) {
+func Make(pos Position, in any) (out Value) {
     switch v := in.(type) {
     case int:       out = makeDecimal(pos,int64(v))
     case int32:     out = makeDecimal(pos,int64(v))
@@ -6891,7 +6891,7 @@ func Make(pos Position, in interface{}) (out Value) {
     }
     return
 }
-func MakeAll(pos Position, in... interface{}) (out []Value) {
+func MakeAll(pos Position, in... any) (out []Value) {
     for _, v := range in {
         // TODO: position for each element
         out = append(out, Make(pos,v))
@@ -7013,7 +7013,7 @@ func invoke(ctx Context, v Value, o, a []Value) (res Value) {
 type opt  struct { Value }
 type opts struct { vals []Value }
 
-func ao(ctx Context, ii ...interface{}) (a, o []Value) {
+func ao(ctx Context, ii ...any) (a, o []Value) {
     for _, i := range ii {
         switch t := i.(type) {
         case    opt : o = append(o, t.Value)
@@ -7026,7 +7026,7 @@ func ao(ctx Context, ii ...interface{}) (a, o []Value) {
     return
 }
 
-func inv(ctx Context, v Value, ii ...interface{}) (res Value) {
+func inv(ctx Context, v Value, ii ...any) (res Value) {
     var a, o = ao(ctx, ii...)
     return invoke(ctx, v, o, a)
 }
