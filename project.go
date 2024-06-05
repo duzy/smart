@@ -37,6 +37,9 @@ func (p *_filemap) String() (s string) {
   return
 }
 
+func (p *filemap) ts(t string) string {
+  return fmt.Sprintf("{=%s %v}", t, ts(p.pattern))
+}
 func (p *filemap) String() (s string) {
   if p.pattern == nil {
     s = p._filemap.String()
@@ -57,8 +60,8 @@ func (p *filemap) primePatterns(ctx Context) (pats []Value) {
     if pat := pattern.expand(ctx); isFinalValue(ctx, pat) {
       pats = append(pats, merge(pat)...)
     } else {
-      erro(at(ctx,pat), "indeterminate pattern: %v", us(pat))
-      erro(at(ctx,pat), "%v", us(ctx)).debug()
+      erro(at(ctx,pat), "indeterminate pattern: %v", ts(pat))
+      erro(at(ctx,pat), "%v", ts(ctx)).debug()
     }
   }
   return
@@ -109,24 +112,17 @@ func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name st
   } else if a, y := res.([]string); y {
     name = joinPath(a...)
   } else {
-    erro(ctx, "unexpected result: %v", us(res)).debug(1)
+    erro(ctx, "unexpected result: %v", ts(res)).debug()
   }
   return // NOTE: also `globMatchFile(ctx, pat, str, true)`
 }
 
 func (p *filemap) stat(ctx Context, name string) (file *File) {
-  if false && name == "der_dsa_gen.c" {
-    defer func() {
-      var ( d, s string ; e bool )
-      if file != nil { d, s, e = file.dir, file.sub, file.exists() }
-      warn(ctx, "%v: %v", name, ctx.projects(ctx))
-      warnstack(ctx, 5, "%v: {%s %s %s} %v", file, d, s, name, e).debug(32)
-    } ()
-  }
+  defer trace(ctx)
 
   var patts = p.patts
   if len(patts) == 0 {
-    errostack(ctx, 5, "no map patterns: %v", p).debug(16)
+    erro(ctx, "no map patterns: %v", p).debug()
     return
   }
 
@@ -162,9 +158,9 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
 
     if sub = path.string(ctx); sub == "" {
       if true {
-        erro(at(ctx,path.Position()), "filemap path '%v' is empty (%T)", path, path)
+        erro(at(ctx,path), "filemap path '%v' is empty (%T)", path, path)
         erro(at(ctx,pos), "filemap path '%v' is empty (pattern=%v)", path, patts)
-        erro(ctx, "filemap path '%v' is empty (project=%v)", path, ctx.project())//.at(pos)
+        erro(ctx, "filemap path '%v' is empty (project=%v)", path, get_project(ctx))//.at(pos)
         erro(ctx, "filemap path '%v' is empty in %v", path, ctx).debug(64)
       }
       return
@@ -248,34 +244,35 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
 
 type project_box struct { *project }
 func (p project_box) cmp(ctx Context, v Value) (res cmpres) {
-    if x, y := v.(project_box); y {
-        if x.project == p.project { res = cmpEqual }
-    } else if x, y := v.(condval); y {
-        res = p.project.cmp(ctx, x.Value)
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        res = p.project.cmp(ctx, l.elems[0])
+  if x, y := v.(project_box); y {
+    if x.project == p.project { res = cmpEqual }
+  } else if x, y := v.(condval); y {
+    res = p.project.cmp(ctx, x.Value)
+  } else if x, y := v.(*list); y && len(x.elems) == 1 {
+    res = p.project.cmp(ctx, x.elems[0])
+  }
+  if checkpoints {
+    switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
+    if res != cmpEqual && p.String() == v.String() {
+      erro(ctx, "%v != %v, %v", ts(p), ts(v), res).debug(5)
+      trace(ctx)
     }
-    if checkpoints {
-        switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v != %v, %v", us(p), us(v), res).debug(5)
-            panic(_failure(ctx))
-        }
-    }
-    return
+  }
+  return
 }
 
+type project_ext struct { *plugin.Plugin }
 type project struct {
+  *scope
+
   position Position
   keyword  token // aka kind: project, package, module
 
   bases []*project
 
-  scope_  *Scope
+  use *uselist
 
-  use     *uselist
-
-  configurationFile *File // default file, decided at load time
+  configuration *File // default file, decided at load time
   configure *project // .configure
   configured bool
 
@@ -292,10 +289,8 @@ type project struct {
   configs    []entry // configure entries
   defaultEntry entry
 
-  pluginScope *Scope
-  plugin *plugin.Plugin
-
-  opts *projectDeclOpts
+  ext project_ext
+  opt project_opt
 }
 func (_ *project) kind() Kind { return KindObject|KindKnownObject|KindProject }
 func (_ *project) int(Context) (int64, error) { return 0, nil }
@@ -313,18 +308,15 @@ func (p *project) evoke(ctx *evocation) Value { return project_box{p} }
 func (p *project) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (p *project) match(ctx Context, i any) (bool, any, []string) { return stringMatch(ctx, p, i) }
 func (p *project) Position() Position { return p.position }
-func (p *project) Bases() []*project { return p.bases }
-func (p *project) scope() *Scope { return p.scope_ }
 func (p *project) String() string { return p.name }
 func (p *project) string(Context) string { return p.name }
 func (p *project) ident(Context) string { return p.name }
 func (p *project) true(Context) bool { return p.name != "" }
-func (p *project) declScope() *Scope { return p.scope_ }
-func (p *project) owner() *project { return p.scope_.project }
-func (p *project) get(ctx Context, s string) Value { return p.resolve(ctx, s) }
+func (p *project) owner() *project { return p.scope.project }
+func (p *project) sel(ctx Context, s string) any { return p.resolve(ctx, s) }
 func (p *project) traverse(ctx Context) {
     if t := p.defaultEntry; t != nil {
-        switch t.Target().(type) { case flag: return }
+        switch t.destiny().(type) { case flag: return }
         t.traverse(ctx)
     }
 }
@@ -343,7 +335,7 @@ func (p *project) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints {
         switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v != %v, %v", us(p), us(v), res).debug(5)
+            erro(ctx, "%v != %v, %v", ts(p), ts(v), res).debug(5)
             panic(_failure(ctx))
         }
     }
@@ -367,7 +359,7 @@ func (p self) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints {
         switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v != %v, %v", us(p), us(v), res).debug(5)
+            erro(ctx, "%v != %v, %v", ts(p), ts(v), res).debug(5)
             panic(_failure(ctx))
         }
     }
@@ -376,7 +368,7 @@ func (p self) cmp(ctx Context, v Value) (res cmpres) {
 
 func file(ctx Context, s string, projects ...*project) (_ *File) {
   if len(projects) == 0 {
-    projects = append(projects, ctx.project())
+    projects = append(projects, get_project(ctx))
   }
 
   for _, p := range projects {
@@ -389,7 +381,7 @@ func file(ctx Context, s string, projects ...*project) (_ *File) {
 
 func files(ctx Context, iname interface{}, projects ...*project) (res []filemap_name) {
   if len(projects) == 0 {
-    projects = append(projects, ctx.project())
+    projects = append(projects, get_project(ctx))
   }
 
   var a, b, c, d []filemap_name // four sections
@@ -453,27 +445,27 @@ func (p *project) file(ctx Context, iname interface{}) (file *File) {
 }
 
 func (p *project) tempFile(ctx Context, name string) (file *File) {
-  if false { ctx = closureWith(ctx, p.scope_) }
+  if false { ctx = closure_with(ctx, p.scope) }
 
   if file = p.file(ctx, name); file != nil {
     return
   }
 
   if d := p.resolveDef(ctx, "CTD"); d == nil {
-    erro(ctx, "%v: $(CTD) is not defined: %v", p, name).debug(1)
+    erro(ctx, "%v: $(CTD) is not defined: %v", p, name).debug()
   } else if ctd := d.value; isTrivial(ctd) {
-    erro(ctx, "%v: $(CTD) is trivial for %v", p, name).debug(1)
+    erro(ctx, "%v: $(CTD) is trivial for %v", p, name).debug()
   } else if file = stat(ctx, name, stat_dir{ctd.string(ctx)}, stat_nonexist{true}); file == nil {
-    erro(ctx, "%v: not a file: %v (%v)", p, name, ctd.string(ctx)).debug(1)
+    erro(ctx, "%v: not a file: %v (%v)", p, name, ctd.string(ctx)).debug()
   }
   return
 }
 
-func (p *project) configuration(ctx Context) (file *File) {
-  var s = []*Scope{ p.scope_ }
-  if p.configure != nil { s = append(s, p.configure.scope_) }
-  if file = p.tempFile(closureWith(ctx, s...), configuration_sm); file == nil {
-    erro(ctx, "%v: no file configuration.sm", p).debug(1)
+func (p *project) _configuration(ctx Context) (file *File) {
+  var s = []*scope{ p.scope }
+  if p.configure != nil { s = append(s, p.configure.scope) }
+  if file = p.tempFile(closure_with(ctx, s...), configuration_sm); file == nil {
+    erro(ctx, "%v: no file configuration.sm", p).debug()
   }
   return
 }
@@ -482,40 +474,45 @@ type cacher struct { generalOpts }
 
 func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   for _, m := range map_files(ctx, patts, paths) {
-    if t := m.pattern; false { note(at(ctx,t), "%v %v → %v", t, us(t), us(m)).debug(2) }
+    if t := m.pattern; false { note(at(ctx,t), "%v %v → %v", t, ts(t), ts(m)).debug(2) }
   }
 }
 
-func resolve(c Context, s string) Object { return c.project().resolve(c, s) }
-func resolveEntries(c Context, s string, a ...bool) entryArray { return c.project().resolveEntries(c, s, a...) }
-func resolvePatterns(c Context, v Value, s string) []*stemmed { return c.project().resolvePatterns(c, v, s) }
-func resolveTempFile(c Context, s string) *File { return c.project().tempFile(c, s) }
+func project_entry(c Context, s string, a ...bool) entry { return get_project(c).resolveEntry(c, s, a...) }
+func project_resolve(c Context, s string) Object { return get_project(c).resolve(c, s) }
 
 func (p *project) resolveDef(ctx Context, name string) (res *def) {
   if o := p.resolve(ctx, name); o != nil { res, _ = o.(*def) }
   return
 }
 
-func (p *project) resolve(ctx Context, s string) (obj Object) {
-  if p != nil && p.scope_ != nil { if _, obj = p.scope_.find(s); obj == nil {
-    if p.pluginScope != nil { if obj = p.pluginScope.Lookup(s); obj != nil {
-        return
-    }}
-    for _, base := range p.bases {
-      if obj = base.resolve(ctx, s); obj != nil {
-        break
-      }
+func (p *project) resolve(ctx Context, name string) (obj Object) {
+  if _, obj = p.find(name); obj != nil {
+    return
+  }
+
+  if p.ext.Plugin != nil {
+    if sym, e := p.ext.Lookup(name); e == nil && sym != nil {
+      erro(ctx, "TODO: convert ext symbol: %v: %T", name, sym).debug()
+      return
     }
-    if obj == nil && p.configure != nil && p.configure != p {
-      obj = p.configure.resolve(ctx, s) // isConfigure(ctx)
+  }
+
+  for _, base := range p.bases {
+    if obj = base.resolve(ctx, name); obj != nil {
+      return
     }
-  }}
+  }
+
+  if p.configure != nil && p.configure != p {
+    return p.configure.resolve(ctx, name)
+  }
   return
 }
 
 var testResolveEntries bool
 
-func (p *project) resolveEntries(ctx Context, name any, _b ...bool) (entries entryArray) {
+func (p *project) resolveEntries(ctx Context, name any, _b ...bool) (entries []entry) {
   entries = append(entries, p.unmap_entries(ctx, name)...)
 
   if p.configure != nil && isConfigure(ctx) {
@@ -549,6 +546,15 @@ func (p *project) resolveEntries(ctx Context, name any, _b ...bool) (entries ent
   return
 }
 
+func (p *project) resolveEntry(c Context, name any, a ...bool) (_ entry) {
+  var entries = p.resolveEntries(c, name, a...)
+  if n := len(entries) ; 0 < n {
+    if 1 < n { erro(c, "%d entries: %v", n, name).debug() }
+    return entries[0]
+  }
+  return
+}
+
 func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed) {
   var t1, t2 time.Time
 
@@ -556,9 +562,9 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
     var t = time.Now()
     if d := t.Sub(t0); d > 1*time.Second {
       var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; d3 = t.Sub(t2) ; n int )
-      var a = autoVal(ctx, "@")
-      for sc := cast[*stemmedContext](ctx); sc != nil; n += 1 {
-        if c := inner(sc); c != nil { sc = cast[*stemmedContext](c) } else { break }
+      var a = auto_get(ctx, "@")
+      for sc := _stemmed_context(ctx); sc != nil; n += 1 {
+        if c := inner(sc); c != nil { sc = _stemmed_context(c) } else { break }
       }
 
       var pos = ctx.Position()
@@ -566,7 +572,8 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
       prompt(ctx, "%v: slow: %v: %v: %v %v, %d nests", pos, p, a, v, p.patterns, n).debug(4)
 
       for _, pat := range p.patterns {
-        var ( pt = pat.target ; pa = pat.arged )
+        var pt = pat.target
+        var pa = pat.arged
         var full, r, stems = pt.match(ctx, s)
         var m = _path(ctx, r)
         prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
@@ -577,11 +584,11 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
 
   if res, t1, t2 = p.resolvePatterns123(ctx, v, s); false && len(res) > 0 {
     for _, t := range res {
-      if file, _ := toFile(t.target); file != nil {
-        file.position = t.position
-      } else if file = p.file(ctx, s); file != nil {
-        file.position = t.position
-        t.target = file
+      if f, _ := toFile(t.target); f != nil {
+        f.position = t.Position()
+      } else if f = p.file(ctx, s); f != nil {
+        f.position = t.Position()
+        t.target = f
       }
     }
   }
@@ -598,7 +605,7 @@ func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*ste
 func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed) {
   defer func(t0 time.Time) {
     if d := time.Now().Sub(t0); d > 1*time.Second {
-      prompt(ctx, "%v: slow: %v %v", ctx.Position(), val, d).debug(1)
+      prompt(ctx, "%v: slow: %v %v", ctx.Position(), val, d).debug()
     }
   } (time.Now())
 
@@ -607,9 +614,9 @@ ForPatterns:
     if full, r, stems := pat.target.match(ctx, s); full {
       var m = _path(ctx, r)
 
-      if true { for sc := cast[*stemmedContext](ctx); sc != nil; { // pattern loop detection
+      if true { for sc := _stemmed_context(ctx); sc != nil; { // pattern loop detection
         if s := sc.stem.target.string(ctx); s == m { continue ForPatterns }
-        if c := inner(sc); c != nil { sc = cast[*stemmedContext](c) } else { break }
+        if c := inner(sc); c != nil { sc = _stemmed_context(c) } else { break }
       }}
 
       if pa := pat.arged; len(pa) > 0 {
@@ -623,7 +630,7 @@ ForPatterns:
         if d := t3.Sub(t1); d > 1*time.Second {
           var ( d2 = t2.Sub(t1) ; d3 = t3.Sub(t2) )
           var ( p = ctx.Position() ; pt = pat.target )
-          prompt(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3).debug(1)
+          prompt(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3).debug()
         }
 
         if !y { continue ForPatterns }
@@ -655,7 +662,7 @@ func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
   return
 }
 
-func (p *project) entry(ctx Context, special specialRule, options []Value, target Value, prog *program) (entry entry, err error) {
+func (p *project) entry(ctx Context, options []Value, target Value, prog *program) (entry entry) {
   var name string
   if name = target.string(ctx); name == "" {
     erro(at(ctx, target), "empty target name: %v", target).debug()
@@ -663,7 +670,7 @@ func (p *project) entry(ctx Context, special specialRule, options []Value, targe
   }
 
   var patterned = target.patterned(ctx)
-  if true && !patterned {
+  if !patterned {
     // NOTE: it should work too if not checking against files
     switch target.(type) {
     case *File, *path, *barefile, *percpat, *globpat, *regexpat:
@@ -676,18 +683,10 @@ func (p *project) entry(ctx Context, special specialRule, options []Value, targe
   }
 
   defer func() {
-    if entry != nil && err == nil {
-      entry.setPrograms(append(entry.programs(), prog))
+    if entry != nil {
+      entry.programs(append(entry.programs(), prog)...)
     }
   } ()
-
-  // The 'use' rule entries.
-  var closured = target.expandable(final{ctx})
-  if special == specialRuleUse && !closured {
-    _opts_[struct{ postExec bool `post,post-execute,post-exec` }](ctx, options...)
-    panic(":use: rule entry is deprecated")
-    return
-  }
 
   var arged []Value // e.g. for pattern filtering
   switch t := target.(type) {
@@ -705,16 +704,9 @@ func (p *project) entry(ctx Context, special specialRule, options []Value, targe
   }
 
   if len(c.a) == 0 {
-    var rule = &rule{
-      position: target.Position(), class: generalRule, target: target, arged: arged,
-    }
+    var rule = &rule{ target:target, arged:arged }
 
     if patterned {
-      if _, y := target.(*path); y {
-        rule.class = pathPatRule
-      } else {
-        rule.class = patternRule
-      }
       p.patterns = append(p.patterns, rule)
     }
 
@@ -728,6 +720,14 @@ func (p *project) entry(ctx Context, special specialRule, options []Value, targe
   }
 
   if entry != nil && p.defaultEntry == nil { p.defaultEntry = entry }
+  return
+}
+
+func (p *project) family() (res []*project) {
+  res = append(res, p)
+  for _, base := range p.bases {
+    res = append(res, base.family()...)
+  }
   return
 }
 
@@ -824,7 +824,7 @@ func (p *project) isUsingDirectly(proj *project) (res bool) {
 }
 
 func (p *project) usees(bases, basesRecur, useeRecur, pre bool) (res []*project) {
-  if p.opts.traveUseLoop { return }
+  if p.opt.traveUseLoop { return }
   if bases {
     for _, base := range p.bases {
       res = append(res, base.usees(basesRecur, basesRecur, useeRecur, pre)...)

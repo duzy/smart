@@ -46,8 +46,8 @@ func (c builtin_) cast(t reflect.Type) Context {
 }
 
 type builtin_a interface{ a() bool }
-type builtin_c interface{ c() interface{} }
-type builtin_x interface{ x() interface{} }
+type builtin_c interface{ c() any }
+type builtin_x interface{ x() any }
 
 var builtin_a_t = reflect.TypeOf((*builtin_a)(nil)).Elem()
 var builtin_c_t = reflect.TypeOf((*builtin_c)(nil)).Elem()
@@ -335,53 +335,53 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.Value":
             val.Set(reflect.ValueOf(v))
         default:
-            erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+            erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug()
         }
     case reflect.Ptr:
         switch val.Type().Elem().String() {
         case "smart.fullname":
             if x := v.expand(expandFullFile{ctx}); isTrivial(x) {
-                erro(at(ctx, v), "expecting file value: %v{%v}", typeof(v), v).debug(1)
+                erro(at(ctx, v), "expecting file value: %v", ts(v)).debug()
             } else if o, y := (as{x}.fullname(ctx)); y && o.Value != nil {
                 val.Set(reflect.ValueOf(&o))
             } else {
-                erro(at(ctx,v), "%v: not a file: %v → %v{%v}", ctx.project(), v, typeof(x), x)
+                erro(at(ctx,v), "%v: not a file: %v → %v", get_project(ctx), v, ts(x))
                 errostack(ctx, 5).debug(32)
             }
         case "smart.File":
             if x := v.expand(final{ctx}); isNone(x) {
-                erro(at(ctx,v), "expecting file value: %v{%v}", typeof(x), v).debug(1)
+                erro(at(ctx,v), "expecting file value: %v", ts(v)).debug()
             } else if file, y := toFile(x); y {
                 val.Set(reflect.ValueOf(file))
-            } else if proj := ctx.project(); proj == nil {
-                erro(at(ctx,x), "no current project to find file '%v'", x).debug(1)
+            } else if proj := get_project(ctx); proj == nil {
+                erro(at(ctx,x), "no current project to find file '%v'", x).debug()
             } else if file = proj.file(ctx, x.string(ctx)); file != nil {
                 val.Set(reflect.ValueOf(file))
             } else {
-                erro(at(ctx,v), "'%v' is not a file", x).debug(1)
+                erro(at(ctx,v), "'%v' is not a file", x).debug()
             }
         case "regexp.Regexp":
             if rx, e := regexp.Compile(v.string(ctx)); e != nil {
-                erro(at(ctx,v), "compile regexp '%v' failed: %v", v, e).debug(1)
+                erro(at(ctx,v), "compile regexp '%v' failed: %v", v, e).debug()
             } else {
                 val.Set(reflect.ValueOf(rx))
             }
         default:
-            erro(at(ctx,v), "option type unsupported: %v{%v} → %v, %v", typeof(v), v, val.Elem().Kind(), val.Type().Elem()).debug(1)
+            erro(at(ctx,v), "option type unsupported: %v{%v} → %v, %v", typeof(v), v, val.Elem().Kind(), val.Type().Elem()).debug()
         }
     default:
         switch val.Type().String() {
         case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
             if t, e := v.int(ctx); e == nil {
-                if t == 0 { warn(at(ctx,v), "zero file mode").debug(1) }
+                if t == 0 { warn(at(ctx,v), "zero file mode").debug() }
                 val.SetUint(uint64(t))
             } else {
-                erro(ctx, "%v: %v", v, t).debug(1)
+                erro(ctx, "%v: %v", v, t).debug()
             }
         case "regex.Regex": // aka. reflect.Ptr
-            erro(at(ctx,v), "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+            erro(at(ctx,v), "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug()
         default:
-            erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug(1)
+            erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug()
         }
     }
 }
@@ -445,7 +445,7 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
         erro(ctx, "opts must be ptr: %v", opts.Kind()).debug(10)
         return
     } else if opts = opts.Elem(); opts.Kind() != reflect.Struct {
-        erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).debug(1)
+        erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).debug()
         return
     }
 
@@ -477,17 +477,17 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
     if modifier.IsValid() { rest = _opts(ctx, modifier, rest) }
     return
 }
-func parseOpts(ctx Context, store interface{}, args ...Value) (rest []Value) {
+func parseOpts(ctx Context, store any, args ...Value) (rest []Value) {
     return _opts(ctx, reflect.ValueOf(store), args)
 }
 
 // see https://go.dev/doc/tutorial/generics
-func _opts_[Opts interface{}](ctx Context, args ...Value) (opts Opts, res []Value) {
+func _opts_[Opts any](ctx Context, args ...Value) (opts Opts, res []Value) {
     res = parseOpts(ctx, &opts, args...)
     return
 }
 
-func _parseHeadArgs(ctx Context, store interface{}, args ...Value) (head, rest []Value) {
+func _parseHeadArgs(ctx Context, store any, args ...Value) (head, rest []Value) {
     if len(args) == 0 {
         // zero args
     } else if head = parseOpts(ctx, store, args[0]); len(head) > 0 {
@@ -500,13 +500,13 @@ func _parseHeadArgs(ctx Context, store interface{}, args ...Value) (head, rest [
     return
 }
 
-func _parseHeadArgsMerge(ctx Context, store interface{}, args ...Value) (res []Value) {
+func _parseHeadArgsMerge(ctx Context, store any, args ...Value) (res []Value) {
     var head, rest = _parseHeadArgs(ctx, store, args...)
     res = append(head, rest...)
     return
 }
 
-func _parseHeadArgsRequired(ctx Context, store interface{}, args ...Value) (head, rest []Value) {
+func _parseHeadArgsRequired(ctx Context, store any, args ...Value) (head, rest []Value) {
     head, rest = _parseHeadArgs(ctx, store, args...)
     if len(head) == 0 || len(rest) == 0 {
         erro(ctx, "insufficient number of arguments").debug(6)
@@ -522,14 +522,14 @@ func argstring(ctx Context, arg Value) (s string) {
 }
 
 type builtin_noop struct { builtin_ }
-func (ctx *builtin_noop) c() interface{} { return nil }
-func (ctx *builtin_noop) x() interface{} { return nil }
+func (ctx *builtin_noop) c() any { return nil }
+func (ctx *builtin_noop) x() any { return nil }
 
 type builtin_typeof struct { builtin_
     expand bool `expand`
 }
 func (ctx *builtin_typeof) a() (skip bool) { return }
-func (ctx *builtin_typeof) x() (res interface{}) {
+func (ctx *builtin_typeof) x() (res any) {
     var elems []Value
     for _, arg := range ctx.evocation.a {
         if ctx.expand { arg = arg.expand(ctx) }
@@ -543,13 +543,13 @@ func (ctx *builtin_typeof) x() (res interface{}) {
 }
 
 type builtin_origin struct { builtin_ }
-func (ctx *builtin_origin) x() (res interface{}) {
+func (ctx *builtin_origin) x() (res any) {
     var elems []Value
-    var scope = ctx.scope()
+    var scope = get_scope(ctx)
     for _, arg := range ctx.evocation.a {
         if s := argstring(ctx, arg); s == "" {
             elems = append(elems, makeNull(arg.Position()))
-        } else if d := scope.FindDef(s); d != nil {
+        } else if d := scope.findDef(s); d != nil {
             elems = append(elems, makeStrlit(arg.Position(), d.origin.String()))
         } else {
             elems = append(elems, makeNull(arg.Position()))
@@ -559,20 +559,20 @@ func (ctx *builtin_origin) x() (res interface{}) {
 }
 
 type builtin_defined struct { builtin_ }
-func (ctx *builtin_defined) x() (res interface{}) {
+func (ctx *builtin_defined) x() (res any) {
     var elems []Value
     for _, arg := range ctx.evocation.a {
         var unresolved bool
-        erro(ctx, "TODO: %v", us(arg)).debug(1)
+        erro(ctx, "TODO: %v", ts(arg)).debug()
         elems = append(elems, makeBoolean(arg.Position(), !unresolved))
     }
     return elems
 }
 
 type builtin_pushcontext struct { builtin_ }
-func (ctx *builtin_pushcontext) c() (res interface{}) {
+func (ctx *builtin_pushcontext) c() (res any) {
     var (
-        scope = ctx.scope()
+        scope = get_scope(ctx)
         uc = _universe(ctx)
         m map[string]*def
     )
@@ -587,16 +587,16 @@ func (ctx *builtin_pushcontext) c() (res interface{}) {
         }}
         m[s] = t
     }
-    uc.globe_.stack = append(uc.globe_.stack, m)
+    uc.globe.stack = append(uc.globe.stack, m)
     return
 }
 
 type builtin_popcontext struct { builtin_
     rules []Value `rule,rules`
 }
-func (ctx *builtin_popcontext) c() (res interface{}) {
+func (ctx *builtin_popcontext) c() (res any) {
     for _, arg := range ctx.evocation.a {
-        warn(ctx, "unused argument: %T %v", arg, arg).debug(1)
+        warn(ctx, "unused argument: %T %v", arg, arg).debug()
         break
     }
 
@@ -607,18 +607,18 @@ func (ctx *builtin_popcontext) c() (res interface{}) {
         rules = append(rules, v.elems...)
     }}
 
-    var scope = ctx.scope()
+    var scope = get_scope(ctx)
     var uc = _universe(ctx)
-    var l = len(uc.globe_.stack)
+    var l = len(uc.globe.stack)
     if l == 0 { return }
-    for s, d := range uc.globe_.stack[l-1] { if d == nil { if s == "" { continue }
+    for s, d := range uc.globe.stack[l-1] { if d == nil { if s == "" { continue }
         scope.mutex.Lock()
         delete(scope.elems, s)
         scope.mutex.Unlock()
     } else if o := scope.Lookup(d.name); o != nil { if t, ok := o.(*def); ok {
         *t = *d
     }}}
-    uc.globe_.stack = uc.globe_.stack[0:l-1]
+    uc.globe.stack = uc.globe.stack[0:l-1]
     return
 }
 
@@ -630,7 +630,7 @@ type builtin_position struct { builtin_
     addLine int `add,add-line`
     addColumn int `add-column`
 }
-func (ctx *builtin_position) x() (res interface{}) {
+func (ctx *builtin_position) x() (res any) {
     var vals []Value
     var pos = ctx.Position()
     if ctx.filename {
@@ -651,7 +651,7 @@ func (ctx *builtin_position) x() (res interface{}) {
 type builtin_date struct { builtin_
     time bool `tm,time,now`
 }
-func (ctx *builtin_date) x() (res interface{}) {
+func (ctx *builtin_date) x() (res any) {
     if t := time.Now(); len(ctx.evocation.a) > 0 {
         var vals []Value
         for _, a := range ctx.evocation.a {
@@ -676,7 +676,7 @@ type builtin_debug struct { builtin_
     s int `stack`
     n int `num`
 }
-func (ctx *builtin_debug) x() (res interface{}) {
+func (ctx *builtin_debug) x() (res any) {
     var s bytes.Buffer
     for i, a := range ctx.evocation.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
@@ -691,7 +691,7 @@ func (ctx *builtin_debug) x() (res interface{}) {
 }
 
 type builtin_error struct { builtin_ }
-func (ctx *builtin_error) x() (res interface{}) {
+func (ctx *builtin_error) x() (res any) {
     defer trace(ctx)
 
     var s bytes.Buffer
@@ -700,25 +700,25 @@ func (ctx *builtin_error) x() (res interface{}) {
         fmt.Fprintf(&s, "%s", a.string(ctx))
     }
 
-    errostack(ctx, 5, "%s", s.String()).debug(1)
+    errostack(ctx, 5, "%s", s.String()).debug()
     return
 }
 
 type builtin_warning struct { builtin_ }
-func (ctx *builtin_warning) x() (res interface{}) {
+func (ctx *builtin_warning) x() (res any) {
     var s bytes.Buffer
     for i, a := range ctx.evocation.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
         fmt.Fprintf(&s, "%s", a.string(ctx))
     }
-    warn(ctx, "%s", s).debug(1)
+    warn(ctx, "%s", s).debug()
     return
 }
 
 type builtin_assert struct { builtin_ ; msg string `msg,message` }
 func (ctx *builtin_assert) a() (skip bool) { return }
-func (ctx *builtin_assert) c() (res interface{}) { return ctx.x() }
-func (ctx *builtin_assert) x() (res interface{}) {
+func (ctx *builtin_assert) c() (res any) { return ctx.x() }
+func (ctx *builtin_assert) x() (res any) {
     if false { defer trace(ctx) }
 
     var d = ctx.debug ; if d < 1 { d = 1 }
@@ -739,12 +739,12 @@ func (ctx *builtin_assert) x() (res interface{}) {
         if hook != nil && hook(ctx, a, okay) || okay { continue }
         if false {
             var v = a.expand(final{ctx})
-            prompt(ctx, "assert: %v ⇒ %v: %v\n", us(a), us(v))
-            diagstack(ctx, s, t, "%v ⇒ '%s'", us(a), a.string(ctx)).debug(d)
+            prompt(ctx, "assert: %v ⇒ %v: %v\n", ts(a), ts(v))
+            diagstack(ctx, s, t, "%v ⇒ '%s'", ts(a), a.string(ctx)).debug(d)
         } else if true {
-            diagstack(ctx, s, t, "%v ⇒ '%s'", us(a), a.string(ctx)).debug(d)
+            diagstack(ctx, s, t, "%v ⇒ '%s'", ts(a), a.string(ctx)).debug(d)
         } else {
-            diagstack(ctx, s, t, "%v", us(a)).debug(d)
+            diagstack(ctx, s, t, "%v", ts(a)).debug(d)
         }
     }
 
@@ -753,11 +753,11 @@ func (ctx *builtin_assert) x() (res interface{}) {
 }
 
 type builtin_sure struct { builtin_ }
-func (ctx *builtin_sure) x() (res interface{}) {
+func (ctx *builtin_sure) x() (res any) {
     defer trace(ctx)
 
     for _, a := range ctx.evocation.a { if !a.true(ctx) {
-        erro(at(ctx,a), "assert: %v", us(a)).debug(1)
+        erro(at(ctx,a), "assert: %v", ts(a)).debug()
     }}
 
     return ctx.evocation.a
@@ -765,10 +765,10 @@ func (ctx *builtin_sure) x() (res interface{}) {
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
 type builtin_defor struct { builtin_ } // aka. defined-or
-func (ctx *builtin_defor) x() (res interface{}) {
+func (ctx *builtin_defor) x() (res any) {
     for _, a := range merge(ctx.evocation.a...) {
         var unresolved bool
-        erro(ctx, "TODO: %v", us(a)).debug(1)
+        erro(ctx, "TODO: %v", ts(a)).debug()
         if unresolved {
             continue
         } else {
@@ -782,9 +782,9 @@ func (ctx *builtin_defor) x() (res interface{}) {
 type builtin_or struct { builtin_ }
 func (ctx *builtin_or) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
-    return !_exFinal(ctx) && expandable(final{ctx}, ctx.evocation.a...)
+    return !ex_final(ctx) && expandable(final{ctx}, ctx.evocation.a...)
 }
-func (ctx *builtin_or) x() (res interface{}) {
+func (ctx *builtin_or) x() (res any) {
     for _, a := range merge(ctx.evocation.a...) { if a.true(ctx) { return a } }
     return
 }
@@ -792,9 +792,9 @@ func (ctx *builtin_or) x() (res interface{}) {
 type builtin_and struct { builtin_ }
 func (ctx *builtin_and) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
-    return !_exFinal(ctx) && expandable(final{ctx}, ctx.evocation.a...)
+    return !ex_final(ctx) && expandable(final{ctx}, ctx.evocation.a...)
 }
-func (ctx *builtin_and) x() (res interface{}) {
+func (ctx *builtin_and) x() (res any) {
     for _, a := range merge(ctx.evocation.a...) {
         if a.true(ctx) { res = a } else { return nil }
     }
@@ -804,14 +804,14 @@ func (ctx *builtin_and) x() (res interface{}) {
 // $(not x y z) ⇒ (not (or x y z))
 // $(not x,y,z) ⇒ (and (not x) (not y) (not z))
 type builtin_not struct { builtin_ }
-func (ctx *builtin_not) x() (res interface{}) {
+func (ctx *builtin_not) x() (res any) {
     var t bool
     for _, a := range ctx.evocation.a { if t = a.true(ctx); t { break } }
     return !t
 }
 
 type builtin_xor struct { builtin_ }
-func (ctx *builtin_xor) x() (res interface{}) {
+func (ctx *builtin_xor) x() (res any) {
     if vals := merge(ctx.evocation.a...); len(vals) > 1 {
         var t = vals[0].true(ctx)
         for _, a := range vals[1:] { if a.true(ctx) != t {
@@ -824,12 +824,12 @@ func (ctx *builtin_xor) x() (res interface{}) {
 type builtin_unequal struct { builtin_
     final bool `final`
 }
-func (ctx *builtin_unequal) x() (res interface{}) {
+func (ctx *builtin_unequal) x() (res any) {
     if ctx.trace { trace(ctx, "unequal") }
 
     if len(ctx.evocation.a) != 2 {
         erro(ctx, "unequal: wrong number of arguments: %v", ctx.evocation.a)
-        erro(ctx, "try: $(unequal <value-list>,<value-list>)").debug(1)
+        erro(ctx, "try: $(unequal <value-list>,<value-list>)").debug()
         return
     }
 
@@ -859,7 +859,7 @@ func (ctx *builtin_unequal) x() (res interface{}) {
         }
         warnstack(ctx, n, "unequal: %v", t).debug(n)
     } else if len(ctx.evocation.a)>2 {
-        warnstack(at(ctx,ctx.evocation.a[2]), 1, "unequal: extra args specified: %v", ctx.evocation.a[2]).debug(1)
+        warnstack(at(ctx,ctx.evocation.a[2]), 1, "unequal: extra args specified: %v", ctx.evocation.a[2]).debug()
     }
     return
 }
@@ -867,7 +867,7 @@ func (ctx *builtin_unequal) x() (res interface{}) {
 type builtin_equal struct { builtin_
     final bool `final`
 }
-func (ctx *builtin_equal) x() (res interface{}) {
+func (ctx *builtin_equal) x() (res any) {
     if ctx.trace { trace(ctx, "equal") }
 
     if len(ctx.evocation.a) > 0 {
@@ -880,7 +880,7 @@ func (ctx *builtin_equal) x() (res interface{}) {
 
     if len(ctx.evocation.a) != 2 {
         erro(ctx, "equal: wrong number of arguments: %v", ctx.evocation.a)
-        erro(ctx, "try: $(equal <value-list>,<value-list>)").debug(1)
+        erro(ctx, "try: $(equal <value-list>,<value-list>)").debug()
         return
     }
 
@@ -893,7 +893,7 @@ func (ctx *builtin_equal) x() (res interface{}) {
         t = a.cmp(ctx, b) == cmpEqual
     }
     // if ctx.evocation.a[0].String() == "$(foo)" && ctx.evocation.a[1].String() == "foo" {
-    //     note(ctx, "%v %v %v", us(a), us(b), t).debug(1)
+    //     note(ctx, "%v %v %v", ts(a), ts(b), t).debug()
     // }
 
     if t {
@@ -911,13 +911,13 @@ func (ctx *builtin_equal) x() (res interface{}) {
         }
         notestack(ctx, n).debug(n)
     } else if len(ctx.evocation.a)>2 {
-        warnstack(at(ctx,ctx.evocation.a[2]), 1, "equal: extra args specified: %v", ctx.evocation.a[2]).debug(1)
+        warnstack(at(ctx,ctx.evocation.a[2]), 1, "equal: extra args specified: %v", ctx.evocation.a[2]).debug()
     }
     return
 }
 
 type builtin_greater struct { builtin_ }
-func (ctx *builtin_greater) x() (res interface{}) {
+func (ctx *builtin_greater) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
     } else if cmp := ctx.evocation.a[0].cmp(ctx, ctx.evocation.a[1]); cmp == cmpGreater {
@@ -927,7 +927,7 @@ func (ctx *builtin_greater) x() (res interface{}) {
 }
 
 type builtin_less struct { builtin_ }
-func (ctx *builtin_less) x() (res interface{}) {
+func (ctx *builtin_less) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
     } else if cmp := ctx.evocation.a[0].cmp(ctx, ctx.evocation.a[1]); cmp == cmpSmaller {
@@ -943,10 +943,10 @@ type builtin_match struct { builtin_
     negated bool `ne,neg,negated,negative,not`
     all bool `all`
 }
-func (ctx *builtin_match) x() (result interface{}) {
+func (ctx *builtin_match) x() (result any) {
     var leftList, rightList []Value
     if n := len(ctx.evocation.a); n < 2 {
-        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list-1>,...)").debug(1)
+        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list-1>,...)").debug()
         return
     }
 
@@ -987,10 +987,10 @@ func (ctx *builtin_match) x() (result interface{}) {
     if res != nil { result = res }
     return
 }
-func (ctx *builtin_match) _x() (res interface{}) {
+func (ctx *builtin_match) _x() (res any) {
     var patList, valList []Value
     if n := len(ctx.evocation.a); n < 1 {
-        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").debug(1)
+        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").debug()
         return
     }
 
@@ -1040,7 +1040,7 @@ ForValList:
 
         if ctx.debug > 0 {
             note(ctx, "match: %v", str)
-            note(ctx, "match: %v %T", val, val).debug(1)
+            note(ctx, "match: %v %T", val, val).debug()
         }
     }
     return
@@ -1052,7 +1052,7 @@ ForValList:
 // 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
 type builtin_case struct { builtin_ }
 func (ctx *builtin_case) a() (skip bool) { return }
-func (ctx *builtin_case) x() (res interface{}) {
+func (ctx *builtin_case) x() (res any) {
     var val Value
     var args = merge(ctx.evocation.a...)
     if len(args) == 0 { return } else
@@ -1091,7 +1091,7 @@ func (ctx *builtin_case) x() (res interface{}) {
         }}
         return vals
     } else {
-        erro(at(ctx,arg), "unexpected case: %T %v", arg, arg).debug(1)
+        erro(at(ctx,arg), "unexpected case: %T %v", arg, arg).debug()
         return
     }}
     return
@@ -1107,11 +1107,11 @@ func (ctx *builtin_if) a() (skip bool) {
     }
     return
 }
-func (ctx *builtin_if) x() (res interface{}) {
+func (ctx *builtin_if) x() (res any) {
     if n := len(ctx.evocation.a); n > 1 {
         if checkpoints {
-            if !_exFinal(ctx) && indeterminate(ctx, ctx.evocation.a[0]) {
-                erro(ctx, "should skip: %v; %v", ctx.evocation.a[0], us(ctx)).debug(3)
+            if !ex_final(ctx) && indeterminate(ctx, ctx.evocation.a[0]) {
+                erro(ctx, "should skip: %v; %v", ctx.evocation.a[0], ts(ctx)).debug(3)
             }
         }
         if ctx.evocation.a[0].true(ctx) {
@@ -1135,7 +1135,7 @@ func (ctx *builtin_ifeq) a() (skip bool) {
     }
     return
 }
-func (ctx *builtin_ifeq) x() (res interface{}) {
+func (ctx *builtin_ifeq) x() (res any) {
     if n := len(ctx.evocation.a); n > 2 {
         if a, b := ctx.evocation.a[0], ctx.evocation.a[1]; equal(ctx, a, b, ctx.final) {
             res = ctx.evocation.a[2]
@@ -1158,7 +1158,7 @@ func (ctx *builtin_ifne) a() (skip bool) {
     }
     return
 }
-func (ctx *builtin_ifne) x() (res interface{}) {
+func (ctx *builtin_ifne) x() (res any) {
     if n := len(ctx.evocation.a); n > 2 {
         if a, b := ctx.evocation.a[0], ctx.evocation.a[1]; !equal(ctx, a, b, ctx.final) {
             res = ctx.evocation.a[2]
@@ -1177,8 +1177,8 @@ func (ctx *builtin_for) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtin_.cast(t)
 }
-func (ctx *builtin_for) x() (res interface{}) {
-    erro(ctx, "TODO: $(for): %v", us(ctx.evocation.a)).debug(1)
+func (ctx *builtin_for) x() (res any) {
+    erro(ctx, "TODO: $(for): %v", ts(ctx.evocation.a)).debug()
     return
 }
 
@@ -1209,7 +1209,7 @@ func (ctx *builtin_foreach) a() (skip bool) {
     }
     return
 }
-func (ctx *builtin_foreach) x() (res interface{}) {
+func (ctx *builtin_foreach) x() (res any) {
     if len(ctx.evocation.a) < 2 { return }
 
     var values []Value
@@ -1221,8 +1221,8 @@ func (ctx *builtin_foreach) x() (res interface{}) {
     if len(values) == 0 { return }
     if ctx.unique { values = unique(ctx, values...) }
 
-    var cc = automatic{ Context:ctx, defs:make(autodefs),
-        suppress:func(s string) bool { return s == "_" }}
+    var cc = automatic{ Context:ctx, defs:make(auto_defs), suppress:
+        func(s string) bool { return s == "_" } }
 
     var vals []Value
     for _, val := range values {
@@ -1252,7 +1252,7 @@ func (ctx *builtin_foreach) x() (res interface{}) {
 type builtin_count struct { builtin_
     vals []Value `value`
 }
-func (ctx *builtin_count) x() (res interface{}) {
+func (ctx *builtin_count) x() (res any) {
     var num int64
     var vals = valvec(ctx.vals)
     for _, a := range ctx.evocation.a { if a.true(ctx) || vals.has2(ctx, a) {
@@ -1262,7 +1262,7 @@ func (ctx *builtin_count) x() (res interface{}) {
 }
 
 type builtin_env struct { builtin_ }
-func (ctx *builtin_env) x() (res interface{}) {
+func (ctx *builtin_env) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a { if val := a.expand(ctx); isTrivial(val) {
         continue
@@ -1285,27 +1285,54 @@ func (ctx *builtin_auto) a() (skip bool) {
     }
     return false // never skips
 }
-func (ctx *builtin_auto) x() (res interface{}) {
+func (ctx *builtin_auto) x() (_ any) {
     if 1 < len(ctx.evocation.a) {
-        var ac = automatic{ Context:ctx, defs:make(autodefs),
-            suppress: func(string) bool { return false } }
+        var ac = automatic{ Context:ctx, defs:make(auto_defs), suppress:suppress_never }
+
+        defer trace(ctx)
 
         for _, a := range merge(ctx.evocation.a[0]) {
             switch t := a.(type) {
             case *pair:
                 if s := t.key.string(&ac); s == "" {
-                    erro(at(ctx,t.key), "%v is empty for name", us(t.key)).debug(1)
+                    erro(at(ctx,t.key), "%v is empty for name", ts(t.key)).debug()
                 } else {
                     ac.set(ctx, s, t.val)
                 }
             default:
-                erro(at(ctx,a), "%v is unsupported for auto", us(a)).debug(1)
+                erro(at(ctx,a), "%v is unsupported for auto", ts(a)).debug()
             }
         }
 
-        res = expand(&ac, ctx.evocation.a[1:]...)
+        ar := expand(&ac, ctx.evocation.a[1:]...)
+
+        if checkpoints && is_test_mode(ctx) { ctx.check_res(&ac, ar) }
+
+        return ar
     }
     return
+}
+func (ctx *builtin_auto) check_res(ac *automatic, ar []Value) {
+    defer trace(ctx)
+
+    var a = ctx.evocation.a[1]
+
+    if a.String() == "$(a)" && auto_find(ac, "a") == nil {
+        if x, y := a.(*list); !y || x.len() != 1 {
+            erro(ac, "%v", ts(a)).debug()
+        } else if z, y := x.elems[0].(*delegate); !y {
+            erro(ac, "%v", ts(x.elems[0])).debug()
+        } else if x, y := z.x.(*auto); !y {
+            erro(ac, "%v", ts(z.x)).debug()
+        } else if x.name != "a" {
+            erro(ac, "%v", ts(x)).debug()
+        }
+        if len(ar) == 1 {
+            if x, y := ar[0].(*list); y && x.len() == 0 {
+                erro(ac, "%v → %v", ts(a), ts(x)).debug()
+            }
+        }
+    }
 }
 
 type builtin_var struct { builtin_ }
@@ -1313,22 +1340,22 @@ func (ctx *builtin_var) a() (skip bool) {
     erro(ctx, "%v", ctx.evocation.a).debug(6)
     return
 }
-func (ctx *builtin_var) x() (res interface{}) {
+func (ctx *builtin_var) x() (res any) {
     erro(ctx, "%v", ctx.evocation.a).debug(6)
     return
 }
 
 // $(value <name>,...)
 type builtin_value struct { builtin_ }
-func (ctx *builtin_value) x() (res interface{}) {
+func (ctx *builtin_value) x() (res any) {
     var vals []Value
-    var p = ctx.project()
+    var p = get_project(ctx)
     for _, a := range merge(ctx.evocation.a...) {
         var v Value
 
         if s := argstring(ctx, a); s != "" {
             if d := p.resolveDef(ctx, s); d != nil { v = d.value }
-            if v == nil { v = autoVal(ctx, s) }
+            if v == nil { v = auto_get(ctx, s) }
         }
 
         if v == nil { v = makeDelegate(ctx.Position(), LPAREN, a, nil) }
@@ -1339,13 +1366,13 @@ func (ctx *builtin_value) x() (res interface{}) {
 
 // $(closure <name>,...)
 type builtin_closure struct { builtin_ }
-func (ctx *builtin_closure) x() (res interface{}) {
+func (ctx *builtin_closure) x() (res any) {
     var vals []Value
     for _, a := range merge(ctx.evocation.a...) {
         var v Value
 
         if s := argstring(ctx, a); s != "" {
-            if d := closureGet(ctx, s); d != nil { v = d.value }
+            if d := closure_get(ctx, s); d != nil { v = d.value }
         }
 
         if v == nil { v = makeClosure(a.Position(), LPAREN, a, nil) }
@@ -1364,16 +1391,16 @@ func (ctx *builtin_call) a() (skip bool) {
     }
     return
 }
-func (ctx *builtin_call) x() (res interface{}) {
+func (ctx *builtin_call) x() (res any) {
     if 0 < len(ctx.evocation.a) {
         var o Object
         if s := ctx.evocation.a[0].string(ctx); s == "" {
-            erro(ctx, "%v is empty for name", us(ctx.evocation.a[0])).debug(1)
+            erro(ctx, "%v is empty for name", ts(ctx.evocation.a[0])).debug()
             return
         } else if ctx._closure {
-            o = closureResolve(ctx, s)
+            o = closure_resolve(ctx, s)
         } else {
-            o = resolve(ctx, s)
+            o = project_resolve(ctx, s)
         }
         if a := ctx.evocation.a[1:]; o == nil {
             return skip{}
@@ -1394,11 +1421,11 @@ type builtin_defs struct { builtin_
     n int `num,number`
     r int `capture`
 }
-func (ctx *builtin_defs) x() (res interface{}) {
+func (ctx *builtin_defs) x() (res any) {
     var find = func(pat Value) (res []bare) {
         var neg bool
         if x, y := pat.(negative); y { pat, neg = x.Value, y }
-        for name, _ := range ctx.project().scope_.elems {
+        for name, _ := range get_project(ctx).elems {
             var a, _, c = pat.match(ctx, name)
             if a {
                 if neg {
@@ -1423,7 +1450,7 @@ func (ctx *builtin_defs) x() (res interface{}) {
     var names []bare
     for _, val := range merge(ctx.evocation.a...) {
         if indeterminate(ctx, val) {
-            erro(ctx, "indeterminate name pattern: %v", us(val)).debug(1)
+            erro(ctx, "indeterminate name pattern: %v", ts(val)).debug()
         } else {
             names = append(names, find(val)...)
         }
@@ -1432,22 +1459,22 @@ func (ctx *builtin_defs) x() (res interface{}) {
 }
 
 type builtin_list struct { builtin_ }
-func (ctx *builtin_list) x() (res interface{}) {
+func (ctx *builtin_list) x() (res any) {
     return ctx.evocation.a
 }
 
 type builtin_plain struct { builtin_
     scope_ bool `findscope,find-scope,scope`
 }
-func (ctx *builtin_plain) c() (res interface{}) {
-    var scope = ctx.scope()
+func (ctx *builtin_plain) c() (res any) {
+    var scope = get_scope(ctx)
     for _, a := range ctx.evocation.a {
         var ( o Object ; s = a.string(ctx) )
-        if ctx.scope_ { _, o = scope.find(s) } else { o = resolve(ctx, s) }
+        if ctx.scope_ { _, o = scope.find(s) } else { o = project_resolve(ctx, s) }
         if o == nil {
-            erro(at(ctx,a), "no such symbol: %s", s).debug(1)
+            erro(at(ctx,a), "no such symbol: %s", s).debug()
         } else if d, y := o.(*def); !y {
-            erro(at(ctx,a), "not a def: %s: %v", s, typeof(o)).debug(1)
+            erro(at(ctx,a), "not a def: %s: %v", s, typeof(o)).debug()
         } else if d.value != nil {
             d.value = d.value.expand(ctx/* , plain */)
         }
@@ -1456,7 +1483,7 @@ func (ctx *builtin_plain) c() (res interface{}) {
 }
 
 type builtin_shell struct { builtin_ }
-func (ctx *builtin_shell) x() (res interface{}) {
+func (ctx *builtin_shell) x() (res any) {
     var pos = ctx.Position()
     var vals []Value
     var err error
@@ -1482,11 +1509,11 @@ func (ctx *builtin_shell) x() (res interface{}) {
 }
 
 type builtin_which struct { builtin_ }
-func (ctx *builtin_which) x() (res interface{}) {
+func (ctx *builtin_which) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a {
         if s, err := exec.LookPath(a.string(ctx)); err != nil {
-            erro(ctx, "%v", err).debug(1)
+            erro(ctx, "%v", err).debug()
             return
         } else if s != "" {
             vals = append(vals, makeStrlit(ctx.Position(), s))
@@ -1500,10 +1527,10 @@ type builtin_servehttp struct { builtin_
     host string `host`
     port int `port`
 }
-func (ctx *builtin_servehttp) c() (res interface{}) {
+func (ctx *builtin_servehttp) c() (res any) {
     if ctx.port == 0 { ctx.port = 80 }
     if ctx.ssl {
-        erro(ctx, "'serve-http(-ssl)' is unimplemented yet").debug(1)
+        erro(ctx, "'serve-http(-ssl)' is unimplemented yet").debug()
         return
     }
 
@@ -1538,7 +1565,7 @@ func (ctx *builtin_servehttp) c() (res interface{}) {
     flush(ctx)
 
     var err = server.ListenAndServe()
-    if err != nil && err != http.ErrServerClosed { erro(ctx, "%s", err).debug(1) }
+    if err != nil && err != http.ErrServerClosed { erro(ctx, "%s", err).debug() }
     return
 }
 
@@ -1546,15 +1573,15 @@ type builtin_append struct { builtin_
     _auto    bool `auto`
     _closure bool `closure`
 }
-func (ctx *builtin_append) x() (_ interface{}) {
+func (ctx *builtin_append) x() (_ any) {
     if len(ctx.evocation.a) < 2 {
-        erro(ctx, "insufficient number of arguments: %v", ctx.evocation.a).debug(1)
+        erro(ctx, "insufficient number of arguments: %v", ctx.evocation.a).debug()
         return
     }
 
     var names []Value
     if names = merge(ctx.evocation.a[0]); len(names) == 0 {
-        warn(ctx, "append to nowhere: %v", tv(ctx.evocation.a[0])).debug(1)
+        warn(ctx, "append to nowhere: %v", tv(ctx.evocation.a[0])).debug()
         return
     }
 
@@ -1563,21 +1590,21 @@ func (ctx *builtin_append) x() (_ interface{}) {
         var s = a.string(ctx)
         var d *def
         if s == "" {
-            erro(at(ctx,a), "'%v' is empty for name", a).debug(1)
+            erro(at(ctx,a), "'%v' is empty for name", a).debug()
         } else if ctx._auto {
-            d = autoDef(ctx, s)
+            d = auto_find(ctx, s)
         } else if ctx._closure {
-            d = closureGet(ctx, s)
-        } else if o := resolve(ctx, s); o != nil {
+            d = closure_get(ctx, s)
+        } else if o := project_resolve(ctx, s); o != nil {
             d, _ = o.(*def)
         }
         if d == nil {
             erro(at(ctx,a), "%v → %s is undefined", a, s)
-            erro(ctx, "%v", us(ctx)).debug(1)
+            erro(ctx, "%v", ts(ctx)).debug()
         } else {
             if vals == nil {
                 if vals = merge(ctx.evocation.a[1:]...); len(vals) == 0 {
-                    warn(ctx, "append no values: %v", ctx.evocation.a[1:]).debug(1)
+                    warn(ctx, "append no values: %v", ctx.evocation.a[1:]).debug()
                     return
                 }
             }
@@ -1590,14 +1617,14 @@ func (ctx *builtin_append) x() (_ interface{}) {
 type builtin_plus struct { builtin_
     int bool `int,integer`
 }
-func (ctx *builtin_plus) x() (res interface{}) {
+func (ctx *builtin_plus) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.evocation.a {
             if i, e := a.int(ctx); e == nil {
                 if n == 0 { num = i } else { num += i }
             } else {
-                erro(ctx, "%v: %v", a, e).debug(1)
+                erro(ctx, "%v: %v", a, e).debug()
             }
         }
         return makeDecimal(ctx.Position(), num)
@@ -1607,7 +1634,7 @@ func (ctx *builtin_plus) x() (res interface{}) {
             if f, e := a.float(ctx); e == nil {
                 if n == 0 { num = f } else { num += f }
             } else {
-                erro(ctx, "%v: %v", a, e).debug(1)
+                erro(ctx, "%v: %v", a, e).debug()
             }
         }
         return makeFloat(ctx.Position(), num)
@@ -1617,14 +1644,14 @@ func (ctx *builtin_plus) x() (res interface{}) {
 type builtin_minus struct { builtin_
     int bool `int,integer`
 }
-func (ctx *builtin_minus) x() (res interface{}) {
+func (ctx *builtin_minus) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.evocation.a {
             if i, e := a.int(ctx); e == nil {
                 if n == 0 { num = i } else { num -= i }
             } else {
-                erro(ctx, "%v: %v", a, e).debug(1)
+                erro(ctx, "%v: %v", a, e).debug()
             }
         }
         return makeDecimal(ctx.Position(), num)
@@ -1634,7 +1661,7 @@ func (ctx *builtin_minus) x() (res interface{}) {
             if f, e := a.float(ctx); e == nil {
                 if n == 0 { num = f } else { num -= f }
             } else {
-                erro(ctx, "%v: %v", a, e).debug(1)
+                erro(ctx, "%v: %v", a, e).debug()
             }
         }
         return makeFloat(ctx.Position(), num)
@@ -1644,14 +1671,14 @@ func (ctx *builtin_minus) x() (res interface{}) {
 type builtin_multiply struct { builtin_
     int bool `int,integer`
 }
-func (ctx *builtin_multiply) x() (res interface{}) {
+func (ctx *builtin_multiply) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.evocation.a {
             if i, e := a.int(ctx); e == nil {
                 if n == 0 { num = i } else { num *= i }
             } else {
-                erro(ctx, "%v: %v", a, e).debug(1)
+                erro(ctx, "%v: %v", a, e).debug()
             }
         }
         return num
@@ -1661,7 +1688,7 @@ func (ctx *builtin_multiply) x() (res interface{}) {
             if f, e := a.float(ctx); e == nil {
                 if n == 0 { num = f } else { num *= f }
             } else {
-                erro(ctx, "%v: %v", a, e).debug(1)
+                erro(ctx, "%v: %v", a, e).debug()
             }
         }
         return num
@@ -1671,14 +1698,14 @@ func (ctx *builtin_multiply) x() (res interface{}) {
 type builtin_divide  struct { builtin_
     int bool `int,integer`
 }
-func (ctx *builtin_divide) x() (res interface{}) {
+func (ctx *builtin_divide) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.evocation.a {
             if i, e := a.int(ctx); e == nil {
                 if n == 0 { num = i } else { num /= i } // FIXME: NaN
             } else {
-                erro(ctx, "%v: %v", a, e).debug(1)
+                erro(ctx, "%v: %v", a, e).debug()
             }
         }
         return num
@@ -1688,7 +1715,7 @@ func (ctx *builtin_divide) x() (res interface{}) {
             if f, e := a.float(ctx); e == nil {
                 if n == 0 { num = f } else { num /= f } // FIXME: NaN
             } else {
-                erro(ctx, "%v: %v", a, e).debug(1)
+                erro(ctx, "%v: %v", a, e).debug()
             }
         }
         return num
@@ -1701,7 +1728,7 @@ type builtin_unique struct { builtin_
     unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`
     plain bool `pl,pla,plain,pv,plainvalue,plain-value`
 }
-func (ctx *builtin_unique) x() (res interface{}) {
+func (ctx *builtin_unique) x() (res any) {
     var args = ctx.evocation.a
     if ctx.unexpand {
         args = merge(args...)
@@ -1724,7 +1751,7 @@ func (ctx *builtin_join) a() (skip bool) {
     ctx.evocation.a = a
     return
 }
-func (ctx *builtin_join) x() (res interface{}) {
+func (ctx *builtin_join) x() (res any) {
     if l := len(ctx.evocation.a); 0 < l {
         var fields []string
         var vals []Value
@@ -1755,7 +1782,7 @@ func (ctx *builtin_compose) a() (skip bool) {
     ctx.evocation.a = a
     return
 }
-func (ctx *builtin_compose) x() (res interface{}) {
+func (ctx *builtin_compose) x() (res any) {
     if l := len(ctx.evocation.a); 0 < l {
         var con conjunction
         if l < 2 {
@@ -1770,7 +1797,7 @@ func (ctx *builtin_compose) x() (res interface{}) {
 }
 
 type builtin_quote struct { builtin_ }
-func (ctx *builtin_quote) x() (res interface{}) {
+func (ctx *builtin_quote) x() (res any) {
     var args = merge(ctx.evocation.a...)
     if l := len(args); l > 0 {
         var fields []string
@@ -1785,7 +1812,7 @@ func (ctx *builtin_quote) x() (res interface{}) {
 }
 
 type builtin_quotejoin struct { builtin_ }
-func (ctx *builtin_quotejoin) x() (res interface{}) {
+func (ctx *builtin_quotejoin) x() (res any) {
     var sep string
     var args = merge(ctx.evocation.a...)
     if l := len(args); l > 1 {
@@ -1808,7 +1835,7 @@ func (ctx *builtin_quotejoin) x() (res interface{}) {
 type builtin_splitstring struct { builtin_
     sep string `sep,separator`
 }
-func (ctx *builtin_splitstring) x() (res interface{}) {
+func (ctx *builtin_splitstring) x() (res any) {
     var fields []Value
     if len(ctx.evocation.a) > 0 {
         var sep = ctx.sep
@@ -1850,7 +1877,7 @@ ValueType:
 
 // TODO: deprecate this and add -quote to builtin_splitstring
 type builtin_splitquote struct { builtin_splitstring }
-func (ctx *builtin_splitquote) x() (res interface{}) {
+func (ctx *builtin_splitquote) x() (res any) {
     res = ctx.builtin_splitstring.x()
     if v, y := res.(Value); y && v != nil { quotestrings(v) }
     return
@@ -1858,7 +1885,7 @@ func (ctx *builtin_splitquote) x() (res interface{}) {
 
 // TODO: deprecate this and add -quote to builtin_splitstring
 type builtin_splitquotejoin struct { builtin_splitstring }
-func (ctx *builtin_splitquotejoin) x() (res interface{}) {
+func (ctx *builtin_splitquotejoin) x() (res any) {
     res = ctx.builtin_splitstring.x()
     if val, y := res.(Value); y && val != nil {
         var err error
@@ -1868,14 +1895,14 @@ func (ctx *builtin_splitquotejoin) x() (res interface{}) {
             ctx.evocation.a = ctx.evocation.a[:l-1]
         }
         if res, err = joinstrings(ctx, val, sep); err != nil {
-            erro(ctx, "%v", err).debug(1)
+            erro(ctx, "%v", err).debug()
         }
     }
     return
 }
 
 type builtin_splitjoinquote struct { builtin_splitstring }
-func (ctx *builtin_splitjoinquote) x() (res interface{}) {
+func (ctx *builtin_splitjoinquote) x() (res any) {
     res = ctx.builtin_splitstring.x()
     if val, y := res.(Value); y && val != nil {
         var err error
@@ -1887,7 +1914,7 @@ func (ctx *builtin_splitjoinquote) x() (res interface{}) {
 
         var v Value
         if v, err = joinstrings(ctx, val, sep); err != nil {
-            erro(ctx, "%v", err).debug(1)
+            erro(ctx, "%v", err).debug()
         } else {
             res = makeStrlit(ctx.Position(), strconv.Quote(v.string(ctx)))
         }
@@ -1896,7 +1923,7 @@ func (ctx *builtin_splitjoinquote) x() (res interface{}) {
 }
 
 type builtin_field struct { builtin_ }
-func (ctx *builtin_field) x() (res interface{}) {
+func (ctx *builtin_field) x() (res any) {
     var fields []string
     if l := len(ctx.evocation.a); l >= 2 {
         var (
@@ -1904,7 +1931,7 @@ func (ctx *builtin_field) x() (res interface{}) {
             i int64
         )
         if n, e := ctx.evocation.a[0].int(ctx); e != nil {
-            erro(ctx, "%v: %v", ctx.evocation.a[0], e).debug(1)
+            erro(ctx, "%v: %v", ctx.evocation.a[0], e).debug()
             return
         } else { i = n }
 
@@ -1921,33 +1948,33 @@ func (ctx *builtin_field) x() (res interface{}) {
 }
 
 type builtin_fields struct { builtin_ }
-func (ctx *builtin_fields) x() (res interface{}) {
+func (ctx *builtin_fields) x() (res any) {
     // TODO: ...
     return
 }
 
 type builtin_usee struct { builtin_ }
-func (ctx *builtin_usee) x() (res interface{}) {
-    var proj = ctx.project()
+func (ctx *builtin_usee) x() (res any) {
+    var proj = get_project(ctx)
     if proj == nil {
-        erro(ctx, "unknown current context").debug(1)
+        erro(ctx, "unknown current context").debug()
         return
     }
 
     var vals []Value
     for _, a := range ctx.evocation.a {
-        v := proj.use.get(ctx, a.string(ctx))
-        if v != nil { vals = append(vals, v) }
+        v := proj.use.sel(ctx, a.string(ctx))
+        if v != nil { vals = append(vals, v.(Value)) }
     }
     if vals == nil { res = vals }
     return
 }
 
 type builtin_uses struct { builtin_ }
-func (ctx *builtin_uses) x() (res interface{}) {
-    var proj = ctx.project()
+func (ctx *builtin_uses) x() (res any) {
+    var proj = get_project(ctx)
     if proj == nil {
-        erro(ctx, "unknown current context").debug(1)
+        erro(ctx, "unknown current context").debug()
         return
     }
 
@@ -1967,7 +1994,7 @@ outer:
 }
 
 type builtin_path struct { builtin_ }
-func (ctx *builtin_path) x() interface{} {
+func (ctx *builtin_path) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
         if x, y := a.(*path); y {
@@ -1982,7 +2009,7 @@ func (ctx *builtin_path) x() interface{} {
 type builtin_bare struct { builtin_
     name bool `name,filename,file-name,non-full,not-full`
 }
-func (ctx *builtin_bare) x() (res interface{}) {
+func (ctx *builtin_bare) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a {
         switch p := a.Position(); t := a.(type) {
@@ -2003,7 +2030,7 @@ func (ctx *builtin_bare) x() (res interface{}) {
 }
 
 type builtin_bareword struct { builtin_ }
-func (ctx *builtin_bareword) x() (res interface{}) {
+func (ctx *builtin_bareword) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a {
         if _, y := a.(*bareword); !y {
@@ -2028,18 +2055,18 @@ func (ctx *builtin_string) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
     return
 }
-func (ctx *builtin_string) x() (res interface{}) {
+func (ctx *builtin_string) x() (res any) {
     if 0 < len(ctx.evocation.a)+len(ctx.clo)+len(ctx.def) {
         var vals []Value
         for _, name := range ctx.clo {
-            if o := closureResolve(ctx, name); o != nil {
+            if o := closure_resolve(ctx, name); o != nil {
                 if d, y := o.(*def); y && d != nil && d.value != nil {
                     vals = append(vals, d.value)
                 }
             }
         }
         for _, name := range ctx.def {
-            if o := resolve(ctx, name); o != nil {
+            if o := project_resolve(ctx, name); o != nil {
                 if d, y := o.(*def); y && d != nil && d.value != nil {
                     vals = append(vals, d.value)
                 }
@@ -2084,7 +2111,7 @@ func (ctx *builtin_string) x() (res interface{}) {
 }
 
 type builtin_finalize struct { builtin_string }
-func (ctx *builtin_finalize) x() interface{} {
+func (ctx *builtin_finalize) x() any {
     ctx.finalize = true ; return ctx.builtin_string.x()
 }
 
@@ -2129,7 +2156,7 @@ func (ctx *builtin_filter) _do(pats []Value, values... Value) (result []Value) {
     for _, v := range values { if t := f(v); t != nil { result = append(result, t) }}
     return
 }
-func (ctx *builtin_filter) x() (res interface{}) {
+func (ctx *builtin_filter) x() (res any) {
     if len(ctx.evocation.a) > 1 {
         var i int
         var vals []Value
@@ -2137,14 +2164,14 @@ func (ctx *builtin_filter) x() (res interface{}) {
         if len(pats) > 0 {
             i = 1 // good
         } else if pats = merge(ctx.evocation.a[1]); len(pats) == 0 {
-            erro(ctx, "no patterns: %v", ctx.evocation.a).debug(1)
+            erro(ctx, "no patterns: %v", ctx.evocation.a).debug()
             return
         } else {
             i = 2
         }
 
         if len(ctx.evocation.a) <= i {
-            erro(ctx, "out of index: %d %v", i, ctx.evocation.a).debug(1)
+            erro(ctx, "out of index: %d %v", i, ctx.evocation.a).debug()
             return
         }
 
@@ -2160,18 +2187,18 @@ type builtin_filterout struct { builtin_filter }
 func (ctx *builtin_filterout) _do(pats []Value, values... Value) (result []Value) { ctx.neg = true
     return ctx.builtin_filter._do(pats, values...)
 }
-func (ctx *builtin_filterout) x() (res interface{}) { ctx.neg = true
+func (ctx *builtin_filterout) x() (res any) { ctx.neg = true
     return ctx.builtin_filter.x()
 }
 
 type builtin_substring struct { builtin_ }
-func (ctx *builtin_substring) x() (_ interface{}) {
+func (ctx *builtin_substring) x() (_ any) {
     var res []Value
     if n := len(ctx.evocation.a); n > 1 {
         var a = intVal(ctx, ctx.evocation.a[0], -1)
         var b = intVal(ctx, ctx.evocation.a[1], -1)
         if ctx.evocation.a = ctx.evocation.a[2:]; a < -1 && b < -1 {
-            erro(ctx, "wrong indices (%v, %v)", ctx.evocation.a[0], ctx.evocation.a[1]).debug(1)
+            erro(ctx, "wrong indices (%v, %v)", ctx.evocation.a[0], ctx.evocation.a[1]).debug()
             return
         }
         if a > b { t := a; a = b; b = t } // swap the wrong order
@@ -2190,7 +2217,7 @@ func (ctx *builtin_substring) x() (_ interface{}) {
 
 // $(subst from,to,text)
 type builtin_subst struct { builtin_ }
-func (ctx *builtin_subst) x() (_ interface{}) {
+func (ctx *builtin_subst) x() (_ any) {
     var res []Value
     if len(ctx.evocation.a) > 2 {
         var s1 = ctx.evocation.a[0].string(ctx)
@@ -2215,15 +2242,15 @@ type builtin_patsubst struct { builtin_
     erroDstNomap bool `err-dst-nomap,error-dst-nomap`
     warnDstNomap bool `warn-dst-nomap`
 }
-func (ctx *builtin_patsubst) x() (_ interface{}) {
+func (ctx *builtin_patsubst) x() (_ any) {
     if len(ctx.evocation.a) < 3 {
-        erro(ctx, "not enough arguments").debug(1)
+        erro(ctx, "not enough arguments").debug()
         return
     }
 
     var (
-        proj = ctx.project()
-        closured = closureprojects(ctx)
+        proj = get_project(ctx)
+        closured = closure_projects(ctx)
         srcPats = merge(ctx.evocation.a[0])
         dstPats, sources, res []Value
         t1 time.Time
@@ -2244,7 +2271,7 @@ func (ctx *builtin_patsubst) x() (_ interface{}) {
 
     if len(srcPats) == 0 {
         if len(ctx.evocation.a) < 4 {
-            erro(ctx, "not enough arguments").debug(1)
+            erro(ctx, "not enough arguments").debug()
             return
         }
         srcPats = merge(ctx.evocation.a[1])
@@ -2260,7 +2287,7 @@ func (ctx *builtin_patsubst) x() (_ interface{}) {
 ForSources:
     for _, src := range sources {
         var (
-            source interface{} = src
+            source any = src
             srcFile *File
             srcPat Value
             stems []string
@@ -2281,7 +2308,7 @@ ForSources:
             source = o.string(ctx)
         } else {
             erro(at(ctx,src), "fullname '%v' failed", src)
-            erro(ctx, "called from here", src).debug(1)
+            erro(ctx, "called from here", src).debug()
             return
         }
 
@@ -2303,7 +2330,7 @@ ForSources:
         for _, dstPat := range dstPats {
             var nameVal, ramnant = dstPat.stencil(ctx, stems)
             if isNull(nameVal) {
-                erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dstPat, dstPat, stems, ramnant).debug(1)
+                erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dstPat, dstPat, stems, ramnant).debug()
                 return
             } else if ctx.debug>0 {
                 warnstack(ctx, ctx.debug, "patsubst: %v: %v → %v → %v %v → %v %v",
@@ -2321,7 +2348,7 @@ ForSources:
                 var dstFile *File
                 if !ctx.nofilemap { dstFile = proj.file(ctx, nameStr) }
                 if dstFile == nil {
-                    a := []interface{}{
+                    a := []any{
                         "%v: %v (%v): unmapped destination, aka files (...)",
                         proj, nameStr, dstPat,
                     }
@@ -2376,13 +2403,13 @@ ForSources:
         warn(ctx, "dst: %v", dstPats)
         warn(ctx, "val: %v", sources)
         warn(ctx, "res: %v", res)
-        warnstack(ctx, 3, "%v", us(ctx)).debug(ctx.debug)
+        warnstack(ctx, 3, "%v", ts(ctx)).debug(ctx.debug)
     }
     return res
 }
 
 type builtin_title struct { builtin_ }
-func (ctx *builtin_title) x() interface{} {
+func (ctx *builtin_title) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
         if s := a.string(ctx); s != "" {
@@ -2393,7 +2420,7 @@ func (ctx *builtin_title) x() interface{} {
 }
 
 type builtin_uppercase struct { builtin_ }
-func (ctx *builtin_uppercase) x() interface{} {
+func (ctx *builtin_uppercase) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
         if s := a.string(ctx); s != "" {
@@ -2404,7 +2431,7 @@ func (ctx *builtin_uppercase) x() interface{} {
 }
 
 type builtin_lowercase struct { builtin_ }
-func (ctx *builtin_lowercase) x() interface{} {
+func (ctx *builtin_lowercase) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
         if s := a.string(ctx); s != "" {
@@ -2414,12 +2441,12 @@ func (ctx *builtin_lowercase) x() interface{} {
     return res
 }
 
-func (ctx *builtin_) trim(f func(_, _ Value, _ string) (Value, string), ss ...string) (_ interface{}) {
+func (ctx *builtin_) trim(f func(_, _ Value, _ string) (Value, string), ss ...string) (_ any) {
     defer trace(ctx)
 
     if len(ctx.evocation.a) < 1 {
         var s = strings.Join(ss, "")
-        erro(ctx, "try $(trim%s <...%s>, <...value>)", s, s).debug(1)
+        erro(ctx, "try $(trim%s <...%s>, <...value>)", s, s).debug()
         return
     }
 
@@ -2432,7 +2459,7 @@ func (ctx *builtin_) trim(f func(_, _ Value, _ string) (Value, string), ss ...st
     var res []Value
     for _, val := range values {
         if indeterminate(ctx, val) {
-            erro(ctx, "indeterminate value: %v", tv(val)).debug(1)
+            erro(ctx, "indeterminate value: %v", tv(val)).debug()
             continue
         }
 
@@ -2449,7 +2476,7 @@ func (ctx *builtin_) trim(f func(_, _ Value, _ string) (Value, string), ss ...st
 type builtin_strip struct { builtin_trimspace }
 
 type builtin_trim struct { builtin_ }
-func (ctx *builtin_trim) x() interface{} {
+func (ctx *builtin_trim) x() any {
     var res []Value
     var cutset string
     for i, a := range merge(ctx.evocation.a...) {
@@ -2474,7 +2501,7 @@ func (ctx *builtin_trimspace) a() (skip bool) {
 }
 
 type builtin_trimleft struct { builtin_ }
-func (ctx *builtin_trimleft) x_0() interface{} {
+func (ctx *builtin_trimleft) x_0() any {
     var res []Value
     var cutset string
     for i, a := range ctx.evocation.a {
@@ -2490,14 +2517,14 @@ func (ctx *builtin_trimleft) x_0() interface{} {
     }
     return res
 }
-func (ctx *builtin_trimleft) x() (_ interface{}) {
+func (ctx *builtin_trimleft) x() (_ any) {
     return ctx.trim(func(a, b Value, _s string) (res Value, s string) {
         return
     })
 }
 
 type builtin_trimright struct { builtin_ }
-func (ctx *builtin_trimright) x_0() interface{} {
+func (ctx *builtin_trimright) x_0() any {
     var res []Value
     var cutset string
     for i, a := range ctx.evocation.a {
@@ -2513,7 +2540,7 @@ func (ctx *builtin_trimright) x_0() interface{} {
     }
     return res
 }
-func (ctx *builtin_trimright) x() (_ interface{}) {
+func (ctx *builtin_trimright) x() (_ any) {
     return ctx.trim(func(a, b Value, _s string) (res Value, s string) {
         return
     })
@@ -2523,7 +2550,7 @@ func (ctx *builtin_trimright) x() (_ interface{}) {
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 type builtin_trimprefix struct { builtin_ }
-func (ctx *builtin_trimprefix) x_0() interface{} {
+func (ctx *builtin_trimprefix) x_0() any {
     var res []Value
     var cutset string
     for i, a := range ctx.evocation.a {
@@ -2539,10 +2566,10 @@ func (ctx *builtin_trimprefix) x_0() interface{} {
     }
     return res
 }
-func (ctx *builtin_trimprefix) x() (_ interface{}) {
+func (ctx *builtin_trimprefix) x() (_ any) {
     return ctx.trim(func(val, prefix Value, _s string) (res Value, s string) {
         if indeterminate(ctx, prefix) {
-            erro(ctx, "indeterminate prefix: %v", tv(prefix)).debug(1)
+            erro(ctx, "indeterminate prefix: %v", tv(prefix)).debug()
             return
         }
 
@@ -2553,17 +2580,17 @@ func (ctx *builtin_trimprefix) x() (_ interface{}) {
                 if prefix.String() == "/**/testdata/" {
                     var v = val.string(ctx)
                     if f != false {
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug(1)
+                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug()
                     }
                     if x, y := r.([]string); !y || strings.TrimPrefix(v, joinPath(x...)) != "builtins/trimprefix" {
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug(1)
+                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug()
                     }
                     if len(m) != 1 {
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug(1)
+                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug()
                     } else if strings.TrimPrefix(v, "/"+m[0]) != "/testdata/builtins/trimprefix" {
                         note(ctx, "/%v", m[0])
                         note(ctx, "%v", val)
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug(1)
+                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug()
                     }
                 }
             }
@@ -2590,7 +2617,7 @@ func (ctx *builtin_trimprefix) x() (_ interface{}) {
 }
 
 type builtin_trimsuffix struct { builtin_ }
-func (ctx *builtin_trimsuffix) x_0() interface{} {
+func (ctx *builtin_trimsuffix) x_0() any {
     var res []Value
     var cutset string
     for i, a := range ctx.evocation.a {
@@ -2606,10 +2633,10 @@ func (ctx *builtin_trimsuffix) x_0() interface{} {
     }
     return res
 }
-func (ctx *builtin_trimsuffix) x() (_ interface{}) {
+func (ctx *builtin_trimsuffix) x() (_ any) {
     return ctx.trim(func(val, suffix Value, _s string) (res Value, s string) {
         if indeterminate(ctx, suffix) {
-            erro(ctx, "indeterminate suffix: %v", tv(suffix)).debug(1)
+            erro(ctx, "indeterminate suffix: %v", tv(suffix)).debug()
             return
         }
 
@@ -2619,15 +2646,15 @@ func (ctx *builtin_trimsuffix) x() (_ interface{}) {
             if checkpoints {
                 if suffix.String() == "/testdata/**" {
                     if f != false {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug(1)
+                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug()
                     }
                     if x, y := r.([]string); !y || joinPath(x...) != "/testdata/builtins/trimsuffix" {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug(1)
+                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug()
                     }
                     if len(_s) != 1 {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug(1)
+                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug()
                     } else if _s[0] != "builtins/trimsuffix" {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug(1)
+                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug()
                     }
                 }
             }
@@ -2657,7 +2684,7 @@ type builtin_trimext struct { builtin_trim
     all bool `all`
     ext []string `ext`
 }
-func (ctx *builtin_trimext) x() interface{} {
+func (ctx *builtin_trimext) x() any {
     var ext string
     var res []Value
     for i, a := range ctx.evocation.a {
@@ -2688,9 +2715,9 @@ func (ctx *builtin_addprefix) a() (skip bool) {
     }
     return
 }
-func (ctx *builtin_addprefix) x() (_ interface{}) {
+func (ctx *builtin_addprefix) x() (_ any) {
     if len(ctx.evocation.a) < 1 {
-        erro(ctx, "not enough args, try $(addprefix prefix, ...)").debug(1)
+        erro(ctx, "not enough args, try $(addprefix prefix, ...)").debug()
         return
     }
 
@@ -2722,9 +2749,9 @@ func (ctx *builtin_addsuffix) a() (skip bool) {
     }
     return
 }
-func (ctx *builtin_addsuffix) x() (_ interface{}) {
+func (ctx *builtin_addsuffix) x() (_ any) {
     if len(ctx.evocation.a) < 1 {
-        erro(ctx, "not enough args, try $(addsuffix suffix, ...)").debug(1)
+        erro(ctx, "not enough args, try $(addsuffix suffix, ...)").debug()
         return
     }
 
@@ -2747,21 +2774,21 @@ func (ctx *builtin_addsuffix) x() (_ interface{}) {
 }
 
 type builtin_printf struct{ builtin_ }
-func (ctx *builtin_printf) c() (_ interface{}) { return ctx.x() }
-func (ctx *builtin_printf) x() (_ interface{}) {
+func (ctx *builtin_printf) c() (_ any) { return ctx.x() }
+func (ctx *builtin_printf) x() (_ any) {
     if len(ctx.evocation.a) < 1 {
-        erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
+        erro(ctx, "not enough args, try $(printf 'format', ...)").debug()
         return
     }
 
     var vals = merge(ctx.evocation.a[0])
     if len(vals) != 1 {
-        erro(ctx, "not enough args, try $(printf 'format', ...)").debug(1)
+        erro(ctx, "not enough args, try $(printf 'format', ...)").debug()
         return
     }
 
     var i int
-    var a []interface{}
+    var a []any
     var f = vals[0].string(ctx)
 
 outer:
@@ -2776,29 +2803,29 @@ outer:
                     '4', '5', '6', '7', '8', '9': continue
                 case 'c', 'd', 'o', 'O', 'q', 'U':
                     if t, e := v.int(ctx); e == nil { a = append(a, t) } else {
-                        erro(ctx, "%v: %v", v, e).debug(1)
+                        erro(ctx, "%v: %v", v, e).debug()
                     }
                     continue outer
                 case 'e', 'E', 'f', 'F', 'g', 'G':
                     if t, e := v.float(ctx); e == nil { a = append(a, t) } else {
-                        erro(ctx, "%v: %v", v, e).debug(1)
+                        erro(ctx, "%v: %v", v, e).debug()
                     }
                     continue outer
                 case 'b', 'x', 'X':
                     switch k := v.kind(); {
                     case k&KindInteger != 0:
                         if t, e := v.int(ctx); e == nil { a = append(a, t) } else {
-                            erro(ctx, "%v: %v", v, e).debug(1)
+                            erro(ctx, "%v: %v", v, e).debug()
                         }
                         continue outer
                     case k&KindFloat != 0:
                         if t, e := v.float(ctx); e == nil { a = append(a, t) } else {
-                            erro(ctx, "%v: %v", v, e).debug(1)
+                            erro(ctx, "%v: %v", v, e).debug()
                         }
                         continue outer
                     default:
                         if t, e := strconv.Atoi(v.string(ctx)) ; e == nil { a = append(a, t) } else {
-                            erro(ctx, "%v: %v", v, e).debug(1)
+                            erro(ctx, "%v: %v", v, e).debug()
                         }
                         continue outer
                     }
@@ -2819,8 +2846,8 @@ type builtin_print struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
 }
-func (ctx *builtin_print) c() (_ interface{}) { return ctx.x() }
-func (ctx *builtin_print) x() (_ interface{}) {
+func (ctx *builtin_print) c() (_ any) { return ctx.x() }
+func (ctx *builtin_print) x() (_ any) {
     var diag = _diagnostic(ctx)
     if ctx.noErrs && diag.count(diagError) > 0 { return }
     if ctx.noWarn && diag.count(diagWarn) > 0 { return }
@@ -2843,8 +2870,8 @@ type builtin_printl struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
 }
-func (ctx *builtin_printl) c() (_ interface{}) { return ctx.x() }
-func (ctx *builtin_printl) x() (_ interface{}) {
+func (ctx *builtin_printl) c() (_ any) { return ctx.x() }
+func (ctx *builtin_printl) x() (_ any) {
     var diag = _diagnostic(ctx)
     if ctx.noErrs && diag.count(diagError) > 0 { return }
     if ctx.noWarn && diag.count(diagWarn) > 0 { return }
@@ -2867,8 +2894,8 @@ type builtin_println struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
 }
-func (ctx *builtin_println) c() (_ interface{}) { return ctx.x() }
-func (ctx *builtin_println) x() (_ interface{}) {
+func (ctx *builtin_println) c() (_ any) { return ctx.x() }
+func (ctx *builtin_println) x() (_ any) {
     var dia = _diagnostic(ctx)
     if ctx.noErrs && dia.count(diagError) > 0 { return }
     if ctx.noWarn && dia.count(diagWarn) > 0 { return }
@@ -2889,14 +2916,14 @@ func (ctx *builtin_println) x() (_ interface{}) {
 }
 
 type builtin_indent struct { builtin_ }
-func (ctx *builtin_indent) x() (res interface{}) {
+func (ctx *builtin_indent) x() (res any) {
     var l []Value
     var s string // indent
     if x := len(ctx.evocation.a); x > 0 {
         if v, ok := scalarize(ctx.evocation.a[0]).(*decimal); ok {
             ctx.evocation.a, s = ctx.evocation.a[1:], strings.Repeat(" ", int(v.int64))
         } else {
-            erro(ctx, "requires integer argument (first|last)").debug(1)
+            erro(ctx, "requires integer argument (first|last)").debug()
             return
         }
     }
@@ -2911,7 +2938,7 @@ func (ctx *builtin_indent) x() (res interface{}) {
 }
 
 type builtin_findstring struct { builtin_ }
-func (ctx *builtin_findstring) x() (res interface{}) {
+func (ctx *builtin_findstring) x() (res any) {
     // TODO: $(findstring find,text)
     return
 }
@@ -2924,9 +2951,9 @@ type builtin_contains struct { builtin_
     match  bool `mat,match,pat,pattern`
     string bool `str,string`
 }
-func (ctx *builtin_contains) x() (_ interface{}) {
+func (ctx *builtin_contains) x() (_ any) {
     if len(ctx.evocation.a) < 2 {
-        erro(ctx, "unexpected number of arguments, try $(contains a b c1 c2, v1 v2 …)").debug(1)
+        erro(ctx, "unexpected number of arguments, try $(contains a b c1 c2, v1 v2 …)").debug()
         return
     }
 
@@ -2964,43 +2991,43 @@ outer:
 }
 
 type builtin_sort struct { builtin_ }
-func (ctx builtin_sort) x() (res interface{}) {
+func (ctx builtin_sort) x() (res any) {
     erro(ctx, "TODO: $(sort ...)").debug(5)
     return
 }
 
 type builtin_word struct { builtin_ }
-func (ctx builtin_word) x() (res interface{}) {
+func (ctx builtin_word) x() (res any) {
     erro(ctx, "TODO: $(word ...)").debug(5)
     return
 }
 
 type builtin_wordlist struct { builtin_ }
-func (ctx builtin_wordlist) x() (res interface{}) {
+func (ctx builtin_wordlist) x() (res any) {
     erro(ctx, "TODO: $(wordlist ...)").debug(5)
     return
 }
 
 type builtin_words struct { builtin_ }
-func (ctx builtin_words) x() (res interface{}) {
+func (ctx builtin_words) x() (res any) {
     erro(ctx, "TODO: $(words ...)").debug(5)
     return
 }
 
 type builtin_firstword struct { builtin_ }
-func (ctx builtin_firstword) x() (res interface{}) {
+func (ctx builtin_firstword) x() (res any) {
     erro(ctx, "TODO: $(firstword ...)").debug(5)
     return
 }
 
 type builtin_lastword struct { builtin_ }
-func (ctx builtin_lastword) x() (res interface{}) {
+func (ctx builtin_lastword) x() (res any) {
     erro(ctx, "TODO: $(lastword ...)").debug(5)
     return
 }
 
 type builtin_encodebase64 struct { builtin_ }
-func (ctx *builtin_encodebase64) x() (res interface{}) {
+func (ctx *builtin_encodebase64) x() (res any) {
     if len(ctx.evocation.a) > 0 {
         pos := ctx.Position()
         buf := new(bytes.Buffer)
@@ -3013,13 +3040,13 @@ func (ctx *builtin_encodebase64) x() (res interface{}) {
 }
 
 type builtin_decodebase64 struct { builtin_ }
-func (ctx *builtin_decodebase64) x() (_ interface{}) {
+func (ctx *builtin_decodebase64) x() (_ any) {
     if len(ctx.evocation.a) > 0 {
         var res []Value
         for _, a := range ctx.evocation.a {
             var s = a.string(ctx)
             if dat, err := base64.StdEncoding.DecodeString(s); err != nil {
-                erro(ctx, "decode '%s' failed: %v", s, err).debug(1)
+                erro(ctx, "decode '%s' failed: %v", s, err).debug()
                 return
             } else {
                 res = append(res, makeStrlit(a.Position(), string(dat)))
@@ -3031,9 +3058,9 @@ func (ctx *builtin_decodebase64) x() (_ interface{}) {
 }
 
 type builtin_fullname struct { builtin_ }
-func (ctx *builtin_fullname) x() (_ interface{}) {
+func (ctx *builtin_fullname) x() (_ any) {
     var res []Value
-    var p = []*project{ctx.project()} // closureprojects(ctx)
+    var p = []*project{get_project(ctx)} // closure_projects(ctx)
     for _, a := range merge(ctx.evocation.a...) {
         if x, y := (as{a}.fullname(ctx, p...)); y { a = x }
         res = append(res, a)
@@ -3043,7 +3070,7 @@ func (ctx *builtin_fullname) x() (_ interface{}) {
 }
 
 type builtin_ext struct { builtin_ }
-func (ctx *builtin_ext) x() (_ interface{}) {
+func (ctx *builtin_ext) x() (_ any) {
     var res []Value
     for _, a := range merge(ctx.evocation.a...) {
         res = append(res, makeStrlit(a.Position(), filepath.Ext(a.string(ctx))))
@@ -3062,7 +3089,7 @@ func bases(ctx Context, n int, s string) (d, b string) {
 }
 
 type builtin_bases struct { builtin_ ; n int `num,size,count` }
-func (ctx *builtin_bases) x() (res interface{}) {
+func (ctx *builtin_bases) x() (res any) {
     var l []Value
     for _, a := range ctx.evocation.a {
         var s string
@@ -3079,54 +3106,54 @@ func (ctx *builtin_bases) x() (res interface{}) {
 }
 
 type builtin_base struct { builtin_bases }
-func (ctx *builtin_base) x() (res interface{}) { ctx.n = 1
+func (ctx *builtin_base) x() (res any) { ctx.n = 1
     return ctx.builtin_bases.x()
 }
 
 type builtin_base2 struct { builtin_bases }
-func (ctx *builtin_base2) x() (res interface{}) { ctx.n = 2
+func (ctx *builtin_base2) x() (res any) { ctx.n = 2
     return ctx.builtin_bases.x()
 }
 
 type builtin_base3 struct { builtin_bases }
-func (ctx *builtin_base3) x() (res interface{}) { ctx.n = 3
+func (ctx *builtin_base3) x() (res any) { ctx.n = 3
     return ctx.builtin_bases.x()
 }
 
 type builtin_base4 struct { builtin_bases }
-func (ctx *builtin_base4) x() (res interface{}) { ctx.n = 4
+func (ctx *builtin_base4) x() (res any) { ctx.n = 4
     return ctx.builtin_bases.x()
 }
 
 type builtin_base5 struct { builtin_bases }
-func (ctx *builtin_base5) x() (res interface{}) { ctx.n = 5
+func (ctx *builtin_base5) x() (res any) { ctx.n = 5
     return ctx.builtin_bases.x()
 }
 
 type builtin_base6 struct { builtin_bases }
-func (ctx *builtin_base6) x() (res interface{}) { ctx.n = 6
+func (ctx *builtin_base6) x() (res any) { ctx.n = 6
     return ctx.builtin_bases.x()
 }
 
 type builtin_base7 struct { builtin_bases }
-func (ctx *builtin_base7) x() (res interface{}) { ctx.n = 7
+func (ctx *builtin_base7) x() (res any) { ctx.n = 7
     return ctx.builtin_bases.x()
 }
 
 type builtin_base8 struct { builtin_bases }
-func (ctx *builtin_base8) x() (res interface{}) { ctx.n = 8
+func (ctx *builtin_base8) x() (res any) { ctx.n = 8
     return ctx.builtin_bases.x()
 }
 
 type builtin_base9 struct { builtin_bases }
-func (ctx *builtin_base9) x() (res interface{}) { ctx.n = 9
+func (ctx *builtin_base9) x() (res any) { ctx.n = 9
     return ctx.builtin_bases.x()
 }
 
 type builtin_dirs struct { builtin_
     n int `num,size,count`
 }
-func (ctx *builtin_dirs) x() (res interface{}) {
+func (ctx *builtin_dirs) x() (res any) {
     var l []Value
     for _, a := range merge(ctx.evocation.a...) {
         var s string
@@ -3160,54 +3187,54 @@ func (ctx *builtin_dirs) x() (res interface{}) {
 }
 
 type builtin_dir struct { builtin_dirs }
-func (ctx *builtin_dir) x() (res interface{}) { ctx.n = 1
+func (ctx *builtin_dir) x() (res any) { ctx.n = 1
     return ctx.builtin_dirs.x()
 }
 
 type builtin_dir2 struct { builtin_dirs }
-func (ctx *builtin_dir2) x() (res interface{}) { ctx.n = 2
+func (ctx *builtin_dir2) x() (res any) { ctx.n = 2
     return ctx.builtin_dirs.x()
 }
 
 type builtin_dir3 struct { builtin_dirs }
-func (ctx *builtin_dir3) x() (res interface{}) { ctx.n = 3
+func (ctx *builtin_dir3) x() (res any) { ctx.n = 3
     return ctx.builtin_dirs.x()
 }
 
 type builtin_dir4 struct { builtin_dirs }
-func (ctx *builtin_dir4) x() (res interface{}) { ctx.n = 4
+func (ctx *builtin_dir4) x() (res any) { ctx.n = 4
     return ctx.builtin_dirs.x()
 }
 
 type builtin_dir5 struct { builtin_dirs }
-func (ctx *builtin_dir5) x() (res interface{}) { ctx.n = 5
+func (ctx *builtin_dir5) x() (res any) { ctx.n = 5
     return ctx.builtin_dirs.x()
 }
 
 type builtin_dir6 struct { builtin_dirs }
-func (ctx *builtin_dir6) x() (res interface{}) { ctx.n = 6
+func (ctx *builtin_dir6) x() (res any) { ctx.n = 6
     return ctx.builtin_dirs.x()
 }
 
 type builtin_dir7 struct { builtin_dirs }
-func (ctx *builtin_dir7) x() (res interface{}) { ctx.n = 7
+func (ctx *builtin_dir7) x() (res any) { ctx.n = 7
     return ctx.builtin_dirs.x()
 }
 
 type builtin_dir8 struct { builtin_dirs }
-func (ctx *builtin_dir8) x() (res interface{}) { ctx.n = 8
+func (ctx *builtin_dir8) x() (res any) { ctx.n = 8
     return ctx.builtin_dirs.x()
 }
 
 type builtin_dir9 struct { builtin_dirs }
-func (ctx *builtin_dir9) x() (res interface{}) { ctx.n = 9
+func (ctx *builtin_dir9) x() (res any) { ctx.n = 9
     return ctx.builtin_dirs.x()
 }
 
 type builtin_undirs struct { builtin_
     n int `num,size,count`
 }
-func (ctx *builtin_undirs) x() (res interface{}) {
+func (ctx *builtin_undirs) x() (res any) {
     var l []Value
     for _, a := range ctx.evocation.a {
         var s string
@@ -3230,52 +3257,52 @@ func (ctx *builtin_undirs) x() (res interface{}) {
 }
 
 type builtin_undir struct { builtin_undirs }
-func (ctx *builtin_undir) x() (res interface{}) { ctx.n = 1
+func (ctx *builtin_undir) x() (res any) { ctx.n = 1
     return ctx.builtin_undirs.x()
 }
 
 type builtin_undir2 struct { builtin_undirs }
-func (ctx *builtin_undir2) x() (res interface{}) { ctx.n = 2
+func (ctx *builtin_undir2) x() (res any) { ctx.n = 2
     return ctx.builtin_undirs.x()
 }
 
 type builtin_undir3 struct { builtin_undirs }
-func (ctx *builtin_undir3) x() (res interface{}) { ctx.n = 3
+func (ctx *builtin_undir3) x() (res any) { ctx.n = 3
     return ctx.builtin_undirs.x()
 }
 
 type builtin_undir4 struct { builtin_undirs }
-func (ctx *builtin_undir4) x() (res interface{}) { ctx.n = 4
+func (ctx *builtin_undir4) x() (res any) { ctx.n = 4
     return ctx.builtin_undirs.x()
 }
 
 type builtin_undir5 struct { builtin_undirs }
-func (ctx *builtin_undir5) x() (res interface{}) { ctx.n = 5
+func (ctx *builtin_undir5) x() (res any) { ctx.n = 5
     return ctx.builtin_undirs.x()
 }
 
 type builtin_undir6 struct { builtin_undirs }
-func (ctx *builtin_undir6) x() (res interface{}) { ctx.n = 6
+func (ctx *builtin_undir6) x() (res any) { ctx.n = 6
     return ctx.builtin_undirs.x()
 }
 
 type builtin_undir7 struct { builtin_undirs }
-func (ctx *builtin_undir7) x() (res interface{}) { ctx.n = 7
+func (ctx *builtin_undir7) x() (res any) { ctx.n = 7
     return ctx.builtin_undirs.x()
 }
 
 type builtin_undir8 struct { builtin_undirs }
-func (ctx *builtin_undir8) x() (res interface{}) { ctx.n = 8
+func (ctx *builtin_undir8) x() (res any) { ctx.n = 8
     return ctx.builtin_undirs.x()
 }
 
 type builtin_undir9 struct { builtin_undirs }
-func (ctx *builtin_undir9) x() (res interface{}) { ctx.n = 9
+func (ctx *builtin_undir9) x() (res any) { ctx.n = 9
     return ctx.builtin_undirs.x()
 }
 
 type builtin_chopdir struct { builtin_ }
-func (ctx *builtin_chopdir) x() (res interface{}) {
+func (ctx *builtin_chopdir) x() (res any) {
     var l []Value
     var n = 0
     if x := len(ctx.evocation.a); x > 0 {
@@ -3284,7 +3311,7 @@ func (ctx *builtin_chopdir) x() (res interface{}) {
         } else if v, ok := scalarize(ctx.evocation.a[x-1]).(*decimal); ok {
             ctx.evocation.a, n = ctx.evocation.a[:x-1], int(v.int64)
         } else {
-            erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", ctx.evocation.a[0], ctx.evocation.a[x-1]).debug(1)
+            erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", ctx.evocation.a[0], ctx.evocation.a[x-1]).debug()
             return
 
         }
@@ -3308,7 +3335,7 @@ func (ctx *builtin_chopdir) x() (res interface{}) {
 }
 
 type builtin_reldir struct { builtin_ }
-func (ctx *builtin_reldir) x() (res interface{}) {
+func (ctx *builtin_reldir) x() (res any) {
     var err error
     var l []Value
     var t string
@@ -3328,7 +3355,7 @@ func (ctx *builtin_reldir) x() (res interface{}) {
 type builtin_mkdir struct { builtin_
     all bool `all,p,path`
 }
-func (ctx *builtin_mkdir) c() (res interface{}) {
+func (ctx *builtin_mkdir) c() (res any) {
     for i, nargs := 0, len(ctx.evocation.a); i < nargs; i += 1 {
         var (
             a = ctx.evocation.a[i]
@@ -3344,7 +3371,7 @@ func (ctx *builtin_mkdir) c() (res interface{}) {
                 name = t.at(0).string(ctx)
                 perm = filePerm(ctx, t.at(1), uint32(perm))
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug(1)
+                erro(ctx, "Wrong size of list `%v'", t).debug()
                 break
             }
         case *list: // mkdir name perm, name perm, ...
@@ -3352,7 +3379,7 @@ func (ctx *builtin_mkdir) c() (res interface{}) {
                 name = t.at(0).string(ctx)
                 perm = filePerm(ctx, t.at(1), uint32(perm))
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug(1)
+                erro(ctx, "Wrong size of list `%v'", t).debug()
                 break
             }
         default: // mkdir name perm, name perm, ...
@@ -3364,12 +3391,12 @@ func (ctx *builtin_mkdir) c() (res interface{}) {
         }
         if ctx.all {
             if err := os.MkdirAll(name, perm); err != nil {
-                erro(ctx, "%v", err).debug(1)
+                erro(ctx, "%v", err).debug()
                 break
             }
         } else {
             if err := os.Mkdir(name, perm); err != nil {
-                erro(ctx, "%v", err).debug(1)
+                erro(ctx, "%v", err).debug()
                 break
             }
         }
@@ -3378,11 +3405,11 @@ func (ctx *builtin_mkdir) c() (res interface{}) {
 }
 
 type builtin_chdir struct { builtin_ }
-func (ctx *builtin_chdir) c() (res interface{}) {
+func (ctx *builtin_chdir) c() (res any) {
     if len(ctx.evocation.a) == 1 {
         var str = ctx.evocation.a[0].string(ctx)
         if err := lockCD(str, 0); err != nil {
-            erro(ctx, "%v", err).debug(1)
+            erro(ctx, "%v", err).debug()
         }
     } else {
         erro(ctx, "wrong number of arguments: %v", len(ctx.evocation.a))
@@ -3391,7 +3418,7 @@ func (ctx *builtin_chdir) c() (res interface{}) {
 }
 
 type builtin_rename struct { builtin_ }
-func (ctx *builtin_rename) c() (res interface{}) {
+func (ctx *builtin_rename) c() (res any) {
     for i, nargs := 0, len(ctx.evocation.a); i < nargs; i += 1 {
         var (
             a = ctx.evocation.a[i]
@@ -3406,7 +3433,7 @@ func (ctx *builtin_rename) c() (res interface{}) {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(at(ctx,t), "wrong size of group `%v'", t).debug(1)
+                erro(at(ctx,t), "wrong size of group `%v'", t).debug()
                 break
             }
         case *list: // rename oldname newname, old new, ...
@@ -3414,7 +3441,7 @@ func (ctx *builtin_rename) c() (res interface{}) {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(at(ctx,t), "wrong size of list `%v'", t).debug(1)
+                erro(at(ctx,t), "wrong size of list `%v'", t).debug()
                 break
             }
         default: // rename newname oldname  newname oldname ...
@@ -3423,12 +3450,12 @@ func (ctx *builtin_rename) c() (res interface{}) {
                 newname = ctx.evocation.a[i+1].string(ctx)
                 i += 1
             } else {
-                erro(at(ctx,t), "Wrong arguments `%v'", ctx.evocation.a).debug(1)
+                erro(at(ctx,t), "Wrong arguments `%v'", ctx.evocation.a).debug()
                 break
             }
         }
         if err := os.Rename(oldname, newname); err != nil {
-            erro(ctx, "%v", err).debug(1)
+            erro(ctx, "%v", err).debug()
             break
         }
     }
@@ -3441,7 +3468,7 @@ type builtin_remove struct { builtin_
     warnNotFile bool `warn-not-file`
     all bool `all,recursive`
 }
-func (ctx *builtin_remove) c() (res interface{}) {
+func (ctx *builtin_remove) c() (res any) {
     var opts = ctx
     var remove func(Context, Value)
     var removeFile = func(ctx Context, f *File) {
@@ -3480,8 +3507,8 @@ func (ctx *builtin_remove) c() (res interface{}) {
     }
     var removePat = func(ctx Context, pat Value) {
         // var val = (&builtin_wildcard{builtin_:builtin_{evocation:?}})._do(pat)
-        // erro(ctx, "TODO: remove: %v → %v", pat, val).debug(1)
-        erro(ctx, "TODO: remove: %v", us(pat)).debug(1)
+        // erro(ctx, "TODO: remove: %v → %v", pat, val).debug()
+        erro(ctx, "TODO: remove: %v", ts(pat)).debug()
     }
 
     remove = func(ctx Context, v Value) {
@@ -3510,15 +3537,15 @@ func (ctx *builtin_remove) c() (res interface{}) {
         remove(ctx, a.expand(ctx))
     }
 
-    if opts.debug > 0 { warn(ctx, "%v", ctx.evocation.a).debug(1) }
+    if opts.debug > 0 { warn(ctx, "%v", ctx.evocation.a).debug() }
     if opts.debug > 0 && flush(ctx) > 0 {
-        errostack(ctx, 3, "remove errors").debug(1)
+        errostack(ctx, 3, "remove errors").debug()
     }
     return
 }
 
 type builtin_truncate struct { builtin_ }
-func (ctx *builtin_truncate) c() (res interface{}) {
+func (ctx *builtin_truncate) c() (res any) {
     for i, nargs := 0, len(ctx.evocation.a); i < nargs; i += 1 {
         var (
             a = ctx.evocation.a[i]
@@ -3530,42 +3557,42 @@ func (ctx *builtin_truncate) c() (res interface{}) {
         case *pair: // truncate name ⇒ size old ⇒ new
             name = t.key.string(ctx)
             if size, e = t.val.int(ctx); e != nil {
-                erro(ctx, "%v: %v", t.val, e).debug(1)
+                erro(ctx, "%v: %v", t.val, e).debug()
             }
         case *group: // truncate (name size) (old new)
             if t.len() == 2 {
                 name = t.at(0).string(ctx)
                 if size, e = t.at(1).int(ctx); e != nil {
-                    erro(ctx, "%v: %v", t.at(1), e).debug(1)
+                    erro(ctx, "%v: %v", t.at(1), e).debug()
                 }
             } else {
-                erro(ctx, "Wrong size of group `%v'", t).debug(1)
+                erro(ctx, "Wrong size of group `%v'", t).debug()
                 break
             }
         case *list: // truncate name size, old new, ...
             if t.len() == 2 {
                 name = t.at(0).string(ctx)
                 if size, e = t.at(1).int(ctx); e != nil {
-                    erro(ctx, "%v: %v", t.at(1), e).debug(1)
+                    erro(ctx, "%v: %v", t.at(1), e).debug()
                 }
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug(1)
+                erro(ctx, "Wrong size of list `%v'", t).debug()
                 break
             }
         default: // truncate name size  name size ...
             if i+1 < nargs {
                 name = ctx.evocation.a[i+0].string(ctx)
                 if size, e = ctx.evocation.a[i+1].int(ctx); e != nil {
-                    erro(ctx, "%v: %v", ctx.evocation.a[i+1], e).debug(1)
+                    erro(ctx, "%v: %v", ctx.evocation.a[i+1], e).debug()
                 }
                 i += 1
             } else {
-                erro(ctx, "Wrong arguments `%v'", ctx.evocation.a).debug(1)
+                erro(ctx, "Wrong arguments `%v'", ctx.evocation.a).debug()
                 break
             }
         }
         if err := os.Truncate(name, size); err != nil {
-            erro(ctx, "%v", err).debug(1)
+            erro(ctx, "%v", err).debug()
             break
         }
     }
@@ -3573,7 +3600,7 @@ func (ctx *builtin_truncate) c() (res interface{}) {
 }
 
 type builtin_link struct { builtin_ }
-func (ctx *builtin_link) c() (res interface{}) {
+func (ctx *builtin_link) c() (res any) {
     for i, nargs := 0, len(ctx.evocation.a); i < nargs; i += 1 {
         var (
             oldname, newname string
@@ -3588,7 +3615,7 @@ func (ctx *builtin_link) c() (res interface{}) {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(ctx, "Wrong size of group `%v'", t).debug(1)
+                erro(ctx, "Wrong size of group `%v'", t).debug()
                 break
             }
         case *list: // link oldname newname, old new, ...
@@ -3596,7 +3623,7 @@ func (ctx *builtin_link) c() (res interface{}) {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug(1)
+                erro(ctx, "Wrong size of list `%v'", t).debug()
                 break
             }
         default: // link oldname newname  oldname newname ...
@@ -3605,12 +3632,12 @@ func (ctx *builtin_link) c() (res interface{}) {
                 newname = ctx.evocation.a[i+1].string(ctx)
                 i += 1
             } else {
-                erro(ctx, "Wrong arguments `%v'", ctx.evocation.a).debug(1)
+                erro(ctx, "Wrong arguments `%v'", ctx.evocation.a).debug()
                 break
             }
         }
         if err := os.Link(oldname, newname); err != nil {
-            erro(ctx, "%v", err).debug(1)
+            erro(ctx, "%v", err).debug()
             break
         }
     }
@@ -3627,7 +3654,7 @@ type builtin_symlink struct { builtin_
     update   bool `update`
     relative bool `rel,relative`
 }
-func (ctx *builtin_symlink) c() (res interface{}) {
+func (ctx *builtin_symlink) c() (res any) {
 outer:
     for i, na := 0, len(ctx.evocation.a); i < na; i += 1 {
         var (
@@ -3642,14 +3669,14 @@ outer:
             srcNameVal, dstNameVal = t.key, t.val
         case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
             if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                erro(at(ctx,t), "expects two values for group").debug(1)
+                erro(at(ctx,t), "expects two values for group").debug()
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
             }
         case *list: // XXX: symlink old new, old new, ...
             if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                erro(at(ctx,t), "expects two values for list").debug(1)
+                erro(at(ctx,t), "expects two values for list").debug()
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
@@ -3662,9 +3689,9 @@ outer:
                 dstNameVal = ctx.evocation.a[i+1]
                 i += 1
             } else {
-                var a = autoVal(ctx,"@")
-                var l = autoVal(ctx,"<")
-                var r = autoVal(ctx,">")
+                var a = auto_get(ctx,"@")
+                var l = auto_get(ctx,"<")
+                var r = auto_get(ctx,">")
                 prompt(ctx, "symlink: args=%v → %v\n", ctx.evocation.a, t)
                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
                 errostack(at(ctx,t), 5, "expects pair of names (%T %v)", t, t).debug(6)
@@ -3704,7 +3731,7 @@ outer:
             if false {
                 info(ctx, "%v %v\t%s", srcDir, srcName, src)
                 info(ctx, "%v %v\t%s", dstDir, dstName, dst)
-                info(ctx, "%v", s).debug(1)
+                info(ctx, "%v", s).debug()
             }
             src = s
         }
@@ -3713,7 +3740,7 @@ outer:
         if dstDir == "" || dstDir == "." || dstDir == pathSep {
             // no need to mkdir: . or /
         } else if err := os.MkdirAll(dstDir, os.FileMode(0755)); err != nil {
-            erro(at(ctx,dstNameVal), "%v", err).debug(1)
+            erro(at(ctx,dstNameVal), "%v", err).debug()
             return
         }
 
@@ -3751,12 +3778,12 @@ type builtin_stat struct { builtin_
     file   bool `file`
     dir    bool `dir`
 }
-func (ctx *builtin_stat) x() (res interface{}) {
+func (ctx *builtin_stat) x() (res any) {
     if len(ctx.evocation.a) == 0 { return }
 
-    var proj = ctx.project()
+    var proj = get_project(ctx)
     if proj == nil {
-        erro(ctx, "unknown project").debug(1)
+        erro(ctx, "unknown project").debug()
         return
     }
 
@@ -3801,8 +3828,8 @@ type builtin_file struct { builtin_
     ignore bool `ignore,ignore-missing,missing,nonexist,non-exist`
     mapped bool `map,maps,mapped`
 }
-func (ctx *builtin_file) x() (res interface{}) {
-    return ctx.z([]*project{ctx.project()}, ctx.evocation.a...)
+func (ctx *builtin_file) x() (res any) {
+    return ctx.z([]*project{get_project(ctx)}, ctx.evocation.a...)
 }
 func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
     defer trace(ctx)
@@ -3818,7 +3845,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
             if !ctx.exists || f.exists() /* || f.stat(ctx) != nil */ {
                 res = append(res, f)
             } else if ctx.report {
-                info(ctx, "no such file {%v %v %v}", f.dir, f.sub, f.name).debug(1)
+                info(ctx, "no such file {%v %v %v}", f.dir, f.sub, f.name).debug()
             }
             return
         }
@@ -3826,7 +3853,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
         if am = files(ctx, a, projs...); am == nil && false {
             var s = a.string(ctx)
             if s == "" {
-                erro(ctx, "%v is empty for searching file", us(a)).debug(3)
+                erro(ctx, "%v is empty for searching file", ts(a)).debug(3)
                 return
             }
             if am = files(ctx, s, projs...); am == nil {
@@ -3836,7 +3863,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
                 } else {
                     if ctx.mapped {
                         var t = unmap_files(ctx, a)
-                        erro(ctx, "not a file ; %v → %v", tv(a), t).debug(1)
+                        erro(ctx, "not a file ; %v → %v", tv(a), t).debug()
                     }
                     return
                 }
@@ -3851,7 +3878,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
             if !ctx.exists || f.exists() {
                 res = append(res, f)
             } else if ctx.ignore {
-                if ctx.verbose { info(ctx, "%v → %v", tv(a), f).debug(1) }
+                if ctx.verbose { info(ctx, "%v → %v", tv(a), f).debug() }
             } else if ctx.exists {
                 en += 1
             }
@@ -3864,7 +3891,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
 
     for _, a := range merge(args...) {
         if f(a); en > 0 {
-            erro(ctx, `%v: %v is not a file (%v)`, projs, us(a), res)
+            erro(ctx, `%v: %v is not a file (%v)`, projs, ts(a), res)
             errostack(ctx, 5).debug(16)
             return
         }
@@ -3877,11 +3904,11 @@ type builtin_glob struct { builtin_
     dir bool `dir,directory`
     file bool `file`
 }
-func (ctx *builtin_glob) x() (_ interface{}) {
+func (ctx *builtin_glob) x() (_ any) {
     var cwd string // TODO: get current work directory
     var proj *project
-    if proj = ctx.project(); proj == nil {
-        erro(ctx, "unknown current cntext").debug(1)
+    if proj = get_project(ctx); proj == nil {
+        erro(ctx, "unknown current cntext").debug()
         return
     }
 
@@ -3894,7 +3921,7 @@ func (ctx *builtin_glob) x() (_ interface{}) {
 
         var err error
         if names, err = filepath.Glob(str); err != nil {
-            erro(ctx, "glob '%v' failed: %v", str, err).debug(1)
+            erro(ctx, "glob '%v' failed: %v", str, err).debug()
             return
         }
         for _, name := range names {
@@ -3907,16 +3934,16 @@ func (ctx *builtin_glob) x() (_ interface{}) {
 
 func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
     if f, err := os.Stat(sd); err != nil {
-        if errorMissing { erro(ctx, "%v", err).debug(1) }
+        if errorMissing { erro(ctx, "%v", err).debug() }
         return
     } else if !f.IsDir() {
-        erro(ctx, "not dir: %v", sd).debug(1)
+        erro(ctx, "not dir: %v", sd).debug()
         return
     } else if dir, err := os.Open(sd); err != nil {
-        erro(ctx, "not dir: %v", sd).debug(1)
+        erro(ctx, "not dir: %v", sd).debug()
         return
     } else if names, err = dir.Readdirnames(-1); err != nil { // NOTE: see also filepath.Glob(...)
-        if errorMissing { erro(ctx, "readdir: %v", err).debug(1) }
+        if errorMissing { erro(ctx, "readdir: %v", err).debug() }
         return
     } else {
         dir.Close()
@@ -3941,7 +3968,7 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
         } else if !strings.HasPrefix(topDir, s) {
             erro(ctx, "%s", s)
             erro(ctx, "%s", topDir)
-            erro(ctx, "%v", us(ctx)).debug(16)
+            erro(ctx, "%v", ts(ctx)).debug(16)
         }
     }
 
@@ -3985,7 +4012,7 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
         case "f", "file": if!d { files = append(files, f) }
         case "d", "dir" : if d { files = append(files, f) }
         case "":                 files = append(files, f)
-        default: erro(ctx, "unknown -filetype: %s (%v)", ctx.filetype, f).debug(1)
+        default: erro(ctx, "unknown -filetype: %s (%v)", ctx.filetype, f).debug()
         }
         top.Unlock()
         top.Done()
@@ -3995,7 +4022,7 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
 
         if t, y := pat.(compositePattern); y { pat = t.Value }
         if t, y := pat.(*list); y {
-            warn(ctx, "pattern is a list: %T %v %v", pat, pat, t.elems).debug(1)
+            warn(ctx, "pattern is a list: %T %v %v", pat, pat, t.elems).debug()
             if len(t.elems) == 1 { pat = t.elems[0] }
         }
 
@@ -4006,7 +4033,7 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
             errostack(ctx, 3, "empty path: %v", pat).debug(3)
             return
         } else if y, _, _ = p.elems[0].match(ctx, sub.n); y && nElems == 1 {
-            errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", topDir, sub.dn, pat, sub.n, nElems).debug(1)
+            errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", topDir, sub.dn, pat, sub.n, nElems).debug()
             return
         } else if y && sub.isDir && nElems > 1 {
             val := p.elems[1]
@@ -4018,7 +4045,7 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
             subed(sub, val)
             return
         } else if sub.d == "" {
-            if y { warn(ctx, "%T %v %v", pat, pat, sub).debug(1) }
+            if y { warn(ctx, "%T %v %v", pat, pat, sub).debug() }
             return
         }
 
@@ -4131,7 +4158,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
         if f := stat(ctx, val.string(ctx), stat_dir{dir}, stat_nonexist{ne}); f != nil {
             g.Add(1) ; go collect(f)
         } else if false {
-            erro(ctx, "nil: %v : %s", us(val), dir).debug()
+            erro(ctx, "nil: %v : %s", ts(val), dir).debug()
         }
     }
 
@@ -4195,12 +4222,12 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
 }
 func (ctx *builtin_wildcard) _do(pats ...Value) []*File {
     if ctx.dir == "" {
-        return ctx._project(ctx.project(), pats...)
+        return ctx._project(get_project(ctx), pats...)
     } else {
         return ctx._directory(ctx.dir, pats...)
     }
 }
-func (ctx *builtin_wildcard) x() interface{} {
+func (ctx *builtin_wildcard) x() any {
     var vals []Value
     if len(ctx.exclude) > 0 { ctx.exclude = merge(ctx.exclude...) }
     for _, file := range ctx._do(merge(ctx.evocation.a...)...) {
@@ -4220,7 +4247,7 @@ func (ctx *builtin_wildcard) x() interface{} {
 }
 
 type builtin_readdir struct { builtin_ }
-func (ctx *builtin_readdir) x() (res interface{}) {
+func (ctx *builtin_readdir) x() (res any) {
     var l []Value
     for _, a := range ctx.evocation.a {
         if fis, err := ioutil.ReadDir(a.string(ctx)); err == nil {
@@ -4241,15 +4268,15 @@ type builtin_readfile struct { builtin_
     trimLeft  bool `tl,trim-left`
     trimRight bool `tr,trim-right`
 }
-func (ctx *builtin_readfile) x() (res interface{}) {
+func (ctx *builtin_readfile) x() (res any) {
     var l []Value
-    var closured = closureprojects(ctx)
+    var closured = closure_projects(ctx)
     for _, v := range ctx.evocation.a {
         if o, y := (as{v}.fullname(ctx, closured...)); !y {
-            errostack(at(ctx,v), 5, "%v is not a file", v).debug(1)
+            errostack(at(ctx,v), 5, "%v is not a file", v).debug()
             break
         } else if s, e := ioutil.ReadFile(o.string(ctx)); e != nil {
-            errostack(at(ctx,v), 5, "read file failed: %v", e).debug(1)
+            errostack(at(ctx,v), 5, "read file failed: %v", e).debug()
             break
         } else {
             if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
@@ -4264,7 +4291,7 @@ func (ctx *builtin_readfile) x() (res interface{}) {
 type builtin_writefile struct { builtin_
     path bool `path`
 }
-func (ctx *builtin_writefile) x() (res interface{}) {
+func (ctx *builtin_writefile) x() (res any) {
     // $(write-file filename,content)
     // $(write-file -p filename,content)
 outer:
@@ -4284,7 +4311,7 @@ outer:
                 if n > 1 { data = t.at(1).string(ctx) }
                 if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
             } else {
-                erro(ctx, "Wrong size of group `%v'", t).debug(1)
+                erro(ctx, "Wrong size of group `%v'", t).debug()
                 break
             }
         case *list: // write-file name text, name text 0660, ...
@@ -4293,7 +4320,7 @@ outer:
                 if n > 1 { data = t.at(1).string(ctx) }
                 if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug(1)
+                erro(ctx, "Wrong size of list `%v'", t).debug()
                 break
             }
         default: // write-file name text 0660  name text 0660 ...
@@ -4311,12 +4338,12 @@ outer:
             continue outer
         } else if dir := filepath.Dir(name); ctx.path && dir != "." && dir != pathSep {
             if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                erro(ctx, "%v", err).debug(1)
+                erro(ctx, "%v", err).debug()
                 return
             }
         }
         if err := ioutil.WriteFile(name, []byte(data), perm); err != nil {
-            erro(ctx, "%v", err).debug(1)
+            erro(ctx, "%v", err).debug()
             break
         }
     }
@@ -4330,7 +4357,7 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
         return
     } else if d := filepath.Dir(filename); optPath && d != "." && d != pathSep {
         if err = os.MkdirAll(d, os.FileMode(optMode|0733)); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug(1)
+            erro(at(ctx,file), "touch: %v", err).debug()
             return
         }
     }
@@ -4350,19 +4377,19 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
         var f *os.File
         if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
         if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug(1)
+            erro(at(ctx,file), "touch: %v", err).debug()
         } else if err = f.Close(); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug(1)
+            erro(at(ctx,file), "touch: %v", err).debug()
         }
     }
     if err == nil {
         if err = os.Chtimes(filename, ta, tm); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug(1)
+            erro(at(ctx,file), "touch: %v", err).debug()
         }
     }
     if err == nil && mode != 0 && m != 0 && mode != m {
         if err = os.Chmod(filename, mode); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug(1)
+            erro(at(ctx,file), "touch: %v", err).debug()
         }
     }
     return
@@ -4372,12 +4399,12 @@ type builtin_touchfile struct { builtin_
     mode os.FileMode `mode`
     path bool `path`
 }
-func (ctx *builtin_touchfile) x() (res interface{}) {
+func (ctx *builtin_touchfile) x() (res any) {
     // $(touch-file filename)
     // $(touch-file -p filename)
     for i := 0; i < len(ctx.evocation.a); i += 1 {
         if err := touch(ctx, ctx.evocation.a[i], uint32(ctx.mode), ctx.path); err != nil {
-            erro(ctx, "%v", err).debug(1)
+            erro(ctx, "%v", err).debug()
             break
         }
     }
@@ -4387,7 +4414,7 @@ func (ctx *builtin_touchfile) x() (res interface{}) {
 // $(grep 'status=1',$@)
 // $(grep 'status=([0-9]+)',$1,$@)
 type builtin_grep struct { builtin_ }
-func (ctx *builtin_grep) x() (_ interface{}) {
+func (ctx *builtin_grep) x() (_ any) {
     var (
         args = ctx.evocation.a
         nargs = len(args)
@@ -4398,7 +4425,7 @@ func (ctx *builtin_grep) x() (_ interface{}) {
 
     )
     if !(nargs == 2 || nargs == 3) {
-        erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").debug(1)
+        erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").debug()
         return
     }
 
@@ -4409,10 +4436,10 @@ func (ctx *builtin_grep) x() (_ interface{}) {
     }
     for _, a := range rvs {
         if s := a.string(ctx); s == "" {
-            erro(at(ctx,a), "empty regexp").debug(1)
+            erro(at(ctx,a), "empty regexp").debug()
             return
         } else if r, e := regexp.Compile(s); e != nil {
-            erro(at(ctx,a), "%v", e).debug(1)
+            erro(at(ctx,a), "%v", e).debug()
             return
         } else {
             rxs = append(rxs, r)
@@ -4420,20 +4447,19 @@ func (ctx *builtin_grep) x() (_ interface{}) {
     }
 
     var pos = ctx.Position()
-    var cc = automatic{ Context:ctx, defs:make(autodefs),
-        suppress:func(s string) bool { return _isDigits(s) }}
+    var cc = automatic{Context:ctx, defs:make(auto_defs), suppress:IsDigits}
     var greped = func(line int, match []string) (done bool) {
         var vals []Value
         for i, s := range match {
             if d, v := cc.set(ctx, fmt.Sprintf("%d",i), makeStrlit(pos, s)); d == nil {
-                erro(ctx, "set $%d to '%s' failed", i, s).debug(1)
+                erro(ctx, "set $%d to '%s' failed", i, s).debug()
                 return
             } else { vals = append(vals, v) }
         }
         defer func() {
             for i, v := range vals {
                 if d, v := cc.set(ctx, fmt.Sprintf("%d",i), v); d == nil {
-                    erro(ctx, "restore $%d to '%s' failed", i, v).debug(1)
+                    erro(ctx, "restore $%d to '%s' failed", i, v).debug()
                 }
             }
         } ()
@@ -4452,8 +4478,8 @@ func (ctx *builtin_grep) x() (_ interface{}) {
         }
 
         if c := at(ctx, a); filename == "" {
-            var pc = cast[*programContext](ctx)
-            erro(c, "empty filename: %v", us(a))
+            var pc = _program_execution(ctx)
+            erro(c, "empty filename: %v", ts(a))
             erro(c, "%v %v", rvs, args)
             errostack(c, 5, "%p %v", pc, pc.search(ctx, "^")).debug(64)
             return
@@ -4490,14 +4516,11 @@ var (
 )
 
 func (project *project) strExpandConfig(ctx Context, s string) (result string, err error) {
-    var (
-        pos Position
-        res = new(bytes.Buffer)
-        index, line = 0, 0
-    )
-    if d := autoVal(ctx, "-file"); d != nil {
-        if f, y := toFile(d); y { pos.Filename = f.fullname() }
-        // warn(ctx, "%T %v %v", v, v, pos)
+    var pos Position
+    var index, line = 0, 0
+    var res = new(bytes.Buffer)
+    if v := auto_get(ctx, "-file"); v != nil {
+        if x, y := toFile(v); y { pos.Filename = x.fullname() }
     }
     for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
         line += strings.Count(s[index:m[0]], "\n")
@@ -4510,26 +4533,24 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
         var name string
         switch {
         case m[2] > m[0] && m[3] > m[2]: name = s[m[2]:m[3]] // ${VAR}
-        case m[4] > m[0] && m[5] > m[4]: name = s[m[4]:m[5]] // @VAR@
+        case m[4] > m[0] && m[5] > m[4]: name = s[m[4]:m[5]] //  @VAR@
         }
 
-        var (
-            def *def
-            val Value
-        )
-        if def = project.resolveDef(ctx, name); def == nil {
+        var d *def
+        var val Value
+        if d = project.resolveDef(ctx, name); d == nil {
             if true {
                 prompt(ctx, "%v: %v undefined\n", pos, name)
                 warnstack(ctx, 10, "in %v", project).debug(6)
             }
             continue
-        } else if val = def.invoke(ctx, nil, nil); isNull(val) {
-            if cf := project.configuration(ctx); cf == nil {
-                erro(at(ctx,def), "%v: configuration file not defined", name, cf).debug(1)
+        } else if val = d.invoke(ctx, nil, nil); isNull(val) {
+            if f := project._configuration(ctx); f == nil {
+                erro(at(ctx,d), "%v: configuration file not defined", name, f).debug()
                 return
-            } else if !cf.exists() {
-                prompt(ctx, "%s: file not exists (for %v)\n", cf.fullname(), name)
-                erro(at(ctx,def), "%v: configuration file not exists, try -conf first", name).debug(1)
+            } else if !f.exists() {
+                prompt(ctx, "%s: file not exists (for %v)\n", f.fullname(), name)
+                erro(at(ctx,d), "%v: configuration file not exists, try -conf first", name).debug()
                 return
             }
             continue
@@ -4537,15 +4558,16 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
 
         switch t := val.(type) {
         case *undef, undef: // FIXME: fmt.Fprintf(res, "#undef")
-        case *Plain: fmt.Fprintf(res, "%s", t.raw.String())
         case *answer, *boolean:
             if i, e := t.int(ctx); e == nil {
                 fmt.Fprintf(res, "%d", i)
             } else {
-                erro(ctx, "%: %v", t, i).debug(1)
+                erro(ctx, "%: %v", t, i).debug()
             }
         case *group:
             fmt.Fprintf(res, "%s", parseGroupValue(ctx, t).string(ctx))
+        case *Plain:
+            fmt.Fprintf(res, "%s", t.raw.String())
         default:
             fmt.Fprintf(res, "%s", val.string(ctx))
         }
@@ -4562,80 +4584,89 @@ func autoconf(ctx Context, out *bytes.Buffer, project *project, str string) (err
         info(ctx, "TODO: %v", m)
         num += 1
     }
-    warn(ctx, "TODO: %d", num).debug(1)
+    warn(ctx, "TODO: %d", num).debug()
     return
 }
 
-func configureString(ctx Context, out *bytes.Buffer, project *project, str string) (err error) {
-    if s, e := project.strExpandConfig(ctx, str); e != nil {
-        erro(ctx, "%v: %v", str, err).debug(1)
-        return e
+func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
+    defer trace(ctx)
+
+    if s, e := p.strExpandConfig(ctx, str); e != nil {
+        erro(ctx, "%v : %v", str, e).debug()
+        return
     } else { str = s }
 
     var index = 0
-    for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
-        if _, err = out.WriteString(str[index:m[0]]); err != nil {
-            erro(ctx, "WriteString: %v", err).debug(1)
+
+    for _, ii := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
+        if _, e := out.WriteString(str[index:ii[0]]); e != nil {
+            erro(ctx, "%v", e).debug()
             return
-        } else { index = m[1] }
+        }
+
+        index = ii[1]
 
         var (
+            d *def
             t bool
             s string
-            def *def
-            verb = str[m[2]:m[3]]
-            name = str[m[4]:m[5]]
-            hasv = m[6] > m[0] && m[7] > m[6]
+            verb = str[ii[2]:ii[3]]
+            name = str[ii[4]:ii[5]]
+            hasv = ii[6] > ii[0] && ii[7] > ii[6]
         )
-        if def = project.resolveDef(ctx, name); def != nil { // t = def.true(ctx);
-            if val := def.invoke(ctx, nil, nil); val == nil {
+        if d = p.resolveDef(ctx, name); d != nil {
+            if v := d.invoke(ctx, nil, nil); v == nil {
                 // noop, TODO: or #undef?
-            } else if _, undef := val.(*undef); undef {
-                _, err = out.WriteString(fmt.Sprintf("#undef /* %s */", name))
-                if err != nil { erro(ctx, "%v", err); return }
-                continue
+            } else if _, t := v.(*undef); t {
+                _, e := out.WriteString(fmt.Sprintf("#undef /* %s */", name))
+                if e != nil {
+                    erro(ctx, "%v", e).debug()
+                    return
+                } else {
+                    continue
+                }
             } else {
-                   t = val.true(ctx)
+                t = v.true(ctx)
             }
         }
 
         switch verb {
         case "define":
-            if hasv /*&& !(def == nil || def.value == nil)*/ {
-                v := str[m[6]:m[7]]
+            if hasv /*&& !(def == nil || d.value == nil)*/ {
+                v := str[ii[6]:ii[7]]
                 s = fmt.Sprintf("#define %s %s", name, v)
             } else {
                 s = fmt.Sprintf("#define %s", name)
             }
         case "undef":
             var va []Value
-            if def == nil {
+            if d == nil {
                 s = fmt.Sprintf("#undef %s", name)
-            } else if isNull(def.value) || isNone(def.value) {
-                s = fmt.Sprintf("#undef %s /* %v */", name, def.value)
-            } else if va = expand(ctx, def.value); len(va) == 1 {
+            } else if isNull(d.value) || isNone(d.value) {
+                s = fmt.Sprintf("#undef %s /* %v */", name, d.value)
+            } else if va = expand(ctx, d.value); len(va) == 1 {
                 switch v := va[0].(type) {
                 case *answer, *boolean:
                     if b := v.true(ctx); b {
-                        s = fmt.Sprintf("#define %s 1 /* %T %v */", name, v, v)
+                        s = fmt.Sprintf("#define %s 1 /* %s %v */", name, typeof(v), v)
                     } else {
-                        s = fmt.Sprintf("#undef %s /* %T %v */", name, v, v)
+                        s = fmt.Sprintf("#undef %s /* %s %v */", name, typeof(v), v)
                     }
                 case *strlit:
                     s = strings.Replace(v.s, "\"", "\\\"", -1)
                     s = fmt.Sprintf("#define %s \"%s\"", name, v.s)
                 default:
-                    s = fmt.Sprintf("#define %s %v /* %T */", name, v, v)
+                    s = fmt.Sprintf("#define %s %v /* %s */", name, v, typeof(v))
                 }
             } else {
-                var v = def.value
-                s = fmt.Sprintf("#define %s %v /* %T %v */", name, v, v, va)
+                var v = d.value
+                s = fmt.Sprintf("#define %s %v /* %s %v */", name, typeof(v), v, va)
             }
         case "smartdefine", "cmakedefine":
             if !t {
                 s = fmt.Sprintf("/* #undef %s */", name)
             } else if hasv {
-                v := str[m[6]:m[7]]
+                v := str[ii[6]:ii[7]]
                 s = fmt.Sprintf("#define %s %s", name, v)
             } else {
                 s = fmt.Sprintf("#define %s", name)
@@ -4644,25 +4675,35 @@ func configureString(ctx Context, out *bytes.Buffer, project *project, str strin
             if !t {
                 s = fmt.Sprintf("#define %s 0", name)
             } else if hasv {
-                v := str[m[6]:m[7]]
+                v := str[ii[6]:ii[7]]
                 s = fmt.Sprintf("#define %s 1 /* %s */", name, v)
             } else {
                 s = fmt.Sprintf("#define %s 1", name)
             }
         }
 
-        if _, err = out.WriteString(s); err != nil { erro(ctx, "%v", err); return }
+        if _, e := out.WriteString(s); e != nil {
+            erro(ctx, "%v", e).debug()
+            return
+        }
     }
-    if index < len(str) { _, err = out.WriteString(str[index:]) }
+
+    if len(str) <= index {
+        return
+    }
+    if _, e := out.WriteString(str[index:]); e != nil {
+        erro(ctx, "%v", e).debug()
+        return
+    }
     return
 }
 
 type builtin_untraversed struct { builtin_ }
-func (ctx *builtin_untraversed) x() (res interface{}) {
+func (ctx *builtin_untraversed) x() (res any) {
     return untraversed{ease(ctx, ctx.evocation.a)}
 }
 
 type builtin_return struct { builtin_ }
-func (ctx *builtin_return) x() (res interface{}) {
+func (ctx *builtin_return) x() (res any) {
     return &returner{valbase{ctx.Position()}, ctx.evocation.a }
 }

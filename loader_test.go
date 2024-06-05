@@ -11,7 +11,7 @@ import (
 
 func testLoader(ctx *testcase) {
     if s := _workdir(ctx); s == "" {
-        ctx.err("%s", us(ctx))
+        ctx.err("%s", ts(ctx))
     } else if !strings.HasSuffix(s, "/testdata/empty") {
         ctx.err("%s", s)
     }

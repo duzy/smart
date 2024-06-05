@@ -59,20 +59,32 @@ const (
 )
 
 type (
-  propGoodWith  struct{ p property ; a []any }
-  propParamName struct{ i int }
+  actCountDiag  struct{ t []diagType }
   actOnErros    struct{ i int }
   actDirtyMark  struct{ a []Value }
   actDirty      struct{ a []Value }
   actTraversed  struct{ v Value }
   actTraverse   struct{ v Value }
+  actMatchEntry struct{ v Value }
+  actArguments  struct{}
+  getArguments  struct{}
+  getIsTestMode struct{}
+  getScope      struct{}
+  getProject    struct{}
+  getClosure    struct{}
+  getObject     struct{ s string }
+  getEntry      struct{ s string }
+  propGoodWith  struct{ p property ; a []any }
+  propParamName struct{ i int }
 )
 
 func _position(ctx Context) (res Position) {
   if i := do(ctx, propPosition); i == nil {
-    erro(ctx, "no such operator: position, %v", us(ctx)).debug(24)
+    erro(ctx, "no such operator: position, %v", ts(ctx)).debug()
+    trace(ctx)
   } else if x, y := i.(Position); !y {
-    erro(ctx, "not position: %v", us(i)).debug(2)
+    erro(ctx, "not position: %v", ts(i)).debug()
+    trace(ctx)
   } else {
     res = x
   }
@@ -95,94 +107,100 @@ func _paramName(ctx Context, n int) (res string) {
 
 func _workdir(ctx Context) (res string) {
   if i := do(ctx, propWorkDir); i == nil {
-    erro(ctx, "no such operator: workdir, %v", us(ctx)).debug(24)
+    erro(ctx, "no such operator: workdir, %v", ts(ctx)).debug(24)
   } else if t, y := i.(string); y { res = t } else {
-    erro(ctx, "not string: %v", us(i)).debug(2)
+    erro(ctx, "not string: %v", ts(i)).debug(2)
   }
   return
 }
 
-func _exAuto(ctx Context) (res bool) {
+func count_error(ctx Context) int { return count_diag(ctx, diagError) }
+func count_diag(ctx Context, t ...diagType) (i int) {
+  i, _ = do(ctx, actCountDiag{t}).(int)
+  return
+}
+
+func ex_auto(ctx Context) (res bool) {
   res, _ = do(ctx, propExAuto).(bool)
   return
 }
 
-func _exClosure(ctx Context) (res bool) {
+func ex_closure(ctx Context) (res bool) {
   res, _ = do(ctx, propExClosure).(bool)
   return
 }
 
-func _exDelegate(ctx Context) (res bool) {
+func ex_delegate(ctx Context) (res bool) {
   res, _ = do(ctx, propExDelegate).(bool)
   return
 }
 
-func _exDef(ctx Context) (res bool) {
+func ex_def(ctx Context) (res bool) {
   res, _ = do(ctx, propExDef).(bool)
   return
 }
 
-func _exDef0(ctx Context) (res bool) {
+func ex_def0(ctx Context) (res bool) {
   res, _ = do(ctx, propExDef0).(bool)
   return
 }
 
-func _exDef1(ctx Context) (res bool) {
+func ex_def1(ctx Context) (res bool) {
   res, _ = do(ctx, propExDef1).(bool)
   return
 }
 
-func _exDef2(ctx Context) (res bool) {
+func ex_def2(ctx Context) (res bool) {
   res, _ = do(ctx, propExDef2).(bool)
   return
 }
 
-func _exDefValue(ctx Context) (res bool) {
+func ex_def_value(ctx Context) (res bool) {
   res, _ = do(ctx, propExDefValue).(bool)
   return
 }
 
-func _exDigital(ctx Context) (res bool) {
+func ex_digital(ctx Context) (res bool) {
   res, _ = do(ctx, propExDigital).(bool)
   return
 }
 
-func _exDisjunction(ctx Context) (res bool) {
+func ex_disjunction(ctx Context) (res bool) {
   res, _ = do(ctx, propExDisjunction).(bool)
   return
 }
 
-func _exFullFile(ctx Context) (res bool) {
+func ex_fullfile(ctx Context) (res bool) {
   res, _ = do(ctx, propExFullFile).(bool)
   return
 }
 
-func _exEvaluation(ctx Context) (res bool) {
+func ex_evaluation(ctx Context) (res bool) {
   res, _ = do(ctx, propExEvaluation).(bool)
   return
 }
 
-func _exPairVal(ctx Context) (res bool) {
+func ex_pair_value(ctx Context) (res bool) {
   res, _ = do(ctx, propExPairVal).(bool)
   return
 }
 
-func _exPathStr(ctx Context) (res bool) {
+func ex_path_str(ctx Context) (res bool) {
   res, _ = do(ctx, propExPathStr).(bool)
   return
 }
 
-func _exPlaceholder(ctx Context) (res bool) {
+func ex_placeholder(ctx Context) (res bool) {
   res, _ = do(ctx, propExPlaceholder).(bool)
   return
 }
 
-func _exCondless(ctx Context) (res bool) {
+func ex_condless(ctx Context) (res bool) {
   res, _ = do(ctx, propExCondless).(bool)
   return
 }
 
-func _exFinal(ctx Context) (res bool) {
+func ex_final(ctx Context) (res bool) {
   res, _ = do(ctx, propExFinal).(bool)
   return
 }
@@ -192,29 +210,25 @@ func goodwith(ctx Context, p property, a ...any) (res bool) {
   return
 }
 
-type doer interface { do(Context,any) any }
+func is_test_mode(ctx Context) (res bool) {
+  res, _ = do(ctx, getIsTestMode{}).(bool)
+  return
+}
 
+type caster interface { cast(reflect.Type) Context }
+type doer interface { do(Context, any) any }
 type Context interface {
-  Position() Position
-
-  globe() *globe
-
-  cast(reflect.Type) Context
-  closure() []*Scope
-
-  scope() *Scope
-  project() *project
-  projects(Context, ...*project) []*project
-
+  positioner
+  caster
   doer
 }
 
 func do(ctx Context, op any) any { return ctx.do(ctx, op) }
 
-func cast[Ctx Context](ctx Context) (c Ctx) {
+func cast[T Context](ctx Context) (res T) {
   if ctx != nil {
-    var t = ctx.cast(reflect.TypeOf(c))
-    if t != nil { c = t.(Ctx) }
+    var t = ctx.cast(reflect.TypeOf(res))
+    if t != nil { return t.(T) }
   }
   return
 }
@@ -229,11 +243,13 @@ func implcast(ctx Context, t reflect.Type) (c Context) {
 }
 
 func _inner(v reflect.Value) (i any) {
-  if t := v.Type(); t.Kind() == reflect.Struct {
-    if f, y := t.FieldByName("Context"); y && f.Anonymous {
-      if v = v.FieldByIndex(f.Index); v.IsValid() { i = v.Interface() }
-    } else if f, y := v.Interface().(interface{ inner() Context }); y && f != nil {
-      i = f.inner()
+  if x, y := v.Interface().(interface{ inner() Context }); y && x != nil {
+    i = x.inner()
+  } else if t := v.Type(); t.Kind() == reflect.Struct {
+    if x, y := t.FieldByName("Context"); y && x.Anonymous {
+      if v = v.FieldByIndex(x.Index); v.IsValid() {
+        i = v.Interface()
+      }
     }
   } else if t.Kind() == reflect.Pointer {
     i = _inner(v.Elem())
@@ -246,8 +262,23 @@ func inner(ctx Context) (c Context) {
   return
 }
 
+func get_scope(ctx Context) (s *scope) {
+  s, _ = do(ctx, getScope{}).(*scope)
+  return
+}
+
+func get_project(ctx Context) (p *project) {
+  p, _ = do(ctx, getProject{}).(*project)
+  return
+}
+
+func closure_scopes(ctx Context) (s []*scope) {
+  s, _ = do(ctx, getClosure{}).([]*scope)
+  return
+}
+
 func getTargetValue(ctx Context) (res Value) {
-  if val := autoVal(ctx, "@"); val == nil {
+  if val := auto_get(ctx, "@"); val == nil {
     if false { erro(ctx, "target is nil") }
   } else if vals := expand(ctx, val); len(vals) == 1 {
     res = scalarize(vals[0])
@@ -342,10 +373,10 @@ func debugSyntax(ctx Context, s string) (res bool) {
 }
 
 func db(ctx Context, ss ...string) (res bool) {
-    for _, d := range strings.Fields(_universe(ctx).ddd) {
-        for _, s := range ss { if d == s { return true } }
-    }
-    return
+  for _, d := range strings.Fields(_universe(ctx).ddd) {
+    for _, s := range ss { if d == s { return true } }
+  }
+  return
 }
 
 const (
@@ -386,7 +417,7 @@ func (d *diagPoint) debug(args ...any) *diagPoint {
 }
 
 type tracend struct { Context }
-func (t tracend) String() string { return "trace "+us(t.Context) }
+func (t tracend) String() string { return "trace "+ts(t.Context) }
 
 func trace(ctx Context, a ...any) {
   if trace_recover {
@@ -397,14 +428,14 @@ func trace(ctx Context, a ...any) {
       case       bailout:
       case       tracend:  x = t.Context
       case       failure: erro(t.Context, t.Error())
-      case         Value: erro(at(ctx,t), "trace: %s", us(t))
+      case         Value: erro(at(ctx,t), "trace: %s", ts(t))
       case        string: erro(   ctx   , "trace: %s", t)
       case runtime.Error: erro(   ctx   , "trace: %s", t.Error())
-      default:            erro(   ctx   , "trace: %s", us(e))
+      default:            erro(   ctx   , "trace: %s", ts(e))
       }
     }
     if 0 < recovered {
-      erro(ctx, "%s (%d panics)", us(x), recovered).debug(64)
+      erro(ctx, "%s (%d panics)", ts(x), recovered).debug(64)
     }
   }
   if d := _diagnostic(ctx) ; d.countError() > 0 {
@@ -432,8 +463,9 @@ type diagnostic struct {
 func (diag *diagnostic) aquire() (unlock func()) { diag.Lock(); return func(){ diag.Unlock() }}
 func (diag *diagnostic) cast(t reflect.Type) Context { return implcast(diag,t) }
 func (diag *diagnostic) do(ctx Context, op any) any {
-  switch op {
-  case propErros: return diag.erros
+  switch t := op.(type) {
+  case actCountDiag: return diag.count(t.t...)
+  case property: if t&propErros != 0 { return diag.erros }
   }
   if diag.Context == nil { return nil }
   return diag.Context.do(ctx, op)
@@ -614,9 +646,9 @@ func diagstack(ctx Context, n int, dt diagType, a ...any) (point *diagPoint) {
       last = pos
 
       if true {
-        s = _p.project().name + " ; " + us(_p)
+        s = get_project(ctx).name + " ; " + ts(_p)
       } else {
-        s = us(_p)
+        s = ts(_p)
       }
 
       if _e := _entry(_p); _e != nil {
@@ -643,16 +675,17 @@ func diagstack(ctx Context, n int, dt diagType, a ...any) (point *diagPoint) {
 func _positional(c Context) *positional { return cast[*positional](c) }
 
 type positional struct { Context ; position Position }
-func (pc *positional) Position() Position { return pc.position }
-func (pc *positional) caller() *positional { return _positional(pc.Context) }
-func (pc *positional) cast(t reflect.Type) Context { return implcast(pc, t) }
-func (pc *positional) do(ctx Context, op any) any {
+func (p *positional) Position() Position { return p.position }
+func (p *positional) caller() *positional { return _positional(p.Context) }
+func (p *positional) cast(t reflect.Type) Context { return implcast(p, t) }
+func (p *positional) ts(string) string { return ts(p.Context) }
+func (p *positional) do(ctx Context, op any) any {
   switch t := op.(type) {
   case property:
-    if t&propPosition != 0 { return pc.position }
+    if t&propPosition != 0 { return p.position }
   }
-  if pc.Context == nil { return nil }
-  return pc.Context.do(ctx, op)
+  if p.Context == nil { return nil }
+  return p.Context.do(ctx, op)
 }
 
 func _at(ctx Context, p Position) Context { return &positional{ctx, p} }
@@ -664,12 +697,14 @@ func at(ctx Context, a any) Context {
   switch t := a.(type) {
   case Position  : pos = t
   case positioner: pos = t.Position()
+  case doer:
+    if x, y := t.do(ctx, propPosition).(Position); y&&x.valid() { pos = x }
   default:
-    if false { erro(ctx, "non-position arg: %v", us(a)).debug(3) }
+    if false { erro(ctx, "non-position arg: %v", ts(a)).debug(3) }
     return ctx
   }
 
-  if p := ctx.Position(); p._valid() && pos._valid() && !p.Same(&pos) {
+  if p := ctx.Position(); p.valid() && pos.valid() && !p.Same(&pos) {
     for c, i, n := ctx, 0, 0; c != nil; c, i = inner(c), i+1 {
       if _, y := c.(*positional); y {
         if n += 1; n > /* 999 */100 {
@@ -684,53 +719,6 @@ func at(ctx Context, a any) Context {
     ctx = _at(ctx, pos)
   }
   return ctx
-}
-
-func _argumentedContext(c Context) *argumentedContext { return cast[*argumentedContext](c) }
-
-type argumentedContext struct { Context ; args []Value }
-func (ac *argumentedContext) cast(t reflect.Type) Context { return implcast(ac,t) }
-func (ac *argumentedContext) argumented() *argumentedContext { return ac }
-
-func executeEntry(ctx Context, entry *rule, args ...Value) (result []Value, okay bool) {
-  var traves travestates
-  if result, traves = entry.execute(at(ctx, entry.position), args...); !traves.has() {
-    return result, true
-  }
-
-  if t := traves.of(traveFail); t.has() {
-    for _, brk := range t { erro(at(ctx,brk.pos), "%v: %v", entry, brk).debug(1) }
-    traves = traves.not(traveFail)
-    return result, false
-  }
-
-  if t := traves.of(traveCase, traveDone, traveNext, traveRule, traveFile); t.has() {
-    traves = traves.not(traveCase, traveDone, traveNext, traveRule, traveFile)
-  }
-
-  if traves.has() {
-    for _, brk := range traves { erro(at(ctx,brk.pos), "%v: %v", entry, brk).debug(1) }
-  } else {
-    okay = true
-  }
-  return
-}
-
-func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
-  if isNull(goal) {
-    // TODO: report nil goal
-  } else {
-    var okay bool
-    switch g := goal.(type) {
-    case *rule:
-      if result, okay = executeEntry(at(ctx, g.position), g, args...); !okay {
-        erro(at(ctx,ctx.Position()), "update '%v' failed", g).debug(1)
-      }
-    default:
-      erro(at(ctx,goal), "'%v' is not an entry (%T)", goal, goal).debug(1)
-    }
-  }
-  return
 }
 
 func walkSmartBaseDirs(ctx Context, cwd string, vis func(string)bool) (s string) {
@@ -820,16 +808,16 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
     case failure:
       erro(t.Context, t.Error()) ; t.Context = nil
       if f == nil { f = &t }
-    case         Value: erro(at(ctx,t), "assured: %s", us(t))
+    case         Value: erro(at(ctx,t), "assured: %s", ts(t))
     case        string: erro(   ctx   , "assured: %s", t)
     case runtime.Error: erro(   ctx   , "assured: %s", t.Error())
-    default:            erro(   ctx   , "assured: %s", us(e))
+    default:            erro(   ctx   , "assured: %s", ts(e))
     }
   }
 
   if 0 < recovered {
     // if defer assured from top stack, this will dump the full stack of panics
-    promstack(ctx, 5, "%v: %s (%d panics)", ctx.Position(), us(te.Context), recovered).debug(128)
+    promstack(ctx, 5, "%v: %s (%d panics)", ctx.Position(), ts(te.Context), recovered).debug(128)
   }
 
   te.Context = nil

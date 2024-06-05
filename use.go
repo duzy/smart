@@ -56,7 +56,7 @@ func (p *use) stat(ctx Context) (si *statinfo) {
         return
 }
 func (p *use) traverse(ctx Context) {
-        erro(at(ctx,p.position), "cant traverse 'use' %v", p.project).debug(1)
+        erro(at(ctx,p.position), "cant traverse 'use' %v", p.project).debug()
         return
 }
 func (p *use) stamp(ctx Context) (files []*File, err error) {
@@ -111,13 +111,12 @@ func (p *use) string(ctx Context) (s string) {
 type uselist struct {
         owner_ *project
         name string
-        scope *Scope
+        scope *scope
         list []*use
 }
-func (_ *uselist) kind() Kind { return KindUseList }
+func (_ *uselist) kind() Kind { return KindUse|KindArray }
 func (p *uselist) ident(_ Context) string { return p.name }
 func (p *uselist) owner() *project { return p.owner_ }
-func (p *uselist) declScope() *Scope { return p.scope }
 func (p *uselist) Position() (pos Position) {
         if len(p.list) > 0 {
                 pos = p.list[0].Position()
@@ -228,7 +227,7 @@ func (p *uselist) expand(ctx Context) (res Value) {
         return
 }
 func (p *uselist) traverse(ctx Context) {
-        erro(at(ctx,p.list[0].position), "cant traverse 'uselist'").debug(1)
+        erro(at(ctx,p.list[0].position), "cant traverse 'uselist'").debug()
         return
 }
 func (p *uselist) append(ctx Context, proj *project, params []Value, opts useOpts) {
@@ -240,15 +239,15 @@ func (p *uselist) append(ctx Context, proj *project, params []Value, opts useOpt
         p.list = append(p.list, &use{valbase{ctx.Position()},proj,params,opts})
 }
 
-func (p *uselist) get(ctx Context, name string) (result Value) {
+func (p *uselist) sel(ctx Context, name string) (result any) {
         var vals []Value
         var n = "use."+name
         for _, u := range p.list { if u.opts.noVars { continue }
-                if o := u.project.scope_.Lookup(n); o != nil {
+                if o := u.project.Lookup(n); o != nil {
                         vals = append(vals, o)
                 }
         }
-        return ease(ctx, vals)
+        return vals
 }
 
 func (p *uselist) invoke(ctx Context, o, a []Value) (result Value) {
@@ -256,7 +255,7 @@ func (p *uselist) invoke(ctx Context, o, a []Value) (result Value) {
         if p.list != nil {
                 for _, usee := range p.list {
                         if entry := usee.project.defaultEntry; entry != nil {
-                                if usee.project.opts.traveUseLoop {
+                                if usee.project.opt.traveUseLoop {
                                         // FIXME: break use loop
                                 } else if false {
                                         usePrepared[usee.project] += 1

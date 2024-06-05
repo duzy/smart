@@ -60,7 +60,7 @@ func (_ *plainInt) evaluate(ctx Context, args ...Value) (result Value, err error
                 program.language = name
         }
         if str, err = multiline(ctx, program.recipes...); err != nil {
-                erro(at(ctx,args[0]), "%v", err).debug(1)
+                erro(at(ctx,args[0]), "%v", err).debug()
                 return
         } else if len(program.recipes) > 0 {
                 pos = program.recipes[0].Position()
@@ -202,7 +202,7 @@ type xml struct { whitespace bool }
 func (p *xml) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var source string
         if source, err = multiline(ctx, _program(ctx).recipes...); err != nil {
-                erro(ctx, "%v", err).debug(1)
+                erro(ctx, "%v", err).debug()
                 return
         }
         if result, err = DecodeXML(ctx, source, p.whitespace); err == nil {
@@ -437,13 +437,13 @@ type yaml struct { whitespace bool }
 func (p *yaml) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var source string
         if source, err = multiline(ctx, _program(ctx).recipes...); err != nil {
-                erro(ctx, "%v", err).debug(1)
+                erro(ctx, "%v", err).debug()
                 return
         } else if result, err = DecodeYAML(ctx, source, p.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
                 result = &YAML{ makeNone(ctx.Position()) }
-                erro(ctx, "%v", err).debug(1)
+                erro(ctx, "%v", err).debug()
         }
         return
 }

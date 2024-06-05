@@ -55,7 +55,7 @@ func un(t l_tracer) {
 }
 
 func tr(t l_tracer, i Value) l_tracer {
-	t.tracef("%s (", us(i))
+	t.tracef("%s (", ts(i))
 	t.level(+1)
 	t.tracef("%v", t.elapsed())
     return t
@@ -64,9 +64,9 @@ func tr(t l_tracer, i Value) l_tracer {
 func tt(t l_tracer, ctx Context, i Value) l_tracer {
     // Note that t.args and t.arguments are different, they're
     // target execution args and argumented-prerequisite args.
-    var a string = us(_entry(ctx).Target())
-    if false { a += " " + us(ctx) }
-    t.trace(a, ":", us(i), "(")
+    var a string = ts(_entry(ctx).destiny())
+    if false { a += " " + ts(ctx) }
+    t.trace(a, ":", ts(i), "(")
     t.level(+1)
 	t.tracef("%v", t.elapsed())
     return t

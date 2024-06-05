@@ -16,39 +16,37 @@ import (
 	"io"
 )
 
-// A Scope maintains a set of objects;
-// TODO: remote Scope struct, use scopeContext instead
-type Scope struct {
+// A scope maintains a set of objects;
+// TODO: remote scope struct, use scopeContext instead
+type scope struct {
 	mutex sync.Mutex
 	elems map[string]Object
-	position Position
 	project *project
-	outer *Scope
+	outer *scope
 	comment string
 }
 
-func newScope(pos Position, outer *Scope, project *project, comment string) *Scope {
-	return &Scope{
+func newscope(pos Position, outer *scope, owner *project, comment string) *scope {
+	return &scope{
 		outer: outer,
-		position: pos,
-		project: project,
+		project: owner,
 		comment: comment,
 		elems: make(map[string]Object),
 	}
 }
 
-func (s *Scope) hasOuter(outer *Scope) bool {
+func (s *scope) hasOuter(outer *scope) bool {
 	return s.outer != nil && (s.outer == outer || s.outer.hasOuter(outer))
 }
 
-func (s *Scope) copyElems() (result map[string]Object) {
+func (s *scope) copyElems() (result map[string]Object) {
 	s.mutex.Lock(); defer s.mutex.Unlock()
 	result = make(map[string]Object, len(s.elems))
 	for k, o := range s.elems { result[k] = o }
 	return
 }
 
-func (s *Scope) estr() (res string) {
+func (s *scope) estr() (res string) {
 	for _, o := range s.elems {
 		if res != "" { res += " " }
 		res += fmt.Sprintf("%v", o)
@@ -56,17 +54,11 @@ func (s *Scope) estr() (res string) {
 	return
 }
 
-// Len() returns the number of scope elements.
-func (s *Scope) Len() int {
-	s.mutex.Lock(); defer s.mutex.Unlock()
-	return len(s.elems)
-}
-
 // Names returns the scope's element names in sorted order.
-func (s *Scope) Names() []string {
-	s.mutex.Lock(); defer s.mutex.Unlock()
-	names := make([]string, len(s.elems))
-	i := 0
+func (s *scope) names() []string {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+	var i = 0
+	var names = make([]string, len(s.elems))
 	for name := range s.elems {
 		names[i] = name
 		i++
@@ -77,11 +69,11 @@ func (s *Scope) Names() []string {
 
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
-func (s *Scope) Lookup(name string) Object {
+func (s *scope) Lookup(name string) Object {
 	s.mutex.Lock() ; defer s.mutex.Unlock()
 	return s.lookup(name)
 }
-func (s *Scope) lookup(name string) (obj Object) {
+func (s *scope) lookup(name string) (obj Object) {
 	if s.elems != nil { obj, _ = s.elems[name] }
 	return
 }
@@ -95,20 +87,22 @@ func (s *Scope) lookup(name string) (obj Object) {
 // object was inserted into the scope and already had a outer at that
 // time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
-func (s *Scope) find(name string) (res *Scope, obj Object) {
-	if false { s.mutex.Lock(); defer s.mutex.Unlock() }
-	if obj = s.lookup(name); obj == nil && s.outer != nil {
-		if false { for t := s.outer; t != nil; t = s.outer {
-			if t == s { panic(name) }
-		}}
-		if p, o := s.outer.find(name); o != nil {
-			res, obj = p, o
-		}
+func (s *scope) find(name string) (res *scope, obj Object) {
+	if obj = s.lookup(name) ; obj != nil {
+		return s, obj
+	} else if  s.outer != nil {
+		return s.outer.find(name)
 	}
-	return s, obj
+	return
 }
 
-func (s *Scope) resolve(name string) (obj Object) {
+func (s *scope) findDef(name string) (d *def) {
+	if _, o := s.find(name) ; o != nil { d, _ = o.(*def) }
+	return
+}
+
+func (s *scope) resolve(name string) (obj Object) {
+	if false { s.mutex.Lock() ; defer s.mutex.Unlock() }
 	_, obj = s.find(name)
 	return
 }
@@ -118,7 +112,7 @@ func (s *Scope) resolve(name string) (obj Object) {
 // the same name, Insert leaves s unchanged and returns alt.
 // Otherwise it inserts obj, sets the object's outer scope
 // if not already set, and returns nil.
-func (s *Scope) insert(ctx Context, obj Object) Object {
+func (s *scope) insert(ctx Context, obj Object) Object {
 	s.mutex.Lock(); defer s.mutex.Unlock()
 	var name = obj.ident(ctx)
 	if alt := s.elems[name]; alt != nil {
@@ -128,35 +122,36 @@ func (s *Scope) insert(ctx Context, obj Object) Object {
 	return nil
 }
 
-func (s *Scope) replace(ctx Context, name string, obj Object) {
-	var o = obj.declScope()
-	if false && o == s { return }
-	if o != nil { delete(o.elems, name) }
-	s.elems[name] = obj
-	if i, y := obj.(interface{ setscope(*Scope) }); y {
-		i.setscope(s)
+func (s *scope) replace(ctx Context, name string, obj Object) {
+	switch o := obj.(type) {
+	case interface { setscope(string, *scope) }:
+		o.setscope(name, s)
 	}
+	s.elems[name] = obj
 }
 
 // WriteTo writes a string representation of the scope to w,
 // with the scope elements sorted by name.
 // The level of indentation is controlled by n >= 0, with
 // n == 0 for no indentation.
-func (s *Scope) WriteTo(w io.Writer, n int) {
-	s.mutex.Lock(); defer s.mutex.Unlock()
+func (s *scope) WriteTo(w io.Writer, n int) {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
 
 	const ind = ".  "
-	indn := strings.Repeat(ind, n)
+
+	var indn  = strings.Repeat(ind, n)
+	var indn1 = indn + ind
 
 	fmt.Fprintf(w, "%s%s scope %p {", indn, s.comment, s)
+
 	if len(s.elems) == 0 {
 		fmt.Fprintf(w, "}")
 		return
 	}
 
 	fmt.Fprintln(w)
-	indn1 := indn + ind
-	for _, name := range s.Names() {
+
+	for _, name := range s.names() {
 		fmt.Fprintf(w, "%s%s\n", indn1, s.elems[name])
 	}
 
@@ -164,8 +159,8 @@ func (s *Scope) WriteTo(w io.Writer, n int) {
 }
 
 // String returns a string representation of the scope, for debugging.
-func (s *Scope) String() string { return fmt.Sprintf("{=scope %s}", s.string()) }
-func (s *Scope) string() string {
+func (s *scope) String() string { return fmt.Sprintf("{=scope %s}", s.string()) }
+func (s *scope) string() string {
 	var buf bytes.Buffer //s.WriteTo(&buf, 0)
 	if s.outer != nil {
 		if false {
@@ -179,91 +174,104 @@ func (s *Scope) string() string {
 	return buf.String()
 }
 
-func (s *Scope) FindDef(name string) (res *def) {
-	if _, sym := s.find(name); sym != nil {
-		res, _ = sym.(*def)
+func (s *scope) projectname(ctx Context, name string, project *project) (p *project, a Object) {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+	if a = s.elems[name] ; a == nil {
+		p = project
+		s.replace(ctx, name, p)
 	}
 	return
 }
 
-func (scope *Scope) projectname(ctx Context, name string, project *project) (out *project, alt Object) {
-	scope.mutex.Lock(); defer scope.mutex.Unlock()
-	if alt = scope.elems[name]; alt == nil {
-		out = project
-		scope.replace(ctx, name, out)
+func (s *scope) builtin(ctx Context, name string, f reflect.Type) (res *builtin, a Object) {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+	if a = s.elems[name] ; a == nil {
+		res = &builtin{knownobject{objbase{scope:s}, name}, f}
+		s.replace(ctx, name, res)
 	}
 	return
 }
 
-func (scope *Scope) builtin(ctx Context, name string, f reflect.Type) (res *builtin, alt Object) {
-	scope.mutex.Lock(); defer scope.mutex.Unlock()
-	if alt = scope.elems[name]; alt == nil {
-		res = &builtin{
-			knownobject{
-				objbase{
-					scope_: scope,
-					owner_: nil,
-				}, name,
-			}, f,
-		}
-		scope.replace(ctx, name, res)
-	}
-	return
-}
+func (s *scope) _auto(ctx Context, name string) (a *auto, o Object) {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
 
-func (scope *Scope) auto2(ctx Context, name string) (a *auto, alt Object) {
-	scope.mutex.Lock(); defer scope.mutex.Unlock()
+	var y bool
 
-	var okay bool
-	if alt, okay = scope.elems[name]; okay && alt == nil {
-		delete(scope.elems, name)
-		okay = false
+	if o, y = s.elems[name]; y && o == nil {
+		delete(s.elems, name)
+		y = false
 	}
-	if !okay {
+
+	if !y {
 		p := ctx.Position()
-		a = &auto{
-			knownobject{
-				objbase{valbase{p}, scope, ctx.project()},
-				name,
-			},
-		}
-		scope.replace(ctx, name, a)
+		a = &auto{knownobject{objbase{valbase{p},s}, name}}
+		s.replace(ctx, name, a)
 	}
 	return
 }
 
-func (scope *Scope) auto(ctx Context, name string, alias ...string) (a *auto) {
-	var t Object
-	if a, t = scope.auto2(ctx, name); t != nil { var y bool
-		if a, y = t.(*auto)	; !y { erro(ctx, "name '%s' already taken: %T", t) }
+func (s *scope) auto(ctx Context, name string) (a *auto) {
+	var y bool
+	var o Object
+	if a, o = s._auto(ctx, name); o != nil {
+		if a, y = o.(*auto); !y {
+			erro(ctx, "name already taken (%s)", typeof(o)).debug()
+		}
 	}
-	if a != nil { for _, s := range alias {
-		scope.replace(ctx, s, a)
-	}}
 	return
 }
 
-func (scope *Scope) define(ctx Context, origin origin, name string, value Value) (d *def, alt Object) {
-	scope.mutex.Lock(); defer scope.mutex.Unlock()
+func (s *scope) alias(ctx Context, o Object, alias ...string) {
+	for _, a := range alias { s.elems[a] = o }
+}
 
-	var okay bool
-	if alt, okay = scope.elems[name]; okay && alt == nil {
-		delete(scope.elems, name)
-		okay = false
+func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *def, a Object) {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+
+	defer trace(ctx)
+
+	var name string
+	switch t := ident.(type) {
+	case string: name = t
+	case  Value:
+		if indeterminate(ctx, t) {
+			erro(ctx, "indeterminate ident : %s", ts(ident)).debug()
+			return
+		}
+
+		name = t.string(ctx)
 	}
 
-	if !okay {
-		d = &def{
-			origin: origin, value: value,
-			knownobject: knownobject{
-				objbase{
-					scope_: scope,
-					owner_: scope.project, //ctx.project(),
-				}, name,
-			},
+	if name == "" {
+		erro(ctx, "empty name : %s", ts(ident)).debug()
+		return
+	}
+
+	var y bool
+
+	a, y = s.elems[name]
+
+	if !y || a == nil {
+		var value Value
+		if len(vals) == 1 {
+			value = vals[0]
+		} else if 1 < len(vals) {
+			value = ease(ctx, vals)
 		}
-		if value != nil { d.position = value.Position() }
-		scope.replace(ctx, name, d)
+
+		if origin == defUndetermined { origin = defVoid }
+
+		d = &def{ origin:origin, value:value }
+		d.name, d.scope, d.position = name, s, ctx.Position()
+		s.replace(ctx, name, d)
+	} else if d, y = a.(*def); y {
+		if len(vals) == 1 {
+			d.set(ctx, origin, vals[0])
+		} else if 1 < len(vals) {
+			d.set(ctx, origin, nil, vals...)
+		} else if origin != defUndetermined {
+			d.set(ctx, origin, nil)
+		}
 	}
 	return
 }

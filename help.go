@@ -7,7 +7,7 @@
 package smart
 
 func do_helpscreen(ctx Context) {
-        prompt(ctx, `Build your projects the smart way!
+    prompt(ctx, `Build your projects the smart way!
 
 Usage:
 
@@ -15,13 +15,13 @@ Usage:
     smart -configure[(arguments)]
     smart -reconfigure[(arguments)]
 `)
-        for name, _ := range ctx.globe().flagEntries {
-                if name == "" { continue }
-                prompt(ctx, `
-    smart -%s[(arguments)]`, name)
-        }
-
+    for name, _ := range _universe(ctx).globe.flagEntries {
+        if name == "" { continue }
         prompt(ctx, `
+    smart -%s[(arguments)]`, name)
+    }
+
+    prompt(ctx, `
 
 Basic:
 
@@ -39,11 +39,11 @@ Basic:
 
 `)
 
-        print_flag_entries(ctx)
-        print_help_entries(ctx)
-        print_options(ctx)
+    print_flag_entries(ctx)
+    print_help_entries(ctx)
+    print_options(ctx)
 
-        prompt(ctx, `
+    prompt(ctx, `
 Issues:
 
     * https://github.com/extbit/smart/issues
@@ -54,7 +54,7 @@ Issues:
 
 func print_flag_entries(ctx Context) {
         prompt(ctx, "Defined:\n")
-        for name, entries := range ctx.globe().flagEntries {
+        for name, entries := range _universe(ctx).globe.flagEntries {
                 if len(entries) == 0 || name == "" { continue }
                 prompt(ctx, `
    -%s`, name)
@@ -63,7 +63,7 @@ func print_flag_entries(ctx Context) {
 }
 
 func print_flag_trace(ctx Context) {
-        for name, entries := range ctx.globe().flagEntries {
+        for name, entries := range _universe(ctx).globe.flagEntries {
                 if name == "" { continue }
                 for _, entry := range entries {
                         prompt(ctx, "%s: %v\n", entry.Position(), entry)
@@ -79,8 +79,8 @@ func print_options(ctx Context) {
 
     var opts []opt
     _universe(ctx).forConfigs(func(proj *project, entry entry) {
-        y, infos := entry.option(ctx)
-        if y { opts = append(opts, opt{entry, infos}) }
+        var infos = ruleOptionInfos(ctx, entry)
+        if infos != nil { opts = append(opts, opt{entry, infos}) }
     })
     if len(opts) == 0 { return }
 
@@ -114,4 +114,33 @@ func print_configuration(ctx Context) {
     }
 
     prompt(ctx, "\n")
+}
+
+func ruleOptionInfos(ctx Context, e entry) (infos []Value) {
+    for _, p := range e.programs() {
+        if!p.configure { continue }
+        for _, depend := range p.depends {
+            g, ok := depend.(*modification)
+            if!ok { continue }
+            for _, m := range g.list {
+                if m.elems[0].string(ctx) != "configure" { continue }
+                for _, arg := range m.elems[1:] {
+                    a, ok := arg.(*argumented)
+                    if!ok { continue }
+                    f, ok := a.Value.(flag)
+                    if!ok { continue }
+                    if f.Value.string(ctx) != "option" { continue }
+                    for _, v := range a.args {
+                        if p, ok := v.(*pair); ok {
+                            if p.key.string(ctx) != "info" { continue }
+                            v = p.val
+                        }
+                        infos = append(infos, v)
+                    }
+                    return
+                }
+            }
+        }
+    }
+    return
 }

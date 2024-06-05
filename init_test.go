@@ -9,6 +9,7 @@ import (
     "path/filepath"
 	"strings"
 	"testing"
+	"fmt"
 	"os"
 )
 
@@ -53,7 +54,8 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 	ctx.flued = init_lines
 	ctx.panicFailureOnErrosFlushed = false
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
-	ctx.globe_.main = nil
+	ctx.testMode = true
+	ctx.globe.main = nil
 	ctx.workdir = dir
 
 	if testHasModule("configure") {
@@ -64,13 +66,13 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 
 	if e := ctx.load(); e != nil {
 		erro(ctx, "%v", e).debug()
-	} else if m := ctx.globe_.main; m == nil {
+	} else if m := ctx.globe.main; m == nil {
 		erro(ctx, "%s", dir).debug()
 	} else if name != "" && m.name != name {
 		erro(ctx, "project %v != %v", m.name, name).debug(1, skipint{3})
 	} else {
-		res.Context = _closureWith(ctx, m) // TODO: projectContext{ctx, m}
-		testRemoveConfigureDir(res, res.project())
+		res.Context = _closure_with(ctx, m) // TODO: projectContext{ctx, m}
+		testRemoveConfigureDir(res, get_project(ctx))
 	}
 
 	ctx.diagnostic.flush(ctx)
@@ -81,7 +83,16 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 	return
 }
 
-func (tc *testcase) String() string { return us(tc.Context) }
+func (tc *testcase) String() string { return ts(tc.Context) }
+func (tc *testcase) ts(string) string {
+	return fmt.Sprintf("{=test %v}", ts(tc.Context))
+}
+func (tc *testcase) do(ctx Context, op any) any {
+	switch op.(type) {
+	case getIsTestMode: return true
+	}
+	return tc.Context.do(ctx, op)
+}
 
 func (tc *testcase) err(f string, i ...any) {
 	var ctx = tc.Context
@@ -107,7 +118,7 @@ func (tc *testcase) err(f string, i ...any) {
 			} else if v, y := a.(Value); y {
 				ctx = at(ctx, v.Position())
 				break
-			} else if v, y := a.(ust); y {
+			} else if v, y := a.(tst); y {
 				ctx = at(ctx, v.Position())
 				break
 			}
@@ -121,19 +132,19 @@ func (tc *testcase) flush() {
 	var dia = _diagnostic(tc.Context)
 	if n := dia.countError(); n > 0 {
 		var pos Position
-		if p := tc.project(); p != nil { pos = p.position } else { pos = tc.Position() }
-		note(at(tc.Context, pos), "%v: %v errors", tc.project(), n).debug(1, skipint{2})
+		if p := get_project(tc); p != nil { pos = p.position } else { pos = tc.Position() }
+		note(at(tc.Context, pos), "%v: %v errors", get_project(tc), n).debug(1, skipint{2})
 		tc.Errorf("%d errors in %s", dia.flush(tc.Context), pos.Filename)
 	}
 }
 
-func (tc *testcase) rule(name string) (r entryArray) {
-	if p := tc.project(); p != nil { r = p.resolveEntries(tc.Context, name, false) }
+func (tc *testcase) rule(name string) (r []entry) {
+	if p := get_project(tc); p != nil { r = p.resolveEntries(tc.Context, name, false) }
 	return
 }
 
 func (tc *testcase) obj(name string) (res Object) {
-	if p := tc.project(); p != nil { res = p.resolve(tc.Context, name) }
+	if p := get_project(tc); p != nil { res = p.resolve(tc.Context, name) }
 	return
 }
 
@@ -148,7 +159,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	var s = skipint{2}
 	var ctx Context = tc
 	var origin = defExpand1
-	var proj = tc.project()
+	var proj = get_project(tc)
 
 	for _, i := range ii {
 		var vb = valbase{tc.Position()}
@@ -157,7 +168,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		case test_def_2: origin = defExpand2
 		case test_def_3: origin = defExpand3
 		case test_final: ctx = final{ctx}
-		case   *project: proj, ctx = t, closureWith(ctx, t.scope_)
+		case   *project: proj, ctx = t, closure_with(ctx, t.scope)
 		case    skipint: s.int = t.int+1
 		case       opt : o = append(o, t.Value)
 		case       opts: o = append(o, t.vals...)
@@ -169,21 +180,21 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	switch t := i0.(type) {
 	case string:
 		if x = proj.resolve(ctx, t) ; x == nil {
-			erro(ctx, "%v: '%s' is nil", proj, t).debug(1)
+			erro(ctx, "%v: '%s' is nil", proj, t).debug()
 			return
 		}
 	case  Value:
 		if t == nil {
-			erro(ctx, "%v: %s is nil", proj, us(t)).debug(1)
+			erro(ctx, "%v: %s is nil", proj, ts(t)).debug()
 			return
 		}
 		if x = t ; 0 < len(a) {
-			ac := automatic{Context:ctx, defs:make(autodefs)}
+			ac := automatic{Context:ctx, defs:make(auto_defs)}
 			ac.args(ctx, a)
 			ctx = &ac
 		}
 	default:
-		erro(ctx, "%v: %v", proj, us(i0)).debug(1)
+		erro(ctx, "%v: %v", proj, ts(i0)).debug()
 		return
 	}
 
@@ -204,7 +215,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 }
 
 func testRemoveConfigureDir(ctx *testcase, p *project) {
-	if f := p.configurationFile; f == nil {
+	if f := p.configuration; f == nil {
 		// skip
 	} else if s := f.fullname(); s == "" {
 		ctx.err("%v", f)
@@ -232,6 +243,63 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	} (_universe(ctx))
 
 	f(ctx)
+}
+
+func va(ctx Context, i any) (v Value) {
+    switch t := i.(type) {
+    case   Value: v = t
+    case []Value: v = makeList(t...)
+    case  int:    v = makeDecimal(ctx.Position(), int64(t))
+    case  int16:  v = makeDecimal(ctx.Position(), int64(t))
+    case  int32:  v = makeDecimal(ctx.Position(), int64(t))
+    case  int64:  v = makeDecimal(ctx.Position(), int64(t))
+    case uint:    v = makeDecimal(ctx.Position(), int64(t))
+    case uint16:  v = makeDecimal(ctx.Position(), int64(t))
+    case uint32:  v = makeDecimal(ctx.Position(), int64(t))
+    case uint64:  v = makeDecimal(ctx.Position(), int64(t))
+    case string:
+        if t == "" {
+            v = makeNone(ctx.Position())
+        } else {
+            v = makeBareword(ctx.Position(), t)
+        }
+    case []string: {
+        var l = makeList()
+        for _, s := range t {
+            if s == "" {
+                v = makeNone(ctx.Position())
+            } else {
+                v = makeBareword(ctx.Position(), s)
+            }
+            l.elems = append(l.elems, v)
+        }
+        v = l
+    }
+    case []any:
+        var l = makeList()
+        for _, i := range t { l.elems = append(l.elems, va(ctx, i)) }
+        v = l
+    case nil:
+        v = makeNull(ctx.Position())
+    default:
+        erro(ctx, "%v", ts(i)).debug(2)
+    }
+    return
+}
+
+func _evoke_(ctx Context, v Value, ii ...any) (res Value) {
+	var a, o []Value
+    for _, i := range ii {
+        switch t := i.(type) {
+        case    opt : o = append(o, t.Value)
+        case    opts: o = append(o, t.vals...)
+        case []Value: a = append(a, t...)
+        case   Value: a = append(a, t)
+        default     : a = append(a, va(ctx, i))
+        }
+    }
+	res, _ = evoke(ctx, v, o, a)
+    return
 }
 
 type (
@@ -326,9 +394,9 @@ func Test(t *testing.T) {
 	run("builtins", "pushcontext", "testbuiltins", testPushContext)
 
 	// value_test.go
-	run("value", "value/auto",        "testvalue", testAutomatic)
 	run("value", "value/1",           "testvalue", testValues1)
 	run("value", "value/2",           "testvalue", testValues2)
+	run("value", "value/auto",        "testvalue", testAutomatic)
 	run("value", "value/3",           "testvalue", testValues3)
 	run("value", "value/4",           "testvalue", testValues4)
 	run("value", "value/5",           "testvalue", testValues5)

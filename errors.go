@@ -44,7 +44,7 @@ func _failure(ctx Context, a ...interface{}) failure {
 
 func (f *failure) Error() (s string) {
     s = "failed"
-    if f.Context != nil { s += " : "+us(f.Context) }
+    if f.Context != nil { s += " : "+ts(f.Context) }
     if f.reason != "" { s += " : "+f.reason }
     return
 }

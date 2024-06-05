@@ -436,8 +436,8 @@ func (tok token) isListDelim() bool {
 	Column   int     -- column number, starting at 1 (byte count)
 */
 type Position struct { got.Position }
-func (p *Position) _valid() bool { return p.Filename != "" && p.Line > 0 }
-func (p *Position) IsValid() bool { return p._valid() && p.Column > 0 && p.Offset >= 0 }
+func (p *Position) valid() bool { return p.Filename != "" && p.Line > 0 }
+func (p *Position) IsValid() bool { return p.valid() && p.Column > 0 && p.Offset >= 0 }
 func (p *Position) SameLine(o *Position) bool {
 	return p == o || (p.Filename == o.Filename && p.Line == o.Line)
 }

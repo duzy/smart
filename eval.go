@@ -6,6 +6,9 @@
 
 package smart
 
+type invoker interface { invoke(Context, []Value, []Value) Value }
+type executer interface { execute(Context, ...Value) ([]Value, travestates) }
+
 // eval evaluates smart statements
 type eval struct { accumulation, eval bool }
 func (p *eval) evaluate(ctx Context, args ...Value) (result Value, err error) {
@@ -51,7 +54,7 @@ func (p *eval) evaluate(ctx Context, args ...Value) (result Value, err error) {
             var a, traves = t.execute(ctx, vals[1:]...)
             if s := traves.not(traveCase, traveDone, traveNext); s.has() {
                 for _, brk := range s {
-                    erro(at(ctx,brk.pos), "%v: %v", vals, brk).debug(1)
+                    erro(at(ctx,brk.pos), "%v: %v", vals, brk).debug()
                 }
             } else if p.accumulation {
                 list = append(list, a...)

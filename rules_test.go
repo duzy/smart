@@ -9,92 +9,183 @@ func testRules0(ctx *testcase) {
 	if s := "rule0"; false {} else
 	if r := ctx.rule(s); r == nil {
 		ctx.err(s)
-	} else if v := inv(ctx, r); v == nil {
-		ctx.err("%v", ust{r})
-	} else if v.String() != "$< $> - $(ARG1) $(ARG2) $(ARG3)" {
-		ctx.err("%v", ust{v})
+	} else if len(r) != 1 {
+		ctx.err("%v", tst{r})
+	} else if v := _evoke_(ctx, r[0]); v == nil {
+		ctx.err("%v", tst{r})
 	} else if x, y := v.(*list); !y {
-		ctx.err("%v", ust{v})
+		ctx.err("%v", tst{v})
 	} else if len(x.elems) != 6 {
-		ctx.err("%v", ust{x})
-	} else if s := v.string(ctx); s != "rule1 rule1 -" {
-		ctx.err("%v : %s", ust{v}, s)
+		ctx.err("%v", tst{x})
+	} else {
+		i := 0
+		if z, y := x.elems[i].(*delegate); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if ts(z) != "{=delegate {=auto <}}" {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a, y := z.x.(*auto); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a.name != "<" {
+			ctx.err("%v", tst{z.x})
+		}
+
+		i = 1
+		if z, y := x.elems[i].(*delegate); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if ts(z) != "{=delegate {=auto >}}" {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a, y := z.x.(*auto); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a.name != ">" {
+			ctx.err("%v", tst{z.x})
+		}
+
+		i = 2
+		if z, y := x.elems[i].(flag); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if ts(z) != "{=flag {=null}}" {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if z.Value == nil {
+			ctx.err("%v", tst{z})
+		} else if !isNull(z.Value) {
+			ctx.err("%v", tst{z})
+		}
+
+		i = 3
+		if z, y := x.elems[i].(*delegate); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if ts(z) != "{=delegate {=auto ARG1}}" {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a, y := z.x.(*auto); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a.name != "ARG1" {
+			ctx.err("%v", tst{z.x})
+		}
+
+		i = 4
+		if z, y := x.elems[i].(*delegate); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if ts(z) != "{=delegate {=auto ARG2}}" {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a, y := z.x.(*auto); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a.name != "ARG2" {
+			ctx.err("%v", tst{z.x})
+		}
+
+		i = 5
+		if z, y := x.elems[i].(*delegate); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if ts(z) != "{=delegate {=auto ARG3}}" {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a, y := z.x.(*auto); !y {
+			ctx.err("%v", tst{x.elems[i]})
+		} else if a.name != "ARG3" {
+			ctx.err("%v", tst{z.x})
+		}
+
+		if ts(v) != "{=list {=delegate {=auto <}} {=delegate {=auto >}} {=flag {=null}} {=delegate {=auto ARG1}} {=delegate {=auto ARG2}} {=delegate {=auto ARG3}}}" {
+			ctx.err("%v %v", v, tst{v})
+		}
+
+		if v.String() != "$< $> - $(ARG1) $(ARG2) $(ARG3)" {
+			ctx.err("%v %v", v, tst{v})
+		}
+
+		if s := v.string(ctx); s != "rule1 rule1 -" {
+			ctx.err("%v : %s", tst{v}, s)
+		}
 	}
 
 	if s := "rule1"; false {} else
 	if r := ctx.rule(s); r == nil {
 		ctx.err(s)
-	} else if v := inv(ctx, r); v == nil {
-		ctx.err("%v", ust{r})
+	} else if len(r) != 1 {
+		ctx.err("%v", tst{r})
+	} else if v := _evoke_(ctx, r[0]); v == nil {
+		ctx.err("%v", tst{r})
 	} else if v.String() == "$(ARG1)" {
-		ctx.err("%v", ust{v})
+		ctx.err("%v", tst{v})
 	} else if x, y := v.(*Plain); !y {
-		ctx.err("%v", ust{x})
+		ctx.err("%v", tst{x})
 	} else if s := v.string(ctx); s != "" {
-		ctx.err("%v", ust{v})
+		ctx.err("%v", tst{v})
 	}
 }
 
 func testRules1(ctx *testcase) {
-	if r := ctx.rule(".test.foobar"); r == nil {
-		ctx.err(".test.foobar")
-	} else if v := inv(ctx, r); v == nil {
+	if s := ".test.foobar"; false {} else
+	if r := ctx.rule(s); r == nil {
+		ctx.err(s)
+	} else if len(r) != 1 {
+		ctx.err("%v", tst{r})
+	} else if v := _evoke_(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
 	} else if v.String() != "fxxbar" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if _, y := v.(*bareword); !y {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	}
 
-	if r := ctx.rule(".test.foobaz"); r == nil {
-		ctx.err(".test.foobaz")
-	} else if v := inv(ctx, r); v == nil {
+	if s := ".test.foobaz"; false {} else
+	if r := ctx.rule(s); r == nil {
+		ctx.err(s)
+	} else if len(r) != 1 {
+		ctx.err("%v", tst{r})
+	} else if v := _evoke_(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
 	} else if v.String() != ".test.fxx" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if _, y := v.(*barecomp); !y {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	}
 
-	if r := ctx.rule(".test.foobay"); r == nil {
-		ctx.err(".test.foobay")
-	} else if v := inv(ctx, r); v == nil {
+	if s := ".test.foobay"; false {} else
+	if r := ctx.rule(s); r == nil {
+		ctx.err(s)
+	} else if len(r) != 1 {
+		ctx.err("%v", tst{r})
+	} else if v := _evoke_(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
 	} else if v.String() != ".test.fxx" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if _, y := v.(*barecomp); !y {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	}
 
-	if v := ctx.val(".test.1"); v == nil {
-		ctx.err(".test.1")
+	if s := ".test.1"; false {} else
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
 	} else if v.String() != "fxxbar" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s != "fxxbar" {
-		ctx.err("%T %v -> %s", v, v, s)
+		ctx.err("%v -> %s", tst{v}, s)
 	}
 
-	if v := ctx.val(".test.2"); v == nil {
-		ctx.err(".test.2")
+	if s := ".test.2"; false {} else
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
 	} else if v.String() != ".test.fxx" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s != ".test.fxx" {
-		ctx.err("%T %v -> %s", v, v, s)
+		ctx.err("%v -> %s", tst{v}, s)
 	}
 
-	if v := ctx.val(".test.3"); v == nil {
-		ctx.err(".test.3")
+	if s := ".test.3"; false {} else
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
 	} else if v.String() != ".test.fxx" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s != ".test.fxx" {
-		ctx.err("%T %v -> %s", v, v, s)
+		ctx.err("%v -> %s", tst{v}, s)
 	}
 
-	var p = ctx.project()
+	var p = get_project(ctx)
 
 	testResolveEntries = true
 
-	if v := makeStrlit(ctx.Position(), ".test.foo"); v == nil || v.s != ".test.foo" {
+	if s := ".test.foo"; false {} else
+	if v := makeStrlit(ctx.Position(), s); v == nil || v.s != s {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if r := p.resolveEntries(ctx.Context, v, false); r == nil {
 		ctx.err("%v{%v}, %v", typeof(v), v, &p.entries)
@@ -102,8 +193,9 @@ func testRules1(ctx *testcase) {
 		ctx.err("%v{%v}, %v", typeof(v), v, &p.entries)
 	}
 
-	if v := ctx.val("v1"); v == nil {
-		ctx.err("v1")
+	if s := "v1"; false {} else
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
 	} else if v.String() != "'.test.foo'" {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if s := v.string(ctx); s != ".test.foo" {
@@ -156,7 +248,9 @@ func testShellForStdout(ctx testcase1) {
 
 	if r := ctx.rule(".test.for"); r == nil {
 		ctx.err(".test.for")
-	} else if v := inv(ctx, r, "abc", "1"); v == nil {
+	} else if len(r) != 1 {
+		ctx.err("%v", tst{r})
+	} else if v := _evoke_(ctx, r[0], "abc", "1"); v == nil {
 		ctx.err("%v", r)
 	} else if v.String() != "" {
 		ctx.err("%v", v)
@@ -228,7 +322,9 @@ func testShellForStdout(ctx testcase1) {
 
 	if r := ctx.rule(".test1"); r == nil {
 		ctx.err(".test1")
-	} else if v := inv(ctx, r); v == nil {
+	} else if len(r) != 1 {
+		ctx.err("%v", tst{r})
+	} else if v := _evoke_(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
 	} else if v.String() != "exec{status=0}" {
 		ctx.err("%v", v)
@@ -251,7 +347,9 @@ func testShellForStdout(ctx testcase1) {
 
 	if r := ctx.rule(".test2"); r == nil {
 		ctx.err(".test2")
-	} else if v := inv(ctx, r); v == nil {
+	} else if len(r) != 1 {
+		ctx.err("%v", tst{r})
+	} else if v := _evoke_(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
 	} else if v.String() != "exec{status=0}" {
 		ctx.err("%v", v)

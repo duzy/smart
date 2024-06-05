@@ -20,9 +20,13 @@ import (
     "os"
 )
 
-var baseWorkDir, _ = os.Getwd()
-var launchTime = time.Now()
+
+
 var searchPaths searchlist
+var launchTime = time.Now()
+var baseWorkDir = func () string {
+    if s, e := os.Getwd(); e == nil { return s } else { panic(e) }
+} ()
 
 type searchlist []string
 func (sl *searchlist) String() string { return fmt.Sprint(*sl) }
@@ -61,13 +65,11 @@ type universe struct {
 
     benchmark
 
-    hooks hooks
+    *scope
+    globe *globe
 
     workdir string
     prefix  string // FIXME: prefix for distribution
-
-    scope_  *Scope
-    globe_  *globe
 
     fset    *FileSet
     paths   searchlist
@@ -75,39 +77,26 @@ type universe struct {
     statcache map[string]*filebase // File.fullname() -> File
     statmutex sync.Mutex
 
+    hooks hooks
+
     // filemaps valcache // value -> dirs
 
     expand_n int32
 
     ddd string // debug parsing via `eval -ddd=example`, also project.dd
 }
-func (ctx *universe) loader() *loader { return ctx.globe_.top }
-func (ctx *universe) globe() *globe { return ctx.globe_ }
-func (ctx *universe) scope() *Scope { return ctx.scope_ }
+func (ctx *universe) inner() Context { return &ctx.diagnostic }
+func (ctx *universe) loader() *loader { return ctx.globe.top }
 func (ctx *universe) String() string { return "universe" }
 func (ctx *universe) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.diagnostic.cast(t)
 }
 func (ctx *universe) Position() (p Position) {
-    if ctx.globe_ == nil || ctx.globe_.main == nil {
+    if ctx.globe == nil || ctx.globe.main == nil {
         p.Filename, p.Line, p.Column = _workdir(ctx), 0, 0
     } else {
-        p = ctx.globe_.main.position
-    }
-    return
-}
-func (ctx *universe) project() (p *project) {
-    if ctx != nil && ctx.globe_ != nil { p = ctx.globe_.main }
-    return
-}
-func (ctx *universe) projects(_ Context, projs ...*project) []*project {
-    if len(projs) > 0 { panic(_failure(ctx, "%v", projs)) }
-    return nil
-}
-func (ctx *universe) closure() (scopes []*Scope) {
-    if m := ctx.globe_.main; m != nil && m.scope_ != nil {
-        if false { scopes = append(scopes, m.scope_) }
+        p = ctx.globe.main.position
     }
     return
 }
@@ -123,6 +112,14 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
         }
         return
 
+    case getScope: if ctx.scope != nil { return ctx.scope }
+    case getProject: if ctx.globe != nil { return ctx.globe.main }
+    case getClosure:
+        if m := ctx.globe.main; m != nil && m.scope != nil && false {
+            return []*scope{ m.scope }
+        }
+        return
+
     case property:
         if t&propPosition != 0 { return ctx.Position() }
         if t&propWorkDir != 0 {
@@ -132,6 +129,9 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
                 return s
             }
         }
+
+	case getIsTestMode:
+        return ctx.testMode
     }
     return ctx.diagnostic.do(_ctx, op)
 }
@@ -189,6 +189,7 @@ type commandline struct {
 
   parallel        bool `p,par,para,parallel`
 
+  testMode        bool
   fastMode        bool `f,fm,fast,fast-mode`
   panicFailureOnErrosFlushed    bool `fe,foe,fail-on-errors`
   errorUncache    bool `eu,error-uncache,error-no-cache`
@@ -222,18 +223,13 @@ func new_universe(ii ...any) (ctx *universe) {
     var p positional
     ctx = &universe{}
     ctx.Context = &p
+    ctx.paths = searchPaths
+    ctx.workdir = baseWorkDir
+    ctx.fset = NewFileSet()
+    ctx.statcache = make(map[string]*filebase)
+    ctx.scope = newscope(ctx.Position(), nil, nil, `universe`)
 
-    if s, e := os.Getwd(); e != nil {
-        erro(ctx, "%v", e).debug(6)
-        return
-    } else {
-        p.position.Filename = s
-        ctx.paths = searchPaths
-        ctx.workdir = s
-        ctx.fset = NewFileSet()
-        ctx.statcache = make(map[string]*filebase)
-        ctx.scope_ = newScope(ctx.Position(), nil, nil, `universe`)
-    }
+    p.position.Filename = ctx.workdir
 
     var cl = true
     for _, i := range ii {
@@ -249,12 +245,12 @@ func new_universe(ii ...any) (ctx *universe) {
 
     var bin  = ease(ctx, os.Args[0])
     var args = ease(ctx, os.Args[1:])
-    _, _ = ctx.scope_.define(ctx, defVoid, "SMART.ARGS", args)
-    _, _ = ctx.scope_.define(ctx, defVoid, "SMART.BIN", bin)
-    _, _ = ctx.scope_.define(ctx, defVoid, "SMART", bin)
+    ctx.scope.set(ctx, "SMART.ARGS", defVoid, args)
+    ctx.scope.set(ctx, "SMART.BIN",  defVoid, bin)
+    ctx.scope.set(ctx, "SMART",      defVoid, bin)
 
     for name, f := range builtins {
-        if _, alt := ctx.scope_.builtin(ctx, name, f); alt != nil {
+        if _, alt := ctx.scope.builtin(ctx, name, f); alt != nil {
             panic(fmt.Sprintf("builtin '%s' already defined", name))
         }
     }
@@ -269,17 +265,17 @@ func new_universe(ii ...any) (ctx *universe) {
         os = ease(ctx, vs)
     }
 
-    ctx.globe_ = &globe{
-        Scope: newScope(pos, ctx.scope_, nil, `globe "smart"`),
+    ctx.globe = &globe{
+        scope: newscope(pos, ctx.scope, nil, `globe "smart"`),
         flagEntries: make(map[string][]entry),
         loaded: make(map[string]*project),
         args: make(map[Value][]Value),
     }
 
-    // FIXME: ctx.scope_.scopename(ctx, ".GLOBE", ctx.globe_.Scope)
-    ctx.globe_.os,    _ = ctx.globe_.define(ctx, defVoid, ".os", os)
-    ctx.globe_.goals, _ = ctx.globe_.define(ctx, defVoid, ".goals", makeNone(pos))
-    ctx.globe_.mode,  _ = ctx.globe_.define(ctx, defVoid, ".mode",  makeNull(pos))
+    // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
+    ctx.globe.os,    _ = ctx.globe.set(ctx, ".os",    defVoid, os)
+    ctx.globe.goals, _ = ctx.globe.set(ctx, ".goals", defVoid, makeNone(pos))
+    ctx.globe.mode,  _ = ctx.globe.set(ctx, ".mode",  defVoid, makeNull(pos))
     return
 }
 
@@ -326,7 +322,7 @@ func stat(ctx Context, name string, ii ...any) (file *File) {
         case stat_fileinfo: fileInfo = t.FileInfo
         case stat_nonexist: nonexist = t.bool
         default:
-            erro(ctx, "invalid stat arg: %v", us(i)).debug(2)
+            erro(ctx, "invalid stat arg: %v", ts(i)).debug(2)
             return
         }
     }
@@ -508,7 +504,7 @@ func (_tx *universe) search(ctx Context, linfo *loadinfo, specName string) (absP
 func startCPUProfile(ctx Context, name string, heap ...bool) (stop func()) {
     var fn string
     if filepath.IsAbs(name) { fn = name } else
-    if m := ctx.globe().main; m == nil {} else
+    if m := _universe(ctx).globe.main; m == nil {} else
     if f := m.tempFile(ctx, name); f == nil {
         fn = filepath.Join(_workdir(ctx), name)
     } else {
@@ -535,7 +531,7 @@ func startCPUProfile(ctx Context, name string, heap ...bool) (stop func()) {
 func startHeapProfile(ctx Context, name string) (stop func()) {
     var fn string
     if filepath.IsAbs(name) { fn = name } else
-    if m := ctx.globe().main; m == nil {} else
+    if m := _universe(ctx).globe.main; m == nil {} else
     if f := m.tempFile(ctx, name); f == nil {
         fn = filepath.Join(_workdir(ctx), name)
     } else {
@@ -556,16 +552,30 @@ func startHeapProfile(ctx Context, name string) (stop func()) {
     }}
 }
 
+func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
+    defer trace(ctx)
+    switch g := goal.(type) {
+    case *rule:
+        var y bool
+        if result, y = executeEntry(ctx, g, args...); !y {
+            erro(ctx, "update '%v' failed", g).debug()
+        }
+    default:
+        erro(at(ctx,goal), "not an entry: %v", ts(goal)).debug()
+    }
+    return
+}
+
 func (_tx *universe) run() (result []Value, travestates []*travestate) {
     if _tx.noRun { return }
 
-    var main = _tx.globe_.main
+    var main = _tx.globe.main
     if main == nil {
-        erro(_tx, "no targets to update `%v`", _tx.globe_.goals).debug()
+        erro(_tx, "no targets to update `%v`", _tx.globe.goals).debug()
         return
     }
 
-    var ctx Context = closureWith(_tx, main.scope_)
+    var ctx Context = closure_with(_tx, main.scope)
     if _tx.verbose { info(ctx, "goal: %v", main).debug() }
 
     removeTempDirs(ctx)
@@ -581,12 +591,12 @@ func (_tx *universe) run() (result []Value, travestates []*travestate) {
     }
 
     var done bool
-    for _, flag := range _tx.globe_.flags {
+    for _, flag := range _tx.globe.flags {
         if _tx.verboseExecFlags { info(at(ctx, flag), "%v", flag) }
 
         var s = flag.Value.string(ctx)
-        var args, _ = _tx.globe_.args[flag]
-        var entries, _ = _tx.globe_.flagEntries[s]
+        var args, _ = _tx.globe.args[flag]
+        var entries, _ = _tx.globe.flagEntries[s]
         for _, entry := range entries {
             var ctx = at(ctx, entry.Position())
             if _tx.verboseExecFlags {
@@ -663,7 +673,7 @@ func (_tx *universe) run() (result []Value, travestates []*travestate) {
                         args = merge(t.args...)
                         found int
                     )
-                    for _, p := range _tx.globe_.loaded {
+                    for _, p := range _tx.globe.loaded {
                         if p.name == s || p.spec == s { found += 1
                             if !collect(p, args) { return false }
                         }
@@ -681,14 +691,14 @@ func (_tx *universe) run() (result []Value, travestates []*travestate) {
         return true
     }
 
-    if collect(main, merge(_tx.globe_.goals.value)) {
+    if collect(main, merge(_tx.globe.goals.value)) {
         if len(goals) == 0 {
             if entry := main.defaultEntry; entry != nil {
                 goals = append(goals, entry)
             }
         }
         for _, goal := range goals {
-            var args, _ = _tx.globe_.args[goal]
+            var args, _ = _tx.globe.args[goal]
             result = append(result, updateGoal(ctx, goal, args)...)
             updated += 1
         }
@@ -718,12 +728,12 @@ func (_tx *universe) load() (err error) {
         }
     }
 
-    defer func(l *loader) { _tx.globe_.top = l } (_tx.globe_.top)
+    defer func(l *loader) { _tx.globe.top = l } (_tx.globe.top)
 
-    _tx.globe_.top = &loader{terminal:terminal{ctx, []*Scope{_tx.globe_.Scope}}}
+    _tx.globe.top = &loader{terminal:terminal{ctx, []*scope{_tx.globe.scope}}}
 
     if s := strings.Join(os.Args[1:], " "); s != "" {
-        if v := _tx.globe_.top.text(ctx, base, s); 0 < len(v) {
+        if v := _tx.globe.top.text(ctx, base, s); 0 < len(v) {
             args = parseOpts(ctx, &_tx.commandline, v...)
         }
     }
@@ -737,10 +747,10 @@ func (_tx *universe) load() (err error) {
     }
 
     if _tx.verbose { defer func(t time.Time) {
-        prompt(ctx, "Goals %v (%s)\n", _tx.globe_.goals, time.Now().Sub(t))
+        prompt(ctx, "Goals %v (%s)\n", _tx.globe.goals, time.Now().Sub(t))
     } (time.Now()) }
 
-    assert(_tx.globe_.args != nil, "globe args is nil")
+    assert(_tx.globe.args != nil, "globe args is nil")
 
     if _tx.autoProfs {
         if f, e := os.Create(filepath.Join(baseWorkDir, "load.cpu.auto.prof")); e != nil {
@@ -774,20 +784,20 @@ func (_tx *universe) load() (err error) {
     var mode = new(bareword)
     for _, target := range args {
         switch t := target.(type) {
-        case *pair: _tx.globe_.pairs = append(_tx.globe_.pairs, t)
-        case flag: _tx.globe_.flags = append(_tx.globe_.flags, t)
+        case *pair: _tx.globe.pairs = append(_tx.globe.pairs, t)
+        case flag: _tx.globe.flags = append(_tx.globe.flags, t)
             if s := t.Value.string(ctx); s == "clean" {
                 mode.position, mode.s = t.Position(), "clean"
             }
         case *argumented:
-            _tx.globe_.args[t.Value] = t.args
+            _tx.globe.args[t.Value] = t.args
             if f, ok := t.Value.(flag); ok {
-                _tx.globe_.flags = append(_tx.globe_.flags, f)
+                _tx.globe.flags = append(_tx.globe.flags, f)
             } else {
-                _tx.globe_.goals.append(ctx, t/*.value*/)
+                _tx.globe.goals.append(ctx, t/*.value*/)
             }
         default:
-            _tx.globe_.goals.append(ctx, t)
+            _tx.globe.goals.append(ctx, t)
         }
     }
     if mode.s == "" { if _tx.commandline.configure {
@@ -795,14 +805,14 @@ func (_tx *universe) load() (err error) {
     } else {
         mode.s = "goals"
     }}
-    _tx.globe_.mode.value = mode
+    _tx.globe.mode.value = mode
 
     defer func(t time.Time) { if d := time.Now().Sub(t); _tx.verboseImport {
         var name string
-        if p := _tx.globe_.top.project(); p != nil { name = p.name }
+        if p := get_project(_tx.globe.top); p != nil { name = p.name }
         prompt(ctx, "└·%s … (%s)\n", name, d)
     } else if d > _tx.slow {
-        if m := _tx.globe_.main; m != nil {
+        if m := _tx.globe.main; m != nil {
             warn(at(ctx, m.position), "slow loading (%v)!!\n", d).debug(6)
         } else {
             prompt(ctx, "%s:1:warning: slow loading (%v)!!\n", base, d).debug(6)
@@ -810,14 +820,14 @@ func (_tx *universe) load() (err error) {
     }} (time.Now())
 
     if _tx.verboseImport { prompt(ctx, "┌→%s\n", base) }
-    if!_tx.globe_.top.path(ctx, base, nil) { return }
-    if _tx.globe_.main == nil { erro(ctx, "nothing loaded\n").debug() }
+    if!_tx.globe.top.path(ctx, base, nil) { return }
+    if _tx.globe.main == nil { erro(ctx, "nothing loaded\n").debug() }
     return
 }
 
 // A globe represents a global execution context.
 type globe struct {
-    *Scope
+    *scope
 
     loads  []*loadinfo
     top      *loader
@@ -837,7 +847,7 @@ type globe struct {
     mode  *def
 }
 
-func (g *globe) SetScopeOuter(scope *Scope) { scope.outer = g.Scope }
+func (g *globe) SetScopeOuter(scope *scope) { scope.outer = g.scope }
 func (g *globe) AddFlagEntry(name string, entry entry) {
     flags, _ := g.flagEntries[name]
     flags     = append(flags, entry)
@@ -848,8 +858,8 @@ func (g *globe) AddFlagEntry(name string, entry entry) {
 // project returns a new project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
-func (g *globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *project) {
-    if outer == nil { outer = g.Scope }
+func (g *globe) project(ctx Context, outer *scope, absPath, relPath, tmpPath, spec, name string) (m *project) {
+    if outer == nil { outer = g.scope }
 
     m = &project{
         position: ctx.Position(),
@@ -861,17 +871,17 @@ func (g *globe) project(ctx Context, outer *Scope, absPath, relPath, tmpPath, sp
         name: name,
     }
 
-    m.scope_ = newScope(m.position, outer, m, fmt.Sprintf("project %q", name))
-    m.scope_.mutex.Lock()
-    m.scope_.elems[".self"] = self{m}
-    m.scope_.elems[".usee"] = m.use
-    m.scope_.mutex.Unlock()
+    m.scope = newscope(m.position, outer, m, fmt.Sprintf("project %q", name))
+    m.scope.mutex.Lock()
+    m.scope.elems[".self"] = self{m}
+    m.scope.elems[".usee"] = m.use
+    m.scope.mutex.Unlock()
     m.use.name = "usee"
     m.use.owner_ = m
-    m.use.scope = m.scope_
+    m.use.scope = m.scope
 
     if g.main == nil && spec != "" && name != "@" && name != "~" {
-        for outer != nil && outer != g.Scope {
+        for outer != nil && outer != g.scope {
             if p := outer.project; p != nil && p.name == "@" {
                 return
             }

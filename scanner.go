@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"unicode/utf8"
 	"unicode"
+	"strings"
 	"fmt"
 )
 
@@ -209,28 +210,32 @@ func (bits scanbits) isBrace()          bool { return bits&isBrace != 0 }
 func (bits scanbits) isBraceRaw()       bool { return bits&isBraceRaw != 0 }
 func (bits scanbits) canRecipe()        bool { return bits&(isRecipeTab|isRecipes) != 0 }
 
-func IsLetter(ch rune) bool {
-	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch == '_' || ch >= 0x80 && unicode.IsLetter(ch)
+func IsLetter(r rune) bool {
+	return 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || r == '_' || r >= 0x80 && unicode.IsLetter(r)
 }
 
-func IsDigit(ch rune) bool {
-	return ('0' <= ch && ch <= '9') || (ch >= 0x80 && unicode.IsDigit(ch))
+func IsDigit(r rune) bool {
+	return unicode.IsDigit(r) //('0' <= r && r <= '9') || (r >= 0x80 && unicode.IsDigit(r))
+}
+
+func IsDigits(s string) bool {
+    return strings.IndexFunc(s, func(r rune) bool { return !IsDigit(r) }) < 0
 }
 
 // punctuation used as non-terminator
-func IsUntermPunct(ch rune) bool {
+func IsUntermPunct(r rune) bool {
 	// Most chars accepted in URI (RFC3986)
-	return ch == '-' || ch == '+' || ch == '@' /*|| ch == '.' || ch == '/'*/;
+	return r == '-' || r == '+' || r == '@' /*|| r == '.' || r == '/'*/;
 }
 
-func IsDatetimeTerminator(ch rune) bool {
-	return  ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' ||
-		ch == '(' || ch == ')' || ch == '{' || ch == '}' ||
-		ch == '$' || ch == '#' || ch == '\\'
+func IsDatetimeTerminator(r rune) bool {
+	return  r == ' ' || r == '\t' || r == '\n' || r == '\r' ||
+		r == '(' || r == ')' || r == '{' || r == '}' ||
+		r == '$' || r == '#' || r == '\\'
 }
 
-func IsIdentifier(ch rune) bool {
-	return IsLetter(ch) || IsDigit(ch) || IsUntermPunct(ch) //|| ch == '\\'
+func IsIdentifier(r rune) bool {
+	return IsLetter(r) || IsDigit(r) || IsUntermPunct(r) //|| r == '\\'
 }
 
 // Init prepares the scanner s to tokenize the text src by setting the
