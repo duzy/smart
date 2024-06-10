@@ -154,19 +154,17 @@ func (l *loader) do(ctx Context, op any) any {
 	return l.terminal.do(ctx, op)
 }
 
-func restoreLoadingInfo(l *loader) {
-    var globe = _universe(l.Context).globe
-    var last  = len(globe.loads)-1
-    var linfo = globe.loads[last]
-    globe.loads = globe.loads[0:last]
+func (g *globe) restoreLoadingInfo(l *loader) {
+    var last  = len(g.loads)-1
+    var linfo = g.loads[last]
+    g.loads = g.loads[0:last]
     l.useesExecuted = linfo.useesExecuted
     l.project = linfo.loader
     l.s = linfo.scopes
 }
 
-func saveLoadingInfo(l *loader, specName, absDir, baseName string) *loader {
-    var globe = _universe(l.Context).globe
-    globe.loads = append(globe.loads, &loadinfo{
+func (g *globe) saveLoadingInfo(l *loader, specName, absDir, baseName string) *loader {
+    g.loads = append(g.loads, &loadinfo{
         absDir: absDir,
         baseName: baseName,
         specName: filepath.Clean(specName),
@@ -616,16 +614,14 @@ func (l *loader) usePath() (s string) {
 type includeOpts struct {
     *clauseopts
     ifExists bool `if-exists,ifexists`
-    isConfigure bool // internal
+    isConfig bool
 }
-func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
+func (l *loader) include(ctx Context, spec Value, opts includeOpts) {
     defer trace(ctx)
     defer flush(ctx)
 
     var u = _universe(ctx)
-    var globe = _universe(l.Context).globe
-    var linfo = globe.loads[len(globe.loads)-1]
-    var specName, fullname string
+    var linfo = u.globe.loads[len(u.globe.loads)-1]
 
     defer func(t time.Time) {
         if d := time.Now().Sub(t); d > u.slow {
@@ -635,41 +631,34 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
         }
     } (time.Now())
 
-    ctx = at(ctx, spec.Position())
+    ctx = at(ctx, spec)
 
     // Execute the rule entry to update include source.
     if entry, y := spec.(*rule); y && entry != nil {
-        var result []Value
-        if result, y = executeEntry(ctx, entry); !y {
-            erro(ctx, "include entry '%v' failed", entry).debug()
+        if x, y := executeEntry(ctx, entry); !y {
+            erro(ctx, "include entry '%v' failed: %s", entry, ts(x)).debug()
             return
         }
-        if result != nil && opts.verbose {
-            info(ctx, "include %v: %v", entry, result).debug()
-        }
+
         spec = entry.target
     }
+
+    var specName, fullname string
 
     switch t := spec.(type) {
     case *File:
         if !t.exists() { _ = t.stat(ctx) }
         if !t.exists() && opts.ifExists {
-            if 0 < opts.debug {
-                prompt(ctx, "%v: file not found\n", spec)
-                warn(ctx, "%v", spec).debug(opts.debug)
-            }
             return // ignore non-exists files
         }
         if fullname, specName = t.fullname(), t.ident(ctx); t.info == nil {
             prompt(ctx, "%v: no source file %v, %v\n", fullname, t, t.stat(ctx))
-            erro(at(ctx,t), "%v: %v", get_project(ctx), t)
-            errostack(ctx, 5).debug(16)
+            erro(at(ctx,t), "%v: %v", get_project(ctx), t).debug()
             return
         }
     default:
         if specName = spec.string(ctx); specName == "" {
-            erro(at(ctx,spec), "include: empty string: %v", spec)
-            errostack(ctx, 5).debug(16)
+            erro(at(ctx,spec), "include: empty string: %v", spec).debug()
             return
         }
 
@@ -687,10 +676,6 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
         if f != nil && f.exists() {
             fullname = f.fullname()
         } else if opts.ifExists {
-            if 0 < opts.debug {
-                prompt(ctx, "%v: file not found\n", f)
-                warn(ctx, "").debug(opts.debug)
-            }
             return // ignore non-exists files
         }
     }
@@ -702,9 +687,11 @@ func (l *loader) include(ctx Context, opts includeOpts, spec Value) {
 
     var absDir, baseName = filepath.Split(fullname)
     defer func(m Mode) { l.mode = m } (l.mode) // must restore parse mode!
-    defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
+    defer u.globe.restoreLoadingInfo(u.globe.saveLoadingInfo(l, specName, absDir, baseName))
 
-    if _, _, err := l.source(ctx, fullname, nil, parseMode|Flat, &opts); err != nil {
+    ctx = parser_include_context{ctx, opts}
+
+    if _, _, err := l.source(ctx, fullname, nil, parseMode|Flat); err != nil {
         if x, y := err.(*fs.PathError); y && opts.ifExists {
             prompt(ctx, "%v: %v\n", fullname, x.Err)
             warn(ctx, "include %v", spec)
@@ -1137,7 +1124,7 @@ func (l *loader) autoload(ctx Context, tag string) {
         var u = _universe(ctx)
         const ( o = true ; t = false ; s = "autoload" )
         if t && u.ddd == s { prompt(ctx, "%s: autoload - %s,\n", l.Position(), tag) }
-        if o { l.include(ctx, includeOpts{}, val) }
+        if o { l.include(ctx, val, includeOpts{}) }
         if t && u.ddd == s { prompt(ctx, "%s: autoload - %s.\n", l.Position(), tag) }
     }
 }
@@ -1222,9 +1209,7 @@ func (l *loader) configure(ctx Context, linfo *loadinfo, ident *barecomp, identS
     } else if declared || u.commandline.configure {
         // u.configuration.clean[f] = struct{}{}
     } else if f.exists() || f.stat(ctx) != nil {
-        defer func(t parseBits) { l.p.bits = t } (l.p.bits)
-        l.p.bits |= parseIncludingConf
-        l.include(ctx, includeOpts{ isConfigure:true }, f)
+        l.include(ctx, f, includeOpts{isConfig:true})
     }
     return true
 }
@@ -1318,7 +1303,7 @@ func readSource(filename string, source ...any) ([]byte, error) {
     return ioutil.ReadFile(filename)
 }
 
-func (l *loader) source(ctx Context, filename string, src any, mode Mode, opts *includeOpts) (f *parsedFile, res []Value, err error) {
+func (l *loader) source(ctx Context, filename string, src any, mode Mode) (f *parsedFile, res []Value, err error) {
     var u = _universe(ctx)
     if u.traceLaunch { defer un(l_trace(l_launch, "loader.source")) }
     if u.verbose { if ctx.Position().Filename == filename {
@@ -1349,13 +1334,10 @@ func (l *loader) source(ctx Context, filename string, src any, mode Mode, opts *
 
     l.mode = mode
 
+    var opts, _ = do(ctx, getParseIncOpts{}).(*includeOpts)
     var text []byte
     if text, err = readSource(filename, src); err != nil {
         if _, y := err.(*fs.PathError); y && opts.ifExists {
-            if opts.debug>0 {
-                prompt(ctx, "%v: source file not found\n", filename)
-                warnstack(ctx, 5, "#>", opts.values[0]).debug(opts.debug)
-            }
         } else {
             prompt(ctx, "%v: %v\n", filename, err)
             erro(ctx, "read source failed: %v (%T)", err, err)
@@ -1364,17 +1346,12 @@ func (l *loader) source(ctx Context, filename string, src any, mode Mode, opts *
         return
     }
 
-    if l.p = (&parser{Context:ctx}); opts != nil {
-        if opts.isConfigure {
-            l.p.bits |= parseIncludingConf
-        } else {
-            l.p.bits &= ^parseIncludingConf
-        }
-    }
+    l.p = &parser{Context:ctx}
+    ctx = l.p // switch context
 
 	var smod scanmode
 	if l.mode&ParseComments != 0 {
-		//smod = scanner.ScanComments
+		// smod = scanner.ScanComments
 	}
 
     l.p.scanner.init(u.file(filename, text), text, smod,
@@ -1394,9 +1371,10 @@ func (l *loader) source(ctx Context, filename string, src any, mode Mode, opts *
             info(at(ctx,p), "scan=%v", l.p.scanner.scanstate).debug(a...)
         })
 
-	l.p.next(true) // starts scanning
+	l.p.next(ctx, true) // starts scanning
+    ctx = at(ctx, l.p)
 
-    if ctx = at(ctx, l.p); l.mode&parsingText != 0 {
+    if l.mode&parsingText != 0 {
         res = l.p.values(ctx)
     } else if f = l.p.file(ctx); f == nil {
         // Source is not a valid source file, returnning a valid but empty parsedFile
@@ -1488,13 +1466,15 @@ func (l *loader) sources(ctx Context, path string, filter func(os.FileInfo) bool
 
     defer trace(ctx)
 
-    if loader_sources_bench { defer func(t time.Time) {
-        if d := time.Now().Sub(t); u.verboseParse || d > time.Second {
-            note(ctx, "slow: %s (%v)", l.project, d).debug()
-        } else if debugSyntax(ctx, "sources") {
-			note(ctx, "sources: %s (%v)", l.project, time.Now().Sub(t)).debug(6)
-		}
-    }(time.Now())}
+    if loader_sources_bench {
+        defer func(t time.Time) {
+            if d := time.Now().Sub(t); u.verboseParse || d > time.Second {
+                note(ctx, "slow: %s (%v)", l.project, d).debug()
+            } else if debugSyntax(ctx, "sources") {
+                note(ctx, "sources: %s (%v)", l.project, time.Now().Sub(t)).debug(6)
+            }
+        }(time.Now())
+    }
 
     var fd, err = os.Open(path)
     if err != nil {
@@ -1577,7 +1557,7 @@ ListLoop:
             var pos Position
             pos.Filename, pos.Line = filename, 1
 
-            var src, _, err = l.source(ctx, filename, nil, mode|parsingDir, nil)
+            var src, _, err = l.source(ctx, filename, nil, mode|parsingDir)
             if err != nil { erro(ctx, "parse failed: %v", err) }
 
             var d *diagPoint
@@ -1625,10 +1605,9 @@ func (l *loader) load(ctx Context, specName, absPath string, source any) (result
     defer trace(ctx)
     defer flush(ctx)
 
-    var globe = _universe(l.Context).globe
     defer func(t time.Time) {
         if d := time.Now().Sub(t); u.verboseLoads && d>1*time.Second {
-            loaded, _ := globe.loaded[absPath]
+            loaded, _ := u.globe.loaded[absPath]
             if l.project == nil {
                 prompt(ctx, "load (%15s) ⇒ %s (%s)\n", d, loaded, specName)
             } else {
@@ -1646,7 +1625,7 @@ func (l *loader) load(ctx Context, specName, absPath string, source any) (result
     }
 
     // Check loaded project.
-    if loaded, yes := globe.loaded[absPath]; yes {
+    if loaded, yes := u.globe.loaded[absPath]; yes {
         if _, a := l.scope().projectname(at(l, l.Position()), loaded.name, loaded); a != nil {
             if val, ok := a.(*project); !ok || val == nil {
                 erro(ctx, "`%v` name already taken (%T).", loaded, a)
@@ -1657,9 +1636,9 @@ func (l *loader) load(ctx Context, specName, absPath string, source any) (result
     }
 
     var absDir, baseName = filepath.Split(absPath)
-    defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
+    defer u.globe.restoreLoadingInfo(u.globe.saveLoadingInfo(l, specName, absDir, baseName))
 
-    var doc, _, err = l.source(ctx, absPath, source, parseMode, nil)
+    var doc, _, err = l.source(ctx, absPath, source, parseMode)
     if err != nil {
         erro(ctx, "load: %v", err).debug()
     } else if doc == nil {
@@ -1684,7 +1663,6 @@ func (l *loader) directory(ctx Context, specName, absDir string, filter func(os.
     var pos Position = ctx.Position()
     if !pos.IsValid() { pos = positionForDir(absDir) }
 
-    var globe = u.globe
     var loadedProj *project
     defer func(t time.Time, ver bool) {
         if specName == "." { specName = absDir }
@@ -1696,7 +1674,7 @@ func (l *loader) directory(ctx Context, specName, absDir string, filter func(os.
         }}
 
         if loadedProj == nil { return }
-        if globe.main == nil { globe.main = loadedProj }
+        if u.globe.main == nil { u.globe.main = loadedProj }
 
         if proj := l.scope().project; proj == nil {
             if false { erro(ctx, "%v: no owner project for %s", loadedProj.name, l.scope()).debug(2) }
@@ -1710,12 +1688,12 @@ func (l *loader) directory(ctx Context, specName, absDir string, filter func(os.
     } (time.Now(), u.verboseLoads)
 
     // Check loaded project.
-    if loadedProj, okay = globe.loaded[absDir]; okay { return }
+    if loadedProj, okay = u.globe.loaded[absDir]; okay { return }
 
-    defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, ""))
+    defer u.globe.restoreLoadingInfo(u.globe.saveLoadingInfo(l, specName, absDir, ""))
 
     var mods map[string]*project
-    if mods = l.sources(at(l, pos), absDir, filter, parseMode); mods == nil {
+    if mods = l.sources(at(ctx, pos), absDir, filter, parseMode); mods == nil {
         errostack(ctx, 3, "failed parsing module: %s", specName).debug(12)
         return
     }
@@ -1728,10 +1706,10 @@ func (l *loader) directory(ctx Context, specName, absDir string, filter func(os.
             warn(l, "%s not loaded (as %s, implicitly)", specName, absDir).debug(10)
             okay = true // okay for implicit loading
         } else {
-            for s, m := range globe.loaded { erro(ctx, "%v: %v", s, m) }
+            for s, m := range u.globe.loaded { erro(ctx, "%v: %v", s, m) }
             errostack(ctx, 3, "%s not loaded (as %s)", specName, absDir).debug(10)
         }
-    } else if loadedProj, okay = globe.loaded[absDir]; okay && loadedProj != nil {
+    } else if loadedProj, okay = u.globe.loaded[absDir]; okay && loadedProj != nil {
         // Good!
     } else if filepath.Base(specName) != "@" {
         erro(ctx, "%s not loaded (as %s, implicit=%v)", specName, absDir, l.implicit).debug()
@@ -1756,7 +1734,7 @@ func (l *loader) file(ctx Context, filename string, source any) (res bool) {
 func (l *loader) path(ctx Context, path string, filter func(os.FileInfo) bool) bool {
     if _universe(ctx).traceLaunch { defer un(l_trace(l_launch, "loader.path")) }
 
-    var spec, _ = filepath.Rel(_workdir(l), path)
+    var spec, _ = filepath.Rel(_workdir(ctx), path)
 
     var position Position
     position.Filename = spec
@@ -1776,13 +1754,12 @@ func (l *loader) text(ctx Context, filename string, text string) (res []Value) {
     l.useesExecuted = nil
 
     var err error
-    var opts includeOpts
     var position Position
     position.Filename = filename
 
     ctx = at(ctx, position)
 
-    if _, res, err = l.source(ctx, filename, text, parsingText, &opts); err != nil {
+    if _, res, err = l.source(ctx, filename, text, parsingText); err != nil {
         prompt(ctx, "%v: %v\n", filename, err)
         erro(ctx, "load text failed: %v", err)
         errostack(ctx, 5, "").debug(32)

@@ -40,8 +40,8 @@ const (
     enable_grep_bench   = true
     positionalValueCtx  = true
     traverseDetectLoops = true // turn on/off traverse loop detection
-    traverseLoopBreakState   = traveUnkn // eg traveNext or traveDone
     traverseArgumentedExpand = true
+    traverseLoopBreakState   = traveUnkn // eg traveNext or traveDone
 )
 
 const (
@@ -1408,16 +1408,16 @@ func (p *argumented) traverse(ctx Context) {
         var proj = get_project(ctx)
         // NOTE: expand here to avoid args being expanded in the wrong context
         for _, a := range p.args {
-            a = a.expand(ctx)//, plain
+            a = a.expand(final{ctx})
             // TODO: deal with pattern args using expandPatterned instead of stenciling:
             if true && a.patterned(ctx) { if stems := _stems(ctx); len(stems) > 0 {
                 if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
                     erro(at(ctx,a), "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).debug()
                     panic(fmt.Sprintf("%T %v", val, val))
-                } else if file, okay := toFile(val); okay {
-                    a = file
-                } else if file := proj.file(ctx, val.string(ctx)); file != nil {
-                    a = file
+                } else if f, y := toFile(val); y {
+                    a = f
+                } else if f := proj.file(ctx, val.string(ctx)); f != nil {
+                    a = f
                 } else {
                     a = val //makeStrlit(a.Position(), str)
                 }

@@ -224,6 +224,10 @@ type Context interface {
 }
 
 func do(ctx Context, op any) any { return ctx.do(ctx, op) }
+func can(ctx Context, op any) (_ bool) {
+  if x, y := do(ctx, op).(bool); x && y { return x }
+  return
+}
 
 func cast[T Context](ctx Context) (res T) {
   if ctx != nil {

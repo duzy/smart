@@ -879,7 +879,8 @@ func (ctx *builtin_equal) x() (res any) {
     }
 
     if len(ctx.evocation.a) != 2 {
-        erro(ctx, "equal: wrong number of arguments: %v", ctx.evocation.a)
+        note(ctx, "wrong number of arguments: %v", ctx.evocation.a)
+        for i, a := range ctx.evocation.a { note(ctx, "   %d. %v", i, ts(a)) }
         erro(ctx, "try: $(equal <value-list>,<value-list>)").debug()
         return
     }

@@ -707,14 +707,14 @@ func (_tx *universe) run() (result []Value, travestates []*travestate) {
 }
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
-func (_tx *universe) load() (err error) {
-    if _tx.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
+func (u *universe) load() (err error) {
+    if u.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
 
     var args []Value
-    var base = _workdir(_tx)
-    var ctx Context = _tx
+    var base = _workdir(u)
+    var ctx Context = u
     if s := filepath.Join(base, ".smart", "modules"); s != "" {
-        if _, e := os.Stat(s); e == nil { _tx.AddSearchPaths(s) }
+        if _, e := os.Stat(s); e == nil { u.AddSearchPaths(s) }
     }
     if s := filepath.Join(base, entryFileName); s != "" {
         if _, e := os.Stat(s); e != nil { s = filepath.Join(base, "build.smart")
@@ -728,31 +728,31 @@ func (_tx *universe) load() (err error) {
         }
     }
 
-    defer func(l *loader) { _tx.globe.top = l } (_tx.globe.top)
+    defer func(l *loader) { u.globe.top = l } (u.globe.top)
 
-    _tx.globe.top = &loader{terminal:terminal{ctx, []*scope{_tx.globe.scope}}}
+    u.globe.top = &loader{terminal:terminal{ctx, []*scope{u.globe.scope}}}
 
     if s := strings.Join(os.Args[1:], " "); s != "" {
-        if v := _tx.globe.top.text(ctx, base, s); 0 < len(v) {
-            args = parseOpts(ctx, &_tx.commandline, v...)
+        if v := u.globe.top.text(ctx, base, s); 0 < len(v) {
+            args = parseOpts(ctx, &u.commandline, v...)
         }
     }
 
-    if v := _tx.reconfigure; v { _tx.commandline.configure = v }
-    if v := _tx.fastMode; v { // Turn off many things for fast mode:
-        //_tx.noImportFiles = v
-        _tx.noDepsGrep = v
-        _tx.noDeps = v
-        _tx.noGrep = v
+    if v := u.reconfigure; v { u.commandline.configure = v }
+    if v := u.fastMode; v { // Turn off many things for fast mode:
+        //u.noImportFiles = v
+        u.noDepsGrep = v
+        u.noDeps = v
+        u.noGrep = v
     }
 
-    if _tx.verbose { defer func(t time.Time) {
-        prompt(ctx, "Goals %v (%s)\n", _tx.globe.goals, time.Now().Sub(t))
+    if u.verbose { defer func(t time.Time) {
+        prompt(ctx, "Goals %v (%s)\n", u.globe.goals, time.Now().Sub(t))
     } (time.Now()) }
 
-    assert(_tx.globe.args != nil, "globe args is nil")
+    assert(u.globe.args != nil, "globe args is nil")
 
-    if _tx.autoProfs {
+    if u.autoProfs {
         if f, e := os.Create(filepath.Join(baseWorkDir, "load.cpu.auto.prof")); e != nil {
             erro(ctx, "%v", e).debug()
             return
@@ -765,7 +765,7 @@ func (_tx *universe) load() (err error) {
             defer pprof.StopCPUProfile()
         }
         defer func() {
-            var prof string //= _tx.memProf
+            var prof string //= u.memProf
             if prof == "" { prof = filepath.Join(baseWorkDir, "load.mem.auto.prof") }
             if f, e := os.Create(prof); e != nil {
                 erro(ctx, "%v", e).debug()
@@ -784,44 +784,44 @@ func (_tx *universe) load() (err error) {
     var mode = new(bareword)
     for _, target := range args {
         switch t := target.(type) {
-        case *pair: _tx.globe.pairs = append(_tx.globe.pairs, t)
-        case flag: _tx.globe.flags = append(_tx.globe.flags, t)
+        case *pair: u.globe.pairs = append(u.globe.pairs, t)
+        case flag: u.globe.flags = append(u.globe.flags, t)
             if s := t.Value.string(ctx); s == "clean" {
                 mode.position, mode.s = t.Position(), "clean"
             }
         case *argumented:
-            _tx.globe.args[t.Value] = t.args
+            u.globe.args[t.Value] = t.args
             if f, ok := t.Value.(flag); ok {
-                _tx.globe.flags = append(_tx.globe.flags, f)
+                u.globe.flags = append(u.globe.flags, f)
             } else {
-                _tx.globe.goals.append(ctx, t/*.value*/)
+                u.globe.goals.append(ctx, t/*.value*/)
             }
         default:
-            _tx.globe.goals.append(ctx, t)
+            u.globe.goals.append(ctx, t)
         }
     }
-    if mode.s == "" { if _tx.commandline.configure {
+    if mode.s == "" { if u.commandline.configure {
         mode.s = "configure"
     } else {
         mode.s = "goals"
     }}
-    _tx.globe.mode.value = mode
+    u.globe.mode.value = mode
 
-    defer func(t time.Time) { if d := time.Now().Sub(t); _tx.verboseImport {
+    defer func(t time.Time) { if d := time.Now().Sub(t); u.verboseImport {
         var name string
-        if p := get_project(_tx.globe.top); p != nil { name = p.name }
+        if p := get_project(u.globe.top); p != nil { name = p.name }
         prompt(ctx, "└·%s … (%s)\n", name, d)
-    } else if d > _tx.slow {
-        if m := _tx.globe.main; m != nil {
+    } else if d > u.slow {
+        if m := u.globe.main; m != nil {
             warn(at(ctx, m.position), "slow loading (%v)!!\n", d).debug(6)
         } else {
             prompt(ctx, "%s:1:warning: slow loading (%v)!!\n", base, d).debug(6)
         }
     }} (time.Now())
 
-    if _tx.verboseImport { prompt(ctx, "┌→%s\n", base) }
-    if!_tx.globe.top.path(ctx, base, nil) { return }
-    if _tx.globe.main == nil { erro(ctx, "nothing loaded\n").debug() }
+    if u.verboseImport { prompt(ctx, "┌→%s\n", base) }
+    if!u.globe.top.path(u.globe.top, base, nil) { return }
+    if u.globe.main == nil { erro(ctx, "nothing loaded\n").debug() }
     return
 }
 
