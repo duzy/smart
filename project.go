@@ -277,10 +277,10 @@ type project struct {
   configured bool
 
 	absPath string
-	relPath string
   tmpPath string
 	name    string
-	spec    string
+	rel     string // path segment relative to the workBaseDir
+	spec    string // relative to search-paths as a specification
 
   filemap valcache
   entries valcache
@@ -567,7 +567,7 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
         if c := inner(sc); c != nil { sc = _stemmed_context(c) } else { break }
       }
 
-      var pos = ctx.Position()
+      var pos = _position(ctx)
       prompt(ctx, "%v: slow: %v: %v, %v %v %v", pos, p, d, d1, d2, d3)
       prompt(ctx, "%v: slow: %v: %v: %v %v, %d nests", pos, p, a, v, p.patterns, n).debug(4)
 
@@ -605,7 +605,7 @@ func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*ste
 func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed) {
   defer func(t0 time.Time) {
     if d := time.Now().Sub(t0); d > 1*time.Second {
-      prompt(ctx, "%v: slow: %v %v", ctx.Position(), val, d).debug()
+      prompt(ctx, "%v: slow: %v %v", _position(ctx), val, d).debug()
     }
   } (time.Now())
 
@@ -629,7 +629,7 @@ ForPatterns:
         var t3 = time.Now()
         if d := t3.Sub(t1); d > 1*time.Second {
           var ( d2 = t2.Sub(t1) ; d3 = t3.Sub(t2) )
-          var ( p = ctx.Position() ; pt = pat.target )
+          var ( p = _position(ctx) ; pt = pat.target )
           prompt(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3).debug()
         }
 
@@ -745,10 +745,10 @@ func (p *project) hasBase(proj *project) (res bool) {
   return
 }
 
-func (p *project) hasLoaded(ctx Context, proj *project, traveUseLoop bool) (rp *project, res, isb bool, err error) {
+func (p *project) hasLoaded(ctx Context, proj *project, traveUseLoop bool) (rp *project, res, isb bool) {
   var uni = _universe(ctx)
   if uni.checkLoadGraph || !uni.fastMode {
-    rp, res, isb, err = p.hasLoadedRecur(ctx, p, proj, 1, traveUseLoop)
+    rp, res, isb, _ = p.hasLoadedRecur(ctx, p, proj, 1, traveUseLoop)
   }
   return
 }
@@ -808,10 +808,10 @@ func (p *project) loopLoadRecur(top *project) (s string) {
   return
 }
 
-func (p *project) isUsingproject(usee *project) (res bool) {
+func (p *project) isUsing(usee *project) (res bool) {
   for _, use := range p.use.list {
     if res = use.project == usee; res { break  }
-    if res = use.project.isUsingproject(usee); res { break }
+    if res = use.project.isUsing(usee); res { break }
   }
   return
 }

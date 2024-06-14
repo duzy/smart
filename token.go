@@ -12,6 +12,15 @@ import (
 
 type token int
 
+// https://unicode-table.com/en/sets/arrows-symbols/
+// ┌────────────────────────────────┐
+// ├────────────────────────────────┼───┬──⇢·
+// ├──────────────────────┬────→┬←──┤   │    ⇡
+// ├┬─→───────────────────┼─────┴───┘   ├────┼⇢
+// │├┬───→             ↑  └──┬──┐       │    ⇣
+// ││└──→    ·         │     │  ├─⇥     ↓
+// │└──→───⇥─┴─⇤────┬──┴──┬──┘  │
+// └──→           ⇠─┘     ↓     └─→ ⇒ …
 const clocks = "🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧" // ⇒
 
 // https://en.wikipedia.org/wiki/Mathematical_operators_and_symbols_in_Unicode
@@ -469,31 +478,31 @@ func (p Pos) IsValid() bool {
 	return got.Pos(p).IsValid()
 }
 
-type TokFile struct {
+type tokfile struct {
 	*got.File
 }
 
-func (f *TokFile) string() string {
+func (f *tokfile) string() string {
 	return f.Name() //fmt.Sprintf("{%s}", f.Name())
 }
 
-func (f *TokFile) Offset(p Pos) int {
+func (f *tokfile) Offset(p Pos) int {
 	return f.File.Offset(got.Pos(p))
 }
 
-func (f *TokFile) Line(p Pos) int {
+func (f *tokfile) Line(p Pos) int {
 	return f.File.Line(got.Pos(p))
 }
 
-func (f *TokFile) Pos(offset int) Pos {
+func (f *tokfile) Pos(offset int) Pos {
 	return Pos(f.File.Pos(offset))
 }
 
-func (f *TokFile) PositionFor(p Pos, adjusted bool) (pos Position) {
+func (f *tokfile) PositionFor(p Pos, adjusted bool) (pos Position) {
 	return Position{ f.File.PositionFor(got.Pos(p), adjusted) }
 }
 
-func (f *TokFile) Position(p Pos) (pos Position) {
+func (f *tokfile) Position(p Pos) (pos Position) {
 	return Position{ f.File.Position(got.Pos(p)) }
 }
 
@@ -506,12 +515,12 @@ func NewFileSet() *FileSet {
 	return &FileSet{ got.NewFileSet() }
 }
 
-func (s *FileSet) AddFile(filename string, base, size int) *TokFile {
-	return &TokFile{ s.FileSet.AddFile(filename, base, size) }
+func (s *FileSet) AddFile(filename string, base, size int) *tokfile {
+	return &tokfile{ s.FileSet.AddFile(filename, base, size) }
 }
 
-func (s *FileSet) Iterate(f func(*TokFile) bool) {
+func (s *FileSet) Iterate(f func(*tokfile) bool) {
 	s.FileSet.Iterate(func(file *got.File) bool {
-		return f(&TokFile{ file })
+		return f(&tokfile{ file })
 	})
 }

@@ -34,7 +34,7 @@ func (p *eval) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var ov []Value // opt-vals
         if a, y := op.(*argumented); y { op, ov = a.Value, a.args }
 
-        var ctx = at(ctx, op.Position())
+        var ctx = at(ctx, op)
 
         switch t := op.(type) {
         case *returner:

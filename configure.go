@@ -102,7 +102,7 @@ func (ctx *configurecontext) execute(entry entry) {
         }
 
         ctx.file, ctx.writer = f, bufio.NewWriter(f)
-        fmt.Fprintf(ctx.writer, "# %s (%s) configuration\n", p.spec, p.relPath)
+        fmt.Fprintf(ctx.writer, "# %s (%s) configuration\n", p.spec, p.rel)
 
         if !ctx.silent {
             if false && p.name == "lib.c++.inc" { note(ctx, "%v", p.spec).debug(16) }
@@ -234,7 +234,7 @@ type modifier_configure struct { modifier_
 
 func (ctx *modifier_configure) _param(name string, i interface{}) *pair {
     var val Value
-    var pos = ctx.Position()
+    var pos = _position(ctx)
     switch t := i.(type) {
     case Value: val = t
     case string: val = makeStrlit(pos, t)
@@ -262,13 +262,13 @@ func (ctx *modifier_configure) _boolvalue() (result bool) {
 // -bool
 // -bool('message...')
 func (ctx *modifier_configure) _bool(_ Value, params ...Value) Value {
-    return makeBoolean(ctx.Position(), ctx._boolvalue())
+    return makeBoolean(_position(ctx), ctx._boolvalue())
 }
 
 // -answer
 // -answer('message...')
 func (ctx *modifier_configure) _answer(_ Value, params ...Value) (result Value) {
-    return makeAnswer(ctx.Position(), ctx._boolvalue())
+    return makeAnswer(_position(ctx), ctx._boolvalue())
 }
 
 // -option
@@ -277,7 +277,7 @@ func (ctx *modifier_configure) _option(_ Value, args ...Value) (result Value) {
     if d := auto_get(ctx, "-"); d != nil {
         result = d.expand(ctx)
     } else {
-        result = makeAnswer(ctx.Position(), false)
+        result = makeAnswer(_position(ctx), false)
     }
     return
 }
@@ -318,7 +318,7 @@ func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
         }
         if err != nil { return } else if info.project != nil {
             _universe(ctx).packages[name] = info
-            result = makeAnswer(ctx.Position(), true)
+            result = makeAnswer(_position(ctx), true)
             break
         }
     }}
@@ -394,7 +394,7 @@ ForInParams:
 
         var key, value = p.key.string(ctx), p.val
         if _, y = value.(*compound); y {
-            value = makeStrlit(ctx.Position(), value.string(ctx))
+            value = makeStrlit(_position(ctx), value.string(ctx))
         } else if value != nil {
             value = value.expand(ctx)
         }
@@ -411,7 +411,7 @@ ForInParams:
             for _, p := range prog.params { params = append(params, p.ident(ctx)) }
 
             var t = auto_get(ctx,"@")
-            ctx.Context = at(ctx.Context, a.Position())
+            ctx.Context = at(ctx.Context, a)
             warn(ctx, "ignored param: %T %v; target: %T %v", a, a, t, t)
             warn(at(ctx,prog.position), "%v params = %v", t, params).debug(16)
             return
@@ -431,16 +431,16 @@ ForInParams:
         }
 
         if n := len(reses); n == 0 {
-            if false { warn(at(ctx,entry.Position()), "%v", entry).debug() }
+            if false { warn(at(ctx,entry), "%v", entry).debug() }
         } else if result = reses[0]; result != nil && result == hyphen {
-            warn(at(ctx,entry.Position()), "%v", entry)
+            warn(at(ctx,entry), "%v", entry)
             warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug()
             result = nil // simply discard the result as it's the same as the input (hyphen) value
         }
 
         if result != nil { if d, y := result.(*def); y /* && d.name == "@" */ {
             var h = auto_get(ctx, "-")
-            var x = at(ctx, entry.Position())
+            var x = at(ctx, entry)
             errostack(x, 3, "%v: invalid result: %v (%v)", entry, d, h).debug(10)
         }}
     }
@@ -610,7 +610,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
             } else if v.Stderr.Buf != nil {
                 s = v.Stderr.Buf.String()
             }
-            value = makeStrlit(ctx.Position(), s)
+            value = makeStrlit(_position(ctx), s)
         }
 
         d.set(ctx, defConfig, value)
@@ -928,7 +928,7 @@ type modifier_extractconfiguration struct { modifier_
     rxs []*regexp.Regexp "r,rx,regex" // regexp.Compile(s)
 }
 func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) {
-    var pos = ctx.Position()
+    var pos = _position(ctx)
     var pats []Value
     for _, arg := range args {
         switch a := arg.(type) {

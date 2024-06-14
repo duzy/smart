@@ -375,7 +375,7 @@ func (ctx *modifier_debug) x(args ...Value) (result interface{}) {
         }
     }
     if len(ctx.info) == 0 && len(ctx.warn) == 0 && len(ctx.erro) == 0 {
-        var ( p = ctx.Position() ; s = _stems(ctx) ; m *diagPoint )
+        var ( p = _position(ctx) ; s = _stems(ctx) ; m *diagPoint )
         if len(args) == 0 {
             m = prompt(ctx, "%v: target=%v stems=%v depends=%v\n", p, target, s, depends)
         } else if ctx.verbose {
@@ -401,7 +401,7 @@ func (ctx *modifier_print) x(args ...Value) (result interface{}) {
     if val := auto_get(ctx, "-"); val != nil { content = val.string(ctx) }
     if ctx.stdout { fmt.Fprint(stdout, content) }
     if ctx.stderr { fmt.Fprint(stderr, content) }
-    if ctx.reset  { auto_set(ctx, "-", makeNone(ctx.Position())) }
+    if ctx.reset  { auto_set(ctx, "-", makeNone(_position(ctx))) }
     return
 }
 
@@ -710,7 +710,7 @@ func (ctx *modifier_mkdir) x(args ...Value) (result interface{}) {
 
 type modifier_sudo struct { modifier_ }
 func (ctx *modifier_sudo) x(args ...Value) (result interface{}) {
-    erro(at(ctx,ctx.Position()), "TODO: sudo modifier is not implemented yet").debug()
+    erro(at(ctx,ctx), "TODO: sudo modifier is not implemented yet").debug()
     return
 }
 
@@ -811,7 +811,7 @@ type greprex struct{ string ; bool ; *regexp.Regexp }
 func (g *greprex) String() string { return g.string }
 func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
     if g.targetInfo == nil {
-        erro(at(ctx,g.target.Position()), "'%v' not exists", g.target).debug()
+        erro(at(ctx,g.target), "'%v' not exists", g.target).debug()
         return
     }
     var tt time.Time = g.targetInfo.ModTime()
@@ -1438,7 +1438,7 @@ ForTarget:
     pc.grepped = grepped
 
     if !gc.noTraverse {
-        auto_set(ctx.Context, "~", makeNone(ctx.Position()))
+        auto_set(ctx.Context, "~", makeNone(_position(ctx)))
         pc.grepped = nil
     } else {
         result = ease(ctx, pc.grepped)
@@ -1446,9 +1446,9 @@ ForTarget:
     return
 }
 
-type depContext struct { diagnostic }
-func (ctx *depContext) inner() Context { return &ctx.diagnostic }
-func (ctx *depContext) cast(t reflect.Type) (c Context) {
+type dep_context struct { diagnostic }
+func (ctx *dep_context) inner() Context { return &ctx.diagnostic }
+func (ctx *dep_context) cast(t reflect.Type) (c Context) {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.diagnostic.cast(t)
 }
@@ -1489,7 +1489,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
 
     var pc = _program_execution(ctx)
     var depFile = func(ctx Context, depPos Position, word string) {
-        var dc = depContext{diagnostic{ Context: ctx }}
+        var dc = dep_context{diagnostic{ Context: ctx }}
 
         if parallel { defer func() {
             if len(dc.points) > 0 { _diagnostic(inner(ctx)).nest(dc.points) }
@@ -1551,7 +1551,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                 errostack(ctx, 5, `%v: %v`, ctx).debug(6)
             }
         } else {
-            if n = _diagnostic(dc.Context).countError(); n > 0 {
+            if n = _diagnostic(dc.Context).counterror(); n > 0 {
                 // reset to reduce diags as we wish to continue with the errors
                 dc.points, dc.erros = nil, 0
                 var s = trimPromptString(targetVal.String())
@@ -1906,7 +1906,7 @@ type modifier_check struct { modifier_
 
 func (ctx *modifier_check) x(args ...Value) (result interface{}) {
     var (
-        pos = ctx.Position()
+        pos = _position(ctx)
         pc  = _program_execution(ctx)
         optBreak travekind // breaking with good results
         makeResult func(bool) Value // returns results only if non-nil
@@ -1933,7 +1933,7 @@ func (ctx *modifier_check) x(args ...Value) (result interface{}) {
         } else if f, res = toFile(val); res {
             // best case
         } else if s = val.string(ctx); filepath.IsAbs(s) {
-            if f = stat(at(ctx, val.Position()), s); f != nil { res = true }
+            if f = stat(at(ctx, val), s); f != nil { res = true }
         } else if f = file(ctx, s); f != nil { res = true }
 
         if f != nil {
@@ -2064,7 +2064,7 @@ ForPairs:
             if f, res = toFile(p.val); res {
                 // ok
             } else if str = p.val.string(ctx); filepath.IsAbs(str) {
-                if f = stat(at(ctx, p.val.Position()), str); f != nil {
+                if f = stat(at(ctx, p.val), str); f != nil {
                     // ok
                 }
             } else if f = file(ctx, str); f != nil {
@@ -2137,7 +2137,7 @@ func copyRegular(ctx Context, src, dst string, opts *copyopts) (err error) {
     var def2 = auto_find(ctx, "2")
     defer func(v1, v2 Value) { def1.value, def2.value = v1, v2 } (def1.value, def2.value)
 
-    var pos = ctx.Position()
+    var pos = _position(ctx)
     def1.value = makeStrlit(pos, dst)
     def2.value = makeStrlit(pos, src)
 
@@ -2448,7 +2448,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result interface{}) {
         if ctx.head != nil { s = ctx.head.string(ctx) }
         if len(bytes) > 0   { s += string(bytes) }
         if ctx.foot != nil { s = ctx.foot.string(ctx) }
-        auto_set(ctx.Context, "-", makeStrlit(ctx.Position(), s))
+        auto_set(ctx.Context, "-", makeStrlit(_position(ctx), s))
         auto_set(ctx.Context, "-file", file)
     } else {
         brk := pc.traves.add(ctx, traveFail, target)
@@ -2580,7 +2580,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
     } else {
         if ctx.keep {
             // keep file
-        } else if file := stat(at(ctx, target.Position()), filename); file != nil && file.info != nil && file.info.Size() == 0 {
+        } else if file := stat(at(ctx, target), filename); file != nil && file.info != nil && file.info.Size() == 0 {
             file.info = nil
             if err := os.Remove(filename); err != nil {
                 erro(ctx, "remove file failed: %v", err).debug()
@@ -2728,7 +2728,7 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
     }); execRes == nil { return }
 
     var (
-        pos = ctx.Position()
+        pos = _position(ctx)
         a []Value
         s string
         v Value
@@ -2882,7 +2882,7 @@ func (ctx *modifier_cond) x(args ...Value) (result interface{}) {
             return
         }
     }
-    return makeBoolean(ctx.Position(), true)
+    return makeBoolean(_position(ctx), true)
 }
 
 type modifier_case struct { modifier_ }
@@ -2903,7 +2903,7 @@ type modifier_predictDirty struct { modifier_ }
 func (ctx *modifier_predictDirty) x(args ...Value) (result interface{}) {
     var pc = _program_execution(ctx)
     if res := pc.dirty(ctx, args...); res {
-        result = makePrediction(ctx.Position(), res, /*reason*/"")
+        result = makePrediction(_position(ctx), res, /*reason*/"")
     } else {
         pc.traves.add(ctx, traveDone, nil)
     }
@@ -2928,7 +2928,7 @@ func (ctx *modifier_predictNoLoop) x(args ...Value) (result interface{}) {
     var s string
     if !loop { s = "not " }
     s = fmt.Sprintf("loop %sdetected (%v)", s, target)
-    result = makePrediction(ctx.Position(), !loop, s)
+    result = makePrediction(_position(ctx), !loop, s)
     return
 }
 
@@ -2960,7 +2960,7 @@ func (ctx *modifier_predictTarget1stVisit) x(args ...Value) (result interface{})
     } else { s = fmt.Sprintf("%v visits", num+1)
     }
 
-    result = makePrediction(ctx.Position(), num==0, s)
+    result = makePrediction(_position(ctx), num==0, s)
     return
 }
 
@@ -2992,7 +2992,7 @@ func (ctx *modifier_predictTargetMaxVisit) x(args ...Value) (result interface{})
         if n := caller.execRec[target]; n > 0 { num += int64(n) }
         if ctx.debug > 0 && num > 0 {
             if head { head = false
-                prompt(ctx, "  %s: nth(%d)\n", ctx.Position(), nth)
+                prompt(ctx, "  %s: nth(%d)\n", _position(ctx), nth)
             }
             var pos = _program(caller).position
             prompt(ctx, "    %s: %v\n", pos, ct)
@@ -3005,7 +3005,7 @@ func (ctx *modifier_predictTargetMaxVisit) x(args ...Value) (result interface{})
     } else if num < nth { //s = "nth"
     } else { s = fmt.Sprintf("%d visits", num+1) }
 
-    result = makePrediction(ctx.Position(), num<nth, s)
+    result = makePrediction(_position(ctx), num<nth, s)
     return
 }
 
@@ -3093,7 +3093,7 @@ func (ctx *modifier_gitmodified) x(args ...Value) (result interface{}) {
     var rx = regexp.MustCompile(`\n\tmodified:[\ctx ]*(.+?)\n`)
     var sm = rx.FindAllSubmatch(out.Bytes(), -1)
     if len(sm) > 0 {
-        var pos = ctx.Position()
+        var pos = _position(ctx)
         var pred = makePrediction(pos, false, "")
         if result = pred; len(args) == 0 {
             pred.bool, pred.s = true, "modified"
@@ -3128,7 +3128,7 @@ func (ctx *modifier_gitahead) x(args ...Value) (result interface{}) {
     var rx = regexp.MustCompile(`\nYour branch is ahead of '(.+?)' by`)
     var sm = rx.FindAllSubmatch(out.Bytes(), 1)
     if len(sm) > 0 {
-        result = makePrediction(ctx.Position(), true, "Work branch has new commits to push")
+        result = makePrediction(_position(ctx), true, "Work branch has new commits to push")
     }
     return
 }
@@ -3234,7 +3234,7 @@ func onceSHA256(ctx *modifier_once, target Value, args ...Value) (n int) {
         // fmt.Fprintf(h, "%p%p", entry, program)
         fmt.Fprintf(h, "%T%p%p", entry, entry, program)
     } else {
-        fmt.Fprintf(h, "%v%v", ctx.Position(), program.position)
+        fmt.Fprintf(h, "%v%v", _position(ctx), program.position)
     }
 
     var a as
@@ -3283,7 +3283,7 @@ func (ctx *modifier_once) x(args ...Value) (result interface{}) {
 
     if ctx.debug > 0 {
         warn(ctx, "%T %v %p %v", target, target, target, n)
-        warnstack(at(ctx, target.Position()), -1, "%p %v %v", target, target, n).debug(16)
+        warnstack(at(ctx, target), -1, "%p %v %v", target, target, n).debug(16)
     }
 
     // TODO: new once algorithm:

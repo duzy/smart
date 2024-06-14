@@ -10,7 +10,7 @@ import (
 )
 
 func testValueCache0(ctx *testcase) {
-	v := makeNull(ctx.Position())
+	v := makeNull(_position(ctx))
 	m := make(map[any]string)
 	m["foo"] = "foobar"
 	m['f'] = "rune(f)"
@@ -49,7 +49,7 @@ func testValueCache0(ctx *testcase) {
 	if x, y := m[t]; !y || x != "value" {
 		ctx.err("%v", m)
 	}
-	if _, y := m[makeNull(ctx.Position())]; y {
+	if _, y := m[makeNull(_position(ctx))]; y {
 		ctx.err("%v", m)
 	}
 }

@@ -486,7 +486,7 @@ func (traves *travestates) add(ctx Context, what travekind, target Value) *trave
         }
     }
 
-    var pos = ctx.Position()
+    var pos = _position(ctx)
     var s = &travestate{ pos:pos, what:what, target:target, prog: _program(ctx) }
     if *traves = append(*traves, s); false { }
     return s
@@ -535,7 +535,7 @@ func closure_get(ctx Context, name string) (res *def) {
                 return
             }
         } else {
-            var pos = ctx.Position()
+            var pos = _position(ctx)
             if !pos.IsValid() { pos = s.project.position }
             if s != s.project.scope {
                 if _, obj := s.find(name); obj != nil {
@@ -617,20 +617,20 @@ func closure_entry(ctx Context, name string) (_ entry) {
     return
 }
 
-func _closure_with(ctx Context, ii ...any) (res Context) {
-    var ss []*scope
-    for _, i := range ii {
-        switch s := i.(type) {
-        case *scope  : ss = append(ss, s)
-        case *project: ss = append(ss, s.scope)
-        case interface{ declscope() *scope }:
-            ss = append(ss, s.declscope())
-        }
-    }
+func closure_with(ctx Context, ss ...*scope) Context {
     return &terminal{ctx, ss}
 }
 
-func closure_with(ctx Context, ss ...*scope) Context {
+func closure_any(ctx Context, ii ...any) (res Context) {
+    var ss []*scope
+    for _, i := range ii {
+        switch t := i.(type) {
+        case *scope  : ss = append(ss, t)
+        case *project: ss = append(ss, t.scope)
+        case interface{ declscope() *scope }:
+            ss = append(ss, t.declscope())
+        }
+    }
     return &terminal{ctx, ss}
 }
 
@@ -785,7 +785,7 @@ func wait(ctx Context, opts waitopts) (target Value, files []*File, execRes *exe
         }
         if numRealErrs == 0 { return } // simply return if no real errors
 
-        var ctxPos, targetPos = ctx.Position(), target.Position()
+        var ctxPos, targetPos = _position(ctx), target.Position()
         var v = target
         if l, ok := v.(*list); ok && l.len() == 1 { v = l.elems[0] }
         if targetPos.IsValid() && !targetPos.Same(&ctxPos) {
@@ -1258,7 +1258,7 @@ func (p undef) cmp(ctx Context, v Value) (_ cmpres) {
     }
 }
 
-func _null(ctx Context) *null { return &null{valbase{ctx.Position()}} }
+func _null(ctx Context) *null { return &null{valbase{_position(ctx)}} }
 
 type null struct { valbase }
 func (_ *null) kind() Kind { return KindNull }
@@ -1430,159 +1430,6 @@ func (p *argumented) traverse(ctx Context) {
 
     p.Value.traverse(&argumented_context{ ctx, args })
 }
-
-// _any is used to box an arbitrary value
-type _any struct { value any }
-func (_ *_any) kind() Kind { return KindAny }
-func (p *_any) cmp(ctx Context, v Value) (res cmpres) {
-    switch a := v.(type) {
-    case *_any:
-        if p.value == a.value {
-            res = cmpEqual
-        } else if v1, ok := p.value.(Value); ok {
-            if v2, ok := a.value.(Value); ok {
-                res = v1.cmp(ctx, v2)
-            }
-        } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
-            return p.cmp(ctx, l.elems[0])
-        }
-    case Value:
-        if p.value == a {
-            res = cmpEqual
-        } else if v1, ok := p.value.(Value); ok {
-            res = v1.cmp(ctx, a)
-        } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
-            return p.cmp(ctx, l.elems[0])
-        }
-    }
-    return
-}
-func (p *_any) patterned(ctx Context) (res bool) {
-    if p.value == nil {
-        // does nothing
-    } else if v, ok := p.value.(Value); ok {
-        res = v.patterned(ctx)
-    }
-    return
-}
-func (p *_any) match(ctx Context, i any) (full bool, s any, stems []string) {
-    if p.value == nil {
-        // does nothing
-    } else if v, ok := p.value.(Value); ok {
-        full, s, stems = v.match(ctx, i)
-    }
-    return
-}
-func (p *_any) stencil(ctx Context, stems []string) (val Value, rest []string) {
-    if p.value == nil {
-        // does nothing
-    } else if v, ok := p.value.(Value); ok {
-        val, rest = v.stencil(ctx, stems)
-    }
-    return
-}
-func (p *_any) delete(ctx Context) (files []*File, err error) {
-    if a, ok := p.value.(Value); ok { files, err = a.delete(ctx) }
-    return
-}
-func (p *_any) updated(ctx Context) (res bool) {
-    if p.value == nil {
-        // does nothing
-    } else if val, ok := p.value.(Value); ok {
-        res = val.updated(ctx)
-    }
-    return
-}
-func (p *_any) updatedDeps(ctx Context, v ...Value) (res []Value) {
-    if p.value == nil {
-        // does nothing
-    } else if val, ok := p.value.(Value); ok {
-        res = val.updatedDeps(ctx, v...)
-    }
-    return
-}
-func (p *_any) stamp(ctx Context) (files []*File, err error) {
-    if a, ok := p.value.(Value); ok { files, err = a.stamp(ctx) }
-    return
-}
-func (p *_any) stat(ctx Context) (si *statinfo) {
-    if v, ok := p.value.(Value); ok && v != nil { si = v.stat(ctx) }
-    return
-}
-func (p *_any) expand(ctx Context) Value {
-    if v, y := p.value.(Value); y {
-        return v.expand(ctx)
-    } else {
-        return p
-    }
-}
-func (p *_any) refs(ctx Context, o Value) (res bool) {
-    if v, ok := p.value.(Value); ok { res = v.refs(ctx, o) }
-    return
-}
-func (p *_any) defs(ctx Context, s ...string) (res []*def) {
-    if v, ok := p.value.(Value); ok { res = v.defs(ctx, s...) }
-    return
-}
-func (p *_any) expandable(ctx Context) (res bool) {
-    if v, ok := p.value.(Value); ok { res = v.expandable(ctx) }
-    return
-}
-func (p *_any) Position() (res Position) {
-    if v, ok := p.value.(positioner); ok { res = v.Position() }
-    return
-}
-func (p *_any) true(ctx Context) (t bool) {
-    switch v := p.value.(type) {
-    case Value:     t = v.true(ctx)
-    case float32:   t = math.Abs(float64(v))-0 >= FloatEpsilon
-    case float64:   t = math.Abs(v)-0 >= FloatEpsilon
-    case int64:     t = v != 0
-    case int:       t = v != 0
-    case bool:      t = v
-    }
-    return
-}
-func (p *_any) float(ctx Context) (res float64, err error) {
-    switch v := p.value.(type) {
-    case Value:       res, err = v.float(ctx)
-    case float32:     res = float64(v)
-    case float64:     res = v
-    case int:         res = float64(v)
-    case int64:       res = float64(v)
-    case bool: if v { res = FloatEpsilon }
-    }
-    return
-}
-func (p *_any) int(ctx Context) (res int64, err error) {
-    switch v := p.value.(type) {
-    case Value:       res, err = v.int(ctx)
-    case float32:     res = int64(v)
-    case float64:     res = int64(v)
-    case int:         res = int64(v)
-    case int64:       res = v
-    case bool: if v { res = 1 }
-    }
-    return
-}
-func (p *_any) string(ctx Context) (s string) {
-    switch v := p.value.(type) {
-    case Value:       s = v.string(ctx)
-    case float32:     s = strconv.FormatFloat(float64(v),'g', -1, 32)
-    case float64:     s = strconv.FormatFloat(float64(v),'g', -1, 64)
-    case int:         s = strconv.FormatInt(int64(v),10)
-    case int64:       s = strconv.FormatInt(int64(v),10)
-    case bool: if v { s = "true" } else { s = "false" }
-    default: s = fmt.Sprintf("%s", p.value)
-    }
-    return
-}
-func (p *_any) ident(ctx Context) (s string) {
-    if v, y := p.value.(Value); y { s = v.ident(ctx) }
-    return
-}
-func (p *_any) String() string { return fmt.Sprintf("<%v>", p.value) }
-func (p *_any) traverse(ctx Context) { if v, ok := p.value.(Value); ok { v.traverse(ctx) } }
 
 type negative struct { Value }
 func (p negative) String() (s string) { return p.srclit(nil) }
@@ -3603,8 +3450,8 @@ func (p *path) string(ctx Context) (s string) {
 
         var v string
         if isUndef(seg) {
-            erro(at(ctx,seg.Position()), "undef path segment (%T)", seg)
-            erro(at(ctx,ctx.Position()), "… from this context: %s", ctx).debug(16)
+            erro(at(ctx,seg), "undef path segment (%T)", seg)
+            erro(at(ctx,ctx), "… from this context: %s", ctx).debug(16)
             return
         } else if v = seg.string(ctx); i > 0 {
             s += pathSep + v
@@ -4082,7 +3929,7 @@ func _pathstr(ctx Context, str string) *path {
 }
 
 func _pathpun(ctx Context, tok token) *pathpun {
-    return &pathpun{valbase{ctx.Position()}, tok}
+    return &pathpun{valbase{_position(ctx)}, tok}
 }
 
 type pathpun struct { valbase; token } // TODO: use token instead of rune
@@ -6601,7 +6448,7 @@ outer:
 }
 
 func splitPathStr(ctx Context, str string) (segments []Value) {
-    var pos = ctx.Position()
+    var pos = _position(ctx)
     var a = strings.Split(str, pathSep)
     for i, s := range a {
         // TODO: calculate position for each segment
@@ -6633,30 +6480,31 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
 
 func refs(ctx Context, a Value, v Value) bool { return a == v || a.refs(ctx, v) }
 func ease(ctx Context, a any) (res Value) {
-    defer trace(ctx)
-
     var elems []Value
 
     switch t := a.(type) {
     case      nil: return
     case    Value: elems = append(elems, merge(t   )...)
     case  []Value: elems = append(elems, merge(t...)...)
-    case     bare: elems = append(elems, makeBareword(ctx.Position(),  string(t)))
-    case     bool: elems = append(elems, makeBoolean( ctx.Position(),         t ))
-    case    int  : elems = append(elems, makeDecimal( ctx.Position(),   int64(t)))
-    case    int16: elems = append(elems, makeDecimal( ctx.Position(),   int64(t)))
-    case    int32: elems = append(elems, makeDecimal( ctx.Position(),   int64(t)))
-    case    int64: elems = append(elems, makeDecimal( ctx.Position(),         t ))
-    case   uint  : elems = append(elems, makeDecimal( ctx.Position(),   int64(t)))
-    case   uint16: elems = append(elems, makeDecimal( ctx.Position(),   int64(t)))
-    case   uint32: elems = append(elems, makeDecimal( ctx.Position(),   int64(t)))
-    case   uint64: elems = append(elems, makeDecimal( ctx.Position(),   int64(t)))
-    case  float32: elems = append(elems, makeFloat(   ctx.Position(), float64(t)))
-    case  float64: elems = append(elems, makeFloat(   ctx.Position(),         t ))
-    case   string: elems = append(elems, makeStrlit(  ctx.Position(),         t ))
-    case   []bare: for _, s := range t { elems = append(elems, makeBareword(ctx.Position(), string(s))) }
-    case []string: for _, s := range t { elems = append(elems, makeStrlit(  ctx.Position(),        s )) }
-    default: erro(ctx, "unsupported result: %v", tv(t)).debug(3) ; return
+    case     bare: elems = append(elems, makeBareword(_position(ctx),  string(t)))
+    case     bool: elems = append(elems, makeBoolean( _position(ctx),         t ))
+    case    int  : elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
+    case    int16: elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
+    case    int32: elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
+    case    int64: elems = append(elems, makeDecimal( _position(ctx),         t ))
+    case   uint  : elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
+    case   uint16: elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
+    case   uint32: elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
+    case   uint64: elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
+    case  float32: elems = append(elems, makeFloat(   _position(ctx), float64(t)))
+    case  float64: elems = append(elems, makeFloat(   _position(ctx),         t ))
+    case   string: elems = append(elems, makeStrlit(  _position(ctx),         t ))
+    case   []bare: for _, s := range t { elems = append(elems, makeBareword(_position(ctx), string(s))) }
+    case []string: for _, s := range t { elems = append(elems, makeStrlit(  _position(ctx),        s )) }
+    default:
+        erro(ctx, "unsupported result: %v", tv(t)).debug()
+        trace(ctx)
+        return
     }
 
     if n := len(elems) ; 1 == n {
@@ -6664,7 +6512,7 @@ func ease(ctx Context, a any) (res Value) {
     } else if 1 < n {
         return makeList(elems...)
     } else {
-        return makeNull(ctx.Position())
+        return makeNull(_position(ctx))
     }
 }
 
@@ -6729,7 +6577,9 @@ type tst struct { i any }
 func (p tst) ts(string) string { return ts(p.i) }
 func (p tst) String() string { return ts(p.i) }
 func (p tst) Position() (_ Position) {
-    if x, y := p.i.(positioner); y { return x.Position() }
+    if x, y := p.i.(positioner); y && x != nil {
+        return x.Position()
+    }
     return
 }
 
@@ -6808,7 +6658,6 @@ func Make(pos Position, in any) (out Value) {
     case string:    out = makeStrlit(pos, v)
     case time.Time: out = &datetime{valbase{pos},v} // FIXME: NewDate, NewTime
     case Value:     out = v
-    default:        out = &_any{in}
     }
     return
 }
@@ -6911,7 +6760,9 @@ type evocation struct {
     o []Value
 }
 func (p *evocation) cast(t reflect.Type) Context { return implcast(p, t) }
-func (p *evocation) do(ctx Context, op any) any { return do_bits(ctx, p.Context, op) }
+// func (p *evocation) do(ctx Context, op any) any {
+//     return do_bits(ctx, p.Context, op)
+// }
 func (p *evocation) ts(t string) string {
 	return fmt.Sprintf("{=%s %s %s}", t, p.x, ts(p.Context))
 }

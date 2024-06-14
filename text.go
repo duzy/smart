@@ -51,7 +51,7 @@ type (
 func (_ *plainInt) evaluate(ctx Context, args ...Value) (result Value, err error) {
         var (
                 program = _program(ctx)
-                pos = ctx.Position()
+                pos = _position(ctx)
                 str, name string
                 opts plainOpts
         )
@@ -133,7 +133,7 @@ Converted into:
 */
 func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
         var (
-                pos = ctx.Position()
+                pos = _position(ctx)
                 stack []*group
                 nodes []*group
                 tok xml_enc.Token
@@ -208,7 +208,7 @@ func (p *xml) evaluate(ctx Context, args ...Value) (result Value, err error) {
         if result, err = DecodeXML(ctx, source, p.whitespace); err == nil {
                 result = &XML{ result }
         } else {
-                result = &XML{ makeNone(ctx.Position()) }
+                result = &XML{ makeNone(_position(ctx)) }
         }
         return
 }
@@ -247,7 +247,7 @@ const (
 func DecodeJSON(ctx Context, source string) (result Value, err error) {
         //prompt(ctx, "json: %v\n", source)
         var (
-                pos Position = ctx.Position()
+                pos Position = _position(ctx)
                 stack []*group
                 nodes []Value
                 node *group
@@ -442,7 +442,7 @@ func (p *yaml) evaluate(ctx Context, args ...Value) (result Value, err error) {
         } else if result, err = DecodeYAML(ctx, source, p.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
-                result = &YAML{ makeNone(ctx.Position()) }
+                result = &YAML{ makeNone(_position(ctx)) }
                 erro(ctx, "%v", err).debug()
         }
         return

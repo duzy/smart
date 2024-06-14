@@ -30,10 +30,8 @@ const (
 type property uint64
 
 const (
-  propPosition property = 1<<iota
-  propParameters
+  propParameters property = 1<<iota
   propFullVal
-  propWorkDir
   propDirtyOpts
   propErros
   propExAuto
@@ -69,8 +67,10 @@ type (
   actArguments  struct{}
   getArguments  struct{}
   getIsTestMode struct{}
-  getScope      struct{}
+  getWorkDir    struct{}
+  getPosition   struct{}
   getProject    struct{}
+  getScope      struct{}
   getClosure    struct{}
   getObject     struct{ s string }
   getEntry      struct{ s string }
@@ -79,7 +79,7 @@ type (
 )
 
 func _position(ctx Context) (res Position) {
-  if i := do(ctx, propPosition); i == nil {
+  if i := do(ctx, getPosition{}); i == nil {
     erro(ctx, "no such operator: position, %v", ts(ctx)).debug()
     trace(ctx)
   } else if x, y := i.(Position); !y {
@@ -106,7 +106,7 @@ func _paramName(ctx Context, n int) (res string) {
 }
 
 func _workdir(ctx Context) (res string) {
-  if i := do(ctx, propWorkDir); i == nil {
+  if i := do(ctx, getWorkDir{}); i == nil {
     erro(ctx, "no such operator: workdir, %v", ts(ctx)).debug(24)
   } else if t, y := i.(string); y { res = t } else {
     erro(ctx, "not string: %v", ts(i)).debug(2)
@@ -217,14 +217,10 @@ func is_test_mode(ctx Context) (res bool) {
 
 type caster interface { cast(reflect.Type) Context }
 type doer interface { do(Context, any) any }
-type Context interface {
-  positioner
-  caster
-  doer
-}
+type Context interface { caster ; doer }
 
 func do(ctx Context, op any) any { return ctx.do(ctx, op) }
-func can(ctx Context, op any) (_ bool) {
+func truly(ctx Context, op any) (_ bool) {
   if x, y := do(ctx, op).(bool); x && y { return x }
   return
 }
@@ -308,7 +304,7 @@ type skipint struct{ int }
 var (
   callstackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   callstackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
-  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do|\(\*diagnostic\)\.trace)\(.+\)$`)
+  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do|erro|\(\*diagnostic\)\.trace)\(.+\)$`)
 )
 func cstack(i, j int, a ...any) callstack { return _callstack("", i+1, j, a...) }
 func _callstack(s string, i, j int, args ...any) (res callstack) {
@@ -420,8 +416,13 @@ func (d *diagPoint) debug(args ...any) *diagPoint {
   return d
 }
 
-type tracend struct { Context }
-func (t tracend) String() string { return "trace "+ts(t.Context) }
+type too_many_diagnostics struct{ i int }
+type too_many_errors struct{ i int }
+type trace_errors struct { Context ; e int }
+
+func (t trace_errors) String() string { return typeof(t)+" "+ts(t.Context) }
+func (t too_many_diagnostics) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.i) }
+func (t too_many_errors) String() string { return fmt.Sprintf("too many errors (%d)", t.i) }
 
 func trace(ctx Context, a ...any) {
   if trace_recover {
@@ -430,29 +431,33 @@ func trace(ctx Context, a ...any) {
     for e := recover() ; e != nil ; e = recover() {
       switch recovered += 1 ; t := e.(type) {
       case       bailout:
-      case       tracend:  x = t.Context
+      case       trace_errors: x = t.Context
       case       failure: erro(t.Context, t.Error())
       case         Value: erro(at(ctx,t), "trace: %s", ts(t))
       case        string: erro(   ctx   , "trace: %s", t)
       case runtime.Error: erro(   ctx   , "trace: %s", t.Error())
-      default:            erro(   ctx   , "trace: %s", ts(e))
+      case too_many_diagnostics: erro(ctx, "too many diagnostics (%v)", t.i)
+      case too_many_errors     : erro(ctx, "too many errors (%v)", t.i)
+      default: erro(ctx, "trace: %s", ts(e))
       }
     }
-    if 0 < recovered {
+    if recovered > 0 {
       erro(ctx, "%s (%d panics)", ts(x), recovered).debug(64)
     }
   }
-  if d := _diagnostic(ctx) ; d.countError() > 0 {
-    if d.traced += 1 ; d.traced == 1 { panic(tracend{ctx}) }
+
+  var d = _diagnostic(ctx)
+  if i := d.counterror(); i > 0 {
+    if d.traced += 1 ; d.traced == 1 { panic(trace_errors{ctx,i}) }
   }
   return
 }
 
-func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
-
 const diagnostic_limit = 10_000
 var   diagnostic_limit_erros = 520
 var   diagnostic_limit_lines = 1_000_000
+
+func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
 
 type diagnostic struct {
   Context
@@ -478,15 +483,18 @@ func (diag *diagnostic) reset() { defer diag.aquire()(); diag.points = []*diagPo
 func (diag *diagnostic) add(point *diagPoint) *diagPoint {
   defer diag.aquire()()
 
-  if diagnostic_limit < len(diag.points)+len(diag.newlines) {
-    panic("too many diagnostics")
-  } else if 0 < diagnostic_limit_lines {
+  if i := len(diag.points)+len(diag.newlines); diagnostic_limit < i {
+    panic(too_many_diagnostics{i})
+  }
+
+  if 0 < diagnostic_limit_lines {
     var x = diag.flued
     for _, t := range append(diag.points, diag.newlines...) {
       x += 1 + bytes.Count(t.stack, []byte("\n"))
     }
     if diagnostic_limit_lines < x {
-      panic(fmt.Sprintf("too many diagnostics (%d)", x))
+      diag.flued = 0 // reset to avoid causing next panics
+      panic(too_many_diagnostics{x})
     }
   }
 
@@ -510,10 +518,10 @@ func (diag *diagnostic) nest(points []*diagPoint) {
 }
 func (diag *diagnostic) point(ctx Context, dt diagType, f string, args ...any) *diagPoint {
   if dt != diagPrompt { f = strings.TrimSpace(f) }
-  return diag.add(&diagPoint{ dt, ctx.Position(), fmt.Sprintf(f, args...), nil })
+  return diag.add(&diagPoint{ dt, _position(ctx), fmt.Sprintf(f, args...), nil })
 }
-func (diag *diagnostic) error() bool { return diag.countError() > 0 }
-func (diag *diagnostic) countError() int { return diag.count(diagError) }
+func (diag *diagnostic) error() bool { return diag.counterror() > 0 }
+func (diag *diagnostic) counterror() int { return diag.count(diagError) }
 func (diag *diagnostic) count(dt ...diagType) (errs int) {
   defer diag.aquire()()
   for _, d := range diag.points {
@@ -526,19 +534,20 @@ func (diag *diagnostic) count(dt ...diagType) (errs int) {
 func (diag *diagnostic) flush(ctx Context) (errs int) {
   var flush = func(d *diagPoint, pend bool) bool {
     defer func() {
-      if x := diagnostic_limit_erros ; 0 < x && x < diag.erros {
-        panic(fmt.Sprintf("too many errors (%d)", diag.erros))
+      if x := diagnostic_limit_erros; 0 < x && x < diag.erros {
+        diag.erros = 0 // reset to avoid causing next panics
+        panic(too_many_errors{diag.erros})
       }
-      if x := diagnostic_limit_lines ; 0 < x && x < diag.flued {
-        panic(fmt.Sprintf("too many diagnostics (%d)", x))
+      if x := diagnostic_limit_lines; 0 < x && x < diag.flued {
+        i := diag.flued
+        diag.flued = 0 // reset to avoid causing next panics
+        panic(too_many_diagnostics{i})
       }
     } ()
 
-    pos, msg := d.position.String(), d.message
-
     diag.flued += 1
 
-    switch d.dt {
+    switch pos, msg := d.position.String(), d.message ; d.dt {
     case diagError: fmt.Fprintf(stderr, "%v:error: %s\n",   pos, msg); errs += 1
     case diagInfo : fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
     case diagWarn : fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
@@ -549,8 +558,9 @@ func (diag *diagnostic) flush(ctx Context) (errs int) {
 
     if d.stack != nil {
       fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
-      diag.flued += 1 + bytes.Count(d.stack, []byte("\n"))
+      diag.flued += (1 + bytes.Count(d.stack, []byte("\n")))
     }
+
     return false
   }
 
@@ -571,7 +581,7 @@ func (diag *diagnostic) flush(ctx Context) (errs int) {
 
     if point == nil || flush(point, true) { break }
     if errs > 49 {
-      fmt.Fprintf(stderr, "%v: too many errors (%d)\n", diag.Position(), errs)
+      fmt.Fprintf(stderr, "%v: too many errors (%d)\n", _position(ctx), errs)
       break
     }
   }
@@ -595,18 +605,14 @@ func diag(ctx Context, dt diagType, f string, a ...any) (_ *diagPoint) {
   }
   return
 }
-func info(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagInfo, f, a...) }
-func warn(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagWarn, f, a...) }
-func erro(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagError, f, a...) }
-func prompt(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagPrompt, f, a...) }
+func info(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagInfo,   f, a...) }
+func warn(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagWarn,   f, a...) }
+func erro(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagError,  f, a...) }
+func prompt(c Context, f string, a ...any) *diagPoint { return diag(c,   diagPrompt, f, a...) }
 
 func note(ctx Context, f string, a ...any) *diagPoint {
   if !strings.HasSuffix(f, "\n") { f += "\n" }
-  if false {
-    return prompt(ctx, "%v: "+f, append([]any{ctx.Position()}, a...)...)
-  } else {
-    return prompt(ctx, ctx.Position().String()+": "+f, a...)
-  }
+  return prompt(ctx, _position(ctx).String()+": "+f, a...)
 }
 
 func infostack(ctx Context, n int, a ...any) *diagPoint { return diagstack(ctx, n, diagInfo  , a...) }
@@ -620,7 +626,7 @@ func notestack(ctx Context, n int, a ...any) *diagPoint {
       f, a = s, a[1:]
     }}
 
-    a = append([]any{"%v: "+f+"\n", ctx.Position()}, a...)
+    a = append([]any{"%v: "+f+"\n", _position(ctx)}, a...)
   }
   return diagstack(ctx, n, diagPrompt, a...)
 }
@@ -680,15 +686,13 @@ func _positional(c Context) *positional { return cast[*positional](c) }
 
 type positional struct { Context ; position Position }
 func (p *positional) Position() Position { return p.position }
-func (p *positional) caller() *positional { return _positional(p.Context) }
 func (p *positional) cast(t reflect.Type) Context { return implcast(p, t) }
 func (p *positional) ts(string) string { return ts(p.Context) }
-func (p *positional) do(ctx Context, op any) any {
-  switch t := op.(type) {
-  case property:
-    if t&propPosition != 0 { return p.position }
+func (p *positional) do(ctx Context, op any) (_ any) {
+  switch op.(type) {
+  case getPosition: return p.position
   }
-  if p.Context == nil { return nil }
+  if p.Context == nil { return }
   return p.Context.do(ctx, op)
 }
 
@@ -697,22 +701,20 @@ func at(ctx Context, a any) Context {
   if ctx == nil { panic("nil context") }
 
   var pos Position
-
   switch t := a.(type) {
   case Position  : pos = t
   case positioner: pos = t.Position()
   case doer:
-    if x, y := t.do(ctx, propPosition).(Position); y&&x.valid() { pos = x }
+    if x, y := do(ctx, getPosition{}).(Position); y && x.valid() { pos = x }
   default:
     if false { erro(ctx, "non-position arg: %v", ts(a)).debug(3) }
     return ctx
   }
 
-  if p := ctx.Position(); p.valid() && pos.valid() && !p.Same(&pos) {
+  if p := _position(ctx) ; p.valid() && pos.valid() && !p.Same(&pos) {
     for c, i, n := ctx, 0, 0; c != nil; c, i = inner(c), i+1 {
       if _, y := c.(*positional); y {
         if n += 1; n > /* 999 */100 {
-          if false { prompt(ctx, "%v: too many positions: %T\n", p, c) }
           warnstack(ctx, 3, "too many positions: %v/%v; %v", n, i, ctx).debug(16)
           if true { flush(ctx) }
           return ctx
@@ -789,12 +791,12 @@ func joinTmpPath(ctx Context, base, rel string) string {
 }
 
 func positionForDir(dir string) (pos Position) {
-  if strings.HasSuffix(dir, entryFileName) || strings.HasSuffix(dir, "build.smart") {
+  if strings.HasSuffix(dir, mainFileName) || strings.HasSuffix(dir, deprFileName) {
     pos.Filename = dir
-  } else if _, e := os.Stat(filepath.Join(dir, entryFileName)); e == nil {
-    pos.Filename = filepath.Join(dir, entryFileName)
-  } else if _, e := os.Stat(filepath.Join(dir, "build.smart")); e == nil {
-    pos.Filename = filepath.Join(dir, "build.smart")
+  } else if _, e := os.Stat(filepath.Join(dir, mainFileName)); e == nil {
+    pos.Filename = filepath.Join(dir, mainFileName)
+  } else if _, e := os.Stat(filepath.Join(dir, deprFileName)); e == nil {
+    pos.Filename = filepath.Join(dir, deprFileName)
   } else {
     pos.Filename = dir
   }
@@ -803,12 +805,12 @@ func positionForDir(dir string) (pos Position) {
 }
 
 func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
-  var te tracend
+  var te trace_errors
   var f *failure
   for e := recover(); e != nil; e = recover() {
     switch recovered += 1; t := e.(type) {
     case bailout: continue
-    case tracend: t.Context = nil ; continue
+    case trace_errors: t.Context = nil ; continue
     case failure:
       erro(t.Context, t.Error()) ; t.Context = nil
       if f == nil { f = &t }
@@ -821,7 +823,7 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
 
   if 0 < recovered {
     // if defer assured from top stack, this will dump the full stack of panics
-    promstack(ctx, 5, "%v: %s (%d panics)", ctx.Position(), ts(te.Context), recovered).debug(128)
+    promstack(ctx, 5, "%v: %s (%d panics)", _position(ctx), ts(te.Context), recovered).debug(128)
   }
 
   te.Context = nil
@@ -829,7 +831,7 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
   var dia = _diagnostic(ctx) ; dia.flush(ctx)
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] { return }
 
-  if errs = dia.countError(); 0 < errs && recovered == 0 {
+  if errs = dia.counterror(); 0 < errs && recovered == 0 {
     note(ctx, "got %d errors (flushed %d, recovered %d)", errs, dia.erros, recovered).debug(10)
     if f != nil && (len(dontCheckErrors) == 0 || !dontCheckErrors[0]) {
       panic(_failure(ctx, "fail [assured]"))
@@ -884,7 +886,7 @@ func CommandLine() {
   }
 
   var dia = _diagnostic(context)
-  if dia.countError() > 0 { return }
+  if dia.counterror() > 0 { return }
 
   if false { loadGrepCache(context) }
 

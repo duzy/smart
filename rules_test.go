@@ -185,7 +185,7 @@ func testRules1(ctx *testcase) {
 	testResolveEntries = true
 
 	if s := ".test.foo"; false {} else
-	if v := makeStrlit(ctx.Position(), s); v == nil || v.s != s {
+	if v := makeStrlit(_position(ctx), s); v == nil || v.s != s {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if r := p.resolveEntries(ctx.Context, v, false); r == nil {
 		ctx.err("%v{%v}, %v", typeof(v), v, &p.entries)

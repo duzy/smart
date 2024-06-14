@@ -39,7 +39,7 @@ func testHasModule(name string) (res bool) {
 }
 
 func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
-	if !filepath.IsAbs(dir) { dir = filepath.Join(baseWorkDir, dir) }
+	if !filepath.IsAbs(dir) { dir = filepath.Join(workBaseDir, dir) }
 	if _, e := os.Stat(dir); e != nil {
 		t.Errorf("%v", e)
 		return
@@ -71,14 +71,14 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 	} else if name != "" && m.name != name {
 		erro(ctx, "project %v != %v", m.name, name).debug(1, skipint{3})
 	} else {
-		res.Context = _closure_with(ctx, m) // TODO: projectContext{ctx, m}
+		res.Context = closure_any(ctx, m) // TODO: projectContext{ctx, m}
 		testRemoveConfigureDir(res, get_project(ctx))
 	}
 
 	ctx.diagnostic.flush(ctx)
 
 	if ctx.erros > 0 {
-		res.Errorf("%d errors in %s", ctx.erros, ctx.Position().Filename)
+		res.Errorf("%d errors in %s", ctx.erros, ctx._position().Filename)
 	}
 	return
 }
@@ -110,16 +110,16 @@ func (tc *testcase) err(f string, i ...any) {
 		for _, a := range i {
 			if d, y := a.(*def); y && d != nil {
 				if d.value != nil {
-					ctx = at(ctx, d.value.Position())
+					ctx = at(ctx, d.value)
 				} else {
 					ctx = at(ctx, d.position)
 				}
 				break
-			} else if v, y := a.(Value); y {
-				ctx = at(ctx, v.Position())
+			} else if x, y := a.(Value); y && x != nil {
+				ctx = at(ctx, x)
 				break
-			} else if v, y := a.(tst); y {
-				ctx = at(ctx, v.Position())
+			} else if x, y := a.(tst); y && x.i != nil {
+				ctx = at(ctx, x.i)
 				break
 			}
 		}
@@ -130,9 +130,9 @@ func (tc *testcase) err(f string, i ...any) {
 
 func (tc *testcase) flush() {
 	var dia = _diagnostic(tc.Context)
-	if n := dia.countError(); n > 0 {
+	if n := dia.counterror(); n > 0 {
 		var pos Position
-		if p := get_project(tc); p != nil { pos = p.position } else { pos = tc.Position() }
+		if p := get_project(tc); p != nil { pos = p.position } else { pos = _position(tc) }
 		note(at(tc.Context, pos), "%v: %v errors", get_project(tc), n).debug(1, skipint{2})
 		tc.Errorf("%d errors in %s", dia.flush(tc.Context), pos.Filename)
 	}
@@ -162,7 +162,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	var proj = get_project(tc)
 
 	for _, i := range ii {
-		var vb = valbase{tc.Position()}
+		var vb = valbase{_position(tc)}
 		switch t := i.(type) {
 		case test_def_1: origin = defExpand1
 		case test_def_2: origin = defExpand2
@@ -236,11 +236,16 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
 
 	defer trace(ctx)
-	defer ctx.flush()
-	defer func(u *universe) {
-		init_erros += u.erros
-		init_lines += u.flued
-	} (_universe(ctx))
+	defer func() {
+		u := _universe(ctx)
+		if u.flush(ctx) == 0 && u.erros == 0 {
+			init_erros = 0
+			init_lines = 0
+		} else {
+			init_erros += u.erros
+			init_lines += u.flued
+		}
+	} ()
 
 	f(ctx)
 }
@@ -249,27 +254,27 @@ func va(ctx Context, i any) (v Value) {
     switch t := i.(type) {
     case   Value: v = t
     case []Value: v = makeList(t...)
-    case  int:    v = makeDecimal(ctx.Position(), int64(t))
-    case  int16:  v = makeDecimal(ctx.Position(), int64(t))
-    case  int32:  v = makeDecimal(ctx.Position(), int64(t))
-    case  int64:  v = makeDecimal(ctx.Position(), int64(t))
-    case uint:    v = makeDecimal(ctx.Position(), int64(t))
-    case uint16:  v = makeDecimal(ctx.Position(), int64(t))
-    case uint32:  v = makeDecimal(ctx.Position(), int64(t))
-    case uint64:  v = makeDecimal(ctx.Position(), int64(t))
+    case  int:    v = makeDecimal(_position(ctx), int64(t))
+    case  int16:  v = makeDecimal(_position(ctx), int64(t))
+    case  int32:  v = makeDecimal(_position(ctx), int64(t))
+    case  int64:  v = makeDecimal(_position(ctx), int64(t))
+    case uint:    v = makeDecimal(_position(ctx), int64(t))
+    case uint16:  v = makeDecimal(_position(ctx), int64(t))
+    case uint32:  v = makeDecimal(_position(ctx), int64(t))
+    case uint64:  v = makeDecimal(_position(ctx), int64(t))
     case string:
         if t == "" {
-            v = makeNone(ctx.Position())
+            v = makeNone(_position(ctx))
         } else {
-            v = makeBareword(ctx.Position(), t)
+            v = makeBareword(_position(ctx), t)
         }
     case []string: {
         var l = makeList()
         for _, s := range t {
             if s == "" {
-                v = makeNone(ctx.Position())
+                v = makeNone(_position(ctx))
             } else {
-                v = makeBareword(ctx.Position(), s)
+                v = makeBareword(_position(ctx), s)
             }
             l.elems = append(l.elems, v)
         }
@@ -280,7 +285,7 @@ func va(ctx Context, i any) (v Value) {
         for _, i := range t { l.elems = append(l.elems, va(ctx, i)) }
         v = l
     case nil:
-        v = makeNull(ctx.Position())
+        v = makeNull(_position(ctx))
     default:
         erro(ctx, "%v", ts(i)).debug(2)
     }
@@ -323,11 +328,11 @@ func Test(t *testing.T) {
 				switch v := i.(type) {
 				case func(*testcase): f = v // testcase_f1
 				case func(*testcase, string, string): // testcase_f2
-					f = func(ctx *testcase) { v(ctx, spec, name) }
+					f = func(ctx *testcase) { /* defer trace(ctx); */ v(ctx, spec, name) }
 				case func(testcase):
-					f = func(ctx *testcase) { v(*ctx) }
+					f = func(ctx *testcase) { /* defer trace(ctx); */ v(*ctx) }
 				case func(testcase1):
-					f = func(ctx *testcase) { v(testcase1{ctx, d}) }
+					f = func(ctx *testcase) { /* defer trace(ctx); */ v(testcase1{ctx, d}) }
 				case test_hook_assert:
 					if _hooks == nil { _hooks = &hooks{} }
 					d, _hooks.assert = v.i, func(c Context, a Value, b bool) bool {

@@ -711,7 +711,7 @@ func (p *execContext) check() (err error) {
       }
     }}
 
-    var pos = ctx.Position()
+    var pos = _position(ctx)
     if !p.logPos.IsValid() && p.log != nil {
       p.logPos.Filename = p.log.filename
       p.logPos.Line = p.Stderr.log.lines + 1
@@ -887,7 +887,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
   var _ctx = ctx.Context
   var u = _universe(ctx)
   for i, src := range ctx.sources {
-    ctx.Context = at(_ctx, src.Position())
+    ctx.Context = at(_ctx, src)
     ctx.current = i
 
     if a := "@"; strings.HasPrefix(src.s, a) {
@@ -952,7 +952,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   defer trace(ctx)
 
   var (
-    pos = ctx.Position()
+    pos = _position(ctx)
     exe = &execContext{Context:ctx, current:-1, x:p}
     cmd = p.cmd
   )

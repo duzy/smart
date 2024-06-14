@@ -632,7 +632,7 @@ type builtin_position struct { builtin_
 }
 func (ctx *builtin_position) x() (res any) {
     var vals []Value
-    var pos = ctx.Position()
+    var pos = _position(ctx)
     if ctx.filename {
         vals = append(vals, makeStrlit(pos, pos.Filename))
     } else if ctx.filenameQuoted {
@@ -665,9 +665,9 @@ func (ctx *builtin_date) x() (res any) {
         }
         return vals
     } else if ctx.time {
-        res = makeTime(ctx.Position(), t)
+        res = makeTime(_position(ctx), t)
     } else {
-        res = makeDate(ctx.Position(), t)
+        res = makeDate(_position(ctx), t)
     }
     return
 }
@@ -733,7 +733,7 @@ func (ctx *builtin_assert) x() (res any) {
 
     var cc = ctx.Context
     for _, a := range ctx.evocation.a {
-        ctx.Context = at(cc, a.Position())
+        ctx.Context = at(cc, a)
 
         var okay = a.true(ctx)
         if hook != nil && hook(ctx, a, okay) || okay { continue }
@@ -843,7 +843,7 @@ func (ctx *builtin_unequal) x() (res any) {
     }
 
     if t {
-        res = makeBoolean(ctx.Position(), true)
+        res = makeBoolean(_position(ctx), true)
     } else if n := ctx.debug; n>0 {
         if l, y := a.(*list); y {
             var v = l.elems[0]
@@ -898,7 +898,7 @@ func (ctx *builtin_equal) x() (res any) {
     // }
 
     if t {
-        res = makeBoolean(ctx.Position(), true)
+        res = makeBoolean(_position(ctx), true)
     } else if n := ctx.debug; n>0 {
         if l, y := a.(*list); y { var v = l.elems[0]
             note(at(ctx,a), "equal: a: %v{%v} (len=%d)", typeof(v), v, len(l.elems))
@@ -922,7 +922,7 @@ func (ctx *builtin_greater) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
     } else if cmp := ctx.evocation.a[0].cmp(ctx, ctx.evocation.a[1]); cmp == cmpGreater {
-        res = makeBoolean(ctx.Position(), true)
+        res = makeBoolean(_position(ctx), true)
     }
     return
 }
@@ -932,7 +932,7 @@ func (ctx *builtin_less) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
     } else if cmp := ctx.evocation.a[0].cmp(ctx, ctx.evocation.a[1]); cmp == cmpSmaller {
-        res = makeBoolean(ctx.Position(), true)
+        res = makeBoolean(_position(ctx), true)
     }
     return
 }
@@ -963,7 +963,7 @@ func (ctx *builtin_match) x() (result any) {
         if res != nil {
             res.bool = !res.bool
         } else {
-            result = makeBoolean(ctx.Position(), true)
+            result = makeBoolean(_position(ctx), true)
         }
     }()}
 
@@ -976,7 +976,7 @@ func (ctx *builtin_match) x() (result any) {
                 matched, _, _ = left.match(ctx, right)
             }
             if matched {
-                if res == nil { res = makeBoolean(ctx.Position(), true) }
+                if res == nil { res = makeBoolean(_position(ctx), true) }
                 if !ctx.all { return res }
             } else if ctx.all {
                 res = nil
@@ -1006,7 +1006,7 @@ func (ctx *builtin_match) _x() (res any) {
         note(ctx, "match: %v %v %v, %d", ctx.regexps, patList, valList, n).debug(d)
     }
 
-    var pos = ctx.Position()
+    var pos = _position(ctx)
 ForValList:
     for _, val := range valList {
         if isTrivial(val) { continue ForValList }
@@ -1359,7 +1359,7 @@ func (ctx *builtin_value) x() (res any) {
             if v == nil { v = auto_get(ctx, s) }
         }
 
-        if v == nil { v = makeDelegate(ctx.Position(), LPAREN, a, nil) }
+        if v == nil { v = makeDelegate(_position(ctx), LPAREN, a, nil) }
         if v != nil { vals = append(vals, v) }
     }
     return vals
@@ -1485,7 +1485,7 @@ func (ctx *builtin_plain) c() (res any) {
 
 type builtin_shell struct { builtin_ }
 func (ctx *builtin_shell) x() (res any) {
-    var pos = ctx.Position()
+    var pos = _position(ctx)
     var vals []Value
     var err error
     for _, a := range ctx.evocation.a {
@@ -1517,7 +1517,7 @@ func (ctx *builtin_which) x() (res any) {
             erro(ctx, "%v", err).debug()
             return
         } else if s != "" {
-            vals = append(vals, makeStrlit(ctx.Position(), s))
+            vals = append(vals, makeStrlit(_position(ctx), s))
         }
     }
     return vals
@@ -1628,7 +1628,7 @@ func (ctx *builtin_plus) x() (res any) {
                 erro(ctx, "%v: %v", a, e).debug()
             }
         }
-        return makeDecimal(ctx.Position(), num)
+        return makeDecimal(_position(ctx), num)
     } else {
         var num float64
         for n, a := range ctx.evocation.a {
@@ -1638,7 +1638,7 @@ func (ctx *builtin_plus) x() (res any) {
                 erro(ctx, "%v: %v", a, e).debug()
             }
         }
-        return makeFloat(ctx.Position(), num)
+        return makeFloat(_position(ctx), num)
     }
 }
 
@@ -1655,7 +1655,7 @@ func (ctx *builtin_minus) x() (res any) {
                 erro(ctx, "%v: %v", a, e).debug()
             }
         }
-        return makeDecimal(ctx.Position(), num)
+        return makeDecimal(_position(ctx), num)
     } else {
         var num float64
         for n, a := range ctx.evocation.a {
@@ -1665,7 +1665,7 @@ func (ctx *builtin_minus) x() (res any) {
                 erro(ctx, "%v: %v", a, e).debug()
             }
         }
-        return makeFloat(ctx.Position(), num)
+        return makeFloat(_position(ctx), num)
     }
 }
 
@@ -1771,7 +1771,7 @@ func (ctx *builtin_join) x() (res any) {
             if v := a.string(ctx); v != "" { fields = append(fields, v) }
         }
 
-        res = makeStrlit(ctx.Position(), strings.Join(fields, s))
+        res = makeStrlit(_position(ctx), strings.Join(fields, s))
     }
     return
 }
@@ -1805,9 +1805,9 @@ func (ctx *builtin_quote) x() (res any) {
         for _, a := range args {
             if v := a.string(ctx); v != "" { fields = append(fields, v) }
         }
-        res = makeStrlit(ctx.Position(), strconv.Quote(strings.Join(fields, " ")))
+        res = makeStrlit(_position(ctx), strconv.Quote(strings.Join(fields, " ")))
     } else {
-        res = makeNone(ctx.Position())
+        res = makeNone(_position(ctx))
     }
     return
 }
@@ -1825,9 +1825,9 @@ func (ctx *builtin_quotejoin) x() (res any) {
         for _, a := range args[1:] {
             if v := a.string(ctx); v != "" { fields = append(fields, v) }
         }
-        res = makeStrlit(ctx.Position(), strconv.Quote(strings.Join(fields, sep)))
+        res = makeStrlit(_position(ctx), strconv.Quote(strings.Join(fields, sep)))
     } else {
-        res = makeNone(ctx.Position())
+        res = makeNone(_position(ctx))
     }
     return
 }
@@ -1917,7 +1917,7 @@ func (ctx *builtin_splitjoinquote) x() (res any) {
         if v, err = joinstrings(ctx, val, sep); err != nil {
             erro(ctx, "%v", err).debug()
         } else {
-            res = makeStrlit(ctx.Position(), strconv.Quote(v.string(ctx)))
+            res = makeStrlit(_position(ctx), strconv.Quote(v.string(ctx)))
         }
     }
     return
@@ -2079,7 +2079,7 @@ func (ctx *builtin_string) x() (res any) {
         if ctx.finalize {
             return expand(final{ctx}, vals...)
         } else if expandable(final{ctx}, vals...) {
-            return &strval{valbase{ctx.Position()},vals}
+            return &strval{valbase{_position(ctx)},vals}
         } else if 0 < len(ctx.join) {
             var s bytes.Buffer
             for i, v := range vals {
@@ -2088,7 +2088,7 @@ func (ctx *builtin_string) x() (res any) {
                     s.WriteString(t)
                 }
             }
-            return &strlit{valbase{ctx.Position()},s.String()}
+            return &strlit{valbase{_position(ctx)},s.String()}
         } else if ctx.con || !ctx.dis { // conjunction (default)
             var s bytes.Buffer
             for i, v := range vals {
@@ -2097,7 +2097,7 @@ func (ctx *builtin_string) x() (res any) {
                     s.WriteString(t)
                 }
             }
-            return &strlit{valbase{ctx.Position()},s.String()}
+            return &strlit{valbase{_position(ctx)},s.String()}
         } else { // disjunction
             var a []Value
             for _, v := range vals {
@@ -2122,7 +2122,7 @@ type builtin_filter struct { builtin_
 }
 func (ctx *builtin_filter) _do(pats []Value, values... Value) (result []Value) {
     defer func(t0 time.Time) { if d := time.Now().Sub(t0); d > 1*time.Second {
-        pos := ctx.Position()
+        pos := _position(ctx)
         prompt(ctx, "%v: slow: %d result, %v\n", pos, len(result), result)
         prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(pats), pats)
         prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
@@ -2261,7 +2261,7 @@ func (ctx *builtin_patsubst) x() (_ any) {
         if d := t2.Sub(t0); d > 1*time.Second {
             var d1 = t1.Sub(t0)
             var d2 = t2.Sub(t1)
-            var pos = ctx.Position()
+            var pos = _position(ctx)
             prompt(ctx, "%v: slow: src %d %v\n", pos, len(srcPats), srcPats)
             prompt(ctx, "%v: slow: dst %d %v\n", pos, len(dstPats), dstPats)
             prompt(ctx, "%v: slow: sources %d %v\n", pos, len(sources), sources)
@@ -2986,7 +2986,7 @@ outer:
     }
 
     if n == len(vals) {
-        return makeBoolean(ctx.Position(), true)
+        return makeBoolean(_position(ctx), true)
     }
     return
 }
@@ -3030,7 +3030,7 @@ func (ctx builtin_lastword) x() (res any) {
 type builtin_encodebase64 struct { builtin_ }
 func (ctx *builtin_encodebase64) x() (res any) {
     if len(ctx.evocation.a) > 0 {
-        pos := ctx.Position()
+        pos := _position(ctx)
         buf := new(bytes.Buffer)
         enc := base64.NewEncoder(base64.StdEncoding, buf)
         for _, a := range ctx.evocation.a { enc.Write([]byte(a.string(ctx))) }
@@ -3534,7 +3534,7 @@ func (ctx *builtin_remove) c() (res any) {
         }
     }
     for _, a := range ctx.evocation.a {
-        ctx := at(ctx.Context, a.Position())
+        ctx := at(ctx.Context, a)
         remove(ctx, a.expand(ctx))
     }
 
@@ -3641,6 +3641,41 @@ func (ctx *builtin_link) c() (res any) {
             erro(ctx, "%v", err).debug()
             break
         }
+    }
+    return
+}
+
+func _readlink(ctx Context, filename string, d os.FileInfo) (_ string, linked bool) {
+    fn, linkpath := filename, filepath.Dir(filename)
+    for d.Mode()&os.ModeSymlink != 0 {
+        linkname, e := os.Readlink(fn)
+
+        if e != nil {
+            prompt(ctx, "%s: readlink failed\n", fn)
+            note(ctx, "%v", e).debug()
+            return
+        }
+
+        var rel = !filepath.IsAbs(linkname)
+        if rel {
+            linkname = filepath.Join(linkpath, linkname)
+            linkpath = filepath.Dir(linkname)
+        }
+
+        if d, e = os.Lstat(linkname); e != nil {
+            prompt(ctx, "%s: lstat %s\n", fn, linkname)
+            note(ctx, "%v", e).debug()
+            return
+        }
+
+        fn, linked = linkname, true
+    }
+    return fn, linked
+}
+
+func readlink(ctx Context, filename string) (_ string, _ bool) {
+    if d, e := os.Stat(filename); e == nil {
+        return _readlink(ctx, filename, d)
     }
     return
 }
@@ -4027,7 +4062,7 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
             if len(t.elems) == 1 { pat = t.elems[0] }
         }
 
-        var ctx = at(ctx, pat.Position())
+        var ctx = at(ctx, pat)
         if p, y := pat.(*path); !y {
             // fallthrough
         } else if nElems := len(p.elems); nElems == 0 {
@@ -4138,7 +4173,7 @@ func (ctx *builtin_wildcard) _project_1(p *project, pats ...Value) (files []*Fil
 func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File) {
     if false { defer func(t0 time.Time) {
         if d := time.Now().Sub(t0); d > 1*time.Second {
-            var pos = ctx.Position()
+            var pos = _position(ctx)
             prompt(ctx, "%v: slow: %d patterns, %v\n", pos, len(pats), pats)
             prompt(ctx, "%v: slow: %d files\n", pos, len(files))
             prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
@@ -4447,7 +4482,7 @@ func (ctx *builtin_grep) x() (_ any) {
         }
     }
 
-    var pos = ctx.Position()
+    var pos = _position(ctx)
     var cc = automatic{Context:ctx, defs:make(auto_defs), suppress:IsDigits}
     var greped = func(line int, match []string) (done bool) {
         var vals []Value
@@ -4706,5 +4741,5 @@ func (ctx *builtin_untraversed) x() (res any) {
 
 type builtin_return struct { builtin_ }
 func (ctx *builtin_return) x() (res any) {
-    return &returner{valbase{ctx.Position()}, ctx.evocation.a }
+    return &returner{valbase{_position(ctx)}, ctx.evocation.a }
 }

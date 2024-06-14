@@ -73,6 +73,8 @@ func (pc *program_execution) cast(t reflect.Type) Context {
 }
 func (pc *program_execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
+    case getPosition:
+        if pc.prog != nil { return pc.prog.position }
     case getProject:
         if pc.prog.project != nil { return pc.prog.project }
     case getScope:
@@ -155,11 +157,6 @@ func (pc *program_execution) env(ctx Context) (env []string, osi int) {
     return
 }
 
-func (pc *program_execution) Position() Position {
-    if pc.prog != nil { return pc.prog.position }
-    return pc.automatic.Position()
-}
-
 func (pc *program_execution) dirtyMark(vals ...Value) {
     const (
         enableDirtyMark = true
@@ -201,7 +198,7 @@ func (pc *program_execution) dirtyMark(vals ...Value) {
     if enableDirtyMark { pc.dirtyMark(vals...) }
 }
 func (pc *program_execution) interpret(ctx Context, i interpreter, params []Value) {
-    if pos := ctx.Position(); !pos.IsValid() && pc.prog.position.IsValid() {
+    if pos := _position(ctx); !pos.IsValid() && pc.prog.position.IsValid() {
         ctx = at(ctx, pc.prog.position)
     }
 
@@ -405,7 +402,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
         }
 
         if prereqValue == nil {
-            prereqValue = makeStrlit(ctx.Position(), prereqFinal)
+            prereqValue = makeStrlit(_position(ctx), prereqFinal)
         } else if f, y := toFile(prereqValue); y {
             prereqFile = f
         } else if _, y := prereqValue.(*path); y {
@@ -558,7 +555,7 @@ func (pc *program_execution) traverse(ctx Context, prereqValue Value) (result tr
             for i, s := range pc.traves { ctx := at(ctx, s.pos)
                 note(ctx, "%v → traves[%d] ⇒ %v", targetValue, i, s).debug()
             }
-            for i, concrete := range concreteList { ctx := at(ctx, concrete.Position())
+            for i, concrete := range concreteList { ctx := at(ctx, concrete)
                 note(ctx, "%v → concrete[%d] ⇒ %v", targetValue, i, concrete).debug()
             }
             for i, stemmed := range stemmedList  { ctx := at(ctx, stemmed)
@@ -860,7 +857,7 @@ func (pc *program_execution) traverse(ctx Context, prereqValue Value) (result tr
     }
     if d := time.Now().Sub(t1); d > 60*time.Second {
         for _, concrete := range concreteList { prompt(ctx, "%v: slow: %v %v\n", concrete.Position(), concrete, targetValue) }
-        prompt(ctx, "%v: slow: %v: %v %v (%d concretes)\n", ctx.Position(), targetValue, prereqValue, d, len(concreteList)).debug()
+        prompt(ctx, "%v: slow: %v: %v %v (%d concretes)\n", _position(ctx), targetValue, prereqValue, d, len(concreteList)).debug()
     }
 
     if prereqFile != nil && prereqFile.exists() { goto CheckPrereqResult }
@@ -882,7 +879,7 @@ func (pc *program_execution) traverse(ctx Context, prereqValue Value) (result tr
     }
     if d := time.Now().Sub(t2); d > 60*time.Second {
         for _, stemmed  := range stemmedList { prompt(ctx, "%v: slow: %v\n", stemmed.Position(), stemmed) }
-        prompt(ctx, "%v: slow: %v: %v %v (%d stemmed)\n", ctx.Position(), targetValue, prereqValue, d, len(stemmedList)).debug()
+        prompt(ctx, "%v: slow: %v: %v %v (%d stemmed)\n", _position(ctx), targetValue, prereqValue, d, len(stemmedList)).debug()
     }
 
 CheckPrereqResult:
@@ -951,7 +948,7 @@ CheckPrereqResult:
             ctx = at(ctx, prereqFile.position)
         } else {
             s.error = failureTargetNotFound{get_project(ctx), prereqFinal}
-            if prereqValue != nil { ctx = at(ctx, prereqValue.Position()) }
+            if prereqValue != nil { ctx = at(ctx, prereqValue) }
         }
 
         if prereqFile != nil && prereqValue != prereqFile {
@@ -1026,7 +1023,7 @@ func (pc *program_execution) prerequisite(ctx Context, prerequisites []Value) {
 ForPrerequisites:
     for _, prerequisite := range prerequisites {
         var (
-            ctx = at(ctx, prerequisite.Position())
+            ctx = at(ctx, prerequisite)
             k = len(pc.traves)
             t0 = time.Now()
         )
@@ -1058,7 +1055,7 @@ ForPrerequisites:
             var t = auto_get(ctx, "^")
             var c = auto_get(ctx, "<")
             var q = depend
-            var pos = ctx.Position()
+            var pos = _position(ctx)
             if f != 0 {
                 prompt(ctx, "%v: program.traverse slow: %v %v %d\n", pos, d, d/f, pc.countFiles)
             } else {

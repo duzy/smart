@@ -169,7 +169,7 @@ func (ac *automatic) set(ctx Context, name string, val Value) (out *def, old Val
     } else {
         var pos Position
         if val == nil {
-            pos = ac.Position()
+            pos = _position(ctx)
         } else {
             pos = val.Position()
         }
@@ -618,7 +618,7 @@ func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
     }
 
     var pos = value.Position()
-    if !pos.IsValid() { pos = ctx.Position() }
+    if !pos.IsValid() { pos = _position(ctx) }
     res = makeStrlit(pos, strings.TrimSpace(stdout.String()))
     stdout.Reset()
     stderr.Reset()

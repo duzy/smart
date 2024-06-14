@@ -26,13 +26,8 @@ type scope struct {
 	comment string
 }
 
-func newscope(pos Position, outer *scope, owner *project, comment string) *scope {
-	return &scope{
-		outer: outer,
-		project: owner,
-		comment: comment,
-		elems: make(map[string]Object),
-	}
+func newscope(pos Position, outer *scope, owner *project, c string) (s *scope) {
+	return &scope{outer:outer, project:owner, comment:c, elems:make(map[string]Object)}
 }
 
 func (s *scope) hasOuter(outer *scope) bool {
@@ -203,7 +198,7 @@ func (s *scope) _auto(ctx Context, name string) (a *auto, o Object) {
 	}
 
 	if !y {
-		p := ctx.Position()
+		p := _position(ctx)
 		a = &auto{knownobject{objbase{valbase{p},s}, name}}
 		s.replace(ctx, name, a)
 	}
@@ -262,7 +257,7 @@ func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *de
 		if origin == defUndetermined { origin = defVoid }
 
 		d = &def{ origin:origin, value:value }
-		d.name, d.scope, d.position = name, s, ctx.Position()
+		d.name, d.scope, d.position = name, s, _position(ctx)
 		s.replace(ctx, name, d)
 	} else if d, y = a.(*def); y {
 		if len(vals) == 1 {

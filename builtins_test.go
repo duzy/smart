@@ -2837,7 +2837,7 @@ func testBuiltin_contains2(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if x, y := v.(*delegate); !y {
-		ctx.err("%v", tst{x})
+		ctx.err("%v", tst{v})
 	} else if o, y := x.x.(*def); !y {
 		ctx.err("%v", tst{x.x})
 	} else if s, t := "a b c $1", o.value.String(); s != t {
@@ -2856,7 +2856,7 @@ func testBuiltin_contains2(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if x, y := v.(*delegate); !y {
-		ctx.err("%v", tst{x})
+		ctx.err("%v", tst{v})
 	} else if o, y := x.x.(*def); !y {
 		ctx.err("%v", tst{x.x})
 	} else if s, t := "a b c $1", o.value.String(); s != t {

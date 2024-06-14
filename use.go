@@ -236,7 +236,7 @@ func (p *uselist) append(ctx Context, proj *project, params []Value, opts useOpt
                         return
                 }
         }
-        p.list = append(p.list, &use{valbase{ctx.Position()},proj,params,opts})
+        p.list = append(p.list, &use{valbase{_position(ctx)},proj,params,opts})
 }
 
 func (p *uselist) sel(ctx Context, name string) (result any) {

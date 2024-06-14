@@ -117,7 +117,7 @@ const bom = 0xFEFF // byte order mark, only permitted as very first character
 //
 // (See go.token)
 type scanner struct { // immutable state
-	file *TokFile     // source file handle
+	file *tokfile     // source file handle
 	dir  string       // directory portion of file.Name()
 	src  []byte       // source
 	err  scanFeedbackFn // error reporting; or nil
@@ -253,7 +253,7 @@ func IsIdentifier(r rune) bool {
 // Note that Init may call err if there is an error in the first character
 // of the file.
 //
-func (s *scanner) init(file *TokFile, src []byte, mode scanmode, err, war, inf scanFeedbackFn) {
+func (s *scanner) init(file *tokfile, src []byte, mode scanmode, err, war, inf scanFeedbackFn) {
 	// Explicitly initialize all fields since a scanner may be reused.
 	if file.Size() != len(src) {
 		panic(fmt.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src)))
