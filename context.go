@@ -57,29 +57,29 @@ const (
 )
 
 type (
-  actCountDiag  struct{ t []diagType }
-  actOnErros    struct{ i int }
-  actDirtyMark  struct{ a []Value }
-  actDirty      struct{ a []Value }
-  actTraversed  struct{ v Value }
-  actTraverse   struct{ v Value }
-  actMatchEntry struct{ v Value }
-  actArguments  struct{}
-  getArguments  struct{}
-  getIsTestMode struct{}
-  getWorkDir    struct{}
-  getPosition   struct{}
-  getProject    struct{}
-  getScope      struct{}
-  getClosure    struct{}
-  getObject     struct{ s string }
-  getEntry      struct{ s string }
-  propGoodWith  struct{ p property ; a []any }
-  propParamName struct{ i int }
+  act_count_dia  struct{ t []diagType }
+  act_on_erros   struct{ i int }
+  act_dirty_mark struct{ a []Value }
+  act_dirt       struct{ a []Value }
+  act_traversed  struct{ v Value }
+  act_traverse   struct{ v Value }
+  // act_match_entry struct{ v Value }
+  act_arguments  struct{}
+  get_arguments  struct{}
+  get_workdir    struct{}
+  get_position   struct{}
+  get_project    struct{}
+  get_scope      struct{}
+  get_closure    struct{}
+  // get_object    struct{ s string }
+  // get_entry     struct{ s string }
+  get_param_name struct{ i int }
+  is_good_with   struct{ p property ; a []any }
+  is_test_mode   struct{}
 )
 
 func _position(ctx Context) (res Position) {
-  if i := do(ctx, getPosition{}); i == nil {
+  if i := do(ctx, get_position{}); i == nil {
     erro(ctx, "no such operator: position, %v", ts(ctx)).debug()
     trace(ctx)
   } else if x, y := i.(Position); !y {
@@ -99,14 +99,14 @@ func _parameters(ctx Context) (res map[string]*auto) {
 }
 
 func _paramName(ctx Context, n int) (res string) {
-  if i := do(ctx, propParamName{n}); i != nil {
+  if i := do(ctx, get_param_name{n}); i != nil {
     if s, y := i.(string); y { res = s }
   }
   return
 }
 
 func _workdir(ctx Context) (res string) {
-  if i := do(ctx, getWorkDir{}); i == nil {
+  if i := do(ctx, get_workdir{}); i == nil {
     erro(ctx, "no such operator: workdir, %v", ts(ctx)).debug(24)
   } else if t, y := i.(string); y { res = t } else {
     erro(ctx, "not string: %v", ts(i)).debug(2)
@@ -116,7 +116,7 @@ func _workdir(ctx Context) (res string) {
 
 func count_error(ctx Context) int { return count_diag(ctx, diagError) }
 func count_diag(ctx Context, t ...diagType) (i int) {
-  i, _ = do(ctx, actCountDiag{t}).(int)
+  i, _ = do(ctx, act_count_dia{t}).(int)
   return
 }
 
@@ -206,18 +206,13 @@ func ex_final(ctx Context) (res bool) {
 }
 
 func goodwith(ctx Context, p property, a ...any) (res bool) {
-  res, _ = do(ctx, propGoodWith{p, a}).(bool)
+  res, _ = do(ctx, is_good_with{p, a}).(bool)
   return
 }
 
-func is_test_mode(ctx Context) (res bool) {
-  res, _ = do(ctx, getIsTestMode{}).(bool)
-  return
-}
-
+type Context interface { caster ; doer }
 type caster interface { cast(reflect.Type) Context }
 type doer interface { do(Context, any) any }
-type Context interface { caster ; doer }
 
 func do(ctx Context, op any) any { return ctx.do(ctx, op) }
 func truly(ctx Context, op any) (_ bool) {
@@ -262,18 +257,13 @@ func inner(ctx Context) (c Context) {
   return
 }
 
-func get_scope(ctx Context) (s *scope) {
-  s, _ = do(ctx, getScope{}).(*scope)
+func _scope(ctx Context) (s *scope) {
+  s, _ = do(ctx, get_scope{}).(*scope)
   return
 }
 
-func get_project(ctx Context) (p *project) {
-  p, _ = do(ctx, getProject{}).(*project)
-  return
-}
-
-func closure_scopes(ctx Context) (s []*scope) {
-  s, _ = do(ctx, getClosure{}).([]*scope)
+func _project(ctx Context) (p *project) {
+  p, _ = do(ctx, get_project{}).(*project)
   return
 }
 
@@ -473,7 +463,7 @@ func (diag *diagnostic) aquire() (unlock func()) { diag.Lock(); return func(){ d
 func (diag *diagnostic) cast(t reflect.Type) Context { return implcast(diag,t) }
 func (diag *diagnostic) do(ctx Context, op any) any {
   switch t := op.(type) {
-  case actCountDiag: return diag.count(t.t...)
+  case act_count_dia: return diag.count(t.t...)
   case property: if t&propErros != 0 { return diag.erros }
   }
   if diag.Context == nil { return nil }
@@ -566,7 +556,7 @@ func (diag *diagnostic) flush(ctx Context) (errs int) {
 
   defer func() {
     diag.erros += errs
-    do(ctx, actOnErros{errs})
+    do(ctx, act_on_erros{errs})
   } ()
 
   for {
@@ -656,7 +646,7 @@ func diagstack(ctx Context, n int, dt diagType, a ...any) (point *diagPoint) {
       last = pos
 
       if true {
-        s = get_project(ctx).name + " ; " + ts(_p)
+        s = _project(ctx).name + " ; " + ts(_p)
       } else {
         s = ts(_p)
       }
@@ -690,7 +680,7 @@ func (p *positional) cast(t reflect.Type) Context { return implcast(p, t) }
 func (p *positional) ts(string) string { return ts(p.Context) }
 func (p *positional) do(ctx Context, op any) (_ any) {
   switch op.(type) {
-  case getPosition: return p.position
+  case get_position: return p.position
   }
   if p.Context == nil { return }
   return p.Context.do(ctx, op)
@@ -705,7 +695,7 @@ func at(ctx Context, a any) Context {
   case Position  : pos = t
   case positioner: pos = t.Position()
   case doer:
-    if x, y := do(ctx, getPosition{}).(Position); y && x.valid() { pos = x }
+    if x, y := do(ctx, get_position{}).(Position); y && x.valid() { pos = x }
   default:
     if false { erro(ctx, "non-position arg: %v", ts(a)).debug(3) }
     return ctx

@@ -16,7 +16,7 @@ import (
 const defaultCK = "tmp/go/src/extbit.io/smart/testdata/configuration"
 
 func testConfigItem(ctx *testcase, s string) (res []entry, d *def) {
-	var proj = get_project(ctx)
+	var proj = _project(ctx)
 	for _, e := range proj.configs { if e.ident(ctx) == s { res = append(res, e) } }
 	if o := proj.resolve(ctx, s); o != nil { d, _ = o.(*def) }
 	return
@@ -29,7 +29,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 	}
 
 	var outtmp *def
-	var proj = get_project(ctx)
+	var proj = _project(ctx)
 	var cc = closure_any(ctx, proj.configure)
 
 	if proj.configure == nil {
@@ -175,7 +175,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 	testPromptConfiguration = false//true
 
 	ctx.run(func (c *testcase) {
-		if p := get_project(c); p.configuration == nil /* || p.configurationSave != nil */ {
+		if p := _project(c); p.configuration == nil /* || p.configurationSave != nil */ {
 			c.err("%v", p/*, p.configurationSave */)
 		} else if p.configuration.fullname() != configuration {
 			c.err("%v", p.configuration)
@@ -216,7 +216,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 }
 
 func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
-	var proj = get_project(ctx)
+	var proj = _project(ctx)
 	if proj.configure == nil {
 		ctx.err("%v: nil configure", proj)
 		return
@@ -385,15 +385,15 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 
 		ctx.run(func (c *testcase) {
 			if d := c.def("FOO"); d == nil {
-				c.err("%v: FOO", get_project(c))
+				c.err("%v: FOO", _project(c))
 			} else if d.value == nil {
-				c.err("%v: %v", get_project(c), d)
+				c.err("%v: %v", _project(c), d)
 			} else if d.value.String() != "$(.self)" {
-				c.err("%v: %v", get_project(c), d.value)
-			} else if d.value.string(c) != get_project(c).name {
-				c.err("%v: %v", get_project(c), d.value)
-			} else if d != get_project(c).findDef("FOO") {
-				c.err("%v: %v != %v", get_project(c), d, get_project(c).findDef("FOO"))
+				c.err("%v: %v", _project(c), d.value)
+			} else if d.value.string(c) != _project(c).name {
+				c.err("%v: %v", _project(c), d.value)
+			} else if d != _project(c).findDef("FOO") {
+				c.err("%v: %v != %v", _project(c), d, _project(c).findDef("FOO"))
 			}
 		})
 
@@ -429,7 +429,7 @@ func testConfigureCustom(ctx *testcase) {
 		if e := os.Remove(s); e == nil { ctx.err("%v", s) }
 	}
 
-	var proj = get_project(ctx)
+	var proj = _project(ctx)
 	if proj.configure == nil {
 		ctx.err("%v: nil configure", proj)
 	} else if w := _workdir(ctx); proj.configure.absPath != w+pathSep {

@@ -201,65 +201,65 @@ func testValidateExecOutput(tc *testcase, ctx Context, line string, l int) {
 func testVariantTargetVars(ctx *testcase) {
 	testVariantTargetVars1(ctx)
 	if v := ctx.val("target.os"); v == nil {
-		ctx.err("%v: target.os is nil", get_project(ctx))
+		ctx.err("%v: target.os is nil", _project(ctx))
 	} else if v.string(ctx) != "darwin" {
-		ctx.err("%v: target.os: %v", get_project(ctx), v)
+		ctx.err("%v: target.os: %v", _project(ctx), v)
 	}
 }
 func testVariantTargetVars1(ctx *testcase) {
-	if v := get_project(ctx).resolve(ctx, "variant"); v == nil {
-		ctx.err("%v: variant is nil", get_project(ctx))
+	if v := _project(ctx).resolve(ctx, "variant"); v == nil {
+		ctx.err("%v: variant is nil", _project(ctx))
 	} else if d, y := v.(*def); !y {
-		ctx.err("%v: variant is not def: %v (%v)", get_project(ctx), v, typeof(v))
+		ctx.err("%v: variant is not def: %v (%v)", _project(ctx), v, typeof(v))
 	} else if d.value == nil {
-		ctx.err("%v: variant value is nil: %v", get_project(ctx), d)
+		ctx.err("%v: variant value is nil: %v", _project(ctx), d)
 	} else if s := d.value.string(ctx); s != "darwin/arm64/bootstrap" {
-		ctx.err("%v: variant: %v", get_project(ctx), d.value)
+		ctx.err("%v: variant: %v", _project(ctx), d.value)
 	}
 
 	if v := ctx.val("target.arch"); v == nil {
-		ctx.err("%v: target.arch is nil", get_project(ctx))
+		ctx.err("%v: target.arch is nil", _project(ctx))
 	} else if v.string(ctx) != "arm64" {
-		ctx.err("%v: target.arch: %v", get_project(ctx), v)
+		ctx.err("%v: target.arch: %v", _project(ctx), v)
 	}
 
 	if v := ctx.val("target.abi"); v == nil {
-		ctx.err("%v: target.abi is nil", get_project(ctx))
+		ctx.err("%v: target.abi is nil", _project(ctx))
 	} else if v.string(ctx) != "macho" {
-		ctx.err("%v: target.abi: %v", get_project(ctx), v)
+		ctx.err("%v: target.abi: %v", _project(ctx), v)
 	}
 
 	if v := ctx.val("target.vendor"); v == nil {
-		ctx.err("%v: target.vendor is nil", get_project(ctx))
+		ctx.err("%v: target.vendor is nil", _project(ctx))
 	} else if v.string(ctx) != "apple" {
-		ctx.err("%v: target.vendor: %v", get_project(ctx), v)
+		ctx.err("%v: target.vendor: %v", _project(ctx), v)
 	}
 
 	if v := ctx.val("target.release"); v == nil {
-		ctx.err("%v: target.release is nil", get_project(ctx))
+		ctx.err("%v: target.release is nil", _project(ctx))
 	} else if !regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`).MatchString(v.string(ctx)) {
-		ctx.err("%v: target.release: %v", get_project(ctx), v)
+		ctx.err("%v: target.release: %v", _project(ctx), v)
 	}
 
 	if v := ctx.val("target.sys"); v == nil {
-		ctx.err("%v: target.sys is nil", get_project(ctx))
+		ctx.err("%v: target.sys is nil", _project(ctx))
 	} else if !regexp.MustCompile(`Darwin[0-9]+\.[0-9]+\.[0-9]+`).MatchString(v.string(ctx)) {
-		ctx.err("%v: target.sys: %v", get_project(ctx), v)
+		ctx.err("%v: target.sys: %v", _project(ctx), v)
 	}
 
 	if v := ctx.val("target.triple"); v == nil {
-		ctx.err("%v: target.triple is nil", get_project(ctx))
+		ctx.err("%v: target.triple is nil", _project(ctx))
 	} else if !regexp.MustCompile(`arm64-apple-Darwin[0-9]+\.[0-9]+\.[0-9]+-macho`).MatchString(v.string(ctx)) {
-		ctx.err("%v: target.triple: %v", get_project(ctx), v)
+		ctx.err("%v: target.triple: %v", _project(ctx), v)
 	}
 }
 
 func testVariantTarget_arm64_darwin(ctx *testcase) {
 	testVariantTargetVars1(ctx)
 	if v := ctx.val("target.os"); v == nil {
-		ctx.err("%v: target.os is nil", get_project(ctx))
+		ctx.err("%v: target.os is nil", _project(ctx))
 	} else if v.string(ctx) != "foo" {
-		ctx.err("%v: target.os: %v", get_project(ctx), v)
+		ctx.err("%v: target.os: %v", _project(ctx), v)
 	}
 	testVariantTarget(ctx)
 }
@@ -477,8 +477,8 @@ func testApp_arm64_darwin(ctx *testcase) {
 	testApp(ctx)
 }
 func testApp(ctx *testcase) {
-	if get_project(ctx).configure != nil {
-		ctx.err("%v: nil configure", get_project(ctx))
+	if _project(ctx).configure != nil {
+		ctx.err("%v: nil configure", _project(ctx))
 	}
 
 	ss := func(s string) string { os := "darwin"
@@ -1647,8 +1647,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 
 	var ver1, ver2, ver3 string
 	var ver1_val, ver2_val, ver3_val Value
-	if !strings.HasSuffix(get_project(ctx).absPath, tail) {
-		ctx.err("%v: %v", get_project(ctx), get_project(ctx).absPath)
+	if !strings.HasSuffix(_project(ctx).absPath, tail) {
+		ctx.err("%v: %v", _project(ctx), _project(ctx).absPath)
 	} else if v1 := ctx.val("LLVM_VERSION_MAJOR"); v1 == nil {
 		ctx.err("LLVM_VERSION_MAJOR")
 	} else if v2 := ctx.val("LLVM_VERSION_MINOR"); v2 == nil {
@@ -1679,7 +1679,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	}
 
 	var proj, base *project
-	if proj = get_project(ctx); proj == nil {
+	if proj = _project(ctx); proj == nil {
 		ctx.err("configure fail")
 	} else if !strings.HasSuffix(proj.absPath, tail) {
 		ctx.err("%v: %v %v", proj, proj.absPath, tail)
@@ -1809,17 +1809,17 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	var cc2 = closure_any(ctx.Context, base, base.configure)
 	if inner(cc1) != ctx.Context {
 		ctx.err("%v != %v", typeof(inner(cc1)), typeof(ctx.Context))
-	} else if get_scope(cc1) != base.configure.scope {
-		ctx.err("%v != %v", get_project(cc1), base.configure)
-	} else if get_project(cc1) != base.configure {
-		ctx.err("%v != %v", get_project(cc1), base.configure)
+	} else if _scope(cc1) != base.configure.scope {
+		ctx.err("%v != %v", _project(cc1), base.configure)
+	} else if _project(cc1) != base.configure {
+		ctx.err("%v != %v", _project(cc1), base.configure)
 	}
 	if inner(cc2) != ctx.Context {
 		ctx.err("%v != %v", typeof(inner(cc2)), typeof(ctx.Context))
-	} else if get_scope(cc2) != base.scope {
-		ctx.err("%v != %v", get_project(cc2), base)
-	} else if get_project(cc2) != base {
-		ctx.err("%v != %v", get_project(cc2), base)
+	} else if _scope(cc2) != base.scope {
+		ctx.err("%v != %v", _project(cc2), base)
+	} else if _project(cc2) != base {
+		ctx.err("%v != %v", _project(cc2), base)
 	}
 
 	if v := ctx.val("/", proj); v == nil {
@@ -1858,7 +1858,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if v1.String() != proj.absPath {
 		ctx.err("%v", ts(v1))
 	} else if v1.string(ctx) != proj.absPath {
-		ctx.err("%v: %v: %v", get_project(ctx), typeof(v1), v1)
+		ctx.err("%v: %v: %v", _project(ctx), typeof(v1), v1)
 	} else if v2 := ctx.val("root2"); v2 == nil {
 		ctx.err("root2")
 	} else if _, y := v2.(*path); !y {
@@ -1870,7 +1870,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if v2.string(ctx) != v1.string(ctx) {
 		note(ctx, "%v", v2.string(ctx))
 		note(ctx, "%v", v1.string(ctx))
-		ctx.err("%v: %v != %v", get_project(ctx), v2, v1)
+		ctx.err("%v: %v != %v", _project(ctx), v2, v1)
 	} else if v3 := ctx.val("root3"); v3 == nil {
 		ctx.err("root3")
 	} else if c, y := v3.(*closure); !y {
@@ -1881,8 +1881,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: %v: %v", c, typeof(t), t)
 	} else if p.elems[len(p.elems)-1].String() != filepath.Base(tail) {
 		ctx.err("%v: %v → %v ; %v", proj, c, p, tail)
-	} else if cc := closure_any(ctx.Context, proj); get_project(cc) != proj {
-		ctx.err("%v: %v != %v ; %v{%v}", c, get_project(cc), proj, typeof(cc), typeof(inner(cc)))
+	} else if cc := closure_any(ctx.Context, proj); _project(cc) != proj {
+		ctx.err("%v: %v != %v ; %v{%v}", c, _project(cc), proj, typeof(cc), typeof(inner(cc)))
 	} else if t := c.expand(final{cc}); t == nil {
 		ctx.err("%v", c)
 	} else if p, y := t.(*path); !y {
@@ -1894,21 +1894,21 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if v3.String() != "&/" {
 		ctx.err("%v: %v", typeof(v3), v3)
 	} else if v3.string(cc) != v1.string(ctx) {
-		note(at(ctx,v3), "%v: %v", get_project(ctx), v1.string(ctx))
-		note(at(ctx,v3), "%v: %v", get_project(ctx), v3.string(ctx))
-		ctx.err("%v: %v ; %v{%v}",  get_project(ctx), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
+		note(at(ctx,v3), "%v: %v", _project(ctx), v1.string(ctx))
+		note(at(ctx,v3), "%v: %v", _project(ctx), v3.string(ctx))
+		ctx.err("%v: %v ; %v{%v}",  _project(ctx), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if v3.string(cc) != v2.string(ctx) {
-		note(at(ctx,v3), "%v: %v", get_project(ctx), v2.string(ctx))
-		note(at(ctx,v3), "%v: %v", get_project(ctx), v3.string(ctx))
-		ctx.err("%v: %v ; %v{%v}",  get_project(ctx), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
+		note(at(ctx,v3), "%v: %v", _project(ctx), v2.string(ctx))
+		note(at(ctx,v3), "%v: %v", _project(ctx), v3.string(ctx))
+		ctx.err("%v: %v ; %v{%v}",  _project(ctx), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if v3.string(ctx) == v1.string(ctx) {
-		note(at(ctx,v3), "%v: %v", get_project(ctx), v1.string(ctx))
-		note(at(ctx,v3), "%v: %v", get_project(ctx), v3.string(ctx))
-		ctx.err("%v: %v ; %v{%v}",  get_project(ctx), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
+		note(at(ctx,v3), "%v: %v", _project(ctx), v1.string(ctx))
+		note(at(ctx,v3), "%v: %v", _project(ctx), v3.string(ctx))
+		ctx.err("%v: %v ; %v{%v}",  _project(ctx), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if v3.string(ctx) == v2.string(ctx) {
-		note(at(ctx,v3), "%v: %v", get_project(ctx), v2.string(ctx))
-		note(at(ctx,v3), "%v: %v", get_project(ctx), v3.string(ctx))
-		ctx.err("%v: %v ; %v{%v}",  get_project(ctx), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
+		note(at(ctx,v3), "%v: %v", _project(ctx), v2.string(ctx))
+		note(at(ctx,v3), "%v: %v", _project(ctx), v3.string(ctx))
+		ctx.err("%v: %v ; %v{%v}",  _project(ctx), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if !strings.HasSuffix(v3.string(ctx), tail) {
 		ctx.err("%v: %v %v", typeof(v3), v3, tail)
 	} else if strings.HasSuffix(v3.string(cc), tail) {

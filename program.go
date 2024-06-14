@@ -73,21 +73,21 @@ func (pc *program_execution) cast(t reflect.Type) Context {
 }
 func (pc *program_execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
-    case getPosition:
+    case get_position:
         if pc.prog != nil { return pc.prog.position }
-    case getProject:
+    case get_project:
         if pc.prog.project != nil { return pc.prog.project }
-    case getScope:
+    case get_scope:
         if pc.prog.project != nil { return pc.prog.project.scope }
-    case getClosure:
+    case get_closure:
         if x, y := pc.Context.(*terminal); y { return do(x, op) }
 
-    case actDirtyMark:        pc.dirtyMark(t.a...)
-    case actDirty:     return pc.dirty(ctx,t.a...)
-    case actTraverse:  return pc.traverse(ctx,t.v)
-    case actTraversed: return pc.traversed(ctx,t.v)
+    case act_dirty_mark:        pc.dirtyMark(t.a...)
+    case act_dirt:     return pc.dirty(ctx,t.a...)
+    case act_traverse:  return pc.traverse(ctx,t.v)
+    case act_traversed: return pc.traversed(ctx,t.v)
 
-    case propParamName:
+    case get_param_name:
         if t.i < len(pc.prog.params) {
             res = pc.prog.params[t.i].name
         }
@@ -134,7 +134,7 @@ func (pc *program_execution) traversed(ctx Context, target Value) []Value {
         pc.targets = append(pc.targets, target)
 
         if false { if cc, y := pc.Context.(*terminal); y {
-            pc.targets, _ = do(cc, actTraversed{target}).([]Value)
+            pc.targets, _ = do(cc, act_traversed{target}).([]Value)
         } }
 
         if _, y := toFile(target); y { pc.addFilesCount(1) }
@@ -474,9 +474,9 @@ func (pc *program_execution) deferTrave(ctx Context, targetValue, prereqValue, p
     var av = targetValue
     var bv = prereqValue
     if prereqFile == nil {
-        do(ctx, actTraversed{prereqValue}) // set $< $> $^ or $|
+        do(ctx, act_traversed{prereqValue}) // set $< $> $^ or $|
     } else if targetValue != prereqFile {
-        do(ctx, actTraversed{prereqFile}) // set $< $> $^ or $|
+        do(ctx, act_traversed{prereqFile}) // set $< $> $^ or $|
         bv = prereqFile
     } else if t := pc.traves.of(traveFile); t.has() {
         for _, s := range t {
@@ -614,10 +614,10 @@ func (pc *program_execution) traverse(ctx Context, prereqValue Value) (result tr
             note(at(ctx, f.position), "%v %v", f, f.exists()).debug()
         } else if f := file(ctx, prereqFinal); f == nil {
             var a = unmap_files(ctx, prereqFinal)
-            var b = files(ctx, prereqFinal, get_project(ctx))
+            var b = files(ctx, prereqFinal, _project(ctx))
             note(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, a)
             note(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, b).debug()
-            if p := get_project(ctx); false {
+            if p := _project(ctx); false {
                 warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFiles(ctx, a))
                 warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFiles(ctx, b))
                 warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFile(ctx, a))
@@ -944,10 +944,10 @@ CheckPrereqResult:
 
     if len(_stems(ctx)) == 0 || cast[*modifier_deps](ctx) != nil {
         if s := pc.traves.add(ctx, traveFail, targetValue); prereqFile != nil {
-            s.error = failureFileNotFound{get_project(ctx), prereqFile}
+            s.error = failureFileNotFound{_project(ctx), prereqFile}
             ctx = at(ctx, prereqFile.position)
         } else {
-            s.error = failureTargetNotFound{get_project(ctx), prereqFinal}
+            s.error = failureTargetNotFound{_project(ctx), prereqFinal}
             if prereqValue != nil { ctx = at(ctx, prereqValue) }
         }
 
@@ -1112,7 +1112,7 @@ ForPrerequisites:
             }
 
             if verb {
-                var p = get_project(ctx)
+                var p = _project(ctx)
                 prompt(ctx, "%v:(%T): %T %v ; project=%s, stems=%v ; %v\n",
                     pc.traves, target, prerequisite, prerequisite, p, _stems(ctx), stem)
 
@@ -1204,7 +1204,7 @@ const maxCallRecursion  = 32 //64
 type traverse_context struct { Context }
 type order_traverse_context struct { Context }
 func (t traverse_context) traversed(ctx Context, target Value) (targets []Value) {
-    if targets, _ = do(t.Context, actTraversed{target}).([]Value); len(targets) > 0 {
+    if targets, _ = do(t.Context, act_traversed{target}).([]Value); len(targets) > 0 {
         auto_set(ctx, "^", makeList(targets...))
         auto_set(ctx, "<", targets[0])
         auto_set(ctx, ">", targets[len(targets)-1])
@@ -1213,7 +1213,7 @@ func (t traverse_context) traversed(ctx Context, target Value) (targets []Value)
     return
 }
 func (t order_traverse_context) traversed(ctx Context, target Value) (targets []Value) {
-    if targets, _ = do(t.Context, actTraversed{target}).([]Value); len(targets) > 0 {
+    if targets, _ = do(t.Context, act_traversed{target}).([]Value); len(targets) > 0 {
         auto_set(ctx, "|", makeList(targets...))
     }
     if false { note(ctx, "%v %v", target, targets).debug() }
@@ -1245,7 +1245,7 @@ func (prog *program) workdir(ctx Context) (workdir string) {
 }
 
 func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
-    if true && checkpoints && is_test_mode(ctx) { defer func(){
+    if true && checkpoints && truly(ctx, is_test_mode{}) { defer func(){
         if result == nil {
             note(ctx, "nil result; %v", ts(ctx)).debug(2)
         } else {
@@ -1405,7 +1405,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
         auto_set(ctx, "@", target)
     }
 
-    do(ctx, actArguments{})
+    do(ctx, act_arguments{})
 
     if u.traceExec {
         var d = pc.depth()

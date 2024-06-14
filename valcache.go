@@ -775,13 +775,13 @@ func unmap_ps(ctx Context, c *valcache, s string, ss []string) (_ *valcache, y b
 }
 
 func unmap_entries(ctx Context, key any) []entry {
-    return get_project(ctx).unmap_entries(ctx, key)
+    return _project(ctx).unmap_entries(ctx, key)
 }
 
 func unmap_files(ctx Context, key any) []filemap_name {
-    return get_project(ctx).unmap_files(ctx, key)
+    return _project(ctx).unmap_files(ctx, key)
 }
 
 func map_files(ctx Context, patts, paths []Value) []filemap {
-    return get_project(ctx).map_files(ctx, patts, paths)
+    return _project(ctx).map_files(ctx, patts, paths)
 }

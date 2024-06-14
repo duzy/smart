@@ -57,7 +57,7 @@ func testValueCache0(ctx *testcase) {
 func testValueCache1(ctx *testcase) {
 	testValueCache0(ctx)
 
-	var p = get_project(ctx)
+	var p = _project(ctx)
 
 	if c := &p.filemap; c.a != nil {
 		ctx.err("%v", c)
@@ -126,7 +126,7 @@ func testValueCache1(ctx *testcase) {
 	if s, pat := "p1", "*.c"; true {
 		note(ctx, "TODO: unmap_files %v", pat).debug()
 	} else if v := ctx.val(s); v == nil {
-		ctx.err("%v : %v", get_project(ctx), s)
+		ctx.err("%v : %v", _project(ctx), s)
 	} else if s = v.string(ctx); s != pat {
 		ctx.err("%v : %s != %s", tst{v}, s, pat)
 	} else {
@@ -140,7 +140,7 @@ func testValueCache1(ctx *testcase) {
 	if s, pat := "p2", "**.c"; true {
 		note(ctx, "TODO: unmap_files %v", pat).debug()
 	} else if v := ctx.val(s); v == nil {
-		ctx.err("%v : %v", get_project(ctx), s)
+		ctx.err("%v : %v", _project(ctx), s)
 	} else if s = v.string(ctx); s != pat {
 		ctx.err("%v : %s != %s", tst{v}, s, pat)
 	} else {
@@ -154,7 +154,7 @@ func testValueCache1(ctx *testcase) {
 	if s, pat := "p3", "**.c++"; true {
 		note(ctx, "TODO: unmap_files %v", pat).debug()
 	} else if v := ctx.val(s); v == nil {
-		ctx.err("%v : %v", get_project(ctx), s)
+		ctx.err("%v : %v", _project(ctx), s)
 	} else if s = v.string(ctx); s != pat {
 		ctx.err("%v : %s != %s", tst{v}, s, pat)
 	} else {
@@ -167,7 +167,7 @@ func testValueCache1(ctx *testcase) {
 }
 
 func testValueCache2(ctx *testcase) {
-	var p = get_project(ctx)
+	var p = _project(ctx)
 
 	if p == nil {
 		ctx.err("nil universe")
@@ -624,7 +624,7 @@ func testValueCache2(ctx *testcase) {
 }
 
 func testValueCache3(ctx *testcase) {
-	if p := get_project(ctx); p == nil {
+	if p := _project(ctx); p == nil {
 		ctx.err("nil universe")
 	} else if c := &p.filemap; c.a != nil {
 		ctx.err("universe valcache : %v", c)
@@ -634,7 +634,7 @@ func testValueCache3(ctx *testcase) {
 }
 
 func testValueCache(ctx *testcase) {
-	var p = get_project(ctx)
+	var p = _project(ctx)
 
 	if p == nil {
 		ctx.err("nil project")

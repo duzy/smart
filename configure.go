@@ -72,7 +72,7 @@ func (ctx *configurecontext) openConfigurationFile(p *project) (file *os.File) {
     } else if testConfigurationDiverged || true {
         return
     } else if t := p._configuration(ctx); t != nil && t != f && t.fullname() != f.fullname() {
-        erro(ctx, "%v: diverged configuration file (%v)", p, get_project(ctx))
+        erro(ctx, "%v: diverged configuration file (%v)", p, _project(ctx))
         prompt(ctx, "%v:1: <--- at load-time\n", t.fullname())
         prompt(ctx, "%v:1: <--- at configure-time\n", f.fullname()).debug()
         return
@@ -539,7 +539,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
     var u = _universe(ctx)
     if u.traceConfig { defer un(l_trace(l_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, u.reconfigure))) }
 
-    var project = get_project(ctx)
+    var project = _project(ctx)
     var program = _program(ctx)
     if project == nil {
         erro(ctx, " no project to configure: %v", ctx).debug()
@@ -556,7 +556,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
                 if d, y := o.(*def); y && d.value != nil && !isTrivial(d.value) {
                     if val := d.value.true(ctx); val {
                         if project.configure = project; ctx.verbose {
-                            info(ctx, "self-configure project enabled: %v", get_project(ctx)).debug()
+                            info(ctx, "self-configure project enabled: %v", _project(ctx)).debug()
                         }
                     }
                 }
@@ -722,7 +722,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
     var (
         pc = _program_execution(ctx)
         closured = closure_projects(ctx)
-        project = get_project(ctx)
+        project = _project(ctx)
         filename string
         f *File
         target as
@@ -804,7 +804,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         prompt(ctx, "%v: %v %v\n", filename, auto_get(ctx,"@"), auto_get(ctx,">"))
         errostack(ctx, 5, "empty configuration data").debug(6)
         return
-    } else if f := get_project(ctx)._configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
+    } else if f := _project(ctx)._configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
         prompt(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,"@"), strings.TrimSpace(data.String())).debug()
     }
@@ -871,7 +871,7 @@ type modifier_configureinput struct { modifier_ }
 func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
     var opts = configureconvertOpts{ mode: os.FileMode(0600) }
     var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
-        var p = get_project(ctx)
+        var p = _project(ctx)
 
         if x, y := p.Lookup("configure.names").(*def); y {
             args = append(args, xmerge(ctx, x.value)...)
@@ -912,7 +912,7 @@ type modifier_configurefile struct { modifier_ }
 func (ctx *modifier_configurefile) x(args ...Value) (result interface{}) {
     var opts = configureconvertOpts{ mode: os.FileMode(0600) }
     var convert = func(str string, out *bytes.Buffer) {
-        configurestring(ctx, out, get_project(ctx), str)
+        configurestring(ctx, out, _project(ctx), str)
     }
     return configureconvert(ctx, nil, convert, &opts, args...)
 }

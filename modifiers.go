@@ -131,7 +131,7 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
 
     if t, y := modifiers[name]; !y {
         var _, ent, _ = entryIndicator(ctx, _entry(ctx))
-        prompt(ctx, "%v: %s failed for %s\n", ent, name, get_project(ctx))
+        prompt(ctx, "%v: %s failed for %s\n", ent, name, _project(ctx))
         erro(ctx, "unknown modifier: %s (args=%v)", name, args)
         errostack(ctx, 5, "%v", ctx).debug(10)
         return
@@ -178,7 +178,7 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
         if true && res != nil { warn(ctx, "%v %v", res, pc.traves).debug() }
         if t := pc.traves.not(traveCase, traveNext, traveDone); false && t.has() {
             if uni.verbose || uni.verboseBreaks {
-                proj := get_project(ctx)
+                proj := _project(ctx)
                 var _, ent, _ = entryIndicator(ctx, _entry(ctx))
                 prompt(ctx, "%v: %s failed for %s\n", ent, name, proj)
                 for _, s := range t { warn(at(ctx,s.pos), "%v: %s: %v", proj, name, s) }
@@ -560,7 +560,7 @@ func (ctx *modifier_closure) x(pc *program_execution, args ...Value) (result int
     pc.Context = closure_with(cc)
     assert(cast[*terminal](ctx) == pc.Context, "closure context: %v", ctx)
 
-    var proj = get_project(ctx)
+    var proj = _project(ctx)
     var set = func(name string, val Value) (t Value) {
         var noop bool
         if v, y := val.(*boolean); y {
@@ -658,7 +658,7 @@ func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
             return
         }
 
-        var proj = get_project(ctx)
+        var proj = _project(ctx)
         if !filepath.IsAbs(dir) { dir = filepath.Join(proj.absPath, dir) }
         if ctx.path && dir != "." && dir != ".." && dir != pathSep {// mkdir -p
             if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
@@ -918,7 +918,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
     }
     if !sys && gc.debug>0 {
         erro(ctx, "%v: %v → %v (exists=%v, sys=%v, from %v)\n",
-            _entry(ctx), gc.target, name, res.exists(), sys, get_project(ctx)).
+            _entry(ctx), gc.target, name, res.exists(), sys, _project(ctx)).
             debug(gc.debug)
     }
     if sys || res.exists() { return }
@@ -952,9 +952,9 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
             }
         }
         if res == nil { res = stat(ctx, name, stat_nonexist{true}) }
-        warn(at(ctx,gp), "'%s' not found in %v", name, get_project(ctx))
-        warn(ctx, "grepped '%s' has no target dir in %v", name, get_project(ctx))
-        warn(at(ctx,get_project(ctx).position), "from project %v (for %v)", get_project(ctx), name).debug(8)
+        warn(at(ctx,gp), "'%s' not found in %v", name, _project(ctx))
+        warn(ctx, "grepped '%s' has no target dir in %v", name, _project(ctx))
+        warn(at(ctx,_project(ctx).position), "from project %v (for %v)", _project(ctx), name).debug(8)
     }
     return
 }
@@ -998,9 +998,9 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
     if !gc.report {
         // ...
     } else if file == nil {
-        info(at(ctx,gp), "%s: `%s` not found", get_project(ctx).name, name)
+        info(at(ctx,gp), "%s: `%s` not found", _project(ctx).name, name)
     } else if !file.exists() {
-        info(at(ctx,gp), "%s: `%s` file not existed", get_project(ctx).name, name)
+        info(at(ctx,gp), "%s: `%s` file not existed", _project(ctx).name, name)
     }
     return
 }
@@ -1013,7 +1013,7 @@ func tempFile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file
         erro(ctx, "hashing failed: %v", err).debug()
     } else if nameSum := nameHash.Sum(nil); len(nameSum) != nameHash.Size() {
         erro(ctx, "hash sum invalid: %v", len(nameSum)).debug()
-    } else if project := get_project(ctx); project == nil {
+    } else if project := _project(ctx); project == nil {
         erro(ctx, "current project is nil: %v", ctx).debug()
     } else {
         // Make names like .deps/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
@@ -1051,9 +1051,9 @@ func removeTempDirs(ctx Context, cleanDirs ...string) {
             erro(ctx, "%v", err).debug()
             return
         } else if false {
-            info(ctx, "%s: removed %v", get_project(ctx), s).debug()
+            info(ctx, "%s: removed %v", _project(ctx), s).debug()
         } else {
-            prompt(ctx, "%s: removed %v\n", get_project(ctx), s)
+            prompt(ctx, "%s: removed %v\n", _project(ctx), s)
         }
     }
 }
@@ -1126,7 +1126,7 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
             } else if sys != 1 && !gc.discard {
                 warn(at(ctx,gp), "%s is nil file", name)
                 warn(ctx, "grepped %s is nil", name)
-                warn(at(ctx,get_project(ctx).position), "from project %v", get_project(ctx)).debug(6)
+                warn(at(ctx,_project(ctx).position), "from project %v", _project(ctx)).debug(6)
             }
         }
     }
@@ -1176,7 +1176,7 @@ ForScan:
                 } else if !sys && !gc.discard {
                     warn(at(ctx,gp), "%s is nil file", name)
                     warn(ctx, "grepped %s is nil", name)
-                    warn(at(ctx,get_project(ctx).position), "from project %v", get_project(ctx)).debug(6)
+                    warn(at(ctx,_project(ctx).position), "from project %v", _project(ctx)).debug(6)
                 }
                 continue ForScan // found one
             }
@@ -1195,7 +1195,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
         gc.targetDir = filepath.Dir(gc.targetFullName)
         if v.isSysFile() { return }
     default:
-        gc.targetDir = get_project(ctx).absPath
+        gc.targetDir = _project(ctx).absPath
         targetName = v.string(ctx)
         if filepath.IsAbs(targetName) {
             gc.targetFullName = targetName
@@ -1456,7 +1456,7 @@ func (ctx *dep_context) cast(t reflect.Type) (c Context) {
 func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *File, savedDepsFileName, deps string) (files []Value) {
     const parallel = true
     var (
-        proj = get_project(ctx)
+        proj = _project(ctx)
         targetFullName, _ = as{targetVal}.fullnameOrFinal(ctx)
         filesMux sync.Mutex
         firstWord string
@@ -1656,7 +1656,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool) {
     var (
         okay bool
         fullname string
-        proj = get_project(ctx)
+        proj = _project(ctx)
         pc = _program_execution(ctx)
     )
     if proj == nil {
@@ -1667,7 +1667,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool) {
     } else if file := proj.file(ctx, dep); file == nil {
         if false {
             // FIXME: traverse won't work with 'nil' target value
-            if x, y := do(ctx, actTraverse{nil/*, dep*/}).(travestates); y {
+            if x, y := do(ctx, act_traverse{nil/*, dep*/}).(travestates); y {
                 okay = !x.has(traveFail)
             }
         } else {
@@ -1709,7 +1709,7 @@ func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool
                 s, l, c = string(m[1]), string(m[2]), string(m[3])
                 pos = convPosition(s, l, c)
             )
-            prompt(ctx, "%s: dep missing, project %v\n", m[4], get_project(ctx))
+            prompt(ctx, "%s: dep missing, project %v\n", m[4], _project(ctx))
             prompt(ctx, "%s\n", m[0]) // prompt the entire error line
             erro(at(ctx,pos), "%v", ctx).debug()
             return
@@ -1804,7 +1804,7 @@ CorrectCC:
     }
 
     var (
-        proj = get_project(ctx)
+        proj = _project(ctx)
         pc = _program_execution(ctx)
         savedDepsFileName string
     )
@@ -2266,7 +2266,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result interface{}) {
 
     // Get target filename
     var (
-        project = get_project(ctx)
+        project = _project(ctx)
         filename, srcname string
         filetime, srctime time.Time
     )
@@ -2535,7 +2535,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
 
     if ctx.debug > 0 {
         warnstack(ctx, 5, "update-file: %v (fullname=%v, project=%v)",
-            target, filename, get_project(ctx)).debug(ctx.debug)
+            target, filename, _project(ctx)).debug(ctx.debug)
     }
 
     if ctx.path { // Make path (mkdir -p)
@@ -2547,7 +2547,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
                 }
             }
             if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
-                if proj := get_project(ctx); proj != nil {
+                if proj := _project(ctx); proj != nil {
                     info(ctx, "%v: %v %v", filename, proj, unmap_files(ctx, filename))
                     info(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
                     erro(ctx, "%v: %v (%T %v)", filename, e, target, target).debug()
@@ -2674,7 +2674,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
 
             if file := stat(ctx, filename); file == nil {
                 prompt(ctx, "%s: invalid file\n", filename)
-                errostack(ctx, 6, "%v: invalid file '%s'", get_project(ctx), filename).debug()
+                errostack(ctx, 6, "%v: invalid file '%s'", _project(ctx), filename).debug()
                 panic(_failure(ctx, "invalid file %s", filename))
             } else {
                 var files []*File
@@ -2791,7 +2791,7 @@ type modifier_stamp struct { modifier_
 func (ctx *modifier_stamp) x(args ...Value) (result interface{}) {
     var target = getTargetValue(ctx)
     if isNull(target) {
-        prompt(ctx, "%v\n", get_project(ctx))
+        prompt(ctx, "%v\n", _project(ctx))
         erro(ctx, "stamp(%v) failed", target)
         errostack(ctx, 6, "%v", ctx).debug(12)
         return
@@ -2801,7 +2801,7 @@ func (ctx *modifier_stamp) x(args ...Value) (result interface{}) {
     if err == nil { return /* Done! */ }
 
     var pc = _program_execution(ctx)
-    var p = prompt(ctx, "%v: %v: %v\n", target, get_project(ctx), err)
+    var p = prompt(ctx, "%v: %v: %v\n", target, _project(ctx), err)
     if n := ctx.debug; n>0 { p.debug(n) }
     if ctx.next {
         if ctx.verbose { warn(ctx, "%v", err).debug() }
@@ -2813,11 +2813,11 @@ func (ctx *modifier_stamp) x(args ...Value) (result interface{}) {
         s.depend = auto_get(ctx, ">")
         s.error = err
         if false {
-            prompt(ctx, "%v: %v: %v\n", target, get_project(ctx), err).debug()
+            prompt(ctx, "%v: %v: %v\n", target, _project(ctx), err).debug()
             erro(ctx, "stamp(%v) error")
             errostack(ctx, 10, "%v", ctx).debug()
         } else {
-            prompt(ctx, "%v: %v: %v\n", target, get_project(ctx), err).debug()
+            prompt(ctx, "%v: %v: %v\n", target, _project(ctx), err).debug()
             warn(ctx, "stamp(%v) error")
             warnstack(ctx, 10, "%v", ctx).debug()
         }

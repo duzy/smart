@@ -160,7 +160,7 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
       if true {
         erro(at(ctx,path), "filemap path '%v' is empty (%T)", path, path)
         erro(at(ctx,pos), "filemap path '%v' is empty (pattern=%v)", path, patts)
-        erro(ctx, "filemap path '%v' is empty (project=%v)", path, get_project(ctx))//.at(pos)
+        erro(ctx, "filemap path '%v' is empty (project=%v)", path, _project(ctx))//.at(pos)
         erro(ctx, "filemap path '%v' is empty in %v", path, ctx).debug(64)
       }
       return
@@ -368,7 +368,7 @@ func (p self) cmp(ctx Context, v Value) (res cmpres) {
 
 func file(ctx Context, s string, projects ...*project) (_ *File) {
   if len(projects) == 0 {
-    projects = append(projects, get_project(ctx))
+    projects = append(projects, _project(ctx))
   }
 
   for _, p := range projects {
@@ -381,7 +381,7 @@ func file(ctx Context, s string, projects ...*project) (_ *File) {
 
 func files(ctx Context, iname interface{}, projects ...*project) (res []filemap_name) {
   if len(projects) == 0 {
-    projects = append(projects, get_project(ctx))
+    projects = append(projects, _project(ctx))
   }
 
   var a, b, c, d []filemap_name // four sections
@@ -445,8 +445,6 @@ func (p *project) file(ctx Context, iname interface{}) (file *File) {
 }
 
 func (p *project) tempFile(ctx Context, name string) (file *File) {
-  if false { ctx = closure_with(ctx, p.scope) }
-
   if file = p.file(ctx, name); file != nil {
     return
   }
@@ -478,8 +476,8 @@ func (opts *cacher) cache(ctx Context, patts, paths []Value) {
   }
 }
 
-func project_entry(c Context, s string, a ...bool) entry { return get_project(c).resolveEntry(c, s, a...) }
-func project_resolve(c Context, s string) Object { return get_project(c).resolve(c, s) }
+func project_entry(c Context, s string, a ...bool) entry { return _project(c).resolveEntry(c, s, a...) }
+func project_resolve(c Context, s string) Object { return _project(c).resolve(c, s) }
 
 func (p *project) resolveDef(ctx Context, name string) (res *def) {
   if o := p.resolve(ctx, name); o != nil { res, _ = o.(*def) }

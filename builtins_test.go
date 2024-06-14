@@ -125,7 +125,7 @@ func testPushContext(ctx *testcase) {
 }
 
 func testBuiltin_wildcard(ctx *testcase) {
-	var m = get_project(ctx)
+	var m = _project(ctx)
 	if len(m.filemap.globs) != 2 {
 		ctx.err("%v", &m.filemap)
 	} else if x, y := m.filemap.globs["**.h"]; !y {
@@ -598,7 +598,7 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if   s := "val2.1" ; false {
 	} else if val := ctx.val(s); val == nil {
-		ctx.err("%s: %v", s, get_project(ctx))
+		ctx.err("%s: %v", s, _project(ctx))
 	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", tst{val})
 	} else if f, y := val.(*File); !y {
@@ -609,7 +609,7 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%v: %v", f, f.filemap)
 	} else if   s := "val2.2" ; false {
 	} else if val := ctx.val(s); val == nil {
-		ctx.err("%s: %v", s, get_project(ctx))
+		ctx.err("%s: %v", s, _project(ctx))
 	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", tst{val})
 	} else if f, y := val.(*File); !y {
@@ -631,7 +631,7 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if   s := "val3" ; false {
 	} else if val := ctx.val(s); val == nil {
-		ctx.err("%s: %v", s, get_project(ctx))
+		ctx.err("%s: %v", s, _project(ctx))
 	} else if f, y := val.(*File); !y {
 		ctx.err("%v", tst{val})
 	} else if f.filemap == nil {
@@ -653,7 +653,7 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if   s := "val4" ; false {
 	} else if val := ctx.val(s); val == nil {
-		ctx.err("%s: %v", s, get_project(ctx))
+		ctx.err("%s: %v", s, _project(ctx))
 	} else if f, y := val.(*File); !y {
 		ctx.err("%v", tst{val})
 	} else if f.filemap == nil {
@@ -666,7 +666,7 @@ func testBuiltin_file0(ctx *testcase) {
 
 	if s := "val5" ; false {
 	} else if val := ctx.val(s); val == nil {
-		ctx.err("%s : %v", s, get_project(ctx))
+		ctx.err("%s : %v", s, _project(ctx))
 	} else if _, y := val.(*null); !y {
 		ctx.err("%v", tst{val})
 	} else if val.String() != "{}" {
@@ -686,7 +686,7 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if s := "p1" ; false {
 	} else if v := ctx.val(s); v == nil {
-		ctx.err("%s : %v", s, get_project(ctx))
+		ctx.err("%s : %v", s, _project(ctx))
 	} else if x, y := v.(*path); !y {
 		ctx.err("%v %v", v, tst{v})
 	} else if x.string(ctx) != str {
@@ -747,7 +747,7 @@ func testBuiltin_foreach(ctx *testcase) {
 
 	if s := ".test.1"; false {
 	} else if d := ctx.def(s); d == nil {
-		ctx.err("%v: %s", get_project(ctx), s)
+		ctx.err("%v: %s", _project(ctx), s)
 	} else if test_1_value = d.value; test_1_value == nil {
 		ctx.err("%v", d)
 	} else if s := "x $0 $1 $2 $3 $4 $(foreach $1,&(.test.h)$_)"; s != d.value.String() {
@@ -773,7 +773,7 @@ func testBuiltin_foreach(ctx *testcase) {
 
 	if s := ".test.2"; false {
 	} else if d := ctx.def(s); d == nil {
-		ctx.err("%v: %s", get_project(ctx), s)
+		ctx.err("%v: %s", _project(ctx), s)
 	} else if s0 := "x $(foreach q p $(foreach $1,&(.test.h)$_),x$_)"; s0 != d.value.String() {
 		ctx.err("%v != %s", tst{d.value}, s0)
 	} else if s1, t := "x xq xp", d.value.string(ctx); s1 != t {

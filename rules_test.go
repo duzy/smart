@@ -180,7 +180,7 @@ func testRules1(ctx *testcase) {
 		ctx.err("%v -> %s", tst{v}, s)
 	}
 
-	var p = get_project(ctx)
+	var p = _project(ctx)
 
 	testResolveEntries = true
 

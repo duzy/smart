@@ -72,7 +72,7 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 		erro(ctx, "project %v != %v", m.name, name).debug(1, skipint{3})
 	} else {
 		res.Context = closure_any(ctx, m) // TODO: projectContext{ctx, m}
-		testRemoveConfigureDir(res, get_project(ctx))
+		testRemoveConfigureDir(res, _project(ctx))
 	}
 
 	ctx.diagnostic.flush(ctx)
@@ -89,7 +89,7 @@ func (tc *testcase) ts(string) string {
 }
 func (tc *testcase) do(ctx Context, op any) any {
 	switch op.(type) {
-	case getIsTestMode: return true
+	case is_test_mode: return true
 	}
 	return tc.Context.do(ctx, op)
 }
@@ -132,19 +132,19 @@ func (tc *testcase) flush() {
 	var dia = _diagnostic(tc.Context)
 	if n := dia.counterror(); n > 0 {
 		var pos Position
-		if p := get_project(tc); p != nil { pos = p.position } else { pos = _position(tc) }
-		note(at(tc.Context, pos), "%v: %v errors", get_project(tc), n).debug(1, skipint{2})
+		if p := _project(tc); p != nil { pos = p.position } else { pos = _position(tc) }
+		note(at(tc.Context, pos), "%v: %v errors", _project(tc), n).debug(1, skipint{2})
 		tc.Errorf("%d errors in %s", dia.flush(tc.Context), pos.Filename)
 	}
 }
 
 func (tc *testcase) rule(name string) (r []entry) {
-	if p := get_project(tc); p != nil { r = p.resolveEntries(tc.Context, name, false) }
+	if p := _project(tc); p != nil { r = p.resolveEntries(tc.Context, name, false) }
 	return
 }
 
 func (tc *testcase) obj(name string) (res Object) {
-	if p := get_project(tc); p != nil { res = p.resolve(tc.Context, name) }
+	if p := _project(tc); p != nil { res = p.resolve(tc.Context, name) }
 	return
 }
 
@@ -159,7 +159,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	var s = skipint{2}
 	var ctx Context = tc
 	var origin = defExpand1
-	var proj = get_project(tc)
+	var proj = _project(tc)
 
 	for _, i := range ii {
 		var vb = valbase{_position(tc)}

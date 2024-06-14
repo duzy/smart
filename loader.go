@@ -77,9 +77,9 @@ const (
 
 var parseMode = AllErrors
 
-type getParser struct{}
-type getIsLoadingText struct{}
-type getIsImplicitLoad struct{}
+type get_parser struct{}
+type is_loading_text  struct{}
+type is_implicit_load struct{}
 
 // implicit load, aka. via foo.bar.Baz (implicitly loads foo/bar for base)
 type implicit_load_context struct{ Context }
@@ -90,14 +90,14 @@ type load_text_context struct{ Context }
 
 func (p implicit_load_context) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case getIsImplicitLoad: return true
+	case is_implicit_load: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
 func (p load_text_context) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case getIsLoadingText: return true
+	case is_loading_text: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -123,15 +123,15 @@ type loader struct {
 }
 func (l *loader) inner() Context { return &l.terminal }
 func (l *loader) cast(t reflect.Type) Context {
-    if reflect.TypeOf(l)   == t { return l }
+    if reflect.TypeOf(l) == t { return l }
     return l.terminal.cast(t)
 }
 func (l *loader) do(ctx Context, op any) any {
     switch op.(type) {
-	case getIsImplicitLoad: return false
-    case getParser: return l.p
-    case getProject: return l.project
-    case getPosition:
+	case is_implicit_load: return false
+    case get_parser: return l.p
+    case get_project: return l.project
+    case get_position:
         if l.p != nil {
             return l.p.Position()
         } else if false {
@@ -374,6 +374,7 @@ func (l unilo) use_spec(ctx Context, opts useOpts, specVal Value, params ...Valu
     }
 
     var prev = l.project
+
     if loaded == nil {
         if isDir {
             if !l.directory(ctx, spec, absPath, nil) {
@@ -392,6 +393,13 @@ func (l unilo) use_spec(ctx Context, opts useOpts, specVal Value, params ...Valu
         }
         if loaded == l.project {
             erro(ctx, "%v : overwrote by %v (dir=%v)", prev, loaded, isDir).debug()
+            trace(ctx)
+        }
+    }
+
+    if checkpoints {
+        if prev != l.project {
+            erro(ctx, "active project changed: %v -> %v, use %v", prev, l.project, loaded).debug()
             trace(ctx)
         }
     }
@@ -593,7 +601,7 @@ func (l unilo) include(ctx Context, specVal Value, opts includeOpts) {
         }
         if fullname, spec = t.fullname(), t.ident(ctx); t.info == nil {
             prompt(ctx, "%v: no source file %v, %v\n", fullname, t, t.stat(ctx))
-            erro(at(ctx,t), "%v: %v", get_project(ctx), t).debug()
+            erro(at(ctx,t), "%v: %v", _project(ctx), t).debug()
             return
         }
     default:
@@ -815,7 +823,7 @@ ParamsLoop:
                 l.project.projectname(ctx, ".base", x)
             }
             l.project.bases = append(l.project.bases, x)
-        } else if truly(ctx, getIsImplicitLoad{}) {
+        } else if truly(ctx, is_implicit_load{}) {
             warn(ctx, "implicit base '%s' not defined (as %s)", spec, absPath).debug()
         } else {
             erro(ctx, "project `%v`(%T: %s) not loaded (%s)", elem, elem, spec, absPath).debug()
@@ -1150,7 +1158,7 @@ func (l unilo) source(ctx Context, filename string, src any) (res Value) {
 	l.p.next(ctx, true) // starts scanning
     ctx = at(ctx, l.p)
 
-    if truly(ctx, getIsLoadingText{}) {
+    if truly(ctx, is_loading_text{}) {
         return ease(ctx, l.values(ctx))
     } else if l.parse_file(ctx) {
         return l.project
@@ -1430,9 +1438,11 @@ func (l unilo) directory(ctx Context, spec, absDir string, filter func(os.FileIn
         return
     }
 
+    ctx = at(ctx, pos)
+
     var lo = l
     if l.project != nil /* && _loader(l.loader.Context) != nil */ {
-        lo.loader = &loader{terminal:terminal{at(ctx, pos), []*scope{}}}
+        lo.loader = &loader{terminal:terminal{ctx, []*scope{}}}
         ctx = lo.loader
     }
     if !lo.sources(ctx, absDir, filter) {
@@ -1441,7 +1451,7 @@ func (l unilo) directory(ctx Context, spec, absDir string, filter func(os.FileIn
     }
 
     if len(lo.declares) == 0 && filepath.Base(spec) != "@" {
-        if truly(ctx, getIsImplicitLoad{}) {
+        if truly(ctx, is_implicit_load{}) {
             warn(ctx, "%s not loaded (as %s, implicitly)", spec, absDir).debug()
             return true // okay for implicit loading
         } else {

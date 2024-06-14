@@ -28,9 +28,9 @@ func testValueGeneral(ctx testcase1) {
 
 	if d := ctx.def("vals"); d == nil {
 		ctx.err("vals")
-	} else if d.scope != get_project(ctx).scope {
+	} else if d.scope != _project(ctx).scope {
 		ctx.err("%v", tst{d})
-	} else if d.scope.project != get_project(ctx) {
+	} else if d.scope.project != _project(ctx) {
 		ctx.err("%v", tst{d})
 	} else if val := d.value; val == nil {
 		ctx.err("%v", tst{d})
@@ -452,13 +452,13 @@ func testAutomatic(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if a, y := t.x.(*auto); !y {
 		ctx.err("%v %v", tst{t.x}, a)
-	} else if a.scope.outer != get_scope(ctx) {
+	} else if a.scope.outer != _scope(ctx) {
 		ctx.err("%v", tst{a})
-	} else if a.scope.outer != get_project(ctx).scope {
+	} else if a.scope.outer != _project(ctx).scope {
 		ctx.err("%v", tst{a})
-	} else if a.scope == get_scope(ctx) {
+	} else if a.scope == _scope(ctx) {
 		ctx.err("%v", tst{a})
-	} else if a.scope == get_project(ctx).scope {
+	} else if a.scope == _project(ctx).scope {
 		ctx.err("%v", tst{a})
 	} else if s, t := "$(a)", v.String(); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -1591,7 +1591,7 @@ func testGlobMatch(ctx *testcase) {
 
 func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	if val := ctx.val("pat1.0"); val == nil {
-		ctx.err("pat1.0: %v", get_project(ctx))
+		ctx.err("pat1.0: %v", _project(ctx))
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", tst{val})
 	} else if p.len() != 2 {
@@ -1599,7 +1599,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if val.String() != ".test/x**y" {
 		ctx.err("%v", tst{val})
 	} else if v := ctx.val("pat1.1"); v == nil {
-		ctx.err("pat1.1: %v", get_project(ctx))
+		ctx.err("pat1.1: %v", _project(ctx))
 	} else if a, b0, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", v, p, a, b0, c)
 	} else if b, y := b0.([]string); !y || len(b) != 2 {
@@ -1613,7 +1613,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[0] != "xx-yy" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat1.2"); v == nil {
-		ctx.err("pat1.2: %v", get_project(ctx))
+		ctx.err("pat1.2: %v", _project(ctx))
 	} else if a, b0, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", v, p, a, b0, c)
 	} else if b, y := b0.([]string); !y || len(b) != 2 {
@@ -1627,7 +1627,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[0] != "xx-yyx" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat1.3"); v == nil {
-		ctx.err("pat1.3: %v", get_project(ctx))
+		ctx.err("pat1.3: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -1643,7 +1643,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[0] != "xx-yyx/" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat1.4"); v == nil {
-		ctx.err("pat1.3: %v", get_project(ctx))
+		ctx.err("pat1.3: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -1659,7 +1659,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[0] != "xx-yyx/z" { // NOTE: not full-match
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat1.5"); v == nil {
-		ctx.err("pat1.5: %v", get_project(ctx))
+		ctx.err("pat1.5: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 6 {
@@ -1681,7 +1681,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[0] != "xx/a/b/c/yy" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat1.6"); v == nil {
-		ctx.err("pat1.6: %v", get_project(ctx))
+		ctx.err("pat1.6: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -1699,13 +1699,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat2.0"); val == nil {
-		ctx.err("pat2.0: %v", get_project(ctx))
+		ctx.err("pat2.0: %v", _project(ctx))
 	} else if val.String() != ".test/x**y/z" {
 		ctx.err("%v", tst{val})
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat2.1"); v == nil {
-		ctx.err("pat2.1: %v", get_project(ctx))
+		ctx.err("pat2.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -1721,7 +1721,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[0] != "xx-yy" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat2.2"); v == nil {
-		ctx.err("pat2.1: %v", get_project(ctx))
+		ctx.err("pat2.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 7 {
@@ -1747,7 +1747,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat3.0"); val == nil {
-		ctx.err("pat3.0: %v", get_project(ctx))
+		ctx.err("pat3.0: %v", _project(ctx))
 	} else if val.String() != ".test/x**y/x**" {
 		ctx.err("%v", tst{val})
 	} else if val.string(ctx) != ".test/x**y/x**" {
@@ -1755,7 +1755,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat3.1"); v == nil {
-		ctx.err("pat3.1: %v", get_project(ctx))
+		ctx.err("pat3.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 7 {
@@ -1781,7 +1781,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[1] != "xx/xx" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat3.2"); v == nil {
-		ctx.err("pat3.1: %v", get_project(ctx))
+		ctx.err("pat3.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -1801,13 +1801,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat4.0"); val == nil {
-		ctx.err("pat4.0: %v", get_project(ctx))
+		ctx.err("pat4.0: %v", _project(ctx))
 	} else if val.String() != ".test/x**y/x**y" {
 		ctx.err("%v", tst{val})
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat4.1"); v == nil {
-		ctx.err("pat4.1: %v", get_project(ctx))
+		ctx.err("pat4.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 7 {
@@ -1833,7 +1833,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[1] != "aa/bb/cc" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat4.2"); v == nil {
-		ctx.err("pat4.1: %v", get_project(ctx))
+		ctx.err("pat4.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 5 {
@@ -1857,13 +1857,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat5.0"); val == nil {
-		ctx.err("pat5.0: %v", get_project(ctx))
+		ctx.err("pat5.0: %v", _project(ctx))
 	} else if val.String() != ".test/x**/**y" {
 		ctx.err("%v", tst{val})
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat5.1"); v == nil {
-		ctx.err("pat5.1: %v", get_project(ctx))
+		ctx.err("pat5.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -1881,7 +1881,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[1] != "abc" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat5.2"); v == nil {
-		ctx.err("pat5.2: %v", get_project(ctx))
+		ctx.err("pat5.2: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 5 {
@@ -1905,13 +1905,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat6.0"); val == nil {
-		ctx.err("pat6.0: %v", get_project(ctx))
+		ctx.err("pat6.0: %v", _project(ctx))
 	} else if val.String() != ".test/**y/**y" {
 		ctx.err("%v", tst{val})
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat6.1"); v == nil {
-		ctx.err("pat6.1: %v", get_project(ctx))
+		ctx.err("pat6.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 8 {
@@ -1941,13 +1941,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat7.0"); val == nil {
-		ctx.err("pat7.0: %v", get_project(ctx))
+		ctx.err("pat7.0: %v", _project(ctx))
 	} else if val.String() != ".test/**y/**y/z" {
 		ctx.err("%v", tst{val})
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat7.1"); v == nil {
-		ctx.err("pat7.1: %v", get_project(ctx))
+		ctx.err("pat7.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 9 {
@@ -1979,13 +1979,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat8.0"); val == nil {
-		ctx.err("pat8.0: %v", get_project(ctx))
+		ctx.err("pat8.0: %v", _project(ctx))
 	} else if val.String() != ".test/**/**z" {
 		ctx.err("%v", tst{val})
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat8.1"); v == nil {
-		ctx.err("pat8.1: %v", get_project(ctx))
+		ctx.err("pat8.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 5 {
@@ -2009,13 +2009,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat10.0"); val == nil {
-		ctx.err("pat10.0: %v", get_project(ctx))
+		ctx.err("pat10.0: %v", _project(ctx))
 	} else if val.String() != ".test/*.h" {
 		ctx.err("%v", tst{val})
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat10.1"); v == nil {
-		ctx.err("pat10.1: %v", get_project(ctx))
+		ctx.err("pat10.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 2 {
@@ -2029,7 +2029,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[0] != "a" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat10.2"); v == nil {
-		ctx.err("pat10.2: %v", get_project(ctx))
+		ctx.err("pat10.2: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.(string); !y {
@@ -2039,7 +2039,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if len(c) != 0 {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat10.3"); v == nil {
-		ctx.err("pat10.1: %v", get_project(ctx))
+		ctx.err("pat10.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.(string); !y {
@@ -2051,13 +2051,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat11.0"); val == nil {
-		ctx.err("pat11.0: %v", get_project(ctx))
+		ctx.err("pat11.0: %v", _project(ctx))
 	} else if val.String() != ".test/*/*.h" {
 		ctx.err("%v", tst{val})
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat11.1"); v == nil {
-		ctx.err("pat11.1: %v", get_project(ctx))
+		ctx.err("pat11.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 2 {
@@ -2071,7 +2071,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[0] != "a.h" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat11.2"); v == nil {
-		ctx.err("pat11.2: %v", get_project(ctx))
+		ctx.err("pat11.2: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -2089,7 +2089,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[1] != "b" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat11.3"); v == nil {
-		ctx.err("pat11.3: %v", get_project(ctx))
+		ctx.err("pat11.3: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 2 {
@@ -2103,13 +2103,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat12.0"); val == nil {
-		ctx.err("pat12.0: %v", get_project(ctx))
+		ctx.err("pat12.0: %v", _project(ctx))
 	} else if val.String() != ".test/*/*/*.h" {
 		ctx.err("%v", tst{val})
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat12.1"); v == nil {
-		ctx.err("pat12.1: %v", get_project(ctx))
+		ctx.err("pat12.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 2 {
@@ -2123,7 +2123,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[0] != "a.h" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat12.2"); v == nil {
-		ctx.err("pat12.2: %v", get_project(ctx))
+		ctx.err("pat12.2: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -2141,7 +2141,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[1] != "b.h" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat12.3"); v == nil {
-		ctx.err("pat12.3: %v", get_project(ctx))
+		ctx.err("pat12.3: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 4 {
@@ -2163,7 +2163,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[2] != "c" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat12.4"); v == nil {
-		ctx.err("pat12.4: %v", get_project(ctx))
+		ctx.err("pat12.4: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -2177,7 +2177,7 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	} else if c[1] != "b" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat12.5"); v == nil {
-		ctx.err("pat12.5: %v", get_project(ctx))
+		ctx.err("pat12.5: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); a {
 		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
@@ -2193,15 +2193,15 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	}
 
 	if val := ctx.val("pat13.0"); val == nil {
-		ctx.err("pat13.0: %v", get_project(ctx))
+		ctx.err("pat13.0: %v", _project(ctx))
 	} else if val.string(ctx) != "**.auto" {
 		ctx.err("%v", tst{val})
 	} else if v := ctx.val("pat13.1"); v == nil {
-		ctx.err("pat13.1: %v", get_project(ctx))
+		ctx.err("pat13.1: %v", _project(ctx))
 	} else if a, b, c := val.match(ctx, v); !a {
 		ctx.err("%T %v ; %v %v %v", val, val, a, b, c)
 	} else if v := ctx.val("pat13.2"); v == nil {
-		ctx.err("pat13.2: %v", get_project(ctx))
+		ctx.err("pat13.2: %v", _project(ctx))
 	} else if a, b, c := val.match(ctx, v); a {
 		ctx.err("%v ; %v %v %v", tst{val}, a, b, c)
 	}

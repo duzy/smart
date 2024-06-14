@@ -345,7 +345,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
             } else if o, y := (as{x}.fullname(ctx)); y && o.Value != nil {
                 val.Set(reflect.ValueOf(&o))
             } else {
-                erro(at(ctx,v), "%v: not a file: %v → %v", get_project(ctx), v, ts(x))
+                erro(at(ctx,v), "%v: not a file: %v → %v", _project(ctx), v, ts(x))
                 errostack(ctx, 5).debug(32)
             }
         case "smart.File":
@@ -353,7 +353,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
                 erro(at(ctx,v), "expecting file value: %v", ts(v)).debug()
             } else if file, y := toFile(x); y {
                 val.Set(reflect.ValueOf(file))
-            } else if proj := get_project(ctx); proj == nil {
+            } else if proj := _project(ctx); proj == nil {
                 erro(at(ctx,x), "no current project to find file '%v'", x).debug()
             } else if file = proj.file(ctx, x.string(ctx)); file != nil {
                 val.Set(reflect.ValueOf(file))
@@ -545,7 +545,7 @@ func (ctx *builtin_typeof) x() (res any) {
 type builtin_origin struct { builtin_ }
 func (ctx *builtin_origin) x() (res any) {
     var elems []Value
-    var scope = get_scope(ctx)
+    var scope = _scope(ctx)
     for _, arg := range ctx.evocation.a {
         if s := argstring(ctx, arg); s == "" {
             elems = append(elems, makeNull(arg.Position()))
@@ -572,7 +572,7 @@ func (ctx *builtin_defined) x() (res any) {
 type builtin_pushcontext struct { builtin_ }
 func (ctx *builtin_pushcontext) c() (res any) {
     var (
-        scope = get_scope(ctx)
+        scope = _scope(ctx)
         uc = _universe(ctx)
         m map[string]*def
     )
@@ -607,7 +607,7 @@ func (ctx *builtin_popcontext) c() (res any) {
         rules = append(rules, v.elems...)
     }}
 
-    var scope = get_scope(ctx)
+    var scope = _scope(ctx)
     var uc = _universe(ctx)
     var l = len(uc.globe.stack)
     if l == 0 { return }
@@ -1307,7 +1307,7 @@ func (ctx *builtin_auto) x() (_ any) {
 
         ar := expand(&ac, ctx.evocation.a[1:]...)
 
-        if checkpoints && is_test_mode(ctx) { ctx.check_res(&ac, ar) }
+        if checkpoints && truly(ctx, is_test_mode{}) { ctx.check_res(&ac, ar) }
 
         return ar
     }
@@ -1350,7 +1350,7 @@ func (ctx *builtin_var) x() (res any) {
 type builtin_value struct { builtin_ }
 func (ctx *builtin_value) x() (res any) {
     var vals []Value
-    var p = get_project(ctx)
+    var p = _project(ctx)
     for _, a := range merge(ctx.evocation.a...) {
         var v Value
 
@@ -1426,7 +1426,7 @@ func (ctx *builtin_defs) x() (res any) {
     var find = func(pat Value) (res []bare) {
         var neg bool
         if x, y := pat.(negative); y { pat, neg = x.Value, y }
-        for name, _ := range get_project(ctx).elems {
+        for name, _ := range _project(ctx).elems {
             var a, _, c = pat.match(ctx, name)
             if a {
                 if neg {
@@ -1468,7 +1468,7 @@ type builtin_plain struct { builtin_
     scope_ bool `findscope,find-scope,scope`
 }
 func (ctx *builtin_plain) c() (res any) {
-    var scope = get_scope(ctx)
+    var scope = _scope(ctx)
     for _, a := range ctx.evocation.a {
         var ( o Object ; s = a.string(ctx) )
         if ctx.scope_ { _, o = scope.find(s) } else { o = project_resolve(ctx, s) }
@@ -1956,7 +1956,7 @@ func (ctx *builtin_fields) x() (res any) {
 
 type builtin_usee struct { builtin_ }
 func (ctx *builtin_usee) x() (res any) {
-    var proj = get_project(ctx)
+    var proj = _project(ctx)
     if proj == nil {
         erro(ctx, "unknown current context").debug()
         return
@@ -1973,7 +1973,7 @@ func (ctx *builtin_usee) x() (res any) {
 
 type builtin_uses struct { builtin_ }
 func (ctx *builtin_uses) x() (res any) {
-    var proj = get_project(ctx)
+    var proj = _project(ctx)
     if proj == nil {
         erro(ctx, "unknown current context").debug()
         return
@@ -2250,7 +2250,7 @@ func (ctx *builtin_patsubst) x() (_ any) {
     }
 
     var (
-        proj = get_project(ctx)
+        proj = _project(ctx)
         closured = closure_projects(ctx)
         srcPats = merge(ctx.evocation.a[0])
         dstPats, sources, res []Value
@@ -3061,7 +3061,7 @@ func (ctx *builtin_decodebase64) x() (_ any) {
 type builtin_fullname struct { builtin_ }
 func (ctx *builtin_fullname) x() (_ any) {
     var res []Value
-    var p = []*project{get_project(ctx)} // closure_projects(ctx)
+    var p = []*project{_project(ctx)} // closure_projects(ctx)
     for _, a := range merge(ctx.evocation.a...) {
         if x, y := (as{a}.fullname(ctx, p...)); y { a = x }
         res = append(res, a)
@@ -3817,7 +3817,7 @@ type builtin_stat struct { builtin_
 func (ctx *builtin_stat) x() (res any) {
     if len(ctx.evocation.a) == 0 { return }
 
-    var proj = get_project(ctx)
+    var proj = _project(ctx)
     if proj == nil {
         erro(ctx, "unknown project").debug()
         return
@@ -3865,7 +3865,7 @@ type builtin_file struct { builtin_
     mapped bool `map,maps,mapped`
 }
 func (ctx *builtin_file) x() (res any) {
-    return ctx.z([]*project{get_project(ctx)}, ctx.evocation.a...)
+    return ctx.z([]*project{_project(ctx)}, ctx.evocation.a...)
 }
 func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
     defer trace(ctx)
@@ -3943,7 +3943,7 @@ type builtin_glob struct { builtin_
 func (ctx *builtin_glob) x() (_ any) {
     var cwd string // TODO: get current work directory
     var proj *project
-    if proj = get_project(ctx); proj == nil {
+    if proj = _project(ctx); proj == nil {
         erro(ctx, "unknown current cntext").debug()
         return
     }
@@ -4258,7 +4258,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
 }
 func (ctx *builtin_wildcard) _do(pats ...Value) []*File {
     if ctx.dir == "" {
-        return ctx._project(get_project(ctx), pats...)
+        return ctx._project(_project(ctx), pats...)
     } else {
         return ctx._directory(ctx.dir, pats...)
     }

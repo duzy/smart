@@ -516,7 +516,7 @@ func (l unilo) braced(ctx Context) (x Value) {
 			var c = at(ctx, v)
 			var s = v.string(c)
 			var a = []any{stat_nonexist{true}}
-			if !isAbsOrRel(s) { a = append(a, stat_dir{get_project(ctx).absPath}) }
+			if !isAbsOrRel(s) { a = append(a, stat_dir{_project(ctx).absPath}) }
 			x = stat(c, s, a...)
 		}
 		p.spaces(ctx)
@@ -749,7 +749,7 @@ func (p *parser) isEndOfDotConcat(ctx Context) bool {
 func (p *parser) rule_params(ctx Context, args []Value) (err error) {
 	defer trace(ctx)
 
-	var s = get_scope(ctx)
+	var s = _scope(ctx)
 
 	if checkpoints {
 		if !strings.HasPrefix(s.comment, "rule ") {
@@ -1296,7 +1296,7 @@ func (l unilo) resolve(ctx Context, name Value, str string) (result Value) {
 		return
 	}
 
-	var s = get_scope(ctx)
+	var s = _scope(ctx)
 
 	if d := auto_find(ctx, str); d != nil {
 		return d
@@ -1352,7 +1352,7 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 			return
 		}
 
-		var t = get_project(ctx).resolveEntries(ctx, name, false)
+		var t = _project(ctx).resolveEntries(ctx, name, false)
 		if t == nil {
 			erro(ctx, "resolved %v is nil", ts(name)).debug()
 			return
@@ -1382,8 +1382,8 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 	}
 
 	if true {
-		note(ctx, "%v", get_scope(ctx))
-		note(ctx, "%v", get_project(ctx).scope)
+		note(ctx, "%v", _scope(ctx))
+		note(ctx, "%v", _project(ctx).scope)
 		for i, s := range l.s { note(ctx, "%d. %v", i, s) }
 	}
 
@@ -1543,7 +1543,7 @@ func (l unilo) closuredelegate_abc(ctx Context, isClosure, special bool) (tok to
 	}
 
 	if obj == nil && str != "" {
-		if proj := get_project(ctx); proj.ext.Plugin != nil {
+		if proj := _project(ctx); proj.ext.Plugin != nil {
 			if t, e := proj.ext.Lookup(str); e == nil && t != nil {
 				erro(at(ctx,name), "TODO: convert ext symbol: %v : %v", name, ts(t)).debug()
 				return
@@ -2060,7 +2060,7 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 			pats = newPats
 		}
 		if len(pats) > 0 {
-			var paths = []Value{ makeStrlit(g.spec[0].Position(), get_project(ctx).absPath) }
+			var paths = []Value{ makeStrlit(g.spec[0].Position(), _project(ctx).absPath) }
 			opts.cache(ctx, pats, paths)
 		}
 	} else {
@@ -2099,7 +2099,7 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 func (p *parser) evalConfiguration(ctx Context, g *clauseopts, props []Value) {
 	defer trace(ctx)
 
-	var project = get_project(ctx)
+	var project = _project(ctx)
 	if project == nil {
 		erro(ctx, "configuration: nil project").debug()
 		return
@@ -2402,10 +2402,10 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
         }
 
         // Resolve base value to derive.
-		var proj = get_project(ctx)
+		var proj = _project(ctx)
         var prev = proj.resolve(ctx, name)
 
-        if d, alt = get_scope(ctx).set(at(ctx, t), name, defUndetermined); alt == nil {
+        if d, alt = _scope(ctx).set(at(ctx, t), name, defUndetermined); alt == nil {
             if d == nil {
                 erro(ctx, "`%s` is undefined (%v)", name, ts(t)).debug()
                 return
@@ -2623,7 +2623,7 @@ func (l unilo) recipe(ctx Context) Value {
 // Parsing (var a=xxx,b=yyy) definitions
 func (p *parser) movar(ctx Context, args ...Value) (err error) {
 	defer trace(ctx)
-	var s = get_scope(ctx)
+	var s = _scope(ctx)
 	for _, elem := range args {
 		var kv, y = elem.(*pair)
 		if !y || kv == nil {
@@ -2645,7 +2645,7 @@ func (p *parser) movar(ctx Context, args ...Value) (err error) {
 }
 
 func (p *parser) defineConfigureTargets(ctx Context) {
-	var proj = get_project(ctx)
+	var proj = _project(ctx)
 	for _, t := range p.targets {
 		var ctx = at(ctx, t)
 
@@ -2806,12 +2806,12 @@ func (l unilo) parse_rule(ctx Context, optvals, targets []Value) (result Value) 
 
 	defer trace(ctx)
 
-	var proj = get_project(ctx)
+	var proj = _project(ctx)
 	if proj.keyword == PACKAGE {
 		erro(ctx, "rules forbidden in package : %v", targets).debug()
 		return
 	}
-    if proj != get_scope(ctx).project {
+    if proj != _scope(ctx).project {
 		erro(ctx, "mismatched project/scope : %v", targets).debug()
 		return
 	}
@@ -3427,7 +3427,7 @@ func (l unilo) declare(ctx Context, keyword token, ident Value, name string, dec
         }
     }
 
-	if x, y := do(ctx, getArguments{}).([]Value); y && len(x) != 0 {
+	if x, y := do(ctx, get_arguments{}).([]Value); y && len(x) != 0 {
 		for _, arg := range merge(x...) {
 			switch t := arg.(type) {
 			case *pair:
@@ -3616,7 +3616,7 @@ func (l unilo) parse_file(ctx Context) (_ bool) {
 
 	var abs string
 	if flatmode {
-		abs = get_project(ctx).absPath
+		abs = _project(ctx).absPath
 	} else {
 		abs = filepath.Dir(filename)
 	}

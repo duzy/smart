@@ -242,7 +242,7 @@ func (c partial) ts(t string) string {
 	return fmt.Sprintf("{=%s %b %v}", t, c.bit, ts(c.Context))
 }
 func (c partial) do(ctx Context, op any) any {
-    if x, y := op.(propGoodWith) ; y {
+    if x, y := op.(is_good_with) ; y {
         for _, v := range x.a {
             switch t := v.(type) {
             case *auto:
@@ -497,14 +497,15 @@ func (traves *travestates) addf(ctx Context, what travekind, s string, a... any)
     return t
 }
 
+// TODO: use chained-context instead of 'terminal' for closure-scopes
 type terminal struct { Context ; s []*scope }
 func (c *terminal) cast(t reflect.Type) Context { return implcast(c,t) }
 func (c *terminal) scope() (s *scope) { if 0 < len(c.s) { s = c.s[0] }; return }
 func (c *terminal) do(ctx Context, op any) any {
     switch op.(type) {
-    case getScope:
+    case get_scope:
         if 0 < len(c.s) { return c.s[0] }
-    case getClosure:
+    case get_closure:
         if cc := c.Context ; cc == nil {
             return c.s
         } else {
@@ -513,6 +514,11 @@ func (c *terminal) do(ctx Context, op any) any {
     }
     if c.Context == nil { return nil }
     return c.Context.do(ctx, op)
+}
+
+func closure_scopes(ctx Context) (s []*scope) {
+  s, _ = do(ctx, get_closure{}).([]*scope)
+  return
 }
 
 func closure_projects(ctx Context) (res []*project) {
@@ -617,13 +623,10 @@ func closure_entry(ctx Context, name string) (_ entry) {
     return
 }
 
-func closure_with(ctx Context, ss ...*scope) Context {
-    return &terminal{ctx, ss}
-}
-
-func closure_any(ctx Context, ii ...any) (res Context) {
+func closure_with(ctx Context, ss ...*scope) Context { return &terminal{ctx, ss} }
+func closure_any(ctx Context, a ...any) Context {
     var ss []*scope
-    for _, i := range ii {
+    for _, i := range a {
         switch t := i.(type) {
         case *scope  : ss = append(ss, t)
         case *project: ss = append(ss, t.scope)
@@ -631,7 +634,7 @@ func closure_any(ctx Context, ii ...any) (res Context) {
             ss = append(ss, t.declscope())
         }
     }
-    return &terminal{ctx, ss}
+    return closure_with(ctx, ss...)
 }
 
 func refdef(ctx Context, val Value, origin origin) (res bool) {
@@ -663,9 +666,9 @@ func getHashDir(ctx Context, k []byte) string {
     var dir string
     if program := _program(ctx); program != nil {
         dir = program.project.tmpPath
-    } else if project := get_project(ctx); project != nil {
+    } else if project := _project(ctx); project != nil {
         dir = project.tmpPath
-    } else if scope := get_scope(ctx); scope != nil && scope.project != nil {
+    } else if scope := _scope(ctx); scope != nil && scope.project != nil {
         dir = scope.project.tmpPath
     }
     var h = fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
@@ -828,7 +831,7 @@ func (a as) file(ctx Context, projects ...*project) (f *File) {
     defer func() { if f == nil {
         var s = a.string(ctx)
         if v, t := a.Value, file(ctx, s); t != nil {
-            var ( p = get_project(ctx) ; ctx = at(ctx, v) )
+            var ( p = _project(ctx) ; ctx = at(ctx, v) )
             for i, m := range files(ctx, t, projects...) {
                 erro(ctx, "FIXME: %v: %d. %v", p, i, m)
             }
@@ -1326,7 +1329,7 @@ type argumented_context struct { Context ; args []Value }
 func (ac *argumented_context) cast(t reflect.Type) Context { return implcast(ac,t) }
 func (ac *argumented_context) do(ctx Context, op any) any {
     switch op.(type) {
-    case getArguments: return ac.args
+    case get_arguments: return ac.args
     }
     return do_bits(ctx, ac.Context, op)
 }
@@ -1405,7 +1408,7 @@ func (p *argumented) traverse(ctx Context) {
     //!< Arguments should be passed to program.execute as it is.
     var args []Value
     if traverseArgumentedExpand {
-        var proj = get_project(ctx)
+        var proj = _project(ctx)
         // NOTE: expand here to avoid args being expanded in the wrong context
         for _, a := range p.args {
             a = a.expand(final{ctx})
@@ -2057,7 +2060,7 @@ func (p *strlit) match(ctx Context, i any) (full bool, s any, stems []string) {
     return
 }
 func (p *strlit) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *strlit) traverse(ctx Context) { do(at(ctx, p.position), actTraverse{p}) }
+func (p *strlit) traverse(ctx Context) { do(at(ctx, p.position), act_traverse{p}) }
 
 type strval struct { valbase; v []Value }
 func (_ *strval) kind() Kind { return KindStrVal }
@@ -2141,7 +2144,7 @@ func (p *strval) match(ctx Context, i any) (full bool, s any, stems []string) {
     return
 }
 func (p *strval) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *strval) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
+func (p *strval) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 
 func isTrueString(s string) (t bool) {
     switch strings.ToLower(s) {
@@ -2284,7 +2287,7 @@ func (p *bareword) match(ctx Context, i any) (full bool, s any, stems []string) 
 func (p *bareword) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *bareword) traverse(ctx Context) { do(at(ctx, p.position), actTraverse{p}) }
+func (p *bareword) traverse(ctx Context) { do(at(ctx, p.position), act_traverse{p}) }
 
 type qualiword struct { valbase; words []string } // TODO: foo.bar.zar, foo.&(bar).zar ???
 func (p *qualiword) String() string { return strings.Join(p.words,".") }
@@ -2331,7 +2334,7 @@ func (p *qualiword) match(ctx Context, i any) (full bool, s any, stems []string)
 func (p *qualiword) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *qualiword) traverse(ctx Context) { do(at(ctx, p.position), actTraverse{p}) }
+func (p *qualiword) traverse(ctx Context) { do(at(ctx, p.position), act_traverse{p}) }
 
 type elements struct { elems []Value }
 func (p *elements) Position() Position { return p.elems[0].Position() }
@@ -2779,7 +2782,7 @@ func (p *barecomp) expand(ctx Context) (res Value) {
         return p
     }
 }
-func (p *barecomp) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
+func (p *barecomp) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p *barecomp) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     defer trace(ctx)
 
@@ -3073,7 +3076,7 @@ func (p *barefile) stencil(ctx Context, stems []string) (val Value, rest []strin
 }
 
 func barefilize(ctx Context, targets ...Value) []Value {
-    var project = get_project(ctx)
+    var project = _project(ctx)
     for i, target := range targets {
         if target.patterned(ctx) { continue }
         switch t := target.(type) {
@@ -3097,7 +3100,7 @@ func barefilize(ctx Context, targets ...Value) []Value {
     return targets
 }
 func exp_barefilize(ctx Context, targets ...Value) (res []Value) {
-    var ( project = get_project(ctx) ; maps []filemap_name )
+    var ( project = _project(ctx) ; maps []filemap_name )
     for _, target := range targets {
         if !target.patterned(ctx) {
             maps = append(maps, files(ctx, target, project)...)
@@ -3528,7 +3531,7 @@ func (p *path) stat(ctx Context) (si *statinfo) {
     }
     return
 }
-func (p *path) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
+func (p *path) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p *path) patterned(ctx Context) (result bool) {
     for _, seg := range p.elems {
         if result = seg.patterned(ctx); result { break }
@@ -4125,7 +4128,7 @@ func (p *File) stamp(ctx Context) (files []*File, err error) {
         if false { warn(ctx, "%v: no such file", p).debug() }
     } else if files = append(files, p); !isConfigure(ctx) {
         p._updated = true
-        do(ctx, actDirtyMark{[]Value{p}})
+        do(ctx, act_dirty_mark{[]Value{p}})
     }
     return
 }
@@ -4181,7 +4184,7 @@ func (p *File) isSysFile() (res bool) {
 func (p *File) traverse(ctx Context) {
     ctx = at(ctx, p.position)
     if !p.isSysFile() && p._traved == 0 {
-        do(at(ctx, p), actTraverse{p})
+        do(at(ctx, p), act_traverse{p})
     } else if pc := _program_execution(ctx); pc != nil {
         pc.deferTrave(ctx, getTargetValue(ctx), p, nil, p)
     }
@@ -4386,7 +4389,7 @@ func (p flag) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p flag) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
+func (p flag) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     defer trace(ctx)
 
@@ -4519,7 +4522,7 @@ func (p *compound) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *compound) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
+func (p *compound) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 
 type list struct { elements }
 func (_ *list) kind() Kind { return KindList }
@@ -5892,7 +5895,7 @@ DoneVals:
     }
     return
 }
-func (p *percpat) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
+func (p *percpat) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p *percpat) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints { defer trace(ctx) }
     if a, ok := v.(*percpat); ok {
@@ -6119,7 +6122,7 @@ func (p *globpat) stencil(ctx Context, stems []string) (val Value, rest []string
     erro(ctx, "Unimplemented globpat stencil %v (stems=%v)", p, stems)
     return
 }
-func (p *globpat) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
+func (p *globpat) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p *globpat) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints { defer func() { p.cmp_check(ctx, v, res) } () }
     if a, y := v.(*globpat); y {
@@ -6215,7 +6218,7 @@ func (p *regexpat) cmp_check(ctx Context, v Value, res cmpres) {
         erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug(5)
     }
 }
-func (p *regexpat) traverse(ctx Context) { do(at(ctx, p), actTraverse{p}) }
+func (p *regexpat) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p *regexpat) expand(Context) Value { return p }
 func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     defer trace(ctx)

@@ -123,8 +123,8 @@ type automatic struct {
 func (ac *automatic) cast(t reflect.Type) Context { return implcast(ac, t) }
 func (ac *automatic) do(ctx Context, op any) (_ any) {
     switch op.(type) {
-    case actArguments:
-        if x, y := do(ctx, getArguments{}).([]Value); y { ac.args(ctx, x) }
+    case act_arguments:
+        if x, y := do(ctx, get_arguments{}).([]Value); y { ac.args(ctx, x) }
         return
     }
     return do_bits(ctx, ac.Context, op, propExAuto)
@@ -177,7 +177,7 @@ func (ac *automatic) set(ctx Context, name string, val Value) (out *def, old Val
         out = &def{}
         out.name = name
         out.position = pos
-        out.scope = get_scope(ctx)
+        out.scope = _scope(ctx)
 
         ac.Lock()
         ac.defs[name] = out
@@ -545,7 +545,7 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
         vals = expand(original{ctx,origin}, vals...)
     }
 
-    if checkpoints && is_test_mode(ctx) {
+    if checkpoints && truly(ctx, is_test_mode{}) {
         if origin != defExpand0 && value != nil && value.String() == "$(auto ,$(a))" && auto_find(ctx, "a") == nil {
             defer func(v Value) {
                 if len(vals) != 1 {
@@ -946,7 +946,7 @@ func (p *rule) String() string {
 }
 func (p *rule) updated(ctx Context) (res bool) {
     if res = p.target.updated(ctx); res {
-        do(ctx, actDirtyMark{[]Value{ p.target }})
+        do(ctx, act_dirty_mark{[]Value{ p.target }})
     }
     return
 }
@@ -1064,7 +1064,7 @@ func (p *rule) traverse(ctx Context) {
     }
 
     if _entry(ctx) == p {
-        var proj = get_project(ctx)
+        var proj = _project(ctx)
 
         if c := cast[*terminal](ctx); c != nil {
             if t := auto_get(c, "@"); t != nil && eq(ctx, t, target) {

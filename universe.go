@@ -99,19 +99,19 @@ func (ctx *universe) _position() (p Position) {
 }
 func (ctx *universe) do(_ctx Context, op any) (res any) {
     switch t := op.(type) {
-    case actOnErros:
+    case act_on_erros:
         if ctx.panicFailureOnErrosFlushed {
             if 0 < t.i { panic(_failure(ctx, "got %d errors", t.i)) }
             res = true
         }
         return
 
-	case getIsTestMode: return ctx.testMode
-    case getWorkDir: return ctx.workdir
-    case getPosition: return ctx._position()
-    case getProject: if ctx.globe != nil { return ctx.globe.main }
-    case getScope: if ctx.scope != nil { return ctx.scope }
-    case getClosure:
+	case is_test_mode: return ctx.testMode
+    case get_workdir: return ctx.workdir
+    case get_position: return ctx._position()
+    case get_project: if ctx.globe != nil { return ctx.globe.main }
+    case get_scope: if ctx.scope != nil { return ctx.scope }
+    case get_closure:
         if m := ctx.globe.main; m != nil && m.scope != nil && false {
             return []*scope{ m.scope }
         }
@@ -723,7 +723,7 @@ func (u *universe) load() (err error) {
     defer func(t time.Time) {
         if d := time.Now().Sub(t); u.verboseImport {
             var name string
-            if p := get_project(u.globe.top); p != nil { name = p.name }
+            if p := _project(u.globe.top); p != nil { name = p.name }
             prompt(ctx, "└·%s … (%s)\n", name, d)
         } else if d > u.slow {
             if m := u.globe.main; m != nil {
