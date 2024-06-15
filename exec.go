@@ -648,7 +648,7 @@ func (p *execContext) run() (err error) {
     return
   }
 
-  var pc = _program_execution(p.Context)
+  var pc = _execution(p.Context)
 
   pc.Add(1)
   p.num += 1
@@ -761,7 +761,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
   defer trace(ctx)
 
   var (
-    pc = _program_execution(ctx)
+    pc = _execution(ctx)
     env, sep = pc.env(ctx)
     envstr string
     logFile *os.File
@@ -980,7 +980,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   case "all"   , "both": exe.tieStdout, exe.tieStderr = true, true
   }
 
-  var pc = _program_execution(ctx)
+  var pc = _execution(ctx)
   var program = _program(pc)
   if exe.target.Value = getTargetValue(ctx); program == nil {
     erro(ctx, "needs program context to exec: %v", ctx).debug(16)

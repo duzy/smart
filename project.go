@@ -459,10 +459,8 @@ func (p *project) tempFile(ctx Context, name string) (file *File) {
   return
 }
 
-func (p *project) _configuration(ctx Context) (file *File) {
-  var s = []*scope{ p.scope }
-  if p.configure != nil { s = append(s, p.configure.scope) }
-  if file = p.tempFile(closure_with(ctx, s...), configuration_sm); file == nil {
+func (p *project) _configuration(ctx Context) (f *File) {
+  if f = p.tempFile(closure_with(ctx, p.scope, p.configure.scope), configuration_sm); f == nil {
     erro(ctx, "%v: no file configuration.sm", p).debug()
   }
   return

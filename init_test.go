@@ -71,7 +71,7 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 	} else if name != "" && m.name != name {
 		erro(ctx, "project %v != %v", m.name, name).debug(1, skipint{3})
 	} else {
-		res.Context = closure_any(ctx, m) // TODO: projectContext{ctx, m}
+		res.Context = closure_with(ctx, m) // TODO: projectContext{ctx, m}
 		testRemoveConfigureDir(res, _project(ctx))
 	}
 

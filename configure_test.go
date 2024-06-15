@@ -30,7 +30,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 
 	var outtmp *def
 	var proj = _project(ctx)
-	var cc = closure_any(ctx, proj.configure)
+	var cc = closure_with(ctx, proj.configure)
 
 	if proj.configure == nil {
 		ctx.err("%v: nil configure", proj)
@@ -223,7 +223,7 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	}
 
 	var outtmp Value
-	var cc = closure_any(ctx, proj.configure/*, proj*/)
+	var cc = closure_with(ctx, proj.configure/*, proj*/)
 
 	if joinPath(testModulesPath, "configure") != proj.configure.absPath {
 		note(ctx, "%v: %v", proj, joinPath(testModulesPath, "configure"))

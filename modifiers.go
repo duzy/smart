@@ -45,7 +45,7 @@ type generalOpts struct {
 type modifier_ struct { Context ; generalOpts }
 type modifier_v interface{ v(...Value) interface{} }
 type modifier_x interface{ x(...Value) interface{} }
-type modifier_y interface{ x(*program_execution, ...Value) interface{} }
+type modifier_y interface{ x(*execution, ...Value) interface{} }
 
 var modifier_v_t = reflect.TypeOf((*modifier_v)(nil)).Elem()
 var modifier_x_t = reflect.TypeOf((*modifier_x)(nil)).Elem()
@@ -122,7 +122,7 @@ var (
 
 func modify(x Context, g *group, hyphen bool) (res Value) {
     var uni = _universe(x)
-    var pc = _program_execution(x)
+    var pc = _execution(x)
     var ctx = at(x, g.position)
     var name = g.elems[0].string(ctx)
     var args = g.elems[1:]
@@ -223,7 +223,7 @@ func (m *modifier) traverse(ctx Context) { ctx = at(ctx, m.position)
         if d := time.Now().Sub(t0); d > n { note(ctx, "slow: %v ⇒ %v\n", m, d).debug() }
     }(time.Now())}
 
-    var pc, prog = _program_execution(ctx), _program(ctx)
+    var pc, prog = _execution(ctx), _program(ctx)
     if len(pc.interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" {
         if i, y := dialects["eval"]; y && i != nil { pc.interpret(ctx, i, m.elems[1:]) }
     } else if i, y := dialects[name]; y && i != nil {
@@ -272,7 +272,7 @@ func (g *modification) expand(ctx Context) (res Value) {
     return ease(ctx, vals)
 }
 func (g *modification) traverse(ctx Context) {
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     if pc != nil { pc.Wait() }
 
     var u = _universe(ctx)
@@ -469,7 +469,7 @@ type modifier_env struct { modifier_ }
 func (ctx *modifier_env) x(args ...Value) (result interface{}) {
     args = xmerge(ctx, args...)
 
-    if pc := _program_execution(ctx); pc != nil {
+    if pc := _execution(ctx); pc != nil {
         for _, a := range args {
             if p, y := a.(*pair); y {
                 pc._env = append(pc._env, p)
@@ -495,7 +495,7 @@ type modifier_set struct { modifier_ }
 func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
     defer trace(ctx)
 
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
 
     for _, arg := range args {
         var name string
@@ -535,7 +535,7 @@ func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
 
 type modifier_defer struct { modifier_ }
 func (ctx *modifier_defer) x(args ...Value) (_ interface{}) {
-    if pc := _program_execution(ctx); pc != nil { pc.defers = append(pc.defers, args...) }
+    if pc := _execution(ctx); pc != nil { pc.defers = append(pc.defers, args...) }
     return
 }
 
@@ -554,7 +554,7 @@ type modifier_closure struct { modifier_
     // depFirst bool `<,dep-first` // TODO: -<=value
     // depLast  bool `>,dep-last` // TODO: ->=value
 }
-func (ctx *modifier_closure) x(pc *program_execution, args ...Value) (result interface{}) {
+func (ctx *modifier_closure) x(pc *execution, args ...Value) (result interface{}) {
     // Closure the caller program, the context will be restored when execution is finished.
     var cc = pc.Context
     pc.Context = closure_with(cc)
@@ -667,7 +667,7 @@ func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
             }
         }
         // if err := enter(ctx, dir); err == nil {
-        if pc := _program_execution(ctx); pc != nil { pc.changedWD = dir }
+        if pc := _execution(ctx); pc != nil { pc.changedWD = dir }
         // }
     } else {
         erro(ctx, "wrong number of cd args: %v", args).debug()
@@ -715,7 +715,7 @@ func (ctx *modifier_sudo) x(args ...Value) (result interface{}) {
 }
 
 func parseDependList(ctx Context, dependList *list) (depends *list) {
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     depends = new(list)
     for _, depend := range dependList.elems {
         switch d := depend.(type) {
@@ -1230,10 +1230,10 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
     //var infos = strings.Contains(gc.targetFullName, "...")
     const infos = false
 
-    if false { defer un(tt(l_traverse, _program_execution(ctx), gc.target)) }
+    if false { defer un(tt(l_traverse, _execution(ctx), gc.target)) }
 
     defer func(restore []Value) {
-        var t = _program_execution(ctx)
+        var t = _execution(ctx)
         var touch = gc.greptouch // copy greptouch value
         if len(touch.files) > 0 {
             grepcacheM.Lock()
@@ -1288,7 +1288,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
         return
     } else if savedGrepFileLoaded && len(gc.files) > 0 {
         if infos { info(ctx, "loadSavedGrepFile: %v files=%d grepped=%d",
-            gc.targetFullName, len(gc.files), len(_program_execution(ctx).grepped)).debug() }
+            gc.targetFullName, len(gc.files), len(_execution(ctx).grepped)).debug() }
         return
     }
     if dir := filepath.Dir(gc.savedGrepFileName); dir != "." && dir != ".." {
@@ -1375,7 +1375,7 @@ func (ctx *modifier_grep) x(args ...Value) (result interface{}) {
     var (
         target = auto_get(ctx, "@")
         targets = args
-        grepped = _program_execution(ctx).grepped
+        grepped = _execution(ctx).grepped
     )
     if len(targets) == 0 { if target == nil || isNull(target) || isNone(target) {
         erro(ctx, "no grep target").debug()
@@ -1402,7 +1402,7 @@ func (ctx *modifier_grep) x(args ...Value) (result interface{}) {
         } (time.Now())
     }
 
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     var tar = target
     defer func(v bool) { pc.grepping = v } (pc.grepping)
     pc.grepping = true
@@ -1487,7 +1487,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         jobs sync.WaitGroup
     )
 
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     var depFile = func(ctx Context, depPos Position, word string) {
         var dc = dep_context{diagnostic{ Context: ctx }}
 
@@ -1657,7 +1657,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool) {
         okay bool
         fullname string
         proj = _project(ctx)
-        pc = _program_execution(ctx)
+        pc = _execution(ctx)
     )
     if proj == nil {
         prompt(ctx, "%s: traverse dep failed, project %v\n", dep, proj)
@@ -1699,7 +1699,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool) {
 func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool, tried string) {
     const promptErrors bool = false
     const promptBeforeTraverse bool = promptErrors && true
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     for _, m := range rxFatalErrorFileNotFound.FindAllSubmatch(errBytes, -1) {
         if promptBeforeTraverse { prompt(ctx, "%s\n", m[0]).debug(6) }
         if dep := string(m[4]); dep == lastTry {
@@ -1805,7 +1805,7 @@ CorrectCC:
 
     var (
         proj = _project(ctx)
-        pc = _program_execution(ctx)
+        pc = _execution(ctx)
         savedDepsFileName string
     )
 
@@ -1854,7 +1854,7 @@ CorrectCC:
         }
         stdout.Reset() // release buffers (optional)
     }
-    if t := _program_execution(ctx); t != nil && len(files) > 0 {
+    if t := _execution(ctx); t != nil && len(files) > 0 {
         t.grepped = append(t.grepped, files...)
     }
     return
@@ -1907,7 +1907,7 @@ type modifier_check struct { modifier_
 func (ctx *modifier_check) x(args ...Value) (result interface{}) {
     var (
         pos = _position(ctx)
-        pc  = _program_execution(ctx)
+        pc  = _execution(ctx)
         optBreak travekind // breaking with good results
         makeResult func(bool) Value // returns results only if non-nil
         values []Value
@@ -2374,7 +2374,7 @@ func (ctx *modifier_writefile) x(args ...Value) (result interface{}) {
     defer func() {
         if filename != "" { os.Remove(filename); f = nil }
         if f == nil {
-            var pc = _program_execution(ctx)
+            var pc = _execution(ctx)
             brk := pc.traves.add(ctx, traveFail, target)
             brk.error = fmt.Errorf("file %s not generated", target)
         }
@@ -2423,7 +2423,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result interface{}) {
         target.Value = auto_get(ctx, "@")
     }
 
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     if isTrivial(target) {
         errostack(ctx, 3, "target for reading is invalid (%T) (%v)", target.Value, args).debug(10)
         return
@@ -2656,7 +2656,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
 
     var (
         f *os.File
-        pc = _program_execution(ctx)
+        pc = _execution(ctx)
         m = os.O_RDWR | os.O_CREATE
     )
     if ctx.append { m |= os.O_APPEND } else { m |= os.O_TRUNC }
@@ -2765,7 +2765,7 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
 }
 
 func reportFileUpdates(ctx Context, files []*File) {
-    var start = _program_execution(ctx).start
+    var start = _execution(ctx).start
     for _, file := range files {
         var (
             mod = file.info.ModTime()
@@ -2800,7 +2800,7 @@ func (ctx *modifier_stamp) x(args ...Value) (result interface{}) {
     var _, err = target.stamp(ctx)
     if err == nil { return /* Done! */ }
 
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     var p = prompt(ctx, "%v: %v: %v\n", target, _project(ctx), err)
     if n := ctx.debug; n>0 { p.debug(n) }
     if ctx.next {
@@ -2847,7 +2847,7 @@ func (ctx *modifier_assert) z(args ...Value) (_ interface{}) {
 
     var uni = _universe(ctx)
     var target = auto_get(ctx, "@")
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     for _, a := range args {
         if a == nil { erro(ctx, "assert: nil").debug(); return }
         if _, y := a.(*punctuation); y { continue }
@@ -2874,7 +2874,7 @@ func (ctx *modifier_cond) x(args ...Value) (result interface{}) {
     //     (cond
     //       ((condition) ...)
     //       (true{} ...))
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     for _, a := range args {
         if a == nil { warn(ctx, "nil arg").debug() }
         if a == nil || !a.true(ctx.Context) {
@@ -2890,7 +2890,7 @@ func (ctx *modifier_case) x(args ...Value) (result interface{}) {
     var w travekind = traveNext
     for _, a := range args { if a.true(ctx.Context) { w = traveCase ; break } }
 
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     var s = pc.traves.add(ctx, w, nil) // trave 'case' or 'next'
     s.prog = _program(ctx) // s.error = fmt.Errorf("%s", msg)
 
@@ -2901,7 +2901,7 @@ func (ctx *modifier_case) x(args ...Value) (result interface{}) {
 
 type modifier_predictDirty struct { modifier_ }
 func (ctx *modifier_predictDirty) x(args ...Value) (result interface{}) {
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     if res := pc.dirty(ctx, args...); res {
         result = makePrediction(_position(ctx), res, /*reason*/"")
     } else {
@@ -2914,7 +2914,7 @@ type modifier_predictNoLoop struct { modifier_ }
 func (ctx *modifier_predictNoLoop) x(args ...Value) (result interface{}) {
     var loop bool
     var target = auto_get(ctx, "@")
-    for caller := _program_execution(ctx).caller(); caller != nil; caller = caller.caller() {
+    for caller := _execution(ctx).caller(); caller != nil; caller = caller.caller() {
         var t = auto_get(caller, "@")
         var same = t != nil && target == t
         if!same && false { same = eq(ctx, target, t) }
@@ -2943,7 +2943,7 @@ func (ctx *modifier_predictTarget1stVisit) x(args ...Value) (result interface{})
     }
 
     var num int
-    for caller := _program_execution(ctx).caller(); caller != nil; caller = caller.caller() {
+    for caller := _execution(ctx).caller(); caller != nil; caller = caller.caller() {
         if false {
             var t = auto_get(caller, "@")
             var same = t != nil && target == t
@@ -2987,7 +2987,7 @@ func (ctx *modifier_predictTargetMaxVisit) x(args ...Value) (result interface{})
         erro(ctx, "target is <nil>").debug()
         return
     }
-    for caller := _program_execution(ctx).caller(); caller != nil; caller = caller.caller() {
+    for caller := _execution(ctx).caller(); caller != nil; caller = caller.caller() {
         var ct = auto_get(caller, "@")
         if n := caller.execRec[target]; n > 0 { num += int64(n) }
         if ctx.debug > 0 && num > 0 {
@@ -3027,7 +3027,7 @@ func (ctx *modifier_fork) _x(args ...Value) (result Value, traves travestates) {
         return
     }
 
-    attr.Env, _ = _program_execution(ctx).env(ctx)
+    attr.Env, _ = _execution(ctx).env(ctx)
     attr.Files = []uintptr{ // FIXME: see Cmd.Start() for files pipes
         os.Stdin .Fd(),
         os.Stdout.Fd(),
@@ -3068,7 +3068,7 @@ func (ctx *modifier_fork) x(args ...Value) (result interface{}) {
 
     var cmd = exec.Command(exe, argv...)
     cmd.Stdout, cmd.Stderr = stdout, stderr
-    cmd.Env, _ = _program_execution(ctx).env(ctx)
+    cmd.Env, _ = _execution(ctx).env(ctx)
 
     if err = cmd.Run(); err != nil {
         erro(ctx, "fork: %v: %v", exe, err).debug()
@@ -3275,7 +3275,7 @@ func (ctx *modifier_once) x(args ...Value) (result interface{}) {
         n = onceCacheTest0(ctx, target)
     }
 
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     if n > 1 {
         s := pc.traves.add(ctx, traveDone, target)
         s.error = fmt.Errorf(`executed %d times`, n)

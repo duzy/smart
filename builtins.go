@@ -4514,7 +4514,7 @@ func (ctx *builtin_grep) x() (_ any) {
         }
 
         if c := at(ctx, a); filename == "" {
-            var pc = _program_execution(ctx)
+            var pc = _execution(ctx)
             erro(c, "empty filename: %v", ts(a))
             erro(c, "%v %v", rvs, args)
             errostack(c, 5, "%p %v", pc, pc.search(ctx, "^")).debug(64)

@@ -683,7 +683,7 @@ func (l unilo) bases(ctx Context, implicitBase string, params ...Value) (result 
     defer trace(ctx)
 
     // For &(foobar) set from loadArgs
-    ctx = closure_with(ctx, l.s...)
+    ctx = closure_with(ctx, l.s)
 
     var (
         implicitIndex int

@@ -1052,7 +1052,7 @@ func (p *rule) expand(ctx Context) (_ Value) {
 func (p *rule) delete(  ctx Context) (files []*File, err error) { return p.target.delete(ctx) }
 func (p *rule) stamp(   ctx Context) (files []*File, err error) { return p.target.stamp(ctx) }
 func (p *rule) traverse(ctx Context) {
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     var sc, _ = ctx.(*stemmed_context)
     var target = auto_get(ctx, "@")
 

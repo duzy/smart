@@ -623,18 +623,18 @@ func closure_entry(ctx Context, name string) (_ entry) {
     return
 }
 
-func closure_with(ctx Context, ss ...*scope) Context { return &terminal{ctx, ss} }
-func closure_any(ctx Context, a ...any) Context {
+func closure_with(ctx Context, a ...any) Context {
     var ss []*scope
     for _, i := range a {
         switch t := i.(type) {
-        case *scope  : ss = append(ss, t)
+        case   *scope: ss = append(ss, t)
+        case []*scope: ss = append(ss, t...)
         case *project: ss = append(ss, t.scope)
         case interface{ declscope() *scope }:
             ss = append(ss, t.declscope())
         }
     }
-    return closure_with(ctx, ss...)
+    return &terminal{ctx, ss}
 }
 
 func refdef(ctx Context, val Value, origin origin) (res bool) {
@@ -762,7 +762,7 @@ type waitopts struct {
 }
 func wait(ctx Context, opts waitopts) (target Value, files []*File, execRes *execResult, err error) {
     var calleeErrs []error
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     if pc != nil {
         // wait for all jobs done
         if false { pc.WaitGroup.Wait() } // FIXME: deadlock
@@ -4185,7 +4185,7 @@ func (p *File) traverse(ctx Context) {
     ctx = at(ctx, p.position)
     if !p.isSysFile() && p._traved == 0 {
         do(at(ctx, p), act_traverse{p})
-    } else if pc := _program_execution(ctx); pc != nil {
+    } else if pc := _execution(ctx); pc != nil {
         pc.deferTrave(ctx, getTargetValue(ctx), p, nil, p)
     }
 }
@@ -4608,7 +4608,7 @@ func (p *list) expand(ctx Context) (res Value) {
     return
 }
 func (p *list) traverse(ctx Context) {
-    var pc = _program_execution(ctx)
+    var pc = _execution(ctx)
     for _, elem := range p.elems {
         elem.traverse(ctx)
 

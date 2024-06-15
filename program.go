@@ -25,9 +25,9 @@ type dirtyOpts struct {
     pats []Value
 }
 
-func _program_execution(c Context) *program_execution { return cast[*program_execution](c) }
+func _execution(c Context) *execution { return cast[*execution](c) }
 
-type program_execution struct {
+type execution struct {
     automatic
     sync.Mutex
     sync.WaitGroup
@@ -63,15 +63,15 @@ type program_execution struct {
 
     interpreted []interpreter
 }
-func (pc *program_execution) inner() Context { return &pc.automatic }
-func (pc *program_execution) caller() *program_execution { return _program_execution(pc.Context) }
-func (pc *program_execution) cast(t reflect.Type) Context {
+func (pc *execution) inner() Context { return &pc.automatic }
+func (pc *execution) caller() *execution { return _execution(pc.Context) }
+func (pc *execution) cast(t reflect.Type) Context {
     if reflect.TypeOf(pc) == t { return pc }
     if reflect.TypeOf((*argumented_context)(nil)) == t { return nil }
     if reflect.TypeOf((*stemmed_context)(nil)) == t { return nil }
     return pc.automatic.cast(t)
 }
-func (pc *program_execution) do(ctx Context, op any) (res any) {
+func (pc *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
     case get_position:
         if pc.prog != nil { return pc.prog.position }
@@ -106,17 +106,17 @@ func (pc *program_execution) do(ctx Context, op any) (res any) {
     return pc.automatic.do(ctx, op)
 }
 
-func (pc *program_execution) ts(t string) string {
+func (pc *execution) ts(t string) string {
 	return fmt.Sprintf("{=%s %v}", t, ts(pc.Context)) // NOTE: hides {=automatic}
 }
 
-func (pc *program_execution) aquire() func() { pc.Lock() ; return func(){ pc.Unlock() }}
+func (pc *execution) aquire() func() { pc.Lock() ; return func(){ pc.Unlock() }}
 
-func (pc *program_execution) depth() (res int) {
+func (pc *execution) depth() (res int) {
     for c := pc.caller(); c != nil; c = c.caller() { res += 1 }
     return
 }
-func (pc *program_execution) calleeError(err error) {
+func (pc *execution) calleeError(err error) {
     if err != nil {
         pc.calleeErrsM.Lock()
         pc.calleeErrs = append(pc.calleeErrs, err)
@@ -126,10 +126,10 @@ func (pc *program_execution) calleeError(err error) {
 
 // traverse_context is a single thread traverse context, for traversing in a new goroutine,
 // a spawned traversal must be used and then merge.
-func (pc *program_execution) level(n int) { pc.traceLevel += n }
-func (pc *program_execution) trace(a ...interface{}) { printIndentDots(pc.traceLevel, a...) }
-func (pc *program_execution) tracef(s string, a ...interface{}) { printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...)) }
-func (pc *program_execution) traversed(ctx Context, target Value) []Value {
+func (pc *execution) level(n int) { pc.traceLevel += n }
+func (pc *execution) trace(a ...interface{}) { printIndentDots(pc.traceLevel, a...) }
+func (pc *execution) tracef(s string, a ...interface{}) { printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...)) }
+func (pc *execution) traversed(ctx Context, target Value) []Value {
     if !isTrivial(target) {
         pc.targets = append(pc.targets, target)
 
@@ -142,12 +142,12 @@ func (pc *program_execution) traversed(ctx Context, target Value) []Value {
     return pc.targets
 }
 
-func (pc *program_execution) addFilesCount(n int) {
+func (pc *execution) addFilesCount(n int) {
     pc.countFiles += n
     if c := pc.caller(); c != nil { c.addFilesCount(1) }
 }
 
-func (pc *program_execution) env(ctx Context) (env []string, osi int) {
+func (pc *execution) env(ctx Context) (env []string, osi int) {
     env = os.Environ()
     osi = len(env)
     for _, p := range pc._env {
@@ -157,7 +157,7 @@ func (pc *program_execution) env(ctx Context) (env []string, osi int) {
     return
 }
 
-func (pc *program_execution) dirtyMark(vals ...Value) {
+func (pc *execution) dirtyMark(vals ...Value) {
     const (
         enableDirtyMark = true
         perUpdatedDep = true
@@ -197,7 +197,7 @@ func (pc *program_execution) dirtyMark(vals ...Value) {
     }
     if enableDirtyMark { pc.dirtyMark(vals...) }
 }
-func (pc *program_execution) interpret(ctx Context, i interpreter, params []Value) {
+func (pc *execution) interpret(ctx Context, i interpreter, params []Value) {
     if pos := _position(ctx); !pos.IsValid() && pc.prog.position.IsValid() {
         ctx = at(ctx, pc.prog.position)
     }
@@ -279,7 +279,7 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
     return
 }
 
-func (pc *program_execution) dirty(ctx Context, aa ...Value) (outdated bool) {
+func (pc *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     var target as
     if val, /*files*/_, /*execRes*/_, err := wait(pc, waitopts{
         ReportUpdates: false,
@@ -470,7 +470,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
     return
 }
 
-func (pc *program_execution) deferTrave(ctx Context, targetValue, prereqValue, prereqPattern Value, prereqFile *File) {
+func (pc *execution) deferTrave(ctx Context, targetValue, prereqValue, prereqPattern Value, prereqFile *File) {
     var av = targetValue
     var bv = prereqValue
     if prereqFile == nil {
@@ -524,7 +524,7 @@ func with(ctx Context, target Value) (res bool) {
 }
 
 // traverse - traverse the prerrequiste for the current target $@
-func (pc *program_execution) traverse(ctx Context, prereqValue Value) (result travestates) {
+func (pc *execution) traverse(ctx Context, prereqValue Value) (result travestates) {
     var (
         targetValue Value
 
@@ -975,7 +975,7 @@ CheckPrereqResult:
     return // no operation
 }
 
-func (pc *program_execution) prerequisite(ctx Context, prerequisites []Value) {
+func (pc *execution) prerequisite(ctx Context, prerequisites []Value) {
     var (
         uni = _universe(ctx)
         verb = uni.verbose || uni.verboseBreaks
@@ -1173,7 +1173,7 @@ ForPrerequisites:
 }
 
 func _program(ctx Context) (_ *program) {
-    if p := _program_execution(ctx); p != nil {
+    if p := _execution(ctx); p != nil {
         return p.prog
     }
     return
@@ -1221,7 +1221,7 @@ func (t order_traverse_context) traversed(ctx Context, target Value) (targets []
 }
 
 func (prog *program) workdir(ctx Context) (workdir string) {
-    if pc := _program_execution(ctx); pc == nil {
+    if pc := _execution(ctx); pc == nil {
         workdir = prog.project.absPath
     } else if pc.changedWD == "" {
         var o Object
@@ -1263,7 +1263,7 @@ func (prog *program) execute(ctx Context) (result Value, _traves travestates) {
 
     defer trace(ctx)
 
-    var pc = program_execution{
+    var pc = execution{
         automatic: automatic{ Context:ctx, defs:make(auto_defs) },
         execRec: make(map[Value]int), start: time.Now(), prog: prog,
     }
