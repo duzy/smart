@@ -2346,7 +2346,7 @@ func testToolchainBooting(ctx *testcase) {
 
 	if r := ctx.rule("stamp"); r == nil {
 		ctx.err("stamp")
-	} else if v, e := _universe(ctx).run(); e != nil {
-		ctx.err("%v: %v (%v)", r, e, v)
+	} else if v := _universe(ctx).run(); v != nil {
+		ctx.err("%v: %v", r, v)
 	}
 }

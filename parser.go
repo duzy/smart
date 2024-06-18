@@ -2110,14 +2110,8 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseopts, props []Value) {
 
 	if entry := project.configure.defaultEntry; entry == nil {
 		// no init entry from .configure
-	} else if _, ts := entry.execute(at(ctx, entry)); len(ts) > 0 {
-		// FIXME: the entry might be a configure operation (see configure/.base/do.smart)
-		for _, brk := range ts {
-			if brk.what == traveFail {
-				erro(at(ctx,entry), "execute '%v' failed: %v", entry, brk).debug()
-				return
-			}
-		}
+	} else {
+		entry.execute(at(ctx, entry))
 	}
 
 	if flush(ctx)>0 { return }
@@ -2128,17 +2122,12 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseopts, props []Value) {
 
 	var ce = configurecontext{Context:ctx} ; defer ce.close()
 
-	for _, dep := range xmerge(ctx, props/* [1:] */...) {//, final
+	for _, dep := range xmerge(ctx, props/* [1:] */...) {
 		if re, y := dep.(*rule); !y {
 			erro(ctx, "unsupported prerequisite: %T %v", dep, dep).debug()
 			return
-		} else if _, ts := re.execute(ctx); len(ts) > 0 {
-			for _, brk := range ts {
-				if brk.what == traveFail {
-					erro(at(ctx,re), "execute '%v' failed: %v", re, brk).debug()
-					return
-				}
-			}
+		} else {
+			re.execute(ctx)
 		}
 	}
 

@@ -888,33 +888,9 @@ func hasRecipes(e entry) (_ bool) {
 }
 
 func executeEntry(ctx Context, e entry, args ...Value) (result []Value, okay bool) {
-    defer trace(ctx)
-
-    var traves travestates
-    if result, traves = e.execute(ctx, args...); !traves.has() {
-        return result, true
-    }
-
-    if t := traves.of(traveFail); t.has() {
-        for _, t := range t {
-            erro(at(ctx,t.pos), "%v: %v", e, t).debug()
-        }
-        traves = traves.not(traveFail)
-        return result, false
-    }
-
-    if t := traves.of(traveCase, traveDone, traveNext, traveRule, traveFile); t.has() {
-        traves = traves.not(traveCase, traveDone, traveNext, traveRule, traveFile)
-    }
-
-    if traves.has() {
-        for _, t := range traves {
-            erro(at(ctx,t.pos), "%v: %v", e, t).debug()
-        }
-        return
-    } else {
-        return result, true
-    }
+    result = e.execute(ctx, args...)
+    okay = true
+    return
 }
 
 // rule represents a declared rule entry.
@@ -968,7 +944,7 @@ func (p *rule) updated(ctx Context) (res bool) {
 func (p *rule) updatedDeps(ctx Context, v ...Value) []Value {
     return p.target.updatedDeps(ctx, v...)
 }
-func (p *rule) execute(ctx Context, a ...Value) (result []Value, traves travestates) {
+func (p *rule) execute(ctx Context, a ...Value) (result []Value) {
     if p.patterned(ctx) {
         erro(ctx, "executing pattern entry '%v'", p.target).debug()
         return
@@ -978,18 +954,9 @@ func (p *rule) execute(ctx Context, a ...Value) (result []Value, traves travesta
     if len(a) > 0 { ctx = &argumented_context{ctx, a} }
     ctx = &rule_context{ctx, p}
 
-outer:
     for _, program := range p.program {
-        var pos = program.position
-        if !pos.IsValid() { pos = p.Position() }
-
-        var res, t = program.execute(at(ctx, pos))
+        var res = program.execute(at(ctx, p))
         result = append(result, merge(res)...)
-        traves = append(traves, t...)
-        if t.has(traveFail) { break outer }
-        for _, s := range t.of(traveCase, traveDone) {
-            if s.prog == program { break outer }
-        }
     }
     return
 }
@@ -1046,15 +1013,7 @@ func (p *rule) expand(ctx Context) (_ Value) {
     defer trace(ctx)
 
     if x, y := ctx.(*evocation); y {
-        if vals, t := p.execute(ctx, x.a...); t.has(traveFail) {
-            for _, s := range t { erro(at(ctx,s.pos), "%v", s) }
-            errostack(ctx, 3).debug()
-            return
-        } else if vals == nil {
-            return
-        } else {
-            return ease(ctx, vals)
-        }
+        return ease(ctx, p.execute(ctx, x.a...))
     }
 
     var target = p.target.expand(ctx)
@@ -1066,7 +1025,6 @@ func (p *rule) delete(  ctx Context) (files []*File, err error) { return p.targe
 func (p *rule) stamp(   ctx Context) (files []*File, err error) { return p.target.stamp(ctx) }
 func (p *rule) traverse(ctx Context) {
     var pc = _execution(ctx)
-    var sc, _ = ctx.(*stemmed_context)
     var target = auto_get(ctx, "@")
 
     defer trace(ctx)
@@ -1105,32 +1063,35 @@ func (p *rule) traverse(ctx Context) {
 ForPrograms:
     for _, prog := range p.program {
         var ctx = at(ctx, prog.position)
-        var v, t = prog.execute(ctx)
+        var next bool
+        func(){
+            defer func() {
+                if t := recover(); t != nil {
+                    if _, next = t.(traverse_next); next {
+                        return
+                    }
+                    erro(ctx, "%v", t).debug()
+                    trace(ctx)
+                }
+            }()
 
-        if a := t.of(traveFail) ; a.has() {
-            erro(ctx, "%v: %v", target, a).debug()
-            return
-        }
+            var v = prog.execute(ctx)
+            if pc != nil && v != nil {
+                pc.values = append(pc.values, merge(v)...)
+            }
+        }()
+        if next { continue ForPrograms }
 
-        if t.has(traveNext) { continue ForPrograms }
-
-        if pc != nil && v != nil {
-            pc.values = append(pc.values, merge(v)...)
-        }
-        if pc != nil && sc != nil {
-            s := pc.traves.add(ctx, traveRule, target)
-            s.depend, s.prog = p, prog
-        }
-
-        for _, s := range t.of(traveCase, traveDone) {
-            if s.prog == prog { break ForPrograms }
-        }
+        // if pc != nil && sc != nil {
+        //     s := pc.traves.add(ctx, traveRule, target)
+        //     s.depend, s.prog = p, prog
+        // }
     }
 
-    if pc != nil && sc == nil {
-        // if sc != nil { depend = sc.stem } else { depend = p }
-        pc.traves.add(ctx, traveRule, target).depend = p
-    }
+    // if pc != nil && sc == nil {
+    //     // if sc != nil { depend = sc.stem } else { depend = p }
+    //     pc.traves.add(ctx, traveRule, target).depend = p
+    // }
     return
 }
 // FIXME: p.target maybe not the real target

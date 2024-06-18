@@ -112,12 +112,7 @@ func (ctx *configurecontext) execute(entry entry) {
         ctx.current = p
     }
 
-    if val, traves := entry.execute(ctx); traves.has(traveFail) {
-        for _, s := range traves { if s.what == traveFail {
-            erro(at(ctx, s.pos), "execute '%v' failed: %v", entry, s)
-        }}
-        erro(ctx, "%v: %v", entry, val).debug()
-    }
+    entry.execute(ctx)
 
     var s = entry.destiny().string(ctx)
     if _, y := ctx.defs[s]; y { return }
@@ -207,11 +202,7 @@ func configure(ctx Context, ii ...interface{}) {
         return
     }, func(p *project) {
         if !p.configured && p.configure != nil && p.configure.defaultEntry != nil {
-            var e = p.configure.defaultEntry
-            var _, a = e.execute(ctx)
-            for _, b := range a { if b.what == traveFail {
-                erro(at(ctx, e), "execute failed: %v: %v", e, b).debug()
-            }}
+            p.configure.defaultEntry.execute(ctx)
         }
     })
 
@@ -418,31 +409,9 @@ ForInParams:
         }
     }
 
-    var reses []Value
-    var traves travestates
     for _, entry := range entries {
-        reses, traves = entry.execute(ctx, params...)
-
-        if _diagnostic(ctx).error() { return }
-        if traves = traves.not(traveDone, traveRule, traveFile); traves.has() {
-            for i, s := range traves { erro(ctx, "%v: %d. %v", entry, i, s) }
-            erro(ctx, "%v: %d trave states", entry, len(traves)).debug(16)
-            return
-        }
-
-        if n := len(reses); n == 0 {
-            if false { warn(at(ctx,entry), "%v", entry).debug() }
-        } else if result = reses[0]; result != nil && result == hyphen {
-            warn(at(ctx,entry), "%v", entry)
-            warn(ctx, `%v: configure yields value the same as input will be ignored: %v`, entry, result).debug()
-            result = nil // simply discard the result as it's the same as the input (hyphen) value
-        }
-
-        if result != nil { if d, y := result.(*def); y /* && d.name == "@" */ {
-            var h = auto_get(ctx, "-")
-            var x = at(ctx, entry)
-            errostack(x, 3, "%v: invalid result: %v (%v)", entry, d, h).debug(10)
-        }}
+        var reses = entry.execute(ctx, params...)
+        if len(reses) > 0 { result = reses[0] }
     }
 
     configured = true
@@ -720,7 +689,6 @@ type (
 )
 func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData configureconvertFunc, opts *configureconvertOpts, args ...Value) (_ Value) {
     var (
-        pc = _execution(ctx)
         closured = closure_projects(ctx)
         project = _project(ctx)
         filename string
@@ -737,13 +705,12 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         return
     } else if f, filename, _ = target.fullnameFile(ctx, closured...); f == nil {
         if depend := auto_get(ctx,">"); !isTrivial(depend) {
-            s := pc.traves.add(ctx, traveFail, target.Value)
-            s.error = traveTargetNotDefinedFile
-            s.depend = depend
+            panic(traveTargetNotDefinedFile)
         } else if true {
             prompt(ctx, "%v: not defined as file\n", target.string(ctx))
             erro(ctx, "%v", ts(target.Value))
-            errostack(ctx, 8, "").debug(64)
+            errostack(ctx, 8).debug()
+            trace(ctx)
         }
         return
     } else if filename == "" {

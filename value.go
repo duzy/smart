@@ -41,7 +41,6 @@ const (
     positionalValueCtx  = true
     traverseDetectLoops = true // turn on/off traverse loop detection
     traverseArgumentedExpand = true
-    traverseLoopBreakState   = traveUnkn // eg traveNext or traveDone
 )
 
 const (
@@ -316,185 +315,6 @@ var (
 )
 
 func sfmt(f string, i ...any) string { return fmt.Sprintf(f, i...) }
-
-const ( // larger value higher priority
-    traveUnkn travekind = iota
-    traveObj  // found object
-    traveRule // found rule
-    traveFile // exists file
-    traveNext // (cond ...), (case ...), unfit patterns
-    traveCase // (case ...) selected
-    traveDone // (cond ...) and (case ...)
-    traveFail // (assert ...) and errors
-)
-
-type travekind int
-func (k travekind) String() (s string) {
-    switch k {
-    case traveUnkn: s = "trave.unkn"
-    case traveObj : s = "trave.obj"
-    case traveRule: s = "trave.rule"
-    case traveFile: s = "trave.file"
-    case traveNext: s = "trave.next"
-    case traveDone: s = "trave.done"
-    case traveCase: s = "trave.case"
-    case traveFail: s = "trave.fail"
-    }
-    return
-}
-
-type travestate struct {
-    pos Position
-    prog *program
-    what travekind
-    target, depend, dependPat Value
-    error error
-}
-func (p *travestate) String() (s string) { //_error
-    switch p.what {
-    case traveUnkn: s = "unknown"
-    case traveDone: s = "done" // ineligible (cond) is ignored
-    case traveNext: s = "next"
-    case traveCase: s = "case"
-    case traveFile: s = "file"
-    case traveFail: s = "fail"
-    case traveRule: s = "rule"
-    case traveObj : s = "obj"
-    }
-    if !isNull(p.target)    { s = fmt.Sprintf("%s@%s", s, p.target) } //⇒
-    if !isNull(p.dependPat) { s = fmt.Sprintf("%s:%s", s, p.dependPat) }
-    if !isNull(p.depend)    { s = fmt.Sprintf("%s>%s", s, p.depend) } //⇒
-    if false && p.pos.IsValid() { s = fmt.Sprintf("%s: %s", p.pos, s) }
-    if p.error != nil { if e, y := p.error.(*os.PathError); y {
-        s += ":" + e.Err.Error()
-    } else if e := p.error.Error(); e != "" {
-        s += ":" + e
-    }}
-    return
-}
-
-type travestates []*travestate
-func (traves travestates) String() (s string) {
-    const x = 5
-    s = "["
-    for i, t := range traves {
-        if i > 0 { s += " " }
-        s += t.String()
-        if i == x && len(traves) > x {
-            s += fmt.Sprintf(" …%d…", len(traves)-x)
-            break
-        }
-    }
-    s += "]"
-    return
-}
-func (traves *travestates) slice(i int) (res travestates) { return (*traves)[i:] }
-func (traves *travestates) has(what ...travekind) (res bool) {
-    if len(what) == 0 { res = len(*traves) > 0 } else {
-    ForTravestates:
-        for _, s := range *traves {
-            for _, w := range what {
-                if s.what == w {
-                    res = true
-                    break ForTravestates
-                }
-            }
-        }
-    }
-    return
-}
-func (traves *travestates) append(s *travestate) *travestates {
-    *traves = append(*traves, s)
-    return traves
-}
-func (traves *travestates) remove(ss ...*travestate) *travestates {
-    var res travestates
-outter:
-    for _, s := range ss {
-        for _, t := range *traves {
-            if s == t { continue outter }
-        }
-        res = append(res, s)
-    }
-    *traves = res
-    return traves
-}
-func (traves *travestates) not(what ...travekind) (res travestates) {
-outter:
-    for _, s := range *traves {
-        for _, w := range what {
-            if s.what == w { continue outter }
-        }
-        res = append(res, s)
-    }
-    return
-}
-func (traves *travestates) of(what ...travekind) (res travestates) {
-outter:
-    for _, s := range *traves {
-        for _, w := range what {
-            if s.what == w {
-                res = append(res, s)
-                continue outter
-            }
-        }
-    }
-    return
-}
-func (traves *travestates) my(ctx Context, target Value, what ...travekind) (res travestates) {
-outter:
-    for _, s := range *traves {
-        if !eq(ctx, target, s.target) { continue }
-        if what == nil {
-            res = append(res, s)
-            continue
-        }
-        for _, w := range what {
-            if s.what == w {
-                res = append(res, s)
-                continue outter
-            }
-        }
-    }
-    return
-}
-func (traves *travestates) unique(ctx Context, what ...travekind) (res travestates) {
-outter:
-    for _, s := range *traves {
-        for _, w := range what {
-            if s.what == w {
-                for _, s2 := range res {
-                    // FIXME: seems not working
-                    if s.what == s2.what && (s == s2 || (true && eq(ctx, s.target, s2.target) &&
-                        ((s.depend != nil && s2.depend != nil && eq(ctx, s.depend, s2.depend))))) {
-                        continue outter
-                    }
-                } 
-                res = append(res, s)
-                continue outter
-            }
-        }
-    }
-    return
-}
-func (traves *travestates) add(ctx Context, what travekind, target Value) *travestate {
-    if isTrivial(target) { target = auto_get(ctx, "@") }
-    for _, s := range *traves {
-        if s.what == what && s.target == target {
-            return s
-        }
-    }
-
-    var pos = _position(ctx)
-    var s = &travestate{ pos:pos, what:what, target:target, prog: _program(ctx) }
-    if *traves = append(*traves, s); false { }
-    return s
-}
-func (traves *travestates) addf(ctx Context, what travekind, s string, a... any) *travestate {
-    t := traves.add(ctx, what, nil)
-    t.error = fmt.Errorf(s, a...)
-    return t
-}
 
 // TODO: use chained-context instead of 'terminal' for closure-scopes
 type terminal struct { Context ; s []*scope }
@@ -4185,7 +4005,7 @@ func (p *File) traverse(ctx Context) {
     if !p.isSysFile() && p._traved == 0 {
         do(at(ctx, p), act_traverse{p})
     } else if pc := _execution(ctx); pc != nil {
-        pc.deferTrave(ctx, getTargetValue(ctx), p, nil, p)
+        pc.defertrave(ctx, getTargetValue(ctx), p, nil, p)
     }
 }
 
@@ -4606,13 +4426,8 @@ func (p *list) expand(ctx Context) (res Value) {
     return
 }
 func (p *list) traverse(ctx Context) {
-    var pc = _execution(ctx)
     for _, elem := range p.elems {
         elem.traverse(ctx)
-
-        if pc.traves.has(traveCase, traveNext, traveDone, traveFail) {
-            break
-        }
     }
     return
 }

@@ -898,9 +898,7 @@ func CommandLine() {
     prompt(context, "plugins updated, please relaunch.\n")
   } else if context.commandline.configure {
     configure(context)
-  } else if result, err := context.run(); err != nil {
-    erro(context, "run work failed: %v", err)
-  } else if dia.flush(context) > 0 {
+  } else if result := context.run(); dia.flush(context) > 0 {
     prompt(context, "run work got %d errors\n", dia.erros)
   } else if result != nil {
     for i, v := range result {

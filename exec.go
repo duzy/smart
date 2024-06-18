@@ -543,10 +543,7 @@ func (p *execContext) runContainerAndRetry() (err error) {
   fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
   if entries := p.container.resolveEntries(p.Context, "run", false); entries != nil {
     for _, run := range entries {
-      if _, traves := run.execute(p.Context, nil); traves.has() {
-        erro(p.Context, "%d travestates", len(traves)).debug()
-        return
-      } //else { p.t.group.Wait() }
+      run.execute(p.Context, nil)
     }
   } else {
     erro(p.Context, "%s⇒run undefined", p.container).debug()
@@ -619,10 +616,7 @@ func (p *execContext) ensureContainerRunning(containerName string) (err error) {
   if err = cmd.Run(); err == nil && foundID == "" {
     if entries := p.container.resolveEntries(p.Context, "run", false); entries != nil {
       for _, run := range entries {
-        if _, traves := run.execute(p.Context, nil); traves.has() {
-          erro(p.Context, "%d travestates", len(traves)).debug()
-          return
-        } //else { p.t.group.Wait() }
+        run.execute(p.Context, nil)
       }
     } else {
       erro(p.Context, "%s⇒run undefined", p.container).debug()

@@ -6,7 +6,7 @@
 
 package smart
 
-func (prog *program) execute_check_0(ctx Context, ent entry, result *Value, traves *travestates) {
+func (prog *program) execute_check_0(ctx Context, ent entry, result *Value) {
     if *result == nil {
         erro(ctx, "%v: nil result", ts(ent)).debug()
         trace(ctx)

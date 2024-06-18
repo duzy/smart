@@ -517,7 +517,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
     return
 }
 
-func (_tx *universe) run() (result []Value, travestates []*travestate) {
+func (_tx *universe) run() (result []Value) {
     if _tx.noRun { return }
 
     var main = _tx.globe.main
@@ -555,14 +555,7 @@ func (_tx *universe) run() (result []Value, travestates []*travestate) {
                 flush(ctx)
             }
 
-            var ( res []Value; traves []*travestate )
-            if res, traves = entry.execute(ctx, args...); len(traves) > 0 {
-                for _, brk := range traves {
-                    if brk.what == traveFail {
-                        erro(at(ctx,brk.pos), "execute '%v': %v", entry, brk).debug()
-                    }
-                }
-            }
+            var res = entry.execute(ctx, args...)
             result = append(result, res...)
             done = true
         }
