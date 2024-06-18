@@ -308,19 +308,22 @@ func _set(ctx Context, val reflect.Value, v Value) {
         if t, e := v.float(ctx); e == nil {
             val.SetFloat(t)
         } else {
-            erro(ctx, "%v: %v", v, e).debug(10)
+            erro(ctx, "%v: %v", v, e).debug()
+            trace(ctx)
         }
     case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
         if t, e := v.int(ctx); e == nil {
             val.SetInt(t)
         } else {
-            erro(ctx, "%v: %v", v, e).debug(10)
+            erro(ctx, "%v: %v", v, e).debug()
+            trace(ctx)
         }
     case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
         if t, e := v.int(ctx); e == nil {
             val.SetUint(uint64(t))
         } else {
-            erro(ctx, "%v: %v", v, t).debug(10)
+            erro(ctx, "%v: %v", v, t).debug()
+            trace(ctx)
         }
     case reflect.String:
         val.SetString(v.string(ctx))
@@ -335,39 +338,47 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.Value":
             val.Set(reflect.ValueOf(v))
         default:
-            erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug()
+            erro(at(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type()).debug()
+            trace(ctx)
         }
     case reflect.Ptr:
         switch val.Type().Elem().String() {
         case "smart.fullname":
             if x := v.expand(expandFullFile{ctx}); isTrivial(x) {
                 erro(at(ctx, v), "expecting file value: %v", ts(v)).debug()
+                trace(ctx)
             } else if o, y := (as{x}.fullname(ctx)); y && o.Value != nil {
                 val.Set(reflect.ValueOf(&o))
             } else {
                 erro(at(ctx,v), "%v: not a file: %v → %v", _project(ctx), v, ts(x))
-                errostack(ctx, 5).debug(32)
+                errostack(ctx, 5).debug()
+                trace(ctx)
             }
         case "smart.File":
             if x := v.expand(final{ctx}); isNone(x) {
                 erro(at(ctx,v), "expecting file value: %v", ts(v)).debug()
+                trace(ctx)
             } else if file, y := toFile(x); y {
                 val.Set(reflect.ValueOf(file))
             } else if proj := _project(ctx); proj == nil {
                 erro(at(ctx,x), "no current project to find file '%v'", x).debug()
+                trace(ctx)
             } else if file = proj.file(ctx, x.string(ctx)); file != nil {
                 val.Set(reflect.ValueOf(file))
             } else {
                 erro(at(ctx,v), "'%v' is not a file", x).debug()
+                trace(ctx)
             }
         case "regexp.Regexp":
             if rx, e := regexp.Compile(v.string(ctx)); e != nil {
                 erro(at(ctx,v), "compile regexp '%v' failed: %v", v, e).debug()
+                trace(ctx)
             } else {
                 val.Set(reflect.ValueOf(rx))
             }
         default:
             erro(at(ctx,v), "option type unsupported: %v{%v} → %v, %v", typeof(v), v, val.Elem().Kind(), val.Type().Elem()).debug()
+            trace(ctx)
         }
     default:
         switch val.Type().String() {
@@ -377,11 +388,14 @@ func _set(ctx Context, val reflect.Value, v Value) {
                 val.SetUint(uint64(t))
             } else {
                 erro(ctx, "%v: %v", v, t).debug()
+                trace(ctx)
             }
         case "regex.Regex": // aka. reflect.Ptr
             erro(at(ctx,v), "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug()
+            trace(ctx)
         default:
             erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug()
+            trace(ctx)
         }
     }
 }
@@ -442,11 +456,11 @@ outer:
 
 func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
     if opts.Kind() != reflect.Ptr {
-        erro(ctx, "opts must be ptr: %v", opts.Kind()).debug(10)
-        return
+        erro(ctx, "opts must be ptr: %v", opts.Kind()).debug()
+        trace(ctx)
     } else if opts = opts.Elem(); opts.Kind() != reflect.Struct {
         erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).debug()
-        return
+        trace(ctx)
     }
 
     rest = merge(args...)
@@ -509,7 +523,8 @@ func _parseHeadArgsMerge(ctx Context, store any, args ...Value) (res []Value) {
 func _parseHeadArgsRequired(ctx Context, store any, args ...Value) (head, rest []Value) {
     head, rest = _parseHeadArgs(ctx, store, args...)
     if len(head) == 0 || len(rest) == 0 {
-        erro(ctx, "insufficient number of arguments").debug(6)
+        erro(ctx, "insufficient number of arguments").debug()
+        trace(ctx)
     }
     return
 }
@@ -562,9 +577,9 @@ type builtin_defined struct { builtin_ }
 func (ctx *builtin_defined) x() (res any) {
     var elems []Value
     for _, arg := range ctx.evocation.a {
-        var unresolved bool
+        var unres bool
         erro(ctx, "TODO: %v", ts(arg)).debug()
-        elems = append(elems, makeBoolean(arg.Position(), !unresolved))
+        elems = append(elems, makeBoolean(arg.Position(), !unres))
     }
     return elems
 }
@@ -767,9 +782,9 @@ func (ctx *builtin_sure) x() (res any) {
 type builtin_defor struct { builtin_ } // aka. defined-or
 func (ctx *builtin_defor) x() (res any) {
     for _, a := range merge(ctx.evocation.a...) {
-        var unresolved bool
+        var unres bool
         erro(ctx, "TODO: %v", ts(a)).debug()
-        if unresolved {
+        if unres {
             continue
         } else {
             res = a

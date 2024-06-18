@@ -111,11 +111,11 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
     case get_position: return ctx._position()
     case get_project: if ctx.globe != nil { return ctx.globe.main }
     case get_scope: if ctx.scope != nil { return ctx.scope }
-    case get_closure:
-        if m := ctx.globe.main; m != nil && m.scope != nil && false {
-            return []*scope{ m.scope }
-        }
-        return
+    // case get_closure_scope:
+    //     if m := ctx.globe.main; m != nil && m.scope != nil && false {
+    //         return []*scope{ m.scope }
+    //     }
+    //     return
     }
     return ctx.diagnostic.do(_ctx, op)
 }

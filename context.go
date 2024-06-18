@@ -70,7 +70,7 @@ type (
   get_position   struct{}
   get_project    struct{}
   get_scope      struct{}
-  get_closure    struct{}
+  get_closure_scope struct{}
   // get_object    struct{ s string }
   // get_entry     struct{ s string }
   get_param_name struct{ i int }
@@ -215,6 +215,10 @@ type caster interface { cast(reflect.Type) Context }
 type doer interface { do(Context, any) any }
 
 func do(ctx Context, op any) any { return ctx.do(ctx, op) }
+func try[T any](ctx Context, op any) (_ T) {
+  if x, y := do(ctx, op).(T); y { return x }
+  return
+}
 func truly(ctx Context, op any) (_ bool) {
   if x, y := do(ctx, op).(bool); x && y { return x }
   return
@@ -292,9 +296,9 @@ type frames  struct{ int }
 type skipint struct{ int }
 
 var (
+  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_bits)?|try|truly|erro|\(\*diagnostic\)\.trace)\(.+\)$`)
   callstackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   callstackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
-  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do|erro|\(\*diagnostic\)\.trace)\(.+\)$`)
 )
 func cstack(i, j int, a ...any) callstack { return _callstack("", i+1, j, a...) }
 func _callstack(s string, i, j int, args ...any) (res callstack) {

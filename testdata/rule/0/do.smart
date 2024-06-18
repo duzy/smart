@@ -3,7 +3,7 @@ project testrules
 -:
 
 rule0:((ARG1 ARG2 ARG3)) rule1($@ xyz)
-	$< $> - $(ARG1) $(ARG2) $(ARG3)
+	$< $> - $(ARG1)$(ARG2)$(ARG3)
 
 rule1:((ARG1)) [(plain text)]
 	$(ARG1)

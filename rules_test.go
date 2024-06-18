@@ -11,7 +11,7 @@ func testRules0(ctx *testcase) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
-	} else if v := _evoke_(ctx, r[0]); v == nil {
+	} else if v := _evoke_(ctx, r[0], "x", "y", "z"); v == nil {
 		ctx.err("%v", tst{r})
 	} else if x, y := v.(*list); !y {
 		ctx.err("%v", tst{v})

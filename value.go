@@ -68,7 +68,7 @@ const (
 type Kind uint64
 const (
     KindUnclassified Kind = 0
-    KindUndef = 1<<iota
+    KindUndef Kind = 1<<iota
     KindDelegate
     KindClosure
     KindArgumented
@@ -162,22 +162,21 @@ func do_bits(ctx, ic Context, op any, bits ...property) any {
     return nil
 }
 
-func original_bits(o origin) (bits property) {
+func original_bits(o origin) (_ property) {
     switch o {
-    case _defAny:
     case  defConfig:
     case  defConfDir:
     case  defConfRef:
     case  defDecl:
     case  defExecute: //  !=
     case  defExpand0: //   =
-        bits = propExDef|propExDef0
+        return propExDef|propExDef0
     case  defExpand1: //  :=
-        bits = propExDef|propExDef1|propExDisjunction|propExPairVal|propExDelegate
+        return propExDef|propExDef1|propExDisjunction|propExPairVal|propExDelegate
     case  defExpand2: // ::=
-        bits = propExDef|propExDef2|propExDisjunction|propExPairVal|propExDelegate|propExClosure
+        return propExDef|propExDef2|propExDisjunction|propExPairVal|propExDelegate|propExClosure
     case  defExpand3: // ;:= (TODO)
-        bits = propExDef|propExDef3|propExDisjunction|propExPairVal
+        return propExDef|propExDef3|propExDisjunction|propExPairVal
     }
     return
 }
@@ -505,7 +504,7 @@ func (c *terminal) do(ctx Context, op any) any {
     switch op.(type) {
     case get_scope:
         if 0 < len(c.s) { return c.s[0] }
-    case get_closure:
+    case get_closure_scope:
         if cc := c.Context ; cc == nil {
             return c.s
         } else {
@@ -517,7 +516,7 @@ func (c *terminal) do(ctx Context, op any) any {
 }
 
 func closure_scopes(ctx Context) (s []*scope) {
-  s, _ = do(ctx, get_closure{}).([]*scope)
+  s, _ = do(ctx, get_closure_scope{}).([]*scope)
   return
 }
 
@@ -1042,7 +1041,7 @@ func typeof(arg any) (s string) {
 
 func is(v Value, a any) bool {
     switch t := a.(type) {
-    case Kind:         return v.kind() & t != 0
+    case Kind:         return v.kind()&t != 0
     case reflect.Type: return reflect.TypeOf(v) == t
     }
     return reflect.TypeOf(v) == reflect.TypeOf(a)
@@ -4576,8 +4575,6 @@ func (p *list) suffix(ctx Context, val Value) (res Value) {
     return &list{elements{a}}
 }
 func (p *list) expand(ctx Context) (res Value) {
-    defer trace(ctx)
-
     var a = expand(ctx, p.elems...)
     var d = diff(ctx, a, p.elems)
     if d {
@@ -4585,13 +4582,12 @@ func (p *list) expand(ctx Context) (res Value) {
     } else {
         res = p
     }
-
     if checkpoints {
         if s1, s2 := ts(p.elems), ts(a); (d && s1 == s2) || (!d && s1 != s2) {
             for i, v := range a {
                 if p.len() <= i {
                     erro(ctx, "%d. {=nil} → %v", i, ts(v)).debug()
-                    continue
+                    trace(ctx); continue
                 }
 
                 var t = p.elems[i]
@@ -4599,10 +4595,12 @@ func (p *list) expand(ctx Context) (res Value) {
                 var y = equal(ctx, v, t)
                 if x != y {
                     erro(ctx, "%d. %v → %v → equal→%v,%v", i, ts(t), ts(v), x, y).debug()
+                    trace(ctx)
                 }
             }
 
             erro(ctx, "wrong: diff=%v : %v → %v", d, s1, s2).debug()
+            trace(ctx)
         }
     }
     return
@@ -4662,7 +4660,7 @@ func (p *list) stamp(ctx Context) (files []*File, err error) {
 }
 func (p *list) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints { defer trace(ctx) }
-    if checkpoints { defer func() { p.cmp_check(ctx, v, res) }()}
+    if checkpoints { defer p.cmp_check(ctx, v, &res) }
 
     if l, y := v.(*list); y {
         return compareElems(ctx, merge(p.elems...), merge(l.elems...))
@@ -4681,12 +4679,17 @@ func (p *list) cmp(ctx Context, v Value) (res cmpres) {
             return
         }
     }
-
     return
 }
-func (p *list) cmp_check(ctx Context, v Value, res cmpres) {
-    if res != cmpEqual && p.String() == v.String() {
-        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug(5)
+func (p *list) cmp_check(ctx Context, v Value, res *cmpres) {
+    if *res != cmpEqual {
+        if s1, s2 := ts(p), ts(v) ; s1 == s2 {
+            erro(ctx, "%v, %v ⇔ %v", *res, s1, s2).debug()
+            trace(ctx)
+        } else if false && p.String() == v.String() {
+            erro(ctx, "%v, %v ⇔ %v", *res, s1, s2).debug()
+            trace(ctx)
+        }
     }
     return
 }
@@ -5017,15 +5020,7 @@ func (u untraversed) expand(ctx Context) Value {
     return untraversed{u.Value.expand(ctx)}
 }
 
-func unresolved(ctx Context, x Value) bool {
-    switch x.(type) {
-    case *auto, *builtin, *def:
-        return false
-    default: return true
-    }
-}
-
-func exable(ctx Context, a, b Value) bool {
+func dis_evoke(ctx Context, a, b Value) bool {
     if b == nil || equal(ctx, a, b) {
         switch a.(type) { case *auto, *project: return true }
         return indeterminate(ctx, a)
@@ -5048,6 +5043,13 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
             note(ctx, "e=%v, t=%v, res=%v", e, ts(t), ts(res))
             note(ctx, "%v", ts(ctx)).debug(32)
         }()}}
+
+    if false && truly(ctx, is_test_mode{}) && _x.String() == "ARG1" {
+        defer func() {
+            note(ctx, "%v %v %v", x.(*def).origin, dis_evoke(ctx, x, _x), ex_delegate(ctx))
+            note(ctx, "%v %v %v", ts(_x), ts(x), res).debug(5)
+        } ()
+    }
 
     x = _x.expand(ctx)
 
@@ -5078,10 +5080,19 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
     switch _l { case LBRACE, STRING, COMPOUND: entry = true } // &{xxx}  &'xxx'  &"xxx", else/ILLEGAL &(xxx)
 
     // NOTE: `x` must be expandable in final context for x.string() as resolving name.
-    if exable(ctx, x, _x) {
+
+    if !_cl && _x.kind()&KindAuto != 0 {
+        if x.kind()&KindDef != 0 {
+            e = true //x.(*def).origin == defProgParam
+        } else {
+            e = truly(ctx, propExAuto)
+        }
+    } else if dis_evoke(ctx, x, _x) {
         e = false
-    } else if _cl {
-        if ex_closure(ctx) {
+    } else if !_cl && ex_delegate(ctx) {
+        if x.kind()&(KindAuto|KindBuiltin|KindDef) != 0 {
+            e = true
+        } else {
             var v Value
             var s string
             switch t := x.(type) {
@@ -5089,28 +5100,30 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
             default:     s = t.string(ctx)
             }
             if s == "" {
-                return
-            } else if entry {
-                v = closure_entry(ctx, s)
-            } else {
-                v = closure_resolve(ctx, s)
-            }
-            if v != nil { x, e = v, true }
-        }
-    } else if ex_delegate(ctx) {
-        if unresolved(ctx, x) {
-            var v Value
-            if s := x.string(ctx); s == "" {
                 if false { erro(ctx, "empty unresolved name: %v", ts(x)).debug(3) }
+                if false { return }
             } else if entry {
                 v = project_entry(ctx, s)
             } else {
                 v = project_resolve(ctx, s)
             }
             if v != nil { x, e = v, true }
-        } else {
-            e = true
         }
+    } else if ex_closure(ctx) {
+        var v Value
+        var s string
+        switch t := x.(type) {
+        case Object: s = t.ident(ctx)
+        default:     s = t.string(ctx)
+        }
+        if s == "" {
+            return
+        } else if entry {
+            v = closure_entry(ctx, s)
+        } else {
+            v = closure_resolve(ctx, s)
+        }
+        if v != nil { x, e = v, true }
     }
 
     var un = func(a []Value) Value {
@@ -6550,19 +6563,29 @@ func ts(i any) (s string) {
 
     var t = typeof(i) //strings.Replace(fmt.Sprintf("%T", i), "smart.", "", -1)
 
+    if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+        v := reflect.ValueOf(i)
+        s  = "{="+t
+        for i := 0; i < v.Len(); i += 1 {
+            s += " "+ts(v.Index(i).Interface())
+        }
+        s += "}"
+        return
+    }
+
     switch x := i.(type) {
     case interface{ ts(string) string }: return x.ts(t)
-    case Context:             return fmt.Sprintf("{=%s %v}",      t, ts(inner(x)))
-    case argumented:          return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
-    case as:                  return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
-    case fullname:            return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
-    case flag:                return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
-    case opt:                 return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
-    case skipped:             return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
-    case selected:            return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
-    case expanded:            return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
-    case condval:             return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
-    case untraversed:         return fmt.Sprintf("{=%s %v}",      t, ts(x.Value))
+    case Context:     return fmt.Sprintf("{=%s %s}", t, ts(inner(x)))
+    case argumented:  return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
+    case as:          return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
+    case fullname:    return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
+    case flag:        return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
+    case opt:         return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
+    case skipped:     return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
+    case selected:    return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
+    case expanded:    return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
+    case condval:     return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
+    case untraversed: return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
     case Value:
         s = "{="+t//+fmt.Sprintf("(%T)", x)
         if t := x.String(); t != "" { s += " " + t }
@@ -6754,8 +6777,6 @@ const (
 //       feature, it should need a sync-lock protection.
 var evokeTraceDots string
 
-func _evocation(c Context) *evocation { return cast[*evocation](c) }
-
 type evocation struct {
     Context
     x   Value
@@ -6763,9 +6784,7 @@ type evocation struct {
     o []Value
 }
 func (p *evocation) cast(t reflect.Type) Context { return implcast(p, t) }
-// func (p *evocation) do(ctx Context, op any) any {
-//     return do_bits(ctx, p.Context, op)
-// }
+// func (p *evocation) do(ctx Context, op any) any { return do_bits(ctx, p.Context, op) }
 func (p *evocation) ts(t string) string {
 	return fmt.Sprintf("{=%s %s %s}", t, p.x, ts(p.Context))
 }
@@ -6773,11 +6792,11 @@ func (p *evocation) ts(t string) string {
 func evoke(ctx Context, x Value, o, a []Value) (_ Value, _ []Value) {
     // NOTE: the evo.a represents the arguments, which is a COPY of the original slice;
     // NOTE: making a COPY of the arguments FIXES the bug of delegate-altered-args.
-    switch ev := (evocation{ctx, x, copyvals(a), o}) ; i := x.(type) {
+    var ev = evocation{ctx, x, copyvals(a), o}
+    switch i := x.(type) {
     case *closure, *delegate, nil:
         erro(ctx, "illicit x=%v, o=%v, a=%v", ts(x), ts(o), ts(a)).debug()
-        trace(ctx)
-        return
+        trace(ctx); return
     case interface{ evoke(*evocation) Value }:
         return i.evoke(&ev), ev.a
     default:

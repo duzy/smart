@@ -78,6 +78,7 @@ const (
     defExpand2  // ::=  expand all (delegates, closures, paths)
     defExpand3  // ;:=  TODO: expand as plain
     defExecute  //  !=  value to be executed
+    defProgParam
     _defAny // referred any def
 )
 
@@ -93,6 +94,7 @@ func (o origin) String() (s string) {
     case defExpand2: s = "expand_2"
     case defExpand3: s = "expand_3"
     case defExecute: s = "execute"
+    case defProgParam: s = "param"
     case _defAny:    s = "any"
     default: s = fmt.Sprintf("origin<%d>", o)
     }
@@ -124,7 +126,7 @@ func (ac *automatic) cast(t reflect.Type) Context { return implcast(ac, t) }
 func (ac *automatic) do(ctx Context, op any) (_ any) {
     switch op.(type) {
     case act_arguments:
-        if x, y := do(ctx, get_arguments{}).([]Value); y { ac.args(ctx, x) }
+        if x := try[[]Value](ctx, get_arguments{}); len(x) > 0 { ac.args(ctx, x) }
         return
     }
     return do_bits(ctx, ac.Context, op, propExAuto)
@@ -184,6 +186,14 @@ func (ac *automatic) set(ctx Context, name string, val Value) (out *def, old Val
         ac.Unlock()
     }
 
+    if false && checkpoints && name == "-" {
+        var x = _execution(ctx)
+        if x != nil && &x.automatic == ac {
+            note(ctx, "%v %v", val, val.expand(ctx))
+            note(ctx, "%v", ts(ctx)).debug()
+        }
+    }
+
     // out.Lock()
     out.value = val
     // out.Unlock()
@@ -235,7 +245,11 @@ func (ac *automatic) args(ctx Context, vals []Value) {
         if d, _ := ac.set(ctx, a.name, a.value); d == nil {
             erro(at(ac,a.value), "arg '%s' not set", a.name).debug()
             return
-        } else if d, y := ac.defs[a.name]; !y || d == nil {
+        } else {
+            d.origin = defProgParam
+        }
+
+        if d, y := ac.defs[a.name]; !y || d == nil {
             erro(at(ac,a.value), "arg '%s' not set", a.name).debug()
             return
         } else if a.id != "" && a.id != a.name {
@@ -842,25 +856,26 @@ func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
+type get_entry struct{}
+
 type rule_context struct { Context ; rule *rule }
 func (p *rule_context) Position() Position { return p.rule.Position() }
 func (p *rule_context) cast(t reflect.Type) Context { return implcast(p,t) }
 func (p *rule_context) ts(t string) string {
     return fmt.Sprintf("{=%s %v %v}", t, p.rule, ts(p.Context))
 }
-
-func _entry(ctx Context) (_ entry) {
-    if p := cast[*rule_context](ctx); p != nil {
-        return p.rule
-    } else {
-        return
+func (p *rule_context) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case get_entry: return p.rule
     }
+    return do_bits(ctx, p.Context, op)
 }
+
+func _entry(ctx Context) entry { return try[entry](ctx, get_entry{}) }
 
 type entry interface {
     destiny() Value // aka target
     programs(...*program) []*program
-
     executer
     Object
 }
@@ -960,10 +975,8 @@ func (p *rule) execute(ctx Context, a ...Value) (result []Value, traves travesta
     }
 
     ctx = at(ctx, p)
-
-    if  ctx = (&rule_context{ctx, p}) ; 0 < len(a) {
-        ctx = (&argumented_context{ctx, a})
-    }
+    if len(a) > 0 { ctx = &argumented_context{ctx, a} }
+    ctx = &rule_context{ctx, p}
 
 outer:
     for _, program := range p.program {

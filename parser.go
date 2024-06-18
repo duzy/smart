@@ -1376,7 +1376,7 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 		return
 	}
 
-	if isClosure || truly(ctx, getParseCanUndef{}) || exable(ctx, name, nil) {
+	if isClosure || truly(ctx, getParseCanUndef{}) || dis_evoke(ctx, name, nil) {
 		obj = name // recursive delegation or closure
 		return
 	}
@@ -2793,7 +2793,7 @@ var rule_autos = map[string]struct{}{
 	"@D":struct{}{}, "%D":struct{}{}, "<D":struct{}{}, ">D":struct{}{}, "?D":struct{}{}, "^D":struct{}{}, "+D":struct{}{}, "|D":struct{}{}, "*D":struct{}{},
 	"@F":struct{}{}, "%F":struct{}{}, "<F":struct{}{}, ">F":struct{}{}, "?F":struct{}{}, "^F":struct{}{}, "+F":struct{}{}, "|F":struct{}{}, "*F":struct{}{},
 	"@'":struct{}{}, "%'":struct{}{}, "<'":struct{}{}, ">'":struct{}{}, "?'":struct{}{}, "^'":struct{}{}, "+'":struct{}{}, "|'":struct{}{}, "*'":struct{}{},
-	"-" :struct{}{},
+	"-" :struct{}{}, "<-":struct{}{}, "->":struct{}{},
 	"~" :struct{}{},
 }
 

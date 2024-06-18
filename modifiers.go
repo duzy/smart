@@ -59,7 +59,7 @@ var (
         `preserve`:     reflect.TypeOf((*modifier_preserve)(nil)).Elem(),
         `expand`:       reflect.TypeOf((*modifier_expand)(nil)).Elem(),
         `plain`:        reflect.TypeOf((*modifier_plain)(nil)).Elem(),
-        `stringify`:       reflect.TypeOf((*modifier_stringify)(nil)).Elem(),
+        `stringify`:    reflect.TypeOf((*modifier_stringify)(nil)).Elem(),
         `reveal`:       reflect.TypeOf((*modifier_reveal)(nil)).Elem(),
         `disclose`:     reflect.TypeOf((*modifier_disclose)(nil)).Elem(),
 

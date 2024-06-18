@@ -25,8 +25,8 @@ type test_final struct{}
 
 const testModulesPath = "/Volumes/workspace/.smart/modules"
 
-var init_erros int
-var init_lines int
+var total_erros int
+var total_lines int
 
 func init() {
 	diagnostic_limit_erros = 1000
@@ -50,8 +50,8 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 
 	defer trace(ctx)
 
-	ctx.erros = init_erros
-	ctx.flued = init_lines
+	ctx.erros = total_erros
+	ctx.flued = total_lines
 	ctx.panicFailureOnErrosFlushed = false
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
 	ctx.testMode = true
@@ -237,14 +237,13 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 
 	defer trace(ctx)
 	defer func() {
-		u := _universe(ctx)
+		var u = _universe(ctx.Context)
 		if u.flush(ctx) == 0 && u.erros == 0 {
-			init_erros = 0
-			init_lines = 0
+			total_erros  = 0
 		} else {
-			init_erros += u.erros
-			init_lines += u.flued
+			total_erros += u.erros
 		}
+		total_lines += u.flued
 	} ()
 
 	f(ctx)
