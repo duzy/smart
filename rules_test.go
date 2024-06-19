@@ -15,29 +15,23 @@ func testRules0(ctx *testcase) {
 		ctx.err("%v", tst{r})
 	} else if x, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
-	} else if len(x.elems) != 6 {
+	} else if len(x.elems) != 4 {
 		ctx.err("%v", tst{x})
 	} else {
 		i := 0
-		if z, y := x.elems[i].(*delegate); !y {
+		if z, y := x.elems[i].(*bareword); !y {
 			ctx.err("%v", tst{x.elems[i]})
-		} else if ts(z) != "{=delegate {=auto <}}" {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if a, y := z.x.(*auto); !y {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if a.name != "<" {
-			ctx.err("%v", tst{z.x})
+		} else if ts(z) != "{=bareword rule1}" {
+		} else if z.s != "rule1" {
+			ctx.err("%v", tst{z})
 		}
 
 		i = 1
-		if z, y := x.elems[i].(*delegate); !y {
+		if z, y := x.elems[i].(*bareword); !y {
 			ctx.err("%v", tst{x.elems[i]})
-		} else if ts(z) != "{=delegate {=auto >}}" {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if a, y := z.x.(*auto); !y {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if a.name != ">" {
-			ctx.err("%v", tst{z.x})
+		} else if ts(z) != "{=bareword rule1}" {
+		} else if z.s != "rule1" {
+			ctx.err("%v", tst{z})
 		}
 
 		i = 2
@@ -52,47 +46,21 @@ func testRules0(ctx *testcase) {
 		}
 
 		i = 3
-		if z, y := x.elems[i].(*delegate); !y {
+		if z, y := x.elems[i].(*barecomp); !y {
 			ctx.err("%v", tst{x.elems[i]})
-		} else if ts(z) != "{=delegate {=auto ARG1}}" {
+		} else if ts(z) != "{=barecomp {=bareword x} {=bareword y} {=bareword z}}" {
 			ctx.err("%v", tst{x.elems[i]})
-		} else if a, y := z.x.(*auto); !y {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if a.name != "ARG1" {
-			ctx.err("%v", tst{z.x})
 		}
 
-		i = 4
-		if z, y := x.elems[i].(*delegate); !y {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if ts(z) != "{=delegate {=auto ARG2}}" {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if a, y := z.x.(*auto); !y {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if a.name != "ARG2" {
-			ctx.err("%v", tst{z.x})
-		}
-
-		i = 5
-		if z, y := x.elems[i].(*delegate); !y {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if ts(z) != "{=delegate {=auto ARG3}}" {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if a, y := z.x.(*auto); !y {
-			ctx.err("%v", tst{x.elems[i]})
-		} else if a.name != "ARG3" {
-			ctx.err("%v", tst{z.x})
-		}
-
-		if ts(v) != "{=list {=delegate {=auto <}} {=delegate {=auto >}} {=flag {=null}} {=delegate {=auto ARG1}} {=delegate {=auto ARG2}} {=delegate {=auto ARG3}}}" {
+		if ts(v) != "{=list {=bareword rule1} {=bareword rule1} {=flag {=null}} {=barecomp {=bareword x} {=bareword y} {=bareword z}}}" {
 			ctx.err("%v %v", v, tst{v})
 		}
 
-		if v.String() != "$< $> - $(ARG1) $(ARG2) $(ARG3)" {
+		if v.String() != "rule1 rule1 - xyz" {
 			ctx.err("%v %v", v, tst{v})
 		}
 
-		if s := v.string(ctx); s != "rule1 rule1 -" {
+		if s := v.string(ctx); s != "rule1 rule1 - xyz" {
 			ctx.err("%v : %s", tst{v}, s)
 		}
 	}
@@ -102,13 +70,9 @@ func testRules0(ctx *testcase) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
-	} else if v := _evoke_(ctx, r[0]); v == nil {
+	} else if v := _evoke_(ctx, r[0], bare("xyz")); v == nil {
 		ctx.err("%v", tst{r})
-	} else if v.String() == "$(ARG1)" {
-		ctx.err("%v", tst{v})
-	} else if x, y := v.(*Plain); !y {
-		ctx.err("%v", tst{x})
-	} else if s := v.string(ctx); s != "" {
+	} else if ts(v) != "{=plain {=bareword xyz}}" {
 		ctx.err("%v", tst{v})
 	}
 }

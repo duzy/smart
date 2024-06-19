@@ -79,8 +79,10 @@ const (
     KindFlag
     KindAny
     KindArray
-    KindList
     KindGroup
+    KindList
+    KindPlainLine
+    KindPlain
 
     KindInteger
     KindBinary
@@ -1831,11 +1833,10 @@ func (p *raw) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *raw) match(ctx Context, i any) (full bool, s any, stems []string) {
-    full, s, stems = stringMatch(ctx, p, i)
-    return
+func (p *raw) match(ctx Context, i any) (bool, any, []string) {
+    return stringMatch(ctx, p, i)
 }
-func (p *raw) stencil(ctx Context, stems []string) (val Value, rest []string) {
+func (p *raw) stencil(ctx Context, stems []string) (Value, []string) {
     return p, stems
 }
 
@@ -3197,20 +3198,20 @@ func (p *globmeta) hit(ctx Context, fc *valcache) (res *valcache, fullmatch bool
 
 // `[a-b]`, `[abc]`, ...
 // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
-type globrange struct { valbase ; Chars Value }
+type globrange struct { Value }
 func (p *globrange) srclit(o Object) string {
-    return fmt.Sprintf("[%s]", srclit(o, p.Chars))
+    return fmt.Sprintf("[%s]", srclit(o, p.Value))
 }
 func (p *globrange) String() (s string) { return p.srclit(nil) }
 func (p *globrange) string(ctx Context) (s string) {
-    return fmt.Sprintf("[%s]", p.Chars.string(ctx))
+    return fmt.Sprintf("[%s]", p.Value.string(ctx))
 }
-func (p *globrange) refs(ctx Context, v Value) bool { return p.Chars.refs(ctx, v) }
-func (p *globrange) defs(ctx Context, s ...string) []*def { return p.Chars.defs(ctx, s...) }
+func (p *globrange) refs(ctx Context, v Value) bool { return p.Value.refs(ctx, v) }
+func (p *globrange) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
 func (p *globrange) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints { defer trace(ctx) }
     if a, ok := v.(*globrange); ok {
-        res = p.Chars.cmp(ctx, a.Chars)
+        res = p.Value.cmp(ctx, a.Value)
     } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
     }
@@ -3221,14 +3222,13 @@ func (p *globrange) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *globrange) expandable(ctx Context) bool { return p.Chars.expandable(ctx) }
-func (p *globrange) expand(ctx Context) (res Value) {
-    if val := p.Chars.expand(ctx); val != p.Chars {
-        res = &globrange{p.valbase, val}
+func (p *globrange) expandable(ctx Context) bool { return p.Value.expandable(ctx) }
+func (p *globrange) expand(ctx Context) Value {
+    if val := p.Value.expand(ctx); val != p.Value {
+        return &globrange{val}
     } else {
-        res = p
+        return p
     }
-    return
 }
 
 type path struct { elements }
@@ -5773,7 +5773,7 @@ func multia(ctx Context, p Value) (result bool, prefix, suffix Value) {
         for i, comp := range g.elems { if m, y := comp.(*globmeta); y {
             if m.token == DAST && n == -1 { t := g.elems[:i]
                 if n = i; n > 0 { if glob {
-                    suffix = makeGlobPat(ctx, t...)
+                    suffix = makeGlobPat(t...)
                 } else {
                     prefix = makeBarecomp(t...)
                 }}
@@ -5788,7 +5788,7 @@ func multia(ctx Context, p Value) (result bool, prefix, suffix Value) {
                 if _, y := comp.(*globmeta); y { glob = true ; break }
             }
             if glob {
-                suffix = makeGlobPat(ctx, t...)
+                suffix = makeGlobPat(t...)
             } else if len(t) > 1 {
                 suffix = makeBarecomp(t...)
             } else if len(t) > 0 {
@@ -6086,8 +6086,8 @@ type Scoper interface {
 
 func values(args ...any) (elems []Value) {
     for _, a := range args {
-        if v, ok := a.(Value); ok {
-            elems = append(elems, v)
+        if x, y := a.(Value); y {
+            elems = append(elems, x)
         } else if v := reflect.ValueOf(a); v.Kind() == reflect.Slice {
             for n := 0; n < v.Len(); n++ {
                 elems = append(elems, values(v.Index(n).Interface())...)
@@ -6471,8 +6471,8 @@ func _list_t[T Value](ii ...T) *list {
 }
 func makeGroup(pos Position, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
 func makeGlobMeta(pos Position, tok token) *globmeta { return &globmeta{valbase{pos},tok} }
-func makeGlobRange(pos Position, v Value) *globrange { return &globrange{valbase{pos},v} }
-func makeGlobPat(ctx Context, elems ...Value) *globpat { return &globpat{elements{elems}} }
+func makeGlobRange(v Value) *globrange { return &globrange{v} }
+func makeGlobPat(elems ...Value) *globpat { return &globpat{elements{elems}} }
 
 func makePair(k, v Value) (p *pair) { return &pair{k, v} }
 func makePath(segments ...Value) *path { return &path{elements{segments}} }

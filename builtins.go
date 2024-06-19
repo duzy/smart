@@ -4617,8 +4617,8 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
             }
         case *group:
             fmt.Fprintf(res, "%s", parseGroupValue(ctx, t).string(ctx))
-        case *Plain:
-            fmt.Fprintf(res, "%s", t.raw.String())
+        case *plain:
+            fmt.Fprintf(res, "%s", t.String())
         default:
             fmt.Fprintf(res, "%s", val.string(ctx))
         }

@@ -160,11 +160,11 @@ func (u *universe) _forConfigs(cal func(*project, entry), pre func(*project) fun
     f(u.globe.main)
 }
 
-func promptEnteringDirectory(ctx Context, s string) *diagPoint {
+func promptEnteringDirectory(ctx Context, s string) *diagpoint {
     return prompt(ctx, "smart: Entering directory '%s'\n", s)
 }
 
-func promptLeavingDirectory(ctx Context, s string) *diagPoint {
+func promptLeavingDirectory(ctx Context, s string) *diagpoint {
     return prompt(ctx, "smart: Leaving directory '%s'\n", s)
 }
 

@@ -261,6 +261,7 @@ func va(ctx Context, i any) (v Value) {
     case uint16:  v = makeDecimal(_position(ctx), int64(t))
     case uint32:  v = makeDecimal(_position(ctx), int64(t))
     case uint64:  v = makeDecimal(_position(ctx), int64(t))
+	case   bare:  v = makeBareword(_position(ctx), string(t))
     case string:
         if t == "" {
             v = makeNone(_position(ctx))
@@ -286,7 +287,8 @@ func va(ctx Context, i any) (v Value) {
     case nil:
         v = makeNull(_position(ctx))
     default:
-        erro(ctx, "%v", ts(i)).debug(2)
+        erro(ctx, "%v", ts(i)).debug()
+		trace(ctx)
     }
     return
 }

@@ -24,6 +24,7 @@ type dirtyOpts struct {
     pats []Value
 }
 
+type act_exe_value struct{ v Value }
 type get_program struct{}
 
 func _execution(c Context) *execution { return cast[*execution](c) }
@@ -76,14 +77,12 @@ func (p *execution) cast(t reflect.Type) Context {
 func (p *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
     case get_program: return p.prog
-    case get_position:
-        if p.prog != nil { return p.prog.position }
-    case get_project:
-        if p.prog.project != nil { return p.prog.project }
-    case get_scope:
-        if p.prog.project != nil { return p.prog.project.scope }
+    case get_position: if p.prog != nil { return p.prog.position }
+    case get_project: if p.prog.project != nil { return p.prog.project }
+    case get_scope: if p.prog.project != nil { return p.prog.project.scope }
 
-    case act_dirty_mark:       p.dirtyMark(t.a...)
+    case act_exe_value: p.values = append(p.values, t.v)
+    case act_dirty_mark:       p.dirty_mark(t.a...)
     case act_dirt:      return p.dirty(ctx,t.a...)
     case act_traversed: return p.traversed(ctx,t.v)
     case act_traverse: p.traverse(ctx, t.v); return
@@ -164,7 +163,7 @@ func (p *execution) env(ctx Context) (env []string, osi int) {
     return
 }
 
-func (p *execution) dirtyMark(vals ...Value) {
+func (p *execution) dirty_mark(vals ...Value) {
     const (
         enableDirtyMark = true
         perUpdatedDep = true
@@ -200,7 +199,7 @@ func (p *execution) dirtyMark(vals ...Value) {
             }
         }
     }
-    if enableDirtyMark { p.dirtyMark(vals...) }
+    if enableDirtyMark { p.dirty_mark(vals...) }
 }
 
 func (p *execution) interpret(ctx Context, i interpreter, params []Value) {
@@ -378,7 +377,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     return
 }
 
-func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *File, prereqObj Object) {
+func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *File) {
     var mapPrereqFile = func(name interface{}) {
         var maps = unmap_files(ctx, name)
         if maps != nil {
@@ -408,32 +407,31 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
     if prereqValue = val; prereqValue == nil {
         if prereqFinal == "" {
-            errostack(ctx, 3, "prerequisite is nothing").debug(8)
-            return
+            errostack(ctx, 3, "prerequisite is nothing").debug()
+            trace(ctx)
         }
 
         mapPrereqFile(prereqFinal)
         return
-    } else if o, y := prereqValue.(Object); y {
-        prereqObj = o
-        return
     }
+
+    if _, y := prereqValue.(Object); y { return }
 
     if !prereqValue.patterned(ctx) {
         prereqFinal = prereqValue.string(ctx)
 
         if prereqFinal == "" { // just reject empty final
-            errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, _stems(ctx)).debug(8)
-            return
+            errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, _stems(ctx)).debug()
+            trace(ctx)
         }
 
         switch prereqValue.(type) {
         case flag, *strlit, *compound:
             return // skip checking files for performance
         }
-        for _, p := range _entry(ctx).programs() { if p.configure {
-            return
-        }}
+        for _, p := range _entry(ctx).programs() {
+            if p.configure { return }
+        }
 
         mapPrereqFile(prereqValue)
         return
@@ -449,17 +447,17 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
     prereqPattern = prereqValue
     prereqValue, rest = prereqPattern.stencil(ctx, stems)
     if isTrivial(prereqValue) {
-        errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems).debug(8)
-        return
+        errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems).debug()
+        trace(ctx)
     } else if len(rest) > 0 {
-        errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest).debug(8)
-        return
+        errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest).debug()
+        trace(ctx)
     }
 
     if prereqFinal == "" { prereqFinal = prereqValue.string(ctx); }
     if prereqFinal == "" {
-        errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems).debug(8)
-        return
+        errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems).debug()
+        trace(ctx)
     }
 
     mapPrereqFile(prereqValue)
@@ -530,8 +528,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
         return
     }
 
-    prereqValue, prereqPattern, prereqFinal, prereqFile, _ =
-        probPrereqValue(ctx, projs, prereqValue)
+    prereqValue, prereqPattern, prereqFinal, prereqFile = probPrereqValue(ctx, projs, prereqValue)
 
     if f := prereqFile; f != nil {
         if f._travin += 1; f._travin > 1 { return }
@@ -640,9 +637,11 @@ type program struct {
 
 func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
     for _, d := range prog.depends {
-        if g, y := d.(*modification); y { for _, m := range g.list {
-            if m.elems[0].string(ctx) == name { ms = append(ms, m) }
-        }}
+        if g, y := d.(*modification); y {
+            for _, m := range g.list {
+                if m.elems[0].string(ctx) == name { ms = append(ms, m) }
+            }
+        }
     }
     return
 }
@@ -682,8 +681,8 @@ func (prog *program) execute(ctx Context) (result Value) {
     }
 
     var exe = execution{
-        automatic: automatic{ Context:ctx, defs:make(auto_defs) },
-        recs: make(map[Value]int), start: time.Now(), prog: prog,
+        automatic:automatic{ Context:ctx, defs:make(auto_defs) },
+        prog:prog, recs:make(map[Value]int), start:time.Now(),
     }
 
     ctx = &exe
@@ -846,5 +845,6 @@ func (prog *program) execute(ctx Context) (result Value) {
             trace(ctx)
         }
     }
+
     return
 }

@@ -900,7 +900,7 @@ func (l unilo) globmeta(ctx Context) (x *globmeta) {
 }
 
 func (l unilo) globrange(ctx Context) (x *globrange) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "Glob")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "globrange")) }
 
 	p := l.p
 	ctx = at(ctx, p)
@@ -909,11 +909,11 @@ func (l unilo) globrange(ctx Context) (x *globrange) {
 	chars := l.expr(ctx)
 	p.expect(ctx, RBRACK) // skip ']'
 
-	return makeGlobRange(_position(ctx), chars)
+	return makeGlobRange(chars)
 }
 
 func (l unilo) glob(ctx Context, x Value) (g *globpat) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "Glob")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "glob")) }
 
 	p := l.p
 	ctx = parser_glob_context{at(ctx, p)}
@@ -921,7 +921,7 @@ func (l unilo) glob(ctx Context, x Value) (g *globpat) {
 	if y := x == nil; y {
 		g = &globpat{}
 	} else if g, y = x.(*globpat); !y || g == nil {
-		g = makeGlobPat(ctx, x)
+		g = makeGlobPat(x)
 	}
 
 	for p.tok != RBRACE && p.tok != EOF && p.lineComment == nil {
@@ -2526,7 +2526,7 @@ func (l unilo) recipe(ctx Context) Value {
 		// TODO: comment *commentGroup
 		// TODO: doc = p.leadComment
 		elems []Value
-		isList bool
+		isList, isPlainline bool
 	)
 
 	var p = l.p
@@ -2587,6 +2587,10 @@ func (l unilo) recipe(ctx Context) Value {
 		p.scanner.push(isCompoundLine) // NOTE: scanner does not set isCompoundLine correctly, fixit here
 		p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in line-string mode
 
+		switch p.dialect {
+		case "plain", "text": isPlainline = true
+		}
+
 		var c = parser_recipe_context{ctx, false} // builtin text
 		for !p.isEndOfLine() {
 			var x Value
@@ -2602,6 +2606,8 @@ func (l unilo) recipe(ctx Context) Value {
 	if p.spaces(ctx); p.tok != EOF { p.linend(ctx) }
     if len(elems) == 0 {
         return makeNone(_position(ctx))
+	} else if isPlainline {
+		return &plainline{elements{merge(elems...)}}
     } else if isList {
         return makeList(elems...)
     } else {
@@ -2737,26 +2743,26 @@ func (l unilo) modifier(ctx Context) (res *modifier) {
 	return
 }
 
+// example: {(modifier ...)}
 func (l unilo) modification(ctx Context) *modification {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "modification")) }
 
-	// defer p.setbits(p.setbit(parseModification))
-
-	p := l.p
-	ctx = at(ctx, p) // at(ctx, p.loc(p.expect(ctx, LBRACK)))
+	ctx = at(ctx, l.p)
 
 	var elems []*modifier
-	for p.tok != EOF && p.tok != LINEND && p.tok != /* RBRACK */RBRACE {
+	for l.p.tok != EOF && l.p.tok != LINEND && l.p.tok != RBRACE {
 		if m := l.modifier(ctx); m != nil { elems = append(elems, m) }
 	}
 
-	// p.expect(ctx, /* RBRACK */RBRACE)
+	// l.p.expect(ctx, /* RBRACK */RBRACE)
 
 	if len(elems) == 0 {
 		errostack(ctx, 5, "empty modifier group").debug()
+		trace(ctx)
 	}
-	if p.tok == COLON {
+	if l.p.tok == COLON {
 		errostack(ctx, 5, "unexpected colon after modifer").debug()
+		trace(ctx)
 	}
     return &modification{valbase{_position(ctx)}, elems }
 }
@@ -2782,7 +2788,7 @@ var rule_autos = map[string]struct{}{
 	"@D":struct{}{}, "%D":struct{}{}, "<D":struct{}{}, ">D":struct{}{}, "?D":struct{}{}, "^D":struct{}{}, "+D":struct{}{}, "|D":struct{}{}, "*D":struct{}{},
 	"@F":struct{}{}, "%F":struct{}{}, "<F":struct{}{}, ">F":struct{}{}, "?F":struct{}{}, "^F":struct{}{}, "+F":struct{}{}, "|F":struct{}{}, "*F":struct{}{},
 	"@'":struct{}{}, "%'":struct{}{}, "<'":struct{}{}, ">'":struct{}{}, "?'":struct{}{}, "^'":struct{}{}, "+'":struct{}{}, "|'":struct{}{}, "*'":struct{}{},
-	"-" :struct{}{}, "<-":struct{}{}, "->":struct{}{},
+	"-" :struct{}{}, //"<-":struct{}{}, "->":struct{}{},
 	"~" :struct{}{},
 }
 

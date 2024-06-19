@@ -348,7 +348,7 @@ func (ctx *modifier_debug) x(args ...Value) (result interface{}) {
         }
     }
     if len(ctx.info) == 0 && len(ctx.warn) == 0 && len(ctx.erro) == 0 {
-        var ( p = _position(ctx) ; s = _stems(ctx) ; m *diagPoint )
+        var ( p = _position(ctx) ; s = _stems(ctx) ; m *diagpoint )
         if len(args) == 0 {
             m = prompt(ctx, "%v: target=%v stems=%v depends=%v\n", p, target, s, depends)
         } else if ctx.verbose {

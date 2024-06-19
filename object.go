@@ -1023,14 +1023,11 @@ func (p *rule) expand(ctx Context) (_ Value) {
 func (p *rule) delete(  ctx Context) (files []*File, err error) { return p.target.delete(ctx) }
 func (p *rule) stamp(   ctx Context) (files []*File, err error) { return p.target.stamp(ctx) }
 func (p *rule) traverse(ctx Context) {
-    var pc = _execution(ctx)
     var target = auto_get(ctx, "@")
-
-    defer trace(ctx)
 
     if target == nil {
         erro(ctx, "$@ is not defined").debug()
-        return
+        trace(ctx)
     }
 
     if _entry(ctx) == p {
@@ -1059,38 +1056,20 @@ func (p *rule) traverse(ctx Context) {
         ctx = &rule_context{ctx, p}
     }
 
-ForPrograms:
     for _, prog := range p.program {
         var ctx = at(ctx, prog.position)
         var next bool
-        func(){
+        func () {
             defer func() {
                 if t := recover(); t != nil {
-                    if _, next = t.(traverse_next); next {
-                        return
-                    }
-                    erro(ctx, "%v", t).debug()
-                    trace(ctx)
+                    if _, next = t.(traverse_next); next { return }
+                    panic(t) // go back unwinding
                 }
-            }()
-
-            var v = prog.execute(ctx)
-            if pc != nil && v != nil {
-                pc.values = append(pc.values, merge(v)...)
-            }
-        }()
-        if next { continue ForPrograms }
-
-        // if pc != nil && sc != nil {
-        //     s := pc.traves.add(ctx, traveRule, target)
-        //     s.depend, s.prog = p, prog
-        // }
+            } ()
+            if v := prog.execute(ctx); v != nil { do(ctx, act_exe_value{v}) }
+        } ()
+        if next { continue }
     }
-
-    // if pc != nil && sc == nil {
-    //     // if sc != nil { depend = sc.stem } else { depend = p }
-    //     pc.traves.add(ctx, traveRule, target).depend = p
-    // }
     return
 }
 // FIXME: p.target maybe not the real target

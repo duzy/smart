@@ -382,13 +382,13 @@ const (
 )
 
 type diagType int
-type diagPoint struct {
+type diagpoint struct {
   dt diagType
   position Position
   message string
   stack []byte // see also debug.Stack()
 }
-func (d *diagPoint) debug(args ...any) *diagPoint {
+func (d *diagpoint) debug(args ...any) *diagpoint {
   if d == nil { panic("nil diag point") }
 
   switch vertag {
@@ -410,11 +410,15 @@ func (d *diagPoint) debug(args ...any) *diagPoint {
   return d
 }
 
+type act_traced struct{}
 type too_many_diagnostics struct{ i int }
 type too_many_errors struct{ i int }
 type trace_errors struct { Context ; e int }
 
-func (t trace_errors) String() string { return typeof(t)+" "+ts(t.Context) }
+func (t trace_errors) String() string {
+  return fmt.Sprintf("%v %d, %v", typeof(t), t.e, ts(t.Context))
+}
+
 func (t too_many_diagnostics) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.i) }
 func (t too_many_errors) String() string { return fmt.Sprintf("too many errors (%d)", t.i) }
 
@@ -439,10 +443,8 @@ func trace(ctx Context, a ...any) {
       erro(ctx, "%s (%d panics)", ts(x), recovered).debug(64)
     }
   }
-
-  var d = _diagnostic(ctx)
-  if i := d.counterror(); i > 0 {
-    if d.traced += 1 ; d.traced == 1 { panic(trace_errors{ctx,i}) }
+  if x, y := do(ctx, act_traced{}).(int); y && x == 1 {
+    panic(trace_errors{ctx, x})
   }
   return
 }
@@ -456,92 +458,93 @@ func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
 type diagnostic struct {
   Context
   sync.Mutex
-  newlines []*diagPoint
-  points   []*diagPoint
-  nested [][]*diagPoint // TODO: this shall perish
+  newlines []*diagpoint
+  points   []*diagpoint
+  nested [][]*diagpoint // TODO: this shall perish
   erros int // number of flushed erros
   flued int
   traced int
 }
-func (diag *diagnostic) aquire() (unlock func()) { diag.Lock(); return func(){ diag.Unlock() }}
-func (diag *diagnostic) cast(t reflect.Type) Context { return implcast(diag,t) }
-func (diag *diagnostic) do(ctx Context, op any) any {
+func (d *diagnostic) aquire() (unlock func()) { d.Lock(); return func(){ d.Unlock() }}
+func (d *diagnostic) cast(t reflect.Type) Context { return implcast(d,t) }
+func (d *diagnostic) do(ctx Context, op any) any {
   switch t := op.(type) {
-  case act_count_dia: return diag.count(t.t...)
-  case property: if t&propErros != 0 { return diag.erros }
+  case act_count_dia: return d.count(t.t...)
+  case act_traced: if i := d.counterror(); i > 0 { d.traced += 1 ; return i }
+  case property: if t&propErros != 0 { return d.erros }
   }
-  if diag.Context == nil { return nil }
-  return diag.Context.do(ctx, op)
+  if d.Context == nil { return nil }
+  return d.Context.do(ctx, op)
 }
-func (diag *diagnostic) reset() { defer diag.aquire()(); diag.points = []*diagPoint{} }
-func (diag *diagnostic) add(point *diagPoint) *diagPoint {
-  defer diag.aquire()()
+func (d *diagnostic) reset() { defer d.aquire()(); d.points = []*diagpoint{} }
+func (d *diagnostic) add(point *diagpoint) *diagpoint {
+  defer d.aquire()()
 
-  if i := len(diag.points)+len(diag.newlines); diagnostic_limit < i {
+  if i := len(d.points)+len(d.newlines); diagnostic_limit < i {
     panic(too_many_diagnostics{i})
   }
 
   if 0 < diagnostic_limit_lines {
-    var x = diag.flued
-    for _, t := range append(diag.points, diag.newlines...) {
+    var x = d.flued
+    for _, t := range append(d.points, d.newlines...) {
       x += 1 + bytes.Count(t.stack, []byte("\n"))
     }
     if diagnostic_limit_lines < x {
-      diag.flued = 0 // reset to avoid causing next panics
+      d.flued = 0 // reset to avoid causing next panics
       panic(too_many_diagnostics{x})
     }
   }
 
   if point.dt == diagPromptLine {
-    diag.newlines = append(diag.newlines, point)
+    d.newlines = append(d.newlines, point)
     return point
   } else if strings.HasSuffix(point.message, "\n") {
-    if diag.points = append(diag.points, point); diag.newlines != nil {
-      diag.points = append(diag.points, diag.newlines...)
-      diag.newlines = nil
+    if d.points = append(d.points, point); d.newlines != nil {
+      d.points = append(d.points, d.newlines...)
+      d.newlines = nil
     }
     return point
   } else {
-    diag.points = append(diag.points, point)
+    d.points = append(d.points, point)
     return point
   }
 }
-func (diag *diagnostic) nest(points []*diagPoint) {
-  defer diag.aquire()()
-  diag.nested = append(diag.nested, points)
+func (d *diagnostic) nest(points []*diagpoint) {
+  defer d.aquire()()
+  d.nested = append(d.nested, points)
 }
-func (diag *diagnostic) point(ctx Context, dt diagType, f string, args ...any) *diagPoint {
+func (d *diagnostic) point(ctx Context, dt diagType, f string, args ...any) *diagpoint {
   if dt != diagPrompt { f = strings.TrimSpace(f) }
-  return diag.add(&diagPoint{ dt, _position(ctx), fmt.Sprintf(f, args...), nil })
+  return d.add(&diagpoint{ dt, _position(ctx), fmt.Sprintf(f, args...), nil })
 }
-func (diag *diagnostic) error() bool { return diag.counterror() > 0 }
-func (diag *diagnostic) counterror() int { return diag.count(diagError) }
-func (diag *diagnostic) count(dt ...diagType) (errs int) {
-  defer diag.aquire()()
-  for _, d := range diag.points {
+func (d *diagnostic) error() bool { return d.counterror() > 0 }
+func (d *diagnostic) counterror() int { return d.count(diagError) }
+func (d *diagnostic) count(dt ...diagType) (errs int) {
+  defer d.aquire()()
+  for _, d := range d.points {
     for _, t := range dt {
       if d.dt == t { errs += 1 ; break }
     }
   }
   return
 }
-func (diag *diagnostic) flush(ctx Context) (errs int) {
-  var flush = func(d *diagPoint, pend bool) bool {
+func (d *diagnostic) flush(ctx Context) (errs int) {
+  var flush = func(p *diagpoint, pend bool) bool {
     defer func() {
-      if x := diagnostic_limit_erros; 0 < x && x < diag.erros {
-        diag.erros = 0 // reset to avoid causing next panics
-        panic(too_many_errors{diag.erros})
+      if x := diagnostic_limit_erros; 0 < x && x < d.erros {
+        d.erros = 0 // reset to avoid causing next panics
+        panic(too_many_errors{d.erros})
       }
-      if x := diagnostic_limit_lines; 0 < x && x < diag.flued {
-        i := diag.flued
-        diag.flued = 0 // reset to avoid causing next panics
+      if x := diagnostic_limit_lines; 0 < x && x < d.flued {
+        i := d.flued
+        d.flued = 0 // reset to avoid causing next panics
         panic(too_many_diagnostics{i})
       }
     } ()
 
-    diag.flued += 1
+    d.flued += 1
 
-    switch pos, msg := d.position.String(), d.message ; d.dt {
+    switch pos, msg := p.position.String(), p.message ; p.dt {
     case diagError: fmt.Fprintf(stderr, "%v:error: %s\n",   pos, msg); errs += 1
     case diagInfo : fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
     case diagWarn : fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
@@ -550,28 +553,28 @@ func (diag *diagnostic) flush(ctx Context) (errs int) {
       if pend && !strings.HasSuffix(msg, "\n") { return true }
     }
 
-    if d.stack != nil {
-      fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(d.stack))
-      diag.flued += (1 + bytes.Count(d.stack, []byte("\n")))
+    if p.stack != nil {
+      fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(p.stack))
+      d.flued += (1 + bytes.Count(p.stack, []byte("\n")))
     }
 
     return false
   }
 
   defer func() {
-    diag.erros += errs
+    d.erros += errs
     do(ctx, act_on_erros{errs})
   } ()
 
   for {
-    var point *diagPoint
+    var point *diagpoint
 
-    diag.Lock()
-    if len(diag.points) > 0 {
-      point = diag.points[0]
-      diag.points = diag.points[1:]
+    d.Lock()
+    if len(d.points) > 0 {
+      point = d.points[0]
+      d.points = d.points[1:]
     }
-    diag.Unlock()
+    d.Unlock()
 
     if point == nil || flush(point, true) { break }
     if errs > 49 {
@@ -580,40 +583,40 @@ func (diag *diagnostic) flush(ctx Context) (errs int) {
     }
   }
 
-  diag.Lock()
-  for i := 0; len(diag.nested) > 0; diag.nested = diag.nested[1:] {
+  d.Lock()
+  for i := 0; len(d.nested) > 0; d.nested = d.nested[1:] {
     i += 1
     fmt.Fprintf(stderr, "\n#%d:\n", i)
-    for _, d := range diag.nested[0] { flush(d, false) }
+    for _, d := range d.nested[0] { flush(d, false) }
     fmt.Fprintf(stderr, "#%d;\n\n", i)
   }
-  diag.Unlock()
+  d.Unlock()
   return
 }
 
 func flush(ctx Context) int { return _diagnostic(ctx).flush(ctx) }
 
-func diag(ctx Context, dt diagType, f string, a ...any) (_ *diagPoint) {
+func diag(ctx Context, dt diagType, f string, a ...any) (_ *diagpoint) {
   if _diag := _diagnostic(ctx) ; _diag != nil {
     return _diag.point(ctx, dt, f, a...)
   }
   return
 }
-func info(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagInfo,   f, a...) }
-func warn(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagWarn,   f, a...) }
-func erro(ctx Context, f string, a ...any) *diagPoint { return diag(ctx, diagError,  f, a...) }
-func prompt(c Context, f string, a ...any) *diagPoint { return diag(c,   diagPrompt, f, a...) }
+func info(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagInfo,   f, a...) }
+func warn(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagWarn,   f, a...) }
+func erro(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagError,  f, a...) }
+func prompt(c Context, f string, a ...any) *diagpoint { return diag(c,   diagPrompt, f, a...) }
 
-func note(ctx Context, f string, a ...any) *diagPoint {
+func note(ctx Context, f string, a ...any) *diagpoint {
   if !strings.HasSuffix(f, "\n") { f += "\n" }
   return prompt(ctx, _position(ctx).String()+": "+f, a...)
 }
 
-func infostack(ctx Context, n int, a ...any) *diagPoint { return diagstack(ctx, n, diagInfo  , a...) }
-func warnstack(ctx Context, n int, a ...any) *diagPoint { return diagstack(ctx, n, diagWarn  , a...) }
-func errostack(ctx Context, n int, a ...any) *diagPoint { return diagstack(ctx, n, diagError , a...) }
-func promstack(ctx Context, n int, a ...any) *diagPoint { return diagstack(ctx, n, diagPrompt, a...) }
-func notestack(ctx Context, n int, a ...any) *diagPoint {
+func infostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagInfo  , a...) }
+func warnstack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagWarn  , a...) }
+func errostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagError , a...) }
+func promstack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagPrompt, a...) }
+func notestack(ctx Context, n int, a ...any) *diagpoint {
   if true {
     var f string
     if len(a) > 0 { if s, y := a[0].(string); y {
@@ -624,7 +627,7 @@ func notestack(ctx Context, n int, a ...any) *diagPoint {
   }
   return diagstack(ctx, n, diagPrompt, a...)
 }
-func diagstack(ctx Context, n int, dt diagType, a ...any) (point *diagPoint) {
+func diagstack(ctx Context, n int, dt diagType, a ...any) (point *diagpoint) {
   var s string
   if 0 < len(a) {
     if x, y := a[0].(string); y {
