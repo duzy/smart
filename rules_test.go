@@ -6,6 +6,45 @@
 package smart
 
 func testRules0(ctx *testcase) {
+	var p = _project(ctx)
+
+	if p.entries.puncs == nil {
+		ctx.err("%v", ts(&p.entries))
+	} else {
+		if x, y := p.entries.puncs[MINUS]; !y {
+			ctx.err("%v", p.entries.puncs)
+		} else if len(x.a) != 1 {
+			ctx.err("%v", ts(x))
+		} else if z, y := x.a[0].(*rule); !y {
+			ctx.err("%v", tst{x.a[0]})
+		} else if len(z.program) != 1 {
+			ctx.err("%v", ts(z.program))
+		}
+	}
+
+	if p.entries.words == nil {
+		ctx.err("%v", ts(&p.entries))
+	} else {
+		if x, y := p.entries.words["rule0"]; !y {
+			ctx.err("%v", p.entries.words)
+		} else if len(x.a) != 1 {
+			ctx.err("%v", ts(x))
+		} else if z, y := x.a[0].(*rule); !y {
+			ctx.err("%v", tst{x.a[0]})
+		} else if len(z.program) != 1 {
+			ctx.err("%v", ts(z.program))
+		}
+		if x, y := p.entries.words["rule1"]; !y {
+			ctx.err("%v", p.entries.words)
+		} else if len(x.a) != 1 {
+			ctx.err("%v", ts(x))
+		} else if z, y := x.a[0].(*rule); !y {
+			ctx.err("%v", tst{x.a[0]})
+		} else if len(z.program) != 1 {
+			ctx.err("%v", ts(z.program))
+		}
+	}
+
 	if s := "rule0"; false {} else
 	if r := ctx.rule(s); r == nil {
 		ctx.err(s)
@@ -78,6 +117,49 @@ func testRules0(ctx *testcase) {
 }
 
 func testRules1(ctx *testcase) {
+	var p = _project(ctx)
+
+	if p.entries.puncs == nil {
+		ctx.err("%v", ts(&p.entries))
+	} else {
+		if x, y := p.entries.puncs[STRING]; !y {
+			ctx.err("%v", p.entries.puncs)
+		} else if z, y := x.words[".test.foo"]; !y {
+			ctx.err("%v", x)
+		} else if len(z.a) != 1 {
+			ctx.err("%v", ts(z))
+		} else if x, y := z.a[0].(*rule); !y {
+			ctx.err("%v", tst{z.a[0]})
+		} else if len(x.program) != 1 {
+			ctx.err("%v", ts(x.program))
+		}
+
+		if x, y := p.entries.puncs[DOT]; !y {
+			ctx.err("%v", p.entries.puncs)
+		} else if z, y := x.words["test"]; !y {
+			ctx.err("%v", ts(x))
+		} else if x, y := z.puncs[DOT]; !y {
+			ctx.err("%v", z.puncs)
+		} else {
+			if _, y := x.words["foobar"]; !y {
+				ctx.err("%v", ts(x))
+			}
+			if _, y := x.words["foobaz"]; !y {
+				ctx.err("%v", ts(x))
+			}
+			if _, y := x.words["foobay"]; !y {
+				ctx.err("%v", ts(x))
+			}
+			if _, y := x.words["fxx"]; !y {
+				ctx.err("%v", ts(x))
+			}
+		}
+	}
+
+	if p.entries.words != nil {
+		ctx.err("%v", ts(&p.entries))
+	}
+
 	if s := ".test.foobar"; false {} else
 	if r := ctx.rule(s); r == nil {
 		ctx.err(s)
@@ -85,9 +167,7 @@ func testRules1(ctx *testcase) {
 		ctx.err("%v", tst{r})
 	} else if v := _evoke_(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
-	} else if v.String() != "fxxbar" {
-		ctx.err("%v", tst{v})
-	} else if _, y := v.(*bareword); !y {
+	} else if ts(v) != "{=closure {=bareword foo} {=list {=bareword fxxbar}}}" {
 		ctx.err("%v", tst{v})
 	}
 
@@ -98,9 +178,7 @@ func testRules1(ctx *testcase) {
 		ctx.err("%v", tst{r})
 	} else if v := _evoke_(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
-	} else if v.String() != ".test.fxx" {
-		ctx.err("%v", tst{v})
-	} else if _, y := v.(*barecomp); !y {
+	} else if ts(v) != "{=closure {=bareword foo} {=list {=barecomp {=punctuation .} {=bareword test} {=punctuation .} {=bareword fxx}}}}" {
 		ctx.err("%v", tst{v})
 	}
 
@@ -111,16 +189,14 @@ func testRules1(ctx *testcase) {
 		ctx.err("%v", tst{r})
 	} else if v := _evoke_(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
-	} else if v.String() != ".test.fxx" {
-		ctx.err("%v", tst{v})
-	} else if _, y := v.(*barecomp); !y {
+	} else if ts(v) != "{=closure {=bareword foo} {=list {=barecomp {=punctuation .} {=bareword test} {=punctuation .} {=bareword fxx}}}}" {
 		ctx.err("%v", tst{v})
 	}
 
 	if s := ".test.1"; false {} else
 	if v := ctx.val(s); v == nil {
 		ctx.err(s)
-	} else if v.String() != "fxxbar" {
+	} else if ts(v) != "{=closure {=bareword foo} {=list {=bareword fxxbar}}}" {
 		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s != "fxxbar" {
 		ctx.err("%v -> %s", tst{v}, s)
@@ -129,7 +205,7 @@ func testRules1(ctx *testcase) {
 	if s := ".test.2"; false {} else
 	if v := ctx.val(s); v == nil {
 		ctx.err(s)
-	} else if v.String() != ".test.fxx" {
+	} else if ts(v) != "{=closure {=bareword foo} {=list {=barecomp {=punctuation .} {=bareword test} {=punctuation .} {=bareword fxx}}}}" {
 		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s != ".test.fxx" {
 		ctx.err("%v -> %s", tst{v}, s)
@@ -138,15 +214,11 @@ func testRules1(ctx *testcase) {
 	if s := ".test.3"; false {} else
 	if v := ctx.val(s); v == nil {
 		ctx.err(s)
-	} else if v.String() != ".test.fxx" {
+	} else if ts(v) != "{=closure {=bareword foo} {=list {=barecomp {=punctuation .} {=bareword test} {=punctuation .} {=bareword fxx}}}}" {
 		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s != ".test.fxx" {
 		ctx.err("%v -> %s", tst{v}, s)
 	}
-
-	var p = _project(ctx)
-
-	testResolveEntries = true
 
 	if s := ".test.foo"; false {} else
 	if v := makeStrlit(_position(ctx), s); v == nil || v.s != s {
@@ -171,8 +243,6 @@ func testRules1(ctx *testcase) {
 	} else if r := p.resolveEntries(ctx.Context, v.string(ctx), false); r != nil {
 		ctx.err("%v{%v}", typeof(v), v)
 	}
-
-	testResolveEntries = false
 }
 
 type testShellForStdoutDebugStruct struct {

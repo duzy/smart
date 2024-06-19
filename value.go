@@ -1881,6 +1881,24 @@ func (p *strlit) match(ctx Context, i any) (full bool, s any, stems []string) {
 }
 func (p *strlit) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *strlit) traverse(ctx Context) { do(at(ctx, p.position), act_traverse{p}) }
+func (p *strlit) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    if c, fullmatch = c.hit(ctx, STRING); c == nil {
+        if cacheMapping(ctx) {
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug()
+            trace(ctx)
+        }
+        return
+    }
+
+    if res, fullmatch = c.hit(ctx, p.s); c == nil {
+        if cacheMapping(ctx) {
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug()
+            trace(ctx)
+        }
+        return
+    }
+    return
+}
 
 type strval struct { valbase; v []Value }
 func (_ *strval) kind() Kind { return KindStrVal }
@@ -2611,7 +2629,7 @@ func (p *barecomp) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool)
         return
     }
 
-    t := do(ctx, actBareHit{c, p})
+    t := do(ctx, hit_bare{c, p})
 
     if x, y := t.(valcache_bool); y {
         return x.valcache, x.bool
@@ -3393,7 +3411,7 @@ func (p *path) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
         return
     }
 
-    t := do(ctx, actPathHit{c, p})
+    t := do(ctx, hit_path{c, p})
 
     if x, y := t.(valcache_bool); y {
         return x.valcache, x.bool
@@ -4210,16 +4228,15 @@ func (p flag) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p flag) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    defer trace(ctx)
-
     if indeterminate(ctx, p.Value) {
         erro(at(ctx,p), "%v : indeterminate : %v", p, ts(p.Value)).debug()
-        return
+        trace(ctx)
     }
 
     if c, fullmatch = c.hit(ctx, MINUS); c == nil {
         if cacheMapping(ctx) {
-            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug(16)
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug()
+            trace(ctx)
         }
         return
     }
@@ -4231,7 +4248,8 @@ func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
 
     if res, fullmatch = c.hit(ctx, p.Value); c == nil {
         if cacheMapping(ctx) {
-            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug(16)
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug()
+            trace(ctx)
         }
         return
     }
@@ -5750,7 +5768,7 @@ func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) 
         return
     }
 
-    t := do(&percpat_hit{ctx, p}, actPercHit{c, p.string(ctx)})
+    t := do(&percpat_hit{ctx, p}, hit_perc{c, p.string(ctx)})
 
     if x, y := t.(valcache_bool); y {
         return x.valcache, x.bool
@@ -5980,7 +5998,7 @@ func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
         return
     }
 
-    t := do(&globpat_hit{ctx, p}, actGlobHit{c, p.string(ctx)})
+    t := do(&globpat_hit{ctx, p}, hit_glob{c, p.string(ctx)})
 
     if x, y := t.(valcache_bool); y {
         return x.valcache, x.bool
@@ -6056,7 +6074,7 @@ func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool)
         return
     }
 
-    t := do(&regexpat_hit{ctx, p}, actRegeHit{c, p.string(ctx)})
+    t := do(&regexpat_hit{ctx, p}, hit_regex{c, p.string(ctx)})
 
     if x, y := t.(valcache_bool); y {
         return x.valcache, x.bool

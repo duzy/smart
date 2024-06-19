@@ -506,8 +506,6 @@ func (p *project) resolve(ctx Context, name string) (obj Object) {
   return
 }
 
-var testResolveEntries bool
-
 func (p *project) resolveEntries(ctx Context, name any, _b ...bool) (entries []entry) {
   entries = append(entries, p.unmap_entries(ctx, name)...)
 

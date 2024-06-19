@@ -122,3 +122,10 @@ func (prog *program) execute_check_0(ctx Context, ent entry, result *Value) {
 		}
     }
 }
+
+func (prog *program) execute_check_1(ctx Context, ent entry, result *Value) {
+    if *result == nil {
+        erro(ctx, "%v: nil result", ts(ent)).debug()
+        trace(ctx)
+    }
+}

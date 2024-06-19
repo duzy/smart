@@ -18,16 +18,16 @@ const test_hit = false
 const test_val = ".deps/xx/yy/zzzzzzzzzz"
 
 type (
-	actBareHit struct{ *valcache ; *barecomp }
-	actPathHit struct{ *valcache ; *path  }
-	actValuHit struct{ *valcache ; Value  }
-	actPuncHit struct{ *valcache ; token  }
-	actWordHit struct{ *valcache ; string }
-	actGlobHit struct{ *valcache ; string }
-	actPercHit struct{ *valcache ; string }
-	actRegeHit struct{ *valcache ; string }
-	actCache   struct{ *valcache ; string }
-	actUnmap   struct{ *valcache ; string }
+	hit_bare  struct{ *valcache ; *barecomp }
+	hit_path  struct{ *valcache ; *path  }
+	hit_value struct{ *valcache ; Value  }
+	hit_punc  struct{ *valcache ; token  }
+	hit_word  struct{ *valcache ; string }
+	hit_glob  struct{ *valcache ; string }
+	hit_perc  struct{ *valcache ; string }
+	hit_regex struct{ *valcache ; string }
+	act_cache struct{ *valcache ; string }
+	act_unmap struct{ *valcache ; string }
 )
 
 type char rune
@@ -37,21 +37,21 @@ type cache struct { Context } // versus `unmap`
 func (c cache) cast(t reflect.Type) Context { return implcast(c, t) }
 func (c cache) do(ctx Context, op any) any {
     switch t := op.(type) {
-    case actPuncHit:
+    case hit_punc:
         return _valcache_bool(c.punc(ctx, t.valcache, t.token))
-    case actWordHit:
+    case hit_word:
         return _valcache_bool(c.word(ctx, t.valcache, t.string))
-    case actValuHit:
+    case hit_value:
         return _valcache_bool(c.value(ctx, t.valcache, t.Value))
-	case actBareHit:
+	case hit_bare:
         return _valcache_bool(c.bare_hit(ctx, t.valcache, t.barecomp))
-	case actPathHit:
+	case hit_path:
         return _valcache_bool(c.path_hit(ctx, t.valcache, t.path))
-    case actGlobHit:
+    case hit_glob:
         return _valcache_bool(c.glob_hit(ctx, t.valcache, t.string))
-    case actPercHit:
+    case hit_perc:
         return _valcache_bool(c.perc_hit(ctx, t.valcache, t.string))
-    case actRegeHit:
+    case hit_regex:
         return _valcache_bool(c.rege_hit(ctx, t.valcache, t.string))
     default:
         return c.Context.do(ctx, op)
@@ -62,22 +62,22 @@ type unmap struct { Context ; a []any } // versus `cache`
 func (u *unmap) cast(t reflect.Type) Context { return implcast(u, t) }
 func (u *unmap) do(ctx Context, op any) any {
     switch t := op.(type) {
-    case actUnmap:
+    case act_unmap:
         return _valcache_bool(u.unmap(ctx, t.valcache, t.string))
-    case actPuncHit:
+    case hit_punc:
         return _valcache_bool(u.punc(ctx, t.valcache, t.token))
-    case actWordHit:
+    case hit_word:
         return _valcache_bool(u.word(ctx, t.valcache, t.string))
-	case actBareHit:
+	case hit_bare:
         return _valcache_bool(u.bare_hit(ctx, t.valcache, t.barecomp))
-	case actPathHit:
+	case hit_path:
         return _valcache_bool(u.path_hit(ctx, t.valcache, t.path))
-    case actGlobHit:
-		return do(ctx, actUnmap{t.valcache, t.string})
-    case actPercHit:
-		return do(ctx, actUnmap{t.valcache, t.string})
-    case actRegeHit:
-		return do(ctx, actUnmap{t.valcache, t.string})
+    case hit_glob:
+		return do(ctx, act_unmap{t.valcache, t.string})
+    case hit_perc:
+		return do(ctx, act_unmap{t.valcache, t.string})
+    case hit_regex:
+		return do(ctx, act_unmap{t.valcache, t.string})
     case filemap_name, rule_name:
         u.a = append(u.a, t)
     case property:
@@ -93,7 +93,7 @@ func (p *bare_hit) ts(t string) string {
 }
 func (p *bare_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
-    case actUnmap:
+    case act_unmap:
         x := _valcache_bool(p.unmap(ctx, t.valcache, t.string))
         if x.valcache != nil { return x }
     case property:
@@ -109,7 +109,7 @@ func (p *path_hit) ts(t string) string {
 }
 func (p *path_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
-    case actUnmap:
+    case act_unmap:
         x := _valcache_bool(p.unmap(ctx, t.valcache, t.string))
         if x.valcache != nil { return x }
     case property:
@@ -125,7 +125,7 @@ func (p *globpat_hit) ts(t string) string {
 }
 func (p *globpat_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
-    case actUnmap:
+    case act_unmap:
         x := _valcache_bool(p.unmap(ctx, t.valcache, t.string))
         if x.valcache != nil { return x }
     }
@@ -139,7 +139,7 @@ func (p *percpat_hit) ts(t string) string {
 }
 func (p *percpat_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
-    case actUnmap:
+    case act_unmap:
         x := _valcache_bool(p.unmap(ctx, t.valcache, t.string))
         if x.valcache != nil { return x }
     }
@@ -153,7 +153,7 @@ func (p *regexpat_hit) ts(t string) string {
 }
 func (p *regexpat_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
-    case actUnmap:
+    case act_unmap:
         x := _valcache_bool(p.unmap(ctx, t.valcache, t.string))
         if x.valcache != nil { return x }
     }
@@ -259,14 +259,14 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 
     switch t := k.(type) {
     case string:
-        if x, y := do(ctx, actWordHit{p, t}).(valcache_bool); y {
+        if x, y := do(ctx, hit_word{p, t}).(valcache_bool); y {
             return x.valcache, x.bool
         } else {
             erro(ctx, "unhit: %v %v", ts(k), ts(ctx)).debug()
             return
         }
     case token:
-        if x, y := do(ctx, actPuncHit{p, t}).(valcache_bool); y {
+        if x, y := do(ctx, hit_punc{p, t}).(valcache_bool); y {
             return x.valcache, x.bool
         } else {
             erro(ctx, "unhit: %v %v", ts(k), ts(ctx)).debug()
@@ -281,7 +281,7 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
         }
     case Value:
         if indeterminate(ctx, t) {
-            if x, y := do(ctx, actValuHit{p, t}).(valcache_bool); y {
+            if x, y := do(ctx, hit_value{p, t}).(valcache_bool); y {
                 return x.valcache, x.bool
             } else {
                 erro(ctx, "unhit: %v %v", ts(k), ts(ctx)).debug()
@@ -440,7 +440,7 @@ func (u *unmap) punc(ctx Context, c *valcache, t token) (res *valcache, fullmatc
 			}
         }
     }
-    if x, y := do(ctx, actUnmap{c, t.String()}).(valcache_bool); y {
+    if x, y := do(ctx, act_unmap{c, t.String()}).(valcache_bool); y {
         if res, fullmatch = x.valcache, x.bool ; x.bool { return }
     }
     return
@@ -460,7 +460,7 @@ func (u *unmap) word(ctx Context, c *valcache, s string) (res *valcache, fullmat
 			}
         }
     }
-    if x, y := do(ctx, actUnmap{c, s}).(valcache_bool); y {
+    if x, y := do(ctx, act_unmap{c, s}).(valcache_bool); y {
         if res, fullmatch = x.valcache, x.bool ; x.bool { return }
     }
     return
