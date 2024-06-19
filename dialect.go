@@ -7,7 +7,7 @@
 package smart
 
 type interpreter interface {
-    evaluate(Context, ...Value) (Value, error)
+    evaluate(Context, ...Value) Value
 }
 
 var dialects = map[string]interpreter{

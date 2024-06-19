@@ -11,11 +11,11 @@ type executer interface { execute(Context, ...Value) []Value }
 
 // eval evaluates smart statements
 type eval struct { accumulation, eval bool }
-func (p *eval) evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (p *eval) evaluate(ctx Context, args ...Value) (result Value) {
     var program = _program(ctx)
     if program == nil {
-        erro(ctx, "needs program context to evaluate: %v", ctx).debug(16)
-        return
+        erro(ctx, "needs program context to evaluate: %v", ctx).debug()
+        trace(ctx)
     }
 
     var list []Value
@@ -23,7 +23,7 @@ func (p *eval) evaluate(ctx Context, args ...Value) (result Value, err error) {
     args = parseOpts(final{ctx}, &opts, args...)
 
     for _, recipe := range program.recipes {
-        var vals = merge(recipe)//xmerge(at(ctx, recipe), recipe)
+        var vals = merge(recipe)
 
         if n := len(vals); n < 1 {
             if false { list = append(list, recipe) }

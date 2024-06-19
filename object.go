@@ -947,16 +947,15 @@ func (p *rule) updatedDeps(ctx Context, v ...Value) []Value {
 func (p *rule) execute(ctx Context, a ...Value) (result []Value) {
     if p.patterned(ctx) {
         erro(ctx, "executing pattern entry '%v'", p.target).debug()
-        return
+        trace(ctx)
     }
 
-    ctx = at(ctx, p)
-    if len(a) > 0 { ctx = &argumented_context{ctx, a} }
-    ctx = &rule_context{ctx, p}
+    ctx = &rule_context{&argumented_context{at(ctx, p), a}, p}
 
     for _, program := range p.program {
-        var res = program.execute(at(ctx, p))
-        result = append(result, merge(res)...)
+        if v := program.execute(at(ctx, p)); v != nil {
+            result = append(result, v)
+        }
     }
     return
 }

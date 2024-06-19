@@ -48,10 +48,9 @@ type (
                 generalOpts
         }
 )
-func (_ *plainInt) evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (_ *plainInt) evaluate(ctx Context, args ...Value) (result Value) {
         var (
                 program = _program(ctx)
-                pos = _position(ctx)
                 str, name string
                 opts plainOpts
         )
@@ -59,19 +58,22 @@ func (_ *plainInt) evaluate(ctx Context, args ...Value) (result Value, err error
                 name = args[0].string(ctx)
                 program.language = name
         }
-        if str, err = multiline(ctx, program.recipes...); err != nil {
-                erro(at(ctx,args[0]), "%v", err).debug()
-                return
-        } else if len(program.recipes) > 0 {
+
+        str = multiline(ctx, program.recipes...)
+
+        var pos Position
+        if len(program.recipes) > 0 {
                 pos = program.recipes[0].Position()
+        } else {
+                pos = _position(ctx)
         }
+
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
         result = &Plain{raw{valbase{pos}, str}, name}
-        if opts.debug>0 { warn(ctx, "%v", str).debug(opts.debug) }
         return
 }
 
-func multiline(ctx Context, recipes... Value) (res string, err error) {
+func multiline(ctx Context, recipes... Value) (res string) {
         var (
                 x = len(recipes)-1
                 w = new(bytes.Buffer)
@@ -131,12 +133,13 @@ Converted into:
    )}
 
 */
-func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
+func DecodeXML(ctx Context, source string, ws bool) (result Value) {
         var (
                 pos = _position(ctx)
                 stack []*group
                 nodes []*group
                 tok xml_enc.Token
+                err error
         )
         xd := xml_enc.NewDecoder(strings.NewReader(source))
         for tok, err = xd.Token(); err == nil; tok, err = xd.Token() {
@@ -192,25 +195,21 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value, err error) {
         } else if x == 1 {
                 result = nodes[0]
         }
-        if err == io.EOF {
-                err = nil // all done
+        if err != io.EOF {
+                erro(ctx, "%v", err).debug()
+                trace(ctx)
         }
         return
 }
 
 type xml struct { whitespace bool }
-func (p *xml) evaluate(ctx Context, args ...Value) (result Value, err error) {
-        var source string
-        if source, err = multiline(ctx, _program(ctx).recipes...); err != nil {
-                erro(ctx, "%v", err).debug()
-                return
-        }
-        if result, err = DecodeXML(ctx, source, p.whitespace); err == nil {
-                result = &XML{ result }
+func (p *xml) evaluate(ctx Context, args ...Value) (result Value) {
+        var source = multiline(ctx, _program(ctx).recipes...)
+        if v := DecodeXML(ctx, source, p.whitespace); v != nil {
+                return &XML{ v }
         } else {
-                result = &XML{ makeNone(_position(ctx)) }
+                return &XML{ makeNone(_position(ctx)) }
         }
-        return
 }
 
 type JSON struct { Value }
@@ -244,8 +243,7 @@ const (
        book(id=3 title('   abc   '))
    )}
  */
-func DecodeJSON(ctx Context, source string) (result Value, err error) {
-        //prompt(ctx, "json: %v\n", source)
+func DecodeJSON(ctx Context, source string) (result Value) {
         var (
                 pos Position = _position(ctx)
                 stack []*group
@@ -254,9 +252,11 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                 value Value
                 t, v json_enc.Token
                 s string
+                err error
         )
         jd := json_enc.NewDecoder(strings.NewReader(source))
-        LoopJSON: for {
+LoopJSON:
+        for {
                 if t, err = jd.Token(); err != nil { break }
                 x := len(stack)
                 //prompt(ctx, "%T: %v\n", t, t)
@@ -375,10 +375,6 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                         node.append(value)
                 }
         }
-        if err == io.EOF {
-                err = nil
-                // TODO: check completeness
-        }
         if x := len(nodes); x == 1 {
                 result = nodes[0]
         } else {
@@ -388,25 +384,27 @@ func DecodeJSON(ctx Context, source string) (result Value, err error) {
                 }
                 result = g
         }
+        if err != io.EOF {
+                erro(ctx, "%v", err).debug()
+                trace(ctx)
+        }
         return
 }
 
 type json struct {}
 
-func (_ *json) evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (_ *json) evaluate(ctx Context, args ...Value) (result Value) {
         var program = _program(ctx)
         if program == nil {
                 erro(ctx, `needs program context to evaluate: %v`, ctx).debug(16)
                 return
         }
-        var source string
-        if source, err = multiline(ctx, program.recipes...); err != nil { return }
-        if result, err = DecodeJSON(ctx, source); err == nil {
-                result = &JSON{ result }
+        var source = multiline(ctx, program.recipes...)
+        if v := DecodeJSON(ctx, source); v != nil {
+                return &JSON{ result }
         } else {
-                result = &JSON{ makeNone(program.position) }
+                return &JSON{ makeNone(program.position) }
         }
-        return
 }
 
 type YAML struct { Value }
@@ -428,22 +426,18 @@ func (p *YAML) cmp(ctx Context, v Value) (res cmpres) {
        book(id=3 title('   abc   '))
    )}
  */
-func DecodeYAML(ctx Context, source string, ws bool) (result Value, err error) {
-        err = fmt.Errorf("TODO: implement DecodeYAML")
+func DecodeYAML(ctx Context, source string, ws bool) (result Value) {
+        erro(ctx, "TODO: implement DecodeYAML").debug()
+        trace(ctx)
         return
 }
 
 type yaml struct { whitespace bool }
-func (p *yaml) evaluate(ctx Context, args ...Value) (result Value, err error) {
-        var source string
-        if source, err = multiline(ctx, _program(ctx).recipes...); err != nil {
-                erro(ctx, "%v", err).debug()
-                return
-        } else if result, err = DecodeYAML(ctx, source, p.whitespace); err == nil {
-                result = &YAML{ result }
+func (p *yaml) evaluate(ctx Context, args ...Value) (result Value) {
+        var source = multiline(ctx, _program(ctx).recipes...)
+        if v := DecodeYAML(ctx, source, p.whitespace); v != nil {
+                return &YAML{ result }
         } else {
-                result = &YAML{ makeNone(_position(ctx)) }
-                erro(ctx, "%v", err).debug()
+                return &YAML{ makeNone(_position(ctx)) }
         }
-        return
 }

@@ -749,11 +749,7 @@ func (p *execContext) check() (err error) {
   return
 }
 
-func (ctx *execContext) exec(cmd, opt string, err error) {
-  if _diagnostic(ctx).error() { return }
-
-  defer trace(ctx)
-
+func (ctx *execContext) exec(cmd, opt string) {
   var (
     pc = _execution(ctx)
     env, sep = pc.env(ctx)
@@ -775,8 +771,8 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
       if false { os.Remove(ctx.log.filename) }
     }
 
-    var c = pc.caller()
-    if !ctx.silentErrs && c != nil && err != nil { c.calleeError(err) }
+    // var c = pc.caller()
+    // if !ctx.silentErrs && c != nil && err != nil { c.calleeError(err) }
 
     ctx.Stdout.execContext = nil
     ctx.Stderr.execContext = nil
@@ -787,29 +783,11 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     // Stamp the target file.
     if !ctx.stamp || isConfigure(ctx) {
       // no stamp for target files
-    } else if err != nil {
-      var files, e = ctx.target.delete(ctx)
-      if e != nil { erro(ctx, `%v: delete: %v`, ctx.target, e) }
-
-      if ctx.log != nil {
-        var s, l = ctx.log.filename, ctx.log.lines
-        prompt(ctx, "%v:%d: %v: %v\n", s, l, ctx.target, err)
-      } else {
-        prompt(ctx, "%v: %v (deleted %d files)\n", ctx.target, err, len(files))
-      }
-
-      for _, file := range files {
-        if s, fn := file.String(), file.fullname(); s == fn {
-          erro(ctx, `%v: deleted`, s)
-        } else {
-          erro(ctx, `%v: deleted, %v`, s, fn)
-        }
-      }
-      erro(ctx, "%v: %v", ctx.target, err).debug()
-      return
     } else if files, e := ctx.target.stamp(ctx); e != nil {
-      if pe, ok := e.(*fs.PathError); ok { err = fmt.Errorf(`"%v" not found`, ctx.target)
+      if pe, ok := e.(*fs.PathError); ok {
         prompt(ctx, "%v: target not found, stamp \"%v\"\n", pe.Path, ctx.target)
+        erro(ctx, `"%v" not found`, ctx.target).debug()
+        trace(ctx)
       } else {
         prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, e)
       }
@@ -817,20 +795,15 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
         prompt(ctx, "%v:1: see logs for \"%s\"\n", ctx.logFileName.string(ctx), ctx.target)
       }
       erro(ctx, `stamp "%v" failed`, ctx.target).debug()
-      return
+      trace(ctx)
     } else if !ctx.prompt && ctx.report {
       reportFileUpdates(ctx, files)
     }
 
-    if err != nil && isConfigure(ctx) { err = nil }
-    if err != nil {
-      erro(ctx, "shell: %v", err).debug()
-      return
-    }
-
-    if ctx.prompt { var ps = ctx.promStr
-      if ps += trimPromptString(ctx.targetName); c == nil {
-        if ps += " …… "; err != nil { ps += err.Error() } else { ps += "ok" }
+    if ctx.prompt {
+      var ps = ctx.promStr
+      if ps += trimPromptString(ctx.targetName); pc.caller() == nil {
+        ps += " …… ok"
       }
       if ps != "" {
         var s = time.Now().Sub(ctx.start).String()
@@ -853,6 +826,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
       ac.Unlock()
     } else {
       erro(ctx, "wrong args: %v", ac.defs).debug()
+      trace(ctx)
     }
     ctx.Context = ac
   }
@@ -864,12 +838,12 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
   if ctx.logFileName != nil { ctx.log = &execLog{ filename: ctx.logFileName.string(ctx) } }
   if ctx.log == nil || ctx.log.filename == "" {
     // no log required
-  } else if err = os.MkdirAll(filepath.Dir(ctx.log.filename), os.FileMode(0755)); err != nil {
+  } else if err := os.MkdirAll(filepath.Dir(ctx.log.filename), os.FileMode(0755)); err != nil {
     erro(ctx, "%v", err).debug()
-    return
+    trace(ctx)
   } else if logFile, err = os.Create(ctx.log.filename); err != nil {
     erro(ctx, "%v", err).debug()
-    return
+    trace(ctx)
   } else {
     cmdline := joinRaws("\n", ctx.sources...)
     ctx.log.createWriter(logFile, ctx._workdir, cmdline)
@@ -913,21 +887,7 @@ func (ctx *execContext) exec(cmd, opt string, err error) {
     if   opt != "" { ctx.sh.Args = append(ctx.sh.Args, opt) }
     if src.s != "" { ctx.sh.Args = append(ctx.sh.Args, src.s) }
 
-    err = ctx.run()
-
-    if d := ctx.debug; d > 0 {
-      entry := _entry(ctx)
-      prompt(ctx, "%v\n", ctx.sh)
-      if _, s, y := ctx.target.fullnameFile(ctx); y {
-        prompt(ctx, "%v:1: %v: %v\n", s, entry, err)
-      } else {
-        note(ctx, "%v: %v ; status=%v", entry, ctx.target, ctx.Status)
-      }
-      note(ctx, "%v: status=%v", entry, ctx.Status).debug(d)
-
-      // u.configuration.silent = true
-    }
-
+    var err = ctx.run()
     if ctx.Status != 0 || err != nil { break }
   }
 }
@@ -936,7 +896,7 @@ type executor struct {
   cmd, opt string
   contained bool
 }
-func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error) {
+func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   var uni = _universe(ctx)
   if uni.traceExecutor {
     var t = auto_get(ctx, "@")
@@ -961,7 +921,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
   if exe.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug()
-    return
+    trace(ctx)
   } else if d := exe.debug; false && d>0 { defer func() {
     note(ctx, "%v: %v (%v)", _entry(ctx), exe.target.Value, result).debug(d)
   }()}
@@ -978,10 +938,10 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
   var program = _program(pc)
   if exe.target.Value = getTargetValue(ctx); program == nil {
     erro(ctx, "needs program context to exec: %v", ctx).debug(16)
-    return
+    trace(ctx)
   } else if exe.stamp && exe.target.patterned(ctx) {
     errostack(ctx, 5, "target is pattern: %v", exe.target).debug(64)
-    return
+    trace(ctx)
   } else if _, ok := exe.target.Value.(flag); ok {
     // no stamp required for Flags
   } else if _, ok = toFile(exe.target.Value); !ok {
@@ -998,7 +958,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
   if (exe.retStdout && exe.retStatus) || (exe.retStderr && exe.retStatus) {
     erro(ctx, "cannot have both status and stdout|stderr at the same time (try -so or -se)").debug()
-    return
+    trace(ctx)
   }
 
   for i, v := range args { var s string
@@ -1018,7 +978,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
     if exe.container == nil {
       erro(ctx, "container unavailable (in %s)", program.project.name).debug()
-      return
+      trace(ctx)
     }
 
     var stringify = func(name string) (str string) {
@@ -1041,13 +1001,13 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
     var containerName string
     if containerName = stringify("container"); containerName == "" {
       erro(ctx, ".container.name undefined").debug()
-      return
+      trace(ctx)
     }
 
     var containerImage string
     if containerImage = stringify("image"); containerImage == "" {
       erro(ctx, ".container.image undefined").debug()
-      return
+      trace(ctx)
     }
 
     if uni.verbose {
@@ -1060,16 +1020,18 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
   // FIXME: work directory conflicts sometimes even the 'sh.Dir' is set to cwd.
   // Because the current work directory is not thread safe.
-  if exe._workdir == "" { if exe._workdir = program.workdir(ctx); exe._workdir == "" {
-    erro(ctx, "CWD is empty").debug()
-    return
-  }}
+  if exe._workdir == "" {
+    if exe._workdir = program.workdir(ctx); exe._workdir == "" {
+      erro(ctx, "CWD is empty").debug()
+      trace(ctx)
+    }
+  }
 
   if exe.path { var s string
     if s = filepath.Dir(exe.targetName); s != "" && s != "." && s != "/" {
-      if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
+      if err := os.MkdirAll(s, os.FileMode(0755)); err != nil {
         erro(at(ctx,exe.target), "make path '%s' for target failed: %v", s, err).debug()
-        return
+        trace(ctx)
       }
     }
   }
@@ -1136,6 +1098,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
         for i := 0; indeterminate(ac, val); i += 1 {
           if i < max_evoke { val = val.expand(final{ac}) } else {
             erro(at(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).debug()
+            trace(ctx)
             break
           }
         }
@@ -1151,13 +1114,13 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value, err error
 
   if len(program.recipes) > 0 && len(exe.sources) == 0 {
     erro(ctx, "empty recipes: %v", program.recipes).debug()
-    return;
+    trace(ctx)
   }
 
   if true {
-    exe.exec(cmd, p.opt, err)
+    exe.exec(cmd, p.opt)
   } else {
-    go exe.exec(cmd, p.opt, err)
+    go exe.exec(cmd, p.opt)
   }
 
   // Add stdout result

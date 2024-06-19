@@ -21,27 +21,27 @@ func (prog *program) execute_check_0(ctx Context, ent entry, result *Value) {
             trace(ctx)
         }
 		if v := auto_get(ctx, "@"); ts(v) != "{=bareword rule0}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{=bareword rule1}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{=bareword rule1}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
 		if v := auto_get(ctx, "^"); ts(v) != "{=bareword rule1}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
 		if v := auto_get(ctx, "-"); ts(v) != "{=list {=bareword rule1} {=bareword rule1} {=flag {=null}} {=barecomp {=bareword x} {=bareword y} {=bareword z}}}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
 		if v := auto_get(ctx, "<-"); ts(v) != "{=bareword rule1}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
 		if auto_get(ctx, "<") != auto_get(ctx, ">") {
@@ -77,19 +77,19 @@ func (prog *program) execute_check_0(ctx Context, ent entry, result *Value) {
             trace(ctx)
         }
 		if v := auto_get(ctx, "@"); ts(v) != "{=bareword rule1}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
 		if v := auto_get(ctx, "-"); ts(v) != "{=list {=bareword rule0} {=bareword xyz}}" {
-			erro(ctx, "%v", ts(v)).debug()
+			erro(at(ctx,v), "%v", ts(v)).debug()
 			trace(ctx)
 		}
         if x, y := (*result).(*list); !y {

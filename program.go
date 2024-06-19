@@ -24,6 +24,8 @@ type dirtyOpts struct {
     pats []Value
 }
 
+type get_program struct{}
+
 func _execution(c Context) *execution { return cast[*execution](c) }
 
 type execution struct {
@@ -54,6 +56,8 @@ type execution struct {
     grepping bool
     grepped []Value
     targets []Value // all targets def
+    ordered []Value
+    order bool
 
     countFiles int
 
@@ -71,6 +75,7 @@ func (p *execution) cast(t reflect.Type) Context {
 }
 func (p *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
+    case get_program: return p.prog
     case get_position:
         if p.prog != nil { return p.prog.position }
     case get_project:
@@ -81,9 +86,7 @@ func (p *execution) do(ctx Context, op any) (res any) {
     case act_dirty_mark:       p.dirtyMark(t.a...)
     case act_dirt:      return p.dirty(ctx,t.a...)
     case act_traversed: return p.traversed(ctx,t.v)
-    case act_traverse:
-        p.traverse(ctx, t.v)
-        return
+    case act_traverse: p.traverse(ctx, t.v); return
 
     case get_param_name:
         if t.i < len(p.prog.params) {
@@ -129,15 +132,19 @@ func (p *execution) calleeError(err error) {
 func (p *execution) level(n int) { p.traceLevel += n }
 func (p *execution) trace(a ...interface{}) { printIndentDots(p.traceLevel, a...) }
 func (p *execution) tracef(s string, a ...interface{}) { printIndentDots(p.traceLevel, fmt.Sprintf(s, a...)) }
+
 func (p *execution) traversed(ctx Context, target Value) []Value {
     if !isTrivial(target) {
-        p.targets = append(p.targets, target)
-
-        if false { if cc, y := p.Context.(*terminal); y {
-            p.targets, _ = do(cc, act_traversed{target}).([]Value)
-        } }
-
         if _, y := toFile(target); y { p.addFilesCount(1) }
+        if p.order {
+            p.ordered = append(p.ordered, target)
+            auto_set(ctx, "|", makeList(p.ordered...))
+        } else {
+            p.targets = append(p.targets, target)
+            auto_set(ctx, "^", makeList(p.targets...))
+            auto_set(ctx, "<", p.targets[0])
+            auto_set(ctx, ">", p.targets[len(p.targets)-1])
+        }
     }
     return p.targets
 }
@@ -191,44 +198,33 @@ func (p *execution) dirtyMark(vals ...Value) {
                 vals = append(t.updatedDeps(p), vals...)
                 vals = append(merge(t), vals...)
             }
-            if false { warn(p, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup, t.updated(p), t.updatedDeps(p)).debug(0) }
-            if false { warn(p, "dirtyMark: %T %v; %v, %v, %v, %v", t, t, vals, dup, t.updated(p), t.updatedDeps(p)).debug(18) }
         }
     }
     if enableDirtyMark { p.dirtyMark(vals...) }
 }
-func (p *execution) interpret(ctx Context, i interpreter, params []Value) {
-    if pos := _position(ctx); !pos.IsValid() && p.prog.position.IsValid() {
-        ctx = at(ctx, p.prog.position)
-    }
 
-    target, _, _, err := wait(ctx, waitopts{
+func (p *execution) interpret(ctx Context, i interpreter, params []Value) {
+    var target, _, _, err = wait(ctx, waitopts{
         ReportUpdates: false,
         ExecResults: false,
         StampCurrentTarget: false,
     })
+
     if err != nil { // wait for prerequisites
         erro(ctx, "waiting traversal failed: %v", err).debug()
         trace(ctx)
     }
 
-    if isConfigure(ctx) {/* no dirty-checks for configure */} else
-    if _, y := target.(*File); y && p != nil && !p.dirty(ctx) {
+    if isConfigure(ctx) {
+        // no dirty-checks for configure
+    } else if _, y := target.(*File); y && p != nil && !p.dirty(ctx) {
         // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
         return
     }
 
-    var value Value
-    if value, err = i.evaluate(ctx, params...); err != nil {
-        var _, ent, _ = entryIndicator(ctx, _entry(ctx))
-        var nam = intername(i)
-        prompt(ctx, "%v: interpret '%s' recipes failed\n", ent, nam)
-        erro(ctx, "%s: %v", nam, err)
-        errostack(ctx, 3).debug()
-        trace(ctx)
-    } else if value == nil {
+    if value := i.evaluate(ctx, params...); value == nil {
         // disgard nil value
-    } else if def, prev := auto_set(ctx, "-", value); def == nil {
+    } else if d, prev := auto_set(ctx, "-", value); d == nil {
         var _, ent, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
         erro(ctx, "set buffer value failed: %v -> %v", prev, value)
@@ -478,11 +474,7 @@ func (p *execution) defertrave(ctx Context, targetValue, prereqValue, prereqPatt
     } else if targetValue != prereqFile {
         do(ctx, act_traversed{prereqFile}) // set $< $> $^ or $|
         bv = prereqFile
-    }/*else if t := p.traves.of(traveFile); t.has() {
-        for _, s := range t {
-            if d := s.depend; d != bv && !isTrivial(d) { bv = d }
-        }
-    }*/
+    }
 
     if !isTrivial(av) && !isTrivial(bv) {
         var a = av.stat(ctx).mod()
@@ -517,8 +509,6 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
         stemmedList []*stemmed
 
         t1, t2 time.Time
-
-        _db = false
     )
 
     defer trace(ctx)
@@ -542,52 +532,6 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 
     prereqValue, prereqPattern, prereqFinal, prereqFile, _ =
         probPrereqValue(ctx, projs, prereqValue)
-
-    if db(ctx, "traverse") || (true && (
-        // strings.HasPrefix(targetValue.string(ctx), "HAVE_PTHREAD_IN_LIBC") ||
-        // strings.HasPrefix(targetValue.string(ctx), "HAVE_LIBPTHREAD") ||
-        false)) {
-
-        if f, y := targetValue.(*File); y {
-            prompt(ctx, "%v:0: @\n", f.fullname()).debug()
-        } else {
-            var s, _, _ = entryIndicator(ctx, targetValue)
-            prompt(ctx, "%v : %v(%v)\n", s, typeof(prereqValue), prereqFinal).debug()
-        }
-
-        note(at(ctx,targetValue), "@: %v(%v) %v(%v)",
-            typeof(targetValue), targetValue,
-            typeof(prereqValue), prereqValue).debug()
-
-        if prereqFile != nil { if false { s := prereqFile.fullname()
-            note(ctx, ">: %T %v ⇒ %v", prereqValue, prereqValue, s).debug()
-        }} else if f, y := prereqValue.(*File); y {
-            note(at(ctx, f.position), "%v %v", f, f.exists()).debug()
-        } else if f := file(ctx, prereqFinal); f == nil {
-            var a = unmap_files(ctx, prereqFinal)
-            var b = files(ctx, prereqFinal, _project(ctx))
-            note(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, a)
-            note(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, b).debug()
-            if p := _project(ctx); false {
-                warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFiles(ctx, a))
-                warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFiles(ctx, b))
-                warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFile(ctx, a))
-                warn(ctx, ">: %T %v ⇒ file: %v", prereqValue, prereqValue, p.selectFile(ctx, b))
-                for i, m := range a { warn(at(ctx, f.position), "%v: %d. %v: %v %v", p, i, m.project, m.name, m.pattern) }
-                for i, m := range b { warn(at(ctx, f.position), "%v: %d. %v: %v %v", p, i, m.project, m.name, m.pattern) }
-            }
-        } else {
-            note(ctx, ">: %T %v ⇒ %v", prereqValue, prereqValue, f).debug()
-        }
-
-        defer func() {
-            for i, concrete := range concreteList { note(at(ctx,concrete), "%v : concrete: %d. %v", targetValue, i, concrete).debug() }
-            for i, stemmed := range stemmedList { note(at(ctx,stemmed), "%v : stemmed: %d. %v", targetValue, i, stemmed).debug() }
-            notestack(ctx, 5).debug(2)
-        } ()
-
-        _db = true
-    }
 
     if f := prereqFile; f != nil {
         if f._travin += 1; f._travin > 1 { return }
@@ -628,9 +572,6 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 
     for _, proj := range projs {
         var entries = proj.resolveEntries(ctx, prereqValue, false)
-        if false && _db {
-            note(ctx, "entries: %T %v ⇒ %v (%v)", prereqValue, prereqValue, entries, proj).debug()
-        }
         if len(entries) == 0 { continue }
         concreteList = append(concreteList, entries...)
         for _, entry := range entries {
@@ -641,8 +582,11 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
             entry.traverse(ctx)
         }
     }
+
     if d := time.Now().Sub(t1); d > 60*time.Second {
-        for _, concrete := range concreteList { prompt(ctx, "%v: slow: %v %v\n", concrete.Position(), concrete, targetValue) }
+        for _, concrete := range concreteList {
+            prompt(ctx, "%v: slow: %v %v\n", concrete.Position(), concrete, targetValue)
+        }
         prompt(ctx, "%v: slow: %v: %v %v (%d concretes)\n", _position(ctx), targetValue, prereqValue, d, len(concreteList)).debug()
     }
 
@@ -661,6 +605,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
             entry.traverse(ctx)
         }
     }
+
     if d := time.Now().Sub(t2); d > 60*time.Second {
         for _, stemmed  := range stemmedList { prompt(ctx, "%v: slow: %v\n", stemmed.Position(), stemmed) }
         prompt(ctx, "%v: slow: %v: %v %v (%d stemmed)\n", _position(ctx), targetValue, prereqValue, d, len(stemmedList)).debug()
@@ -670,42 +615,15 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 }
 
 func (p *execution) prerequisites(ctx Context, prerequisites []Value) {
-    var (
-        ent  = auto_get(ctx, "@")
-        depends valvec
-    )
-
     defer p.Wait()
-
-    // if sc := _stemmed_context(ctx); sc != nil { stem = sc.stem }
-
     for _, prerequisite := range prerequisites {
-        var ctx = at(ctx, prerequisite)
-
-        switch u := prerequisite.(type) {
-        case untraversed: note(ctx, "%v: %v", ent, ts(u)).debug() ; continue
-        default: prerequisite.traverse(ctx)
-        }
-
-        var depend = auto_get(ctx, ">") // fetch updated $>
-
-        if depend != nil {
-            depends.add(depend)
-        } else if _, y := prerequisite.(*modification); y {
-            // noop
-        } else if p, y := prerequisite.(*delegate); y && is(p.x, KindUse) {
-            // noop
-        } else if p := prerequisite.expand(ctx); p == nil {//, final/* |expandUnexpanded */
-            // noop
-        }
+        prerequisite.traverse(at(ctx, prerequisite))
     }
     return
 }
 
-func _program(ctx Context) (_ *program) {
-    if p := _execution(ctx); p != nil {
-        return p.prog
-    }
+func _program(ctx Context) (p *program) {
+    p, _ = do(ctx, get_program{}).(*program)
     return
 }
 
@@ -730,25 +648,6 @@ func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
 }
 
 const maxCallRecursion  = 32 //64
-
-type traverse_context struct { Context }
-type order_traverse_context struct { Context }
-func (t traverse_context) traversed(ctx Context, target Value) (targets []Value) {
-    if targets, _ = do(t.Context, act_traversed{target}).([]Value); len(targets) > 0 {
-        auto_set(ctx, "^", makeList(targets...))
-        auto_set(ctx, "<", targets[0])
-        auto_set(ctx, ">", targets[len(targets)-1])
-    }
-    if false { note(ctx, "%v %v", target, targets).debug() }
-    return
-}
-func (t order_traverse_context) traversed(ctx Context, target Value) (targets []Value) {
-    if targets, _ = do(t.Context, act_traversed{target}).([]Value); len(targets) > 0 {
-        auto_set(ctx, "|", makeList(targets...))
-    }
-    if false { note(ctx, "%v %v", target, targets).debug() }
-    return
-}
 
 func (prog *program) workdir(ctx Context) (workdir string) {
     if p := _execution(ctx); p == nil {
@@ -929,32 +828,17 @@ func (prog *program) execute(ctx Context) (result Value) {
 
     do(ctx, act_arguments{})
 
-    if u.traceExec {
-        var d = exe.depth()
-        var t = auto_get(ctx, "@")
-        var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
-        defer un(l_trace(l_exec, s))
-    }
+    exe.order = false
+    exe.prerequisites(ctx, prog.depends)
 
-    // Update normal prerequisites
-    exe.prerequisites(traverse_context{ctx}, prog.depends)
-    if errs := count_error(ctx); errs > 0 {
-        erro(ctx, "%d errors counted", errs).debug()
-        trace(ctx)
-    }
-
-    // Update order-only prerequisites
-    exe.prerequisites(order_traverse_context{ctx}, prog.ordered)
-    if errs := count_error(ctx); errs > 0 {
-        erro(ctx, "%d errors counted", errs).debug()
-        trace(ctx)
-    }
+    exe.order = true
+    exe.prerequisites(ctx, prog.ordered)
 
     if prog.language != "" || len(prog.recipes) == 0 {
         return
     }
 
-    if h := auto_get(ctx,"-"); h == nil || len(exe.interpreted) == 0 {
+    if h := auto_get(ctx,"-"); h == nil && len(exe.interpreted) == 0 {
         if i, y := dialects["eval"]; y && i != nil {
             exe.interpret(ctx, i, nil)
         } else {
@@ -962,6 +846,5 @@ func (prog *program) execute(ctx Context) (result Value) {
             trace(ctx)
         }
     }
-
     return
 }
