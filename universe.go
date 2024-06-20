@@ -504,15 +504,16 @@ func startHeapProfile(ctx Context, name string) (stop func()) {
 }
 
 func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
-    defer trace(ctx)
     switch g := goal.(type) {
     case *rule:
         var y bool
         if result, y = executeEntry(ctx, g, args...); !y {
             erro(ctx, "update '%v' failed", g).debug()
+            trace(ctx)
         }
     default:
         erro(at(ctx,goal), "not an entry: %v", ts(goal)).debug()
+        trace(ctx)
     }
     return
 }
@@ -523,7 +524,7 @@ func (_tx *universe) run() (result []Value) {
     var main = _tx.globe.main
     if main == nil {
         erro(_tx, "no targets to update `%v`", _tx.globe.goals).debug()
-        return
+        trace(_tx)
     }
 
     var ctx Context = closure_with(_tx, main.scope)
@@ -580,6 +581,7 @@ func (_tx *universe) run() (result []Value) {
             case *bareword:
                 if entries := proj.resolveEntries(ctx, t.s, true); entries == nil {
                     erro(ctx, "no such entry `%s`", t.s).debug()
+                    trace(ctx)
                     return false
                 } else {
                     for _, entry := range entries {
@@ -590,6 +592,7 @@ func (_tx *universe) run() (result []Value) {
                 var s = t.string(ctx)
                 if entries := proj.resolveEntries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug()
+                    trace(ctx)
                     return false
                 } else {
                     for _, entry := range entries {
@@ -600,6 +603,7 @@ func (_tx *universe) run() (result []Value) {
                 var s = t.string(ctx)
                 if entries := proj.resolveEntries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug()
+                    trace(ctx)
                     return false
                 } else {
                     for _, entry := range entries {
@@ -624,11 +628,13 @@ func (_tx *universe) run() (result []Value) {
                     }
                     if found == 0 {
                         erro(ctx, `"%s" not loaded: %v`, s, args).debug()
+                        trace(ctx)
                         return false
                     }
                 }
             default:
-                errostack(ctx, 3, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).debug(16)
+                errostack(ctx, 3, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).debug()
+                trace(ctx)
                 return false
             }
         }
@@ -687,12 +693,12 @@ func (u *universe) load() (err error) {
     if u.autoProfs {
         if f, e := os.Create(filepath.Join(workBaseDir, "load.cpu.auto.prof")); e != nil {
             erro(ctx, "%v", e).debug()
-            return
+            trace(ctx)
         } else {
             defer f.Close()
             if e := pprof.StartCPUProfile(f); e != nil {
                 erro(ctx, "could not start CPU profile: %v", e).debug()
-                return
+                trace(ctx)
             }
             defer pprof.StopCPUProfile()
         }
@@ -701,13 +707,13 @@ func (u *universe) load() (err error) {
             if prof == "" { prof = filepath.Join(workBaseDir, "load.mem.auto.prof") }
             if f, e := os.Create(prof); e != nil {
                 erro(ctx, "%v", e).debug()
-                return
+                trace(ctx)
             } else {
                 defer f.Close()
                 runtime.GC() // update memory statistics
                 if e := pprof.WriteHeapProfile(f); e != nil {
                     erro(ctx, "could not start CPU profile: %v", e).debug()
-                    return
+                    trace(ctx)
                 }
             }
         } ()
@@ -731,7 +737,10 @@ func (u *universe) load() (err error) {
 
     var spec, _ = filepath.Rel(workBaseDir, base)
     if!l.directory(l.loader, spec, base, nil) { return }
-    if l.globe.main == nil { erro(ctx, "nothing loaded\n").debug() }
+    if l.globe.main == nil {
+        erro(ctx, "nothing loaded\n").debug()
+        trace(ctx)
+    }
     return
 }
 

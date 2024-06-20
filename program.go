@@ -509,15 +509,14 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
         t1, t2 time.Time
     )
 
-    defer trace(ctx)
     defer p.defertrave(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
 
     if targetValue = getTargetValue(ctx); targetValue == nil {
         erro(at(ctx,prereqValue), "%s: target is nil\n", prereqFinal).debug()
-        return
+        trace(ctx)
     } else if isTrivial(targetValue) {
         erro(at(ctx,prereqValue), "%s: target is trivial (%T)\n", prereqFinal, targetValue).debug()
-        return
+        trace(ctx)
     }
 
     var projs = []*project{ p.prog.project } //ctx.projects(ctx)
@@ -525,7 +524,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     if len(projs) == 0 {
         note(at(ctx,targetValue), "%v", closure_projects(ctx))
         erro(at(ctx,targetValue), "%v: %v → %v: no projects", p.prog.project, targetValue, prereqValue).debug()
-        return
+        trace(ctx)
     }
 
     prereqValue, prereqPattern, prereqFinal, prereqFile = probPrereqValue(ctx, projs, prereqValue)
@@ -656,13 +655,14 @@ func (prog *program) workdir(ctx Context) (workdir string) {
         if o = prog.project.resolve(ctx, "CWD"); isTrivial(o) {
             if o = prog.project.resolve(ctx, "/"); isTrivial(o) {
                 erro(ctx, "both $(CWD) and $/ are trivial").debug()
-                return
+                trace(ctx)
             }
         }
         if v := o.expand(ctx); v != nil {//, final
             workdir = v.string(ctx)
         } else {
             erro(ctx, "trivial %v", ts(o)).debug()
+            trace(ctx)
         }
     } else if filepath.IsAbs(p.changedWD) {
         workdir = p.changedWD
@@ -677,7 +677,7 @@ func (prog *program) execute(ctx Context) (result Value) {
 
     if 0 < count_error(ctx) {
         erro(ctx, "%v: got errors, execution canceled", ent).debug()
-        return
+        trace(ctx)
     }
 
     var exe = execution{
@@ -774,23 +774,27 @@ func (prog *program) execute(ctx Context) (result Value) {
 
                 if prog, t := _program(c), auto_get(c, "@"); prog == nil {
                     erro(at(ctx,ent), "%v (@=%v)", ent, tt)
+                    trace(ctx)
                     break
                 } else if pos := prog.position; n > 0 {
                     erro(at(ctx,pos), "%v (repeated %d times)", t, n)
+                    trace(ctx)
                 } else if !collapse {
                     erro(at(ctx,pos), "%v : %v", t, auto_get(c, ">"))
+                    trace(ctx)
                 } else if depth -= 1; maxCallRecursion - depth > 5 {
                     erro(at(ctx,pos), "%v ... (%d)", t, maxCallRecursion - depth)
+                    trace(ctx)
                     break
                 } else {
                     erro(at(ctx,pos), "%v : %v", t, auto_get(c, ">"))
+                    trace(ctx)
                 }
 
                 flush(ctx) // dump immediately
             }
 
             errostack(ctx, depth, "#>", ent).debug(/* 512 */)
-            if false { panic(_failure(ctx, "max call depth")) }
             trace(ctx); return
         }
 

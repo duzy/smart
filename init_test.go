@@ -26,11 +26,11 @@ type test_final struct{}
 const testModulesPath = "/Volumes/workspace/.smart/modules"
 
 var total_erros int
-var total_lines int
+var total_bytes int
 
 func init() {
 	diagnostic_limit_erros = 1000
-	diagnostic_limit_lines = 2000 // est. lines
+	diagnostic_limit_bytes = 2000 // est. lines
 }
 
 func testHasModule(name string) (res bool) {
@@ -46,12 +46,14 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 	}
 
 	ctx := new_universe(ii...)
+
+	const _dt_ = true
+	if _dt_ { defer trace(ctx) }
+
 	res = &testcase{ ctx, t, nil }
 
-	defer trace(ctx)
-
 	ctx.erros = total_erros
-	ctx.flued = total_lines
+	ctx.flushed = total_bytes
 	ctx.panicFailureOnErrosFlushed = false
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
 	ctx.testMode = true
@@ -66,10 +68,13 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 
 	if e := ctx.load(); e != nil {
 		erro(ctx, "%v", e).debug()
+        if !_dt_ { trace(ctx) }
 	} else if m := ctx.globe.main; m == nil {
 		erro(ctx, "%s", dir).debug()
+        if !_dt_ { trace(ctx) }
 	} else if name != "" && m.name != name {
 		erro(ctx, "project %v != %v", m.name, name).debug(1, skipint{3})
+        if !_dt_ { trace(ctx) }
 	} else {
 		res.Context = closure_with(ctx, m) // TODO: projectContext{ctx, m}
 		testRemoveConfigureDir(res, _project(ctx))
@@ -235,15 +240,20 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	ctx := loadcase(t, joinPath("testdata", spec), name, ii...)
 	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
 
-	defer trace(ctx)
 	defer func() {
-		var u = _universe(ctx.Context)
-		if u.flush(ctx) == 0 && u.erros == 0 {
+		trace(ctx)
+
+		d := _diagnostic(ctx.Context)
+		d.flush(ctx)
+
+		if true { return }
+
+		if d.erros == 0 {
 			total_erros  = 0
 		} else {
-			total_erros += u.erros
+			total_erros += d.erros
 		}
-		total_lines += u.flued
+		total_bytes += d.flushed
 	} ()
 
 	f(ctx)
@@ -329,11 +339,11 @@ func Test(t *testing.T) {
 				switch v := i.(type) {
 				case func(*testcase): f = v // testcase_f1
 				case func(*testcase, string, string): // testcase_f2
-					f = func(ctx *testcase) { /* defer trace(ctx); */ v(ctx, spec, name) }
+					f = func(ctx *testcase) { v(ctx, spec, name) }
 				case func(testcase):
-					f = func(ctx *testcase) { /* defer trace(ctx); */ v(*ctx) }
+					f = func(ctx *testcase) { v(*ctx) }
 				case func(testcase1):
-					f = func(ctx *testcase) { /* defer trace(ctx); */ v(testcase1{ctx, d}) }
+					f = func(ctx *testcase) { v(testcase1{ctx, d}) }
 				case test_hook_assert:
 					if _hooks == nil { _hooks = &hooks{} }
 					d, _hooks.assert = v.i, func(c Context, a Value, b bool) bool {

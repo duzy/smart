@@ -277,9 +277,6 @@ type execBuffer struct {
 func (p *execBuffer) Write(b []byte) (n int, err error) {
   var expandForLine = p.forLine != nil && !isTrivial(p.forLine)
 
-  // Diagnostics assured only when expanding forLine.
-  if expandForLine { defer trace(p) }
-
   var l int
   if p.Buf != nil {
     if n, err = p.Buf.Write(b); err != nil {
@@ -373,7 +370,10 @@ func (p *execBuffer) Write(b []byte) (n int, err error) {
 func (p *execBuffer) startDockerDaemon(pos Position, ctx Context, container *project, sock string) (err error) {
   var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
   if err = c.Run(); err != nil {
-    if p.report { erro(at(ctx,pos), "dokcer daemon not running (at %s)", sock).debug() }
+    if p.report {
+      erro(at(ctx,pos), "dokcer daemon not running (at %s)", sock).debug()
+      trace(ctx)
+    }
   } else {
     // TODO: start docker daemon
   }
@@ -394,7 +394,9 @@ func (p *execBuffer) lpos(line, column int) Position {
 func (p *execBuffer) reportIncludedFrom() (res bool) {
   if p.includedFrom.pos1.IsValid() && p.includedFrom.pos2.IsValid() {
     erro(at(p,p.includedFrom.pos1), "… included from here")
-    erro(at(p,p.includedFrom.pos2), "… reported here").debug(4)
+    erro(at(p,p.includedFrom.pos2), "… reported here").debug()
+    trace(p.Context)
+
     p.includedFrom.pos1 = Position{}
     p.includedFrom.pos2 = Position{}
     res = true
@@ -529,7 +531,7 @@ func (p *execContext) scanErrors() bool {
 func (p *execContext) runContainerAndRetry() (err error) {
   if p.container == nil {
     erro(p.Context, "no container").debug()
-    return
+    trace(p.Context)
   } else if maxRetries < p.num {
     fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
     return
@@ -547,7 +549,7 @@ func (p *execContext) runContainerAndRetry() (err error) {
     }
   } else {
     erro(p.Context, "%s⇒run undefined", p.container).debug()
-    return
+    trace(p.Context)
   }
 
   fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
@@ -620,10 +622,11 @@ func (p *execContext) ensureContainerRunning(containerName string) (err error) {
       }
     } else {
       erro(p.Context, "%s⇒run undefined", p.container).debug()
-      return
+      trace(p.Context)
     }
   } else if err != nil {
     erro(at(p.Context,p.container.position), "%v", err).debug()
+    trace(p.Context)
   }
   return
 }
@@ -903,8 +906,6 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     defer un(l_trace(l_exec, fmt.Sprintf("executor(%v)", ts(t))))
   }
 
-  defer trace(ctx)
-
   var (
     pos = _position(ctx)
     exe = &execContext{Context:ctx, current:-1, x:p}
@@ -1099,7 +1100,6 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
           if i < max_evoke { val = val.expand(final{ac}) } else {
             erro(at(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).debug()
             trace(ctx)
-            break
           }
         }
         if false { note(at(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug() }

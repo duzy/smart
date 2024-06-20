@@ -255,27 +255,25 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 
     ctx = at(ctx, k)
 
-    defer trace(ctx)
-
     switch t := k.(type) {
     case string:
         if x, y := do(ctx, hit_word{p, t}).(valcache_bool); y {
             return x.valcache, x.bool
         } else {
             erro(ctx, "unhit: %v %v", ts(k), ts(ctx)).debug()
-            return
+			trace(ctx)
         }
     case token:
         if x, y := do(ctx, hit_punc{p, t}).(valcache_bool); y {
             return x.valcache, x.bool
         } else {
             erro(ctx, "unhit: %v %v", ts(k), ts(ctx)).debug()
-            return
+			trace(ctx)
         }
     case valcache_hit:
         if res, fullmatch = t.hit(ctx, p) ; res == nil && cacheMapping(ctx) {
             erro(ctx, "no valcache for %v : %v", ts(k), p).debug()
-            return
+			trace(ctx)
         } else {
             return
         }
@@ -285,16 +283,17 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
                 return x.valcache, x.bool
             } else {
                 erro(ctx, "unhit: %v %v", ts(k), ts(ctx)).debug()
-                return
+				trace(ctx)
             }
         } else {
-            erro(ctx, "non-valcacheable value %v : %v", ts(k), p).debug(3)
-            return
+            erro(ctx, "non-valcacheable value %v : %v", ts(k), p).debug()
+			trace(ctx)
         }
     default:
         erro(ctx, "non-valcacheable %v : %v", ts(k), p).debug()
-        return
+		trace(ctx)
     }
+	return
 }
 
 func (cache) value(ctx Context, p *valcache, v Value) (res *valcache, fullmatch bool) {
@@ -342,7 +341,7 @@ func (cache) bare_hit(ctx Context, c *valcache, p *barecomp) (res *valcache, ful
     for _, elem := range p.elems {
         if c, fullmatch = c.hit(ctx, elem); c == nil {
 			erro(at(ctx,elem), "no valcache for %v : %v : %v", p, ts(elem), c).debug()
-            return
+			trace(ctx)
         } else if res = c ; fullmatch {
             return
         }
@@ -357,8 +356,8 @@ func (cache) path_hit(ctx Context, c *valcache, p *path) (res *valcache, fullmat
         var elem = p.elems[x.i]
 
         if c, fullmatch = c.hit(cc, elem) ; c == nil {
-			erro(at(ctx,elem), "no valcache for %v : %v", ts(elem), c).debug(3)
-            return
+			erro(at(ctx,elem), "no valcache for %v : %v", ts(elem), c).debug()
+			trace(ctx)
         }
 
         if fullmatch || p.len() <= x.i+1 {
@@ -482,13 +481,12 @@ func (*unmap) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmat
 
     if strings.Contains(s, pathSep) { return }
 
-    defer trace(ctx)
-
 	if 0 < len(_c.o) {
 		for _, pat := range _c.o[0] {
 			var c, _ = _c.globs[pat]
 			if c == nil {
 				erro(ctx, "%v %v - nil glob", s, pat).debug()
+				trace(ctx)
 				continue
 			}
 			if f, _, _ := globMatch(ctx, pat, s); f {
@@ -501,9 +499,11 @@ func (*unmap) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmat
 			var c, _ = _c.percs[pat]
 			if c == nil {
 				erro(ctx, "%v %v - nil glob", s, pat).debug()
+				trace(ctx)
 				continue
 			}
 			erro(ctx, "TODO: ", pat).debug()
+			trace(ctx)
 		}
 	}
 	if 2 < len(_c.o) {
@@ -511,9 +511,11 @@ func (*unmap) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmat
 			var c, _ = _c.reges[pat]
 			if c == nil {
 				erro(ctx, "%v %v - nil glob", s, pat).debug()
+				trace(ctx)
 				continue
 			}
 			erro(ctx, "TODO: ", pat).debug()
+			trace(ctx)
 		}
 	}
     return
@@ -531,15 +533,13 @@ func (p *bare_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fu
         note(ctx, "%v", ts(ctx)).debug(30)
     }()}
 
-    defer trace(ctx)
-
     if 0 < len(p.o) && p.i < len(p.o[0]) {
         var fullval = do(ctx, propFullVal)
         for _, pat := range p.o[0][p.i:] {
             var c, _ = p.globs[pat]
             if c == nil {
                 erro(ctx, "%v %v - nil glob", s, pat).debug()
-                return
+				trace(ctx)
             }
 
             p.i += 1
@@ -578,8 +578,6 @@ func (p *path_hit) unmap(ctx Context, _c *valcache, k string) (res *valcache, fu
         note(ctx, "%v", ts(ctx)).debug(30)
     }()}
 
-    defer trace(ctx)
-
 	if 0 < len(_c.o) {
 		for _, pat := range _c.o[0] {
 			var c = _c.globs[pat]
@@ -587,6 +585,7 @@ func (p *path_hit) unmap(ctx Context, _c *valcache, k string) (res *valcache, fu
 			if checkpoints {
 				if strings.Contains(pat, "/") {
 					erro(ctx, "%v %v %v", k, pat, c).debug()
+					trace(ctx)
 				}
 			}
 
@@ -655,24 +654,24 @@ func (p *regexpat_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache
 func (*unmap) perc(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
     if len(_c.o) < 2 { return }
     for _, pat := range _c.o[1] {
-        erro(ctx, "TODO: %v %v", ts(s), pat).debug(3)
+        erro(ctx, "TODO: %v %v", ts(s), pat).debug()
+		trace(ctx)
     }
     return
 }
 func (*unmap) regx(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
     if len(_c.o) < 3 { return }
     for _, pat := range _c.o[2] {
-        erro(ctx, "TODO: %v %v", ts(s), pat).debug(3)
+        erro(ctx, "TODO: %v %v", ts(s), pat).debug()
+		trace(ctx)
     }
     return
 }
 
 func (p *project) map_files(ctx Context, patts, paths []Value) (res []filemap) {
-    defer trace(ctx)
-
     if p == nil {
         erro(ctx, "nil project : %v %v", patts, paths).debug()
-        return
+		trace(ctx)
     }
 
     var base = &_filemap{p, patts, paths}
@@ -680,8 +679,10 @@ func (p *project) map_files(ctx Context, patts, paths []Value) (res []filemap) {
     for _, patt := range patts {
         if patt == nil {
             erro(ctx, "nil pattern : paths=%v", paths).debug()
+			trace(ctx)
         } else if c, _ := p.filemap.hit(cache{ctx}, patt); c == nil {
             erro(ctx, "cache failed : %v", ts(patt)).debug()
+			trace(ctx)
         } else {
             t  := filemap{base, patt}
             c.a = append(c.a, filemap_slot{t})
@@ -692,19 +693,18 @@ func (p *project) map_files(ctx Context, patts, paths []Value) (res []filemap) {
 }
 
 func (p *project) unmap(ctx *unmap, c *valcache, key any) (res *valcache, fullmatch bool) {
-    defer trace(ctx)
     defer flush(ctx)
 
 	if checkpoints {
 		defer func() {
 			if fullmatch && res == nil {
-				erro(at(ctx, key), "nil full unmap : %v", c).debug(2)
-				return
+				erro(at(ctx, key), "nil full unmap : %v", c).debug()
+				trace(ctx)
 			}
 			if fullmatch && ctx.a == nil {
 				note(at(ctx, key), "{=%s %v} %v", typeof(key), key, c)
-				erro(at(ctx, key), "uncollected full unmap : %v", res).debug(20)
-				return
+				erro(at(ctx, key), "uncollected full unmap : %v", res).debug()
+				trace(ctx)
 			}
 		} ()
 	}
@@ -712,6 +712,7 @@ func (p *project) unmap(ctx *unmap, c *valcache, key any) (res *valcache, fullma
 	if x, y := key.(string) ; y {
 		if x == "" {
 			erro(ctx, "empty key : %v", c).debug()
+			trace(ctx)
 		} else if s := strings.Split(x, pathSep) ; len(s) > 1 {
 			return unmap_ps(ctx, c, x, s)
 		} else {
@@ -739,13 +740,12 @@ func unmap_t[T any](ctx Context, p *project, c *valcache, key any) (res []T) {
     var u = unmap{ctx, nil}
     p.unmap(&u, c, key)
 
-    defer trace(ctx)
-
     for _, a := range u.a {
         if x, y := a.(T); y {
             res = append(res, x)
         } else {
 			erro(ctx, "%v : %v", ts(key), ts(a)).debug()
+			trace(ctx)
 		}
     }
     return

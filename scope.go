@@ -211,6 +211,7 @@ func (s *scope) auto(ctx Context, name string) (a *auto) {
 	if a, o = s._auto(ctx, name); o != nil {
 		if a, y = o.(*auto); !y {
 			erro(ctx, "name already taken (%s)", typeof(o)).debug()
+			trace(ctx)
 		}
 	}
 	return
@@ -223,15 +224,13 @@ func (s *scope) alias(ctx Context, o Object, alias ...string) {
 func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *def, a Object) {
 	s.mutex.Lock() ; defer s.mutex.Unlock()
 
-	defer trace(ctx)
-
 	var name string
 	switch t := ident.(type) {
 	case string: name = t
 	case  Value:
 		if indeterminate(ctx, t) {
 			erro(ctx, "indeterminate ident : %s", ts(ident)).debug()
-			return
+			trace(ctx)
 		}
 
 		name = t.string(ctx)
@@ -239,7 +238,7 @@ func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *de
 
 	if name == "" {
 		erro(ctx, "empty name : %s", ts(ident)).debug()
-		return
+		trace(ctx)
 	}
 
 	var y bool
