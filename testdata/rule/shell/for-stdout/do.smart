@@ -2,17 +2,17 @@ project testrules
 
 -:
 
-.test.for:((str line)) [(eval)]
+.test.for:((str line)) {(eval)}
 	$(debug $(line) $(str))
 
 .test.v1 := ${.test.for a,b}
 .test.v2  = ${.test.for a,b}
 .test.v3  = ${.test.for $1,$2}
 
-.test1: [(shell -for-stdout=${.test.for $1,$2})]
+.test1: {(shell -for-stdout=${.test.for $1,$2})}
 	echo "test one"
 	echo "test two"
 
-.test2: [(shell -for-stderr=${.test.for $1,$2})]
+.test2: {(shell -for-stderr=${.test.for $1,$2})}
 	echo "test one" > /dev/stderr
 	echo "test two" > /dev/stderr
