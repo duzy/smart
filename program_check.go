@@ -8,8 +8,7 @@ package smart
 
 func (prog *program) execute_check_0(ctx Context, ent entry, result *Value) {
     if *result == nil {
-        erro(ctx, "%v: nil result", ts(ent)).debug()
-        trace(ctx)
+        erro(ctx, "%v: nil result", ts(ent)).trace()
     }
 
     var args = try[[]Value](ctx, get_arguments{})
@@ -17,115 +16,87 @@ func (prog *program) execute_check_0(ctx Context, ent entry, result *Value) {
     switch ent.destiny().string(ctx) {
     case "rule0":
         if len(args) != 3 {
-            erro(ctx, "%v: %d %v", ent, len(args), ts(args)).debug()
-            trace(ctx)
+            erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
         }
 		if v := auto_get(ctx, "@"); ts(v) != "{=bareword rule0}" {
-			erro(at(ctx,v), "%v", ts(v)).debug()
-			trace(ctx)
+			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{=bareword rule1}" {
-			erro(at(ctx,v), "%v", ts(v)).debug()
-			trace(ctx)
+			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{=bareword rule1}" {
-			erro(at(ctx,v), "%v", ts(v)).debug()
-			trace(ctx)
+			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "^"); ts(v) != "{=list {=bareword rule1}}" {
-			erro(at(ctx,v), "%v", ts(v)).debug()
-			trace(ctx)
+			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "-"); ts(v) != "{=list {=bareword rule1} {=bareword rule1} {=flag {=null}} {=barecomp {=bareword x} {=bareword y} {=bareword z}}}" {
-			erro(at(ctx,v), "%v", ts(v)).debug()
-			trace(ctx)
+			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
 		if auto_get(ctx, "<") != auto_get(ctx, ">") {
-			erro(ctx, "%v %v", ts(auto_get(ctx, "<")), ts(auto_get(ctx, ">"))).debug()
-			trace(ctx)
+			erro(ctx, "%v %v", ts(auto_get(ctx, "<")), ts(auto_get(ctx, ">"))).trace()
 		}
         if x, y := (*result).(*list); !y {
-            erro(ctx, "%v: %v", ent, ts(*result)).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", ent, ts(*result)).trace()
         } else if x.len() != 4 {
-            erro(ctx, "%v: %v", ent, ts(*result)).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", ent, ts(*result)).trace()
         } else if s := ts(x.elems[0]); s != "{=bareword rule1}" {
-            erro(ctx, "%v: %v", ent, s).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", ent, s).trace()
         } else if s := ts(x.elems[1]); s != "{=bareword rule1}" {
-            erro(ctx, "%v: %v", ent, s).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", ent, s).trace()
         } else if s := ts(x.elems[2]); s != "{=flag {=null}}" {
-            erro(ctx, "%v: %v", ent, s).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", ent, s).trace()
         } else if s := ts(x.elems[3]); s != "{=barecomp {=bareword x} {=bareword y} {=bareword z}}" {
-            erro(ctx, "%v: %v", ent, s).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", ent, s).trace()
         }
         if ts(*result) != "{=list {=bareword rule1} {=bareword rule1} {=flag {=null}} {=barecomp {=bareword x} {=bareword y} {=bareword z}}}" {
-            erro(ctx, "%v: %v, %v", ent, ts(*result), args).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v, %v", ent, ts(*result), args).trace()
         }
     case "rule1":
         if len(args) != 1 {
-            erro(ctx, "%v: %d %v", ent, len(args), ts(args)).debug()
-            trace(ctx)
+            erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
         }
 		if v := auto_get(ctx, "@"); ts(v) != "{=bareword rule1}" {
-			erro(at(ctx,v), "%v", ts(v)).debug()
-			trace(ctx)
+			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).debug()
-			trace(ctx)
+			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).debug()
-			trace(ctx)
+			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
 
 		v := auto_get(ctx, "-")
 
 		if s := ts(v); s == "{=plain {=bareword rule0} {=bareword xyz}}" {
 			if x, y := (*result).(*plain); !y {
-				erro(ctx, "%v: %v", ent, ts(*result)).debug()
-				trace(ctx)
+				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if x.len() != 2 {
-				erro(ctx, "%v: %v", ent, ts(*result)).debug()
-				trace(ctx)
+				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if s := ts(x.elems[0]); s != "{=bareword rule0}" {
-				erro(ctx, "%v: %v", ent, s).debug()
-				trace(ctx)
+				erro(ctx, "%v: %v", ent, s).trace()
 			} else if s := ts(x.elems[1]); s != "{=bareword xyz}" {
-				erro(ctx, "%v: %v", ent, s).debug()
-				trace(ctx)
+				erro(ctx, "%v: %v", ent, s).trace()
 			}
 			if (*result).string(ctx) != "rule0 xyz" {
-				erro(ctx, "%v: %v %v", ent, ts(*result), args).debug()
-				trace(ctx)
+				erro(ctx, "%v: %v %v", ent, ts(*result), args).trace()
 			}
 		} else if s == "{=plain {=bareword xyz}}" {
 			if x, y := (*result).(*plain); !y {
-				erro(ctx, "%v: %v", ent, ts(*result)).debug()
-				trace(ctx)
+				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if x.len() != 1 {
-				erro(ctx, "%v: %v", ent, ts(*result)).debug()
-				trace(ctx)
+				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if s := ts(x.elems[0]); s != "{=bareword xyz}" {
-				erro(ctx, "%v: %v", ent, s).debug()
-				trace(ctx)
+				erro(ctx, "%v: %v", ent, s).trace()
 			}
 		} else {
-			erro(at(ctx,v), "%v", ts(v)).debug()
-			trace(ctx)
+			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
     }
 }
 
 func (prog *program) execute_check_1(ctx Context, ent entry, result *Value) {
     if *result == nil {
-        erro(ctx, "%v: nil result", ts(ent)).debug()
-        trace(ctx)
+        erro(ctx, "%v: nil result", ts(ent)).trace()
     }
 }

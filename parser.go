@@ -347,8 +347,7 @@ func (p *parser) expected(ctx Context, pos Pos, msg string, a... any) {
 		}
 	}
 
-	erro(at(ctx, p.loc(pos)), msg).debug()
-	trace(ctx)
+	erro(at(ctx, p.loc(pos)), msg).trace()
 }
 
 func (p *parser) expect(ctx Context, tok token) Pos {
@@ -439,16 +438,14 @@ func (l unilo) braced(ctx Context) (x Value) {
 
 	if checkpoints {
 		if p.tok != LPAREN && !p.scanner.bits.isBrace() {
-			erro(at(ctx, p), "wrong scan state: %v, %v, %v", p.tok, p.lit, p.scanner.scanstate).debug()
-			trace(ctx)
+			erro(at(ctx, p), "wrong scan state: %v, %v, %v", p.tok, p.lit, p.scanner.scanstate).trace()
 		}
 	}
 
 	var typed token
 
 	if p.tok == LBRACK { // OBSOLETE: {[...]}
-		erro(at(ctx, p), "syntax error; for modification, use {(modifier)}").debug()
-		trace(ctx)
+		erro(at(ctx, p), "syntax error; for modification, use {(modifier)}").trace()
 	} else if p.tok == LPAREN {
 		x = l.modification(ctx)
 		p.spaces(ctx)
@@ -490,8 +487,7 @@ func (l unilo) braced(ctx Context) (x Value) {
 			case NONE:  x = makeNone(pos)
 			case NULL:  x = makeNull(pos)
 			default:
-				erro(ctx, "expects braced value (%v)", typed).debug()
-				trace(ctx)
+				erro(ctx, "expects braced value (%v)", typed).trace()
 			}
 			return
 		}
@@ -534,8 +530,7 @@ func (l unilo) braced(ctx Context) (x Value) {
 		return
 	case BIN, OCT, INT, HEX, FLOAT: // ={bin ...}, {=oct ...}, {=int ...}, {=hex ...}, {=float ...}
 		if v := l.expr(ctx); v == nil {
-			erro(ctx, "%s expects: %v, not %v %v", typed, RBRACE, p.tok, p.lit).debug()
-			trace(ctx)
+			erro(ctx, "%s expects: %v, not %v %v", typed, RBRACE, p.tok, p.lit).trace()
 		} else if p.spaces(ctx); p.tok == RBRACE {
 			if p.step(); typed == FLOAT {
 				var n, _ = v.float(ctx)
@@ -559,8 +554,7 @@ func (l unilo) braced(ctx Context) (x Value) {
 			if t := l.expr(ctx); t != nil {
 				v = t.true(ctx)
 			} else {
-				erro(at(ctx, p), "invalid expression").debug()
-				trace(ctx)
+				erro(at(ctx, p), "invalid expression").trace()
 			}
 		}
 		p.spaces(ctx)
@@ -575,8 +569,7 @@ func (l unilo) braced(ctx Context) (x Value) {
 			if t := l.expr(ctx); t != nil {
 				v = t.true(ctx)
 			} else {
-				erro(at(ctx, p), "invalid expression").debug()
-				trace(ctx)
+				erro(at(ctx, p), "invalid expression").trace()
 			}
 		}
 		p.spaces(ctx)
@@ -632,8 +625,7 @@ func (l unilo) braced(ctx Context) (x Value) {
 		p.expect(ctx, RBRACE)
 		return
 	default:
-		erro(ctx, "%v", typed).debug()
-		trace(ctx)
+		erro(ctx, "%v", typed).trace()
 	}
 	return
 }
@@ -655,22 +647,19 @@ func (l unilo) parse_select(ctx Context, lhs Value) (res Value) {
 	switch t := lhs.(type) {
 	case *selection:
 		if v := t.expand(at(ctx, t)); isNull(v) {
-			erro(ctx, "nil selection: %v", lhs).debug()
-			trace(ctx)
+			erro(ctx, "nil selection: %v", lhs).trace()
 		} else {
 			lhs = v
 		}
 	case *bareword:
         switch t.s {
         case "use", "usee", "goals", "os", "mode":
-			erro(ctx, "$:%s: is obsoleted, use $(.$s) instead", t.s, t.s).debug()
-			trace(ctx)
+			erro(ctx, "$:%s: is obsoleted, use $(.$s) instead", t.s, t.s).trace()
         default:
             if o := l.resolve(ctx, t, t.s); false {
 				erro(at(ctx,lhs), "resolve '%v' failed", lhs)
 				erro(ctx, "parser is here (tok=%s)", tok)
-				erro(at(ctx,p), "parser to go here (tok=%s, lit=%s)", p.tok, p.lit).debug(8)
-				trace(ctx)
+				erro(at(ctx,p), "parser to go here (tok=%s, lit=%s)", p.tok, p.lit).trace()
             } else if !isNull(o) {
 				lhs = o
 			} else if tok == SELECT_PROG2 {
@@ -679,28 +668,24 @@ func (l unilo) parse_select(ctx Context, lhs Value) (res Value) {
 			} else {
 				erro(at(ctx,lhs), "%v: '%v' is undefined (name=%v, obj=%v)", l.project, lhs, t, o)
 				erro(ctx, "%v: parser is here (name=%s, tok=%s)", l.project, t.s, tok)
-				erro(at(ctx,p), "%v: parser to go here (tok=%s, lit=%s)", l.project, p.tok, p.lit).debug(16)
-				trace(ctx)
+				erro(at(ctx,p), "%v: parser to go here (tok=%s, lit=%s)", l.project, p.tok, p.lit).trace()
             }
         }
     case *barecomp: // for cases like '.foo'
 		name := lhs.string(ctx)
         if o := l.resolve(ctx, t, name); false {
-			erro(at(ctx,lhs), "resolve selection object '%v' (%s) error", lhs, name).debug()
-			trace(ctx)
+			erro(at(ctx,lhs), "resolve selection object '%v' (%s) error", lhs, name).trace()
         } else if !isNull(o) {
 			lhs = o
 		} else if tok == SELECT_PROG2 {
 			res = makeNull(_position(ctx)) // ignore
 			return
 		} else {
-			erro(at(ctx,lhs), "'%v' is undefined", lhs).debug()
-			trace(ctx)
+			erro(at(ctx,lhs), "'%v' is undefined", lhs).trace()
         }
 	case *globpat:
 		if o, y := optionalize(ctx, lhs); y { lhs = o } else {
-			erro(at(ctx,lhs), "selection of '%v' is undefined", lhs).debug()
-			trace(ctx)
+			erro(at(ctx,lhs), "selection of '%v' is undefined", lhs).trace()
 		}
 	}
 
@@ -756,8 +741,7 @@ func (p *parser) rule_params(ctx Context, args []Value) (err error) {
 
 	if checkpoints {
 		if !strings.HasPrefix(s.comment, "rule ") {
-			erro(ctx, "wrong scope for rule params: %s", s.comment).debug()
-			trace(ctx)
+			erro(ctx, "wrong scope for rule params: %s", s.comment).trace()
 		}
 	}
 
@@ -768,8 +752,7 @@ func (p *parser) rule_params(ctx Context, args []Value) (err error) {
 			s.alias(ctx, a, strconv.Itoa(len(p.ruparas)+1))
 			p.ruparas = append(p.ruparas, a)
 		default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
-			erro(ctx, "bad parameter form (%v)", ts(arg)).debug()
-			trace(ctx)
+			erro(ctx, "bad parameter form (%v)", ts(arg)).trace()
 		}
 	}
 	return
@@ -783,14 +766,23 @@ func (l unilo) depends(ctx Context, params bool) (res []Value) {
 		if p.tok == COLON {
 			// FIXME: this check is not working!
 			// FIXME: detects unexpected colon ':'
-			erro(ctx, "unexpected colon").debug()
-			trace(ctx)
+			erro(ctx, "unexpected colon").trace()
 		} else if p.spaces(ctx) ; !p.isEndOfLine() {
 			var val Value
 			if len(res) == 0 {
 				val = l.expr(parser_params_context{ctx})
 			} else {
 				val = l.expr(ctx)
+			}
+
+			if x, y := val.(*globpat); y && x.len() == 1 {
+				if z, y := x.elems[0].(*globrange); y {
+					note(at(ctx,val), "use {(modifier ...)} : %v", ts(z.Value)).debug()
+				} else if z, y := x.elems[0].(*group); y {
+					note(at(ctx,val), "use {(modifier ...)} : %v", ts(z.elems[0])).debug()
+				} else {
+					note(at(ctx,val), "use {(modifier ...)} : %v", ts(x.elems[0])).debug()
+				}
 			}
 
 			if params {
@@ -817,8 +809,7 @@ func (l unilo) values(ctx Context, ii ...any) (values []Value) {
 		switch v := i.(type) {
 		case Value: values = append(values, v)
 		default:
-			erro(ctx, "unsupported value: %v", ts(i)).debug()
-			trace(ctx)
+			erro(ctx, "unsupported value: %v", ts(i)).trace()
 		}
 	}
 
@@ -826,8 +817,7 @@ func (l unilo) values(ctx Context, ii ...any) (values []Value) {
 	for p.spaces(ctx); !p.isEndOfList(ctx); p.spaces(ctx) {
 		var prev = p.pos
 		if values = append(values, l.expr(ctx)); p.pos == prev {
-			erro(at(ctx,p), "bad: %v %v; %v", p.tok, p.lit, values).debug()
-			trace(ctx)
+			erro(at(ctx,p), "bad: %v %v; %v", p.tok, p.lit, values).trace()
 		}
 
 		// If there's a comment right after the parsed expression, we break
@@ -889,8 +879,7 @@ func (l unilo) argumentedExpr(ctx Context, x Value) *argumented {
 				a = append(a, p.punctuation())
 				p.spaces(ctx)
 			} else {
-				erro(ctx, "unexpected punctuation: %v", p.tok).debug()
-				trace(ctx)
+				erro(ctx, "unexpected punctuation: %v", p.tok).trace()
 			}
 		}
 		a = append(a, l.list(at(ctx, p)))
@@ -972,8 +961,7 @@ func (l unilo) perc(ctx Context, x Value) Value {
 			if pos+2 == p.pos {
 				switch p.tok {
 				case PERC: // %%%
-					erro(ctx, "too many %").debug()
-					trace(ctx)
+					erro(ctx, "too many %").trace()
 				case PCON: // FIXES: %%/xxx -> Path(%% xxx)
 					x = makePercpat(position, x, perc2)
 					return l.path(ctx, x)
@@ -989,8 +977,7 @@ func (l unilo) perc(ctx Context, x Value) Value {
 						_, ok = yy.(*path)
 					)
 					if ok {
-						erro(ctx, "incorrect: %v, %v", x, yy).debug()
-						trace(ctx)
+						erro(ctx, "incorrect: %v, %v", x, yy).trace()
 					}
 					assert(!ok, "the second part of aaa%%bbb/foo/bar parsed incorrectly as path")
 					perc2.Suffix = yy
@@ -1014,12 +1001,10 @@ func (p *parser) regex(ctx Context) (_ Value) {
 
 	if checkpoints {
 		if !p.scanner.bits.isBrace() {
-			erro(ctx, "wrong scan state: %v", p.scanner.scanstate).debug(3)
-			trace(ctx)
+			erro(ctx, "wrong scan state: %v", p.scanner.scanstate).trace()
 		}
 		if !p.scanner.bits.isBraceRaw() {
-			erro(ctx, "wrong scan state: %v", p.scanner.scanstate).debug(3)
-			trace(ctx)
+			erro(ctx, "wrong scan state: %v", p.scanner.scanstate).trace()
 		}
 	}
 
@@ -1033,8 +1018,7 @@ func (p *parser) regex(ctx Context) (_ Value) {
 	var err error
 	var x = &regexpat{valbase{pos}, nil} // TODO: correct regexp pattern value
 	if x.Regexp, err = regexp.Compile(rx); err != nil {
-		erro(at(ctx,pos), "regex: %v", err).debug()
-		trace(ctx)
+		erro(at(ctx,pos), "regex: %v", err).trace()
 	}
 	return x
 }
@@ -1083,8 +1067,7 @@ func (l unilo) flag(ctx Context) flag {
 		}
 	}
 	if x == nil {
-		erro(ctx, "nil flag name").debug()
-		trace(ctx)
+		erro(ctx, "nil flag name").trace()
 	}
 	return flag{x}
 }
@@ -1117,7 +1100,6 @@ func (p *parser) literal(ctx Context) (v Value) {
     switch position := _position(ctx); tok {
     case BAR:
 		erro(ctx, "`|` is deprecated, changed the modifiers!")
-		trace(ctx)
     case BINARY:      v = ParseBinary(position, lit)
     case OCTAL:       v = ParseOctal(position, lit)
     case INTEGER:     v = ParseDecimal(position, lit)
@@ -1181,8 +1163,7 @@ func (l unilo) path(ctx Context, start Value) (res *path) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "Path")) }
 
 	if start == nil {
-		erro(ctx, "nil path starter").debug()
-		trace(ctx)
+		erro(ctx, "nil path starter").trace()
 	}
 
 	ctx = parser_path_context{at(ctx, start)}
@@ -1244,12 +1225,10 @@ func (l unilo) url(ctx Context, scheme Value) (res Value) {
 		if p.tok == PCON {
 			p.expect(ctx, PCON) // the second '/'
 		} else {
-			erro(ctx, "TODO: URL path: %v (%T) (next: %s (%s))", scheme, scheme,  p.tok, p.lit).debug()
-			trace(ctx)
+			erro(ctx, "TODO: URL path: %v (%T) (next: %s (%s))", scheme, scheme,  p.tok, p.lit).trace()
 		}
 	} else if !p.isEndOfURL(ctx) {
-		erro(at(ctx, p.loc(colon1)), "TODO: URL: %v (%T) (next: %s (%s))", scheme, scheme, p.tok, p.lit).debug()
-		trace(ctx)
+		erro(at(ctx, p.loc(colon1)), "TODO: URL: %v (%T) (next: %s (%s))", scheme, scheme, p.tok, p.lit).trace()
 	}
 
 	if !p.isEndOfURL(ctx) {
@@ -1303,8 +1282,7 @@ func (l unilo) resolve(ctx Context, name Value, str string) (result Value) {
     if !pos.IsValid() { pos = _position(ctx) }
     if !pos.IsValid() { pos = l.p.Position() }
     if str == "" {
-		erro(ctx, "resolve no-name : %v", ts(name)).debug()
-		trace(ctx)
+		erro(ctx, "resolve no-name : %v", ts(name)).trace()
 	}
 
 	var s = _scope(ctx)
@@ -1321,8 +1299,7 @@ func (l unilo) resolve(ctx Context, name Value, str string) (result Value) {
 		if a := s.auto(ctx, str); a != nil {
 			return a
 		} else {
-			erro(ctx, "failed auto: %v", ts(name)).debug()
-			trace(ctx)
+			erro(ctx, "failed auto: %v", ts(name)).trace()
 		}
 	}
 
@@ -1342,8 +1319,7 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 	if x,  y := name.(*argumented) ; y { name = x.Value }
 	if _,  y := name.(condval) ; !y {
 		if v := name.expand(ctx) ; v == nil {
-			erro(ctx, "%v is nil", ts(name)).debug()
-			trace(ctx)
+			erro(ctx, "%v is nil", ts(name)).trace()
 		} else {
 			name = v
 		}
@@ -1357,14 +1333,12 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 
 	if lTok == LBRACE {
 		if false {
-			erro(ctx, "empty name: %s", ts(name)).debug()
-			trace(ctx)
+			erro(ctx, "empty name: %s", ts(name)).trace()
 		}
 
 		var t = _project(ctx).resolveEntries(ctx, name, false)
 		if t == nil {
-			erro(ctx, "resolved %v is nil", ts(name)).debug()
-			trace(ctx)
+			erro(ctx, "resolved %v is nil", ts(name)).trace()
 		} else {
 			obj, _ = t[0].(Object)
 			return
@@ -1376,8 +1350,7 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 		case condval, *closure, *delegate, *selection:
 			return str, name
 		}
-		erro(ctx, "%v is empty for name", ts(name)).debug()
-		trace(ctx)
+		erro(ctx, "%v is empty for name", ts(name)).trace()
 	}
 
 	if t := l.resolve(ctx, name, str) ; t != nil {
@@ -1396,15 +1369,13 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 		for i, s := range l.s { note(ctx, "%d. %v", i, s) }
 	}
 
-	erro(ctx, "resolve %v ⇒ nil", ts(name)).debug()
-	trace(ctx)
+	erro(ctx, "resolve %v ⇒ nil", ts(name)).trace()
 	return
 }
 
 func (l unilo) auto_arg0(ctx Context, tokLp token, isClosure bool) (_ Value) {
 	if tokLp != LPAREN {
-		erro(ctx, "auto: incorrect left paren: %v", tokLp).debug()
-		trace(ctx)
+		erro(ctx, "auto: incorrect left paren: %v", tokLp).trace()
 	}
 
 	var ac = automatic{ Context:ctx, defs:make(auto_defs) }
@@ -1426,8 +1397,7 @@ func (l unilo) auto_arg0(ctx Context, tokLp token, isClosure bool) (_ Value) {
 			val = nil
 		}
 		if s == "" {
-			erro(at(ctx, val), "auto: %v is empty", val).debug()
-			trace(ctx)
+			erro(at(ctx, val), "auto: %v is empty", val).trace()
 		} else {
 			ac.set(at(ctx, val), s, val)
 		}
@@ -1465,8 +1435,7 @@ func (l unilo) closuredelegate_abc(ctx Context, isClosure, special bool) (tok to
 
 	if special {
 		if obj = l.resolve(ctx, nil, str); obj == nil {
-			erro(ctx, "not defined %v (name=%s)", tok, str).debug()
-			trace(ctx)
+			erro(ctx, "not defined %v (name=%s)", tok, str).trace()
 		}
 		return
 	}
@@ -1477,13 +1446,11 @@ func (l unilo) closuredelegate_abc(ctx Context, isClosure, special bool) (tok to
 		p.step() // skips LPAREN, LBRACE
 
 		if p.tok == SPACE {
-			erro(ctx, "unexpected spaces").debug()
-			trace(ctx)
+			erro(ctx, "unexpected spaces").trace()
 		}
 
 		if name = l.expr(ctx); name == nil {
-			erro(ctx, "%v : no name parsed", tok).debug()
-			trace(ctx)
+			erro(ctx, "%v : no name parsed", tok).trace()
 		}
 
 		// For examples: foo?  foo(a,b,c)?
@@ -1498,15 +1465,13 @@ func (l unilo) closuredelegate_abc(ctx Context, isClosure, special bool) (tok to
 			for _, v := range opts {
 				if p, y := v.(*pair);  y { v = p.key }
 				if _, y := v.(flag); !y {
-					erro(at(ctx,v), "not a Flag: %v", ts(v)).debug()
-					trace(ctx)
+					erro(at(ctx,v), "not a Flag: %v", ts(v)).trace()
 				}
 			}
 		}
 
 		if name == nil {
-			erro(ctx, "name %v is nil").debug()
-			trace(ctx)
+			erro(ctx, "name %v is nil").trace()
 		}
 
 		str, obj = l.closuredelegate_obj(ctx, tok, name, isClosure)
@@ -1523,14 +1488,12 @@ func (l unilo) closuredelegate_abc(ctx Context, isClosure, special bool) (tok to
 	default:
 		if !isClosure { // $(...), disabled $name.
 			// &(...), &{...}, &'...', &"..."
-			erro(ctx, "expects `%v` or `%v` or quotes", LPAREN, LBRACE).debug()
-			trace(ctx)
+			erro(ctx, "expects `%v` or `%v` or quotes", LPAREN, LBRACE).trace()
 		}
 
 		if !(p.tok == STRING || p.tok == COMPOUND) {
 			// &(...), &{...}, &'...', &"..."
-			erro(ctx, "expects `%v`, `%v` or quotes, not %v %v", LPAREN, LBRACE, p.tok, p.lit).debug()
-			trace(ctx)
+			erro(ctx, "expects `%v`, `%v` or quotes, not %v %v", LPAREN, LBRACE, p.tok, p.lit).trace()
 		}
 
 		pos := p.Position()
@@ -1538,13 +1501,11 @@ func (l unilo) closuredelegate_abc(ctx Context, isClosure, special bool) (tok to
 
 		// &'xxxx' or &"xxxx"
 		if name = l.expr(ctx); name == nil {
-			erro(at(ctx,pos), "parsed name is nil").debug()
-			trace(ctx)
+			erro(at(ctx,pos), "parsed name is nil").trace()
 		}
 
 		if indeterminate(ctx, name) {//, /* expandClosure */final
-			erro(at(ctx,name), "name '%v' is closured", ts(name)).debug()
-			trace(ctx)
+			erro(at(ctx,name), "name '%v' is closured", ts(name)).trace()
 		}
 
 		str, obj = l.closuredelegate_obj(at(ctx,name), tok, name, isClosure)
@@ -1553,8 +1514,7 @@ func (l unilo) closuredelegate_abc(ctx Context, isClosure, special bool) (tok to
 	if obj == nil && str != "" {
 		if proj := _project(ctx); proj.ext.Plugin != nil {
 			if t, e := proj.ext.Lookup(str); e == nil && t != nil {
-				erro(at(ctx,name), "TODO: convert ext symbol: %v : %v", name, ts(t)).debug()
-				trace(ctx)
+				erro(at(ctx,name), "TODO: convert ext symbol: %v : %v", name, ts(t)).trace()
 			}
 		}
 	}
@@ -1570,8 +1530,7 @@ func (l unilo) closuredelegate(ctx Context, isClosure, special bool) (result Val
 	tok, obj, args, opts := l.closuredelegate_abc(ctx, isClosure, special)
 
 	if obj == nil {
-		erro(ctx, "%v : nil symbol", tok).debug()
-		trace(ctx)
+		erro(ctx, "%v : nil symbol", tok).trace()
 	}
 
 	if isClosure {
@@ -1665,8 +1624,7 @@ func (l unilo) unary(ctx Context) (x Value) {
 			}
 			return
 		default:
-			erro(at(ctx,pos), "unexpected token: %v, %v %s", tok, p.tok, p.lit).debug()
-			trace(ctx)
+			erro(at(ctx,pos), "unexpected token: %v, %v %s", tok, p.tok, p.lit).trace()
 		}
 
 	default:
@@ -1679,15 +1637,13 @@ func (l unilo) unary(ctx Context) (x Value) {
 
 	if p.lineComment != nil {
 		for _, comment := range p.lineComment.list {
-			erro(at(ctx,comment.pos), "# %s", comment.string).debug()
-			trace(ctx)
+			erro(at(ctx,comment.pos), "# %s", comment.string).trace()
 		}
 	}
 
 	if false { p.step() } // go to the next token
 
-	erro(at(ctx, p), "bad: %v (lit=%s, scan=%v)", p.tok, p.lit, p.scanner.scanstate).debug()
-	trace(ctx)
+	erro(at(ctx, p), "bad: %v (lit=%s, scan=%v)", p.tok, p.lit, p.scanner.scanstate).trace()
 	return
 }
 
@@ -1759,8 +1715,7 @@ func (l unilo) expr(ctx Context) (x Value) {
 	var tok, lit = l.p.tok, l.p.lit
 
 	if x = l.composite(ctx); x == nil {
-		erro(at(ctx, l.p), "invalid (%v,%v; prev=%v,%v)", l.p.tok, l.p.lit, tok, lit).debug(6)
-		trace(ctx)
+		erro(at(ctx, l.p), "invalid (%v,%v; prev=%v,%v)", l.p.tok, l.p.lit, tok, lit).trace()
 	}
 
 	if truly(ctx, getParseGlob{}) { return }
@@ -1869,7 +1824,6 @@ func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useOpts, p
                 }
             default:
                 erro(at(ctx,t.key), "parameter `%v' unsupported `%T`", prop, prop)
-				trace(ctx)
             }
         case *argumented: // -param(value)
             switch tt := t.Value.(type) {
@@ -1880,11 +1834,9 @@ func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useOpts, p
                 }
             default:
                 erro(at(ctx,t.Value), "parameter `%v' unsupported `%T`", prop, prop)
-				trace(ctx)
             }
         default:
             erro(at(ctx,prop), "parameter `%v` unsupported `%T`", prop, prop)
-			trace(ctx)
         }
     }
     return
@@ -1904,10 +1856,8 @@ func (l unilo) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
         var s string
         if f, ok := v.key.(flag); !ok {
             erro(ctx, "'%v' invalid use spec", v.key)
-			trace(ctx)
         } else if s = f.Value.string(ctx); s != "list" {
             erro(ctx, "'%v' invalid use spec, do you mean -list?", v.key)
-			trace(ctx)
         }
 		specVal0 = v.val
 	case *argumented:
@@ -1921,16 +1871,14 @@ func (l unilo) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		if !isTrivial(val) { specVals = append(specVals, val) }
 	}
 	if len(specVals) == 0 {
-        erro(ctx, "empty use spec: %v", ts(g.spec[0])).debug()
-		trace(ctx)
+        erro(ctx, "empty use spec: %v", ts(g.spec[0])).trace()
     }
 
 	var opts useOpts
 	var args = parseOpts(ctx, &opts, append(g.remainder, g.spec[1:]...)...)
 	for _, a := range args {
 		if _, ok := a.(flag); ok || true {
-			erro(at(ctx,a), "unkown use opts: %v", ts(a)).debug()
-			trace(ctx)
+			erro(at(ctx,a), "unkown use opts: %v", ts(a)).trace()
 		}
 	}
 
@@ -1967,8 +1915,7 @@ func (l unilo) parse_include(ctx Context, doc *commentGroup, g *clauseopts, _ in
 	}
 
 	if len(g.spec) < 1 {
-		erro(ctx, "expecting include file: %v", g.spec).debug()
-		trace(ctx)
+		erro(ctx, "expecting include file: %v", g.spec).trace()
 	}
 
 	var x = g.spec[0]//.expand(ctx, final|expandPlaceholder)
@@ -1991,8 +1938,7 @@ func (l unilo) parse_include(ctx Context, doc *commentGroup, g *clauseopts, _ in
 
 func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	if len(g.spec) != 1 {
-		erro(ctx, "too many files properties: %v", g.spec).debug()
-		trace(ctx)
+		erro(ctx, "too many files properties: %v", g.spec).trace()
 	}
 
 	var path Value
@@ -2000,7 +1946,6 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		l.p.next(ctx, true) // step forward with spaces skipped
 		if l.p.tok == LINEND || l.p.lineComment != nil {
 			erro(ctx, "expecting files path")
-			trace(ctx)
 		}
 		path = l.expr(ctx)
 	}
@@ -2019,8 +1964,7 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 
 	var opts = cacher{ g.generalOpts }
 	if rest := parseOpts(ctx, &opts, g.remainder...); rest != nil {
-		erro(ctx, "unsupported opts: %v", rest).debug()
-		trace(ctx)
+		erro(ctx, "unsupported opts: %v", rest).trace()
 	}
 
 	var pats []Value
@@ -2038,8 +1982,7 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 			switch name {
 			default:
 				// TODO: parse files options
-				erro(at(ctx,f.Value), "invalid files flag: %v").debug()
-				trace(ctx)
+				erro(at(ctx,f.Value), "invalid files flag: %v").trace()
 			}
 		}}}
 
@@ -2085,8 +2028,7 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 				switch name {
 				default:
 					// TODO: parse files options
-					erro(at(ctx,f.Value), "invalid files flag: %v").debug()
-					trace(ctx)
+					erro(at(ctx,f.Value), "invalid files flag: %v").trace()
 				}
 			}
 		}
@@ -2098,11 +2040,9 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 func (p *parser) evalConfiguration(ctx Context, g *clauseopts, props []Value) {
 	var project = _project(ctx)
 	if project == nil {
-		erro(ctx, "configuration: nil project").debug()
-		trace(ctx)
+		erro(ctx, "configuration: nil project").trace()
 	} else if project.configure == nil {
-		erro(ctx, "configuration: no %s for %v", dotConfigure, project).debug()
-		trace(ctx)
+		erro(ctx, "configuration: no %s for %v", dotConfigure, project).trace()
 	}
 
 	if entry := project.configure.defaultEntry; entry == nil {
@@ -2121,8 +2061,7 @@ func (p *parser) evalConfiguration(ctx Context, g *clauseopts, props []Value) {
 
 	for _, dep := range xmerge(ctx, props/* [1:] */...) {
 		if re, y := dep.(*rule); !y {
-			erro(ctx, "unsupported prerequisite: %T %v", dep, dep).debug()
-			trace(ctx)
+			erro(ctx, "unsupported prerequisite: %T %v", dep, dep).trace()
 		} else {
 			re.execute(ctx)
 		}
@@ -2169,8 +2108,7 @@ func (l unilo) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) 
 					}
 				}
 			} else {
-				erro(at(ctx,op), "unsupport flag: %v (%v)", ts(v), val).debug()
-				trace(ctx)
+				erro(at(ctx,op), "unsupport flag: %v (%v)", ts(v), val).trace()
 			}
 		}
 
@@ -2182,8 +2120,7 @@ func (l unilo) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) 
 	prop0 := g.spec[0]
 
 	if isTrivial(prop0) {
-		erro(ctx, "illegal").debug()
-		trace(ctx)
+		erro(ctx, "illegal").trace()
 	}
 
 	ctx = at(ctx, prop0)
@@ -2193,8 +2130,7 @@ func (l unilo) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) 
 
 	name := prop0.string(ctx)
 	if name == "configuration" {
-		erro(ctx, "use '-configuration' instead (%v)", prop0).debug()
-		trace(ctx)
+		erro(ctx, "use '-configuration' instead (%v)", prop0).trace()
 	}
 
 	resolved := l.resolve(ctx, prop0, name)
@@ -2202,14 +2138,12 @@ func (l unilo) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) 
 	switch x := resolved.(type) {
 	case invoker:
 		if b, y := x.(*builtin); y && !b.isCommand() {
-			erro(ctx, "resolved builtin '%v' is not a command", prop0).debug()
-			trace(ctx)
+			erro(ctx, "resolved builtin '%v' is not a command", prop0).trace()
 		}
 		x.invoke(ctx, opts, g.spec[1:])
 		return
 	default:
-		erro(ctx, "resolved '%v' is %s (%v)", prop0, typeof(resolved), *g).debug()
-		trace(ctx)
+		erro(ctx, "resolved '%v' is %s (%v)", prop0, typeof(resolved), *g).trace()
 	}
 
 	/* TODO: if c, y := res.(code); y { ... } */
@@ -2264,8 +2198,7 @@ func (l unilo) spec(ctx Context, keyword token, pos Pos, f parseSpecFunc) {
 			f(at(ctx, p), nil, &opts, 0)
 			return
 		} else {
-			erro(at(ctx, p), "%v: nil specs", keyword).debug()
-			trace(ctx)
+			erro(at(ctx, p), "%v: nil specs", keyword).trace()
 		}
 	case LPAREN:
 		p.next(ctx, true)
@@ -2346,11 +2279,9 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
 	if checkpoints {
 		defer func() {
 			if d == nil {
-				erro(ctx, "%v %v %v", ident, tok, ts(value)).debug()
-				trace(ctx)
+				erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
 			} else if d.value == nil && value != nil {
-				erro(ctx, "%v %v %v", ident, tok, ts(value)).debug()
-				trace(ctx)
+				erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
 			}
 		} ()
 	}
@@ -2359,20 +2290,16 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
 
     switch t := ident.(type) {
     case *argumented:
-        erro(ctx, "TODO: multiple defs: %v, args=%v", t.Value, t.args).debug()
-		trace(ctx)
+        erro(ctx, "TODO: multiple defs: %v, args=%v", t.Value, t.args).trace()
 
     case *group:
-        erro(ctx, "TODO: multiple defs: %v", t.elems).debug()
-		trace(ctx)
+        erro(ctx, "TODO: multiple defs: %v", t.elems).trace()
 
     case *selection:
         if v := t.expand(final{ctx}); v == nil {
-            erro(ctx, "%v is nil", ts(t)).debug()
-			trace(ctx)
+            erro(ctx, "%v is nil", ts(t)).trace()
         } else if x, y := v.(*def); !y {
-            erro(ctx, "%v is not a def: %v", ts(t), ts(v)).debug()
-			trace(ctx)
+            erro(ctx, "%v is not a def: %v", ts(t), ts(v)).trace()
         } else {
             d = x
         }
@@ -2380,8 +2307,7 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
     default: // *bareword, *barecomp, *qualiword, *path, flag:
         var name = t.string(ctx)
         if _, y := builtins[name]; y {
-            erro(ctx, "`%v` is a builtin name (%v)", ident, name).debug()
-			trace(ctx)
+            erro(ctx, "`%v` is a builtin name (%v)", ident, name).trace()
         }
 
         // Resolve base value to derive.
@@ -2390,22 +2316,18 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
 
         if d, alt = _scope(ctx).set(at(ctx, t), name, defUndetermined); alt == nil {
             if d == nil {
-                erro(ctx, "`%s` is undefined (%v)", name, ts(t)).debug()
-				trace(ctx)
+                erro(ctx, "`%s` is undefined (%v)", name, ts(t)).trace()
             }
         } else if tok == ASSIGN || tok == ASSIGN_EXC {
             if a, y := alt.(*def); !y {
-                erro(ctx, "`%v` already defined (%T) (%v)", ident, alt, alt.owner()).debug()
-				trace(ctx)
+                erro(ctx, "`%v` already defined (%T) (%v)", ident, alt, alt.owner()).trace()
             } else if a.owner() == proj && a.origin != defConfRef {
-                erro(ctx, "`%v` already defined (%T)", ident, alt).debug()
-				trace(ctx)
+                erro(ctx, "`%v` already defined (%T)", ident, alt).trace()
             } else {
                 d = a
             }
         } else if t, y := alt.(*def); !y {
-            erro(ctx, "%s: object is not def: %s, %v", name, typeof(alt), ts(prev)).debug()
-			trace(ctx)
+            erro(ctx, "%s: object is not def: %s, %v", name, typeof(alt), ts(prev)).trace()
 		} else {
            d = t
         }
@@ -2417,8 +2339,7 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
         } else if derived, y := prev.(*def); !y {
             // not a def
         } else if derived == nil {
-            erro(ctx, "prev def '%s' is nil", name).debug()
-			trace(ctx)
+            erro(ctx, "prev def '%s' is nil", name).trace()
         } else if derived == d || (d.value != nil && d.value.refs(ctx, derived)) {
             // same def
         } else if d != nil && (tok == ASSIGN_ADD || tok == ASSIGN_SHI) && alt == nil {
@@ -2428,8 +2349,7 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
     }
 
     if d == nil {
-        erro(ctx, "def is nil: %v", ts(ident)).debug()
-		trace(ctx)
+        erro(ctx, "def is nil: %v", ts(ident)).trace()
     }
 
     d.position = ident.Position()
@@ -2475,8 +2395,7 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
 		}
         d.value = ease(ctx, vals)
     default:
-        erro(ctx, "unknown origin: %v %v %v", d.origin, d.name, tok).debug()
-		trace(ctx)
+        erro(ctx, "unknown origin: %v %v %v", d.origin, d.name, tok).trace()
     }
     return
 }
@@ -2505,11 +2424,9 @@ func (l unilo) assign(ctx Context, ident Value) (res []*def) {
 
 	if checkpoints {
 		if len(res) == 0 {
-			erro(ctx, "%v %v %v", ident, tok, ts(value)).debug()
-			trace(ctx)
+			erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
 		} else if len(res) == 1 && res[0].value == nil && value != nil {
-			erro(ctx, "%v %v %v", ident, tok, ts(value)).debug()
-			trace(ctx)
+			erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
 		}
 	}
 	return
@@ -2533,27 +2450,22 @@ func (l unilo) recipe(ctx Context) Value {
 		if isList = true; !p.isEndOfLine() {
 			var a *argumented
 			var x = l.expr(ctx) // parse first expr of recipe
-			if x != nil { if a, _ = x.(*argumented); a != nil { x = a.Value } }
+			if x != nil {
+				if a, _ = x.(*argumented); a != nil { x = a.Value }
+			}
 			if x == nil {
-				erro(ctx, "parsed value is nil").debug()
-				trace(ctx)
+				erro(ctx, "parsed value is nil").trace()
 			} else if p.dialect == "value" {
 				// no resolving commands
 			} else if t, y := x.(*bareword); !y {
 				// does nothing
-			} else if sym := l.resolve(ctx, t, t.s); false {
-				erro(ctx, "resolve '%v' failed", x).debug()
-				trace(ctx)
-			} else if isTrivial(sym) {
-				erro(at(ctx,x), "no such symbol: %v (%s → %s); dialect=%s", t.s, ts(x), ts(sym), p.dialect).debug()
-				trace(ctx)
-			} else if b, y := sym.(*builtin); !y {
-				erro(at(ctx,x), "'%s' is not a command (%s)", t.s, typeof(sym)).debug()
-				trace(ctx)
+			} else if s := l.resolve(ctx, t, t.s); isTrivial(s) {
+				erro(at(ctx,x), "no such symbol: %v, %s → %s; dialect=%s", t.s, ts(x), ts(s), p.dialect).trace()
+			} else if b, y := s.(*builtin); !y {
+				erro(at(ctx,x), "'%s' is not a command (%s)", t.s, typeof(s)).trace()
 			} else if !b.isCommand() {
-				erro(at(ctx,x), "'%s' is not a command, use $(%s ...) instead", t.s, t.s).debug()
-				trace(ctx)
-			} else { x = sym }
+				erro(at(ctx,x), "'%s' is not a command, use $(%s ...) instead", t.s, t.s).trace()
+			} else { x = s }
 
 			if a != nil {
 				elems, a.Value = append(elems, a), x
@@ -2569,8 +2481,7 @@ func (l unilo) recipe(ctx Context) Value {
 				if !p.tok.isRuleDelim() {
 					x = l.expr(c)
 				} else {
-					erro(ctx, "unsupported token: %s, %v", p.tok, elems).debug()
-					trace(ctx)
+					erro(ctx, "unsupported token: %s, %v", p.tok, elems).trace()
 				}
 				if cmdargs = append(cmdargs, x); p.tok == COMMA {
 					p.next(ctx, true)
@@ -2621,16 +2532,13 @@ func (p *parser) movar(ctx Context, args ...Value) (err error) {
 	for _, elem := range args {
 		var kv, y = elem.(*pair)
 		if !y || kv == nil {
-			erro(at(ctx,elem), "bad var form (%v)", ts(elem)).debug()
-			trace(ctx)
+			erro(at(ctx,elem), "bad var form (%v)", ts(elem)).trace()
 		}
 
 		if d, a := s.set(at(ctx, elem), kv.key, defUndetermined); a != nil {
-			erro(at(ctx,kv), "'%v' already defined: %v", kv.key, ts(a)).debug()
-			trace(ctx)
+			erro(at(ctx,kv), "'%v' already defined: %v", kv.key, ts(a)).trace()
 		} else if d == nil {
-			erro(at(ctx,kv), "'%v' not defined", kv.key).debug()
-			trace(ctx)
+			erro(at(ctx,kv), "'%v' not defined", kv.key).trace()
 		} else {
 			var v = kv.val
 			if g, y := v.(*group); y { v = g.list() }
@@ -2649,8 +2557,7 @@ func (p *parser) defineConfigureTargets(ctx Context) {
 
 		if d == nil && a != nil {
 			if d, _ = a.(*def); d == nil {
-				erro(ctx, "%v : already defined: %v", ts(t), ts(a)).debug()
-				trace(ctx)
+				erro(ctx, "%v : already defined: %v", ts(t), ts(a)).trace()
 			}
 		}
 
@@ -2675,15 +2582,13 @@ func (l unilo) modifier(ctx Context) (res *modifier) {
 	case *delegate, *closure:
 		var v = xmerge(at(ctx, n), nameVal)//, final
 		if len(v) == 0 {
-			erro(ctx, "empty modifier name: %v", n).debug()
-			trace(ctx)
+			erro(ctx, "empty modifier name: %v", n).trace()
 		}
 
 		name, elems = v[0].string(ctx), v[1:]
 
 	default:
-		erro(ctx, "unsupported modifier: %v", ts(n)).debug()
-		trace(ctx)
+		erro(ctx, "unsupported modifier: %v", ts(n)).trace()
 	}
 
 	var movar bool
@@ -2693,20 +2598,17 @@ func (l unilo) modifier(ctx Context) (res *modifier) {
 		p.defineConfigureTargets(ctx)
 		p.configure = true // set configure flag and define configure variables
 	case "":
-		erro(ctx, "empty modifier name: %v", ts(nameVal)).debug()
-		trace(ctx)
+		erro(ctx, "empty modifier name: %v", ts(nameVal)).trace()
 	}
 
 	if _, y := dialects[name]; y {
 		if p.dialect != "" {
-			erro(ctx, "multi-dialects unsupported, already defined '%s'", p.dialect).debug()
-			trace(ctx)
+			erro(ctx, "multi-dialects unsupported, already defined '%s'", p.dialect).trace()
 		}
 
 		p.dialect = name
 	} else if _, y = modifiers[name]; !y {
-		erro(ctx, "`%s` no such dialect or modifier", name).debug()
-		trace(ctx)
+		erro(ctx, "`%s` no such dialect or modifier", name).trace()
 	}
 
 	for p.tok != RPAREN && p.tok != EOF {
@@ -2726,16 +2628,14 @@ func (l unilo) modifier(ctx Context) (res *modifier) {
 
 		if p.tok == COMMA { p.next(ctx, true) }
 		if p.pos == t {
-			erro(ctx, "unsupported modifier arg: %v '%v'", p.tok, p.lit).debug()
-			trace(ctx)
+			erro(ctx, "unsupported modifier arg: %v '%v'", p.tok, p.lit).trace()
 		}
 	}
 
 	p.expect(ctx, RPAREN)
 
 	if nameVal == nil && len(elems) == 0 {
-		erro(ctx, "empty modifier").debug()
-		trace(ctx)
+		erro(ctx, "empty modifier").trace()
 	} else {
 		res = new(modifier)
 		res.position = _position(ctx)
@@ -2759,11 +2659,9 @@ func (l unilo) modification(ctx Context) *modification {
 
 	if len(elems) == 0 {
 		errostack(ctx, 5, "empty modifier group").debug()
-		trace(ctx)
 	}
 	if l.p.tok == COLON {
 		errostack(ctx, 5, "unexpected colon after modifer").debug()
-		trace(ctx)
 	}
     return &modification{valbase{_position(ctx)}, elems }
 }
@@ -2802,12 +2700,10 @@ func (l unilo) parse_rule(ctx Context, optvals, targets []Value) (result Value) 
 
 	var proj = _project(ctx)
 	if proj.keyword == PACKAGE {
-		erro(ctx, "rules forbidden in package : %v", targets).debug()
-		trace(ctx)
+		erro(ctx, "rules forbidden in package : %v", targets).trace()
 	}
     if proj != _scope(ctx).project {
-		erro(ctx, "mismatched project/scope : %v", targets).debug()
-		trace(ctx)
+		erro(ctx, "mismatched project/scope : %v", targets).trace()
 	}
 
 	// TODO: doc = p.leadComment
@@ -2857,13 +2753,11 @@ func (l unilo) parse_rule(ctx Context, optvals, targets []Value) (result Value) 
 	if t := targets[0]; l.p.configure {
 		d, a := proj.set(ctx, t, defVoid)
 		if d == nil && a == nil {
-			erro(at(ctx,t), "configure target '%v' not defined", t)
-			trace(ctx)
+			erro(at(ctx,t), "configure target '%v' not defined", t).trace()
 		} else if a == nil {
 			// ...
 		} else if _, y := a.(*def); !y {
-			erro(at(ctx,t), "configure target '%v' already taken: %v", t, ts(a))
-			trace(ctx)
+			erro(at(ctx,t), "configure target '%v' already taken: %v", t, ts(a)).trace()
 		}
 		if d != nil && !d.position.IsValid() { d.position = t.Position() }
 	}
@@ -2900,14 +2794,12 @@ func (l unilo) entries(ctx Context, prog *program, targets, options []Value) (re
 
         if isTrivial(target) {
             if true { continue }
-			erro(ctx, "trivial target; %v", targets).debug()
-			trace(ctx)
+			erro(ctx, "trivial target; %v", targets).trace()
         }
 
         var entry = prog.project.entry(ctx, options, target, prog)
         if entry == nil {
-            erro(ctx, "creating entry failed for %v", target).debug()
-			trace(ctx)
+            erro(ctx, "creating entry failed for %v", target).trace()
         }
 
 		res = append(res, entry)
@@ -2919,8 +2811,7 @@ func (l unilo) entries(ctx Context, prog *program, targets, options []Value) (re
 			}
         } else if l.p.configure {
             if entry.patterned(ctx) {
-                erro(ctx, "unsupported pattern configures: %v", target).debug()
-				trace(ctx)
+                erro(ctx, "unsupported pattern configures: %v", target).trace()
             }
             prog.project.configs = append(prog.project.configs, entry)
         }
@@ -2991,8 +2882,7 @@ func (l unilo) parse_def(ctx Context) {
 
 func (l unilo) parse_foreach(ctx Context) {
 	if l.p.spaces(ctx); l.p.tok == LINEND {
-		erro(at(ctx, l.p), "unexpected end of line").debug()
-		trace(ctx)
+		erro(at(ctx, l.p), "unexpected end of line").trace()
 	}
 
 	l.p.expect(ctx, FOREACH)
@@ -3028,8 +2918,7 @@ func (l unilo) parse_foreach(ctx Context) {
 		var a = map[string]Value{ "_" : nil }
 		for _, elem := range xmerge(final{ctx}, params...) {
 			if indeterminate(ctx, elem) {
-				erro(ctx, "indeterminate param: %v", ts(elem)).debug()
-				trace(ctx)
+				erro(ctx, "indeterminate param: %v", ts(elem)).trace()
 			} else if isTrivial(elem) {
 				if false { info(ctx, "trivial: %v", ts(elem)).debug() }
 			} else {
@@ -3048,8 +2937,7 @@ func (l unilo) parse_foreach(ctx Context) {
 
 func (l unilo) parse_for(ctx Context) {
 	if l.p.spaces(ctx); l.p.tok == LINEND {
-		erro(at(ctx, l.p), "unexpected end of line").debug()
-		trace(ctx)
+		erro(at(ctx, l.p), "unexpected end of line").trace()
 	}
 
 	var opts struct {
@@ -3060,8 +2948,7 @@ func (l unilo) parse_for(ctx Context) {
 	if l.p.expect(ctx, FOR); l.p.tok == LPAREN {
 		l.p.next(ctx, true) // LPAREN
 		if vals := parseOpts(ctx, &opts, l.values(ctx)...); vals != nil {
-			erro(at(ctx, vals[0]), "unexpected opts: %v", vals).debug()
-			trace(ctx)
+			erro(at(ctx, vals[0]), "unexpected opts: %v", vals).trace()
 		}
 		l.p.expect(ctx, RPAREN)
 	}
@@ -3083,8 +2970,7 @@ func (l unilo) parse_for(ctx Context) {
 	var vars = map[string]Value{}
 	for l.p.spaces(ctx); l.p.tok != EOF && !l.p.isEndOfLine(); l.p.spaces(ctx) {
 		if l.p.tok == AND && params == nil {
-			erro(at(ctx, l.p), "unexpected 'and'").debug()
-			trace(ctx)
+			erro(at(ctx, l.p), "unexpected 'and'").trace()
 		} else if l.p.tok == AND || params == nil {
 			if params = append(params, &nparam{p:l.p.Position()}); l.p.tok == AND {
 				l.p.next(ctx, true) // and
@@ -3098,11 +2984,9 @@ func (l unilo) parse_for(ctx Context) {
 			var s string
 
 			if x, y := a.(*pair); !y {
-				erro(at(ctx,a), "unexpected value: %v", ts(a)).debug()
-				trace(ctx)
+				erro(at(ctx,a), "unexpected value: %v", ts(a)).trace()
 			} else if s = x.key.string(at(ctx, x.key)); s == "" {
-				erro(at(ctx,a), "empty key: %v", ts(x.key)).debug()
-				trace(ctx)
+				erro(at(ctx,a), "empty key: %v", ts(x.key)).trace()
 			} else if g, y := x.val.(*group); y {
 				elems = g.elems
 			} else {
@@ -3113,8 +2997,7 @@ func (l unilo) parse_for(ctx Context) {
 			elems = xmerge(at(ctx, a), elems...)
 
 			if _, y := vars[s]; y {
-				erro(at(ctx, a), "duplicated key: %v", s).debug()
-				trace(ctx)
+				erro(at(ctx, a), "duplicated key: %v", s).trace()
 			} else {
 				vars[s] = &null{valbase{a.Position()}}
 			}
@@ -3209,8 +3092,7 @@ func (l unilo) parse_codeblock(ctx Context, t *template, vars map[string]Value) 
 	}
 
 	if !(l.p.pos < l.p.stop) {
-		erro(at(ctx,l.p.loc(l.p.pos)), "bad range: [%v %v) (%v)", l.p.pos, l.p.stop, t.name).debug(10)
-		trace(ctx)
+		erro(at(ctx,l.p.loc(l.p.pos)), "bad range: [%v %v) (%v)", l.p.pos, l.p.stop, t.name).trace()
 	}
 
 	var c = parser_code_context{automatic{Context:ctx}}
@@ -3253,12 +3135,10 @@ func (l unilo) parse_repeat(ctx Context, t *template, params []Value) {
 			e error
 		)
 		if fCpu, e = os.Create(profCpu); e != nil {
-			erro(ctx, "%T: %v", e, e).debug()
-			trace(ctx)
+			erro(ctx, "%T: %v", e, e).trace()
 		} else if e = pprof.StartCPUProfile(fCpu); e != nil {
 			fCpu.Close()
-			erro(ctx, "%v: %v", profCpu, e).debug()
-			trace(ctx)
+			erro(ctx, "%v: %v", profCpu, e).trace()
 		}
 		defer func() {
 			pprof.StopCPUProfile()
@@ -3266,8 +3146,7 @@ func (l unilo) parse_repeat(ctx Context, t *template, params []Value) {
 
 			var fMem, e = os.Create(profMem)
 			if e != nil {
-				erro(ctx, "%v", e).debug()
-				trace(ctx)
+				erro(ctx, "%v", e).trace()
 			}
 
 			runtime.GC() // update memory statistics
@@ -3275,8 +3154,7 @@ func (l unilo) parse_repeat(ctx Context, t *template, params []Value) {
 			fMem.Close()
 
 			if e != nil {
-				erro(ctx, "%v: %v", profMem, e).debug()
-				trace(ctx)
+				erro(ctx, "%v: %v", profMem, e).trace()
 			}
 		} ()
 	}
@@ -3288,8 +3166,7 @@ func (l unilo) parse_repeat(ctx Context, t *template, params []Value) {
 			m[s] = makeNull(v.Position())
 		}
 	} else {
-		erro(at(ctx,v), "empty template param name: %v %v", v, v).debug()
-		trace(ctx)
+		erro(at(ctx,v), "empty template param name: %v %v", v, v).trace()
 	}}
 
 	l.parse_codeblock(ctx, t, m)
@@ -3308,8 +3185,7 @@ func (l unilo) call(ctx Context, name Value, args []Value) (result bool) {
 		}
 	}
 
-	erro(ctx, "undefined template: %v", name).debug()
-	trace(ctx)
+	erro(ctx, "undefined template: %v", name).trace()
 	return
 }
 
@@ -3327,8 +3203,7 @@ func (l unilo) parse_clause(ctx Context) {
 
 	switch t := l.p.tok ; t {
 	case USE, TEMPLATE:
-		erro(ctx, "unexpected %v", t).debug()
-		trace(ctx)
+		erro(ctx, "unexpected %v", t).trace()
 	case  INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_include); return
 	case    FILES: l.spec(ctx, t, l.p.expect(ctx, t), l.files)        ; return
 	case   ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert)     ; return
@@ -3361,8 +3236,7 @@ func (l unilo) parse_clause(ctx Context) {
 	} else if truly(ctx, getParseIsConf{}) {
 		note(ctx, "bad clause: %v (kit=%s) after %v", l.p.tok, l.p.lit, vals).debug(3)
 	} else {
-		erro(ctx, "bad clause: %v (lit=%s) after %v", l.p.tok, l.p.lit, vals).debug()
-		trace(ctx)
+		erro(ctx, "bad clause: %v (lit=%s) after %v", l.p.tok, l.p.lit, vals).trace()
 	}
 }
 
@@ -3376,14 +3250,12 @@ type project_opt struct {
 
 func (l unilo) declare(ctx Context, keyword token, ident Value, name string, declOpts *project_opt) (result bool) {
     if name == "@" {
-        erro(ctx, "deprecated project name: @").debug()
-		trace(ctx)
+        erro(ctx, "deprecated project name: @").trace()
     }
 
     if _, o := l.find(name); o != nil {
         if _, y := o.(*builtin); y {
-            erro(ctx, "'%s' is a builtin name", name).debug()
-			trace(ctx)
+            erro(ctx, "'%s' is a builtin name", name).trace()
         }
     }
 
@@ -3403,8 +3275,7 @@ func (l unilo) declare(ctx Context, keyword token, ident Value, name string, dec
     if ll := _loader(l.loader.Context); ll != l.loader && ll == prev {
         if _, a := ll.project.projectname(ctx, name, dec.project); a != nil {
             if x, y := a.(*project); !y || x != dec.project {
-                erro(at(ctx,a), "%v: name already taken : %v", name, ts(a)).debug()
-				trace(ctx)
+                erro(at(ctx,a), "%v: name already taken : %v", name, ts(a)).trace()
             }
         }
     }
@@ -3439,8 +3310,7 @@ func (l unilo) declare(ctx Context, keyword token, ident Value, name string, dec
 	}
 
     if err := l.loadPlugin(ctx); err != nil {
-        erro(ctx, "load plugin failed: %v", err).debug()
-		trace(ctx)
+        erro(ctx, "load plugin failed: %v", err).trace()
     }
     return true
 }
@@ -3461,7 +3331,7 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 
 	var opts project_opt
 	if a := parseOpts(ctx, &opts, vals...); len(a) > 0 {
-		for _, v := range a { erro(at(ctx,v), "unknown option %v", ts(v)).debug() }
+		for _, v := range a { erro(at(ctx,v), "unknown option %v", ts(v)).trace() }
 		return
 	}
 
@@ -3482,16 +3352,13 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 			// TODO: validate basename as a valid identifier
 			ident = makeBareword(position, name)
 		} else {
-			erro(ctx, "invalid file: %v", filename).debug()
-			trace(ctx)
+			erro(ctx, "invalid file: %v", filename).trace()
 		}
 	} else if l.p.tok == TILDE {
 		if ext := filepath.Ext(filename); ext != ".smart" {
-			erro(at(ctx, l.p), "`%v` not a smart file", filepath.Base(filename)).debug()
-			trace(ctx)
+			erro(at(ctx, l.p), "`%v` not a smart file", filepath.Base(filename)).trace()
 		} else if s := strings.TrimSuffix(filepath.Base(filename), ext); s == "" {
-			erro(at(ctx, l.p), "`%v` not tilde name", filepath.Base(filename)).debug()
-			trace(ctx)
+			erro(at(ctx, l.p), "`%v` not tilde name", filepath.Base(filename)).trace()
 		} else {
 			ident = makeBareword(position, s)
 		}
@@ -3514,7 +3381,7 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 		l.p.spaces(ctx)
 
 		if len(comp.elems) == 0 {
-			// erro(ctx, "package name is empty (tok=%v %v)", t, p.tok).debug()
+			// erro(ctx, "package name is empty (tok=%v %v)", t, p.tok).trace()
 			// return
 		} else if 0 < base.len() {
 			implicitBase = base.string(ctx)
@@ -3530,22 +3397,19 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 	}
 
 	if name == "-" || name == "_" {
-		erro(ctx, "package name '%s' is preserved", name).debug()
-		trace(ctx)
+		erro(ctx, "package name '%s' is preserved", name).trace()
 	}
 
 	if 0 < count_error(ctx) {
 		// Don't bother parsing the rest on errors.
-		erro(at(ctx, l.p), "got %d errors parsing file: %s", filename).debug()
-		trace(ctx)
+		erro(at(ctx, l.p), "got %d errors parsing file: %s", filename).trace()
 	}
 
 	var _, prevDeclared = l.declares[name]
 
 	if l.declare(ctx, keyword, ident, name, &opts) {
 		if l.project == nil {
-			erro(ctx, "undeclared project: %v", ident).debug()
-			trace(ctx)
+			erro(ctx, "undeclared project: %v", ident).trace()
 		}
 
 		if false { defer l.closecurrent(ctx, name) }
@@ -3565,23 +3429,20 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 				//if p.lineComment != nil  { break }
 				//if p.tok == LINEND { break }
 				if l.p.tok == EOF {
-					erro(ctx, "unexpected end of file while parsing bases").debug()
-					trace(ctx)
+					erro(ctx, "unexpected end of file while parsing bases").trace()
 				}
 
 				vals := parseOpts(ctx, &opts, param)
 				if opts.final || keyword == PACKAGE { continue }
 				if !l.bases(ctx, "", merge(vals...)...) {
-					erro(ctx, "load bases failed: %v", vals).debug()
-					trace(ctx)
+					erro(ctx, "load bases failed: %v", vals).trace()
 				}
 			}
 			if l.p.tok != COMMA { break }
 		}
 		l.p.expect(ctx, RPAREN)
 	} else if !l.bases(ctx, implicitBase) { // for special bases, e.g. .base
-		erro(at(ctx, basePos), "loading bases failed").debug()
-		trace(ctx)
+		erro(at(ctx, basePos), "loading bases failed").trace()
 	}
 
 	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
@@ -3642,15 +3503,13 @@ func (l unilo) parse_file(ctx Context) (_ bool) {
 
 	switch keyword {
 	case PACKAGE, MODULE:
-		erro(ctx, "deprecated keyword: %s", keyword).debug()
-		trace(ctx)
+		erro(ctx, "deprecated keyword: %s", keyword).trace()
 	case CONFIGURE:
 		// var position = l.p.Position()
 		switch l.p.next(ctx, true); l.p.tok {
 		case DOT:
 			if err := l.config_dir(ctx, abs, abs); err != nil {
-				erro(ctx, "parsing configure directory failed, '%s': %v", abs, err).debug()
-				trace(ctx)
+				erro(ctx, "parsing configure directory failed, '%s': %v", abs, err).trace()
 			}
 
 			l.p.next(ctx, true) // skip the '.' token and consequence spaces
@@ -3658,14 +3517,12 @@ func (l unilo) parse_file(ctx Context) (_ bool) {
 			// var ident = makeBareword(position, filepath.Base(filepath.Dir(filename)))
 
 		default:
-			erro(ctx, "unknown configuration '%v', currently only 'configure .' is supported", l.p.tok).debug()
-			trace(ctx)
+			erro(ctx, "unknown configuration '%v', currently only 'configure .' is supported", l.p.tok).trace()
 		}
 
 	case PROJECT:
 		if flatmode {
-			erro(at(ctx, l.p), "project forbidden in flat file").debug()
-			trace(ctx)
+			erro(at(ctx, l.p), "project forbidden in flat file").trace()
 		}
 
 		var ident Value
@@ -3673,8 +3530,7 @@ func (l unilo) parse_file(ctx Context) (_ bool) {
 		var prev = l.project
 		ident, name, isMainFile = l.parse_project(ctx, keyword, isMainFile, filename)
 		if ident == nil {
-			erro(ctx, "parse project failed").debug()
-			trace(ctx)
+			erro(ctx, "parse project failed").trace()
 		}
 
 		if l.project != prev {

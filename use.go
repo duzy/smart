@@ -56,7 +56,7 @@ func (p *use) stat(ctx Context) (si *statinfo) {
         return
 }
 func (p *use) traverse(ctx Context) {
-        erro(at(ctx,p.position), "cant traverse 'use' %v", p.project).debug()
+        erro(at(ctx,p.position), "cant traverse 'use' %v", p.project).trace()
         return
 }
 func (p *use) stamp(ctx Context) (files []*File, err error) {
@@ -227,7 +227,7 @@ func (p *uselist) expand(ctx Context) (res Value) {
         return
 }
 func (p *uselist) traverse(ctx Context) {
-        erro(at(ctx,p.list[0].position), "cant traverse 'uselist'").debug()
+        erro(at(ctx,p.list[0].position), "cant traverse 'uselist'").trace()
         return
 }
 func (p *uselist) append(ctx Context, proj *project, params []Value, opts useOpts) {

@@ -314,8 +314,7 @@ func stat(ctx Context, name string, ii ...any) (file *File) {
         case stat_fileinfo: fileInfo = t.FileInfo
         case stat_nonexist: nonexist = t.bool
         default:
-            erro(ctx, "invalid stat arg: %v", ts(i)).debug(2)
-            return
+            erro(ctx, "invalid stat arg: %v", ts(i)).trace()
         }
     }
 
@@ -351,7 +350,7 @@ func stat(ctx Context, name string, ii ...any) (file *File) {
             }
         } else if dir != "" {
             if true { dir = "" } else if false {
-                erro(ctx, "dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub).debug(16)
+                erro(ctx, "dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub).trace()
                 unreachable("path error")
             } else {
                 return
@@ -464,15 +463,15 @@ func startCPUProfile(ctx Context, name string, heap ...bool) (stop func()) {
 
     f, e := os.Create(fn)
     if e != nil {
-        erro(ctx, "%T: %v", e, e).debug()
+        erro(ctx, "%T: %v", e, e).trace()
     } else if e = pprof.StartCPUProfile(f); e != nil {
-        erro(ctx, "%T: %v", e, e).debug()
+        erro(ctx, "%T: %v", e, e).trace()
     }
     return func() { if f != nil {
         if e != nil { pprof.StopCPUProfile() }
         if heap != nil && heap[0] { runtime.GC() // update memory statistics
             if e = pprof.WriteHeapProfile(f); e != nil {
-                erro(ctx, "WriteHeapProfile: %v", e).debug()
+                erro(ctx, "WriteHeapProfile: %v", e).trace()
             }
         }
         f.Close()
@@ -491,13 +490,13 @@ func startHeapProfile(ctx Context, name string) (stop func()) {
 
     f, e := os.Create(fn)
     if e != nil {
-        erro(ctx, "%T: %v", e, e).debug()
+        erro(ctx, "%T: %v", e, e).trace()
     }
     return func() { if f != nil {
         if e != nil { pprof.StopCPUProfile() }
         runtime.GC() // update memory statistics
         if e = pprof.WriteHeapProfile(f); e != nil {
-            erro(ctx, "WriteHeapProfile: %v", e).debug()
+            erro(ctx, "WriteHeapProfile: %v", e).trace()
         }
         f.Close()
     }}
@@ -508,12 +507,10 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
     case *rule:
         var y bool
         if result, y = executeEntry(ctx, g, args...); !y {
-            erro(ctx, "update '%v' failed", g).debug()
-            trace(ctx)
+            erro(ctx, "update '%v' failed", g).trace()
         }
     default:
-        erro(at(ctx,goal), "not an entry: %v", ts(goal)).debug()
-        trace(ctx)
+        erro(at(ctx,goal), "not an entry: %v", ts(goal)).trace()
     }
     return
 }
@@ -523,8 +520,7 @@ func (_tx *universe) run() (result []Value) {
 
     var main = _tx.globe.main
     if main == nil {
-        erro(_tx, "no targets to update `%v`", _tx.globe.goals).debug()
-        trace(_tx)
+        erro(_tx, "no targets to update `%v`", _tx.globe.goals).trace()
     }
 
     var ctx Context = closure_with(_tx, main.scope)
@@ -580,8 +576,7 @@ func (_tx *universe) run() (result []Value) {
             case *null, *none: // just ignore
             case *bareword:
                 if entries := proj.resolveEntries(ctx, t.s, true); entries == nil {
-                    erro(ctx, "no such entry `%s`", t.s).debug()
-                    trace(ctx)
+                    erro(ctx, "no such entry `%s`", t.s).trace()
                     return false
                 } else {
                     for _, entry := range entries {
@@ -591,8 +586,7 @@ func (_tx *universe) run() (result []Value) {
             case *delegate:
                 var s = t.string(ctx)
                 if entries := proj.resolveEntries(ctx, s, true); entries == nil {
-                    erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug()
-                    trace(ctx)
+                    erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
                     return false
                 } else {
                     for _, entry := range entries {
@@ -602,8 +596,7 @@ func (_tx *universe) run() (result []Value) {
             case flag:
                 var s = t.string(ctx)
                 if entries := proj.resolveEntries(ctx, s, true); entries == nil {
-                    erro(ctx, "no such entry `%s` (via `%v`)", s, t).debug()
-                    trace(ctx)
+                    erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
                     return false
                 } else {
                     for _, entry := range entries {
@@ -627,14 +620,12 @@ func (_tx *universe) run() (result []Value) {
                         }
                     }
                     if found == 0 {
-                        erro(ctx, `"%s" not loaded: %v`, s, args).debug()
-                        trace(ctx)
+                        erro(ctx, `"%s" not loaded: %v`, s, args).trace()
                         return false
                     }
                 }
             default:
                 errostack(ctx, 3, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).debug()
-                trace(ctx)
                 return false
             }
         }
@@ -692,13 +683,11 @@ func (u *universe) load() (err error) {
 
     if u.autoProfs {
         if f, e := os.Create(filepath.Join(workBaseDir, "load.cpu.auto.prof")); e != nil {
-            erro(ctx, "%v", e).debug()
-            trace(ctx)
+            erro(ctx, "%v", e).trace()
         } else {
             defer f.Close()
             if e := pprof.StartCPUProfile(f); e != nil {
-                erro(ctx, "could not start CPU profile: %v", e).debug()
-                trace(ctx)
+                erro(ctx, "could not start CPU profile: %v", e).trace()
             }
             defer pprof.StopCPUProfile()
         }
@@ -706,14 +695,12 @@ func (u *universe) load() (err error) {
             var prof string //= u.memProf
             if prof == "" { prof = filepath.Join(workBaseDir, "load.mem.auto.prof") }
             if f, e := os.Create(prof); e != nil {
-                erro(ctx, "%v", e).debug()
-                trace(ctx)
+                erro(ctx, "%v", e).trace()
             } else {
                 defer f.Close()
                 runtime.GC() // update memory statistics
                 if e := pprof.WriteHeapProfile(f); e != nil {
-                    erro(ctx, "could not start CPU profile: %v", e).debug()
-                    trace(ctx)
+                    erro(ctx, "could not start CPU profile: %v", e).trace()
                 }
             }
         } ()
@@ -738,8 +725,7 @@ func (u *universe) load() (err error) {
     var spec, _ = filepath.Rel(workBaseDir, base)
     if!l.directory(l.loader, spec, base, nil) { return }
     if l.globe.main == nil {
-        erro(ctx, "nothing loaded\n").debug()
-        trace(ctx)
+        erro(ctx, "nothing loaded\n").trace()
     }
     return
 }
@@ -850,8 +836,7 @@ func (l unilo) globe_declare(ctx Context, name string, keyword token) (d *declar
     var g = l.globe
     if x, y := g.loaded[absPath]; y {
         prompt(ctx, "%s: already declared : %v\n", absPath, x)
-        erro(ctx, "%v %v %v", name, spec, rel).debug()
-        trace(ctx)
+        erro(ctx, "%v %v %v", name, spec, rel).trace()
     }
 
     if l.declares == nil { l.declares = make(map[string]*declare) }

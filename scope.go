@@ -210,8 +210,7 @@ func (s *scope) auto(ctx Context, name string) (a *auto) {
 	var o Object
 	if a, o = s._auto(ctx, name); o != nil {
 		if a, y = o.(*auto); !y {
-			erro(ctx, "name already taken (%s)", typeof(o)).debug()
-			trace(ctx)
+			erro(ctx, "name already taken (%s)", typeof(o)).trace()
 		}
 	}
 	return
@@ -229,16 +228,14 @@ func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *de
 	case string: name = t
 	case  Value:
 		if indeterminate(ctx, t) {
-			erro(ctx, "indeterminate ident : %s", ts(ident)).debug()
-			trace(ctx)
+			erro(ctx, "indeterminate ident : %s", ts(ident)).trace()
 		}
 
 		name = t.string(ctx)
 	}
 
 	if name == "" {
-		erro(ctx, "empty name : %s", ts(ident)).debug()
-		trace(ctx)
+		erro(ctx, "empty name : %s", ts(ident)).trace()
 	}
 
 	var y bool

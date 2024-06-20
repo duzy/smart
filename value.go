@@ -438,7 +438,7 @@ func closure_entries(ctx Context, name string) (entries []entry) {
 func closure_entry(ctx Context, name string) (_ entry) {
     var entries = closure_entries(ctx, name)
     if n := len(entries) ; 0 < n {
-        if 1 < n { erro(ctx, "%d entries: %s", n, name).debug() }
+        if 1 < n { erro(ctx, "%d entries: %s", n, name).trace() }
         return entries[0]
     }
     return
@@ -523,7 +523,7 @@ func getRecipesHash(ctx Context, target Value, values ...Value) (k, v hashbytes,
 func updateRecipesHash(ctx Context, target Value) (k, v hashbytes, err error) {
     var program = _program(ctx)
     if k, v, err = getRecipesHash(ctx, target, program.recipes...); err != nil {
-        erro(at(ctx,program.position), "hashing recipes failed: %v", err).debug()
+        erro(at(ctx,program.position), "hashing recipes failed: %v", err).trace()
         return
     }
 
@@ -554,10 +554,10 @@ func updateRecipesHash(ctx Context, target Value) (k, v hashbytes, err error) {
 func isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
     var k, v hashbytes
     if program := _program(ctx); program == nil {
-        erro(ctx, "no program in context %v", ctx).debug()
+        erro(ctx, "no program in context %v", ctx).trace()
         return
     } else if k, v, err = getRecipesHash(ctx, target, program.recipes...); err != nil {
-        erro(at(ctx,program.position), "compute recipes hash failed: %v", err).debug()
+        erro(at(ctx,program.position), "compute recipes hash failed: %v", err).trace()
         return
     }
 
@@ -604,7 +604,7 @@ func wait(ctx Context, opts waitopts) (target Value, files []*File, execRes *exe
     } else if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
         var numRealErrs = 0
         for _, err := range calleeErrs {
-            erro(ctx, "%v: %v", target, err).debug()
+            erro(ctx, "%v: %v", target, err).trace()
             numRealErrs += 1
         }
         if numRealErrs == 0 { return } // simply return if no real errors
@@ -615,13 +615,13 @@ func wait(ctx Context, opts waitopts) (target Value, files []*File, execRes *exe
         if targetPos.IsValid() && !targetPos.Same(&ctxPos) {
             if f, y := toFile(v); y && f != nil && f.filemap != nil {
                 erro(at(ctx,targetPos), "waiting for '%v'", target)
-                erro(at(ctx,f.filemap.pattern), "via pattern '%v' (of %v)", v, f.filemap.project).debug()
+                erro(at(ctx,f.filemap.pattern), "via pattern '%v' (of %v)", v, f.filemap.project).trace()
             } else {
-                erro(at(ctx,targetPos), "waiting for '%v'", target).debug()
+                erro(at(ctx,targetPos), "waiting for '%v'", target).trace()
             }
         }
         if def, ok := v.(*def); ok && target != v && target != def.value { // trace source Def in diagnostics
-            erro(at(ctx,def.value), "waiting for def '%v': %v", def.name, def.value).debug()
+            erro(at(ctx,def.value), "waiting for def '%v': %v", def.name, def.value).trace()
         }
         return
     }
@@ -639,7 +639,7 @@ func wait(ctx Context, opts waitopts) (target Value, files []*File, execRes *exe
         // done!
     } else if files, err = target.stamp(ctx); err != nil {
         if p := target.Position(); p.IsValid() { erro(at(ctx,p), "%v", err) }
-        erro(ctx, "%v", err).debug()
+        erro(ctx, "%v", err).trace()
         return
     } else if opts.ReportUpdates {
         reportFileUpdates(ctx, files)
@@ -988,7 +988,7 @@ func compose(ctx Context, x, y Value) (res Value) {
     // 	}
     // }
 
-    erro(ctx, "compose: %v %v", ts(x), ts(y)).debug(3)
+    erro(ctx, "compose: %v %v", ts(x), ts(y)).trace()
 
     return makeBarecomp(x, y)//.suffix(ctx, y)
 }
@@ -1092,8 +1092,7 @@ func (p *null) prefix(_ Context, val Value) Value { return val }
 func (p *null) suffix(_ Context, val Value) Value { return val }
 func (p *null) expand(Context) Value { return p }
 func (p *null) traverse(ctx Context) {
-    erro(at(ctx,p), "null traversal").debug()
-    trace(ctx)
+    erro(at(ctx,p), "null traversal").trace()
 }
 func (p *null) cmp(ctx Context, v Value) (res cmpres) {
     if _, y := v.(*null); y {
@@ -1103,8 +1102,7 @@ func (p *null) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1136,8 +1134,7 @@ func (p *none) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1146,8 +1143,7 @@ func (p *none) prefix(_ Context, val Value) Value { return val }
 func (p *none) suffix(_ Context, val Value) Value { return val }
 func (p *none) expand(Context) Value { return p }
 func (p *none) traverse(ctx Context) {
-    erro(at(ctx,p), "none traversal").debug()
-    trace(ctx)
+    erro(at(ctx,p), "none traversal").trace()
 }
 
 type argumented_context struct { Context ; args []Value }
@@ -1222,8 +1218,7 @@ func (p *argumented) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1240,8 +1235,7 @@ func (p *argumented) traverse(ctx Context) {
             // TODO: deal with pattern args using expandPatterned instead of stenciling:
             if true && a.patterned(ctx) { if stems := _stems(ctx); len(stems) > 0 {
                 if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
-                    erro(at(ctx,a), "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).debug()
-                    trace(ctx)
+                    erro(at(ctx,a), "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).trace()
                 } else if f, y := toFile(val); y {
                     a = f
                 } else if f := proj.file(ctx, val.string(ctx)); f != nil {
@@ -1271,8 +1265,7 @@ func (p negative) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1311,7 +1304,6 @@ func stringMatch(ctx Context, p Value, i any) (full bool, s string, stems []stri
         if n := len(t); n > 0 { if t[0] == v { full, s = (n == 1), v } }
     default:
         errostack(at(ctx,p), 3, "%v: matching unsupported value: %v", ts(p), ts(i)).debug()
-        trace(ctx)
     }
     return
 }
@@ -1339,8 +1331,7 @@ func (p *escaped) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1393,8 +1384,7 @@ func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1480,8 +1470,7 @@ func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1558,8 +1547,7 @@ func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1592,8 +1580,7 @@ func (p *datetime) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1774,8 +1761,7 @@ func (p *URL) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1832,8 +1818,7 @@ func (p *raw) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1874,8 +1859,7 @@ func (p *strlit) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -1889,16 +1873,14 @@ func (p *strlit) traverse(ctx Context) { do(at(ctx, p.position), act_traverse{p}
 func (p *strlit) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if c, fullmatch = c.hit(ctx, STRING); c == nil {
         if cacheMapping(ctx) {
-            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug()
-            trace(ctx)
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
         }
         return
     }
 
     if res, fullmatch = c.hit(ctx, p.s); c == nil {
         if cacheMapping(ctx) {
-            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug()
-            trace(ctx)
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
         }
         return
     }
@@ -1976,8 +1958,7 @@ func (p *strval) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -2019,8 +2000,7 @@ func (p *punctuation) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -2032,8 +2012,7 @@ func (p *punctuation) match(ctx Context, i any) (full bool, res any, stems []str
     case   string: s = t
     case []string: if len(t) == 1 { s = t[0] } else { return }
     default:
-        erro(at(ctx,p), "%T: matching unsupported value: %T %v", p, i, i).debug()
-        trace(ctx)
+        erro(at(ctx,p), "%T: matching unsupported value: %T %v", p, i, i).trace()
     }
     if t := p.string(ctx); strings.HasPrefix(s, t) {
         full, res = len(s) == len(t), s[:len(t)]
@@ -2100,8 +2079,7 @@ func (p *bareword) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -2109,8 +2087,7 @@ func (p *bareword) cmp(ctx Context, v Value) (res cmpres) {
 func (p *bareword) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if res, fullmatch = c.hit(ctx, p.s); res == nil {
         if cacheMapping(ctx) {
-            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug()
-            trace(ctx)
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
         }
     }
     return
@@ -2165,8 +2142,7 @@ func (p *qualiword) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -2228,8 +2204,7 @@ func (p *elements) defs(ctx Context, s ...string) (res []*def) {
 func (p *elements) expandable(ctx Context) (res bool) {
     for i, elem := range p.elems {
         if elem == nil {
-            erro(ctx, "nil element #%d: %v", i, p).debug()
-            trace(ctx)
+            erro(ctx, "nil element #%d: %v", i, p).trace()
         } else if res = elem.expandable(ctx); res { break }
     }
     return
@@ -2296,8 +2271,7 @@ func condish(ctx Context, v Value) Value {
             if checkpoints {
                 if cond(x.Value) {
                     note(at(ctx,v), "nested condval: %v : %v", v, ts(v))
-                    erro(ctx, "%v", ts(ctx)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v", ts(ctx)).trace()
                 }
             }
             return x.Value // TODO: condless(x.Value)
@@ -2305,8 +2279,7 @@ func condish(ctx Context, v Value) Value {
             if checkpoints {
                 if cond(v) {
                     note(at(ctx,v), "nested condval: %v : %v", v, ts(v))
-                    erro(ctx, "%v", ts(ctx)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v", ts(ctx)).trace()
                 }
             }
             return v
@@ -2315,8 +2288,7 @@ func condish(ctx Context, v Value) Value {
         if checkpoints {
             if cond(x.Value) {
                 note(at(ctx,v), "nested condval: %v : %v", v, ts(v))
-                erro(ctx, "%v", ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "%v", ts(ctx)).trace()
             }
         }
         return x
@@ -2324,8 +2296,7 @@ func condish(ctx Context, v Value) Value {
         if checkpoints {
             if cond(v) {
                 note(at(ctx,v), "nesting condval: %v : %v", v, ts(v))
-                erro(ctx, "%v", ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "%v", ts(ctx)).trace()
             }
         }
         return condval{v} // condish
@@ -2386,8 +2357,7 @@ func (p condval) expand_check(ctx Context, v, res Value) {
         note(at(ctx,p), "%v\t: %v", p.Value, ts(p.Value))
         note(at(ctx,p), "%v\t: %v", v,       ts(v))
         note(at(ctx,p), "%v\t: %v", res,     ts(res))
-        erro(ctx, "%v", ts(ctx)).debug()
-        trace(ctx)
+        erro(ctx, "%v", ts(ctx)).trace()
     }
     if ex_final(ctx) {
         // ...
@@ -2395,8 +2365,7 @@ func (p condval) expand_check(ctx Context, v, res Value) {
         if v == nil {
             note(at(ctx,p), "%v → %v", p.Value, res)
             note(at(ctx,p), "%v : %v", p.Value, ts(p.Value))
-            erro(ctx, "%v", ts(ctx)).debug()
-            trace(ctx)
+            erro(ctx, "%v", ts(ctx)).trace()
             return
         }
         if !equal(ctx, v, p.Value) && p.Value.String() == v.String() {
@@ -2404,8 +2373,7 @@ func (p condval) expand_check(ctx Context, v, res Value) {
             note(at(ctx,p), "%v\t: %v", p.Value, ts(p.Value))
             note(at(ctx,p), "%v\t: %v", v,       ts(v))
             note(at(ctx,p), "%v\t: %v", res,     ts(res))
-            erro(ctx, "%v", ts(ctx)).debug()
-            trace(ctx)
+            erro(ctx, "%v", ts(ctx)).trace()
         }
     }
 }
@@ -2421,8 +2389,7 @@ func (p condval) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p condval) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && p.String() == v.String() {
-        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-        trace(ctx)
+        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
     }
 }
 
@@ -2499,8 +2466,7 @@ func (p disjunction) cmp(ctx Context, v Value) (res cmpres) {
         if p.Value == x.Value {
             if checkpoints {
                 if cr := p.Value.cmp(ctx, x.Value); cr != cmpEqual {
-                    erro(ctx, "%v, %v ⇔ %v", cr, ts(p.Value), ts(x.Value)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v, %v ⇔ %v", cr, ts(p.Value), ts(x.Value)).trace()
                 }
             }
             res = cmpEqual
@@ -2510,8 +2476,7 @@ func (p disjunction) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -2558,16 +2523,14 @@ func (p *barecomp) defs(ctx Context, s ...string) []*def { return p.elements.def
 func (p *barecomp) expandable(ctx Context) bool { return p.elements.expandable(ctx) }
 func (p *barecomp) expand_check(ctx Context, res Value) {
     if res == nil {
-        erro(at(ctx,p), "%v : %v → nil", p, ts(p)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "%v : %v → nil", p, ts(p)).trace()
     } else if p.expandable(ctx) && equal(ctx, p, res) {
         if s := p.String(); strings.Contains(s, "$_") {
             if r := res.String(); res == p || r == s || strings.Contains(r, "$_") {
                 if d := auto_find(ctx, "_"); d != nil {
                     note(at(ctx,d), "%v", ts(d))
                     note(at(ctx,p), "%v → %v", ts(p), ts(res))
-                    erro(ctx, "%v", ts(ctx)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v", ts(ctx)).trace()
                 }
             }
         }
@@ -2584,8 +2547,7 @@ func (p *barecomp) expand(ctx Context) (res Value) {
         var c int
         for i, val := range elems {
             if val == nil {
-                erro(at(ctx,p), "%v: nil component #%d", ts(p), i).debug()
-                trace(ctx)
+                erro(at(ctx,p), "%v: nil component #%d", ts(p), i).trace()
             }
 
             var v = val.expand(condless{ctx})
@@ -2636,8 +2598,7 @@ func (p *barecomp) expand(ctx Context) (res Value) {
 func (p *barecomp) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p *barecomp) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if indeterminate(ctx, p) {
-        erro(at(ctx,p), "%v : indeterminate : %v", p, ts(p)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "%v : indeterminate : %v", p, ts(p)).trace()
     }
 
     t := do(ctx, hit_bare{c, p})
@@ -2646,8 +2607,7 @@ func (p *barecomp) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool)
         return x.valcache, x.bool
     }
 
-    erro(at(ctx,p), "miss hit: %v : %v", ts(p), ts(ctx)).debug()
-    trace(ctx)
+    erro(at(ctx,p), "miss hit: %v : %v", ts(p), ts(ctx)).trace()
     return
 }
 func (p *barecomp) cmp(ctx Context, v Value) (res cmpres) {
@@ -2742,8 +2702,7 @@ func (p *barecomp) cmp_check(ctx Context, v Value, res cmpres) {
         note(at(ctx,p), "%v, %v ; %v == %v", res, p==v, p, v)
         note(at(ctx,p), "%v", ts(p))
         note(at(ctx,p), "%v", ts(v))
-        erro(ctx, "%v", ts(ctx)).debug()
-        trace(ctx)
+        erro(ctx, "%v", ts(ctx)).trace()
     }
 }
 func (p *barecomp) patterned(ctx Context) (res bool) {
@@ -2763,8 +2722,7 @@ func (p *barecomp) match(ctx Context, i any) (full bool, res any, stems []string
     case   string: s = t
     case []string: if len(t) == 1 { s = t[0] } else { return }
     default:
-        erro(at(ctx,p), "%T: matching unsupported value: %T %v", p, i, i).debug()
-        trace(ctx)
+        erro(at(ctx,p), "%T: matching unsupported value: %T %v", p, i, i).trace()
     }
     if s == "" { return }
 
@@ -2898,8 +2856,7 @@ func (p *barefile) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -3211,8 +3168,7 @@ func (p *globmeta) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -3220,8 +3176,7 @@ func (p *globmeta) cmp(ctx Context, v Value) (res cmpres) {
 func (p *globmeta) hit(ctx Context, fc *valcache) (res *valcache, fullmatch bool) {
     if res, fullmatch = fc.hit(ctx, p.token); res == nil {
         if cacheMapping(ctx) {
-            erro(ctx, "no valcache for %v : %v", p.token, fc).debug()
-            trace(ctx)
+            erro(ctx, "no valcache for %v : %v", p.token, fc).trace()
         }
     }
     return
@@ -3247,8 +3202,7 @@ func (p *globrange) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -3297,15 +3251,13 @@ func (p *path) String() (s string) {
 func (p *path) string(ctx Context) (s string) {
     for i, seg := range p.elems {
         if seg == nil {
-            erro(ctx, "`%s` nil path segment", p).debug()
-            trace(ctx)
+            erro(ctx, "`%s` nil path segment", p).trace()
         }
 
         var v string
         if isUndef(seg) {
             erro(at(ctx,seg), "undef path segment (%T)", seg)
-            erro(at(ctx,ctx), "… from this context: %s", ctx).debug()
-            trace(ctx)
+            erro(at(ctx,ctx), "… from this context: %s", ctx).trace()
         } else if v = seg.string(ctx); i > 0 {
             s += pathSep + v
         } else if v != "" {
@@ -3344,20 +3296,16 @@ func (p *path) expand(ctx Context) Value {
 func (p *path) delete(ctx Context) (files []*File, err error) {
     if si := p.stat(ctx); si == nil || si.file == nil {
         erro(ctx, "no path name for `%s`", p)
-        trace(ctx)
     } else if files, err = si.file.delete(ctx); err != nil {
         erro(ctx, "stamp: %v (%v)", err, si.file)
-        trace(ctx)
     }
     return
 }
 func (p *path) stamp(ctx Context) (files []*File, err error) {
     if si := p.stat(ctx); si == nil || si.file == nil {
         erro(ctx, "no path name for `%s`", p)
-        trace(ctx)
     } else if files, err = si.file.stamp(ctx); err != nil {
         erro(ctx, "stamp: %v (%v)", err, si.file)
-        trace(ctx)
     }
     return
 }
@@ -3366,7 +3314,6 @@ func (p *path) stat(ctx Context) (si *statinfo) {
     if p.patterned(ctx) {
         if val, rest := p.stencil(ctx, _stems(ctx)); len(rest) > 0 {
             erro(ctx, "partial match: %v", rest)
-            trace(ctx)
         } else {
             s = val.string(ctx)
         }
@@ -3416,14 +3363,12 @@ func (p *path) cmp_check(ctx Context, v Value, res cmpres) {
         note(at(ctx,p), "%v, %v, %v", p, p==v, res)
         note(at(ctx,p), "%v", ts(p))
         note(at(ctx,v), "%v", ts(v))
-        erro(ctx, "%v", ts(ctx)).debug()
-        trace(ctx)
+        erro(ctx, "%v", ts(ctx)).trace()
     }
 }
 func (p *path) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if indeterminate(ctx, p) {
-        erro(at(ctx,p), "%v : indeterminate : %v", p, ts(p)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "%v : indeterminate : %v", p, ts(p)).trace()
     }
 
     t := do(ctx, hit_path{c, p})
@@ -3432,8 +3377,7 @@ func (p *path) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
         return x.valcache, x.bool
     }
 
-    erro(at(ctx,p), "miss hit: %v : %v", ts(p), ts(ctx)).debug()
-    trace(ctx)
+    erro(at(ctx,p), "miss hit: %v : %v", ts(p), ts(ctx)).trace()
     return
 }
 
@@ -3455,8 +3399,7 @@ func (p *path) match2(ctx Context, srcs ...string) (full bool, res []string, ste
             note(ctx, "%v →", p)
             note(ctx, "%v →", s)
             note(ctx, "→ %v %v %v", full, res, stems)
-            erro(ctx, "%v", ts(ctx)).debug()
-            trace(ctx)
+            erro(ctx, "%v", ts(ctx)).trace()
         }}()}
     }
 
@@ -3467,7 +3410,7 @@ func (p *path) match2(ctx Context, srcs ...string) (full bool, res []string, ste
 
     var segs = expandPathElems(ctx, p.elems...)
     if expandable(final{ctx}, segs...) {
-        if false { erro(ctx, "expandable path: %v, %v", p, segs).debug() }
+        if false { erro(ctx, "expandable path: %v, %v", p, segs).trace() }
         return
     }
 
@@ -3505,8 +3448,7 @@ func (p *path) match2(ctx Context, srcs ...string) (full bool, res []string, ste
     for undone() {
         var seg = segs[nxtSeg]; nxtSeg += step // move to the next seg
         if s := correctPathPunForMatch(seg); s == nil {
-            erro(at(ctx,seg), "invalid path segment: %v", tv(seg)).debug()
-            trace(ctx)
+            erro(at(ctx,seg), "invalid path segment: %v", tv(seg)).trace()
         } else {
             seg = s
         }
@@ -3637,8 +3579,7 @@ func (p *path) match2(ctx Context, srcs ...string) (full bool, res []string, ste
         } else {
             if checkpoints {
                 if seg.string(ctx) == src {
-                    erro(ctx, "%v : %s == %s, (%d,%d) ; %v ; %s %s", p, ts(seg), ts(src), nxtSeg, nxtSrc, srcs, s, ss).debug(3)
-                    trace(ctx)
+                    erro(ctx, "%v : %s == %s, (%d,%d) ; %v ; %s %s", p, ts(seg), ts(src), nxtSeg, nxtSrc, srcs, s, ss).trace()
                 }
                 if false && y {
                     note(ctx, "%v: %d. %v , %d. %v ; %v %v", p, nxtSeg, ts(seg), nxtSrc, ts(src), s, ss).debug()
@@ -3710,8 +3651,7 @@ func (p *path) match(ctx Context, i any) (full bool, res any, stems []string) {
             return
         }
     default:
-        erro(at(ctx,p), "path.match unsupport %v", tv(i)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "path.match unsupport %v", tv(i)).trace()
     }
     return
 }
@@ -3738,8 +3678,7 @@ func (p *path) stencil(ctx Context, stems []string) (result Value, rest []string
 
 func (p *path) suffix(ctx Context, val Value) (res Value) {
     if isTrivial(val) {
-        erro(at(ctx,p), "path combines invalid value: %v", val).debug()
-        trace(ctx)
+        erro(at(ctx,p), "path combines invalid value: %v", val).trace()
     }
     if _, y := p.elems[0].(*pathpun); y /* && t.token == PLUS */ {
         note(at(ctx,p), "%v %v", p, val).debug(10)
@@ -3748,8 +3687,7 @@ func (p *path) suffix(ctx Context, val Value) (res Value) {
     var ti = p.len()-1
     var tv = p.elems[ti]
     if tv == nil {
-        erro(at(ctx,p), "path has nil tail").debug()
-        trace(ctx)
+        erro(at(ctx,p), "path has nil tail").trace()
     }
 
     var comp *barecomp
@@ -3814,8 +3752,7 @@ func (p *pathpun) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *pathpun) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && p.String() == v.String() {
-        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-        trace(ctx)
+        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
     }
 }
 func (p *pathpun) match(ctx Context, i any) (full bool, result any, stems []string) {
@@ -3824,15 +3761,13 @@ func (p *pathpun) match(ctx Context, i any) (full bool, result any, stems []stri
     case string: s = t
     case Value:
         if indeterminate(ctx, t) {
-            erro(ctx, "%v: pathpun.match unexpanded: %v", p, ts(i)).debug()
-            trace(ctx)
+            erro(ctx, "%v: pathpun.match unexpanded: %v", p, ts(i)).trace()
         }
 
         s = t.string(ctx)
 
     default:
-        erro(ctx, "%v: pathpun.match unsupported: %v", p, ts(i)).debug()
-        trace(ctx)
+        erro(ctx, "%v: pathpun.match unsupported: %v", p, ts(i)).trace()
     }
 
     if s == p.token.String() { full, result = true, s }
@@ -3915,8 +3850,7 @@ func (o fullname) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (o fullname) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && o.String() == v.String() {
-        erro(ctx, "%v != %v, %v", ts(o), ts(v), res).debug()
-        trace(ctx)
+        erro(ctx, "%v != %v, %v", ts(o), ts(v), res).trace()
     }
 }
 
@@ -3959,15 +3893,13 @@ func (p *File) absolute_delete(ctx Context) (files []*File, err error) {
 
     var fullname string
     if fullname = p.fullname(); fullname == "" {
-        erro(at(ctx,p), "file `%s` has no fullname", p).debug()
-        trace(ctx)
+        erro(at(ctx,p), "file `%s` has no fullname", p).trace()
     }
 
     if p.info == nil {
         // ignore
     } else if err = os.Remove(fullname); err != nil {
-        erro(at(ctx,p.position), "%v", err).debug()
-        trace(ctx)
+        erro(at(ctx,p.position), "%v", err).trace()
     } else {
         // TODO: ctx.Globe().delete(fullname)
         files = append(files, p)
@@ -3978,10 +3910,9 @@ func (p *File) absolute_delete(ctx Context) (files []*File, err error) {
 func (p *File) stamp(ctx Context) (files []*File, err error) {
     if positionalValueCtx { ctx = at(ctx, p.position) }
     if fullname := p.fullname(); fullname == "" {
-        erro(at(ctx,p), "file `%s` has no fullname", p).debug()
-        trace(ctx)
+        erro(at(ctx,p), "file `%s` has no fullname", p).trace()
     } else if p.info, err = os.Stat(fullname); err != nil {
-        if false { erro(ctx, "%v", err).debug() }
+        if false { erro(ctx, "%v", err).trace() }
     } else if p.info == nil {
         if false { warn(ctx, "%v: no such file", p).debug() }
     } else if files = append(files, p); !isConfigure(ctx) {
@@ -4018,13 +3949,11 @@ func (p *File) stat(ctx Context) (si *statinfo) {
         // good
     } else if pe, ok := err.(*fs.PathError); ok {
         if false {
-            erro(at(ctx,p.position), "File.stat %v: %v", trimPromptString(pe.Path), pe.Err).debug()
-            trace(ctx)
+            erro(at(ctx,p.position), "File.stat %v: %v", trimPromptString(pe.Path), pe.Err).trace()
         }
         return
     } else {
-        erro(at(ctx,p.position), "File.stat: %v", err).debug()
-        trace(ctx)
+        erro(at(ctx,p.position), "File.stat: %v", err).trace()
     }
     return &statinfo{ file: p }
 }
@@ -4061,14 +3990,12 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.filebase == x.filebase {
             res = cmpEqual
         } else if checkpoints && p.fullname() == x.fullname() {
-            erro(ctx, "same files: %v != %v", ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "same files: %v != %v", ts(p), ts(v)).trace()
         }
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -4092,8 +4019,7 @@ func (p *File) match(ctx Context, i any) (full bool, s any, stems []string) {
             return p.match1(ctx, t.string(ctx))
         }
     default:
-        erro(at(ctx,p.position), "matching file '%v' with unknown input: %v", p, i).debug()
-        trace(ctx)
+        erro(at(ctx,p.position), "matching file '%v' with unknown input: %v", p, i).trace()
     }
     return
 }
@@ -4163,8 +4089,7 @@ func (p flag) match(ctx Context, i any) (full bool, res any, stems []string) {
         }
     case *none, *null:
     default:
-        erro(at(ctx,p), "%v → %v", p, ts(i)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "%v → %v", p, ts(i)).trace()
     }
     return
 }
@@ -4192,7 +4117,7 @@ func (p flag) stencil(ctx Context, stems []string) (val Value, rest []string) {
 }
 func (p flag) opt(ctx Context, name string) (res string, match bool) {
     if isTrivial(p.Value) {
-        if false { erro(at(ctx,p), "flag name is trivial").debug(16) }
+        if false { erro(at(ctx,p), "flag name is trivial").trace() }
     } else if f, y := p.Value.(flag); y {
         res, match = f.opt(ctx, name)
     } else if s := p.Value.string(ctx); s == name {
@@ -4245,8 +4170,7 @@ func (p flag) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -4254,14 +4178,12 @@ func (p flag) cmp(ctx Context, v Value) (res cmpres) {
 func (p flag) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if indeterminate(ctx, p.Value) {
-        erro(at(ctx,p), "%v : indeterminate : %v", p, ts(p.Value)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "%v : indeterminate : %v", p, ts(p.Value)).trace()
     }
 
     if c, fullmatch = c.hit(ctx, MINUS); c == nil {
         if cacheMapping(ctx) {
-            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug()
-            trace(ctx)
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
         }
         return
     }
@@ -4273,8 +4195,7 @@ func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
 
     if res, fullmatch = c.hit(ctx, p.Value); c == nil {
         if cacheMapping(ctx) {
-            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).debug()
-            trace(ctx)
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
         }
         return
     }
@@ -4301,7 +4222,7 @@ func (p *compound) String() (s string) {
     // Escape string chars
     for i := strings.IndexAny(s, escapedChars); i != -1; {
         if _, err = buf.WriteString(s[:i]); err != nil {
-            // erro(at(ctx,p), "%v", err).debug()
+            // erro(at(ctx,p), "%v", err).trace()
             panic(err)
             return
         }
@@ -4313,7 +4234,7 @@ func (p *compound) String() (s string) {
         case '\n': esc = `\n`
         }
         if _, err = buf.WriteString(esc); err != nil {
-            // erro(at(ctx,p), "%v", err).debug()
+            // erro(at(ctx,p), "%v", err).trace()
             panic(err)
             return
         }
@@ -4378,8 +4299,7 @@ func (p *compound) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -4449,21 +4369,18 @@ func (p *list) expand(ctx Context) (res Value) {
         if s1, s2 := ts(p.elems), ts(a); (d && s1 == s2) || (!d && s1 != s2) {
             for i, v := range a {
                 if p.len() <= i {
-                    erro(ctx, "%d. {=nil} → %v", i, ts(v)).debug()
-                    trace(ctx); continue
+                    erro(ctx, "%d. {=nil} → %v", i, ts(v)).trace()
                 }
 
                 var t = p.elems[i]
                 var x = equal(ctx, t, v)
                 var y = equal(ctx, v, t)
                 if x != y {
-                    erro(ctx, "%d. %v → %v → equal→%v,%v", i, ts(t), ts(v), x, y).debug()
-                    trace(ctx)
+                    erro(ctx, "%d. %v → %v → equal→%v,%v", i, ts(t), ts(v), x, y).trace()
                 }
             }
 
-            erro(ctx, "wrong: diff=%v : %v → %v", d, s1, s2).debug()
-            trace(ctx)
+            erro(ctx, "wrong: diff=%v : %v → %v", d, s1, s2).trace()
         }
     }
     return
@@ -4541,11 +4458,9 @@ func (p *list) cmp(ctx Context, v Value) (res cmpres) {
 func (p *list) cmp_check(ctx Context, v Value, res *cmpres) {
     if *res != cmpEqual {
         if s1, s2 := ts(p), ts(v) ; s1 == s2 {
-            erro(ctx, "%v, %v ⇔ %v", *res, s1, s2).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", *res, s1, s2).trace()
         } else if false && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", *res, s1, s2).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", *res, s1, s2).trace()
         }
     }
     return
@@ -4648,7 +4563,6 @@ func (p *group) expand(ctx Context) (res Value) {
 }
 func (p *group) traverse(ctx Context) {
     errostack(at(ctx,p.position), 3, "traversing group: %v", p).debug()
-    trace(ctx)
 }
 func (p *group) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*group); y {
@@ -4661,8 +4575,7 @@ func (p *group) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -4683,8 +4596,7 @@ func parseGroupValue(ctx Context, g *group) (result Value) {
         case *group: if len(kind.elems) > 0 {
             var ( name = kind.elems[0]; y bool )
             if word, y = name.(*bareword); !y {
-                erro(at(ctx,name), "unsupported name type: %T %v", name, name).debug()
-                trace(ctx)
+                erro(at(ctx,name), "unsupported name type: %T %v", name, name).trace()
             }
         }}
         if word != nil {
@@ -4811,12 +4723,10 @@ func (p *pair) cmp(ctx Context, v Value) (res cmpres) {
         if p == x {
             if checkpoints {
                 if cr := p.key.cmp(ctx, x.key); cr != cmpEqual {
-                    erro(ctx, "%v, %v ⇔ %v", cr, ts(p.key), ts(x.key)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v, %v ⇔ %v", cr, ts(p.key), ts(x.key)).trace()
                 }
                 if cr := p.val.cmp(ctx, x.val); cr != cmpEqual {
-                    erro(ctx, "%v, %v ⇔ %v", cr, ts(p.val), ts(x.val)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v, %v ⇔ %v", cr, ts(p.val), ts(x.val)).trace()
                 }
             }
             res = cmpEqual
@@ -4831,8 +4741,7 @@ func (p *pair) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
@@ -4840,7 +4749,6 @@ func (p *pair) cmp(ctx Context, v Value) (res cmpres) {
 func (p *pair) traverse(ctx Context) {
     erro(ctx, "traversing pair '%v' is undefined", p)
     errostack(ctx, -1, "pair is not traversible: %v", p).debug()
-    trace(ctx)
 }
 
 type skipped struct { Value }
@@ -4914,8 +4822,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
     x = _x.expand(ctx)
 
     if _, y := x.(disjunction); y {
-        erro(ctx, "TODO: %v", ts(x)).debug()
-        trace(ctx)
+        erro(ctx, "TODO: %v", ts(x)).trace()
     }
 
     if l, y := x.(*list); y {
@@ -4960,7 +4867,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
             default:     s = t.string(ctx)
             }
             if s == "" {
-                if false { erro(ctx, "empty unresolved name: %v", ts(x)).debug(3) }
+                if false { erro(ctx, "empty unresolved name: %v", ts(x)).trace() }
                 if false { return }
             } else if entry {
                 v = project_entry(ctx, s)
@@ -5010,8 +4917,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
 func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, res, x Value, a []Value) {
     if res == nil {
         if !_cl && x == nil {
-            erro(ctx, "%v: %v → %v", ts(p), ts(_x), ts(x)).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v → %v", ts(p), ts(_x), ts(x)).trace()
         }
 
         var v = _x
@@ -5021,32 +4927,27 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, res,
             note(ctx, "%v", ts(_x))
             note(ctx, "%v", ts(x))
             note(ctx, "%v", ts(p))
-            erro(ctx, "%v", ts(ctx)).debug()
-            trace(ctx)
+            erro(ctx, "%v", ts(ctx)).trace()
         }
 
         if _cl {
             // TODO: closure checkpoints ...
         } else if _x == nil {
             note(ctx, "%v: nil", ts(p))
-            erro(ctx, "%v", ts(ctx)).debug()
-            trace(ctx)
+            erro(ctx, "%v", ts(ctx)).trace()
         } else if d, y := _x.(*def); y {
             if d == nil {
-                erro(ctx, "%v", ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "%v", ts(ctx)).trace()
             } else if d.value != nil {
                 note(ctx, "%v", ts(_x))
                 note(ctx, "%v", ts(x))
                 note(ctx, "%v", ts(p))
-                erro(ctx, "%v", ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "%v", ts(ctx)).trace()
             }
         }
     } else if false && p != res && equal(ctx, p, res) {
         note(ctx, "%v: %p != %p", ts(res), res, p)
-        erro(ctx, "%v", ts(ctx)).debug()
-        trace(ctx)
+        erro(ctx, "%v", ts(ctx)).trace()
     }
 }
 
@@ -5069,14 +4970,12 @@ func (p *delegate) string(ctx Context) (s string) {
             if s == "" {
                 erro(ctx, "%v", ts(p))
                 erro(ctx, "%v", p)
-                erro(ctx, "%v", ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "%v", ts(ctx)).trace()
             } else if !filepath.IsAbs(s) {
                 erro(ctx, "%v", p)
                 erro(ctx, "%v", ts(p))
                 erro(ctx, "→ %v", s)
-                erro(ctx, "%v", ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "%v", ts(ctx)).trace()
             }
         }
         if p.String() == "$." {
@@ -5084,8 +4983,7 @@ func (p *delegate) string(ctx Context) (s string) {
                 erro(ctx, "%v", p)
                 erro(ctx, "%v", ts(p))
                 erro(ctx, "→ %v", s)
-                erro(ctx, "%v", ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "%v", ts(ctx)).trace()
             }
         }
     }
@@ -5131,30 +5029,25 @@ func (p *delegate) exstr(ctx Context, f func(Value)) {
 func (p *delegate) exstr_check(ctx Context, v Value, nr bool) {
     if false && p.String() == "$/" {
         note(at(ctx,p), "%v → %v", ts(p), ts(v))
-        erro(ctx, "%v", ts(ctx)).debug()
-        trace(ctx)
+        erro(ctx, "%v", ts(ctx)).trace()
     }
     if nr {
         var u = v.expandable(ctx)
         if v == p || (false && v.refs(ctx, p.x)) {
             note(at(ctx,p), "%v → %v (%v)", ts(p), ts(v), (v==p))
-            erro(ctx, "%v", ts(ctx)).debug()
-            trace(ctx)
+            erro(ctx, "%v", ts(ctx)).trace()
         }
         if u && v == p {
             note(at(ctx,p), "%v → %v", ts(p), ts(v))
-            erro(ctx, "%v", ts(ctx)).debug()
-            trace(ctx)
+            erro(ctx, "%v", ts(ctx)).trace()
         }
         if p.String() == v.String() {
             if u {
                 note(at(ctx,p), "%v → %v , %v", ts(p), ts(v), p.cmp(ctx, v))
-                erro(ctx, "%v", ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "%v", ts(ctx)).trace()
             } else {
                 note(at(ctx,p), "%v → %v , %v", ts(p), ts(v), v.cmp(ctx, p))
-                erro(ctx, "%v", ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "%v", ts(ctx)).trace()
             }
             return
         }
@@ -5176,8 +5069,7 @@ func (p *delegate) refs(ctx Context, v Value) (res bool) {
 }
 func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
     if p.x == nil {
-        erro(at(ctx,p), "delegation of nil (s=%v)", p, s).debug()
-        trace(ctx)
+        erro(at(ctx,p), "delegation of nil (s=%v)", p, s).trace()
     } else if d, y := p.x.(*def); y {
         if y = len(s) == 0; !y {
             for _, a := range s { if y = d.ident(ctx) == a; y { break } }
@@ -5263,24 +5155,20 @@ func (p *delegate) match(ctx Context, i any) (full bool, s any, stems []string) 
         if v != p { full, s, stems = v.match(ctx, i) }
         return
     } else {
-        erro(ctx, "%v: expand to nil", p).debug()
-        trace(ctx)
+        erro(ctx, "%v: expand to nil", p).trace()
     }
     return
 }
 func (p *delegate) stat(ctx Context) (si *statinfo) {
-    erro(at(ctx,p.position), "cant stat delegate %v, must expand it first", p).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "cant stat delegate %v, must expand it first", p).trace()
     return
 }
 func (p *delegate) stamp(ctx Context) (file []*File, err error) {
-    erro(at(ctx,p.position), "cant stamp delegate %v, must expand it first", p).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "cant stamp delegate %v, must expand it first", p).trace()
     return
 }
 func (p *delegate) delete(ctx Context) (file []*File, err error) {
-    erro(at(ctx,p.position), "cant delete delegate %v, must expand it first", p).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "cant delete delegate %v, must expand it first", p).trace()
     return
 }
 func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
@@ -5298,17 +5186,14 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
 
         if checkpoints {
             if t != cmpEqual && p.x.String() == d.x.String() {
-                erro(at(ctx,p.x), "%v: %v %v", ts(p), ts(p.x), ts(d.x)).debug()
-                trace(ctx)
+                erro(at(ctx,p.x), "%v: %v %v", ts(p), ts(p.x), ts(d.x)).trace()
             }
             if len(p.a) == len(d.a) { for i, v := range p.a {
                 if v.cmp(ctx, d.a[i]) != cmpEqual && v.String() == d.a[i].String() {
-                    erro(at(ctx,v), "%v: %v %v", ts(p), ts(v), ts(d.a[i])).debug()
-                    trace(ctx)
+                    erro(at(ctx,v), "%v: %v %v", ts(p), ts(v), ts(d.a[i])).trace()
                 }
             }} else if false {
-                erro(at(ctx,p.x), "%v: %v %v", ts(p), ts(p.x), ts(d.x)).debug()
-                trace(ctx)
+                erro(at(ctx,p.x), "%v: %v %v", ts(p), ts(p.x), ts(d.x)).trace()
             }
         }
 
@@ -5330,8 +5215,7 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *delegate) cmp_check(ctx Context, v Value, res *cmpres) {
     if *res != cmpEqual && /* p.String() == v.String() */ts(p) == ts(v) {
-        erro(ctx, "%v, %v ⇔ %v, %v ⇔ %v", *res, p, v, ts(p), ts(v)).debug()
-        trace(ctx)
+        erro(ctx, "%v, %v ⇔ %v, %v ⇔ %v", *res, p, v, ts(p), ts(v)).trace()
     }
 }
 
@@ -5382,14 +5266,12 @@ func (p *closure) match(ctx Context, i any) (full bool, s any, stems []string) {
         return v.match(ctx, i)
     } else if false {
         errostack(at(ctx,p), 3, "unexpand closure: %v", v).debug()
-        trace(ctx)
     }
     return
 }
 func (p *closure) refs(ctx Context, v Value) (res bool) {
     if p.x == nil {
-        erro(at(ctx,p), "closure of nil: %v (%v)", ts(p), ts(v)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "closure of nil: %v (%v)", ts(p), ts(v)).trace()
     }
     if p == v || p.x == v || p.x.refs(ctx, v) { return true }
     for _, a := range p.a { if a.refs(ctx, v) { return true } }
@@ -5400,18 +5282,15 @@ func (p *closure) traverse(ctx Context) {
     p.exstr(ctx, func(v Value) { v.traverse(ctx) })
 }
 func (p *closure) stat(ctx Context) (si *statinfo) {
-    erro(at(ctx,p.position), "cant stat closure %v, must expand it first", p).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "cant stat closure %v, must expand it first", p).trace()
     return
 }
 func (p *closure) stamp(ctx Context) (file []*File, err error) {
-    erro(at(ctx,p.position), "cant stamp closure %v, must expand it first", p).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "cant stamp closure %v, must expand it first", p).trace()
     return
 }
 func (p *closure) delete(ctx Context) (file []*File, err error) {
-    erro(at(ctx,p.position), "cant stamp closure %v, must expand it first", p).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "cant stamp closure %v, must expand it first", p).trace()
     return
 }
 func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
@@ -5432,8 +5311,7 @@ func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *closure) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && p.String() == v.String() {
-        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-        trace(ctx)
+        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
     }
 }
 
@@ -5484,8 +5362,7 @@ func (p *selection) expand(ctx Context) (res Value) {
     var o = p.o.expand(ctx)
     if checkpoints {
         if x, y := o.(condval); y {
-            erro(ctx, "wrong: %v", ts(x)).debug()
-            trace(ctx)
+            erro(ctx, "wrong: %v", ts(x)).trace()
         }
     }
     if p.t.isSelectProg() {
@@ -5501,8 +5378,7 @@ func (p *selection) expand(ctx Context) (res Value) {
     var s = p.s.expand(ctx)
     if checkpoints {
         if x, y := s.(condval); y {
-            erro(ctx, "wrong: %v", ts(x)).debug()
-            trace(ctx)
+            erro(ctx, "wrong: %v", ts(x)).trace()
         }
     }
     if x, y := o.(interface{ sel(Context, string) any }); y && isFinalValue(ctx, s) {
@@ -5564,25 +5440,21 @@ func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
                 note(ctx, "%v %v, %v", ts(p.o), ts(x.o), p.o.cmp(ctx, x.o))
                 note(ctx, "%v %v, %v", ts(p.s), ts(x.s), p.s.cmp(ctx, x.s))
             }
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
 }
 func (p *selection) stat(ctx Context) (si *statinfo) {
-    erro(at(ctx,p.position), "cant stat selection %v, must expand it first", p).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "cant stat selection %v, must expand it first", p).trace()
     return
 }
 func (p *selection) stamp(ctx Context) (file []*File, err error) {
-    erro(at(ctx,p.position), "cant stamp selection %v, must expand it first", p).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "cant stamp selection %v, must expand it first", p).trace()
     return
 }
 func (p *selection) delete(ctx Context) (file []*File, err error) {
-    erro(at(ctx,p.position), "cant stamp selection %v, must expand it first", p).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "cant stamp selection %v, must expand it first", p).trace()
     return
 }
 
@@ -5732,8 +5604,7 @@ func (p *percpat) stencil(ctx Context, stems []string) (val Value, rest []string
     if isTrivial(p.Prefix) {
         // does nothing
     } else if p.Prefix.patterned(ctx) {
-        erro(at(ctx,p.Prefix), "patterned prefix: %T %v", p.Prefix, p.Prefix).debug()
-        trace(ctx)
+        erro(at(ctx,p.Prefix), "patterned prefix: %T %v", p.Prefix, p.Prefix).trace()
     } else {
         vals = append(vals, p.Prefix)
     }
@@ -5803,16 +5674,14 @@ func (p *percpat) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-            trace(ctx)
+            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
 }
 func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if indeterminate(ctx, p) {
-        erro(at(ctx,p), "valcache %v : indeterminate element : %v", p, ts(p)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "valcache %v : indeterminate element : %v", p, ts(p)).trace()
     }
 
     t := do(&percpat_hit{ctx, p}, hit_perc{c, p.string(ctx)})
@@ -5821,8 +5690,7 @@ func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) 
         return x.valcache, x.bool
     }
 
-    erro(at(ctx,p), "unhit: %v : %v", ts(p), ts(ctx)).debug()
-    trace(ctx)
+    erro(at(ctx,p), "unhit: %v : %v", ts(p), ts(ctx)).trace()
     return
 }
 
@@ -6001,7 +5869,6 @@ func (p *globpat) match(ctx Context, i any) (full bool, result any, stems []stri
         }
     default:
         errostack(at(ctx,p), 3, "%v : unsupported match type: %v", p, ts(i)).debug()
-        trace(ctx)
     }
 
     var err error
@@ -6009,13 +5876,11 @@ func (p *globpat) match(ctx Context, i any) (full bool, result any, stems []stri
     if full, stems, err = globMatch(ctx, pattern, s); full { result = s }
     if err != nil {
         errostack(at(ctx,p), 3, "%v : glob error: %v", p, err).debug()
-        trace(ctx)
     }
     return
 }
 func (p *globpat) stencil(ctx Context, stems []string) (val Value, rest []string) {
     erro(ctx, "Unimplemented globpat stencil %v (stems=%v)", p, stems)
-    trace(ctx)
     return
 }
 func (p *globpat) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
@@ -6037,14 +5902,12 @@ func (p *globpat) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *globpat) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && p.String() == v.String() {
-        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-        trace(ctx)
+        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
     }
 }
 func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
     if indeterminate(ctx, p) {
-        erro(at(ctx,p), "%v : indeterminate : %v", p, ts(p)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "%v : indeterminate : %v", p, ts(p)).trace()
     }
 
     t := do(&globpat_hit{ctx, p}, hit_glob{c, p.string(ctx)})
@@ -6053,8 +5916,7 @@ func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
         return x.valcache, x.bool
     }
 
-    erro(at(ctx,p), "miss hit: %v : %v", ts(p), ts(ctx)).debug()
-    trace(ctx)
+    erro(at(ctx,p), "miss hit: %v : %v", ts(p), ts(ctx)).trace()
     return
 }
 
@@ -6073,7 +5935,6 @@ func (p *regexpat) match(ctx Context, i any) (full bool, result any, stems []str
         case  []string: if len(t) == 1 { str = t[0] } else { return }
         default:
             errostack(at(ctx,p), 3, "%T %v :matching unsupported value: %T %v", p, p, i, i).debug()
-            trace(ctx)
         }
 
         if sms := p.Regexp.FindStringSubmatch(str); sms != nil && sms[0] == str {
@@ -6085,7 +5946,6 @@ func (p *regexpat) match(ctx Context, i any) (full bool, result any, stems []str
 func (p *regexpat) stencil(ctx Context, stems []string) (val Value, rest []string) {
     if p.Regexp != nil {
         erro(ctx, "regexp stencil unsupported: %v %v", p, stems)
-        trace(ctx)
     } else {
         rest = stems
     }
@@ -6111,16 +5971,14 @@ func (p *regexpat) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *regexpat) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && p.String() == v.String() {
-        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).debug()
-        trace(ctx)
+        erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
     }
 }
 func (p *regexpat) traverse(ctx Context) { do(at(ctx, p), act_traverse{p}) }
 func (p *regexpat) expand(Context) Value { return p }
 func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if indeterminate(ctx, p) {
-        erro(at(ctx,p), "valcache %v : indeterminate element : %v", p, ts(p)).debug()
-        trace(ctx)
+        erro(at(ctx,p), "valcache %v : indeterminate element : %v", p, ts(p)).trace()
     }
 
     t := do(&regexpat_hit{ctx, p}, hit_regex{c, p.string(ctx)})
@@ -6129,8 +5987,7 @@ func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool)
         return x.valcache, x.bool
     }
 
-    erro(at(ctx,p), "unhit: %v : %v", ts(p), ts(ctx)).debug()
-    trace(ctx)
+    erro(at(ctx,p), "unhit: %v : %v", ts(p), ts(ctx)).trace()
     return
 }
 
@@ -6161,7 +6018,7 @@ func values(args ...any) (elems []Value) {
                 elems = append(elems, values(v.Index(n).Interface())...)
             }
         } else {
-            //erro(ctx, "'%v' is not value type (%T)", a, a).debug(6)
+            //erro(ctx, "'%v' is not value type (%T)", a, a).trace()
         }
     }
     return
@@ -6302,8 +6159,7 @@ func expand(ctx Context, values ...Value) (elems []Value) {
                     a := elem.cmp(ctx, v) // equal(ctx, elem, v)
                     b := v.cmp(ctx, elem) // equal(ctx, v, elem)
                     if a != b {
-                        erro(ctx, "%v → %v : equal→%v,%v", ts(elem), ts(v), a, b).debug()
-                        trace(ctx)
+                        erro(ctx, "%v → %v : equal→%v,%v", ts(elem), ts(v), a, b).trace()
                     }
                 }
             }
@@ -6401,8 +6257,7 @@ func ease(ctx Context, a any) (res Value) {
     case   []bare: for _, s := range t { elems = append(elems, makeBareword(_position(ctx), string(s))) }
     case []string: for _, s := range t { elems = append(elems, makeStrlit(  _position(ctx),        s )) }
     default:
-        erro(ctx, "unsupported result: %v", tv(t)).debug()
-        trace(ctx)
+        erro(ctx, "unsupported result: %v", tv(t)).trace()
     }
 
     if n := len(elems) ; 1 == n {
@@ -6677,8 +6532,8 @@ func evoke(ctx Context, x Value, o, a []Value) (_ Value, _ []Value) {
     var ev = evocation{ctx, x, copyvals(a), o}
     switch i := x.(type) {
     case *closure, *delegate, nil:
-        erro(ctx, "illicit x=%v, o=%v, a=%v", ts(x), ts(o), ts(a)).debug()
-        trace(ctx); return
+        erro(ctx, "illicit x=%v, o=%v, a=%v", ts(x), ts(o), ts(a)).trace()
+        return
     case interface{ evoke(*evocation) Value }:
         return i.evoke(&ev), ev.a
     default:

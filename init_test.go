@@ -67,13 +67,13 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 	}
 
 	if e := ctx.load(); e != nil {
-		erro(ctx, "%v", e).debug()
+		erro(ctx, "%v", e).trace()
         if !_dt_ { trace(ctx) }
 	} else if m := ctx.globe.main; m == nil {
-		erro(ctx, "%s", dir).debug()
+		erro(ctx, "%s", dir).trace()
         if !_dt_ { trace(ctx) }
 	} else if name != "" && m.name != name {
-		erro(ctx, "project %v != %v", m.name, name).debug(1, skipint{3})
+		erro(ctx, "project %v != %v", m.name, name).trace()
         if !_dt_ { trace(ctx) }
 	} else {
 		res.Context = closure_with(ctx, m) // TODO: projectContext{ctx, m}
@@ -185,12 +185,12 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	switch t := i0.(type) {
 	case string:
 		if x = proj.resolve(ctx, t) ; x == nil {
-			erro(ctx, "%v: '%s' is nil", proj, t).debug()
+			erro(ctx, "%v: '%s' is nil", proj, t).trace()
 			return
 		}
 	case  Value:
 		if t == nil {
-			erro(ctx, "%v: %s is nil", proj, ts(t)).debug()
+			erro(ctx, "%v: %s is nil", proj, ts(t)).trace()
 			return
 		}
 		if x = t ; 0 < len(a) {
@@ -199,7 +199,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 			ctx = &ac
 		}
 	default:
-		erro(ctx, "%v: %v", proj, ts(i0)).debug()
+		erro(ctx, "%v: %v", proj, ts(i0)).trace()
 		return
 	}
 
@@ -241,7 +241,6 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
 
 	defer func() {
-		trace(ctx)
 
 		d := _diagnostic(ctx.Context)
 		d.flush(ctx)
@@ -297,8 +296,7 @@ func va(ctx Context, i any) (v Value) {
     case nil:
         v = makeNull(_position(ctx))
     default:
-        erro(ctx, "%v", ts(i)).debug()
-		trace(ctx)
+        erro(ctx, "%v", ts(i)).trace()
     }
     return
 }

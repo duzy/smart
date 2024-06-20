@@ -53,17 +53,13 @@ type configurecontext struct {
 func (ctx *configurecontext) cast(t reflect.Type) Context { return implcast(ctx, t) }
 func (ctx *configurecontext) openConfigurationFile(p *project) (file *os.File) {
     if f := p.configuration; f == nil {
-        erro(ctx, "%p: nil configuration file", p).debug()
-        trace(ctx)
+        erro(ctx, "%p: nil configuration file", p).trace()
     } else if s := f.fullname(); s == "" {
-        erro(ctx, "empty configuration file name: %v", f).debug()
-        trace(ctx)
+        erro(ctx, "empty configuration file name: %v", f).trace()
     } else if err := os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); err != nil {
-        erro(ctx, "make path %s failed: %v", filepath.Dir(s), err).debug()
-        trace(ctx)
+        erro(ctx, "make path %s failed: %v", filepath.Dir(s), err).trace()
     } else if file, err = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); err != nil {
-        erro(ctx, "open configuration %s failed: %v", s, err).debug()
-        trace(ctx)
+        erro(ctx, "open configuration %s failed: %v", s, err).trace()
     } else if testPromptConfiguration {
         prompt(ctx, "%s:1: %v\n", s, p)
         note(ctx, "%v", p).debug(16)
@@ -73,7 +69,6 @@ func (ctx *configurecontext) openConfigurationFile(p *project) (file *os.File) {
         erro(ctx, "%v: diverged configuration file (%v)", p, _project(ctx))
         prompt(ctx, "%v:1: <--- at load-time\n", t.fullname())
         prompt(ctx, "%v:1: <--- at configure-time\n", f.fullname()).debug()
-        trace(ctx)
     }
 
     return
@@ -89,14 +84,12 @@ func (ctx *configurecontext) execute(entry entry) {
         if f != nil {
             if ctx.writer != nil {
                 if e := ctx.writer.Flush(); e != nil {
-                    erro(ctx, "%v", e).debug()
-                    trace(ctx)
+                    erro(ctx, "%v", e).trace()
                 }
             }
             if ctx.file != nil {
                 if e := ctx.file.Close(); e != nil {
-                    erro(ctx, "%v", e).debug()
-                    trace(ctx)
+                    erro(ctx, "%v", e).trace()
                 }
             }
         }
@@ -119,7 +112,7 @@ func (ctx *configurecontext) execute(entry entry) {
 
     var d = ctx.current.findDef(s)
     if d == nil {
-        erro(ctx, "%v: `%s` not configured", ctx.current, s).debug()
+        erro(ctx, "%v: `%s` not configured", ctx.current, s).trace()
         return
     }
 
@@ -160,11 +153,11 @@ func (u *universe) _forConfigs(cal func(*project, entry), pre func(*project) fun
     f(u.globe.main)
 }
 
-func promptEnteringDirectory(ctx Context, s string) *diagpoint {
+func promptEnteringDirectory(ctx Context, s string) diagtracer {
     return prompt(ctx, "smart: Entering directory '%s'\n", s)
 }
 
-func promptLeavingDirectory(ctx Context, s string) *diagpoint {
+func promptLeavingDirectory(ctx Context, s string) diagtracer {
     return prompt(ctx, "smart: Leaving directory '%s'\n", s)
 }
 
@@ -376,7 +369,7 @@ ForInParams:
     for _, a := range paramsOrig {
         var p, y = a.(*pair)
         if !y {
-            erro(at(ctx,a), "unsupported parameter %v (%T)", a, a).debug()
+            erro(at(ctx,a), "unsupported parameter %v (%T)", a, a).trace()
             return
         }
 
@@ -425,8 +418,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
         opName = name.string(ctx)
     }
     if opName == "" {
-        erro(ctx, "empty configure name: %v", ts(name)).debug()
-        trace(ctx)
+        erro(ctx, "empty configure name: %v", ts(name)).trace()
     }
 
     var params, infos []Value
@@ -445,8 +437,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
         case *pair:
             params = append(params, t)
         default:
-            erro(at(ctx,arg), " unsupported parameter: %v{%v}, %v{%v}", typeof(t), t, typeof(arg), arg).debug()
-            trace(ctx)
+            erro(at(ctx,arg), " unsupported parameter: %v{%v}, %v{%v}", typeof(t), t, typeof(arg), arg).trace()
         }}
     }
 
@@ -506,12 +497,10 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
     var project = _project(ctx)
     var program = _program(ctx)
     if project == nil {
-        erro(ctx, " no project to configure: %v", ctx).debug()
-        trace(ctx)
+        erro(ctx, " no project to configure: %v", ctx).trace()
     }
     if program == nil {
-        erro(ctx, " no program to configure: %v", ctx).debug()
-        trace(ctx)
+        erro(ctx, " no program to configure: %v", ctx).trace()
     }
 
     if project.configure == nil {
@@ -527,21 +516,18 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
             }
         }
         if project.configure == nil {
-            erro(ctx, " %v: .configure not provided", project).debug()
-            trace(ctx)
+            erro(ctx, " %v: .configure not provided", project).trace()
         }
     }
 
     var target = auto_get(ctx, "@")
     if target == nil {
-        erro(ctx, " target is trivial: %s", ctx).debug()
-        trace(ctx)
+        erro(ctx, " target is trivial: %s", ctx).trace()
     }
 
     var name = target.string(ctx)
     if name == "" {
-        erro(ctx, " target is empty: %v: %v", typeof(target), target).debug()
-        trace(ctx)
+        erro(ctx, " target is empty: %v: %v", typeof(target), target).trace()
     }
 
     var d *def
@@ -549,8 +535,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
         d, _ = project.set(ctx, name, defConfig)
     }
     if d == nil {
-        erro(ctx, " cannot define configuration `%s`", name).debug()
-        trace(ctx)
+        erro(ctx, " cannot define configuration `%s`", name).trace()
     }
 
     if result = d; !isNull(d.value) { // Check if it's already configured?
@@ -596,25 +581,21 @@ ForConfig:
         case flag: name = arg.Value
         case *argumented:
             if _, y := arg.Value.(flag); !y {
-                erro(at(ctx,a), "unsupported value: %v", ts(arg.Value)).debug()
-                trace(ctx)
+                erro(at(ctx,a), "unsupported value: %v", ts(arg.Value)).trace()
             }
             name, para = arg.Value, arg.args
         default:
-            erro(at(ctx,a), "unsupported: %v", ts(a)).debug()
-            trace(ctx)
+            erro(at(ctx,a), "unsupported: %v", ts(a)).trace()
         }
 
         if name == nil {
-            erro(at(ctx,a), "unknown configure `%v`", ts(a)).debug()
-            trace(ctx)
+            erro(at(ctx,a), "unknown configure `%v`", ts(a)).trace()
         }
 
         if d := ctx.debug; d > 0 { note(ctx, "%v: %v: %v", target, name, para).debug(d) }
 
         if configured, value = ctx.execute(target, name, para); !configured {
-            erro(ctx, "%v: not configured with: %v", target, ts(name)).debug()
-            trace(ctx)
+            erro(ctx, "%v: not configured with: %v", target, ts(name)).trace()
         } else if v := value; v == nil {
             value = makeNull(a.Position())
         } else if isNull(v) || isNone(v) || isUndef(v) {
@@ -694,8 +675,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
     args = parseOpts(ctx, opts, args...)
 
     if target.Value = auto_get(ctx, "@"); isTrivial(target.Value) {
-        erro(ctx, "'@' is not defined").debug()
-        trace(ctx)
+        erro(ctx, "'@' is not defined").trace()
     } else if f, filename, _ = target.fullnameFile(ctx, closured...); f == nil {
         if depend := auto_get(ctx,">"); !isTrivial(depend) {
             panic(traveTargetNotDefinedFile)
@@ -703,12 +683,10 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
             prompt(ctx, "%v: not defined as file\n", target.string(ctx))
             erro(ctx, "%v", ts(target.Value))
             errostack(ctx, 8).debug()
-            trace(ctx)
         }
         return
     } else if filename == "" {
         errostack(ctx, 3, "%v: empty fullname: `%v`", target.Value, file).debug()
-        trace(ctx)
     }
 
     if _, prev := auto_set(ctx, "@", f); opts.debug>0 {
@@ -727,7 +705,6 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         if opts.mustConf {
             var d = opts.debug ; if d == 0 { d = 1 }
             errostack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, project).debug(d)
-            trace(ctx)
         } else if true {
             warnstack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, project).debug(opts.debug)
         }
@@ -761,7 +738,6 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
     if data.Len() == 0 {
         prompt(ctx, "%v: %v %v\n", filename, auto_get(ctx,"@"), auto_get(ctx,">"))
         errostack(ctx, 5, "empty configuration data").debug()
-        trace(ctx)
     } else if f := _project(ctx)._configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
         prompt(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,"@"), strings.TrimSpace(data.String())).debug()
@@ -786,7 +762,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
 
     if f.info != nil {
         if same, e = crc64CheckFileModeContent(ctx, filename, data.Bytes(), opts.mode); e != nil {
-            erro(ctx, " crc64 checksum failed: %v", e).debug()
+            erro(ctx, " crc64 checksum failed: %v", e).trace()
             return
         }
         if same {
@@ -800,20 +776,17 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         }
     } else if dir := filepath.Dir(filename); opts.makePath && dir != "." && dir != pathSep {
         if e = os.MkdirAll(dir, os.FileMode(0755)); e != nil {
-            erro(ctx, " %v", e).debug()
-            trace(ctx)
+            erro(ctx, " %v", e).trace()
         }
     }
 
     if e = ioutil.WriteFile(filename, data.Bytes(), opts.mode); e != nil {
-        erro(ctx, " %v", e).debug()
-        trace(ctx)
+        erro(ctx, " %v", e).trace()
     }
 
     if f.info == nil {
         if f.info, e = os.Stat(filename) ; e == nil {
-            erro(ctx, " %v", e).debug()
-            trace(ctx)
+            erro(ctx, " %v", e).trace()
         }
     }
 
@@ -841,7 +814,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
             if _, ok := configs[name]; ok {
                 continue
             } else if obj := p.resolve(ctx, name); obj == nil {
-                erro(ctx, "undefined %v", name).debug()
+                erro(ctx, "undefined %v", name).trace()
                 return nil
             } else if def, ok := obj.(*def); ok {
                 configs[name] = def
@@ -895,11 +868,11 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
         }
     }
     if len(pats) == 0 {
-        erro(ctx, "extract-configuration: missing file names (patterns)").debug()
+        erro(ctx, "extract-configuration: missing file names (patterns)").trace()
         return
     }
     if len(ctx.rxs) == 0 {
-        erro(ctx, "extract-configuration: missing -rx=... flags").debug()
+        erro(ctx, "extract-configuration: missing -rx=... flags").trace()
         return
     }
     if ctx.target == "" {
@@ -908,7 +881,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
 
     var outFile string
     if target := auto_get(ctx,"@"); isNull(target) {
-        erro(ctx, " target '@' is undefined").debug()
+        erro(ctx, " target '@' is undefined").trace()
         return
     } else {
         outFile = target.string(ctx)
@@ -916,7 +889,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
 
     if ctx.makePath {
         if err := os.MkdirAll(filepath.Dir(outFile), os.FileMode(0755)); err != nil {
-            erro(ctx, " make path failed: %v", err).debug()
+            erro(ctx, " make path failed: %v", err).trace()
             return
         }
     }
@@ -927,7 +900,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
         out *bufio.Writer
     )
     if fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, ctx.mode); err != nil {
-        erro(ctx, " open file failed: %v", err).debug()
+        erro(ctx, " open file failed: %v", err).trace()
         return
     } else {
         out = bufio.NewWriter(fil)
@@ -962,7 +935,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
             name := filepath.Base(s)
             file := stat(ctx, name, stat_dir{dir})
             if file == nil {
-                erro(ctx, " extract-configuration: `%s` file not found", name).debug()
+                erro(ctx, " extract-configuration: `%s` file not found", name).trace()
                 return
             } else if file.info.IsDir() {
                 err = walkFiles(ctx, s, pats, func(file *File, err error) error {

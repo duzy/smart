@@ -149,8 +149,7 @@ func (ac *automatic) search(ctx Context, name string) (res *def) {
     if res, _ = ac.def(ctx, name) ; res != nil { return }
     if ac.suppress != nil && ac.suppress(name) { return }
     if t := _automatic(ac.Context) ; t == ac {
-        erro(ctx, "%v: loop auto context", name).debug()
-        trace(ctx)
+        erro(ctx, "%v: loop auto context", name).trace()
         return
     } else if t != nil {
         return t.search(ctx, name)
@@ -213,13 +212,13 @@ func (ac *automatic) args(ctx Context, vals []Value) {
         var a = &_at{ id: strconv.Itoa(argnum+1) }
         if p, y := val.(*pair); y {
             if a.name = p.key.string(ctx); a.name == "" {
-                erro(ctx, "empty name: %v", p.key).debug(5)
+                erro(ctx, "empty name: %v", p.key).trace()
                 return
             } else if params == nil {
                 // noop
             } else if _, y = params[a.name]; !y {
                 erro(ctx, "unknown arg: %v %v", ts(p.key), ts(p.val))
-                erro(ctx, "%v", ts(ctx)).debug(5)
+                erro(ctx, "%v", ts(ctx)).trace()
                 return
             }
 
@@ -243,14 +242,14 @@ func (ac *automatic) args(ctx Context, vals []Value) {
         argnum += 1
 
         if d, _ := ac.set(ctx, a.name, a.value); d == nil {
-            erro(at(ac,a.value), "arg '%s' not set", a.name).debug()
+            erro(at(ac,a.value), "arg '%s' not set", a.name).trace()
             return
         } else {
             d.origin = defProgParam
         }
 
         if d, y := ac.defs[a.name]; !y || d == nil {
-            erro(at(ac,a.value), "arg '%s' not set", a.name).debug()
+            erro(at(ac,a.value), "arg '%s' not set", a.name).trace()
             return
         } else if a.id != "" && a.id != a.name {
             const LOCK = true
@@ -561,11 +560,9 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
         if origin != defExpand0 && value != nil && value.String() == "$(auto ,$(a))" && auto_find(ctx, "a") == nil {
             defer func(v Value) {
                 if len(vals) != 1 {
-                    erro(ctx, "%v → %v → %v", ts(v), ts(vals), ts(d.value)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v → %v → %v", ts(v), ts(vals), ts(d.value)).trace()
                 } else if ts(vals[0]) != "{=delegate {=auto a}}" {
-                    erro(ctx, "%v → %v → %v", ts(v), ts(vals[0]), ts(d.value)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v → %v → %v", ts(v), ts(vals[0]), ts(d.value)).trace()
                 }
             } (value)
         }
@@ -595,16 +592,13 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
 }
 func (d *def) set_check(ctx Context, origin origin, value Value, app ...Value) {
     if ex_def(ctx) && isNull(d.value) && (value != nil || len(app) > 0) {
-        erro(ctx, "%v ; %v %v", d, value, app).debug()
-        trace(ctx)
+        erro(ctx, "%v ; %v %v", d, value, app).trace()
     }
     if origin == defExpand0 && (!isNull(value) || app != nil) && isNull(d.value) {
-        erro(ctx, "%v ; %v %v", d, value, app).debug()
-        trace(ctx)
+        erro(ctx, "%v ; %v %v", d, value, app).trace()
     }
     if !d.position.valid() && d.name != ".goals" {
-        erro(ctx, "%v ; %v %v", d, value, app).debug()
-        trace(ctx)
+        erro(ctx, "%v ; %v %v", d, value, app).trace()
     }
 }
 func (d *def) append(ctx Context, a ...Value) { if len(a) > 0 { d.set(ctx, d.origin, nil, a...) } }
@@ -629,8 +623,7 @@ func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
         stdout.Reset()
         stderr.Reset()
         erro(ctx, "%v: execute command failed: %v", d.name, err)
-        erro(ctx, "%v: execute command: %s", d.name, cmd).debug()
-        trace(ctx)
+        erro(ctx, "%v: execute command: %s", d.name, cmd).trace()
         return
     }
 
@@ -648,8 +641,7 @@ func (d *def) sel(ctx Context, name string) (res any) {
         // d.Lock() ; defer d.Unlock()
         return d.value
     default:
-        erro(at(ctx,d.position), "def: no such operator `%s'", name).debug()
-        trace(ctx)
+        erro(at(ctx,d.position), "def: no such operator `%s'", name).trace()
     }
     return
 }
@@ -789,14 +781,12 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     if f := _universe(ctx).benchmark_builtin_expand; f != nil { defer f(p, ctx, time.Now(), _v) }
 
     if f := _v.Elem().FieldByName("builtin_"); !f.IsValid() {
-        erro(ctx, "no such field: %s.builtin_", _v.Elem().Type()).debug()
-        trace(ctx)
+        erro(ctx, "no such field: %s.builtin_", _v.Elem().Type()).trace()
     } else if f.CanAddr() {
         b := (*builtin_)(unsafe.Pointer(f.Addr().Pointer()))
         b.evocation = ctx
     } else if f := _v.Elem().FieldByName("evocation"); !f.IsValid() {
-        erro(ctx, "no such field: %s.evocation", _v.Elem().Type()).debug()
-        trace(ctx)
+        erro(ctx, "no such field: %s.evocation", _v.Elem().Type()).trace()
     } else if f.CanSet() {
         // FIXME: can't set value for struct fields of type `*evocation`
         f.Set(reflect.ValueOf(ctx))
@@ -809,7 +799,6 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
 
     if ctx.o != nil { if o := _opts(ctx, _v, ctx.o); o != nil {
         errostack(ctx, 3, "%v: unsupported opts: %v", p, o).debug()
-        trace(ctx)
     }}
 
     var force = /* ex_final(ctx) || */ builtinForceField(ctx, _v, _i, false)
@@ -825,8 +814,7 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     switch x := _i.(type) {
     case builtin_c:
         if t := x.c(); t != nil {
-            erro(ctx, "discarded command result: %v", t).debug()
-            trace(ctx)
+            erro(ctx, "discarded command result: %v", t).trace()
         }
         return
     case builtin_x:
@@ -840,8 +828,7 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     default:
         // p.t.Name()    → builtin_auto
         // p.t.PkgPath() → extbit.io/smart
-        erro(ctx, "no method: %v (%s)", p.t.Name(), ts(_v)).debug()
-        trace(ctx)
+        erro(ctx, "no method: %v (%s)", p.t.Name(), ts(_v)).trace()
     }
     return
 }
@@ -851,12 +838,10 @@ func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
         if checkpoints {
             if res != cmpEqual {
                 if p.t == b.t {
-                    erro(ctx, "%v", ts(v)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v", ts(v)).trace()
                 }
                 if p.name == b.name {
-                    erro(ctx, "%v", ts(v)).debug()
-                    trace(ctx)
+                    erro(ctx, "%v", ts(v)).trace()
                 }
             }
         }
@@ -930,10 +915,8 @@ func (p *rule) programs(a ...*program) []*program {
 func (p *rule) ident(ctx Context) (name string) {
     if p == nil {
         erro(ctx, "nil entry")
-        trace(ctx)
     } else if p.target == nil {
         erro(at(ctx,p), "entry target is nil")
-        trace(ctx)
     } else {
         name = p.target.string(ctx)
     }
@@ -958,8 +941,7 @@ func (p *rule) updatedDeps(ctx Context, v ...Value) []Value {
 }
 func (p *rule) execute(ctx Context, a ...Value) (result []Value) {
     if p.patterned(ctx) {
-        erro(ctx, "executing pattern entry '%v'", p.target).debug()
-        trace(ctx)
+        erro(ctx, "executing pattern entry '%v'", p.target).trace()
     }
 
     ctx = &rule_context{&argumented_context{at(ctx, p), a}, p}
@@ -1036,8 +1018,7 @@ func (p *rule) traverse(ctx Context) {
     var target = auto_get(ctx, "@")
 
     if target == nil {
-        erro(ctx, "$@ is not defined").debug()
-        trace(ctx)
+        erro(ctx, "$@ is not defined").trace()
     }
 
     if _entry(ctx) == p {

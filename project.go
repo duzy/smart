@@ -59,8 +59,7 @@ func (p *filemap) primePatterns(ctx Context) (pats []Value) {
       pats = append(pats, merge(pat)...)
     } else {
       erro(at(ctx,pat), "indeterminate pattern: %v", ts(pat))
-      erro(at(ctx,pat), "%v", ts(ctx)).debug()
-      trace(ctx)
+      erro(at(ctx,pat), "%v", ts(ctx)).trace()
     }
   }
   return
@@ -111,8 +110,7 @@ func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name st
   } else if a, y := res.([]string); y {
     name = joinPath(a...)
   } else {
-    erro(ctx, "unexpected result: %v", ts(res)).debug()
-    trace(ctx)
+    erro(ctx, "unexpected result: %v", ts(res)).trace()
   }
   return // NOTE: also `globMatchFile(ctx, pat, str, true)`
 }
@@ -120,8 +118,7 @@ func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name st
 func (p *filemap) stat(ctx Context, name string) (file *File) {
   var patts = p.patts
   if len(patts) == 0 {
-    erro(ctx, "no map patterns: %v", p).debug()
-    trace(ctx)
+    erro(ctx, "no map patterns: %v", p).trace()
   }
 
   if len(p.paths) == 0 {
@@ -137,15 +134,13 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
       }
     }
     errostack(ctx, 5, "%s -> %v", name, p.patts).debug()
-    trace(ctx)
   }
 
   var pos = patts[0].Position()
   for _, path := range p.paths {
     if isNull(path) {
       erro(at(ctx,pos), "nil path: name=%s",  name)
-      erro(at(ctx,pos), "nil path: %v", p).debug()
-      trace(ctx)
+      erro(at(ctx,pos), "nil path: %v", p).trace()
     } else if isNone(path) {
       warn(at(ctx,pos), "nil path: name=%s",  name)
       warn(at(ctx,pos), "nil path: %v", p).debug(32)
@@ -159,8 +154,7 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
         erro(at(ctx,path), "filemap path '%v' is empty (%T)", path, path)
         erro(at(ctx,pos), "filemap path '%v' is empty (pattern=%v)", path, patts)
         erro(ctx, "filemap path '%v' is empty (project=%v)", path, _project(ctx))//.at(pos)
-        erro(ctx, "filemap path '%v' is empty in %v", path, ctx).debug()
-        trace(ctx)
+        erro(ctx, "filemap path '%v' is empty in %v", path, ctx).trace()
       }
       return
     } else if s := filepath.Clean(sub); sub != s {
@@ -253,8 +247,7 @@ func (p project_box) cmp(ctx Context, v Value) (res cmpres) {
   if checkpoints {
     switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
     if res != cmpEqual && p.String() == v.String() {
-      erro(ctx, "%v != %v, %v", ts(p), ts(v), res).debug()
-      trace(ctx)
+      erro(ctx, "%v != %v, %v", ts(p), ts(v), res).trace()
     }
   }
   return
@@ -334,8 +327,7 @@ func (p *project) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints {
         switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
         if res != cmpEqual && p.String() == v.String() {
-          erro(ctx, "%v != %v, %v", ts(p), ts(v), res).debug()
-          trace(ctx)
+          erro(ctx, "%v != %v, %v", ts(p), ts(v), res).trace()
         }
     }
     return
@@ -358,8 +350,7 @@ func (p self) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints {
         switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
         if res != cmpEqual && p.String() == v.String() {
-          erro(ctx, "%v != %v, %v", ts(p), ts(v), res).debug()
-          trace(ctx)
+          erro(ctx, "%v != %v, %v", ts(p), ts(v), res).trace()
         }
     }
     return
@@ -449,22 +440,18 @@ func (p *project) tempFile(ctx Context, name string) (file *File) {
   }
 
   if d := p.resolveDef(ctx, "CTD"); d == nil {
-    erro(ctx, "%v: $(CTD) is not defined: %v", p, name).debug()
-    trace(ctx)
+    erro(ctx, "%v: $(CTD) is not defined: %v", p, name).trace()
   } else if ctd := d.value; isTrivial(ctd) {
-    erro(ctx, "%v: $(CTD) is trivial for %v", p, name).debug()
-    trace(ctx)
+    erro(ctx, "%v: $(CTD) is trivial for %v", p, name).trace()
   } else if file = stat(ctx, name, stat_dir{ctd.string(ctx)}, stat_nonexist{true}); file == nil {
-    erro(ctx, "%v: not a file: %v (%v)", p, name, ctd.string(ctx)).debug()
-    trace(ctx)
+    erro(ctx, "%v: not a file: %v (%v)", p, name, ctd.string(ctx)).trace()
   }
   return
 }
 
 func (p *project) _configuration(ctx Context) (f *File) {
   if f = p.tempFile(closure_with(ctx, p.scope, p.configure.scope), configuration_sm); f == nil {
-    erro(ctx, "%v: no file configuration.sm", p).debug()
-    trace(ctx)
+    erro(ctx, "%v: no file configuration.sm", p).trace()
   }
   return
 }
@@ -492,8 +479,7 @@ func (p *project) resolve(ctx Context, name string) (obj Object) {
 
   if p.ext.Plugin != nil {
     if sym, e := p.ext.Lookup(name); e == nil && sym != nil {
-      erro(ctx, "TODO: convert ext symbol: %v: %T", name, sym).debug()
-      trace(ctx)
+      erro(ctx, "TODO: convert ext symbol: %v: %T", name, sym).trace()
     }
   }
 
@@ -547,8 +533,7 @@ func (p *project) resolveEntry(c Context, name any, a ...bool) (_ entry) {
   var entries = p.resolveEntries(c, name, a...)
   if n := len(entries) ; 0 < n {
     if 1 < n {
-      erro(c, "%d entries: %v", n, name).debug()
-      trace(c)
+      erro(c, "%d entries: %v", n, name).trace()
     }
     return entries[0]
   }
@@ -665,8 +650,7 @@ func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
 func (p *project) entry(ctx Context, options []Value, target Value, prog *program) (entry entry) {
   var name string
   if name = target.string(ctx); name == "" {
-    erro(at(ctx, target), "empty target name: %v", target).debug()
-    trace(ctx)
+    erro(at(ctx, target), "empty target name: %v", target).trace()
   }
 
   var patterned = target.patterned(ctx)
@@ -691,16 +675,14 @@ func (p *project) entry(ctx Context, options []Value, target Value, prog *progra
   var arged []Value // e.g. for pattern filtering
   switch t := target.(type) {
   case *group:
-    erro(ctx, "group target not supported: %v", t).debug()
-    trace(ctx)
+    erro(ctx, "group target not supported: %v", t).trace()
   case *argumented:
     target, arged = t.Value, merge(t.args...)
   }
 
   var c, _ = p.entries.hit(cache{ctx}, target)
   if c == nil {
-    erro(ctx, "no cache for target: %v", target).debug()
-    trace(ctx)
+    erro(ctx, "no cache for target: %v", target).trace()
   }
 
   if len(c.a) == 0 {
@@ -716,7 +698,6 @@ func (p *project) entry(ctx Context, options []Value, target Value, prog *progra
     entry = p
   } else {
     errostack(ctx, 3, "wrong cache: %v", c).debug()
-    trace(ctx)
   }
 
   if entry != nil && p.defaultEntry == nil { p.defaultEntry = entry }
@@ -756,14 +737,12 @@ func (p *project) hasLoaded(ctx Context, proj *project, traveUseLoop bool) (rp *
 func (p *project) hasLoadedRecur(ctx Context, top, proj *project, depth int, traveUseLoop bool) (rp *project, res, isb bool, err error) {
   if depth > 1 && top == p && true {
     err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
-    erro(at(ctx,p.position), "%v: %v", p, err).debug()
-    trace(ctx)
+    erro(at(ctx,p.position), "%v: %v", p, err).trace()
   } else if depth > 128 {
     err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
     erro(at(ctx,p.position), "%v: %v", p, err)
     erro(at(ctx,top.position), "start: %v", top)
-    erro(at(ctx,proj.position), "target: %v", proj).debug()
-    trace(ctx)
+    erro(at(ctx,proj.position), "target: %v", proj).trace()
   }
   for _, base := range p.bases {
     if isb = base == proj; isb { return }
@@ -778,8 +757,7 @@ func (p *project) hasLoadedRecur(ctx Context, top, proj *project, depth int, tra
       err = fmt.Errorf("loop `%v`", s)
       erro(at(ctx,top.position), "start: %v", top)
       erro(at(ctx,proj.position), "stop: %v", proj)
-      erro(at(ctx,p.position), "%v: %v", p, err).debug()
-      trace(ctx)
+      erro(at(ctx,p.position), "%v: %v", p, err).trace()
     }
     if res = imp == proj; res { rp = imp; return }
     if rp, res, res, err = imp.hasLoadedRecur(ctx, top, proj, depth+1, traveUseLoop); err != nil {

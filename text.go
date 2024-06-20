@@ -281,8 +281,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value) {
         result = nodes[0]
     }
     if err != io.EOF {
-        erro(ctx, "%v", err).debug()
-        trace(ctx)
+        erro(ctx, "%v", err).trace()
     }
     return
 }
@@ -470,8 +469,7 @@ LoopJSON:
         result = g
     }
     if err != io.EOF {
-        erro(ctx, "%v", err).debug()
-        trace(ctx)
+        erro(ctx, "%v", err).trace()
     }
     return
 }
@@ -481,7 +479,7 @@ type json struct {}
 func (_ *json) evaluate(ctx Context, args ...Value) (result Value) {
     var program = _program(ctx)
     if program == nil {
-        erro(ctx, `needs program context to evaluate: %v`, ctx).debug(16)
+        erro(ctx, `needs program context to evaluate: %v`, ctx).trace()
         return
     }
     var source = multiline(ctx, program.recipes...)
@@ -512,8 +510,7 @@ func (p *YAML) cmp(ctx Context, v Value) (res cmpres) {
    )}
  */
 func DecodeYAML(ctx Context, source string, ws bool) (result Value) {
-    erro(ctx, "TODO: implement DecodeYAML").debug()
-    trace(ctx)
+    erro(ctx, "TODO: implement DecodeYAML").trace()
     return
 }
 

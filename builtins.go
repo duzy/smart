@@ -308,22 +308,19 @@ func _set(ctx Context, val reflect.Value, v Value) {
         if t, e := v.float(ctx); e == nil {
             val.SetFloat(t)
         } else {
-            erro(ctx, "%v: %v", v, e).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", v, e).trace()
         }
     case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
         if t, e := v.int(ctx); e == nil {
             val.SetInt(t)
         } else {
-            erro(ctx, "%v: %v", v, e).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", v, e).trace()
         }
     case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
         if t, e := v.int(ctx); e == nil {
             val.SetUint(uint64(t))
         } else {
-            erro(ctx, "%v: %v", v, t).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", v, t).trace()
         }
     case reflect.String:
         val.SetString(v.string(ctx))
@@ -338,47 +335,39 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.Value":
             val.Set(reflect.ValueOf(v))
         default:
-            erro(at(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type()).debug()
-            trace(ctx)
+            erro(at(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type()).trace()
         }
     case reflect.Ptr:
         switch val.Type().Elem().String() {
         case "smart.fullname":
             if x := v.expand(expandFullFile{ctx}); isTrivial(x) {
-                erro(at(ctx, v), "expecting file value: %v", ts(v)).debug()
-                trace(ctx)
+                erro(at(ctx, v), "expecting file value: %v", ts(v)).trace()
             } else if o, y := (as{x}.fullname(ctx)); y && o.Value != nil {
                 val.Set(reflect.ValueOf(&o))
             } else {
                 erro(at(ctx,v), "%v: not a file: %v → %v", _project(ctx), v, ts(x))
                 errostack(ctx, 5).debug()
-                trace(ctx)
             }
         case "smart.File":
             if x := v.expand(final{ctx}); isNone(x) {
-                erro(at(ctx,v), "expecting file value: %v", ts(v)).debug()
-                trace(ctx)
+                erro(at(ctx,v), "expecting file value: %v", ts(v)).trace()
             } else if file, y := toFile(x); y {
                 val.Set(reflect.ValueOf(file))
             } else if proj := _project(ctx); proj == nil {
-                erro(at(ctx,x), "no current project to find file '%v'", x).debug()
-                trace(ctx)
+                erro(at(ctx,x), "no current project to find file '%v'", x).trace()
             } else if file = proj.file(ctx, x.string(ctx)); file != nil {
                 val.Set(reflect.ValueOf(file))
             } else {
-                erro(at(ctx,v), "'%v' is not a file", x).debug()
-                trace(ctx)
+                erro(at(ctx,v), "'%v' is not a file", x).trace()
             }
         case "regexp.Regexp":
             if rx, e := regexp.Compile(v.string(ctx)); e != nil {
-                erro(at(ctx,v), "compile regexp '%v' failed: %v", v, e).debug()
-                trace(ctx)
+                erro(at(ctx,v), "compile regexp '%v' failed: %v", v, e).trace()
             } else {
                 val.Set(reflect.ValueOf(rx))
             }
         default:
-            erro(at(ctx,v), "option type unsupported: %v{%v} → %v, %v", typeof(v), v, val.Elem().Kind(), val.Type().Elem()).debug()
-            trace(ctx)
+            erro(at(ctx,v), "option type unsupported: %v{%v} → %v, %v", typeof(v), v, val.Elem().Kind(), val.Type().Elem()).trace()
         }
     default:
         switch val.Type().String() {
@@ -387,15 +376,12 @@ func _set(ctx Context, val reflect.Value, v Value) {
                 if t == 0 { warn(at(ctx,v), "zero file mode").debug() }
                 val.SetUint(uint64(t))
             } else {
-                erro(ctx, "%v: %v", v, t).debug()
-                trace(ctx)
+                erro(ctx, "%v: %v", v, t).trace()
             }
         case "regex.Regex": // aka. reflect.Ptr
-            erro(at(ctx,v), "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug()
-            trace(ctx)
+            erro(at(ctx,v), "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).trace()
         default:
-            erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).debug()
-            trace(ctx)
+            erro(at(ctx,v), "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).trace()
         }
     }
 }
@@ -456,11 +442,9 @@ outer:
 
 func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
     if opts.Kind() != reflect.Ptr {
-        erro(ctx, "opts must be ptr: %v", opts.Kind()).debug()
-        trace(ctx)
+        erro(ctx, "opts must be ptr: %v", opts.Kind()).trace()
     } else if opts = opts.Elem(); opts.Kind() != reflect.Struct {
-        erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).debug()
-        trace(ctx)
+        erro(ctx, "opts is not ptr of struct: %v", opts.Kind()).trace()
     }
 
     rest = merge(args...)
@@ -523,8 +507,7 @@ func _parseHeadArgsMerge(ctx Context, store any, args ...Value) (res []Value) {
 func _parseHeadArgsRequired(ctx Context, store any, args ...Value) (head, rest []Value) {
     head, rest = _parseHeadArgs(ctx, store, args...)
     if len(head) == 0 || len(rest) == 0 {
-        erro(ctx, "insufficient number of arguments").debug()
-        trace(ctx)
+        erro(ctx, "insufficient number of arguments").trace()
     }
     return
 }
@@ -577,8 +560,7 @@ type builtin_defined struct { builtin_ }
 func (ctx *builtin_defined) x() (res any) {
     var elems []Value
     for _, arg := range ctx.evocation.a {
-        erro(ctx, "TODO: %v", ts(arg)).debug()
-        trace(ctx)
+        erro(ctx, "TODO: %v", ts(arg)).trace()
 
         var unres bool
         elems = append(elems, makeBoolean(arg.Position(), !unres))
@@ -716,7 +698,6 @@ func (ctx *builtin_error) x() (res any) {
     }
 
     errostack(ctx, 5, "%s", s.String()).debug()
-    trace(ctx)
     return
 }
 
@@ -770,8 +751,7 @@ type builtin_sure struct { builtin_ }
 func (ctx *builtin_sure) x() (res any) {
     for _, a := range ctx.evocation.a {
         if !a.true(ctx) {
-            erro(at(ctx,a), "assert: %v", ts(a)).debug()
-            trace(ctx)
+            erro(at(ctx,a), "assert: %v", ts(a)).trace()
         }
     }
     return ctx.evocation.a
@@ -781,8 +761,7 @@ func (ctx *builtin_sure) x() (res any) {
 type builtin_defor struct { builtin_ } // aka. defined-or
 func (ctx *builtin_defor) x() (res any) {
     for _, a := range merge(ctx.evocation.a...) {
-        erro(ctx, "TODO: %v", ts(a)).debug()
-        trace(ctx)
+        erro(ctx, "TODO: %v", ts(a)).trace()
 
         var unres bool
         if unres {
@@ -845,8 +824,7 @@ func (ctx *builtin_unequal) x() (res any) {
 
     if len(ctx.evocation.a) != 2 {
         erro(ctx, "unequal: wrong number of arguments: %v", ctx.evocation.a)
-        erro(ctx, "try: $(unequal <value-list>,<value-list>)").debug()
-        trace(ctx)
+        erro(ctx, "try: $(unequal <value-list>,<value-list>)").trace()
     }
 
     var t bool
@@ -897,8 +875,7 @@ func (ctx *builtin_equal) x() (res any) {
     if len(ctx.evocation.a) != 2 {
         note(ctx, "wrong number of arguments: %v", ctx.evocation.a)
         for i, a := range ctx.evocation.a { note(ctx, "   %d. %v", i, ts(a)) }
-        erro(ctx, "try: $(equal <value-list>,<value-list>)").debug()
-        trace(ctx)
+        erro(ctx, "try: $(equal <value-list>,<value-list>)").trace()
     }
 
     var a = ctx.evocation.a[0].expand(final{ctx})
@@ -937,7 +914,6 @@ type builtin_greater struct { builtin_ }
 func (ctx *builtin_greater) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
-        trace(ctx)
     } else if cmp := ctx.evocation.a[0].cmp(ctx, ctx.evocation.a[1]); cmp == cmpGreater {
         res = makeBoolean(_position(ctx), true)
     }
@@ -948,7 +924,6 @@ type builtin_less struct { builtin_ }
 func (ctx *builtin_less) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
-        trace(ctx)
     } else if cmp := ctx.evocation.a[0].cmp(ctx, ctx.evocation.a[1]); cmp == cmpSmaller {
         res = makeBoolean(_position(ctx), true)
     }
@@ -965,8 +940,7 @@ type builtin_match struct { builtin_
 func (ctx *builtin_match) x() (result any) {
     var leftList, rightList []Value
     if n := len(ctx.evocation.a); n < 2 {
-        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list-1>,...)").debug()
-        trace(ctx)
+        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list-1>,...)").trace()
     }
 
     if true {
@@ -1009,8 +983,7 @@ func (ctx *builtin_match) x() (result any) {
 func (ctx *builtin_match) _x() (res any) {
     var patList, valList []Value
     if n := len(ctx.evocation.a); n < 1 {
-        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").debug()
-        trace(ctx)
+        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)").trace()
     }
 
     if len(ctx.evocation.a) > 1 {
@@ -1110,8 +1083,7 @@ func (ctx *builtin_case) x() (res any) {
         }}
         return vals
     } else {
-        erro(at(ctx,arg), "unexpected case: %T %v", arg, arg).debug()
-        trace(ctx)
+        erro(at(ctx,arg), "unexpected case: %T %v", arg, arg).trace()
     }}
     return
 }
@@ -1130,8 +1102,7 @@ func (ctx *builtin_if) x() (res any) {
     if n := len(ctx.evocation.a); n > 1 {
         if checkpoints {
             if !ex_final(ctx) && indeterminate(ctx, ctx.evocation.a[0]) {
-                erro(ctx, "should skip: %v; %v", ctx.evocation.a[0], ts(ctx)).debug()
-                trace(ctx)
+                erro(ctx, "should skip: %v; %v", ctx.evocation.a[0], ts(ctx)).trace()
             }
         }
         if ctx.evocation.a[0].true(ctx) {
@@ -1198,8 +1169,7 @@ func (ctx *builtin_for) cast(t reflect.Type) Context {
     return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_for) x() (res any) {
-    erro(ctx, "TODO: $(for): %v", ts(ctx.evocation.a)).debug()
-    trace(ctx)
+    erro(ctx, "TODO: $(for): %v", ts(ctx.evocation.a)).trace()
     return
 }
 
@@ -1314,14 +1284,12 @@ func (ctx *builtin_auto) x() (_ any) {
             switch t := a.(type) {
             case *pair:
                 if s := t.key.string(&ac); s == "" {
-                    erro(at(ctx,t.key), "%v is empty for name", ts(t.key)).debug()
-                    trace(ctx)
+                    erro(at(ctx,t.key), "%v is empty for name", ts(t.key)).trace()
                 } else {
                     ac.set(ctx, s, t.val)
                 }
             default:
-                erro(at(ctx,a), "%v is unsupported for auto", ts(a)).debug()
-                trace(ctx)
+                erro(at(ctx,a), "%v is unsupported for auto", ts(a)).trace()
             }
         }
 
@@ -1338,22 +1306,17 @@ func (ctx *builtin_auto) check_res(ac *automatic, ar []Value) {
 
     if a.String() == "$(a)" && auto_find(ac, "a") == nil {
         if x, y := a.(*list); !y || x.len() != 1 {
-            erro(ac, "%v", ts(a)).debug()
-            trace(ctx)
+            erro(ac, "%v", ts(a)).trace()
         } else if z, y := x.elems[0].(*delegate); !y {
-            erro(ac, "%v", ts(x.elems[0])).debug()
-            trace(ctx)
+            erro(ac, "%v", ts(x.elems[0])).trace()
         } else if x, y := z.x.(*auto); !y {
-            erro(ac, "%v", ts(z.x)).debug()
-            trace(ctx)
+            erro(ac, "%v", ts(z.x)).trace()
         } else if x.name != "a" {
-            erro(ac, "%v", ts(x)).debug()
-            trace(ctx)
+            erro(ac, "%v", ts(x)).trace()
         }
         if len(ar) == 1 {
             if x, y := ar[0].(*list); y && x.len() == 0 {
-                erro(ac, "%v → %v", ts(a), ts(x)).debug()
-                trace(ctx)
+                erro(ac, "%v → %v", ts(a), ts(x)).trace()
             }
         }
     }
@@ -1361,13 +1324,11 @@ func (ctx *builtin_auto) check_res(ac *automatic, ar []Value) {
 
 type builtin_var struct { builtin_ }
 func (ctx *builtin_var) a() (skip bool) {
-    erro(ctx, "%v", ctx.evocation.a).debug()
-    trace(ctx)
+    erro(ctx, "%v", ctx.evocation.a).trace()
     return
 }
 func (ctx *builtin_var) x() (res any) {
-    erro(ctx, "%v", ctx.evocation.a).debug()
-    trace(ctx)
+    erro(ctx, "%v", ctx.evocation.a).trace()
     return
 }
 
@@ -1421,8 +1382,7 @@ func (ctx *builtin_call) x() (res any) {
     if 0 < len(ctx.evocation.a) {
         var o Object
         if s := ctx.evocation.a[0].string(ctx); s == "" {
-            erro(ctx, "%v is empty for name", ts(ctx.evocation.a[0])).debug()
-            trace(ctx)
+            erro(ctx, "%v is empty for name", ts(ctx.evocation.a[0])).trace()
         } else if ctx._closure {
             o = closure_resolve(ctx, s)
         } else {
@@ -1476,8 +1436,7 @@ func (ctx *builtin_defs) x() (res any) {
     var names []bare
     for _, val := range merge(ctx.evocation.a...) {
         if indeterminate(ctx, val) {
-            erro(ctx, "indeterminate name pattern: %v", ts(val)).debug()
-            trace(ctx)
+            erro(ctx, "indeterminate name pattern: %v", ts(val)).trace()
         } else {
             names = append(names, find(val)...)
         }
@@ -1499,11 +1458,9 @@ func (ctx *builtin_plain) c() (res any) {
         var ( o Object ; s = a.string(ctx) )
         if ctx.scope_ { _, o = scope.find(s) } else { o = project_resolve(ctx, s) }
         if o == nil {
-            erro(at(ctx,a), "no such symbol: %s", s).debug()
-            trace(ctx)
+            erro(at(ctx,a), "no such symbol: %s", s).trace()
         } else if d, y := o.(*def); !y {
-            erro(at(ctx,a), "not a def: %s: %v", s, typeof(o)).debug()
-            trace(ctx)
+            erro(at(ctx,a), "not a def: %s: %v", s, typeof(o)).trace()
         } else if d.value != nil {
             d.value = d.value.expand(ctx/* , plain */)
         }
@@ -1526,7 +1483,6 @@ func (ctx *builtin_shell) x() (res any) {
             if !strings.HasPrefix(s, ":") { s = ":\n" + s }
             prompt(ctx, "%s%s\n", a.string(ctx), s)
             errostack(ctx, 3, "%s", err).debug()
-            trace(ctx)
             return
         }
         val := makeStrlit(pos, strings.TrimSpace(bufout.String()))
@@ -1542,8 +1498,7 @@ func (ctx *builtin_which) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a {
         if s, err := exec.LookPath(a.string(ctx)); err != nil {
-            erro(ctx, "%v", err).debug()
-            trace(ctx)
+            erro(ctx, "%v", err).trace()
         } else if s != "" {
             vals = append(vals, makeStrlit(_position(ctx), s))
         }
@@ -1559,8 +1514,7 @@ type builtin_servehttp struct { builtin_
 func (ctx *builtin_servehttp) c() (res any) {
     if ctx.port == 0 { ctx.port = 80 }
     if ctx.ssl {
-        erro(ctx, "'serve-http(-ssl)' is unimplemented yet").debug()
-        trace(ctx)
+        erro(ctx, "'serve-http(-ssl)' is unimplemented yet").trace()
     }
 
     var server = http.Server{}
@@ -1595,8 +1549,7 @@ func (ctx *builtin_servehttp) c() (res any) {
 
     var err = server.ListenAndServe()
     if err != nil && err != http.ErrServerClosed {
-        erro(ctx, "%s", err).debug()
-        trace(ctx)
+        erro(ctx, "%s", err).trace()
     }
     return
 }
@@ -1607,8 +1560,7 @@ type builtin_append struct { builtin_
 }
 func (ctx *builtin_append) x() (_ any) {
     if len(ctx.evocation.a) < 2 {
-        erro(ctx, "insufficient number of arguments: %v", ctx.evocation.a).debug()
-        trace(ctx)
+        erro(ctx, "insufficient number of arguments: %v", ctx.evocation.a).trace()
     }
 
     var names []Value
@@ -1622,8 +1574,7 @@ func (ctx *builtin_append) x() (_ any) {
         var s = a.string(ctx)
         var d *def
         if s == "" {
-            erro(at(ctx,a), "'%v' is empty for name", a).debug()
-            trace(ctx)
+            erro(at(ctx,a), "'%v' is empty for name", a).trace()
         } else if ctx._auto {
             d = auto_find(ctx, s)
         } else if ctx._closure {
@@ -1633,8 +1584,7 @@ func (ctx *builtin_append) x() (_ any) {
         }
         if d == nil {
             erro(at(ctx,a), "%v → %s is undefined", a, s)
-            erro(ctx, "%v", ts(ctx)).debug()
-            trace(ctx)
+            erro(ctx, "%v", ts(ctx)).trace()
         } else {
             if vals == nil {
                 if vals = merge(ctx.evocation.a[1:]...); len(vals) == 0 {
@@ -1658,8 +1608,7 @@ func (ctx *builtin_plus) x() (res any) {
             if i, e := a.int(ctx); e == nil {
                 if n == 0 { num = i } else { num += i }
             } else {
-                erro(ctx, "%v: %v", a, e).debug()
-                trace(ctx)
+                erro(ctx, "%v: %v", a, e).trace()
             }
         }
         return makeDecimal(_position(ctx), num)
@@ -1669,8 +1618,7 @@ func (ctx *builtin_plus) x() (res any) {
             if f, e := a.float(ctx); e == nil {
                 if n == 0 { num = f } else { num += f }
             } else {
-                erro(ctx, "%v: %v", a, e).debug()
-                trace(ctx)
+                erro(ctx, "%v: %v", a, e).trace()
             }
         }
         return makeFloat(_position(ctx), num)
@@ -1687,8 +1635,7 @@ func (ctx *builtin_minus) x() (res any) {
             if i, e := a.int(ctx); e == nil {
                 if n == 0 { num = i } else { num -= i }
             } else {
-                erro(ctx, "%v: %v", a, e).debug()
-                trace(ctx)
+                erro(ctx, "%v: %v", a, e).trace()
             }
         }
         return makeDecimal(_position(ctx), num)
@@ -1698,8 +1645,7 @@ func (ctx *builtin_minus) x() (res any) {
             if f, e := a.float(ctx); e == nil {
                 if n == 0 { num = f } else { num -= f }
             } else {
-                erro(ctx, "%v: %v", a, e).debug()
-                trace(ctx)
+                erro(ctx, "%v: %v", a, e).trace()
             }
         }
         return makeFloat(_position(ctx), num)
@@ -1716,8 +1662,7 @@ func (ctx *builtin_multiply) x() (res any) {
             if i, e := a.int(ctx); e == nil {
                 if n == 0 { num = i } else { num *= i }
             } else {
-                erro(ctx, "%v: %v", a, e).debug()
-                trace(ctx)
+                erro(ctx, "%v: %v", a, e).trace()
             }
         }
         return num
@@ -1727,8 +1672,7 @@ func (ctx *builtin_multiply) x() (res any) {
             if f, e := a.float(ctx); e == nil {
                 if n == 0 { num = f } else { num *= f }
             } else {
-                erro(ctx, "%v: %v", a, e).debug()
-                trace(ctx)
+                erro(ctx, "%v: %v", a, e).trace()
             }
         }
         return num
@@ -1745,8 +1689,7 @@ func (ctx *builtin_divide) x() (res any) {
             if i, e := a.int(ctx); e == nil {
                 if n == 0 { num = i } else { num /= i } // FIXME: NaN
             } else {
-                erro(ctx, "%v: %v", a, e).debug()
-                trace(ctx)
+                erro(ctx, "%v: %v", a, e).trace()
             }
         }
         return num
@@ -1756,8 +1699,7 @@ func (ctx *builtin_divide) x() (res any) {
             if f, e := a.float(ctx); e == nil {
                 if n == 0 { num = f } else { num /= f } // FIXME: NaN
             } else {
-                erro(ctx, "%v: %v", a, e).debug()
-                trace(ctx)
+                erro(ctx, "%v: %v", a, e).trace()
             }
         }
         return num
@@ -1937,8 +1879,7 @@ func (ctx *builtin_splitquotejoin) x() (res any) {
             ctx.evocation.a = ctx.evocation.a[:l-1]
         }
         if res, err = joinstrings(ctx, val, sep); err != nil {
-            erro(ctx, "%v", err).debug()
-            trace(ctx)
+            erro(ctx, "%v", err).trace()
         }
     }
     return
@@ -1957,8 +1898,7 @@ func (ctx *builtin_splitjoinquote) x() (res any) {
 
         var v Value
         if v, err = joinstrings(ctx, val, sep); err != nil {
-            erro(ctx, "%v", err).debug()
-            trace(ctx)
+            erro(ctx, "%v", err).trace()
         } else {
             res = makeStrlit(_position(ctx), strconv.Quote(v.string(ctx)))
         }
@@ -1975,8 +1915,7 @@ func (ctx *builtin_field) x() (res any) {
             i int64
         )
         if n, e := ctx.evocation.a[0].int(ctx); e != nil {
-            erro(ctx, "%v: %v", ctx.evocation.a[0], e).debug()
-            trace(ctx)
+            erro(ctx, "%v: %v", ctx.evocation.a[0], e).trace()
         } else { i = n }
 
         if l > 2 {
@@ -2001,8 +1940,7 @@ type builtin_usee struct { builtin_ }
 func (ctx *builtin_usee) x() (res any) {
     var proj = _project(ctx)
     if proj == nil {
-        erro(ctx, "unknown current context").debug()
-        trace(ctx)
+        erro(ctx, "unknown current context").trace()
     }
 
     var vals []Value
@@ -2018,8 +1956,7 @@ type builtin_uses struct { builtin_ }
 func (ctx *builtin_uses) x() (res any) {
     var proj = _project(ctx)
     if proj == nil {
-        erro(ctx, "unknown current context").debug()
-        trace(ctx)
+        erro(ctx, "unknown current context").trace()
     }
 
     var found bool
@@ -2208,15 +2145,13 @@ func (ctx *builtin_filter) x() (res any) {
         if len(pats) > 0 {
             i = 1 // good
         } else if pats = merge(ctx.evocation.a[1]); len(pats) == 0 {
-            erro(ctx, "no patterns: %v", ctx.evocation.a).debug()
-            trace(ctx)
+            erro(ctx, "no patterns: %v", ctx.evocation.a).trace()
         } else {
             i = 2
         }
 
         if len(ctx.evocation.a) <= i {
-            erro(ctx, "out of index: %d %v", i, ctx.evocation.a).debug()
-            trace(ctx)
+            erro(ctx, "out of index: %d %v", i, ctx.evocation.a).trace()
         }
 
         vals = merge(ctx.evocation.a[i:]...)
@@ -2242,8 +2177,7 @@ func (ctx *builtin_substring) x() (_ any) {
         var a = intVal(ctx, ctx.evocation.a[0], -1)
         var b = intVal(ctx, ctx.evocation.a[1], -1)
         if ctx.evocation.a = ctx.evocation.a[2:]; a < -1 && b < -1 {
-            erro(ctx, "wrong indices (%v, %v)", ctx.evocation.a[0], ctx.evocation.a[1]).debug()
-            trace(ctx)
+            erro(ctx, "wrong indices (%v, %v)", ctx.evocation.a[0], ctx.evocation.a[1]).trace()
         }
         if a > b { t := a; a = b; b = t } // swap the wrong order
         if a == -1 { a = b }
@@ -2288,8 +2222,7 @@ type builtin_patsubst struct { builtin_
 }
 func (ctx *builtin_patsubst) x() (_ any) {
     if len(ctx.evocation.a) < 3 {
-        erro(ctx, "not enough arguments").debug()
-        trace(ctx)
+        erro(ctx, "not enough arguments").trace()
     }
 
     var (
@@ -2315,8 +2248,7 @@ func (ctx *builtin_patsubst) x() (_ any) {
 
     if len(srcPats) == 0 {
         if len(ctx.evocation.a) < 4 {
-            erro(ctx, "not enough arguments").debug()
-            trace(ctx)
+            erro(ctx, "not enough arguments").trace()
         }
         srcPats = merge(ctx.evocation.a[1])
         dstPats = merge(ctx.evocation.a[2])
@@ -2352,8 +2284,7 @@ ForSources:
             source = o.string(ctx)
         } else {
             erro(at(ctx,src), "fullname '%v' failed", src)
-            erro(ctx, "called from here", src).debug()
-            trace(ctx)
+            erro(ctx, "called from here", src).trace()
         }
 
         var full = ctx.fullFiles
@@ -2374,8 +2305,7 @@ ForSources:
         for _, dstPat := range dstPats {
             var nameVal, ramnant = dstPat.stencil(ctx, stems)
             if isNull(nameVal) {
-                erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dstPat, dstPat, stems, ramnant).debug()
-                trace(ctx)
+                erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dstPat, dstPat, stems, ramnant).trace()
             } else if ctx.debug>0 {
                 warnstack(ctx, ctx.debug, "patsubst: %v: %v → %v → %v %v → %v %v",
                     srcPat, src, source, stems, dstPat, nameVal, ramnant).debug(ctx.debug)
@@ -2399,7 +2329,6 @@ ForSources:
                     if t := files(ctx, nameVal, proj); ctx.erroDstNomap {
                         erro(at(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
                         errostack(at(ctx,dstPat), 16, a...).debug()
-                        trace(ctx)
                     } else if ctx.warnDstNomap {
                         warn(at(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
                         warnstack(at(ctx,dstPat), 16, a...).debug(5)
@@ -2489,8 +2418,7 @@ func (ctx *builtin_lowercase) x() any {
 func (ctx *builtin_) trim(f func(_, _ Value, _ string) (Value, string), ss ...string) (_ any) {
     if len(ctx.evocation.a) < 1 {
         var s = strings.Join(ss, "")
-        erro(ctx, "try $(trim%s <...%s>, <...value>)", s, s).debug()
-        trace(ctx)
+        erro(ctx, "try $(trim%s <...%s>, <...value>)", s, s).trace()
     }
 
     var prefix = merge(ctx.evocation.a[0])
@@ -2502,8 +2430,7 @@ func (ctx *builtin_) trim(f func(_, _ Value, _ string) (Value, string), ss ...st
     var res []Value
     for _, val := range values {
         if indeterminate(ctx, val) {
-            erro(ctx, "indeterminate value: %v", tv(val)).debug()
-            trace(ctx)
+            erro(ctx, "indeterminate value: %v", tv(val)).trace()
         }
 
         var v Value
@@ -2612,8 +2539,7 @@ func (ctx *builtin_trimprefix) x_0() any {
 func (ctx *builtin_trimprefix) x() (_ any) {
     return ctx.trim(func(val, prefix Value, _s string) (res Value, s string) {
         if indeterminate(ctx, prefix) {
-            erro(ctx, "indeterminate prefix: %v", tv(prefix)).debug()
-            trace(ctx)
+            erro(ctx, "indeterminate prefix: %v", tv(prefix)).trace()
         }
 
         var t string
@@ -2623,21 +2549,17 @@ func (ctx *builtin_trimprefix) x() (_ any) {
                 if prefix.String() == "/**/testdata/" {
                     var v = val.string(ctx)
                     if f != false {
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug()
-                        trace(ctx)
+                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).trace()
                     }
                     if x, y := r.([]string); !y || strings.TrimPrefix(v, joinPath(x...)) != "builtins/trimprefix" {
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug()
-                        trace(ctx)
+                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).trace()
                     }
                     if len(m) != 1 {
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug()
-                        trace(ctx)
+                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).trace()
                     } else if strings.TrimPrefix(v, "/"+m[0]) != "/testdata/builtins/trimprefix" {
                         note(ctx, "/%v", m[0])
                         note(ctx, "%v", val)
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).debug()
-                        trace(ctx)
+                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).trace()
                     }
                 }
             }
@@ -2683,8 +2605,7 @@ func (ctx *builtin_trimsuffix) x_0() any {
 func (ctx *builtin_trimsuffix) x() (_ any) {
     return ctx.trim(func(val, suffix Value, _s string) (res Value, s string) {
         if indeterminate(ctx, suffix) {
-            erro(ctx, "indeterminate suffix: %v", tv(suffix)).debug()
-            trace(ctx)
+            erro(ctx, "indeterminate suffix: %v", tv(suffix)).trace()
         }
 
         var t string
@@ -2693,19 +2614,15 @@ func (ctx *builtin_trimsuffix) x() (_ any) {
             if checkpoints {
                 if suffix.String() == "/testdata/**" {
                     if f != false {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug()
-                        trace(ctx)
+                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
                     }
                     if x, y := r.([]string); !y || joinPath(x...) != "/testdata/builtins/trimsuffix" {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug()
-                        trace(ctx)
+                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
                     }
                     if len(_s) != 1 {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug()
-                        trace(ctx)
+                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
                     } else if _s[0] != "builtins/trimsuffix" {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).debug()
-                        trace(ctx)
+                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
                     }
                 }
             }
@@ -2768,8 +2685,7 @@ func (ctx *builtin_addprefix) a() (skip bool) {
 }
 func (ctx *builtin_addprefix) x() (_ any) {
     if len(ctx.evocation.a) < 1 {
-        erro(ctx, "not enough args, try $(addprefix prefix, ...)").debug()
-        trace(ctx)
+        erro(ctx, "not enough args, try $(addprefix prefix, ...)").trace()
     }
 
     var res []Value
@@ -2802,8 +2718,7 @@ func (ctx *builtin_addsuffix) a() (skip bool) {
 }
 func (ctx *builtin_addsuffix) x() (_ any) {
     if len(ctx.evocation.a) < 1 {
-        erro(ctx, "not enough args, try $(addsuffix suffix, ...)").debug()
-        trace(ctx)
+        erro(ctx, "not enough args, try $(addsuffix suffix, ...)").trace()
     }
 
     var res []Value
@@ -2828,14 +2743,12 @@ type builtin_printf struct{ builtin_ }
 func (ctx *builtin_printf) c() (_ any) { return ctx.x() }
 func (ctx *builtin_printf) x() (_ any) {
     if len(ctx.evocation.a) < 1 {
-        erro(ctx, "not enough args, try $(printf 'format', ...)").debug()
-        trace(ctx)
+        erro(ctx, "not enough args, try $(printf 'format', ...)").trace()
     }
 
     var vals = merge(ctx.evocation.a[0])
     if len(vals) != 1 {
-        erro(ctx, "not enough args, try $(printf 'format', ...)").debug()
-        trace(ctx)
+        erro(ctx, "not enough args, try $(printf 'format', ...)").trace()
     }
 
     var i int
@@ -2854,34 +2767,29 @@ outer:
                     '4', '5', '6', '7', '8', '9': continue
                 case 'c', 'd', 'o', 'O', 'q', 'U':
                     if t, e := v.int(ctx); e == nil { a = append(a, t) } else {
-                        erro(ctx, "%v: %v", v, e).debug()
-                        trace(ctx)
+                        erro(ctx, "%v: %v", v, e).trace()
                     }
                     continue outer
                 case 'e', 'E', 'f', 'F', 'g', 'G':
                     if t, e := v.float(ctx); e == nil { a = append(a, t) } else {
-                        erro(ctx, "%v: %v", v, e).debug()
-                        trace(ctx)
+                        erro(ctx, "%v: %v", v, e).trace()
                     }
                     continue outer
                 case 'b', 'x', 'X':
                     switch k := v.kind(); {
                     case k&KindInteger != 0:
                         if t, e := v.int(ctx); e == nil { a = append(a, t) } else {
-                            erro(ctx, "%v: %v", v, e).debug()
-                            trace(ctx)
+                            erro(ctx, "%v: %v", v, e).trace()
                         }
                         continue outer
                     case k&KindFloat != 0:
                         if t, e := v.float(ctx); e == nil { a = append(a, t) } else {
-                            erro(ctx, "%v: %v", v, e).debug()
-                            trace(ctx)
+                            erro(ctx, "%v: %v", v, e).trace()
                         }
                         continue outer
                     default:
                         if t, e := strconv.Atoi(v.string(ctx)) ; e == nil { a = append(a, t) } else {
-                            erro(ctx, "%v: %v", v, e).debug()
-                            trace(ctx)
+                            erro(ctx, "%v: %v", v, e).trace()
                         }
                         continue outer
                     }
@@ -2979,8 +2887,7 @@ func (ctx *builtin_indent) x() (res any) {
         if v, ok := scalarize(ctx.evocation.a[0]).(*decimal); ok {
             ctx.evocation.a, s = ctx.evocation.a[1:], strings.Repeat(" ", int(v.int64))
         } else {
-            erro(ctx, "requires integer argument (first|last)").debug()
-            trace(ctx)
+            erro(ctx, "requires integer argument (first|last)").trace()
         }
     }
     for _, a := range ctx.evocation.a {
@@ -3009,16 +2916,14 @@ type builtin_contains struct { builtin_
 }
 func (ctx *builtin_contains) x() (_ any) {
     if len(ctx.evocation.a) < 2 {
-        erro(ctx, "unexpected number of arguments, try $(contains a b c1 c2, v1 v2 …)").debug()
-        trace(ctx)
+        erro(ctx, "unexpected number of arguments, try $(contains a b c1 c2, v1 v2 …)").trace()
     }
 
     var n int
     var vals = merge(ctx.evocation.a[0])
     var list = merge(ctx.evocation.a[1:]...)
     if len(vals) == 0 || len(list) == 0 {
-        erro(ctx, "insufficient number of arguments: %v ⇒ %v %v", ctx.evocation.a, vals, list).debug()
-        trace(ctx)
+        erro(ctx, "insufficient number of arguments: %v ⇒ %v %v", ctx.evocation.a, vals, list).trace()
     }
 
 outer:
@@ -3048,43 +2953,37 @@ outer:
 
 type builtin_sort struct { builtin_ }
 func (ctx builtin_sort) x() (res any) {
-    erro(ctx, "TODO: $(sort ...)").debug()
-    trace(ctx)
+    erro(ctx, "TODO: $(sort ...)").trace()
     return
 }
 
 type builtin_word struct { builtin_ }
 func (ctx builtin_word) x() (res any) {
-    erro(ctx, "TODO: $(word ...)").debug()
-    trace(ctx)
+    erro(ctx, "TODO: $(word ...)").trace()
     return
 }
 
 type builtin_wordlist struct { builtin_ }
 func (ctx builtin_wordlist) x() (res any) {
-    erro(ctx, "TODO: $(wordlist ...)").debug()
-    trace(ctx)
+    erro(ctx, "TODO: $(wordlist ...)").trace()
     return
 }
 
 type builtin_words struct { builtin_ }
 func (ctx builtin_words) x() (res any) {
-    erro(ctx, "TODO: $(words ...)").debug()
-    trace(ctx)
+    erro(ctx, "TODO: $(words ...)").trace()
     return
 }
 
 type builtin_firstword struct { builtin_ }
 func (ctx builtin_firstword) x() (res any) {
-    erro(ctx, "TODO: $(firstword ...)").debug()
-    trace(ctx)
+    erro(ctx, "TODO: $(firstword ...)").trace()
     return
 }
 
 type builtin_lastword struct { builtin_ }
 func (ctx builtin_lastword) x() (res any) {
-    erro(ctx, "TODO: $(lastword ...)").debug()
-    trace(ctx)
+    erro(ctx, "TODO: $(lastword ...)").trace()
     return
 }
 
@@ -3108,8 +3007,7 @@ func (ctx *builtin_decodebase64) x() (_ any) {
         for _, a := range ctx.evocation.a {
             var s = a.string(ctx)
             if dat, err := base64.StdEncoding.DecodeString(s); err != nil {
-                erro(ctx, "decode '%s' failed: %v", s, err).debug()
-                trace(ctx)
+                erro(ctx, "decode '%s' failed: %v", s, err).trace()
             } else {
                 res = append(res, makeStrlit(a.Position(), string(dat)))
             }
@@ -3373,7 +3271,7 @@ func (ctx *builtin_chopdir) x() (res any) {
         } else if v, ok := scalarize(ctx.evocation.a[x-1]).(*decimal); ok {
             ctx.evocation.a, n = ctx.evocation.a[:x-1], int(v.int64)
         } else {
-            erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", ctx.evocation.a[0], ctx.evocation.a[x-1]).debug()
+            erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", ctx.evocation.a[0], ctx.evocation.a[x-1]).trace()
             return
 
         }
@@ -3408,7 +3306,6 @@ func (ctx *builtin_reldir) x() (res any) {
             l = append(l, makeStrlit(a.Position(), s))
         } else {
             erro(ctx, "%v", err)
-            trace(ctx)
         }
     }
     return l
@@ -3433,16 +3330,14 @@ func (ctx *builtin_mkdir) c() (res any) {
                 name = t.at(0).string(ctx)
                 perm = filePerm(ctx, t.at(1), uint32(perm))
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug()
-                trace(ctx)
+                erro(ctx, "Wrong size of list `%v'", t).trace()
             }
         case *list: // mkdir name perm, name perm, ...
             if t.len() == 2 {
                 name = t.at(0).string(ctx)
                 perm = filePerm(ctx, t.at(1), uint32(perm))
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug()
-                trace(ctx)
+                erro(ctx, "Wrong size of list `%v'", t).trace()
             }
         default: // mkdir name perm, name perm, ...
             name = ctx.evocation.a[i].string(ctx)
@@ -3453,13 +3348,11 @@ func (ctx *builtin_mkdir) c() (res any) {
         }
         if ctx.all {
             if err := os.MkdirAll(name, perm); err != nil {
-                erro(ctx, "%v", err).debug()
-                trace(ctx)
+                erro(ctx, "%v", err).trace()
             }
         } else {
             if err := os.Mkdir(name, perm); err != nil {
-                erro(ctx, "%v", err).debug()
-                trace(ctx)
+                erro(ctx, "%v", err).trace()
             }
         }
     }
@@ -3471,12 +3364,10 @@ func (ctx *builtin_chdir) c() (res any) {
     if len(ctx.evocation.a) == 1 {
         var str = ctx.evocation.a[0].string(ctx)
         if err := lockCD(str, 0); err != nil {
-            erro(ctx, "%v", err).debug()
-            trace(ctx)
+            erro(ctx, "%v", err).trace()
         }
     } else {
         erro(ctx, "wrong number of arguments: %v", len(ctx.evocation.a))
-        trace(ctx)
     }
     return
 }
@@ -3497,16 +3388,14 @@ func (ctx *builtin_rename) c() (res any) {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(at(ctx,t), "wrong size of group `%v'", t).debug()
-                trace(ctx)
+                erro(at(ctx,t), "wrong size of group `%v'", t).trace()
             }
         case *list: // rename oldname newname, old new, ...
             if t.len() == 2 {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(at(ctx,t), "wrong size of list `%v'", t).debug()
-                trace(ctx)
+                erro(at(ctx,t), "wrong size of list `%v'", t).trace()
             }
         default: // rename newname oldname  newname oldname ...
             if i+1 < nargs {
@@ -3514,13 +3403,11 @@ func (ctx *builtin_rename) c() (res any) {
                 newname = ctx.evocation.a[i+1].string(ctx)
                 i += 1
             } else {
-                erro(at(ctx,t), "Wrong arguments `%v'", ctx.evocation.a).debug()
-                trace(ctx)
+                erro(at(ctx,t), "Wrong arguments `%v'", ctx.evocation.a).trace()
             }
         }
         if err := os.Rename(oldname, newname); err != nil {
-            erro(ctx, "%v", err).debug()
-            trace(ctx)
+            erro(ctx, "%v", err).trace()
         }
     }
     return
@@ -3545,7 +3432,7 @@ func (ctx *builtin_remove) c() (res any) {
         if opts.all { err = os.RemoveAll(s) } else { err = os.Remove(s) }
         if err != nil {
             erro(ctx, "remove: %v", err)
-            erro(ctx, "remove: %v → %s", f, s).debug(6)
+            erro(ctx, "remove: %v → %s", f, s).trace()
             return
         }
         if d := opts.debug; d>0 { warn(ctx, "remove %s (%s)", f, s).debug(d) }
@@ -3558,12 +3445,12 @@ func (ctx *builtin_remove) c() (res any) {
             if strings.HasPrefix(s, opts.skip) { return }
         }
         if opts.all { err = os.RemoveAll(s) } else {
-            erro(ctx, "remove path: %v", p).debug(6)
+            erro(ctx, "remove path: %v", p).trace()
             return
         }
         if err != nil {
             erro(ctx, "remove: %v", err)
-            erro(ctx, "remove: %v", p).debug(6)
+            erro(ctx, "remove: %v", p).trace()
             return
         }
         if d := opts.debug; d>0 { warn(ctx, "remove %s", s).debug(d) }
@@ -3571,8 +3458,8 @@ func (ctx *builtin_remove) c() (res any) {
     }
     var removePat = func(ctx Context, pat Value) {
         // var val = (&builtin_wildcard{builtin_:builtin_{evocation:?}})._do(pat)
-        // erro(ctx, "TODO: remove: %v → %v", pat, val).debug()
-        erro(ctx, "TODO: remove: %v", ts(pat)).debug()
+        // erro(ctx, "TODO: remove: %v → %v", pat, val).trace()
+        erro(ctx, "TODO: remove: %v", ts(pat)).trace()
     }
 
     remove = func(ctx Context, v Value) {
@@ -3621,42 +3508,42 @@ func (ctx *builtin_truncate) c() (res any) {
         case *pair: // truncate name ⇒ size old ⇒ new
             name = t.key.string(ctx)
             if size, e = t.val.int(ctx); e != nil {
-                erro(ctx, "%v: %v", t.val, e).debug()
+                erro(ctx, "%v: %v", t.val, e).trace()
             }
         case *group: // truncate (name size) (old new)
             if t.len() == 2 {
                 name = t.at(0).string(ctx)
                 if size, e = t.at(1).int(ctx); e != nil {
-                    erro(ctx, "%v: %v", t.at(1), e).debug()
+                    erro(ctx, "%v: %v", t.at(1), e).trace()
                 }
             } else {
-                erro(ctx, "Wrong size of group `%v'", t).debug()
+                erro(ctx, "Wrong size of group `%v'", t).trace()
                 break
             }
         case *list: // truncate name size, old new, ...
             if t.len() == 2 {
                 name = t.at(0).string(ctx)
                 if size, e = t.at(1).int(ctx); e != nil {
-                    erro(ctx, "%v: %v", t.at(1), e).debug()
+                    erro(ctx, "%v: %v", t.at(1), e).trace()
                 }
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug()
+                erro(ctx, "Wrong size of list `%v'", t).trace()
                 break
             }
         default: // truncate name size  name size ...
             if i+1 < nargs {
                 name = ctx.evocation.a[i+0].string(ctx)
                 if size, e = ctx.evocation.a[i+1].int(ctx); e != nil {
-                    erro(ctx, "%v: %v", ctx.evocation.a[i+1], e).debug()
+                    erro(ctx, "%v: %v", ctx.evocation.a[i+1], e).trace()
                 }
                 i += 1
             } else {
-                erro(ctx, "Wrong arguments `%v'", ctx.evocation.a).debug()
+                erro(ctx, "Wrong arguments `%v'", ctx.evocation.a).trace()
                 break
             }
         }
         if err := os.Truncate(name, size); err != nil {
-            erro(ctx, "%v", err).debug()
+            erro(ctx, "%v", err).trace()
             break
         }
     }
@@ -3679,7 +3566,7 @@ func (ctx *builtin_link) c() (res any) {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(ctx, "Wrong size of group `%v'", t).debug()
+                erro(ctx, "Wrong size of group `%v'", t).trace()
                 break
             }
         case *list: // link oldname newname, old new, ...
@@ -3687,7 +3574,7 @@ func (ctx *builtin_link) c() (res any) {
                 oldname = t.at(0).string(ctx)
                 newname = t.at(1).string(ctx)
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug()
+                erro(ctx, "Wrong size of list `%v'", t).trace()
                 break
             }
         default: // link oldname newname  oldname newname ...
@@ -3696,12 +3583,12 @@ func (ctx *builtin_link) c() (res any) {
                 newname = ctx.evocation.a[i+1].string(ctx)
                 i += 1
             } else {
-                erro(ctx, "Wrong arguments `%v'", ctx.evocation.a).debug()
+                erro(ctx, "Wrong arguments `%v'", ctx.evocation.a).trace()
                 break
             }
         }
         if err := os.Link(oldname, newname); err != nil {
-            erro(ctx, "%v", err).debug()
+            erro(ctx, "%v", err).trace()
             break
         }
     }
@@ -3768,14 +3655,14 @@ outer:
             srcNameVal, dstNameVal = t.key, t.val
         case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
             if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                erro(at(ctx,t), "expects two values for group").debug()
+                erro(at(ctx,t), "expects two values for group").trace()
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
             }
         case *list: // XXX: symlink old new, old new, ...
             if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                erro(at(ctx,t), "expects two values for list").debug()
+                erro(at(ctx,t), "expects two values for list").trace()
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
@@ -3839,7 +3726,7 @@ outer:
         if dstDir == "" || dstDir == "." || dstDir == pathSep {
             // no need to mkdir: . or /
         } else if err := os.MkdirAll(dstDir, os.FileMode(0755)); err != nil {
-            erro(at(ctx,dstNameVal), "%v", err).debug()
+            erro(at(ctx,dstNameVal), "%v", err).trace()
             return
         }
 
@@ -3882,7 +3769,7 @@ func (ctx *builtin_stat) x() (res any) {
 
     var proj = _project(ctx)
     if proj == nil {
-        erro(ctx, "unknown project").debug()
+        erro(ctx, "unknown project").trace()
         return
     }
 
@@ -3950,8 +3837,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
         if am = files(ctx, a, projs...); am == nil && false {
             var s = a.string(ctx)
             if s == "" {
-                erro(ctx, "%v is empty for searching file", ts(a)).debug()
-                trace(ctx)
+                erro(ctx, "%v is empty for searching file", ts(a)).trace()
             }
             if am = files(ctx, s, projs...); am == nil {
                 if f := file(ctx, s, projs...); f != nil {
@@ -3960,8 +3846,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
                 } else {
                     if ctx.mapped {
                         var t = unmap_files(ctx, a)
-                        erro(ctx, "not a file ; %v → %v", tv(a), t).debug()
-                        trace(ctx)
+                        erro(ctx, "not a file ; %v → %v", tv(a), t).trace()
                     }
                     return
                 }
@@ -3991,7 +3876,6 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
         if f(a); en > 0 {
             erro(ctx, `%v: %v is not a file (%v)`, projs, ts(a), res)
             errostack(ctx, 5).debug()
-            trace(ctx)
         }
     }
     return
@@ -4006,8 +3890,7 @@ func (ctx *builtin_glob) x() (_ any) {
     var cwd string // TODO: get current work directory
     var proj *project
     if proj = _project(ctx); proj == nil {
-        erro(ctx, "unknown current cntext").debug()
-        trace(ctx)
+        erro(ctx, "unknown current cntext").trace()
     }
 
     var res []Value
@@ -4019,8 +3902,7 @@ func (ctx *builtin_glob) x() (_ any) {
 
         var err error
         if names, err = filepath.Glob(str); err != nil {
-            erro(ctx, "glob '%v' failed: %v", str, err).debug()
-            trace(ctx)
+            erro(ctx, "glob '%v' failed: %v", str, err).trace()
         }
         for _, name := range names {
             // TODO: ctx.dir, ctx.file, ctx.symbol
@@ -4033,20 +3915,16 @@ func (ctx *builtin_glob) x() (_ any) {
 func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
     if f, err := os.Stat(sd); err != nil {
         if errorMissing {
-            erro(ctx, "%v", err).debug()
-            trace(ctx)
+            erro(ctx, "%v", err).trace()
         }
         return
     } else if !f.IsDir() {
-        erro(ctx, "not dir: %v", sd).debug()
-        trace(ctx)
+        erro(ctx, "not dir: %v", sd).trace()
     } else if dir, err := os.Open(sd); err != nil {
-        erro(ctx, "not dir: %v", sd).debug()
-        trace(ctx)
+        erro(ctx, "not dir: %v", sd).trace()
     } else if names, err = dir.Readdirnames(-1); err != nil { // NOTE: see also filepath.Glob(...)
         if errorMissing {
-            erro(ctx, "readdir: %v", err).debug()
-            trace(ctx)
+            erro(ctx, "readdir: %v", err).trace()
         }
         return
     } else {
@@ -4068,13 +3946,11 @@ type builtin_wildcard struct { builtin_
 func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*File) {
     if checkpoints {
         if s := _workdir(ctx); s == "" {
-            erro(ctx, "empty workdir").debug()
-            trace(ctx)
+            erro(ctx, "empty workdir").trace()
         } else if !strings.HasPrefix(topDir, s) {
             erro(ctx, "%s", s)
             erro(ctx, "%s", topDir)
-            erro(ctx, "%v", ts(ctx)).debug()
-            trace(ctx)
+            erro(ctx, "%v", ts(ctx)).trace()
         }
     }
 
@@ -4119,8 +3995,7 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
         case "d", "dir" : if d { files = append(files, f) }
         case "":                 files = append(files, f)
         default:
-            erro(ctx, "unknown -filetype: %s (%v)", ctx.filetype, f).debug()
-            trace(ctx)
+            erro(ctx, "unknown -filetype: %s (%v)", ctx.filetype, f).trace()
         }
         top.Unlock()
         top.Done()
@@ -4139,10 +4014,8 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
             // fallthrough
         } else if nElems := len(p.elems); nElems == 0 {
             errostack(ctx, 3, "empty path: %v", pat).debug()
-            trace(ctx)
         } else if y, _, _ = p.elems[0].match(ctx, sub.n); y && nElems == 1 {
             errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", topDir, sub.dn, pat, sub.n, nElems).debug()
-            trace(ctx)
         } else if y && sub.isDir && nElems > 1 {
             val := p.elems[1]
             if nElems > 2 {
@@ -4161,7 +4034,6 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
             // fallthrough
         } else if len(gp.elems) == 0 {
             errostack(ctx, 3, "empty glob: %v (%s)", pat, sub.dn).debug()
-            trace(ctx)
         } else if m, y := gp.elems[0].(*globmeta); !y {
             // fallthrough
         } else if m.token == DAST { // aka **
@@ -4189,7 +4061,6 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
         } else {
             erro(ctx, "%p: %v %v → %v", sub, sub.d, sub.n, sub.dn)
             errostack(ctx, 3, "%v", err).debug()
-            trace(ctx)
         }
 
         for _, pat := range pats { sub.Add(1) ; go subcard(sub, pat) }
@@ -4266,8 +4137,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
         if f := stat(ctx, val.string(ctx), stat_dir{dir}, stat_nonexist{ne}); f != nil {
             g.Add(1) ; go collect(f)
         } else if false {
-            erro(ctx, "nil: %v : %s", ts(val), dir).debug()
-            trace(ctx)
+            erro(ctx, "nil: %v : %s", ts(val), dir).trace()
         }
     }
 
@@ -4305,8 +4175,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
                 go dofilemap(rVal, lVal, fm)
             }
         } else {
-            erro(ctx, "TODO: wildcard: %v %v", rVal, lVal).debug()
-            trace(ctx)
+            erro(ctx, "TODO: wildcard: %v %v", rVal, lVal).trace()
         }
     }
 
@@ -4343,7 +4212,6 @@ func (ctx *builtin_wildcard) x() any {
     for _, file := range ctx._do(merge(ctx.evocation.a...)...) {
         if file == nil {
             errostack(ctx, 3, "nil file: %v", ctx.evocation.a).debug()
-            trace(ctx)
         } else if !(ctx.names || ctx.strs) {
             vals = append(vals, file)
         } else if ctx.strs {
@@ -4385,10 +4253,8 @@ func (ctx *builtin_readfile) x() (res any) {
     for _, v := range ctx.evocation.a {
         if o, y := (as{v}.fullname(ctx, closured...)); !y {
             errostack(at(ctx,v), 5, "%v is not a file", v).debug()
-            trace(ctx)
         } else if s, e := ioutil.ReadFile(o.string(ctx)); e != nil {
             errostack(at(ctx,v), 5, "read file failed: %v", e).debug()
-            trace(ctx)
         } else {
             if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
             if ctx.trimLeft  { s = bytes.TrimLeftFunc (s, unicode.IsSpace) } else
@@ -4422,8 +4288,7 @@ outer:
                 if n > 1 { data = t.at(1).string(ctx) }
                 if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
             } else {
-                erro(ctx, "Wrong size of group `%v'", t).debug()
-                trace(ctx)
+                erro(ctx, "Wrong size of group `%v'", t).trace()
             }
         case *list: // write-file name text, name text 0660, ...
             if n := t.len(); n < 4 && n > 0 {
@@ -4431,8 +4296,7 @@ outer:
                 if n > 1 { data = t.at(1).string(ctx) }
                 if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
             } else {
-                erro(ctx, "Wrong size of list `%v'", t).debug()
-                trace(ctx)
+                erro(ctx, "Wrong size of list `%v'", t).trace()
             }
         default: // write-file name text 0660  name text 0660 ...
             name = ctx.evocation.a[i].string(ctx)
@@ -4449,13 +4313,11 @@ outer:
             continue outer
         } else if dir := filepath.Dir(name); ctx.path && dir != "." && dir != pathSep {
             if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                erro(ctx, "%v", err).debug()
-                trace(ctx)
+                erro(ctx, "%v", err).trace()
             }
         }
         if err := ioutil.WriteFile(name, []byte(data), perm); err != nil {
-            erro(ctx, "%v", err).debug()
-            trace(ctx)
+            erro(ctx, "%v", err).trace()
         }
     }
     return
@@ -4468,7 +4330,7 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
         return
     } else if d := filepath.Dir(filename); optPath && d != "." && d != pathSep {
         if err = os.MkdirAll(d, os.FileMode(optMode|0733)); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug()
+            erro(at(ctx,file), "touch: %v", err).trace()
             return
         }
     }
@@ -4488,19 +4350,19 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
         var f *os.File
         if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
         if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug()
+            erro(at(ctx,file), "touch: %v", err).trace()
         } else if err = f.Close(); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug()
+            erro(at(ctx,file), "touch: %v", err).trace()
         }
     }
     if err == nil {
         if err = os.Chtimes(filename, ta, tm); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug()
+            erro(at(ctx,file), "touch: %v", err).trace()
         }
     }
     if err == nil && mode != 0 && m != 0 && mode != m {
         if err = os.Chmod(filename, mode); err != nil {
-            erro(at(ctx,file), "touch: %v", err).debug()
+            erro(at(ctx,file), "touch: %v", err).trace()
         }
     }
     return
@@ -4515,7 +4377,7 @@ func (ctx *builtin_touchfile) x() (res any) {
     // $(touch-file -p filename)
     for i := 0; i < len(ctx.evocation.a); i += 1 {
         if err := touch(ctx, ctx.evocation.a[i], uint32(ctx.mode), ctx.path); err != nil {
-            erro(ctx, "%v", err).debug()
+            erro(ctx, "%v", err).trace()
             break
         }
     }
@@ -4536,7 +4398,7 @@ func (ctx *builtin_grep) x() (_ any) {
 
     )
     if !(nargs == 2 || nargs == 3) {
-        erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").debug()
+        erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").trace()
         return
     }
 
@@ -4547,10 +4409,10 @@ func (ctx *builtin_grep) x() (_ any) {
     }
     for _, a := range rvs {
         if s := a.string(ctx); s == "" {
-            erro(at(ctx,a), "empty regexp").debug()
+            erro(at(ctx,a), "empty regexp").trace()
             return
         } else if r, e := regexp.Compile(s); e != nil {
-            erro(at(ctx,a), "%v", e).debug()
+            erro(at(ctx,a), "%v", e).trace()
             return
         } else {
             rxs = append(rxs, r)
@@ -4563,14 +4425,14 @@ func (ctx *builtin_grep) x() (_ any) {
         var vals []Value
         for i, s := range match {
             if d, v := cc.set(ctx, fmt.Sprintf("%d",i), makeStrlit(pos, s)); d == nil {
-                erro(ctx, "set $%d to '%s' failed", i, s).debug()
+                erro(ctx, "set $%d to '%s' failed", i, s).trace()
                 return
             } else { vals = append(vals, v) }
         }
         defer func() {
             for i, v := range vals {
                 if d, v := cc.set(ctx, fmt.Sprintf("%d",i), v); d == nil {
-                    erro(ctx, "restore $%d to '%s' failed", i, v).debug()
+                    erro(ctx, "restore $%d to '%s' failed", i, v).trace()
                 }
             }
         } ()
@@ -4657,11 +4519,11 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
             continue
         } else if val = d.invoke(ctx, nil, nil); isNull(val) {
             if f := project._configuration(ctx); f == nil {
-                erro(at(ctx,d), "%v: configuration file not defined", name, f).debug()
+                erro(at(ctx,d), "%v: configuration file not defined", name, f).trace()
                 return
             } else if !f.exists() {
                 prompt(ctx, "%s: file not exists (for %v)\n", f.fullname(), name)
-                erro(at(ctx,d), "%v: configuration file not exists, try -conf first", name).debug()
+                erro(at(ctx,d), "%v: configuration file not exists, try -conf first", name).trace()
                 return
             }
             continue
@@ -4673,7 +4535,7 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
             if i, e := t.int(ctx); e == nil {
                 fmt.Fprintf(res, "%d", i)
             } else {
-                erro(ctx, "%: %v", t, i).debug()
+                erro(ctx, "%: %v", t, i).trace()
             }
         case *group:
             fmt.Fprintf(res, "%s", parseGroupValue(ctx, t).string(ctx))
@@ -4701,16 +4563,14 @@ func autoconf(ctx Context, out *bytes.Buffer, project *project, str string) (err
 
 func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
     if s, e := p.strExpandConfig(ctx, str); e != nil {
-        erro(ctx, "%v : %v", str, e).debug()
-        trace(ctx)
+        erro(ctx, "%v : %v", str, e).trace()
     } else { str = s }
 
     var index = 0
 
     for _, ii := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
         if _, e := out.WriteString(str[index:ii[0]]); e != nil {
-            erro(ctx, "%v", e).debug()
-            trace(ctx)
+            erro(ctx, "%v", e).trace()
         }
 
         index = ii[1]
@@ -4729,8 +4589,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
             } else if _, t := v.(*undef); t {
                 _, e := out.WriteString(fmt.Sprintf("#undef /* %s */", name))
                 if e != nil {
-                    erro(ctx, "%v", e).debug()
-                    trace(ctx)
+                    erro(ctx, "%v", e).trace()
                 } else {
                     continue
                 }
@@ -4792,8 +4651,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
         }
 
         if _, e := out.WriteString(s); e != nil {
-            erro(ctx, "%v", e).debug()
-            trace(ctx)
+            erro(ctx, "%v", e).trace()
         }
     }
 
@@ -4801,8 +4659,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
         return
     }
     if _, e := out.WriteString(str[index:]); e != nil {
-        erro(ctx, "%v", e).debug()
-        trace(ctx)
+        erro(ctx, "%v", e).trace()
     }
     return
 }

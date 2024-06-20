@@ -183,7 +183,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 			prompt(c, "%s:1: %v: no configuration file\n", configuration, p)
 			c.err("%v", p.configuration)
 		} else if d := p.findDef("FOO"); d == nil {
-			erro(c, "FOO").debug()
+			erro(c, "FOO").trace()
 		} else if v := d.value; v == nil {
 			c.err("%v ; %v", d, typeof(v))
 		} else if v.String() != "$(.self)" {
@@ -194,7 +194,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 			c.err("%v ; %v", d, typeof(v))
 		}
 		if d := c.def("FOO"); d == nil {
-			erro(c, "FOO").debug()
+			erro(c, "FOO").trace()
 		} else if v := c.val("FOO"); v == nil {
 			c.err("%v", d)
 		} else if v.String() != "$(.self)" {
@@ -335,7 +335,7 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	}
 
 	if d, v := ctx.val("FOO"), ctx.val("FOO"); v == nil {
-		erro(at(ctx, d), "%v", d).debug()
+		erro(at(ctx, d), "%v", d).trace()
 	} else if v.String() != "$(.self)" {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if v.string(ctx) != proj.name {
@@ -363,7 +363,7 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 		/**/s = joinPath(outtmp.string(ctx), configuration_sm)
 		if s != joinPath(outtmp.string(cc ), configuration_sm) {
 			erro(ctx, "%s", outtmp.string(cc))
-			erro(ctx, "%s", s).debug()
+			erro(ctx, "%s", s).trace()
 			ctx.Errorf("%v ; %v", outtmp, configuration_sm)
 		} else if f == nil {
 			ctx.err("%v: nil configuration file", proj)
@@ -587,7 +587,7 @@ FOO5 = true{}
 
 	ctx.run(func (c *testcase) {
 		if d, foo := c.def("FOO1"), c.val("FOO1"); foo == nil {
-			erro(c, "%v", d).debug()
+			erro(c, "%v", d).trace()
 		} else if foo.String() != "yes{}" {
 			c.err("%T %v ; %v", foo, foo, d)
 		} else if s := foo.string(ctx); s != "yes" {

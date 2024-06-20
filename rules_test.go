@@ -265,9 +265,9 @@ func testShellForStdout(ctx testcase1) {
 	if v1 == nil {
 		ctx.err(".test.v1")
 	} else if v1.String() != "" {
-		ctx.err("%v{%v}", typeof(v1), v1)
+		ctx.err("%v", tst{v1})
 	} else if v1.string(ctx) != "" {
-		ctx.err("%v{%v}", typeof(v1), v1)
+		ctx.err("%v", tst{v1})
 	}
 	if len(t.v) != 1 {
 		ctx.err("%v", t.v)

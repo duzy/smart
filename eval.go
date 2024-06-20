@@ -14,8 +14,7 @@ type eval struct { accumulation, eval bool }
 func (p *eval) evaluate(ctx Context, args ...Value) (result Value) {
     var program = _program(ctx)
     if program == nil {
-        erro(ctx, "needs program context to evaluate: %v", ctx).debug()
-        trace(ctx)
+        erro(ctx, "needs program context to evaluate: %v", ctx).trace()
     }
 
     var list []Value

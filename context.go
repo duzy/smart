@@ -80,11 +80,9 @@ type (
 
 func _position(ctx Context) (res Position) {
   if i := do(ctx, get_position{}); i == nil {
-    erro(ctx, "no such operator: position, %v", ts(ctx)).debug()
-    trace(ctx)
+    erro(ctx, "no such operator: position, %v", ts(ctx)).trace()
   } else if x, y := i.(Position); !y {
-    erro(ctx, "not position: %v", ts(i)).debug()
-    trace(ctx)
+    erro(ctx, "not position: %v", ts(i)).trace()
   } else {
     res = x
   }
@@ -107,9 +105,9 @@ func _paramName(ctx Context, n int) (res string) {
 
 func _workdir(ctx Context) (res string) {
   if i := do(ctx, get_workdir{}); i == nil {
-    erro(ctx, "no such operator: workdir, %v", ts(ctx)).debug(24)
+    erro(ctx, "no such operator: workdir, %v", ts(ctx)).trace()
   } else if t, y := i.(string); y { res = t } else {
-    erro(ctx, "not string: %v", ts(i)).debug(2)
+    erro(ctx, "not string: %v", ts(i)).trace()
   }
   return
 }
@@ -296,7 +294,7 @@ type frames  struct{ int }
 type skipint struct{ int }
 
 var (
-  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_bits)?|try|truly|erro|\(\*diagnostic\)\.trace)\(.+\)$`)
+  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_bits)?|tr(?:ace|uly|y)|erro|(?:diagtracer|\(\*diagnostic\))\.trace)\(.+\)$`)
   callstackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   callstackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
 )
@@ -388,26 +386,40 @@ type diagpoint struct {
   message string
   stack []byte // see also debug.Stack()
 }
+func (d *diagpoint) tag() (s string) {
+  switch d.dt {
+  case diagPrompt: if /* !options.debugPrompt */false { return } else { s = "note:" }
+  case diagInfo  : if /* !options.debugInfos  */false { return } else { s = "info:" }
+  case diagWarn  : if /* !options.debugWarns  */false { return } else { s = "info:" }
+  case diagError : if /* !options.debugErrors */false { return } else { s = "info:" }
+  }
+  return
+}
 func (d *diagpoint) debug(args ...any) *diagpoint {
-  if d == nil { panic("nil diag point") }
-
   switch vertag {
   case "dev", "debug": // only print debug diags for dev and debug versions
   default: return d
   }
 
-  var s string
-  switch d.dt {
-  case diagPrompt: if /* !options.debugPrompt */false { return d } else { s = "note:" }
-  case diagInfo  : if /* !options.debugInfos  */false { return d } else { s = "info:" }
-  case diagWarn  : if /* !options.debugWarns  */false { return d } else { s = "info:" }
-  case diagError : if /* !options.debugErrors */false { return d } else { s = "info:" }
-  }
-
   // skips the standard stack lines, which are not informative
   // number of frames to dump
-  d.stack = _callstack(s, 5, 0, args...)
+  d.stack = _callstack(d.tag(), 5, 0, args...)
   return d
+}
+
+type diagtracer struct { *diagpoint ; ctx Context }
+func (d diagtracer) trace() {
+  switch vertag {
+  case "dev", "debug": // only print debug diags for dev and debug versions
+  default: return
+  }
+
+  if false {
+    defer trace(d.ctx)
+    d.stack = _callstack(d.tag(), 5, 0)
+  } else {
+    trace(d.ctx)
+  }
 }
 
 type act_traced struct{}
@@ -422,7 +434,7 @@ func (t trace_errors) String() string {
 func (t too_many_diagnostics) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.i) }
 func (t too_many_errors) String() string { return fmt.Sprintf("too many errors (%d)", t.i) }
 
-func trace(ctx Context, a ...any) {
+func trace(ctx Context, _ ...any) {
   if trace_recover {
     var x Context
     var recovered int
@@ -601,27 +613,26 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 // func flush(ctx Context) int { return _diagnostic(ctx).flush(ctx) }
 func flush(ctx Context) (i int) { i, _ = do(ctx, act_flush_diags{}).(int); return }
 
-func diag(ctx Context, dt diagType, f string, a ...any) (_ *diagpoint) {
-  if _diag := _diagnostic(ctx) ; _diag != nil {
-    return _diag.point(ctx, dt, f, a...)
+func diag(ctx Context, dt diagType, f string, a ...any) (_ diagtracer) {
+  if d := _diagnostic(ctx) ; d != nil {
+    return diagtracer{d.point(ctx, dt, f, a...),ctx}
   }
   return
 }
-func info(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagInfo,   f, a...) }
-func warn(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagWarn,   f, a...) }
-func erro(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagError,  f, a...) }
-func prompt(c Context, f string, a ...any) *diagpoint { return diag(c,   diagPrompt, f, a...) }
-
-func note(ctx Context, f string, a ...any) *diagpoint {
+func info(ctx Context, f string, a ...any) diagtracer { return diag(ctx, diagInfo,   f, a...) }
+func warn(ctx Context, f string, a ...any) diagtracer { return diag(ctx, diagWarn,   f, a...) }
+func erro(ctx Context, f string, a ...any) diagtracer { return diag(ctx, diagError,  f, a...) }
+func prompt(c Context, f string, a ...any) diagtracer { return diag(c,   diagPrompt, f, a...) }
+func note(ctx Context, f string, a ...any) diagtracer {
   if !strings.HasSuffix(f, "\n") { f += "\n" }
   return prompt(ctx, _position(ctx).String()+": "+f, a...)
 }
 
-func infostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagInfo  , a...) }
-func warnstack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagWarn  , a...) }
-func errostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagError , a...) }
-func promstack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagPrompt, a...) }
-func notestack(ctx Context, n int, a ...any) *diagpoint {
+func infostack(ctx Context, n int, a ...any) diagtracer { return diagstack(ctx, n, diagInfo  , a...) }
+func warnstack(ctx Context, n int, a ...any) diagtracer { return diagstack(ctx, n, diagWarn  , a...) }
+func errostack(ctx Context, n int, a ...any) diagtracer { return diagstack(ctx, n, diagError , a...) }
+func promstack(ctx Context, n int, a ...any) diagtracer { return diagstack(ctx, n, diagPrompt, a...) }
+func notestack(ctx Context, n int, a ...any) diagtracer {
   if true {
     var f string
     if len(a) > 0 { if s, y := a[0].(string); y {
@@ -632,7 +643,7 @@ func notestack(ctx Context, n int, a ...any) *diagpoint {
   }
   return diagstack(ctx, n, diagPrompt, a...)
 }
-func diagstack(ctx Context, n int, dt diagType, a ...any) (point *diagpoint) {
+func diagstack(ctx Context, n int, dt diagType, a ...any) (point diagtracer) {
   var s string
   if 0 < len(a) {
     if x, y := a[0].(string); y {
@@ -709,7 +720,7 @@ func at(ctx Context, a any) Context {
   case doer:
     if x, y := do(ctx, get_position{}).(Position); y && x.valid() { pos = x }
   default:
-    if false { erro(ctx, "non-position arg: %v", ts(a)).debug(3) }
+    if false { erro(ctx, "non-position arg: %v", ts(a)).trace() }
     return ctx
   }
 

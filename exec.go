@@ -67,12 +67,12 @@ var (
       } else {
         p.scanned(diagError, l, g[4].int, fmt.Sprintf("%s", g[4].string))
       }
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").debug() }
+      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
     },
     regexp.MustCompile(`(.+?):(\d+):(\d+): warning: (.+)`): func(p *execBuffer, l int, g []knownerror) {
       p.scanned(diagWarn, l, g[0].int, g[4].string)
       p.scanned(diagWarn, l, g[0].int, "warning").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").debug() }
+      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
     },
 
     regexp.MustCompile(`In file included from (.+?):(\d+):`): func(p *execBuffer, l int, g []knownerror) {
@@ -132,17 +132,17 @@ var (
     regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`): func(p *execBuffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf(`Import "%v" not found or errors`, g[4].string))
       p.scanned(diagError, l, g[0].int, "error").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").debug() }
+      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
     },
     regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`): func(p *execBuffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf(`"%v" is not defined`, g[4].string))
       p.scanned(diagError, l, g[0].int, "error").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").debug() }
+      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
     },
     rxFatalErrorFileNotFound: func(p *execBuffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf(`"%v" file not found`, g[4].string))
       p.scanned(diagError, l, g[0].int, "error").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").debug() }
+      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
     },
 
     // NOTE: python standard errors
@@ -371,8 +371,7 @@ func (p *execBuffer) startDockerDaemon(pos Position, ctx Context, container *pro
   var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
   if err = c.Run(); err != nil {
     if p.report {
-      erro(at(ctx,pos), "dokcer daemon not running (at %s)", sock).debug()
-      trace(ctx)
+      erro(at(ctx,pos), "dokcer daemon not running (at %s)", sock).trace()
     }
   } else {
     // TODO: start docker daemon
@@ -394,8 +393,7 @@ func (p *execBuffer) lpos(line, column int) Position {
 func (p *execBuffer) reportIncludedFrom() (res bool) {
   if p.includedFrom.pos1.IsValid() && p.includedFrom.pos2.IsValid() {
     erro(at(p,p.includedFrom.pos1), "… included from here")
-    erro(at(p,p.includedFrom.pos2), "… reported here").debug()
-    trace(p.Context)
+    erro(at(p,p.includedFrom.pos2), "… reported here").trace()
 
     p.includedFrom.pos1 = Position{}
     p.includedFrom.pos2 = Position{}
@@ -530,8 +528,7 @@ func (p *execContext) scanErrors() bool {
 
 func (p *execContext) runContainerAndRetry() (err error) {
   if p.container == nil {
-    erro(p.Context, "no container").debug()
-    trace(p.Context)
+    erro(p.Context, "no container").trace()
   } else if maxRetries < p.num {
     fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
     return
@@ -548,8 +545,7 @@ func (p *execContext) runContainerAndRetry() (err error) {
       run.execute(p.Context, nil)
     }
   } else {
-    erro(p.Context, "%s⇒run undefined", p.container).debug()
-    trace(p.Context)
+    erro(p.Context, "%s⇒run undefined", p.container).trace()
   }
 
   fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
@@ -621,12 +617,10 @@ func (p *execContext) ensureContainerRunning(containerName string) (err error) {
         run.execute(p.Context, nil)
       }
     } else {
-      erro(p.Context, "%s⇒run undefined", p.container).debug()
-      trace(p.Context)
+      erro(p.Context, "%s⇒run undefined", p.container).trace()
     }
   } else if err != nil {
-    erro(at(p.Context,p.container.position), "%v", err).debug()
-    trace(p.Context)
+    erro(at(p.Context,p.container.position), "%v", err).trace()
   }
   return
 }
@@ -656,7 +650,7 @@ func (p *execContext) run() (err error) {
     if err = c.Run(); err == nil {
       err = p.check()
     } else if ee, ok := err.(*exec.ExitError); !ok {
-      erro(p.Context, "exec failed: %v", err).debug()
+      erro(p.Context, "exec failed: %v", err).trace()
       return
     } else if p.Status = ee.ExitCode(); p.Status == 0 {
       err = p.check() // success!
@@ -726,7 +720,7 @@ func (p *execContext) check() (err error) {
       }
 
       if diffLogPos && en > 0 { erro(at(ctx,p.logPos), "%v: %d known errors", str, en) }
-      erro(p, "%v: exit status %d", str, p.Status).debug()
+      erro(p, "%v: exit status %d", str, p.Status).trace()
     } else if wn > 0 {
       if diffLogPos { warn(at(ctx,p.logPos), "%v: %d known warnings", str, wn) }
       warn(p, "%v: exit status %d", str, p.Status)
@@ -789,16 +783,14 @@ func (ctx *execContext) exec(cmd, opt string) {
     } else if files, e := ctx.target.stamp(ctx); e != nil {
       if pe, ok := e.(*fs.PathError); ok {
         prompt(ctx, "%v: target not found, stamp \"%v\"\n", pe.Path, ctx.target)
-        erro(ctx, `"%v" not found`, ctx.target).debug()
-        trace(ctx)
+        erro(ctx, `"%v" not found`, ctx.target).trace()
       } else {
         prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, e)
       }
       if ctx.logFileName != nil && !ctx.logPos.IsValid() {
         prompt(ctx, "%v:1: see logs for \"%s\"\n", ctx.logFileName.string(ctx), ctx.target)
       }
-      erro(ctx, `stamp "%v" failed`, ctx.target).debug()
-      trace(ctx)
+      erro(ctx, `stamp "%v" failed`, ctx.target).trace()
     } else if !ctx.prompt && ctx.report {
       reportFileUpdates(ctx, files)
     }
@@ -828,8 +820,7 @@ func (ctx *execContext) exec(cmd, opt string) {
       ac.defs["_"] = d // alias
       ac.Unlock()
     } else {
-      erro(ctx, "wrong args: %v", ac.defs).debug()
-      trace(ctx)
+      erro(ctx, "wrong args: %v", ac.defs).trace()
     }
     ctx.Context = ac
   }
@@ -842,11 +833,9 @@ func (ctx *execContext) exec(cmd, opt string) {
   if ctx.log == nil || ctx.log.filename == "" {
     // no log required
   } else if err := os.MkdirAll(filepath.Dir(ctx.log.filename), os.FileMode(0755)); err != nil {
-    erro(ctx, "%v", err).debug()
-    trace(ctx)
+    erro(ctx, "%v", err).trace()
   } else if logFile, err = os.Create(ctx.log.filename); err != nil {
-    erro(ctx, "%v", err).debug()
-    trace(ctx)
+    erro(ctx, "%v", err).trace()
   } else {
     cmdline := joinRaws("\n", ctx.sources...)
     ctx.log.createWriter(logFile, ctx._workdir, cmdline)
@@ -921,8 +910,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   args = parseOpts(ctx, &exe.execOpts, args...)
 
   if exe.deprecated {
-    erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").debug()
-    trace(ctx)
+    erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").trace()
   } else if d := exe.debug; false && d>0 { defer func() {
     note(ctx, "%v: %v (%v)", _entry(ctx), exe.target.Value, result).debug(d)
   }()}
@@ -938,11 +926,9 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   var pc = _execution(ctx)
   var program = _program(pc)
   if exe.target.Value = getTargetValue(ctx); program == nil {
-    erro(ctx, "needs program context to exec: %v", ctx).debug(16)
-    trace(ctx)
+    erro(ctx, "needs program context to exec: %v", ctx).trace()
   } else if exe.stamp && exe.target.patterned(ctx) {
     errostack(ctx, 5, "target is pattern: %v", exe.target).debug(64)
-    trace(ctx)
   } else if _, ok := exe.target.Value.(flag); ok {
     // no stamp required for Flags
   } else if _, ok = toFile(exe.target.Value); !ok {
@@ -958,8 +944,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   }
 
   if (exe.retStdout && exe.retStatus) || (exe.retStderr && exe.retStatus) {
-    erro(ctx, "cannot have both status and stdout|stderr at the same time (try -so or -se)").debug()
-    trace(ctx)
+    erro(ctx, "cannot have both status and stdout|stderr at the same time (try -so or -se)").trace()
   }
 
   for i, v := range args { var s string
@@ -978,8 +963,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     }
 
     if exe.container == nil {
-      erro(ctx, "container unavailable (in %s)", program.project.name).debug()
-      trace(ctx)
+      erro(ctx, "container unavailable (in %s)", program.project.name).trace()
     }
 
     var stringify = func(name string) (str string) {
@@ -1001,14 +985,12 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
     var containerName string
     if containerName = stringify("container"); containerName == "" {
-      erro(ctx, ".container.name undefined").debug()
-      trace(ctx)
+      erro(ctx, ".container.name undefined").trace()
     }
 
     var containerImage string
     if containerImage = stringify("image"); containerImage == "" {
-      erro(ctx, ".container.image undefined").debug()
-      trace(ctx)
+      erro(ctx, ".container.image undefined").trace()
     }
 
     if uni.verbose {
@@ -1023,16 +1005,14 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   // Because the current work directory is not thread safe.
   if exe._workdir == "" {
     if exe._workdir = program.workdir(ctx); exe._workdir == "" {
-      erro(ctx, "CWD is empty").debug()
-      trace(ctx)
+      erro(ctx, "CWD is empty").trace()
     }
   }
 
   if exe.path { var s string
     if s = filepath.Dir(exe.targetName); s != "" && s != "." && s != "/" {
       if err := os.MkdirAll(s, os.FileMode(0755)); err != nil {
-        erro(at(ctx,exe.target), "make path '%s' for target failed: %v", s, err).debug()
-        trace(ctx)
+        erro(at(ctx,exe.target), "make path '%s' for target failed: %v", s, err).trace()
       }
     }
   }
@@ -1098,8 +1078,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
       if val := exe.forRecipe.expand(final{ac}); false && val != nil {
         for i := 0; indeterminate(ac, val); i += 1 {
           if i < max_evoke { val = val.expand(final{ac}) } else {
-            erro(at(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).debug()
-            trace(ctx)
+            erro(at(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).trace()
           }
         }
         if false { note(at(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug() }
@@ -1113,8 +1092,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   }
 
   if len(program.recipes) > 0 && len(exe.sources) == 0 {
-    erro(ctx, "empty recipes: %v", program.recipes).debug()
-    trace(ctx)
+    erro(ctx, "empty recipes: %v", program.recipes).trace()
   }
 
   if true {
