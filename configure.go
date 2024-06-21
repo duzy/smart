@@ -323,18 +323,18 @@ type commonConfigureOpts struct {
     silent bool `silent`
     noResetHyphen bool `reset` // reset hyphen value, aka. "-"
 }
-func (ctx *modifier_configure) executeEntry(entryName interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
-    if _universe(ctx).traceConfig { defer un(l_trace(l_config, fmt.Sprintf("configureExecuteEntry(%s %v)", entryName, ctx))) }
+func (ctx *modifier_configure) executeEntry(rule_name interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
+    if _universe(ctx).traceConfig { defer un(l_trace(l_config, fmt.Sprintf("configureExecuteEntry(%s %v)", rule_name, ctx))) }
 
     var entries []entry
     if program := _program(ctx); program == nil {
-        errostack(ctx, 3, "needs program context to configure: %v", ctx).debug(16)
+        errostack(ctx, 3, "needs program context to configure: %v", ctx).trace()
         return
     } else if program.project.configure == nil {
-        errostack(ctx, 3, "%v: .configure not provided for %v (%s)", program.project, target, entryName).debug(16)
+        errostack(ctx, 3, "%v: .configure not provided for %v (%s)", program.project, target, rule_name).trace()
         return
-    } else if entries = program.project.configure.resolveEntries(ctx, entryName, false); entries == nil {
-        errostack(ctx, 3, "%T %v: unknown configuration action", entryName, entryName).debug(16)
+    } else if entries = program.project.configure.resolveEntries(ctx, rule_name, false); entries == nil {
+        errostack(ctx, 3, "%T %v: unknown configuration action", rule_name, rule_name).trace()
         return
     }
 
@@ -682,11 +682,11 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         } else if true {
             prompt(ctx, "%v: not defined as file\n", target.string(ctx))
             erro(ctx, "%v", ts(target.Value))
-            errostack(ctx, 8).debug()
+            errostack(ctx, 8).trace()
         }
         return
     } else if filename == "" {
-        errostack(ctx, 3, "%v: empty fullname: `%v`", target.Value, file).debug()
+        errostack(ctx, 3, "%v: empty fullname: `%v`", target.Value, file).trace()
     }
 
     if _, prev := auto_set(ctx, "@", f); opts.debug>0 {
@@ -704,7 +704,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         prompt(ctx, "%v: %v\n", filename, file)
         if opts.mustConf {
             var d = opts.debug ; if d == 0 { d = 1 }
-            errostack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, project).debug(d)
+            errostack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, project).trace()
         } else if true {
             warnstack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, project).debug(opts.debug)
         }
@@ -737,7 +737,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
 
     if data.Len() == 0 {
         prompt(ctx, "%v: %v %v\n", filename, auto_get(ctx,"@"), auto_get(ctx,">"))
-        errostack(ctx, 5, "empty configuration data").debug()
+        errostack(ctx, 5, "empty configuration data").trace()
     } else if f := _project(ctx)._configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
         prompt(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,"@"), strings.TrimSpace(data.String())).debug()

@@ -38,7 +38,6 @@ const (
 const (
     enable_assertions   = true
     enable_grep_bench   = true
-    positionalValueCtx  = true
     traverseDetectLoops = true // turn on/off traverse loop detection
     traverseArgumentedExpand = true
 )
@@ -190,16 +189,6 @@ func (c original) ts(t string) string {
 }
 func (c original) do(ctx Context, op any) any {
     return do_bits(ctx, c.Context, op, original_bits(c.o))
-}
-
-// Optimize value to be most evaluated
-type evaluation struct { Context; o origin }
-func (c evaluation) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c evaluation) ts(t string) string {
-	return fmt.Sprintf("{=%s %v %v}", t, c.o, ts(c.Context))
-}
-func (c evaluation) do(ctx Context, op any) any {
-    return do_bits(ctx, c.Context, op, original_bits(c.o)|propExEvaluation)
 }
 
 // Optimize value for final strings
@@ -581,27 +570,27 @@ type waitopts struct {
     ExecResults        bool
     StampCurrentTarget bool
 }
-func wait(ctx Context, opts waitopts) (target Value, files []*File, execRes *execResult, err error) {
+func wait(ctx Context, opts waitopts) (target Value, files []*File, execRes *execResult) {
     var calleeErrs []error
-    var pc = _execution(ctx)
-    if pc != nil {
-        // wait for all jobs done
-        if false { pc.WaitGroup.Wait() } // FIXME: deadlock
+    if p := _execution(ctx) ; p != nil {
+        if false { p.WaitGroup.Wait() } // FIXME: deadlock
 
-        pc.calleeErrsM.Lock()
-        calleeErrs = pc.calleeErrs; pc.calleeErrs = nil
-        pc.calleeErrsM.Unlock()
+        p.calleeErrsM.Lock()
+        calleeErrs = p.calleeErrs; p.calleeErrs = nil
+        p.calleeErrsM.Unlock()
     }
 
     if target = getTargetValue(ctx); target == nil {
         erro(ctx, "target is nil")
-        errostack(ctx, 8).debug(8)
-        return
-    } else if isTrivial(target) {
-        erro(ctx, "trivial target (%T)", target)
-        errostack(ctx, 8).debug(8)
-        return
-    } else if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
+        errostack(ctx, 8).trace()
+    }
+
+    if isTrivial(target) {
+        erro(ctx, "trivial target : %s", ts(target))
+        errostack(ctx, 8).trace()
+    }
+
+    if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
         var numRealErrs = 0
         for _, err := range calleeErrs {
             erro(ctx, "%v: %v", target, err).trace()
@@ -635,14 +624,11 @@ func wait(ctx Context, opts waitopts) (target Value, files []*File, execRes *exe
             }
         }
     }
-    if !opts.StampCurrentTarget {
-        // done!
-    } else if files, err = target.stamp(ctx); err != nil {
-        if p := target.Position(); p.IsValid() { erro(at(ctx,p), "%v", err) }
-        erro(ctx, "%v", err).trace()
-        return
-    } else if opts.ReportUpdates {
-        reportFileUpdates(ctx, files)
+
+    if opts.StampCurrentTarget {
+        if files = target.stamp(ctx); files != nil {
+            reportFileUpdates(ctx, files)
+        }
     }
     return
 }
@@ -658,7 +644,7 @@ func (a as) file(ctx Context, projects ...*project) (f *File) {
             }
             erro(ctx, "FIXME: %v: %v (%T, %v)", p, v, v, projects)
             erro(ctx, "FIXME: %v: %v (%s)", p, t, t.fullname())
-            errostack(ctx, 5).debug(32)
+            errostack(ctx, 5).trace()
         }
     }} ()
 
@@ -785,13 +771,13 @@ type Value interface {
     expandable(Context) bool
     expand(Context) Value // result is nil or identical to this value if no expansions
 
-    stat(Context) (*statinfo)
+    stat(Context) *statinfo
 
     // Stamp the value if it's a file (aka. update FileInfo).
-    stamp(Context) ([]*File, error)
+    stamp(Context) []*File
 
     // Delete the file (if it is).
-    delete(Context) ([]*File, error)
+    delete(Context) []*File
 
     updated(Context) bool
     updatedDeps(Context, ...Value) []Value
@@ -1030,7 +1016,7 @@ type valbase struct { position Position }
 func (_ *valbase) String() (_ string) { return }
 func (_ *valbase) cmp(Context, Value) (_ cmpres) { return }
 func (_ *valbase) defs(Context, ...string) (_ []*def) { return }
-func (_ *valbase) delete(Context) (_ []*File, _ error) { return }
+func (_ *valbase) delete(Context) (_ []*File) { return }
 func (_ *valbase) expand(Context) (_ Value) { return }
 func (_ *valbase) expandable(Context) (_ bool) { return }
 func (_ *valbase) float(Context) (_ float64, _ error) { return }
@@ -1040,7 +1026,7 @@ func (_ *valbase) kind() Kind { return KindUnclassified }
 func (_ *valbase) match(Context, any) (_ bool, _ any, _ []string) { return }
 func (_ *valbase) patterned(Context) (_ bool) { return }
 func (_ *valbase) refs(Context, Value) (_ bool) { return }
-func (_ *valbase) stamp(Context) (_ []*File, _ error) { return }
+func (_ *valbase) stamp(Context) (_ []*File) { return }
 func (_ *valbase) stat(Context) (_ *statinfo) { return }
 func (_ *valbase) stencil(Context, []string) (_ Value, _ []string) { return }
 func (_ *valbase) string(Context) (_ string) { return }
@@ -1303,7 +1289,7 @@ func stringMatch(ctx Context, p Value, i any) (full bool, s string, stems []stri
     case []string:
         if n := len(t); n > 0 { if t[0] == v { full, s = (n == 1), v } }
     default:
-        errostack(at(ctx,p), 3, "%v: matching unsupported value: %v", ts(p), ts(i)).debug()
+        errostack(at(ctx,p), 3, "%v: matching unsupported value: %v", ts(p), ts(i)).trace()
     }
     return
 }
@@ -2215,9 +2201,9 @@ func (p *elements) ts(t string) (s string) {
     s += "}"
     return
 }
-func (_ *elements) delete(Context) (_ []*File, _ error) { return }
+func (_ *elements) delete(Context) (_ []*File) { return }
 func (_ *elements) patterned(Context) (_ bool) { return }
-func (_ *elements) stamp(Context) (_ []*File, _ error) { return }
+func (_ *elements) stamp(Context) (_ []*File) { return }
 func (_ *elements) stat(Context) (_ *statinfo) { return }
 func (_ *elements) traverse(Context) { }
 func (_ *elements) updated(Context) (_ bool) { return }
@@ -2834,16 +2820,16 @@ func (p *barefile) updatedDeps(ctx Context, v ...Value) (res []Value) {
     if p.File != nil { res = p.File.updatedDeps(ctx, v...) }
     return
 }
-func (p *barefile) delete(ctx Context) (files []*File, err error) {
-    if p.File != nil { files, err = p.File.delete(ctx) }
+func (p *barefile) delete(ctx Context) (_ []*File) {
+    if p.File != nil { return p.File.delete(ctx) }
     return
 }
-func (p *barefile) stamp(ctx Context) (files []*File, err error) {
-    if p.File != nil { files, err = p.File.stamp(ctx) }
+func (p *barefile) stamp(ctx Context) (_ []*File) {
+    if p.File != nil { return p.File.stamp(ctx) }
     return
 }
-func (p *barefile) stat(ctx Context) (si *statinfo) {
-    if p.File != nil { si = p.File.stat(ctx) }
+func (p *barefile) stat(ctx Context) (_ *statinfo) {
+    if p.File != nil { return p.File.stat(ctx) }
     return
 }
 func (p *barefile) cmp(ctx Context, v Value) (res cmpres) {
@@ -3293,21 +3279,19 @@ func (p *path) expand(ctx Context) Value {
         return p
     }
 }
-func (p *path) delete(ctx Context) (files []*File, err error) {
-    if si := p.stat(ctx); si == nil || si.file == nil {
-        erro(ctx, "no path name for `%s`", p)
-    } else if files, err = si.file.delete(ctx); err != nil {
-        erro(ctx, "stamp: %v (%v)", err, si.file)
+func (p *path) delete(ctx Context) (_ []*File) {
+    var si = p.stat(ctx)
+    if si == nil || si.file == nil {
+        erro(ctx, "no path name for `%s`", p).trace()
     }
-    return
+    return si.file.delete(ctx)
 }
-func (p *path) stamp(ctx Context) (files []*File, err error) {
-    if si := p.stat(ctx); si == nil || si.file == nil {
-        erro(ctx, "no path name for `%s`", p)
-    } else if files, err = si.file.stamp(ctx); err != nil {
-        erro(ctx, "stamp: %v (%v)", err, si.file)
+func (p *path) stamp(ctx Context) (files []*File) {
+    var si = p.stat(ctx)
+    if si == nil || si.file == nil {
+        erro(ctx, "no path name for `%s`", p).trace()
     }
-    return
+    return si.file.stamp(ctx)
 }
 func (p *path) stat(ctx Context) (si *statinfo) {
     var s string
@@ -3858,6 +3842,16 @@ type fullfile struct { *File }
 func (u fullfile) string(ctx Context) string { return u.fullname() }
 func (u fullfile) expand(ctx Context) Value { return u }
 
+type is_file_must_stamp struct{ *File }
+
+type files_must_stamp struct{ Context }
+func (c files_must_stamp) do(ctx Context, op any) any {
+    switch op.(type) {
+    case is_file_must_stamp: return true
+    }
+    return c.Context.do(ctx, op)
+}
+
 type File struct {
     valbase
     *filebase
@@ -3889,8 +3883,6 @@ func (p *File) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
     return
 }
 func (p *File) absolute_delete(ctx Context) (files []*File, err error) {
-    if positionalValueCtx { ctx = at(ctx, p.position) }
-
     var fullname string
     if fullname = p.fullname(); fullname == "" {
         erro(at(ctx,p), "file `%s` has no fullname", p).trace()
@@ -3907,15 +3899,34 @@ func (p *File) absolute_delete(ctx Context) (files []*File, err error) {
     }
     return
 }
-func (p *File) stamp(ctx Context) (files []*File, err error) {
-    if positionalValueCtx { ctx = at(ctx, p.position) }
-    if fullname := p.fullname(); fullname == "" {
+func (p *File) stamp(ctx Context) (files []*File) {
+    var fullname = p.fullname()
+    if fullname == "" {
         erro(at(ctx,p), "file `%s` has no fullname", p).trace()
-    } else if p.info, err = os.Stat(fullname); err != nil {
-        if false { erro(ctx, "%v", err).trace() }
+    }
+
+    var err error
+
+    if p.info, err = os.Stat(fullname); err != nil {
+        if truly(ctx, is_file_must_stamp{p}) {
+            if x, y := err.(*fs.PathError); y {
+                erro(ctx, "no such file: %v", x.Path).trace()
+            } else {
+                erro(ctx, "%v", err).trace()
+            }
+        } else { return }
     } else if p.info == nil {
-        if false { warn(ctx, "%v: no such file", p).debug() }
-    } else if files = append(files, p); !isConfigure(ctx) {
+        if truly(ctx, is_file_must_stamp{p}) {
+            erro(ctx, "no such file: %v", p).trace()
+        } else if false {
+            warn(ctx, "no such file: %v", p).debug()
+        }
+        return
+    }
+
+    files = append(files, p)
+
+    if !isConfigure(ctx) {
         p._updated = true
         do(ctx, act_dirty_mark{[]Value{p}})
     }
@@ -4417,19 +4428,15 @@ func (p *list) stat(ctx Context) (si *statinfo) {
     }
     return
 }
-func (p *list) delete(ctx Context) (files []*File, err error) {
+func (p *list) delete(ctx Context) (files []*File) {
     for _, elem := range p.elems {
-        var a []*File
-        if a, err = elem.delete(ctx); err != nil { break }
-        files = append(files, a...)
+        files = append(files, elem.delete(ctx)...)
     }
     return
 }
-func (p *list) stamp(ctx Context) (files []*File, err error) {
+func (p *list) stamp(ctx Context) (files []*File) {
     for _, elem := range p.elems {
-        var a []*File
-        if a, err = elem.stamp(ctx); err != nil { break }
-        files = append(files, a...)
+        files = append(files, elem.stamp(ctx)...)
     }
     return
 }
@@ -4546,9 +4553,9 @@ func (p *group) true(ctx Context) (t bool) {
 //func (p *group) int(ctx Context) (i int64, e error) { return p.valbase.int(ctx) }
 func (p *group) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *group) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
-func (_ *group) delete(Context) (_ []*File, _ error) { return }
+func (_ *group) delete(Context) (_ []*File) { return }
 func (_ *group) patterned(Context) (_ bool) { return }
-func (_ *group) stamp(Context) (_ []*File, _ error) { return }
+func (_ *group) stamp(Context) (_ []*File) { return }
 func (_ *group) stat(Context) (_ *statinfo) { return }
 func (_ *group) updated(Context) (_ bool) { return }
 func (_ *group) updatedDeps(Context, ...Value) (_ []Value) { return }
@@ -4562,7 +4569,7 @@ func (p *group) expand(ctx Context) (res Value) {
     return
 }
 func (p *group) traverse(ctx Context) {
-    errostack(at(ctx,p.position), 3, "traversing group: %v", p).debug()
+    errostack(at(ctx,p.position), 3, "traversing group: %v", p).trace()
 }
 func (p *group) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*group); y {
@@ -4643,11 +4650,11 @@ func (p *pair) defs(ctx Context, s ...string) []*def {
     return append(p.key.defs(ctx, s...), p.val.defs(ctx, s...)...)
 }
 func (p *pair) ident(Context) (_ string) { return }
-func (p *pair) stamp(Context) (_ []*File, _ error) { return }
+func (p *pair) stamp(Context) (_ []*File) { return }
 func (p *pair) stat(Context) (_ *statinfo) { return }
 func (p *pair) match(Context, any) (_ bool, _ any, _ []string) { return }
 func (p *pair) patterned(Context) (_ bool) { return }
-func (p *pair) delete(Context) (_ []*File, _ error) { return }
+func (p *pair) delete(Context) (_ []*File) { return }
 func (p *pair) updated(Context) (_ bool) { return }
 func (p *pair) updatedDeps(Context, ...Value) (_ []Value) { return }
 func (p *pair) expandable(ctx Context) bool {
@@ -4748,7 +4755,7 @@ func (p *pair) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *pair) traverse(ctx Context) {
     erro(ctx, "traversing pair '%v' is undefined", p)
-    errostack(ctx, -1, "pair is not traversible: %v", p).debug()
+    errostack(ctx, -1, "pair is not traversible: %v", p).trace()
 }
 
 type skipped struct { Value }
@@ -4800,23 +4807,8 @@ func dis_evoke(ctx Context, a, b Value) bool {
 func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value) {
     var ( t, x Value ; a []Value ; entry, e bool )
 
-    if checkpoints { defer func() { ex_check(ctx, p, _x, _a, _o, _l, _cl, res, x, a) } () }
-    if false && ex_def1(ctx) { if s := p.String(); true &&
-        "$(a)" == s { defer func() {
-            // ex_def1(ctx) ex_final(ctx) ex_evaluation(ctx) ex_delegate(ctx, _x) ex_closure(ctx, _x)
-            note(ctx, "p=%v", ts(p))
-            note(ctx, "x=%v→%v", ts(_x), ts(x))
-            note(ctx, "o=%v→%v", ts(_o), ts(expand(ctx, _o...)))
-            note(ctx, "a=%v→%v", ts(_a), ts(a))
-            note(ctx, "e=%v, t=%v, res=%v", e, ts(t), ts(res))
-            note(ctx, "%v", ts(ctx)).debug(32)
-        }()}}
-
-    if false && truly(ctx, is_test_mode{}) && _x.String() == "ARG1" {
-        defer func() {
-            note(ctx, "%v %v %v", x.(*def).origin, dis_evoke(ctx, x, _x), ex_delegate(ctx))
-            note(ctx, "%v %v %v", ts(_x), ts(x), res).debug(5)
-        } ()
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer ex_check(ctx, p, _x, _a, _o, _l, _cl, &e, &res, &t, &x, &a)
     }
 
     x = _x.expand(ctx)
@@ -4912,42 +4904,6 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         return x.Value
     } else {
         return t
-    }
-}
-func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, res, x Value, a []Value) {
-    if res == nil {
-        if !_cl && x == nil {
-            erro(ctx, "%v: %v → %v", ts(p), ts(_x), ts(x)).trace()
-        }
-
-        var v = _x
-        if a, y := v.(*auto); !y {
-            // ...
-        } else if d := auto_find(ctx, a.name); d != nil {
-            note(ctx, "%v", ts(_x))
-            note(ctx, "%v", ts(x))
-            note(ctx, "%v", ts(p))
-            erro(ctx, "%v", ts(ctx)).trace()
-        }
-
-        if _cl {
-            // TODO: closure checkpoints ...
-        } else if _x == nil {
-            note(ctx, "%v: nil", ts(p))
-            erro(ctx, "%v", ts(ctx)).trace()
-        } else if d, y := _x.(*def); y {
-            if d == nil {
-                erro(ctx, "%v", ts(ctx)).trace()
-            } else if d.value != nil {
-                note(ctx, "%v", ts(_x))
-                note(ctx, "%v", ts(x))
-                note(ctx, "%v", ts(p))
-                erro(ctx, "%v", ts(ctx)).trace()
-            }
-        }
-    } else if false && p != res && equal(ctx, p, res) {
-        note(ctx, "%v: %p != %p", ts(res), res, p)
-        erro(ctx, "%v", ts(ctx)).trace()
     }
 }
 
@@ -5159,15 +5115,15 @@ func (p *delegate) match(ctx Context, i any) (full bool, s any, stems []string) 
     }
     return
 }
-func (p *delegate) stat(ctx Context) (si *statinfo) {
+func (p *delegate) stat(ctx Context) (_ *statinfo) {
     erro(at(ctx,p.position), "cant stat delegate %v, must expand it first", p).trace()
     return
 }
-func (p *delegate) stamp(ctx Context) (file []*File, err error) {
+func (p *delegate) stamp(ctx Context) (_ []*File) {
     erro(at(ctx,p.position), "cant stamp delegate %v, must expand it first", p).trace()
     return
 }
-func (p *delegate) delete(ctx Context) (file []*File, err error) {
+func (p *delegate) delete(ctx Context) (_ []*File) {
     erro(at(ctx,p.position), "cant delete delegate %v, must expand it first", p).trace()
     return
 }
@@ -5265,7 +5221,7 @@ func (p *closure) match(ctx Context, i any) (full bool, s any, stems []string) {
     if v := p.expand(ctx); v != p {
         return v.match(ctx, i)
     } else if false {
-        errostack(at(ctx,p), 3, "unexpand closure: %v", v).debug()
+        errostack(at(ctx,p), 3, "unexpand closure: %v", v).trace()
     }
     return
 }
@@ -5281,15 +5237,15 @@ func (p *closure) traverse(ctx Context) {
     ctx = at(ctx, p.position)
     p.exstr(ctx, func(v Value) { v.traverse(ctx) })
 }
-func (p *closure) stat(ctx Context) (si *statinfo) {
+func (p *closure) stat(ctx Context) (_ *statinfo) {
     erro(at(ctx,p.position), "cant stat closure %v, must expand it first", p).trace()
     return
 }
-func (p *closure) stamp(ctx Context) (file []*File, err error) {
+func (p *closure) stamp(ctx Context) (_ []*File) {
     erro(at(ctx,p.position), "cant stamp closure %v, must expand it first", p).trace()
     return
 }
-func (p *closure) delete(ctx Context) (file []*File, err error) {
+func (p *closure) delete(ctx Context) (_ []*File) {
     erro(at(ctx,p.position), "cant stamp closure %v, must expand it first", p).trace()
     return
 }
@@ -5445,15 +5401,15 @@ func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *selection) stat(ctx Context) (si *statinfo) {
+func (p *selection) stat(ctx Context) (_ *statinfo) {
     erro(at(ctx,p.position), "cant stat selection %v, must expand it first", p).trace()
     return
 }
-func (p *selection) stamp(ctx Context) (file []*File, err error) {
+func (p *selection) stamp(ctx Context) (_ []*File) {
     erro(at(ctx,p.position), "cant stamp selection %v, must expand it first", p).trace()
     return
 }
-func (p *selection) delete(ctx Context) (file []*File, err error) {
+func (p *selection) delete(ctx Context) (_ []*File) {
     erro(at(ctx,p.position), "cant stamp selection %v, must expand it first", p).trace()
     return
 }
@@ -5781,7 +5737,7 @@ func (p compositePattern) match(ctx Context, i any) (full bool, result any, stem
 //     return
 // }
 // func (p compositePattern) stencil(ctx Context, stems []string) (val Value, rest []string) {
-//     errostack(ctx, 5, "stencil unsupported").debug(32)
+//     errostack(ctx, 5, "stencil unsupported").trace()
 //     return
 // }
 
@@ -5868,14 +5824,14 @@ func (p *globpat) match(ctx Context, i any) (full bool, result any, stems []stri
             return
         }
     default:
-        errostack(at(ctx,p), 3, "%v : unsupported match type: %v", p, ts(i)).debug()
+        errostack(at(ctx,p), 3, "%v : unsupported match type: %v", p, ts(i)).trace()
     }
 
     var err error
     var pattern = p.string(ctx)
     if full, stems, err = globMatch(ctx, pattern, s); full { result = s }
     if err != nil {
-        errostack(at(ctx,p), 3, "%v : glob error: %v", p, err).debug()
+        errostack(at(ctx,p), 3, "%v : glob error: %v", p, err).trace()
     }
     return
 }
@@ -5934,7 +5890,7 @@ func (p *regexpat) match(ctx Context, i any) (full bool, result any, stems []str
         case    string: str = t
         case  []string: if len(t) == 1 { str = t[0] } else { return }
         default:
-            errostack(at(ctx,p), 3, "%T %v :matching unsupported value: %T %v", p, p, i, i).debug()
+            errostack(at(ctx,p), 3, "%T %v :matching unsupported value: %T %v", p, p, i, i).trace()
         }
 
         if sms := p.Regexp.FindStringSubmatch(str); sms != nil && sms[0] == str {

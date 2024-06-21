@@ -11,8 +11,8 @@ type interpreter interface {
 }
 
 var dialects = map[string]interpreter{
-    "":       &eval{ },
-    "eval":   &eval{ eval:true },
+    "":       &eval{ o:defExpand0 },
+    "eval":   &eval{ o:defExpand1 },
     "value":  &eval{ accumulation:true },
     "shell":  &executor{ cmd:"bash",   opt:"-c", contained:false },
     "python": &executor{ cmd:"python", opt:"-c", contained:false },

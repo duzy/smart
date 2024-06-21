@@ -45,7 +45,6 @@ const (
   propExDefValue
   propExDigital // $0, $1, ...
   propExDisjunction
-  propExEvaluation
   propExFullFile
   propExPairVal
   propExPathStr
@@ -170,11 +169,6 @@ func ex_disjunction(ctx Context) (res bool) {
 
 func ex_fullfile(ctx Context) (res bool) {
   res, _ = do(ctx, propExFullFile).(bool)
-  return
-}
-
-func ex_evaluation(ctx Context) (res bool) {
-  res, _ = do(ctx, propExEvaluation).(bool)
   return
 }
 
@@ -409,11 +403,6 @@ func (d *diagpoint) debug(args ...any) *diagpoint {
 
 type diagtracer struct { *diagpoint ; ctx Context }
 func (d diagtracer) trace() {
-  switch vertag {
-  case "dev", "debug": // only print debug diags for dev and debug versions
-  default: return
-  }
-
   if false {
     defer trace(d.ctx)
     d.stack = _callstack(d.tag(), 5, 0)

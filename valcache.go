@@ -88,9 +88,7 @@ func (u *unmap) do(ctx Context, op any) any {
 
 type bare_hit struct { Context ; *valcache ; s string ; i int ; solo bool }
 func (p *bare_hit) cast(t reflect.Type) Context { return implcast(p, t) }
-func (p *bare_hit) ts(t string) string {
-	return fmt.Sprintf("{=%s %v %v}", t, p.s, ts(p.Context))
-}
+func (p *bare_hit) ts(t string) string { return fmt.Sprintf("{=%s %v %v}", t, p.s, ts(p.Context)) }
 func (p *bare_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
     case act_unmap:

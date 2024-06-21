@@ -625,7 +625,7 @@ func (_tx *universe) run() (result []Value) {
                     }
                 }
             default:
-                errostack(ctx, 3, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).debug()
+                errostack(ctx, 3, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).trace()
                 return false
             }
         }

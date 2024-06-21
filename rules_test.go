@@ -259,42 +259,56 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("hooks.debug, %v", _universe(ctx).hooks)
 	}
 
+	var v1, v2, v3 Value
 	var t = ctx.i.(*testShellForStdoutDebugStruct)
 
-	var v1 = ctx.val(".test.v1")
-	if v1 == nil {
-		ctx.err(".test.v1")
-	} else if v1.String() != "" {
-		ctx.err("%v", tst{v1})
-	} else if v1.string(ctx) != "" {
-		ctx.err("%v", tst{v1})
+	if s := ".test.v1"; false {} else
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
+	} else if ts(v) != "{=null}" {
+		ctx.err("%v", tst{v})
+	} else {
+		v1 = v
 	}
 	if len(t.v) != 1 {
 		ctx.err("%v", t.v)
-	} else if t.v[0].String() != "b a" {
-		ctx.err("%v", t.v[0])
+	} else if ts(t.v[0]) != "{=list {=bareword b} {=bareword a}}" {
+		ctx.err("%v", tst{t.v[0]})
 	}
 	if t.s != "b a" {
 		ctx.err("%v", t.s)
 	}
+	if v1.string(ctx) != "" {
+		ctx.err("%v", v1)
+	}
+	// if len(t.v) != 2 {
+	// 	ctx.err("%v", t.v)
+	// } else if ts(t.v[0]) != "{=list {=bareword b} {=bareword a}}" {
+	// 	ctx.err("%v", tst{t.v[0]})
+	// } else if ts(t.v[1]) != "{=list {=bareword b} {=bareword a}}" {
+	// 	ctx.err("%v", tst{t.v[1]})
+	// }
 
 	t.v, t.s = nil, ""
 
-	if r := ctx.rule(".test.for"); r == nil {
-		ctx.err(".test.for")
+	if s := ".test"; false {} else
+	if r := ctx.rule(s); r == nil {
+		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
 	} else if v := _evoke_(ctx, r[0], "abc", "1"); v == nil {
 		ctx.err("%v", r)
-	} else if v.String() != "" {
-		ctx.err("%v", v)
-	} else if v.string(ctx) != "" {
-		ctx.err("%v", v)
+	} else if ts(v) != "{=delegate {=builtin debug} {=list {=bareword 1} {=bareword abc}}}" {
+		ctx.err("%v", tst{v})
+	} else if v := _evoke_(final{ctx}, r[0], "abc", "1"); v == nil {
+		ctx.err("%v", r)
+	} else if ts(v) != "{=null}" {
+		ctx.err("%v", tst{v})
 	}
 	if len(t.v) != 1 {
 		ctx.err("%v", t.v)
-	} else if t.v[0].String() != "1 abc" {
-		ctx.err("%v", t.v[0])
+	} else if ts(t.v[0]) != "{=list {=bareword 1} {=bareword abc}}" {
+		ctx.err("%v", tst{t.v[0]})
 	}
 	if t.s != "1 abc" {
 		ctx.err("%v", t.s)
@@ -302,11 +316,15 @@ func testShellForStdout(ctx testcase1) {
 
 	t.v, t.s = nil, ""
 
-	var v2 = ctx.val(".test.v2")
-	if v2 == nil {
-		ctx.err(".test.v2")
-	} else if v2.String() != "${.test.for a,b}" {
-		ctx.err("%v{%v}", typeof(v2), v2)
+	if s := ".test.v2"; false {} else
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if ts(v) != "{=delegate {=rule_name .test} {=list {=bareword a}} {=list {=bareword b}}}" {
+		ctx.err("%v", tst{v})
+	} else {
+		v2 = v
 	}
 	if len(t.v) != 0 {
 		ctx.err("%v", t.v)
@@ -315,7 +333,7 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%v", t.s)
 	}
 	if v2.string(ctx) != "" {
-		ctx.err("%v{%v}", typeof(v2), v2)
+		ctx.err("%v", tst{v2})
 	}
 	if len(t.v) != 1 {
 		ctx.err("%v", t.v)
@@ -328,11 +346,13 @@ func testShellForStdout(ctx testcase1) {
 
 	t.v, t.s = nil, ""
 
-	var v3 = ctx.val(".test.v3", "a", "b")
-	if v3 == nil {
-		ctx.err(".test.v3")
-	} else if v3.String() != "${.test.for a,b}" {
-		ctx.err("%v{%v}", typeof(v3), v3)
+	if s := ".test.v3"; false {} else
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v3 = d.value; v3 == nil {
+		ctx.err("%v", d)
+	} else if ts(v3) != "{=delegate {=rule_name .test} {=list {=delegate {=auto 1}}} {=list {=delegate {=auto 2}}}}" {
+		ctx.err("%v", tst{v3})
 	}
 	if len(t.v) != 0 {
 		ctx.err("%v", t.v)
@@ -340,8 +360,10 @@ func testShellForStdout(ctx testcase1) {
 	if t.s != "" {
 		ctx.err("%v", t.s)
 	}
-	if v3.string(ctx) != "" {
-		ctx.err("%v{%v}", typeof(v3), v3)
+	if v := ctx.val(v3, "a", "b"); v == nil {
+		ctx.err("%v", tst{v3})
+	} else if ts(v) != "{=delegate {=builtin debug} {=list {=strlit b} {=strlit a}}}" {
+		ctx.err("%v", tst{v})
 	}
 	if len(t.v) != 1 {
 		ctx.err("%v", t.v)
@@ -350,6 +372,17 @@ func testShellForStdout(ctx testcase1) {
 	}
 	if t.s != "b a" {
 		ctx.err("%v", t.s)
+	}
+
+	t.v, t.s = nil, ""
+
+	if s := ".test.v4"; false {} else
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if ts(v) != "{=delegate {=builtin debug} {=list {=strlit b} {=strlit a}}}" {
+		ctx.err("%v", tst{v})
 	}
 
 	t.v, t.s = nil, ""

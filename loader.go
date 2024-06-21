@@ -349,12 +349,12 @@ func (l unilo) use_spec(ctx Context, opts useOpts, specVal Value, params ...Valu
             // NOTE: proj could be nil
             prompt(ctx, "%v: %v is already a base\n", l.project, spec)
             erro(ctx, "`%s` is already a base (proj=%s)", spec, proj)
-            errostack(ctx, 10, "%v", ctx).debug()
+            errostack(ctx, 10, "%v", ctx).trace()
         } else if res {
             // NOTE: proj could be nil
             prompt(ctx, "%v: %v already imported by %v\n", l.project, spec, proj)
             erro(ctx, "'%s' already imported by '%s'", spec, proj)
-            errostack(ctx, 10, "%v", ctx).debug()
+            errostack(ctx, 10, "%v", ctx).trace()
         }
     }
 
@@ -389,7 +389,7 @@ func (l unilo) use_spec(ctx Context, opts useOpts, specVal Value, params ...Valu
         var up = use.project
         if loaded == up {
             if !opts.noVars && !opts.files {
-                errostack(ctx, 10, "%v: using `%s` multiple times: %v", l.project, spec, l.project.use.list).debug()
+                errostack(ctx, 10, "%v: using `%s` multiple times: %v", l.project, spec, l.project.use.list).trace()
             }
             return
         }
@@ -602,7 +602,7 @@ func (l unilo) include(ctx Context, specVal Value, opts includeOpts) {
         erro(ctx, "include: empty string: %v", specVal).trace()
     }
 
-    l.loader = &loader{terminal:terminal{parser_include_context{ctx, opts}, []*scope{}}}
+    l.loader = &loader{terminal:terminal{parse_include_context{ctx, opts}, []*scope{}}}
     l.source(l.loader, fullname, nil)
     return
 }
@@ -718,9 +718,9 @@ ParamsLoop:
         if specVal = elem.expand(final{ctx}); specVal == nil {
             specVal = elem // okay!
         } else if true && indeterminate(ctx, specVal) {
-            errostack(ctx, 5, "incomplete expand: %T %v ⇒ %T %v", elem, elem, specVal, specVal).debug()
+            errostack(ctx, 5, "incomplete expand: %T %v ⇒ %T %v", elem, elem, specVal, specVal).trace()
         } else if defs := specVal.defs(ctx); len(defs) > 0 {
-            errostack(ctx, 5, "incomplete expand: %v ⇒ %v (defs=%v)", elem, specVal, defs).debug()
+            errostack(ctx, 5, "incomplete expand: %v ⇒ %v (defs=%v)", elem, specVal, defs).trace()
         }
 
         if spec = specVal.string(ctx); spec == "" {
@@ -1062,7 +1062,7 @@ func (l unilo) source(ctx Context, filename string, src any) (res Value) {
     var text, patherror = source_bytes(ctx, filename, src)
     if patherror && (opts != nil && !opts.ifExists) {
         prompt(ctx, "%v: no such source file\n", filename)
-        errostack(ctx, 3).debug()
+        errostack(ctx, 3).trace()
     }
 
     if text == nil { return }
@@ -1368,7 +1368,7 @@ func (l unilo) directory(ctx Context, spec, absDir string, filter func(os.FileIn
             return true // okay for implicit loading
         } else {
             for s, m := range l.globe.loaded { erro(ctx, "%v: %v", s, m) }
-            errostack(ctx, 3, "%s not loaded (as %s)", spec, absDir).debug()
+            errostack(ctx, 3, "%s not loaded (as %s)", spec, absDir).trace()
         }
     }
 

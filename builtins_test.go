@@ -2814,11 +2814,22 @@ func testBuiltin_contains(ctx *testcase) {
 }
 
 func testBuiltin_contains2(ctx *testcase) {
+	if s := "val"; false {
+	} else if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if ts(v) != "{=list {=bareword a} {=bareword b} {=bareword c} {=delegate {=auto 1}}}" {
+		ctx.err("%v", tst{v})
+	}
+
 	if s := ".test.x"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
+	} else if ts(v) != "{=delegate {=rule_name foo}}" {
+		ctx.err("%v", tst{v})
 	} else if x, y := v.(*delegate); !y {
 		ctx.err("%v", tst{x})
 	} else if a, y := x.x.(entry); !y {
@@ -2836,6 +2847,10 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
+	} else if ts(v) != "{=list {=bareword a} {=bareword b} {=bareword c} {=bareword foo}}" {
+		ctx.err("%v", tst{v})
+	} else if true {
+		// ...
 	} else if x, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
 	} else if o, y := x.x.(*def); !y {
@@ -2855,6 +2870,10 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
+	} else if ts(v) != "{=list {=bareword a} {=bareword b} {=bareword c} {=bareword foo}}" {
+		ctx.err("%v", tst{v})
+	} else if true {
+		// ...
 	} else if x, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
 	} else if o, y := x.x.(*def); !y {

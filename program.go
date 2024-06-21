@@ -26,6 +26,7 @@ type dirtyOpts struct {
 
 type act_exe_value struct{ v Value }
 type get_program struct{}
+type default_value struct{ v Value }
 
 func _execution(c Context) *execution { return cast[*execution](c) }
 
@@ -81,6 +82,7 @@ func (p *execution) do(ctx Context, op any) (res any) {
     case get_project: if p.prog.project != nil { return p.prog.project }
     case get_scope: if p.prog.project != nil { return p.prog.project.scope }
 
+    case default_value: p.defaultVal = t.v
     case act_exe_value: p.values = append(p.values, t.v)
     case act_dirty_mark:       p.dirty_mark(t.a...)
     case act_dirt:      return p.dirty(ctx,t.a...)
@@ -202,40 +204,36 @@ func (p *execution) dirty_mark(vals ...Value) {
     if enableDirtyMark { p.dirty_mark(vals...) }
 }
 
-func (p *execution) interpret(ctx Context, i interpreter, params []Value) {
-    var target, _, _, err = wait(ctx, waitopts{
+func (p *execution) interpret(ctx Context, i interpreter, params []Value) (res Value) {
+    var target, _, _ = wait(ctx, waitopts{
         ReportUpdates: false,
         ExecResults: false,
         StampCurrentTarget: false,
     })
 
-    if err != nil { // wait for prerequisites
-        erro(ctx, "waiting traversal failed: %v", err).trace()
+    if !isConfigure(ctx) {
+        if _, y := target.(*File); y && p != nil && !p.dirty(ctx) {
+            // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
+            return
+        }
     }
 
-    if isConfigure(ctx) {
-        // no dirty-checks for configure
-    } else if _, y := target.(*File); y && p != nil && !p.dirty(ctx) {
-        // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
-        return
+    if res = i.evaluate(ctx, params...); res != nil {
+        if d, prev := auto_set(ctx, "-", res); d == nil {
+            var _, ent, _ = entryIndicator(ctx, _entry(ctx))
+            prompt(ctx, "%v: %s\n", ent, intername(i))
+            erro(ctx, "set buffer value failed: %v -> %v", prev, res)
+            errostack(ctx, 3).trace()
+        }
     }
 
-    if value := i.evaluate(ctx, params...); value == nil {
-        // disgard nil value
-    } else if d, prev := auto_set(ctx, "-", value); d == nil {
-        var _, ent, _ = entryIndicator(ctx, _entry(ctx))
-        prompt(ctx, "%v: %s\n", ent, intername(i))
-        erro(ctx, "set buffer value failed: %v -> %v", prev, value)
-        errostack(ctx, 3).debug()
-    }
+    p.interpreted = append(p.interpreted, i)
 
-    if _, _, err = updateRecipesHash(ctx, target); err != nil {
+    if _, _, err := updateRecipesHash(ctx, target); err != nil {
         var _, ent, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
         erro(ctx, "update recipes hash failed: %v", err)
-        errostack(ctx, 3).debug()
-    } else if p != nil {
-        p.interpreted = append(p.interpreted, i)
+        errostack(ctx, 3).trace()
     }
     return
 }
@@ -274,16 +272,12 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
 
 func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     var target as
-    if val, /*files*/_, /*execRes*/_, err := wait(p, waitopts{
+
+    target.Value, /*files*/_, /*execRes*/_ = wait(p, waitopts{
         ReportUpdates: false,
         ExecResults: false,
         StampCurrentTarget: false,
-    }); err != nil {
-        errostack(ctx, 5, "%v", err).debug(10)
-        return
-    } else {
-        target.Value = val
-    }
+    })
 
     var reason string
     var targetFile *File
@@ -404,7 +398,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
     if prereqValue = val; prereqValue == nil {
         if prereqFinal == "" {
-            errostack(ctx, 3, "prerequisite is nothing").debug()
+            errostack(ctx, 3, "prerequisite is nothing").trace()
         }
 
         mapPrereqFile(prereqFinal)
@@ -417,7 +411,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
         prereqFinal = prereqValue.string(ctx)
 
         if prereqFinal == "" { // just reject empty final
-            errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, _stems(ctx)).debug()
+            errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, _stems(ctx)).trace()
         }
 
         switch prereqValue.(type) {
@@ -434,7 +428,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
     var stems = _stems(ctx)
     if len(stems) == 0 {
-        if false { errostack(ctx, 3, "%v: no stems, %v", prereqValue, ctx).debug(8) }
+        if false { errostack(ctx, 3, "%v: no stems, %v", prereqValue, ctx).trace() }
         return
     }
 
@@ -442,14 +436,14 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
     prereqPattern = prereqValue
     prereqValue, rest = prereqPattern.stencil(ctx, stems)
     if isTrivial(prereqValue) {
-        errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems).debug()
+        errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems).trace()
     } else if len(rest) > 0 {
-        errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest).debug()
+        errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest).trace()
     }
 
     if prereqFinal == "" { prereqFinal = prereqValue.string(ctx); }
     if prereqFinal == "" {
-        errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems).debug()
+        errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems).trace()
     }
 
     mapPrereqFile(prereqValue)
@@ -529,7 +523,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
             warn(at(ctx,prereqValue), "recursion: %T %v", prereqValue, prereqValue)
             warn(at(ctx,targetValue), "recursion: %T %v", targetValue, targetValue)
             warn(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs)
-            errostack(ctx, 16).debug()
+            errostack(ctx, 16).trace()
         }
         for c := p; c != nil; c = c.caller() {
             if val := auto_get(c, "@"); val != nil && eq(c, val, prereqValue) {
@@ -658,15 +652,128 @@ func (prog *program) workdir(ctx Context) (workdir string) {
     return
 }
 
-func (prog *program) execute(ctx Context) (result Value) {
-    var ent = _entry(ctx)
+func (prog *program) target(ctx Context, exe *execution) (target Value) {
+    if target = _entry(ctx).destiny(); target == nil {
+        erro(ctx, "%v: nil entry target", target).trace()
+    }
 
+    switch a := target.(type) {
+    case *strlit, *compound: // NOTE: skip strings to optimize speed from searching
+    case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+    case    *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+    default:
+        if f := prog.project.file(ctx, a.string(ctx)); f != nil {
+            if f._traved > 1 { return } else { target = f }
+        }
+    }
+
+    if exe.recs[target] += 1; false {
+        if exe.recs[target] > 1 {
+            if _universe(ctx).traceExec { l_exec.trace(fmt.Sprintf("exec: %v", target)) }
+            return
+        }
+    }
+    return
+}
+
+func (prog *program) check_exe(ctx Context, exe *execution) {
+    var cc = exe.Context
+    var a = []Value{ auto_get(cc, "@") }
+    var depth, loop int = 0, -1
+
+ForPC:
+    for c := exe.caller(); c != nil; c = c.caller() {
+        if _program(c) == prog {
+            if depth += 1; depth == maxCallRecursion { break ForPC }
+            var t = auto_get(c, "@")
+            for i, v := range a {
+                if eq(ctx, t, v) { loop = i; break ForPC }
+            }
+            if loop < 0 { a = append(a, t) }
+        }
+    }
+
+    if 0 <= loop {
+        var t = auto_get(cc, "@")
+        if o := cast[*terminal](cc); o != nil { if v := auto_get(o, "@"); v != nil && eq(cc, v, t) {
+            if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug() }
+            // FIXES: skip execution as it's closure, for example:
+            //
+            //   %.h($(headers)): $(srcinc)/%.h update-file
+            //
+            // where the 'update-file' is like:
+            //
+            //   update-file: [((in)) (closure) (set @=&@)] $(in) \
+            //       [(read-file $>) (update-file -p)]
+            //
+            // see also Rule.traverse for the same skip.
+            return
+        }}
+
+        prompt(ctx, "%v: %v: %v, %v\n", a[0], auto_get(cast[*terminal](cc), "@"), cc, cast[*terminal](cc))
+        for i, t := range a { erro(at(ctx,t), "loop: %v: %v", i, t) }
+        errostack(at(ctx,prog.position), 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).trace()
+    }
+
+    if depth < maxCallRecursion {
+        // continues
+    } else if c := exe.caller(); c != nil {
+        exe.traceLevel = c.traceLevel
+
+        var tt = as{auto_get(c, "@")}
+        var s, _ = tt.fullnameOrFinal(ctx)
+        prompt(ctx, "%v: max recursion call (%d)\n", s, depth)
+        warn(at(ctx,tt), "max recursion call (%d)\n", depth).debug()
+
+        const collapse = false
+        for ; c != nil; c = c.caller() { var n int
+            if collapse { for next := c.caller(); next != nil; next = next.caller() {
+                if d := auto_get(next, "@"); d == nil { continue } else
+                if t := d; t != nil && eq(ctx, t, tt) { n += 1;  continue }
+                if _program(next) == _program(c) { n += 1; c = next } else { break }
+            }}
+
+            if prog, t := _program(c), auto_get(c, "@"); prog == nil {
+                erro(ctx, "%v (@=%v)", _entry(ctx), tt)
+                break
+            } else if pos := prog.position; n > 0 {
+                erro(at(ctx,pos), "%v (repeated %d times)", t, n)
+            } else if !collapse {
+                erro(at(ctx,pos), "%v : %v", t, auto_get(c, ">"))
+            } else if depth -= 1; maxCallRecursion - depth > 5 {
+                erro(at(ctx,pos), "%v ... (%d)", t, maxCallRecursion - depth)
+                break
+            } else {
+                erro(at(ctx,pos), "%v : %v", t, auto_get(c, ">"))
+            }
+
+            flush(ctx) // dump immediately
+        }
+
+        errostack(ctx, depth, "#>", _entry(ctx)).trace()
+    }
+}
+
+func (prog *program) result_or_default_interpret(ctx *execution) (result Value) {
+    if result = auto_get(ctx, "-"); result != nil {
+        return
+    }
+    if len(ctx.interpreted) == 0 {
+        if x, y := dialects[""]; y && x != nil {
+            return ctx.interpret(ctx, x, nil)
+        }
+        erro(ctx, "no default dialect").trace()
+    }
+    return
+}
+
+func (prog *program) execute(ctx Context) (result Value) {
     if 0 < count_error(ctx) {
-        erro(ctx, "%v: got errors, execution canceled", ent).trace()
+        erro(ctx, "%v: got errors, execution canceled", _entry(ctx)).trace()
     }
 
     var exe = execution{
-        automatic:automatic{ Context:ctx, defs:make(auto_defs) },
+        automatic:automatic{Context:ctx, defs:make(auto_defs)},
         prog:prog, recs:make(map[Value]int), start:time.Now(),
     }
 
@@ -674,136 +781,37 @@ func (prog *program) execute(ctx Context) (result Value) {
 
     if checkpoints && truly(ctx, is_test_mode{}) && prog.project.name == "testrules" {
         switch prog.project.spec {
-        case "testdata/rule/0": defer prog.execute_check_0(ctx, ent, &result)
-        case "testdata/rule/1": defer prog.execute_check_1(ctx, ent, &result)
+        case "testdata/rule/0":                defer prog.execute_check_0(ctx, &result)
+        case "testdata/rule/1":                defer prog.execute_check_1(ctx, &result)
+        case "testdata/rule/shell/for-stdout": defer prog.check_shell_for_stdout(ctx, &result)
         }
     }
 
     defer func() {
-        var targets = auto_get(ctx, "@") // depends = auto_get(ctx, "^")
-        if isTrivial(targets) { targets = ent.destiny() }
-
         for _, a := range exe.defers {
-            if g, y := a.(*group); y {
-                modify(ctx, g, true)
+            if x, y := a.(*group); y {
+                modify(ctx, x, true)
             } else {
-                erro(at(ctx, a), "defer: not a modifier: {=%s %v}", typeof(a), a).trace()
+                erro(at(ctx,a), "defer: not a modifier: %s", ts(a)).trace()
             }
         }
 
-        if result == nil {
-            if result = auto_get(ctx, "-"); result == nil {
-                result = exe.defaultVal
-            }
-        }
-        if result != nil {
-            if t := exe.caller(); t != nil {
-                t.defaultVal = result
-            }
-        }
+        if result == nil { result = auto_get(ctx, "-") }
+        if result == nil { result = exe.defaultVal }
+        if result != nil { do(exe.Context, default_value{result}) }
 
         exe.defaultVal = nil
     } ()
 
-    if true {
-        var cc = exe.Context
-        var a = []Value{ auto_get(cc, "@") }
-        var depth, loop int = 0, -1
-
-    ForPC:
-        for c := exe.caller(); c != nil; c = c.caller() { if _program(c) == prog {
-            if depth += 1; depth == maxCallRecursion { break ForPC }
-            var t = auto_get(c, "@")
-            for i, v := range a { if eq(ctx, t, v) { loop = i; break ForPC } }
-            if loop < 0 { a = append(a, t) }
-        }}
-
-        if 0 <= loop { var t = auto_get(cc, "@")
-            if o := cast[*terminal](cc); o != nil { if v := auto_get(o, "@"); v != nil && eq(cc, v, t) {
-                if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug() }
-                // FIXES: skip execution as it's closure, for example:
-                //
-                //   %.h($(headers)): $(srcinc)/%.h update-file
-                //
-                // where the 'update-file' is like:
-                //
-                //   update-file: [((in)) (closure) (set @=&@)] $(in) \
-                //       [(read-file $>) (update-file -p)]
-                //
-                // see also Rule.traverse for the same skip.
-                return
-            }}
-
-            prompt(ctx, "%v: %v: %v, %v\n", a[0], auto_get(cast[*terminal](cc), "@"), cc, cast[*terminal](cc))
-            for i, t := range a { erro(at(ctx,t), "loop: %v: %v", i, t) }
-            errostack(at(ctx,prog.position), 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).debug()
-        }
-
-        if depth < maxCallRecursion {
-            // continues
-        } else if c := exe.caller(); c != nil { exe.traceLevel = c.traceLevel
-            var tt = as{auto_get(c, "@")}
-            var s, _ = tt.fullnameOrFinal(ctx)
-            prompt(ctx, "%v: max recursion call (%d)\n", s, depth)
-            warn(at(ctx,tt), "max recursion call (%d)\n", depth).debug()
-
-            const collapse = false
-            for ; c != nil; c = c.caller() { var n int
-                if collapse { for next := c.caller(); next != nil; next = next.caller() {
-                    if d := auto_get(next, "@"); d == nil { continue } else
-                    if t := d; t != nil && eq(ctx, t, tt) { n += 1;  continue }
-                    if _program(next) == _program(c) { n += 1; c = next } else { break }
-                }}
-
-                if prog, t := _program(c), auto_get(c, "@"); prog == nil {
-                    erro(at(ctx,ent), "%v (@=%v)", ent, tt)
-                    break
-                } else if pos := prog.position; n > 0 {
-                    erro(at(ctx,pos), "%v (repeated %d times)", t, n)
-                } else if !collapse {
-                    erro(at(ctx,pos), "%v : %v", t, auto_get(c, ">"))
-                } else if depth -= 1; maxCallRecursion - depth > 5 {
-                    erro(at(ctx,pos), "%v ... (%d)", t, maxCallRecursion - depth)
-                    break
-                } else {
-                    erro(at(ctx,pos), "%v : %v", t, auto_get(c, ">"))
-                }
-
-                flush(ctx) // dump immediately
-            }
-
-            errostack(ctx, depth, "#>", ent).debug(/* 512 */)
-        }
-
-        if t := _stems(ctx); t != nil { auto_set(ctx, "*", ease(ctx, t)) }
-    }
-
-    var u = _universe(ctx)
+    if true { prog.check_exe(ctx, &exe) }
 
     // NOTE: set "@" before setting auto args
     // Select the right target value before setting parameters,
     // because the target could be overrided by parameters.
-    if target := ent.destiny(); target == nil {
-        erro(ctx, "%v: nil entry target", target).trace()
-    } else {
-        switch a := target.(type) {
-        case *strlit, *compound: // NOTE: skip strings to optimize speed from searching
-        case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-        case    *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-        default:
-            if f := prog.project.file(ctx, a.string(ctx)); f != nil {
-                if f._traved > 1 { return } else { target = f }
-            }
-        }
+    auto_set(ctx, "@", prog.target(ctx, &exe))
 
-        if exe.recs[target] += 1; false {
-            if exe.recs[target] > 1 {
-                if u.traceExec { l_exec.trace(fmt.Sprintf("exec: %v", target)) }
-                return
-            }
-        }
-
-        auto_set(ctx, "@", target)
+    if t := _stems(ctx); t != nil {
+        auto_set(ctx, "*", ease(ctx, t))
     }
 
     do(ctx, act_arguments{})
@@ -814,17 +822,7 @@ func (prog *program) execute(ctx Context) (result Value) {
     exe.order = true
     exe.prerequisites(ctx, prog.ordered)
 
-    if prog.language != "" || len(prog.recipes) == 0 {
-        return
-    }
-
-    if h := auto_get(ctx,"-"); h == nil && len(exe.interpreted) == 0 {
-        if i, y := dialects["eval"]; y && i != nil {
-            exe.interpret(ctx, i, nil)
-        } else {
-            erro(ctx, "no default dialect").trace()
-        }
-    }
-
-    return
+    if prog.language != "" { return }
+    if len(prog.recipes) == 0 { return }
+    return prog.result_or_default_interpret(&exe)
 }

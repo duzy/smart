@@ -10,10 +10,10 @@ type invoker interface { invoke(Context, []Value, []Value) Value }
 type executer interface { execute(Context, ...Value) []Value }
 
 // eval evaluates smart statements
-type eval struct { accumulation, eval bool }
+type eval struct { accumulation bool ; o origin }
 func (p *eval) evaluate(ctx Context, args ...Value) (result Value) {
-    var program = _program(ctx)
-    if program == nil {
+    var prog = _program(ctx)
+    if prog == nil {
         erro(ctx, "needs program context to evaluate: %v", ctx).trace()
     }
 
@@ -21,7 +21,7 @@ func (p *eval) evaluate(ctx Context, args ...Value) (result Value) {
     var opts struct { generalOpts }
     args = parseOpts(final{ctx}, &opts, args...)
 
-    for _, recipe := range program.recipes {
+    for _, recipe := range prog.recipes {
         var vals = merge(recipe)
 
         if n := len(vals); n < 1 {
@@ -66,7 +66,9 @@ func (p *eval) evaluate(ctx Context, args ...Value) (result Value) {
             }
 
         default:
-            if p.eval { vals = expand(ctx, vals...) }
+            if p.o != 0 {
+                vals = expand(ctx, vals...)
+            }
             if p.accumulation {
                 list = append(list, vals...)
             } else {

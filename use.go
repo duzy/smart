@@ -48,10 +48,10 @@ func (p *use) expand(ctx Context) (res Value) {
         }
         return
 }
-func (p *use) stat(ctx Context) (si *statinfo) {
+func (p *use) stat(ctx Context) (_ *statinfo) {
         if entry := p.project.defaultEntry; entry != nil {
                 // FIXME: entry maybe not pointing to the real target
-                si = entry.stat(ctx)
+                return entry.stat(ctx)
         }
         return
 }
@@ -59,15 +59,15 @@ func (p *use) traverse(ctx Context) {
         erro(at(ctx,p.position), "cant traverse 'use' %v", p.project).trace()
         return
 }
-func (p *use) stamp(ctx Context) (files []*File, err error) {
+func (p *use) stamp(ctx Context) (_ []*File) {
         if entry := p.project.defaultEntry; entry != nil {
-                files, err = entry.stamp(ctx)
+                return entry.stamp(ctx)
         }
         return
 }
-func (p *use) delete(ctx Context) (files []*File, err error) {
+func (p *use) delete(ctx Context) (_ []*File) {
         if entry := p.project.defaultEntry; entry != nil {
-                files, err = entry.delete(ctx)
+                return entry.delete(ctx)
         }
         return
 }
@@ -169,19 +169,15 @@ func (p *uselist) stat(ctx Context) (si *statinfo) {
         }
         return
 }
-func (p *uselist) stamp(ctx Context) (files []*File, err error) {
+func (p *uselist) stamp(ctx Context) (files []*File) {
         for _, elem := range p.list {
-                var a []*File
-                if a, err = elem.stamp(ctx); err != nil { break }
-                files = append(files, a...)
+                files = append(files, elem.stamp(ctx)...)
         }
         return
 }
-func (p *uselist) delete(ctx Context) (files []*File, err error) {
+func (p *uselist) delete(ctx Context) (files []*File) {
         for _, elem := range p.list {
-                var a []*File
-                if a, err = elem.delete(ctx); err != nil { break }
-                files = append(files, a...)
+                files = append(files, elem.delete(ctx)...)
         }
         return
 }

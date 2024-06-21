@@ -11,7 +11,6 @@ import (
   "bytes"
   "fmt"
   "io"
-  "io/fs"
   "os"
   "os/exec"
   "path/filepath"
@@ -334,16 +333,16 @@ func (p *execBuffer) Write(b []byte) (n int, err error) {
         c := p.execContext
         c.line.s, c.lino.int64 = string(line), int64(l)
         v := p.forLine.expand(final{p.Context})
-        if true { if t := p.forLine; t.String() == "${.test.for $1,$2}" {
-          note(p, "%v → %v{%v} ; %v", t, typeof(v), v, auto_get(p, "1")).debug()
+        if t := p.forLine; t.String() == "${.test.for $1,$2}" {
+          note(p, "%v → %v ; %v", t, ts(v), auto_get(p, "1")).debug()
         } else if v != nil {
           if s := strings.TrimSpace(string(line)); true ||
             strings.HasPrefix(s, "test one\n") ||
             strings.HasPrefix(s, "test two\n") || (
             strings.HasPrefix(s, "ld: library '") && strings.HasSuffix(s, "' not found")) {
-            note(p, "%v: %s → %v{%v} ; %v", p.forLine, s, typeof(v), v, auto_get(p.Context, "1")).debug()
+            note(p, "%v: %s → %v ; %v", p.forLine, s, ts(v), auto_get(p.Context, "1")).debug()
           }
-        }}
+        }
       }
 
       if p.scanErrors() {
@@ -778,21 +777,9 @@ func (ctx *execContext) exec(cmd, opt string) {
     ctx.x = nil
 
     // Stamp the target file.
-    if !ctx.stamp || isConfigure(ctx) {
-      // no stamp for target files
-    } else if files, e := ctx.target.stamp(ctx); e != nil {
-      if pe, ok := e.(*fs.PathError); ok {
-        prompt(ctx, "%v: target not found, stamp \"%v\"\n", pe.Path, ctx.target)
-        erro(ctx, `"%v" not found`, ctx.target).trace()
-      } else {
-        prompt(ctx, "%v: target not found, \"%v\"\n", pe.Path, e)
-      }
-      if ctx.logFileName != nil && !ctx.logPos.IsValid() {
-        prompt(ctx, "%v:1: see logs for \"%s\"\n", ctx.logFileName.string(ctx), ctx.target)
-      }
-      erro(ctx, `stamp "%v" failed`, ctx.target).trace()
-    } else if !ctx.prompt && ctx.report {
-      reportFileUpdates(ctx, files)
+    if ctx.stamp && !isConfigure(ctx) {
+      var files = ctx.target.stamp(files_must_stamp{ctx})
+      if !ctx.prompt && ctx.report { reportFileUpdates(ctx, files) }
     }
 
     if ctx.prompt {
@@ -928,7 +915,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   if exe.target.Value = getTargetValue(ctx); program == nil {
     erro(ctx, "needs program context to exec: %v", ctx).trace()
   } else if exe.stamp && exe.target.patterned(ctx) {
-    errostack(ctx, 5, "target is pattern: %v", exe.target).debug(64)
+    errostack(ctx, 5, "target is pattern: %v", exe.target).trace()
   } else if _, ok := exe.target.Value.(flag); ok {
     // no stamp required for Flags
   } else if _, ok = toFile(exe.target.Value); !ok {

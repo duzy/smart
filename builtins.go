@@ -346,7 +346,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
                 val.Set(reflect.ValueOf(&o))
             } else {
                 erro(at(ctx,v), "%v: not a file: %v → %v", _project(ctx), v, ts(x))
-                errostack(ctx, 5).debug()
+                errostack(ctx, 5).trace()
             }
         case "smart.File":
             if x := v.expand(final{ctx}); isNone(x) {
@@ -697,7 +697,7 @@ func (ctx *builtin_error) x() (res any) {
         fmt.Fprintf(&s, "%s", a.string(ctx))
     }
 
-    errostack(ctx, 5, "%s", s.String()).debug()
+    errostack(ctx, 5, "%s", s.String()).trace()
     return
 }
 
@@ -1482,7 +1482,7 @@ func (ctx *builtin_shell) x() (res any) {
             s = strings.TrimSpace(buferr.String())
             if !strings.HasPrefix(s, ":") { s = ":\n" + s }
             prompt(ctx, "%s%s\n", a.string(ctx), s)
-            errostack(ctx, 3, "%s", err).debug()
+            errostack(ctx, 3, "%s", err).trace()
             return
         }
         val := makeStrlit(pos, strings.TrimSpace(bufout.String()))
@@ -2328,7 +2328,7 @@ ForSources:
                     }
                     if t := files(ctx, nameVal, proj); ctx.erroDstNomap {
                         erro(at(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
-                        errostack(at(ctx,dstPat), 16, a...).debug()
+                        errostack(at(ctx,dstPat), 16, a...).trace()
                     } else if ctx.warnDstNomap {
                         warn(at(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
                         warnstack(at(ctx,dstPat), 16, a...).debug(5)
@@ -3480,7 +3480,7 @@ func (ctx *builtin_remove) c() (res any) {
         } else if p, y := v.(*path); y {
             removePath(ctx, p)
         } else if !opts.ignoreMissing {
-            errostack(ctx, 5, "not file: %v (%T)", v, v).debug(6)
+            errostack(ctx, 5, "not file: %v (%T)", v, v).trace()
         }
     }
     for _, a := range ctx.evocation.a {
@@ -3490,7 +3490,7 @@ func (ctx *builtin_remove) c() (res any) {
 
     if opts.debug > 0 { warn(ctx, "%v", ctx.evocation.a).debug() }
     if opts.debug > 0 && flush(ctx) > 0 {
-        errostack(ctx, 3, "remove errors").debug()
+        errostack(ctx, 3, "remove errors").trace()
     }
     return
 }
@@ -3680,7 +3680,7 @@ outer:
                 var r = auto_get(ctx,">")
                 prompt(ctx, "symlink: args=%v → %v\n", ctx.evocation.a, t)
                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
-                errostack(at(ctx,t), 5, "expects pair of names (%T %v)", t, t).debug(6)
+                errostack(at(ctx,t), 5, "expects pair of names (%T %v)", t, t).trace()
                 return
             }
         }
@@ -3688,13 +3688,13 @@ outer:
         if srcDir, srcName = splitFileName(ctx, srcNameVal); srcName == "" {
             prompt(ctx, "symlink: args=%v\n", ctx.evocation.a)
             prompt(ctx, "symlink: src=%v\n", srcNameVal)
-            errostack(at(ctx,srcNameVal), 5, "empty src filename (%T)", srcNameVal).debug(6)
+            errostack(at(ctx,srcNameVal), 5, "empty src filename (%T)", srcNameVal).trace()
             return
         }
         if dstDir, dstName = splitFileName(ctx, dstNameVal); dstName == "" {
             prompt(ctx, "symlink: args=%v\n", ctx.evocation.a)
             prompt(ctx, "symlink: dest=%v\n", dstNameVal)
-            errostack(at(ctx,dstNameVal), 6, "empty dest filename (%T)", dstNameVal).debug(12)
+            errostack(at(ctx,dstNameVal), 6, "empty dest filename (%T)", dstNameVal).trace()
             return
         }
 
@@ -3704,14 +3704,14 @@ outer:
         if !filepath.IsAbs(dst) { dst = filepath.Join(dstDir, dstName) }
         if _, err := os.Stat(src); err != nil {
             prompt(ctx, "symlink: %v: %v\n", srcName, err)
-            errostack(at(ctx,srcNameVal), 6, "%v does not exist", srcName).debug(8)
+            errostack(at(ctx,srcNameVal), 6, "%v does not exist", srcName).trace()
             return
         }
 
         if !opts.relative {/* no rel required */} else
         if s, e := filepath.Rel(filepath.Dir(dst), src); e != nil {
             prompt(ctx, "symlink: %s: rel(%s, %s)\n", dstName, dst, src)
-            errostack(at(ctx,dstNameVal), 8, "%v", e).debug(10)
+            errostack(at(ctx,dstNameVal), 8, "%v", e).trace()
             return
         } else {
             if false {
@@ -3736,7 +3736,7 @@ outer:
         } else if s, e := os.Readlink(dst); e != nil {
             if false {
                 prompt(ctx, "%v: readlink failed (%T)\n", dstName, e)
-                errostack(at(ctx,dstNameVal), 6, "%v", e).debug(8)
+                errostack(at(ctx,dstNameVal), 6, "%v", e).trace()
             }
         } else if rm = s != src; !rm {
             continue outer
@@ -3744,7 +3744,7 @@ outer:
 
         if rm { if e := os.Remove(dst); e != nil {
             prompt(ctx, "%v: remove old symlink failed (%T)\n", dstName, e)
-            errostack(at(ctx,dstNameVal), 6, "%v", e).debug(8)
+            errostack(at(ctx,dstNameVal), 6, "%v", e).trace()
             return
         }}
         if err := os.Symlink(src, dst); err != nil {
@@ -3875,7 +3875,7 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
     for _, a := range merge(args...) {
         if f(a); en > 0 {
             erro(ctx, `%v: %v is not a file (%v)`, projs, ts(a), res)
-            errostack(ctx, 5).debug()
+            errostack(ctx, 5).trace()
         }
     }
     return
@@ -4013,9 +4013,9 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
         if p, y := pat.(*path); !y {
             // fallthrough
         } else if nElems := len(p.elems); nElems == 0 {
-            errostack(ctx, 3, "empty path: %v", pat).debug()
+            errostack(ctx, 3, "empty path: %v", pat).trace()
         } else if y, _, _ = p.elems[0].match(ctx, sub.n); y && nElems == 1 {
-            errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", topDir, sub.dn, pat, sub.n, nElems).debug()
+            errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", topDir, sub.dn, pat, sub.n, nElems).trace()
         } else if y && sub.isDir && nElems > 1 {
             val := p.elems[1]
             if nElems > 2 {
@@ -4033,7 +4033,7 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
         if gp, y := pat.(*globpat); !y {
             // fallthrough
         } else if len(gp.elems) == 0 {
-            errostack(ctx, 3, "empty glob: %v (%s)", pat, sub.dn).debug()
+            errostack(ctx, 3, "empty glob: %v (%s)", pat, sub.dn).trace()
         } else if m, y := gp.elems[0].(*globmeta); !y {
             // fallthrough
         } else if m.token == DAST { // aka **
@@ -4060,7 +4060,7 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
             sub.isDir = fi.IsDir()
         } else {
             erro(ctx, "%p: %v %v → %v", sub, sub.d, sub.n, sub.dn)
-            errostack(ctx, 3, "%v", err).debug()
+            errostack(ctx, 3, "%v", err).trace()
         }
 
         for _, pat := range pats { sub.Add(1) ; go subcard(sub, pat) }
@@ -4211,7 +4211,7 @@ func (ctx *builtin_wildcard) x() any {
     if len(ctx.exclude) > 0 { ctx.exclude = merge(ctx.exclude...) }
     for _, file := range ctx._do(merge(ctx.evocation.a...)...) {
         if file == nil {
-            errostack(ctx, 3, "nil file: %v", ctx.evocation.a).debug()
+            errostack(ctx, 3, "nil file: %v", ctx.evocation.a).trace()
         } else if !(ctx.names || ctx.strs) {
             vals = append(vals, file)
         } else if ctx.strs {
@@ -4252,9 +4252,9 @@ func (ctx *builtin_readfile) x() (res any) {
     var closured = closure_projects(ctx)
     for _, v := range ctx.evocation.a {
         if o, y := (as{v}.fullname(ctx, closured...)); !y {
-            errostack(at(ctx,v), 5, "%v is not a file", v).debug()
+            errostack(at(ctx,v), 5, "%v is not a file", v).trace()
         } else if s, e := ioutil.ReadFile(o.string(ctx)); e != nil {
-            errostack(at(ctx,v), 5, "read file failed: %v", e).debug()
+            errostack(at(ctx,v), 5, "read file failed: %v", e).trace()
         } else {
             if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
             if ctx.trimLeft  { s = bytes.TrimLeftFunc (s, unicode.IsSpace) } else
@@ -4325,13 +4325,12 @@ outer:
 
 func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
     var a, filename, c = as{file}.fullnameFile(ctx)
+
     if filename == "" {
-        errostack(at(ctx,file), 3, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c).debug(24)
-        return
+        errostack(at(ctx,file), 3, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c).trace()
     } else if d := filepath.Dir(filename); optPath && d != "." && d != pathSep {
         if err = os.MkdirAll(d, os.FileMode(optMode|0733)); err != nil {
             erro(at(ctx,file), "touch: %v", err).trace()
-            return
         }
     }
 
@@ -4454,11 +4453,11 @@ func (ctx *builtin_grep) x() (_ any) {
             var pc = _execution(ctx)
             erro(c, "empty filename: %v", ts(a))
             erro(c, "%v %v", rvs, args)
-            errostack(c, 5, "%p %v", pc, pc.search(ctx, "^")).debug(64)
+            errostack(c, 5, "%p %v", pc, pc.search(ctx, "^")).trace()
             return
         } else if file, err = os.Open(filename); err != nil {
             erro(c, "%v", err)
-            errostack(c, 5, "%v (%T)", a.string(ctx), a).debug(128)
+            errostack(c, 5, "%v (%T)", a.string(ctx), a).trace()
             return
         }
 

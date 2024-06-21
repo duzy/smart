@@ -71,8 +71,8 @@ type (
 	getParseCanUndef   struct{}
 	getParseGlob       struct{}
 	getParseIncOpts    struct{}
-	getParseIsAuto     struct{ string }
-	getParseIsConf     struct{}
+	parse_is_auto     struct{ string }
+	parse_is_conf     struct{}
 	getParseIsFlag     struct{}
 	getParseIsRecipe   struct{ bool } // builtin or text
 	getParseLeftHandSide struct{}
@@ -86,94 +86,94 @@ func (p token_aware_context) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-type parser_auto_context     struct { Context }
-type parser_bare_context     struct { Context }
-type parser_braced_context   struct { Context }
-type parser_call_context     struct { Context }
-type parser_code_context     struct { automatic }
-type parser_defvalue_context struct { Context }
-type parser_foreach_context  struct { Context }
-type parser_glob_context     struct { Context }
-type parser_group_context    struct { Context }
-type parser_include_context  struct { Context ; o includeOpts }
-type parser_left_context     struct { Context }
-type parser_modifier_context struct { Context }
-type parser_params_context   struct { Context }
-type parser_path_context     struct { Context }
-type parser_perc_context     struct { Context }
-type parser_recipe_context   struct { Context ; builtin bool }
-type parser_regex_context    struct { Context }
-type parser_rule_context     struct { Context }
-type parser_undef_context    struct { Context }
+type parse_auto_context     struct { Context }
+type parse_bare_context     struct { Context }
+type parse_braced_context   struct { Context }
+type parse_call_context     struct { Context }
+type parse_code_context     struct { automatic }
+type parse_defvalue_context struct { Context }
+type parse_foreach_context  struct { Context }
+type parse_glob_context     struct { Context }
+type parse_group_context    struct { Context }
+type parse_include_context  struct { Context ; o includeOpts }
+type parse_left_context     struct { Context }
+type parse_modifier_context struct { Context }
+type parse_params_context   struct { Context }
+type parse_path_context     struct { Context }
+type parse_perc_context     struct { Context }
+type parse_recipe_context   struct { Context ; builtin bool }
+type parse_regex_context    struct { Context }
+type parse_rule_context     struct { Context }
+type parse_undef_context    struct { Context }
 
-func (p parser_glob_context) do(ctx Context, op any) (_ any) {
+func (p parse_glob_context) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case getParseGlob: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parser_params_context) do(ctx Context, op any) (_ any) {
+func (p parse_params_context) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case getParseCanParams: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parser_auto_context) do(ctx Context, op any) (_ any) {
+func (p parse_auto_context) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case getParseIsAuto: return true
+	case parse_is_auto: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parser_defvalue_context) do(ctx Context, op any) (_ any) {
+func (p parse_defvalue_context) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case getParseIsAuto: return IsDigits(t.string)
+	case parse_is_auto: return IsDigits(t.string)
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parser_foreach_context) do(ctx Context, op any) (_ any) {
+func (p parse_foreach_context) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case getParseIsAuto: if t.string == "_" { return true }
+	case parse_is_auto: if t.string == "_" { return true }
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parser_rule_context) do(ctx Context, op any) (_ any) {
+func (p parse_rule_context) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case getParseIsAuto:
+	case parse_is_auto:
 		if IsDigits(t.string) { return true }
 		if _, y := rule_autos[t.string]; y { return true }
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parser_recipe_context) do(ctx Context, op any) (_ any) {
+func (p parse_recipe_context) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case getParseIsRecipe: return t.bool == p.builtin
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parser_include_context) do(ctx Context, op any) (_ any) {
+func (p parse_include_context) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case getParseIncOpts: return &p.o
-	case getParseIsConf : return p.o.isConfig
+	case parse_is_conf : return p.o.isConfig
 	case getParseIsFlag : return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parser_left_context) do(ctx Context, op any) (_ any) {
+func (p parse_left_context) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case getParseLeftHandSide: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parser_undef_context) do(ctx Context, op any) (_ any) {
+func (p parse_undef_context) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case getParseCanUndef: return true
 	}
@@ -425,7 +425,7 @@ func (l unilo) braced(ctx Context) (x Value) {
 	var p = l.p
 	var pos = p.Position()
 
-	ctx = parser_braced_context{at(ctx, pos)}
+	ctx = parse_braced_context{at(ctx, pos)}
 
 	p.expect(ctx, LBRACE)
 
@@ -770,7 +770,7 @@ func (l unilo) depends(ctx Context, params bool) (res []Value) {
 		} else if p.spaces(ctx) ; !p.isEndOfLine() {
 			var val Value
 			if len(res) == 0 {
-				val = l.expr(parser_params_context{ctx})
+				val = l.expr(parse_params_context{ctx})
 			} else {
 				val = l.expr(ctx)
 			}
@@ -835,7 +835,7 @@ func (l unilo) group(ctx Context) *group {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "Group")) }
 
 	p := l.p
-	ctx = parser_group_context{token_aware_context{at(ctx, p),COMMA}}
+	ctx = parse_group_context{token_aware_context{at(ctx, p),COMMA}}
 
 	p.expect(ctx, LPAREN)
 	p.spaces(ctx)
@@ -866,7 +866,7 @@ func (l unilo) argumentedExpr(ctx Context, x Value) *argumented {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "argumented")) }
 
 	p := l.p
-	ctx = parser_group_context{token_aware_context{at(ctx, p),COMMA}}
+	ctx = parse_group_context{token_aware_context{at(ctx, p),COMMA}}
 
 	p.next(ctx, true) // skip LPAREN
 
@@ -911,7 +911,7 @@ func (l unilo) glob(ctx Context, x Value) (g *globpat) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "glob")) }
 
 	p := l.p
-	ctx = parser_glob_context{at(ctx, p)}
+	ctx = parse_glob_context{at(ctx, p)}
 
 	if y := x == nil; y {
 		g = &globpat{}
@@ -940,7 +940,7 @@ func (l unilo) perc(ctx Context, x Value) Value {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "Perc")) }
 
 	var p = l.p
-	ctx = parser_perc_context{at(ctx, p)}
+	ctx = parse_perc_context{at(ctx, p)}
 
 	var (
 		pos = p.pos
@@ -997,7 +997,7 @@ func (p *parser) regex(ctx Context) (_ Value) {
 	var rx string
 	var pos = p.Position()
 
-	ctx = parser_regex_context{at(ctx, p)}
+	ctx = parse_regex_context{at(ctx, p)}
 
 	if checkpoints {
 		if !p.scanner.bits.isBrace() {
@@ -1166,7 +1166,7 @@ func (l unilo) path(ctx Context, start Value) (res *path) {
 		erro(ctx, "nil path starter").trace()
 	}
 
-	ctx = parser_path_context{at(ctx, start)}
+	ctx = parse_path_context{at(ctx, start)}
 
 	switch t := start.(type) {
 	case     *path: res = t
@@ -1285,25 +1285,25 @@ func (l unilo) resolve(ctx Context, name Value, str string) (result Value) {
 		erro(ctx, "resolve no-name : %v", ts(name)).trace()
 	}
 
-	var s = _scope(ctx)
-
 	if d := auto_find(ctx, str); d != nil {
 		return d
 	}
+
+	var s = _scope(ctx)
 
 	if _, o := s.find(str); o != nil {
 		return o
 	}
 
-	if truly(ctx, getParseIsAuto{str}) {
-		if a := s.auto(ctx, str); a != nil {
-			return a
-		} else {
+	if truly(ctx, parse_is_auto{str}) {
+		if a := s.auto(ctx, str); a == nil {
 			erro(ctx, "failed auto: %v", ts(name)).trace()
+		} else {
+			return a
 		}
 	}
 
-	if truly(ctx, getParseIsConf{}) {
+	if truly(ctx, parse_is_conf{}) {
 		// Create an empty def if referred in configuration.sm.
 		result, _ = s.set(ctx, str, defConfRef)
 		return
@@ -1332,12 +1332,7 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 	str = name.string(ctx)
 
 	if lTok == LBRACE {
-		if false {
-			erro(ctx, "empty name: %s", ts(name)).trace()
-		}
-
-		var t = _project(ctx).resolveEntries(ctx, name, false)
-		if t == nil {
+		if t := _project(ctx).resolveEntries(ctx, name, false) ; t == nil {
 			erro(ctx, "resolved %v is nil", ts(name)).trace()
 		} else {
 			obj, _ = t[0].(Object)
@@ -1347,10 +1342,10 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 
 	if str == "" {
 		switch name.(type) {
-		case condval, *closure, *delegate, *selection:
+		case condval, *selection:
 			return str, name
 		}
-		erro(ctx, "%v is empty for name", ts(name)).trace()
+		erro(ctx, "empty name: %s", ts(name)).trace()
 	}
 
 	if t := l.resolve(ctx, name, str) ; t != nil {
@@ -1413,10 +1408,10 @@ func (l unilo) auto_arg0(ctx Context, tokLp token, isClosure bool) (_ Value) {
 
 func (l unilo) closuredelegate_args(ctx Context, name string, tokLp token, isClosure bool) (args []Value) {
 	switch name {
-	case "auto"    : args = append(args, l.auto_arg0(ctx, tokLp, isClosure)); if !isClosure { ctx = parser_auto_context{ctx} }
-	case "case"    : args = append(args, l.list(ctx)); ctx = parser_undef_context{ctx}
-	case "foreach" : args = append(args, l.list(ctx)); ctx = parser_foreach_context{ctx}
-	case "and","or": ctx = parser_undef_context{ctx}; args = append(args, l.list(ctx))
+	case "auto"    : args = append(args, l.auto_arg0(ctx, tokLp, isClosure)); if !isClosure { ctx = parse_auto_context{ctx} }
+	case "case"    : args = append(args, l.list(ctx)); ctx = parse_undef_context{ctx}
+	case "foreach" : args = append(args, l.list(ctx)); ctx = parse_foreach_context{ctx}
+	case "and","or": ctx = parse_undef_context{ctx}; args = append(args, l.list(ctx))
 	default:         args = append(args, l.list(ctx))
 	}
 
@@ -1525,7 +1520,7 @@ func (l unilo) closuredelegate(ctx Context, isClosure, special bool) (result Val
 	if l_traverse.enabled {	defer un(l_trace(l_traverse, "closuredelegate")) }
 
 	p := l.p
-	ctx = parser_call_context{token_aware_context{at(ctx, p), COMMA}}
+	ctx = parse_call_context{token_aware_context{at(ctx, p), COMMA}}
 
 	tok, obj, args, opts := l.closuredelegate_abc(ctx, isClosure, special)
 
@@ -1973,7 +1968,7 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	} else if indeterminate(ctx, g.spec[0]) {
 		pats = []Value{ g.spec[0] }
 	} else {
-		pats = xmerge(evaluation{ctx, defExpand1}, g.spec[0])
+		pats = xmerge(original{ctx, defExpand1}, g.spec[0])
 	}
 
 	if path == nil {
@@ -2403,7 +2398,7 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
 func (l unilo) assign_value(ctx Context, ident Value, tok token) (value Value) {
 	defer l.closescope(l.openscope(fmt.Sprintf("def %v", ident)))
 
-	vals := l.values(parser_defvalue_context{ctx})
+	vals := l.values(parse_defvalue_context{ctx})
 	l.p.lineComment = nil
 	return ease(ctx, vals)
 }
@@ -2474,7 +2469,7 @@ func (l unilo) recipe(ctx Context) Value {
 			}
 
 			var cmdargs []Value
-			var c = parser_recipe_context{ctx, true} // builtin recipe
+			var c = parse_recipe_context{ctx, true} // builtin recipe
 
 			for p.tok != EOF && p.tok != SEMICOLON && p.tok != LINEND && p.lineComment == nil {
 				if p.spaces(ctx); p.lineComment != nil { break }
@@ -2502,7 +2497,7 @@ func (l unilo) recipe(ctx Context) Value {
 		case "plain", "text": isPlainline = true
 		}
 
-		var c = parser_recipe_context{ctx, false} // builtin text
+		var c = parse_recipe_context{ctx, false} // builtin text
 		for !p.isEndOfLine() {
 			var x Value
 			if p.tok == RAW {
@@ -2569,7 +2564,7 @@ func (l unilo) modifier(ctx Context) (res *modifier) {
 	p := l.p
 	p.spaces(ctx)
 
-	ctx = parser_modifier_context{at(ctx, p)}
+	ctx = parse_modifier_context{at(ctx, p)}
 
 	p.expect(ctx, LPAREN)
 	p.spaces(ctx)
@@ -2658,10 +2653,10 @@ func (l unilo) modification(ctx Context) *modification {
 	// l.p.expect(ctx, /* RBRACK */RBRACE)
 
 	if len(elems) == 0 {
-		errostack(ctx, 5, "empty modifier group").debug()
+		errostack(ctx, 5, "empty modifier group").trace()
 	}
 	if l.p.tok == COLON {
-		errostack(ctx, 5, "unexpected colon after modifer").debug()
+		errostack(ctx, 5, "unexpected colon after modifer").trace()
 	}
     return &modification{valbase{_position(ctx)}, elems }
 }
@@ -2696,7 +2691,7 @@ func (l unilo) parse_rule(ctx Context, optvals, targets []Value) (result Value) 
 		defer un(l_trace(l_traverse, "rule"))
 	}
 
-	ctx = parser_rule_context{at(ctx, l.p)}
+	ctx = parse_rule_context{at(ctx, l.p)}
 
 	var proj = _project(ctx)
 	if proj.keyword == PACKAGE {
@@ -2775,9 +2770,6 @@ func (l unilo) parse_rule(ctx Context, optvals, targets []Value) (result Value) 
         recipes:   recipes,
     }
 
-	//targets = barefilize(ctx, targets...)
-	//depends = barefilize(ctx, depends...)
-	//ordered = barefilize(ctx, ordered...)
 	if res := l.entries(at(ctx, position), &prog, targets, optvals); len(res) == 1 {
 		result = res[0]
 	} else if 1 < len(res) {
@@ -3095,7 +3087,7 @@ func (l unilo) parse_codeblock(ctx Context, t *template, vars map[string]Value) 
 		erro(at(ctx,l.p.loc(l.p.pos)), "bad range: [%v %v) (%v)", l.p.pos, l.p.stop, t.name).trace()
 	}
 
-	var c = parser_code_context{automatic{Context:ctx}}
+	var c = parse_code_context{automatic{Context:ctx}}
 	c.suppress, c.defs = c.has, make(auto_defs)
 
 	if  _, y := vars["_"]; !y { vars["_"] = nil }
@@ -3214,7 +3206,7 @@ func (l unilo) parse_clause(ctx Context) {
 	case  FOREACH: l.parse_foreach(ctx); return
 	}
 
-	var x = l.expr(parser_left_context{ctx})
+	var x = l.expr(parse_left_context{ctx})
 
 	if l.p.spaces(ctx); l.p.tok.isAssign() {
 		l.assign(ctx, x)
@@ -3233,7 +3225,7 @@ func (l unilo) parse_clause(ctx Context) {
 		return
 	} else if strings.HasSuffix(l.p.scanner.file.Name(), pathSep+configuration_sm) {
 		if false { note(ctx, "%v (kit=%s)", l.p.tok, l.p.lit).debug() }
-	} else if truly(ctx, getParseIsConf{}) {
+	} else if truly(ctx, parse_is_conf{}) {
 		note(ctx, "bad clause: %v (kit=%s) after %v", l.p.tok, l.p.lit, vals).debug(3)
 	} else {
 		erro(ctx, "bad clause: %v (lit=%s) after %v", l.p.tok, l.p.lit, vals).trace()
@@ -3423,7 +3415,7 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 				l.p.spaces(ctx)
 
 				ctx := at(ctx, l.p)
-				param := l.expr(parser_group_context{token_aware_context{ctx,COMMA}})
+				param := l.expr(parse_group_context{token_aware_context{ctx,COMMA}})
 				l.p.spaces(ctx)
 
 				//if p.lineComment != nil  { break }

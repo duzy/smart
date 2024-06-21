@@ -133,7 +133,7 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
         info(ctx, "pattern %d. %v (%T)", i, pat, pat)
       }
     }
-    errostack(ctx, 5, "%s -> %v", name, p.patts).debug()
+    errostack(ctx, 5, "%s -> %v", name, p.patts).trace()
   }
 
   var pos = patts[0].Position()
@@ -289,8 +289,6 @@ func (_ *project) int(Context) (int64, error) { return 0, nil }
 func (_ *project) float(Context) (float64, error) { return .0, nil }
 func (_ *project) updated(Context) bool { return false }
 func (_ *project) updatedDeps(Context, ...Value) []Value { return nil }
-func (_ *project) stamp(ctx Context) (_ []*File, _ error) { return }
-func (_ *project) delete(Context) (_ []*File, _ error) { return }
 func (_ *project) defs(Context, ...string) (_ []*def) { return }
 func (_ *project) refs(Context, Value) (_ bool) { return }
 func (_ *project) patterned(Context) bool { return false }
@@ -312,8 +310,16 @@ func (p *project) traverse(ctx Context) {
         t.traverse(ctx)
     }
 }
-func (p *project) stat(ctx Context) (si *statinfo) {
-    if t := p.defaultEntry; t != nil { si = t.stat(ctx) }
+func (p *project) stat(ctx Context) (_ *statinfo) {
+    if t := p.defaultEntry; t != nil { return t.stat(ctx) }
+    return
+}
+func (p *project) stamp(ctx Context) (_ []*File) {
+    if t := p.defaultEntry; t != nil { return t.stamp(ctx) }
+    return
+}
+func (p *project) delete(ctx Context) (_ []*File) {
+    if t := p.defaultEntry; t != nil { return t.delete(ctx) }
     return
 }
 func (p *project) cmp(ctx Context, v Value) (res cmpres) {
@@ -697,7 +703,7 @@ func (p *project) entry(ctx Context, options []Value, target Value, prog *progra
   } else if p, y := c.a[0].(*rule); y {
     entry = p
   } else {
-    errostack(ctx, 3, "wrong cache: %v", c).debug()
+    errostack(ctx, 3, "wrong cache: %v", c).trace()
   }
 
   if entry != nil && p.defaultEntry == nil { p.defaultEntry = entry }

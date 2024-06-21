@@ -15,7 +15,6 @@ import (
     "hash/crc64"
     // "hash/maphash"
     "io"
-    "io/fs"
     "io/ioutil"
     "os"
     "os/exec"
@@ -121,7 +120,6 @@ var (
 )
 
 func modify(x Context, g *group, hyphen bool) (res Value) {
-    var pc = _execution(x)
     var ctx = at(x, g.position)
     var name = g.elems[0].string(ctx)
     var args = g.elems[1:]
@@ -130,30 +128,31 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
         var _, ent, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s failed for %s\n", ent, name, _project(ctx))
         erro(ctx, "unknown modifier: %s (args=%v)", name, args)
-        errostack(ctx, 5, "%v", ctx).debug()
+        errostack(ctx, 5, "%v", ctx).trace()
     } else {
         mv := reflect.New(t)
         mi := mv.Interface()
 
+        var pc = _execution(x)
         var fv modifier_v
         var fx modifier_x
         var fy modifier_y
         if !hyphen {
             if fv, _ = mi.(modifier_v); fv == nil {
-                errostack(ctx, 3, "%v: no method: (*%s).v(...)", name, typeof(mi)).debug()
+                errostack(ctx, 3, "%v: no method: (*%s).v(...)", name, typeof(mi)).trace()
             }
         } else if fx, _ = mi.(modifier_x); fx == nil {
             if fy, _ = mi.(modifier_y); fy == nil {
-                errostack(ctx, 3, "%v: no method: (*%s).x(...)", name, typeof(mi)).debug()
+                errostack(ctx, 3, "%v: no method: (*%s).x(...)", name, typeof(mi)).trace()
             } else if pc == nil {
-                errostack(ctx, 3, "%v: nil pc for: (*%s).x(...)", name, typeof(mi)).debug()
+                errostack(ctx, 3, "%v: nil pc for: (*%s).x(...)", name, typeof(mi)).trace()
             }
         }
 
         if c := mv.Elem().FieldByName("Context"); c.IsValid() {
             c.Set(reflect.ValueOf(ctx)) // c.Type().String() == "smart.Context"
         } else {
-            errostack(ctx, 3, "%v: no field: %s.Context", name, typeof(mi)).debug()
+            errostack(ctx, 3, "%v: no field: %s.Context", name, typeof(mi)).trace()
         }
 
         args = _opts(ctx, mv, args)
@@ -171,7 +170,7 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
     } else if res == nil {
         res = makeNull(g.position) // $- remains too
     } else if name == "defer" || name == "set" || name == "var" {
-        errostack(ctx, 3, "invalid result: (set ...) ⇒ %T %v", res, res).debug()
+        errostack(ctx, 3, "invalid result: (set ...) ⇒ %T %v", res, res).trace()
     } else if a := _automatic(ctx); a != nil {
         a.amend(ctx, "-", res)
     }
@@ -522,7 +521,7 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result interface{}
         if v, y := val.(*boolean); y {
             if !v.bool { noop = true }
         } else if isTrivial(val) {
-            errostack(ctx, 3, "trivial target: %T %v", val, val).debug()
+            errostack(ctx, 3, "trivial target: %T %v", val, val).trace()
         } else if true {
             t = val.expand(ctx) //, plain
         } else {
@@ -535,7 +534,7 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result interface{}
         if t != nil {
             auto_set(ctx, name, t) // aka (set @=&@)
         } else if !noop {
-            errostack(ctx, 3, "%v: %s is nil", proj, name).debug()
+            errostack(ctx, 3, "%v: %s is nil", proj, name).trace()
         }
         return
     }
@@ -569,13 +568,13 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result interface{}
         }
 
         // FIXME: if isInnerauto_get(ctx, t.Value) {
-        //     errostack(ctx, 16, "loop: %v", t).debug(10)
+        //     errostack(ctx, 16, "loop: %v", t).trace()
         //     return
         // }
     }
 
     if proj == nil {
-        errostack(ctx, 6, "%T: nil project in the context", ctx).debug()
+        errostack(ctx, 6, "%T: nil project in the context", ctx).trace()
     } else if scope := proj.scope; scope == nil {
         erro(ctx, "empty closure context").trace()
     } else if def := scope.findDef("/"); def == nil {
@@ -1457,7 +1456,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
                 var s = trimPromptString(targetVal.String())
                 prompt(ctx, "%v: %d errors counted\n", word, n).debug()
                 erro(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
-                errostack(ctx, 5, `%v: %v`, ctx).debug()
+                errostack(ctx, 5, `%v: %v`, ctx).trace()
             }
         } else {
             if n = _diagnostic(dc.Context).counterror(); n > 0 {
@@ -1519,7 +1518,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         } else if err = os.Remove(savedDepsFileName); err != nil {
             for s, p := range missing { erro(at(ctx,p), `missing "%v"`, s) }
             erro(ctx, `%v: "%v" %d deps missing in "%v"`, proj, targetVal, len(missing), savedDepsFileName)
-            errostack(ctx, 3, "%v", ctx).debug()
+            errostack(ctx, 3, "%v", ctx).trace()
         } else {
             for s, p := range missing { warn(at(ctx,p), `missing "%v"`, s) }
             warn(ctx, `%v: "%v" missing %d deps (%v in total)`, proj, targetVal, len(missing), len(files))
@@ -1564,11 +1563,11 @@ func traverseMissingDep(ctx Context, dep string) (res bool) {
     if proj := _project(ctx); proj == nil {
         prompt(ctx, "%s: traverse dep failed, project %v\n", dep, proj)
         erro(ctx, "%s: no current project for dep", dep)
-        errostack(ctx, 5).debug()
+        errostack(ctx, 5).trace()
     } else if f := proj.file(ctx, dep); f == nil {
         prompt(ctx, "%s: dep is unknown file; project %v\n", dep, proj)
         erro(ctx, "%v: %s is unknown file", proj, dep)
-        errostack(ctx, 5).debug()
+        errostack(ctx, 5).trace()
     } else {
         f.traverse(ctx)
     }
@@ -1702,7 +1701,7 @@ CorrectCC:
             prompt(ctx, "%s \\\n  %s\n----------\n", cc.Path, strings.Join(ca, " \\\n  "))
             prompt(ctx, "%s\n----------\n%s----------\n", &stdout, &stderr)
             erro(ctx, "%s: %s deps failed: %v", proj, filepath.Base(ctx.cc), err)
-            errostack(ctx, 5, "%s: %v", proj, ctx).debug()
+            errostack(ctx, 5, "%s: %v", proj, ctx).trace()
         }
         if stderr.Reset(); savedDepsFileName == "" {
             stdout.Reset()
@@ -1737,12 +1736,11 @@ func (ctx *modifier_touch) x(args ...Value) (result interface{}) {
 
     var files []*File
     for _, arg := range args {
-        var vf []*File
         if err := touch(ctx, arg, uint32(ctx.mode), ctx.path); err != nil {
             erro(ctx, "touch '%v' failed: %v", arg, err).trace()
-        } else if vf, err = arg.stamp(ctx); err != nil {
-            erro(ctx, "touch '%v' failed: %v", arg, err).trace()
-        } else { files = append(files, vf...) }
+        } else {
+            files = append(files, arg.stamp(files_must_stamp{ctx})...)
+        }
     }
 
     var program = _program(ctx)
@@ -2273,17 +2271,17 @@ func (ctx *modifier_readfile) x(args ...Value) (result interface{}) {
     }
 
     if isTrivial(target) {
-        errostack(ctx, 3, "target for reading is invalid (%T) (%v)", target.Value, args).debug()
+        errostack(ctx, 3, "target for reading is invalid (%T) (%v)", target.Value, args).trace()
     } else if file, filename, _ = target.fullnameFile(ctx); file == nil {
         if val := auto_get(ctx, ">"); val != nil {
             panic(traveTargetNotDefinedFile)
         } else if true {
             erro(ctx, "not a file: %v (%T)", target.Value, target.Value)
-            errostack(ctx, 8).debug()
+            errostack(ctx, 8).trace()
         }
         return
     } else if filename == "" {
-        errostack(at(ctx,target), 3, "%v: empty fullname", target).debug()
+        errostack(at(ctx,target), 3, "%v: empty fullname", target).trace()
     }
 
     var ( bytes []byte ; err error )
@@ -2444,7 +2442,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
             prompt(ctx, "%s:1: empty content: %v\n", filename, v).debug()
         }
         erro(ctx, "empty content for '%v'", target)
-        errostack(ctx, 6).debug()
+        errostack(ctx, 6).trace()
     }
 
     var (
@@ -2505,14 +2503,10 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
 
             if file := stat(ctx, filename); file == nil {
                 prompt(ctx, "%s: invalid file\n", filename)
-                errostack(ctx, 6, "%v: invalid file '%s'", _project(ctx), filename).debug()
+                errostack(ctx, 6, "%v: invalid file '%s'", _project(ctx), filename).trace()
             } else {
-                var files []*File
-                if files, err = file.stamp(ctx); err != nil {
-                    erro(ctx, "%v", err).trace()
-                } else if false && ctx.verbose {
-                    reportFileUpdates(ctx, files)
-                }
+                var files = file.stamp(files_must_stamp{ctx})
+                if false && ctx.verbose { reportFileUpdates(ctx, files) }
                 result = file // resulting the updated file
             }
         } ()
@@ -2551,7 +2545,7 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
     }
 
     // Wait for prerequisites and/or execution
-    if _, _, execRes, err = wait(ctx, waitopts{
+    if _, _, execRes = wait(ctx, waitopts{
         ctx.verbose, waitForexecResult, stampCurrentTarget,
     }); execRes == nil { return }
 
@@ -2620,39 +2614,30 @@ type modifier_stamp struct { modifier_
 }
 func (ctx *modifier_stamp) x(args ...Value) (result interface{}) {
     var target = getTargetValue(ctx)
+
     if isNull(target) {
         prompt(ctx, "%v\n", _project(ctx))
         erro(ctx, "stamp(%v) failed", target)
-        errostack(ctx, 6, "%v", ctx).debug()
+        errostack(ctx, 6, "%v", ctx).trace()
     }
 
-    var _, err = target.stamp(ctx)
-    if err == nil { return /* Done! */ }
+    var v = target.stamp(files_must_stamp{ctx})
+    if v != nil { return /* Done! */ }
 
-    var p = prompt(ctx, "%v: %v: %v\n", target, _project(ctx), err)
+    var p = prompt(ctx, "%v: %v\n", target, _project(ctx))
     if n := ctx.debug; n>0 { p.debug(n) }
     if ctx.next {
-        if ctx.verbose { warn(ctx, "%v", err).debug() }
         panic(traverse_next{})
-        err = nil // discard the error
     } else if ctx.error {
-        prompt(ctx, "%v: %v: %v\n", target, _project(ctx), err).debug()
         erro(ctx, "stamp(%v) error")
-        errostack(ctx, 10, "%v", ctx).debug()
+        errostack(ctx, 10, "%v", ctx).trace()
     } else {
         if f, y := target.(*File); y {
             erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info)
         } else {
             erro(ctx, "failed stamp(%v) (%T)", target, target)
         }
-        errostack(ctx, 10, "failed: %v", ctx).debug()
-    }
-
-    if err != nil {
-        if pe, ok := err.(*fs.PathError); ok {
-            erro(ctx, "stamp %s: %v", trimPromptString(pe.Path), pe.Err)
-            err = pe.Err
-        }
+        errostack(ctx, 10, "failed: %v", ctx).trace()
     }
     return
 }
@@ -3071,7 +3056,7 @@ func (ctx *modifier_once) x(args ...Value) (result interface{}) {
     const onceAlgo = 2 // avaialbe: 0, 1, 2
 
     if isTrivial(target) {
-        errostack(ctx, 5, "once: no target $@, %v", args).debug()
+        errostack(ctx, 5, "once: no target $@, %v", args).trace()
     } else if ctx.checksum {
         onceSHA256(ctx, target, append([]Value{target}, args...)...)
     } else if onceAlgo == 2 {

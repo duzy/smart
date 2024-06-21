@@ -6,7 +6,13 @@
 
 package smart
 
-func (prog *program) execute_check_0(ctx Context, ent entry, result *Value) {
+import (
+	"fmt"
+)
+
+func (prog *program) execute_check_0(ctx Context, result *Value) {
+	var ent = _entry(ctx)
+
     if *result == nil {
         erro(ctx, "%v: nil result", ts(ent)).trace()
     }
@@ -65,28 +71,25 @@ func (prog *program) execute_check_0(ctx Context, ent entry, result *Value) {
 		if v := auto_get(ctx, ">"); ts(v) != "{}" {
 			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
-
-		v := auto_get(ctx, "-")
-
-		if s := ts(v); s == "{=plain {=bareword rule0} {=bareword xyz}}" {
+		if v, s := auto_get(ctx, "-"), "{=plain {=bareword rule0} {=bareword xyz}}"; ts(v) == s {
 			if x, y := (*result).(*plain); !y {
 				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if x.len() != 2 {
 				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if s := ts(x.elems[0]); s != "{=bareword rule0}" {
-				erro(ctx, "%v: %v", ent, s).trace()
+				erro(ctx, "%v: %v", ent, tv(v)).trace()
 			} else if s := ts(x.elems[1]); s != "{=bareword xyz}" {
-				erro(ctx, "%v: %v", ent, s).trace()
+				erro(ctx, "%v: %v", ent, tv(v)).trace()
 			}
 			if (*result).string(ctx) != "rule0 xyz" {
 				erro(ctx, "%v: %v %v", ent, ts(*result), args).trace()
 			}
-		} else if s == "{=plain {=bareword xyz}}" {
+		} else if ts(v) == "{=plain {=bareword xyz}}" {
 			if x, y := (*result).(*plain); !y {
 				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if x.len() != 1 {
 				erro(ctx, "%v: %v", ent, ts(*result)).trace()
-			} else if s := ts(x.elems[0]); s != "{=bareword xyz}" {
+			} else if s = ts(x.elems[0]); s != "{=bareword xyz}" {
 				erro(ctx, "%v: %v", ent, s).trace()
 			}
 		} else {
@@ -95,8 +98,40 @@ func (prog *program) execute_check_0(ctx Context, ent entry, result *Value) {
     }
 }
 
-func (prog *program) execute_check_1(ctx Context, ent entry, result *Value) {
+func (prog *program) execute_check_1(ctx Context, result *Value) {
+	var ent = _entry(ctx)
     if *result == nil {
         erro(ctx, "%v: nil result", ts(ent)).trace()
     }
+}
+
+func (prog *program) check_shell_for_stdout(ctx Context, result *Value) {
+	var ent = _entry(ctx)
+
+	if *result == nil {
+		erro(ctx, "%v: nil result", ts(ent)).trace()
+	} else if ts(*result) != "{=null}" {
+		erro(ctx, "%v", ts(*result)).trace()
+	}
+
+    var args = try[[]Value](ctx, get_arguments{})
+
+    switch ent.destiny().string(ctx) {
+    case ".test":
+        if len(args) != 2 {
+            erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
+        }
+		if v := auto_get(ctx, "@"); ts(v) != "{=barecomp {=punctuation .} {=bareword test}}" {
+			erro(at(ctx,v), "%v", ts(v)).trace()
+		}
+		if v := auto_get(ctx, "<"); ts(v) != "{}" {
+			erro(at(ctx,v), "%v", ts(v)).trace()
+		}
+		if v := auto_get(ctx, ">"); ts(v) != "{}" {
+			erro(at(ctx,v), "%v", ts(v)).trace()
+		}
+		if v, t := auto_get(ctx, "-"), fmt.Sprintf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0])); ts(v) != t {
+			erro(at(ctx,v), "%s != %s", ts(v), t).trace()
+		}
+	}
 }

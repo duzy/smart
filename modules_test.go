@@ -178,21 +178,21 @@ func testValidateExecRecipe(tc *testcase, ctx Context, source string, recipe Val
 
 func testValidateExecOutput(tc *testcase, ctx Context, line string, l int) {
 	if !testValidateOutFilename.MatchString(_position(ctx).Filename) {
-		errostack(ctx, 2, "invalid output filename").debug(5)
+		errostack(ctx, 2, "invalid output filename").trace()
 	}
 	for _, rx := range testWrongExecOutput {
 		if m := rx.FindStringSubmatch(line); len(m) > 0 {
 			if len(m) < 2 {
-				errostack(ctx, 2, "%v", m[0]).debug(5)
+				errostack(ctx, 2, "%v", m[0]).trace()
 			} else {
-				errostack(ctx, 2, "%v", m[1]).debug(5)
+				errostack(ctx, 2, "%v", m[1]).trace()
 			}
 		}
 	}
 	for _, t := range testSuspiciousExecOutput {
 		if m := t.rx.FindStringSubmatch(line); len(m) > 0 {
 			if _, y := t.ignore[m[t.k]]; !y {
-				errostack(ctx, 2, "%v", m[t.i]).debug(5)
+				errostack(ctx, 2, "%v", m[t.i]).trace()
 			}
 		}
 	}

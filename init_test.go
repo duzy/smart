@@ -186,24 +186,22 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	case string:
 		if x = proj.resolve(ctx, t) ; x == nil {
 			erro(ctx, "%v: '%s' is nil", proj, t).trace()
-			return
 		}
 	case  Value:
-		if t == nil {
+		if x = t ; t == nil {
 			erro(ctx, "%v: %s is nil", proj, ts(t)).trace()
-			return
-		}
-		if x = t ; 0 < len(a) {
-			ac := automatic{Context:ctx, defs:make(auto_defs)}
-			ac.args(ctx, a)
-			ctx = &ac
 		}
 	default:
 		erro(ctx, "%v: %v", proj, ts(i0)).trace()
-		return
 	}
 
-	c := evaluation{ctx, origin}
+	if 0 < len(a) {
+		ac := automatic{Context:ctx, defs:make(auto_defs)}
+		ac.args(ctx, a)
+		ctx = &ac
+	}
+
+	c := original{ctx, origin}
 
 	if 0 < len(a) && _automatic(ctx) == nil {
 		res, _ = evoke(c, x, o, a)
@@ -256,6 +254,54 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	} ()
 
 	f(ctx)
+}
+
+func run(t *testing.T, str, spec, name string, ii ...any) {
+	t.Run(str, func (t *testing.T) {
+		var c = _commandline()
+		var a []any
+		var d   any
+		var f testcase_f1
+		var _hooks *hooks
+		for _, i := range ii {
+			switch v := i.(type) {
+			case func(*testcase): f = v // testcase_f1
+			case func(*testcase, string, string): // testcase_f2
+				f = func(ctx *testcase) { v(ctx, spec, name) }
+			case func(testcase):
+				f = func(ctx *testcase) { v(*ctx) }
+			case func(testcase1):
+				f = func(ctx *testcase) { v(testcase1{ctx, d}) }
+			case test_hook_assert:
+				if _hooks == nil { _hooks = &hooks{} }
+				d, _hooks.assert = v.i, func(c Context, a Value, b bool) bool {
+					v.f(c, a, b, d)
+					return true
+				}
+			case test_hook_debug:
+				if _hooks == nil { _hooks = &hooks{} }
+				d, _hooks.debug = v.i, func(c Context, s string, a []Value) {
+					v.f(c, s, a, d)
+				}
+			case test_caseinit:
+				v.f()
+			case test_configure:
+				c.configure = v.bool
+			case test_silentOptionalSelection:
+				c.silentOptionalSelection = v.bool
+			case test_variant:
+				t.Errorf("TODO: variant=%s", v.string)
+			default:
+				a = append(a, v)
+			}
+		}
+		if f == nil {
+			t.Errorf("%v: %v", str, ii)
+		} else {
+			if _hooks != nil { a = append(a, _hooks) }
+			runcase(t, name, spec, f, append(a, c)...)
+		}
+	})
 }
 
 func va(ctx Context, i any) (v Value) {
@@ -326,54 +372,6 @@ type (
 )
 
 func Test(t *testing.T) {
-	run := func (str, spec, name string, ii ...any) {
-		t.Run(str, func (t *testing.T) {
-			var c = _commandline()
-			var a []any
-			var d   any
-			var f testcase_f1
-			var _hooks *hooks
-			for _, i := range ii {
-				switch v := i.(type) {
-				case func(*testcase): f = v // testcase_f1
-				case func(*testcase, string, string): // testcase_f2
-					f = func(ctx *testcase) { v(ctx, spec, name) }
-				case func(testcase):
-					f = func(ctx *testcase) { v(*ctx) }
-				case func(testcase1):
-					f = func(ctx *testcase) { v(testcase1{ctx, d}) }
-				case test_hook_assert:
-					if _hooks == nil { _hooks = &hooks{} }
-					d, _hooks.assert = v.i, func(c Context, a Value, b bool) bool {
-						v.f(c, a, b, d)
-						return true
-					}
-				case test_hook_debug:
-					if _hooks == nil { _hooks = &hooks{} }
-					d, _hooks.debug = v.i, func(c Context, s string, a []Value) {
-						v.f(c, s, a, d)
-					}
-				case test_caseinit:
-					v.f()
-				case test_configure:
-					c.configure = v.bool
-				case test_silentOptionalSelection:
-					c.silentOptionalSelection = v.bool
-				case test_variant:
-					t.Errorf("TODO: variant=%s", v.string)
-				default:
-					a = append(a, v)
-				}
-			}
-			if f == nil {
-				t.Errorf("%v: %v", str, ii)
-			} else {
-				if _hooks != nil { a = append(a, _hooks) }
-				runcase(t, name, spec, f, append(a, c)...)
-			}
-		})
-	}
-
 	loader_sources_bench = false
 
 	// scanner_test.go
@@ -396,94 +394,94 @@ func Test(t *testing.T) {
 	t.Run("parser", testParseDir)
 
 	// loader_test.go
-	run("loader", "empty", "testloader", testLoader)
+	run(t, "loader", "empty", "testloader", testLoader)
 
 	// value_test.go
-	run("value", "value", "testvalue", testValueGeneral,
+	run(t, "value", "value", "testvalue", testValueGeneral,
 		test_hook_assert{testValueGeneralAssertHook, &testValueGeneralStruct{}})
 
 	// builtins_test.go
-	run("builtins", "assert", "testbuiltins", testAssert,
+	run(t, "builtins", "assert", "testbuiltins", testAssert,
 		test_hook_assert{testAssertHook, &testAssertStruct{}})
-	run("builtins", "pushcontext", "testbuiltins", testPushContext)
+	run(t, "builtins", "pushcontext", "testbuiltins", testPushContext)
 
 	// value_test.go
-	run("value", "value/1",           "testvalue", testValues1)
-	run("value", "value/2",           "testvalue", testValues2)
-	run("value", "value/auto",        "testvalue", testAutomatic)
-	run("value", "value/3",           "testvalue", testValues3)
-	run("value", "value/4",           "testvalue", testValues4)
-	run("value", "value/5",           "testvalue", testValues5)
-	run("value", "value/6",           "testvalue", testValues6)
-	run("value", "value/7",           "testvalue", testValues7)
-	run("value", "value/8",           "testvalue", testValues8)
-	run("value", "value/9",           "testvalue", testValues9)
-	run("value", "value/10",          "testvalue", testValues10)
-	run("value", "value/11",          "testvalue", testValues11)
-	run("value", "value/12",          "testvalue", testValues12)
-	run("value", "value/13",          "testvalue", testValues13)
-	run("value", "value/placeholder", "testvalue", testPlaceholders)
-	run("value", "value/glob",        "testvalue", testGlob)
-	run("value", "value/optional",    "testvalue", testOptional,
+	run(t, "value", "value/1",           "testvalue", testValues1)
+	run(t, "value", "value/2",           "testvalue", testValues2)
+	run(t, "value", "value/auto",        "testvalue", testAutomatic)
+	run(t, "value", "value/3",           "testvalue", testValues3)
+	run(t, "value", "value/4",           "testvalue", testValues4)
+	run(t, "value", "value/5",           "testvalue", testValues5)
+	run(t, "value", "value/6",           "testvalue", testValues6)
+	run(t, "value", "value/7",           "testvalue", testValues7)
+	run(t, "value", "value/8",           "testvalue", testValues8)
+	run(t, "value", "value/9",           "testvalue", testValues9)
+	run(t, "value", "value/10",          "testvalue", testValues10)
+	run(t, "value", "value/11",          "testvalue", testValues11)
+	run(t, "value", "value/12",          "testvalue", testValues12)
+	run(t, "value", "value/13",          "testvalue", testValues13)
+	run(t, "value", "value/placeholder", "testvalue", testPlaceholders)
+	run(t, "value", "value/glob",        "testvalue", testGlob)
+	run(t, "value", "value/optional",    "testvalue", testOptional,
 		test_silentOptionalSelection{true})
 
 	// builtins_test.go
-	run("builtins", "builtins/wildcard",   "testbuiltins", testBuiltin_wildcard)
-	run("builtins", "builtins/foreach",    "testbuiltins", testBuiltin_foreach)
-	run("builtins", "builtins/foreach/1",  "testbuiltins", testBuiltin_foreach1)
-	run("builtins", "builtins/foreach/2",  "testbuiltins", testBuiltin_foreach2)
-	run("builtins", "builtins/foreach/3",  "testbuiltins", testBuiltin_foreach3)
-	run("builtins", "builtins/foreach/4",  "testbuiltins", testBuiltin_foreach4)
-	run("builtins", "builtins/foreach/5",  "testbuiltins", testBuiltin_foreach5)
-	run("builtins", "builtins/logic",      "testbuiltins", testBuiltin_logic)
-	run("builtins", "builtins/addprefix",  "testbuiltins", testBuiltin_addprefix)
-	run("builtins", "builtins/addsuffix",  "testbuiltins", testBuiltin_addsuffix)
-	run("builtins", "builtins/contains",   "testbuiltins", testBuiltin_contains)
-	run("builtins", "builtins/join",       "testbuiltins", testBuiltin_join)
-	run("builtins", "builtins/or",         "testbuiltins", testBuiltin_or)
-	run("builtins", "builtins/xor",        "testbuiltins", testBuiltin_xor)
-	run("builtins", "builtins/trimprefix", "testbuiltins", testBuiltin_trimprefix)
-	run("builtins", "builtins/trimsuffix", "testbuiltins", testBuiltin_trimsuffix)
+	run(t, "builtins", "builtins/wildcard",   "testbuiltins", testBuiltin_wildcard)
+	run(t, "builtins", "builtins/foreach",    "testbuiltins", testBuiltin_foreach)
+	run(t, "builtins", "builtins/foreach/1",  "testbuiltins", testBuiltin_foreach1)
+	run(t, "builtins", "builtins/foreach/2",  "testbuiltins", testBuiltin_foreach2)
+	run(t, "builtins", "builtins/foreach/3",  "testbuiltins", testBuiltin_foreach3)
+	run(t, "builtins", "builtins/foreach/4",  "testbuiltins", testBuiltin_foreach4)
+	run(t, "builtins", "builtins/foreach/5",  "testbuiltins", testBuiltin_foreach5)
+	run(t, "builtins", "builtins/logic",      "testbuiltins", testBuiltin_logic)
+	run(t, "builtins", "builtins/addprefix",  "testbuiltins", testBuiltin_addprefix)
+	run(t, "builtins", "builtins/addsuffix",  "testbuiltins", testBuiltin_addsuffix)
+	run(t, "builtins", "builtins/contains",   "testbuiltins", testBuiltin_contains)
+	run(t, "builtins", "builtins/join",       "testbuiltins", testBuiltin_join)
+	run(t, "builtins", "builtins/or",         "testbuiltins", testBuiltin_or)
+	run(t, "builtins", "builtins/xor",        "testbuiltins", testBuiltin_xor)
+	run(t, "builtins", "builtins/trimprefix", "testbuiltins", testBuiltin_trimprefix)
+	run(t, "builtins", "builtins/trimsuffix", "testbuiltins", testBuiltin_trimsuffix)
 
 	// template_test.go
-	run("template", "template",         "testtemplate", testTemplate)
+	run(t, "template", "template",         "testtemplate", testTemplate)
 
 	// modifiers_test.go
-	run("modifiers", "modifier", "testmodifier", testValueModifier,
+	run(t, "modifiers", "modifier", "testmodifier", testValueModifier,
 		test_caseinit{testValueModifierInit})
 
 	// defs_test.go
-	run("defs", "defs", "testdefs", testDefs0)
+	run(t, "defs", "defs", "testdefs", testDefs0)
 
 	// valcache_test.go
-	run("valcache", "valcache/1", "testvalcache", testValueCache1)
-	run("valcache", "valcache/2", "testvalcache", testValueCache2)
-	run("valcache", "valcache/3", "testvalcache", testValueCache3)
-	run("valcache", "valcache",   "testvalcache", testValueCache)
+	run(t, "valcache", "valcache/1", "testvalcache", testValueCache1)
+	run(t, "valcache", "valcache/2", "testvalcache", testValueCache2)
+	run(t, "valcache", "valcache/3", "testvalcache", testValueCache3)
+	run(t, "valcache", "valcache",   "testvalcache", testValueCache)
 
 	// builtins_test.go
-	run("builtins", "builtins/file/0",     "testbuiltins", testBuiltin_file0)
-	run("builtins", "builtins/file",       "testbuiltins", testBuiltin_file)
+	run(t, "builtins", "builtins/file/0",     "testbuiltins", testBuiltin_file0)
+	run(t, "builtins", "builtins/file",       "testbuiltins", testBuiltin_file)
 
 	// template_test.go
-	run("template", "template/foreach", "testtemplate", testTemplateForeach)
+	run(t, "template", "template/foreach", "testtemplate", testTemplateForeach)
 
 	// rules_test.go
-	run("rules", "rule/0",                "testrules", testRules0)
-	run("rules", "rule/1",                "testrules", testRules1)
-	run("rules", "rule/contains",         "testrules", testBuiltin_contains2)
-	run("rules", "rule/shell/for-stdout", "testrules", testShellForStdout,
+	run(t, "rules", "rule/0",                "testrules", testRules0)
+	run(t, "rules", "rule/1",                "testrules", testRules1)
+	run(t, "rules", "rule/contains",         "testrules", testBuiltin_contains2)
+	run(t, "rules", "rule/shell/for-stdout", "testrules", testShellForStdout,
 		test_hook_debug{testShellForStdoutDebugHook, &testShellForStdoutDebugStruct{}})
 
 	// configure_test.go
-	run("configure", "configuration",          "testdefaultconfigure",  testConfigureFoo)
-	run("configure", "configuration/diverged", "testdivergedconfigure", testConfigureDivergedOuttmp)
-	run("configure", "configuration/custom",   "testcustomconfigure",   testConfigureCustom)
+	run(t, "configure", "configuration",          "testdefaultconfigure",  testConfigureFoo)
+	run(t, "configure", "configuration/diverged", "testdivergedconfigure", testConfigureDivergedOuttmp)
+	run(t, "configure", "configuration/custom",   "testcustomconfigure",   testConfigureCustom)
 
 	// modules_test.go
-	run("modules", "modules/target/arm64-darwin",            "", testVariantTarget_arm64_darwin)
-	run("modules", "modules/app/arm64-darwin",               "", testApp_arm64_darwin)
-	run("modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1_arm64_darwin, test_configure{true})
-	run("modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2_arm64_darwin)
-	run("modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting_arm64_darwin)
+	run(t, "modules", "modules/target/arm64-darwin",            "", testVariantTarget_arm64_darwin)
+	run(t, "modules", "modules/app/arm64-darwin",               "", testApp_arm64_darwin)
+	run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1_arm64_darwin, test_configure{true})
+	run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2_arm64_darwin)
+	run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting_arm64_darwin)
 }

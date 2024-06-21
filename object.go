@@ -707,8 +707,8 @@ func (p *undetermined) expand(ctx Context) (res Value) {
 func (p *undetermined) traverse(ctx Context) { }
 func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) stat(ctx Context) (si *statinfo) { return }
-func (p *undetermined) stamp(ctx Context) (files []*File, err error) { return }
-func (p *undetermined) delete(ctx Context) (files []*File, err error) { return }
+func (p *undetermined) stamp(ctx Context) (files []*File) { return }
+func (p *undetermined) delete(ctx Context) (files []*File) { return }
 func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*undetermined); y {
         assert(y, "value is not undetermined")
@@ -798,7 +798,7 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     }
 
     if ctx.o != nil { if o := _opts(ctx, _v, ctx.o); o != nil {
-        errostack(ctx, 3, "%v: unsupported opts: %v", p, o).debug()
+        errostack(ctx, 3, "%v: unsupported opts: %v", p, o).trace()
     }}
 
     var force = /* ex_final(ctx) || */ builtinForceField(ctx, _v, _i, false)
@@ -1012,8 +1012,8 @@ func (p *rule) expand(ctx Context) (_ Value) {
 
     return &rule{ target, p.program, p.arged }
 }
-func (p *rule) delete(  ctx Context) (files []*File, err error) { return p.target.delete(ctx) }
-func (p *rule) stamp(   ctx Context) (files []*File, err error) { return p.target.stamp(ctx) }
+func (p *rule) delete(  ctx Context) (files []*File) { return p.target.delete(ctx) }
+func (p *rule) stamp(   ctx Context) (files []*File) { return p.target.stamp(ctx) }
 func (p *rule) traverse(ctx Context) {
     var target = auto_get(ctx, "@")
 
