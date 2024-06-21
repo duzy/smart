@@ -259,8 +259,61 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("hooks.debug, %v", _universe(ctx).hooks)
 	}
 
-	var v1, v2, v3 Value
+	var v0, v1, v2, v3 Value
 	var t = ctx.i.(*testShellForStdoutDebugStruct)
+
+	if t.s != "b a b a b a" {
+		ctx.err("%v", t.s)
+	}
+	if len(t.v) != 3 {
+		ctx.err("%v", t.v)
+	} else if ts(t.v) != "{=[Value] {=list {=bareword b} {=bareword a}} {=list {=bareword b} {=bareword a}} {=list {=bareword b} {=bareword a}}}" {
+		ctx.err("%v", tst{t.v})
+	}
+
+	t.v, t.s = nil, ""
+
+	if s := ".test.01"; false {} else
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
+	} else if ts(v) != "{=null}" {
+		ctx.err("%v", tst{v})
+	} else {
+		v0 = v
+	}
+	if t.s != "" {
+		ctx.err("%v", t.s)
+	}
+	if len(t.v) != 0 {
+		ctx.err("%v", tst{t.v})
+	}
+	if v0.string(ctx) != "" {
+		ctx.err("%v", v0)
+	}
+
+	t.v, t.s = nil, ""
+
+	if s := ".test.02"; false {} else
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
+	} else if ts(v) != "{=delegate {=builtin debug} {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}" {
+		ctx.err("%v", tst{v})
+	} else {
+		v0 = v
+	}
+	if t.s != "b a" {
+		ctx.err("%v", t.s)
+	}
+	if len(t.v) != 1 {
+		ctx.err("%v", t.v)
+	} else if ts(t.v) != "{=list {=bareword b} {=bareword a}}" {
+		ctx.err("%v", tst{t.v})
+	}
+	if v0.string(ctx) != "" {
+		ctx.err("%v", v0)
+	}
+
+	t.v, t.s = nil, ""
 
 	if s := ".test.v1"; false {} else
 	if v := ctx.val(s); v == nil {

@@ -779,12 +779,8 @@ func (prog *program) execute(ctx Context) (result Value) {
 
     ctx = &exe
 
-    if checkpoints && truly(ctx, is_test_mode{}) && prog.project.name == "testrules" {
-        switch prog.project.spec {
-        case "testdata/rule/0":                defer prog.execute_check_0(ctx, &result)
-        case "testdata/rule/1":                defer prog.execute_check_1(ctx, &result)
-        case "testdata/rule/shell/for-stdout": defer prog.check_shell_for_stdout(ctx, &result)
-        }
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        if x := prog.checks(); x != nil { defer x(ctx, &result) }
     }
 
     defer func() {

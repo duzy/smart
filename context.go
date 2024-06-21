@@ -24,7 +24,6 @@ import (
 const (
   vertag = "dev" // dev, alpha, beta, final
   checkpoints = vertag != "final"
-  trace_recover = true
 )
 
 type property uint64
@@ -288,7 +287,7 @@ type frames  struct{ int }
 type skipint struct{ int }
 
 var (
-  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_bits)?|tr(?:ace|uly|y)|erro|(?:diagtracer|\(\*diagnostic\))\.trace)\(.+\)$`)
+  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_bits)?|tr(?:ace(?:_recover)?|uly|y)|erro|(?:diagtracer|\(\*diagnostic\))\.trace)\(.+\)$`)
   callstackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   callstackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
 )
@@ -406,8 +405,14 @@ func (d diagtracer) trace() {
   if false {
     defer trace(d.ctx)
     d.stack = _callstack(d.tag(), 5, 0)
-  } else {
+  } else if true {
     trace(d.ctx)
+  } else {
+    var ctx = d.ctx
+    defer trace_recover(ctx)
+    if x, y := do(ctx, act_traced{}).(int); y && x == 1 {
+      panic(trace_errors{ctx, x})
+    }
   }
 }
 
@@ -423,28 +428,30 @@ func (t trace_errors) String() string {
 func (t too_many_diagnostics) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.i) }
 func (t too_many_errors) String() string { return fmt.Sprintf("too many errors (%d)", t.i) }
 
-func trace(ctx Context, _ ...any) {
-  if trace_recover {
-    var x Context
-    var recovered int
-    for e := recover() ; e != nil ; e = recover() {
-      switch recovered += 1 ; t := e.(type) {
-      case       bailout:
-      case       trace_errors: x = t.Context
-      case       failure: erro(t.Context, t.Error())
-      case         Value: erro(at(ctx,t), "trace: %s", ts(t))
-      case        string: erro(   ctx   , "trace: %s", t)
-      case runtime.Error: erro(   ctx   , "trace: %s", t.Error())
-      case too_many_diagnostics: erro(ctx, "too many diagnostics (%v)", t.i)
-      case too_many_errors     : erro(ctx, "too many errors (%v)", t.i)
-      default: erro(ctx, "trace: %s", ts(e))
-      }
-    }
-    if recovered > 0 {
-      erro(ctx, "%s (%d panics)", ts(x), recovered).debug(64)
-      if true { flush(ctx) }
+func trace_recover(ctx Context) {
+  var x Context
+  var recovered int
+  for e := recover() ; e != nil ; e = recover() {
+    switch recovered += 1 ; t := e.(type) {
+    case       bailout:
+    case       trace_errors: x = t.Context
+    case       failure: erro(t.Context, t.Error())
+    case         Value: erro(at(ctx,t), "trace: %s", ts(t))
+    case        string: erro(   ctx   , "trace: %s", t)
+    case runtime.Error: erro(   ctx   , "trace: %s", t.Error())
+    case too_many_diagnostics: erro(ctx, "too many diagnostics (%v)", t.i)
+    case too_many_errors     : erro(ctx, "too many errors (%v)", t.i)
+    default: erro(ctx, "trace: %s", ts(e))
     }
   }
+  if recovered > 0 {
+    erro(ctx, "%s (%d panics)", ts(x), recovered).debug(64)
+    if true { flush(ctx) }
+  }
+}
+
+func trace(ctx Context, _ ...any) {
+  defer trace_recover(ctx)
   if x, y := do(ctx, act_traced{}).(int); y && x == 1 {
     panic(trace_errors{ctx, x})
   }

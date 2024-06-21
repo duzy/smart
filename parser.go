@@ -1333,7 +1333,7 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 
 	if lTok == LBRACE {
 		if t := _project(ctx).resolveEntries(ctx, name, false) ; t == nil {
-			erro(ctx, "resolved %v is nil", ts(name)).trace()
+			erro(at(ctx,name), "resolved %v is nil", ts(name)).trace()
 		} else {
 			obj, _ = t[0].(Object)
 			return

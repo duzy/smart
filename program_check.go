@@ -10,7 +10,18 @@ import (
 	"fmt"
 )
 
-func (prog *program) execute_check_0(ctx Context, result *Value) {
+func (prog *program) checks() (_ func(Context, *Value)) {
+	if prog.project.name == "testrules" {
+		return (map[string]func(Context, *Value){
+			"testdata/rule/0":                prog.check_rule_0,
+			"testdata/rule/1":                prog.check_rule_1,
+			"testdata/rule/shell/for-stdout": prog.check_shell_for_stdout,
+		})[prog.project.spec]
+	}
+	return
+}
+
+func (prog *program) check_rule_0(ctx Context, result *Value) {
 	var ent = _entry(ctx)
 
     if *result == nil {
@@ -98,7 +109,7 @@ func (prog *program) execute_check_0(ctx Context, result *Value) {
     }
 }
 
-func (prog *program) execute_check_1(ctx Context, result *Value) {
+func (prog *program) check_rule_1(ctx Context, result *Value) {
 	var ent = _entry(ctx)
     if *result == nil {
         erro(ctx, "%v: nil result", ts(ent)).trace()
@@ -110,13 +121,31 @@ func (prog *program) check_shell_for_stdout(ctx Context, result *Value) {
 
 	if *result == nil {
 		erro(ctx, "%v: nil result", ts(ent)).trace()
-	} else if ts(*result) != "{=null}" {
-		erro(ctx, "%v", ts(*result)).trace()
 	}
 
     var args = try[[]Value](ctx, get_arguments{})
 
     switch ent.destiny().string(ctx) {
+    case ".test0":
+        if len(args) != 2 {
+            erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
+        }
+		if v := auto_get(ctx, "@"); ts(v) != "{=barecomp {=punctuation .} {=bareword test}}" {
+			erro(at(ctx,v), "%v", ts(v)).trace()
+		}
+		if v := auto_get(ctx, "<"); ts(v) != "{}" {
+			erro(at(ctx,v), "%v", ts(v)).trace()
+		}
+		if v := auto_get(ctx, ">"); ts(v) != "{}" {
+			erro(at(ctx,v), "%v", ts(v)).trace()
+		}
+		var t = fmt.Sprintf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0]))
+		if ts(*result) != t {
+			erro(ctx, "%v", ts(*result)).trace()
+		}
+		if v := auto_get(ctx, "-"); ts(v) != t {
+			erro(at(ctx,v), "%s != %s", ts(v), t).trace()
+		}
     case ".test":
         if len(args) != 2 {
             erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
@@ -130,7 +159,10 @@ func (prog *program) check_shell_for_stdout(ctx Context, result *Value) {
 		if v := auto_get(ctx, ">"); ts(v) != "{}" {
 			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
-		if v, t := auto_get(ctx, "-"), fmt.Sprintf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0])); ts(v) != t {
+		if ts(*result) != "{=null}" {
+			erro(ctx, ".test: %v", ts(*result)).trace()
+		}
+		if v, t := auto_get(ctx, "-"), "{=null}"; ts(v) != t {
 			erro(at(ctx,v), "%s != %s", ts(v), t).trace()
 		}
 	}

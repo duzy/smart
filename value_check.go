@@ -12,7 +12,7 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
 			note(ctx, "1=%v", ts(auto_get(ctx, "1")))
 			note(ctx, "2=%v", ts(auto_get(ctx, "2")))
 			note(ctx, "p=%v", ts(p))
-			note(ctx, "x=%v→%v", ts(_x), ts(x))
+			note(ctx, "x=%v→%v", ts(_x), ts(*x))
 			note(ctx, "o=%v→%v", ts(_o), ts(expand(ctx, _o...)))
 			note(ctx, "a=%v→%v", ts(_a), ts(*a))
 			note(ctx, "e=%v (expanded)", *e)
@@ -24,7 +24,7 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
 
     if *res == nil {
         if !_cl && x == nil {
-            erro(ctx, "%v: %v → %v", ts(p), ts(_x), ts(x)).trace()
+            erro(ctx, "%v: %v → %v", ts(p), ts(_x), ts(*x)).trace()
         }
 
         var v = _x
@@ -32,7 +32,7 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
             // ...
         } else if d := auto_find(ctx, a.name); d != nil {
             note(ctx, "%v", ts(_x))
-            note(ctx, "%v", ts(x))
+            note(ctx, "%v", ts(*x))
             note(ctx, "%v", ts(p))
             erro(ctx, "%v", ts(ctx)).trace()
         }
@@ -46,9 +46,9 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
             if d == nil {
                 erro(ctx, "%v", ts(ctx)).trace()
             } else if d.value != nil {
-                note(ctx, "%v", ts(_x))
-                note(ctx, "%v", ts(x))
-                note(ctx, "%v", ts(p))
+                note(ctx, "x=%v", ts(_x))
+                note(ctx, "x=%v", ts(*x))
+                note(ctx, "p=%v", ts(p))
                 erro(ctx, "%v", ts(ctx)).trace()
             }
         }

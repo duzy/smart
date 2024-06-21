@@ -1471,6 +1471,14 @@ func (p *binary) stencil(ctx Context, stems []string) (val Value, rest []string)
 func (p *binary) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
 func (p *binary) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
 func (p *binary) expand(Context) Value { return p }
+func (p *binary) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    if res, fullmatch = c.hit(ctx, p.String()); res == nil {
+        if cacheMapping(ctx) {
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
+        }
+    }
+    return
+}
 
 type octal struct { integer }
 func (p *octal) kind() Kind { return p.integer.kind()|KindOctal }
@@ -1481,6 +1489,14 @@ func (p *octal) stencil(ctx Context, stems []string) (val Value, rest []string) 
 func (p *octal) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
 func (p *octal) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
 func (p *octal) expand(Context) Value { return p }
+func (p *octal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    if res, fullmatch = c.hit(ctx, p.String()); res == nil {
+        if cacheMapping(ctx) {
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
+        }
+    }
+    return
+}
 
 type decimal struct { integer }
 func (p *decimal) kind() Kind { return p.integer.kind()|KindDecimal }
@@ -1491,6 +1507,14 @@ func (p *decimal) stencil(ctx Context, stems []string) (val Value, rest []string
 func (p *decimal) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
 func (p *decimal) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
 func (p *decimal) expand(Context) Value { return p }
+func (p *decimal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    if res, fullmatch = c.hit(ctx, p.String()); res == nil {
+        if cacheMapping(ctx) {
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
+        }
+    }
+    return
+}
 
 type hexadecimal struct { integer }
 func (p *hexadecimal) kind() Kind { return p.integer.kind()|KindHexadecimal }
@@ -1501,6 +1525,14 @@ func (p *hexadecimal) stencil(ctx Context, stems []string) (val Value, rest []st
 func (p *hexadecimal) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
 func (p *hexadecimal) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
 func (p *hexadecimal) expand(Context) Value { return p }
+func (p *hexadecimal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    if res, fullmatch = c.hit(ctx, p.String()); res == nil {
+        if cacheMapping(ctx) {
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
+        }
+    }
+    return
+}
 
 type float struct {} // TODO
 
