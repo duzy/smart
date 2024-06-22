@@ -305,23 +305,11 @@ func _set(ctx Context, val reflect.Value, v Value) {
     case reflect.Bool:
         if t := v == nil || v.true(ctx); true { val.SetBool(t) }
     case reflect.Float32, reflect.Float64:
-        if t, e := v.float(ctx); e == nil {
-            val.SetFloat(t)
-        } else {
-            erro(ctx, "%v: %v", v, e).trace()
-        }
+        val.SetFloat(v.float(ctx))
     case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-        if t, e := v.int(ctx); e == nil {
-            val.SetInt(t)
-        } else {
-            erro(ctx, "%v: %v", v, e).trace()
-        }
+        val.SetInt(v.int(ctx))
     case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-        if t, e := v.int(ctx); e == nil {
-            val.SetUint(uint64(t))
-        } else {
-            erro(ctx, "%v: %v", v, t).trace()
-        }
+        val.SetUint(uint64(v.int(ctx)))
     case reflect.String:
         val.SetString(v.string(ctx))
     case reflect.Slice:
@@ -372,12 +360,9 @@ func _set(ctx Context, val reflect.Value, v Value) {
     default:
         switch val.Type().String() {
         case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
-            if t, e := v.int(ctx); e == nil {
-                if t == 0 { warn(at(ctx,v), "zero file mode").debug() }
-                val.SetUint(uint64(t))
-            } else {
-                erro(ctx, "%v: %v", v, t).trace()
-            }
+            var t = v.int(ctx)
+            if t == 0 { warn(at(ctx,v), "zero file mode").debug() }
+            val.SetUint(uint64(t))
         case "regex.Regex": // aka. reflect.Ptr
             erro(at(ctx,v), "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).trace()
         default:
@@ -1605,23 +1590,17 @@ func (ctx *builtin_plus) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.evocation.a {
-            if i, e := a.int(ctx); e == nil {
-                if n == 0 { num = i } else { num += i }
-            } else {
-                erro(ctx, "%v: %v", a, e).trace()
-            }
+            var i = a.int(ctx)
+            if n == 0 { num = i } else { num += i }
         }
         return makeDecimal(_position(ctx), num)
     } else {
         var num float64
         for n, a := range ctx.evocation.a {
-            if f, e := a.float(ctx); e == nil {
-                if n == 0 { num = f } else { num += f }
-            } else {
-                erro(ctx, "%v: %v", a, e).trace()
-            }
+            var f = a.float(ctx)
+            if n == 0 { num = f } else { num += f }
         }
-        return makeFloat(_position(ctx), num)
+        return makefloat(_position(ctx), num)
     }
 }
 
@@ -1632,23 +1611,17 @@ func (ctx *builtin_minus) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.evocation.a {
-            if i, e := a.int(ctx); e == nil {
-                if n == 0 { num = i } else { num -= i }
-            } else {
-                erro(ctx, "%v: %v", a, e).trace()
-            }
+            var i = a.int(ctx)
+            if n == 0 { num = i } else { num -= i }
         }
         return makeDecimal(_position(ctx), num)
     } else {
         var num float64
         for n, a := range ctx.evocation.a {
-            if f, e := a.float(ctx); e == nil {
-                if n == 0 { num = f } else { num -= f }
-            } else {
-                erro(ctx, "%v: %v", a, e).trace()
-            }
+            var f = a.float(ctx)
+            if n == 0 { num = f } else { num -= f }
         }
-        return makeFloat(_position(ctx), num)
+        return makefloat(_position(ctx), num)
     }
 }
 
@@ -1659,21 +1632,15 @@ func (ctx *builtin_multiply) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.evocation.a {
-            if i, e := a.int(ctx); e == nil {
-                if n == 0 { num = i } else { num *= i }
-            } else {
-                erro(ctx, "%v: %v", a, e).trace()
-            }
+            var i = a.int(ctx)
+            if n == 0 { num = i } else { num *= i }
         }
         return num
     } else {
         var num float64
         for n, a := range ctx.evocation.a {
-            if f, e := a.float(ctx); e == nil {
-                if n == 0 { num = f } else { num *= f }
-            } else {
-                erro(ctx, "%v: %v", a, e).trace()
-            }
+            var f = a.float(ctx)
+            if n == 0 { num = f } else { num *= f }
         }
         return num
     }
@@ -1686,21 +1653,15 @@ func (ctx *builtin_divide) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.evocation.a {
-            if i, e := a.int(ctx); e == nil {
-                if n == 0 { num = i } else { num /= i } // FIXME: NaN
-            } else {
-                erro(ctx, "%v: %v", a, e).trace()
-            }
+            var i = a.int(ctx)
+            if n == 0 { num = i } else { num /= i } // FIXME: NaN
         }
         return num
     } else {
         var num float64
         for n, a := range ctx.evocation.a {
-            if f, e := a.float(ctx); e == nil {
-                if n == 0 { num = f } else { num /= f } // FIXME: NaN
-            } else {
-                erro(ctx, "%v: %v", a, e).trace()
-            }
+            var f = a.float(ctx)
+            if n == 0 { num = f } else { num /= f } // FIXME: NaN
         }
         return num
     }
@@ -1912,12 +1873,8 @@ func (ctx *builtin_field) x() (res any) {
     if l := len(ctx.evocation.a); l >= 2 {
         var (
             s string = ctx.evocation.a[1].string(ctx)
-            i int64
+            i int64 = ctx.evocation.a[0].int(ctx)
         )
-        if n, e := ctx.evocation.a[0].int(ctx); e != nil {
-            erro(ctx, "%v: %v", ctx.evocation.a[0], e).trace()
-        } else { i = n }
-
         if l > 2 {
             fields = strings.Split(s, ctx.evocation.a[2].string(ctx))
         } else {
@@ -2766,26 +2723,18 @@ outer:
                 case '+', '-', '#', ' ', '.', '0', '1', '2', '3',
                     '4', '5', '6', '7', '8', '9': continue
                 case 'c', 'd', 'o', 'O', 'q', 'U':
-                    if t, e := v.int(ctx); e == nil { a = append(a, t) } else {
-                        erro(ctx, "%v: %v", v, e).trace()
-                    }
+                    a = append(a, v.int(ctx))
                     continue outer
                 case 'e', 'E', 'f', 'F', 'g', 'G':
-                    if t, e := v.float(ctx); e == nil { a = append(a, t) } else {
-                        erro(ctx, "%v: %v", v, e).trace()
-                    }
+                    a = append(a, v.float(ctx))
                     continue outer
                 case 'b', 'x', 'X':
                     switch k := v.kind(); {
                     case k&KindInteger != 0:
-                        if t, e := v.int(ctx); e == nil { a = append(a, t) } else {
-                            erro(ctx, "%v: %v", v, e).trace()
-                        }
+                        a = append(a, v.int(ctx))
                         continue outer
                     case k&KindFloat != 0:
-                        if t, e := v.float(ctx); e == nil { a = append(a, t) } else {
-                            erro(ctx, "%v: %v", v, e).trace()
-                        }
+                        a = append(a, v.float(ctx))
                         continue outer
                     default:
                         if t, e := strconv.Atoi(v.string(ctx)) ; e == nil { a = append(a, t) } else {
@@ -3502,20 +3451,15 @@ func (ctx *builtin_truncate) c() (res any) {
             a = ctx.evocation.a[i]
             name string
             size int64
-            e error
         )
         switch t := a.(type) {
         case *pair: // truncate name ⇒ size old ⇒ new
             name = t.key.string(ctx)
-            if size, e = t.val.int(ctx); e != nil {
-                erro(ctx, "%v: %v", t.val, e).trace()
-            }
+            size = t.val.int(ctx)
         case *group: // truncate (name size) (old new)
             if t.len() == 2 {
                 name = t.at(0).string(ctx)
-                if size, e = t.at(1).int(ctx); e != nil {
-                    erro(ctx, "%v: %v", t.at(1), e).trace()
-                }
+                size = t.at(1).int(ctx)
             } else {
                 erro(ctx, "Wrong size of group `%v'", t).trace()
                 break
@@ -3523,9 +3467,7 @@ func (ctx *builtin_truncate) c() (res any) {
         case *list: // truncate name size, old new, ...
             if t.len() == 2 {
                 name = t.at(0).string(ctx)
-                if size, e = t.at(1).int(ctx); e != nil {
-                    erro(ctx, "%v: %v", t.at(1), e).trace()
-                }
+                size = t.at(1).int(ctx)
             } else {
                 erro(ctx, "Wrong size of list `%v'", t).trace()
                 break
@@ -3533,9 +3475,7 @@ func (ctx *builtin_truncate) c() (res any) {
         default: // truncate name size  name size ...
             if i+1 < nargs {
                 name = ctx.evocation.a[i+0].string(ctx)
-                if size, e = ctx.evocation.a[i+1].int(ctx); e != nil {
-                    erro(ctx, "%v: %v", ctx.evocation.a[i+1], e).trace()
-                }
+                size = ctx.evocation.a[i+1].int(ctx)
                 i += 1
             } else {
                 erro(ctx, "Wrong arguments `%v'", ctx.evocation.a).trace()
@@ -4531,11 +4471,7 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
         switch t := val.(type) {
         case *undef, undef: // FIXME: fmt.Fprintf(res, "#undef")
         case *answer, *boolean:
-            if i, e := t.int(ctx); e == nil {
-                fmt.Fprintf(res, "%d", i)
-            } else {
-                erro(ctx, "%: %v", t, i).trace()
-            }
+            fmt.Fprintf(res, "%d", t.int(ctx))
         case *group:
             fmt.Fprintf(res, "%s", parseGroupValue(ctx, t).string(ctx))
         case *plain:

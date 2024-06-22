@@ -420,11 +420,7 @@ func (ctx *modifier_select) x(args ...Value) (result interface{}) {
     if h := auto_get(ctx, "-"); h == nil {
         erro(ctx, "no pipe value $-").trace()
     } else if g, ok := h.(*group); ok && len(args) > 0 {
-        if i, e := args[0].int(ctx); e != nil {
-            erro(ctx, "%v: %v", args[0], e).trace()
-        } else {
-            result = g.at(int(i))
-        }
+        result = g.at(int(args[0].int(ctx)))
     }
     return
 }
@@ -1843,10 +1839,7 @@ ForPairs:
                 erro(at(ctx,value), "value '%v' (%T) is not exec result", value, value).trace()
             } else { /*exeres.wg.Wait()*/ }
 
-            var num, e = p.val.int(ctx)
-            if e != nil {
-                erro(ctx, "%v: %v", p.val, e).trace()
-            }
+            var num = p.val.int(ctx)
             if ctx.verbose {
                 prompt(ctx, "checking status ")
                 if num != 0 { prompt(ctx, "== %d ", num) }
@@ -2773,10 +2766,8 @@ type modifier_predictTargetMaxVisit struct { modifier_
 func (ctx *modifier_predictTargetMaxVisit) x(args ...Value) (result interface{}) {
     var nth int64
     for _, a := range args {
-        if i, e := a.int(ctx); e != nil {
-            erro(ctx, "%v: %v", a, i).trace()
-        } else if nth = i; nth <= 0 {
-            erro(ctx, "needs positive number (%v, %s)", a, typeof(a)).trace()
+        if nth = a.int(ctx); nth <= 0 {
+            erro(ctx, "needs positive number (%s)", ts(a)).trace()
         }
     }
 

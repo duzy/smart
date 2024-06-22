@@ -553,7 +553,7 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
     if !isTrivial(value) { vals = append(vals, merge(value)...) }
     if len(app) > 0      { vals = append(vals, merge(app...)...) }
     if len(vals) > 0 && origin != defExpand0 {
-        vals = expand(original{ctx,origin}, vals...)
+        vals = expand(original{at(ctx,d),origin}, vals...)
     }
 
     if checkpoints && truly(ctx, is_test_mode{}) {
@@ -681,8 +681,8 @@ func (p *undetermined) String() (s string) {
 func (p *undetermined) string(ctx Context) string { return p.value.string(ctx) }
 func (p *undetermined) ident(ctx Context) string { return p.identifier.string(ctx) }
 func (p *undetermined) true(ctx Context) bool { return false }
-func (p *undetermined) float(ctx Context) (f float64, _ error) { return 0, nil }
-func (p *undetermined) int(ctx Context) (i int64, _ error) { return 0, nil }
+func (p *undetermined) float(Context) (_ float64) { return }
+func (p *undetermined) int(Context) (_ int64) { return }
 func (p *undetermined) updated(_ Context) bool { return false }
 func (p *undetermined) updatedDeps(_ Context, _ ...Value) []Value { return nil }
 func (p *undetermined) refs(ctx Context, v Value) bool {
@@ -797,18 +797,19 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
         unreachable("cannot set builtin_.evocation")
     }
 
-    if ctx.o != nil { if o := _opts(ctx, _v, ctx.o); o != nil {
-        errostack(ctx, 3, "%v: unsupported opts: %v", p, o).trace()
-    }}
+    if ctx.o != nil {
+        if o := _opts(ctx, _v, ctx.o); o != nil {
+            errostack(ctx, 3, "%v: unsupported opts: %v", p, o).trace()
+        }
+    }
 
     var force = /* ex_final(ctx) || */ builtinForceField(ctx, _v, _i, false)
 
     if x, y := _i.(builtin_a); y {
         if skip := x.a(); skip && !force { return p }
     } else {
-        if ctx.a = expand(ctx, ctx.a...); !force {
-            if expandable(final{ctx}, ctx.a...) { return p }
-        }
+        ctx.a = expand(ctx, ctx.a...)
+        if !force && expandable(final{ctx}, ctx.a...) { return p }
     }
 
     switch x := _i.(type) {
@@ -923,8 +924,8 @@ func (p *rule) ident(ctx Context) (name string) {
     return
 }
 func (p *rule) true(ctx Context) bool { return p.target.true(ctx) }
-func (p *rule) float(_ Context) (_ float64, _ error) { return 0, nil }
-func (p *rule) int(_ Context) (_ int64, _ error) { return 0, nil }
+func (p *rule) float(_ Context) (_ float64) { return }
+func (p *rule) int(_ Context) (_ int64) { return }
 func (p *rule) string(ctx Context) string { return p.target.string(ctx) }
 func (p *rule) String() string {
     if p.target == nil { return "<nil entry>" }

@@ -477,7 +477,7 @@ func (l unilo) braced(ctx Context) (x Value) {
 			case OCT:   x = makeOctal(pos, 0)
 			case INT:   x = makeDecimal(pos, 0)
 			case HEX:   x = makeHexadecimal(pos, 0)
-			case FLOAT: x = makeFloat(pos, 0.)
+			case FLOAT: x = makefloat(pos, 0.)
 			case TRUE:  x = makeBoolean(pos, true)
 			case FALSE: x = makeBoolean(pos, false)
 			case YES:   x = makeAnswer(pos, true)
@@ -533,10 +533,9 @@ func (l unilo) braced(ctx Context) (x Value) {
 			erro(ctx, "%s expects: %v, not %v %v", typed, RBRACE, p.tok, p.lit).trace()
 		} else if p.spaces(ctx); p.tok == RBRACE {
 			if p.step(); typed == FLOAT {
-				var n, _ = v.float(ctx)
-				return makeFloat(pos, n)
+				return makefloat(pos, v.float(ctx))
 			}
-			switch n, _ := v.int(ctx); typed {
+			switch n := v.int(ctx); typed {
 			case   BIN: return makeBinary(pos, n)
 			case   OCT: return makeOctal(pos, n)
 			case   INT: return makeDecimal(pos, n)
@@ -1104,7 +1103,7 @@ func (p *parser) literal(ctx Context) (v Value) {
     case OCTAL:       v = ParseOctal(position, lit)
     case INTEGER:     v = ParseDecimal(position, lit)
     case HEXADECIMAL: v = ParseHexadecimal(position, lit)
-    case FLOATING:    v = ParseFloat(position, lit)
+    case FLOATING:    v = parseFloat(position, lit)
     case DATETIME:    v = ParseDateTime(position, lit)
     case DATE:        v = ParseDate(position, lit)
     case TIME:        v = ParseTime(position, lit)
@@ -2271,14 +2270,8 @@ func (p *parser) define_idents(ctx Context, tok token, idents, value Value) (def
 }
 
 func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
-	if checkpoints {
-		defer func() {
-			if d == nil {
-				erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
-			} else if d.value == nil && value != nil {
-				erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
-			}
-		} ()
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		defer p.define_check(ctx, tok, ident, value, &d)
 	}
 
     var alt Object

@@ -41,11 +41,11 @@ func (p *plain) string(ctx Context) (s string) {
     }
     return
 }
-func (p *plain) float(ctx Context) (_ float64, _ error) {
+func (p *plain) float(ctx Context) (_ float64) {
     if p.len() > 0 { return p.elems[0].float(ctx) }
     return
 }
-func (p *plain) int(ctx Context) (_ int64, _ error) {
+func (p *plain) int(ctx Context) (_ int64) {
     if p.len() > 0 { return p.elems[0].int(ctx) }
     return
 }
@@ -96,11 +96,11 @@ func (p *plainline) string(ctx Context) (s string) {
     }
     return
 }
-func (p *plainline) float(ctx Context) (_ float64, _ error) {
+func (p *plainline) float(ctx Context) (_ float64) {
     if p.len() > 0 { return p.elems[0].float(ctx) }
     return
 }
-func (p *plainline) int(ctx Context) (_ int64, _ error) {
+func (p *plainline) int(ctx Context) (_ int64) {
     if p.len() > 0 { return p.elems[0].int(ctx) }
     return
 }
@@ -428,7 +428,7 @@ LoopJSON:
             case string:
                 node.append(makePair(sv, makeStrlit(pos, vd)))
             case float64:
-                node.append(makePair(sv, makeFloat(pos, vd)))
+                node.append(makePair(sv, makefloat(pos, vd)))
             case nil: // null
                 node.append(makePair(sv, makeBareword(pos, "null")))
             default:
@@ -436,7 +436,7 @@ LoopJSON:
             }
             //prompt(ctx, "node: %v\n", node)
         case float64:
-            if v := Value(makeFloat(pos, d)); x == 0 {
+            if v := Value(makefloat(pos, d)); x == 0 {
                 nodes = append(nodes, v)
             } else {
                 node, value = stack[x-1], v

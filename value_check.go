@@ -56,4 +56,36 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
         note(ctx, "%v: %p != %p", ts(*res), *res, p)
         erro(ctx, "%v", ts(ctx)).trace()
     }
+
+	switch _project(ctx).spec {
+	case "testdata/rule/shell/for-stdout":
+		ex_check_rule_shell_forstdout(ctx, p, _x, _a, res, a)
+	}
+}
+
+func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _a []Value, res *Value, a *[]Value) {
+	switch p.String() {
+	case "$(debug $(line) $(str))":
+		if ts(_a) == "{=[Value] {=list {=delegate {=auto line}} {=delegate {=auto str}}}}" {
+			var s string
+			switch ts(*a) {
+			case "{=[Value] {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}": // okay
+				s = "{=delegate {=builtin debug} {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}"
+			case "{=[Value] {=list {=bareword b} {=bareword a}}}": // okay
+				s = "{}"
+			default:
+				if false { errostack(ctx, 5, "%v %v", ts(*a), ts(*res)).trace() }
+			}
+			switch try[origin](ctx, get_origin{}) {
+			case defExpand0:
+				if ts(*res) != "{=delegate {=builtin debug} {=list {=bareword b} {=bareword a}}}" {
+					errostack(ctx, 5, "%v", ts(*res)).trace()
+				}
+			case defExpand1, defExpand2:
+				if ts(*res) != s {
+					errostack(ctx, 5, "%v != %s", ts(*res), s).trace()
+				}
+			}
+		}
+	}
 }

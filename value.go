@@ -181,6 +181,8 @@ func original_bits(o origin) (_ property) {
     return
 }
 
+type get_origin struct{}
+
 // Original initiation of def values.
 type original struct { Context ; o origin }
 func (c original) cast(t reflect.Type) Context { return implcast(c, t) }
@@ -188,6 +190,9 @@ func (c original) ts(t string) string {
 	return fmt.Sprintf("{=%s %v %v}", t, c.o, ts(c.Context))
 }
 func (c original) do(ctx Context, op any) any {
+    switch op.(type) {
+    case get_origin: return c.o
+    }
     return do_bits(ctx, c.Context, op, original_bits(c.o))
 }
 
@@ -743,10 +748,10 @@ type Value interface {
     true(Context) bool
 
     // Integer returns the integer form of the value.
-    int(Context) (int64, error)
+    int(Context) int64
 
-    // Float returns the float form of the value.
-    float(Context) (float64, error)
+    // float returns the float form of the value.
+    float(Context) float64
 
     // Equality compare.
     cmp(Context, Value) cmpres
@@ -1019,9 +1024,9 @@ func (_ *valbase) defs(Context, ...string) (_ []*def) { return }
 func (_ *valbase) delete(Context) (_ []*File) { return }
 func (_ *valbase) expand(Context) (_ Value) { return }
 func (_ *valbase) expandable(Context) (_ bool) { return }
-func (_ *valbase) float(Context) (_ float64, _ error) { return }
+func (_ *valbase) float(Context) (_ float64) { return }
 func (_ *valbase) ident(Context) (_ string) { return }
-func (_ *valbase) int(Context) (_ int64, _ error) { return }
+func (_ *valbase) int(Context) (_ int64) { return }
 func (_ *valbase) kind() Kind { return KindUnclassified }
 func (_ *valbase) match(Context, any) (_ bool, _ any, _ []string) { return }
 func (_ *valbase) patterned(Context) (_ bool) { return }
@@ -1052,8 +1057,8 @@ func (p undef) kind() Kind { return KindUndef }
 func (p undef) String() string { return "{=undef "+p.Value.String()+"}" }
 func (p undef) string(Context) (_ string) { return }
 func (p undef) ts(t string) string { return fmt.Sprintf("{=%s %s}", t, ts(p.Value)) }
-func (p undef) int(Context) (_ int64, _ error) { return }
-func (p undef) float(Context) (_ float64, _ error) { return }
+func (p undef) int(Context) (_ int64) { return }
+func (p undef) float(Context) (_ float64) { return }
 func (p undef) true(Context) (_ bool) { return }
 func (p undef) prefix(_ Context, v Value) Value { return v }
 func (p undef) suffix(_ Context, v Value) Value { return v }
@@ -1269,11 +1274,11 @@ func (p negative) true(ctx Context) (res bool) {
     if p.Value != nil { res = !p.Value.true(ctx) }
     return
 }
-func (p negative) float(ctx Context) (res float64, _ error) {
-    if !p.Value.true(ctx) { res = FloatEpsilon }
+func (p negative) float(ctx Context) (res float64) {
+    if !p.Value.true(ctx) { res = epsilon }
     return
 }
-func (p negative) int(ctx Context) (res int64, _ error) {
+func (p negative) int(ctx Context) (res int64) {
     if !p.Value.true(ctx) { res = 1 }
     return
 }
@@ -1306,8 +1311,8 @@ func (p *escaped) string(Context) (s string) {
     return
 }
 func (p *escaped) true(Context) bool { return p.s != "" }
-func (p *escaped) float(Context) (_ float64, _ error) { return }
-func (p *escaped) int(Context) (_ int64, _ error) { return }
+func (p *escaped) float(Context) (_ float64) { return }
+func (p *escaped) int(Context) (_ int64) { return }
 func (p *escaped) expand(Context) Value { return p }
 func (p *escaped) cmp(ctx Context, v Value) (res cmpres) {
     if o, y := v.(*escaped); y {
@@ -1337,8 +1342,8 @@ func (p *boolean) String() string { return "{="+p.string_()+"}" }
 func (p *boolean) string(Context) string { return p.string_() }
 func (p *boolean) string_() string { if p.bool { return "true" } else { return "false" } }
 func (p *boolean) true(Context) bool { return p.bool }
-func (p *boolean) float(Context) (v float64, _ error) { if p.bool { v = 1. }; return }
-func (p *boolean) int(Context) (v int64, _ error) { if p.bool { v = 1  }; return }
+func (p *boolean) float(Context) (v float64) { if p.bool { v = 1. }; return }
+func (p *boolean) int(Context) (v int64) { if p.bool { v = 1  }; return }
 func (p *boolean) expand(Context) Value { return p }
 func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*option); ok {
@@ -1435,8 +1440,8 @@ func makePrediction(pos Position, val bool, s string) *prediction {
 type integer struct { valbase; int64 }
 func (_ *integer) kind() Kind { return KindInteger }
 func (p *integer) true(ctx Context) bool { return p.int64 != 0 }
-func (p *integer) int(ctx Context) (i int64, _ error) { return p.int64, nil }
-func (p *integer) float(ctx Context) (f float64, _ error) { return float64(p.int64), nil }
+func (p *integer) int(ctx Context) (i int64) { return p.int64 }
+func (p *integer) float(ctx Context) (f float64) { return float64(p.int64) }
 func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
     var o *integer
     switch t := v.(type) {
@@ -1464,15 +1469,15 @@ func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
 
 type binary struct { integer }
 func (p *binary) kind() Kind { return p.integer.kind()|KindBinary }
-func (p *binary) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
-func (p *binary) string(ctx Context) string { return strconv.FormatInt(int64(p.int64),2) }
+func (p *binary) String() string { return "0b"+strconv.FormatInt(int64(p.int64),2) }
+func (p *binary) string(Context) string { return "0b"+strconv.FormatInt(int64(p.int64),2) }
 func (p *binary) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *binary) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *binary) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
 func (p *binary) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
 func (p *binary) expand(Context) Value { return p }
 func (p *binary) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if res, fullmatch = c.hit(ctx, p.String()); res == nil {
+    if res, fullmatch = c.hit(ctx, p.string(ctx)); res == nil {
         if cacheMapping(ctx) {
             erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
         }
@@ -1482,15 +1487,15 @@ func (p *binary) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
 
 type octal struct { integer }
 func (p *octal) kind() Kind { return p.integer.kind()|KindOctal }
-func (p *octal) String() string { return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8)) }
-func (p *octal) string(ctx Context) string { return strconv.FormatInt(int64(p.int64),8) }
+func (p *octal) String() string { return "0"+strconv.FormatInt(int64(p.int64),8) }
+func (p *octal) string(Context) string { return "0"+strconv.FormatInt(int64(p.int64),8) }
 func (p *octal) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *octal) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *octal) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
 func (p *octal) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
 func (p *octal) expand(Context) Value { return p }
 func (p *octal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if res, fullmatch = c.hit(ctx, p.String()); res == nil {
+    if res, fullmatch = c.hit(ctx, p.string(ctx)); res == nil {
         if cacheMapping(ctx) {
             erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
         }
@@ -1501,14 +1506,14 @@ func (p *octal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
 type decimal struct { integer }
 func (p *decimal) kind() Kind { return p.integer.kind()|KindDecimal }
 func (p *decimal) String() string { return strconv.FormatInt(int64(p.int64),10) }
-func (p *decimal) string(ctx Context) string { return strconv.FormatInt(int64(p.int64),10) }
+func (p *decimal) string(Context) string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *decimal) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *decimal) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *decimal) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
 func (p *decimal) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
 func (p *decimal) expand(Context) Value { return p }
 func (p *decimal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if res, fullmatch = c.hit(ctx, p.String()); res == nil {
+    if res, fullmatch = c.hit(ctx, p.string(ctx)); res == nil {
         if cacheMapping(ctx) {
             erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
         }
@@ -1518,8 +1523,8 @@ func (p *decimal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) 
 
 type hexadecimal struct { integer }
 func (p *hexadecimal) kind() Kind { return p.integer.kind()|KindHexadecimal }
-func (p *hexadecimal) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
-func (p *hexadecimal) string(ctx Context) string { return strconv.FormatInt(int64(p.int64),16) }
+func (p *hexadecimal) String() string { return "0x"+strconv.FormatInt(int64(p.int64),16) }
+func (p *hexadecimal) string(Context) string { return "0x"+strconv.FormatInt(int64(p.int64),16) }
 func (p *hexadecimal) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *hexadecimal) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *hexadecimal) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
@@ -1534,34 +1539,31 @@ func (p *hexadecimal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bo
     return
 }
 
-type float struct {} // TODO
-
-const FloatEpsilon = 1e-15 /* 1e-16 */
-type Float struct { valbase; float64 } // IEEE-754 64-bit binary floating-point
-func (p *Float) kind() Kind { return KindFloat }
-func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
-func (p *Float) string(ctx Context) string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
-func (p *Float) true(ctx Context) bool { return math.Abs(p.float64)-0 > FloatEpsilon }
-func (p *Float) int(ctx Context) (i int64, _ error) { return int64(p.float64), nil }
-func (p *Float) float(ctx Context) (f float64, _ error) { return p.float64, nil }
-func (p *Float) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
-func (p *Float) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *Float) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
-func (p *Float) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
-func (p *Float) expand(Context) Value { return p }
-func (p *Float) cmp(ctx Context, v Value) (res cmpres) {
-    if _, ok := v.(*Float); ok {
-        if f, e := v.float(ctx); e != nil {
-            if false { warn(ctx, "%v: %v", v, e).debug() }
-        } else if p.float64 == f {
+const epsilon = 1e-15 /* 1e-16 */
+type float struct { valbase; float64 } // IEEE-754 64-bit binary floating-point
+func (p *float) kind() Kind { return KindFloat }
+func (p *float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
+func (p *float) string(Context) string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
+func (p *float) true(Context) bool { return math.Abs(p.float64)-0 > epsilon }
+func (p *float) int(Context) (i int64) { return int64(p.float64) }
+func (p *float) float(ctx Context) (f float64) { return p.float64 }
+func (p *float) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
+func (p *float) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
+func (p *float) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, p) }
+func (p *float) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
+func (p *float) expand(Context) Value { return p }
+func (p *float) cmp(ctx Context, v Value) (res cmpres) {
+    if _, y := v.(*float); y {
+        var f = v.float(ctx)
+        if p.float64 == f {
             res = cmpEqual
         } else if p.float64 < f {
             res = cmpSmaller
         } else if p.float64 > f {
             res = cmpGreater
         }
-    } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
+    } else if x, y := v.(*list); y && len(x.elems) == 1 {
+        return p.cmp(ctx, x.elems[0])
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
@@ -1576,8 +1578,8 @@ func (_ *datetime) kind() Kind { return KindDateTime }
 func (p *datetime) String() string { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00") }
 func (p *datetime) string(ctx Context) string { return p.String() } // time.RFC3339Nano
 func (p *datetime) true(ctx Context) bool { return !p.t.IsZero() }
-func (p *datetime) int(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
-func (p *datetime) float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
+func (p *datetime) int(ctx Context) (i int64) { return p.t.Unix() }
+func (p *datetime) float(ctx Context) (f float64) { return float64(p.t.Unix()) }
 func (p *datetime) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *datetime) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *datetime) expand(Context) Value { return p }
@@ -1617,8 +1619,8 @@ type Date struct { datetime }
 func (p *Date) kind() Kind { return p.datetime.kind()|KindDate }
 func (p *Date) String() string { return time.Time(p.t).Format("2006-01-02") }
 func (p *Date) string(ctx Context) string { return p.String() }
-func (p *Date) int(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
-func (p *Date) float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
+func (p *Date) int(ctx Context) (i int64) { return p.t.Unix() }
+func (p *Date) float(ctx Context) (f float64) { return float64(p.t.Unix()) }
 func (p *Date) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Date) expand(Context) Value { return p }
@@ -1627,8 +1629,8 @@ type Time struct { datetime }
 func (p *Time) kind() Kind { return p.datetime.kind()|KindTime }
 func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.999999999Z07:00") }
 func (p *Time) string(ctx Context) string { return p.String() }
-func (p *Time) int(ctx Context) (i int64, _ error) { return p.t.Unix(), nil }
-func (p *Time) float(ctx Context) (f float64, _ error) { return float64(p.t.Unix()), nil }
+func (p *Time) int(ctx Context) (i int64) { return p.t.Unix() }
+func (p *Time) float(ctx Context) (f float64) { return float64(p.t.Unix()) }
 func (p *Time) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Time) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Time) expand(Context) Value { return p }
@@ -1736,11 +1738,11 @@ func (p *URL) true(ctx Context) (t bool) {
     if p.Path   != nil { if t = p.Path  .true(ctx); t { return }}
     return //p.String() != "", nil
 }
-func (p *URL) int(ctx Context) (i int64, _ error) {
+func (p *URL) int(ctx Context) (i int64) {
     if s := p.string(ctx); s != "" { i = int64(len(s)) }
     return
 }
-func (p *URL) float(ctx Context) (f float64, e error) { i, e := p.int(ctx); return float64(i), e }
+func (p *URL) float(ctx Context) (f float64) { return float64(p.int(ctx)) }
 func (p *URL) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*URL); ok {
         if p.Scheme == nil || a.Scheme == nil { return }
@@ -1825,8 +1827,22 @@ func (_ *raw) kind() Kind { return KindRaw }
 func (p *raw) String() string { return p.s }
 func (p *raw) string(ctx Context) string { return p.s }
 func (p *raw) true(ctx Context) bool { return p.s != "" }
-func (p *raw) int(ctx Context) (i int64, err error) { return strconv.ParseInt(p.s, 10, 64) }
-func (p *raw) float(ctx Context) (f float64, err error) { return strconv.ParseFloat(p.s, 64) }
+func (p *raw) int(ctx Context) (_ int64) {
+    if i, e := strconv.ParseInt(p.s, 10, 64); e != nil {
+        erro(ctx, "%v", e).trace()
+        return
+    } else {
+        return i
+    }
+}
+func (p *raw) float(ctx Context) (_ float64) {
+    if f, e := strconv.ParseFloat(p.s, 64); e != nil {
+        erro(ctx, "%v", e).trace()
+        return
+    } else {
+        return f
+    }
+}
 func (p *raw) expand(Context) Value { return p }
 func (p *raw) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*raw); ok {
@@ -1853,8 +1869,22 @@ func (_ *strlit) kind() Kind { return KindStrLit }
 func (p *strlit) String() string { return `'`+p.s+`'` }
 func (p *strlit) string(ctx Context) string { return p.s }
 func (p *strlit) true(ctx Context) bool { return p.s != "" }
-func (p *strlit) int(ctx Context) (i int64, err error) { return strconv.ParseInt(p.s,10,64) }
-func (p *strlit) float(ctx Context) (f float64, err error) { return strconv.ParseFloat(p.s, 64) }
+func (p *strlit) int(ctx Context) (_ int64) {
+    if i, e := strconv.ParseInt(p.s,10,64); e != nil {
+        erro(ctx, "%v", e).trace()
+        return
+    } else {
+        return i
+    }
+}
+func (p *strlit) float(ctx Context) (_ float64) {
+    if f, e := strconv.ParseFloat(p.s, 64); e != nil {
+        erro(ctx, "%v", e).trace()
+        return
+    } else {
+        return f
+    }
+}
 func (p *strlit) expand(ctx Context) Value {
     if ex_path_str(ctx) {
         return _pathstr(ctx, p.s)
@@ -1953,12 +1983,20 @@ func (p *strval) true(ctx Context) (res bool) {
     p.es(ctx, func(s string) { res = s != "" })
     return
 }
-func (p *strval) int(ctx Context) (i int64, err error) {
-    p.es(ctx, func(s string) { i, err = strconv.ParseInt(s, 10, 64) })
+func (p *strval) int(ctx Context) (i int64) {
+    var e error
+    p.es(ctx, func(s string) { i, e = strconv.ParseInt(s, 10, 64) })
+    if e != nil {
+        erro(ctx, "%v", e).trace()
+    }
     return
 }
-func (p *strval) float(ctx Context) (f float64, err error) {
-    p.es(ctx, func(s string) { f, err = strconv.ParseFloat(s, 64) })
+func (p *strval) float(ctx Context) (f float64) {
+    var e error
+    p.es(ctx, func(s string) { f, e = strconv.ParseFloat(s, 64) })
+    if e != nil {
+        erro(ctx, "%v", e).trace()
+    }
     return
 }
 func (p *strval) cmp(ctx Context, v Value) (res cmpres) {
@@ -2001,8 +2039,8 @@ type punctuation struct { valbase; tok token }
 func (p *punctuation) String() string { return p.tok.String() }
 func (p *punctuation) string(ctx Context) string { return p.tok.String() }
 func (p *punctuation) true(ctx Context) bool { return false }
-func (p *punctuation) int(ctx Context) (i int64, _ error) { return 0, nil }
-func (p *punctuation) float(ctx Context) (f float64, _ error) { return 0, nil }
+func (p *punctuation) int(ctx Context) (_ int64) { return }
+func (p *punctuation) float(ctx Context) (_ float64) { return }
 func (p *punctuation) expand(Context) Value { return p }
 func (p *punctuation) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*punctuation); y {
@@ -2048,8 +2086,22 @@ func (_ *bareword) kind() Kind { return KindBareword }
 func (p *bareword) String() string { return p.s }
 func (p *bareword) string(ctx Context) string { return p.s }
 func (p *bareword) true(ctx Context) bool { return p.s != "" }
-func (p *bareword) int(ctx Context) (i int64, err error) { return strconv.ParseInt(p.s, 10, 64) }
-func (p *bareword) float(ctx Context) (f float64, err error) { return strconv.ParseFloat(p.s, 64) }
+func (p *bareword) int(ctx Context) (_ int64) {
+    if i, e := strconv.ParseInt(p.s, 10, 64); e != nil {
+        erro(ctx, "%v", e).trace()
+        return
+    } else {
+        return i
+    }
+}
+func (p *bareword) float(ctx Context) (_ float64) {
+    if f, e := strconv.ParseFloat(p.s, 64); e != nil {
+        erro(ctx, "%v", e).trace()
+        return
+    } else {
+        return f
+    }
+}
 func (p *bareword) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*bareword); y {
         if p.s == a.s {
@@ -2132,8 +2184,8 @@ type qualiword struct { valbase; words []string } // TODO: foo.bar.zar, foo.&(ba
 func (p *qualiword) String() string { return strings.Join(p.words,".") }
 func (p *qualiword) string(ctx Context) string { return p.String() }
 func (p *qualiword) true(ctx Context) bool { return len(p.words)!=0 }
-func (p *qualiword) int(ctx Context) (i int64, _ error) { return int64(len(p.words)), nil }
-func (p *qualiword) float(ctx Context) (f float64, _ error) { return 0, nil }
+func (p *qualiword) int(ctx Context) (_ int64) { return int64(len(p.words)) }
+func (p *qualiword) float(ctx Context) (_ float64) { return }
 func (p *qualiword) expand(Context) Value { return p }
 func (p *qualiword) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*qualiword); y {
@@ -2332,12 +2384,12 @@ func (p condval) true(ctx Context) (t bool) {
     p.exstr(ctx, func(v Value) { t = v.true(ctx) })
     return
 }
-func (p condval) int(ctx Context) (i int64, e error) {
-    p.exstr(ctx, func(v Value) { i, e = v.int(ctx) })
+func (p condval) int(ctx Context) (i int64) {
+    p.exstr(ctx, func(v Value) { i = v.int(ctx) })
     return
 }
-func (p condval) float(ctx Context) (f float64, e error) {
-    p.exstr(ctx, func(v Value) { f, e = v.float(ctx) })
+func (p condval) float(ctx Context) (f float64) {
+    p.exstr(ctx, func(v Value) { f = v.float(ctx) })
     return
 }
 func (p condval) exstr(ctx Context, f func(Value)) {
@@ -2518,8 +2570,8 @@ func (p *barecomp) string(ctx Context) (s string) {
     }
 }
 func (p *barecomp) true(ctx Context) bool { return p.elements.true(ctx) }
-func (p *barecomp) float(ctx Context) (_ float64, _ error) { return }
-func (p *barecomp) int(ctx Context) (res int64, _ error) {
+func (p *barecomp) float(ctx Context) (_ float64) { return }
+func (p *barecomp) int(ctx Context) (res int64) {
     if n := len(p.elems); n > 0 {
         if i, y := p.elems[0].(*decimal); y {
             switch n {
@@ -2816,12 +2868,12 @@ func (p *barefile) true(ctx Context) (t bool) {
     if p.File != nil { t = p.File.true(ctx) }
     return
 }
-func (p *barefile) int(ctx Context) (res int64, _ error) {
+func (p *barefile) int(ctx Context) (res int64) {
     if p.File.exists() { res = p.File.info.Size() }
     return
 }
-func (p *barefile) float(ctx Context) (f float64, _ error) {
-    i, e := p.int(ctx); return float64(i), e
+func (p *barefile) float(ctx Context) (f float64) {
+    return float64(p.int(ctx))
 }
 func (p *barefile) refs(ctx Context, v Value) bool { return p.Value.refs(ctx, v) }
 func (p *barefile) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
@@ -3299,8 +3351,8 @@ func (p *path) isAbs() (_ bool) {
     }
     return
 }
-func (p *path) float(ctx Context) (_ float64, _ error) { return }
-func (p *path) int(ctx Context) (_ int64, _ error) { return }
+func (p *path) float(ctx Context) (_ float64) { return }
+func (p *path) int(ctx Context) (_ int64) { return }
 func (p *path) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *path) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *path) expandable(ctx Context) bool { return p.elements.expandable(ctx) }
@@ -4100,14 +4152,8 @@ func (p flag) srclit(o Object) (s string) {
     }
     return
 }
-func (p flag) int(ctx Context) (i int64, e error) {
-    if i, e = p.Value.int(ctx); e == nil { i = -i }
-    return
-}
-func (p flag) float(ctx Context) (f float64, e error) {
-    if f, e = p.Value.float(ctx); e == nil { f = -f }
-    return
-}
+func (p flag) int(ctx Context) (_ int64) { return -p.Value.int(ctx) }
+func (p flag) float(ctx Context) (_ float64) { return -p.Value.float(ctx) }
 func (p flag) Position() (pos Position) {
     pos = p.Value.Position()
     pos.Column -= 1
@@ -4201,15 +4247,13 @@ func (p flag) cmp(ctx Context, v Value) (res cmpres) {
     } else if l, y := v.(*list); y && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
     } else if i, y := v.(*decimal); y && i.int64 < 0 {
-        if a, e := p.Value.int(ctx); e == nil {
-            if b := -i.int64; a == b { res = cmpEqual } else
-            if a < b { res = cmpGreater } else { res = cmpSmaller }
-        }
-    } else if f, y := v.(*Float); y && f.float64 < 0 {
-        if a, e := p.Value.float(ctx); e == nil {
-            if b := -f.float64; a == b { res = cmpEqual } else
-            if a < b { res = cmpGreater } else { res = cmpSmaller }
-        }
+        var a = p.Value.int(ctx)
+        if b := -i.int64; a == b { res = cmpEqual } else
+        if a < b { res = cmpGreater } else { res = cmpSmaller }
+    } else if f, y := v.(*float); y && f.float64 < 0 {
+        var a = p.Value.float(ctx)
+        if b := -f.float64; a == b { res = cmpEqual } else
+        if a < b { res = cmpGreater } else { res = cmpSmaller }
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
@@ -4302,8 +4346,22 @@ func (p *compound) string(ctx Context) (s string) {
     }
     return
 }
-func (p *compound) float(ctx Context) (float64, error) { return strconv.ParseFloat(p.string(ctx), 64) }
-func (p *compound) int(ctx Context) (int64, error) { return strconv.ParseInt(p.string(ctx), 10, 64) }
+func (p *compound) float(ctx Context) (_ float64) {
+    if f, e := strconv.ParseFloat(p.string(ctx), 64); e != nil {
+        erro(ctx, "%v", e).trace()
+        return
+    } else {
+        return f
+    }
+}
+func (p *compound) int(ctx Context) (_ int64) {
+    if i, e := strconv.ParseInt(p.string(ctx), 10, 64); e != nil {
+        erro(ctx, "%v", e).trace()
+        return
+    } else {
+        return i
+    }
+}
 func (p *compound) true(ctx Context) bool { return p.elements.true(ctx) }
 func (p *compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
@@ -4382,15 +4440,13 @@ func (p *list) string(ctx Context) (s string) {
     }
     return
 }
-func (p *list) float(ctx Context) (f float64, _ error) {
-    i, e := p.int(ctx); return float64(i), e
-}
-func (p *list) int(ctx Context) (i int64, err error) {
+func (p *list) float(ctx Context) (f float64) { return float64(p.int(ctx)) }
+func (p *list) int(ctx Context) (i int64) {
     if n := len(p.elems); n == 1 {
         // If there's only one element, treat it as a scalar.
         return p.elems[0].int(ctx)
     } else {
-        return int64(n), nil
+        return int64(n)
     }
 }
 func (p *list) suffix(ctx Context, val Value) (res Value) {
@@ -4581,8 +4637,6 @@ func (p *group) true(ctx Context) (t bool) {
     }
     return
 }
-//func (p *group) float(ctx Context) (f float64, _ error) { return p.valbase.float(ctx) }
-//func (p *group) int(ctx Context) (i int64, e error) { return p.valbase.int(ctx) }
 func (p *group) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *group) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (_ *group) delete(Context) (_ []*File) { return }
@@ -4675,8 +4729,8 @@ func (p *pair) true(ctx Context) (t bool) {
     }
     return
 }
-func (p *pair) int(ctx Context) (i int64, e error) { return p.val.int(ctx) }
-func (p *pair) float(ctx Context) (f float64, e error) { return p.val.float(ctx) }
+func (p *pair) int(ctx Context) (_ int64) { return p.val.int(ctx) }
+func (p *pair) float(ctx Context) (_ float64) { return p.val.float(ctx) }
 func (p *pair) refs(ctx Context, v Value) bool { return p.key.refs(ctx, v) || p.val.refs(ctx, v) }
 func (p *pair) defs(ctx Context, s ...string) []*def {
     return append(p.key.defs(ctx, s...), p.val.defs(ctx, s...)...)
@@ -4988,12 +5042,12 @@ func (p *delegate) true(ctx Context) (t bool) {
     p.exstr(ctx, func(v Value) { t = v.true(ctx) })
     return
 }
-func (p *delegate) int(ctx Context) (i int64, e error) {
-    p.exstr(ctx, func(v Value) { i, e = v.int(ctx) })
+func (p *delegate) int(ctx Context) (i int64) {
+    p.exstr(ctx, func(v Value) { i = v.int(ctx) })
     return
 }
-func (p *delegate) float(ctx Context) (f float64, e error) {
-    p.exstr(ctx, func(v Value) { f, e = v.float(ctx) })
+func (p *delegate) float(ctx Context) (f float64) {
+    p.exstr(ctx, func(v Value) { f = v.float(ctx) })
     return
 }
 func (p *delegate) aone(ctx Context, v Value) (res bool) {
@@ -5321,20 +5375,28 @@ func (p *selection) true(ctx Context) (t bool) {
     p.ex(ctx, func(v Value) { t = v.true(ctx) })
     return
 }
-func (p *selection) int(ctx Context) (i int64, e error) {
+func (p *selection) int(ctx Context) (i int64) {
+    var e error
     p.ex(ctx, func(v Value) {
         if s := v.string(ctx); s != "" {
             i, e = strconv.ParseInt(s, 10, 64)
         }
     })
+    if e != nil {
+        erro(ctx, "%v", e).trace()
+    }
     return
 }
-func (p *selection) float(ctx Context) (f float64, e error) {
+func (p *selection) float(ctx Context) (f float64) {
+    var e error
     p.ex(ctx, func(v Value) {
         if s := v.string(ctx); s != "" {
             f, e = strconv.ParseFloat(s, 64)
         }
     })
+    if e != nil {
+        erro(ctx, "%v", e).trace()
+    }
     return
 }
 func (p *selection) refs(ctx Context, v Value) bool {
@@ -5810,8 +5872,8 @@ func (p *globpat) string(ctx Context) (s string) {
     return
 }
 func (p *globpat) true(ctx Context) bool { return p.elements.true(ctx) }
-func (p *globpat) float(ctx Context) (_ float64, _ error) { return }
-func (p *globpat) int(ctx Context) (_ int64, _ error) { return }
+func (p *globpat) float(ctx Context) (_ float64) { return }
+func (p *globpat) int(ctx Context) (_ int64) { return }
 func (p *globpat) refs(ctx Context, v Value) (res bool) {
     for _, comp := range p.elems {
         if res = comp.refs(ctx, v); res { break }
@@ -6105,23 +6167,21 @@ func trueVal(ctx Context, v Value, i bool) (res bool) {
 
 func intVal(ctx Context, v Value, i int) (res int) {
     if res = i; v != nil {
-        if t, e := v.int(ctx); e == nil { res = int(t) }
+        return int(v.int(ctx))
     }
     return
 }
 
 func int64Val(ctx Context, v Value, i int64) (res int64) {
     if res = i; v != nil {
-        if i, e := v.int(ctx); e == nil { res = i }
+        return v.int(ctx)
     }
     return
 }
 
 func uintVal(ctx Context, v Value, i uint32) (res uint32) {
     if res = i; v != nil {
-        if t, e := v.int(ctx); e == nil {
-            res = uint32(t)
-        }
+        return uint32(v.int(ctx))
     }
     return
 }
@@ -6239,8 +6299,8 @@ func ease(ctx Context, a any) (res Value) {
     case   uint16: elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
     case   uint32: elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
     case   uint64: elems = append(elems, makeDecimal( _position(ctx),   int64(t)))
-    case  float32: elems = append(elems, makeFloat(   _position(ctx), float64(t)))
-    case  float64: elems = append(elems, makeFloat(   _position(ctx),         t ))
+    case  float32: elems = append(elems, makefloat(   _position(ctx), float64(t)))
+    case  float64: elems = append(elems, makefloat(   _position(ctx),         t ))
     case   string: elems = append(elems, makeStrlit(  _position(ctx),         t ))
     case   []bare: for _, s := range t { elems = append(elems, makeBareword(_position(ctx), string(s))) }
     case []string: for _, s := range t { elems = append(elems, makeStrlit(  _position(ctx),        s )) }
@@ -6346,7 +6406,7 @@ func makeBinary(pos Position, i int64) *binary { return &binary{integer{valbase{
 func makeOctal(pos Position, i int64) *octal { return &octal{integer{valbase{pos},i}} }
 func makeDecimal(pos Position, i int64) *decimal { return &decimal{integer{valbase{pos},i}} }
 func makeHexadecimal(pos Position, i int64) *hexadecimal { return &hexadecimal{integer{valbase{pos},i}} }
-func makeFloat(pos Position, f float64) *Float  { return &Float{valbase{pos},f} }
+func makefloat(pos Position, f float64) *float  { return &float{valbase{pos},f} }
 func makeDate(pos Position, s time.Time) *Date  { return &Date{datetime{valbase{pos},s}} }
 func makeTime(pos Position, t time.Time) *Time  { return &Time{datetime{valbase{pos},t}} }
 func makeRaw(pos Position, s string) *raw       { return &raw{valbase{pos},s} }
@@ -6404,8 +6464,8 @@ func Make(pos Position, in any) (out Value) {
     case int:       out = makeDecimal(pos,int64(v))
     case int32:     out = makeDecimal(pos,int64(v))
     case int64:     out = makeDecimal(pos,v)
-    case float32:   out = makeFloat(pos,float64(v))
-    case float64:   out = makeFloat(pos,v)
+    case float32:   out = makefloat(pos,float64(v))
+    case float64:   out = makefloat(pos,v)
     case string:    out = makeStrlit(pos, v)
     case time.Time: out = &datetime{valbase{pos},v} // FIXME: NewDate, NewTime
     case Value:     out = v
@@ -6461,9 +6521,9 @@ func ParseHexadecimal(pos Position, s string) *hexadecimal {
     }
 }
 
-func ParseFloat(pos Position, s string) *Float {
+func parseFloat(pos Position, s string) *float {
     if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
-        return makeFloat(pos,f)
+        return makefloat(pos,f)
     } else {
         panic(e)
     }

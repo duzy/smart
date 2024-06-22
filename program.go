@@ -818,7 +818,7 @@ func (prog *program) execute(ctx Context) (result Value) {
     exe.order = true
     exe.prerequisites(ctx, prog.ordered)
 
-    if prog.language != "" { return }
+    if prog.language != ""    { return }
     if len(prog.recipes) == 0 { return }
     return prog.result_or_default_interpret(&exe)
 }

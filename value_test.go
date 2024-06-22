@@ -74,7 +74,7 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v", tst{l.elems[8]})
 	} else if i, y := l.elems[9].(*decimal); !y || i.String() != "1" || i.string(ctx) != "1" /* || i.int(ctx) != 1 */ {
 		ctx.err("%v", tst{l.elems[9]})
-	} else if f, y := l.elems[10].(*Float); !y || f.String() != "0.1" {
+	} else if f, y := l.elems[10].(*float); !y || f.String() != "0.1" {
 		ctx.err("%v", tst{l.elems[10]})
 	} else if n, y := l.elems[11].(*none); !y || n.String() != `{=none anything goes}` || n.string(ctx) != `` {
 		ctx.err("%v", tst{l.elems[11]})

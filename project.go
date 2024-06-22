@@ -285,8 +285,8 @@ type project struct {
   opt project_opt
 }
 func (_ *project) kind() Kind { return KindObject|KindKnownObject|KindProject }
-func (_ *project) int(Context) (int64, error) { return 0, nil }
-func (_ *project) float(Context) (float64, error) { return .0, nil }
+func (_ *project) int(Context) (_ int64) { return }
+func (_ *project) float(Context) (_ float64) { return }
 func (_ *project) updated(Context) bool { return false }
 func (_ *project) updatedDeps(Context, ...Value) []Value { return nil }
 func (_ *project) defs(Context, ...string) (_ []*def) { return }

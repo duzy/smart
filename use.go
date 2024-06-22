@@ -141,8 +141,8 @@ func (p *uselist) string(ctx Context) (s string) {
         return
 }
 func (p *uselist) true(ctx Context) bool { return len(p.list) > 0 }
-func (p *uselist) int(ctx Context) (i int64, _ error) { return int64(len(p.list)), nil }
-func (p *uselist) float(ctx Context) (f float64, _ error) { return 0, nil }
+func (p *uselist) int(ctx Context) (_ int64) { return int64(len(p.list)) }
+func (p *uselist) float(ctx Context) (_ float64) { return }
 func (p *uselist) updated(ctx Context) (res bool) {
         for _, elem := range p.list {
                 res = res || elem.updated(ctx)

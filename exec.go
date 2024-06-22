@@ -430,8 +430,8 @@ func (p *execResult) true(ctx Context) (res bool) {
   res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
   return
 }
-func (p *execResult) int(ctx Context) (i int64, _ error) { return int64(p.Status), nil }
-func (p *execResult) float(ctx Context) (f float64, _ error) { return float64(p.Status), nil }
+func (p *execResult) int(ctx Context) (i int64) { return int64(p.Status) }
+func (p *execResult) float(ctx Context) (f float64) { return float64(p.Status) }
 func (p *execResult) string(ctx Context) (s string) {
   if p.Stdout.Buf != nil { return p.Stdout.Buf.String() }
   if p.Stderr.Buf != nil { return p.Stderr.Buf.String() }

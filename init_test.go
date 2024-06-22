@@ -7,6 +7,7 @@ package smart
 
 import (
     "path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"fmt"
@@ -185,6 +186,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	switch t := i0.(type) {
 	case string:
 		if x = proj.resolve(ctx, t) ; x == nil {
+			note(ctx, "%v: %v", proj, reflect.ValueOf(proj.scope.elems).MapKeys())
 			erro(ctx, "%v: '%s' is nil", proj, t).trace()
 		}
 	case  Value:
