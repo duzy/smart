@@ -124,6 +124,7 @@ func (prog *program) check_shell_for_stdout(ctx Context, result *Value) {
 	}
 
     var args = try[[]Value](ctx, get_arguments{})
+	var o = try[origin](ctx, get_origin{})
 
     switch ent.destiny().string(ctx) {
     case ".test.0":
@@ -151,10 +152,10 @@ func (prog *program) check_shell_for_stdout(ctx Context, result *Value) {
 		if v := auto_get(ctx, "-"); v != *result {
 			errostack(at(ctx,v), 3, "%s != %s", ts(v), ts(*result)).trace()
 		}
-		switch try[origin](ctx, get_origin{}) {
+
+		switch o {
 		case defExpand0:
-			var t = fmt.Sprintf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0]))
-			if ts(*result) != t {
+			if ts(*result) != fmt.Sprintf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0])) {
 				errostack(ctx, 3, "%v (%s %s)", ts(*result), ts(args[1]), ts(args[0])).trace()
 			}
 		case defExpand1:
@@ -183,7 +184,7 @@ func (prog *program) check_shell_for_stdout(ctx Context, result *Value) {
 			erro(at(ctx,v), "%v", ts(v)).trace()
 		}
     case ".test":
-        if len(args) != 2 {
+        if len(args) != 2 { // NOTE: always use two args in this test case
             erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
         }
 		if v := auto_get(ctx, "@"); ts(v) != "{=barecomp {=punctuation .} {=bareword test}}" {
@@ -201,14 +202,33 @@ func (prog *program) check_shell_for_stdout(ctx Context, result *Value) {
 		if v := auto_get(ctx, "-"); v != *result {
 			errostack(at(ctx,v), 3, "%s != %s", ts(v), ts(*result)).trace()
 		}
-		if ts(args) == "{=[Value] {=list {=delegate {=auto 1}}} {=list {=delegate {=auto 2}}}}" {
-			if ts(*result) != "{=delegate {=builtin debug} {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}" {
-				errostack(ctx, 3, ".test: %v", ts(*result)).trace()
+
+		switch ts(args) {
+		case "{=[Value] {=list {=delegate {=auto 1}}} {=list {=delegate {=auto 2}}}}":
+			switch o {
+			case defExpand0, defExpand1:
+				if ts(*result) != "{=delegate {=builtin debug} {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}" {
+					errostack(ctx, 3, ".test: %v, %s", ts(*result), ts(args)).trace()
+				}
 			}
-		} else {
-			if ts(*result) != "{=null}" {
-				errostack(ctx, 3, ".test: %v %v", ts(*result), ts(args)).trace()
+		default:
+			switch o {
+			case defExpand0:
+				t := fmt.Sprintf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0]))
+				if ts(*result) != t {
+					errostack(ctx, 3, ".test: %v != %s, %s", ts(*result), t, ts(args)).trace()
+				}
+			case defExpand1:
+				if ts(*result) != "{=null}" {
+					errostack(ctx, 3, ".test: %v %v", ts(*result), ts(args)).trace()
+				}
 			}
 		}
+	}
+
+	switch o {
+	case 0, defExpand0, defExpand1:
+	default:
+		errostack(ctx, 5, "untested: %v: %v %s %s", ent.destiny(), o, ts(args), ts(*result)).trace()
 	}
 }

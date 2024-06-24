@@ -210,6 +210,7 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
     for _, val := range vals {
         var a = &_at{ id: strconv.Itoa(argnum+1) }
+
         if p, y := val.(*pair); y {
             if a.name = p.key.string(ctx); a.name == "" {
                 erro(ctx, "empty name: %v", p.key).trace()
@@ -233,7 +234,7 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
             a.value = p.val
         } else {
-            a.name, a.value = _paramName(ctx, argnum), scalarize(val)
+            a.name, a.value = _paramname(ctx, argnum), scalarize(val)
             if a.name == "" { a.name = a.id }
         }
 
@@ -1004,14 +1005,18 @@ func (p *rule) expandable(ctx Context) (res bool) {
     return
 }
 func (p *rule) expand(ctx Context) (_ Value) {
-    if x, y := ctx.(*evocation); y {
-        return ease(ctx, p.execute(ctx, x.a...))
+    if _, y := ctx.(*evocation); y {
+        erro(ctx, "should evoke: %v", p).trace()
     }
 
     var target = p.target.expand(ctx)
     if equal(ctx, target, p.target) { return p }
 
     return &rule{ target, p.program, p.arged }
+}
+func (p *rule) evoke(ctx *evocation) Value {
+    ctx.a = expand(ctx, ctx.a...) // to save the changed args
+    return ease(ctx, p.execute(ctx, ctx.a...))
 }
 func (p *rule) delete(  ctx Context) (files []*File) { return p.target.delete(ctx) }
 func (p *rule) stamp(   ctx Context) (files []*File) { return p.target.stamp(ctx) }

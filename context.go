@@ -76,38 +76,35 @@ type (
   is_test_mode   struct{}
 )
 
-func _position(ctx Context) (res Position) {
-  if i := do(ctx, get_position{}); i == nil {
-    erro(ctx, "no such operator: position, %v", ts(ctx)).trace()
-  } else if x, y := i.(Position); !y {
-    erro(ctx, "not position: %v", ts(i)).trace()
+type invalid_position struct{}
+type no_position struct{}
+
+func _position(ctx Context) (_ Position) {
+  if x, y := do(ctx, get_position{}).(Position); y {
+    if x.valid() { return x }
+    return//panic(invalid_position{})
   } else {
-    res = x
+    panic(no_position{})
   }
-  return
 }
 
 func _parameters(ctx Context) (res map[string]*auto) {
-  if i := do(ctx, propParameters); i != nil {
-    if t, y := i.(map[string]*auto); y { res = t }
-  }
+  if t, y := do(ctx, propParameters).(map[string]*auto); y { res = t }
   return
 }
 
-func _paramName(ctx Context, n int) (res string) {
-  if i := do(ctx, get_param_name{n}); i != nil {
-    if s, y := i.(string); y { res = s }
-  }
+func _paramname(ctx Context, n int) (_ string) {
+  if x, y := do(ctx, get_param_name{n}).(string); y { return x }
   return
 }
 
-func _workdir(ctx Context) (res string) {
-  if i := do(ctx, get_workdir{}); i == nil {
-    erro(ctx, "no such operator: workdir, %v", ts(ctx)).trace()
-  } else if t, y := i.(string); y { res = t } else {
-    erro(ctx, "not string: %v", ts(i)).trace()
+func _workdir(ctx Context) (_ string) {
+  if x, y := do(ctx, get_workdir{}).(string); y {
+    return x
+  } else {
+    erro(ctx, "no workdir").trace()
+    return
   }
-  return
 }
 
 func count_error(ctx Context) int { return count_diag(ctx, diagError) }
@@ -405,14 +402,8 @@ func (d diagtracer) trace() {
   if false {
     defer trace(d.ctx)
     d.stack = _callstack(d.tag(), 5, 0)
-  } else if true {
-    trace(d.ctx)
   } else {
-    var ctx = d.ctx
-    defer trace_recover(ctx)
-    if x, y := do(ctx, act_traced{}).(int); y && x == 1 {
-      panic(trace_errors{ctx, x})
-    }
+    trace(d.ctx)
   }
 }
 
@@ -441,11 +432,11 @@ func trace_recover(ctx Context) {
     case runtime.Error: erro(   ctx   , "trace: %s", t.Error())
     case too_many_diagnostics: erro(ctx, "too many diagnostics (%v)", t.i)
     case too_many_errors     : erro(ctx, "too many errors (%v)", t.i)
-    default: erro(ctx, "trace: %s", ts(e))
+    default: panic(e) //erro(ctx, "trace: %s", ts(e))
     }
   }
   if recovered > 0 {
-    erro(ctx, "%s (%d panics)", ts(x), recovered).debug(64)
+    erro(ctx, "%s (%d panics)", ts(x), recovered).debug(512)
     if true { flush(ctx) }
   }
 }
@@ -631,16 +622,18 @@ func promstack(ctx Context, n int, a ...any) diagtracer { return diagstack(ctx, 
 func notestack(ctx Context, n int, a ...any) diagtracer {
   if true {
     var f string
-    if len(a) > 0 { if s, y := a[0].(string); y {
-      f, a = s, a[1:]
-    }}
-
+    if len(a) > 0 {
+      if x, y := a[0].(string); y {
+        f, a = x, a[1:]
+      }
+    }
     a = append([]any{"%v: "+f+"\n", _position(ctx)}, a...)
   }
   return diagstack(ctx, n, diagPrompt, a...)
 }
 func diagstack(ctx Context, n int, dt diagType, a ...any) (point diagtracer) {
   var s string
+
   if 0 < len(a) {
     if x, y := a[0].(string); y {
       s, a = x, a[1:] // separate the format string and args
@@ -649,44 +642,28 @@ func diagstack(ctx Context, n int, dt diagType, a ...any) (point diagtracer) {
   }
 
   point = diag(ctx, dt, s, a...)
+  dt = diagInfo
 
-  if _p := _positional(ctx); _p != nil {
-    point.position = _p.position
-    dt = diagInfo
+  var p = _position(ctx)
+  for c := inner(ctx); c != nil && 0 < n && p.valid(); c = inner(c) {
+    var pos = _position(c)
+    if pos.same(&p) { continue }
 
-    for last := &_p.position; 0 < n && _p != nil && _p.Context != nil; {
-      var pos = &_p.position
-      if pos == last || last.Same(pos) {
-        _p = _positional(_p.Context)
-        continue
-      }
+    n -= 1
+    p = pos
+    s = _project(ctx).name
 
-      n -= 1
-      last = pos
-
-      if true {
-        s = _project(ctx).name + " ; " + ts(_p)
+    if e := _entry(c); e != nil {
+      if t, _, _ := entryIndicator(c, e); t == "" {
+        s += ": " + e.ident(ctx)
       } else {
-        s = ts(_p)
+        s += ": " + t
       }
-
-      if _e := _entry(_p); _e != nil {
-        if t, _, _ := entryIndicator(_p, _e); t == "" {
-          s += " : " + _e.ident(ctx)
-        } else {
-          s += " : " + t
-        }
-      }
-
-      var p = _p
-      if _p = _positional(_p.Context) ; 1 == n {
-        var c int
-        for t := _p; t != nil; t = _positional(t.Context) { c += 1 }
-        if 0 < c { s += fmt.Sprintf(" ... (%d more)", c) }
-      }
-
-      point = diag(p, dt, s)
     }
+
+    if true { s += " ; " + ts(c) }
+
+    point = diag(c, dt, s)
   }
   return
 }
@@ -720,7 +697,7 @@ func at(ctx Context, a any) Context {
     return ctx
   }
 
-  if p := _position(ctx) ; p.valid() && pos.valid() && !p.Same(&pos) {
+  if p := _position(ctx) ; p.valid() && pos.valid() && !p.same(&pos) {
     for c, i, n := ctx, 0, 0; c != nil; c, i = inner(c), i+1 {
       if _, y := c.(*positional); y {
         if n += 1; n > /* 999 */100 {

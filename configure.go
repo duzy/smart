@@ -308,7 +308,7 @@ func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
 
 func scanExitStatts(err error) (n, status int) {
     switch e := err.(type) {
-    case *exitstatus: n, status = 1, e.code
+    case *exitstatus: n, status = 1, e.int
     // case *scanner.Error:
     //     for _, t := range e.Errs {
     //         if n, status = scanExitStatts(t); n == 1 { return }

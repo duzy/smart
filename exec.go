@@ -32,8 +32,8 @@ const (
   maxRetries = 1
 )
 
-type exitstatus struct { code int }
-func (e *exitstatus) Error() string { return fmt.Sprintf(fmtExitStatus, e.code) }
+type exitstatus struct { int }
+func (p *exitstatus) Error() string { return fmt.Sprintf(fmtExitStatus, p.int) }
 
 type knownerror struct {
   string // capture
@@ -180,6 +180,10 @@ var (
       p.scanned(diagError, l, g[0].int, g[0].string)
     },
   }
+
+  noticelines = []*regexp.Regexp{
+    regexp.MustCompile(`ld: library '[^']+' not found`),
+  }
 )
 
 func init() { working.Store(0) }
@@ -266,6 +270,7 @@ type execBuffer struct {
   Tie  io.Writer
   Buf *bytes.Buffer
   line bytes.Buffer // works done line by line
+  lnum int // line number
 
   wrote uint64
 
@@ -273,17 +278,23 @@ type execBuffer struct {
 
   includedFrom struct { pos1, pos2 Position }
 }
+
+func is_notice_line(s string) (_ bool) {
+  for _, x := range noticelines {
+    if x.MatchString(s) { return true }
+  }
+  return
+}
+
 func (p *execBuffer) Write(b []byte) (n int, err error) {
   var expandForLine = p.forLine != nil && !isTrivial(p.forLine)
 
-  var l int
   if p.Buf != nil {
     if n, err = p.Buf.Write(b); err != nil {
       return
     }
   }
   if p.log != nil {
-    l = p.log.lines // get lines before writing new bytes
     if _, err = p.log.Write(b); err != nil {
       return
     }
@@ -313,9 +324,9 @@ func (p *execBuffer) Write(b []byte) (n int, err error) {
       p.line.Write(slice)
       slice = nil
     } else {
+      p.lnum += 1
       p.line.Write(slice[:i+1])
       slice = slice[i+1:]
-      l += 1
 
       var line = p.line.Bytes()
 
@@ -323,25 +334,18 @@ func (p *execBuffer) Write(b []byte) (n int, err error) {
         var ctx Context = p.execContext
         if p.log != nil && !p.logPos.IsValid() {
           var pos Position
-          pos.Filename, pos.Line = p.log.filename, l
+          pos.Filename, pos.Line = p.log.filename, p.lnum
           ctx = at(p.execContext, pos)
         }
-        testCheckExecOutput(ctx, string(line), l)
+        testCheckExecOutput(ctx, string(line), p.lnum)
       }
 
       if expandForLine {
         c := p.execContext
-        c.line.s, c.lino.int64 = string(line), int64(l)
+        c.line.s, c.lino.int64 = string(line), int64(p.lnum)
         v := p.forLine.expand(final{p.Context})
-        if t := p.forLine; t.String() == "${.test.for $1,$2}" {
-          note(p, "%v → %v ; %v", t, ts(v), auto_get(p, "1")).debug()
-        } else if v != nil {
-          if s := strings.TrimSpace(string(line)); true ||
-            strings.HasPrefix(s, "test one\n") ||
-            strings.HasPrefix(s, "test two\n") || (
-            strings.HasPrefix(s, "ld: library '") && strings.HasSuffix(s, "' not found")) {
-            note(p, "%v: %s → %v ; %v", p.forLine, s, ts(v), auto_get(p.Context, "1")).debug()
-          }
+        if !isNull(v) && is_notice_line(c.line.s) {
+          note(p, "%v : %d. %s → %v", p.forLine, line, c.line.s, ts(v)).debug()
         }
       }
 
@@ -355,7 +359,7 @@ func (p *execBuffer) Write(b []byte) (n int, err error) {
               v = append(v, knownerror{string(capture), column + 1})
               if false { if i > 0 { column += len(capture) }}
             }
-            f(p/*, rx*/, l, v)
+            f(p/*, rx*/, p.lnum, v)
           }
         }
       }
@@ -439,9 +443,9 @@ func (p *execResult) string(ctx Context) (s string) {
 }
 func (p *execResult) String() string {
   var s bytes.Buffer
-  fmt.Fprintf(&s, "exec{status=%d", p.Status)
-  if p.Stdout.Buf != nil { fmt.Fprintf(&s, " stdout=%v", p.Stdout.Buf) }
-  if p.Stderr.Buf != nil { fmt.Fprintf(&s, " stderr=%v", p.Stderr.Buf) }
+  fmt.Fprintf(&s, "{=exec {=status %d}", p.Status)
+  if p.Stdout.Buf != nil { fmt.Fprintf(&s, " {=stdout %v}", p.Stdout.Buf) }
+  if p.Stderr.Buf != nil { fmt.Fprintf(&s, " {=stderr %v}", p.Stderr.Buf) }
   fmt.Fprintf(&s, "}")
   return s.String()
 }
@@ -687,7 +691,7 @@ func (p *execContext) check() (err error) {
     if p.scanErrors() { for i, rec := range p.scannedDiags {
       if !p.infos && rec.dt == diagInfo { continue }
       if !p.logPos.IsValid() { p.logPos = rec.position }
-      if i == 0 && !rec.position.Same(&rec.position) {
+      if i == 0 && !rec.position.same(&rec.position) {
         diag(at(ctx,rec.position), rec.dt, rec.msg)//.debug()
       }
       if rec.num > 1 {
@@ -709,7 +713,7 @@ func (p *execContext) check() (err error) {
       p.logPos = pos
     }
 
-    var diffLogPos = !p.logPos.SameLine(&pos)
+    var diffLogPos = !p.logPos.sameLine(&pos)
     var str, _, _ = entryIndicator(ctx, _entry(ctx))
     if (!p.retStatus && p.Status != 0) || en > 0 {
       if p.dropFailed {

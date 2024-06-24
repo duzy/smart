@@ -23,3 +23,4 @@ project testrules
 .test2: {(shell -for-stderr=${.test $1,$2})}
 	echo "test one" > /dev/stderr
 	echo "test two" > /dev/stderr
+	echo "test thr" > /dev/stderr

@@ -606,7 +606,7 @@ func wait(ctx Context, opts waitopts) (target Value, files []*File, execRes *exe
         var ctxPos, targetPos = _position(ctx), target.Position()
         var v = target
         if l, ok := v.(*list); ok && l.len() == 1 { v = l.elems[0] }
-        if targetPos.IsValid() && !targetPos.Same(&ctxPos) {
+        if targetPos.IsValid() && !targetPos.same(&ctxPos) {
             if f, y := toFile(v); y && f != nil && f.filemap != nil {
                 erro(at(ctx,targetPos), "waiting for '%v'", target)
                 erro(at(ctx,f.filemap.pattern), "via pattern '%v' (of %v)", v, f.filemap.project).trace()
@@ -1892,6 +1892,9 @@ func (p *strlit) expand(ctx Context) Value {
         return p
     }
 }
+func (p *strlit) ts(t string) string {
+    return fmt.Sprintf("{=%s %s}", t, strings.Replace(p.s, "\n", "\\n", -1))
+}
 func (p *strlit) cmp(ctx Context, v Value) (res cmpres) {
     switch t := v.(type) {
     case *strlit:
@@ -2180,15 +2183,15 @@ func (p *bareword) stencil(ctx Context, stems []string) (val Value, rest []strin
 }
 func (p *bareword) traverse(ctx Context) { do(at(ctx, p.position), act_traverse{p}) }
 
-type qualiword struct { valbase; words []string } // TODO: foo.bar.zar, foo.&(bar).zar ???
-func (p *qualiword) String() string { return strings.Join(p.words,".") }
-func (p *qualiword) string(ctx Context) string { return p.String() }
-func (p *qualiword) true(ctx Context) bool { return len(p.words)!=0 }
-func (p *qualiword) int(ctx Context) (_ int64) { return int64(len(p.words)) }
-func (p *qualiword) float(ctx Context) (_ float64) { return }
-func (p *qualiword) expand(Context) Value { return p }
-func (p *qualiword) cmp(ctx Context, v Value) (res cmpres) {
-    if a, y := v.(*qualiword); y {
+type qualword struct { valbase; words []string } // TODO: foo.bar.zar, foo.&(bar).zar ???
+func (p *qualword) String() string { return strings.Join(p.words,".") }
+func (p *qualword) string(ctx Context) string { return p.String() }
+func (p *qualword) true(ctx Context) bool { return len(p.words)!=0 }
+func (p *qualword) int(ctx Context) (_ int64) { return int64(len(p.words)) }
+func (p *qualword) float(ctx Context) (_ float64) { return }
+func (p *qualword) expand(Context) Value { return p }
+func (p *qualword) cmp(ctx Context, v Value) (res cmpres) {
+    if a, y := v.(*qualword); y {
         var n int
         var al, pl = len(a.words), len(p.words)
         for i, w := range p.words {
@@ -2217,14 +2220,14 @@ func (p *qualiword) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *qualiword) match(ctx Context, i any) (full bool, s any, stems []string) {
+func (p *qualword) match(ctx Context, i any) (full bool, s any, stems []string) {
     full, s, stems = stringMatch(ctx, p, i)
     return
 }
-func (p *qualiword) stencil(ctx Context, stems []string) (val Value, rest []string) {
+func (p *qualword) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *qualiword) traverse(ctx Context) { do(at(ctx, p.position), act_traverse{p}) }
+func (p *qualword) traverse(ctx Context) { do(at(ctx, p.position), act_traverse{p}) }
 
 type elements struct { elems []Value }
 func (p *elements) Position() Position { return p.elems[0].Position() }
@@ -4971,7 +4974,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         if v != nil { x, e = v, true }
     }
 
-    var un = func(a []Value) Value {
+    var unex = func() Value {
         if !equal(ctx, _x, x) || diff(ctx, a, _a) {
             if d := (delegate{valbase{p.Position()}, _l, x, _o, a}); _cl {
                 return &closure{d}
@@ -4983,9 +4986,10 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
     }
 
     if !e {
-        return un(expand(ctx, _a...))
+        a = expand(ctx, _a...)
+        return unex()
     } else if t, a = evoke(ctx, x, _o, _a); equal(ctx, x, t) {
-        return un(a)
+        return unex()
     } else if x, y := t.(expanded); y {
         return x.Value
     } else {
@@ -6371,14 +6375,11 @@ func ts(i any) (s string) {
     case expanded:    return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
     case condval:     return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
     case untraversed: return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
-    case Value:
-        s = "{="+t//+fmt.Sprintf("(%T)", x)
-        if t := x.String(); t != "" { s += " " + t }
-        s += "}"
-        return
     default:
         s = "{="+t
-        if t := fmt.Sprintf("%v", i); t != "" { s += " " + t }
+        if t := fmt.Sprintf("%v", i); t != "" {
+            s += " " + strings.Replace(t, "\n", `\n`, -1)
+        }
         s += "}"
         return
     }
@@ -6576,8 +6577,8 @@ func (p *evocation) ts(t string) string {
 
 func evoke(ctx Context, x Value, o, a []Value) (_ Value, _ []Value) {
     // NOTE: the evo.a represents the arguments, which is a COPY of the original slice;
-    // NOTE: making a COPY of the arguments FIXES the bug of delegate-altered-args.
-    var ev = evocation{ctx, x, copyvals(a), o}
+    // NOTE: making a COPY of the argument slice FIXES the bug of delegate-altered-args.
+    var ev = evocation{ctx, x, copyvals(a), copyvals(o)}
     switch i := x.(type) {
     case *closure, *delegate, nil:
         erro(ctx, "illicit x=%v, o=%v, a=%v", ts(x), ts(o), ts(a)).trace()
@@ -6612,4 +6613,48 @@ func get_filename(n int) string {
         num += 1
     }
     return filename
+}
+
+// FIXME: duplicate is still buggy
+func buggy__duplicate(v []Value) []Value {
+    return _duplicate(reflect.ValueOf(v)).Interface().([]Value)
+}
+
+func _duplicate(v reflect.Value) reflect.Value {
+    switch v.Kind() {
+    case reflect.Slice, reflect.Array:
+        // Allocate a new slice/array with same length and capacity
+        dst := reflect.MakeSlice(v.Type(), v.Len(), v.Cap())
+        // Recursively duplicate elements
+        for i := 0; i < v.Len(); i++ {
+            if elem := v.Index(i) ; !elem.IsNil() {
+                dst.Index(i).Set(_duplicate(elem))
+            }
+        }
+        return dst
+    case reflect.Int, reflect.String, reflect.Bool:
+        // Simple value types can be copied directly
+        return reflect.ValueOf(v.Interface())
+    case reflect.Ptr/* , reflect.Interface */:
+        // Duplicate pointers by creating a new pointer and copying the underlying value
+        elem := reflect.New(v.Type().Elem())
+        elem.Elem().Set(_duplicate(v.Elem()))
+        return elem
+    case reflect.Interface:
+        elem := reflect.New(v.Type()).Elem()
+        elem.Set(_duplicate(v.Elem()))
+        return elem
+    case reflect.Struct:
+        // Duplicate structs by creating a new struct and copying fields
+        newStruct := reflect.New(v.Type()).Elem()
+        for i := 0; i < v.NumField(); i++ {
+            field := v.Field(i)
+            newField := newStruct.Field(i)
+            newField.Set(_duplicate(field)) // Recursively duplicate nested values
+        }
+        return newStruct
+    default:
+        i := v.Interface()
+        panic(fmt.Sprintf("Unsupported value type for duplication: %T %v : %s", i, v.Kind(), ts(i)))
+    }
 }

@@ -246,12 +246,11 @@ func testRules1(ctx *testcase) {
 }
 
 type testShellForStdoutDebugStruct struct {
-	s string
-	v []Value
+	v, s string
 }
 func testShellForStdoutDebugHook(ctx Context, s string, v []Value, i interface{}) {
 	t := i.(*testShellForStdoutDebugStruct)
-	t.v = append(t.v, v...)
+	for _, v := range v { t.v += ts(v) }
 	t.s += s
 }
 func testShellForStdout(ctx testcase1) {
@@ -268,7 +267,7 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%d %v", len(t.v), tst{t.v})
 	}
 
-	t.v, t.s = nil, ""
+	t.v, t.s = "", ""
 
 	if s := ".test.01"; false {} else
 	if d := ctx.def(s); d == nil {
@@ -284,10 +283,10 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%v", t.s)
 	}
 	if len(t.v) != 0 {
-		ctx.err("%v", tst{t.v})
+		ctx.err("%v", t.v)
 	}
 
-	t.v, t.s = nil, ""
+	t.v, t.s = "", ""
 
 	if s := ".test.02"; false {} else
 	if d := ctx.def(s); d == nil {
@@ -302,11 +301,11 @@ func testShellForStdout(ctx testcase1) {
 	if t.s != "b a" {
 		ctx.err("%v", t.s)
 	}
-	if ts(t.v) != "{=[Value] {=list {=bareword b} {=bareword a}}}" {
-		ctx.err("%v", tst{t.v})
+	if t.v != "{=list {=bareword b} {=bareword a}}" {
+		ctx.err("%v", t.v)
 	}
 
-	t.v, t.s = nil, ""
+	t.v, t.s = "", ""
 
 	if s := ".test.v1"; false {} else
 	if d := ctx.def(s); d == nil {
@@ -321,11 +320,11 @@ func testShellForStdout(ctx testcase1) {
 	if t.s != "" {
 		ctx.err("%v", t.s)
 	}
-	if ts(t.v) != "{=[Value]}" {
-		ctx.err("%v", tst{t.v})
+	if t.v != "" {
+		ctx.err("%v", t.v)
 	}
 
-	t.v, t.s = nil, ""
+	t.v, t.s = "", ""
 
 	if s := ".test"; false {} else
 	if r := ctx.rule(s); r == nil {
@@ -344,11 +343,11 @@ func testShellForStdout(ctx testcase1) {
 	if t.s != "b a" {
 		ctx.err("%v", t.s)
 	}
-	if ts(t.v) != "{=[Value] {=list {=bareword b} {=bareword a}}}" {
-		ctx.err("%v", tst{t.v})
+	if t.v != "{=list {=bareword b} {=bareword a}}" {
+		ctx.err("%v", t.v)
 	}
 
-	t.v, t.s = nil, ""
+	t.v, t.s = "", ""
 
 	if s := ".test.v2"; false {} else
 	if d := ctx.def(s); d == nil {
@@ -363,11 +362,11 @@ func testShellForStdout(ctx testcase1) {
 	if t.s != "b a" {
 		ctx.err("%v", t.s)
 	}
-	if ts(t.v) != "b a" {
-		ctx.err("%v", ts(t.v))
+	if t.v != "{=list {=bareword b} {=bareword a}}" {
+		ctx.err("%v", t.v)
 	}
 
-	t.v, t.s = nil, ""
+	t.v, t.s = "", ""
 
 	if s := ".test.v3"; false {} else
 	if d := ctx.def(s); d == nil {
@@ -378,82 +377,82 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%v", tst{v})
 	} else if v.string(ctx) != "" {
 		ctx.err("%v", tst{v})
-	} else if t := ctx.val(v, "a", "b"); v == nil {
+	} else if t := ctx.val(v, bare("a"), bare("b")); t == nil {
 		ctx.err("%v", tst{v})
-	} else if ts(t) != "{=delegate {=builtin debug} {=list {=strlit b} {=strlit a}}}" {
+	} else if ts(t) != "{=null}" {
 		ctx.err("%v", tst{t})
 	}
 	if t.s != "b a" {
 		ctx.err("%v", t.s)
 	}
-	if ts(t.v[0]) != "b a" {
-		ctx.err("%v", t.v[0])
+	if t.v != "{=list {=bareword b} {=bareword a}}" {
+		ctx.err("%v", t.v)
 	}
 
-	t.v, t.s = nil, ""
+	t.v, t.s = "", ""
 
 	if s := ".test.v4"; false {} else
 	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if ts(v) != "{=delegate {=builtin debug} {=list {=strlit b} {=strlit a}}}" {
+	} else if ts(v) != "{=null}" {
 		ctx.err("%v", tst{v})
 	}
-	if t.s != "b a" {
+	if t.s != "" {
 		ctx.err("%v", t.s)
 	}
-	if ts(t.v[0]) != "b a" {
-		ctx.err("%v", t.v[0])
+	if t.v != "" {
+		ctx.err("%v", t.v)
 	}
 
-	t.v, t.s = nil, ""
+	t.v, t.s = "", ""
 
-	if r := ctx.rule(".test1"); r == nil {
-		ctx.err(".test1")
+	if s := ".test1"; false {} else
+	if r := ctx.rule(s); r == nil {
+		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
 	} else if v := _evoke_(ctx, r[0]); v == nil {
-		ctx.err("%v", r)
-	} else if v.String() != "exec{status=0}" {
+		ctx.err("%v", tst{r[0]})
+	} else if v.String() != "{=exec {=status 0}}" {
 		ctx.err("%v", v)
 	} else if v.string(ctx) != "0" {
 		ctx.err("%v", v)
 	} else if t, y := v.(*execResult); !y {
-		ctx.err("%v{%v}", typeof(v), v)
+		ctx.err("%v", ts(v))
 	} else if t.Status != 0 {
 		ctx.err("%v", v)
 	}
-
-	if len(t.v) != 2 {
-		ctx.err("%v", t.v)
-	}
-	if t.s == "1 test one\n2 test two" {
+	if t.s != "1 test one\n2 test two\n" {
 		ctx.err("%v", t.s)
 	}
+	if t.v != `{=list {=decimal 1} {=strlit test one\n}}{=list {=decimal 2} {=strlit test two\n}}` {
+		ctx.err("%v", t.v)
+	}
 
-	t.v, t.s = nil, ""
+	t.v, t.s = "", ""
 
-	if r := ctx.rule(".test2"); r == nil {
-		ctx.err(".test2")
+	if s := ".test2"; false {} else
+	if r := ctx.rule(s); r == nil {
+		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
 	} else if v := _evoke_(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
-	} else if v.String() != "exec{status=0}" {
+	} else if v.String() != "{=exec {=status 0}}" {
 		ctx.err("%v", v)
 	} else if v.string(ctx) != "0" {
 		ctx.err("%v", v)
 	} else if t, y := v.(*execResult); !y {
-		ctx.err("%v{%v}", typeof(v), v)
+		ctx.err("%v", ts(v))
 	} else if t.Status != 0 {
 		ctx.err("%v", v)
 	}
-
-	if len(t.v) != 2 {
-		ctx.err("%v", t.v)
-	}
-	if t.s == "1 test one\n2 test two" {
+	if t.s != "1 test one\n2 test two\n3 test thr\n" {
 		ctx.err("%v", t.s)
+	}
+	if t.v != `{=list {=decimal 1} {=strlit test one\n}}{=list {=decimal 2} {=strlit test two\n}}{=list {=decimal 3} {=strlit test thr\n}}` {
+		ctx.err("%v", t.v)
 	}
 }

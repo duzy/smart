@@ -1681,7 +1681,7 @@ func (l unilo) composite(ctx Context) (x Value) {
 			x = l.dot(ctx, x)
 		}
 
-		// TODO: parse to Qualiword
+		// TODO: parse to Qualword
 
 	// case PCON: // ie. subdir/in/somewhere
 	// 		switch x.(type) { // Path expressions, except '-I/path/to/include'
@@ -2292,7 +2292,7 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
             d = x
         }
 
-    default: // *bareword, *barecomp, *qualiword, *path, flag:
+    default: // *bareword, *barecomp, *qualword, *path, flag:
         var name = t.string(ctx)
         if _, y := builtins[name]; y {
             erro(ctx, "`%v` is a builtin name (%v)", ident, name).trace()
@@ -2340,7 +2340,7 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
         erro(ctx, "def is nil: %v", ts(ident)).trace()
     }
 
-    d.position = ident.Position()
+    if false { d.position = ident.Position() }
 
     switch tok {
     case ASSIGN    :                       d.set(ctx, defExpand0, value) //   =

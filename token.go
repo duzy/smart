@@ -447,10 +447,10 @@ func (tok token) isListDelim() bool {
 type Position struct { got.Position }
 func (p *Position) valid() bool { return p.Filename != "" && p.Line > 0 }
 func (p *Position) IsValid() bool { return p.valid() && p.Column > 0 && p.Offset >= 0 }
-func (p *Position) SameLine(o *Position) bool {
+func (p *Position) sameLine(o *Position) bool {
 	return p == o || (p.Filename == o.Filename && p.Line == o.Line)
 }
-func (p *Position) Same(o *Position) bool {
+func (p *Position) same(o *Position) bool {
 	return p == o ||
 		p.Filename == o.Filename && p.Line == o.Line &&
 		p.Column == o.Column && p.Offset == o.Offset
