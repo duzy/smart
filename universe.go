@@ -28,9 +28,13 @@ var workBaseDir = func () string {
 
 type searchlist []string
 func (sl *searchlist) String() string { return fmt.Sprint(*sl) }
-func (sl *searchlist) Set(s string) error {
+func (sl *searchlist) set(s string) error {
     *sl = append(*sl, strings.Split(s, ",")...)
     return nil
+}
+func (sl *searchlist) has(s string) (_ bool) {
+    for _, p := range *sl { if p == s { return true }}
+    return
 }
 
 type hooks struct {
@@ -64,6 +68,7 @@ type universe struct {
     benchmark
 
     *scope
+
     globe *globe
 
     workdir string
@@ -673,7 +678,7 @@ func (u *universe) load() (err error) {
     u.globe.top = &loader{terminal:terminal{ctx, []*scope{u.globe.scope}}}
 
     var l = unilo{u, u.globe.top}
-    l.parseArgs(base, os.Args[1:]...)
+    l.parse_args(base, os.Args[1:]...)
 
     if u.verbose {
         defer func(t time.Time) {
@@ -723,42 +728,13 @@ func (u *universe) load() (err error) {
     if u.verboseImport { prompt(ctx, "┌→%s\n", base) }
 
     var spec, _ = filepath.Rel(workBaseDir, base)
-    if!l.directory(l.loader, spec, base, nil) { return }
-    if l.globe.main == nil {
-        erro(ctx, "nothing loaded\n").trace()
-    }
+    l.directory(l.loader, spec, base, nil)
+
+    if l.globe.main == nil { erro(ctx, "nothing loaded").trace() }
     return
 }
 
-// A globe represents a global execution context.
-type globe struct {
-    *scope
-
-    top    *loader
-    main   *project
-    loaded map[string]*project // loaded projects
-
-    stack []map[string]*def
-
-    args map[Value][]Value
-    flagEntries map[string][]entry
-    flags []flag
-    pairs []*pair
-
-    os    *def
-    goals *def
-    mode  *def
-}
-
-func (g *globe) SetScopeOuter(scope *scope) { scope.outer = g.scope }
-func (g *globe) AddFlagEntry(name string, entry entry) {
-    flags, _ := g.flagEntries[name]
-    flags     = append(flags, entry)
-    g.flagEntries[name] = flags
-    return
-}
-
-func (l unilo) parseArgs(base string, a ...string) {
+func (l unilo) parse_args(base string, a ...string) {
     var args []Value
 
     if s := strings.Join(a, " "); s != "" {
@@ -807,74 +783,30 @@ func (l unilo) parseArgs(base string, a ...string) {
     l.globe.mode.value = mode
 }
 
-// project returns a new project for the given project path and name;
-// the name must not be the blank identifier.
-// The project is not complete and contains no explicit imports.
-func (l unilo) globe_declare(ctx Context, name string, keyword token) (d *declare) {
-    if x, y := l.declares[name]; y {
-        return x
-    }
+// A globe represents a global execution context.
+type globe struct {
+    *scope
 
-    var sco = l.scope()
-    var abs = sco.findDef("/").value
-    var rel = sco.findDef(".").value
-    var tmp = sco.findDef("CTD").value
+    top    *loader
+    main   *project
+    loaded map[string]*project // loaded projects
 
-    var absPath = abs.string(ctx)
-    var relPath = rel.string(ctx)
-    var tmpPath = tmp.string(ctx)
-    var spec, _ = filepath.Rel(workBaseDir, absPath)
+    stack []map[string]*def
 
-    if false { defer func() {
-        note(ctx, "%v %v %v %v", keyword, name, spec, rel)
-        note(ctx, "%v", abs)
-        note(ctx, "%v", tmp)
-        note(ctx, "%v", ts(ctx)).debug()
-        // return
-    }()}
+    args map[Value][]Value
+    flagEntries map[string][]entry
+    flags []flag
+    pairs []*pair
 
-    var g = l.globe
-    if x, y := g.loaded[absPath]; y {
-        prompt(ctx, "%s: already declared : %v\n", absPath, x)
-        erro(ctx, "%v %v %v", name, spec, rel).trace()
-    }
+    os    *def
+    goals *def
+    mode  *def
+}
 
-    if l.declares == nil { l.declares = make(map[string]*declare) }
-
-    d = &declare{
-        project: &project{
-            position: _position(ctx),
-            absPath: absPath,
-            tmpPath: tmpPath,
-            rel: relPath,
-            spec: spec,
-            name: name,
-            use: new(uselist), // TODO: use scopename instead?
-        },
-    }
-
-    l.declares[name]  = d
-    g.loaded[absPath] = d.project
-
-    d.p = l.p
-    d.s = l.s
-    d.scope = newscope(d.position, sco, d.project, fmt.Sprintf("project %v", name))
-    d.scope.mutex.Lock()
-    d.scope.elems[".self"] = self{d.project}
-    d.scope.elems[".usee"] = d.use
-    d.scope.mutex.Unlock()
-    d.use.owner_ = d.project
-    d.use.scope = d.scope
-    d.use.name = "usee"
-
-    if g.main == nil && spec != "" && name != "@" && name != "~" {
-        for sco != nil && sco != g.scope {
-            if p := sco.project; p != nil && d.name == "@" {
-                return
-            }
-            sco = sco.outer
-        }
-        g.main = d.project
-    }
+func (g *globe) SetScopeOuter(scope *scope) { scope.outer = g.scope }
+func (g *globe) AddFlagEntry(name string, entry entry) {
+    flags, _ := g.flagEntries[name]
+    flags     = append(flags, entry)
+    g.flagEntries[name] = flags
     return
 }

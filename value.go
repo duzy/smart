@@ -64,6 +64,7 @@ const (
 )
 
 type Kind uint64
+
 const (
     KindUnclassified Kind = 0
     KindUndef Kind = 1<<iota
@@ -153,6 +154,8 @@ func (n existence) String() (s string) {
     }
     return
 }
+
+func sfmt(f string, i ...any) string { return fmt.Sprintf(f, i...) }
 
 func do_bits(ctx, ic Context, op any, bits ...property) any {
     if x, y := op.(property); y {
@@ -306,11 +309,7 @@ func (si *statinfo) exists() (res existence) {
     return
 }
 
-var (
-    traveTargetNotDefinedFile = fmt.Errorf("target not defined as file")
-)
-
-func sfmt(f string, i ...any) string { return fmt.Sprintf(f, i...) }
+var traveTargetNotDefinedFile = fmt.Errorf("target not defined as file")
 
 // TODO: use chained-context instead of 'terminal' for closure-scopes
 type terminal struct { Context ; s []*scope }
@@ -321,10 +320,18 @@ func (c *terminal) do(ctx Context, op any) any {
     case get_scope:
         if 0 < len(c.s) { return c.s[0] }
     case get_closure_scope:
-        if cc := c.Context ; cc == nil {
-            return c.s
+        var res []*scope
+        for i, s := range c.s {
+            if i == 0 || !c.s[0].has_outer(s) { res = append(res, s) }
+        }
+        if true && len(res) > 1 {
+            for i, s := range res { note(ctx, "%d. %v", i, s) }
+            note(ctx, "%v %v", typeof(ctx), ctx).debug()
+        }
+        if cc := c.Context; cc != nil {
+            return append(res, closure_scopes(cc)...)
         } else {
-            return append(c.s, closure_scopes(cc)...)
+            return res
         }
     }
     if c.Context == nil { return nil }
@@ -347,7 +354,7 @@ func closure_projects(ctx Context) (res []*project) {
     return
 }
 
-func closure_get(ctx Context, name string) (res *def) {
+func closure_finddef(ctx Context, name string) (res *def) {
     for _, s := range closure_scopes(ctx) {
         if s.project == nil {
             if _, obj := s.find(name); obj == nil {
@@ -375,9 +382,13 @@ func closure_get(ctx Context, name string) (res *def) {
     return
 }
 
+func closure_get(ctx Context, name string) (res *def) {
+    panic("TODO: def "+name)
+}
+
 func closure_set(ctx Context, name string, val Value) (prev Value, okay bool) {
     for _, s := range closure_scopes(ctx) {
-        if def := s.findDef(name); def != nil {
+        if def := s.finddef(name); def != nil {
             prev = def.value
             def.val(ctx, val)
             okay = true
@@ -445,8 +456,7 @@ func closure_with(ctx Context, a ...any) Context {
         case   *scope: ss = append(ss, t)
         case []*scope: ss = append(ss, t...)
         case *project: ss = append(ss, t.scope)
-        case interface{ declscope() *scope }:
-            ss = append(ss, t.declscope())
+        case interface{ declscope() *scope }: ss = append(ss, t.declscope())
         }
     }
     return &terminal{ctx, ss}
@@ -730,6 +740,8 @@ func srclit(o Object, elem Value) (s string) {
     return
 }
 
+type positioner interface { Position() Position }
+
 // Value represents a value of a type.
 type Value interface {
     positioner // The position where the value appears (or NoPos).
@@ -984,7 +996,7 @@ func compose(ctx Context, x, y Value) (res Value) {
     return makeBarecomp(x, y)//.suffix(ctx, y)
 }
 
-func hasPrefix(str string, prefixs ...string) (res bool) {
+func has_prefix(str string, prefixs ...string) (res bool) {
     for _, s := range prefixs { if res = strings.HasPrefix(str, s); res { break }}
     return
 }
@@ -1148,6 +1160,9 @@ func (ac *argumented_context) do(ctx Context, op any) any {
 
 type argumented struct { Value ; args []Value }
 func (_ *argumented) kind() Kind { return KindArgumented }
+func (p *argumented) ts(t string) (s string) {
+    return fmt.Sprintf("{=%s %s %s}", t, ts(p.Value), p.args)
+}
 func (p *argumented) String() (s string) { return p.srclit(nil) }
 func (p *argumented) srclit(o Object) (s string) {
     for i, a := range p.args {
@@ -1224,17 +1239,19 @@ func (p *argumented) traverse(ctx Context) {
         for _, a := range p.args {
             a = a.expand(final{ctx})
             // TODO: deal with pattern args using expandPatterned instead of stenciling:
-            if true && a.patterned(ctx) { if stems := _stems(ctx); len(stems) > 0 {
-                if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
-                    erro(at(ctx,a), "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).trace()
-                } else if f, y := toFile(val); y {
-                    a = f
-                } else if f := proj.file(ctx, val.string(ctx)); f != nil {
-                    a = f
-                } else {
-                    a = val //makeStrlit(a.Position(), str)
+            if true && a.patterned(ctx) {
+                if stems := _stems(ctx); len(stems) > 0 {
+                    if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
+                        erro(at(ctx,a), "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).trace()
+                    } else if f, y := toFile(val); y {
+                        a = f
+                    } else if f := proj.file(ctx, val.string(ctx)); f != nil {
+                        a = f
+                    } else {
+                        a = val //makeStrlit(a.Position(), str)
+                    }
                 }
-            }}
+            }
             args = append(args, a)
         }
     } else {
@@ -1335,15 +1352,15 @@ func (p *escaped) stencil(ctx Context, stems []string) (val Value, rest []string
     return
 }
 
-
 type boolean struct { valbase; bool }
 func (_ *boolean) kind() Kind { return KindBoolean }
 func (p *boolean) String() string { return "{="+p.string_()+"}" }
 func (p *boolean) string(Context) string { return p.string_() }
 func (p *boolean) string_() string { if p.bool { return "true" } else { return "false" } }
+func (p *boolean) ts(t string) string { return "{="+t+" "+p.string_()+"}" }
 func (p *boolean) true(Context) bool { return p.bool }
 func (p *boolean) float(Context) (v float64) { if p.bool { v = 1. }; return }
-func (p *boolean) int(Context) (v int64) { if p.bool { v = 1  }; return }
+func (p *boolean) int(Context) (v int64) { if p.bool { v = 1 }; return }
 func (p *boolean) expand(Context) Value { return p }
 func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*option); ok {
@@ -1391,15 +1408,17 @@ func (p *boolean) stencil(ctx Context, stems []string) (val Value, rest []string
 type prediction struct { boolean ; s string }
 
 type answer struct { boolean }
-func (p *answer) String() (s string) { return "{="+p.string_()+"}" }
+func (p *answer) String() string { return "{="+p.string_()+"}" }
 func (p *answer) string(Context) string { return p.string_() }
-func (p *answer) string_() (s string) { if p.bool { return "yes" } else { return "no" } }
+func (p *answer) string_() string { if p.bool { return "yes" } else { return "no" } }
+func (p *answer) ts(t string) string { return "{="+t+" "+p.string_()+"}" }
 func (p *answer) expand(Context) Value { return p }
 
 type option struct { boolean }
-func (p *option) String() (s string) { return "{="+p.string_()+"}" }
+func (p *option) String() string { return "{="+p.string_()+"}" }
 func (p *option) string(ctx Context) string { return p.string_() }
-func (p *option) string_() (s string) { if p.bool { return "on" } else { return "off" } }
+func (p *option) string_() string { if p.bool { return "on" } else { return "off" } }
+func (p *option) ts(t string) string { return "{="+t+" "+p.string_()+"}" }
 func (p *option) expand(Context) Value { return p }
 
 func _optionalize(val Value) (name Value, okay bool) {
@@ -1540,6 +1559,7 @@ func (p *hexadecimal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bo
 }
 
 const epsilon = 1e-15 /* 1e-16 */
+
 type float struct { valbase; float64 } // IEEE-754 64-bit binary floating-point
 func (p *float) kind() Kind { return KindFloat }
 func (p *float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
@@ -2834,18 +2854,18 @@ func (p *barecomp) stencil(ctx Context, stems []string) (val Value, rest []strin
     return
 }
 func (p *barecomp) prefix(ctx Context, val Value) Value {
-    p = &barecomp{elements{p.elems}}
-    if o, t := val.(*barecomp); t {
-        p.elems = append(o.elems, p.elems...)
+    p = &barecomp{p.elements}
+    if x, y := val.(*barecomp); y {
+        p.elems = append(x.elems, p.elems...)
     } else {
         p.elems = append([]Value{val}, p.elems...)
     }
     return p
 }
 func (p *barecomp) suffix(ctx Context, val Value) Value {
-    p = &barecomp{elements{p.elems}}
-    if o, t := val.(*barecomp); t {
-        p.elems = append(p.elems, o.elems...)
+    p = &barecomp{p.elements}
+    if x, y := val.(*barecomp); y {
+        p.elems = append(p.elems, x.elems...)
     } else {
         p.elems = append(p.elems, val)
     }
@@ -3945,21 +3965,28 @@ type File struct {
     *filestub
 }
 func (p *File) String() string { return "{=file "+p.filestub.name+"}" }
-func (p *File) string(ctx Context) (s string) { return p.filestub.name }
+func (p *File) string(ctx Context) string { return p.filestub.name }
+func (p *File) ts(string) string { return "{=file "+p.filestub.name+"}" }
 func (p *File) hash(h *maphash.Hash) { h.WriteString(p.fullname()) }
 func (p *File) ident(Context) string { return p.filestub.name }
-func (p *File) true(ctx Context) (t bool) {
-    if p.filestub.name != "" { t = true } // p.exists() == existenceConfirmed
+func (p *File) true(Context) (_ bool) {
+    if p.filestub.name != "" { return true } // p.exists() == existenceConfirmed
     return
+}
+func (p *File) fullname() string {
+    return filepath.Join(p.dir, p.sub, p.filestub.name)
 }
 func (p *File) BaseName() (s string) {
-    if p.info != nil { s = p.info.Name() } else {
-        s = filepath.Base(p.filestub.name)
+    if p.info != nil { return p.info.Name() }
+    return filepath.Base(p.filestub.name)
+}
+func (p *File) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    if res, fullmatch = c.hit(ctx, p.filestub.name); res == nil {
+        if cacheMapping(ctx) {
+            erro(at(ctx,p), "no valcache for %v : %v", ts(p), c).trace()
+        }
     }
     return
-}
-func (p *File) fullname() (s string) {
-    return filepath.Join(p.dir, p.sub, p.filestub.name)
 }
 func (p *File) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
     if p.filemap != nil {
@@ -4997,7 +5024,6 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
     }
 }
 
-type delegateContext struct { Context ; entry bool }
 type delegate struct {
     valbase
     l   token
@@ -6045,24 +6071,6 @@ func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool)
     return
 }
 
-type positioner interface {
-    Position() Position
-}
-
-type Namer interface {
-    Name() string
-}
-
-type Scoper interface {
-    Scope() *scope
-}
-
-// type namescoper struct {
-//     name string
-//     scope *scope
-// }
-// func (ns *namescoper) Scope() *scope { return ns.scope }
-
 func values(args ...any) (elems []Value) {
     for _, a := range args {
         if x, y := a.(Value); y {
@@ -6365,7 +6373,6 @@ func ts(i any) (s string) {
     switch x := i.(type) {
     case interface{ ts(string) string }: return x.ts(t)
     case Context:     return fmt.Sprintf("{=%s %s}", t, ts(inner(x)))
-    case argumented:  return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
     case as:          return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
     case fullname:    return fmt.Sprintf("{=%s %s}", t, ts(x.Value))
     case flag:        return fmt.Sprintf("{=%s %s}", t, ts(x.Value))

@@ -2,4 +2,4 @@ project -configure testdivergedconfigure
 
 outtmp := $//tmp # NOTE: this will change configuration.sm
 
-FOO: [(configure)] ; $(.self)
+FOO : {(configure)} ; $(.self)

@@ -6,10 +6,6 @@
 
 package smart
 
-import (
-	"fmt"
-)
-
 func (prog *program) checks() (_ func(Context, *Value)) {
 	if prog.project.name == "testrules" {
 		return (map[string]func(Context, *Value){
@@ -155,7 +151,7 @@ func (prog *program) check_shell_for_stdout(ctx Context, result *Value) {
 
 		switch o {
 		case defExpand0:
-			if ts(*result) != fmt.Sprintf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0])) {
+			if ts(*result) != sfmt("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0])) {
 				errostack(ctx, 3, "%v (%s %s)", ts(*result), ts(args[1]), ts(args[0])).trace()
 			}
 		case defExpand1:
@@ -214,7 +210,7 @@ func (prog *program) check_shell_for_stdout(ctx Context, result *Value) {
 		default:
 			switch o {
 			case defExpand0:
-				t := fmt.Sprintf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0]))
+				t := sfmt("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0]))
 				if ts(*result) != t {
 					errostack(ctx, 3, ".test: %v != %s, %s", ts(*result), t, ts(args)).trace()
 				}

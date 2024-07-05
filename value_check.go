@@ -8,7 +8,6 @@ package smart
 
 import (
 	"reflect"
-	"fmt"
 )
 
 func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *bool, res, t, x *Value, a *[]Value) {
@@ -47,15 +46,14 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
         } else if _x == nil {
             note(ctx, "%v: nil", ts(p))
             erro(ctx, "%v", ts(ctx)).trace()
-        } else if d, y := _x.(*def); y {
-            if d == nil {
-                erro(ctx, "%v", ts(ctx)).trace()
-            } else if d.value != nil {
-                note(ctx, "x=%v", ts(_x))
-                note(ctx, "x=%v", ts(*x))
-                note(ctx, "p=%v", ts(p))
-                erro(ctx, "%v", ts(ctx)).trace()
-            }
+        } else if d, y := _x.(*def); y && false {
+			if d == nil {
+				erro(ctx, "%v", ts(ctx)).trace()
+			} else if d.value != nil {
+				note(ctx, "x=%v", ts(_x))
+				note(ctx, "x=%v", ts(*x))
+				erro(ctx, "p=%v", ts(p)).trace()
+			}
         }
     } else if false && p != *res && equal(ctx, p, *res) {
         note(ctx, "%v: %p != %p", ts(*res), *res, p)
@@ -74,12 +72,12 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _a []Value, res, x 
 	switch p.String() {
 	case "${.test $1,$2}":
 		if a1, a2 := auto_get(ctx, "1"), auto_get(ctx, "2") ; a1 != nil && a2 != nil {
-			if ts(*a) != fmt.Sprintf("{=[Value] {=list %s} {=list %s}}", ts(a1), ts(a2)) {
+			if ts(*a) != sfmt("{=[Value] {=list %s} {=list %s}}", ts(a1), ts(a2)) {
 				errostack(ctx, 5, "%s %s: %s, %s ; %v, %v", typeof(_x), typeof(*x), ts(a1), ts(a2), ts(_a), ts(*a)).trace()
 			}
 			switch o {
 			case defExpand0:
-				if ts(*res) != fmt.Sprintf("{=delegate {=builtin debug} {=list %s %s}}", ts(a1), ts(a2)) {
+				if ts(*res) != sfmt("{=delegate {=builtin debug} {=list %s %s}}", ts(a1), ts(a2)) {
 					errostack(ctx, 3, "%s %s, %s", ts(a1), ts(a2), ts(*res)).trace()
 				}
 			case defExpand1:

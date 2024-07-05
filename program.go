@@ -768,10 +768,6 @@ func (prog *program) result_or_default_interpret(ctx *execution) (result Value) 
 }
 
 func (prog *program) execute(ctx Context) (result Value) {
-    if 0 < count_error(ctx) {
-        erro(ctx, "%v: got errors, execution canceled", _entry(ctx)).trace()
-    }
-
     var exe = execution{
         automatic:automatic{Context:ctx, defs:make(auto_defs)},
         prog:prog, recs:make(map[Value]int), start:time.Now(),

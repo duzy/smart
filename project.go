@@ -130,7 +130,7 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
       if f, y := pat.(*File); y {
         info(ctx, "pattern %d. %v %s (exists=%v)", i, f, f.fullname(), f.exists())
       } else {
-        info(ctx, "pattern %d. %v (%T)", i, pat, pat)
+        info(ctx, "pattern %d. %v", i, ts(pat))
       }
     }
     errostack(ctx, 5, "%s -> %v", name, p.patts).trace()
@@ -151,15 +151,12 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
 
     if sub = path.string(ctx); sub == "" {
       if true {
-        erro(at(ctx,path), "filemap path '%v' is empty (%T)", path, path)
-        erro(at(ctx,pos), "filemap path '%v' is empty (pattern=%v)", path, patts)
-        erro(ctx, "filemap path '%v' is empty (project=%v)", path, _project(ctx))//.at(pos)
-        erro(ctx, "filemap path '%v' is empty in %v", path, ctx).trace()
+        erro(at(ctx,path), "empty filemap path: %v (patterns=%v)", path, patts).trace()
       }
       return
-    } else if s := filepath.Clean(sub); sub != s {
-      sub = s
     }
+
+    if s := filepath.Clean(sub); sub != s { sub = s }
 
     if filepath.IsAbs(sub) {    // 'sub' is abs
       if filepath.IsAbs(name) { // 'name' is abs too
@@ -282,7 +279,7 @@ type project struct {
   defaultEntry entry
 
   ext project_ext
-  opt project_opt
+  opt project_opts
 }
 func (_ *project) kind() Kind { return KindObject|KindKnownObject|KindProject }
 func (_ *project) int(Context) (_ int64) { return }
@@ -388,9 +385,9 @@ outer:
     for _, p := range projects {
       if m.project == p {
         a = append(a, m) ; continue outer
-      } else if p.hasBase(m.project) {
+      } else if p.has_base(m.project) {
         b = append(b, m) ; continue outer
-      } else if t := p.configure; t != nil && (m.project == t || t.hasBase(m.project)) {
+      } else if t := p.configure; t != nil && (m.project == t || t.has_base(m.project)) {
         c = append(c, m) ; continue outer
       } else {
         d = append(d, m) ; continue outer
@@ -409,9 +406,9 @@ func (p *project) selectFiles(ctx Context, v []filemap_name) (res []*File) {
   for _, m := range v {
     if m.project == p {
       // mine
-    } else if p.hasBase(m.project) {
+    } else if p.has_base(m.project) {
       // base files
-    } else if t := p.configure; t != nil && (m.project == t || t.hasBase(m.project)) {
+    } else if t := p.configure; t != nil && (m.project == t || t.has_base(m.project)) {
       // configure files
     } else {
       continue
@@ -485,11 +482,14 @@ func (p *project) resolve(ctx Context, name string) (obj Object) {
 
   if p.ext.Plugin != nil {
     if sym, e := p.ext.Lookup(name); e == nil && sym != nil {
-      erro(ctx, "TODO: convert ext symbol: %v: %T", name, sym).trace()
+      erro(ctx, "TODO: convert ext symbol: %v: %s", name, typeof(sym)).trace()
     }
   }
 
   for _, base := range p.bases {
+    if true && base.has_base(p) {
+      erro(ctx, "recursive derivation: %v ⇔ %v", ts(p), ts(base)).trace()
+    }
     if obj = base.resolve(ctx, name); obj != nil {
       return
     }
@@ -505,9 +505,7 @@ func (p *project) resolveEntries(ctx Context, name any, _b ...bool) (entries []e
   entries = append(entries, p.unmap_entries(ctx, name)...)
 
   if p.configure != nil && isConfigure(ctx) {
-    if t := p.configure.resolveEntries(ctx, name, true); t != nil {
-      entries = append(entries, t...)
-    }
+    entries = append(entries, p.configure.resolveEntries(ctx, name, true)...)
   }
 
   var alwaysResolveBases bool
@@ -522,14 +520,12 @@ func (p *project) resolveEntries(ctx Context, name any, _b ...bool) (entries []e
     }
   }
 
-  if true {
-    /* FAST */
-  } else if entries == nil { /* SLOW */
-    for _, use := range p.use.list {
-      if t := use.project.resolveEntries(ctx, name, alwaysResolveBases); t != nil {
-        entries = append(entries, t...)
-        break
-      }
+  if true { return /* FAST */ }
+
+  if entries == nil { /* SLOW */
+    for _, u := range p.use.list {
+      t := u.project.resolveEntries(ctx, name, alwaysResolveBases)
+      if t != nil { entries = append(entries, t...); break }
     }
   }
   return
@@ -718,31 +714,30 @@ func (p *project) family() (res []*project) {
   return
 }
 
-func (p *project) isa(proj *project) (res bool) {
+func (p *project) isa(proj *project) (_ bool) {
   for _, base := range p.bases {
-    if base == proj { res = true; break }
+    if base == proj || base.isa(proj) { return true }
   }
   return
 }
 
-func (p *project) hasBase(proj *project) (res bool) {
+func (p *project) has_base(proj *project) (_ bool) {
   for _, base := range p.bases {
-    if res = base == proj || base.hasBase(proj); res { break }
+    if base == proj || base.has_base(proj) { return true }
   }
   return
 }
 
-func (p *project) hasLoaded(ctx Context, proj *project, traveUseLoop bool) (rp *project, res, isb bool) {
-  var uni = _universe(ctx)
-  if uni.checkLoadGraph || !uni.fastMode {
-    rp, res, isb, _ = p.hasLoadedRecur(ctx, p, proj, 1, traveUseLoop)
+func (p *project) has_loaded(ctx Context, proj *project, traveUseLoop bool) (rp *project, res, isb bool) {
+  if u := _universe(ctx) ; u.checkLoadGraph || !u.fastMode {
+    rp, res, isb, _ = p.has_loaded_recur(ctx, p, proj, 1, traveUseLoop)
   }
   return
 }
 
-func (p *project) hasLoadedRecur(ctx Context, top, proj *project, depth int, traveUseLoop bool) (rp *project, res, isb bool, err error) {
+func (p *project) has_loaded_recur(ctx Context, top, proj *project, depth int, traveUseLoop bool) (rp *project, res, isb bool, err error) {
   if depth > 1 && top == p && true {
-    err = fmt.Errorf("loop '%v' (depth=%d)", p.loopLoadPath(), depth)
+    err = fmt.Errorf("loop '%v' (depth=%d)", p.loop_load_path(), depth)
     erro(at(ctx,p.position), "%v: %v", p, err).trace()
   } else if depth > 128 {
     err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
@@ -752,21 +747,21 @@ func (p *project) hasLoadedRecur(ctx Context, top, proj *project, depth int, tra
   }
   for _, base := range p.bases {
     if isb = base == proj; isb { return }
-    if rp, res, isb, err = base.hasLoadedRecur(ctx, top, proj, depth+1, traveUseLoop); err != nil {
+    if rp, res, isb, err = base.has_loaded_recur(ctx, top, proj, depth+1, traveUseLoop); err != nil {
       return
     } else if res || isb { rp = base ; return }
   }
   for _, use := range /*p.loads*/p.use.list {
     var imp = use.project
     if imp == top && !traveUseLoop {
-      s := top.loopLoadPath()
+      s := top.loop_load_path()
       err = fmt.Errorf("loop `%v`", s)
       erro(at(ctx,top.position), "start: %v", top)
       erro(at(ctx,proj.position), "stop: %v", proj)
       erro(at(ctx,p.position), "%v: %v", p, err).trace()
     }
     if res = imp == proj; res { rp = imp; return }
-    if rp, res, res, err = imp.hasLoadedRecur(ctx, top, proj, depth+1, traveUseLoop); err != nil {
+    if rp, res, res, err = imp.has_loaded_recur(ctx, top, proj, depth+1, traveUseLoop); err != nil {
       return
     } else if res { rp = imp; return }
   }
@@ -774,8 +769,20 @@ func (p *project) hasLoadedRecur(ctx Context, top, proj *project, depth int, tra
   return
 }
 
-func (p *project) loopLoadPath() (s string) { return p.loopLoadRecur(p) }
-func (p *project) loopLoadRecur(top *project) (s string) {
+func (p *project) loop_base_path(ctx Context, _p *project, s string) (_ string) {
+  if s == "" { s = p.name }
+  for _, base := range p.bases {
+    if t := s + " → " + base.name; base == _p {
+      return t
+    } else if t = base.loop_base_path(ctx, _p, t); t != "" {
+      return t
+    }
+  }
+  return
+}
+
+func (p *project) loop_load_path() (s string) { return p.loop_load_recur(p) }
+func (p *project) loop_load_recur(top *project) (s string) {
   for _, use := range /*p.loads*/p.use.list {
     var imp = use.project
     if imp == top {
@@ -783,7 +790,7 @@ func (p *project) loopLoadRecur(top *project) (s string) {
       s += fmt.Sprintf("(%s)⇢(%s)", p.spec, imp.spec)
       break
     }
-    if t := imp.loopLoadRecur(top); t != "" {
+    if t := imp.loop_load_recur(top); t != "" {
       if p != top { s = "⇢" }
       s += fmt.Sprintf("(%s)%s", p.spec, t)
       break

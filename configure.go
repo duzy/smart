@@ -73,8 +73,8 @@ func (ctx *configurecontext) openConfigurationFile(p *project) (file *os.File) {
 
     return
 }
-func (ctx *configurecontext) execute(entry entry) {
-    if p := entry.owner(); p != ctx.current && p != nil {
+func (ctx *configurecontext) execute(e entry) {
+    if p := e.owner(); p != ctx.current && p != nil {
         if p.configured { return } // already configured
 
         ctx.defs = make(map[string]struct{}) // reset defs for p
@@ -98,19 +98,18 @@ func (ctx *configurecontext) execute(entry entry) {
         fmt.Fprintf(ctx.writer, "# %s (%s) configuration\n", p.spec, p.rel)
 
         if !ctx.silent {
-            if false && p.name == "lib.c++.inc" { note(ctx, "%v", p.spec).debug(16) }
             prompt(ctx, "configure %s …… (%s)\n", p.name, p.spec)
         }
 
         ctx.current = p
     }
 
-    entry.execute(ctx)
+    e.execute(ctx)
 
-    var s = entry.destiny().string(ctx)
+    var s = e.destiny().string(ctx)
     if _, y := ctx.defs[s]; y { return }
 
-    var d = ctx.current.findDef(s)
+    var d = ctx.current.finddef(s)
     if d == nil {
         erro(ctx, "%v: `%s` not configured", ctx.current, s).trace()
         return
@@ -531,7 +530,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
     }
 
     var d *def
-    if d = project.findDef(name); d == nil {
+    if d = project.finddef(name); d == nil {
         d, _ = project.set(ctx, name, defConfig)
     }
     if d == nil {

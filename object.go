@@ -23,10 +23,7 @@ type Object interface {
     owner() *project
 }
 
-type objbase struct {
-    valbase
-    scope *scope
-}
+type objbase struct { valbase ; scope *scope }
 func (_ *objbase) kind() Kind { return KindObject }
 func (p *objbase) owner() *project { return p.scope.project }
 func (p *objbase) ident(Context) string { panic("inquiring name of an unknown object") }
@@ -749,10 +746,10 @@ func builtinForceField(ctx Context, bv reflect.Value, bi interface{}, force bool
 type skip struct {}
 
 // A builtin represents a built-in function. builtins don't have a valid type.
-type builtin struct { knownobject; t reflect.Type }
+type builtin struct { knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
 func (p *builtin) String() string { return p.name }
-func (p *builtin) true(_ Context) bool { return p.t != nil }
+func (p *builtin) true(Context) bool { return p.t != nil }
 func (p *builtin) isCommand() bool { return reflect.PointerTo(p.t).Implements(builtin_c_t) }
 func (p *builtin) invoke(ctx Context, o, a []Value) (res Value) {
 	res, _ = evoke(ctx, p, o, a)
@@ -779,7 +776,9 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     _v := reflect.New(p.t)
     _i := _v.Interface()
 
-    if f := _universe(ctx).benchmark_builtin_expand; f != nil { defer f(p, ctx, time.Now(), _v) }
+    if f := _universe(ctx).benchmark_builtin_expand; f != nil {
+        defer f(p, ctx, time.Now(), _v)
+    }
 
     if f := _v.Elem().FieldByName("builtin_"); !f.IsValid() {
         erro(ctx, "no such field: %s.builtin_", _v.Elem().Type()).trace()
@@ -800,7 +799,7 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
 
     if ctx.o != nil {
         if o := _opts(ctx, _v, ctx.o); o != nil {
-            errostack(ctx, 3, "%v: unsupported opts: %v", p, o).trace()
+            errostack(ctx, 64, "%v: unsupported opts: %v", p, o).trace()
         }
     }
 
@@ -884,10 +883,8 @@ func hasRecipes(e entry) (_ bool) {
     return
 }
 
-func executeEntry(ctx Context, e entry, args ...Value) (result []Value, okay bool) {
-    result = e.execute(ctx, args...)
-    okay = true
-    return
+func executeEntry(ctx Context, e entry, args ...Value) ([]Value, bool) {
+    return e.execute(ctx, args...), true
 }
 
 // rule represents a declared rule entry.

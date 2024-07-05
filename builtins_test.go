@@ -2907,7 +2907,9 @@ func testBuiltin_join(ctx *testcase) {
 		ctx.err("val1")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "'foo-bar-xx-yy-zz'", v.String(); s != t {
+	} else if ts(v) != "{=barecomp {=bareword foo} {=flag {=null}} {=bareword bar} {=flag {=null}} {=bareword xx} {=flag {=null}} {=bareword yy} {=flag {=null}} {=bareword zz}}" {
+		ctx.err("%v", tst{v})
+	} else if s, t := "foo-bar-xx-yy-zz", v.String(); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if s, t := "foo-bar-xx-yy-zz", v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)

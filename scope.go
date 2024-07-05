@@ -30,8 +30,8 @@ func newscope(pos Position, outer *scope, owner *project, c string) (s *scope) {
 	return &scope{outer:outer, project:owner, comment:c, elems:make(map[string]Object)}
 }
 
-func (s *scope) hasOuter(outer *scope) bool {
-	return s.outer != nil && (s.outer == outer || s.outer.hasOuter(outer))
+func (s *scope) has_outer(outer *scope) bool {
+	return s.outer != nil && (s.outer == outer || s.outer.has_outer(outer))
 }
 
 func (s *scope) copyElems() (result map[string]Object) {
@@ -84,14 +84,14 @@ func (s *scope) lookup(name string) (obj Object) {
 // whose scope is the scope of the package that exported them.
 func (s *scope) find(name string) (res *scope, obj Object) {
 	if obj = s.lookup(name) ; obj != nil {
-		return s, obj
-	} else if  s.outer != nil {
+		return s,obj
+	} else if  s.outer != nil  {
 		return s.outer.find(name)
 	}
 	return
 }
 
-func (s *scope) findDef(name string) (d *def) {
+func (s *scope) finddef(name string) (d *def) {
 	if _, o := s.find(name) ; o != nil { d, _ = o.(*def) }
 	return
 }
@@ -156,7 +156,7 @@ func (s *scope) WriteTo(w io.Writer, n int) {
 // String returns a string representation of the scope, for debugging.
 func (s *scope) String() string { return fmt.Sprintf("{=scope %s}", s.string()) }
 func (s *scope) string() string {
-	var buf bytes.Buffer //s.WriteTo(&buf, 0)
+	var buf bytes.Buffer
 	if s.outer != nil {
 		if false {
 			fmt.Fprintf(&buf, "%s → %s", s.outer.string(), s.comment)

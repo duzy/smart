@@ -113,11 +113,11 @@ var builtins = map[string]reflect.Type {
     `divide`:    reflect.TypeOf((*builtin_divide)(nil)).Elem(),
     `div`:       reflect.TypeOf((*builtin_divide)(nil)).Elem(),
 
-    `unique`:     reflect.TypeOf((*builtin_unique)(nil)).Elem(),
     `join`:       reflect.TypeOf((*builtin_join)(nil)).Elem(),
     `compose`:    reflect.TypeOf((*builtin_compose)(nil)).Elem(), // concat
     `quote`:      reflect.TypeOf((*builtin_quote)(nil)).Elem(),
     `quote-join`: reflect.TypeOf((*builtin_quotejoin)(nil)).Elem(),
+    `unique`:     reflect.TypeOf((*builtin_unique)(nil)).Elem(),
 
     `split`:             reflect.TypeOf((*builtin_splitstring)(nil)).Elem(),
     `split-string`:      reflect.TypeOf((*builtin_splitstring)(nil)).Elem(), // TODO: remove it?
@@ -532,7 +532,7 @@ func (ctx *builtin_origin) x() (res any) {
     for _, arg := range ctx.evocation.a {
         if s := argstring(ctx, arg); s == "" {
             elems = append(elems, makeNull(arg.Position()))
-        } else if d := scope.findDef(s); d != nil {
+        } else if d := scope.finddef(s); d != nil {
             elems = append(elems, makeStrlit(arg.Position(), d.origin.String()))
         } else {
             elems = append(elems, makeNull(arg.Position()))
@@ -1344,7 +1344,7 @@ func (ctx *builtin_closure) x() (res any) {
         var v Value
 
         if s := argstring(ctx, a); s != "" {
-            if d := closure_get(ctx, s); d != nil { v = d.value }
+            if d := closure_finddef(ctx, s); d != nil { v = d.value }
         }
 
         if v == nil { v = makeClosure(a.Position(), LPAREN, a, nil) }
@@ -1563,7 +1563,7 @@ func (ctx *builtin_append) x() (_ any) {
         } else if ctx._auto {
             d = auto_find(ctx, s)
         } else if ctx._closure {
-            d = closure_get(ctx, s)
+            d = closure_finddef(ctx, s)
         } else if o := project_resolve(ctx, s); o != nil {
             d, _ = o.(*def)
         }
@@ -1696,26 +1696,21 @@ func (ctx *builtin_join) a() (skip bool) {
     ctx.evocation.a = a
     return
 }
-func (ctx *builtin_join) x() (res any) {
+func (ctx *builtin_join) x() (_ any) {
     if l := len(ctx.evocation.a); 0 < l {
-        var fields []string
         var vals []Value
         var sep Value
         if l < 2 {
             vals = merge(ctx.evocation.a...)
         } else {
-            vals = merge(ctx.evocation.a[:l-1]...)
+            a := merge(ctx.evocation.a[:l-1]...)
             sep = scalarize(ctx.evocation.a[l-1])
+            for i, v := range a {
+                vals = append(vals, v)
+                if i < len(a)-1 { vals = append(vals, sep) }
+            }
         }
-        if len(vals) == 0 { return }
-
-        var s string
-        if sep != nil { s = sep.string(ctx) }
-        for _, a := range vals {
-            if v := a.string(ctx); v != "" { fields = append(fields, v) }
-        }
-
-        res = makeStrlit(_position(ctx), strings.Join(fields, s))
+        return &barecomp{elements{vals}}
     }
     return
 }
@@ -3059,6 +3054,14 @@ func (ctx *builtin_base9) x() (res any) { ctx.n = 9
     return ctx.builtin_bases.x()
 }
 
+func dirs(n int, s string) (_ string) {
+    for n > 0 {
+        s = filepath.Dir(s)
+        n -= 1
+    }
+    return s
+}
+
 type builtin_dirs struct { builtin_
     n int `num,size,count`
 }
@@ -3071,8 +3074,9 @@ func (ctx *builtin_dirs) x() (res any) {
         } else {
             s = a.string(ctx)
         }
-        s = filepath.Dir(s)
-        for i := ctx.n-1; 0 < i; i -= 1 { s = filepath.Dir(s) }
+        // s = filepath.Dir(s)
+        // for i := ctx.n-1; 0 < i; i -= 1 { s = filepath.Dir(s) }
+        s = dirs(ctx.n, s)
 
         var v Value
         var d = ctx.debug
@@ -3082,10 +3086,10 @@ func (ctx *builtin_dirs) x() (res any) {
             } else {
                 f = stat(ctx, s, stat_sub{f.sub}, stat_dir{f.dir}, stat_nonexist{true})
             }
-            if d>0 { note(ctx, "%T %v ⇒ %v %v", a, a, f, f.fullname()).debug(d) }
+            if d>0 { note(ctx, "%v ⇒ %v %v", ts(a), f, f.fullname()).debug(d) }
             v = f
         } else if s != "" {
-            if d>0 { note(ctx, "%T %v ⇒ %v", a, a, s).debug(d) }
+            if d>0 { note(ctx, "%v ⇒ %v", ts(a), s).debug(d) }
             v = _pathstr(at(ctx, a), s)
         } else {
             continue

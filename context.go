@@ -520,7 +520,7 @@ func (d *diagnostic) nest(points []*diagpoint) {
 }
 func (d *diagnostic) point(ctx Context, dt diagType, f string, args ...any) *diagpoint {
   if dt != diagPrompt { f = strings.TrimSpace(f) }
-  return d.add(&diagpoint{ dt, _position(ctx), fmt.Sprintf(f, args...), nil })
+  return d.add(&diagpoint{dt, _position(ctx), fmt.Sprintf(f, args...), nil})
 }
 func (d *diagnostic) error() bool { return d.counterror() > 0 }
 func (d *diagnostic) counterror() int { return d.count(diagError) }
@@ -548,9 +548,14 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
       }
     } ()
 
+    const count_bytes = false
     pos, msg := p.position.String(), p.message
 
-    d.flushed += len(pos) + len(msg)
+    if count_bytes {
+      d.flushed += len(pos) + len(msg)
+    } else {
+      d.flushed += 1
+    }
 
     switch p.dt {
     case diagError: fmt.Fprintf(stderr, "%v:error: %s\n",   pos, msg); errs += 1
@@ -563,9 +568,12 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 
     if p.stack != nil {
       fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(p.stack))
-      d.flushed += len(p.stack) //(1 + bytes.Count(p.stack, []byte("\n")))
+      if count_bytes {
+        d.flushed += len(p.stack)
+      } else {
+        d.flushed += 1 + bytes.Count(p.stack, []byte("\n"))
+      }
     }
-
     return false
   }
 
@@ -600,12 +608,14 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 // func flush(ctx Context) int { return _diagnostic(ctx).flush(ctx) }
 func flush(ctx Context) (i int) { i, _ = do(ctx, act_flush_diags{}).(int); return }
 
-func diag(ctx Context, dt diagType, f string, a ...any) (_ diagtracer) {
+func diag(ctx Context, dt diagType, f string, a ...any) (res diagtracer) {
+  res = diagtracer{nil, ctx}
   if d := _diagnostic(ctx) ; d != nil {
-    return diagtracer{d.point(ctx, dt, f, a...),ctx}
+    res.diagpoint = d.point(ctx, dt, f, a...)
   }
   return
 }
+
 func info(ctx Context, f string, a ...any) diagtracer { return diag(ctx, diagInfo,   f, a...) }
 func warn(ctx Context, f string, a ...any) diagtracer { return diag(ctx, diagWarn,   f, a...) }
 func erro(ctx Context, f string, a ...any) diagtracer { return diag(ctx, diagError,  f, a...) }
@@ -644,14 +654,22 @@ func diagstack(ctx Context, n int, dt diagType, a ...any) (point diagtracer) {
   point = diag(ctx, dt, s, a...)
   dt = diagInfo
 
+  var proj = _project(ctx)
   var p = _position(ctx)
   for c := inner(ctx); c != nil && 0 < n && p.valid(); c = inner(c) {
     var pos = _position(c)
-    if pos.same(&p) { continue }
+    if !pos.valid() || pos.same(&p) { continue }
 
     n -= 1
     p = pos
-    s = _project(ctx).name
+
+    if proj == nil {
+      s = "<nil>"
+    } else {
+      s = proj.name
+    }
+
+    proj = _project(c)
 
     if e := _entry(c); e != nil {
       if t, _, _ := entryIndicator(c, e); t == "" {

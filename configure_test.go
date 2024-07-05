@@ -17,7 +17,7 @@ const defaultCK = "tmp/go/src/extbit.io/smart/testdata/configuration"
 
 func testConfigItem(ctx *testcase, s string) (res []entry, d *def) {
 	var proj = _project(ctx)
-	for _, e := range proj.configs { if e.ident(ctx) == s { res = append(res, e) } }
+	for _, e := range proj.configs { if e.ident(ctx) == s { res = append(res, e) }}
 	if o := proj.resolve(ctx, s); o != nil { d, _ = o.(*def) }
 	return
 }
@@ -25,16 +25,19 @@ func testConfigItem(ctx *testcase, s string) (res []entry, d *def) {
 func testConfigureFoo(ctx *testcase, spec, name string) {
 	{
 		s := joinPath(filepath.Dir(testModulesPath), defaultCK, configuration_sm)
-		if e := os.Remove(s); e == nil { ctx.Errorf("%v", s) }
+		if e := os.Remove(s); e == nil { ctx.err("%v", s) }
 	}
 
 	var outtmp *def
 	var proj = _project(ctx)
+	if proj.configure == nil {
+		ctx.err("%v : nil configure", proj)
+		return
+	}
+
 	var cc = closure_with(ctx, proj.configure)
 
-	if proj.configure == nil {
-		ctx.err("%v: nil configure", proj)
-	} else if w := joinPath(testModulesPath, "configure"); proj.configure.absPath != w {
+	if w := joinPath(testModulesPath, "configure"); proj.configure.absPath != w {
 		ctx.err("%v.%v: %s != %s", proj, proj.configure, proj.configure.absPath, w)
 	} else if len(proj.configure.bases) != 1 {
 		ctx.err("configure: %v", proj.configure.bases)
@@ -43,69 +46,69 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 	} else if o := proj.configure.resolve(ctx, "workspace"); o == nil {
 		ctx.err("workspace: %v", proj.configure)
 	} else if workspace, y := o.(*def); !y || workspace.value == nil {
-		ctx.err("workspace: %T %v", o, o)
+		ctx.err("workspace: %v", tst{o})
 	} else if p := workspace.owner(); p == nil {
-		ctx.err("workspace: %T %v", o, o)
+		ctx.err("workspace: %v", tst{o})
 	} else if p.name != "general" {
-		ctx.err("workspace: %T %v ; %v", o, o, p)
+		ctx.err("workspace: %v ; %v", tst{o}, p)
 	} else if ws := workspace.value.String(); !strings.HasPrefix(proj.absPath, ws) {
-		ctx.err("workspace: %T %v", ws, ws)
+		ctx.err("workspace: %v", ws)
 	} else if o := proj.configure.resolve(ctx, "workout"); o == nil {
 		ctx.err("workout: %v", proj.configure)
 	} else if workspaceOut, y := o.(*def); !y || workspaceOut.value == nil {
-		ctx.err("workout: %T %v", o, o)
+		ctx.err("workout: %v", tst{o})
 	} else if workspaceOut.value.String() != joinPath(filepath.Dir(ws), "workout") {
-		ctx.err("workout: %T %v", workspaceOut.value, workspaceOut.value)
+		ctx.err("workout: %v", tst{workspaceOut.value})
 	} else if o := proj.configure.resolve(ctx, "workext"); o == nil {
 		ctx.err("workext: %v", proj.configure)
 	} else if workspaceExt, y := o.(*def); !y || workspaceExt.value == nil {
-		ctx.err("workext: %T %v", o, o)
+		ctx.err("workext: %v", tst{o})
 	} else if workspaceExt.value.String() != joinPath(ws, "external") {
-		ctx.err("workext: %T %v", workspaceExt.value, workspaceExt.value)
+		ctx.err("workext: %v", tst{workspaceExt.value})
 	} else if o := proj.configure.resolve(ctx, "rel.chop"); o == nil {
 		ctx.err("rel.chop: %v", proj.configure)
 	} else if relchop, y := o.(*def); !y || relchop.value == nil {
-		ctx.err("rel.chop: %T %v", o, o)
+		ctx.err("rel.chop: %v", tst{o})
 	} else if relchop.value.String() != fmt.Sprintf("%%%%/.smart/modules/ %s/.smart/modules/ %s/.smart/ %s/", ws, ws, ws) {
-		ctx.err("rel.chop: %T %v ; %v", relchop.value, relchop.value, ws)
+		ctx.err("rel.chop: %v ; %v", tst{relchop.value}, ws)
 	} else if o := proj.resolve(ctx, "rel.chop"); o == nil {
 		ctx.err("rel.chop: %v", proj.configure)
 	} else if relchop2, y := o.(*def); !y || relchop2.value == nil {
-		ctx.err("rel.chop: %T %v", o, o)
+		ctx.err("rel.chop: %v", tst{o})
 	} else if s := filepath.Dir(filepath.Dir(filepath.Dir(_workdir(ctx))))+"/"; relchop2.value.String() != s {
-		ctx.err("rel.chop: %T %v ; %v", relchop2.value, relchop2.value, s)
+		ctx.err("rel.chop: %v ; %v", tst{relchop2.value}, s)
 	} else if o := proj.configure.resolve(ctx, "rel.remnant"); o == nil {
 		ctx.err("rel.remnant: %v", proj.configure)
 	} else if relrem, y := o.(*def); !y || relrem.value == nil {
-		ctx.err("rel.remnant: %T %v", o, o)
+		ctx.err("rel.remnant: %v", tst{o})
 	} else if relrem.value.String() != "$(trim-prefix &(rel.chop),&/)" {
-		ctx.err("rel.remnant: %T %v ; %v", relrem.value, relrem.value, ws)
+		ctx.err("rel.remnant: %v ; %v", tst{relrem.value}, ws)
 	} else if o := proj.configure.resolve(ctx, "target.out"); o == nil {
 		ctx.err("target.out: %v", proj.configure)
 	} else if targetOut, y := o.(*def); !y || targetOut.value == nil {
-		ctx.err("target.out: %T %v", o, o)
+		ctx.err("target.out: %v", tst{o})
 	} else if targetOut.value.String() != workspaceOut.string(ctx)+"/&(target.triple)/&(variant.tag)" {
-		ctx.err("target.out: %T %v", targetOut.value, targetOut.value)
+		ctx.err("target.out: %v", tst{targetOut.value})
 	} else if o := proj.configure.resolve(ctx, "target.tmp"); o == nil {
 		ctx.err("target.tmp: %v", proj.configure)
 	} else if targetTmp, y := o.(*def); !y || targetTmp.value == nil {
-		ctx.err("target.tmp: %T %v", o, o)
+		ctx.err("target.tmp: %v", tst{o})
 	} else if targetTmp.value.String() != "&(target.out)/tmp" {
 		ctx.err("target.tmp: %T %v", targetTmp.value, targetTmp.value)
 	} else if o := proj.configure.resolve(ctx, "outtmp"); o == nil {
 		ctx.err("outtmp: %v", proj.configure)
 	} else if outtmp, y = o.(*def); !y || outtmp.value == nil {
-		ctx.err("outtmp: %T %v", o, o)
+		ctx.err("outtmp: %v", tst{o})
 	} else if outtmp.value.string(ctx) == outtmp.value.string(cc) {
-		ctx.err("outtmp: %v", outtmp.value)
+		ctx.err("outtmp: %v", tst{outtmp.value})
 	} else if outtmp.value.String() != "&(target.tmp)/&(rel.remnant)" {
-		ctx.err("outtmp: %T %v", outtmp.value, outtmp.value)
+		ctx.err("outtmp: %v", tst{outtmp.value})
 	} else if o := proj.configure.resolve(ctx, "configure.cc"); o == nil {
 		ctx.err("configure.cc: %v", proj.configure)
 	} else if d, y := o.(*def); !y || d.value == nil {
-		ctx.err("configure.cc: %T %v", o, o)
+		ctx.err("configure.cc: %v", tst{o})
 	} else if d.value.String() != "&(cc)" {
-		ctx.err("configure.cc: %T %v", d.value, d.value)
+		ctx.err("configure.cc: %v", tst{d.value})
 	} else if s := d.value.string(cc); s == "" {
 		ctx.err("configure.cc: %v → %s", d.value, s)
 	}
@@ -154,8 +157,6 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 		ctx.err("%v → %s", tst{v}, v.string(ctx))
 	} else if v.string(ctx) != name {
 		ctx.err("%v → %s", tst{v}, v.string(ctx))
-	// } else if x, y := v.(expanded); !y {
-	// 	ctx.err("%v{%v}", tst{v})
 	} else if _, y := v.(*self); !y {
 		ctx.err("%v", tst{v})
 	}
@@ -182,7 +183,7 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 		} else if p.configuration.stat(c) == nil {
 			prompt(c, "%s:1: %v: no configuration file\n", configuration, p)
 			c.err("%v", p.configuration)
-		} else if d := p.findDef("FOO"); d == nil {
+		} else if d := p.finddef("FOO"); d == nil {
 			erro(c, "FOO").trace()
 		} else if v := d.value; v == nil {
 			c.err("%v ; %v", d, typeof(v))
@@ -218,12 +219,12 @@ func testConfigureFoo(ctx *testcase, spec, name string) {
 func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 	var proj = _project(ctx)
 	if proj.configure == nil {
-		ctx.err("%v: nil configure", proj)
+		ctx.err("%v : nil configure", proj)
 		return
 	}
 
 	var outtmp Value
-	var cc = closure_with(ctx, proj.configure/*, proj*/)
+	var cc = closure_with(ctx, proj.configure)
 
 	if joinPath(testModulesPath, "configure") != proj.configure.absPath {
 		note(ctx, "%v: %v", proj, joinPath(testModulesPath, "configure"))
@@ -237,7 +238,7 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 		ctx.err("configure.cc: %T %v", d.value, d.value)
 	} else if d.value.string(ctx) == "" {
 		ctx.err("configure.cc: %v → %s", d.value, d.value.string(ctx))
-	} else if d := closure_get(ctx, "/"); d == nil {
+	} else if d := closure_finddef(ctx, "/"); d == nil {
 		ctx.err("%v: &/", proj)
 	} else if d.value == nil {
 		ctx.err("%v: %v", proj, d)
@@ -392,8 +393,8 @@ func testConfigureDivergedOuttmp(ctx *testcase, spec, name string) {
 				c.err("%v: %v", _project(c), d.value)
 			} else if d.value.string(c) != _project(c).name {
 				c.err("%v: %v", _project(c), d.value)
-			} else if d != _project(c).findDef("FOO") {
-				c.err("%v: %v != %v", _project(c), d, _project(c).findDef("FOO"))
+			} else if d != _project(c).finddef("FOO") {
+				c.err("%v: %v != %v", _project(c), d, _project(c).finddef("FOO"))
 			}
 		})
 

@@ -18,7 +18,7 @@ type use struct {
         valbase
         project *project
         params []Value
-        opts useOpts
+        opts useopts
 }
 
 func (_ *use) kind() Kind { return KindUse }
@@ -226,7 +226,7 @@ func (p *uselist) traverse(ctx Context) {
         erro(at(ctx,p.list[0].position), "cant traverse 'uselist'").trace()
         return
 }
-func (p *uselist) append(ctx Context, proj *project, params []Value, opts useOpts) {
+func (p *uselist) append(ctx Context, proj *project, params []Value, opts useopts) {
         for _, elem := range p.list {
                 if elem.project == proj {
                         return

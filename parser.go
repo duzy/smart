@@ -66,82 +66,82 @@ type parser struct {
 }
 
 type (
-	getParseAware      struct{ token }
-	getParseCanParams  struct{}
-	getParseCanUndef   struct{}
-	getParseGlob       struct{}
-	getParseIncOpts    struct{}
-	parse_is_auto     struct{ string }
-	parse_is_conf     struct{}
-	getParseIsFlag     struct{}
-	getParseIsRecipe   struct{ bool } // builtin or text
-	getParseLeftHandSide struct{}
+	parse_aware          struct{ token }
+	parse_inc_opts       struct{}
+	parse_is_params      struct{}
+	parse_is_undef       struct{}
+	parse_is_glob        struct{}
+	parse_is_auto        struct{ string }
+	parse_is_config      struct{}
+	parse_is_flat        struct{}
+	parse_is_recipe      struct{ bool } // builtin or text
+	parse_left_hand_side struct{}
 )
 
-type token_aware_context struct { Context ; token }
-func (p token_aware_context) do(ctx Context, op any) (_ any) {
+type token_aware struct { Context ; token }
+func (p token_aware) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case getParseAware: return p.token == t.token
+	case parse_aware: return p.token == t.token
 	}
 	return p.Context.do(ctx, op)
 }
 
-type parse_auto_context     struct { Context }
-type parse_bare_context     struct { Context }
-type parse_braced_context   struct { Context }
-type parse_call_context     struct { Context }
-type parse_code_context     struct { automatic }
-type parse_defvalue_context struct { Context }
-type parse_foreach_context  struct { Context }
-type parse_glob_context     struct { Context }
-type parse_group_context    struct { Context }
-type parse_include_context  struct { Context ; o includeOpts }
-type parse_left_context     struct { Context }
-type parse_modifier_context struct { Context }
-type parse_params_context   struct { Context }
-type parse_path_context     struct { Context }
-type parse_perc_context     struct { Context }
-type parse_recipe_context   struct { Context ; builtin bool }
-type parse_regex_context    struct { Context }
-type parse_rule_context     struct { Context }
-type parse_undef_context    struct { Context }
+type parse_auto     struct { Context }
+type parse_bare     struct { Context }
+type parse_braced   struct { Context }
+type parse_call     struct { Context }
+type parse_code     struct { automatic }
+type def_value struct { Context }
+type parse_foreach  struct { Context }
+type parse_glob     struct { Context }
+type parse_group    struct { Context }
+type parse_include  struct { Context ; o includeOpts }
+type parse_left     struct { Context }
+type parse_modifier struct { Context }
+type parse_params   struct { Context }
+type parse_path     struct { Context }
+type parse_perc     struct { Context }
+type parse_recipe   struct { Context ; builtin bool }
+type parse_regex    struct { Context }
+type parse_rule     struct { Context }
+type parse_undef    struct { Context }
 
-func (p parse_glob_context) do(ctx Context, op any) (_ any) {
+func (p parse_glob) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case getParseGlob: return true
+	case parse_is_glob: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_params_context) do(ctx Context, op any) (_ any) {
+func (p parse_params) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case getParseCanParams: return true
+	case parse_is_params: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_auto_context) do(ctx Context, op any) (_ any) {
+func (p parse_auto) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case parse_is_auto: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_defvalue_context) do(ctx Context, op any) (_ any) {
+func (p def_value) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case parse_is_auto: return IsDigits(t.string)
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_foreach_context) do(ctx Context, op any) (_ any) {
+func (p parse_foreach) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case parse_is_auto: if t.string == "_" { return true }
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_rule_context) do(ctx Context, op any) (_ any) {
+func (p parse_rule) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case parse_is_auto:
 		if IsDigits(t.string) { return true }
@@ -150,32 +150,32 @@ func (p parse_rule_context) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_recipe_context) do(ctx Context, op any) (_ any) {
+func (p parse_recipe) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case getParseIsRecipe: return t.bool == p.builtin
+	case parse_is_recipe: return t.bool == p.builtin
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_include_context) do(ctx Context, op any) (_ any) {
+func (p parse_include) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case getParseIncOpts: return &p.o
-	case parse_is_conf : return p.o.isConfig
-	case getParseIsFlag : return true
+	case parse_inc_opts: return &p.o
+	case parse_is_config: return p.o.isConfig
+	case parse_is_flat  : return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_left_context) do(ctx Context, op any) (_ any) {
+func (p parse_left) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case getParseLeftHandSide: return true
+	case parse_left_hand_side: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_undef_context) do(ctx Context, op any) (_ any) {
+func (p parse_undef) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case getParseCanUndef: return true
+	case parse_is_undef: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -307,11 +307,11 @@ func (p *parser) step() {
 func (p *parser) next(ctx Context, ws bool) { if p.step(); ws { p.spaces(ctx) } }
 func (p *parser) spaces(ctx Context) {
 	for p.lineComment == nil && p.tok != EOF {
-		if p.tok == SPACE || (p.tok == RECIPE && truly(ctx, getParseIsRecipe{true})) {
+		if p.tok == SPACE || (p.tok == RECIPE && truly(ctx, parse_is_recipe{true})) {
 			p.step()
 		} else if p.tok == ESCAPE && p.lit == "\n" {
 			if p.step(); p.tok == LINEND || p.lineComment != nil { break }
-			if truly(ctx, getParseIsRecipe{true}) {
+			if truly(ctx, parse_is_recipe{true}) {
 			TokFor:
 				for p.tok != EOF {
 					switch p.tok {
@@ -425,7 +425,7 @@ func (l unilo) braced(ctx Context) (x Value) {
 	var p = l.p
 	var pos = p.Position()
 
-	ctx = parse_braced_context{at(ctx, pos)}
+	ctx = parse_braced{at(ctx, pos)}
 
 	p.expect(ctx, LBRACE)
 
@@ -713,10 +713,10 @@ func (p *parser) isEndOfLine() bool {
 func (p *parser) isEndOfList(ctx Context) bool {
 	// If there's a comment right after the parsed expression, we break
 	// the expression list to treat the end-of-line comment like a LINEND.
-	if p.lineComment != nil || p.tok.isListDelim() || (truly(ctx, getParseLeftHandSide{}) && p.tok.isAssign()) {
+	if p.lineComment != nil || p.tok.isListDelim() || (truly(ctx, parse_left_hand_side{}) && p.tok.isAssign()) {
 		return true
 	}
-	if truly(ctx, getParseIsRecipe{false}) && p.tok == RECIPE { // TODO: using p.isRecipeStart()
+	if truly(ctx, parse_is_recipe{false}) && p.tok == RECIPE { // TODO: using p.isRecipeStart()
 		return true
 	}
 	return false
@@ -769,18 +769,18 @@ func (l unilo) depends(ctx Context, params bool) (res []Value) {
 		} else if p.spaces(ctx) ; !p.isEndOfLine() {
 			var val Value
 			if len(res) == 0 {
-				val = l.expr(parse_params_context{ctx})
+				val = l.expr(parse_params{ctx})
 			} else {
 				val = l.expr(ctx)
 			}
 
 			if x, y := val.(*globpat); y && x.len() == 1 {
 				if z, y := x.elems[0].(*globrange); y {
-					note(at(ctx,val), "use {(modifier ...)} : %v", ts(z.Value)).debug()
+					erro(at(ctx,val), "use {%v} instead", z.Value).debug()
 				} else if z, y := x.elems[0].(*group); y {
-					note(at(ctx,val), "use {(modifier ...)} : %v", ts(z.elems[0])).debug()
+					erro(at(ctx,val), "use {%v} instead", z.elems[0]).debug()
 				} else {
-					note(at(ctx,val), "use {(modifier ...)} : %v", ts(x.elems[0])).debug()
+					note(at(ctx,val), "use {%v} instead", x.elems[0]).debug()
 				}
 			}
 
@@ -834,7 +834,7 @@ func (l unilo) group(ctx Context) *group {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "Group")) }
 
 	p := l.p
-	ctx = parse_group_context{token_aware_context{at(ctx, p),COMMA}}
+	ctx = parse_group{token_aware{at(ctx, p),COMMA}}
 
 	p.expect(ctx, LPAREN)
 	p.spaces(ctx)
@@ -865,7 +865,7 @@ func (l unilo) argumentedExpr(ctx Context, x Value) *argumented {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "argumented")) }
 
 	p := l.p
-	ctx = parse_group_context{token_aware_context{at(ctx, p),COMMA}}
+	ctx = parse_group{token_aware{at(ctx, p),COMMA}}
 
 	p.next(ctx, true) // skip LPAREN
 
@@ -910,7 +910,7 @@ func (l unilo) glob(ctx Context, x Value) (g *globpat) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "glob")) }
 
 	p := l.p
-	ctx = parse_glob_context{at(ctx, p)}
+	ctx = parse_glob{at(ctx, p)}
 
 	if y := x == nil; y {
 		g = &globpat{}
@@ -939,7 +939,7 @@ func (l unilo) perc(ctx Context, x Value) Value {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "Perc")) }
 
 	var p = l.p
-	ctx = parse_perc_context{at(ctx, p)}
+	ctx = parse_perc{at(ctx, p)}
 
 	var (
 		pos = p.pos
@@ -996,7 +996,7 @@ func (p *parser) regex(ctx Context) (_ Value) {
 	var rx string
 	var pos = p.Position()
 
-	ctx = parse_regex_context{at(ctx, p)}
+	ctx = parse_regex{at(ctx, p)}
 
 	if checkpoints {
 		if !p.scanner.bits.isBrace() {
@@ -1145,7 +1145,7 @@ func (l unilo) dot(ctx Context, x Value) (res Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "Dot")) }
 
 	var p = l.p
-	ctx = token_aware_context{at(ctx, p),DOT}
+	ctx = token_aware{at(ctx, p),DOT}
 
 	for !p.isEndOfDotConcat(ctx) {
 		x = compose(ctx, x, l.composite(ctx))
@@ -1165,7 +1165,7 @@ func (l unilo) path(ctx Context, start Value) (res *path) {
 		erro(ctx, "nil path starter").trace()
 	}
 
-	ctx = parse_path_context{at(ctx, start)}
+	ctx = parse_path{at(ctx, start)}
 
 	switch t := start.(type) {
 	case     *path: res = t
@@ -1280,7 +1280,7 @@ func (l unilo) resolve(ctx Context, name Value, str string) (result Value) {
     if !(name == nil) { pos = name.Position() }
     if !pos.IsValid() { pos = _position(ctx) }
     if !pos.IsValid() { pos = l.p.Position() }
-    if str == "" {
+	if str == "" {
 		erro(ctx, "resolve no-name : %v", ts(name)).trace()
 	}
 
@@ -1290,7 +1290,13 @@ func (l unilo) resolve(ctx Context, name Value, str string) (result Value) {
 
 	var s = _scope(ctx)
 
-	if _, o := s.find(str); o != nil {
+	if s != l.project.scope {
+		if _, o := s.find(str); o != nil {
+			return o
+		}
+	}
+
+	if o := l.project.resolve(ctx, str); o != nil {
 		return o
 	}
 
@@ -1302,7 +1308,7 @@ func (l unilo) resolve(ctx Context, name Value, str string) (result Value) {
 		}
 	}
 
-	if truly(ctx, parse_is_conf{}) {
+	if truly(ctx, parse_is_config{}) {
 		// Create an empty def if referred in configuration.sm.
 		result, _ = s.set(ctx, str, defConfRef)
 		return
@@ -1352,18 +1358,15 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 		return
 	}
 
-	if isClosure || truly(ctx, getParseCanUndef{}) || dis_evoke(ctx, name, nil) {
+	if isClosure || truly(ctx, parse_is_undef{}) || dis_evoke(ctx, name, nil) {
 		obj = name // recursive delegation or closure
 		return
 	}
 
-	if true {
-		note(ctx, "%v", _scope(ctx))
-		note(ctx, "%v", _project(ctx).scope)
-		for i, s := range l.s { note(ctx, "%d. %v", i, s) }
-	}
-
-	erro(ctx, "resolve %v ⇒ nil", ts(name)).trace()
+	note(ctx, "%v", l.scope().finddef("workout"))
+	note(ctx, "%v %v", l.project, l.project.finddef("workout"))
+	note(ctx, "%v %v", l.project.bases[0], l.project.bases[0].finddef("workout"))
+	errostack(ctx, 10, "resolve %v ⇒ nil", ts(name)).trace()
 	return
 }
 
@@ -1407,10 +1410,10 @@ func (l unilo) auto_arg0(ctx Context, tokLp token, isClosure bool) (_ Value) {
 
 func (l unilo) closuredelegate_args(ctx Context, name string, tokLp token, isClosure bool) (args []Value) {
 	switch name {
-	case "auto"    : args = append(args, l.auto_arg0(ctx, tokLp, isClosure)); if !isClosure { ctx = parse_auto_context{ctx} }
-	case "case"    : args = append(args, l.list(ctx)); ctx = parse_undef_context{ctx}
-	case "foreach" : args = append(args, l.list(ctx)); ctx = parse_foreach_context{ctx}
-	case "and","or": ctx = parse_undef_context{ctx}; args = append(args, l.list(ctx))
+	case "auto"    : args = append(args, l.auto_arg0(ctx, tokLp, isClosure)); if !isClosure { ctx = parse_auto{ctx} }
+	case "case"    : args = append(args, l.list(ctx)); ctx = parse_undef{ctx}
+	case "foreach" : args = append(args, l.list(ctx)); ctx = parse_foreach{ctx}
+	case "and","or": ctx = parse_undef{ctx}; args = append(args, l.list(ctx))
 	default:         args = append(args, l.list(ctx))
 	}
 
@@ -1518,8 +1521,7 @@ func (l unilo) closuredelegate_abc(ctx Context, isClosure, special bool) (tok to
 func (l unilo) closuredelegate(ctx Context, isClosure, special bool) (result Value) {
 	if l_traverse.enabled {	defer un(l_trace(l_traverse, "closuredelegate")) }
 
-	p := l.p
-	ctx = parse_call_context{token_aware_context{at(ctx, p), COMMA}}
+	ctx = parse_call{token_aware{at(ctx, l.p), COMMA}}
 
 	tok, obj, args, opts := l.closuredelegate_abc(ctx, isClosure, special)
 
@@ -1542,7 +1544,7 @@ func (l unilo) unary(ctx Context) (x Value) {
 	var p = l.p
 	switch p.tok {
 	case ASSIGN: // Example: '=xxx'
-		if !truly(ctx, getParseLeftHandSide{}) {
+		if !truly(ctx, parse_left_hand_side{}) {
 			var v Value
 			var s = p.Position()
 			if p.step(); p.isEndOfList(ctx) {
@@ -1578,7 +1580,7 @@ func (l unilo) unary(ctx Context) (x Value) {
 		return l.braced(ctx)
 
 	case COMMA:
-		if v, y := do(ctx, getParseAware{COMMA}).(bool); !y || !v {
+		if v, y := do(ctx, parse_aware{COMMA}).(bool); !y || !v {
 			return p.punctuation()
 		}
 
@@ -1613,7 +1615,7 @@ func (l unilo) unary(ctx Context) (x Value) {
 			return l.path(ctx, _pathpun(ctx, tok))
 		case tok == DOT, tok == DOTDOT:
 			x = &punctuation{valbase{pos}, tok}
-			if v, y := do(ctx, getParseAware{DOT}).(bool); !y || !v {
+			if v, y := do(ctx, parse_aware{DOT}).(bool); !y || !v {
 				x = l.dot(ctx, x)
 			}
 			return
@@ -1642,7 +1644,7 @@ func (l unilo) unary(ctx Context) (x Value) {
 }
 
 func (p *parser) isParametersGroup(ctx Context, x Value) (res bool) {
-	if truly(ctx, getParseCanParams{}) {
+	if truly(ctx, parse_is_params{}) {
 		if g, y := x.(*group); y && len(g.elems) == 1 {
 			_, res = g.elems[0].(*group)
 		}
@@ -1661,7 +1663,7 @@ func (l unilo) composite(ctx Context) (x Value) {
 		break
 
 	case STAR, DAST, QUE, LBRACK: // * ** ? [
-		if !truly(ctx, getParseGlob{}) {
+		if !truly(ctx, parse_is_glob{}) {
 			if l.p.tok == QUE {
 				switch l.p.step() ; l.p.tok {
 				case SPACE, RPAREN, RBRACK, RBRACE, COMMA, SELECT_PROP, SELECT_PROG1, SELECT_PROG2, LINEND:
@@ -1677,7 +1679,7 @@ func (l unilo) composite(ctx Context) (x Value) {
 		x = l.perc(ctx, x)
 
 	case DOT: // foo.bar.baz.o ; FIXME: push bits when parsing $(...)
-		if v, y := do(ctx, getParseAware{DOT}).(bool); !y || !v {
+		if v, y := do(ctx, parse_aware{DOT}).(bool); !y || !v {
 			x = l.dot(ctx, x)
 		}
 
@@ -1690,7 +1692,7 @@ func (l unilo) composite(ctx Context) (x Value) {
 	// 		}
 
 	case COLON:
-		if (truly(ctx, getParseIsRecipe{false}) || !truly(ctx, getParseLeftHandSide{})) {
+		if (truly(ctx, parse_is_recipe{false}) || !truly(ctx, parse_left_hand_side{})) {
 			if isKnownURLScheme(x.string(at(ctx, l.p))) {
 				x = l.url(ctx, x)
 			}
@@ -1701,10 +1703,6 @@ func (l unilo) composite(ctx Context) (x Value) {
 
 func (l unilo) expr(ctx Context) (x Value) {
 	if false && l_traverse.enabled { defer un(l_trace(l_traverse, "expr")) }
-	if count_error(ctx) > 0 {
-		flush(ctx)
-		return
-	}
 
 	var tok, lit = l.p.tok, l.p.lit
 
@@ -1712,9 +1710,9 @@ func (l unilo) expr(ctx Context) (x Value) {
 		erro(at(ctx, l.p), "invalid (%v,%v; prev=%v,%v)", l.p.tok, l.p.lit, tok, lit).trace()
 	}
 
-	if truly(ctx, getParseGlob{}) { return }
+	if truly(ctx, parse_is_glob{}) { return }
 
-	var lhs = truly(ctx, getParseLeftHandSide{})
+	var lhs = truly(ctx, parse_left_hand_side{})
 	if l.p.tok.isAssign() && lhs { return }
 	if l.p.isParametersGroup(ctx, x) { return }
 
@@ -1750,7 +1748,7 @@ composeLoop:
 		if _, y := x.(*group); y { return }
 
 	case COMMA:
-		if v, y := do(ctx, getParseAware{COMMA}).(bool); y && v { return }
+		if v, y := do(ctx, parse_aware{COMMA}).(bool); y && v { return }
 
 	case COMPOSED, COLON, RAW, RPAREN, RBRACK, RBRACE, SPACE, SEMICOLON, LINEND, EOF:
 		return // terminate
@@ -1792,7 +1790,7 @@ func isValidImport(lit string) bool {
 	return s != ""
 }
 
-func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useOpts, params []Value, err error) {
+func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useopts, params []Value, err error) {
 	ctx = at(ctx, p)
 
     // Supported parameter forms:
@@ -1868,7 +1866,7 @@ func (l unilo) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
         erro(ctx, "empty use spec: %v", ts(g.spec[0])).trace()
     }
 
-	var opts useOpts
+	var opts useopts
 	var args = parseOpts(ctx, &opts, append(g.remainder, g.spec[1:]...)...)
 	for _, a := range args {
 		if _, ok := a.(flag); ok || true {
@@ -1900,19 +1898,20 @@ func (l unilo) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 }
 
 func (l unilo) parse_include(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "Spec")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "include")) }
 
 	var opts = includeOpts{ clauseopts: g }
 	if vals := parseOpts(ctx, &opts, g.remainder...); len(vals) > 0 {
 		// TODO: deal with the unparsed generic options
-		warn(ctx, "unknown opts: %v", vals).debug()
+		erro(ctx, "unknown opts: %v", vals).trace()
 	}
 
 	if len(g.spec) < 1 {
 		erro(ctx, "expecting include file: %v", g.spec).trace()
 	}
 
-	var x = g.spec[0]//.expand(ctx, final|expandPlaceholder)
+	var x = g.spec[0].expand(final{ctx})
+
 	if l.p.spaces(ctx); l.p.tok == COLON {
 		switch x.(type) {
 		case *File, *strlit, *compound: // escape from file searching
@@ -2032,43 +2031,42 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 }
 
 func (p *parser) evalConfiguration(ctx Context, g *clauseopts, props []Value) {
-	var project = _project(ctx)
-	if project == nil {
+	var pj = _project(ctx)
+	if pj == nil {
 		erro(ctx, "configuration: nil project").trace()
-	} else if project.configure == nil {
-		erro(ctx, "configuration: no %s for %v", dotConfigure, project).trace()
+	} else if pj.configure == nil {
+		erro(ctx, "configuration: no %s for %v", dotConfigure, pj).trace()
 	}
 
-	if entry := project.configure.defaultEntry; entry == nil {
-		// no init entry from .configure
-	} else {
-		entry.execute(at(ctx, entry))
+	if e := pj.configure.defaultEntry; e != nil {
+		e.execute(at(ctx, e))
 	}
 
-	if flush(ctx)>0 { return }
-	if project.configured {
-		prompt(ctx, "configuration: %v already configured\n", project)
+	if flush(ctx) > 0 { return }
+
+	if pj.configured {
+		prompt(ctx, "configuration: %v already configured\n", pj)
 		return
 	}
 
 	var ce = configurecontext{Context:ctx} ; defer ce.close()
 
-	for _, dep := range xmerge(ctx, props/* [1:] */...) {
-		if re, y := dep.(*rule); !y {
-			erro(ctx, "unsupported prerequisite: %T %v", dep, dep).trace()
+	for _, dep := range xmerge(ctx, props/*[1:]*/...) {
+		if x, y := dep.(executer); !y {
+			erro(ctx, "unsupported prerequisite: %v", ts(dep)).trace()
 		} else {
-			re.execute(ctx)
+			x.execute(ctx)
 		}
 	}
 
-	if flush(ctx)>0 { return }
+	if flush(ctx) > 0 { return }
 
-	/***/ promptEnteringDirectory(ctx, project.absPath)
-	defer promptLeavingDirectory(ctx, project.absPath)
+	/***/ promptEnteringDirectory(ctx, pj.absPath)
+	defer promptLeavingDirectory(ctx, pj.absPath)
 
-	for _, entry := range project.configs { ce.execute(entry) }
+	for _, e := range pj.configs { ce.execute(e) }
 
-	project.configured = true // relaxes configure()
+	pj.configured = true // relaxes configure()
 }
 
 func (p *parser) assert(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
@@ -2261,11 +2259,11 @@ func for_idents(ctx Context, idents Value, f func(ident Value, stem []Value)) {
 }
 
 func (p *parser) define_idents(ctx Context, tok token, idents, value Value) (defs []*def) {
-    for_idents(ctx, idents, func(ident Value, _ []Value) {
-        if d := p.define(ctx, tok, ident, value); d != nil {
+	for_idents(ctx, idents, func(ident Value, _ []Value) {
+		if d := p.define(ctx, tok, ident, value); d != nil {
 			defs = append(defs, d)
 		}
-    })
+	})
     return
 }
 
@@ -2391,7 +2389,7 @@ func (p *parser) define(ctx Context, tok token, ident, value Value) (d *def) {
 func (l unilo) assign_value(ctx Context, ident Value, tok token) (value Value) {
 	defer l.closescope(l.openscope(fmt.Sprintf("def %v", ident)))
 
-	vals := l.values(parse_defvalue_context{ctx})
+	vals := l.values(def_value{ctx})
 	l.p.lineComment = nil
 	return ease(ctx, vals)
 }
@@ -2462,7 +2460,7 @@ func (l unilo) recipe(ctx Context) Value {
 			}
 
 			var cmdargs []Value
-			var c = parse_recipe_context{ctx, true} // builtin recipe
+			var c = parse_recipe{ctx, true} // builtin recipe
 
 			for p.tok != EOF && p.tok != SEMICOLON && p.tok != LINEND && p.lineComment == nil {
 				if p.spaces(ctx); p.lineComment != nil { break }
@@ -2490,7 +2488,7 @@ func (l unilo) recipe(ctx Context) Value {
 		case "plain", "text": isPlainline = true
 		}
 
-		var c = parse_recipe_context{ctx, false} // builtin text
+		var c = parse_recipe{ctx, false} // builtin text
 		for !p.isEndOfLine() {
 			var x Value
 			if p.tok == RAW {
@@ -2557,7 +2555,7 @@ func (l unilo) modifier(ctx Context) (res *modifier) {
 	p := l.p
 	p.spaces(ctx)
 
-	ctx = parse_modifier_context{at(ctx, p)}
+	ctx = parse_modifier{at(ctx, p)}
 
 	p.expect(ctx, LPAREN)
 	p.spaces(ctx)
@@ -2668,6 +2666,12 @@ func (l unilo) modification(ctx Context) *modification {
 //         In an explicit rule, there is no stem; so ‘$*’ cannot be determined in that way. Instead, if the target name ends with a recognized suffix (see Old-Fashioned Suffix Rules), ‘$*’ is set to the target name minus the suffix. For example, if the target name is ‘foo.c’, then ‘$*’ is set to ‘foo’, since ‘.c’ is a suffix. GNU make does this bizarre thing only for compatibility with other implementations of make. You should generally avoid using ‘$*’ except in implicit rules or static pattern rules.
 //         If the target name in an explicit rule does not end with a recognized suffix, ‘$*’ is set to the empty string for that rule.
 //
+// $-      the execution result
+// $~      the grep modifier result
+// $/      the current absolute path
+// $.      the current relative path
+// $,      the current temporary path
+//
 // Similar to makefile automatic variables, see
 //   * https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html#Automatic-Variables
 var rule_autos = map[string]struct{}{
@@ -2680,18 +2684,16 @@ var rule_autos = map[string]struct{}{
 }
 
 func (l unilo) parse_rule(ctx Context, optvals, targets []Value) (result Value) {
-	if l_traverse.enabled || debugSyntax(ctx, "rule") {
-		defer un(l_trace(l_traverse, "rule"))
-	}
+	if l_traverse.enabled || debugSyntax(ctx, "rule") { defer un(l_trace(l_traverse, "rule")) }
 
-	ctx = parse_rule_context{at(ctx, l.p)}
+	ctx = parse_rule{at(ctx, l.p)}
 
 	var proj = _project(ctx)
-	if proj.keyword == PACKAGE {
-		erro(ctx, "rules forbidden in package : %v", targets).trace()
-	}
     if proj != _scope(ctx).project {
 		erro(ctx, "mismatched project/scope : %v", targets).trace()
+	}
+	if proj.keyword == PACKAGE {
+		erro(ctx, "rules forbidden in package : %v", targets).trace()
 	}
 
 	// TODO: doc = p.leadComment
@@ -3080,7 +3082,7 @@ func (l unilo) parse_codeblock(ctx Context, t *template, vars map[string]Value) 
 		erro(at(ctx,l.p.loc(l.p.pos)), "bad range: [%v %v) (%v)", l.p.pos, l.p.stop, t.name).trace()
 	}
 
-	var c = parse_code_context{automatic{Context:ctx}}
+	var c = parse_code{automatic{Context:ctx}}
 	c.suppress, c.defs = c.has, make(auto_defs)
 
 	if  _, y := vars["_"]; !y { vars["_"] = nil }
@@ -3199,7 +3201,7 @@ func (l unilo) parse_clause(ctx Context) {
 	case  FOREACH: l.parse_foreach(ctx); return
 	}
 
-	var x = l.expr(parse_left_context{ctx})
+	var x = l.expr(parse_left{ctx})
 
 	if l.p.spaces(ctx); l.p.tok.isAssign() {
 		l.assign(ctx, x)
@@ -3218,43 +3220,98 @@ func (l unilo) parse_clause(ctx Context) {
 		return
 	} else if strings.HasSuffix(l.p.scanner.file.Name(), pathSep+configuration_sm) {
 		if false { note(ctx, "%v (kit=%s)", l.p.tok, l.p.lit).debug() }
-	} else if truly(ctx, parse_is_conf{}) {
+	} else if truly(ctx, parse_is_config{}) {
 		note(ctx, "bad clause: %v (kit=%s) after %v", l.p.tok, l.p.lit, vals).debug(3)
 	} else {
 		erro(ctx, "bad clause: %v (lit=%s) after %v", l.p.tok, l.p.lit, vals).trace()
 	}
 }
 
-type project_opt struct {
-	configure Value `conf,configure` // detects dotConfigure if empty
+// project returns a new project for the given project path and name;
+// the name must not be the blank identifier.
+// The project is not complete and contains no explicit imports.
+func (l unilo) new_declare(ctx Context, name string, keyword token, opts *project_opts) (d *declare) {
+    if x, y := l.declares[name]; y { return x }
+
+    var sco = l.scope()
+    var abs = sco.finddef("/").value // CWD
+    var rel = sco.finddef(".").value // CRD
+    var tmp = sco.finddef(",").value // CTD
+
+    var absPath = abs.string(ctx)
+    var relPath = rel.string(ctx)
+    var tmpPath = tmp.string(ctx)
+    var spec, _ = filepath.Rel(workBaseDir, absPath)
+
+    if x, y := l.globe.loaded[absPath]; y {
+        prompt(ctx, "%s: %s: already declared %v in this path\n", absPath, name, x)
+        errostack(ctx, 5, "%v %v %v", name, spec, rel).trace()
+    }
+
+    if l.declares == nil { l.declares = make(map[string]*declare) }
+
+	d = &declare{
+		project: &project{
+			position: l.p.Position(),//_position(ctx),
+			absPath: absPath,
+			tmpPath: tmpPath,
+			rel: relPath,
+			spec: spec,
+			name: name,
+			opt: *opts,
+			use: new(uselist), // TODO: use scopename instead?
+		},
+	}
+
+    l.declares[name]  = d
+    l.globe.loaded[absPath] = d.project
+
+	do(ctx, set_base{d.project})
+
+    d.p = l.p
+    d.s = l.s
+    d.scope = newscope(d.position, sco, d.project, "project "+name)
+    d.scope.elems[".self"] = self{d.project}
+    d.scope.elems[".usee"] = d.use
+    d.use.owner_ = d.project
+    d.use.scope = d.scope
+    d.use.name = "usee"
+
+    if l.globe.main == nil && spec != "" && name != "@" && name != "~" {
+        for sco != nil && sco != l.globe.scope {
+            if p := sco.project; p != nil && d.name == "@" {
+                return
+            }
+            sco = sco.outer
+        }
+        l.globe.main = d.project
+    }
+    return
+}
+
+type project_opts struct {
+	configure Value `conf,config,configure` // detects dotConfigure if empty
 	noDock bool `nodock,no-dock` // don't load container project
     traveUseLoop bool `break,loop` // don't recursively use this project
     multiUseAllowed bool `multi`  // this project is used multiple times
 	final bool `final` // no bases
 }
 
-func (l unilo) declare(ctx Context, keyword token, ident Value, name string, declOpts *project_opt) (result bool) {
+func (l unilo) declare(ctx Context, keyword token, ident Value, name string, declOpts *project_opts) (_ bool) {
     if name == "@" {
         erro(ctx, "deprecated project name: @").trace()
     }
 
     if _, o := l.find(name); o != nil {
-        if _, y := o.(*builtin); y {
-            erro(ctx, "'%s' is a builtin name", name).trace()
+        if x, y := o.(*builtin); y {
+            erro(ctx, "%v is a builtin name", x).trace()
         }
     }
 
 	var prev = l.loader // nil if newly declared
-	var dec = l.globe_declare(ctx, name, keyword)
+	var dec = l.new_declare(ctx, name, keyword, declOpts)
 	if prev == nil || dec.project != prev.project {
 		l.project, l.s[0] = dec.project, dec.scope
-	}
-
-	if false {
-		note(at(ctx, ident), "%s", ts(prev))
-		note(at(ctx, ident), "%s", ts(l.loader))
-		note(at(ctx, ident), "%s", ts(_loader(l.loader.Context)))
-		note(ctx, "%s", ts(ctx)).debug()
 	}
 
     if ll := _loader(l.loader.Context); ll != l.loader && ll == prev {
@@ -3278,7 +3335,7 @@ func (l unilo) declare(ctx Context, keyword token, ident Value, name string, dec
         }
     }
 
-	if x, y := do(ctx, get_arguments{}).([]Value); y && len(x) != 0 {
+	if x := try[[]Value](ctx, get_arguments{}); len(x) != 0 {
 		for _, arg := range merge(x...) {
 			switch t := arg.(type) {
 			case *pair:
@@ -3300,28 +3357,76 @@ func (l unilo) declare(ctx Context, keyword token, ident Value, name string, dec
     return true
 }
 
-func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filename string) (_ Value, _ string, _ bool) {
+func (l unilo) pre_project_set(ctx Context, args ...Value) {
+	var s = l.scope()
+	for _, a := range args {
+		switch t := a.(type) {
+		case *pair:
+			if d, _ := s.set(ctx, t.key.string(ctx), defVoid, t.val); d != nil {}
+		default:
+			erro(ctx, "unknown set: %v", ts(a)).trace()
+		}
+	}
+}
+
+type set_base struct { *project }
+
+type parent struct { Context ; *project }
+func (p parent) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case set_base:
+		if t.has_base(p.project) {
+			prompt(ctx, "%s: %s : %s\n", p.absPath, p.project, t.loop_base_path(ctx, p.project, ""))
+			if true {
+				notestack(ctx, 10, "recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project)).debug(5)
+			} else {
+				errostack(ctx, 10, "recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project)).trace()
+			}
+		}
+
+		if p.has_base(p.project) {
+			errostack(ctx, 10, "duplication derivation: %v ⇔ %v", ts(p.project), ts(t.project)).trace()
+		}
+
+		if len(p.bases) == 0 {
+			p.projectname(ctx, ".base", t.project)
+		}
+
+		p.bases = append(p.bases, t.project)
+		return
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (l unilo) new_project(ctx Context, keyword token, filename string, isMainFile bool) (_ Value, _ string, _ bool) {
 	var implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
-	var position = _position(ctx)
 
-	l.p.next(ctx, true)
-
+	l.p.next(ctx, true) // aka. the keyword
 	ctx = at(ctx, l.p)
 
 	var vals []Value
 	for l.p.tok == MINUS {
-		vals = append(vals, l.expr(ctx))
+		val := l.expr(ctx)
 		l.p.spaces(ctx)
+
+		if a, y := val.(*argumented); y {
+			if f, y := a.Value.(flag); y {
+				if w, y := f.Value.(*bareword); y && w.s == "set" {
+					l.pre_project_set(ctx, merge(a.args...)...)
+					continue
+				}
+			}
+		}
+
+		vals = append(vals, val)
 	}
 
-	var opts project_opt
+	var opts project_opts
 	if a := parseOpts(ctx, &opts, vals...); len(a) > 0 {
-		for _, v := range a { erro(at(ctx,v), "unknown option %v", ts(v)).trace() }
-		return
+		erro(at(ctx,a[0]), "unknown project option %v", ts(a)).trace()
 	}
 
 	var ident Value
-	var name string
 
 	// Smart-lang spec:
 	//   * the project clause is not a declaration;
@@ -3329,13 +3434,13 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 	if l.p.tok == LPAREN || l.p.tok == EOF || l.p.tok == LINEND || l.p.lineComment != nil {
 		var dir = filepath.Dir(filename)
 		if l.project != nil && l.project.absPath == dir {
-			ident = makeBareword(position, l.project.name)
-		} else if name = filepath.Base(filename); name == dotBase || name == dotConfigure {
+			ident = makeBareword(l.p.Position(), l.project.name)
+		} else if s := filepath.Base(filename); s == dotBase || s == dotConfigure {
 			// NOTE: loading the .base or .configure file
-			ident = makeBareword(position, name)
-		} else if name = filepath.Base(dir); name != "" {
+			ident = makeBareword(l.p.Position(), s)
+		} else if s := filepath.Base(dir); s != "" {
 			// TODO: validate basename as a valid identifier
-			ident = makeBareword(position, name)
+			ident = makeBareword(l.p.Position(), s)
 		} else {
 			erro(ctx, "invalid file: %v", filename).trace()
 		}
@@ -3345,19 +3450,17 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 		} else if s := strings.TrimSuffix(filepath.Base(filename), ext); s == "" {
 			erro(at(ctx, l.p), "`%v` not tilde name", filepath.Base(filename)).trace()
 		} else {
-			ident = makeBareword(position, s)
+			ident = makeBareword(l.p.Position(), s)
 		}
 		l.p.next(ctx, true) // skip tilde
 	} else {
-		base := makePath()
-		comp := makeBarecomp()
+		base, comp := makePath(), makeBarecomp()
+
 		for l.p.tok != EOF && l.p.tok != SPACE {
 			var w = l.p.bare(ctx)
-			if comp = comp.suffix(ctx, w).(*barecomp); l.p.tok == DOT {
-				t := &punctuation{valbase{l.p.Position()}, l.p.tok}
-				comp = comp.suffix(ctx, t).(*barecomp)
+			if  comp = comp.suffix(ctx, w).(*barecomp) ; l.p.tok == DOT {
+				comp = comp.suffix(ctx, l.p.punctuation()).(*barecomp)
 				base.elems = append(base.elems, w)
-				l.p.step() // '.'
 			} else {
 				break
 			}
@@ -3365,9 +3468,8 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 
 		l.p.spaces(ctx)
 
-		if len(comp.elems) == 0 {
+		if comp.len() == 0 {
 			// erro(ctx, "package name is empty (tok=%v %v)", t, p.tok).trace()
-			// return
 		} else if 0 < base.len() {
 			implicitBase = base.string(ctx)
 		}
@@ -3375,7 +3477,7 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 		ident = comp
 	}
 
-	name = ident.string(ctx)
+	var name = ident.string(ctx)
 
 	if l.project != nil && l.project.name != name {
 		warnstack(ctx, 5, "%v: declared multiple projects in the same directory : %v", l.project, ident).debug()
@@ -3385,54 +3487,38 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 		erro(ctx, "package name '%s' is preserved", name).trace()
 	}
 
-	if 0 < count_error(ctx) {
-		// Don't bother parsing the rest on errors.
-		erro(at(ctx, l.p), "got %d errors parsing file: %s", filename).trace()
-	}
-
 	var _, prevDeclared = l.declares[name]
 
 	if l.declare(ctx, keyword, ident, name, &opts) {
 		if l.project == nil {
 			erro(ctx, "undeclared project: %v", ident).trace()
 		}
-
-		if false { defer l.closecurrent(ctx, name) }
-
 		isMainFile = isMainFile && !prevDeclared;
 	}
 
-	if basePos := l.p.Position() ; l.p.tok == LPAREN {
+	var isPackage = keyword != PACKAGE
+
+	if l.p.tok != LPAREN {
+		l.bases(parent{ctx, l.project}, implicitBase) // for special bases, e.g. .base
+	} else {
 		for l.p.tok != EOF {
 			for l.p.next(ctx, true); !l.p.isEndOfList(ctx); {
 				l.p.spaces(ctx)
 
 				ctx := at(ctx, l.p)
-				param := l.expr(parse_group_context{token_aware_context{ctx,COMMA}})
-				l.p.spaces(ctx)
-
-				//if p.lineComment != nil  { break }
-				//if p.tok == LINEND { break }
-				if l.p.tok == EOF {
-					erro(ctx, "unexpected end of file while parsing bases").trace()
-				}
-
-				vals := parseOpts(ctx, &opts, param)
-				if opts.final || keyword == PACKAGE { continue }
-				if !l.bases(ctx, "", merge(vals...)...) {
-					erro(ctx, "load bases failed: %v", vals).trace()
+				val := parseOpts(ctx, &opts, l.expr(parse_group{token_aware{ctx, COMMA}}))
+				if isPackage && !opts.final {
+					l.bases(parent{ctx, l.project}, "", merge(val...)...)
 				}
 			}
 			if l.p.tok != COMMA { break }
 		}
 		l.p.expect(ctx, RPAREN)
-	} else if !l.bases(ctx, implicitBase) { // for special bases, e.g. .base
-		erro(at(ctx, basePos), "loading bases failed").trace()
 	}
 
 	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
 
-	if keyword != PACKAGE {
+	if isPackage {
 		l.configure(ctx, ident, name, prevDeclared)
 		if !opts.noDock { l.container(ctx, ident, name) }
 	}
@@ -3440,67 +3526,93 @@ func (l unilo) parse_project(ctx Context, keyword token, isMainFile bool, filena
 	return ident, name, isMainFile
 }
 
-func isEntryFileName(s string) bool { return filepath.Base(s) == mainFileName }
+func (l unilo) close_project(ctx Context, name string) {
+    var x, y = l.declares[name]
+
+	if !y || x == nil {
+		erro(ctx, "undeclared project: %v", name).trace()
+	}
+
+    if l.project == nil {
+        erro(ctx, "current project unset").trace()
+    }
+
+    if l.project.name != name {
+        erro(ctx, "current project is %s, not %s", l.project, name).trace()
+    }
+
+    if l.project != x.project {
+        erro(ctx, "project conflicts (%v, %v)", l.project, x.project).trace()
+    }
+
+    l.p, l.s = x.p, x.s
+}
 
 func (l unilo) parse_file(ctx Context) (_ bool) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "file '"+l.p.scanner.file.Name()+"'")) }
-	if l.traceLaunch { defer un(l_trace(l_launch, "parser.file")) }
-	if 0 < count_error(ctx) { return }
+	if l.traceLaunch { defer un(l_trace(l_launch, "parse_file")) }
 
 	var keyword  = l.p.tok
 	var filename = l.p.scanner.file.Name()
-	var flatmode = truly(ctx, getParseIsFlag{})
+	var flatmode = truly(ctx, parse_is_flat{})
+	var p = _project(ctx)
 
 	var abs string
+	var isMainFile bool // aka do.smart, build.smart
+
 	if flatmode {
-		abs = _project(ctx).absPath
+		if p == nil {
+			errostack(ctx, 10, "nil project").trace()
+		} else {
+			abs = p.absPath
+		}
 	} else {
-		abs = filepath.Dir(filename)
+		switch filepath.Base(filename) {
+		case dotBase, dotConfigure:
+			abs = filename
+		case mainFileName, deprFileName:
+			abs = filepath.Dir(filename); isMainFile = true
+		default:
+			abs = filepath.Dir(filename)
+		}
 	}
 
-	var rel,  _ = filepath.Rel(l.workdir, abs)
-	var tmp = joinTmpPath(ctx, l.workdir, rel)
+	var rel,_ = filepath.Rel(l.workdir, abs)
+	var sof,_ = filepath.Rel(workBaseDir, filename)
+	var tmp   = joinTmpPath(ctx, l.workdir, rel)
 
-	if false && checkpoints {
-		spec, _ := filepath.Rel(workBaseDir, abs)
-		note(ctx, "%v", ts(l.p))
-		note(ctx, "%v (workbase)", workBaseDir)
-		note(ctx, "%v", filename)
-		note(ctx, "%v (workdir)", l.workdir)
-		note(ctx, "%v (absdir)", abs)
-		note(ctx, "%v", tmp)
-		note(ctx, "rel=%v spec=%s", rel, spec)
-		note(ctx, "%v", ts(ctx)).debug()
+	if s := l.scope(); /* p == nil || */ s == nil {
+		erro(ctx, "%v: nil scope: %v", p, s).trace()
 	}
 
-	var sof, _ = filepath.Rel(workBaseDir, filename)
 	defer l.closescope(l.openscope("file "+sof))
 
-	if !flatmode {
-		s := l.scope()
-		s.set(ctx, ".",   defVoid, _pathstr(ctx, rel))
-		s.set(ctx, "/",   defVoid, _pathstr(ctx, abs))
-		s.set(ctx, "CWD", defVoid, _pathstr(ctx, abs)) // Current Work Directory, TODO: make it $:cwd:
-		s.set(ctx, "CTD", defVoid, _pathstr(ctx, tmp)) // Current Temp Directory, TODO: make it $:ctd:
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		defer l.parse_file_check(ctx, abs, rel, tmp)
 	}
 
-	var isMainFile = isEntryFileName(filename) // aka. do.smart, build.smart
+	if !flatmode {
+		// CWD: Current Work Directory,     TODO: use $:cwd:
+		// CTD: Current Temp Directory,     TODO: use $:ctd:
+		// CRD: Current Relative Directory, TODO: use $:crd:
+		var s = l.scope()
+		if d,_ := s.set(ctx, "/", defVoid, _pathstr(ctx, abs)); d != nil { s.alias(ctx, d, "CWD") }
+		if d,_ := s.set(ctx, ".", defVoid, _pathstr(ctx, rel)); d != nil { s.alias(ctx, d, "CRD") }
+		if d,_ := s.set(ctx, ",", defVoid, _pathstr(ctx, tmp)); d != nil { s.alias(ctx, d, "CTD") }
+	}
 
 	switch keyword {
 	case PACKAGE, MODULE:
 		erro(ctx, "deprecated keyword: %s", keyword).trace()
+
 	case CONFIGURE:
-		// var position = l.p.Position()
 		switch l.p.next(ctx, true); l.p.tok {
 		case DOT:
 			if err := l.config_dir(ctx, abs, abs); err != nil {
 				erro(ctx, "parsing configure directory failed, '%s': %v", abs, err).trace()
+			} else {
+				l.p.next(ctx, true) // skip the '.' token and consequence spaces
 			}
-
-			l.p.next(ctx, true) // skip the '.' token and consequence spaces
-
-			// var ident = makeBareword(position, filepath.Base(filepath.Dir(filename)))
-
 		default:
 			erro(ctx, "unknown configuration '%v', currently only 'configure .' is supported", l.p.tok).trace()
 		}
@@ -3510,52 +3622,45 @@ func (l unilo) parse_file(ctx Context) (_ bool) {
 			erro(at(ctx, l.p), "project forbidden in flat file").trace()
 		}
 
-		var ident Value
 		var name string
 		var prev = l.project
-		ident, name, isMainFile = l.parse_project(ctx, keyword, isMainFile, filename)
-		if ident == nil {
-			erro(ctx, "parse project failed").trace()
-		}
 
-		if l.project != prev {
-			defer l.closecurrent(ctx, name)
-		}
+		_, name, isMainFile = l.new_project(ctx, keyword, filename, isMainFile)
+		if prev != l.project { defer l.close_project(ctx, name) }
 
 	case EOF:
 		return
+
 	default:
 		if !flatmode {
 			l.p.expected(ctx, l.p.pos, "configure, project, module or package keyword")
 		}
 	}
 
-	var al = !flatmode && isMainFile
-	if al { l.autoload(at(ctx, l.p), "declared") }
+	var autoload = !flatmode && isMainFile
+	if  autoload { l.autoload(at(ctx, l.p), "declared") }
 
 	if l.mode&ModuleClauseOnly == 0 {
 		if !flatmode {
 		declaration:
 			for l.p.tok != EOF {
-				switch tok := l.p.tok; tok {
+				switch t := l.p.tok ; t {
 				case LINEND, SPACE: l.p.next(ctx, true)
+				case USE: l.spec(ctx, t, l.p.expect(ctx, t), l.use)
 				case ASSERT, EVAL, FILES, INCLUDE: l.parse_clause(ctx)
-				case USE: l.spec(ctx, tok, l.p.expect(ctx, tok), l.use)
 				default: break declaration
 				}
 			}
 		}
 
-		if false && al { l.autoload(at(ctx, l.p), "amid") }
+		if false && autoload { l.autoload(at(ctx, l.p), "amid") }
 
 		if l.mode&ImportsOnly == 0 { // rest of module body
-			for l.p.tok != EOF {
-				l.parse_clause(ctx)
-			}
+			for l.p.tok != EOF { l.parse_clause(ctx) }
 		}
 	}
 
-	if al { l.autoload(at(ctx, l.p), "appendix") }
+	if autoload { l.autoload(at(ctx, l.p), "appendix") }
 	if l.ddd == "parser.files" { l.ddd = "" }
 
 	return l.mode&ImportsOnly != 0 || l.p.tok == EOF

@@ -573,7 +573,7 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result interface{}
         errostack(ctx, 6, "%T: nil project in the context", ctx).trace()
     } else if scope := proj.scope; scope == nil {
         erro(ctx, "empty closure context").trace()
-    } else if def := scope.findDef("/"); def == nil {
+    } else if def := scope.finddef("/"); def == nil {
         erro(at(ctx,proj.position), "&/ is undefined").trace()
     } else if dir := def.value.string(ctx); dir == "" {
         erro(at(ctx,proj.position), "&/ is empty").trace()
@@ -1939,7 +1939,7 @@ ForPairs:
                 case *pair:
                     var a, b string
                     var k = p.key.string(ctx)
-                    var def = program.project.findDef(k)
+                    var def = program.project.finddef(k)
                     if def != nil {
                         a = p.val.string(ctx)
                         b = def.value.string(ctx)

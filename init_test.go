@@ -61,10 +61,8 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 	ctx.globe.main = nil
 	ctx.workdir = dir
 
-	if testHasModule("configure") {
-		for _, s := range ctx.paths { if s == testModulesPath { goto after_app_paths }}
+	if testHasModule("configure") && !ctx.paths.has(testModulesPath) {
 		ctx.paths = append(ctx.paths, testModulesPath)
-	after_app_paths:
 	}
 
 	if e := ctx.load(); e != nil {
