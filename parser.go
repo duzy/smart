@@ -1363,10 +1363,7 @@ func (l unilo) closuredelegate_obj(ctx Context, lTok token, name Value, isClosur
 		return
 	}
 
-	note(ctx, "%v", l.scope().finddef("workout"))
-	note(ctx, "%v %v", l.project, l.project.finddef("workout"))
-	note(ctx, "%v %v", l.project.bases[0], l.project.bases[0].finddef("workout"))
-	errostack(ctx, 10, "resolve %v ⇒ nil", ts(name)).trace()
+	errostack(at(ctx,name), 10, "resolve %v ⇒ nil", ts(name)).trace()
 	return
 }
 
@@ -1955,12 +1952,12 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 
 	ctx = at(ctx, l.p)
 
+	var pats []Value
 	var opts = cacher{ g.generalOpts }
-	if rest := parseOpts(ctx, &opts, g.remainder...); rest != nil {
-		erro(ctx, "unsupported opts: %v", rest).trace()
+	if t := parseOpts(ctx, &opts, g.remainder...); t != nil {
+		erro(ctx, "unsupported opts: %v", t).trace()
 	}
 
-	var pats []Value
 	if x, y := g.spec[0].(*group); y {
 		pats = x.elems
 	} else if indeterminate(ctx, g.spec[0]) {
@@ -1969,20 +1966,25 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		pats = xmerge(original{ctx, defExpand1}, g.spec[0])
 	}
 
-	if path == nil {
-		if len(pats) == 1 { if a, ok := pats[0].(*argumented); ok { if f, y := a.Value.(flag); y {
-			var name = f.Value.string(ctx)
-			switch name {
-			default:
-				// TODO: parse files options
-				erro(at(ctx,f.Value), "invalid files flag: %v").trace()
-			}
-		}}}
+	if checkpoints {
+		defer func() { l.files_check(ctx) } ()
+	}
 
-		var (
-			files []*File
-			newPats []Value
-		)
+	if path == nil {
+		if len(pats) == 1 {
+			if x, y := pats[0].(*argumented); y {
+				if f, y := x.Value.(flag); y {
+					switch f.Value.string(ctx) {
+					default:
+						// TODO: parse files options
+						erro(at(ctx,f.Value), "invalid files flag: %v").trace()
+					}
+				}
+			}
+		}
+
+		var files []*File
+		var newPats []Value
 		for _, pat := range pats {
 			if f, ok := toFile(pat); ok {
 				files = append(files, f)
@@ -2009,14 +2011,14 @@ func (l unilo) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		}
 
 		var paths []Value
-		if g, ok := path.(*group); ok {
-			paths = g.elems
+		if x, y := path.(*group); y {
+			paths = x.elems
 		} else {
 			paths = []Value{ path }
 		}
 
 		if len(patsNew) == 1 {
-			if f, ok := patsNew[0].(flag); ok {
+			if f, y := patsNew[0].(flag); y {
 				var name = f.Value.string(ctx)
 				switch name {
 				default:
@@ -3376,9 +3378,12 @@ func (p parent) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case set_base:
 		if t.has_base(p.project) {
+			if true { return }
+
 			prompt(ctx, "%s: %s : %s\n", p.absPath, p.project, t.loop_base_path(ctx, p.project, ""))
 			if true {
 				notestack(ctx, 10, "recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project)).debug(5)
+				return
 			} else {
 				errostack(ctx, 10, "recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project)).trace()
 			}
@@ -3479,8 +3484,8 @@ func (l unilo) new_project(ctx Context, keyword token, filename string, isMainFi
 
 	var name = ident.string(ctx)
 
-	if l.project != nil && l.project.name != name {
-		warnstack(ctx, 5, "%v: declared multiple projects in the same directory : %v", l.project, ident).debug()
+	if p := l.project; p != nil && p.name != name {
+		warnstack(ctx, 5, "%v: declared multiple projects in the same directory : %v", p, ident).debug()
 	}
 
 	if name == "-" || name == "_" {
@@ -3496,25 +3501,29 @@ func (l unilo) new_project(ctx Context, keyword token, filename string, isMainFi
 		isMainFile = isMainFile && !prevDeclared;
 	}
 
+	var cc = parent{ctx, l.project}
 	var isPackage = keyword != PACKAGE
 
 	if l.p.tok != LPAREN {
-		l.bases(parent{ctx, l.project}, implicitBase) // for special bases, e.g. .base
+		l.bases(cc, implicitBase) // for special bases, e.g. .base
 	} else {
+		var cc0 = parse_group{token_aware{ctx, COMMA}}
 		for l.p.tok != EOF {
 			for l.p.next(ctx, true); !l.p.isEndOfList(ctx); {
 				l.p.spaces(ctx)
 
 				ctx := at(ctx, l.p)
-				val := parseOpts(ctx, &opts, l.expr(parse_group{token_aware{ctx, COMMA}}))
+				val := parseOpts(ctx, &opts, l.expr(cc0))
 				if isPackage && !opts.final {
-					l.bases(parent{ctx, l.project}, "", merge(val...)...)
+					l.bases(cc, "", merge(val...)...)
 				}
 			}
 			if l.p.tok != COMMA { break }
 		}
 		l.p.expect(ctx, RPAREN)
 	}
+
+	if checkpoints { l.new_project_check_bases(ctx) }
 
 	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
 
@@ -3627,6 +3636,7 @@ func (l unilo) parse_file(ctx Context) (_ bool) {
 
 		_, name, isMainFile = l.new_project(ctx, keyword, filename, isMainFile)
 		if prev != l.project { defer l.close_project(ctx, name) }
+		if checkpoints { l.parse_file_check_new_project(ctx) }
 
 	case EOF:
 		return

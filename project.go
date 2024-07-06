@@ -150,8 +150,8 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
     var dir, sub string
 
     if sub = path.string(ctx); sub == "" {
-      if true {
-        erro(at(ctx,path), "empty filemap path: %v (patterns=%v)", path, patts).trace()
+      if false {
+        erro(at(ctx,path), "empty filemap path: %v, patterns=%v", path, patts).trace()
       }
       return
     }

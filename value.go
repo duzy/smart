@@ -991,7 +991,7 @@ func compose(ctx Context, x, y Value) (res Value) {
     // 	}
     // }
 
-    erro(ctx, "compose: %v %v", ts(x), ts(y)).trace()
+    erro(at(ctx, y), "compose: %v, %v", ts(x), ts(y)).trace()
 
     return makeBarecomp(x, y)//.suffix(ctx, y)
 }

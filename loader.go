@@ -754,6 +754,8 @@ ParamsLoop:
         } else {
             l.load(ctx, spec, absPath, nil)
         }
+
+        if checkpoints { l.bases_check(ctx, implicitIndex, implicitBase_, absPath, isDir, elem) }
     }
 
     usefor(ctx, l.project, func(op usevar, _, _ Value, name string) {
@@ -1234,6 +1236,7 @@ func (l unilo) load(ctx Context, spec, absPath string, source any) {
                 erro(ctx, "name already taken: %v (%s).", p, typeof(a)).trace()
             }
         }
+        do(ctx, set_base{p})
         return
     }
 
@@ -1285,8 +1288,11 @@ func (l unilo) directory(ctx Context, spec, absDir string, filter func(os.FileIn
         }
     } (time.Now(), l.verboseLoads)
 
+    defer l.directory_check(ctx, spec, absDir)
+
     // Check previously loaded project.
     if loaded, okay = l.globe.loaded[absDir]; okay && loaded != nil {
+        do(ctx, set_base{loaded})
         return
     }
 

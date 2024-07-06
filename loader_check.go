@@ -37,6 +37,59 @@ func (l unilo) bases_check_param(ctx Context, implicitBase string, i int, elem, 
 	return
 }
 
+func (l unilo) bases_check(ctx Context, implicitIndex int, implicitBase, absPath string, isDir bool, param Value) {
+	switch p := l.project; p.name {
+	case "testdefaultconfigure":
+		if d := p.resolveDef(ctx, "variant"); d == nil || d.value == nil {
+			erro(ctx, "nil variant").trace()
+		} else if s, t := ts(d.value), "{=path {=bareword darwin} {=bareword arm64} {=bareword bootstrap}}"; s != t {
+			erro(ctx, "variant: %s != %s", s, t).trace()
+		}
+		if len(p.bases) != 1 {
+			erro(ctx, "wrong bases: %v", p.bases).trace()
+		}
+		if p.bases[0].name != ".base" {
+			erro(ctx, "wrong bases[0]: %v", p.bases[0]).trace()
+		}
+		if false && implicitBase != ".base" {
+			erro(ctx, "wrong implicit base: %v %v", implicitIndex, implicitBase).trace()
+		}
+		if false && !truly(ctx, is_implicit_load{}) {
+			erro(ctx, "not implicit: %v %v", ts(param), p.bases).trace()
+		}
+	case "lib.std":
+		if s, t := ts(param), "{=path {=bareword app} {=barecomp {=punctuation .} {=bareword base}}}"; s != t {
+			erro(ctx, "param: %s != %s", s, t).trace()
+		}
+		if len(p.bases) != 1 {
+			erro(ctx, "wrong bases: %v", p.bases).trace()
+		}
+		if b := p.bases[0]; b.name != "app.base" /* || b.spec != "app/.base" */ {
+			erro(ctx, "wrong bases[0]: %v %v", b.spec, b.name).trace()
+		} else if !isDir { // app/.base is dir
+			erro(ctx, "not dir: %v %v, %s", b.spec, b.name, absPath).trace()
+		}
+		if implicitBase != "" {
+			erro(ctx, "wrong implicit base: %v %v", implicitIndex, implicitBase).trace()
+		}
+	}
+}
+
+func (l unilo) directory_check(ctx Context, spec, absDir string) {
+	switch l.project.name {
+	case "configure.base", "lib.std":
+		if len(l.project.bases) != 1 {
+			erro(ctx, "%v: %v, %s %s", l.project, l.project.bases, spec, absDir).trace()
+		}
+		if l.project.bases[0].name != "app.base" {
+			erro(ctx, "%v: %v", l.project, l.project.bases[0].name).trace()
+		}
+		if false && l.project.bases[0].spec != "app/.base" {
+			erro(ctx, "%v: %v", l.project, l.project.bases[0].spec).trace()
+		}
+	}
+}
+
 func (l unilo) configure_check(ctx Context, ident Value, absPath, configure *string) {
     switch l.project.name {
 	case "testdefaultconfigure":
