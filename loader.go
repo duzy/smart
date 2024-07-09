@@ -825,8 +825,11 @@ func (l unilo) configure(ctx Context, ident Value, identStr string, declared boo
         if x, y := v.(*boolean); y {
             if !x.bool { return }
             configure = "configure"
-        } else if configure = v.string(ctx); configure == "" {
-            erro(at(ctx,v), "empty configure spec: %v", ts(v)).trace()
+        } else {
+            configure = v.string(ctx)
+            if configure == "" {
+                erro(at(ctx,v), "empty configure spec: %v", ts(v)).trace()
+            }
         }
     }
 
@@ -837,11 +840,13 @@ func (l unilo) configure(ctx Context, ident Value, identStr string, declared boo
         return
     }
 
+    var f *File
     if filepath.IsAbs(configure) {
-        if f := stat(ctx, configure); f.exists() {
-            absPath, isDir = f.fullname(), f.info.IsDir()
-        }
-    } else if f := stat(ctx, configure, l.project); f.exists() {
+        f = stat(ctx, configure)
+    } else {
+        f = stat(ctx, configure, l.project)
+    }
+    if f != nil && f.exists() {
         absPath, isDir = f.fullname(), f.info.IsDir()
     }
 
@@ -891,7 +896,7 @@ func (l unilo) configure(ctx Context, ident Value, identStr string, declared boo
 
     // Load configuration.sm after .configure was loaded.
     l.project.configure = loaded // must set .configure first to get the correct configuration file
-    l.project.configuration = l.project._configuration(ctx)
+    l.project.configuration = l.project.configuration_sm(ctx)
     if f := l.project.configuration; f == nil {
         erro(ctx, "%v: nil configuration file", ident).trace()
     } else if declared || l.commandline.configure {

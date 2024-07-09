@@ -978,7 +978,7 @@ func _suffix(ctx Context, x, y Value) Value {
     return makeBarecomp(x).suffix(ctx, y)
 }
 
-func compose(ctx Context, x, y Value) (res Value) {
+func compose(ctx Context, x, y Value) Value {
     switch _x := x.(type) { case i_suffix: return _x.suffix(ctx, y) }
     switch _y := y.(type) { case i_prefix: return _y.prefix(ctx, x) }
 
@@ -993,7 +993,7 @@ func compose(ctx Context, x, y Value) (res Value) {
 
     erro(at(ctx, y), "compose: %v, %v", ts(x), ts(y)).trace()
 
-    return makeBarecomp(x, y)//.suffix(ctx, y)
+    return makeBarecomp(x, y)
 }
 
 func has_prefix(str string, prefixs ...string) (res bool) {
@@ -2060,10 +2060,10 @@ func isTrueString(s string) (t bool) {
 
 type punctuation struct { valbase; tok token }
 func (p *punctuation) String() string { return p.tok.String() }
-func (p *punctuation) string(ctx Context) string { return p.tok.String() }
-func (p *punctuation) true(ctx Context) bool { return false }
-func (p *punctuation) int(ctx Context) (_ int64) { return }
-func (p *punctuation) float(ctx Context) (_ float64) { return }
+func (p *punctuation) string(Context) string { return p.tok.String() }
+func (p *punctuation) true(Context) bool { return false }
+func (p *punctuation) int(Context) (_ int64) { return }
+func (p *punctuation) float(Context) (_ float64) { return }
 func (p *punctuation) expand(Context) Value { return p }
 func (p *punctuation) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*punctuation); y {
@@ -3964,11 +3964,11 @@ type File struct {
     *filebase
     *filestub
 }
-func (p *File) String() string { return "{=file "+p.filestub.name+"}" }
-func (p *File) string(ctx Context) string { return p.filestub.name }
 func (p *File) ts(string) string { return "{=file "+p.filestub.name+"}" }
-func (p *File) hash(h *maphash.Hash) { h.WriteString(p.fullname()) }
+func (p *File) String() string { return "{=file "+p.filestub.name+"}" }
+func (p *File) string(Context) string { return p.filestub.name }
 func (p *File) ident(Context) string { return p.filestub.name }
+func (p *File) hash(h *maphash.Hash) { h.WriteString(p.fullname()) }
 func (p *File) true(Context) (_ bool) {
     if p.filestub.name != "" { return true } // p.exists() == existenceConfirmed
     return
@@ -4126,9 +4126,9 @@ func (p *File) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-func (p *File) patterned(ctx Context, ) bool { return false }
-func (p *File) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
-func (p *File) match1(ctx Context, v string) (full bool, s string, stems []string) {
+func (p *File) patterned(Context) bool { return false }
+func (p *File) stencil(Context, []string) (Value, []string) { return p, nil }
+func (p *File) match1(_ Context, v string) (full bool, s string, stems []string) {
     if name := p.filestub.name; name == v {
         s, full = name, true
     } else if name = filepath.Join(p.sub, p.filestub.name); name == v {
@@ -4163,6 +4163,20 @@ func (p *File) change(dir, sub, name string) (okay bool) {
         head.other, okay = p.filestub, true
     }
     return
+}
+
+func (p *File) suffix(ctx Context, val Value) (_ Value) {
+    var stub = *p.filestub
+    switch v := val.(type) {
+    case *punctuation, *bareword:
+        if indeterminate(ctx, v) {
+            erro(at(ctx,v), "indeterminate file suffix: %v", ts(v)).trace()
+        }
+        stub.name += v.string(ctx)
+    default:
+        erro(at(ctx,v), "wrong file suffix: %v %s", stub.name, ts(v)).trace()
+    }
+    return &File{p.valbase,p.filebase,&stub}
 }
 
 type filecontent struct { *File ; content []byte }
@@ -5557,6 +5571,9 @@ func (p *percpat) string(ctx Context) (s string) {
     if p.Suffix != nil { s += p.Suffix.string(ctx) }
     return
 }
+func (p *percpat) ts(t string) string {
+    return fmt.Sprintf("{=%s %s %s}", t, ts(p.Prefix), ts(p.Suffix))
+}
 func (p *percpat) refs(ctx Context, v Value) bool {
     return p.Prefix.refs(ctx, v) || p.Suffix.refs(ctx, v)
 }
@@ -5760,13 +5777,18 @@ func (p *percpat) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
+    if checkpoints {
+        if s := ts(p.Suffix); strings.Contains(s, "{=argumented ") {
+            erro(at(ctx,p), "wrong percpat: %v : suffix=%s", p, s).trace()
+        }
+    }
+
     if indeterminate(ctx, p) {
         erro(at(ctx,p), "valcache %v : indeterminate element : %v", p, ts(p)).trace()
     }
 
-    t := do(&percpat_hit{ctx, p}, hit_perc{c, p.string(ctx)})
-
-    if x, y := t.(valcache_bool); y {
+    var s = p.string(ctx)
+    if x, y := do(&percpat_hit{ctx,p}, hit_perc{c,s}).(valcache_bool); y {
         return x.valcache, x.bool
     }
 

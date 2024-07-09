@@ -267,11 +267,11 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
             erro(ctx, "unhit: %v %v", ts(k), ts(ctx)).trace()
         }
     case valcache_hit:
-        if res, fullmatch = t.hit(ctx, p) ; res == nil && cacheMapping(ctx) {
-            erro(ctx, "no valcache for %v : %v", ts(k), p).trace()
-        } else {
-            return
-        }
+		if res, fullmatch = t.hit(ctx, p) ; res == nil && cacheMapping(ctx) {
+			erro(ctx, "no valcache for %v : %v", ts(k), p).trace()
+		} else {
+			return
+		}
     case Value:
         if indeterminate(ctx, t) {
             if x, y := do(ctx, hit_value{p, t}).(valcache_bool); y {

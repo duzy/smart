@@ -338,8 +338,9 @@ func (p *project) cmp(ctx Context, v Value) (res cmpres) {
 
 type self struct { *project }
 func (_ self) ident(Context) string { return ".self" }
-func (_ self) srclit(Context, Object) string { return "$(.self)" }
-func (p self) String() string { return p.srclit(nil, nil) }
+func (p self) srclit(Context, Object) string { return p.ident(nil) }
+func (p self) String() string { return p.ident(nil) }
+func (p self) ts(t string) string { return fmt.Sprintf("{=self %s}", p.name) }
 func (p self) kind() Kind { return p.project.kind()|KindSelf }
 func (p self) expand(Context) Value { return p }
 func (p self) cmp(ctx Context, v Value) (res cmpres) {
@@ -452,9 +453,15 @@ func (p *project) tempFile(ctx Context, name string) (file *File) {
   return
 }
 
-func (p *project) _configuration(ctx Context) (f *File) {
+func (p *project) configuration_sm(ctx Context) (f *File) {
+  if p == nil {
+    erro(ctx, "%v: project is nil", p).trace()
+  }
+  if p.configure == nil {
+    erro(ctx, "%v: project configure is nil", p).trace()
+  }
   if f = p.tempFile(closure_with(ctx, p.scope, p.configure.scope), configuration_sm); f == nil {
-    erro(ctx, "%v: no file configuration.sm", p).trace()
+    erro(ctx, "%v: no file %s", p, configuration_sm).trace()
   }
   return
 }

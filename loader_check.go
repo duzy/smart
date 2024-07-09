@@ -39,23 +39,19 @@ func (l unilo) bases_check_param(ctx Context, implicitBase string, i int, elem, 
 
 func (l unilo) bases_check(ctx Context, implicitIndex int, implicitBase, absPath string, isDir bool, param Value) {
 	switch p := l.project; p.name {
-	case "testdefaultconfigure":
-		if d := p.resolveDef(ctx, "variant"); d == nil || d.value == nil {
-			erro(ctx, "nil variant").trace()
-		} else if s, t := ts(d.value), "{=path {=bareword darwin} {=bareword arm64} {=bareword bootstrap}}"; s != t {
-			erro(ctx, "variant: %s != %s", s, t).trace()
-		}
+	case "app.base":
 		if len(p.bases) != 1 {
 			erro(ctx, "wrong bases: %v", p.bases).trace()
 		}
-		if p.bases[0].name != ".base" {
+		if false && p.bases[0].name != "bootstrap" {
 			erro(ctx, "wrong bases[0]: %v", p.bases[0]).trace()
 		}
-		if false && implicitBase != ".base" {
-			erro(ctx, "wrong implicit base: %v %v", implicitIndex, implicitBase).trace()
+	case "configure.base":
+		if len(p.bases) != 1 {
+			erro(ctx, "wrong bases: %v", p.bases).trace()
 		}
-		if false && !truly(ctx, is_implicit_load{}) {
-			erro(ctx, "not implicit: %v %v", ts(param), p.bases).trace()
+		if p.bases[0].name != "app.base" {
+			erro(ctx, "wrong bases[0]: %v", p.bases[0]).trace()
 		}
 	case "lib.std":
 		if s, t := ts(param), "{=path {=bareword app} {=barecomp {=punctuation .} {=bareword base}}}"; s != t {
@@ -72,6 +68,26 @@ func (l unilo) bases_check(ctx Context, implicitIndex int, implicitBase, absPath
 		if implicitBase != "" {
 			erro(ctx, "wrong implicit base: %v %v", implicitIndex, implicitBase).trace()
 		}
+	case "testdefaultconfigure":
+		if len(p.bases) != 1 {
+			erro(ctx, "wrong bases: %v", p.bases).trace()
+		}
+		if p.bases[0].name != ".base" {
+			erro(ctx, "wrong bases[0]: %v", p.bases[0]).trace()
+		}
+		if false && implicitBase != ".base" {
+			erro(ctx, "wrong implicit base: %v %v", implicitIndex, implicitBase).trace()
+		}
+		if false && !truly(ctx, is_implicit_load{}) {
+			erro(ctx, "not implicit: %v %v", ts(param), p.bases).trace()
+		}
+		if d := p.resolveDef(ctx, "variant"); d == nil || d.value == nil {
+			erro(ctx, "nil variant").trace()
+		} else if s, t := ts(d.value), "{=path {=bareword darwin} {=bareword arm64} {=bareword bootstrap}}"; s != t {
+			erro(ctx, "variant: %s != %s", s, t).trace()
+		}
+	case "testcustomconfigure":
+	case "testdivergedconfigure":
 	}
 }
 

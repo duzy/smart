@@ -2130,7 +2130,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: different (%s)", f, proj.absPath)
 	}
 
-	if f := base._configuration(closure_with(ctx.Context, base.configure)); f == nil {
+	if f := base.configuration_sm(closure_with(ctx.Context, base.configure)); f == nil {
 		ctx.err("%v: %v: nil configuration", proj, base)
 	} else if f.ident(ctx) != configuration_sm {
 		ctx.err("%v: %v", f, base)

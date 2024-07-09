@@ -3010,49 +3010,31 @@ func (ctx *builtin_bases) x() (res any) {
 }
 
 type builtin_base struct { builtin_bases }
-func (ctx *builtin_base) x() (res any) { ctx.n = 1
-    return ctx.builtin_bases.x()
-}
+func (ctx *builtin_base) x() any { ctx.n = 1; return ctx.builtin_bases.x() }
 
 type builtin_base2 struct { builtin_bases }
-func (ctx *builtin_base2) x() (res any) { ctx.n = 2
-    return ctx.builtin_bases.x()
-}
+func (ctx *builtin_base2) x() any { ctx.n = 2; return ctx.builtin_bases.x() }
 
 type builtin_base3 struct { builtin_bases }
-func (ctx *builtin_base3) x() (res any) { ctx.n = 3
-    return ctx.builtin_bases.x()
-}
+func (ctx *builtin_base3) x() any { ctx.n = 3; return ctx.builtin_bases.x() }
 
 type builtin_base4 struct { builtin_bases }
-func (ctx *builtin_base4) x() (res any) { ctx.n = 4
-    return ctx.builtin_bases.x()
-}
+func (ctx *builtin_base4) x() any { ctx.n = 4; return ctx.builtin_bases.x() }
 
 type builtin_base5 struct { builtin_bases }
-func (ctx *builtin_base5) x() (res any) { ctx.n = 5
-    return ctx.builtin_bases.x()
-}
+func (ctx *builtin_base5) x() any { ctx.n = 5; return ctx.builtin_bases.x() }
 
 type builtin_base6 struct { builtin_bases }
-func (ctx *builtin_base6) x() (res any) { ctx.n = 6
-    return ctx.builtin_bases.x()
-}
+func (ctx *builtin_base6) x() any { ctx.n = 6; return ctx.builtin_bases.x() }
 
 type builtin_base7 struct { builtin_bases }
-func (ctx *builtin_base7) x() (res any) { ctx.n = 7
-    return ctx.builtin_bases.x()
-}
+func (ctx *builtin_base7) x() any { ctx.n = 7; return ctx.builtin_bases.x() }
 
 type builtin_base8 struct { builtin_bases }
-func (ctx *builtin_base8) x() (res any) { ctx.n = 8
-    return ctx.builtin_bases.x()
-}
+func (ctx *builtin_base8) x() any { ctx.n = 8; return ctx.builtin_bases.x() }
 
 type builtin_base9 struct { builtin_bases }
-func (ctx *builtin_base9) x() (res any) { ctx.n = 9
-    return ctx.builtin_bases.x()
-}
+func (ctx *builtin_base9) x() any { ctx.n = 9; return ctx.builtin_bases.x() }
 
 func dirs(n int, s string) (_ string) {
     for n > 0 {
@@ -3062,10 +3044,8 @@ func dirs(n int, s string) (_ string) {
     return s
 }
 
-type builtin_dirs struct { builtin_
-    n int `num,size,count`
-}
-func (ctx *builtin_dirs) x() (res any) {
+type builtin_dirs struct { builtin_ ; n int `num,size,count` }
+func (ctx *builtin_dirs) x() any {
     var l []Value
     for _, a := range merge(ctx.evocation.a...) {
         var s string
@@ -3074,8 +3054,7 @@ func (ctx *builtin_dirs) x() (res any) {
         } else {
             s = a.string(ctx)
         }
-        // s = filepath.Dir(s)
-        // for i := ctx.n-1; 0 < i; i -= 1 { s = filepath.Dir(s) }
+
         s = dirs(ctx.n, s)
 
         var v Value
@@ -3100,54 +3079,36 @@ func (ctx *builtin_dirs) x() (res any) {
 }
 
 type builtin_dir struct { builtin_dirs }
-func (ctx *builtin_dir) x() (res any) { ctx.n = 1
-    return ctx.builtin_dirs.x()
-}
+func (ctx *builtin_dir) x() any { ctx.n = 1; return ctx.builtin_dirs.x() }
 
 type builtin_dir2 struct { builtin_dirs }
-func (ctx *builtin_dir2) x() (res any) { ctx.n = 2
-    return ctx.builtin_dirs.x()
-}
+func (ctx *builtin_dir2) x() any { ctx.n = 2; return ctx.builtin_dirs.x() }
 
 type builtin_dir3 struct { builtin_dirs }
-func (ctx *builtin_dir3) x() (res any) { ctx.n = 3
-    return ctx.builtin_dirs.x()
-}
+func (ctx *builtin_dir3) x() any { ctx.n = 3; return ctx.builtin_dirs.x() }
 
 type builtin_dir4 struct { builtin_dirs }
-func (ctx *builtin_dir4) x() (res any) { ctx.n = 4
-    return ctx.builtin_dirs.x()
-}
+func (ctx *builtin_dir4) x() any { ctx.n = 4; return ctx.builtin_dirs.x() }
 
 type builtin_dir5 struct { builtin_dirs }
-func (ctx *builtin_dir5) x() (res any) { ctx.n = 5
-    return ctx.builtin_dirs.x()
-}
+func (ctx *builtin_dir5) x() any { ctx.n = 5; return ctx.builtin_dirs.x() }
 
 type builtin_dir6 struct { builtin_dirs }
-func (ctx *builtin_dir6) x() (res any) { ctx.n = 6
-    return ctx.builtin_dirs.x()
-}
+func (ctx *builtin_dir6) x() any { ctx.n = 6; return ctx.builtin_dirs.x() }
 
 type builtin_dir7 struct { builtin_dirs }
-func (ctx *builtin_dir7) x() (res any) { ctx.n = 7
-    return ctx.builtin_dirs.x()
-}
+func (ctx *builtin_dir7) x() any { ctx.n = 7; return ctx.builtin_dirs.x() }
 
 type builtin_dir8 struct { builtin_dirs }
-func (ctx *builtin_dir8) x() (res any) { ctx.n = 8
-    return ctx.builtin_dirs.x()
-}
+func (ctx *builtin_dir8) x() any { ctx.n = 8; return ctx.builtin_dirs.x() }
 
 type builtin_dir9 struct { builtin_dirs }
-func (ctx *builtin_dir9) x() (res any) { ctx.n = 9
-    return ctx.builtin_dirs.x()
-}
+func (ctx *builtin_dir9) x() any { ctx.n = 9; return ctx.builtin_dirs.x() }
 
 type builtin_undirs struct { builtin_
     n int `num,size,count`
 }
-func (ctx *builtin_undirs) x() (res any) {
+func (ctx *builtin_undirs) x() any {
     var l []Value
     for _, a := range ctx.evocation.a {
         var s string
@@ -3170,49 +3131,31 @@ func (ctx *builtin_undirs) x() (res any) {
 }
 
 type builtin_undir struct { builtin_undirs }
-func (ctx *builtin_undir) x() (res any) { ctx.n = 1
-    return ctx.builtin_undirs.x()
-}
+func (ctx *builtin_undir) x() any { ctx.n = 1; return ctx.builtin_undirs.x() }
 
 type builtin_undir2 struct { builtin_undirs }
-func (ctx *builtin_undir2) x() (res any) { ctx.n = 2
-    return ctx.builtin_undirs.x()
-}
+func (ctx *builtin_undir2) x() any { ctx.n = 2; return ctx.builtin_undirs.x() }
 
 type builtin_undir3 struct { builtin_undirs }
-func (ctx *builtin_undir3) x() (res any) { ctx.n = 3
-    return ctx.builtin_undirs.x()
-}
+func (ctx *builtin_undir3) x() any { ctx.n = 3; return ctx.builtin_undirs.x() }
 
 type builtin_undir4 struct { builtin_undirs }
-func (ctx *builtin_undir4) x() (res any) { ctx.n = 4
-    return ctx.builtin_undirs.x()
-}
+func (ctx *builtin_undir4) x() any { ctx.n = 4; return ctx.builtin_undirs.x() }
 
 type builtin_undir5 struct { builtin_undirs }
-func (ctx *builtin_undir5) x() (res any) { ctx.n = 5
-    return ctx.builtin_undirs.x()
-}
+func (ctx *builtin_undir5) x() any { ctx.n = 5; return ctx.builtin_undirs.x() }
 
 type builtin_undir6 struct { builtin_undirs }
-func (ctx *builtin_undir6) x() (res any) { ctx.n = 6
-    return ctx.builtin_undirs.x()
-}
+func (ctx *builtin_undir6) x() any { ctx.n = 6; return ctx.builtin_undirs.x() }
 
 type builtin_undir7 struct { builtin_undirs }
-func (ctx *builtin_undir7) x() (res any) { ctx.n = 7
-    return ctx.builtin_undirs.x()
-}
+func (ctx *builtin_undir7) x() any { ctx.n = 7; return ctx.builtin_undirs.x() }
 
 type builtin_undir8 struct { builtin_undirs }
-func (ctx *builtin_undir8) x() (res any) { ctx.n = 8
-    return ctx.builtin_undirs.x()
-}
+func (ctx *builtin_undir8) x() any { ctx.n = 8; return ctx.builtin_undirs.x() }
 
 type builtin_undir9 struct { builtin_undirs }
-func (ctx *builtin_undir9) x() (res any) { ctx.n = 9
-    return ctx.builtin_undirs.x()
-}
+func (ctx *builtin_undir9) x() any { ctx.n = 9; return ctx.builtin_undirs.x() }
 
 type builtin_chopdir struct { builtin_ }
 func (ctx *builtin_chopdir) x() (res any) {
@@ -3888,13 +3831,13 @@ type builtin_wildcard struct { builtin_
     dir string `dir,directory`
 }
 func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*File) {
-    if checkpoints {
+    if false && checkpoints {
         if s := _workdir(ctx); s == "" {
             erro(ctx, "empty workdir").trace()
         } else if !strings.HasPrefix(topDir, s) {
-            erro(ctx, "%s", s)
-            erro(ctx, "%s", topDir)
-            erro(ctx, "%v", ts(ctx)).trace()
+            note(ctx, "_directory: %s", topDir)
+            note(ctx, "_directory: %s", s)
+            erro(ctx, "_directory").trace()
         }
     }
 
@@ -4461,7 +4404,7 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
             }
             continue
         } else if val = d.invoke(ctx, nil, nil); isNull(val) {
-            if f := project._configuration(ctx); f == nil {
+            if f := project.configuration_sm(ctx); f == nil {
                 erro(at(ctx,d), "%v: configuration file not defined", name, f).trace()
                 return
             } else if !f.exists() {

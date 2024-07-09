@@ -714,7 +714,10 @@ func (s *scanner) scanCompound(q rune) (tok token, lit string) {
 		if s.next(); q == 0 { // skim the \ character
 			tok, lit = ESCAPE, string(s.ch)
 			s.next() // the escaped character
-		} else if s.scanEscape(/*'"'*/q) {
+			if s.bits&isRecipes != 0 && s.ch == '\t' {
+				s.next() // skip escaped recipe-tab
+			}
+		} else if s.scanEscape(q) {
 			tok, lit = ESCAPE, string(s.src[offs+1:s.offset])
 		} else {
 			tok, lit = ILLEGAL, string(s.src[offs:s.offset])
@@ -733,9 +736,9 @@ func (s *scanner) scanCompound(q rune) (tok token, lit string) {
 		}
 	}
 
-ScanLoop:
-	for ; s.readOffset < len(s.src); s.next() {
-		switch s.ch { case '\\', '\n', '$', '&', q: break ScanLoop }
+l:
+	for ; s.readOffset < len(s.src) ; s.next() {
+		switch s.ch { case '\\', '\n', '$', '&', q: break l }
 	}
 	tok, lit = RAW, string(s.src[offs:s.offset])
 	return
@@ -850,6 +853,9 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 	case '\\':
 		tok, lit = ESCAPE, string(s.ch)
 		s.next() // eat escaped char
+		if s.bits&isRecipes != 0 && s.ch == '\t' {
+			s.next() // skip escaped recipe-tab
+		}
 	case '\'':
 		if tok = STRING; s.ch == '\'' {
 			if s.next(); s.ch == '\'' { // '''
@@ -925,7 +931,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 		} else {
 			tok = ASSIGN
 		}
-	case ' ', '\t':
+	case ' ', '\t': // ASCII 32, 9
 		if ch == '\t' && s.canRecipe() {
 			tok, lit = RECIPE, string(ch)
 			s.push(isCompoundLine)
@@ -990,7 +996,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 		tok = ASSIGN_CO2
 	case ';':
 		if s.ch == '=' { tok = ASSIGN_SC1 ; s.next() } else
-		if s.ch == ':' { tok = SOLON ; s.next()
+		if s.ch == ':' { tok = SOLON      ; s.next()
 			if s.ch == '=' { tok = ASSIGN_CO3 ; s.next() }
 		} else {
 			tok = SEMICOLON
@@ -1005,7 +1011,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 		tok = LBRACK
 	case ']':
 		tok = RBRACK
-	case '\n':
+	case '\n': // ASCII 10, 13⇒\r
 		tok = LINEND
 		if s.pop(isCompoundLine); s.ch != '\t' { s.bits &^= isRecipes }
 	default:

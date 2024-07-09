@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	// "reflect"
 	"regexp"
 	"runtime"
 	"runtime/pprof"
@@ -76,6 +75,7 @@ type (
 	parse_is_flat        struct{}
 	parse_is_recipe      struct{ bool } // builtin or text
 	parse_left_hand_side struct{}
+	parse_no_argumented  struct{}
 )
 
 type token_aware struct { Context ; token }
@@ -86,12 +86,12 @@ func (p token_aware) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
+type def_value      struct { Context }
 type parse_auto     struct { Context }
 type parse_bare     struct { Context }
 type parse_braced   struct { Context }
 type parse_call     struct { Context }
 type parse_code     struct { automatic }
-type def_value struct { Context }
 type parse_foreach  struct { Context }
 type parse_glob     struct { Context }
 type parse_group    struct { Context }
@@ -105,6 +105,13 @@ type parse_recipe   struct { Context ; builtin bool }
 type parse_regex    struct { Context }
 type parse_rule     struct { Context }
 type parse_undef    struct { Context }
+
+func (p parse_perc) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case parse_no_argumented: return true
+	}
+	return p.Context.do(ctx, op)
+}
 
 func (p parse_glob) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
@@ -861,29 +868,28 @@ func (l unilo) group(ctx Context) *group {
 	return makeGroup(_position(ctx), elems...)
 }
 
-func (l unilo) argumentedExpr(ctx Context, x Value) *argumented {
+func (l unilo) argumented(ctx Context, x Value) *argumented {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "argumented")) }
 
-	p := l.p
-	ctx = parse_group{token_aware{at(ctx, p),COMMA}}
+	ctx = parse_group{token_aware{at(ctx, l.p),COMMA}}
 
-	p.next(ctx, true) // skip LPAREN
+	l.p.next(ctx, true) // skip LPAREN
 
 	var a = []Value{ l.list(ctx) }
-	for p.tok != RPAREN && p.tok != LINEND && p.tok != EOF {
-		switch p.tok {
-		case COMMA: p.next(ctx, true) // skip COMMA
+	for l.p.tok != RPAREN && l.p.tok != LINEND && l.p.tok != EOF {
+		switch l.p.tok {
+		case COMMA: l.p.next(ctx, true) // skip COMMA
 		case BAR, SEMICOLON:
 			if false {
-				a = append(a, p.punctuation())
-				p.spaces(ctx)
+				a = append(a, l.p.punctuation())
+				l.p.spaces(ctx)
 			} else {
-				erro(ctx, "unexpected punctuation: %v", p.tok).trace()
+				erro(ctx, "unexpected punctuation: %v", l.p.tok).trace()
 			}
 		}
-		a = append(a, l.list(at(ctx, p)))
+		a = append(a, l.list(at(ctx, l.p)))
 	}
-	p.expect(ctx, RPAREN)
+	l.p.expect(ctx, RPAREN)
 	return makeArgumented(x, a...)
 }
 
@@ -896,12 +902,11 @@ func (l unilo) globmeta(ctx Context) (x *globmeta) {
 func (l unilo) globrange(ctx Context) (x *globrange) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "globrange")) }
 
-	p := l.p
-	ctx = at(ctx, p)
-	p.expect(ctx, LBRACK) // skip '['
+	ctx = at(ctx, l.p)
+	l.p.expect(ctx, LBRACK) // skip '['
 
 	chars := l.expr(ctx)
-	p.expect(ctx, RBRACK) // skip ']'
+	l.p.expect(ctx, RBRACK) // skip ']'
 
 	return makeGlobRange(chars)
 }
@@ -909,8 +914,7 @@ func (l unilo) globrange(ctx Context) (x *globrange) {
 func (l unilo) glob(ctx Context, x Value) (g *globpat) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "glob")) }
 
-	p := l.p
-	ctx = parse_glob{at(ctx, p)}
+	ctx = parse_glob{at(ctx, l.p)}
 
 	if y := x == nil; y {
 		g = &globpat{}
@@ -918,9 +922,9 @@ func (l unilo) glob(ctx Context, x Value) (g *globpat) {
 		g = makeGlobPat(x)
 	}
 
-	for p.tok != RBRACE && p.tok != EOF && p.lineComment == nil {
+	for l.p.tok != RBRACE && l.p.tok != EOF && l.p.lineComment == nil {
 		var v Value
-		switch p.tok {
+		switch l.p.tok {
 		case SELECT_PROP, SELECT_PROG1, SELECT_PROG2, PCON, RPAREN, COMMA, SPACE, LINEND, EOF:
 			return
 		case STAR, DAST, QUE:
@@ -936,58 +940,38 @@ func (l unilo) glob(ctx Context, x Value) (g *globpat) {
 }
 
 func (l unilo) perc(ctx Context, x Value) Value {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "Perc")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "perc")) }
 
-	var p = l.p
-	ctx = parse_perc{at(ctx, p)}
+	ctx = parse_perc{at(ctx, l.p)}
 
-	var (
-		pos = p.pos
-		y Value
-	)
-	if p.step(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
-		switch p.tok {
-		case COLON, DOLON,
-			LPAREN, RPAREN,
-			LBRACK, RBRACK,
-			PCON,   SEMICOLON,
-			COMMA,  SPACE,
-			LINEND:
+	var y Value
+	var pos = l.p.pos
+	if l.p.step(); pos+1 == l.p.pos { // joint, e.g. '%.o', but skip '% .o'
+		switch l.p.tok {
+		case COLON, DOLON, LPAREN, RPAREN, LBRACK, RBRACK, PCON, SEMICOLON, COMMA, SPACE, LINEND:
 		case PERC: // %%
-			p.step() // consume the second %
-			position := p.Position()
-			perc2 := makePercpat(position, nil, nil)
-			if pos+2 == p.pos {
-				switch p.tok {
+			l.p.step() // consume the second %
+			perc := makePercpat(l.p.Position(), nil, nil)
+			if pos+2 == l.p.pos {
+				switch l.p.tok {
+				case COLON,DOLON,LPAREN,RPAREN,LBRACK,RBRACK,LBRACE,SEMICOLON,COMMA,SPACE,LINEND:
 				case PERC: // %%%
 					erro(ctx, "too many %").trace()
 				case PCON: // FIXES: %%/xxx -> Path(%% xxx)
-					x = makePercpat(position, x, perc2)
-					return l.path(ctx, x)
-				case COLON,    DOLON,
-					LPAREN,    RPAREN,
-					LBRACK,    RBRACK,
-					LBRACE,
-					SEMICOLON, COMMA,
-					SPACE,     LINEND:
+					return l.path(ctx, makePercpat(l.p.Position(), x, perc))
 				default:
-					var (
-						yy = l.expr(ctx)
-						_, ok = yy.(*path)
-					)
-					if ok {
-						erro(ctx, "incorrect: %v, %v", x, yy).trace()
+					switch perc.Suffix = l.expr(ctx); perc.Suffix.(type) {
+					case *argumented, *path:
+						erro(ctx, "incorrect: %v %v", x, ts(perc.Suffix)).trace()
 					}
-					assert(!ok, "the second part of aaa%%bbb/foo/bar parsed incorrectly as path")
-					perc2.Suffix = yy
 				}
 			}
-			y = perc2
+			y = perc
 		default:
 			y = l.expr(ctx)
 		}
 	}
-	return makePercpat(p.loc(pos), x, y)
+	return makePercpat(l.p.loc(pos), x, y)
 }
 
 func (p *parser) regex(ctx Context) (_ Value) {
@@ -1054,15 +1038,18 @@ func (l unilo) flag(ctx Context) flag {
 		x = l.expr(ctx)
 	} else {
 		x = l.unary(ctx)
-		l: for p.tok == DOT || !(_operator_beg < p.tok && p.tok < _closure_beg) {
+	l:
+		for p.tok == DOT || !(_operator_beg < p.tok && p.tok < _closure_beg) {
 			switch p.tok {
 			case COMMENT, HASH, SPACE, RECIPE, LINEND, EOF: break l
 			case DELEGATE, CLOSURE: x = compose(ctx, x, l.unary(ctx))
-			default: if p.tok.isClosure() || p.tok.isDelegate() {
-				x = compose(ctx, x, l.unary(ctx))
-			} else {
-				break l
-			}}
+			default:
+				if p.tok.isClosure() || p.tok.isDelegate() {
+					x = compose(ctx, x, l.unary(ctx))
+				} else {
+					break l
+				}
+			}
 		}
 	}
 	if x == nil {
@@ -1086,6 +1073,9 @@ func (p *parser) punctuation() *punctuation {
 
 func (p *parser) escape(ctx Context) (v Value) {
 	var vb, lit = p.valbase(), p.lit
+	if p.scanner.bits&isRecipes != 0 {
+		note(ctx, "%v %v", p.tok, p.lit).debug(2)
+	}
 	p.expect(ctx, ESCAPE)
 	return &escaped{vb, lit}
 }
@@ -1096,23 +1086,22 @@ func (p *parser) literal(ctx Context) (v Value) {
 	p.step()
 
 	// ESCAPE is handled in value.EscapeChar
-    switch position := _position(ctx); tok {
-    case BAR:
-		erro(ctx, "`|` is deprecated, changed the modifiers!")
-    case BINARY:      v = ParseBinary(position, lit)
-    case OCTAL:       v = ParseOctal(position, lit)
-    case INTEGER:     v = ParseDecimal(position, lit)
-    case HEXADECIMAL: v = ParseHexadecimal(position, lit)
-    case FLOATING:    v = parseFloat(position, lit)
-    case DATETIME:    v = ParseDateTime(position, lit)
-    case DATE:        v = ParseDate(position, lit)
-    case TIME:        v = ParseTime(position, lit)
-    case URI:         v = ParseURL(position, lit)
-    case BAREWORD:    v = makeBareword(position, lit)
-    case STRING:      v = makeStrlit(position, lit)
-    case RAW:         v = makeRaw(position, lit)
-    default: unreachable()
-    }
+	switch pos := _position(ctx); tok {
+	case BAR: erro(ctx, "`|` is deprecated, change the modifiers!").trace()
+	case BINARY:      v = ParseBinary(pos, lit)
+	case OCTAL:       v = ParseOctal(pos, lit)
+	case INTEGER:     v = ParseDecimal(pos, lit)
+	case HEXADECIMAL: v = ParseHexadecimal(pos, lit)
+	case DATETIME:    v = ParseDateTime(pos, lit)
+	case DATE:        v = ParseDate(pos, lit)
+	case TIME:        v = ParseTime(pos, lit)
+	case URI:         v = ParseURL(pos, lit)
+	case FLOATING:    v = parseFloat(pos, lit)
+	case BAREWORD:    v = makeBareword(pos, lit)
+	case STRING:      v = makeStrlit(pos, lit)
+	case RAW:         v = makeRaw(pos, lit)
+	default: unreachable()
+	}
 	return
 }
 
@@ -1142,19 +1131,17 @@ func (l unilo) compound(ctx Context) *compound {
 //   ..'foo'
 //   .foo.bar
 func (l unilo) dot(ctx Context, x Value) (res Value) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "Dot")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "dot")) }
 
-	var p = l.p
-	ctx = token_aware{at(ctx, p),DOT}
+	ctx = token_aware{at(ctx, l.p), DOT}
 
-	for !p.isEndOfDotConcat(ctx) {
+	for !l.p.isEndOfDotConcat(ctx) {
 		x = compose(ctx, x, l.composite(ctx))
-		if p.tok == DOT /*&& comp.End() == p.pos*/ {
-			x = compose(ctx, x, &punctuation{p.valbase(), p.tok})
-			p.step() // skips '.'
+		if l.p.tok == DOT /*&& comp.End() == l.p.pos*/ {
+			x = compose(ctx, x, &punctuation{l.p.valbase(), l.p.tok})
+			l.p.step() // skips '.'
 		}
 	}
-
 	return x
 }
 
@@ -1701,11 +1688,7 @@ func (l unilo) composite(ctx Context) (x Value) {
 func (l unilo) expr(ctx Context) (x Value) {
 	if false && l_traverse.enabled { defer un(l_trace(l_traverse, "expr")) }
 
-	var tok, lit = l.p.tok, l.p.lit
-
-	if x = l.composite(ctx); x == nil {
-		erro(at(ctx, l.p), "invalid (%v,%v; prev=%v,%v)", l.p.tok, l.p.lit, tok, lit).trace()
-	}
+	x = l.composite(ctx)
 
 	if truly(ctx, parse_is_glob{}) { return }
 
@@ -1728,13 +1711,16 @@ composeLoop:
 		goto composeLoop
 
 	case LPAREN:
-		if x = l.argumentedExpr(ctx, x); x != nil {
+		if truly(ctx, parse_no_argumented{}) {
+			return
+		}
+		if x = l.argumented(ctx, x); x != nil {
 			goto composeLoop
 		}
 		return
 
 	case PCON:
-		// Path, excepts '-I/path/to/include'
+		// Path, excepts -I/path/to/include
 		switch x.(type) {
 		case flag:
 		default: x = l.path(ctx, x)
@@ -2146,14 +2132,11 @@ func (l unilo) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) 
 func (l unilo) directive(ctx Context) (props []Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "spec")) }
 
-	//var doc = p.leadComment
-	// var comment *commentGroup
-
 DirParamsLoop:
 	for l.p.tok != EOF {
 		switch l.p.spaces(ctx); l.p.tok {
-		case COMMA, LINEND, RPAREN, RBRACE,
-			SELECT_PROG1, COLON: break DirParamsLoop
+		case COMMA, LINEND, RPAREN, RBRACE, SELECT_PROG1, COLON:
+			break DirParamsLoop
 		}
 
 		if l.p.lineComment != nil {
@@ -2466,6 +2449,9 @@ func (l unilo) recipe(ctx Context) Value {
 
 			for p.tok != EOF && p.tok != SEMICOLON && p.tok != LINEND && p.lineComment == nil {
 				if p.spaces(ctx); p.lineComment != nil { break }
+				if /* p.tok == ESCAPE || */ p.tok == RECIPE {
+					note(ctx, "%v %v, %v, %v %v", x, ts(x), p.tok, l.p.isRecipeStart(), p.tok.isRuleDelim()).debug(3)
+				}
 				if !p.tok.isRuleDelim() {
 					x = l.expr(c)
 				} else {
@@ -2778,8 +2764,8 @@ func (l unilo) parse_rule(ctx Context, optvals, targets []Value) (result Value) 
 }
 
 func (l unilo) entries(ctx Context, prog *program, targets, options []Value) (res []entry) {
-    for _, target := range targets {
-        var ctx = at(ctx, target)
+	for _, target := range targets {
+		var ctx = at(ctx, target)
 
         if isTrivial(target) {
             if true { continue }
@@ -3597,7 +3583,7 @@ func (l unilo) parse_file(ctx Context) (_ bool) {
 	defer l.closescope(l.openscope("file "+sof))
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
-		defer l.parse_file_check(ctx, abs, rel, tmp)
+		defer l.parse_file_check_1(ctx, abs, rel, tmp)
 	}
 
 	if !flatmode {
@@ -3672,6 +3658,10 @@ func (l unilo) parse_file(ctx Context) (_ bool) {
 
 	if autoload { l.autoload(at(ctx, l.p), "appendix") }
 	if l.ddd == "parser.files" { l.ddd = "" }
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		defer l.parse_file_check_2(ctx, filename)
+	}
 
 	return l.mode&ImportsOnly != 0 || l.p.tok == EOF
 }

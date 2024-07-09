@@ -3,8 +3,11 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
-
 package smart
+
+import (
+	"path/filepath"
+)
 
 func (p *parser) define_check(ctx Context, tok token, ident, value Value, d **def) {
 	if *d == nil {
@@ -41,6 +44,13 @@ func (l unilo) files_check(ctx Context) {
 		if d := p.resolveDef(ctx, "outbin"); d == nil || d.value == nil {
 			erro(ctx, "outbin is undefined").trace()
 		}
+	case "variant.target":
+		if d := p.resolveDef(ctx, "variant.tag"); d == nil || d.value == nil {
+			erro(ctx, "variant.tag is undefined").trace()
+		}
+		if d := p.resolveDef(ctx, "variant.name"); d == nil || d.value == nil {
+			erro(ctx, "variant.name is undefined").trace()
+		}
 	case "app.base":
 		if d := p.resolveDef(ctx, "variant.tag"); d == nil || d.value == nil {
 			erro(ctx, "variant.tag is undefined").trace()
@@ -70,7 +80,7 @@ func (l unilo) files_check(ctx Context) {
 	}
 }
 
-func (l unilo) parse_file_check(ctx Context, abs, rel, tmp string) {
+func (l unilo) parse_file_check_1(ctx Context, abs, rel, tmp string) {
 	var p = l.project
 	if p == nil {
 		erro(ctx, "nil project").trace()
@@ -79,6 +89,9 @@ func (l unilo) parse_file_check(ctx Context, abs, rel, tmp string) {
 
 	switch p.name {
 	case "general":
+		if len(p.bases) != 0 {
+			erro(ctx, "%v: %v", p, p.bases).trace()
+		}
 		if d := p.resolveDef(ctx, "workspace"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v %v", p, rel, d).trace()
 		} else if s, t := d.value.string(ctx), dirs(3, abs); s != t {
@@ -114,18 +127,6 @@ func (l unilo) parse_file_check(ctx Context, abs, rel, tmp string) {
 	}
 }
 
-func (l unilo) new_project_check_bases(ctx Context) {
-	switch p := l.project; p.name {
-	case "lib.std":
-		if len(p.bases) != 1 {
-			erro(ctx, "%v: wrong bases: %v", p, p.bases).trace()
-		}
-		if b := p.bases[0]; b.name != "app.base" {
-			erro(ctx, "%v: wrong bases[0]", b).trace()
-		}
-	}
-}
-
 func (l unilo) parse_file_check_new_project(ctx Context) {
 	switch p := l.project; p.name {
 	case "lib.std":
@@ -143,6 +144,77 @@ func (l unilo) parse_file_check_new_project(ctx Context) {
 		}
 		if d := p.resolveDef(ctx, "outlib"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v", p, d).trace()
+		}
+	}
+}
+
+func (l unilo) parse_file_check_2(ctx Context, filename string) {
+	var p = l.project
+	if p == nil {
+		erro(ctx, "nil project").trace()
+		return
+	}
+
+	switch filepath.Base(filename) {
+	case ".autoload.declared": l.parse_file_check_autoload_declared(ctx, p)
+	case ".autoload.appendix": l.parse_file_check_autoload_appendix(ctx, p)
+	case "do.smart": l.parse_file_check_do_smart(ctx, p)
+	}
+}
+
+func (l unilo) parse_file_check_autoload_declared(ctx Context, p *project) {
+	switch p.name {
+	case "testdefaultconfigure":
+		if len(p.configs) != 0 {
+			erro(ctx, "wrong configs: %v", p.configs).trace()
+		}
+	}
+}
+
+func (l unilo) parse_file_check_autoload_appendix(ctx Context, p *project) {
+	switch p.name {
+	case "app.base":
+	case "configure.base":
+	}
+}
+
+func (l unilo) parse_file_check_do_smart(ctx Context, p *project) {
+	switch p.name {
+	case "testdefaultconfigure":
+		if len(p.configs) != 1 {
+			erro(ctx, "wrong configs: %v", p.configs).trace()
+		}
+		if p.configs[0].String() != "FOO" {
+			erro(ctx, "wrong configs[0]: %v", p.configs[0]).trace()
+		}
+	case "testcustomconfigure":
+		var configs = []string{"FOO1","FOO2","FOO3","FOO4","FOO5"}
+		if len(p.configs) != len(configs) {
+			erro(ctx, "wrong configs: %v", p.configs).trace()
+		}
+		for i, s := range configs {
+			if p.configs[i].String() != s {
+				erro(ctx, "wrong configs[%d]: %v", i, p.configs[i]).trace()
+			}
+		}
+	case "testdivergedconfigure":
+		if len(p.configs) != 1 {
+			erro(ctx, "wrong configs: %v", p.configs).trace()
+		}
+		if p.configs[0].String() != "FOO" {
+			erro(ctx, "wrong configs[0]: %v", p.configs[0]).trace()
+		}
+	}
+}
+
+func (l unilo) new_project_check_bases(ctx Context) {
+	switch p := l.project; p.name {
+	case "lib.std":
+		if len(p.bases) != 1 {
+			erro(ctx, "%v: wrong bases: %v", p, p.bases).trace()
+		}
+		if b := p.bases[0]; b.name != "app.base" {
+			erro(ctx, "%v: wrong bases[0]", b).trace()
 		}
 	}
 }

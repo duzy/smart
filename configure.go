@@ -65,7 +65,7 @@ func (ctx *configurecontext) openConfigurationFile(p *project) (file *os.File) {
         note(ctx, "%v", p).debug(16)
     } else if testConfigurationDiverged || true {
         return
-    } else if t := p._configuration(ctx); t != nil && t != f && t.fullname() != f.fullname() {
+    } else if t := p.configuration_sm(ctx); t != nil && t != f && t.fullname() != f.fullname() {
         erro(ctx, "%v: diverged configuration file (%v)", p, _project(ctx))
         prompt(ctx, "%v:1: <--- at load-time\n", t.fullname())
         prompt(ctx, "%v:1: <--- at configure-time\n", f.fullname()).debug()
@@ -130,8 +130,8 @@ func (ctx *configurecontext) close() {
     if ctx.file != nil   { if err := ctx.file.Close();   err != nil {} }
 }
 
-func (u *universe)  forConfigs(cal func(*project, entry)) { u._forConfigs(cal, nil, nil) }
-func (u *universe) _forConfigs(cal func(*project, entry), pre func(*project) func(), inf func(*project)) {
+func (u *universe)  for_configs(cal func(*project, entry)) { u._for_configs(cal, nil, nil) }
+func (u *universe) _for_configs(cal func(*project, entry), pre func(*project) func(), inf func(*project)) {
     var m = make(map[*project]struct{}, 4)
     var f func(*project)
 
@@ -177,11 +177,11 @@ func configure(ctx Context, ii ...interface{}) {
     }
 
     // Remove existing configuration.sm files
-    u._forConfigs(nil, nil, func(p *project) {
-        if f := p._configuration(ctx); f != nil { os.Remove(f.fullname()) }
+    u._for_configs(nil, nil, func(p *project) {
+        if f := p.configuration_sm(ctx); f != nil { os.Remove(f.fullname()) }
     })
 
-    u._forConfigs(func(p *project, entry entry) {
+    u._for_configs(func(p *project, entry entry) {
         c.execute(entry)
     }, func(p *project) (f func()) {
         if !c.silent && p.configure != nil && !p.configured && len(p.configs) > 0 {
@@ -194,7 +194,6 @@ func configure(ctx Context, ii ...interface{}) {
             p.configure.defaultEntry.execute(ctx)
         }
     })
-
     return
 }
 
@@ -699,7 +698,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
 
     if len(project.configs) == 0 {
         // no need to check configuration
-    } else if f := project._configuration(ctx); f == nil || !f.exists() {
+    } else if f := project.configuration_sm(ctx); f == nil || !f.exists() {
         prompt(ctx, "%v: %v\n", filename, file)
         if opts.mustConf {
             var d = opts.debug ; if d == 0 { d = 1 }
@@ -737,7 +736,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
     if data.Len() == 0 {
         prompt(ctx, "%v: %v %v\n", filename, auto_get(ctx,"@"), auto_get(ctx,">"))
         errostack(ctx, 5, "empty configuration data").trace()
-    } else if f := _project(ctx)._configuration(ctx); (f == nil || !f.exists()) && opts.debug>0 {
+    } else if f := _project(ctx).configuration_sm(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
         prompt(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,"@"), strings.TrimSpace(data.String())).debug()
     }
