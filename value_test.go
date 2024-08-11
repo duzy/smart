@@ -44,17 +44,17 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v", tst{v.Value})
 	} else if len(t.elems) != 6 {
 		ctx.err("%v", tst{v.Value})
-	} else if w, y := t.elems[0].(*bareword); !y || w.s != "word" {
+	} else if w, y := t.elems[0].(*word); !y || w.s != "word" {
 		ctx.err("%v", tst{t.elems[0]})
 	} else if _, y := t.elems[1].(*path); !y {
 		ctx.err("%v", tst{t.elems[1]})
 	} else if s, y := t.elems[2].(*strlit); !y || s.String() != "'strlit'" || s.string(ctx) != "strlit" {
 		ctx.err("%v", tst{t.elems[2]})
-	} else if c, y := t.elems[3].(*compound); !y || c.String() != `"compound"` || c.string(ctx) != "compound" {
+	} else if c, y := t.elems[3].(*strcomp); !y || c.String() != `"strcomp"` || c.string(ctx) != "strcomp" {
 		ctx.err("%v", tst{t.elems[3]})
-	} else if s, t := `word foo/bar strlit compound 0 1`, v.string(ctx); s != t {
+	} else if s, t := `word foo/bar strlit strcomp 0 1`, v.string(ctx); s != t {
 		ctx.err("%v: %s != %s", tst{v}, t, s)
-	} else if s, t := `{word foo/bar 'strlit' "compound" 0 1}`, v.String(); s != t {
+	} else if s, t := `{word foo/bar 'strlit' "strcomp" 0 1}`, v.String(); s != t {
 		ctx.err("%v: %s != %s", tst{v}, t, s)
 	} else if a, y := l.elems[1].(*answer); !y || a.bool != true {
 		ctx.err("%v", tst{l.elems[1]})
@@ -66,7 +66,7 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v", tst{l.elems[4]})
 	} else if p, y := l.elems[5].(*path); !y || p.String() != "foo/bar" || p.string(ctx) != "foo/bar" {
 		ctx.err("%v", tst{l.elems[5]})
-	} else if f, y := l.elems[6].(*File); !y || f.String() != "{=file foobar}" || f.string(ctx) != "foobar" {
+	} else if f, y := l.elems[6].(*file); !y || f.String() != "{=file foobar}" || f.string(ctx) != "foobar" {
 		ctx.err("%v", tst{l.elems[6]})
 	} else if g, y := l.elems[7].(*globpat); !y || g.String() != "**.c" || g.string(ctx) != "**.c" {
 		ctx.err("%v", tst{l.elems[7]})
@@ -88,9 +88,9 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v", tst{t.elems[1]})
 	} else if n, y := l.elems[12].(*null); !y || n.String() != `{}` || n.string(ctx) != `` {
 		ctx.err("%v", tst{l.elems[12]})
-	} else if s, t := `{word foo/bar 'strlit' "compound" 0 1} {=yes} {=false} {=true} {=path foo} foo/bar {=file foobar} **.c {=regex xx} 1 0.1 {=none anything goes} {}`, val.String(); s != t {
+	} else if s, t := `{word foo/bar 'strlit' "strcomp" 0 1} {=yes} {=false} {=true} {=path foo} foo/bar {=file foobar} **.c {=regex xx} 1 0.1 {=none anything goes} {}`, val.String(); s != t {
 		ctx.err("%v != %s", tst{val}, s)
-	} else if s, t := `word foo/bar strlit compound 0 1 yes false true foo foo/bar foobar **.c xx 1 0.1`, val.string(ctx); s != t {
+	} else if s, t := `word foo/bar strlit strcomp 0 1 yes false true foo foo/bar foobar **.c xx 1 0.1`, val.string(ctx); s != t {
 		ctx.err("%v: %s != %s", tst{val}, t, s)
 	}
 
@@ -98,21 +98,21 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("disjunction0")
 	} else if d.value == nil {
 		ctx.err("%v", tst{d})
-	} else if t, y := d.value.(*barecomp); !y {
+	} else if t, y := d.value.(*compound); !y {
 		ctx.err("%v", tst{d.value})
 	} else if len(t.elems) != 2 {
 		ctx.err("%v", tst{d.value})
-	} else if v, y := t.elems[0].(*bareword); !y {
+	} else if v, y := t.elems[0].(*word); !y {
 		ctx.err("%v %v", tst{v}, v.s)
 	} else if v, y := t.elems[1].(disjunction); !y {
 		ctx.err("%v", tst{v.Value})
-	} else if s, t := "{a b c}", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a b c", v.Value.String(); s != t {
+	} else if s, t := v.String(), "{a b c}"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.Value.String(), "a b c"; s != t {
 		ctx.err("%v → %s != %s", tst{v.Value}, t, s)
-	} else if s, t := "x{a b c}", d.value.String(); t != s {
+	} else if s, t := d.value.String(), "x{a b c}"; t != s {
 		ctx.err("%v → %s != %s", tst{d.value}, t, s)
-	} else if s, t := "xa xb xc", d.value.string(ctx); t != s {
+	} else if s, t := d.value.string(ctx), "xa xb xc"; t != s {
 		ctx.err("%v → %s != %s", tst{d.value}, t, s)
 	}
 
@@ -189,27 +189,27 @@ func testValueGeneral(ctx testcase1) {
 	}
 
 	if regexp1.string(ctx) != `x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}` {
-		ctx.err("regexp1 is wrong: %T %v", regexp1, regexp1)
+		ctx.err("regexp1 is wrong: %v", regexp1)
 	}
 
 	if regexp2.string(ctx) != `(re) (?P<name>re) (?:re) (?im) (?sU:re) \x{10ffff} \x1f \123 \* \. \? \$` {
-		ctx.err("regexp2 is wrong: %T %v", regexp2, regexp2)
+		ctx.err("regexp2 is wrong: %v", regexp2)
 	}
 
 	if regexp3.string(ctx) != `[[:xdigit:]]*, [[:^alpha:]], [^xyz] [a-z] \A \B \b \Q**??^:[]{}\E \^ \z` {
-		ctx.err("regexp3 is wrong: %T %v", regexp3, regexp3)
+		ctx.err("regexp3 is wrong: %v", regexp3)
 	}
 
 	if regexp4.string(ctx) != `fo{2}\.c` {
-		ctx.err("regexp4 is wrong: %T %v", regexp4, regexp4)
+		ctx.err("regexp4 is wrong: %v", regexp4)
 	}
 
 	if regexp5.string(ctx) != `fo{2}/bar\.c` {
-		ctx.err("regexp5 is wrong: %T %v", regexp5, regexp5)
+		ctx.err("regexp5 is wrong: %v", regexp5)
 	}
 
 	if regexp6.string(ctx) != `fo{2}(/o{2}){3}/bar\.c` {
-		ctx.err("regexp6 is wrong: %T %v", regexp6, regexp6)
+		ctx.err("regexp6 is wrong: %v", regexp6)
 	}
 
 	if val := ctx.val("val1"); val == nil {
@@ -232,10 +232,12 @@ func testValueGeneral(ctx testcase1) {
 
 	if val := ctx.val("val2"); val == nil {
 		ctx.err("val2")
-	} else if val.string(ctx) != "foo/bar.c" {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), "foo/bar.c"; s != t {
+		ctx.err("%v : %s != %s", tst{val}, s, t)
+	} else if s := val.string(ctx); s != t {
+		ctx.err("%v : %s != %s", tst{val}, s, t)
 	} else if p, y := val.(*path); !y {
-		ctx.err("%v", tst{val})
+		ctx.err("%v : %v", tst{val}, val)
 	} else if len(p.elems) != 2 {
 		ctx.err("%v: %v: %v", typeof(val), val, p.elems)
 	} else if a, b, c := glob1.match(ctx, val); a == true {
@@ -280,12 +282,14 @@ func testValueGeneral(ctx testcase1) {
 
 	if val := ctx.val("val4"); val == nil {
 		ctx.err("val4")
-	} else if val.String() != "a\\,b\\,c,x\\,y\\,z" {
-		ctx.err("%v", tst{val})
-	} else if val.string(ctx) != "a,b,c,x,y,z" {
-		ctx.err("%v", tst{val})
-	} else if p, y := val.(*barecomp); !y {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), "a\\,b\\,c,x\\,y\\,z"; s != t {
+		ctx.err("%v : %v", tst{val}, val)
+	} else if s, t := val.string(ctx), "a,b,c,x,y,z"; s != t {
+		ctx.err("%v : %v", tst{val}, val)
+	} else if s, t := ts(val), "{=compound {=word a} {=escaped \\,} {=word b} {=escaped \\,} {=word c} {=punct ,} {=word x} {=escaped \\,} {=word y} {=escaped \\,} {=word z}}"; s != t {
+		ctx.err("%v : %v", tst{val}, val)
+	} else if p, y := val.(*compound); !y {
+		ctx.err("%v : %v", tst{val}, val)
 	} else if len(p.elems) != 11 {
 		ctx.err("%v: %v %v", typeof(val), val, p.elems)
 	}
@@ -305,10 +309,10 @@ func testValueGeneral(ctx testcase1) {
 
 func testAutomatic(ctx *testcase) {
 	if c := _universe(ctx); c == nil {
-		ctx.err("Context.cast")
+		ctx.err("context.cast")
 	}
 	{
-		ac := automatic{ Context:ctx, defs:make(auto_defs) }
+		ac := automatic{Context:ctx, defs:make(defs_map)}
 		ac.args(ctx, []Value{ease(ctx, []string{"a", "b", "c"})})
 		if _automatic(&ac) != &ac {
 			ctx.err("%v", Context(&ac))
@@ -349,7 +353,7 @@ func testAutomatic(ctx *testcase) {
 		}}
 	}
 	{
-		ac := automatic{ Context:ctx, defs:make(auto_defs) }
+		ac := automatic{Context:ctx, defs:make(defs_map)}
 		ac.args(ctx, ease(ctx, []string{"a", "b", "c"}).(*list).elems)
 		if len(ac.defs) != 3 { // maxDigitAutoNum
 			ctx.err("%v", ac.defs)
@@ -430,17 +434,17 @@ func testAutomatic(ctx *testcase) {
 		ctx.err("val")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "&(foobar)", v.String(); s != t {
+	} else if s, t := v.String(), "&(foobar)"; s != t {
 		ctx.err("%v", tst{d})
 	} else if s, t := "", v.string(ctx); s != t {
 		ctx.err("%v → %s", tst{d}, s)
 	} else {
 		if v := ctx.val(d.name); v == nil {
 			ctx.err("%v", d)
-		} else if s, t := "&(foobar)", v.String(); s != t {
-			ctx.err("%v → %s != %s", tst{v}, t, s)
+		} else if s, t := v.String(), "&(foobar)"; s != t {
+			ctx.err("%v → %s != %s", tst{v}, s, t)
 		} else if s, t := "", v.string(ctx); s != t {
-			ctx.err("%v → %s != %s", tst{v}, t, s)
+			ctx.err("%v → %s != %s", tst{v}, s, t)
 		}
 	}
 
@@ -460,17 +464,17 @@ func testAutomatic(ctx *testcase) {
 		ctx.err("%v", tst{a})
 	} else if a.scope == _project(ctx).scope {
 		ctx.err("%v", tst{a})
-	} else if s, t := "$(a)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(a)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if a := ctx.val(d.name, test_arg{"a", "x"}); a == nil {
 		ctx.err("%v", tst{v})
-	} else if s, y := a.(*bareword); !y || s.s != "x" {
+	} else if s, y := a.(*word); !y || s.s != "x" {
 		ctx.err("%v", tst{a})
-	} else if s, t := "x", a.String(); s != t {
+	} else if s, t := a.String(), "x"; s != t {
 		ctx.err("%v → %s != %s", tst{a}, t, s)
-	} else if s, t := "x", a.string(ctx); s != t {
+	} else if s, t := a.string(ctx), "x"; s != t {
 		ctx.err("%v → %s != %s", tst{a}, t, s)
 	}
 
@@ -490,10 +494,10 @@ func testAutomatic(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if n.int64 != 1 {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if s, t := "1 1", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "1 1", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "1 1"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "1 1"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val3"); d == nil {
@@ -512,10 +516,10 @@ func testAutomatic(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if n.int64 != 1 {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if s, t := "1 1", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "1 1", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "1 1"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "1 1"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val4"); d == nil {
@@ -534,10 +538,197 @@ func testAutomatic(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if n.int64 != 1 {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if s, t := "1 1", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "1 1", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "1 1"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "1 1"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	}
+}
+
+func testClosure(ctx *testcase) {
+	s := "foo_pre"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s := ts(v); s != "{=closure {=def foo.pre}}" {
+		ctx.err("%v → %s", tst{v}, s)
+	} else if s := v.String(); s != "&(foo.pre)" {
+		ctx.err("%v → %s", tst{v}, s)
+	} else if s := v.string(ctx); s != "foo" {
+		ctx.err("%v → %s", tst{v}, s)
+	}
+
+	s = "foo_pos"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s := ts(v); s != "{=closure {=compound {=word foo} {=punct .} {=word pos}}}" {
+		ctx.err("%v → %s", tst{v}, s)
+	} else if s := v.String(); s != "&(foo.pos)" {
+		ctx.err("%v → %s", tst{v}, s)
+	} else if s := v.string(ctx); s != "foo" {
+		ctx.err("%v → %s", tst{v}, s)
+	}
+
+	s = "foo_nest_1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s := ts(v); s != "{=closure {=closure {=compound {=word foo} {=punct .} {=word tail}}}}" {
+		ctx.err("%v → %s", tst{v}, s)
+	} else if s := v.String(); s != "&(&(foo.tail))" {
+		ctx.err("%v → %s", tst{v}, s)
+	} else if s := v.string(ctx); s != "foo" {
+		ctx.err("%v → %s", tst{v}, s)
+	}
+
+	s = "foo_nest_2"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s := ts(v); s != "{=closure {=closure {=def foo.tail}}}" {
+		ctx.err("%v → %s", tst{v}, s)
+	} else if s := v.String(); s != "&(&(foo.tail))" {
+		ctx.err("%v → %s", tst{v}, s)
+	} else if s := v.string(ctx); s != "foo" {
+		ctx.err("%v → %s", tst{v}, s)
+	}
+}
+
+func testValues_bug_01(ctx *testcase) {
+	n := false
+	s := "okay"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else {
+		if n { note(ctx, "%v", d).debug(); flush(ctx) }
+
+		var v Value
+		func () {
+			defer func () {
+				if x, y := recover().(trace_err_evoke_loop); y {
+					erro(ctx, "%s", x.string).trace()
+				}
+			} ()
+			// ex_debug = true
+			v = d.value.expand(final{ctx})
+			ex_debug = false
+		} ()
+
+		if n { note(ctx, "%v → %v", d, v).debug(); flush(ctx) }
+		if v == nil {
+			ctx.err("%v", d)
+		} else if s, t := v.String(), "{x.{$1}}? {x.{$2}}? {y.{$1}}? {y.{$2}}? {z.{$1}}? {z.{$2}}?"; s != t {
+			ctx.err("%v : %s != %s", d, s, t)
+		} else if s, t := ts(v), "{=list {=list {=condval {=disjunction {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 1}}}}}} {=condval {=disjunction {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}} {=list {=condval {=disjunction {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 1}}}}}} {=condval {=disjunction {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}} {=list {=condval {=disjunction {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 1}}}}}} {=condval {=disjunction {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}}"; s != t {
+			ctx.err("%v : %s != %s", d, s, t)
+		}
+	}
+
+	s = "bug_0"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "$(bug_0.1 $1,$2)"; s != t {
+		ctx.err("%v : %s != %s", d, s, t)
+	} else {
+		if n { note(ctx, "%v", d).debug(); flush(ctx) }
+
+		var v Value
+		func () {
+			defer func () {
+				if x, y := recover().(trace_err_evoke_loop); y {
+					erro(ctx, "%s", x.string).trace()
+				}
+			} ()
+			// ex_debug = true
+			v = d.value.expand(final{ctx})
+			ex_debug = false
+		} ()
+
+		if n { note(ctx, "%v → %v", d, v).debug(); flush(ctx) }
+		if v == nil {
+			ctx.err("%v", d)
+		} else if s, t := v.String(), "{&(x.{$1})}? {&(x.{$2})}? {&(y.{$1})}? {&(y.{$2})}? {&(z.{$1})}? {&(z.{$2})}?"; s != t {
+			ctx.err("%v : %s != %s", d, s, t)
+		} else if s, t := ts(v), "{=list {=list {=condval {=disjunction {=closure {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}} {=condval {=disjunction {=closure {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}} {=list {=condval {=disjunction {=closure {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}} {=condval {=disjunction {=closure {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}} {=list {=condval {=disjunction {=closure {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}} {=condval {=disjunction {=closure {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}}}"; s != t {
+			ctx.err("%v : %s != %s", d, s, t)
+		}
+	}
+
+	s = "bug_1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "$(bug_1.1 $1,$2)"; s != t {
+		ctx.err("%v : %s != %s", d, s, t)
+	} else {
+		if n { note(ctx, "%v", d).debug(); flush(ctx) }
+
+		var e string
+		var v Value
+		func () {
+			defer func () {
+				if x, y := recover().(trace_err_evoke_loop); y { e = x.string }
+			} ()
+			// ex_debug = true
+			v = d.value.expand(final{ctx})
+			ex_debug = false
+		} ()
+
+		if n { note(ctx, "%v → %v : err_evoke_loop=%s", d, v, e).debug(); flush(ctx) }
+		if e != "bug_1" {
+			ctx.err("expecting evocation loop: %s != bug_1", e)
+		}
+		if v != nil {
+			ctx.err("%v → %v", d, v)
+		}
+	}
+
+	s = "flags"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s := ts(v); s != "{=delegate {=def .flags} {=list {=delegate {=auto 1}}} {=list {=delegate {=auto 2}}}}" {
+		ctx.err("%v : %v", d, s)
+	} else {
+		if n { note(ctx, "%v", d).debug(); flush(ctx) }
+
+		var e string
+		var v Value
+		func () {
+			defer func () {
+				if x, y := recover().(trace_err_evoke_loop); y { e = x.string }
+			} ()
+			// ex_debug = true
+			v = d.value.expand(final{ctx})
+			ex_debug = false
+		} ()
+
+		if n { note(ctx, "%v → %v : err_evoke_loop=%s", d, v, e).debug(); flush(ctx) }
+		if e != "flags" {
+			ctx.err("expecting evocation loop: %s != flags", e)
+		}
+		if v != nil {
+			ctx.err("%v → %v", d, v)
+		}
 	}
 }
 
@@ -552,40 +743,46 @@ func testValues1(ctx *testcase) {
 }
 
 func testValues2(ctx *testcase) {
-	if d := ctx.def(".test.ab"); d == nil {
-		ctx.err(".test.ab")
+	s := ".test.ab"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "foobar $1-$2", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foobar -", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "foobar $1-$2"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "foobar -"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "foobar a-b", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "foobar a-b"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.ba"); d == nil {
-		ctx.err(".test.ba")
+	s = ".test.ba"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "foobaz $2-$1", v.String(); s != t {
+	} else if s, t := v.String(), "foobaz $2-$1"; s != t {
 		ctx.err("%v", tst{v})
-	} else if s, t := "foobaz -", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.string(ctx), "foobaz -"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "foobaz b-a", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "foobaz b-a"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test"); d == nil {
-		ctx.err(".test")
+	s = ".test"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
@@ -598,255 +795,287 @@ func testValues2(ctx *testcase) {
 		ctx.err("%v", tst{x.x})
 	} else if z.name != "3" {
 		ctx.err("%v", tst{z})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) z $(call(-closure) &(.test.x),$1$2,$2$1) Z $3", v.String(); s != t {
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) z $(call(-closure) &(.test.x),$1$2,$2$1) Z $3"; s != t {
 		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar - z foobar - Z", v.string(ctx); s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar - z foobar - Z"; s != t {
 		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) z $(call(-closure) &(.test.x),ab,ba) Z c", v.String(); s != t {
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) z $(call(-closure) &(.test.x),ab,ba) Z c"; s != t {
 		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb z foobar ab-ba Z c", v.string(ctx); s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar aa-bb z foobar ab-ba Z c"; s != t {
 		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", "b", "c", test_def_1{}); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) z $(call(-closure) &(.test.x),ab,ba) Z c", v.String(); s != t {
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) z $(call(-closure) &(.test.x),ab,ba) Z c"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "x foobar - y foobar aa-bb z foobar ab-ba Z c", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.string(ctx), "x foobar - y foobar aa-bb z foobar ab-ba Z c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", "b", "c", test_def_2{}); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x foobar $1-$2 y foobar aa-bb z foobar ab-ba Z c", v.String(); s != t {
+	} else if s, t := v.String(), "x foobar $1-$2 y foobar aa-bb z foobar ab-ba Z c"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "x foobar - y foobar aa-bb z foobar ab-ba Z c", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.string(ctx), "x foobar - y foobar aa-bb z foobar ab-ba Z c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.0"); d == nil {
-		ctx.err(".test.0")
+	s = ".test.0"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3", v.String(); s != t {
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.string(ctx), "x foobar - y foobar -"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c", v.String(); s != t {
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.string(ctx), "x foobar - y foobar aa-bb c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.s1"); d == nil {
-		ctx.err(".test.s1")
+	s = ".test.s1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if t, y := v.(*strval); !y {
 		ctx.err("%v", tst{v})
 	} else if len(t.v) != 5 {
 		ctx.err("%v %v", tst{v}, tst{t.v})
-	} else if s, t := "$(string x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(string x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar -"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(string x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(string x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar aa-bb c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.s2"); d == nil {
-		ctx.err(".test.s2")
+	s = ".test.s2"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if l, y := v.(*list); !y {
-		ctx.err("%v", tst{v})
-	} else if l.len() != 5 {
-		ctx.err("%v", tst{l})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if x, y := v.(*list); !y {
+		ctx.err("%v : %v", v, tst{v})
+	} else if x.len() != 5 {
+		ctx.err("%v : %v", v, tst{v})
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar -"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar aa-bb c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.s3"); d == nil {
-		ctx.err(".test.s3")
+	s = ".test.s3"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*strlit); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "a b c", l.s; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := l.s, "a b c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := `'a b c'`, v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := `a b c`, v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.1"); d == nil {
-		ctx.err(".test.1")
+	s = ".test.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.value, "a", "b", "c"); v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar -"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if v := ctx.val(d, "a", "b", "c"); v == nil {
+		ctx.err("%v : %v", tst{d}, d.value)
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar aa-bb c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.2"); d == nil || d.value == nil {
-		ctx.err(".test.2")
+	s = ".test.2"
+	d = ctx.def(s)
+	if d == nil || d.value == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x foobaz $2-$1 y $(.test.ba $1$1,$2$2) $3", v.String(); s != t {
+	} else if s, t := v.String(), "x foobaz $2-$1 y $(.test.ba $1$1,$2$2) $3"; s != t {
 		ctx.err("%v", tst{d})
-	} else if v := ctx.val(d.value, "a", "b", "cc"); v == nil {
+	} else if v := ctx.val(d, "a", "b", "cc"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x foobaz b-a y foobaz bb-aa cc", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobaz b-a y foobaz bb-aa cc", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x foobaz b-a y foobaz bb-aa cc"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobaz b-a y foobaz bb-aa cc"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.3"); d == nil {
-		ctx.err(".test.3")
+	s = ".test.3"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.value, "a", "b", "c"); v == nil {
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar -"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if v := ctx.val(d, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar aa-bb c"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.4"); d == nil {
-		ctx.err(".test.4")
+	s = ".test.4"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if v := ctx.val(d.value, "a", "b", "x"); v == nil {
+	} else if v := ctx.val(d, "a", "b", "x"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x foobar a-b y foobar aa-bb z foobar ab-ba Z x . x", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x foobar a-b y foobar aa-bb z foobar ab-ba Z x . x"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.5"); d == nil {
-		ctx.err(".test.5")
+	s = ".test.5"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if v := ctx.val(d.value, "a", "b", "x"); v == nil {
+	} else if v := ctx.val(d, "a", "b", "x"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) z $(call(-closure) &(.test.x),ab,ba) Z x . x", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb z foobar ab-ba Z x . x", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) z $(call(-closure) &(.test.x),ab,ba) Z x . x"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x foobar - y foobar aa-bb z foobar ab-ba Z x . x"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
 func testValues3(ctx *testcase) {
-	if d := ctx.def(".test.x"); d == nil {
-		ctx.err(".test.x")
+	s := ".test.x"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(a1)-$(a2)-3", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(a1)-$(a2)-3"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
 		ctx.err("%v", tst{d.value})
-	} else if s, t := "x-y-3", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x-y-3", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x-y-3"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x-y-3"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.y"); d == nil {
-		ctx.err(".test.y")
+	s = ".test.y"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x-y-3-xyz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x-y-3-xyz", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x-y-3-xyz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x-y-3-xyz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.z"); d == nil {
-		ctx.err(".test.z")
+	s = ".test.z"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d.value})
-	} else if s, t := "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "--3-", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "--3-"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.1"); d == nil {
-		ctx.err(".test.1")
+	s = ".test.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x-y-3-xyz", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x-y-3-xyz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x-y-3-xyz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.2"); d == nil {
-		ctx.err(".test.2")
+	s = ".test.2"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x-y-3-xyz", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x-y-3-xyz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x-y-3-xyz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.3"); d == nil {
-		ctx.err(".test.3")
+	s = ".test.3"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "x-y-3-xyz", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x-y-3-xyz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "x-y-3-xyz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
 func testValues4(ctx *testcase) {
-	if d := ctx.def(".test.*"); d == nil {
-		ctx.err(".test.*")
-	} else if d.origin != defExpand1 {
+	s := ".test.*"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand1 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
@@ -862,16 +1091,18 @@ func testValues4(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[2]})
 	} else if _, y := l.elems[3].(*argumented); !y || l.elems[3].String() != "I.c++(-unique)" {
 		ctx.err("%v", tst{l.elems[3]})
-	} else if s, t := "D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique)", v.String(); s != t {
+	} else if s, t := v.String(), "D.c(-unique) D.c++(-unique) I.c(-unique) I.c++(-unique)"; s != t {
 		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.D.c"); d == nil {
-		ctx.err(".test.D.c")
-	} else if d.origin != defExpand1 {
+	s = ".test.D.c"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand1 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
@@ -879,15 +1110,15 @@ func testValues4(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if l.len() != 9 {
 		ctx.err("%v ; (%d)", tst{v}, l.len())
-	} else if _, y := l.elems[0].(*bareword); !y || l.elems[0].String() != "D" {
+	} else if _, y := l.elems[0].(*word); !y || l.elems[0].String() != "D" {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if _, y := l.elems[1].(*bareword); !y || l.elems[1].String() != "c" {
+	} else if _, y := l.elems[1].(*word); !y || l.elems[1].String() != "c" {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if _, y := l.elems[2].(*delegate); !y || l.elems[2].String() != "$(value &(.test.x))" {
 		ctx.err("%v", tst{l.elems[2]})
 	} else if t, y := l.elems[3].(*delegate); !y || l.elems[3].String() != "$(.test.v)" {
 		ctx.err("%v", tst{l.elems[3]})
-	} else if _, y := t.x.(*barecomp); !y || t.x.String() != ".test.v" {
+	} else if _, y := t.x.(*compound); !y || t.x.String() != ".test.v" {
 		ctx.err("%v", tst{t.x})
 	} else if t.string(ctx) != "xx" {
 		ctx.err("%v", tst{t})
@@ -901,53 +1132,57 @@ func testValues4(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[7]})
 	} else if _, y := l.elems[8].(*group);    !y || l.elems[8].String() != "($1)" {
 		ctx.err("%v", tst{l.elems[8]})
-	} else if s, t := "D c $(value &(.test.x)) $(.test.v) &(value .test.v) $(.test.foreach $1,&(.test.none)) ($1) $(foreach $1,&(.test.x.$_)) ($1)", v.String(); s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "D c xx xx xx () () ()", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, "a"); v == nil {
+	} else if s, t := v.String(), "D c $(value &(.test.x)) $(.test.v) &(value .test.v) $(.test.foreach $1,&(.test.none)) ($1) $(foreach $1,&(.test.x.$_)) ($1)"; s != t {
+		if true { for i, v := range l.elems { note(ctx, "%d. %-20v %v", i, tst{v}, v) } }
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "D c xx xx xx () () ()"; s != t {
+		if true { for i, v := range l.elems { note(ctx, "%d. %-20v %v", i, tst{v}, v) } }
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if v := ctx.val(d, "a"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if l.len() != 9 {
 		ctx.err("%v ; (%d)", tst{v}, l.len())
-	} else if s, t := "D c $(value &(.test.x)) xx &(value .test.v) (a) (a) &(.test.x.a)? (a)", v.String(); s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "D c xx xx xx (a) (a) x (a)", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "D c $(value &(.test.x)) xx &(value .test.v) (a) (a) &(.test.x.a)? (a)"; s != t {
+		if true { for i, v := range l.elems { note(ctx, "%d. %-20v %v", i, v, tst{v}) } }
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "D c xx xx xx (a) (a) x (a)"; s != t {
+		if true { for i, v := range l.elems { note(ctx, "%d. %-10v %v", i, v, tst{v}) } }
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", test_def_2{}); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if l.len() != 9 {
 		ctx.err("%v ; (%d)", tst{v}, l.len())
-	} else if s, t := "D c xx xx xx $(.test.foreach a,&(.test.none)) (a) x (a)", v.String(); s != t {
+	} else if s, t := v.String(), "D c xx xx xx $(.test.foreach a,&(.test.none)) (a) x (a)"; s != t {
+		if true { for i, v := range l.elems { note(ctx, "%d. %v : %v", i, v, tst{v}) } }
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "D c xx xx xx (a) (a) x (a)"; s != t {
 		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "D c xx xx xx (a) (a) x (a)", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.D.c++"); d == nil {
-		ctx.err(".test.D.c++")
-	} else if d.origin != defExpand1 {
+	s = ".test.D.c++"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand1 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "D c++", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "D c++", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "D c++"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "D c++"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.I.c"); d == nil {
-		ctx.err(".test.I.c")
-	} else if d.origin != defExpand1 {
+	s = ".test.I.c"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand1 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
@@ -955,116 +1190,130 @@ func testValues4(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if l.len() != 6 {
 		ctx.err("%v ; (%d)", tst{v}, l.len())
-	} else if _, y := l.elems[0].(*bareword); !y || l.elems[0].String() != "I" {
-		ctx.err("%v", tst{l.elems[0]})
-	} else if _, y := l.elems[1].(*bareword); !y || l.elems[1].String() != "c" {
-		ctx.err("%v", tst{l.elems[1]})
+	} else if _, y := l.elems[0].(*word); !y || l.elems[0].String() != "I" {
+		ctx.err("%-22v : %v", l.elems[0], tst{l.elems[0]})
+	} else if _, y := l.elems[1].(*word); !y || l.elems[1].String() != "c" {
+		ctx.err("%-22v : %v", l.elems[1], tst{l.elems[1]})
 	} else if _, y := l.elems[2].(*closure);  !y || l.elems[2].String() != "&(value &(.test.x))" {
-		ctx.err("%v", tst{l.elems[2]})
+		ctx.err("%-22v : %v", l.elems[2], tst{l.elems[2]})
 	} else if _, y := l.elems[3].(*closure);  !y || l.elems[3].String() != "&(value .test.v)" {
-		ctx.err("%v", tst{l.elems[3]})
+		ctx.err("%-22v : %v", l.elems[3], tst{l.elems[3]})
 	} else if _, y := l.elems[4].(*delegate); !y || l.elems[4].String() != "$(value &(.test.x))" {
-		ctx.err("%v", tst{l.elems[4]})
-	} else if _, y := l.elems[5].(*bareword); !y || l.elems[5].String() != "xx" {
-		ctx.err("%v", tst{l.elems[5]})
-	} else if s, t := "I c &(value &(.test.x)) &(value .test.v) $(value &(.test.x)) xx", v.String(); s != t {
+		ctx.err("%-22v : %v", l.elems[4], tst{l.elems[4]})
+	} else if _, y := l.elems[5].(*word); !y || l.elems[5].String() != "xx" {
+		ctx.err("%-22v : %v", l.elems[5], tst{l.elems[5]})
+	} else if s, t := v.String(), "I c &(value &(.test.x)) &(value .test.v) $(value &(.test.x)) xx"; s != t {
 		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "I c xx xx xx xx", v.string(ctx); s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "I c xx xx xx xx"; s != t {
 		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.I.c++"); d == nil {
-		ctx.err(".test.I.c++")
-	} else if d.origin != defExpand1 {
+	s = ".test.I.c++"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand1 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "I c++", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "I c++", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "I c++"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "I c++"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.and.x.1"); d == nil {
-		ctx.err(".test.and.x.1")
-	} else if d.origin != defExpand0 {
+	s = ".test.and.x.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand0 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if _, y := v.(*barecomp); !y {
+	} else if _, y := v.(*compound); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "x1", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x1"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.and.x.2"); d == nil {
-		ctx.err(".test.and.x.2")
-	} else if d.origin != defExpand0 {
+	s = ".test.and.x.2"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand0 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if _, y := v.(*barecomp); !y {
+	} else if _, y := v.(*compound); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "x2", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "x2"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.and.y.1"); d == nil {
-		ctx.err(".test.and.y.1")
-	} else if d.origin != defExpand0 {
+	s = ".test.and.y.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand0 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if _, y := v.(*barecomp); !y {
+	} else if _, y := v.(*compound); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "y1", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "y1"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
-	if d := ctx.def(".test.and.y.2"); d == nil {
-		ctx.err(".test.and.y.2")
-	} else if d.origin != defExpand0 {
+	s = ".test.and.y.2"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand0 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if _, y := v.(*barecomp); !y {
+	} else if _, y := v.(*compound); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "y2", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "y2"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
 func testValues5(ctx *testcase) {
-	if d := ctx.def(".test"); d == nil {
-		ctx.err(".test")
+	s := ".test"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if d.value == nil {
 		ctx.err("%v", tst{d})
 	} else if d.value.String() != "z-$1" {
 		ctx.err("%v", tst{d})
 	} else if v := ctx.val(d.name, "a"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "z-a", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "z-a", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "z-a"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "z-a"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
 func testValues6(ctx *testcase) {
-	if d := ctx.def(".test"); d == nil {
-		ctx.err(".test")
+	s := ".test"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if d.value == nil {
 		ctx.err("%v", tst{d})
 	} else if d.value.String() != "z-y-x-a" {
 		ctx.err("%v", tst{d})
 	} else if v := ctx.val(d.name, "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "z-y-x-a", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "z-y-x-a", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "z-y-x-a"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "z-y-x-a"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
@@ -1073,35 +1322,35 @@ func testValues7(ctx *testcase) {
 		ctx.err(".test.z")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "z-$1-$2", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "z-$1-$2"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 	if d := ctx.def(".test.y"); d == nil {
 		ctx.err(".test.y")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.z y$1,y$2)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(.test.z y$1,y$2)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 	if d := ctx.def(".test.x"); d == nil {
 		ctx.err(".test.x")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.y x$1,x$2)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(.test.y x$1,x$2)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.x $1,$2)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(.test.x $1,$2)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "z-yxa-yxb", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "z-yxa-yxb", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "z-yxa-yxb"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "z-yxa-yxb"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
@@ -1114,10 +1363,10 @@ func testValues8(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if v := ctx.val(d.name, "a"); v == nil {
 		ctx.err(".test")
-	} else if s, t := "a", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "a"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "a"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
@@ -1144,14 +1393,14 @@ func testValues10(ctx *testcase) {
 		ctx.err(".test")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.y .$1)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(.test.y .$1)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "w"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "foobar", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foobar", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "foobar"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "foobar"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
@@ -1178,14 +1427,14 @@ func testValues12(ctx *testcase) {
 		ctx.err(".test")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.y .$1)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(.test.y .$1)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "w2"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.w2)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foobaz", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "&(.test.w2)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "foobaz"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
@@ -1194,14 +1443,14 @@ func testValues13(ctx *testcase) {
 		ctx.err("foo")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(-g!foobar)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "&(-g!foobar)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(-g!foobar)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "not-foobar", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "&(-g!foobar)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "not-foobar"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
@@ -1214,8 +1463,8 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if len(l.elems) != 10 {
 		ctx.err("%v", l)
-	} else if s, t := "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$0 $1 $2 $3 $4 $5 $6 $7 $8 $9"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "1", "2", "3", "4", "5", "6", "7", "8", "9", "_", "x", "y", "z"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
@@ -1226,10 +1475,10 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("%v", tst{d.x})
 	} else if a.ident(ctx) != "0" {
 		ctx.err("%v", a)
-	} else if s, t := "$0 1 2 3 4 5 6 7 8 9", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "1 2 3 4 5 6 7 8 9", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$0 1 2 3 4 5 6 7 8 9"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "1 2 3 4 5 6 7 8 9"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val2"); d == nil {
@@ -1238,14 +1487,14 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "$(foreach a b c d e f,$_)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(foreach a b c d e f,$_)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "1", "2", "3", "4", "5", "6", "7", "8", "9", "x", "y", "z"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "a b c d e f", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a b c d e f", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "a b c d e f"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "a b c d e f"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val3"); d == nil {
@@ -1254,14 +1503,14 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "$(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "1", "2", "3", "4", "5", "6", "7", "8", "9", "x", "y", "z"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "1 2 3 4 5 6 7 8 9", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "1 2 3 4 5 6 7 8 9"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val4"); d == nil {
@@ -1272,8 +1521,8 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if len(l.elems) != 6 {
 		ctx.err("%v", l)
-	} else if s, t := "a b c d e f", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "a b c d e f"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val5"); d == nil {
@@ -1282,14 +1531,14 @@ func testPlaceholders(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "$(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name, "1", "2", "3", "4", "5", "6", "7", "8", "9", "x", "y", "z"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "1 2 3 4 5 6 7 8 9", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "1 2 3 4 5 6 7 8 9"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
@@ -1298,16 +1547,18 @@ func testOptional(ctx *testcase) {
 		ctx.err("val0")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if o, y := v.(project_box); !y {
+	} else if o, y := v.(*project); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "foo", o.name; s != t {
-		ctx.err("%v", tst{v})
+	} else if s, t := ts(v), "{=project foo}"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := o.name, "foo"; s != t {
+		ctx.err("%v", tst{v})
 	} else if t := v.ident(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val1"); d == nil {
@@ -1318,46 +1569,48 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if o, y := t.x.(condval); !y {
 		ctx.err("%v", tst{t.x})
-	} else if _, y := o.Value.(*bareword); !y {
+	} else if _, y := o.Value.(*word); !y {
 		ctx.err("%v", tst{o.Value})
-	} else if s, t := "$(name?)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(name?)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(name?)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(name?)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val2"); d == nil {
 		ctx.err("val2")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if o, y := v.(project_box); !y {
+	} else if p, y := v.(*project); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "foo", o.name; s != t {
-		ctx.err("%v", tst{v})
+	} else if s, t := p.String(), "{=project "+p.name+"}"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if t := v.String(); s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if o := v.expand(ctx); o == nil {
-		ctx.err("%v → nil", tst{t})
+		ctx.err("%v → nil", tst{v})
 	} else if t := o.String(); s != t {
 		ctx.err("%v → %s != %s", tst{o}, t, s)
 	} else if t := v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := p.name, "foo"; s != t {
+		ctx.err("%v", tst{v})
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.ident(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if t := v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t := v.ident(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val3"); d == nil {
@@ -1368,16 +1621,14 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if _, y := t.x.(*selection); !y {
 		ctx.err("%v", tst{t.x})
-	} else if s, t := "$(foo→baz?)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$({=project foo}→baz?)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(foo→baz?)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val4"); d == nil {
@@ -1388,16 +1639,16 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if _, y := t.x.(*selection); !y {
 		ctx.err("%v", tst{t.x})
-	} else if s, t := "$(fo?→bar)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(fo?→bar)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(fo?→bar)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(fo?→bar)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val5"); d == nil {
@@ -1408,54 +1659,54 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if _, y := t.x.(*selection); !y {
 		ctx.err("%v", tst{t.x})
-	} else if s, t := "$(fo?→bar?)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(fo?→bar?)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(fo?→bar?)", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(fo?→bar?)"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val6"); d == nil {
 		ctx.err("val6")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if o, y := v.(project_box); !y {
+	} else if p, y := v.(self); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "foo", o.name; s != t {
+	} else if s, t := v.String(), "{=self "+p.name+"}"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := p.name, "foo"; s != t {
 		ctx.err("%v", tst{v})
-	} else if t := v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val7"); d == nil {
 		ctx.err("val7")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if o, y := v.(project_box); !y {
+	} else if p, y := v.(self); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "foo", o.name; s != t {
+	} else if s, t := v.String(), "{=self "+p.name+"}"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := p.name, "foo"; s != t {
 		ctx.err("%v", tst{v})
-	} else if t := v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 
 	if d := ctx.def("val8"); d == nil {
 		ctx.err("val8")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(foo→bar?)?", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$({=project foo}→bar?)?"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }
 
@@ -1593,11 +1844,13 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 	if val := ctx.val("pat1.0"); val == nil {
 		ctx.err("pat1.0: %v", _project(ctx))
 	} else if p, y := val.(*path); !y {
-		ctx.err("%v", tst{val})
+		ctx.err("%v : %v", tst{val}, val)
 	} else if p.len() != 2 {
 		ctx.err("%v", p)
-	} else if val.String() != ".test/x**y" {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), ".test/x**y"; s != t {
+		ctx.err("%v: %s != %s", val, s, t)
+	} else if s, t := ts(val), "{=path {=compound {=punct .} {=word test}} {=globpat {=word x} {=globmeta **} {=word y}}}"; s != t {
+		ctx.err("%v: %s != %s", val, s, t)
 	} else if v := ctx.val("pat1.1"); v == nil {
 		ctx.err("pat1.1: %v", _project(ctx))
 	} else if a, b0, c := p.match(ctx, v); !a {
@@ -1700,34 +1953,36 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 
 	if val := ctx.val("pat2.0"); val == nil {
 		ctx.err("pat2.0: %v", _project(ctx))
-	} else if val.String() != ".test/x**y/z" {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), ".test/x**y/z"; s != t {
+		ctx.err("%v: %s != %s", val, s, t)
+	} else if s, t := ts(val), "{=path {=compound {=punct .} {=word test}} {=globpat {=word x} {=globmeta **} {=word y}} {=word z}}"; s != t {
+		ctx.err("%v: %s != %s", val, s, t)
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat2.1"); v == nil {
 		ctx.err("pat2.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
-		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 3 {
-		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, ib, c)
 	} else if b[0] != ".test" {
-		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, b, c)
 	} else if b[1] != "xxx-yyy" {
-		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, b, c)
 	} else if b[2] != "z" {
-		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, b, c)
 	} else if len(c) != 1 {
-		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, b, c)
 	} else if c[0] != "xx-yy" {
-		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, b, c)
 	} else if v := ctx.val("pat2.2"); v == nil {
 		ctx.err("pat2.1: %v", _project(ctx))
 	} else if a, ib, c := p.match(ctx, v); !a {
-		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, ib, c)
 	} else if b, y := ib.([]string); !y || len(b) != 7 {
-		ctx.err("%v %v: %v %v %v", p, v, a, ib, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, ib, c)
 	} else if b[0] != ".test" {
-		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
+		ctx.err("%v %v : %v %v %v", p, v, a, b, c)
 	} else if b[1] != "xxx" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	} else if b[2] != "a" {
@@ -1802,8 +2057,10 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 
 	if val := ctx.val("pat4.0"); val == nil {
 		ctx.err("pat4.0: %v", _project(ctx))
-	} else if val.String() != ".test/x**y/x**y" {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), ".test/x**y/x**y"; s != t {
+		ctx.err("%v: %s != %s", val, s, t)
+	} else if s, t := ts(val), "{=path {=compound {=punct .} {=word test}} {=globpat {=word x} {=globmeta **} {=word y}} {=globpat {=word x} {=globmeta **} {=word y}}}"; s != t {
+		ctx.err("%v: %s != %s", val, s, t)
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat4.1"); v == nil {
@@ -1858,8 +2115,10 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 
 	if val := ctx.val("pat5.0"); val == nil {
 		ctx.err("pat5.0: %v", _project(ctx))
-	} else if val.String() != ".test/x**/**y" {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), ".test/x**/**y"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
+	} else if s, t := ts(val), "{=path {=compound {=punct .} {=word test}} {=globpat {=word x} {=globmeta **}} {=globpat {=globmeta **} {=word y}}}"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat5.1"); v == nil {
@@ -1906,8 +2165,10 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 
 	if val := ctx.val("pat6.0"); val == nil {
 		ctx.err("pat6.0: %v", _project(ctx))
-	} else if val.String() != ".test/**y/**y" {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), ".test/**y/**y"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
+	} else if s, t := ts(val), "{=path {=compound {=punct .} {=word test}} {=globpat {=globmeta **} {=word y}} {=globpat {=globmeta **} {=word y}}}"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat6.1"); v == nil {
@@ -1942,8 +2203,10 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 
 	if val := ctx.val("pat7.0"); val == nil {
 		ctx.err("pat7.0: %v", _project(ctx))
-	} else if val.String() != ".test/**y/**y/z" {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), ".test/**y/**y/z"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
+	} else if s, t := ts(val), "{=path {=compound {=punct .} {=word test}} {=globpat {=globmeta **} {=word y}} {=globpat {=globmeta **} {=word y}} {=word z}}"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat7.1"); v == nil {
@@ -1980,8 +2243,10 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 
 	if val := ctx.val("pat8.0"); val == nil {
 		ctx.err("pat8.0: %v", _project(ctx))
-	} else if val.String() != ".test/**/**z" {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), ".test/**/**z"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
+	} else if s, t := ts(val), "{=path {=compound {=punct .} {=word test}} {=globpat {=globmeta **}} {=globpat {=globmeta **} {=word z}}}"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat8.1"); v == nil {
@@ -2104,8 +2369,10 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 
 	if val := ctx.val("pat12.0"); val == nil {
 		ctx.err("pat12.0: %v", _project(ctx))
-	} else if val.String() != ".test/*/*/*.h" {
-		ctx.err("%v", tst{val})
+	} else if s, t := val.String(), ".test/*/*/*.h"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
+	} else if s, t := ts(val), "{=path {=compound {=punct .} {=word test}} {=globpat {=globmeta *}} {=globpat {=globmeta *}} {=globpat {=globmeta *} {=punct .} {=word h}}}"; s != t {
+		ctx.err("%v : %s != %s", val, s, t)
 	} else if p, y := val.(*path); !y {
 		ctx.err("%v", p)
 	} else if v := ctx.val("pat12.1"); v == nil {
@@ -2192,14 +2459,14 @@ func testGlob(ctx *testcase) { testGlobMatch(ctx)
 		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	}
 
-	if val := ctx.val("pat13.0"); val == nil {
-		ctx.err("pat13.0: %v", _project(ctx))
+	if val := ctx.val("pat.0"); val == nil {
+		ctx.err("pat.0: %v", _project(ctx))
 	} else if val.string(ctx) != "**.auto" {
 		ctx.err("%v", tst{val})
 	} else if v := ctx.val("pat13.1"); v == nil {
 		ctx.err("pat13.1: %v", _project(ctx))
 	} else if a, b, c := val.match(ctx, v); !a {
-		ctx.err("%T %v ; %v %v %v", val, val, a, b, c)
+		ctx.err("%v ; %v %v %v", val, a, b, c)
 	} else if v := ctx.val("pat13.2"); v == nil {
 		ctx.err("pat13.2: %v", _project(ctx))
 	} else if a, b, c := val.match(ctx, v); a {

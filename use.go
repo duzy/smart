@@ -22,6 +22,7 @@ type use struct {
 }
 
 func (_ *use) kind() Kind { return KindUse }
+func (p *use) hash(ctx Context) uint64 { return fnv1(ctx, p, p.project.name) }
 func (p *use) refs(ctx Context, v Value) bool {
         for _, a := range p.params {
                 if a.refs(ctx, v) { return true }
@@ -59,13 +60,13 @@ func (p *use) traverse(ctx Context) {
         erro(at(ctx,p.position), "cant traverse 'use' %v", p.project).trace()
         return
 }
-func (p *use) stamp(ctx Context) (_ []*File) {
+func (p *use) stamp(ctx Context) (_ []*file) {
         if entry := p.project.defaultEntry; entry != nil {
                 return entry.stamp(ctx)
         }
         return
 }
-func (p *use) delete(ctx Context) (_ []*File) {
+func (p *use) delete(ctx Context) (_ []*file) {
         if entry := p.project.defaultEntry; entry != nil {
                 return entry.delete(ctx)
         }
@@ -123,7 +124,7 @@ func (p *uselist) Position() (pos Position) {
         }
         return
 }
-func (p *uselist) srclit(Object) string { return "usee" }
+func (p *uselist) srclit(object) string { return "usee" }
 func (p *uselist) String() string {
         var s string
         for i, elem := range p.list {
@@ -139,6 +140,11 @@ func (p *uselist) string(ctx Context) (s string) {
         }
         s = fmt.Sprintf("[%v]", s)
         return
+}
+func (p *uselist) hash(ctx Context) uint64 {
+        var a []any
+        for _, v := range p.list { a = append(a, v) }
+        return fnv1(ctx, p, a...)
 }
 func (p *uselist) true(ctx Context) bool { return len(p.list) > 0 }
 func (p *uselist) int(ctx Context) (_ int64) { return int64(len(p.list)) }
@@ -169,13 +175,13 @@ func (p *uselist) stat(ctx Context) (si *statinfo) {
         }
         return
 }
-func (p *uselist) stamp(ctx Context) (files []*File) {
+func (p *uselist) stamp(ctx Context) (files []*file) {
         for _, elem := range p.list {
                 files = append(files, elem.stamp(ctx)...)
         }
         return
 }
-func (p *uselist) delete(ctx Context) (files []*File) {
+func (p *uselist) delete(ctx Context) (files []*file) {
         for _, elem := range p.list {
                 files = append(files, elem.delete(ctx)...)
         }

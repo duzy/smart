@@ -71,8 +71,8 @@ func (p *execution) inner() Context { return &p.automatic }
 func (p *execution) caller() *execution { return _execution(p.Context) }
 func (p *execution) cast(t reflect.Type) Context {
     if reflect.TypeOf(p) == t { return p }
-    if reflect.TypeOf((*argumented_context)(nil)) == t { return nil }
-    if reflect.TypeOf((*stemmed_context)(nil)) == t { return nil }
+    if reflect.TypeOf((*argumented_ctx)(nil)) == t { return nil }
+    if reflect.TypeOf((*stemmed)(nil)) == t { return nil }
     return p.automatic.cast(t)
 }
 func (p *execution) do(ctx Context, op any) (res any) {
@@ -136,15 +136,15 @@ func (p *execution) tracef(s string, a ...interface{}) { printIndentDots(p.trace
 
 func (p *execution) traversed(ctx Context, target Value) []Value {
     if !isTrivial(target) {
-        if _, y := toFile(target); y { p.addFilesCount(1) }
+        if _, y := to_file(target); y { p.addFilesCount(1) }
         if p.order {
             p.ordered = append(p.ordered, target)
-            auto_set(ctx, "|", makeList(p.ordered...))
+            auto_set(ctx, defVoid, "|", makeList(p.ordered...))
         } else {
             p.targets = append(p.targets, target)
-            auto_set(ctx, "^", makeList(p.targets...))
-            auto_set(ctx, "<", p.targets[0])
-            auto_set(ctx, ">", p.targets[len(p.targets)-1])
+            auto_set(ctx, defVoid, "^", makeList(p.targets...))
+            auto_set(ctx, defVoid, "<", p.targets[0])
+            auto_set(ctx, defVoid, ">", p.targets[len(p.targets)-1])
         }
     }
     return p.targets
@@ -201,7 +201,7 @@ func (p *execution) dirty_mark(vals ...Value) {
             }
         }
     }
-    if enableDirtyMark { p.dirty_mark(vals...) }
+    if false && enableDirtyMark { p.dirty_mark(vals...) }
 }
 
 func (p *execution) interpret(ctx Context, i interpreter, params []Value) (res Value) {
@@ -212,14 +212,14 @@ func (p *execution) interpret(ctx Context, i interpreter, params []Value) (res V
     })
 
     if !isConfigure(ctx) {
-        if _, y := target.(*File); y && p != nil && !p.dirty(ctx) {
+        if _, y := target.(*file); y && p != nil && !p.dirty(ctx) {
             // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
             return
         }
     }
 
     if res = i.evaluate(ctx, params...); res != nil {
-        if d, prev := auto_set(ctx, "-", res); d == nil {
+        if d, prev := auto_set(ctx, defVoid, "-", res); d == nil {
             var _, ent, _ = entryIndicator(ctx, _entry(ctx))
             prompt(ctx, "%v: %s\n", ent, intername(i))
             erro(ctx, "set buffer value failed: %v -> %v", prev, res)
@@ -273,28 +273,18 @@ func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
 func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     var target as
 
-    target.Value, /*files*/_, /*execRes*/_ = wait(p, waitopts{
+    target.Value, _, _ = wait(p, waitopts{
         ReportUpdates: false,
         ExecResults: false,
         StampCurrentTarget: false,
     })
 
+    var y bool
     var reason string
-    var targetFile *File
+    var targetFile *file
     var targetFull string
-    if false { if s := target.string(ctx); s != "" && (
-        // s == "tablegen-min" ||
-        false) {
-        defer func() {
-            prompt(ctx, "%v: %s\n", target.Value, targetFull)
-            prompt(ctx, "%v: outdated=%v, %s\n", target.Value, outdated, reason)
-            warnstack(ctx, 5).debug(32)
-        } ()
-    }}
-
     var opts, args = _opts_[dirtyOpts](ctx, aa...)
 
-    var y bool
     if targetFile, targetFull, y = target.fullnameFile(ctx); !y {
         targetFull = target.string(ctx)
     } else if n := targetFile._traved; n > 1 {
@@ -368,28 +358,25 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     return
 }
 
-func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *File) {
+func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *file) {
     var mapPrereqFile = func(name interface{}) {
-        var maps = unmap_files(ctx, name)
-        if maps != nil {
+        var ms = unmap_files(unmap_uncheck_c{ctx}, name)
+        if ms != nil {
             defer func() {
                 if prereqFile != nil { return }
-
-                for _, m := range maps { warn(at(ctx, m.pattern), "%v, skipped %v", name, m) }
-                warnstack(ctx, 3, "skipped %d, projects %v", len(maps), projects).debug(8)
+                for _, m := range ms { warn(at(ctx, m.pattern), "%v, skipped %v", name, m) }
+                warnstack(ctx, 3, "skipped %d, projects %v", len(ms), projects).debug(8)
             }()
         }
 
-        for _, project := range projects {
-            if prereqFile = project.selectFile(ctx, maps); prereqFile != nil {
-                prereqValue = prereqFile
-                return
-            }
+        if prereqFile = select_file(ctx, ms); prereqFile != nil {
+            prereqValue = prereqFile
+            return
         }
 
         if prereqValue == nil {
-            prereqValue = makeStrlit(_position(ctx), prereqFinal)
-        } else if f, y := toFile(prereqValue); y {
+            prereqValue = _strlit(_position(ctx), prereqFinal)
+        } else if f, y := to_file(prereqValue); y {
             prereqFile = f
         } else if _, y := prereqValue.(*path); y {
             if f := stat(ctx, prereqFinal); f != nil { prereqFile, prereqValue = f, f }
@@ -405,7 +392,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
         return
     }
 
-    if _, y := prereqValue.(Object); y { return }
+    if _, y := prereqValue.(object); y { return }
 
     if !prereqValue.patterned(ctx) {
         prereqFinal = prereqValue.string(ctx)
@@ -415,7 +402,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
         }
 
         switch prereqValue.(type) {
-        case flag, *strlit, *compound:
+        case flag, *strlit, *strcomp:
             return // skip checking files for performance
         }
         for _, p := range _entry(ctx).programs() {
@@ -450,7 +437,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
     return
 }
 
-func (p *execution) defertrave(ctx Context, targetValue, prereqValue, prereqPattern Value, prereqFile *File) {
+func (p *execution) defertrave(ctx Context, targetValue, prereqValue, prereqPattern Value, prereqFile *file) {
     var av = targetValue
     var bv = prereqValue
     if prereqFile == nil {
@@ -487,10 +474,10 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 
         prereqPattern Value
         prereqFinal string
-        prereqFile *File
+        prereqFile *file
 
         concreteList []entry
-        stemmedList []*stemmed
+        stemmedList []*stemmed_rule
 
         t1, t2 time.Time
     )
@@ -549,12 +536,12 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     t1 = time.Now()
 
     for _, proj := range projs {
-        var entries = proj.resolveEntries(ctx, prereqValue, false)
+        var entries = proj._entries(unmap_uncheck_c{ctx}, prereqValue, false)
         if len(entries) == 0 { continue }
         concreteList = append(concreteList, entries...)
         for _, entry := range entries {
             if !isNull(entry) && targetValue == entry { continue }
-            if w, k := targetValue.(*bareword); k && w.s == prereqFinal {
+            if w, k := targetValue.(*word); k && w.s == prereqFinal {
                 continue // target resolve to itself, does nothing
             }
             entry.traverse(ctx)
@@ -633,7 +620,7 @@ func (prog *program) workdir(ctx Context) (workdir string) {
     if p := _execution(ctx); p == nil {
         workdir = prog.project.absPath
     } else if p.changedWD == "" {
-        var o Object
+        var o object
         if o = prog.project.resolve(ctx, "CWD"); isTrivial(o) {
             if o = prog.project.resolve(ctx, "/"); isTrivial(o) {
                 erro(ctx, "both $(CWD) and $/ are trivial").trace()
@@ -658,11 +645,11 @@ func (prog *program) target(ctx Context, exe *execution) (target Value) {
     }
 
     switch a := target.(type) {
-    case *strlit, *compound: // NOTE: skip strings to optimize speed from searching
+    case *strlit, *strcomp: // NOTE: skip strings to optimize speed from searching
     case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-    case    *File: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+    case    *file: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
     default:
-        if f := prog.project.file(ctx, a.string(ctx)); f != nil {
+        if f := prog.project.file(ctx, a); f != nil {
             if f._traved > 1 { return } else { target = f }
         }
     }
@@ -769,14 +756,14 @@ func (prog *program) result_or_default_interpret(ctx *execution) (result Value) 
 
 func (prog *program) execute(ctx Context) (result Value) {
     var exe = execution{
-        automatic:automatic{Context:ctx, defs:make(auto_defs)},
+        automatic:automatic{Context:ctx, defs:make(defs_map)},
         prog:prog, recs:make(map[Value]int), start:time.Now(),
     }
 
     ctx = &exe
 
     if checkpoints && truly(ctx, is_test_mode{}) {
-        if x := prog.checks(); x != nil { defer x(ctx, &result) }
+        defer prog.execute_check(ctx, &result)
     }
 
     defer func() {
@@ -795,18 +782,18 @@ func (prog *program) execute(ctx Context) (result Value) {
         exe.defaultVal = nil
     } ()
 
-    if true { prog.check_exe(ctx, &exe) }
+    if true && checkpoints { prog.check_exe(ctx, &exe) }
 
     // NOTE: set "@" before setting auto args
     // Select the right target value before setting parameters,
     // because the target could be overrided by parameters.
-    auto_set(ctx, "@", prog.target(ctx, &exe))
+    exe.set(ctx, defVoid, "@", prog.target(ctx, &exe))
 
     if t := _stems(ctx); t != nil {
-        auto_set(ctx, "*", ease(ctx, t))
+        exe.set(ctx, defVoid, "*", ease(ctx, t))
     }
 
-    do(ctx, act_arguments{})
+    exe.do(ctx, act_arguments{})
 
     exe.order = false
     exe.prerequisites(ctx, prog.depends)

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	isCompoundLine scanbits = 1 << iota    // 0000000000000001
-	isCompoundString // 0000000000000010 "...."
+	isStrcompLine scanbits = 1 << iota    // 0000000000000001
+	isStrcompString  // 0000000000000010 "...."
 	isCall           // 0000000000000100 $.....
 	isCallParen      // 0000000000001000 $(...)              8
 	isCallBrace      // 0000000000010000 ${...}             16
@@ -24,9 +24,10 @@ const (
 	isGroup          // 0000000010000000 (...)             128
 	isBrace          // 0000000100000000 {...}             256
 	isBraceRaw       // 0000001000000000                   512
-	isRecipes        // 0000010000000000                  1024
-	isRecipeTab      // 0000100000000000 \t               2048
-	isHashValid      // 0001000000000000 scan '#' as HASH token (commentsOff)
+	isBracedPlain    // 0000010000000000                  1024
+	isRecipes        // 0000100000000000                  2048
+	isRecipeTab      // 000100000000000 \t                4096
+	isHashValid      // 001000000000000 scan '#' as HASH token (commentsOff)
 	isMaximumBit     // 1000000000000000                  8192
 )
 
@@ -203,11 +204,12 @@ func (bits scanbits) isCallBrace()      bool { return bits&isCallBrace != 0 }
 func (bits scanbits) isCallColonL()     bool { return bits&isCallColonL != 0 }
 func (bits scanbits) isCallColonR()     bool { return bits&isCallColonR != 0 }
 func (bits scanbits) isCommentsOff()    bool { return bits&isHashValid != 0 }
-func (bits scanbits) isCompoundLine()   bool { return bits&isCompoundLine != 0 }
-func (bits scanbits) isCompoundString() bool { return bits&isCompoundString != 0 }
-func (bits scanbits) isGroup()          bool { return bits&isGroup != 0 }
 func (bits scanbits) isBrace()          bool { return bits&isBrace != 0 }
 func (bits scanbits) isBraceRaw()       bool { return bits&isBraceRaw != 0 }
+func (bits scanbits) isBracedPlain()    bool { return bits&isBracedPlain != 0 }
+func (bits scanbits) isGroup()          bool { return bits&isGroup != 0 }
+func (bits scanbits) isStrcompLine()    bool { return bits&isStrcompLine != 0 }
+func (bits scanbits) isStrcompString()  bool { return bits&isStrcompString != 0 }
 func (bits scanbits) canRecipe()        bool { return bits&(isRecipeTab|isRecipes) != 0 }
 
 func IsLetter(r rune) bool {
@@ -695,19 +697,34 @@ func (s *scanner) scanString(ml bool) string {
 	return string(s.src[offs:s.offset])
 }
 
-func (s *scanner) scanCompound(q rune) (tok token, lit string) {
-	var offs = s.offset
+func (s *scanner) scanStrcomp(q rune) (tok token, lit string) {
 	if q != 0 && s.ch == q {
-		tok = COMPOSED
-		s.pop(isCompoundString)
-		s.next() // take the ending '"'
-		return
+		switch q {
+		case '"':
+			tok = COMPOSED
+			s.pop(isStrcompString)
+			s.next() // take the ending '"'
+			return
+		case '}':
+			tok = RBRACE
+			s.pop(isBracedPlain)
+			s.next() // take the ending '"'
+			return
+		}
 	}
 
+	var offs = s.offset
+
 	switch s.ch {
-	case '\n': // mistaken compound string terminated with line feed
+	case '{': // mistaken strcomp string terminated with line feed
+		if q == '}' {
+			tok = LBRACE
+			s.next()
+			return
+		}
+	case '\n': // mistaken strcomp string terminated with line feed
 		tok = LINEND
-		s.pop(isCompoundString|isCompoundLine)
+		s.pop(isStrcompString|isStrcompLine)
 		if s.next(); s.ch != '\t' { s.bits &^= isRecipes }
 		return
 	case '\\':
@@ -721,7 +738,7 @@ func (s *scanner) scanCompound(q rune) (tok token, lit string) {
 			tok, lit = ESCAPE, string(s.src[offs+1:s.offset])
 		} else {
 			tok, lit = ILLEGAL, string(s.src[offs:s.offset])
-			s.error(offs, fmt.Sprintf("illegal compound escape %#U", s.ch))
+			s.error(offs, fmt.Sprintf("illegal strcomp escape %#U", s.ch))
 			s.next() // discard
 		}
 		return
@@ -745,24 +762,30 @@ l:
 }
 
 func (s *scanner) scan() (pos Pos, tok token, lit string) {
-	switch pos = s.file.Pos(s.offset); {
+	switch pos = s.file.Pos(s.offset) ; {
 	case s.offset >= len(s.src) || s.ch == -1: return pos, EOF, ""
-	case s.bits.isCompoundLine()  : tok, lit = s.scanCompound(0)
-	case s.bits.isCompoundString(): tok, lit = s.scanCompound('"')
+	case s.bits.isBracedPlain()  : tok, lit = s.scanStrcomp('}')
+	case s.bits.isStrcompString(): tok, lit = s.scanStrcomp('"')
+	case s.bits.isStrcompLine()  : tok, lit = s.scanStrcomp(0)
 	}
+
 	if tok != 0 && tok != CLOSURE && tok != DELEGATE { return }
-	if tok != 0 { if s.ch != '$' && s.ch != '&' { s.error(s.offset, string(s.src[s.offset:])) }}
+	if tok != 0 && s.ch != '$' && s.ch != '&' {
+		s.error(s.offset, string(s.src[s.offset:]))
+	}
 
 	if IsDigit(s.ch) { // '0' <= s.ch && s.ch <= '9'
 		tok, lit = s.scanNumber(false)
 		return
 	}
 	if IsLetter(s.ch) {
-		if lit = s.scanIdentifier(); len(lit) > 1 && s.ch != '/' && s.ch != '.' {
-			if tok = lookupKeyword(lit); !tok.isKeyword() && tok != BAREWORD {
+		if lit = s.scanIdentifier() ; len(lit) > 1 && s.ch != '/' && s.ch != '.' {
+			if tok = lookup_keyword(lit) ; !tok.is_keyword() && tok != WORD {
 				s.error(s.offset, "unexpected token '"+tok.String()+"' "+lit)
 			}
-		} else { tok = BAREWORD }
+		} else {
+			tok = WORD
+		}
 		if s.bits.isCallZero() { s.pop(/*isCall*/0) }
 		return
 	}
@@ -822,7 +845,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 	case '-':
 		if s.ch == '-' { // "-->" => "-", "->"
 			if s.readOffset < len(s.src) && s.src[s.readOffset] == '>' {
-				tok, lit = BAREWORD, "-"
+				tok, lit = WORD, "-"
 			} else {
 				tok = MINUS
 			}
@@ -869,9 +892,9 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 			lit = s.scanStrliting(false)
 		}
 	case '"':
-		if s.bits.isCompoundString() { s.error(offs, "composed") }
-		tok = COMPOUND
-		s.push(isCompoundString)
+		if s.bits.isStrcompString() { s.error(offs, "composed") }
+		tok = STRCOMP
+		s.push(isStrcompString)
 	case '$', '&':
 		var isDelegate = ch == '$' // assert(s.offset == s.readOffset-1)
 		switch tok, ch = CLOSURE, rune(s.src[s.offset]); ch {
@@ -934,7 +957,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 	case ' ', '\t': // ASCII 32, 9
 		if ch == '\t' && s.canRecipe() {
 			tok, lit = RECIPE, string(ch)
-			s.push(isCompoundLine)
+			s.push(isStrcompLine)
 		} else {
 			for s.ch == ' ' || s.ch == '\t' { s.next() }
 			tok, lit = SPACE, string(s.src[offs:s.offset])
@@ -1013,7 +1036,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 		tok = RBRACK
 	case '\n': // ASCII 10, 13⇒\r
 		tok = LINEND
-		if s.pop(isCompoundLine); s.ch != '\t' { s.bits &^= isRecipes }
+		if s.pop(isStrcompLine); s.ch != '\t' { s.bits &^= isRecipes }
 	default:
 		// next reports unexpected BOMs - don't repeat
 		if ch != bom { s.error(s.file.Offset(pos), fmt.Sprintf("illegal %#U", ch)) }

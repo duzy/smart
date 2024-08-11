@@ -22,9 +22,9 @@ import (
 )
 
 const (
-    dotBase = ".base"
-    dotContainer = ".container"
-    dotConfigure = ".configure"
+    dot_base      = ".base"
+    dot_configure = ".configure"
+    dot_container = ".container"
 
     mainFileName = "do.smart"
     deprFileName = "build.smart"
@@ -78,26 +78,41 @@ const (
 var parseMode = AllErrors
 
 type get_parser struct{}
-type is_loading_text  struct{}
+
 type is_implicit_load struct{}
+type loaded_abs struct{}
 
-// implicit load, aka. via foo.bar.Baz (implicitly loads foo/bar for base)
-type implicit_load struct{ Context }
+// implicit load, e.g. via foo.bar.Baz (implicitly loads foo/bar for base of Baz)
+type load_implicit struct{ Context }
+type load_abs      struct{ Context ; abs string }
+type load_text     struct{ Context }
 
-type load_dir  struct{ Context }
-type load_file struct{ Context }
-type load_text struct{ Context }
+func (p load_implicit) do(ctx Context, op any) any {
+    switch op.(type) {
+    case is_implicit_load: return true
+    }
+    return p.Context.do(ctx, op)
+}
 
-func (p implicit_load) do(ctx Context, op any) (_ any) {
+func (p *load_abs) ts(string) string {
+    var s string
+    if false {
+        s = _universe(p).trimSpecPath(p, p.abs)
+    } else {
+        s = filepath.Base(p.abs)
+    }
+    return "{=abs "+s+" "+ts(p.Context)+"}"
+}
+func (p *load_abs) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case is_implicit_load: return true
+	case loaded_abs: return p.abs
 	}
 	return p.Context.do(ctx, op)
 }
 
 func (p load_text) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case is_loading_text: return true
+	case parse_is_text: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -126,6 +141,12 @@ func (l *loader) cast(t reflect.Type) Context {
     if reflect.TypeOf(l) == t { return l }
     return l.terminal.cast(t)
 }
+func (l *loader) ts(string) (s string) {
+    s = "{=loader"
+    if l.project != nil { s += " "+l.project.name }
+    s += " "+ts(l.Context)+"}"
+    return
+}
 func (l *loader) do(ctx Context, op any) any {
     switch op.(type) {
     case is_implicit_load: return false
@@ -139,9 +160,6 @@ func (l *loader) do(ctx Context, op any) any {
         }
     }
 	return l.terminal.do(ctx, op)
-}
-func (l *loader) ts(t string) string {
-    return fmt.Sprintf("{=%s %v %v}", t, l.project, ts(l.Context))
 }
 
 type unilo struct{ *universe ; *loader }
@@ -256,23 +274,45 @@ func nonTrivialDefsFromBase(ctx Context, p *project, name string) (dd []*def) {
 }
 
 func (l unilo) scope() *scope { return l.loader.scope() }
-func (l unilo) search(ctx Context, specName string) (absPath string, isDir bool) {
-    if specName == "." {
-        erro(ctx, "not possible to chain itself").trace()
+func (l unilo) search(ctx Context, spec string) (absPath string, isDir bool) {
+    if checkpoints && l.project != nil && l.project.name == "variant.bootstrap" {
+        defer func() {
+            if absPath == "" {
+                note(ctx, "%v → %s %v", spec, absPath, isDir).debug(2)
+            }
+        } ()
     }
 
-    var abs = filepath.IsAbs(specName)
+    if spec == "." {
+        erro(ctx, "self-search is not possible").trace()
+    } else if filepath.IsAbs(spec) {
+        var s = spec
+        if x, y := os.Stat(s); y == nil { return s, x.IsDir() }
 
-    if abs || specName == "~" || specName == ".." || has_prefix(specName, "~"+pathSep, "."+pathSep, ".."+pathSep) {
-        var s = specName
+        s = spec + ".smart"
+        if x, y := os.Stat(s); y == nil { return s, x.IsDir() }
+
+        s = spec + ".sm"
+        if x, y := os.Stat(s); y == nil { return s, x.IsDir() }
+    } else if spec == "~" || strings.HasPrefix(spec, "~") {
+        erro(ctx, "%v : wrong spec : %s (tilde not allowed)", l.project, spec).trace()
+    } else if spec == ".." || has_prefix(spec, "."+pathSep, ".."+pathSep) {
+        var s = spec
         var sx string
 
-        if !abs && l.project.absPath != "" {
-            sx = filepath.Join(l.project.absPath, s)
-            if x, e := filepath.Abs(sx); e == nil {
-                s = x
+        if t := l.project.absPath; t != "" {
+            if x, e := os.Stat(t); e != nil {
+                erro(ctx, "%v", e).trace()
+            } else if !x.IsDir() {
+                t = filepath.Dir(t)
+            }
+
+            sx = filepath.Join(t, s)
+
+            if x, e := filepath.Abs(sx); e != nil {
+                erro(ctx, "%v", e).trace()
             } else {
-                erro(ctx, "abs: %v", e).trace()
+                s = x
             }
         }
 
@@ -284,10 +324,9 @@ func (l unilo) search(ctx Context, specName string) (absPath string, isDir bool)
         sx = s + ".sm"
         if x, e := os.Stat(sx); e == nil { return sx, x.IsDir() }
     } else {
-        var wd = _workdir(ctx)
         for _, base := range l.paths {
-            var s = filepath.Join(base, specName)
-            if !filepath.IsAbs(base) { s = filepath.Join(wd, s) }
+            var s = filepath.Join(base, spec)
+            if !filepath.IsAbs(base) { s = filepath.Join(l.workdir, s) }
             if x, e := os.Stat(s); e == nil { return s, x.IsDir() }
         }
     }
@@ -536,41 +575,11 @@ func (l unilo) use_proj(ctx Context, opts useopts, proj *project, params ...Valu
     return
 }
 
-type includeOpts struct {
-    *clauseopts
-    ifExists bool `if-exists,ifexists`
-    isConfig bool
-}
-func (l unilo) include(ctx Context, specVal Value, opts includeOpts) {
-    defer func(t time.Time) {
-        if d := time.Now().Sub(t); d > l.slow {
-            warn(ctx, "%v: slow: %v (%v)", l.project, d, l.slow).debug() //  → %s, filename
-        } else if l.verbose {
-            info(ctx, "included %v (%v)", specVal, d).debug()
-        }
-    } (time.Now())
-
-    ctx = at(ctx, specVal)
-
-    // Execute the rule entry to update include source.
-    if x, y := specVal.(*rule); y && x != nil {
-        if z, y := executeEntry(ctx, x); !y {
-            erro(ctx, "%v: include entry failed : %s", x, ts(z)).trace()
-        }
-
-        specVal = x.target
-    }
-
-    var spec, fullname string
-
+func (l unilo) spec_file(ctx Context, specVal Value) (res *file, spec, fullname string) {
     switch t := specVal.(type) {
-    case *File:
+    case *file:
         if !t.exists() { _ = t.stat(ctx) }
-        if !t.exists() && opts.ifExists { return } // ignore non-exists files
-        if fullname, spec = t.fullname(), t.ident(ctx); t.info == nil {
-            prompt(ctx, "%v: no source file %v, %v\n", fullname, t, t.stat(ctx))
-            erro(at(ctx,t), "%v: %v", _project(ctx), t).trace()
-        }
+        return t, t.ident(ctx), t.fullname()
     default:
         if spec = specVal.string(ctx) ; spec == "" {
             erro(at(ctx,specVal), "include: empty string: %v", specVal).trace()
@@ -590,22 +599,51 @@ func (l unilo) include(ctx Context, specVal Value, opts includeOpts) {
             _ = f.stat(ctx)
         }
 
-        if f != nil && f.exists() {
-            fullname = f.fullname()
-        } else if opts.ifExists {
-            return // ignore non-exists files
+        if f != nil {
+            res, fullname = f, f.fullname()
         }
+        return
+    }
+}
+
+type includeOpts struct {
+    *clauseopts
+    ifExists bool `if-exists,ifexists`
+    isConfig bool
+}
+func (l unilo) include(ctx Context, specVal Value, opts includeOpts) {
+    if false {
+        defer func(t time.Time) {
+            if d := time.Now().Sub(t); l.slow < d {
+                warn(ctx, "%v: slow: %v (%v)", l.project.name, d, l.slow).debug() //  → %s, filename
+            } else if l.verbose {
+                info(ctx, "included %v (%v)", specVal, d).debug()
+            }
+        } (time.Now())
     }
 
-    if spec == "" {
-        erro(ctx, "include: empty string: %v", specVal).trace()
+    ctx = at(ctx, specVal)
+
+    // Execute the rule entry to update include source.
+    if x, y := specVal.(*rule); y && x != nil {
+        if z, y := execute_entry(ctx, x); !y {
+            erro(ctx, "%v: include entry failed : %s", x, ts(z)).trace()
+        }
+
+        specVal = x.target
     }
 
-    l.loader = &loader{
-        terminal: terminal{parse_include{ctx, opts}, []*scope{l.scope()}},
-        project: l.project,
+    var f, spec, fullname = l.spec_file(ctx, specVal)
+    if (f == nil || !f.exists()) && opts.ifExists {
+        return // ignore non-exists files
     }
-    l.source(l.loader, fullname, nil)
+
+    if spec == "" || fullname == "" {
+        erro(ctx, "include: empty string: %v", ts(specVal)).trace()
+    } else {
+        spec = l.trimSpecPath(ctx, spec)
+        l.source(parse_include{ctx, spec, opts}, fullname, nil)
+    }
     return
 }
 
@@ -648,8 +686,8 @@ func (l unilo) bases(ctx Context, implicitBase_ string, params ...Value) {
 
     var implicitBases []Value
 
-    if f := stat(ctx, dotBase, l.project) ; f != nil {
-        if !f.info.IsDir() && (l.project.spec == dotBase /*|| l.project.spec == dotConfigure*/) {
+    if f := stat(ctx, dot_base, l.project) ; f != nil {
+        if !f.info.IsDir() && (l.project.spec == dot_base /*|| l.project.spec == dot_configure*/) {
             // skip the regular file .base to avoid self loading recursively
         } else {
             implicitBases = append(implicitBases, f)
@@ -667,7 +705,7 @@ func (l unilo) bases(ctx Context, implicitBase_ string, params ...Value) {
         if numBaseParams == 0 {
             var segs []Value
             for _, s := range ss[:len(ss)-2] {
-                segs = append(segs, makeBareword(_position(ctx), s))
+                segs = append(segs, makeWord(_position(ctx), s))
             }
             implicitBases = append(implicitBases, makePath(segs...))
             implicitBase_ = "" // discard the implicit base
@@ -688,19 +726,10 @@ ParamsLoop:
             elem = x.elems[0]
         }
         if x, y := elem.(*argumented); y {
-            elem, ctx = x.Value, &argumented_context{ctx, x.args}
+            elem, ctx = x.Value, &argumented_ctx{ctx, x.args}
         }
         if x, y := elem.(*pair); y {
-            if s := x.key.string(ctx) ; s == "" {
-                erro(ctx, "empty base name: %v", ts(x.key)).trace()
-            } else if s[0] == '.' {
-                x.key = makeBarecomp(makeBareword(x.key.Position(), "project"), x.key)
-            }
-
-            // TODO: check the returned defs...
-
-            _ = l.p.define_idents(ctx, ASSIGN, x.key, x.val)
-            continue
+            erro(at(ctx, x.key), "use -set(%v) instead", x).trace()
         }
 
         var spec string
@@ -722,40 +751,41 @@ ParamsLoop:
             errostack(ctx, 5).trace()
         } else if implicitBase_ != "" && spec == implicitBase_ {
             if i == implicitIndex {
-                ctx = implicit_load{ctx}
+                ctx = load_implicit{ctx}
             } else {
                 erro(ctx, "%v: implicit base '%v' already loaded", l.project, elem).trace()
             }
         }
 
-        var absPath string
+        var cc = load_abs{Context:ctx}
         var isDir bool
 
-        if x, y := toFile(elem); y && x.info != nil {
-            absPath, isDir = x.fullname(), x.info.IsDir()
-            if !filepath.IsAbs(absPath) {
-                erro(ctx, "%v: not abs path: %v → %v", l.project, elem, spec).trace()
-            }
-        } else if absPath, isDir = l.search(ctx, spec); absPath == "" {
-            erro(ctx, "%v: search base failed: %v → %v", l.project, elem, spec).trace()
+        if x, y := to_file(elem); y && x.info != nil {
+            cc.abs, isDir = x.fullname(), x.info.IsDir()
+        } else {
+            cc.abs, isDir = l.search(ctx, spec)
         }
 
         for _, base := range l.project.bases {
-            if base.absPath == absPath {
-                if true {
-                    erro(ctx, "duplicated base: %v (in %v)", elem, l.project.bases).trace()
-                }
+            if base.absPath == cc.abs {
+                erro(ctx, "duplicated base: %v : %v → %v (in %v)", base, elem, spec).trace()
                 continue ParamsLoop
             }
         }
 
         if isDir {
-            l.directory(ctx, spec, absPath, nil)
+            l.directory(&cc, spec, cc.abs, nil)
         } else {
-            l.load(ctx, spec, absPath, nil)
+            l.load(&cc, spec, cc.abs, nil)
         }
 
-        if checkpoints { l.bases_check(ctx, implicitIndex, implicitBase_, absPath, isDir, elem) }
+        if checkpoints && truly(ctx, is_test_mode{}) {
+            l.bases_check_i(ctx, i, implicitIndex, implicitBase_, cc.abs, isDir, elem)
+        }
+    }
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        l.bases_check(ctx, implicitIndex, implicitBase_)
     }
 
     usefor(ctx, l.project, func(op usevar, _, _ Value, name string) {
@@ -768,12 +798,12 @@ ParamsLoop:
     return
 }
 
-func (l unilo) loadDotContainer(ctx Context, ident Value, identStr string, file *File) {
+func (l unilo) loadDotContainer(ctx Context, ident Value, identStr string, file *file) {
     if l.traceLaunch { defer un(l_trace(l_launch, "loader.loadDotContainer")) }
     if file.info == nil {
         erro(ctx, "%s: file not exists: %s", ident, file.fullname()).trace()
     } else if file.info.IsDir() {
-        l.directory(ctx, dotContainer, file.fullname(), nil)
+        l.directory(ctx, dot_container, file.fullname(), nil)
     } else {
         l.file(ctx, file.fullname(), nil)
     }
@@ -790,132 +820,156 @@ func (l unilo) loadDotContainer(ctx Context, ident Value, identStr string, file 
     return
 }
 
-func isConfigureproject(proj *project) bool {
+func is_configure_project(proj *project) bool {
     return proj == nil ||
-        proj.name == dotConfigure ||
+        proj.name == dot_configure ||
         proj.name == "configure" ||
         proj.name == "configure.base"
 }
 
 func (l unilo) autoload(ctx Context, tag string) {
-    if p := l.project ; !isConfigureproject(p) {
-        if o := p.resolve(ctx, ".autoload."+tag); o != nil {
-            if x, y := o.(*def); !y {
-                warnstack(ctx, 3, "%v: unsupported .auto: %v", p, ts(o)).debug()
-            } else {
-                var v = scalarize(x.value.expand(final{ctx}))
+    if !is_configure_project(l.project) {
+        if d := l.project.resolveDef(ctx, ".autoload."+tag); d != nil {
+            for _, v := range merge(d.value.expand(final{ctx})) {
                 if !isTrivial(v) { l.include(ctx, v, includeOpts{}) }
             }
         }
     }
 }
 
-func (l unilo) configure(ctx Context, ident Value, identStr string, declared bool) {
-    if false { defer un(l_tracef(l_traverse, "configuration(%v)", ident)) }
-    if l.project.name == dotConfigure { return }
+type load_configure struct {
+    Context
+    abs, configure string
+    local, isDir bool
+    p *project
+}
+func (c *load_configure) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case declared_project:
+        if t.absPath == c.abs {
+            c.p = t.project
+            return
+        }
+    case loaded_abs: return c.abs
+    }
+    return c.Context.do(ctx, op)
+}
 
-    var local, isDir bool
-    var absPath, configure string
+func (l unilo) configure(ctx Context, ident Value, identStr string, declared bool) {
+    if false { defer un(l_tracef(l_traverse, "configure(%v)", ident)) }
+
+    if l.project.name == dot_configure { return }
+
+    var cc = load_configure{Context:ctx}
 
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer l.configure_check(ctx, ident, &absPath, &configure)
+        defer l.configure_check(&cc, ident)
     }
+
+    const cs = "configure"
+
+    var f *file
 
     if v := l.project.opt.configure; v != nil {
         if x, y := v.(*boolean); y {
             if !x.bool { return }
-            configure = "configure"
+            cc.configure = cs // use the default 'configure' module
         } else {
-            configure = v.string(ctx)
-            if configure == "" {
+            cc.configure = v.string(ctx)
+            if cc.configure == "" {
                 erro(at(ctx,v), "empty configure spec: %v", ts(v)).trace()
+            } else if cc.configure == "." {
+                cc.configure, cc.local = cs, true
             }
         }
+    } else if f = stat(ctx, cs, l.project); f != nil {
+        cc.configure, cc.local = cs, true
     }
 
-    if configure == "." {
-        configure, local = "configure", true
-    } else if configure == "" {
-        if false { erro(ctx, "empty configure spec").trace() }
-        return
+    if f == nil && cc.configure != "" {
+        if filepath.IsAbs(cc.configure) {
+            f = stat(ctx, cc.configure)
+        } else {
+            f = stat(ctx, cc.configure, l.project)
+        }
     }
 
-    var f *File
-    if filepath.IsAbs(configure) {
-        f = stat(ctx, configure)
-    } else {
-        f = stat(ctx, configure, l.project)
-    }
     if f != nil && f.exists() {
-        absPath, isDir = f.fullname(), f.info.IsDir()
+        cc.abs, cc.isDir = f.fullname(), f.info.IsDir()
     }
 
-    if absPath == "" && l.project.opt.configure != nil {
-        if !local {
-            absPath, isDir = l.search(ctx, configure)
+    if cc.abs == "" && l.project.opt.configure != nil {
+        if !cc.local {
+            cc.abs, cc.isDir = l.search(ctx, cc.configure)
         }
-        if absPath == "" {
-            erro(ctx, "%v: no such project: %s", l.project, configure).trace()
+        if cc.abs == "" {
+            erro(ctx, "%v: no such project: %s", l.project, cc.configure).trace()
         }
     }
 
-    if absPath == "" {
+    if cc.abs == "" {
         if l.project.opt.configure != nil {
             erro(ctx, "%v: missing the default .configure", l.project).trace()
         }
         return
-    } else if isDir {
-        l.directory(ctx, configure, absPath, nil)
+    }
+
+    if cc.isDir {
+        l.directory(&cc, cc.configure, cc.abs, nil)
     } else {
-        l.file(ctx, absPath, nil)
+        l.file(&cc, cc.abs, nil)
     }
 
-    var loaded *project
-    if loaded, _ = l.globe.loaded[absPath]; loaded == nil {
-        erro(ctx, "not loaded: %s (%s, dir=%v)", configure, absPath, isDir).trace()
+    if cc.p == nil {
+        erro(ctx, "%s not loaded", cc.configure).trace()
     }
 
-    if name, _ := l.scope().Lookup(dotConfigure).(*project); name == nil {
-        if _, alt := l.scope().projectname(ctx, dotConfigure, loaded); alt != nil {
-            if val, y := alt.(*project); !y || val == nil {
-                erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).trace()
+    if x, y := l.project.Lookup(dot_configure).(*project); !y || x == nil {
+        if _, alt := l.project.projectname(ctx, dot_configure, cc.p); alt != nil {
+            if p, y := alt.(*project); !y || p == nil {
+                erro(ctx, "name `%s' already taken (%s).", cc.p.name, typeof(alt)).trace()
             }
         }
     }
-    if l.project.configure == loaded { return }
+
+    if l.project.configure == cc.p { return }
     if l.project.configure != nil {
-        erro(ctx, ".configure already specified").trace()
+        erro(ctx, "%s already specified", dot_configure).trace()
     }
 
-    var opts = useopts{}
-    for _, proj := range loaded.usees(true, false, false, false) {
-        if err := l.use_proj(ctx, opts, proj); err != nil { // see usevars
-            erro(ctx, "using '%v' failed: %v", proj, err).trace()
+    // Set .configure first to ensure the configuration.sm is correct
+    l.project.configure = cc.p
+
+    for _, proj := range cc.p.usees(true, false, false, false) {
+        if e := l.use_proj(ctx, useopts{}, proj); e != nil { // see usevars
+            erro(ctx, "failed to use %v : %v", proj, e).trace()
         }
     }
 
+    if l.project.configuration != nil {
+        erro(ctx, "%v : already loaded configuration.sm", l.project).trace()
+    }
+
     // Load configuration.sm after .configure was loaded.
-    l.project.configure = loaded // must set .configure first to get the correct configuration file
-    l.project.configuration = l.project.configuration_sm(ctx)
-    if f := l.project.configuration; f == nil {
+    if f := l.project.configuration_sm(ctx); f == nil {
         erro(ctx, "%v: nil configuration file", ident).trace()
-    } else if declared || l.commandline.configure {
-        // l.configuration.clean[f] = struct{}{}
     } else if f.exists() || f.stat(ctx) != nil {
-        l.include(ctx, f, includeOpts{isConfig:true})
+        // Initiate the configuration.sm file.
+        l.project.configuration = f
+        l.include(&cc, f, includeOpts{isConfig:true})
     }
 }
 
 func (l unilo) container(ctx Context, ident Value, identStr string) {
     ctx = at(ctx, ident)
 
-    if l.project.name != dotContainer {
+    if l.project.name != dot_container {
         if _, e := os.Stat(".dock"); e == nil {
             erro(ctx, "Must rename .dock into .container !").trace()
         }
 
         // Looking for project specific .container module
-        if f := stat(ctx, dotContainer, l.project); f.exists() {
+        if f := stat(ctx, dot_container, l.project); f.exists() {
             l.loadDotContainer(ctx, ident, identStr, f)
             if l.verbose {
                 info(ctx, "%v for %s (%s)\n", f, l.project.spec, l.project).debug()
@@ -925,7 +979,7 @@ func (l unilo) container(ctx Context, ident Value, identStr string) {
 
         // Looking for .smart/.container
         walkSmartBaseDirs(ctx, l.project.absPath, func(s string) bool {
-            var f = stat(ctx, dotContainer, stat_dir{filepath.Join(s, ".smart")})
+            var f = stat(ctx, dot_container, stat_dir{filepath.Join(s, ".smart")})
             if f.exists() {
                 l.loadDotContainer(ctx, ident, identStr, f)
             }
@@ -971,6 +1025,8 @@ func load_source_bytes(ctx Context, filename string, source ...any) (_ []byte, _
     }
 }
 
+type source_loaded string
+
 func (l unilo) source(ctx Context, filename string, src any) (res Value) {
     if l.traceLaunch { defer un(l_trace(l_launch, "loader.source")) }
     if l.verbose {
@@ -982,24 +1038,27 @@ func (l unilo) source(ctx Context, filename string, src any) (res Value) {
         }
     }
 
+    var text []byte
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer l.source_check(ctx, filename, src, &text, &res)
+    }
+
     defer func(t time.Time, p *parser) {
-        if l.p == nil {
-            erro(ctx, "nil parser ; %v", p).trace()
-        }
-
-        if true && l.p != nil { ctx = at(ctx, l.p) }
-
-        if d := time.Now().Sub(t); d > l.slow {
-            warnstack(ctx, 10, "%v: slow: %v (%v)", l.project, d, l.slow).debug(2) // → %s, filename
+        if l.p == nil { erro(ctx, "nil parser ; %v", p).trace() }
+        if l.p != nil && true { ctx = at(ctx, l.p) }
+        if d := time.Now().Sub(t); l.slow < d {
+            if false { prompt(ctx, "%s: %s (%v)\n", filename, l.project.name, d) }
+            warnstack(ctx, 10, "%v (%v)", l.project.name, d).debug(5) // → %s, filename
         } else if l.verbose {
             info(ctx, "loaded %v (%v)", filename, d).debug(2)
         }
-
         l.p = p
     } (time.Now(), l.p)
 
+    var patherror bool
     var opts = try[*includeOpts](ctx, parse_inc_opts{})
-    var text, patherror = load_source_bytes(ctx, filename, src)
+    text, patherror = load_source_bytes(ctx, filename, src)
     if patherror && (opts != nil && !opts.ifExists) {
         prompt(ctx, "%v: no such source file\n", filename)
         errostack(ctx, 3).trace()
@@ -1034,23 +1093,15 @@ func (l unilo) source(ctx Context, filename string, src any) (res Value) {
 	l.p.next(ctx, true) // starts scanning
     ctx = at(ctx, l.p)
 
-    if truly(ctx, is_loading_text{}) {
+    if truly(ctx, parse_is_text{}) {
         return ease(ctx, l.values(ctx))
     }
 
-    if l.parse_file(ctx) {
+    if l.parse(ctx, filename) && !truly(ctx, parse_is_flat{}) {
         return l.project
-    }
-
-    if true { return }
-
-    if filepath.IsAbs(filename) {
-        prompt(ctx, "%s: no project parsed\n", filename)
-        errostack(ctx, 5).trace()
     } else {
-        errostack(ctx, 5, "%v", filename).trace()
+        return
     }
-    return
 }
 
 // ParseConfigDir parses a configuration directory, where
@@ -1082,7 +1133,7 @@ func (l unilo) config_dir(ctx Context, pathname, linked string) (err error) {
 
     for _, f := range fs {
         var name = f.Name()
-        if has_prefix(name, "~") || hasSuffix(name, ".#", ".smart", ".sm") {
+        if has_prefix(name, "~") || has_suffix(name, ".#", ".smart", ".sm") {
             continue
         }
 
@@ -1120,7 +1171,7 @@ func (l unilo) config_dir(ctx Context, pathname, linked string) (err error) {
             erro(ctx, "%s: invalid UTF8 content", fullname)
         }
 
-        d.set(ctx, defConfDir, makeStrlit(_position(ctx), s))
+        d.set(ctx, defConfDir, _strlit(_position(ctx), s))
     }
     return
 }
@@ -1174,6 +1225,8 @@ func (l unilo) sources(ctx Context, path string, filter func(os.FileInfo) bool) 
     // It's important to name resolving for not interfering with other projects.
     l.scope().outer = l.globe.scope
 
+    var cc = load_abs{ctx, path}
+
     for _, d := range fis {
         var name, mo = d.Name(), d.Mode()
         if nonsource(name, mo) || filter != nil && filter(d) { continue }
@@ -1193,22 +1246,7 @@ func (l unilo) sources(ctx Context, path string, filter func(os.FileInfo) bool) 
             ctx = at(ctx, p)
         }
 
-        var res = l.source(load_dir{ctx}, filename, nil)
-
-        // if i := flush(ctx); 0 < i {
-        //     s := filepath.Base(filename)
-        //     erro(ctx, "got %d errors in file '%s'", i, s).trace()
-        // }
-
-        if res == nil {
-            erro(ctx, "parse failed").trace()
-        }
-
-        if x, y := res.(*project); !y {
-            erro(ctx, "non-project: %v", ts(res)).trace()
-        } else if _, y = l.declares[x.name] ; !y {
-            erro(ctx, "%v: declared incorrectly", x).trace()
-        }
+        l.source(&cc, filename, nil)
     }
     return true
 }
@@ -1229,9 +1267,9 @@ func (l unilo) load(ctx Context, spec, absPath string, source any) {
     } (time.Now())
 
     if absPath == "" {
-        erro(ctx, "no such module `%s' (in paths %v)", spec, l.paths).trace()
+        erro(ctx, "%v: no such base: %v", l.project, spec).trace()
     } else if !filepath.IsAbs(absPath) {
-        erro(ctx, "invalid abs name `%s' (%s)", absPath, spec).trace()
+        erro(ctx, "%v: not absolute path: %v", l.project, spec).trace()
     }
 
     // Check loaded project.
@@ -1241,26 +1279,24 @@ func (l unilo) load(ctx Context, spec, absPath string, source any) {
                 erro(ctx, "name already taken: %v (%s).", p, typeof(a)).trace()
             }
         }
-        do(ctx, set_base{p})
+        do(ctx, declared_project{p})
         return
     }
 
-    if l.project != nil /* && _loader(l.loader.Context) != nil */ {
+    if l.project != nil {
         l.loader = &loader{terminal:terminal{ctx, []*scope{l.scope()}}}
         ctx = l.loader
     }
 
-    var res = l.source(ctx, absPath, source)
-    if false && res == nil {
-        prompt(ctx, "%s: nil project parsed for %s", absPath, spec)
-        errostack(ctx, 3).trace()
-    }
+    l.source(ctx, absPath, source)
     return
 }
 
 func (l unilo) directory(ctx Context, spec, absDir string, filter func(os.FileInfo) bool) {
-    if !filepath.IsAbs(absDir) {
-        erro(ctx, "needs absolute dir `%s' (%s)", absDir, spec).trace()
+    if absDir == "" {
+        erro(ctx, "%v: no such base: %v", l.project, spec).trace()
+    } else if !filepath.IsAbs(absDir) {
+        erro(ctx, "%v: not absolute path: %v", l.project, spec).trace()
     }
 
     var pos = positionForDir(absDir)
@@ -1297,7 +1333,7 @@ func (l unilo) directory(ctx Context, spec, absDir string, filter func(os.FileIn
 
     // Check previously loaded project.
     if loaded, okay = l.globe.loaded[absDir]; okay && loaded != nil {
-        do(ctx, set_base{loaded})
+        do(ctx, declared_project{loaded})
         return
     }
 
@@ -1339,13 +1375,15 @@ func (l unilo) file(ctx Context, filename string, source any) {
     var spec string
 
     switch base {
-    case dotBase, dotConfigure: spec = base
+    case dot_base, dot_configure: spec = base
     default: spec, _  = filepath.Rel(l.workdir, dir)
     }
 
     var pos Position
     pos.Filename = filename
-    l.load(load_file{at(ctx, pos)}, spec, filename, source)
+
+    var cc = load_abs{at(ctx, pos), filename}
+    l.load(&cc, spec, filename, source)
 }
 
 func (l unilo) text(ctx Context, filename string, text string) Value {

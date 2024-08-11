@@ -1,0 +1,5 @@
+project -configure -set(variant=darwin/arm64/bootstrap,outtmp=$//tmp) testdeftwoconfigure
+
+rel.chop := $(dir3 $/)/
+
+FOO : {(configure)} ; $(.self)

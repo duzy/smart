@@ -3,7 +3,6 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
-
 package smart
 
 import (
@@ -28,11 +27,11 @@ type _filemap struct {
 
 type filemap struct { *_filemap ; pattern Value }
 
-func (p *_filemap) String() (s string) {
+func (p *_filemap) String() (_ string) {
   if n := len(p.patts); n == 1 {
-    s = p.patts[0].String()
+    return p.patts[0].String()
   } else if n > 1 {
-    s = fmt.Sprintf("%s", p.patts)
+    return fmt.Sprintf("%s", p.patts)
   }
   return
 }
@@ -67,7 +66,7 @@ func (p *filemap) primePatterns(ctx Context) (pats []Value) {
 
 // match split filename into list and match each part with the pattern correspondingly.
 func (p *filemap) match(ctx Context, val any) (_ bool, _ Value, _ string) {
-  // TODO: escape file matching for 'String' and "compound" values
+  // TODO: escape file matching for 'String' and "strcomp" values
   for _, pat := range p.primePatterns(ctx) {
     if matched, name := p._match(ctx, pat, val); matched {
       return matched, pat, name
@@ -77,7 +76,7 @@ func (p *filemap) match(ctx Context, val any) (_ bool, _ Value, _ string) {
 }
 
 func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name string) {
-  // TODO: escape file matching for 'String' and "compound" values
+  // TODO: escape file matching for 'String' and "strcomp" values
   var res interface{}
   matched, res, _ = pat.match(ctx, val)
 
@@ -87,8 +86,8 @@ func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name st
 
     // NOTE: Dealing with these files:
     //     files (
-    //         (foo.c) => $(srcdir)/sub/dir
-    //         (sub/dir/foo.c) => $(srcdir)
+    //         (foo.c) ⇒ $(srcdir)/sub/dir
+    //         (sub/dir/foo.c) ⇒ $(srcdir)
     //     )
     for _, p := range p.paths { // FIXME: performance, operate on p.(*path) instead
       if _, ok := p.(*path); !ok { continue } // NOTE: only work with paths to improve performance
@@ -108,14 +107,14 @@ func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name st
   } else if s, y := res.(string); y {
     name = s
   } else if a, y := res.([]string); y {
-    name = joinPath(a...)
+    name = joinpath(a...)
   } else {
     erro(ctx, "unexpected result: %v", ts(res)).trace()
   }
   return // NOTE: also `globMatchFile(ctx, pat, str, true)`
 }
 
-func (p *filemap) stat(ctx Context, name string) (file *File) {
+func (p *filemap) stat(ctx Context, name string) (res *file) {
   var patts = p.patts
   if len(patts) == 0 {
     erro(ctx, "no map patterns: %v", p).trace()
@@ -123,17 +122,16 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
 
   if len(p.paths) == 0 {
     for _, pat := range p.patts {
-      if f, y := pat.(*File); y && f.ident(ctx) == name { return f }
+      if f, y := pat.(*file); y && f.ident(ctx) == name { return f }
     }
-
     for i, pat := range p.patts {
-      if f, y := pat.(*File); y {
+      if f, y := pat.(*file); y {
         info(ctx, "pattern %d. %v %s (exists=%v)", i, f, f.fullname(), f.exists())
       } else {
         info(ctx, "pattern %d. %v", i, ts(pat))
       }
     }
-    errostack(ctx, 5, "%s -> %v", name, p.patts).trace()
+    errostack(ctx, 5, "%s → %v", name, p.patts).trace()
   }
 
   var pos = patts[0].Position()
@@ -170,7 +168,7 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
       // dir = filepath.Clean(base)
     }
 
-    if file = stat(ctx, name, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true}); file != nil { break }
+    if res = stat(ctx, name, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true}); res != nil { break }
 
     var pre string // Not used!
     if filepath.IsAbs(sub) {
@@ -179,7 +177,7 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
         //   xxx.c  <->  (*.c => /path/to/source)
         // Become:
         //   /path/to/source  ""  xxx.c
-        file = stat(ctx, name, stat_dir{sub}, stat_nonexist{true})
+        res = stat(ctx, name, stat_dir{sub}, stat_nonexist{true})
       } else if strings.HasSuffix(sub, pathSep+pre) {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
@@ -187,14 +185,14 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
         //   /path/to/source  foo/bar  xxx.c
         s := strings.TrimSuffix(sub, pathSep+pre)
         n := strings.TrimPrefix(name, pre+pathSep)
-        file = stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
+        res = stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
       } else if false { // This is wrong, only base name matched!!
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
         // Become:
         //   /path/to/source  foo/bar  xxx.c
         n := strings.TrimPrefix(name, pre+pathSep)
-        file = stat(ctx, n, stat_sub{pre}, stat_dir{sub}, stat_nonexist{true})
+        res = stat(ctx, n, stat_sub{pre}, stat_dir{sub}, stat_nonexist{true})
       }
     } else {
       if pre == "" { // Fullmatch!
@@ -202,14 +200,14 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
         //   xxx.c  <->  (*.c => source)
         // Become:
         //   <p.absPath>  source  xxx.c
-        file = stat(ctx, name, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true})
+        res = stat(ctx, name, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true})
       } else if sub == pre {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => foo/bar)
         // Become:
         //   <dir>  foo/bar  xxx.c
         n := strings.TrimPrefix(name, pre+pathSep)
-        file = stat(ctx, n, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true})
+        res = stat(ctx, n, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true})
       } else if strings.HasSuffix(sub, pathSep+pre) {
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
@@ -217,7 +215,7 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
         //   <dir>  source/foo/bar  xxx.c
         s := strings.TrimSuffix(sub, pathSep+pre)
         n := strings.TrimPrefix(name, pre+pathSep)
-        file = stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
+        res = stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
       } else if false { // This is wrong, only base name matched!!
         // For example of:
         //   foo/bar/xxx.c  <->  (*.c => source)
@@ -225,32 +223,40 @@ func (p *filemap) stat(ctx Context, name string) (file *File) {
         //   <dir>  source/foo/bar  xxx.c
         s := filepath.Join(sub, pre)
         n := strings.TrimPrefix(name, pre+pathSep)
-        file = stat(ctx, n, stat_sub{s}, stat_dir{dir}, stat_nonexist{true})
+        res = stat(ctx, n, stat_sub{s}, stat_dir{dir}, stat_nonexist{true})
       }
     }
   }
   return
 }
 
-type project_box struct { *project }
-func (p project_box) cmp(ctx Context, v Value) (res cmpres) {
-  if x, y := v.(project_box); y {
-    if x.project == p.project { res = cmpEqual }
-  } else if x, y := v.(condval); y {
-    res = p.project.cmp(ctx, x.Value)
-  } else if x, y := v.(*list); y && len(x.elems) == 1 {
-    res = p.project.cmp(ctx, x.elems[0])
+type debug_y struct{}
+type debug_ctx struct{ Context }
+func (c debug_ctx) do(ctx Context, op any) any {
+  switch op.(type) {
+  case debug_y: return true
   }
-  if checkpoints {
-    switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
-    if res != cmpEqual && p.String() == v.String() {
-      erro(ctx, "%v != %v, %v", ts(p), ts(v), res).trace()
-    }
-  }
-  return
+  return c.Context.do(ctx, op)
 }
 
-type project_ext struct { *plugin.Plugin }
+type unmap_uncheck_y struct{}
+type unmap_uncheck_c struct{ Context }
+func (c unmap_uncheck_c) do(ctx Context, op any) any {
+  switch op.(type) {
+  case unmap_uncheck_y: return true
+  }
+  return c.Context.do(ctx, op)
+}
+
+type project_ctx struct{ Context ; p *project }
+func (c project_ctx) do(ctx Context, op any) any {
+  switch op.(type) {
+  case get_project: return c.p
+  }
+  return c.Context.do(ctx, op)
+}
+
+type project_ext struct{ *plugin.Plugin }
 type project struct {
   *scope
 
@@ -261,9 +267,10 @@ type project struct {
 
   use *uselist
 
-  configuration *File // default file, decided at load time
+  // configuration *file // default file, decided at load time
   configure *project // .configure
   configured bool
+  configuration *file // configuration.sm
 
 	absPath string
   tmpPath string
@@ -290,12 +297,14 @@ func (_ *project) defs(Context, ...string) (_ []*def) { return }
 func (_ *project) refs(Context, Value) (_ bool) { return }
 func (_ *project) patterned(Context) bool { return false }
 func (_ *project) expandable(Context) bool { return false }
-func (p *project) expand(Context) Value { return project_box{p} }
-func (p *project) evoke(ctx *evocation) Value { return project_box{p} }
-func (p *project) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
+func (p *project) expand(Context) Value { return p }
+func (p *project) evoke(*evocation) Value { return p }
+func (p *project) hash(ctx Context) uint64 { return fnv1(ctx, p, p.name) }
+func (p *project) stencil(_ Context, stems []string) (Value, []string) { return p, stems }
 func (p *project) match(ctx Context, i any) (bool, any, []string) { return stringMatch(ctx, p, i) }
 func (p *project) Position() Position { return p.position }
-func (p *project) String() string { return p.name }
+func (p *project) ts(string) string { return "{=project "+p.name+"}" }
+func (p *project) String() string { return "{=project "+p.name+"}" }
 func (p *project) string(Context) string { return p.name }
 func (p *project) ident(Context) string { return p.name }
 func (p *project) true(Context) bool { return p.name != "" }
@@ -311,24 +320,23 @@ func (p *project) stat(ctx Context) (_ *statinfo) {
     if t := p.defaultEntry; t != nil { return t.stat(ctx) }
     return
 }
-func (p *project) stamp(ctx Context) (_ []*File) {
+func (p *project) stamp(ctx Context) (_ []*file) {
     if t := p.defaultEntry; t != nil { return t.stamp(ctx) }
     return
 }
-func (p *project) delete(ctx Context) (_ []*File) {
+func (p *project) delete(ctx Context) (_ []*file) {
     if t := p.defaultEntry; t != nil { return t.delete(ctx) }
     return
 }
 func (p *project) cmp(ctx Context, v Value) (res cmpres) {
-    if x, y := v.(*project); y {
-        if x == p { res = cmpEqual }
-    } else if x, y := v.(condval); y {
-        res = p.cmp(ctx, x.Value)
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        res = p.cmp(ctx, l.elems[0])
+    switch t := v.(type) {
+    case *list: if t.len() == 1 { res = p.cmp(ctx, t.elems[0]) }
+    case *project: if t == p { res = cmpEqual }
+    case condval : res = p.cmp(ctx, t.Value)
+    case expanded: res = p.cmp(ctx, t.Value)
     }
     if checkpoints {
-        switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
+        switch v.(type) { case *project, *word, *compound: return }
         if res != cmpEqual && p.String() == v.String() {
           erro(ctx, "%v != %v, %v", ts(p), ts(v), res).trace()
         }
@@ -338,21 +346,22 @@ func (p *project) cmp(ctx Context, v Value) (res cmpres) {
 
 type self struct { *project }
 func (_ self) ident(Context) string { return ".self" }
-func (p self) srclit(Context, Object) string { return p.ident(nil) }
-func (p self) String() string { return p.ident(nil) }
-func (p self) ts(t string) string { return fmt.Sprintf("{=self %s}", p.name) }
+func (p self) srclit(Context, object) string { return p.String() }
+func (p self) String() string { return "{=self "+p.name+"}" }
+func (p self) ts(t string) string { return "{="+t+" "+p.name+"}" }
 func (p self) kind() Kind { return p.project.kind()|KindSelf }
 func (p self) expand(Context) Value { return p }
+func (p self) evoke(*evocation) Value { return p }
 func (p self) cmp(ctx Context, v Value) (res cmpres) {
-    if x, y := v.(self); y {
-        res = p.project.cmp(ctx, x.project)
-    } else if x, y := v.(*project); y && false {
-        if p.project == x { res = cmpEqual }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        res = p.cmp(ctx, l.elems[0])
+    switch t := v.(type) {
+    case *list: if t.len() == 1 { res = p.cmp(ctx, t.elems[0]) }
+    case *project: if p.project == t { res = cmpEqual }
+    case self: if p.project == t.project { res = cmpEqual }
+    case condval : res = p.cmp(ctx, t.Value)
+    case expanded: res = p.cmp(ctx, t.Value)
     }
     if checkpoints {
-        switch v.(type) { case project_box, *project, *bareword, *barecomp: return }
+        switch v.(type) { case *project, *word, *compound: return }
         if res != cmpEqual && p.String() == v.String() {
           erro(ctx, "%v != %v, %v", ts(p), ts(v), res).trace()
         }
@@ -360,129 +369,132 @@ func (p self) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-func file(ctx Context, s string, projects ...*project) (_ *File) {
-  if len(projects) == 0 {
-    projects = append(projects, _project(ctx))
-  }
-
-  for _, p := range projects {
-    if f := p.file(ctx, s); f != nil {
-      return f
-    }
-  }
+func findfile(ctx Context, s string, ps ...*project) (_ *file) {
+  if len(ps) == 0 { ps = append(ps, _project(ctx)) }
+  for _, p := range ps { if f := p.file(ctx, s); f != nil { return f } }
   return
 }
 
-func files(ctx Context, iname interface{}, projects ...*project) (res []filemap_name) {
-  if len(projects) == 0 {
-    projects = append(projects, _project(ctx))
+func select_file_1(ctx Context, m filemap_name) (res *file) {
+  if checkpoints && truly(ctx, is_test_mode{}) {
+    defer select_file_1_check(ctx, m, &res)
   }
 
-  var a, b, c, d []filemap_name // four sections
-  var ms = unmap_files(ctx, iname)
-
-outer:
-  for _, m := range ms {
-    for _, p := range projects {
-      if m.project == p {
-        a = append(a, m) ; continue outer
-      } else if p.has_base(m.project) {
-        b = append(b, m) ; continue outer
-      } else if t := p.configure; t != nil && (m.project == t || t.has_base(m.project)) {
-        c = append(c, m) ; continue outer
-      } else {
-        d = append(d, m) ; continue outer
-      }
-    }
-  }
-
-  res = append(a, b...)
-
-  if true  && len(res) == 0 { res = c }
-  if false && len(res) == 0 { res = d }
-  return
-}
-
-func (p *project) selectFiles(ctx Context, v []filemap_name) (res []*File) {
-  for _, m := range v {
-    if m.project == p {
-      // mine
-    } else if p.has_base(m.project) {
-      // base files
-    } else if t := p.configure; t != nil && (m.project == t || t.has_base(m.project)) {
-      // configure files
+  defer func() {
+    if res == nil {
+      erro(ctx, "%s %v", m.name, m.pattern).trace()
     } else {
-      continue
+      res.filemap = &m.filemap
     }
+  } ()
 
-    if f := m.stat(ctx, m.name) ; f != nil {
-      f.filemap = &m.filemap
-      res = append(res, f)
+  if m.paths == nil {
+    if res, _ = m.pattern.(*file); res != nil {
+      return
+    } else {
+      var s = _project(ctx).absPath
+      return stat(ctx, m.name, stat_dir{s}, stat_nonexist{true})
+    }
+  }
+
+  var fs []*file
+
+  for _, v := range m.paths {
+    if t := v.expand(final{ctx}); t == nil {
+      erro(ctx, "%s ⇒ %v", m.name, v).trace()
+    } else if s := t.string(ctx); s == "" {
+      erro(ctx, "%s ⇒ %v → %v → ''", m.name, v, t).trace()
+    } else if f := stat(ctx, m.name, stat_dir{s}, stat_nonexist{true}); f == nil {
+      erro(ctx, "%s ⇒ %v → %v → ''", m.name, v, t).trace()
+    } else {
+      fs = append(fs, f)
+    }
+  }
+
+  for _, f := range fs { if f.exists() { return f } }
+
+  return fs[0]
+}
+
+func select_files(ctx Context, m []filemap_name) (res []*file) {
+  if checkpoints && truly(ctx, is_test_mode{}) {
+    defer select_files_check(ctx, m, &res)
+  }
+  for _, m := range m {
+    res = append(res, select_file_1(ctx, m))
+  }
+  return
+}
+
+func select_file(ctx Context, v []filemap_name) (res *file) {
+  if a := select_files(ctx, v); 0 < len(a) {
+    if res = a[0] ; !res.exists() {
+      for _, f := range a { if f.exists() { return f } }
     }
   }
   return
 }
 
-func (p *project) selectFile(ctx Context, v []filemap_name) (res *File) {
-  if a := p.selectFiles(ctx, v); 0 < len(a) {
-    if res = a[0]; !res.exists() {
-      for _, f := range a {
-        if f.exists() { return f }
+func (p *project) file(ctx Context, a any) *file {
+  return select_file(ctx, p.unmap_files(ctx, a, nil))
+}
+
+func (p *project) tempdir(ctx Context) (_ string) {
+  var d *def
+
+  for _, s := range []string{"outtmp", ".tmp", "CTD"} {
+    if d = p.resolveDef(ctx, s); d != nil { break }
+  }
+
+  if d == nil { erro(ctx, "%v: tmp is not defined", p).trace() }
+
+  return d.string(ctx)
+}
+
+func (p *project) tempfile(ctx Context, name string) (f *file) {
+  if false { if f = p.file(ctx, name); f != nil { return } }
+
+  var d = p.tempdir(ctx)
+  f = stat(ctx, name, stat_dir{d}, stat_nonexist{true})
+  if f == nil { erro(ctx, "%v: not a file: %v : %v", p, name, d).trace() }
+
+  if checkpoints {
+    if f.dir != d { erro(ctx, "%v: %s != %s", p, f.dir, d).trace() }
+    if truly(ctx, is_test_mode{}) {
+      if p.name == "testdefaultconfigure" {
+        var t = p.resolveDef(ctx, "outtmp")
+        if t == nil {
+          erro(at(ctx,p), "%s: %v : %s", p.name, d, f.dir).trace()
+        }
+        if t := t.string(ctx); f.dir != t {
+          erro(at(ctx,p), "%s: %v : %s != %s", p.name, d, f.dir, t).trace()
+        }
+        if strings.HasPrefix(f.dir, "/Volumes/workspace/go/src/extbit.io/smart") {
+          note(at(ctx,p), "%s: %v %v", p.name, t, d).debug(32)
+        }
       }
     }
   }
   return
 }
 
-func (p *project) file(ctx Context, iname interface{}) (file *File) {
-  return p.selectFile(ctx, unmap_files(ctx, iname))
-}
-
-func (p *project) tempFile(ctx Context, name string) (file *File) {
-  if file = p.file(ctx, name); file != nil {
-    return
-  }
-
-  if d := p.resolveDef(ctx, "CTD"); d == nil {
-    erro(ctx, "%v: $(CTD) is not defined: %v", p, name).trace()
-  } else if ctd := d.value; isTrivial(ctd) {
-    erro(ctx, "%v: $(CTD) is trivial for %v", p, name).trace()
-  } else if file = stat(ctx, name, stat_dir{ctd.string(ctx)}, stat_nonexist{true}); file == nil {
-    erro(ctx, "%v: not a file: %v (%v)", p, name, ctd.string(ctx)).trace()
-  }
-  return
-}
-
-func (p *project) configuration_sm(ctx Context) (f *File) {
-  if p == nil {
-    erro(ctx, "%v: project is nil", p).trace()
-  }
-  if p.configure == nil {
-    erro(ctx, "%v: project configure is nil", p).trace()
-  }
-  if f = p.tempFile(closure_with(ctx, p.scope, p.configure.scope), configuration_sm); f == nil {
+func (p *project) configuration_sm(ctx Context) (f *file) {
+  if f = p.tempfile(ctx, configuration_sm); f == nil {
     erro(ctx, "%v: no file %s", p, configuration_sm).trace()
   }
+  if checkpoints && truly(ctx, is_test_mode{}) { p.configuration_sm_check(ctx, f) }
   return
 }
 
-type cacher struct { generalOpts }
-
-func (opts *cacher) cache(ctx Context, patts, paths []Value) {
-  for _, m := range map_files(ctx, patts, paths) {
-    if t := m.pattern; false { note(at(ctx,t), "%v %v → %v", t, ts(t), ts(m)).debug(2) }
-  }
-}
-
-func project_entry(c Context, s string, a ...bool) entry { return _project(c).resolveEntry(c, s, a...) }
-func project_resolve(c Context, s string) Object { return _project(c).resolve(c, s) }
+func project_entry(c Context, s any, a ...bool) entry { return _project(c).entry(c, s, a...) }
+func project_resolve(c Context, s string) object { return _project(c).resolve(c, s) }
 
 func (p *project) resolveDef(ctx Context, name string) (res *def) {
   if o := p.resolve(ctx, name); o != nil { res, _ = o.(*def) }
   return
 }
 
-func (p *project) resolve(ctx Context, name string) (obj Object) {
+func (p *project) resolve(ctx Context, name string) (obj object) {
   if _, obj = p.find(name); obj != nil {
     return
   }
@@ -508,11 +520,11 @@ func (p *project) resolve(ctx Context, name string) (obj Object) {
   return
 }
 
-func (p *project) resolveEntries(ctx Context, name any, _b ...bool) (entries []entry) {
-  entries = append(entries, p.unmap_entries(ctx, name)...)
+func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) {
+  entries = p.unmap_entries(ctx, name, nil)
 
   if p.configure != nil && isConfigure(ctx) {
-    entries = append(entries, p.configure.resolveEntries(ctx, name, true)...)
+    entries = append(entries, p.configure._entries(ctx, name, true)...)
   }
 
   var alwaysResolveBases bool
@@ -520,7 +532,7 @@ func (p *project) resolveEntries(ctx Context, name any, _b ...bool) (entries []e
 
   if alwaysResolveBases || entries == nil {
     for _, base := range p.bases {
-      if t := base.resolveEntries(ctx, name, alwaysResolveBases); t != nil {
+      if t := base._entries(ctx, name, alwaysResolveBases); t != nil {
         entries = append(entries, t...)
         break
       }
@@ -531,25 +543,23 @@ func (p *project) resolveEntries(ctx Context, name any, _b ...bool) (entries []e
 
   if entries == nil { /* SLOW */
     for _, u := range p.use.list {
-      t := u.project.resolveEntries(ctx, name, alwaysResolveBases)
+      t := u.project._entries(ctx, name, alwaysResolveBases)
       if t != nil { entries = append(entries, t...); break }
     }
   }
   return
 }
 
-func (p *project) resolveEntry(c Context, name any, a ...bool) (_ entry) {
-  var entries = p.resolveEntries(c, name, a...)
+func (p *project) entry(c Context, name any, a ...bool) (_ entry) {
+  var entries = p._entries(c, name, a...)
   if n := len(entries) ; 0 < n {
-    if 1 < n {
-      erro(c, "%d entries: %v", n, name).trace()
-    }
+    if 1 < n { erro(c, "%v : %d entries", name, n).trace() }
     return entries[0]
   }
   return
 }
 
-func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed) {
+func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed_rule) {
   var t1, t2 time.Time
 
   defer func(t0 time.Time) {
@@ -557,8 +567,8 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
     if d := t.Sub(t0); d > 1*time.Second {
       var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; d3 = t.Sub(t2) ; n int )
       var a = auto_get(ctx, "@")
-      for sc := _stemmed_context(ctx); sc != nil; n += 1 {
-        if c := inner(sc); c != nil { sc = _stemmed_context(c) } else { break }
+      for sc := _stemmed(ctx); sc != nil; n += 1 {
+        if c := inner(sc); c != nil { sc = _stemmed(c) } else { break }
       }
 
       var pos = _position(ctx)
@@ -578,7 +588,7 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
 
   if res, t1, t2 = p.resolvePatterns123(ctx, v, s); false && len(res) > 0 {
     for _, t := range res {
-      if f, _ := toFile(t.target); f != nil {
+      if f, _ := to_file(t.target); f != nil {
         f.position = t.Position()
       } else if f = p.file(ctx, s); f != nil {
         f.position = t.Position()
@@ -589,14 +599,14 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
   return
 }
 
-func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed, t1, t2 time.Time) {
+func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed_rule, t1, t2 time.Time) {
   if true  { res = append(res, p.resolvePatterns1(ctx, v, s)...) } ; t1 = time.Now()
   if true  { res = append(res, p.resolvePatterns2(ctx, v, s)...) } ; t2 = time.Now()
   if false { res = append(res, p.resolvePatterns3(ctx, v, s)...)/* heavy work, VERY SLOW! */ }
   return
 }
 
-func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed) {
+func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed_rule) {
   defer func(t0 time.Time) {
     if d := time.Now().Sub(t0); d > 1*time.Second {
       prompt(ctx, "%v: slow: %v %v", _position(ctx), val, d).debug()
@@ -608,10 +618,12 @@ ForPatterns:
     if full, r, stems := pat.target.match(ctx, s); full {
       var m = _path(ctx, r)
 
-      if true { for sc := _stemmed_context(ctx); sc != nil; { // pattern loop detection
-        if s := sc.stem.target.string(ctx); s == m { continue ForPatterns }
-        if c := inner(sc); c != nil { sc = _stemmed_context(c) } else { break }
-      }}
+      if true {
+        for sc := _stemmed(ctx); sc != nil; { // pattern loop detection
+          if s := sc.target.string(ctx); s == m { continue ForPatterns }
+          if c := inner(sc); c != nil { sc = _stemmed(c) } else { break }
+        }
+      }
 
       if pa := pat.arged; len(pa) > 0 {
         var y bool
@@ -630,13 +642,13 @@ ForPatterns:
         if !y { continue ForPatterns }
       }
 
-      res = append(res, &stemmed{pat, val, stems})
+      res = append(res, &stemmed_rule{pat, val, stems})
     }
   }
   return
 }
 
-func (p *project) resolvePatterns2(ctx Context, val Value, s string) (res []*stemmed) {
+func (p *project) resolvePatterns2(ctx Context, val Value, s string) (res []*stemmed_rule) {
   for _, base := range p.bases {
     var a, _, _ = base.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
@@ -648,7 +660,7 @@ func (p *project) resolvePatterns2(ctx Context, val Value, s string) (res []*ste
   return
 }
 
-func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*stemmed) {
+func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*stemmed_rule) {
   for _, use := range p.use.list {
     var a, _, _ = use.project.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
@@ -656,19 +668,14 @@ func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
   return
 }
 
-func (p *project) entry(ctx Context, options []Value, target Value, prog *program) (entry entry) {
-  var name string
-  if name = target.string(ctx); name == "" {
-    erro(at(ctx, target), "empty target name: %v", target).trace()
-  }
-
+func (p *project) new_entry(ctx Context, options []Value, target Value, prog *program) (entry entry) {
   var patterned = target.patterned(ctx)
   if !patterned {
     // NOTE: it should work too if not checking against files
     switch target.(type) {
-    case *File, *path, *barefile, *percpat, *globpat, *regexpat:
+    case *file, *path, *barefile, *percpat, *globpat, *regexpat:
     default:
-      if f := p.file(ctx, name); f != nil {
+      if f := p.file(unmap_uncheck_c{ctx}, target); f != nil {
         f.position = target.Position()
         target = f
       }
@@ -717,6 +724,13 @@ func (p *project) family() (res []*project) {
   res = append(res, p)
   for _, base := range p.bases {
     res = append(res, base.family()...)
+  }
+  return
+}
+
+func (p *project) _isa(s string) (_ bool) {
+  for _, base := range p.bases {
+    if base.name == s || base._isa(s) { return true }
   }
   return
 }

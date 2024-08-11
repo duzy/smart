@@ -1,6 +1,6 @@
 project testvalue
 
-#TEST: barecomp compares with flag
+#TEST: compound compares with flag
 .test.foo := -
 assert $(equal(-d) $(.test.foo)foobar,-foobar)
 assert $(equal(-d) -foobar,$(.test.foo)foobar)

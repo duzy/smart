@@ -26,7 +26,7 @@ eval println $(typeof 2018-01-01 00:00:00) # list: date time
 eval println $(typeof 08:50:00)
 eval println $(typeof foobar)
 eval println $(typeof 'string')
-eval println $(typeof "compound $.")
+eval println $(typeof "strcomp $.")
 eval println $(typeof /path/to/somewhere) /path/to/somewhere
 eval println $(typeof ./subdir/in/somewhere) ./subdir/in/somewhere
 eval println $(typeof foobar.o)
@@ -39,7 +39,7 @@ eval println $(typeof foo=>bar)
 eval println $(typeof -foo=bar)
 eval println $(typeof -foo)
 
-# keywords used as bareword
+# keywords used as word
 eval println $(typeof use)
 eval println $(typeof eval)
 eval println $(typeof files)

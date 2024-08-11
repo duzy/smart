@@ -13,10 +13,10 @@ func testTemplate(ctx *testcase) {
 	if s := "xyz"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand2 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand2 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if _, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if v.String() != "xxx yyy zzz" {
@@ -26,11 +26,11 @@ func testTemplate(ctx *testcase) {
 	if s := "var.xxx"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand0 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand0 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
-	} else if x, y := v.(*barecomp); !y {
+		ctx.err("%v %v", d.o, tst{d})
+	} else if x, y := v.(*compound); !y {
 		ctx.err("%v", tst{v})
 	} else if x.len() != 2 {
 		ctx.err("%v", tst{v})
@@ -45,11 +45,11 @@ func testTemplate(ctx *testcase) {
 	if s := "var.yyy"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand0 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand0 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
-	} else if x, y := v.(*barecomp); !y {
+		ctx.err("%v %v", d.o, tst{d})
+	} else if x, y := v.(*compound); !y {
 		ctx.err("%v", tst{v})
 	} else if x.len() != 2 {
 		ctx.err("%v", tst{v})
@@ -64,11 +64,11 @@ func testTemplate(ctx *testcase) {
 	if s := "var.zzz"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand0 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand0 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
-	} else if x, y := v.(*barecomp); !y {
+		ctx.err("%v %v", d.o, tst{d})
+	} else if x, y := v.(*compound); !y {
 		ctx.err("%v", tst{v})
 	} else if x.len() != 2 {
 		ctx.err("%v", tst{v})
@@ -83,10 +83,10 @@ func testTemplate(ctx *testcase) {
 	if s := "vars"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if x, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if x.len() != 3 {
@@ -112,10 +112,10 @@ func testTemplate(ctx *testcase) {
 	if s := "var2"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if x, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if x.len() < 1 {
@@ -147,10 +147,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.1"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v.String() != "xxx yyy zzz xxx yyy zzz" {
 		ctx.err("%v", tst{v})
 	} else if v.string(ctx) != "xxx yyy zzz xxx yyy zzz" {
@@ -160,10 +160,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.2"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if strings.Count(s, "xxx") != 2 {
@@ -185,10 +185,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.3"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if strings.Count(s, "xxx") != 2 {
@@ -202,10 +202,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.4"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 9 {
@@ -235,10 +235,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.5"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 6 {
@@ -258,10 +258,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.6"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 6 {
@@ -283,10 +283,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.7"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 9+9 {
@@ -316,10 +316,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.8"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 9+9 {
@@ -373,10 +373,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.9"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 9+9-6 {
@@ -400,10 +400,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.10"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 9+9 {
@@ -457,10 +457,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.11"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defVoid {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defVoid {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 9+9-6 {
@@ -484,10 +484,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.12"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defVoid {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defVoid {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 9+9 {
@@ -541,10 +541,10 @@ func testTemplate(ctx *testcase) {
 	if s := ".test.13"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if d.origin != defVoid {
-		ctx.err("%v %v", d.origin, tst{d})
+	} else if d.o != defVoid {
+		ctx.err("%v %v", d.o, tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v %v", d.origin, tst{d})
+		ctx.err("%v %v", d.o, tst{d})
 	} else if s := v.String(); s == "" || s == "{}" {
 		ctx.err("%s: %v → %s", d.name, tst{v}, s)
 	} else if len(strings.Fields(s)) != 8 {
@@ -576,7 +576,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err(s)
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
-	} else if _, y := t.target.(*barecomp); !y {
+	} else if _, y := t.target.(*compound); !y {
 		ctx.err("%v", tst{t.target})
 	} else if t.target.String() != ".test.a" {
 		ctx.err("%v", tst{t.target})
@@ -603,7 +603,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err(s)
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
-	} else if _, y := t.target.(*barecomp); !y {
+	} else if _, y := t.target.(*compound); !y {
 		ctx.err("%v", tst{t.target})
 	} else if t.target.String() != ".test.b" {
 		ctx.err("%v", tst{t.target})
@@ -630,7 +630,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err(s)
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
-	} else if _, y := t.target.(*barecomp); !y {
+	} else if _, y := t.target.(*compound); !y {
 		ctx.err("%v", tst{t.target})
 	} else if t.target.String() != ".test.c" {
 		ctx.err("%v", tst{t.target})

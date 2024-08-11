@@ -9,7 +9,7 @@ assert {=no}
 assert {=none}
 assert {=undef x}
 assert {=null}
-assert {x} #disjunction
+assert {x} # disjunction
 assert foobar{}
 assert 1
 assert 0

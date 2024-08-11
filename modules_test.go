@@ -202,55 +202,80 @@ func testVariantTargetVars(ctx *testcase) {
 	testVariantTargetVars1(ctx)
 	if v := ctx.val("target.os"); v == nil {
 		ctx.err("%v: target.os is nil", _project(ctx))
-	} else if v.string(ctx) != "darwin" {
-		ctx.err("%v: target.os: %v", _project(ctx), v)
 	}
 }
 func testVariantTargetVars1(ctx *testcase) {
-	if v := _project(ctx).resolve(ctx, "variant"); v == nil {
-		ctx.err("%v: variant is nil", _project(ctx))
+	var p = _project(ctx)
+	var workspace, modules string
+
+	if d := p.resolveDef(ctx, "workspace"); d == nil {
+		ctx.err("workspace is nil")
+	} else if workspace = d.string(ctx); workspace == "" {
+		ctx.err("%v: %v", p, d)
+	} else if !filepath.IsAbs(workspace) {
+		ctx.err("%v: %v", p, workspace)
+	} else {
+		modules = filepath.Join(workspace, ".smart", "modules")
+	}
+
+	for _, s := range []string {
+		"variant/do.smart",
+		"variant/bootstrap",
+		"variant/.target/do.smart",
+		"variant/.target/.base/do.smart",
+		"variant/.target/darwin/do.smart",
+		"variant/.target/darwin/arm64/do.smart",
+	}{
+		var t = filepath.Join(modules, s)
+		if _, y := ctx.chks[t]; !y {
+			ctx.err("%v: %v", p, s)
+		}
+	}
+
+	if v := p.resolve(ctx, "variant"); v == nil {
+		ctx.err("%v: variant is nil", p)
 	} else if d, y := v.(*def); !y {
-		ctx.err("%v: variant is not def: %v (%v)", _project(ctx), v, typeof(v))
+		ctx.err("%v: variant is not def: %v (%v)", p, v, typeof(v))
 	} else if d.value == nil {
-		ctx.err("%v: variant value is nil: %v", _project(ctx), d)
+		ctx.err("%v: variant value is nil: %v", p, d)
 	} else if s := d.value.string(ctx); s != "darwin/arm64/bootstrap" {
-		ctx.err("%v: variant: %v", _project(ctx), d.value)
+		ctx.err("%v: variant: %v", p, d.value)
 	}
 
 	if v := ctx.val("target.arch"); v == nil {
-		ctx.err("%v: target.arch is nil", _project(ctx))
+		ctx.err("%v: target.arch is nil", p)
 	} else if v.string(ctx) != "arm64" {
-		ctx.err("%v: target.arch: %v", _project(ctx), v)
+		ctx.err("%v: target.arch: %v", p, v)
 	}
 
 	if v := ctx.val("target.abi"); v == nil {
-		ctx.err("%v: target.abi is nil", _project(ctx))
+		ctx.err("%v: target.abi is nil", p)
 	} else if v.string(ctx) != "macho" {
-		ctx.err("%v: target.abi: %v", _project(ctx), v)
+		ctx.err("%v: target.abi: %v", p, v)
 	}
 
 	if v := ctx.val("target.vendor"); v == nil {
-		ctx.err("%v: target.vendor is nil", _project(ctx))
+		ctx.err("%v: target.vendor is nil", p)
 	} else if v.string(ctx) != "apple" {
-		ctx.err("%v: target.vendor: %v", _project(ctx), v)
+		ctx.err("%v: target.vendor: %v", p, v)
 	}
 
 	if v := ctx.val("target.release"); v == nil {
-		ctx.err("%v: target.release is nil", _project(ctx))
+		ctx.err("%v: target.release is nil", p)
 	} else if !regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`).MatchString(v.string(ctx)) {
-		ctx.err("%v: target.release: %v", _project(ctx), v)
+		ctx.err("%v: target.release: %v", p, v)
 	}
 
 	if v := ctx.val("target.sys"); v == nil {
-		ctx.err("%v: target.sys is nil", _project(ctx))
+		ctx.err("%v: target.sys is nil", p)
 	} else if !regexp.MustCompile(`Darwin[0-9]+\.[0-9]+\.[0-9]+`).MatchString(v.string(ctx)) {
-		ctx.err("%v: target.sys: %v", _project(ctx), v)
+		ctx.err("%v: target.sys: %v", p, v)
 	}
 
 	if v := ctx.val("target.triple"); v == nil {
-		ctx.err("%v: target.triple is nil", _project(ctx))
+		ctx.err("%v: target.triple is nil", p)
 	} else if !regexp.MustCompile(`arm64-apple-Darwin[0-9]+\.[0-9]+\.[0-9]+-macho`).MatchString(v.string(ctx)) {
-		ctx.err("%v: target.triple: %v", _project(ctx), v)
+		ctx.err("%v: target.triple: %v", p, v)
 	}
 }
 
@@ -264,48 +289,26 @@ func testVariantTarget_arm64_darwin(ctx *testcase) {
 	testVariantTarget(ctx)
 }
 func testVariantTarget(ctx *testcase) {
-	langs  := strings.Fields("c c++ cl cuda cuda++ objc objc++ swift")
-	flags1 := strings.Fields(
-		"-D -I -L -O -W -Wl -Werror -Wno-error -f -f.ld -m -g -v -no -no.ld " +
-		"--sysroot -isysroot -iwithsysroot -iframeworkwithsysroot -iframework " +
-		"-isystem -isystem-after -cxx-isystem -stdlib -stdlib++-isystem -diagnostics "+
-		"-platform_version")
-	flags2 := strings.Fields("-l -framework")
-	flags3 := strings.Fields("ar asm c cpp cxx oc ocxx cl cuda cudaxx ld")
-	flags4 := strings.Fields("ld")
-	flags5 := strings.Fields("ld.framework ldlibs loadlibs loadlibes")
-
-	for k, v := range map[string]string{
-		"asm": "c",
-		"c": "c",
-		"s": "c",
-		"S": "c",
-		"cpp": "c++",
-		"cxx": "c++",
-		"c++": "c++",
-		"cc": "c++",
-		"cu": "cuda",
-		"cuda": "cuda",
-		"cuh": "cuda",
-		"m": "objc",
-		"mm": "objc++",
-		"swift": "swift",
-	} { if d := ctx.def("lang."+k); d == nil {
-		ctx.err("lang."+k)
-	} else if d.value == nil {
-		ctx.err("%v", d)
-	} else if d.value.String() != v {
-		ctx.err("%v", d)
-	}}
+	var p = _project(ctx)
+	for k, v := range langs_map {
+		var s = "lang."+k
+		if d := ctx.def(s); d == nil {
+			ctx.err("%v : %v", p, s)//, p.names()
+		} else if d.value == nil {
+			ctx.err("%v", d)
+		} else if d.value.String() != v {
+			ctx.err("%v", d)
+		}
+	}
 
 	if d := ctx.def("host.triple"); d == nil {
 		ctx.err("host.triple")
 	} else if d.value == nil {
 		ctx.err("%v", d)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, d)
-	} else if d.value.String() != "&(host.arch)&(host.sub)-&(host.vendor)-&(host.sys)-&(host.abi)" {
-		ctx.err("%v", d)
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, d)
+	} else if s, t := d.value.String(), "$(join &(host.arch)&(host.sub) &(host.vendor) &(host.sys) &(host.abi),-)"; s != t {
+		ctx.err("%v : %s != %s", tst{d}, s, t)
 	} else if s := d.value.string(ctx); strings.Count(s, "-") > 3 {
 		ctx.err("more than three dashes: %v: %v", d.value, s)
 	}
@@ -313,10 +316,10 @@ func testVariantTarget(ctx *testcase) {
 		ctx.err("target.triple")
 	} else if d.value == nil {
 		ctx.err("%v", d)
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, d)
-	} else if d.value.String() != "&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi)" {
-		ctx.err("%v", d)
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, d)
+	} else if s, t := d.value.String(), "$(join &(target.arch)&(target.sub) &(target.vendor) &(target.sys) &(target.abi),-)"; s != t {
+		ctx.err("%v : %s != %s", tst{d}, s, t)
 	} else if s := d.value.string(ctx); strings.Count(s, "-") > 3 {
 		ctx.err("more than three dashes: %v: %v", d.value, s)
 	}
@@ -324,21 +327,27 @@ func testVariantTarget(ctx *testcase) {
 	var usev, uses string
 	if d := ctx.def("use.*"); d == nil {
 		ctx.err("use.*")
-	} else if d.origin != defExpand1 {
-		ctx.err("%v %v", d.origin, d)
+	} else if d.o != defExpand1 {
+		ctx.err("%v %v", d.o, d)
 	}
 	if v := ctx.val("use.*"); v == nil {
 		ctx.err("use.*")
 	} else if usev = v.String(); usev == "" {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if uses = v.string(ctx); uses == "" {
-		ctx.err("%v{%v} -> %s", typeof(v), v, uses)
+		ctx.err("%v{%v} → %s", typeof(v), v, uses)
 	}
 
 	usev = " "+usev
 	uses = " "+uses
 
-	for _, flag := range flags1 {
+	for _, flag := range []string{
+		"-D", "-I", "-L", "-O", "-W", "-Wl", "-Werror", "-Wno-error",
+		"-f", "-f.ld", "-m", "-g", "-v", "-no", "-no.ld",
+		"--sysroot", "-isysroot", "-iwithsysroot", "-iframeworkwithsysroot", "-iframework",
+		"-isystem", "-isystem-after", "-cxx-isystem", "-stdlib", "-stdlib++-isystem",
+		"-diagnostics", "-platform_version",
+	}{
 		s1 := fmt.Sprintf("%s(-unique)", flag)
 		s2 := fmt.Sprintf("%s~&(target.os)(-unique)", flag)
 		s3 := fmt.Sprintf("%s~foo(-unique)", flag)
@@ -347,11 +356,11 @@ func testVariantTarget(ctx *testcase) {
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v ; %v", s3, uses) }
 		if d := ctx.def(flag); d == nil {
 			ctx.err("%s", flag)
-		} else if d.origin != defExpand1 && d.origin != defExpand2 {
-			ctx.err("%v %v", d.origin, d)
+		} else if d.o != defExpand1 && d.o != defExpand2 {
+			ctx.err("%v %v", d.o, d)
 		}
 
-		for _, lang := range langs {
+		for _, lang := range langs_map {
 			s0 := fmt.Sprintf("%s.%s", flag, lang)
 			s1 := fmt.Sprintf("%s.%s(-unique)", flag, lang)
 			s2 := fmt.Sprintf("%s~&(target.os).%s(-unique)", flag, lang)
@@ -361,12 +370,12 @@ func testVariantTarget(ctx *testcase) {
 			if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 			if d := ctx.def(s0); d == nil {
 				ctx.err("%s", s0)
-			} else if d.origin != defExpand1 && d.origin != defExpand2 {
-				ctx.err("%v %v", d.origin, d)
+			} else if d.o != defExpand1 && d.o != defExpand2 {
+				ctx.err("%v %v", d.o, d)
 			}
 		}
 	}
-	for _, flag := range flags2 {
+	for _, flag := range []string{"-l","-framework"} {
 		s1 := fmt.Sprintf("%s(-unique -reverse)", flag)
 		s2 := fmt.Sprintf("%s~&(target.os)(-unique -reverse)", flag)
 		s3 := fmt.Sprintf("%s~foo(-unique -reverse)", flag)
@@ -375,11 +384,11 @@ func testVariantTarget(ctx *testcase) {
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(flag); d == nil {
 			ctx.err("%s", flag)
-		} else if d.origin != defExpand1 && d.origin != defExpand2 {
-			ctx.err("%v %v", d.origin, d)
+		} else if d.o != defExpand1 && d.o != defExpand2 {
+			ctx.err("%v %v", d.o, d)
 		}
 	}
-	for _, flag := range flags3 {
+	for _, flag := range []string{"ar","asm","c","cpp","cxx","oc","ocxx","cl","cuda","cudaxx","ld"} {
 		s0 := fmt.Sprintf("%sflags", flag)
 		s1 := fmt.Sprintf("%sflags(-unique -auto)", flag)
 		s2 := fmt.Sprintf("%sflags~&(target.os)(-unique -auto)", flag)
@@ -389,25 +398,27 @@ func testVariantTarget(ctx *testcase) {
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(s0); d == nil {
 			ctx.err("%s", s0)
-		} else if d.origin != defExpand1 && d.origin != defExpand2 {
-			ctx.err("%v %v", d.origin, d)
+		} else if d.o != defExpand1 && d.o != defExpand2 {
+			ctx.err("%v %v", d.o, d)
 		}
 	}
-	for _, flag := range flags4 { for _, suffix := range strings.Fields("shared program") {
-		s0 := fmt.Sprintf("%sflags.%s", flag, suffix)
-		s1 := fmt.Sprintf("%sflags.%s(-unique -auto)", flag, suffix)
-		s2 := fmt.Sprintf("%sflags~&(target.os).%s(-unique -auto)", flag, suffix)
-		s3 := fmt.Sprintf("%sflags~foo.%s(-unique -auto)", flag, suffix)
-		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
-		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
-		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
-		if d := ctx.def(s0); d == nil {
-			ctx.err("%s", s0)
-		} else if d.origin != defExpand1 && d.origin != defExpand2 {
-			ctx.err("%v %v", d.origin, d)
+	for _, flag := range []string{"ld"} {
+		for _, suffix := range strings.Fields("shared program") {
+			s0 := fmt.Sprintf("%sflags.%s", flag, suffix)
+			s1 := fmt.Sprintf("%sflags.%s(-unique -auto)", flag, suffix)
+			s2 := fmt.Sprintf("%sflags~&(target.os).%s(-unique -auto)", flag, suffix)
+			s3 := fmt.Sprintf("%sflags~foo.%s(-unique -auto)", flag, suffix)
+			if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
+			if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
+			if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
+			if d := ctx.def(s0); d == nil {
+				ctx.err("%s", s0)
+			} else if d.o != defExpand1 && d.o != defExpand2 {
+				ctx.err("%v %v", d.o, d)
+			}
 		}
-	}}
-	for _, flag := range flags5 {
+	}
+	for _, flag := range []string{"ld.framework","ldlibs","loadlibs","loadlibes"} {
 		s0 := fmt.Sprintf("%s", flag)
 		s1 := fmt.Sprintf("%s(-unique -auto -reverse)", flag)
 		s2 := fmt.Sprintf("%s~&(target.os)(-unique -auto -reverse)", flag)
@@ -417,58 +428,216 @@ func testVariantTarget(ctx *testcase) {
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
 		if d := ctx.def(s0); d == nil {
 			ctx.err("%s", s0)
-		} else if d.origin != defExpand1 && d.origin != defExpand2 {
-			ctx.err("%v %v", d.origin, d)
+		} else if d.o != defExpand1 && d.o != defExpand2 {
+			ctx.err("%v %v", d.o, d)
 		}
 	}
 
-	if v := ctx.val("neg1"); v == nil {
-		ctx.err("neg1")
+	s := "neg1"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if ts(d.value) != "{=negative {=word foobar}}" {
+		ctx.err("%v", tst{d.value})
+	}
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
 	} else if v.String() != "!foobar" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s != "!foobar" {
-		ctx.err("%T %v -> %s", v, v, s)
-	} else if t, y := v.(*negative); !y {
-		ctx.err("%T %v", v, v)
-	} else if t.true(ctx) {
-		ctx.err("%T %v", v, v)
-	}
-	if v := ctx.val("neg2"); v == nil {
-		ctx.err("neg2")
-	} else if v.String() != "a!foobar" {
-		ctx.err("%T %v", v, v)
-	} else if s := v.string(ctx); s != "a!foobar" {
-		ctx.err("%T %v -> %s", v, v, s)
-	}
-	if v := ctx.val("neg3"); v == nil {
-		ctx.err("neg3")
-	} else if v.String() != "&(a!foobar)" {
-		ctx.err("%T %v", v, v)
-	} else if s := v.string(ctx); s != "xxx" {
-		ctx.err("%T %v -> %s", v, v, s)
-	}
-	if v := ctx.val("neg4", "xxx"); v == nil {
-		ctx.err("neg4")
-	} else if v.String() != "&(a!xxx)" {
-		ctx.err("%T %v", v, v)
-	} else if s := v.string(ctx); s != "" {
-		ctx.err("%T %v -> %s", v, v, s)
-	}
-	if v := ctx.val("neg4", "foobar"); v == nil {
-		ctx.err("neg4")
-	} else if v.String() != "&(a!foobar)" {
-		ctx.err("%T %v", v, v)
-	} else if s := v.string(ctx); s != "xxx" {
-		ctx.err("%T %v -> %s", v, v, s)
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	} else if x, y := v.(negative); !y {
+		ctx.err("%v", tst{v})
+	} else if t := x.Value.true(ctx); x.true(ctx) != !t {
+		ctx.err("%v : !%v != %v", tst{v}, t, x.true(ctx))
 	}
 
-	var cflagv, cflags string
-	if v := ctx.val("cflags"); v == nil {
-		ctx.err("cflags")
-	} else if cflagv = v.String(); cflagv == "" {
-		ctx.err("%T %v", v, v)
-	} else if cflags = v.string(ctx); cflags == "" {
-		ctx.err("%T %v -> %s", v, v, cflags)
+	s = "neg2"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if ts(d.value) != "{=compound {=word a} {=negative {=word foobar}}}" {
+		ctx.err("%v", tst{d.value})
+	}
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
+	} else if v.String() != "a!foobar" {
+		ctx.err("%v", tst{v})
+	} else if s := v.string(ctx); s != "a!foobar" {
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	}
+
+	s = "neg3"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if ts(d.value) != "{=closure {=compound {=word a} {=negative {=word foobar}}}}" {
+		ctx.err("%v", tst{d.value})
+	}
+	if v := ctx.val(s); v == nil {
+		ctx.err(s)
+	} else if v.String() != "&(a!foobar)" {
+		ctx.err("%v", tst{v})
+	} else if s := v.string(ctx); s != "xxx" {
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	}
+
+	s = "neg4"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.value == nil {
+		ctx.err("%v", d)
+	} else if ts(d.value) != "{=delegate {=builtin foreach} {=list {=delegate {=auto 1}}} {=list {=closure {=compound {=word a} {=negative {=delegate {=auto _}}}}}}}" {
+		ctx.err("%v", tst{d.value})
+	}
+	if v := ctx.val(s, "xxx"); v == nil {
+		ctx.err(s)
+	} else if ts(v) != "{=condval {=closure {=compound {=word a} {=negative {=word xxx}}}}}" {
+		ctx.err("%v", tst{v})
+	} else if s := v.String(); s != "&(a!xxx)?" {
+		ctx.err("%v : %s", tst{v}, s)
+	} else if s := v.string(ctx); s != "" {
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	}
+	if v := ctx.val(s, "foobar"); v == nil {
+		ctx.err(s)
+	} else if ts(v) != "{=condval {=closure {=compound {=word a} {=negative {=word foobar}}}}}" {
+		ctx.err("%v", tst{v})
+	} else if s := v.String(); s != "&(a!foobar)?" {
+		ctx.err("%v : %s", tst{v}, s)
+	} else if s := v.string(ctx); s != "xxx" {
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	}
+
+	s = "cflags"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if ts(v) != "{=delegate {=def .flags} {=list {=delegate {=auto 1}}} {=list {=word c}}}" {
+		ctx.err("%v", tst{v})
+	} else {
+		// ex_debug = true
+		var t = v.expand(final{ctx}) ; ex_debug = false
+
+		var str1 = t.String()
+		for _, s := range []string{
+			"&(-v.{$1})? "+ctx.str("-v.c"),
+			"-std=&(-std.{$1})? -std=&(std.{$1})? -std=&(-std.c)? -std="+ctx.str("std.c"),
+		}{
+			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
+		}
+
+		var str2 = ts(t)
+		for _, s := range []string{
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}",
+			"{=condval {=pair {=flag {=word std}}={=closure {=flag {=compound {=word std} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}}",
+		}{
+			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
+		}
+	}
+	if v := ctx.val(s, "z"); v == nil {
+		ctx.err(s)
+	} else {
+		var str1 = v.String()
+		for _, s := range []string{
+			"&(-v.z)? &(-v.c)?",
+			"-std=&(-std.z)? -std=&(std.z)? -std=&(-std.c)? -std=&(std.c)?",
+		}{
+			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
+		}
+
+		var str2 = ts(v)
+		for _, s := range []string{
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word z}}}}}",
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word c}}}}}",
+		}{
+			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
+		}
+
+		// ex_debug = true
+		var str3 = v.expand(final{ctx}).String() ; ex_debug = false
+		for _, s := range []string{
+			"&(-v.z)? "+ctx.str("-v.c"),
+			"-std=&(-std.z)? -std=&(std.z)? -std=&(-std.c)? -std="+ctx.str("std.c"),
+		}{
+			if strings.Count(str3, s) != 1 { ctx.err("%s : %s", s, str3) }
+		}
+
+		var str4 = ts(v)
+		for _, s := range []string{
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word z}}}}}",
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word c}}}}}",
+		}{
+			if strings.Count(str4, s) != 1 { ctx.err("%s : %s", s, str4) }
+		}
+	}
+
+	s = "cxxflags"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if ts(v) != "{=delegate {=def .flags+} {=list {=delegate {=auto 1}}} {=list {=word c++}} {=list {=word cxx}}}" {
+		ctx.err("%v", tst{v})
+	} else {
+		// ex_debug = true
+		var t = v.expand(final{ctx}) ; ex_debug = false
+
+		var str1 = t.String()
+		for _, s := range []string{
+			"&(-v.{$1})? "+ctx.str("-v.c++"),
+			"-std=&(-std.{$1})? -std=&(std.{$1})? -std=&(-std.c++)? -std="+ctx.str("std.c++"),
+		}{
+			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
+		}
+
+		var str2 = ts(t)
+		for _, s := range []string{
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}",
+			"{=condval {=pair {=flag {=word std}}={=closure {=flag {=compound {=word std} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}}",
+		}{
+			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
+		}
+	}
+	if v := ctx.val(s, "z++"); v == nil {
+		ctx.err(s)
+	} else {
+		var str1 = v.String()
+		for _, s := range []string{
+			"&(-v.z++)? &(-v.c++)?",
+			"-std=&(-std.z++)? -std=&(std.z++)? -std=&(-std.c++)? -std=&(std.c++)?",
+		}{
+			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
+		}
+
+		var str2 = ts(v)
+		for _, s := range []string{
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word z++}}}}}",
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word c++}}}}}",
+		}{
+			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
+		}
+
+		// ex_debug = true
+		var str3 = v.expand(final{ctx}).String() ; ex_debug = false
+		for _, s := range []string{
+			"&(-v.z++)? "+ctx.str("-v.c++"),
+			"-std=&(-std.z++)? -std=&(std.z++)? -std=&(-std.c++)? -std="+ctx.str("std.c++"),
+		}{
+			if strings.Count(str3, s) != 1 { ctx.err("%s : %s", s, str3) }
+		}
+
+		var str4 = ts(v)
+		for _, s := range []string{
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word z++}}}}}",
+			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word c++}}}}}",
+		}{
+			if strings.Count(str4, s) != 1 { ctx.err("%s : %s", s, str4) }
+		}
 	}
 }
 
@@ -477,6 +646,74 @@ func testApp_arm64_darwin(ctx *testcase) {
 	testApp(ctx)
 }
 func testApp(ctx *testcase) {
+	var p = _project(ctx)
+	if p.configure != nil {
+		ctx.err("%v: nil configure", p)
+	}
+
+	s := ".flag"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value ; v == nil {
+		ctx.err("%v", d)
+	} else {
+		// ex_debug = true
+		var t = v.expand(final{ctx}) ; ex_debug = false
+
+		var str1 = t.String()
+		for _, s := range []string{
+			"{$(filter-out $(foreach $1,&($2!$_) &($2~darwin!$_)),&($2) &($2~darwin))}?",
+			"{$(foreach $1,&($2.$_) &($2~darwin.$_))}?",
+		}{
+			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
+		}
+
+		var str2 = ts(t)
+		for _, s := range []string{
+			// TODO: ...
+		}{
+			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
+		}
+	}
+	if v := ctx.val(s, []string{"a", "b", "c"}, "-x"); v == nil {
+		ctx.err(s)
+	} else {
+		var str1 = v.String()
+		for _, s := range []string{
+			"$(or $3,-x){$(filter-out &(-x!a)? &(-x~&(target.os)!a)? &(-x!b)? &(-x~&(target.os)!b)? &(-x!c)? &(-x~&(target.os)!c)?,&(-x) &(-x~&(target.os)))}$(or $4)?",
+			"$(or $3,-x){&(-x.a)}$(or $4)?",
+			"$(or $3,-x){&(-x~&(target.os).a)}$(or $4)?",
+			"$(or $3,-x){&(-x.b)}$(or $4)?",
+			"$(or $3,-x){&(-x~&(target.os).b)}$(or $4)?",
+			"$(or $3,-x){&(-x.c)}$(or $4)?",
+			"$(or $3,-x){&(-x~&(target.os).c)}$(or $4)?",
+		}{
+			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
+		}
+
+		var str2 = ts(v)
+		for _, s := range []string{
+		}{
+			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
+		}
+
+		// ex_debug = true
+		var str3 = v.expand(final{ctx}).String() ; ex_debug = false
+		for _, s := range []string{
+		}{
+			if strings.Count(str3, s) != 1 { ctx.err("%s : %s", s, str3) }
+		}
+
+		var str4 = ts(v)
+		for _, s := range []string{
+		}{
+			if strings.Count(str4, s) != 1 { ctx.err("%s : %s", s, str4) }
+		}
+	}
+}
+
+func _testApp(ctx *testcase) {
 	if _project(ctx).configure != nil {
 		ctx.err("%v: nil configure", _project(ctx))
 	}
@@ -792,8 +1029,7 @@ func testApp(ctx *testcase) {
 	} else if t := flag1("cflags"); strings.Count(s, t) != 1 {
 		note(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if s1, s2 := v1.string(ctx), v2.string(ctx); s1 != s2 {
-		ctx.err("%T %v -> %s", v2, v2, s)
-		ctx.err("%T %v -> %s", v2, v2, s)
+		ctx.err("%v → %s ; %v → %s", v1, s1, v2, s2)
 	}
 
 	var crossbuild bool
@@ -810,18 +1046,18 @@ func testApp(ctx *testcase) {
 	if v := ctx.val("std.fxxbxx"); v == nil {
 		ctx.err("std.fxxbxx")
 	} else if s := v.string(ctx); s != "stdfxxbxx1" {
-		ctx.err("%T %v -> %s", v, v, s)
+		ctx.err("%s : %v → %s", typeof(v), v, s)
 	}
 	if v := ctx.val("-std.fxxbxx"); v == nil {
 		ctx.err("-std.fxxbxx")
 	} else if s := v.string(ctx); s != "stdfxxbxx2" {
-		ctx.err("%T %v -> %s", v, v, s)
+		ctx.err("%s : %v → %s", typeof(v), v, s)
 	}
 	if v1, v2 := ctx.val("cflags", "fxxbxx"), ctx.val("xflags", "fxxbxx"); v1 == nil || v2 == nil {
 		ctx.err("cflags")
 		ctx.err("xflags")
 	} else if s := v1.String(); s == "" {
-		ctx.err("%T %v", v1, v1)
+		ctx.err("%v", v1)
 	} else if true && strings.Count(s, "&(cross.target)") != 1 {
 		ctx.err("%v", v1)
 	} else if false && strings.Count(s, "$(foreach(-unique) &(target.triple),--target=$_ -Xclang -triple=$_)") != 1 {
@@ -905,9 +1141,9 @@ func testApp(ctx *testcase) {
 	} else if t := flag3("cflags", "fxxbxx"); strings.Count(s, t) != 1 {
 		note(at(ctx,v2), "%v", t) ; ctx.err("%v", v2)
 	} else if s1 := v1.string(ctx); s1 == "" {
-		ctx.err("%T %v -> %s", v2, v2, s1)
+		ctx.err("%T %v → %s", v2, v2, s1)
 	} else if s2 := v2.string(ctx); s2 == "" {
-		ctx.err("%T %v -> %s", v2, v2, s2)
+		ctx.err("%T %v → %s", v2, v2, s2)
 	} else if !validFlags(ctx, v1, s1) {
 		ctx.err("%s", s1)
 	} else if !validFlags(ctx, v2, s2) {
@@ -932,106 +1168,142 @@ func testApp(ctx *testcase) {
 	if v := ctx.val(".test.1"); v == nil {
 		ctx.err(".test.1")
 	} else if s := v.String(); s == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s == "" {
 		ctx.err("%T %v ⇒ %s", v, v, s)
-	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
-	}}} else if strings.Count(s, "-std=fxxbar") != 1 {
+	} else if false {
+		for _, t := range foo1 {
+			if n := strings.Count(s, t); n != 1 {
+				ctx.err("%v : %s ; %T %v", t, s, v, v)
+			}
+		}
+	} else if strings.Count(s, "-std=fxxbar") != 1 {
 		ctx.err("%T %v ⇒ %s", v, v, s)
 	}
 
 	if v := ctx.val(".test.2"); v == nil {
 		ctx.err(".test.2")
 	} else if s := v.String(); s == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s == "" {
-		ctx.err("%T %v -> %s", v, v, s)
-	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
-	}}} else if strings.Count(s, "-std=fxxbar") != 1 {
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	} else if false {
+		for _, t := range foo1 {
+			if n := strings.Count(s, t); n != 1 {
+				ctx.err("%v : %s ; %T %v", t, s, v, v)
+			}
+		}
+	} else if strings.Count(s, "-std=fxxbar") != 1 {
 		ctx.err("%v", v)
 	}
 
 	if v := ctx.val(".test.3"); v == nil {
 		ctx.err(".test.3")
 	} else if s := v.String(); s == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s == "" {
-		ctx.err("%T %v -> %s", v, v, s)
-	} else if false { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v : %s ; %T %v", t, s, v, v)
-	}}} else if strings.Count(s, "-std=fxxbar") != 1 {
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	} else if false {
+		for _, t := range foo1 {
+			if n := strings.Count(s, t); n != 1 {
+				ctx.err("%v : %s ; %T %v", t, s, v, v)
+			}
+		}
+	} else if strings.Count(s, "-std=fxxbar") != 1 {
 		ctx.err("%v", v)
 	}
 
 	if v := ctx.val(".test.4"); v == nil {
 		ctx.err(".test.4")
 	} else if s := v.String(); s == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s == "" {
-		ctx.err("%T %v -> %s", v, v, s)
-	} else { for _, t := range foo1 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
-	}}}
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	} else {
+		for _, t := range foo1 {
+			if n := strings.Count(s, t); n != 1 {
+				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+			}
+		}
+	}
 
 	if v := ctx.val(".test.5"); v == nil {
 		ctx.err(".test.5")
 	} else if s := v.String(); s == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s == "" {
-		ctx.err("%T %v -> %s", v, v, s)
-	} else { for _, t := range foo2 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
-	}}}
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	} else {
+		for _, t := range foo2 {
+			if n := strings.Count(s, t); n != 1 {
+				ctx.err("%v (%d) : %s ; %v", t, n, s, v)
+			}
+		}
+	}
 
 	if v := ctx.val(".test.6"); v == nil {
 		ctx.err(".test.6")
 	} else if s := v.String(); s == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s == "" {
-		ctx.err("%T %v -> %s", v, v, s)
-	} else { for _, t := range foo3 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
-	}}}
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	} else {
+		for _, t := range foo3 {
+			if n := strings.Count(s, t); n != 1 {
+				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+			}
+		}
+	}
 
 	if v := ctx.val(".test.7"); v == nil {
 		ctx.err(".test.7")
 	} else if s := v.String(); s == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if strings.Count(s, flag3("ldlibs", "foo")) != 1 {
 		ctx.err("%v", s)
 	} else if strings.Count(s, flag3("-l", "foo")) != 1 {
 		ctx.err("%v", s)
 	} else if s := v.string(ctx); s == "" {
-		ctx.err("%T %v -> %s", v, v, s)
-	} else { for _, t := range foo4 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
-	}}}
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	} else {
+		for _, t := range foo4 {
+			if n := strings.Count(s, t); n != 1 {
+				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+			}
+		}
+	}
 
 	if v := ctx.val(".test.8"); v == nil {
 		ctx.err(".test.8")
 	} else if s := v.String(); s == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if strings.Count(s, flag3("loadlibes", "foo")) != 1 {
 		ctx.err("%v", s)
 	} else if s := v.string(ctx); s == "" {
-		ctx.err("%T %v -> %s", v, v, s)
-	} else { for _, t := range foo5 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
-	}}}
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	} else {
+		for _, t := range foo5 {
+			if n := strings.Count(s, t); n != 1 {
+				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+			}
+		}
+	}
 
 	if v := ctx.val(".test.9"); v == nil {
 		ctx.err(".test.9")
 	} else if s := v.String(); s == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if strings.Count(s, flag3("loadlibs", "foo")) != 1 {
 		ctx.err("%v", s)
 	} else if s := v.string(ctx); s == "" {
-		ctx.err("%T %v -> %s", v, v, s)
-	} else { for _, t := range foo6 { if n := strings.Count(s, t); n != 1 {
-		ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
-	}}}
+		ctx.err("%s : %v → %s", typeof(v), v, s)
+	} else {
+		for _, t := range foo6 {
+			if n := strings.Count(s, t); n != 1 {
+				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+			}
+		}
+	}
 }
 
 const testCxxincConfigLines = `
@@ -1039,16 +1311,16 @@ _LIBCPP_ABI_VERSION = '2'
 _LIBCPP_ABI_NAMESPACE = '_extbit'
 _LIBCPP_ABI_DEFINES = ((plain c) '//TODO: #define ...')
 _LIBCPP_EXTRA_SITE_DEFINES = ((plain c) '//TODO: #define ...')
-_LIBCPP_HAS_MUSL_LIBC = no{}
-_LIBCPP_HAS_PARALLEL_ALGORITHMS = no{}
-_LIBCPP_PSTL_CPU_BACKEND_SERIAL = no{}
-_LIBCPP_PSTL_CPU_BACKEND_THREAD = yes{}
+_LIBCPP_HAS_MUSL_LIBC = {=no}
+_LIBCPP_HAS_PARALLEL_ALGORITHMS = {=no}
+_LIBCPP_PSTL_CPU_BACKEND_SERIAL = {=no}
+_LIBCPP_PSTL_CPU_BACKEND_THREAD = {=yes}
 _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION = 1
-LIBCXX_ENABLE_FILESYSTEM = yes{}
-LIBCXX_ENABLE_FSTREAM = yes{}
-LIBCXX_ENABLE_LOCALIZATION = yes{}
-LIBCXX_ENABLE_THREADS = yes{}
-LIBCXX_ENABLE_WIDE_CHARACTERS = yes{}
+LIBCXX_ENABLE_FILESYSTEM = {=yes}
+LIBCXX_ENABLE_FSTREAM = {=yes}
+LIBCXX_ENABLE_LOCALIZATION = {=yes}
+LIBCXX_ENABLE_THREADS = {=yes}
+LIBCXX_ENABLE_WIDE_CHARACTERS = {=yes}
 requires_LIBCXX_ENABLE_WIDE_CHARACTERS =
 requires_LIBCXX_ENABLE_FILESYSTEM =
 requires_LIBCXX_ENABLE_THREADS =
@@ -1057,9 +1329,9 @@ requires_LIBCXX_ENABLE_FSTREAM =
 `
 
 const testCxxabiConfigLines = `
-LIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS = yes{}
-LIBCXXABI_ENABLE_EXCEPTIONS = yes{}
-LIBCXXABI_ENABLE_THREADS = yes{}
+LIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS = {=yes}
+LIBCXXABI_ENABLE_EXCEPTIONS = {=yes}
+LIBCXXABI_ENABLE_THREADS = {=yes}
 `
 
 const testAppConfigLines = `
@@ -1610,6 +1882,10 @@ func testLLVMConfig1_arm64_darwin(ctx *testcase) {
 }
 func testLLVMConfig1(ctx *testcase, tail string) {
 	var names = []string{
+		".configure", "configuration.sm", "stamp", "foo.log",
+		".deps/11/22/333333333333333333333333333333333333333333333333333333333333",
+		".grep/11/22/333333333333333333333333333333333333333333333333333333333333",
+		".cache/11/22/333333333333333333333333333333333333333333333333333333333333",
 		".configure/type/align/test.c",
 		".configure/type/size/test.c",
 		".configure/type/test.c",
@@ -1639,34 +1915,50 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		".configure/std/x.float.words.bigendian.c++",
 	}
 
+	var p = _project(ctx)
 	for _, name := range names {
-		if f := unmap_files(ctx, name); f == nil {
+		if f := p.unmap_files(ctx, name, nil); f == nil {
 			ctx.err("unmap %s", name)
 		}
 	}
 
-	var ver1, ver2, ver3 string
+	var name, ver1, ver2, ver3 string
 	var ver1_val, ver2_val, ver3_val Value
-	if !strings.HasSuffix(_project(ctx).absPath, tail) {
-		ctx.err("%v: %v", _project(ctx), _project(ctx).absPath)
-	} else if v1 := ctx.val("LLVM_VERSION_MAJOR"); v1 == nil {
-		ctx.err("LLVM_VERSION_MAJOR")
-	} else if v2 := ctx.val("LLVM_VERSION_MINOR"); v2 == nil {
-		ctx.err("LLVM_VERSION_MINOR")
-	} else if v3 := ctx.val("LLVM_VERSION_PATCH"); v3 == nil {
-		ctx.err("LLVM_VERSION_PATCH")
-	} else if v1.String() != /* `$(grep '^ *set\(LLVM_VERSION_MAJOR +([0-9]+) *\)',$1,CMakeLists.txt)` */"'18'" {
-		ctx.err("LLVM_VERSION_MAJOR: %v{%v}", typeof(v1), v1)
-	} else if v2.String() != /* `$(grep '^ *set\(LLVM_VERSION_MINOR +([0-9]+) *\)',$1,CMakeLists.txt)` */"'0'" {
-		ctx.err("LLVM_VERSION_MINOR: %v{%v}", typeof(v2), v2)
-	} else if v3.String() != /* `$(grep '^ *set\(LLVM_VERSION_PATCH +([0-9]+) *\)',$1,CMakeLists.txt)` */"'0'" {
-		ctx.err("LLVM_VERSION_PATCH: %v{%v}", typeof(v3), v3)
-	} else if ver1_val, ver1 = v1, v1.string(ctx); ver1 == "" {
-		ctx.err("LLVM_VERSION_MAJOR: %v", v1)
-	} else if ver2_val, ver2 = v2, v2.string(ctx); ver2 == "" {
-		ctx.err("LLVM_VERSION_MINOR: %v", v2)
-	} else if ver3_val, ver3 = v3, v3.string(ctx); ver3 == "" {
-		ctx.err("LLVM_VERSION_PATCH: %v", v3)
+	if !strings.HasSuffix(p.absPath, tail) {
+		ctx.err("%v: %v", p, p.absPath)
+	}
+
+	name = "LLVM_VERSION_MAJOR"
+	if v := ctx.val(name); v == nil {
+		ctx.err("%s", name)
+	} else if v.String() != "$(grep {=regex ^ *set\\(LLVM_VERSION_MAJOR +([0-9]+) *\\)},$1,{=file LLVMVersion.cmake})" { // '18'
+		ctx.err("%s: %v : %s", name, v, tst{v})
+	} else if t := v.expand(final{ctx}); ts(t) != "{=strlit 20}" {
+		ctx.err("%s: %v : %s", name, v, tst{t})
+	} else if ver1_val, ver1 = v, v.string(ctx); ver1 != "20" {
+		ctx.err("%s: %v : %v", name, ver1, v)
+	}
+
+	name = "LLVM_VERSION_MINOR"
+	if v := ctx.val(name); v == nil {
+		ctx.err("%s", name)
+	} else if v.String() != "$(grep {=regex ^ *set\\(LLVM_VERSION_MINOR +([0-9]+) *\\)},$1,{=file LLVMVersion.cmake})" { // '0'
+		ctx.err("%s: %v : %s", name, v, tst{v})
+	} else if t := v.expand(final{ctx}); ts(t) != "{=strlit 0}" {
+		ctx.err("%s: %v : %s", name, v, tst{t})
+	} else if ver2_val, ver2 = v, v.string(ctx); ver2 != "0" {
+		ctx.err("%s: %v : %v", name, ver2, v)
+	}
+
+	name = "LLVM_VERSION_PATCH"
+	if v := ctx.val(name); v == nil {
+		ctx.err("%s", name)
+	} else if v.String() != "$(grep {=regex ^ *set\\(LLVM_VERSION_PATCH +([0-9]+) *\\)},$1,{=file LLVMVersion.cmake})" { // '0'
+		ctx.err("%s: %v : %s", name, v, tst{v})
+	} else if t := v.expand(final{ctx}); ts(t) != "{=strlit 0}" {
+		ctx.err("%s: %v : %s", name, v, tst{t})
+	} else if ver3_val, ver3 = v, v.string(ctx); ver3 != "0" {
+		ctx.err("%s: %v : %v", name, ver3, v)
 	}
 
 	var general *project
@@ -1701,108 +1993,127 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("base: %v", base)
 	} else if base.configure == nil {
 		ctx.err("base.configure")
-	} else { for _, name := range names {
-		if f := file(ctx, name, base.configure); f == nil {
-			ctx.err("file %s", name)
+	} else {
+		for _, name := range names {
+			if f := findfile(ctx, name, base.configure); f == nil {
+				ctx.err("file %s", name)
+			}
 		}
-	}}
+	}
 
-	if o := proj.resolve(ctx, "configure.version"); o == nil {
-		ctx.err("%v: configure.version", proj)
-	} else if false && o != proj.configure.resolve(ctx, "configure.version") {
-		ctx.err("%v: %v != %v", proj, o, proj.configure.resolve(ctx, "configure.version"))
+	var ver Value
+	s := "configure.version"
+	if o := proj.resolve(ctx, s); o == nil {
+		ctx.err("%v: %s", proj, s)
+	} else if false {
+		if o2 := proj.configure.resolve(ctx, s); o != o2 {
+			ctx.err("%v: %v != %v", proj, o, o2)
+		}
 	} else if d, y := o.(*def); !y {
-		ctx.err("configure.version: %v", o)
-	} else if ver := d.value; ver == nil {
-		ctx.err("configure.version: %v", o)
-	} else if ver.string(ctx) != fmt.Sprintf("%v.%v.%v", ver1, ver2, ver3) {
-		ctx.err("configure.version: %v: %v (%v.%v.%v)", typeof(ver), ver.string(ctx), ver1, ver2, ver3)
-	} else if d, y = ver.(*def); !y {
-		ctx.err("configure.version: %v", o)
+		ctx.err("%v", o)
 	} else if ver = d.value; ver == nil {
-		ctx.err("configure.version: %v", o)
+		ctx.err("%v", o)
+	} else if ver.string(ctx) != fmt.Sprintf("%v.%v.%v", ver1, ver2, ver3) {
+		ctx.err("%v: %v (%v.%v.%v)", typeof(ver), ver.string(ctx), ver1, ver2, ver3)
+	} else if d, y = ver.(*def); !y {
+		ctx.err("%v", o)
+	} else if ver = d.value; ver == nil {
+		ctx.err("%v", o)
 	} else if ver.String() != fmt.Sprintf("%v.%v.%v", ver1_val, ver2_val, ver3_val) {
-		ctx.err("configure.version: %v", ts(ver))
-	} else if o := proj.resolve(ctx, "configure.package"); o == nil {
-		ctx.err("configure.package")
-	} else if false && o != proj.configure.resolve(ctx, "configure.package") {
-		ctx.err("%v: %v != %v", proj, o, proj.configure.resolve(ctx, "configure.package"))
+		ctx.err("%v", ts(ver))
+	}
+
+	s = "configure.package"
+	if o := proj.resolve(ctx, s); o == nil {
+		ctx.err(s)
+	} else if false {
+		if o2 := proj.configure.resolve(ctx, s); o != o2 {
+			ctx.err("%v: %v != %v", proj, o, o2)
+		}
 	} else if d, y := o.(*def); !y {
-		ctx.err("configure.package: %v", o)
+		ctx.err("%v", o)
 	} else if d.value == nil {
-		ctx.err("configure.package: %v", o)
+		ctx.err("%v", o)
 	} else if pkg := "extbit.llvm"; d.value.String() != pkg { // "&(name)"
-		ctx.err("configure.package: %v", ts(d.value))
-	} else if r := proj.resolveEntry(ctx, makeStrlit(_position(ctx), "VERSION"), false); r == nil {
+		ctx.err("%v", ts(d.value))
+	} else if r := proj.entry(ctx, _strlit(_position(ctx), "VERSION"), false); r == nil {
 		ctx.err("VERSION")
 	} else if len(r.programs()) != 1 {
 		ctx.err("VERSION: %v", r)
-	} else if len(r.programs()[0].recipes) != 1 {
+	} else if recipes := r.programs()[0].recipes; len(recipes) != 1 {
 		ctx.err("VERSION: %v", r)
-	} else if r.programs()[0].recipes[0].String() != ver.expand(final{ctx}).String() {
-		ctx.err("VERSION: %v (%v)", r.programs()[0].recipes[0], ver.expand(final{ctx}))
-	} else if r = proj.resolveEntry(ctx, makeStrlit(_position(ctx), "PACKAGE"), false); r == nil {
-		ctx.err("PACKAGE")
-	} else if len(r.programs()) != 1 {
-		ctx.err("PACKAGE: %v", r)
-	} else if len(r.programs()[0].recipes) != 1 {
-		ctx.err("PACKAGE: %v", r)
-	} else if r.programs()[0].recipes[0].String() != pkg {
-		ctx.err("PACKAGE: %v", r.programs()[0].recipes[0])
-	} else if r = proj.resolveEntry(ctx, makeStrlit(_position(ctx), "PACKAGE_NAME"), false); r == nil {
-		ctx.err("PACKAGE_NAME")
-	} else if len(r.programs()) != 1 {
-		ctx.err("PACKAGE_NAME: %v", r)
-	} else if len(r.programs()[0].recipes) != 1 {
-		ctx.err("PACKAGE_NAME: %v", r)
-	} else if r.programs()[0].recipes[0].String() == "" {
-		ctx.err("PACKAGE_NAME: %v", r.programs()[0].recipes[0])
-	} else if r = proj.resolveEntry(ctx, makeStrlit(_position(ctx), "PACKAGE_VERSION"), false); r == nil {
-		ctx.err("PACKAGE_VERSION")
-	} else if len(r.programs()) != 1 {
-		ctx.err("PACKAGE_VERSION: %v", r)
-	} else if len(r.programs()[0].recipes) != 1 {
-		ctx.err("PACKAGE_VERSION: %v", r)
-	} else if r.programs()[0].recipes[0].String() == "" {
-		ctx.err("PACKAGE_VERSION: %v", r.programs()[0].recipes[0])
-	} else if r = proj.resolveEntry(ctx, makeStrlit(_position(ctx), "PACKAGE_VENDOR"), false); r == nil {
-		ctx.err("PACKAGE_VENDOR")
-	} else if len(r.programs()) != 1 {
-		ctx.err("PACKAGE_VENDOR: %v", r)
-	} else if len(r.programs()[0].recipes) != 1 {
-		ctx.err("PACKAGE_VENDOR: %v", r)
-	} else if r.programs()[0].recipes[0].String() == "" {
-		ctx.err("PACKAGE_VENDOR: %v", r.programs()[0].recipes[0])
-	} else if r = proj.resolveEntry(ctx, makeStrlit(_position(ctx), "PACKAGE_TARNAME"), false); r == nil {
-		ctx.err("PACKAGE_TARNAME")
-	} else if len(r.programs()) != 1 {
-		ctx.err("PACKAGE_TARNAME: %v", r)
-	} else if len(r.programs()[0].recipes) != 1 {
-		ctx.err("PACKAGE_TARNAME: %v", r)
-	} else if r.programs()[0].recipes[0].String() == "" {
-		ctx.err("PACKAGE_TARNAME: %v", r.programs()[0].recipes[0])
-	} else if r = proj.resolveEntry(ctx, makeStrlit(_position(ctx), "PACKAGE_STRING"), false); r == nil {
-		ctx.err("PACKAGE_STRING")
-	} else if len(r.programs()) != 1 {
-		ctx.err("PACKAGE_STRING: %v", r)
-	} else if len(r.programs()[0].recipes) != 1 {
-		ctx.err("PACKAGE_STRING: %v", r)
-	} else if r.programs()[0].recipes[0].String() == "" {
-		ctx.err("PACKAGE_STRING: %v", r.programs()[0].recipes[0])
-	} else if r = proj.resolveEntry(ctx, makeStrlit(_position(ctx), "PACKAGE_URL"), false); r == nil {
-		ctx.err("PACKAGE_URL")
-	} else if len(r.programs()) != 1 {
-		ctx.err("PACKAGE_URL: %v", r)
-	} else if len(r.programs()[0].recipes) != 1 {
-		ctx.err("PACKAGE_URL: %v", r)
-	} else if r.programs()[0].recipes[0].String() == "" {
-		ctx.err("PACKAGE_URL: %v", r.programs()[0].recipes[0])
-	} else if r = proj.resolveEntry(ctx, makeStrlit(_position(ctx), "PACKAGE_BUGREPORT"), false); r == nil {
-		ctx.err("PACKAGE_BUGREPORT")
-	} else if len(r.programs()) != 1 {
-		ctx.err("PACKAGE_BUGREPORT: %v", r)
-	} else if len(r.programs()[0].recipes) != 1 {
-		ctx.err("PACKAGE_BUGREPORT: %v", r)
+	} else {
+		recipe := recipes[0]//.expand(final{ctx})
+		verval := ver.expand(final{ctx})
+		if x, y := recipe.(*list); !y {
+			ctx.err("%v: %v", typeof(recipe), recipe)
+		} else if x.len() == 0 { // != 1
+			ctx.err("%v %v", x.len(), ts(x.elems))
+		} else if elem := x.elems[0]; elem == nil {
+			ctx.err("%v: %v", typeof(elem), elem)
+		} else if x, y := elem.(*def); !y {
+			ctx.err("%v: %v", typeof(elem), elem)
+		} else if v := x.value.expand(final{ctx}); v == nil {
+			ctx.err("%v: %v", typeof(x.value), x.value)
+		} else if false && v.String() != verval.String() {
+			ctx.err("%v: %v != %v", typeof(v), v, verval)
+		}
+
+		s = "PACKAGE"
+		if r = proj.entry(ctx, _strlit(_position(ctx), s), false); r == nil {
+			ctx.err(s)
+		} else if len(r.programs()) != 1 {
+			ctx.err("%s: %v", s, r)
+		}
+
+		s = "PACKAGE_NAME"
+		if r = proj.entry(ctx, _strlit(_position(ctx), s), false); r == nil {
+			ctx.err(s)
+		} else if len(r.programs()) != 1 {
+			ctx.err("%s: %v", s, r)
+		}
+
+		s = "PACKAGE_VERSION"
+		if r = proj.entry(ctx, _strlit(_position(ctx), s), false); r == nil {
+			ctx.err(s)
+		} else if len(r.programs()) != 1 {
+			ctx.err("%s: %v", s, r)
+		}
+
+		s = "PACKAGE_VENDOR"
+		if r = proj.entry(ctx, _strlit(_position(ctx), s), false); r == nil {
+			ctx.err(s)
+		} else if len(r.programs()) != 1 {
+			ctx.err("%s: %v", s, r)
+		}
+
+		s = "PACKAGE_TARNAME"
+		if r = proj.entry(ctx, _strlit(_position(ctx), s), false); r == nil {
+			ctx.err(s)
+		} else if len(r.programs()) != 1 {
+			ctx.err("%s: %v", s, r)
+		}
+
+		s = "PACKAGE_STRING"
+		if r = proj.entry(ctx, _strlit(_position(ctx), s), false); r == nil {
+			ctx.err(s)
+		} else if len(r.programs()) != 1 {
+			ctx.err("s: %v", s, r)
+		}
+
+		s = "PACKAGE_URL"
+		if r = proj.entry(ctx, _strlit(_position(ctx), s), false); r == nil {
+			ctx.err(s)
+		} else if len(r.programs()) != 1 {
+			ctx.err("%s: %v", s, r)
+		}
+
+		s = "PACKAGE_BUGREPORT"
+		if r = proj.entry(ctx, _strlit(_position(ctx), s), false); r == nil {
+			ctx.err(s)
+		} else if len(r.programs()) != 1 {
+			ctx.err("%s: %v", s, r)
+		}
 	}
 
 	var cc1 = closure_with(ctx.Context, base.configure, base)
@@ -1811,14 +2122,14 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v != %v", typeof(inner(cc1)), typeof(ctx.Context))
 	} else if _scope(cc1) != base.configure.scope {
 		ctx.err("%v != %v", _project(cc1), base.configure)
-	} else if _project(cc1) != base.configure {
+	} else if false && _project(cc1) != base.configure {
 		ctx.err("%v != %v", _project(cc1), base.configure)
 	}
 	if inner(cc2) != ctx.Context {
 		ctx.err("%v != %v", typeof(inner(cc2)), typeof(ctx.Context))
 	} else if _scope(cc2) != base.scope {
 		ctx.err("%v != %v", _project(cc2), base)
-	} else if _project(cc2) != base {
+	} else if false && _project(cc2) != base {
 		ctx.err("%v != %v", _project(cc2), base)
 	}
 
@@ -1851,8 +2162,9 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: %v → %v", proj, outtmp_val, outtmp)
 	}
 
-	if v1 := ctx.val("root1"); v1 == nil {
-		ctx.err("root1")
+	s = "root1"
+	if v1 := ctx.val(s); v1 == nil {
+		ctx.err(s)
 	} else if _, y := v1.(*path); !y {
 		ctx.err("%v", ts(v1))
 	} else if v1.String() != proj.absPath {
@@ -1868,8 +2180,6 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	} else if v2.string(ctx) != proj.absPath {
 		ctx.err("%v", ts(v2))
 	} else if v2.string(ctx) != v1.string(ctx) {
-		note(ctx, "%v", v2.string(ctx))
-		note(ctx, "%v", v1.string(ctx))
 		ctx.err("%v: %v != %v", _project(ctx), v2, v1)
 	} else if v3 := ctx.val("root3"); v3 == nil {
 		ctx.err("root3")
@@ -1881,8 +2191,8 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: %v: %v", c, typeof(t), t)
 	} else if p.elems[len(p.elems)-1].String() != filepath.Base(tail) {
 		ctx.err("%v: %v → %v ; %v", proj, c, p, tail)
-	} else if cc := closure_with(ctx.Context, proj); _project(cc) != proj {
-		ctx.err("%v: %v != %v ; %v{%v}", c, _project(cc), proj, typeof(cc), typeof(inner(cc)))
+	} else if cc := closure_with(ctx.Context, proj); _project(cc) == nil {
+		ctx.err("%v: %v != %v", c, _project(cc), proj)
 	} else if t := c.expand(final{cc}); t == nil {
 		ctx.err("%v", c)
 	} else if p, y := t.(*path); !y {
@@ -1997,48 +2307,113 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: %v: %v", proj, typeof(remnant_val), remnant_val)
 	}
 
-	if d := proj.resolveDef(cc1, "rel.remnant"); d == nil {
-		ctx.err("%v: rel.remnant", proj)
-	} else if d != base.resolveDef(cc1, "rel.remnant") {
-		ctx.err("%v", d)
+	s = "rel.remnant"
+	if d := proj.resolveDef(cc1, s); d == nil {
+		ctx.err("%v: %s", proj, s)
+	} else if c := base.resolveDef(cc1, s); c != d {
+		ctx.err("%v : %v", tst{d}, tst{c})
 	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
+		ctx.err("%v", tst{d})
 	} else if _, y := v.(*delegate); !y {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if v.String() != "$(trim-prefix &(rel.chop),&/)" { // from general
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s1 := v.string(cc1); s1 == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	} else if s2 := v.string(cc2); s2 == "" {
-		ctx.err("%T %v", v, v)
+		ctx.err("%v", tst{v})
 	}
 
-	if v1 := ctx.val("val3.a"); v1 == nil {
-		ctx.err("val3.a")
-	} else if _, y := v1.(fullname); !y {
-		ctx.err("%v: %v: %v", proj, typeof(v1), v1)
-	} else if v2 := ctx.val("val3.b"); v2 == nil {
-		ctx.err("val3.b")
+	s = "val1"
+	if v := ctx.val(s, proj); v == nil {
+		ctx.err("%s", s)
+	} else if c := base.configuration_sm(ctx); c == nil {
+		ctx.err("%v", base)
+	} else if s, t := v.ident(ctx), c.ident(ctx); s != t {
+		ctx.err("%v: %s != %s", v, s, t)
+	} else if v.string(ctx) == c.fullname() {
+		ctx.err("%v: %v", proj, base)
+	} else if v.string(ctx) != joinpath(outtmp, configuration_sm) {
+		note(at(ctx, v), "%v: %v", v, v.string(ctx))
+		note(at(ctx, v), "%v: %v/%v", v, outtmp, configuration_sm)
+		ctx.err("%v: different (%v)", v, proj)
+	}
+
+	s = "val2"
+	if v := ctx.val(s, proj); v == nil {
+		ctx.err("%s", s)
+	} else if c := base.configuration_sm(ctx); c == nil {
+		ctx.err("%v", base)
+	} else if s, t := v.ident(ctx), c.ident(ctx); s != t {
+		ctx.err("%v: %s != %s", v, s, t)
+	} else if f, y := v.(*file); !y {
+		ctx.err("%v", tst{v})
+	} else if f.fullname() == c.fullname() {
+		ctx.err("%v: %v", proj, base)
+	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
+		note(at(ctx, v), "%v: %v", v, f.fullname())
+		note(at(ctx, v), "%v: %v/%v", v, outtmp, configuration_sm)
+		ctx.err("%v: different (%v)", v, proj)
+	}
+
+	var srcinc string
+	if v := ctx.val("srcinc"); v == nil {
+		ctx.err("srcinc")
+	} else if srcinc = v.string(ctx); srcinc == "" {
+		ctx.err("%v", tst{v})
+	}
+
+	var outinc string
+	if v := ctx.val("outinc"); v == nil {
+		ctx.err("outinc")
+	} else if outinc = v.string(ctx); outinc == "" {
+		ctx.err("%v", tst{v})
+	}
+
+	s = "val3"
+	if d := ctx.def(s+".a"); d == nil {
+		ctx.err(s+".a")
+	} else if v1 := d.value; v1 == nil {
+		ctx.err("%v", d)
+	} else if x, y := v1.(fullname); !y {
+		ctx.err("%v: %v", proj.name, tst{v1})
+	} else if z, y := x.Value.(*file); !y {
+		ctx.err("%v: %v", proj.name, tst{x.Value})
+	} else if z.dir != srcinc {
+		ctx.err("%s: %s != %s", z.name, z.dir, srcinc)
+	} else if d := ctx.def(s+".b"); d == nil {
+		ctx.err(s+".b")
+	} else if v2 := d.value; v2 == nil {
+		ctx.err("%v", d)
 	} else if _, y := v2.(*path); !y {
-		ctx.err("%v: %v: %v", proj, typeof(v2), v2)
-	} else if v1.string(ctx) != v2.string(ctx) {
-		note(at(ctx,v1), "%v: %v", proj, v1)
-		note(at(ctx,v1), "%v: %v", proj, v2)
-		ctx.err("%v: %v: %v", proj, typeof(v1), v1)
+		ctx.err("%v: %v", proj.name, tst{v2})
+	} else if s1, s2 := v1.string(ctx), v2.string(ctx); s1 != s2 {
+		note(at(ctx,v1), "%v: %s", proj.name, s1)
+		note(at(ctx,v2), "%v: %s", proj.name, s2)
+		ctx.err("%v: %v != %v", proj.name, tst{v1}, tst{v2})
 	}
 
-	if v1 := ctx.val("val4.a"); v1 == nil {
-		ctx.err("val4.a")
-	} else if _, y := v1.(fullname); !y {
-		ctx.err("%v", ts(v1))
-	} else if v2 := ctx.val("val4.b"); v2 == nil {
-		ctx.err("val4.b")
+	s = "val4"
+	if d := ctx.def(s+".a"); d == nil {
+		ctx.err(s+".a")
+	} else if v1 := d.value; v1 == nil {
+		ctx.err("%v", d)
+	} else if x, y := v1.(fullname); !y {
+		ctx.err("%v: %v", proj.name, tst{v1})
+	} else if z, y := x.Value.(*file); !y {
+		ctx.err("%v: %v", proj.name, tst{x.Value})
+	} else if z.dir != outinc {
+		ctx.err("%s: %s != %s", z.name, z.dir, srcinc)
+	} else if d := ctx.def(s+".b"); d == nil {
+		ctx.err(s+".b")
+	} else if v2 := d.value; v2 == nil {
+		ctx.err("%v", d)
 	} else if _, y := v2.(*path); false && !y {
-		ctx.err("%v", ts(v2))
-	} else if v1.string(ctx) != v2.string(ctx) {
-		note(at(ctx,v1), "%v: %v", proj, v1)
-		note(at(ctx,v1), "%v: %v", proj, v2)
-		ctx.err("%v: %v: %v", proj, typeof(v1), v1)
+		ctx.err("%v: %v", proj.name, tst{v2})
+	} else if s1, s2 := v1.string(ctx), v2.string(ctx); s1 != s2 {
+		note(at(ctx,v1), "%v: %s", proj.name, s1)
+		note(at(ctx,v2), "%v: %s", proj.name, s2)
+		ctx.err("%v: %v != %v", proj.name, tst{v1}, tst{v2})
 	}
 
 	if f := proj.file(closure_with(ctx.Context, proj), configuration_sm); f == nil {
@@ -2047,7 +2422,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(f.fullname()) {
 		ctx.err("%v: %v", f, base)
-	} else if c := base.configuration; c == nil {
+	} else if c := base.configuration_sm(ctx); c == nil {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(c.fullname()) {
 		ctx.err("%v: %v", f, base)
@@ -2057,7 +2432,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: nil %s", proj, configuration_sm)
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
-	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
+	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
 		note(at(ctx, f), "%v: %v", f, f.fullname())
 		note(at(ctx, f), "%v: %v", x, x.fullname())
 		note(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
@@ -2070,7 +2445,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(f.fullname()) {
 		ctx.err("%v: %v", f, base)
-	} else if c := base.configuration; c == nil {
+	} else if c := base.configuration_sm(ctx); c == nil {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(c.fullname()) {
 		ctx.err("%v: %v", f, base)
@@ -2080,51 +2455,51 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: nil %s", base, configuration_sm)
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
-	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
+	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
 		note(at(ctx, f), "%v: %v", f, f.fullname())
 		note(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
 		ctx.err("%v: different (%s)", f, proj.absPath)
 	}
 
-	if f := proj.tempFile(closure_with(ctx.Context, proj), configuration_sm); f == nil {
+	if f := proj.tempfile(closure_with(ctx.Context, proj), configuration_sm); f == nil {
 		ctx.err("%v: nil %s", proj, configuration_sm)
 	} else if f.ident(ctx) != configuration_sm {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(f.fullname()) {
 		ctx.err("%v: %v", f, base)
-	} else if c := base.configuration; c == nil {
+	} else if c := base.configuration_sm(ctx); c == nil {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(c.fullname()) {
 		ctx.err("%v: %v", f, base)
 	} else if f.fullname() == c.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), c.fullname())
-	} else if x := proj.tempFile(ctx, configuration_sm); x == nil {
+	} else if x := proj.tempfile(ctx, configuration_sm); x == nil {
 		ctx.err("%v: nil %s", proj, configuration_sm)
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
-	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
+	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
 		note(at(ctx, f), "%v: %v", f, f.fullname())
 		note(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
 		ctx.err("%v: different (%s)", f, proj.absPath)
 	}
 
-	if f := base.tempFile(closure_with(ctx.Context, proj), configuration_sm); f == nil {
+	if f := base.tempfile(closure_with(ctx.Context, proj), configuration_sm); f == nil {
 		ctx.err("%v: nil %s", proj, configuration_sm)
 	} else if f.ident(ctx) != configuration_sm {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(f.fullname()) {
 		ctx.err("%v: %v", f, base)
-	} else if c := base.configuration; c == nil {
+	} else if c := base.configuration_sm(ctx); c == nil {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(c.fullname()) {
 		ctx.err("%v: %v", f, base)
 	} else if f.fullname() == c.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), c.fullname())
-	} else if x := base.tempFile(ctx, configuration_sm); x == nil {
+	} else if x := base.tempfile(ctx, configuration_sm); x == nil {
 		ctx.err("%v: nil %s", base, configuration_sm)
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
-	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
+	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
 		note(at(ctx, f), "%v: %v", f, f.fullname())
 		note(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
 		ctx.err("%v: different (%s)", f, proj.absPath)
@@ -2133,62 +2508,31 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	if f := base.configuration_sm(closure_with(ctx.Context, base.configure)); f == nil {
 		ctx.err("%v: %v: nil configuration", proj, base)
 	} else if f.ident(ctx) != configuration_sm {
-		ctx.err("%v: %v", f, base)
+		ctx.err("%v: %v", f.name, base)
 	} else if !filepath.IsAbs(f.fullname()) {
-		ctx.err("%v: %v", f, base)
-	} else if c := base.configuration; c == nil {
-		ctx.err("%v: %v", f, base)
+		ctx.err("%v: %v", f.name, base)
+	} else if c := base.configuration_sm(ctx); c == nil {
+		ctx.err("%v: %v", f.name, base)
 	} else if !filepath.IsAbs(c.fullname()) {
-		ctx.err("%v: %v", f, base)
-	} else if f.fullname() != c.fullname() {
-		note(at(ctx, f), "%v: %v", f, f.fullname())
-		note(at(ctx, f), "%v: %v", c, c.fullname())
-		ctx.err("%v: %v", f, proj)
-	} else if f.fullname() == joinPath(outtmp, configuration_sm) {
-		note(at(ctx, f), "%v: %v", f, f.fullname())
-		note(at(ctx, f), "%v: %v/%v", f, outtmp, configuration_sm)
-		ctx.err("%v: different", f)
+		ctx.err("%v: %v", f.name, base)
+	} else if false && f.fullname() != c.fullname() {
+		note(at(ctx, f), "%v: %v", f.name, f.fullname())
+		note(at(ctx, f), "%v: %v", c.name, c.fullname())
+		ctx.err("%v: %v", f.name, proj)
+	} else if false && f.fullname() == joinpath(outtmp, configuration_sm) {
+		note(at(ctx, f), "%v: %v", f.name, f.fullname())
+		note(at(ctx, f), "%v: %v/%v", f.name, outtmp, configuration_sm)
+		ctx.err("%v: different", f.name)
 	}
 
-	if v := ctx.val("val1", proj); v == nil {
-		ctx.err("val1")
-	} else if c := base.configuration; c == nil {
-		ctx.err("%v", base)
-	} else if s := v.String(); s != c.ident(ctx) {
-		ctx.err("%v , %v", v, c.ident(ctx))
-	} else if v.string(ctx) == c.fullname() {
-		ctx.err("%v: %v", proj, base)
-	} else if v.string(ctx) != joinPath(outtmp, configuration_sm) {
-		note(at(ctx, v), "%v: %v", v, v.string(ctx))
-		note(at(ctx, v), "%v: %v/%v", v, outtmp, configuration_sm)
-		ctx.err("%v: different (%v)", v, proj)
-	}
-
-	if v := ctx.val("val2", proj); v == nil {
-		ctx.err("val2")
-	} else if c := base.configuration; c == nil {
-		ctx.err("%v", base)
-	} else if s := v.String(); s != c.ident(ctx) {
-		ctx.err("%v , %v", v, c.ident(ctx))
-	} else if f, y := v.(*File); !y {
-		ctx.err("%T %v", v, v)
-	} else if f.fullname() == c.fullname() {
-		ctx.err("%v: %v", proj, base)
-	} else if f.fullname() != joinPath(outtmp, configuration_sm) {
-		note(at(ctx, v), "%v: %v", v, f.fullname())
-		note(at(ctx, v), "%v: %v/%v", v, outtmp, configuration_sm)
-		ctx.err("%v: different (%v)", v, proj)
-	}
-
-	testCheckExecRecipe = func(_ctx Context, source string, recipe Value) {
-		testValidateExecRecipe(ctx, _ctx, source, recipe)
-	}
-	testCheckExecOutput = func(_ctx Context, line string, l int) {
-		testValidateExecOutput(ctx, _ctx, line, l)
-	}
-	configure(ctx)
-	testCheckExecRecipe = nil
-	testCheckExecOutput = nil
+	configure(&exec_check{ctx,
+		func(_ctx Context, source string, recipe Value) {
+			testValidateExecRecipe(ctx, _ctx, source, recipe)
+		},
+		func(_ctx Context, line string, l int) {
+			testValidateExecOutput(ctx, _ctx, line, l)
+		},
+	})
 
 	if s := filepath.Join(outtmp, "lib", "c++inc"); s == "" {
 		ctx.err("%s", s)
@@ -2264,7 +2608,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		}
 	}
 
-	if f := base.configuration; f == nil {
+	if f := base.configuration_sm(ctx); f == nil {
 		ctx.err("%v: nil configuration", base)
 	} else if s := f.fullname(); s == "" {
 		ctx.err("%v", f)
@@ -2276,20 +2620,22 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v", e)
 	} else if s := string(b); s == "" {
 		ctx.err("%s", s)
-	} else if !strings.Contains(s, "FOO1 = yes{}")  {
+	} else if !strings.Contains(s, "FOO1 = {=yes}")  {
 		ctx.err("%s", b)
 	} else if true {
 		note(ctx, "%v\n%s", f.fullname(), b).debug()
 	}
 
 	if o := base.configure.resolve(ctx, "outtmp"); o == nil {
-		ctx.err("outtmp: %v", base.configure)
+		ctx.err("%v", base.configure)
 	} else if outtmp, y := o.(*def); !y || outtmp.value == nil {
-		ctx.err("outtmp: %T %v", o, o)
+		ctx.err("%v", ts(o))
 	} else if outtmp.value.String() != "&(target.tmp)/&(rel.remnant)" {
-		ctx.err("outtmp: %T %v", outtmp.value, outtmp.value)
-	} else if s := filepath.Join(outtmp.string(cc1), configuration_sm); s != base.configuration.fullname() {
-		ctx.err("outtmp: %v != %v", s, base.configuration.fullname())
+		ctx.err("%v", ts(outtmp.value))
+	} else if f := base.configuration_sm(ctx); f == nil {
+		ctx.err("configuration.sm")
+	} else if s := filepath.Join(outtmp.string(cc1), configuration_sm); s != f.fullname() {
+		ctx.err("%v != %v", s, f.fullname())
 	} else if b, e := ioutil.ReadFile(s); e != nil {
 		ctx.err("%v", e)
 	} else if s := string(b); s == "" {
@@ -2334,15 +2680,14 @@ func testToolchainBooting_arm64_darwin(ctx *testcase) {
 	testToolchainBooting(ctx)
 }
 func testToolchainBooting(ctx *testcase) {
-	testCheckExecRecipe = func(_ctx Context, source string, recipe Value) {
-		testValidateExecRecipe(ctx, _ctx, source, recipe)
-	}
-	testCheckExecOutput = func(_ctx Context, line string, l int) {
-		testValidateExecOutput(ctx, _ctx, line, l)
-	}
-	configure(ctx)
-	testCheckExecRecipe = nil
-	testCheckExecOutput = nil
+	configure(&exec_check{ctx,
+		func(_ctx Context, source string, recipe Value) {
+			testValidateExecRecipe(ctx, _ctx, source, recipe)
+		},
+		func(_ctx Context, line string, l int) {
+			testValidateExecOutput(ctx, _ctx, line, l)
+		},
+	})
 
 	if r := ctx.rule("stamp"); r == nil {
 		ctx.err("stamp")

@@ -8,7 +8,7 @@ project testvalue
 .test     += y $(&(.test.x) $1$1,$2$2)
 
 .test.0  ::= $(.test) $3
-.test.s1 ::= $(string   $(.test.0))
+.test.s1 ::= $(string  $(.test.0))
 .test.s2 ::= $(finalize $(.test.0))
 .test.s3  := $(string a b c)
 

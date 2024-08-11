@@ -1,8 +1,8 @@
-project testtarget (variant/bootstrap)
+project testvarianttarget (variant/bootstrap)
 
 target.os := foo
 
-foo := foobar
+foo  := foobar
 neg1 := !$(foo)
 neg2 := a!$(foo)
 neg3 := &(a!$(foo))

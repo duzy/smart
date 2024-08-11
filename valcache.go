@@ -1,4 +1,3 @@
-//
 //  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
@@ -11,17 +10,18 @@ package smart
 import (
     "reflect"
     "strings"
+	"sort"
     "fmt"
 )
 
-const test_hit = false
-const test_val = ".deps/xx/yy/zzzzzzzzzz"
+const test_hit = false && checkpoints
+const test_val = ""
 
 type (
-	hit_bare  struct{ *valcache ; *barecomp }
+	hit_bare  struct{ *valcache ; *compound }
 	hit_path  struct{ *valcache ; *path  }
-	hit_value struct{ *valcache ; Value  }
 	hit_punc  struct{ *valcache ; token  }
+	hit_value struct{ *valcache ; Value  }
 	hit_word  struct{ *valcache ; string }
 	hit_glob  struct{ *valcache ; string }
 	hit_perc  struct{ *valcache ; string }
@@ -44,7 +44,7 @@ func (c cache) do(ctx Context, op any) any {
     case hit_value:
         return _valcache_bool(c.value(ctx, t.valcache, t.Value))
 	case hit_bare:
-        return _valcache_bool(c.bare_hit(ctx, t.valcache, t.barecomp))
+        return _valcache_bool(c.bare_hit(ctx, t.valcache, t.compound))
 	case hit_path:
         return _valcache_bool(c.path_hit(ctx, t.valcache, t.path))
     case hit_glob:
@@ -69,7 +69,7 @@ func (u *unmap) do(ctx Context, op any) any {
     case hit_word:
         return _valcache_bool(u.word(ctx, t.valcache, t.string))
 	case hit_bare:
-        return _valcache_bool(u.bare_hit(ctx, t.valcache, t.barecomp))
+        return _valcache_bool(u.bare_hit(ctx, t.valcache, t.compound))
 	case hit_path:
         return _valcache_bool(u.path_hit(ctx, t.valcache, t.path))
     case hit_glob:
@@ -98,6 +98,15 @@ func (p *bare_hit) do(ctx Context, op any) any {
         if p.solo && t&(propFullVal) != 0 { return p.s }
     }
     return p.Context.do(ctx, op)
+}
+
+type flag_hit struct { Context ; flag }
+func (p *flag_hit) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case property:
+		if t&(propFullVal) != 0 { return p.flag }
+	}
+	return p.Context.do(ctx, op)
 }
 
 type path_hit struct { Context ; s string ; ss []string ; i int }
@@ -162,7 +171,13 @@ func cacheMapping(ctx Context) bool { return !cacheUnmap(ctx) }
 func cacheUnmap(ctx Context) bool { t, _ := do(ctx, propUnmap).(bool); return t }
 
 type rule_name struct { *rule ; name string }
+// func (p rule_name) ts(string) string { return "{=rule "+p.name+"}" }
+
 type filemap_name struct { filemap ; name string }
+func (p filemap_name) String() string {
+	return fmt.Sprintf("{%s %s}", p.filemap.String(), p.name)
+}
+
 type filemap_slot struct { filemap }
 func (p filemap_slot) String() string { return p.filemap.String() }
 func (p filemap_slot) match(ctx Context, a any) (bool, any, []string) {
@@ -177,8 +192,8 @@ type valcache_hit interface { hit(Context, *valcache) (*valcache, bool) }
 type valcache_bool   struct { *valcache ; bool }
 type valcache_value  struct { *valcache ; Value }
 type valcache struct {
-    a []valcacheable
-    o [][]string // priority of globs/percs/reges
+	a []valcacheable
+	o [][]string // priority of globs/percs/reges
 
     // NOTE: using `map[any]*valcache` is easier but lose some performance
     puncs map[token ]*valcache
@@ -194,7 +209,68 @@ func (v valcache_value) String() string { return v.valcache.String() }
 func (v valcache_value) ts(t string) string {
 	return fmt.Sprintf("{=%s %v %v}", t, v.valcache, ts(v.Value))
 }
-
+func (p *valcache) keys() (ss map[string]struct{}) {
+	ss = make(map[string]struct{})
+	for _, v := range reflect.ValueOf(p.puncs).MapKeys() {
+		ss[fmt.Sprintf("%s", v.Interface())] = struct{}{}
+	}
+	for _, v := range reflect.ValueOf(p.words).MapKeys() {
+		ss[v.String()] = struct{}{}
+	}
+	for _, v := range reflect.ValueOf(p.globs).MapKeys() {
+		ss[v.String()] = struct{}{}
+	}
+	for _, v := range reflect.ValueOf(p.percs).MapKeys() {
+		ss[v.String()] = struct{}{}
+	}
+	for _, v := range reflect.ValueOf(p.reges).MapKeys() {
+		ss[v.String()] = struct{}{}
+	}
+	return
+}
+func (p *valcache) ks(b ...bool) (s string) {
+	var ss []string
+	for _, v := range reflect.ValueOf(p.puncs).MapKeys() {
+		ss = append(ss, fmt.Sprintf("%s", v.Interface()))
+	}
+	for _, v := range reflect.ValueOf(p.words).MapKeys() {
+		ss = append(ss, v.String())
+	}
+	for _, v := range reflect.ValueOf(p.globs).MapKeys() {
+		ss = append(ss, v.String())
+	}
+	for _, v := range reflect.ValueOf(p.percs).MapKeys() {
+		ss = append(ss, v.String())
+	}
+	for _, v := range reflect.ValueOf(p.reges).MapKeys() {
+		ss = append(ss, v.String())
+	}
+	if b != nil && b[0] { sort.Strings(ss) }
+	return "["+strings.Join(ss, " ")+"]"
+}
+func (p *valcache) _ks(b ...bool) (s string) {
+	for i, v := range reflect.ValueOf(p.puncs).MapKeys() {
+		if 0 < i { s += " " }; s += fmt.Sprintf("%s", v.Interface())
+		if t := p.puncs[v.Interface().(token)].ks(); t != "[]" { s += ":"+t }
+	}
+	for _, v := range reflect.ValueOf(p.words).MapKeys() {
+		if s != "" { s += " " }; s += v.String()
+		if t := p.words[v.String()].ks(); t != "[]" { s += ":"+t }
+	}
+	for _, v := range reflect.ValueOf(p.globs).MapKeys() {
+		if s != "" { s += " " }; s += v.String()
+		if t := p.globs[v.String()].ks(); t != "[]" { s += ":"+t }
+	}
+	for _, v := range reflect.ValueOf(p.percs).MapKeys() {
+		if s != "" { s += " " }; s += v.String()
+		if t := p.percs[v.String()].ks(); t != "[]" { s += ":"+t }
+	}
+	for _, v := range reflect.ValueOf(p.reges).MapKeys() {
+		if s != "" { s += " " }; s += v.String()
+		if t := p.reges[v.String()].ks(); t != "[]" { s += ":"+t }
+	}
+	return "[" + s + "]"
+}
 func (p *valcache) String() (s string) { // NOTE: for debug
     for k, v := range p.a     { s += fmt.Sprintf("%v:%s(%v),", k, typeof(v), v) }
     for k, v := range p.puncs { s += fmt.Sprintf("%v:%v,", k, v) }
@@ -229,14 +305,17 @@ func (p *valcache) do_rule_name(ctx Context, r *rule, a any) {
 	return
 }
 
-func (p *valcache) fullmatch(ctx Context, k any) (yes bool) {
+func (p *valcache) fullmatch(ctx Context, k any) (res bool) {
     for _, a := range p.a {
-        if yes, _, _ = a.match(ctx, k); yes {
+        if res, _, _ = a.match(ctx, k); res {
 			switch t := a.(type) {
 			case filemap_slot:
 				p.do_filemap_name(ctx, t.filemap, k)
 			case *rule:
 				p.do_rule_name(ctx, t, k)
+				if fmt.Sprintf("%s", k) == "-library-c" {
+					note(ctx, "%v %v", a, cast[*unmap](ctx).a).debug(32)
+				}
 			}
             return
         }
@@ -245,15 +324,19 @@ func (p *valcache) fullmatch(ctx Context, k any) (yes bool) {
 }
 
 func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
-    if test_hit && do(ctx, propFullVal) == test_val { defer func() {
-        note(ctx, "%5v %v", k, p)
-        note(ctx, "%5v %v", fullmatch, res)
-        note(ctx, "%v", ts(ctx)).debug(30)
-    }()}
+    if test_hit && do(ctx, propFullVal) == test_val {
+		defer func() {
+			note(ctx, "%5v %v", k, p)
+			note(ctx, "%5v %v", fullmatch, res)
+			note(ctx, "%v", ts(ctx)).debug(30)
+		} ()
+	}
 
     ctx = at(ctx, k)
 
     switch t := k.(type) {
+    case []string:
+		return p.hit_words(ctx, t...) // do(ctx, hit_words{p, t})
     case string:
         if x, y := do(ctx, hit_word{p, t}).(valcache_bool); y {
             return x.valcache, x.bool
@@ -273,19 +356,61 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 			return
 		}
     case Value:
-        if indeterminate(ctx, t) {
-            if x, y := do(ctx, hit_value{p, t}).(valcache_bool); y {
-                return x.valcache, x.bool
-            } else {
-                erro(ctx, "unhit: %v %v", ts(k), ts(ctx)).trace()
-            }
-        } else {
-            erro(ctx, "non-valcacheable value %v : %v", ts(k), p).trace()
-        }
+		if indeterminate(ctx, t) {
+			if x, y := do(ctx, hit_value{p, t}).(valcache_bool); y {
+				return x.valcache, x.bool
+			} else {
+				erro(ctx, "unhit: %v %v", ts(k), ts(ctx)).trace()
+			}
+		} else {
+			if x, y := k.(*rule); y {
+				a, ay := do(ctx, hit_value{p, x.target}).(valcache_bool)
+				b, by := do(ctx, hit_word{p, x.target.string(ctx)}).(valcache_bool)
+				note(ctx, "%v : %v %v, %v %v", x.target, a.bool, ay, b.bool, by).debug()
+			}
+			erro(ctx, "non-valcacheable %v : %v", ts(k), p).trace()
+		}
     default:
         erro(ctx, "non-valcacheable %v : %v", ts(k), p).trace()
     }
 	return
+}
+
+func (p *valcache) hit_words(ctx Context, words ...string) (res *valcache, full bool) {
+	defer func() {
+		if res != nil && 0 < len(res.a) {
+			var s = strings.Join(words, pathSep)
+			for _, a := range res.a {
+				if x, y, z := a.match(ctx, s); x {
+					full = p.fullmatch(ctx, s)
+				} else if false {
+					erro(ctx, "TODO: %v, %v %v %v", s, x, y, z).trace()
+				}
+			}
+		}
+	} ()
+	for _, s := range words {
+		for i, s := range strings.Split(s, DOT.String()) {
+			if p != nil && (0 < i) {
+				if p, _ = p.hit(ctx, DOT) ; p == nil {
+					if cacheMapping(ctx) {
+						erro(ctx, "no valcache for %v", ts(p)).trace()
+					}
+					return
+				}
+			}
+			if p != nil && (0 < i || s != "") {
+				if p, full = p.hit(ctx, s); p == nil {
+					if cacheMapping(ctx) {
+						erro(ctx, "no valcache for %v", ts(p)).trace()
+					}
+					return
+				}
+				if full { return p, full }
+			}
+		}
+	}
+	return p, full
 }
 
 func (cache) value(ctx Context, p *valcache, v Value) (res *valcache, fullmatch bool) {
@@ -329,7 +454,7 @@ func (cache) word(ctx Context, p *valcache, s string) (res *valcache, fullmatch 
         return
     }
 }
-func (cache) bare_hit(ctx Context, c *valcache, p *barecomp) (res *valcache, fullmatch bool) {
+func (cache) bare_hit(ctx Context, c *valcache, p *compound) (res *valcache, fullmatch bool) {
     for _, elem := range p.elems {
         if c, fullmatch = c.hit(ctx, elem); c == nil {
 			erro(at(ctx,elem), "no valcache for %v : %v : %v", p, ts(elem), c).trace()
@@ -415,11 +540,13 @@ func (u *unmap) value(ctx Context, p *valcache, v Value) (res *valcache, fullmat
     return
 }
 func (u *unmap) punc(ctx Context, c *valcache, t token) (res *valcache, fullmatch bool) {
-    if test_hit && do(ctx, propFullVal) == test_val { defer func() {
-        note(ctx, "%5v : %v , %v", t, c, ts(do(ctx, propFullVal)))
-        note(ctx, "%5v : %v", fullmatch, res)
-        note(ctx, "%v", ts(ctx)).debug(30)
-    }()}
+	if test_hit && do(ctx, propFullVal) == test_val {
+		defer func() {
+			note(ctx, "%5v : %v , %v", t, c, ts(do(ctx, propFullVal)))
+			note(ctx, "%5v : %v", fullmatch, res)
+			note(ctx, "%v", ts(ctx)).debug(30)
+		} ()
+	}
     if nil != c.puncs {
         if x, y := c.puncs[t]; y {
 			if a := do(ctx, propFullVal); a != nil {
@@ -435,26 +562,28 @@ func (u *unmap) punc(ctx Context, c *valcache, t token) (res *valcache, fullmatc
     return
 }
 func (u *unmap) word(ctx Context, c *valcache, s string) (res *valcache, fullmatch bool) {
-    if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) { defer func() {
-        note(ctx, "%5v : %v , %v", s, c, ts(do(ctx, propFullVal)))
-        note(ctx, "%5v : %v", fullmatch, res)
-        note(ctx, "%v", ts(ctx)).debug(30)
-    }()}
-    if nil != c.words {
-        if x, y := c.words[s]; y {
+	if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) {
+		defer func() {
+			note(ctx, "%5v : %v , %v", s, c, ts(do(ctx, propFullVal)))
+			note(ctx, "%5v : %v", fullmatch, res)
+			note(ctx, "%v", ts(ctx)).debug(30)
+		} ()
+	}
+	if c.words != nil {
+		if x, y := c.words[s]; y {
 			if a := do(ctx, propFullVal); a != nil {
 				return x, x.fullmatch(ctx, a)
 			} else {
 				return x, x.fullmatch(ctx, s)
 			}
-        }
-    }
-    if x, y := do(ctx, act_unmap{c, s}).(valcache_bool); y {
-        if res, fullmatch = x.valcache, x.bool ; x.bool { return }
-    }
+		}
+	}
+	if x, y := do(ctx, act_unmap{c, s}).(valcache_bool); y {
+		if res, fullmatch = x.valcache, x.bool ; x.bool { return }
+	}
     return
 }
-func (*unmap) bare_hit(ctx Context, c *valcache, p *barecomp) (res *valcache, fullmatch bool) {
+func (*unmap) bare_hit(ctx Context, c *valcache, p *compound) (res *valcache, fullmatch bool) {
 	_, res, fullmatch = unmap_bare(ctx, c, p.string(ctx), cast[*path_hit](ctx) == nil)
 	return
 }
@@ -463,19 +592,24 @@ func (*unmap) path_hit(ctx Context, c *valcache, p *path) (res *valcache, fullma
 	return unmap_ps(ctx, c, s, strings.Split(s, pathSep))
 }
 func (*unmap) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
-    if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) { defer func() {
-        note(ctx, "%5v %v", s, _c)
-        note(ctx, "%5v %v", fullmatch, res)
-        note(ctx, "%v", ts(ctx)).debug(30)
-    }()}
+	if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) {
+		defer func() {
+			note(ctx, "%5v %v", s, _c)
+			note(ctx, "%5v %v", fullmatch, res)
+			note(ctx, "%v", ts(ctx)).debug(30)
+		}()
+	}
 
-    if strings.Contains(s, pathSep) { return }
+	if strings.Contains(s, pathSep) {
+		if false { erro(ctx, "%v %v", s, _c).trace() }
+		return
+	}
 
 	if 0 < len(_c.o) {
 		for _, pat := range _c.o[0] {
-			var c, _ = _c.globs[pat]
-			if c == nil {
-				erro(ctx, "%v %v - nil glob", s, pat).trace()
+			var c, y = _c.globs[pat]
+			if !y || c == nil {
+				if false {erro(ctx, "%v %v - nil glob", s, pat).trace()}
 				continue
 			}
 			if f, _, _ := globMatch(ctx, pat, s); f {
@@ -485,22 +619,34 @@ func (*unmap) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmat
 	}
 	if 1 < len(_c.o) {
 		for _, pat := range _c.o[1] {
-			var c, _ = _c.percs[pat]
-			if c == nil {
-				erro(ctx, "%v %v - nil glob", s, pat).trace()
+			var c, y = _c.percs[pat]
+			if !y || c == nil {
+				if false {erro(ctx, "%v %v - nil glob", s, pat).trace()}
 				continue
 			}
-			erro(ctx, "TODO: ", pat).trace()
+			for _, a := range c.a {
+				if x, y, z := a.match(ctx, s); x {
+					return c, c.fullmatch(ctx, s)
+				} else if false {
+					erro(ctx, "TODO: %v %v, %v %v %v, %v", s, pat, x, y, z, ts(a.(*rule).target)).trace()
+				}
+			}
 		}
 	}
 	if 2 < len(_c.o) {
 		for _, pat := range _c.o[2] {
-			var c, _ = _c.reges[pat]
-			if c == nil {
-				erro(ctx, "%v %v - nil glob", s, pat).trace()
+			var c, y = _c.reges[pat]
+			if !y || c == nil {
+				if false {erro(ctx, "%v %v - nil glob", s, pat).trace()}
 				continue
 			}
-			erro(ctx, "TODO: ", pat).trace()
+			for _, a := range c.a {
+				if x, y, z := a.match(ctx, s); x {
+					return c, c.fullmatch(ctx, s)
+				} else if false {
+					erro(ctx, "TODO: %v %v, %v %v %v, %v", s, pat, x, y, z, ts(a.(*rule).target)).trace()
+				}
+			}
 		}
 	}
     return
@@ -522,9 +668,7 @@ func (p *bare_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fu
         var fullval = do(ctx, propFullVal)
         for _, pat := range p.o[0][p.i:] {
             var c, _ = p.globs[pat]
-            if c == nil {
-                erro(ctx, "%v %v - nil glob", s, pat).trace()
-            }
+            if c == nil { erro(ctx, "nil glob: %v %v %v", s, pat, p.o).trace() }
 
             p.i += 1
 
@@ -546,7 +690,7 @@ func (p *bare_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fu
 				}
 			}
 
-            if true && fullval != nil {
+            if true && fullval != nil && c != nil {
                 if f := c.fullmatch(ctx, fullval); f {
                     return c, true
                 }
@@ -556,17 +700,19 @@ func (p *bare_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fu
     return
 }
 func (p *path_hit) unmap(ctx Context, _c *valcache, k string) (res *valcache, fullmatch bool) {
-    if test_hit && do(ctx, propFullVal) == test_val { defer func() {
-        note(ctx, "%5v %v", k, _c)
-        note(ctx, "%5v %v ; %d/%d %v", fullmatch, res, p.i, len(p.ss), p.ss[p.i])
-        note(ctx, "%v", ts(ctx)).debug(30)
-    }()}
+    if test_hit && do(ctx, propFullVal) == test_val {
+		defer func() {
+			note(ctx, "%5v %v", k, _c)
+			note(ctx, "%5v %v ; %d/%d %v", fullmatch, res, p.i, len(p.ss), p.ss[p.i])
+			note(ctx, "%v", ts(ctx)).debug(30)
+		} ()
+	}
 
 	if 0 < len(_c.o) {
 		for _, pat := range _c.o[0] {
 			var c = _c.globs[pat]
 
-			if checkpoints {
+			if checkpoints && truly(ctx, is_test_mode{}) {
 				if strings.Contains(pat, "/") {
 					erro(ctx, "%v %v %v", k, pat, c).trace()
 				}
@@ -589,11 +735,13 @@ func (p *path_hit) unmap(ctx Context, _c *valcache, k string) (res *valcache, fu
     return
 }
 func (gc *globpat_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
-    if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) { defer func() {
-        note(ctx, "%5v : %v", s, _c)
-        note(ctx, "%5v : %v , fullval=%v", fullmatch, res, ts(do(ctx, propFullVal)))
-        note(ctx, "%v", ts(ctx)).debug(30)
-    }()}
+	if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) {
+		defer func() {
+			note(ctx, "%5v : %v", s, _c)
+			note(ctx, "%5v : %v , fullval=%v", fullmatch, res, ts(do(ctx, propFullVal)))
+			note(ctx, "%v", ts(ctx)).debug(30)
+		} ()
+	}
 
 	var g func(*valcache)
 
@@ -616,20 +764,24 @@ func (gc *globpat_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache
     return
 }
 func (p *percpat_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
-    if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) { defer func() {
-        note(ctx, "%5v : %v", s, _c)
-        note(ctx, "%5v : %v , %v", fullmatch, res, ts(do(ctx, propFullVal)))
-        note(ctx, "%v", ts(ctx)).debug(30)
-    }()}
+	if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) {
+		defer func() {
+			note(ctx, "%5v : %v", s, _c)
+			note(ctx, "%5v : %v , %v", fullmatch, res, ts(do(ctx, propFullVal)))
+			note(ctx, "%v", ts(ctx)).debug(30)
+		} ()
+	}
 
     panic("TODO: "+s)
 }
 func (p *regexpat_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
-    if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) { defer func() {
-        note(ctx, "%5v : %v", s, _c)
-        note(ctx, "%5v : %v , %v", fullmatch, res, ts(do(ctx, propFullVal)))
-        note(ctx, "%v", ts(ctx)).debug(30)
-    }()}
+	if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) {
+		defer func() {
+			note(ctx, "%5v : %v", s, _c)
+			note(ctx, "%5v : %v , %v", fullmatch, res, ts(do(ctx, propFullVal)))
+			note(ctx, "%v", ts(ctx)).debug(30)
+		} ()
+	}
 
     panic("TODO: "+s)
 }
@@ -641,7 +793,7 @@ func (*unmap) perc(ctx Context, _c *valcache, s string) (res *valcache, fullmatc
     }
     return
 }
-func (*unmap) regx(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
+func (*unmap) _regex(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
     if len(_c.o) < 3 { return }
     for _, pat := range _c.o[2] {
         erro(ctx, "TODO: %v %v", ts(s), pat).trace()
@@ -670,58 +822,66 @@ func (p *project) map_files(ctx Context, patts, paths []Value) (res []filemap) {
     return
 }
 
-func (p *project) unmap(ctx *unmap, c *valcache, key any) (res *valcache, fullmatch bool) {
-    defer flush(ctx)
-
-	if checkpoints {
-		defer func() {
-			if fullmatch && res == nil {
-				erro(at(ctx, key), "nil full unmap : %v", c).trace()
-			}
-			if fullmatch && ctx.a == nil {
-				note(at(ctx, key), "{=%s %v} %v", typeof(key), key, c)
-				erro(at(ctx, key), "uncollected full unmap : %v", res).trace()
-			}
-		} ()
+func (p *project) unmap_entries(ctx Context, key any, m *map[*project]struct{}) (res []entry) {
+	if checkpoints && truly(ctx, is_test_mode{}) { defer p.unmap_entries_check(ctx, key, &res) }
+	if m == nil { m = &map[*project]struct{}{} } else if _, y := (*m)[p]; y { return }
+	if m != nil { (*m)[p] = struct{}{} }
+	if truly(ctx, debug_y{}) { ctx = project_ctx{ctx, p} }
+	if res = unmap_any[entry](ctx, &p.entries, key); res != nil { return }
+	for _, b := range p.bases {
+		if res = b.unmap_entries(ctx, key, m); res != nil { return }
 	}
-
-	if x, y := key.(string) ; y {
-		if x == "" {
-			erro(ctx, "empty key : %v", c).trace()
-		} else if s := strings.Split(x, pathSep) ; len(s) > 1 {
-			return unmap_ps(ctx, c, x, s)
-		} else {
-			_, res, fullmatch = unmap_bare(ctx, c, x, true)
-			return
-		}
-	} else if x, y := key.(valcache_hit); y {
-		return x.hit(ctx, c)
-	} else {
-		return c.hit(ctx, key)
+	if c := p.configure; false && c != nil {
+		if res = c.unmap_entries(ctx, key, m); res != nil { return }
 	}
-
 	return
 }
 
-func (p *project) unmap_entries(ctx Context, key any) []entry {
-    return unmap_t[entry](ctx, p, &p.entries, key)
+func (p *project) unmap_files(ctx Context, key any, m *map[*project]struct{}) (res []filemap_name) {
+	if checkpoints && truly(ctx, is_test_mode{}) { defer p.unmap_files_check(ctx, key, &res) }
+	if m == nil { m = &map[*project]struct{}{} } else if _, y := (*m)[p]; y { return }
+	if m != nil { (*m)[p] = struct{}{} }
+	if truly(ctx, debug_y{}) { ctx = project_ctx{ctx, p} }
+	if res = unmap_any[filemap_name](ctx, &p.filemap, key); res != nil { return }
+	for _, b := range p.bases {
+		if res = b.unmap_files(ctx, key, m); res != nil { return }
+	}
+	if c := p.configure; c != nil {
+		if res = c.unmap_files(ctx, key, m); res != nil { return }
+	}
+	return
 }
 
-func (p *project) unmap_files(ctx Context, key any) []filemap_name {
-    return unmap_t[filemap_name](ctx, p, &p.filemap, key)
+func unmap_(ctx *unmap, c *valcache, key any) {
+	defer unmap_check(ctx, c, key)
+	switch x := key.(type) {
+	case string:
+		if x == "" {
+			erro(ctx, "empty key: %v", c).trace()
+		} else if s := strings.Split(x, pathSep); 1 < len(s) {
+			unmap_ps(ctx, c, x, s); return
+		} else {
+			unmap_bare(ctx, c, x, true); return
+		}
+	case valcache_hit:
+		x.hit(ctx, c); return
+	default:
+		c.hit(ctx, x); return
+	}
 }
 
-func unmap_t[T any](ctx Context, p *project, c *valcache, key any) (res []T) {
-    var u = unmap{ctx, nil}
-    p.unmap(&u, c, key)
+func unmap_any[T any](ctx Context, c *valcache, key any) (res []T) {
+	var u = unmap{ctx, nil}
 
-    for _, a := range u.a {
-        if x, y := a.(T); y {
-            res = append(res, x)
-        } else {
+	unmap_(&u, c, key)
+
+	for _, a := range u.a {
+		if x, y := a.(T); y {
+			res = append(res, x)
+		} else {
 			erro(ctx, "%v : %v", ts(key), ts(a)).trace()
 		}
-    }
+	}
     return
 }
 
@@ -749,11 +909,11 @@ func unmap_ps(ctx Context, c *valcache, s string, ss []string) (_ *valcache, y b
 }
 
 func unmap_entries(ctx Context, key any) []entry {
-    return _project(ctx).unmap_entries(ctx, key)
+    return _project(ctx).unmap_entries(ctx, key, nil)
 }
 
 func unmap_files(ctx Context, key any) []filemap_name {
-    return _project(ctx).unmap_files(ctx, key)
+    return _project(ctx).unmap_files(ctx, key, nil)
 }
 
 func map_files(ctx Context, patts, paths []Value) []filemap {

@@ -34,7 +34,7 @@ const (
 
 	_literal_beg
 	// Identifiers and basic type literals (these tokens stand for classes of literals)
-	BAREWORD
+	WORD
 	BINARY   // 0b010101, 0B0111001
 	OCTAL    // 0600, 0567
 	INTEGER  // 12345
@@ -47,10 +47,10 @@ const (
 	RAW      // raw strings
 	STRING   // 'abc'
 	ESCAPE   // \", \\n, etc. (see value.EscapeChar)
-	COMPOUND // "abc $(foo) 123"
+	STRCOMP // "abc $(foo) 123"
 	_literal_end
 
-	COMPOSED // the ending quote of a compound literal
+	COMPOSED // the ending quote of a strcomp literal
 	RECIPE   // tab to indicate a command recipe
 	LINEND   // significant line break (LF or CRLF)
 
@@ -225,7 +225,7 @@ var tokens = [...]string{
 	COMMENT: "COMMENT",
 	HASH:    "HASH",
 
-	BAREWORD: "BAREWORD",
+	WORD:     "WORD",
 	BINARY:   "BINARY",
 	OCTAL:    "OCTAL",
 	INTEGER:  "INTEGER",
@@ -237,11 +237,11 @@ var tokens = [...]string{
 	URI:      "URI",
 	RAW:      "RAW",
 	STRING:   "STRING",
-	ESCAPE:   "\\",
-	COMPOUND: "COMPOUND",
+	STRCOMP:  "STRCOMP",
 
 	COMPOSED: "COMPOSED",
 	RECIPE:   "RECIPE",
+	ESCAPE:   "\\",
 	LINEND:   "\\n", //"LINEND",
 	PROOT:    "", // the "" before the first '/' in a path
 	PTAIL:    "", // the "" after the last '/' in a path
@@ -259,10 +259,10 @@ var tokens = [...]string{
 	SELECT_PROG1: "⇒", // foo=>bar foo⇒bar
 	SELECT_PROG2: "⇢", // foo~>bar foo⇢bar
 
-	RPAREN:    ")",
-	RBRACK:    "]",
-	RBRACE:    "}",
-	RANGLE:    ">",
+	RPAREN: ")",
+	RBRACK: "]",
+	RBRACE: "}",
+	RANGLE: ">",
 
 	SEMICOLON: ";",
 
@@ -278,53 +278,53 @@ var tokens = [...]string{
 	STAR:      "*",
 	DAST:      "**",
 
-	CLOSURE:      "&",
-	CLOSURE_r:    "&/",
-	CLOSURE_D:    "&.",
-	CLOSURE_A:    "&@",
-	CLOSURE_B:    "&|",
-	CLOSURE_L:    "&<",
-	CLOSURE_R:    "&>",
-	CLOSURE_U:    "&^",
-	CLOSURE_S:    "&*",
-	CLOSURE_M:    "&-",
-	CLOSURE_P:    "&+",
-	CLOSURE_Q:    "&Q",
-	CLOSURE_0:    "&0",
-	CLOSURE_1:    "&1",
-	CLOSURE_2:    "&2",
-	CLOSURE_3:    "&3",
-	CLOSURE_4:    "&4",
-	CLOSURE_5:    "&5",
-	CLOSURE_6:    "&6",
-	CLOSURE_7:    "&7",
-	CLOSURE_8:    "&8",
-	CLOSURE_9:    "&9",
-	CLOSURE__:    "&_",
+	CLOSURE:   "&",
+	CLOSURE_r: "&/",
+	CLOSURE_D: "&.",
+	CLOSURE_A: "&@",
+	CLOSURE_B: "&|",
+	CLOSURE_L: "&<",
+	CLOSURE_R: "&>",
+	CLOSURE_U: "&^",
+	CLOSURE_S: "&*",
+	CLOSURE_M: "&-",
+	CLOSURE_P: "&+",
+	CLOSURE_Q: "&Q",
+	CLOSURE_0: "&0",
+	CLOSURE_1: "&1",
+	CLOSURE_2: "&2",
+	CLOSURE_3: "&3",
+	CLOSURE_4: "&4",
+	CLOSURE_5: "&5",
+	CLOSURE_6: "&6",
+	CLOSURE_7: "&7",
+	CLOSURE_8: "&8",
+	CLOSURE_9: "&9",
+	CLOSURE__: "&_",
 
-	DELEGATE:      "$",
-	DELEGATE_r:    "$/",
-	DELEGATE_D:    "$.",
-	DELEGATE_A:    "$@",
-	DELEGATE_B:    "$|",
-	DELEGATE_L:    "$<",
-	DELEGATE_R:    "$>",
-	DELEGATE_U:    "$^",
-	DELEGATE_S:    "$*",
-	DELEGATE_M:    "$-",
-	DELEGATE_P:    "$+",
-	DELEGATE_Q:    "$?",
-	DELEGATE_0:    "$0",
-	DELEGATE_1:    "$1",
-	DELEGATE_2:    "$2",
-	DELEGATE_3:    "$3",
-	DELEGATE_4:    "$4",
-	DELEGATE_5:    "$5",
-	DELEGATE_6:    "$6",
-	DELEGATE_7:    "$7",
-	DELEGATE_8:    "$8",
-	DELEGATE_9:    "$9",
-	DELEGATE__:    "$_",
+	DELEGATE:   "$",
+	DELEGATE_r: "$/",
+	DELEGATE_D: "$.",
+	DELEGATE_A: "$@",
+	DELEGATE_B: "$|",
+	DELEGATE_L: "$<",
+	DELEGATE_R: "$>",
+	DELEGATE_U: "$^",
+	DELEGATE_S: "$*",
+	DELEGATE_M: "$-",
+	DELEGATE_P: "$+",
+	DELEGATE_Q: "$?",
+	DELEGATE_0: "$0",
+	DELEGATE_1: "$1",
+	DELEGATE_2: "$2",
+	DELEGATE_3: "$3",
+	DELEGATE_4: "$4",
+	DELEGATE_5: "$5",
+	DELEGATE_6: "$6",
+	DELEGATE_7: "$7",
+	DELEGATE_8: "$8",
+	DELEGATE_9: "$9",
+	DELEGATE__: "$_",
 
 	ASSIGN:     "=",
 	ASSIGN_SHI: "=+",
@@ -334,6 +334,7 @@ var tokens = [...]string{
 	ASSIGN_CO1: ":=",
 	ASSIGN_CO2: "::=",
 	ASSIGN_CO3: ";:=",
+
 	ASSIGN_SC1: ";=",
 	ASSIGN_SUB: "-=",
 	ASSIGN_SAD: "-+=",
@@ -344,25 +345,25 @@ var tokens = [...]string{
 	PCON:  "/",
 	PERC:  "%",
 
-	PROJECT:    "project",
-	PACKAGE:    "package",
-	MODULE:     "module",
-	CONFIGURE:  "configure",
-	USE:        "use",
-	ASSERT:     "assert",
-	APPEND:     "append",
-	EVAL:       "eval",
-	EXPORT:     "export",
-	INCLUDE:    "include",
-	INSTANCE:   "instance",
-	FILES:      "files",
-	TEMPLATE:   "template",
-	AND:        "and",
-	FOR:        "for",
-	FOREACH:    "foreach",
-	DONE:       "done",
-	DEF:        "def",
-	END:        "end",
+	PROJECT:   "project",
+	PACKAGE:   "package",
+	MODULE:    "module",
+	CONFIGURE: "configure",
+	USE:       "use",
+	ASSERT:    "assert",
+	APPEND:    "append",
+	EVAL:      "eval",
+	EXPORT:    "export",
+	INCLUDE:   "include",
+	INSTANCE:  "instance",
+	FILES:     "files",
+	TEMPLATE:  "template",
+	AND:       "and",
+	FOR:       "for",
+	FOREACH:   "foreach",
+	DONE:      "done",
+	DEF:       "def",
+	END:       "end",
 
 	UNDEF:  "undef",
 	NULL:   "null",
@@ -403,38 +404,37 @@ func (tok token) String() (s string) {
 var keywords = make(map[string]token)
 
 func init() {
-	if CLOSURE_r  != CLOSURE+1  { panic(CLOSURE_r) }
+	if  CLOSURE_r !=  CLOSURE+1 { panic( CLOSURE_r) }
 	if DELEGATE_r != DELEGATE+1 { panic(DELEGATE_r) }
-
 	for i := _keyword_beg + 1; i < _keyword_end; i++ {
 		if s := tokens[i]; s != "" { keywords[s] = i }
 	}
 }
 
-// lookupKeyword maps an identifier to its keyword token or IDENT (if not a keyword).
+// lookup_keyword maps an identifier to its keyword token or IDENT (if not a keyword).
 //
-func lookupKeyword(ident string) token {
+func lookup_keyword(ident string) token {
 	if t, y := keywords[ident]; y { return t }
-	return BAREWORD
+	return WORD
 }
 
-func (tok token) isLiteral() bool         { return _literal_beg   <  tok && tok <  _literal_end }
-func (tok token) isOperator() bool        { return _operator_beg  <  tok && tok <  _operator_end }
-func (tok token) isKeyword() bool         { return _keyword_beg   <  tok && tok <  _keyword_end }
-func (tok token) isConstant() bool        { return _constant_beg  <  tok && tok <  _constant_end }
-func (tok token) isClosure() bool         { return _closure_beg   <  tok && tok <  _closure_end }
-func (tok token) isClosureDelegate() bool { return _closure_beg   <  tok && tok <  _delegate_end }
-func (tok token) isDelegate() bool        { return _delegate_beg  <  tok && tok <  _delegate_end }
-func (tok token) isAssign() bool          { return _assign_beg    <  tok && tok <  _assign_end }
-func (tok token) isRuleDelim() bool       { return _ruledelim_beg <  tok && tok <  _ruledelim_end }
-func (tok token) isSelectProg() bool      { return SELECT_PROG1   == tok || tok == SELECT_PROG2 }
-func (tok token) isSelectProp() bool      { return SELECT_PROP    == tok }
-func (tok token) isListDelim() bool {
+func (tok token) is_literal() bool          { return   _literal_beg < tok && tok <   _literal_end }
+func (tok token) is_operator() bool         { return  _operator_beg < tok && tok <  _operator_end }
+func (tok token) is_keyword() bool          { return   _keyword_beg < tok && tok <   _keyword_end }
+func (tok token) is_constant() bool         { return  _constant_beg < tok && tok <  _constant_end }
+func (tok token) is_closure() bool          { return   _closure_beg < tok && tok <   _closure_end }
+func (tok token) is_closure_delegate() bool { return   _closure_beg < tok && tok <  _delegate_end }
+func (tok token) is_delegate() bool         { return  _delegate_beg < tok && tok <  _delegate_end }
+func (tok token) is_assign() bool           { return    _assign_beg < tok && tok <    _assign_end }
+func (tok token) is_rule_delim() bool       { return _ruledelim_beg < tok && tok < _ruledelim_end }
+func (tok token) is_select_prog() bool      { return  SELECT_PROG1 == tok || tok == SELECT_PROG2 }
+func (tok token) is_select_prop() bool      { return  SELECT_PROP  == tok }
+func (tok token) is_list_delim() bool {
 	switch tok {
 	case RPAREN, RBRACK, RBRACE, SEMICOLON, COMMA, LINEND, EOF:
 		return true
 	}
-	return tok.isRuleDelim()
+	return tok.is_rule_delim()
 }
 
 /*
@@ -520,7 +520,5 @@ func (s *FileSet) AddFile(filename string, base, size int) *tokfile {
 }
 
 func (s *FileSet) Iterate(f func(*tokfile) bool) {
-	s.FileSet.Iterate(func(file *got.File) bool {
-		return f(&tokfile{ file })
-	})
+	s.FileSet.Iterate(func(a *got.File) bool { return f(&tokfile{a}) })
 }

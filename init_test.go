@@ -16,7 +16,7 @@ import (
 
 type testcase_f1 func (*testcase)
 type testcase_f2 func (*testcase, string, string)
-type testcase  struct { Context ; *testing.T ; run func(testcase_f1) }
+type testcase  struct { Context ; *testing.T ; run func(testcase_f1) ; srcs, chks map[string]struct{} }
 type testcase1 struct { *testcase ; i any }
 type test_arg struct { name string; val any }
 type test_def_1 struct{}
@@ -28,10 +28,16 @@ const testModulesPath = "/Volumes/workspace/.smart/modules"
 
 var total_erros int
 var total_bytes int
+var test_mode bool
 
 func init() {
 	diagnostic_limit_erros = 1000
 	diagnostic_limit_bytes = 2000 // est. lines
+	if _, e := os.Stat("/Volumes/workspace"); e == nil {
+		if _, e := os.Stat("/Volumes/workout"); e == nil {
+			test_mode = true
+		}
+	}
 }
 
 func testHasModule(name string) (res bool) {
@@ -47,25 +53,27 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 	}
 
 	ctx := new_universe(ii...)
-
-	const _dt_ = true
-	if _dt_ { defer trace(ctx) }
-
-	res = &testcase{ ctx, t, nil }
-
 	ctx.erros = total_erros
 	ctx.flushed = total_bytes
 	ctx.panicFailureOnErrosFlushed = false
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
-	ctx.testMode = true
 	ctx.globe.main = nil
 	ctx.workdir = dir
+
+	if true && !test_mode {
+		erro(ctx, "not test mode").trace()
+	}
 
 	if testHasModule("configure") && !ctx.paths.has(testModulesPath) {
 		ctx.paths = append(ctx.paths, testModulesPath)
 	}
 
-	if e := ctx.load(); e != nil {
+	res = &testcase{ ctx, t, nil, make(map[string]struct{}), make(map[string]struct{}) }
+
+	const _dt_ = true
+	if _dt_ { defer trace(res) }
+
+	if e := ctx.load(res); e != nil {
 		erro(ctx, "%v", e).trace()
         if !_dt_ { trace(ctx) }
 	} else if m := ctx.globe.main; m == nil {
@@ -76,7 +84,7 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
         if !_dt_ { trace(ctx) }
 	} else {
 		res.Context = closure_with(ctx, m) // TODO: projectContext{ctx, m}
-		testRemoveConfigureDir(res, _project(ctx))
+		if false { testRemoveConfigureDir(res, _project(ctx)) }
 	}
 
 	ctx.diagnostic.flush(ctx)
@@ -88,12 +96,22 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 }
 
 func (tc *testcase) String() string { return ts(tc.Context) }
-func (tc *testcase) ts(string) string {
-	return fmt.Sprintf("{=test %v}", ts(tc.Context))
-}
-func (tc *testcase) do(ctx Context, op any) any {
-	switch op.(type) {
-	case is_test_mode: return true
+func (tc *testcase) ts(string) string { return fmt.Sprintf("{=test %v}", ts(tc.Context)) }
+func (tc *testcase) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case is_test_mode: return test_mode
+	case silent_configure: return true
+	case source_loaded:
+		tc.srcs[string(t)] = struct{}{}
+		return
+	case source_checked:
+		tc.chks[string(t)] = struct{}{}
+		if false {
+			if d := _project(ctx).resolveDef(ctx, "workspace"); d != nil {
+				note(ctx, "%v", t).debug()
+			}
+		}
+		return
 	}
 	return tc.Context.do(ctx, op)
 }
@@ -143,17 +161,22 @@ func (tc *testcase) flush() {
 }
 
 func (tc *testcase) rule(name string) (r []entry) {
-	if p := _project(tc); p != nil { r = p.resolveEntries(tc.Context, name, false) }
+	if p := _project(tc); p != nil { r = p._entries(tc.Context, name, false) }
 	return
 }
 
-func (tc *testcase) obj(name string) (res Object) {
+func (tc *testcase) obj(name string) (res object) {
 	if p := _project(tc); p != nil { res = p.resolve(tc.Context, name) }
 	return
 }
 
 func (tc *testcase) def(name string) (d *def) {
 	if o := tc.obj(name); o != nil { d, _ = o.(*def) }
+	return
+}
+
+func (tc *testcase) str(a any, b ...any) (_ string) {
+	if v := tc.val(a, b...); v != nil { return v.string(tc) }
 	return
 }
 
@@ -176,7 +199,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		case    skipint: s.int = t.int+1
 		case       opt : o = append(o, t.Value)
 		case       opts: o = append(o, t.vals...)
-		case   test_arg: a = append(a, &pair{&bareword{vb,t.name},va(tc,t.val)})
+		case   test_arg: a = append(a, &pair{&word{vb,t.name},va(tc,t.val)})
 		default:         a = append(a, va(tc, i))
 		}
 	}
@@ -195,30 +218,29 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		erro(ctx, "%v: %v", proj, ts(i0)).trace()
 	}
 
-	if 0 < len(a) {
-		ac := automatic{Context:ctx, defs:make(auto_defs)}
-		ac.args(ctx, a)
-		ctx = &ac
-	}
+	var c = original{ctx, origin}
 
-	c := original{ctx, origin}
-
-	if 0 < len(a) && _automatic(ctx) == nil {
+	if d, y := x.(*def) ; y && 0 < len(a) {
 		res, _ = evoke(c, x, o, a)
 		return
-	} else if d, y := x.(*def); y {
+	} else if y {
 		if d.value != nil {
 			return d.value.expand(c)
 		} else {
 			return
 		}
 	} else {
+		if 0 < len(a) {
+			ac := automatic{Context:c.Context, defs:make(defs_map)}
+			ac.args(ctx, a)
+			c.Context = &ac
+		}
 		return x.expand(c)
 	}
 }
 
 func testRemoveConfigureDir(ctx *testcase, p *project) {
-	if f := p.configuration; f == nil {
+	if f := p.configuration_sm(ctx); f == nil {
 		// skip
 	} else if s := f.fullname(); s == "" {
 		ctx.err("%v", f)
@@ -228,18 +250,15 @@ func testRemoveConfigureDir(ctx *testcase, p *project) {
 		ctx.err("%v %v", f, s)
 	} else if e := os.RemoveAll(s); e != nil {
 		ctx.err("%v", e)
-	} else if false {
-		note(ctx, "%v", s).debug(10)
 	}
 	for _, base := range p.bases { testRemoveConfigureDir(ctx, base) }
 }
 
 func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
-	ctx := loadcase(t, joinPath("testdata", spec), name, ii...)
+	ctx := loadcase(t, joinpath("testdata", spec), name, ii...)
 	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
 
 	defer func() {
-
 		d := _diagnostic(ctx.Context)
 		d.flush(ctx)
 
@@ -316,25 +335,24 @@ func va(ctx Context, i any) (v Value) {
     case uint16:  v = makeDecimal(_position(ctx), int64(t))
     case uint32:  v = makeDecimal(_position(ctx), int64(t))
     case uint64:  v = makeDecimal(_position(ctx), int64(t))
-	case   bare:  v = makeBareword(_position(ctx), string(t))
+	case   bare:  v = makeWord(_position(ctx), string(t))
     case string:
         if t == "" {
             v = makeNone(_position(ctx))
         } else {
-            v = makeBareword(_position(ctx), t)
+            v = makeWord(_position(ctx), t)
         }
-    case []string: {
+    case []string:
         var l = makeList()
         for _, s := range t {
             if s == "" {
                 v = makeNone(_position(ctx))
             } else {
-                v = makeBareword(_position(ctx), s)
+                v = makeWord(_position(ctx), s)
             }
             l.elems = append(l.elems, v)
         }
         v = l
-    }
     case []any:
         var l = makeList()
         for _, i := range t { l.elems = append(l.elems, va(ctx, i)) }
@@ -397,15 +415,14 @@ func Test(t *testing.T) {
 	run(t, "loader", "empty", "testloader", testLoader)
 
 	// value_test.go
-	run(t, "value", "value", "testvalue", testValueGeneral,
-		test_hook_assert{testValueGeneralAssertHook, &testValueGeneralStruct{}})
+	run(t, "value", "value", "testvalue", testValueGeneral, test_hook_assert{testValueGeneralAssertHook, &testValueGeneralStruct{}})
 
 	// builtins_test.go
-	run(t, "builtins", "assert", "testbuiltins", testAssert,
-		test_hook_assert{testAssertHook, &testAssertStruct{}})
+	run(t, "builtins", "assert", "testbuiltins", testAssert, test_hook_assert{testAssertHook, &testAssertStruct{}})
 	run(t, "builtins", "pushcontext", "testbuiltins", testPushContext)
 
 	// value_test.go
+	run(t, "value", "value/closure",     "testvalue", testClosure)
 	run(t, "value", "value/1",           "testvalue", testValues1)
 	run(t, "value", "value/2",           "testvalue", testValues2)
 	run(t, "value", "value/auto",        "testvalue", testAutomatic)
@@ -422,8 +439,7 @@ func Test(t *testing.T) {
 	run(t, "value", "value/13",          "testvalue", testValues13)
 	run(t, "value", "value/placeholder", "testvalue", testPlaceholders)
 	run(t, "value", "value/glob",        "testvalue", testGlob)
-	run(t, "value", "value/optional",    "testvalue", testOptional,
-		test_silentOptionalSelection{true})
+	run(t, "value", "value/optional",    "testvalue", testOptional, test_silentOptionalSelection{true})
 
 	// builtins_test.go
 	run(t, "builtins", "builtins/wildcard",   "testbuiltins", testBuiltin_wildcard)
@@ -447,8 +463,7 @@ func Test(t *testing.T) {
 	run(t, "template", "template",         "testtemplate", testTemplate)
 
 	// modifiers_test.go
-	run(t, "modifiers", "modifier", "testmodifier", testValueModifier,
-		test_caseinit{testValueModifierInit})
+	run(t, "modifiers", "modifier", "testmodifier", testValueModifier, test_caseinit{testValueModifierInit})
 
 	// defs_test.go
 	run(t, "defs", "defs", "testdefs", testDefs0)
@@ -470,18 +485,20 @@ func Test(t *testing.T) {
 	run(t, "rules", "rule/0",                "testrules", testRules0)
 	run(t, "rules", "rule/1",                "testrules", testRules1)
 	run(t, "rules", "rule/contains",         "testrules", testBuiltin_contains2)
-	run(t, "rules", "rule/shell/for-stdout", "testrules", testShellForStdout,
-		test_hook_debug{testShellForStdoutDebugHook, &testShellForStdoutDebugStruct{}})
+	run(t, "rules", "rule/shell/for-stdout", "testrules", testShellForStdout, test_hook_debug{testShellForStdoutDebugHook, &testShellForStdoutDebugStruct{}})
 
 	// configure_test.go
-	run(t, "configure", "configuration",          "testdefaultconfigure",  testConfigureFoo)
-	run(t, "configure", "configuration/diverged", "testdivergedconfigure", testConfigureDivergedOuttmp)
-	run(t, "configure", "configuration/custom",   "testcustomconfigure",   testConfigureCustom)
+	run(t, "configure", "configuration",        "testdefaultconfigure", testConfigureDefault)
+	run(t, "configure", "configuration/two",    "testdeftwoconfigure",  testConfigureDefault2)
+	run(t, "configure", "configuration/custom", "testcustomconfigure",  testConfigureCustom)
+
+	// value_test.go
+	run(t, "value", "value/bug_01", "testvalue", testValues_bug_01)
 
 	// modules_test.go
-	run(t, "modules", "modules/target/arm64-darwin",            "", testVariantTarget_arm64_darwin)
-	run(t, "modules", "modules/app/arm64-darwin",               "", testApp_arm64_darwin)
-	run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1_arm64_darwin, test_configure{true})
-	run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2_arm64_darwin)
-	run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting_arm64_darwin)
+	run(t, "modules", "modules/target/arm64-darwin", "", testVariantTarget_arm64_darwin) //testvarianttarget
+	run(t, "modules", "modules/app/arm64-darwin", "", testApp_arm64_darwin) //testapp
+	run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig1_arm64_darwin, test_configure{true}) //testllvmconfig
+	run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig2_arm64_darwin) //testllvmconfig
+	run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting_arm64_darwin) //testtoolchainbooting
 }

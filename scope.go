@@ -20,23 +20,23 @@ import (
 // TODO: remote scope struct, use scopeContext instead
 type scope struct {
 	mutex sync.Mutex
-	elems map[string]Object
+	elems map[string]object
 	project *project
 	outer *scope
 	comment string
 }
 
 func newscope(pos Position, outer *scope, owner *project, c string) (s *scope) {
-	return &scope{outer:outer, project:owner, comment:c, elems:make(map[string]Object)}
+	return &scope{outer:outer, project:owner, comment:c, elems:make(map[string]object)}
 }
 
 func (s *scope) has_outer(outer *scope) bool {
 	return s.outer != nil && (s.outer == outer || s.outer.has_outer(outer))
 }
 
-func (s *scope) copyElems() (result map[string]Object) {
+func (s *scope) copyElems() (result map[string]object) {
 	s.mutex.Lock(); defer s.mutex.Unlock()
-	result = make(map[string]Object, len(s.elems))
+	result = make(map[string]object, len(s.elems))
 	for k, o := range s.elems { result[k] = o }
 	return
 }
@@ -64,11 +64,11 @@ func (s *scope) names() []string {
 
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
-func (s *scope) Lookup(name string) Object {
+func (s *scope) Lookup(name string) object {
 	s.mutex.Lock() ; defer s.mutex.Unlock()
 	return s.lookup(name)
 }
-func (s *scope) lookup(name string) (obj Object) {
+func (s *scope) lookup(name string) (obj object) {
 	if s.elems != nil { obj, _ = s.elems[name] }
 	return
 }
@@ -82,7 +82,7 @@ func (s *scope) lookup(name string) (obj Object) {
 // object was inserted into the scope and already had a outer at that
 // time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
-func (s *scope) find(name string) (res *scope, obj Object) {
+func (s *scope) find(name string) (res *scope, obj object) {
 	if obj = s.lookup(name) ; obj != nil {
 		return s,obj
 	} else if  s.outer != nil  {
@@ -96,7 +96,7 @@ func (s *scope) finddef(name string) (d *def) {
 	return
 }
 
-func (s *scope) resolve(name string) (obj Object) {
+func (s *scope) resolve(name string) (obj object) {
 	if false { s.mutex.Lock() ; defer s.mutex.Unlock() }
 	_, obj = s.find(name)
 	return
@@ -107,7 +107,7 @@ func (s *scope) resolve(name string) (obj Object) {
 // the same name, Insert leaves s unchanged and returns alt.
 // Otherwise it inserts obj, sets the object's outer scope
 // if not already set, and returns nil.
-func (s *scope) insert(ctx Context, obj Object) Object {
+func (s *scope) insert(ctx Context, obj object) object {
 	s.mutex.Lock(); defer s.mutex.Unlock()
 	var name = obj.ident(ctx)
 	if alt := s.elems[name]; alt != nil {
@@ -117,7 +117,7 @@ func (s *scope) insert(ctx Context, obj Object) Object {
 	return nil
 }
 
-func (s *scope) replace(ctx Context, name string, obj Object) {
+func (s *scope) replace(ctx Context, name string, obj object) {
 	switch o := obj.(type) {
 	case interface { setscope(string, *scope) }:
 		o.setscope(name, s)
@@ -169,7 +169,7 @@ func (s *scope) string() string {
 	return buf.String()
 }
 
-func (s *scope) projectname(ctx Context, name string, project *project) (p *project, a Object) {
+func (s *scope) projectname(ctx Context, name string, project *project) (p *project, a object) {
 	s.mutex.Lock() ; defer s.mutex.Unlock()
 	if a = s.elems[name] ; a == nil {
 		p = project
@@ -178,7 +178,7 @@ func (s *scope) projectname(ctx Context, name string, project *project) (p *proj
 	return
 }
 
-func (s *scope) builtin(ctx Context, name string, f reflect.Type) (res *builtin, a Object) {
+func (s *scope) builtin(ctx Context, name string, f reflect.Type) (res *builtin, a object) {
 	s.mutex.Lock() ; defer s.mutex.Unlock()
 	if a = s.elems[name] ; a == nil {
 		res = &builtin{knownobject{objbase{scope:s}, name}, f}
@@ -187,7 +187,7 @@ func (s *scope) builtin(ctx Context, name string, f reflect.Type) (res *builtin,
 	return
 }
 
-func (s *scope) _auto(ctx Context, name string) (a *auto, o Object) {
+func (s *scope) _auto(ctx Context, name string) (a *auto, o object) {
 	s.mutex.Lock() ; defer s.mutex.Unlock()
 
 	var y bool
@@ -207,7 +207,7 @@ func (s *scope) _auto(ctx Context, name string) (a *auto, o Object) {
 
 func (s *scope) auto(ctx Context, name string) (a *auto) {
 	var y bool
-	var o Object
+	var o object
 	if a, o = s._auto(ctx, name); o != nil {
 		if a, y = o.(*auto); !y {
 			erro(ctx, "name already taken (%s)", typeof(o)).trace()
@@ -216,26 +216,27 @@ func (s *scope) auto(ctx Context, name string) (a *auto) {
 	return
 }
 
-func (s *scope) alias(ctx Context, o Object, alias ...string) {
+func (s *scope) alias(ctx Context, o object, alias ...string) {
 	for _, a := range alias { s.elems[a] = o }
 }
 
-func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *def, a Object) {
+func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *def, a object) {
 	s.mutex.Lock() ; defer s.mutex.Unlock()
 
 	var name string
+
 	switch t := ident.(type) {
 	case string: name = t
-	case  Value:
+	case Value:
 		if indeterminate(ctx, t) {
-			erro(ctx, "indeterminate ident : %s", ts(ident)).trace()
+			erro(ctx, "indeterminate ident: %s : %s", ident, ts(ident)).trace()
+		} else {
+			name = t.string(ctx)
 		}
-
-		name = t.string(ctx)
 	}
 
 	if name == "" {
-		erro(ctx, "empty name : %s", ts(ident)).trace()
+		erro(ctx, "empty name: %s : %s", ident, ts(ident)).trace()
 	}
 
 	var y bool
@@ -252,7 +253,7 @@ func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *de
 
 		if origin == defUndetermined { origin = defVoid }
 
-		d = &def{ origin:origin, value:value }
+		d = &def{ o:origin, value:value }
 		d.name, d.scope, d.position = name, s, _position(ctx)
 		s.replace(ctx, name, d)
 	} else if d, y = a.(*def); y {
@@ -260,7 +261,7 @@ func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *de
 			d.set(ctx, origin, vals[0])
 		} else if 1 < len(vals) {
 			d.set(ctx, origin, nil, vals...)
-		} else if origin != defUndetermined {
+		} else if origin != defUndetermined && (d.o == defUndetermined || d.o == defVoid) {
 			d.set(ctx, origin, nil)
 		}
 	}

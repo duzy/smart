@@ -61,11 +61,11 @@ func testAssert(ctx testcase1) {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
 	} else if i = 8; s.vals[i].String() != "foobar{}" || !s.bools[i] {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
-	} else if v, y := s.vals[i].(*barecomp); !y {
+	} else if v, y := s.vals[i].(*compound); !y {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], v.elems)
 	} else if len(v.elems) != 2 {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], v.elems)
-	} else if _, y := v.elems[0].(*bareword); !y {
+	} else if _, y := v.elems[0].(*word); !y {
 		ctx.err("%v", tst{v.elems[0]})
 	} else if _, y := v.elems[1].(*null); !y {
 		ctx.err("%v", tst{v.elems[1]})
@@ -190,7 +190,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("%v %v", pat1, tst{pat1})
 	} else if s := pat1.string(ctx); s != "*.h" {
 		ctx.err("%v %v %s", pat1, tst{pat1}, s)
-	} else if cs := m.unmap_files(ctx, pat1); len(cs) != 1 {
+	} else if cs := m.unmap_files(ctx, pat1, nil); len(cs) != 1 {
 		ctx.err("%v %v %v %v", pat1, tst{pat1}, cs, &m.filemap)
 	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
 		ctx.err("%v %v %v", g, tst{cs[0].pattern}, &m.filemap)
@@ -205,7 +205,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("%v %v", pat2, tst{pat2})
 	} else if s := pat2.string(ctx); s != "**.h" {
 		ctx.err("%v %v %s", pat2, tst{pat2}, s)
-	} else if cs := m.unmap_files(ctx, pat2); len(cs) != 1 {
+	} else if cs := m.unmap_files(ctx, pat2, nil); len(cs) != 1 {
 		ctx.err("%v %v %v", pat2, tst{pat2}, cs)
 	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
 		ctx.err("%v", tst{cs[0].pattern})
@@ -221,10 +221,10 @@ func testBuiltin_wildcard(ctx *testcase) {
 	} else if s := pat3.string(ctx); s != "foobar/config/*.def.am" {
 		ctx.err("%v %v %s", pat3, tst{pat3}, s)
 	} else if false {
-		if t := m.unmap_files(ctx, pat3); t != nil {
+		if t := m.unmap_files(ctx, pat3, nil); t != nil {
 			ctx.err("%v %v %v", pat3, tst{pat3}, t)
 		}
-	} else if cs := m.unmap_files(ctx, pat3); len(cs) != 1 {
+	} else if cs := m.unmap_files(ctx, pat3, nil); len(cs) != 1 {
 		ctx.err("%v %v %v", pat3, tst{pat3}, cs)
 	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
 		ctx.err("%v %v", cs[0].pattern, tst{cs[0].pattern})
@@ -243,7 +243,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("%v %v", pat4, tst{pat4})
 	} else if s := pat4.string(ctx); s != "foobar/config/*.def.in" {
 		ctx.err("v %v %s", pat4, tst{pat4}, s)
-	} else if cs := m.unmap_files(ctx, pat4); len(cs) != 0 {
+	} else if cs := m.unmap_files(ctx, pat4, nil); len(cs) != 0 {
 		// NOTE: because the files spec only defined "**.def.am", no "**.def.in"
 		ctx.err("%v %v %v", pat4, tst{pat4}, cs)
 	}
@@ -252,7 +252,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("%v", tst{pat5})
 	} else if s := pat5.string(ctx); s != "*.def.am" {
 		ctx.err("%v %s", tst{pat5}, s)
-	} else if cs := m.unmap_files(ctx, pat5); len(cs) != 1 {
+	} else if cs := m.unmap_files(ctx, pat5, nil); len(cs) != 1 {
 		ctx.err("%v %v : %v", pat5, tst{pat5}, cs)
 	} else if t := cs[0].filemap; t.pattern == nil {
 		ctx.err("%v", tst{t})
@@ -269,7 +269,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		ctx.err("%v", tst{pat6})
 	} else if s := pat6.string(ctx); s != "**.def.am" {
 		ctx.err("%v %s", tst{pat6}, s)
-	} else if cs := m.unmap_files(ctx, pat6); len(cs) != 1 {
+	} else if cs := m.unmap_files(ctx, pat6, nil); len(cs) != 1 {
 		ctx.err("%v %v : %v", pat6, tst{pat6}, cs)
 	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
 		ctx.err("%v", tst{cs[0].pattern})
@@ -322,7 +322,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 			go func(n int) {
 				defer wg.Done()
 				b := builtin_wildcard{}
-				b.evocation = &evocation{c, nil, nil, nil}
+				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._directory(workdirInc, pat3); len(a) != 1 {
 					ctx.err("_wildcard(%v) (%d): %v", pat3, n, a)
 				} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
@@ -338,7 +338,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 			go func(n int) {
 				defer wg.Done()
 				b := builtin_wildcard{}
-				b.evocation = &evocation{c, nil, nil, nil}
+				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._directory(workdirInc, pat4); len(a) != 2 {
 					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a)
 				} else if invalid(a[0].ident(ctx)) {
@@ -356,7 +356,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 			go func(n int) {
 				defer wg.Done()
 				b := builtin_wildcard{dir:workdirInc}
-				b.evocation = &evocation{c, nil, nil, nil}
+				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat3); len(a) != 1 {
 					ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
 				} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
@@ -372,7 +372,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 			go func(n int) {
 				defer wg.Done()
 				b := builtin_wildcard{dir:workdirInc}
-				b.evocation = &evocation{c, nil, nil, nil}
+				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat4); len(a) != 2 {
 					ctx.err("wildcard(%v) (%d): %v", pat4, n, a)
 				} else if invalid(a[0].ident(ctx)) {
@@ -390,7 +390,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 			go func(n int) {
 				defer wg.Done()
 				b := builtin_wildcard{}
-				b.evocation = &evocation{c, nil, nil, nil}
+				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat3); len(a) != 1 {
 					ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
 				} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
@@ -406,7 +406,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 			go func(n int) {
 				defer wg.Done()
 				b := builtin_wildcard{}
-				b.evocation = &evocation{c, nil, nil, nil}
+				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat4); a != nil {
 					ctx.err("wildcard(%v) (%d): %v", pat4, n, a)
 				}
@@ -551,7 +551,7 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%s: %v", str, m.name)
 	} else if m.pattern.string(ctx) != pat {
 		ctx.err("%s: %v", str, m.pattern)
-	} else if t := files(ctx, str); t == nil {
+	} else if t := unmap_files(ctx, str); t == nil {
 		ctx.err(str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
@@ -562,11 +562,11 @@ func testBuiltin_file0(ctx *testcase) {
 	} else if   s := "val1.1" ; false {
 	} else if val := ctx.val(s); val == nil {
 		ctx.err(s)
-	} else if val.string(ctx) != str {
-		ctx.err("%v", tst{val})
+	} else if s := val.string(ctx); s != str {
+		ctx.err("%v: %s != %s", tst{val}, s, str)
 	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", tst{val})
-	} else if f, y := val.(*File); !y {
+	} else if f, y := val.(*file); !y {
 		ctx.err("%v", tst{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
@@ -579,7 +579,7 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%v", tst{val})
 	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", tst{val})
-	} else if f, y := val.(*File); !y {
+	} else if f, y := val.(*file); !y {
 		ctx.err("%v", tst{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
@@ -601,7 +601,7 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%s: %v", s, _project(ctx))
 	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", tst{val})
-	} else if f, y := val.(*File); !y {
+	} else if f, y := val.(*file); !y {
 		ctx.err("%v", tst{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
@@ -612,7 +612,7 @@ func testBuiltin_file0(ctx *testcase) {
 		ctx.err("%s: %v", s, _project(ctx))
 	} else if val.String() != "{=file "+str+"}" {
 		ctx.err("%v", tst{val})
-	} else if f, y := val.(*File); !y {
+	} else if f, y := val.(*file); !y {
 		ctx.err("%v", tst{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
@@ -632,7 +632,7 @@ func testBuiltin_file0(ctx *testcase) {
 	} else if   s := "val3" ; false {
 	} else if val := ctx.val(s); val == nil {
 		ctx.err("%s: %v", s, _project(ctx))
-	} else if f, y := val.(*File); !y {
+	} else if f, y := val.(*file); !y {
 		ctx.err("%v", tst{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
@@ -654,7 +654,7 @@ func testBuiltin_file0(ctx *testcase) {
 	} else if   s := "val4" ; false {
 	} else if val := ctx.val(s); val == nil {
 		ctx.err("%s: %v", s, _project(ctx))
-	} else if f, y := val.(*File); !y {
+	} else if f, y := val.(*file); !y {
 		ctx.err("%v", tst{val})
 	} else if f.filemap == nil {
 		ctx.err("%v", f)
@@ -721,8 +721,8 @@ func testBuiltin_foreach(ctx *testcase) {
 		var c0 = builtin_foreach{}
 		var c1 = partial{&c0, nonePart}
 		var c2 = builtin_foreach{}
-		c0.evocation = &evocation{ctx, nil, nil, nil}
-		c2.evocation = &evocation{c1, nil, nil, nil}
+		c0.evocation = &evocation{automatic{Context:ctx}, nil, nil, nil}
+		c2.evocation = &evocation{automatic{Context:c1}, nil, nil, nil}
 		if cast[*builtin_](&c0) == nil {
 			ctx.err("builtin_")
 		}
@@ -764,9 +764,9 @@ func testBuiltin_foreach(ctx *testcase) {
 		}
 		if v := ctx.val(d.name, []string{"a", "b", "c"}); v == nil {
 			ctx.err("%v", d)
-		} else if s, t := "x $0 a b c $2 $3 $4 &(.test.h)a? &(.test.h)b? &(.test.h)c?", v.String(); s != t {
+		} else if s, t := v.String(), "x $0 a b c $2 $3 $4 &(.test.h)a? &(.test.h)b? &(.test.h)c?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "x a b c -a -b -c", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "x a b c -a -b -c"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
 	}
@@ -802,25 +802,25 @@ func testBuiltin_foreach(ctx *testcase) {
 			ctx.err("%v", tst{v})
 		} else if t, y := x.elems[2].(condval); !y {
 			ctx.err("%v", tst{x.elems[2]})
-		} else if _, y := t.Value.(*barecomp); !y {
+		} else if _, y := t.Value.(*compound); !y {
 			ctx.err("%v", tst{t.Value})
 		} else if cond(t.Value) {
 			ctx.err("%v", tst{t.Value})
 		} else if t, y := x.elems[3].(condval); !y {
 			ctx.err("%v", tst{x.elems[3]})
-		} else if _, y := t.Value.(*barecomp); !y {
+		} else if _, y := t.Value.(*compound); !y {
 			ctx.err("%v", tst{t.Value})
 		} else if cond(t.Value) {
 			ctx.err("%v", tst{t.Value})
 		} else if t, y := x.elems[4].(condval); !y {
 			ctx.err("%v", tst{x.elems[4]})
-		} else if _, y := t.Value.(*barecomp); !y {
+		} else if _, y := t.Value.(*compound); !y {
 			ctx.err("%v", tst{t.Value})
 		} else if cond(t.Value) {
 			ctx.err("%v", tst{t.Value})
-		} else if s, t := "x xq xp x&(.test.h)a? x&(.test.h)b? x&(.test.h)c?", v.String(); s != t {
+		} else if s, t := v.String(), "x xq xp x&(.test.h)a? x&(.test.h)b? x&(.test.h)c?"; s != t {
 			ctx.err("%v != %s", tst{v}, s)
-		} else if s, t := "x xq xp x-a x-b x-c", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "x xq xp x-a x-b x-c"; s != t {
 			ctx.err("%v: %s != %s", tst{v}, t, s)
 		}
 	}
@@ -830,17 +830,17 @@ func testBuiltin_foreach(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x xq xp x{$(foreach $1,-$_)}?", v.String(); s != t {
+	} else if s, t := v.String(), "x xq xp x{$(foreach $1,-$_)}?"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "x xq xp", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "x xq xp"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if l.len() != 2 {
 		ctx.err("%v", l.elems)
-	} else if s, t := "x", l.elems[0].String(); s != t {
+	} else if s, t := l.elems[0].String(), "x"; s != t {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if s, t := "xq xp x{$(foreach $1,-$_)}?", l.elems[1].String(); s != t {
+	} else if s, t := l.elems[1].String(), "xq xp x{$(foreach $1,-$_)}?"; s != t {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if t, y := l.elems[1].(*list); !y {
 		ctx.err("%v", tst{l.elems[1]})
@@ -851,23 +851,23 @@ func testBuiltin_foreach(ctx *testcase) {
 			ctx.err("%v", d)
 		} else if !equal(ctx, v, d.value) {
 			ctx.err("%v → %v (%v)", tst{v}, d, v.cmp(ctx, d.value))
-		} else if s, t := "x xq xp x{$(foreach $1,-$_)}?", v.String(); s != t {
+		} else if s, t := v.String(), "x xq xp x{$(foreach $1,-$_)}?"; s != t {
 			ctx.err("%v != %s", tst{v}, s)
-		} else if s, t := "x xq xp", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "x xq xp"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
 		if v := ctx.val(d.name, []string{"a", "b", "c"}); v == nil {
 			ctx.err("%v", d)
-		} else if s, t := "x xq xp x-a x-b x-c", v.String(); s != t {
+		} else if s, t := v.String(), "x xq xp x-a x-b x-c"; s != t {
 			ctx.err("%v != %s", tst{v}, s)
-		} else if s, t := "x xq xp x-a x-b x-c", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "x xq xp x-a x-b x-c"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
 		if v := ctx.val(d.name, []string{"x", "y", "z"}); v == nil {
 			ctx.err("%v", d)
-		} else if s, t := "x xq xp x-x x-y x-z", v.String(); s != t {
+		} else if s, t := v.String(), "x xq xp x-x x-y x-z"; s != t {
 			ctx.err("%v != %s", tst{v}, s)
-		} else if s, t := "x xq xp x-x x-y x-z", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "x xq xp x-x x-y x-z"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
 	}
@@ -877,23 +877,23 @@ func testBuiltin_foreach(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x x- x{$(foreach $1,-$_)}?", v.String(); s != t {
+	} else if s, t := v.String(), "x x- x{$(foreach $1,-$_)}?"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "x x-", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "x x-"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else {
 		if v := ctx.val(d.name); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "x x- x{$(foreach $1,-$_)}?", v.String(); s != t {
+		} else if s, t := v.String(), "x x- x{$(foreach $1,-$_)}?"; s != t {
 			ctx.err("%v != %s", tst{v}, s)
-		} else if s, t := "x x-", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "x x-"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
 		if v := ctx.val(d.name, "a"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "x x- x-a", v.String(); s != t {
+		} else if s, t := v.String(), "x x- x-a"; s != t {
 			ctx.err("%v != %s", tst{v}, s)
-		} else if s, t := "x x- x-a", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "x x- x-a"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
 	}
@@ -901,35 +901,35 @@ func testBuiltin_foreach(ctx *testcase) {
 	if s := ".test.23"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if s, t := "$(foreach q p $(foreach $1,&(.test.xx)$_),x$_)", d.value.String(); s != t {
+	} else if s, t := d.value.String(), "$(foreach q p $(foreach $1,&(.test.xx)$_),x$_)"; s != t {
 		ctx.err("%v != %s", tst{d.value}, s)
 	} else if v := ctx.val(d.name, []string{"a", "b", "c"}); v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "xq xp x&(.test.xx)a? x&(.test.xx)b? x&(.test.xx)c?", v.String(); s != t {
+	} else if s, t := v.String(), "xq xp x&(.test.xx)a? x&(.test.xx)b? x&(.test.xx)c?"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "xq xp", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "xq xp"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
 	if s := ".test.3"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if s, t := "x $(foreach $1,&(.test.$_)$1) y $(foreach $1,$(closure .test.$_)$1) z", d.value.String(); s != t {
+	} else if s, t := d.value.String(), "x $(foreach $1,&(.test.$_)$1) y $(foreach $1,$(closure .test.$_)$1) z"; s != t {
 		ctx.err("%v != %s", tst{d.value}, s) // → %s
 	} else {
 		if v := ctx.val(d.name); v == nil {
 			ctx.err("%v", d)
 		} else if s != v.String() {
 			ctx.err("%v != %s", tst{v}, s) // → %s
-		} else if s, t := "x y z", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "x y z"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
 		if v := ctx.val(d.name, []string{"foo", "bar"}); v == nil {
 			ctx.err("%v", d)
-		} else if s, t := "x &(.test.foo)foo? bar &(.test.bar)foo? bar y &(.test.foo)foo? bar &(.test.bar)foo? bar z", v.String(); s != t {
+		} else if s, t := v.String(), "x &(.test.foo)foo? bar &(.test.bar)foo? bar y &(.test.foo)foo? bar &(.test.bar)foo? bar z"; s != t {
 			for i, v := range merge(v) { note(ctx, "%d. %v", i, tst{v}) }
 			ctx.err("%v != %s", tst{v}, s)
-		} else if s, t := "x bar bar y bar bar z", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "x bar bar y bar bar z"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
 	}
@@ -947,40 +947,40 @@ func testBuiltin_foreach(ctx *testcase) {
 		} else if s := v.string(ctx); s != "" {
 			ctx.err("%v → %s", tst{v}, s)
 		}
-		if v := ctx.val(d.name, "x", "y"); v == nil {
+		if v := ctx.val(d, "x", "y"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "&(.test.x.$(or $4,$3))? &(.test.y.$(or $4,$3))?", v.String(); s != t {
+		} else if s, t := v.String(), "&(.test.x.$(or $4,$3))? &(.test.y.$(or $4,$3))?"; s != t {
 			ctx.err("%v != %s", tst{v}, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		} else if v2 := ctx.val(v, "", "", "a", ""); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "&(.test.x.a)? &(.test.y.a)?", v2.String(); s != t {
+		} else if s, t := v2.String(), "&(.test.x.a)? &(.test.y.a)?"; s != t {
 			ctx.err("%v != %s", tst{v2}, s)
 		} else if v3 := ctx.val(v, "", "", "", "a"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "&(.test.x.a)? &(.test.y.a)?", v3.String(); s != t {
+		} else if s, t := v3.String(), "&(.test.x.a)? &(.test.y.a)?"; s != t {
 			ctx.err("%v != %s", tst{v3}, s)
 		}
-		if v := ctx.val(d.name, "x", "y", "a", "b"); v == nil {
+		if v := ctx.val(d, "x", "y", "a", "b"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "&(.test.x.b)? &(.test.y.b)?", v.String(); s != t {
+		} else if s, t := v.String(), "&(.test.x.b)? &(.test.y.b)?"; s != t {
 			ctx.err("%v != %s", tst{v}, s) // → %s
-		} else if s, t := "xb yb", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "xb yb"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, "x", "y", "a", []string{}); v == nil {
+		if v := ctx.val(d, "x", "y", "a", []string{}); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "&(.test.x.a)? &(.test.y.a)?", v.String(); s != t {
+		} else if s, t := v.String(), "&(.test.x.a)? &(.test.y.a)?"; s != t {
 			ctx.err("%v != %s", tst{v}, s) // → %s
-		} else if s, t := "xa ya", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "xa ya"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, "x", "y", []string{}, "b"); v == nil {
+		if v := ctx.val(d, "x", "y", []string{}, "b"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "&(.test.x.b)? &(.test.y.b)?", v.String(); s != t {
+		} else if s, t := v.String(), "&(.test.x.b)? &(.test.y.b)?"; s != t {
 			ctx.err("%v != %s", tst{v}, s) // → %s
-		} else if s, t := "xb yb", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "xb yb"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
 	}
@@ -994,42 +994,42 @@ func testBuiltin_foreach(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if _, y := x.Value.(*closure); !y {
 		ctx.err("%v", tst{x.Value})
-	} else if s, t := "&(.test.x do.smart)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x do.smart)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "do.smart", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "do.smart"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x do.smart)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x do.smart)?"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "do.smart", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "do.smart"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, "xxx"); v == nil {
+	} else if v := ctx.val(d, "xxx"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x do.smart)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x do.smart)?"; s != t {
 		ctx.err("%v != %s", tst{v}, s) // → %s
-	} else if s, t := "do.smart", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "do.smart"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, test_def_2{}); v == nil {
+	} else if v := ctx.val(d, test_def_2{}); v == nil {
 		ctx.err("%v", tst{d})
-	} else if f, y := v.(*File); !y {
+	} else if f, y := v.(*file); !y {
 		ctx.err("%v : %v", v, tst{v})
 	} else if f.name != "do.smart" {
 		ctx.err("%v : %v", v, tst{v})
-	} else if s, t := "{=file do.smart}", v.String(); s != t {
+	} else if s, t := v.String(), "{=file do.smart}"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "do.smart", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "do.smart"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
 	if s := ".test.6"; false {
 	} else if d := ctx.def(s); d == nil || d.value == nil {
 		ctx.err("%s: %v", s, d)
-	} else if v := ctx.val(d.name, "x", "y", "z"); v == nil {
+	} else if v := ctx.val(d, "x", "y", "z"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$0 x y z $9 - $0 x y z $9", v.String(); s != t {
+	} else if s, t := v.String(), "$0 x y z $9 - $0 x y z $9"; s != t {
 		ctx.err("%v != %s", tst{v}, s) // → %s
-	} else if s, t := "x y z - x y z", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "x y z - x y z"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1038,23 +1038,23 @@ func testBuiltin_foreach(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(foreach a $(foreach $1,&(.test.z)$_zz) b,x$_)", v.String(); s != t {
+	} else if s, t := v.String(), "$(foreach a $(foreach $1,&(.test.z)$_zz) b,x$_)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "xa xb", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "xa xb"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
 	} else if len(t.a) != 2 {
 		ctx.err("%v", t)
-	} else if v := ctx.val(d.name, []string{"y1", "y2", "y3"}); v == nil {
+	} else if v := ctx.val(d, []string{"y1", "y2", "y3"}); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if l.len() != 5 {
 		ctx.err("%v ; %d", tst{v}, l.len())
-	} else if s, t := "xa x&(.test.z)y1zz? x&(.test.z)y2zz? x&(.test.z)y3zz? xb", v.String(); s != t {
+	} else if s, t := v.String(), "xa x&(.test.z)y1zz? x&(.test.z)y2zz? x&(.test.z)y3zz? xb"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "xa xwy1zz xwy2zz xwy3zz xb", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "xa xwy1zz xwy2zz xwy3zz xb"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1063,13 +1063,13 @@ func testBuiltin_foreach(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if v := ctx.val(d.name, "do.smart"); v == nil {
+	} else if v := ctx.val(d, "do.smart"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "{=file do.smart}", v.String(); s != t {
+	} else if s, t := v.String(), "{=file do.smart}"; s != t {
 		ctx.err("%v != %s", tst{v}, s) // → %s
-	} else if s, t := "do.smart", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "do.smart"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if f, y := v.(*File); !y || f == nil {
+	} else if f, y := v.(*file); !y || f == nil {
 		ctx.err("%v", tst{v})
 	}
 }
@@ -1080,25 +1080,25 @@ func testBuiltin_foreach1(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.x $1,B b)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.x $1,B b)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
 	} else if s != v.String() {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "foo test-foo test-B test-foo-B test-b test-foo-b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foo test-foo test-B test-foo-B test-b test-foo-b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, "a"); v == nil {
+	} else if v := ctx.val(d, "a"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := `&(.test.s) $(value .test~&(.test.s)) test-a $(closure .test~&(.test.s).a)? test-B $(closure .test~&(.test.s).B)? test-b $(closure .test~&(.test.s).b)?`, v.String(); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foo test-foo test-a test-foo-a test-B test-foo-B test-b test-foo-b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foo test-foo test-a test-foo-a test-B test-foo-B test-b test-foo-b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, "a", "xxx"); v == nil {
+	} else if v := ctx.val(d, "a", "xxx"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := `&(.test.s) $(value .test~&(.test.s)) test-a $(closure .test~&(.test.s).a)? test-B $(closure .test~&(.test.s).B)? test-b $(closure .test~&(.test.s).b)?`, v.String(); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foo test-foo test-a test-foo-a test-B test-foo-B test-b test-foo-b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foo test-foo test-a test-foo-a test-B test-foo-B test-b test-foo-b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 }
@@ -1109,7 +1109,7 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(foreach $1 $(foreach $2,a$_),b$_)", v.String(); s != t {
+	} else if s, t := v.String(), "$(foreach $1 $(foreach $2,a$_),b$_)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1118,7 +1118,7 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s) // "$(foreach x$1 y$1 z$1 $(foreach xx$2 yy$2,a$_),b$_)"
 	}
 
@@ -1127,7 +1127,7 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2) $(foreach &(.test.foreach.x) $(foreach $1 $2,$(closure .test.foreach.x.$_)),-x$_)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2) $(foreach &(.test.foreach.x) $(foreach $1 $2,$(closure .test.foreach.x.$_)),-x$_)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1136,7 +1136,7 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
@@ -1151,13 +1151,13 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2) $(foreach &(.test.foreach.x) $(foreach $1 $2,$(closure .test.foreach.x.$_)),-x$_)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2) $(foreach &(.test.foreach.x) $(foreach $1 $2,$(closure .test.foreach.x.$_)),-x$_)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
 	} else if t := v.String(); s != t {
 		ctx.err("%v != %s", tst{v}, s)
-	} else if s, t := "-xvw", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "-xvw"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1170,9 +1170,9 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "$(.test.foreach.c $1,4)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.foreach.c $1,4)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "baxx4 bayy4 -xvw", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "baxx4 bayy4 -xvw"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if x := v.expand(final{ctx}); x == nil {
 		ctx.err("%v", tst{v})
@@ -1188,22 +1188,22 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if l1.len() != 3 {
 		ctx.err("%v ; %d", tst{l.elems[1]}, l1.len())
-	} else if s, t := "bx$1? by$1? bz$1? baxx4 bayy4", l0.String(); s != t {
+	} else if s, t := l0.String(), "bx$1? by$1? bz$1? baxx4 bayy4"; s != t {
 		for i, v := range l0.elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{l0}, t, s)
-	} else if s, t := "-xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?", l1.String(); s != t {
+	} else if s, t := l1.String(), "-xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?"; s != t {
 		for i, v := range l1.elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{l1}, t, s)
-	} else if s, t := "bx$1? by$1? bz$1? baxx4 bayy4 -xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?", x.String(); s != t {
+	} else if s, t := x.String(), "bx$1? by$1? bz$1? baxx4 bayy4 -xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?"; s != t {
 		for i, v := range l.elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if v := ctx.val(d.name, "3"); v == nil {
+	} else if v := ctx.val(d, "3"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "bx3 by3 bz3 baxx4 bayy4 -x{&(.test.foreach.x)}? -xV$1$2? -xW$1$2?", v.String(); s != t {
+	} else if s, t := v.String(), "bx3 by3 bz3 baxx4 bayy4 -x{&(.test.foreach.x)}? -xV$1$2? -xW$1$2?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "bx3 by3 bz3 baxx4 bayy4 -xvw", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "bx3 by3 bz3 baxx4 bayy4 -xvw"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1212,7 +1212,7 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(foreach $1 $2,$(.test.foreach.d.$_))", v.String(); s != t {
+	} else if s, t := v.String(), "$(foreach $1 $2,$(.test.foreach.d.$_))"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
@@ -1220,7 +1220,7 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err("%v != %s", tst{v}, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.name, "1", "2"); v == nil {
+	} else if v := ctx.val(d, "1", "2"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
@@ -1234,7 +1234,7 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if _, y := t.Value.(*delegate); !y {
 		ctx.err("%v", tst{t.Value})
-	} else if s, t := "$(foreach $1 $2,-x$_)? $(foreach $1 $2,-y$_)?", v.String(); s != t {
+	} else if s, t := v.String(), "$(foreach $1 $2,-x$_)? $(foreach $1 $2,-y$_)?"; s != t {
 		ctx.err("%v != %s", tst{v}, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
@@ -1254,7 +1254,7 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[2]})
 	} else if _, y := l.elems[3].(flag); !y {
 		ctx.err("%v", tst{l.elems[3]})
-	} else if s, t := "-x1 -x2 -y1 -y2", v2.String(); s != t {
+	} else if s, t := v2.String(), "-x1 -x2 -y1 -y2"; s != t {
 		ctx.err("%v != %s", tst{v2}, s)
 	} else if t := v2.string(ctx); t != s {
 		ctx.err("%v → %s", tst{v2}, t)
@@ -1265,7 +1265,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 	if s := ".test.a"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if s, t := "$(foreach $1 $2,$_$3)", d.value.String(); s != t {
+	} else if s, t := d.value.String(), "$(foreach $1 $2,$_$3)"; s != t {
 		ctx.err("%v → %s != %s", tst{d.value}, t, s)
 	} else {
 		if v := ctx.val(d.name); v == nil {
@@ -1275,35 +1275,35 @@ func testBuiltin_foreach3(ctx *testcase) {
 		} else if v.string(ctx) != "" {
 			ctx.err("%v → %s", tst{v}, v.string(ctx))
 		}
-		if v := ctx.val(d.name, "a"); v == nil {
+		if v := ctx.val(d, "a"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "a$3? {$2}$3?", v.String(); s != t {
+		} else if s, t := v.String(), "a$3? {$2}$3?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		} else if v2 := ctx.val(v, "", []string{"1", "2", "3"}, "x"); v == nil {
 			ctx.err("%v", tst{v})
-		} else if s, t := "ax 1x 2x 3x", v2.String(); s != t {
+		} else if s, t := v2.String(), "ax 1x 2x 3x"; s != t {
 			ctx.err("%v → %s != %s", tst{v2}, t, s)
 		} else if t := v2.string(ctx); t != s {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, "a", "b"); v == nil {
+		if v := ctx.val(d, "a", "b"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "a$3? b$3?", v.String(); s != t {
+		} else if s, t := v.String(), "a$3? b$3?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		} else if v2 := ctx.val(v, "", "", "x"); v == nil {
 			ctx.err("%v", tst{v})
-		} else if s, t := "ax bx", v2.String(); s != t {
+		} else if s, t := v2.String(), "ax bx"; s != t {
 			ctx.err("%v → %s != %s", tst{v2}, t, s)
 		} else if t := v2.string(ctx); t != s {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, "a", "b", "x"); v == nil {
+		if v := ctx.val(d, "a", "b", "x"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "ax bx", v.String(); s != t {
+		} else if s, t := v.String(), "ax bx"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != s {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -1317,7 +1317,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		ctx.err("%v", tst{d.value})
 	} else if len(x.a) != 2 {
 		ctx.err("%v ; %d args", tst{d.value}, len(x.a))
-	} else if s, t := "$1 $2", x.a[0].String(); s != t {
+	} else if s, t := x.a[0].String(), "$1 $2"; s != t {
 		ctx.err("%v → %s != %s", tst{x.a[0]}, t, s)
 	} else if l, y := x.a[1].(*list); !y || l.len() != 1 {
 		ctx.err("%v", tst{x.a[1]})
@@ -1325,15 +1325,15 @@ func testBuiltin_foreach3(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[0]})
 	} else if l0p, y := l0.Value.(*pair); !y {
 		ctx.err("%v", tst{l0.Value})
-	} else if l0k, y := l0p.key.(*bareword); !y || l0k.String() != "std" {
+	} else if l0k, y := l0p.key.(*word); !y || l0k.String() != "std" {
 		ctx.err("%v ; %v", tst{l0p.key}, l0k)
 	} else if l0v, y := l0p.val.(disjunction); !y || l0v.String() != "{&(.test.$_)}" {
 		ctx.err("%v ; %v", tst{l0p.val}, l0v)
 	} else if l0w, y := l0v.Value.(*closure); !y || l0w.String() != "&(.test.$_)" {
 		ctx.err("%v ; %v", tst{l0v.Value}, l0w)
-	} else if s, t := ".test.$_", l0w.x.String(); s != t {
+	} else if s, t := l0w.x.String(), ".test.$_"; s != t {
 		ctx.err("%v → %s != %s", tst{l0w.x}, t, s)
-	} else if s, t := "$(foreach $1 $2,std={&(.test.$_)}?)", d.value.String(); s != t {
+	} else if s, t := d.value.String(), "$(foreach $1 $2,std={&(.test.$_)}?)"; s != t {
 		ctx.err("%v → %s != %s", tst{d.value}, t, s)
 	} else {
 		if v := ctx.val(d.name); v == nil {
@@ -1343,48 +1343,48 @@ func testBuiltin_foreach3(ctx *testcase) {
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, "a"); v == nil {
+		if v := ctx.val(d, "a"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "std=&(.test.a)? std=&(.test.{$2})?", v.String(); s != t {
+		} else if s, t := v.String(), "std=&(.test.a)? std=&(.test.{$2})?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		} else if v2 := ctx.val(v, nil, []string{"if.x", "if.y", "if.z"}); v2 == nil {
 			ctx.err("%v", tst{v})
-		} else if s, t := "std=&(.test.a)? std=&(.test.if.x)? std=&(.test.if.y)? std=&(.test.if.z)?", v2.String(); s != t {
+		} else if s, t := v2.String(), "std=&(.test.a)? std=&(.test.if.x)? std=&(.test.if.y)? std=&(.test.if.z)?"; s != t {
 			ctx.err("%v → %s != %s", tst{v2}, t, s)
-		} else if s, t := "std=xxx std=yyy", v2.string(ctx); s != t {
+		} else if s, t := v2.string(ctx), "std=xxx std=yyy"; s != t {
 			ctx.err("%v → %s != %s", tst{v2}, t, s)
 		} else if v3 := ctx.val(v, nil, []string{"if.x", "if.y", "if.z"}, test_def_2{}); v3 == nil {
 			ctx.err("%v", tst{v})
-		} else if s, t := "std=$(foreach $1 $2,$_$3)? std=xxx std=yyy std=&(.test.if.z)?", v3.String(); s != t {
+		} else if s, t := v3.String(), "std=$(foreach $1 $2,$_$3)? std=xxx std=yyy std=&(.test.if.z)?"; s != t {
 			ctx.err("%v → %s != %s", tst{v3}, t, s)
-		} else if s, t := "std=xxx std=yyy", v3.string(ctx); s != t {
+		} else if s, t := v3.string(ctx), "std=xxx std=yyy"; s != t {
 			ctx.err("%v → %s != %s", tst{v3}, t, s)
 		}
-		if v := ctx.val(d.name, "a", nil); v == nil {
+		if v := ctx.val(d, "a", nil); v == nil {
 			ctx.err("%v", tst{d})
 		} else if t, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := t.Value.(*pair); !y {
 			ctx.err("%v", tst{t.Value})
-		} else if s, t := "std=&(.test.a)?", v.String(); s != t {
+		} else if s, t := v.String(), "std=&(.test.a)?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, nil, "b"); v == nil {
+		if v := ctx.val(d, nil, "b"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if t, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := t.Value.(*pair); !y {
 			ctx.err("%v", tst{t.Value})
-		} else if s, t := "std=&(.test.b)?", v.String(); s != t {
+		} else if s, t := v.String(), "std=&(.test.b)?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, "a", "b"); v == nil {
+		if v := ctx.val(d, "a", "b"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if l, y := v.(*list); !y {
 			ctx.err("%v", tst{v})
@@ -1398,7 +1398,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v", tst{l.elems[1]})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "std=&(.test.a)? std=&(.test.b)?", v.String(); s != t {
+		} else if s, t := v.String(), "std=&(.test.a)? std=&(.test.b)?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
@@ -1420,7 +1420,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, "if.x"); v == nil {
+		if v := ctx.val(d, "if.x"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if l, y := v.(*list); !y {
 			ctx.err("%v", tst{v})
@@ -1434,34 +1434,34 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v", tst{l.elems[1]})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "$(if &(.test.if.x),std=&(.test.if.x))? $(if &(.test.{$2}),std=&(.test.{$2}))?", v.String(); s != t {
+		} else if s, t := v.String(), "$(if &(.test.if.x),std=&(.test.if.x))? $(if &(.test.{$2}),std=&(.test.{$2}))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "std=xxx", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "std=xxx"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, "if.x", nil); v == nil {
+		if v := ctx.val(d, "if.x", nil); v == nil {
 			ctx.err("%v", tst{d})
 		} else if x, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "$(if &(.test.if.x),std=&(.test.if.x))?", v.String(); s != t {
+		} else if s, t := v.String(), "$(if &(.test.if.x),std=&(.test.if.x))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "std=xxx", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "std=xxx"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, nil, "if.y"); v == nil {
+		if v := ctx.val(d, nil, "if.y"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if x, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "$(if &(.test.if.y),std=&(.test.if.y))?", v.String(); s != t {
+		} else if s, t := v.String(), "$(if &(.test.if.y),std=&(.test.if.y))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "std=yyy", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "std=yyy"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, "if.x", "if.y"); v == nil {
+		if v := ctx.val(d, "if.x", "if.y"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if l, y := v.(*list); !y {
 			ctx.err("%v", tst{v})
@@ -1479,29 +1479,29 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v → %s", l.elems[0], s)
 		} else if s := l.elems[1].string(ctx); s != "std=yyy" {
 			ctx.err("%v → %s", l.elems[1], s)
-		} else if s, t := "$(if &(.test.if.x),std=&(.test.if.x))? $(if &(.test.if.y),std=&(.test.if.y))?", v.String(); s != t {
+		} else if s, t := v.String(), "$(if &(.test.if.x),std=&(.test.if.x))? $(if &(.test.if.y),std=&(.test.if.y))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "std=xxx std=yyy", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "std=xxx std=yyy"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, "zzz", nil); v == nil {
+		if v := ctx.val(d, "zzz", nil); v == nil {
 			ctx.err("%v", tst{d})
 		} else if x, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "$(if &(.test.zzz),std=&(.test.zzz))?", v.String(); s != t {
+		} else if s, t := v.String(), "$(if &(.test.zzz),std=&(.test.zzz))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, nil, "zzz"); v == nil {
+		if v := ctx.val(d, nil, "zzz"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if x, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "$(if &(.test.zzz),std=&(.test.zzz))?", v.String(); s != t {
+		} else if s, t := v.String(), "$(if &(.test.zzz),std=&(.test.zzz))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
@@ -1523,7 +1523,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, "if.x"); v == nil {
+		if v := ctx.val(d, "if.x"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if l, y := v.(*list); !y {
 			ctx.err("%v", tst{v})
@@ -1533,46 +1533,46 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v", tst{l.elems[0]})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "std=&(.test.if.x)?", x.String(); s != t {
+		} else if s, t := x.String(), "std=&(.test.if.x)?"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
 		} else if x, y := l.elems[1].(condval); !y {
 			ctx.err("%v", tst{l.elems[1]})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "$(if $(.test.{$2}),std=&(.test.{$2}))?", x.String(); s != t {
+		} else if s, t := x.String(), "$(if $(.test.{$2}),std=&(.test.{$2}))?"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
-		} else if s, t := "std=&(.test.if.x)? $(if $(.test.{$2}),std=&(.test.{$2}))?", v.String(); s != t {
+		} else if s, t := v.String(), "std=&(.test.if.x)? $(if $(.test.{$2}),std=&(.test.{$2}))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "std=xxx", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "std=xxx"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, "if.x", nil); v == nil {
+		if v := ctx.val(d, "if.x", nil); v == nil {
 			ctx.err("%v", tst{d})
 		} else if x, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "std=&(.test.if.x)", x.Value.String(); s != t {
+		} else if s, t := x.Value.String(), "std=&(.test.if.x)"; s != t {
 			ctx.err("%v → %s != %s", tst{x.Value}, t, s)
-		} else if s, t := "std=&(.test.if.x)?", v.String(); s != t {
+		} else if s, t := v.String(), "std=&(.test.if.x)?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "std=xxx", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "std=xxx"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, nil, "if.y"); v == nil {
+		if v := ctx.val(d, nil, "if.y"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if x, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "std=&(.test.if.y)", x.Value.String(); s != t {
+		} else if s, t := x.Value.String(), "std=&(.test.if.y)"; s != t {
 			ctx.err("%v → %s != %s", tst{x.Value}, t, s)
-		} else if s, t := "std=&(.test.if.y)?", v.String(); s != t {
+		} else if s, t := v.String(), "std=&(.test.if.y)?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "std=yyy", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "std=yyy"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, "if.x", "if.y"); v == nil {
+		if v := ctx.val(d, "if.x", "if.y"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if l, y := v.(*list); !y {
 			ctx.err("%v", tst{v})
@@ -1582,37 +1582,37 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v", tst{l.elems[0]})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "std=&(.test.if.x)?", l.elems[0].String(); s != t {
+		} else if s, t := l.elems[0].String(), "std=&(.test.if.x)?"; s != t {
 			ctx.err("%v → %s != %s", l.elems[0], t, s)
-		} else if s, t := "std=xxx", l.elems[0].string(ctx); s != t {
+		} else if s, t := l.elems[0].string(ctx), "std=xxx"; s != t {
 			ctx.err("%v → %s != %s", l.elems[0], t, s)
 		} else if x, y := l.elems[1].(condval); !y {
 			ctx.err("%v", tst{l.elems[1]})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if s, t := "std=&(.test.if.y)?", l.elems[1].String(); s != t {
+		} else if s, t := l.elems[1].String(), "std=&(.test.if.y)?"; s != t {
 			ctx.err("%v → %s != %s", l.elems[1], t, s)
-		} else if s, t := "std=yyy", l.elems[1].string(ctx); s != t {
+		} else if s, t := l.elems[1].string(ctx), "std=yyy"; s != t {
 			ctx.err("%v → %s != %s", l.elems[1], t, s)
-		} else if s, t := "std=&(.test.if.x)? std=&(.test.if.y)?", v.String(); s != t {
+		} else if s, t := v.String(), "std=&(.test.if.x)? std=&(.test.if.y)?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "std=xxx std=yyy", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "std=xxx std=yyy"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		}
-		if v := ctx.val(d.name, "zzz", nil); v == nil {
+		if v := ctx.val(d, "zzz", nil); v == nil {
 			ctx.err("%v", tst{d})
 		} else if _, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
-		} else if s, t := "$(if $(.test.zzz),std=&(.test.zzz))?", v.String(); s != t {
+		} else if s, t := v.String(), "$(if $(.test.zzz),std=&(.test.zzz))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, nil, "zzz"); v == nil {
+		if v := ctx.val(d, nil, "zzz"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if _, y := v.(condval); !y {
 			ctx.err("%v", tst{v})
-		} else if s, t := "$(if $(.test.zzz),std=&(.test.zzz))?", v.String(); s != t {
+		} else if s, t := v.String(), "$(if $(.test.zzz),std=&(.test.zzz))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
@@ -1624,19 +1624,19 @@ func testBuiltin_foreach4(ctx *testcase) {
 	if s := ".test.1"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if v := ctx.val(d.name, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if len(l.elems) != 2 {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if _, y := l.elems[0].(*barecomp); !y {
+	} else if _, y := l.elems[0].(*compound); !y {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if _, y := l.elems[1].(*barecomp); !y {
+	} else if _, y := l.elems[1].(*compound); !y {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if s, t := "Xxa Xxb", v.String(); s != t {
+	} else if s, t := v.String(), "Xxa Xxb"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "Xxa Xxb", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "Xxa Xxb"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1649,9 +1649,9 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err("%v", tst{x.x})
 	} else if t.name != "foreach" {
 		ctx.err("%v", tst{x.x})
-	} else if s, t := "$(foreach $(foreach $1 $2,&(.test.x$_)),X$_)", d.value.String(); s != t {
+	} else if s, t := d.value.String(), "$(foreach $(foreach $1 $2,&(.test.x$_)),X$_)"; s != t {
 		ctx.err("%v → %s != %s", tst{d.value}, t, s)
-	} else if v := ctx.val(d.name, []string{"a", "b"}, "c"); v == nil {
+	} else if v := ctx.val(d, []string{"a", "b"}, "c"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
@@ -1659,43 +1659,43 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[0]})
 	} else if x, y := l.elems[0].(condval); !y {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if z, y := x.Value.(*barecomp); !y {
+	} else if z, y := x.Value.(*compound); !y {
 		ctx.err("%v", tst{x.Value})
-	} else if s, t := "X{&(.test.xa)}", z.String(); s != t {
+	} else if s, t := z.String(), "X{&(.test.xa)}"; s != t {
 		ctx.err("%v → %s != %s", tst{z}, t, s)
 	} else if s, t := "X{~1~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,z-$_),~1~$_)}", z.expand(final{ctx}); s != t.String() {
 		ctx.err("%v : %s != %s", tst{t}, t, s)
-	} else if s, t := "X~1~", z.string(ctx); s != t {
+	} else if s, t := z.string(ctx), "X~1~"; s != t {
 		ctx.err("%v : %v → %s != %s", tst{z}, z, t, s)
 	} else if t := x.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{x}, t)
 	} else if x := ctx.val(z, test_def_2{}); x == nil {
 		ctx.err("%v", tst{z})
-	} else if s, t := "X{~1~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,z-$_),~1~$_)}", x.String(); s != t {
+	} else if s, t := x.String(), "X{~1~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,z-$_),~1~$_)}"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if s, t := "X~1~", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "X~1~"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
 	} else if x, y := l.elems[1].(condval); !y {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if z, y := x.Value.(*barecomp); !y {
+	} else if z, y := x.Value.(*compound); !y {
 		ctx.err("%v", tst{x.Value})
-	} else if s, t := "X{&(.test.xb)}", z.String(); s != t {
+	} else if s, t := z.String(), "X{&(.test.xb)}"; s != t {
 		ctx.err("%v → %s != %s", tst{z}, t, s)
-	} else if s, t := "X~2~", z.string(ctx); s != t {
+	} else if s, t := z.string(ctx), "X~2~"; s != t {
 		ctx.err("%v → %s != %s", tst{z}, t, s)
 	} else if t := x.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{x}, t)
 	} else if x := ctx.val(z, test_def_2{}); x == nil {
 		ctx.err("%v", tst{z})
-	} else if s, t := "X{~2~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,z-$_),~2~$_)}", x.String(); s != t {
+	} else if s, t := x.String(), "X{~2~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,z-$_),~2~$_)}"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if s, t := "X~2~", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "X~2~"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
 	} else if x, y := l.elems[2].(condval); !y {
 		ctx.err("%v", tst{l.elems[2]})
-	} else if z, y := x.Value.(*barecomp); !y {
+	} else if z, y := x.Value.(*compound); !y {
 		ctx.err("%v", tst{x.Value})
-	} else if s, t := "X{&(.test.xc)}", z.String(); s != t {
+	} else if s, t := z.String(), "X{&(.test.xc)}"; s != t {
 		ctx.err("%v → %s != %s", tst{z}, t, s)
 	} else if t := z.string(ctx); t != "X" {
 		ctx.err("%v → %s", tst{z}, t)
@@ -1703,38 +1703,38 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err("%v → %s", tst{x}, t)
 	} else if x := ctx.val(z, "xx", "yy", test_def_2{}); x == nil {
 		ctx.err("%v", tst{z})
-	} else if s, t := "X{$(foreach $(foreach $(foreach $(foreach $1 $2,~$_),~$_),~$_),~$_)}", x.String(); s != t {
+	} else if s, t := x.String(), "X{$(foreach $(foreach $(foreach $(foreach $1 $2,~$_),~$_),~$_),~$_)}"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if s, t := "X", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "X"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
 	} else if x = ctx.val(x, "xx", "yy", test_def_2{}); x == nil {
 		ctx.err("%v", tst{z})
-	} else if s, t := "X~~~~xx X~~~~yy", x.String(); s != t {
+	} else if s, t := x.String(), "X~~~~xx X~~~~yy"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if s, t := "X~~~~xx X~~~~yy", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "X~~~~xx X~~~~yy"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if s, t := "X{&(.test.xa)}? X{&(.test.xb)}? X{&(.test.xc)}?", v.String(); s != t {
+	} else if s, t := v.String(), "X{&(.test.xa)}? X{&(.test.xb)}? X{&(.test.xc)}?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.value, []string{"a", "b"}, "c"); v == nil {
+	} else if v := ctx.val(d, []string{"a", "b"}, "c"); v == nil {
 		ctx.err("%v", tst{d.value})
-	} else if s, t := "X{&(.test.xa)}? X{&(.test.xb)}? X{&(.test.xc)}?", v.String(); s != t {
+	} else if s, t := v.String(), "X{&(.test.xa)}? X{&(.test.xb)}? X{&(.test.xc)}?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
 	if s := ".test.3"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if s, t := "$(foreach $(foreach $(foreach $1 $2,&(.test.x$_)),X$_),Y$_)", d.value.String(); s != t {
+	} else if s, t := d.value.String(), "$(foreach $(foreach $(foreach $1 $2,&(.test.x$_)),X$_),Y$_)"; s != t {
 		ctx.err("%v : %v → %s != %s", d.value, tst{d.value}, t, s)
-	} else if v := ctx.val(d.name, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if l.len() != 2 {
 		ctx.err("%v ; %d", tst{v}, l.len())
-	} else if s, t := "YX{&(.test.xa)}? YX{&(.test.xb)}?", v.String(); s != t {
+	} else if s, t := v.String(), "YX{&(.test.xa)}? YX{&(.test.xb)}?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
@@ -1745,17 +1745,17 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err(s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(foreach $(foreach $1 $2,x$_),X$_) $(foreach $(foreach $1 $2,&(.test.x$_)),X$_)", v.String(); s != t {
+	} else if s, t := v.String(), "$(foreach $(foreach $1 $2,x$_),X$_) $(foreach $(foreach $1 $2,&(.test.x$_)),X$_)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.name, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
 	} else if l.len() != 2 {
 		ctx.err("%v ; %d", tst{v}, l.len())
-	} else if s, t := "Xxa Xxb X{&(.test.xa)}? X{&(.test.xb)}?", v.String(); s != t {
+	} else if s, t := v.String(), "Xxa Xxb X{&(.test.xa)}? X{&(.test.xb)}?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if s, t := `Xxa Xxb`, v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -1768,7 +1768,7 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "o", v.String(); s != t {
+	} else if s, t := v.String(), "o"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1777,7 +1777,7 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x.o.a", v.String(); s != t {
+	} else if s, t := v.String(), "x.o.a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1786,7 +1786,7 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x.o.b", v.String(); s != t {
+	} else if s, t := v.String(), "x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1795,11 +1795,11 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "a~ $(foreach $(foreach $1 $2,$(.test.x.o.$_)),-ao$_) ~a", v.String(); s != t {
+	} else if s, t := v.String(), "a~ $(foreach $(foreach $1 $2,$(.test.x.o.$_)),-ao$_) ~a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ ~a", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ ~a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if s := "a~ -aox.o.a -aox.o.b ~a"; s != v.String() {
 		ctx.err("%v != %s", v, s)
@@ -1812,11 +1812,11 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "b~ $(foreach $(foreach $1 $2,&(.test.x.o.$_)),-bo$_) ~b", v.String(); s != t {
+	} else if s, t := v.String(), "b~ $(foreach $(foreach $1 $2,&(.test.x.o.$_)),-bo$_) ~b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "b~ -bo{&(.test.x.o.a)}? -bo{&(.test.x.o.b)}? ~b", v.String(); s != t {
+	} else if s, t := v.String(), "b~ -bo{&(.test.x.o.a)}? -bo{&(.test.x.o.b)}? ~b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1828,11 +1828,11 @@ func testBuiltin_foreach5(ctx *testcase) {
 	} else {
 		if v := ctx.val(d.name); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))", v.String(); s != t {
+		} else if s, t := v.String(), "$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
-		} else if v := ctx.val(d.name, "a", "b", "c"); v == nil {
+		} else if v := ctx.val(d, "a", "b", "c"); v == nil {
 			ctx.err("%v", tst{d})
 		} else if t := v.String(); s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -1840,15 +1840,15 @@ func testBuiltin_foreach5(ctx *testcase) {
 			ctx.err("%v → %s", tst{v}, t)
 		} else if x := ctx.val(v, "a", "b", "c"); x == nil {
 			ctx.err("%v", tst{v})
-		} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)?", x.String(); s != t {
+		} else if s, t := x.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)?"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
-		} else if s, t := "a~ ~a x.o.a b~ ~b x.o.b", x.string(ctx); s != t {
+		} else if s, t := x.string(ctx), "a~ ~a x.o.a b~ ~b x.o.b"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
 		} else if x := ctx.val(v, "a", "b", "c", test_def_2{}); x == nil {
 			ctx.err("%v", tst{v})
-		} else if s, t := "a~ $(foreach $(foreach $1 $2,$(.test.x.o.$_)),-ao$_)? ~a x.o.a b~ $(foreach $(foreach $1 $2,&(.test.x.o.$_)),-bo$_)? ~b x.o.b", x.String(); s != t {
+		} else if s, t := x.String(), "a~ $(foreach $(foreach $1 $2,$(.test.x.o.$_)),-ao$_)? ~a x.o.a b~ $(foreach $(foreach $1 $2,&(.test.x.o.$_)),-bo$_)? ~b x.o.b"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
-		} else if s, t := "a~ ~a x.o.a b~ ~b x.o.b", x.string(ctx); s != t {
+		} else if s, t := x.string(ctx), "a~ ~a x.o.a b~ ~b x.o.b"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
 		}
 	}
@@ -1866,17 +1866,17 @@ func testBuiltin_foreach5(ctx *testcase) {
 		} else if t := v.string(ctx); t != "" {
 			ctx.err("%v → %s", tst{v}, t)
 		}
-		if v := ctx.val(d.name, "a", "b"); v == nil {
+		if v := ctx.val(d, "a", "b"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.{$2})? &(.test.x.&(.test.o).{$2})?", v.String(); s != t {
+		} else if s, t := v.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.{$2})? &(.test.x.&(.test.o).{$2})?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
-		} else if s, t := "a~ ~a x.o.a", v.string(ctx); s != t {
+		} else if s, t := v.string(ctx), "a~ ~a x.o.a"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if x := ctx.val(v, nil, []string{"b", "c"}); x == nil {
 			ctx.err("%v", tst{v})
-		} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? {&(.test.x.b)}? {&(.test.x.c)}? {&(.test.x.&(.test.o).b)}? {&(.test.x.&(.test.o).c)}?", x.String(); s != t {
+		} else if s, t := x.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? {&(.test.x.b)}? {&(.test.x.c)}? {&(.test.x.&(.test.o).b)}? {&(.test.x.&(.test.o).c)}?"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
-		} else if s, t := "a~ ~a x.o.a b~ ~b ~c~ x.o.b x.o.c", x.string(ctx); s != t {
+		} else if s, t := x.string(ctx), "a~ ~a x.o.a b~ ~b ~c~ x.o.b x.o.c"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
 		}
 	}
@@ -1886,15 +1886,15 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.x.x $1,$2)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.x.x $1,$2)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.name, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ ~a x.o.a b~ ~b x.o.b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ ~a x.o.a b~ ~b x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1903,21 +1903,21 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))", v.String(); s != t {
+	} else if s, t := v.String(), "$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(v, []string{"a", "b"}, "c"); v == nil {
+	} else if v := ctx.val(d, []string{"a", "b"}, "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)? &(.test.x.c)? &(.test.x.&(.test.o).c)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)? &(.test.x.c)? &(.test.x.&(.test.o).c)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ ~a x.o.a b~ ~b x.o.b ~c~ x.o.c", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ ~a x.o.a b~ ~b x.o.b ~c~ x.o.c"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, []string{"a", "b"}, "c"); v == nil {
+	} else if v := ctx.val(d, []string{"a", "b"}, "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)? &(.test.x.c)? &(.test.x.&(.test.o).c)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)? &(.test.x.c)? &(.test.x.&(.test.o).c)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ ~a x.o.a b~ ~b x.o.b ~c~ x.o.c", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ ~a x.o.a b~ ~b x.o.b ~c~ x.o.c"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1926,21 +1926,21 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.x.x $1)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.x.x $1)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.name, "a", "b", "c"); v == nil {
+	} else if v := ctx.val(d, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.{$2})? &(.test.x.&(.test.o).{$2})?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.{$2})? &(.test.x.&(.test.o).{$2})?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ ~a x.o.a", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ ~a x.o.a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.value, "a", "b", "c"); v == nil {
+	} else if v := ctx.val(d, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.{$2})? &(.test.x.&(.test.o).{$2})?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.{$2})? &(.test.x.&(.test.o).{$2})?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ ~a x.o.a", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ ~a x.o.a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1949,21 +1949,21 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.x.x $1,$2)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.x.x $1,$2)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.value, []string{"a", "b"}, "c"); v == nil {
+	} else if v := ctx.val(d, []string{"a", "b"}, "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)? &(.test.x.c)? &(.test.x.&(.test.o).c)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)? &(.test.x.c)? &(.test.x.&(.test.o).c)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ ~a x.o.a b~ ~b x.o.b ~c~ x.o.c", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ ~a x.o.a b~ ~b x.o.b ~c~ x.o.c"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, "a", []string{"b", "c"}); v == nil {
+	} else if v := ctx.val(d, "a", []string{"b", "c"}); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)? &(.test.x.c)? &(.test.x.&(.test.o).c)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a)? &(.test.x.&(.test.o).a)? &(.test.x.b)? &(.test.x.&(.test.o).b)? &(.test.x.c)? &(.test.x.&(.test.o).c)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ ~a x.o.a b~ ~b x.o.b ~c~ x.o.c", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ ~a x.o.a b~ ~b x.o.b ~c~ x.o.c"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -1972,11 +1972,11 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.x.y $1)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.x.y $1)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.value, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if x := v.expand(final{ctx}); x == nil {
 		ctx.err("%v", tst{v})
@@ -1987,21 +1987,21 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err("%v ; %d, %d", tst{x}, l.len(), len(elems))
 	} else if _, y := elems[2].(condval); !y {
 		ctx.err("%v", tst{elems[2]})
-	} else if s, t := "a~ -aox.o.a -ao{$(.test.x.o.{$2})}? ~a x.o.a &(.test.x.{$2} a,$2)? &(.test.x.o.{$2})?", x.String(); s != t {
+	} else if s, t := x.String(), "a~ -aox.o.a -ao{$(.test.x.o.{$2})}? ~a x.o.a &(.test.x.{$2} a,$2)? &(.test.x.o.{$2})?"; s != t {
 		for i, v := range elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if s, t := "a~ -aox.o.a ~a x.o.a", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "a~ -aox.o.a ~a x.o.a"; s != t {
 		for i, v := range elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if s, t := "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ -aox.o.a ~a x.o.a", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ -aox.o.a ~a x.o.a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.value, []string{"a", "b", "c"}); v == nil {
+	} else if v := ctx.val(d, []string{"a", "b", "c"}); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a a b c,$2)? &(.test.x.&(.test.o).a)? &(.test.x.b a b c,$2)? &(.test.x.&(.test.o).b)? &(.test.x.c a b c,$2)? &(.test.x.&(.test.o).c)? &(.test.x.{$2} a b c,$2)? &(.test.x.&(.test.o).{$2})?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a a b c,$2)? &(.test.x.&(.test.o).a)? &(.test.x.b a b c,$2)? &(.test.x.&(.test.o).b)? &(.test.x.c a b c,$2)? &(.test.x.&(.test.o).c)? &(.test.x.{$2} a b c,$2)? &(.test.x.&(.test.o).{$2})?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ -aox.o.a -aox.o.b -aox.o.c ~a x.o.a b~ -box.o.a -box.o.b -box.o.c ~b x.o.b ~c~ x.o.c", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ -aox.o.a -aox.o.b -aox.o.c ~a x.o.a b~ -box.o.a -box.o.b -box.o.c ~b x.o.b ~c~ x.o.c"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2010,21 +2010,21 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.x.y ,$2)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.x.y ,$2)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.value, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.b {},b)? &(.test.x.&(.test.o).b)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.b {},b)? &(.test.x.&(.test.o).b)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "b~ -box.o.b ~b x.o.b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "b~ -box.o.b ~b x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.b {},b)? &(.test.x.&(.test.o).b)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.b {},b)? &(.test.x.&(.test.o).b)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "b~ -box.o.b ~b x.o.b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "b~ -box.o.b ~b x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2033,38 +2033,38 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(.test.x.y $1,$2)", v.String(); s != t {
+	} else if s, t := v.String(), "$(.test.x.y $1,$2)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.value, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a a,b)? &(.test.x.&(.test.o).a)? &(.test.x.b a,b)? &(.test.x.&(.test.o).b)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a a,b)? &(.test.x.&(.test.o).a)? &(.test.x.b a,b)? &(.test.x.&(.test.o).b)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
 	if s := ".test.x.10"; false {
 	} else if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if s, t := "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?", d.value.String(); s != t {
+	} else if s, t := d.value.String(), "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?"; s != t {
 		ctx.err("%v → %s != %s", tst{d.value}, t, s)
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if v := ctx.val(d.value); v == nil {
 		ctx.err("%v", tst{d})
 	} else if t := v.String(); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ -aox.o.a ~a x.o.a", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ -aox.o.a ~a x.o.a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.value, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a a,b)? &(.test.x.&(.test.o).a)? &(.test.x.b a,b)? &(.test.x.&(.test.o).b)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a a,b)? &(.test.x.&(.test.o).a)? &(.test.x.b a,b)? &(.test.x.&(.test.o).b)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2073,15 +2073,15 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.b {},b)? &(.test.x.&(.test.o).b)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.b {},b)? &(.test.x.&(.test.o).b)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "b~ -box.o.b ~b x.o.b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "b~ -box.o.b ~b x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.value, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.b {},b)? &(.test.x.&(.test.o).b)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.b {},b)? &(.test.x.&(.test.o).b)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "b~ -box.o.b ~b x.o.b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "b~ -box.o.b ~b x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2090,15 +2090,15 @@ func testBuiltin_foreach5(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a a,b)? &(.test.x.&(.test.o).a)? &(.test.x.b a,b)? &(.test.x.&(.test.o).b)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a a,b)? &(.test.x.&(.test.o).a)? &(.test.x.b a,b)? &(.test.x.&(.test.o).b)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.value, "a", "b"); v == nil {
+	} else if v := ctx.val(d, "a", "b"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "&(.test.x.a a,b)? &(.test.x.&(.test.o).a)? &(.test.x.b a,b)? &(.test.x.&(.test.o).b)?", v.String(); s != t {
+	} else if s, t := v.String(), "&(.test.x.a a,b)? &(.test.x.&(.test.o).a)? &(.test.x.b a,b)? &(.test.x.&(.test.o).b)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a~ -aox.o.a -aox.o.b ~a x.o.a b~ -box.o.a -box.o.b ~b x.o.b"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 }
@@ -2135,19 +2135,19 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err("%v ; %v", tst{p}, p.len())
 	} else if _, y := p.elems[0].(*globpat); !y {
 		ctx.err("%v", tst{p.elems[0]})
-	} else if _, y := p.elems[1].(*bareword); !y {
+	} else if _, y := p.elems[1].(*word); !y {
 		ctx.err("%v", tst{p.elems[1]})
-	} else if s, t := "**/testdata", p.String(); s != t {
+	} else if s, t := p.String(), "**/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := "**/testdata", p.string(ctx); s != t {
+	} else if s, t := p.string(ctx), "**/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if a, b, c := v.match(ctx, pv); a {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
 	} else if x, y := b.([]string); !y {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if !strings.HasPrefix(ps, joinPath(x...)) {
+	} else if !strings.HasPrefix(ps, joinpath(x...)) {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if !strings.HasPrefix(ps, joinPath(c...)) {
+	} else if !strings.HasPrefix(ps, joinpath(c...)) {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
 	}
 
@@ -2162,19 +2162,19 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err("%v ; %v", tst{p}, p.len())
 	} else if _, y := p.elems[0].(*percpat); !y {
 		ctx.err("%v", tst{p.elems[0]})
-	} else if _, y := p.elems[1].(*bareword); !y {
+	} else if _, y := p.elems[1].(*word); !y {
 		ctx.err("%v", tst{p.elems[1]})
-	} else if s, t := "%%/testdata", p.String(); s != t {
+	} else if s, t := p.String(), "%%/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := "%%/testdata", p.string(ctx); s != t {
+	} else if s, t := p.string(ctx), "%%/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if a, b, c := v.match(ctx, pv); a {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
 	} else if x, y := b.([]string); !y {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if !strings.HasPrefix(ps, joinPath(x...)) {
+	} else if !strings.HasPrefix(ps, joinpath(x...)) {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if !strings.HasPrefix(ps, joinPath(c...)) {
+	} else if !strings.HasPrefix(ps, joinpath(c...)) {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
 	}
 
@@ -2187,7 +2187,7 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if p.len() != 3 {
 		ctx.err("%v ; %v", tst{p}, p.len())
-	} else if t, y := p.elems[0].(*pathpun); !y {
+	} else if t, y := p.elems[0].(*punct); !y {
 		ctx.err("%v", tst{p.elems[0]})
 	} else if t.token != PROOT {
 		ctx.err("%v ; %v", tst{t}, t.token)
@@ -2199,11 +2199,11 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err("%v ; %v", tst{t}, t.len())
 	} else if _, y := t.elems[0].(*globmeta); !y {
 		ctx.err("%v", tst{t.elems[0]})
-	} else if _, y := p.elems[2].(*bareword); !y {
+	} else if _, y := p.elems[2].(*word); !y {
 		ctx.err("%v", tst{p.elems[2]})
-	} else if s, t := "/**/testdata", p.String(); s != t {
+	} else if s, t := p.String(), "/**/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := "/**/testdata", p.string(ctx); s != t {
+	} else if s, t := p.string(ctx), "/**/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if a, b, c := v.match(ctx, pv); a { // partially matched
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
@@ -2213,13 +2213,13 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
 	} else if len(c) < 0 || c[0] == "" {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.Contains(ps, joinPath(x...)) {
+	} else if !strings.Contains(ps, joinpath(x...)) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.Contains(ps, joinPath(c...)) {
+	} else if !strings.Contains(ps, joinpath(c...)) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.HasPrefix(ps, joinPath(x...)) {
+	} else if !strings.HasPrefix(ps, joinpath(x...)) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.HasPrefix(ps, "/"+joinPath(c...)) {
+	} else if !strings.HasPrefix(ps, "/"+joinpath(c...)) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
 	}
 
@@ -2232,7 +2232,7 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if p.len() != 3 {
 		ctx.err("%v ; %v", tst{p}, p.len())
-	} else if t, y := p.elems[0].(*pathpun); !y {
+	} else if t, y := p.elems[0].(*punct); !y {
 		ctx.err("%v", tst{p.elems[0]})
 	} else if t.token != PROOT {
 		ctx.err("%v ; %v", tst{t}, t.token)
@@ -2240,11 +2240,11 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err("%v ; %v", tst{t}, t.token)
 	} else if _, y := p.elems[1].(*percpat); !y {
 		ctx.err("%v", tst{p.elems[1]})
-	} else if _, y := p.elems[2].(*bareword); !y {
+	} else if _, y := p.elems[2].(*word); !y {
 		ctx.err("%v", tst{p.elems[2]})
-	} else if s, t := "/%%/testdata", p.String(); s != t {
+	} else if s, t := p.String(), "/%%/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := "/%%/testdata", p.string(ctx); s != t {
+	} else if s, t := p.string(ctx), "/%%/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if a, b, c := v.match(ctx, pv); a {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
@@ -2254,13 +2254,13 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
 	} else if len(c) < 0 || c[0] == "" {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.Contains(ps, joinPath(x...)) {
+	} else if !strings.Contains(ps, joinpath(x...)) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.Contains(ps, joinPath(c...)) {
+	} else if !strings.Contains(ps, joinpath(c...)) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.HasPrefix(ps, joinPath(x...)) {
+	} else if !strings.HasPrefix(ps, joinpath(x...)) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.HasPrefix(ps, "/"+joinPath(c...)) {
+	} else if !strings.HasPrefix(ps, "/"+joinpath(c...)) {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
 	}
 
@@ -2269,9 +2269,9 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "/trimprefix", v.String(); s != t {
+	} else if s, t := v.String(), "/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "/trimprefix", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2280,9 +2280,9 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "builtins/trimprefix", v.String(); s != t {
+	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "builtins/trimprefix", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2291,9 +2291,9 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "builtins/trimprefix", v.String(); s != t {
+	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "builtins/trimprefix", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2302,9 +2302,9 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "builtins/trimprefix", v.String(); s != t {
+	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "builtins/trimprefix", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2313,9 +2313,9 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "builtins/trimprefix", v.String(); s != t {
+	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "builtins/trimprefix", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2324,9 +2324,9 @@ func testBuiltin_trimprefix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "builtins/trimprefix", v.String(); s != t {
+	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "builtins/trimprefix", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 }
@@ -2361,13 +2361,13 @@ func testBuiltin_trimsuffix(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if p.len() != 2 {
 		ctx.err("%v ; %v", tst{p}, p.len())
-	} else if _, y := p.elems[0].(*bareword); !y {
+	} else if _, y := p.elems[0].(*word); !y {
 		ctx.err("%v", tst{p.elems[0]})
 	} else if _, y := p.elems[1].(*globpat); !y {
 		ctx.err("%v", tst{p.elems[1]})
-	} else if s, t := "testdata/**", p.String(); s != t {
+	} else if s, t := p.String(), "testdata/**"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := "testdata/**", p.string(ctx); s != t {
+	} else if s, t := p.string(ctx), "testdata/**"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if a, b, c := v.match(ctx, pv); a {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
@@ -2384,13 +2384,13 @@ func testBuiltin_trimsuffix(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if p.len() != 2 {
 		ctx.err("%v ; %v", tst{p}, p.len())
-	} else if _, y := p.elems[0].(*bareword); !y {
+	} else if _, y := p.elems[0].(*word); !y {
 		ctx.err("%v", tst{p.elems[0]})
 	} else if _, y := p.elems[1].(*percpat); !y {
 		ctx.err("%v", tst{p.elems[1]})
-	} else if s, t := "testdata/%%", p.String(); s != t {
+	} else if s, t := p.String(), "testdata/%%"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := "testdata/%%", p.string(ctx); s != t {
+	} else if s, t := p.string(ctx), "testdata/%%"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if a, b, c := v.match(ctx, pv); a {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
@@ -2407,21 +2407,21 @@ func testBuiltin_trimsuffix(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if p.len() != 3 {
 		ctx.err("%v ; %v", tst{p}, p.len())
-	} else if _, y := p.elems[0].(*bareword); !y {
+	} else if _, y := p.elems[0].(*word); !y {
 		ctx.err("%v", tst{p.elems[0]})
 	} else if x, y := p.elems[1].(*globpat); !y {
 		ctx.err("%v", tst{p.elems[1]})
 	} else if x.len() != 1 {
 		ctx.err("%v ; %v", tst{x}, x.len())
-	} else if x, y := p.elems[2].(*pathpun); !y {
+	} else if x, y := p.elems[2].(*punct); !y {
 		ctx.err("%v", tst{p.elems[2]})
 	} else if x.token != PTAIL {
 		ctx.err("%v ; %v", tst{x}, x.token)
 	} else if x.String() != "" {
 		ctx.err("%v ; %v", tst{x}, x.token)
-	} else if s, t := "testdata/**/", p.String(); s != t {
+	} else if s, t := p.String(), "testdata/**/"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := "testdata/**/", p.string(ctx); s != t {
+	} else if s, t := p.string(ctx), "testdata/**/"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if a, b, c := v.match(ctx, pv); a { // partially matched
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
@@ -2438,19 +2438,19 @@ func testBuiltin_trimsuffix(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if p.len() != 3 {
 		ctx.err("%v ; %v", tst{p}, p.len())
-	} else if _, y := p.elems[0].(*bareword); !y {
+	} else if _, y := p.elems[0].(*word); !y {
 		ctx.err("%v", tst{p.elems[0]})
 	} else if _, y := p.elems[1].(*percpat); !y {
 		ctx.err("%v", tst{p.elems[1]})
-	} else if t, y := p.elems[2].(*pathpun); !y {
+	} else if t, y := p.elems[2].(*punct); !y {
 		ctx.err("%v", tst{p.elems[2]})
 	} else if t.token != PTAIL {
 		ctx.err("%v ; %v", tst{t}, t.token)
 	} else if t.String() != "" {
 		ctx.err("%v ; %v", tst{t}, t.token)
-	} else if s, t := "testdata/%%/", p.String(); s != t {
+	} else if s, t := p.String(), "testdata/%%/"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := "testdata/%%/", p.string(ctx); s != t {
+	} else if s, t := p.string(ctx), "testdata/%%/"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if a, b, c := v.match(ctx, pv); a {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
@@ -2465,11 +2465,11 @@ func testBuiltin_trimsuffix(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if x.len() < 2 {
 		ctx.err("%v", tst{x})
-	} else if t, y := x.elems[0].(*pathpun); !y {
+	} else if t, y := x.elems[0].(*punct); !y {
 		ctx.err("%v", tst{x.elems[0]})
 	} else if PROOT != t.token {
 		ctx.err("%v ; %v", tst{t}, x)
-	// } else if t, y := x.elems[x.len()-1].(*pathpun); !y {
+	// } else if t, y := x.elems[x.len()-1].(*punct); !y {
 	// 	ctx.err("%v ; %v", tst{x.elems[x.len()-1]}, x)
 	// } else if PTAIL != t.token {
 	// 	ctx.err("%v", tst{t})
@@ -2572,7 +2572,7 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v ; %v", tst{v}, tst{p.key})
 	} else if s := p.val.String(); s != "foo" {
 		ctx.err("%v ; %v", tst{v}, tst{p.val})
-	} else if s, t := "-std=foo", v.String(); s != t {
+	} else if s, t := v.String(), "-std=foo"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t = v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -2587,17 +2587,17 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if l0, y := l.elems[0].(*pair); !y {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if s, t := "-std", l0.key.String(); s != t {
+	} else if s, t := l0.key.String(), "-std"; s != t {
 		ctx.err("%v → %s != %s", tst{l0.key}, t, s)
-	} else if s, t := "foo", l0.val.String(); s != t {
+	} else if s, t := l0.val.String(), "foo"; s != t {
 		ctx.err("%v → %s != %s", tst{l0.val}, t, s)
 	} else if l1, y := l.elems[1].(*pair); !y {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if s, t := "-std", l1.key.String(); s != t {
+	} else if s, t := l1.key.String(), "-std"; s != t {
 		ctx.err("%v → %s != %s", tst{l1.key}, t, s)
-	} else if s, t := "bar", l1.val.String(); s != t {
+	} else if s, t := l1.val.String(), "bar"; s != t {
 		ctx.err("%v → %s != %s", tst{l1.val}, t, s)
-	} else if s, t := "-std=foo -std=bar", v.String(); s != t {
+	} else if s, t := v.String(), "-std=foo -std=bar"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t = v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -2626,9 +2626,9 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v", tst{l1c.val})
 	} else if l1vc, y := l1v.Value.(*closure); !y {
 		ctx.err("%v", tst{l1v.Value})
-	} else if s, t := "bar", l1vc.x.String(); s != t {
+	} else if s, t := l1vc.x.String(), "bar"; s != t {
 		ctx.err("%v → %s != %s", tst{l1vc.x}, t, s)
-	} else if s, t := "-foo=bar -foo={&(bar)}?", v.String(); s != t {
+	} else if s, t := v.String(), "-foo=bar -foo={&(bar)}?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.expand(final{ctx}); s != t.String() {
 		ctx.err("%v : %s != %s", tst{t}, t, s)
@@ -2640,7 +2640,7 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[0]})
 	} else if _, y := l.elems[1].(condval); !y {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if s, t := "-foo=bar", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "-foo=bar"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2649,9 +2649,9 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(addprefix -foo={},bar &(bar))", v.String(); s != t {
+	} else if s, t := v.String(), "$(addprefix -foo={},bar &(bar))"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "-foo=bar", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "-foo=bar"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2664,11 +2664,11 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if len(l.elems) != 2 {
 		ctx.err("%v %v", tst{v}, l.elems)
-	} else if _, y := l.elems[0].(*barecomp); !y {
+	} else if _, y := l.elems[0].(*compound); !y {
 		ctx.err("%v", tst{l.elems[0]})
 	} else if l1, y := l.elems[1].(condval); !y {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if l1v, y := l1.Value.(*barecomp); !y {
+	} else if l1v, y := l1.Value.(*compound); !y {
 		ctx.err("%v", tst{l1.Value})
 	} else if l1v.len() != 2 {
 		ctx.err("%v ; %v", tst{l1v}, l1v.len())
@@ -2676,7 +2676,7 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v", tst{l1v.elems[1]})
 	} else if _, y := l1vd.Value.(*closure); !y {
 		ctx.err("%v", tst{l1vd.Value})
-	} else if s, t := "foobar foo{&(bar)}?", v.String(); s != t {
+	} else if s, t := v.String(), "foobar foo{&(bar)}?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.expand(final{ctx}); s != t.String() {
 		ctx.err("%v : %s != %s", tst{t}, t, s)
@@ -2684,11 +2684,11 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v", tst{t})
 	} else if l.len() != 2 {
 		ctx.err("%v %v", tst{t}, l.len())
-	} else if _, y := l.elems[0].(*barecomp); !y {
+	} else if _, y := l.elems[0].(*compound); !y {
 		ctx.err("%v", tst{l.elems[0]})
 	} else if _, y := l.elems[1].(condval); !y {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if s, t := "foobar", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foobar"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2697,9 +2697,9 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(addprefix foo,bar &(bar))", v.String(); s != t {
+	} else if s, t := v.String(), "$(addprefix foo,bar &(bar))"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foobar", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foobar"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 }
@@ -2712,11 +2712,11 @@ func testBuiltin_addsuffix(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if p, y := v.(*pair); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "foo", p.key.String(); s != t {
+	} else if s, t := p.key.String(), "foo"; s != t {
 		ctx.err("%v → %s != %s", tst{p.key}, t, s)
-	} else if s, t := "xxx", p.val.String(); s != t {
+	} else if s, t := p.val.String(), "xxx"; s != t {
 		ctx.err("%v → %s != %s", tst{p.val}, t, s)
-	} else if s, t := "foo=xxx", v.String(); s != t {
+	} else if s, t := v.String(), "foo=xxx"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2731,17 +2731,17 @@ func testBuiltin_addsuffix(ctx *testcase) {
 		ctx.err("%v ; %d", tst{v}, l.len())
 	} else if p, y := l.elems[0].(*pair); !y {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if s, t := "foo", p.key.String(); s != t {
+	} else if s, t := p.key.String(), "foo"; s != t {
 		ctx.err("%v → %s != %s", tst{p.key}, t, s)
-	} else if s, t := "xxx", p.val.String(); s != t {
+	} else if s, t := p.val.String(), "xxx"; s != t {
 		ctx.err("%v → %s != %s", tst{p.val}, t, s)
 	} else if p, y := l.elems[1].(*pair); !y {
 		ctx.err("%v", tst{l.elems[1]})
-	} else if s, t := "bar", p.key.String(); s != t {
+	} else if s, t := p.key.String(), "bar"; s != t {
 		ctx.err("%v → %s != %s", tst{p.key}, t, s)
-	} else if s, t := "xxx", p.val.String(); s != t {
+	} else if s, t := p.val.String(), "xxx"; s != t {
 		ctx.err("%v → %s != %s", tst{p.val}, t, s)
-	} else if s, t := "foo=xxx bar=xxx", v.String(); s != t {
+	} else if s, t := v.String(), "foo=xxx bar=xxx"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 }
@@ -2758,17 +2758,17 @@ func testBuiltin_contains(ctx *testcase) {
 		ctx.err("%v", tst{x.x})
 	} else if t.name != "contains" {
 		ctx.err("%v", tst{x.x})
-	} else if s, t := "$(contains a,a b c $1)", v.String(); s != t {
+	} else if s, t := v.String(), "$(contains a,a b c $1)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if s, t := "$(contains a,a b c $1)", v.expand(final{ctx}); s != t.String() {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if s, t := "", v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if x := ctx.val(v, "x"); x == nil {
+	} else if x := ctx.val(d, "x"); x == nil {
 		ctx.err("%v", tst{v})
-	} else if s, t := "{=true}", x.String(); s != t { // $(contains a,a b c x)
+	} else if s, t := x.String(), "{=true}"; s != t { // $(contains a,a b c x)
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "true", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "true"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2783,15 +2783,15 @@ func testBuiltin_contains(ctx *testcase) {
 		ctx.err("%v", tst{x.x})
 	} else if t.name != "contains" {
 		ctx.err("%v", tst{x.x})
-	} else if s, t := "$(contains x b c,a b c $1)", v.String(); s != t {
+	} else if s, t := v.String(), "$(contains x b c,a b c $1)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if s, t := "", v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if x := ctx.val(v, "x"); x == nil {
+	} else if x := ctx.val(d, "x"); x == nil {
 		ctx.err("%v", tst{v})
-	} else if s, t := "{=true}", x.String(); s != t { // $(contains b c,a b c x)
+	} else if s, t := x.String(), "{=true}"; s != t { // $(contains b c,a b c x)
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "true", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "true"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2806,7 +2806,7 @@ func testBuiltin_contains(ctx *testcase) {
 		ctx.err("%v", tst{x.x})
 	} else if t.name != "contains" {
 		ctx.err("%v", tst{x.x})
-	} else if s, t := "$(contains x,a b c $1)", v.String(); s != t {
+	} else if s, t := v.String(), "$(contains x,a b c $1)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
@@ -2819,7 +2819,7 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if ts(v) != "{=list {=bareword a} {=bareword b} {=bareword c} {=delegate {=auto 1}}}" {
+	} else if ts(v) != "{=list {=word a} {=word b} {=word c} {=delegate {=auto 1}}}" {
 		ctx.err("%v", tst{v})
 	}
 
@@ -2828,7 +2828,7 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if ts(v) != "{=delegate {=rule_name foo}}" {
+	} else if ts(v) != "{=delegate {=rule {=word foo}}}" {
 		ctx.err("%v", tst{v})
 	} else if x, y := v.(*delegate); !y {
 		ctx.err("%v", tst{x})
@@ -2836,9 +2836,9 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err("%v", tst{x.x})
 	} else if a == nil {
 		ctx.err("%v", tst{x.x})
-	} else if s, t := "${foo}", v.String(); s != t {
+	} else if s, t := v.String(), "${foo}"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a b c foo", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "a b c foo"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2847,7 +2847,7 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if ts(v) != "{=list {=bareword a} {=bareword b} {=bareword c} {=bareword foo}}" {
+	} else if ts(v) != "{=list {=word a} {=word b} {=word c} {=word foo}}" {
 		ctx.err("%v", tst{v})
 	} else if true {
 		// ...
@@ -2855,13 +2855,13 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if o, y := x.x.(*def); !y {
 		ctx.err("%v", tst{x.x})
-	} else if s, t := "a b c $1", o.value.String(); s != t {
+	} else if s, t := o.value.String(), "a b c $1"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "$(val foo)", v.String(); s != t {
+	} else if s, t := v.String(), "$(val foo)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if s, t := "a b c foo", v.expand(final{ctx}); s != t.String() {
 		ctx.err("%v : %s != %s", tst{t}, t, s)
-	} else if s, t := "a b c foo", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "a b c foo"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2870,7 +2870,7 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if ts(v) != "{=list {=bareword a} {=bareword b} {=bareword c} {=bareword foo}}" {
+	} else if ts(v) != "{=list {=word a} {=word b} {=word c} {=word foo}}" {
 		ctx.err("%v", tst{v})
 	} else if true {
 		// ...
@@ -2878,11 +2878,11 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if o, y := x.x.(*def); !y {
 		ctx.err("%v", tst{x.x})
-	} else if s, t := "a b c $1", o.value.String(); s != t {
+	} else if s, t := o.value.String(), "a b c $1"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "$(val foo)", v.String(); s != t {
+	} else if s, t := v.String(), "$(val foo)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a b c foo", x.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "a b c foo"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2895,9 +2895,9 @@ func testBuiltin_contains2(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if !x.bool {
 		ctx.err("%v", tst{v})
-	} else if s, t := "{=true}", v.String(); s != t {
+	} else if s, t := v.String(), "{=true}"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "true", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "true"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 }
@@ -2907,11 +2907,11 @@ func testBuiltin_join(ctx *testcase) {
 		ctx.err("val1")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if ts(v) != "{=barecomp {=bareword foo} {=flag {=null}} {=bareword bar} {=flag {=null}} {=bareword xx} {=flag {=null}} {=bareword yy} {=flag {=null}} {=bareword zz}}" {
+	} else if ts(v) != "{=compound {=word foo} {=flag {=null}} {=word bar} {=flag {=null}} {=word xx} {=flag {=null}} {=word yy} {=flag {=null}} {=word zz}}" {
 		ctx.err("%v", tst{v})
-	} else if s, t := "foo-bar-xx-yy-zz", v.String(); s != t {
+	} else if s, t := v.String(), "foo-bar-xx-yy-zz"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foo-bar-xx-yy-zz", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foo-bar-xx-yy-zz"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2919,9 +2919,9 @@ func testBuiltin_join(ctx *testcase) {
 		ctx.err("val2")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(join foo bar xx yy zz,-)", v.String(); s != t {
+	} else if s, t := v.String(), "$(join foo bar xx yy zz,-)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foo-bar-xx-yy-zz", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foo-bar-xx-yy-zz"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2929,9 +2929,9 @@ func testBuiltin_join(ctx *testcase) {
 		ctx.err("val3")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(join &(target.arch) &(target.vendor) &(target.os) &(target.abi),-)", v.String(); s != t {
+	} else if s, t := v.String(), "$(join &(target.arch) &(target.vendor) &(target.os) &(target.abi),-)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foo-bar-a-0", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foo-bar-a-0"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -2945,59 +2945,67 @@ func testBuiltin_join(ctx *testcase) {
 		ctx.err("%v", tst{c.list})
 	} else if c.sep == nil {
 		ctx.err("%v", tst{c})
-	} else if s, t := "-", c.sep.String(); s != t {
+	} else if s, t := c.sep.String(), "-"; s != t {
 		ctx.err("%v → %s != %s", tst{c.sep}, t, s)
-	} else if s, t := "{{&(target.arch) &(XXX) &(target.vendor) &(target.os) &(target.abi)}-}", v.String(); s != t {
+	} else if s, t := v.String(), "{{&(target.arch) &(XXX) &(target.vendor) &(target.os) &(target.abi)}-}"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foo-bar-a-0", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foo-bar-a-0"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 }
 
 func testBuiltin_logic(ctx *testcase) {
-	if d := ctx.def("val1"); d == nil {
-		ctx.err("val1")
+	s := "val1"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if _, y := v.(*bareword); !y {
+	} else if x, y := v.(*word); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "a", v.String(); s != t {
+	} else if s, t := x.String(), "a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a", v.string(ctx); s != t {
+	} else if s, t := x.string(ctx), "a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("val2"); d == nil {
-		ctx.err("val2")
+	s = "val2"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if _, y := v.(*bareword); !y {
+	} else if _, y := v.(*word); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "a", v.String(); s != t {
+	} else if s, t := v.String(), "a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("val3"); d == nil {
-		ctx.err("val3")
+	s = "val3"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "$(or(-force) &(none),a)", v.String(); s != t {
+	} else if s, t := v.String(), "$(or(-final) &(none),a)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("val4"); d == nil {
-		ctx.err("val4")
+	s = "val4"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "$(or &(none),a)", v.String(); s != t {
+	} else if s, t := v.String(), "$(or &(none),a)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if s, t := "a", v.expand(final{ctx}); s != t.String() {
 		ctx.err("%v : %s != %s", tst{t}, t, s)
@@ -3005,45 +3013,51 @@ func testBuiltin_logic(ctx *testcase) {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("val5"); d == nil {
-		ctx.err("val5")
+	s = "val5"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "$(or a,&(none))", v.String(); s != t {
+	} else if s, t := v.String(), "$(or a,&(none))"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "a", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "a"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("val6"); d == nil {
-		ctx.err("val6")
+	s = "val6"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "$(and $1,$2,$3)", v.String(); s != t {
+	} else if s, t := v.String(), "$(and $1,$2,$3)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{v}, t)
-	} else if v := ctx.val(d.value, "a", "b", "c"); v == nil {
+	} else if v := ctx.val(d, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if _, y := v.(*bareword); !y {
+	} else if _, y := v.(*word); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "c", v.String(); s != t {
+	} else if s, t := v.String(), "c"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("x0"); d == nil {
-		ctx.err("x0")
+	s = "x0"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*group); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "(variant/$(or(-force) $(base &(variant)),bootstrap))", v.String(); s != t {
+	} else if s, t := v.String(), "(variant/$(or(-final) $(base &(variant)),bootstrap))"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if s, t := "(variant/bootstrap)", v.expand(final{ctx}); s != t.String() {
 		ctx.err("%v : %s != %s", tst{t}, t, s)
@@ -3055,57 +3069,67 @@ func testBuiltin_logic(ctx *testcase) {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("x1"); d == nil {
-		ctx.err("x1")
+	s = "x1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*group); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "(variant/bootstrap)", v.String(); s != t {
+	} else if s, t := v.String(), "(variant/bootstrap)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("x2"); d == nil {
-		ctx.err("x2")
+	s = "x2"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if _, y := v.(*path); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "variant/bootstrap", v.String(); s != t {
+	} else if s, t := v.String(), "variant/bootstrap"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	} else if t := v.string(ctx); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("x3"); d == nil {
-		ctx.err("x3")
+	s = "x3"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if _, y := v.(*bareword); !y {
+	} else if _, y := v.(*word); !y {
 		ctx.err("%v", tst{v})
-	} else if s, t := "bootstrap", v.String(); s != t {
+	} else if s, t := v.String(), "bootstrap"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("x4"); d == nil {
-		ctx.err("x4")
+	s = "x4"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(or $(base &(variant)),bootstrap)", v.String(); s != t {
+	} else if s, t := v.String(), "$(or $(base &(variant)),bootstrap)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "bootstrap", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "bootstrap"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
-	if d := ctx.def("x5"); d == nil {
-		ctx.err("x5")
+	s = "x5"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "$(base $(or &(variant),bootstrap))", v.String(); s != t {
+	} else if s, t := v.String(), "$(base $(or &(variant),bootstrap))"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "bootstrap", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "bootstrap"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 }
@@ -3122,7 +3146,7 @@ func testBuiltin_or(ctx *testcase) {
 	} else { for _, t := range l.elems {
 		if f, y := t.(flag); !y {
 			ctx.err("%v", tst{t})
-		} else if _, y := f.Value.(*bareword); !y {
+		} else if _, y := f.Value.(*word); !y {
 			ctx.err("%v", tst{f.Value})
 		} else if !f.true(ctx) {
 			ctx.err("%v", tst{t})
@@ -3139,7 +3163,7 @@ func testBuiltin_or(ctx *testcase) {
 		ctx.err("%v ⇒ %s", tst{v}, s)
 	} else if f, y := v.(flag); !y {
 		ctx.err("%v", tst{v})
-	} else if _, y := f.Value.(*bareword); !y {
+	} else if _, y := f.Value.(*word); !y {
 		ctx.err("%v", tst{f.Value})
 	}
 
@@ -3151,7 +3175,7 @@ func testBuiltin_or(ctx *testcase) {
 		ctx.err("%v ⇒ %s", tst{v}, s)
 	} else if f, y := v.(flag); !y {
 		ctx.err("%v", tst{v})
-	} else if _, y := f.Value.(*bareword); !y {
+	} else if _, y := f.Value.(*word); !y {
 		ctx.err("%v", tst{f.Value})
 	}
 
@@ -3163,7 +3187,7 @@ func testBuiltin_or(ctx *testcase) {
 		ctx.err("%v ⇒ %s", tst{v}, s)
 	} else if f, y := v.(flag); !y {
 		ctx.err("%v", tst{v})
-	} else if _, y := f.Value.(*bareword); !y {
+	} else if _, y := f.Value.(*word); !y {
 		ctx.err("%v", tst{f.Value})
 	}
 }
@@ -3193,9 +3217,9 @@ func testBuiltin_xor(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if !t.bool {
 		ctx.err("%v", tst{v})
-	} else if s, t := "{=true}", v.String(); s != t {
+	} else if s, t := v.String(), "{=true}"; s != t {
 		ctx.err("%v ⇒ %s != %s", tst{v}, t, s)
-	} else if s, t := "true", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "true"; s != t {
 		ctx.err("%v ⇒ %s != %s", tst{v}, t, s)
 	}
 
@@ -3237,13 +3261,13 @@ func testBuiltin_file(ctx *testcase) {
 		ctx.err("val1")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if _, y := v.(*barecomp); !y {
+	} else if _, y := v.(*compound); !y {
 		ctx.err("%v", tst{v})
 	} else if f := (as{v}.file(ctx)); f == nil {
 		ctx.err("%v", tst{v})
-	} else if o, y := (as{v}.fullname(ctx)); !y || o.Value == nil {
+	} else if o := (as{v}.fullname(ctx)); o.Value == nil {
 		ctx.err("%v ; %v %v", tst{v}, tst{o.Value}, y)
-	} else if f, y := o.Value.(*File); !y || f == nil {
+	} else if f, y := o.Value.(*file); !y || f == nil {
 		ctx.err("%v", tst{o.Value})
 	} else if f.fullname() != fullFooTxt {
 		ctx.err("%v %v", tst{v}, f.fullname())
@@ -3265,9 +3289,9 @@ func testBuiltin_file(ctx *testcase) {
 		ctx.err("%v %v", tst{p}, tst{o})
 	} else if cmp(ctx, o, p) != cmpEqual {
 		ctx.err("%v %v", tst{o}, tst{p})
-	} else if s, t := "foo.txt", v.String(); s != t {
+	} else if s, t := v.String(), "foo.txt"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foo.txt", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "foo.txt"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -3279,7 +3303,7 @@ func testBuiltin_file(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if v.string(ctx) != "foo.txt" {
 		ctx.err("%v", tst{v})
-	} else if f, y := v.(*File); !y || f == nil {
+	} else if f, y := v.(*file); !y || f == nil {
 		ctx.err("%v", tst{v})
 	} else if f.fullname() != fullFooTxt {
 		ctx.err("%v %v", tst{v}, f.fullname())
@@ -3295,7 +3319,7 @@ func testBuiltin_file(ctx *testcase) {
 		ctx.err("%v ; %v %v", tst{v}, tst{o.Value}, y)
 	} else if o, y := v.(fullname); !y {
 		ctx.err("%v", tst{v})
-	} else if f, y := o.Value.(*File); !y || f == nil {
+	} else if f, y := o.Value.(*file); !y || f == nil {
 		ctx.err("%v", tst{o.Value})
 	} else if f.fullname() != fullFooTxt {
 		ctx.err("%v %v", tst{v}, f.fullname())

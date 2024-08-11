@@ -11,7 +11,7 @@ import (
 
 type test_mod_1 struct { modifier_ }
 func (ctx *test_mod_1) v(args ...Value) interface{} {
-	return append(args, makeBareword(_position(ctx), "test_mod_1"))
+	return append(args, makeWord(_position(ctx), "test_mod_1"))
 }
 
 func testValueModifierInit() {
@@ -43,7 +43,7 @@ func testValueModifier(ctx *testcase) {
 		ctx.err("%v ; %v", tst{v}, l.len())
 	} else if _, y := l.elems[0].(*delegate); !y {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if _, y := l.elems[1].(*bareword); !y {
+	} else if _, y := l.elems[1].(*word); !y {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if s, t := "$(val) test_mod_1", v.String(); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)

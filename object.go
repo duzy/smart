@@ -18,7 +18,7 @@ import (
     "fmt"
 )
 
-type Object interface {
+type object interface {
     Value
     owner() *project
 }
@@ -49,33 +49,36 @@ func (p *knownobject) String() string { return fmt.Sprintf("{=object %s}", p.nam
 func (p *knownobject) string(Context) string { return fmt.Sprintf("{=object %s}", p.name) }
 func (p *knownobject) true(Context) bool { return p.name != "" }
 func (p *knownobject) ident(Context) string { return p.name }
-func (p *knownobject) cmp(ctx Context, v Value) (_ cmpres) {
-    if x, y := v.(*knownobject); y {
-        if p.scope == x.scope && p.name == x.name {
-            return cmpEqual
-        }
-    } else if x, y := v.(*list); y && len(x.elems) == 1 {
-        return p.cmp(ctx, x.elems[0])
-    }
-    return
-}
+// func (p *knownobject) cmp(ctx Context, v Value) (_ cmpres) {
+//     switch x := v.(type) {
+//     case *knownobject:
+//         if p.scope == x.scope && p.name == x.name {
+//             return cmpEqual
+//         }
+//     case *list:
+//         if x.len() == 1 {
+//             return p.cmp(ctx, x.elems[0])
+//         }
+//     }
+//     return
+// }
 
 type origin int
 
 const (
     defUndetermined origin = iota
     defVoid
+    defAuto     // auto within a code block (aka def/end, for/end)
     defConfig   // configure
     defConfDir  // configuration defs
     defConfRef  // referred by config
-    defCodeBlockAuto
     defDecl     // declaration names
     defExpand0  //   =  normal value
     defExpand1  //  :=  expand delegates (simple expand)
     defExpand2  // ::=  expand all (delegates, closures, paths)
     defExpand3  // ;:=  TODO: expand as plain
     defExecute  //  !=  value to be executed
-    defProgParam
+    defParam    // program parameter
     _defAny // referred any def
 )
 
@@ -91,16 +94,16 @@ func (o origin) String() (s string) {
     case defExpand2: s = "expand_2"
     case defExpand3: s = "expand_3"
     case defExecute: s = "execute"
-    case defProgParam: s = "param"
+    case defParam: s = "param"
     case _defAny:    s = "any"
     default: s = fmt.Sprintf("origin<%d>", o)
     }
     return
 }
 
-type auto_defs map[string]*def
-func (m auto_defs) len() int { return len(m) }
-func (m auto_defs) String() (s string) {
+type defs_map map[string]*def
+func (m defs_map) len() int { return len(m) }
+func (m defs_map) String() (s string) {
     for _, d := range m {
         if s == "" { s = "{" } else { s += "," }
         s += d.String()
@@ -116,7 +119,7 @@ func suppress_never(string) bool { return false }
 type automatic struct {
     Context
     sync.RWMutex
-    defs auto_defs
+    defs defs_map
     suppress func(string) bool
 }
 func (ac *automatic) cast(t reflect.Type) Context { return implcast(ac, t) }
@@ -130,7 +133,7 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
 }
 func (ac *automatic) amend(ctx Context, name string, val Value) (out *def, res Value) {
     if d := ac.search(ctx, name); d == nil {
-        return ac.set(ctx, name, val)
+        return ac.set(ctx, defVoid, name, val)
     } else if res = d.value; d.value != val {
         out, d.value = d, val
     }
@@ -144,69 +147,51 @@ func (ac *automatic) def(ctx Context, name string) (res *def, y bool) {
 }
 func (ac *automatic) search(ctx Context, name string) (res *def) {
     if res, _ = ac.def(ctx, name) ; res != nil { return }
-    if ac.suppress != nil && ac.suppress(name) { return }
-    if t := _automatic(ac.Context) ; t == ac {
-        erro(ctx, "%v: loop auto context", name).trace()
-        return
-    } else if t != nil {
-        return t.search(ctx, name)
+    if ac.suppress == nil || !ac.suppress(name) {
+        if t := _automatic(ac.Context) ; t != nil {
+            if t == ac {
+                erro(ctx, "%v: automatic loop", name).trace()
+            }
+            return t.search(ctx, name)
+        }
     }
     return
 }
-func (ac *automatic) set(ctx Context, name string, val Value) (out *def, old Value) {
-    if name == "-" {
-        if x, y := val.(*def); y && x.origin != defConfig {
-            notestack(ctx, 3, "set $- to def (%v): %v", x.origin, x).debug(16)
+func (ac *automatic) set(ctx Context, o origin, name string, val Value) (out *def, old Value) {
+    if checkpoints && name == "-" {
+        if x, y := val.(*def); y && x.o != defConfig {
+            errostack(ctx, 3, "set $- to def (%v): %v", x.o, x).debug(16)
         }
     }
-
-    out, _ = ac.def(ctx, name)
-
-    if out != nil {
-        old = out.value
-    } else {
-        var pos Position
-        if val == nil {
-            pos = _position(ctx)
-        } else {
-            pos = val.Position()
-        }
-
-        out = &def{}
-        out.name = name
-        out.position = pos
+    if out, _ = ac.def(ctx, name) ; out == nil {
+        out = &def{o:o, value:val}
+        out.position = _position(ctx)
         out.scope = _scope(ctx)
+        out.name = name
 
         ac.Lock()
         ac.defs[name] = out
         ac.Unlock()
+    } else {
+        old = out.value
+        // out.Lock()
+        out.value = val
+        // out.Unlock()
     }
-
-    if false && checkpoints && name == "-" {
-        var x = _execution(ctx)
-        if x != nil && &x.automatic == ac {
-            note(ctx, "%v %v", val, val.expand(ctx))
-            note(ctx, "%v", ts(ctx)).debug()
-        }
-    }
-
-    // out.Lock()
-    out.value = val
-    // out.Unlock()
     return
 }
 func (ac *automatic) args(ctx Context, vals []Value) {
-    type _at struct {
+    type arg struct {
         id, name string
         value Value
     }
 
     var argnum int // setup named/number parameters ($1, $2, etc.)
-    var args = make(map[string]*_at, len(vals)) // compact args: combine duplicated pairs
+    var args = make(map[string]*arg, len(vals)) // compact args: combine duplicated pairs
     var params = _parameters(ctx)
 
     for _, val := range vals {
-        var a = &_at{ id: strconv.Itoa(argnum+1) }
+        var a = &arg{ id: strconv.Itoa(argnum+1) }
 
         if p, y := val.(*pair); y {
             if a.name = p.key.string(ctx); a.name == "" {
@@ -215,7 +200,7 @@ func (ac *automatic) args(ctx Context, vals []Value) {
             } else if params == nil {
                 // noop
             } else if _, y = params[a.name]; !y {
-                erro(ctx, "unknown arg: %v %v", ts(p.key), ts(p.val))
+                erro(ctx, "unknown arg: %v %v", ts(p.key), ts(p.val)).trace()
                 erro(ctx, "%v", ts(ctx)).trace()
                 return
             }
@@ -239,21 +224,18 @@ func (ac *automatic) args(ctx Context, vals []Value) {
         args[a.name] = a
         argnum += 1
 
-        if d, _ := ac.set(ctx, a.name, a.value); d == nil {
+        if d, _ := ac.set(ctx, defParam, a.name, a.value); d == nil {
             erro(at(ac,a.value), "arg '%s' not set", a.name).trace()
             return
-        } else {
-            d.origin = defProgParam
         }
 
         if d, y := ac.defs[a.name]; !y || d == nil {
             erro(at(ac,a.value), "arg '%s' not set", a.name).trace()
             return
         } else if a.id != "" && a.id != a.name {
-            const LOCK = true
-            if LOCK { ac.Lock() }
-            ac.defs[a.id] = d // NOTE: set an alias or replace it
-            if LOCK { ac.Unlock() }
+            ac.Lock()
+            ac.defs[a.id] = d // NOTE: alias or replacement
+            ac.Unlock()
         }
     }
     return
@@ -269,8 +251,8 @@ func auto_get(ctx Context, name string) (_ Value) {
     return
 }
 
-func auto_set(ctx Context, name string, val Value) (out *def, res Value) {
-    if ac := _automatic(ctx); ac != nil { out, res = ac.set(ctx, name, val) }
+func auto_set(ctx Context, o origin, name string, val Value) (out *def, res Value) {
+    if ac := _automatic(ctx); ac != nil { out, res = ac.set(ctx, o, name, val) }
     return
 }
 
@@ -286,7 +268,8 @@ func hasAutoInner(ctx Context, target Value) (res bool) {
 
 type auto struct { knownobject }
 func (a *auto) kind() Kind { return a.knownobject.kind()|KindAuto }
-func (a *auto) String() (s string) { return a.name }
+func (a *auto) hash(ctx Context) uint64 { return fnv1(ctx, a, a.name) }
+func (a *auto) String() string { return a.name }
 func (a *auto) string(ctx Context) (res string) {
     if d := a.def(ctx); d != nil && d.value != nil { res = d.value.string(ctx) }
     return
@@ -305,31 +288,33 @@ func (a *auto) defs(ctx Context, s ...string) (res []*def) {
     return
 }
 func (a *auto) def(ctx Context) *def { return auto_find(ctx, a.name) }
-func (a *auto) set(ctx Context, value Value, app ...Value) {
-    if value == nil && app != nil { if d := auto_find(ctx, a.name); d != nil {
-        d.value = ease(ctx, append(merge(d.value), app...))
-        d.position = a.position
-        return
-    }}
+func (a *auto) set(ctx Context, o origin, value Value, app ...Value) {
+    if value == nil && app != nil {
+        if d := auto_find(ctx, a.name); d != nil {
+            d.value = ease(ctx, append(merge(d.value), app...))
+            if false { d.position = a.position }
+            return
+        }
+    }
 
-    d, _ := auto_set(ctx, a.name, ease(ctx, append(merge(value), app...)))
+    d, _ := auto_set(ctx, o, a.name, ease(ctx, append(merge(value), app...)))
     if d != nil {
-        d.position = a.position
-    } else if true {
-        warnstack(at(ctx,a), 3, "set auto failed: %v: %v %v", a.name, value, app).debug(16)
+        if false { d.position = a.position }
+    } else {
+        errostack(at(ctx,a), 3, "set auto failed: %v: %v %v", a.name, value, app).trace()
     }
 }
 func (a *auto) isDigit() bool { return IsDigits(a.name) }
 func (a *auto) isPlaceholder() bool { return a.name == "_" }
 func (a *auto) expandable(ctx Context) (res bool) {
-    if ex_auto(ctx) {
+    if truly(ctx, propExAuto) {
         var d = auto_find(ctx, a.name)
         return d != nil && d.value != nil
     }
     return
 }
 func (a *auto) expand(ctx Context) (res Value) {
-    if ex_auto(ctx) {
+    if truly(ctx, propExAuto) {
         var d = auto_find(ctx, a.name)
         if d != nil && d.value != nil { return d }
     }
@@ -359,10 +344,11 @@ func (a *auto) traverse(ctx Context) {
 // A def represents a definition, it's a caller but mustn't be a Valuer.
 type def struct {
     knownobject
-    origin origin
+    o origin
     value Value
 }
 func (d *def) kind() Kind { return d.knownobject.kind()|KindDef }
+func (d *def) hash(ctx Context) uint64 { return fnv1(ctx, d, d.value) }
 func (d *def) Position() (pos Position) {
     if  pos = d.position ; !pos.valid() && d.value != nil {
         pos = d.value.Position()
@@ -370,10 +356,11 @@ func (d *def) Position() (pos Position) {
     return
 }
 func (d *def) ts(t string) string {
+    return fmt.Sprintf("{=%s %s}", t, d.name)
     return fmt.Sprintf("{=%s %s⇒%v}", t, d.name, ts(d.value))
 }
 func (d *def) streq() (s string) {
-    switch d.origin {
+    switch d.o {
     case defExpand0: s =   "="
     case defExpand1: s =  ":="
     case defExpand2: s = "::="
@@ -467,32 +454,25 @@ func (d *def) expandable(ctx Context) (res bool) {
     }
     return
 }
-func (d *def) expand(ctx Context) Value {
-    if x, y := ctx.(*evocation); y {
-        return d.evoke(x)
-    } else {
-        return d
-    }
-}
+func (d *def) expand(Context) Value { return d }
 func (d *def) evoke(ctx *evocation) (res Value) {
     // d.Lock()
-    var o, v = d.origin, d.value
+    var o, v = d.o, d.value
     // d.Unlock()
 
-    ctx.a = expand(ctx, ctx.a...) // to save the changed args
+    ctx.a = expand(ctx.Context, ctx.a...) // to save the changed args
 
-    if !ex_def_value(ctx) && expandable(ctx, ctx.a...) {
+    if !truly(ctx, propExDefValue) && expandable(ctx, ctx.a...) {
         return d
     } else if v == nil {
         return
     }
 
-    var x = automatic{ Context:ctx, defs:make(auto_defs), suppress:
-        func(s string) bool { return s == "_" || IsDigits(s) } }
+    ctx.suppress = func(s string) bool { return s == "_" || IsDigits(s) }
 
-    x.args(ctx, ctx.a)
+    res = try[Value](ctx, evoke_eval{v})
 
-    res = v.expand(&x)
+    ctx.suppress = nil
 
     if res != nil && o == defExecute { res = d.xexec(ctx, res) }
     if res != nil { return scalarize(res) }
@@ -527,7 +507,7 @@ func (d *def) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (d *def) srclit(_ Context, o Object) (s string) {
+func (d *def) srclit(_ Context, o object) (s string) {
     if o != nil {
         if p := d.owner(); p != o.owner() {
             return fmt.Sprintf("$(%s→%s)", p.name, d.name)
@@ -536,34 +516,41 @@ func (d *def) srclit(_ Context, o Object) (s string) {
     s = fmt.Sprintf(`$(%s)`, d.name)
     return
 }
-func (d *def) val(ctx Context, value Value, vals ...Value) { d.set(ctx, d.origin, value, vals...) }
+func (d *def) origin(ctx Context, o origin) (res origin) {
+    if d.o == o { return o }
+
+    if checkpoints {
+        if d.o != defUndetermined && (o == defVoid || o == defUndetermined) {
+            erro(ctx, "%v: %v → %v", d.name, d.o, o).trace()
+        }
+    }
+
+    res, d.o = d.o, o
+    return
+}
+func (d *def) val(ctx Context, value Value, vals ...Value) { d.set(ctx, d.o, value, vals...) }
 func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
-    if checkpoints { defer d.set_check(ctx, origin, value, app...) }
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer d.set_check(ctx, origin, value, app...)
+        if d.o == defConfig && d.value != nil {
+            erro(ctx, "%v %v → %v %v %v", d.o, d, origin, value, app).trace()
+        }
+    }
 
     if origin == defUndetermined { origin = defVoid }
 
     if value == d.value && len(app) == 0 {
-        if d.origin != origin { d.origin = origin }
+        if d.o == defUndetermined || (d.o == defVoid && origin != d.o) {
+            d.origin(ctx, origin)
+        }
         return
     }
 
     var vals []Value
     if !isTrivial(value) { vals = append(vals, merge(value)...) }
-    if len(app) > 0      { vals = append(vals, merge(app...)...) }
+    if len(app ) > 0     { vals = append(vals, merge(app...)...) }
     if len(vals) > 0 && origin != defExpand0 {
         vals = expand(original{at(ctx,d),origin}, vals...)
-    }
-
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        if origin != defExpand0 && value != nil && value.String() == "$(auto ,$(a))" && auto_find(ctx, "a") == nil {
-            defer func(v Value) {
-                if len(vals) != 1 {
-                    erro(ctx, "%v → %v → %v", ts(v), ts(vals), ts(d.value)).trace()
-                } else if ts(vals[0]) != "{=delegate {=auto a}}" {
-                    erro(ctx, "%v → %v → %v", ts(v), ts(vals[0]), ts(d.value)).trace()
-                }
-            } (value)
-        }
     }
 
     if value == nil && len(app) > 0 {
@@ -584,12 +571,13 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
     }
 
     // d.Lock()
-    d.origin, d.value = origin, value
+    d.value = value
+    d.origin(ctx, origin)
     // d.Unlock()
     return
 }
 func (d *def) set_check(ctx Context, origin origin, value Value, app ...Value) {
-    if ex_def(ctx) && isNull(d.value) && (value != nil || len(app) > 0) {
+    if truly(ctx, propExDef) && isNull(d.value) && (value != nil || len(app) > 0) {
         erro(ctx, "%v ; %v %v", d, value, app).trace()
     }
     if origin == defExpand0 && (!isNull(value) || app != nil) && isNull(d.value) {
@@ -599,7 +587,7 @@ func (d *def) set_check(ctx Context, origin origin, value Value, app ...Value) {
         erro(ctx, "%v ; %v %v", d, value, app).trace()
     }
 }
-func (d *def) append(ctx Context, a ...Value) { if len(a) > 0 { d.set(ctx, d.origin, nil, a...) } }
+func (d *def) append(ctx Context, a ...Value) { if len(a) > 0 { d.set(ctx, d.o, nil, a...) } }
 func (d *def) invoke(ctx Context, o, a []Value) (res Value) {
 	res, _ = evoke(ctx, d, o, a)
     return
@@ -627,7 +615,7 @@ func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
 
     var pos = value.Position()
     if !pos.IsValid() { pos = _position(ctx) }
-    res = makeStrlit(pos, strings.TrimSpace(stdout.String()))
+    res = _strlit(pos, strings.TrimSpace(stdout.String()))
     stdout.Reset()
     stderr.Reset()
     return
@@ -669,6 +657,7 @@ type undetermined struct {
     value Value
 }
 func (_ *undetermined) kind() Kind { return KindObject|KindUndetermined }
+func (p *undetermined) hash(ctx Context) uint64 { return fnv1(ctx, p, p.token, p.identifier, p.value) }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
 func (p *undetermined) String() (s string) {
     s  = p.identifier.String()
@@ -705,31 +694,27 @@ func (p *undetermined) expand(ctx Context) (res Value) {
 func (p *undetermined) traverse(ctx Context) { }
 func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) stat(ctx Context) (si *statinfo) { return }
-func (p *undetermined) stamp(ctx Context) (files []*File) { return }
-func (p *undetermined) delete(ctx Context) (files []*File) { return }
-func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
-    if a, y := v.(*undetermined); y {
-        assert(y, "value is not undetermined")
-        if p.identifier.cmp(ctx, a.identifier) == cmpEqual {
-            if p.value.cmp(ctx, a.value) == cmpEqual {
-                res = cmpEqual
-            }
+func (p *undetermined) stamp(ctx Context) (files []*file) { return }
+func (p *undetermined) delete(ctx Context) (files []*file) { return }
+func (p *undetermined) patterned(ctx Context) bool { return false }
+func (p *undetermined) match(ctx Context, i any) (_ bool, _ any, _ []string) { return }
+func (p *undetermined) stencil(ctx Context, ss []string) (Value, []string) { return p, ss }
+func (p *undetermined) cmp(ctx Context, v Value) (_ cmpres) {
+    switch x := v.(type) {
+    case *undetermined:
+        if p.identifier.cmp(ctx, x.identifier) == cmpEqual {
+            if p.value.cmp(ctx, x.value) == cmpEqual { return cmpEqual }
         }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        res = p.cmp(ctx, l.elems[0])
+    case *list:
+        if len(x.elems) == 1 { return p.cmp(ctx, x.elems[0]) }
     }
     return
-}
-func (p *undetermined) patterned(ctx Context) bool { return false }
-func (p *undetermined) match(ctx Context, i any) (full bool, s any, stems []string) { return }
-func (p *undetermined) stencil(ctx Context, stems []string) (val Value, rest []string) {
-    return p, stems
 }
 
 const max_expand = 32
 
-func builtinForceField(ctx Context, bv reflect.Value, bi interface{}, force bool) bool {
-    if f := bv.Elem().FieldByName("force"); f.IsValid() && f.Kind() == reflect.Bool {
+func builtinFinalField(ctx Context, bv reflect.Value, bi interface{}, force bool) bool {
+    if f := bv.Elem().FieldByName("final"); f.IsValid() && f.Kind() == reflect.Bool {
         if force {
             if f.CanSet() {
                 f.SetBool(true)
@@ -748,9 +733,12 @@ type skip struct {}
 // A builtin represents a built-in function. builtins don't have a valid type.
 type builtin struct { knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
+func (p *builtin) hash(ctx Context) uint64 { return fnv1(ctx, p, p.name) }
 func (p *builtin) String() string { return p.name }
 func (p *builtin) true(Context) bool { return p.t != nil }
-func (p *builtin) isCommand() bool { return reflect.PointerTo(p.t).Implements(builtin_c_t) }
+func (p *builtin) is_command() bool {
+    return reflect.PointerTo(p.t).Implements(builtin_c_t)
+}
 func (p *builtin) invoke(ctx Context, o, a []Value) (res Value) {
 	res, _ = evoke(ctx, p, o, a)
     return
@@ -759,26 +747,24 @@ func (p *builtin) refs(ctx Context, v Value) (res bool) {
     if o, y := v.(*builtin); y { res = o == p /* || p.name == o.name */ }
     return
 }
-func (p *builtin) benchmark_expand(ctx Context, t0 time.Time, v reflect.Value) {
-    if d := time.Now().Sub(t0); d > 1*time.Second {
-        note(ctx, "%v: slow: %v", p, d).debug(3)
-    } else if f := v.Elem().FieldByName("timing"); !f.IsValid() {
-        if false { note(ctx, "%v: %v", p, d).debug() }
-    } else if f.Type().Kind() == reflect.Bool && f.Bool() {
-        note(ctx, "%v: %v", p, d).debug()
+func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
+    if d := time.Now().Sub(t); d > 2*time.Second {
+        var n = time.Now()
+        var a = xmerge(final{ctx}, ctx.a...)
+        var m = time.Now().Sub(n)
+        notestack(ctx, 5, "slow %v: %v, %v (%d args)", p, d, m, len(a)).debug(5)
+    } else if f := v.Elem().FieldByName("timing"); f.IsValid() {
+        if f.Type().Kind() == reflect.Bool && f.Bool() {
+            notestack(ctx, 5, "%v: %v", p, d).debug(5)
+        }
     }
 }
-func (p *builtin) expand(ctx Context) (res Value) {
-    if evo, y := ctx.(*evocation); y { return p.evoke(evo) }
-    return p
-}
+func (p *builtin) expand(Context) Value { return p }
 func (p *builtin) evoke(ctx *evocation) (res Value) {
     _v := reflect.New(p.t)
     _i := _v.Interface()
 
-    if f := _universe(ctx).benchmark_builtin_expand; f != nil {
-        defer f(p, ctx, time.Now(), _v)
-    }
+    defer p.benchmark(ctx, time.Now(), _v)
 
     if f := _v.Elem().FieldByName("builtin_"); !f.IsValid() {
         erro(ctx, "no such field: %s.builtin_", _v.Elem().Type()).trace()
@@ -803,7 +789,7 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
         }
     }
 
-    var force = /* ex_final(ctx) || */ builtinForceField(ctx, _v, _i, false)
+    var force = /* truly(ctx, propExFinal) || */ builtinFinalField(ctx, _v, _i, false)
 
     if x, y := _i.(builtin_a); y {
         if skip := x.a(); skip && !force { return p }
@@ -834,20 +820,21 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     return
 }
 func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
-    if b, y := v.(*builtin); y {
-        if p.t == b.t /* || p.name == a.name */ { res = cmpEqual }
+    switch t := v.(type) {
+    case *builtin:
+        if p.t == t.t /* || p.name == a.name */ { res = cmpEqual }
         if checkpoints {
             if res != cmpEqual {
-                if p.t == b.t {
+                if p.t == t.t {
                     erro(ctx, "%v", ts(v)).trace()
                 }
-                if p.name == b.name {
+                if p.name == t.name {
                     erro(ctx, "%v", ts(v)).trace()
                 }
             }
         }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        res = p.cmp(ctx, l.elems[0])
+    case *list:
+        if t.len() == 1 { res = p.cmp(ctx, t.elems[0]) }
     }
     return
 }
@@ -856,11 +843,11 @@ type get_entry struct{}
 
 type rule_context struct { Context ; rule *rule }
 func (p *rule_context) Position() Position { return p.rule.Position() }
-func (p *rule_context) cast(t reflect.Type) Context { return implcast(p,t) }
-func (p *rule_context) ts(t string) string {
-    return fmt.Sprintf("{=%s %v %v}", t, p.rule, ts(p.Context))
+func (p *rule_context) cast(t reflect.Type) Context { return implcast(p, t) }
+func (p *rule_context) ts(string) string {
+    return "{=rule "+p.rule.String()+" "+ts(p.Context)+"}"
 }
-func (p *rule_context) do(ctx Context, op any) (_ any) {
+func (p *rule_context) do(ctx Context, op any) any {
     switch op.(type) {
     case get_entry: return p.rule
     }
@@ -873,7 +860,7 @@ type entry interface {
     destiny() Value // aka target
     programs(...*program) []*program
     executer
-    Object
+    object
 }
 
 func hasRecipes(e entry) (_ bool) {
@@ -883,7 +870,7 @@ func hasRecipes(e entry) (_ bool) {
     return
 }
 
-func executeEntry(ctx Context, e entry, args ...Value) ([]Value, bool) {
+func execute_entry(ctx Context, e entry, args ...Value) ([]Value, bool) {
     return e.execute(ctx, args...), true
 }
 
@@ -894,6 +881,7 @@ type rule struct {
     arged []Value
 }
 func (_ *rule) kind() Kind { return KindObject|KindRule }
+func (p *rule) hash(ctx Context) uint64 { return fnv1(ctx, p, p.target) }
 func (p *rule) destiny() Value { return p.target }
 func (p *rule) owner() *project { return p.program[0].project }
 func (p *rule) Position() (_ Position) {
@@ -913,9 +901,9 @@ func (p *rule) programs(a ...*program) []*program {
 }
 func (p *rule) ident(ctx Context) (name string) {
     if p == nil {
-        erro(ctx, "nil entry")
+        erro(ctx, "nil entry").trace()
     } else if p.target == nil {
-        erro(at(ctx,p), "entry target is nil")
+        erro(at(ctx,p), "entry target is nil").trace()
     } else {
         name = p.target.string(ctx)
     }
@@ -924,6 +912,7 @@ func (p *rule) ident(ctx Context) (name string) {
 func (p *rule) true(ctx Context) bool { return p.target.true(ctx) }
 func (p *rule) float(_ Context) (_ float64) { return }
 func (p *rule) int(_ Context) (_ int64) { return }
+func (p *rule) ts(string) string { return "{=rule "+ts(p.target)+"}" }
 func (p *rule) string(ctx Context) string { return p.target.string(ctx) }
 func (p *rule) String() string {
     if p.target == nil { return "<nil entry>" }
@@ -943,7 +932,7 @@ func (p *rule) execute(ctx Context, a ...Value) (result []Value) {
         erro(ctx, "executing pattern entry '%v'", p.target).trace()
     }
 
-    ctx = &rule_context{&argumented_context{at(ctx, p), a}, p}
+    ctx = &rule_context{&argumented_ctx{at(ctx, p), a}, p}
 
     for _, program := range p.program {
         if v := program.execute(at(ctx, p)); v != nil {
@@ -1002,21 +991,16 @@ func (p *rule) expandable(ctx Context) (res bool) {
     return
 }
 func (p *rule) expand(ctx Context) (_ Value) {
-    if _, y := ctx.(*evocation); y {
-        erro(ctx, "should evoke: %v", p).trace()
-    }
-
     var target = p.target.expand(ctx)
     if equal(ctx, target, p.target) { return p }
-
     return &rule{ target, p.program, p.arged }
 }
 func (p *rule) evoke(ctx *evocation) Value {
     ctx.a = expand(ctx, ctx.a...) // to save the changed args
     return ease(ctx, p.execute(ctx, ctx.a...))
 }
-func (p *rule) delete(  ctx Context) (files []*File) { return p.target.delete(ctx) }
-func (p *rule) stamp(   ctx Context) (files []*File) { return p.target.stamp(ctx) }
+func (p *rule) delete(  ctx Context) []*file { return p.target.delete(ctx) }
+func (p *rule) stamp(   ctx Context) []*file { return p.target.stamp(ctx) }
 func (p *rule) traverse(ctx Context) {
     var target = auto_get(ctx, "@")
 
@@ -1052,22 +1036,29 @@ func (p *rule) traverse(ctx Context) {
 
     for _, prog := range p.program {
         var ctx = at(ctx, prog.position)
-        var next bool
+        var done, next bool
         func () {
             defer func() {
-                if t := recover(); t != nil {
-                    if _, next = t.(traverse_next); next { return }
-                    panic(t) // go back unwinding
+                if e := recover(); e != nil {
+                    switch e.(type) {
+                    case traverse_next: next = true
+                    case traverse_done: done = true
+                    default: panic(e) // go back unwinding
+                    }
                 }
             } ()
             if v := prog.execute(ctx); v != nil { do(ctx, act_exe_value{v}) }
         } ()
+        if done { break }
         if next { continue }
     }
     return
 }
+func (p *rule) hit(ctx Context, c *valcache) (*valcache, bool) {
+    return c.hit(ctx, p.target)
+}
 // FIXME: p.target maybe not the real target
-func (p *rule) stat(ctx Context) (si *statinfo) { return p.target.stat(ctx) }
+func (p *rule) stat(ctx Context) *statinfo { return p.target.stat(ctx) }
 func (p *rule) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*rule); y {
         if p.target.cmp(ctx, a.target) == cmpEqual {
@@ -1088,36 +1079,45 @@ func (p *rule) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return
 }
 
-func _stemmed_context(ctx Context) *stemmed_context { return cast[*stemmed_context](ctx) }
+func _stemmed(ctx Context) *stemmed { return cast[*stemmed](ctx) }
 func _stems(ctx Context) (res []string) {
-    if p := _stemmed_context(ctx); p != nil { res = p.stem.stems }
+    res, _ = do(ctx, get_stems{}).([]string)
     return
 }
 
-type stemmed_context struct { Context ; stem *stemmed }
-func (sc *stemmed_context) cast(t reflect.Type) Context { return implcast(sc,t) }
+type get_stems struct {}
 
-type stemmed struct {
+type stemmed struct { Context ; *stemmed_rule }
+func (p *stemmed) hash(ctx Context) uint64 { return fnv1(ctx, p, p.target) }
+func (p *stemmed) cast(t reflect.Type) Context { return implcast(p,t) }
+func (p *stemmed) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case get_stems: return p.stems
+    }
+    return p.Context.do(ctx, op)
+}
+
+type stemmed_rule struct {
     *rule
     target Value
     stems []string
 }
-func (p *stemmed) kind() Kind { return p.rule.kind()|KindStemmedRule }
-func (p *stemmed) destiny() Value { return p.target/* versus p.rule.target */ }
-func (p *stemmed) String() (s string) {
+func (p *stemmed_rule) kind() Kind { return p.rule.kind()|KindStemmedRule }
+func (p *stemmed_rule) destiny() Value { return p.target/* versus p.rule.target */ }
+func (p *stemmed_rule) String() (s string) {
     for i, stem := range p.stems { if i > 0 { s += "," }; s += stem }
     return fmt.Sprintf("%s:%s", p.target, s) // "<%s:%s>"
 }
-func (p *stemmed) expand(ctx Context) (res Value) {
+func (p *stemmed_rule) expand(ctx Context) (res Value) {
     if v := p.rule.expand(ctx); v != p.rule {
-        res = &stemmed{v.(*rule), p.target, p.stems}
+        res = &stemmed_rule{v.(*rule), p.target, p.stems}
     } else {
         res = p
     }
     return
 }
-func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
-    if a, y := v.(*stemmed); y {
+func (p *stemmed_rule) cmp(ctx Context, v Value) (res cmpres) {
+    if a, y := v.(*stemmed_rule); y {
         assert(y, "value is not stemmed")
         if len(p.stems) != len(p.stems) { return }
         for i, stem := range p.stems {
@@ -1129,11 +1129,11 @@ func (p *stemmed) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *stemmed) traverse(ctx Context) {
+func (p *stemmed_rule) traverse(ctx Context) {
     // NOTE: Make a clone of the underlying rule for traversing the real target;
     //       the underlying rule target is readonly, it must not be changed, for
     //       next traversal be done correctly.
     var t = *p.rule // TODO: consider not copying the rule, use pointer instead
     t.target = p.target
-    t.traverse(&stemmed_context{ ctx, p })
+    t.traverse(&stemmed{ ctx, p })
 }

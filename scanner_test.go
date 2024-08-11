@@ -45,8 +45,8 @@ func testInit(t *testing.T) {
     }
 
     _, tok, lit = s.scan() // a
-    if tok != BAREWORD {
-        t.Errorf("bad token: got %s, expected %s", tok, BAREWORD)
+    if tok != WORD {
+        t.Errorf("bad token: got %s, expected %s", tok, WORD)
     }
     if lit != "a" {
         t.Errorf("bad literal: got %s, expected %s", lit, "a")
@@ -61,8 +61,8 @@ func testInit(t *testing.T) {
     }
 
     _, tok, lit = s.scan() // v
-    if tok != BAREWORD {
-        t.Errorf("bad token: got %s, expected %s", tok, BAREWORD)
+    if tok != WORD {
+        t.Errorf("bad token: got %s, expected %s", tok, WORD)
     }
     if lit != "v" {
         t.Errorf("bad literal: got %s, expected %s", lit, "v")
@@ -84,8 +84,8 @@ func testInit(t *testing.T) {
     }
 
     _, tok, lit = s.scan() // abc
-    if tok != BAREWORD {
-        t.Errorf("bad token: got %s, expected %s", tok, BAREWORD)
+    if tok != WORD {
+        t.Errorf("bad token: got %s, expected %s", tok, WORD)
     }
     if lit != "abc" {
         t.Errorf("bad literal: got %s, expected %s", lit, "abc")
@@ -123,36 +123,36 @@ texts = this is a text array
     results := []scanResult{
         { 0, LINEND, "" },
 
-        { 1, BAREWORD, `string1` },
+        { 1, WORD, `string1` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
         {-1, STRING, `a b c $a $b $c 1` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `string2` },
+        {-1, WORD, `string2` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
-        {-1, COMPOUND, `` }, // "a b c $a $b $c 2"
+        {-1, STRCOMP, `` }, // "a b c $a $b $c 2"
         {-1, RAW, `a b c ` },
         {-1, DELEGATE, `` },
-        {-1, BAREWORD, `a` },
+        {-1, WORD, `a` },
         {-1, RAW, ` ` },
         {-1, DELEGATE, `` },
-        {-1, BAREWORD, `b` },
+        {-1, WORD, `b` },
         {-1, RAW, ` ` },
         {-1, DELEGATE, `` },
-        {-1, BAREWORD, `c` },
+        {-1, WORD, `c` },
         {-1, RAW, ` 2` },
         {-1, COMPOSED, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `string3` },
+        {-1, WORD, `string3` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
-        {-1, COMPOUND, `` }, // "a b c \"1 2 3\""
+        {-1, STRCOMP, `` }, // "a b c \"1 2 3\""
         {-1, RAW, `a b c ` },
         {-1, ESCAPE, `"` },
         {-1, RAW, `1 2 3` },
@@ -161,17 +161,17 @@ texts = this is a text array
         {-1, LINEND, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `string_concate` },
+        {-1, WORD, `string_concate` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
         {-1, DELEGATE, `` },
         {-1, LPAREN, `(` },
-        {-1, BAREWORD, `string1` },
+        {-1, WORD, `string1` },
         {-1, RPAREN, `)` },
         {-1, DELEGATE, `` },
         {-1, LPAREN, `(` },
-        {-1, BAREWORD, `string2` },
+        {-1, WORD, `string2` },
         {-1, RPAREN, `)` },
         {-1, LINEND, `` },
         {-1, LINEND, `` },
@@ -182,11 +182,11 @@ texts = this is a text array
 // string line 3
 // """
 //
-//         {-1, BAREWORD, `string4` },
+//         {-1, WORD, `string4` },
 //         {-1, SPACE, ` ` },
 //         {-1, ASSIGN, `` },
 //         {-1, SPACE, ` ` },
-//         {-1, COMPOUND, `` }, // """
+//         {-1, STRCOMP, `` }, // """
 //         {-1, RAW, `
 // string line 1
 // string line 2
@@ -202,11 +202,11 @@ texts = this is a text array
 //     string line 3 \
 //     """
 //
-//         {-1, BAREWORD, `string5` },
+//         {-1, WORD, `string5` },
 //         {-1, SPACE, ` ` },
 //         {-1, ASSIGN, `` },
 //         {-1, SPACE, ` ` },
-//         {-1, COMPOUND, `` }, // """
+//         {-1, STRCOMP, `` }, // """
 //         {-1, STRING, `\
 //     string line 1 \
 //     string line 2 \
@@ -216,64 +216,64 @@ texts = this is a text array
 //         {-1, LINEND, `` },
 //         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `strings` },
+        {-1, WORD, `strings` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
         {-1, STRING, `abc` },
         {-1, SPACE, ` ` },
-        {-1, COMPOUND, `` }, // "xx $(string1) xx"
+        {-1, STRCOMP, `` }, // "xx $(string1) xx"
         {-1, RAW, `xx ` },
         {-1, DELEGATE, `` },
         {-1, LPAREN, `(` },
-        {-1, BAREWORD, `string1` },
+        {-1, WORD, `string1` },
         {-1, RPAREN, `)` },
         {-1, RAW, ` xx` },
         {-1, COMPOSED, `` },
         {-1, LINEND, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `empty1` },
+        {-1, WORD, `empty1` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
         {-1, STRING, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `empty2` },
+        {-1, WORD, `empty2` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
-        {-1, COMPOUND, `` }, // ""
+        {-1, STRCOMP, `` }, // ""
         {-1, COMPOSED, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `empty3` },
+        {-1, WORD, `empty3` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, LINEND, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `text1` },
+        {-1, WORD, `text1` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
-        {-1, BAREWORD, `this-is-a-text` },
+        {-1, WORD, `this-is-a-text` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `texts` },
+        {-1, WORD, `texts` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
-        {-1, BAREWORD, `this` },
+        {-1, WORD, `this` },
         {-1, SPACE, ` ` },
-        {-1, BAREWORD, `is` },
+        {-1, WORD, `is` },
         {-1, SPACE, ` ` },
-        {-1, BAREWORD, `a` },
+        {-1, WORD, `a` },
         {-1, SPACE, ` ` },
-        {-1, BAREWORD, `text` },
+        {-1, WORD, `text` },
         {-1, SPACE, ` ` },
-        {-1, BAREWORD, `array` },
+        {-1, WORD, `array` },
         {-1, LINEND, `` },
     }
     for i, r := range results {
@@ -318,7 +318,7 @@ bin2 = 0b1100110011
     results := []scanResult{
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `integer1` },
+        {-1, WORD, `integer1` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
@@ -326,14 +326,14 @@ bin2 = 0b1100110011
         {-1, INTEGER, `100` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `integer2` },
+        {-1, WORD, `integer2` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
         {-1, INTEGER, `99` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `integer3` },
+        {-1, WORD, `integer3` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
@@ -341,14 +341,14 @@ bin2 = 0b1100110011
         {-1, LINEND, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `integer4` },
+        {-1, WORD, `integer4` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
         {-1, INTEGER, `10_000_000` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `integer5` },
+        {-1, WORD, `integer5` },
         {-1, SPACE, ` ` },
         {-1, ASSIGN, `` },
         {-1, SPACE, ` ` },
@@ -356,34 +356,34 @@ bin2 = 0b1100110011
         {-1, COMMENT, `# VALID but discouraged` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `octal1` },
+        {-1, WORD, `octal1` },
         {-1, ASSIGN, `` },
         {-1, OCTAL, `01234567` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `octal2` },
+        {-1, WORD, `octal2` },
         {-1, ASSIGN, `` },
         {-1, OCTAL, `01_0_000` },
         {-1, LINEND, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `hex1` },
+        {-1, WORD, `hex1` },
         {-1, ASSIGN, `` },
         {-1, HEXADECIMAL, `0x123456789ABCDEF` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `hex2` },
+        {-1, WORD, `hex2` },
         {-1, ASSIGN, `` },
         {-1, HEXADECIMAL, `0xAAAA_BBBB_1111` },
         {-1, LINEND, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `bin1` },
+        {-1, WORD, `bin1` },
         {-1, ASSIGN, `` },
         {-1, BINARY, `0b0011001100` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `bin2` },
+        {-1, WORD, `bin2` },
         {-1, ASSIGN, `` },
         {-1, BINARY, `0b1100110011` },
         {-1, LINEND, `` },
@@ -425,42 +425,42 @@ t7 = 07:32:00.999999
     }
 
     results := []scanResult{
-        {-1, BAREWORD, `t1` },
+        {-1, WORD, `t1` },
         {-1, ASSIGN, `` },
         {-1, DATETIME, `1979-05-27T07:32:00Z` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `t2` },
+        {-1, WORD, `t2` },
         {-1, ASSIGN, `` },
         {-1, DATETIME, `1979-05-27T07:32:00-07:00` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `t3` },
+        {-1, WORD, `t3` },
         {-1, ASSIGN, `` },
         {-1, DATETIME, `1979-05-27T07:32:00.999999-07:00` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `t4` },
+        {-1, WORD, `t4` },
         {-1, ASSIGN, `` },
         {-1, DATETIME, `1979-05-27T07:32:00` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `t5` },
+        {-1, WORD, `t5` },
         {-1, ASSIGN, `` },
         {-1, DATETIME, `1979-05-27T07:32:00.999999` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `d1` },
+        {-1, WORD, `d1` },
         {-1, ASSIGN, `` },
         {-1, DATE, `1979-05-27` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `t6` },
+        {-1, WORD, `t6` },
         {-1, ASSIGN, `` },
         {-1, TIME, `07:32:00` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `t7` },
+        {-1, WORD, `t7` },
         {-1, ASSIGN, `` },
         {-1, TIME, `07:32:00.999999` },
         {-1, LINEND, `` },
@@ -500,45 +500,45 @@ float8 = 6.18_16_18_16
     }
 
     results := []scanResult{
-        {-1, BAREWORD, `float1` },
+        {-1, WORD, `float1` },
         {-1, ASSIGN, `` },
         {-1, PLUS, `` },
         {-1, FLOAT, `1.0` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `float2` },
+        {-1, WORD, `float2` },
         {-1, ASSIGN, `` },
         {-1, FLOAT, `3.1415` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `float3` },
+        {-1, WORD, `float3` },
         {-1, ASSIGN, `` },
         {-1, MINUS, `` },
         {-1, FLOAT, `0.001` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `float4` },
+        {-1, WORD, `float4` },
         {-1, ASSIGN, `` },
         {-1, FLOAT, `5e+22` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `float5` },
+        {-1, WORD, `float5` },
         {-1, ASSIGN, `` },
         {-1, FLOAT, `1e6` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `float6` },
+        {-1, WORD, `float6` },
         {-1, ASSIGN, `` },
         {-1, MINUS, `` },
         {-1, FLOAT, `2E-2` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `float7` },
+        {-1, WORD, `float7` },
         {-1, ASSIGN, `` },
         {-1, FLOAT, `3.1415e-100` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `float8` },
+        {-1, WORD, `float8` },
         {-1, ASSIGN, `` },
         {-1, FLOAT, `6.18_16_18_16` },
         {-1, LINEND, `` },
@@ -578,20 +578,20 @@ array2 = \
     }
 
     results := []scanResult{
-        {-1, BAREWORD, `array1` },
+        {-1, WORD, `array1` },
         {-1, ASSIGN, `` },
-        {-1, BAREWORD, `text1` },
-        {-1, BAREWORD, `text2` },
-        {-1, BAREWORD, `text3` },
+        {-1, WORD, `text1` },
+        {-1, WORD, `text2` },
+        {-1, WORD, `text3` },
         {-1, STRING, `''` },
         {-1, INT, `1` },
         {-1, INT, `2` },
         {-1, INT, `3` },
         {-1, FLOAT, `1.2` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `a` },
-        {-1, BAREWORD, `b` },
-        {-1, BAREWORD, `c` },
+        {-1, WORD, `a` },
+        {-1, WORD, `b` },
+        {-1, WORD, `c` },
         {-1, INT, `1` },
         {-1, INT, `2` },
         {-1, INT, `3` },
@@ -600,11 +600,11 @@ array2 = \
         {-1, RPAREN, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `array2` },
+        {-1, WORD, `array2` },
         {-1, ASSIGN, `` }, // consequence \\n and spaces are ignored
-        {-1, BAREWORD, `text1` },
-        {-1, BAREWORD, `text2` },
-        {-1, BAREWORD, `text3` },
+        {-1, WORD, `text1` },
+        {-1, WORD, `text2` },
+        {-1, WORD, `text3` },
         {-1, STRING, `''` },
         {-1, INT, `1` },
         {-1, INT, `2` },
@@ -644,38 +644,38 @@ map2 = (  k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4  )
     }
 
     results := []scanResult{
-        {-1, BAREWORD, `map1` },
+        {-1, WORD, `map1` },
         {-1, ASSIGN, `` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `k1` },
-        {-1, BAREWORD, `value1` },
+        {-1, WORD, `k1` },
+        {-1, WORD, `value1` },
         {-1, COMMA, `` },
-        {-1, BAREWORD, `k2` },
-        {-1, BAREWORD, `value2` },
+        {-1, WORD, `k2` },
+        {-1, WORD, `value2` },
         {-1, COMMA, `` },
-        {-1, BAREWORD, `k3` },
-        {-1, BAREWORD, `value3` },
+        {-1, WORD, `k3` },
+        {-1, WORD, `value3` },
         {-1, COMMA, `` },
-        {-1, BAREWORD, `k4` },
-        {-1, BAREWORD, `value` },
+        {-1, WORD, `k4` },
+        {-1, WORD, `value` },
         {-1, COMMA, `` },
         {-1, RPAREN, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `map2` },
+        {-1, WORD, `map2` },
         {-1, ASSIGN, `` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `k1` },
-        {-1, BAREWORD, `v1` },
+        {-1, WORD, `k1` },
+        {-1, WORD, `v1` },
         {-1, COMMA, `` },
-        {-1, BAREWORD, `k2` },
+        {-1, WORD, `k2` },
         {-1, STRING, `'v2 v2'` },
         {-1, COMMA, `` },
-        {-1, BAREWORD, `k3` },
+        {-1, WORD, `k3` },
         {-1, STRING, `"v3 v3 v3"` },
         {-1, COMMA, `` },
-        {-1, BAREWORD, `k4` },
-        {-1, BAREWORD, `v4` },
+        {-1, WORD, `k4` },
+        {-1, WORD, `v4` },
         {-1, RPAREN, `` },
         {-1, LINEND, `` },
     }
@@ -716,28 +716,28 @@ $(let ( (a 1e-10) (b 2017-01-18) (c 19:25:30) )
         { 1, COMMENT, `# bare lets` },
         {-1, DELEGATE, `` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `let` },
+        {-1, WORD, `let` },
         {-1, LPAREN, `` },
 
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `a` },
+        {-1, WORD, `a` },
         {-1, STRING, `"value of a"` },
         {-1, RPAREN, `` },
 
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `b` },
+        {-1, WORD, `b` },
         {-1, STRING, `'value of b'` },
         {-1, RPAREN, `` },
 
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `c` },
+        {-1, WORD, `c` },
         {-1, STRING, `'value of c'` },
         {-1, RPAREN, `` },
 
         {-1, RPAREN, `` }, // 'let' enclosed
 
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `print` },
+        {-1, WORD, `print` },
         {-1, STRING, `"$a.$b.$c"` },
         {-1, RPAREN, `` },
 
@@ -746,28 +746,28 @@ $(let ( (a 1e-10) (b 2017-01-18) (c 19:25:30) )
 
         {-1, DELEGATE, `` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `let` },
+        {-1, WORD, `let` },
         {-1, LPAREN, `` },
 
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `a` },
+        {-1, WORD, `a` },
         {-1, FLOAT, `1e-10` },
         {-1, RPAREN, `` },
 
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `b` },
+        {-1, WORD, `b` },
         {-1, DATE, `2017-01-18` },
         {-1, RPAREN, `` },
 
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `c` },
+        {-1, WORD, `c` },
         {-1, TIME, `19:25:30` },
         {-1, RPAREN, `` },
 
         {-1, RPAREN, `` }, // 'let' enclosed
 
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `print` },
+        {-1, WORD, `print` },
         {-1, STRING, `"$a $b $c"` },
         {-1, RPAREN, `` },
 
@@ -805,39 +805,39 @@ v2 = $(concat "a" 'b' c)
     results2 := []scanResult{
         { 1, COMMENT, `# binds` },
 
-        {-1, BAREWORD, `concat` },
+        {-1, WORD, `concat` },
         {-1, ASSIGN, `` },
         {-1, DELEGATE, `` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `bind` },
+        {-1, WORD, `bind` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `a` },
-        {-1, BAREWORD, `b` },
-        {-1, BAREWORD, `c` },
+        {-1, WORD, `a` },
+        {-1, WORD, `b` },
+        {-1, WORD, `c` },
         {-1, RPAREN, `` },
         {-1, STRING, `"$a.$b.$c"` },
         {-1, RPAREN, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `v1` },
+        {-1, WORD, `v1` },
         {-1, ASSIGN, `` },
         {-1, DELEGATE, `` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `concat` },
+        {-1, WORD, `concat` },
         {-1, INT, `1` },
         {-1, INT, `2` },
         {-1, INT, `3` },
         {-1, RPAREN, `` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `v2` },
+        {-1, WORD, `v2` },
         {-1, ASSIGN, `` },
         {-1, DELEGATE, `` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `concat` },
+        {-1, WORD, `concat` },
         {-1, STRING, `"a"` },
         {-1, STRING, `'b'` },
-        {-1, BAREWORD, `c` },
+        {-1, WORD, `c` },
         {-1, RPAREN, `` },
         {-1, LINEND, `` },
     }
@@ -874,22 +874,22 @@ obj/file.o: src/file.c
     results1 := []scanResult{
         { 1, COMMENT, `# rules` },
 
-        {-1, BAREWORD, `prog` },
+        {-1, WORD, `prog` },
         {-1, COLON, `` },
-        {-1, BAREWORD, `obj` },
+        {-1, WORD, `obj` },
         {-1, PCON, `` },
-        {-1, BAREWORD, `file.o` },
+        {-1, WORD, `file.o` },
         {-1, LINEND, `` },
         {-1, RECIPE, `gcc -o $@ $<` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `obj` },
+        {-1, WORD, `obj` },
         {-1, PCON, `` },
-        {-1, BAREWORD, `file.o` },
+        {-1, WORD, `file.o` },
         {-1, COLON, `` },
-        {-1, BAREWORD, `src` },
+        {-1, WORD, `src` },
         {-1, PCON, `` },
-        {-1, BAREWORD, `file.c` },
+        {-1, WORD, `file.c` },
         {-1, LINEND, `` },
         {-1, RECIPE, `gcc -c -o $@ $^` },
         {-1, LINEND, `` },
@@ -931,7 +931,7 @@ start::
     results2 := []scanResult{
         { 1, COMMENT, `# rules` },
 
-        {-1, BAREWORD, `start` },
+        {-1, WORD, `start` },
         {-1, COLON, `` },
         {-1, LINEND, `` },
         {-1, RECIPE, `echo one` },
@@ -941,7 +941,7 @@ start::
         {-1, RECIPE, `echo one` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `start` },
+        {-1, WORD, `start` },
         {-1, DOLON, `` },
         {-1, LINEND, `` },
         {-1, RECIPE, `echo two` },
@@ -951,7 +951,7 @@ start::
         {-1, RECIPE, `echo two` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `start` },
+        {-1, WORD, `start` },
         {-1, DOLON, `` },
         {-1, LINEND, `` },
         {-1, RECIPE, `echo three` },
@@ -990,13 +990,13 @@ start:?:
     results3 := []scanResult{
         { 1, COMMENT, `# rules` },
 
-        {-1, BAREWORD, `start` },
+        {-1, WORD, `start` },
         // {-1, COLON_EXC, `` },
         {-1, LINEND, `` },
         {-1, RECIPE, `echo okay` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `start` },
+        {-1, WORD, `start` },
         // {-1, COLON_QUE, `` },
         {-1, LINEND, `` },
         {-1, RECIPE, `test src/file.c` },
@@ -1033,25 +1033,25 @@ start:?[shell]:
     results4 := []scanResult{
         { 1, COMMENT, `# brack rules` },
 
-        {-1, BAREWORD, `start` },
+        {-1, WORD, `start` },
         // {-1, COLON_LBK, `` },
-        {-1, BAREWORD, `shell` },
+        {-1, WORD, `shell` },
         // {-1, COLON_RBK, `` },
         {-1, LINEND, `` },
         {-1, RECIPE, `echo okay` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `start` },
+        {-1, WORD, `start` },
         // {-1, COLON_LBE, `` },
-        {-1, BAREWORD, `shell` },
+        {-1, WORD, `shell` },
         // {-1, COLON_RBK, `` },
         {-1, LINEND, `` },
         {-1, RECIPE, `echo okay okay` },
         {-1, LINEND, `` },
 
-        {-1, BAREWORD, `start` },
+        {-1, WORD, `start` },
         // {-1, COLON_LBQ, `` },
-        {-1, BAREWORD, `shell` },
+        {-1, WORD, `shell` },
         // {-1, COLON_RBK, `` },
         {-1, LINEND, `` },
         {-1, RECIPE, `test ok ok` },
@@ -1088,13 +1088,13 @@ instance
     }
     results1 := []scanResult{
         {-1, PROJECT, `project` },
-        {-1, BAREWORD, `A` },
+        {-1, WORD, `A` },
         {-1, LINEND, `` },
 
         {-1, INCLUDE, `include` },
-        {-1, BAREWORD, `modules` },
+        {-1, WORD, `modules` },
         {-1, PCON, `` },
-        {-1, BAREWORD, `foo.smart` },
+        {-1, WORD, `foo.smart` },
         {-1, LINEND, `` },
 
         {-1, INSTANCE, `instance` },
@@ -1129,20 +1129,20 @@ use (
     }
     results2 := []scanResult{
         {-1, MODULE, `module` },
-        {-1, BAREWORD, `M1` },
+        {-1, WORD, `M1` },
         {-1, LINEND, `` },
 
         {-1, USE, `use` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `M2` },
-        {-1, BAREWORD, `M3` },
+        {-1, WORD, `M2` },
+        {-1, WORD, `M3` },
         {-1, RPAREN, `` },
         {-1, LINEND, `` },
 
         {-1, USE, `use` },
         {-1, LPAREN, `` },
-        {-1, BAREWORD, `M4` },
-        {-1, BAREWORD, `M5` },
+        {-1, WORD, `M4` },
+        {-1, WORD, `M5` },
         {-1, RPAREN, `` },
         {-1, LINEND, `` },
     }

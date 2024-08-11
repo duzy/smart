@@ -32,13 +32,12 @@ type generalOpts struct {
     debug    int  `d,db,dbg,debug` // NOTE: compatible with 'bool'
     stack    int  `stack,stacknum,stack-num,stack-number`
     fail     bool `fail` // fail on errors
-    force    bool `force,forth` // force expand
+    final    bool `final` // final expand - NOTE: see builtinFinalField
     fullname bool `full,fullname,full-name,fullfile,full-file`
     silent   bool `silent` // force silent, contrast 'verbose'
     timing   bool `time,timing`
-    trace    bool `trace`
     verbose  bool `verb,verbose` // prompts more information
-    warn     bool `warn,warning` // prompts more warnings
+    warning  bool `warn,warning` // prompts more warnings
 }
 
 type modifier_ struct { Context ; generalOpts }
@@ -183,6 +182,7 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
 
 type modifier struct { group }
 func (m *modifier) kind() Kind { return m.group.kind()|KindModifier }
+func (m *modifier) hash(ctx Context) uint64 { return fnv1(ctx, m, m.any()...) }
 func (m *modifier) cmp(ctx Context, v Value) (res cmpres) {
     if o, y := v.(*modifier); y { res = m.group.cmp(ctx, &o.group) }
     return
@@ -190,19 +190,16 @@ func (m *modifier) cmp(ctx Context, v Value) (res cmpres) {
 func (m *modifier) expandable(ctx Context) (res bool) { return m.group.expandable(ctx) }
 func (m *modifier) expand(ctx Context) Value { return modify(ctx, &m.group, false) }
 func (m *modifier) string(ctx Context) string { return m.expand(final{ctx}).string(ctx) }
-func (m *modifier) traverse(ctx Context) { ctx = at(ctx, m.position)
+func (m *modifier) traverse(ctx Context) {
+    ctx = at(ctx, m.position)
+
     var name = m.elems[0].string(ctx)
     if name == "" {
         erro(at(ctx,m.elems[0]), "empty name: %v", m.elems[0]).trace()
     }
 
-    if false { defer func(t0 time.Time) { var n time.Duration = 1*time.Second
-        switch name { case "shell", "sh": n = 60*time.Second }
-        if d := time.Now().Sub(t0); d > n { note(ctx, "slow: %v ⇒ %v\n", m, d).debug() }
-    }(time.Now())}
-
-    var pc, prog = _execution(ctx), _program(ctx)
-    if len(pc.interpreted) == 0 && len(prog.recipes) > 0 && name == "configure" {
+    var pc, pg = _execution(ctx), _program(ctx)
+    if len(pc.interpreted) == 0 && len(pg.recipes) > 0 && name == "configure" {
         if i, y := dialects["eval"]; y && i != nil { pc.interpret(ctx, i, m.elems[1:]) }
     } else if i, y := dialects[name]; y && i != nil {
         pc.interpret(ctx, i, m.elems[1:])
@@ -219,6 +216,11 @@ type modification struct {
     list []*modifier
 }
 func (_ *modification) kind() Kind { return KindModification }
+func (g *modification) hash(ctx Context) uint64 {
+    var a []any
+    for _, m := range g.list { a = append(a, m) }
+    return fnv1(ctx, g, a...)
+}
 func (g *modification) cmp(ctx Context, v Value) (res cmpres) {
     if o, y := v.(*modification); y && len(g.list) == len(o.list) {
         for i, m := range g.list {
@@ -310,7 +312,7 @@ type modifier_debug struct { modifier_
     s int `s,stack,sn,stack-number`
     n int `c,count,n,num,cn,call-number`
 }
-func (ctx *modifier_debug) x(args ...Value) (result interface{}) {
+func (ctx *modifier_debug) x(args ...Value) (result any) {
     if ctx.cond != nil && !ctx.cond.true(ctx) { return }
     if ctx.s == 0 && ctx.stack > 0 { ctx.s = ctx.stack }
     if ctx.n == 0 && ctx.debug > 0 { ctx.n = ctx.debug }
@@ -360,73 +362,79 @@ type modifier_print struct { modifier_
     stderr bool `e,stderr` // TODO: = true
     reset  bool `r,reset`
 }
-func (ctx *modifier_print) x(args ...Value) (result interface{}) {
+func (ctx *modifier_print) x(args ...Value) (result any) {
     var content string
     if val := auto_get(ctx, "-"); val != nil { content = val.string(ctx) }
     if ctx.stdout { fmt.Fprint(stdout, content) }
     if ctx.stderr { fmt.Fprint(stderr, content) }
-    if ctx.reset  { auto_set(ctx, "-", makeNone(_position(ctx))) }
+    if ctx.reset  { auto_set(ctx, defVoid, "-", makeNone(_position(ctx))) }
     return
 }
 
 type modifier_prompt struct { modifier_ }
-func (ctx *modifier_prompt) x(args ...Value) (result interface{}) {
-    for _, a := range args { prompt(ctx, "%s\n", a.string(ctx)) }
-    if len(args) == 0 { if h := auto_get(ctx, "-"); h != nil {
-        prompt(ctx, "%s\n", h.string(ctx))
-    }}
+func (ctx *modifier_prompt) x(args ...Value) (result any) {
+    if len(args) == 0 {
+        if h := auto_get(ctx, "-"); h != nil {
+            prompt(ctx, "%s\n", h.string(ctx))
+        }
+    } else {
+        for _, a := range args { prompt(ctx, "%s\n", a.string(ctx)) }
+    }
     return
 }
 
 type modifier_preserve struct { modifier_ }
-func (ctx *modifier_preserve) v(args ...Value) (result interface{}) {
+func (ctx *modifier_preserve) v(args ...Value) (result any) {
     return args
 }
 
 type modifier_expand struct { modifier_ }
-func (ctx *modifier_expand) v(args ...Value) (result interface{}) {
+func (ctx *modifier_expand) v(args ...Value) (result any) {
     result = expand(ctx, args...)
     return
 }
 
 type modifier_plain struct { modifier_ }
-func (ctx *modifier_plain) v(args ...Value) (result interface{}) {
-    result = expand(ctx, args...) // plain
+func (ctx *modifier_plain) v(args ...Value) (result any) {
+    result = expand(final{ctx}, args...) // plain
     return
 }
 
 type modifier_stringify struct { modifier_ }
-func (ctx *modifier_stringify) v(args ...Value) (result interface{}) {
-    result = expand(ctx, args...) // final
+func (ctx *modifier_stringify) v(args ...Value) (result any) {
+    result = expand(final{ctx}, args...)
     return
 }
 
 type modifier_reveal struct { modifier_ }
-func (ctx *modifier_reveal) v(args ...Value) (result interface{}) {
-    result = expand(ctx, args...) // expandDef1
+func (ctx *modifier_reveal) v(args ...Value) (result any) {
+    result = expand(original{ctx,defExpand1}, args...)
     return
 }
 
 type modifier_disclose struct { modifier_ }
-func (ctx *modifier_disclose) v(args ...Value) (result interface{}) {
-    result = expand(ctx, args...) // expandDef2
+func (ctx *modifier_disclose) v(args ...Value) (result any) {
+    result = expand(original{ctx,defExpand2}, args...)
     return
 }
 
 // select element by index from group result: (select 0)
 type modifier_select struct { modifier_ }
-func (ctx *modifier_select) x(args ...Value) (result interface{}) {
-    args = xmerge(ctx, args...)
+func (ctx *modifier_select) x(args ...Value) (_ any) {
     if h := auto_get(ctx, "-"); h == nil {
         erro(ctx, "no pipe value $-").trace()
-    } else if g, ok := h.(*group); ok && len(args) > 0 {
-        result = g.at(int(args[0].int(ctx)))
+    } else if x, y := h.(*group); y {
+        var vals []Value
+        for _, a := range xmerge(ctx, args...) {
+            vals = append(vals, x.at(int(a.int(ctx))))
+        }
+        return vals
     }
     return
 }
 
 type modifier_env struct { modifier_ }
-func (ctx *modifier_env) x(args ...Value) (result interface{}) {
+func (ctx *modifier_env) x(args ...Value) (result any) {
     args = xmerge(ctx, args...)
 
     if pc := _execution(ctx); pc != nil {
@@ -457,7 +465,7 @@ func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
         var name string
         var value Value
         switch a := arg.(type) {
-        case *bareword: name = a.s
+        case *word: name = a.s
         case *pair: // NOTE: pair.Value is not expanded, need to do it again.
             name, value = a.key.string(ctx), a.val.expand(final{ctx})
             if value == nil { value = a.val }
@@ -468,7 +476,7 @@ func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
             erro(ctx, "%v is unsupported (try: foo=value)", ts(arg)).trace()
         }
 
-        var d, _ = auto_set(ctx, name, value)
+        var d, _ = auto_set(ctx, defVoid, name, value)
         if d == nil {
             erro(ctx, "no auto set: %v : %v", name, ts(ctx)).trace()
         }
@@ -493,7 +501,7 @@ func (ctx *modifier_defer) x(args ...Value) (_ interface{}) {
 type modifier_setDirtyPats struct { modifier_
     pats []Value
 }
-func (ctx *modifier_setDirtyPats) x(args ...Value) (result interface{}) {
+func (ctx *modifier_setDirtyPats) x(args ...Value) (result any) {
     var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
     if y { ctx.pats = parseOpts(final{ctx}, opts, args...) }
     return
@@ -505,7 +513,7 @@ type modifier_closure struct { modifier_
     // depFirst bool `<,dep-first` // TODO: -<=value
     // depLast  bool `>,dep-last` // TODO: ->=value
 }
-func (ctx *modifier_closure) x(pc *execution, args ...Value) (result interface{}) {
+func (ctx *modifier_closure) x(pc *execution, args ...Value) (result any) {
     // Closure the caller program, the context will be restored when execution is finished.
     var cc = pc.Context
     pc.Context = closure_with(cc)
@@ -528,7 +536,7 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result interface{}
         if !noop && isTrivial(t) { t = auto_get(ctx, name)  }
 
         if t != nil {
-            auto_set(ctx, name, t) // aka (set @=&@)
+            auto_set(ctx, defVoid, name, t) // aka (set @=&@)
         } else if !noop {
             errostack(ctx, 3, "%v: %s is nil", proj, name).trace()
         }
@@ -547,7 +555,7 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result interface{}
         note(ctx, "%v: @: %v ⇒ %v %v", proj, ctx.target, typeof(t), t).debug(3)
     }
     if target != nil {
-        var ( t = as{set("@", target)} ; f *File ; s string ; y bool ; n int )
+        var ( t = as{set("@", target)} ; f *file ; s string ; y bool ; n int )
         if f, s, y = t.fullnameFile(ctx); !y {
             s = t.string(ctx)
         } else {
@@ -586,7 +594,7 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result interface{}
 }
 
 type modifier_for struct { modifier_ }
-func (ctx *modifier_for) x(args ...Value) (result interface{}) {
+func (ctx *modifier_for) x(args ...Value) (result any) {
     // TODO: ...
     return
 }
@@ -596,7 +604,7 @@ type modifier_cd struct{ modifier_
     printEnter bool `print-enter`
     printLeave bool `print-leave`
 }
-func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
+func (ctx *modifier_cd) x(args ...Value) (result any) {
     // if false && ctx.printEnter { promptEnteringDirectory(ctx) }
     // if false && ctx.printLeave { promptLeavingDirectory(ctx) }
     if (ctx.printEnter || ctx.printLeave) && len(args) == 0 { return }
@@ -626,7 +634,7 @@ func (ctx *modifier_cd) x(args ...Value) (result interface{}) {
 type modifier_mkdir struct { modifier_
     mode os.FileMode `mode`
 }
-func (ctx *modifier_mkdir) x(args ...Value) (result interface{}) {
+func (ctx *modifier_mkdir) x(args ...Value) (result any) {
     if ctx.mode == 0 {
         ctx.mode = os.FileMode(0755)
     } else {
@@ -637,7 +645,7 @@ func (ctx *modifier_mkdir) x(args ...Value) (result interface{}) {
     }}
     for _, a := range xmerge(ctx, args...) { //, final
         var s string
-        if f, y := a.(*File); y {
+        if f, y := a.(*file); y {
             s = f.fullname()
         } else {
             s = a.string(ctx)
@@ -655,7 +663,7 @@ func (ctx *modifier_mkdir) x(args ...Value) (result interface{}) {
 }
 
 type modifier_sudo struct { modifier_ }
-func (ctx *modifier_sudo) x(args ...Value) (result interface{}) {
+func (ctx *modifier_sudo) x(args ...Value) (result any) {
     erro(at(ctx,ctx), "TODO: sudo modifier is not implemented yet").trace()
     return
 }
@@ -668,13 +676,13 @@ func parseDependList(ctx Context, dependList *list) (depends *list) {
             if dl := parseDependList(ctx, d); dl != nil {
                 depends.elems = append(depends.elems, dl.elems...)
             }
-        case *execResult:
+        case *exec_result:
             if d.Status != 0 {
                 erro(ctx, "bad status %v", d.Status).trace()
             } else {
                 depends.append(d)
             }
-        case *rule, *strlit, *File:
+        case *rule, *strlit, *file:
             depends.append(d)
         default:
             erro(ctx, "unsupported entry depend `%v' (%v)", depend, _program(ctx).depends).trace()
@@ -730,8 +738,8 @@ func init () {
 
 var grepCacheFilebase = make(map[*filebase]*grepCacheFiles)
 type grepCacheFiles struct {
-    file *File
-    list []*File
+    file *file
+    list []*file
 }
 type greptouch struct {
     files []Value
@@ -747,7 +755,7 @@ type grepctx struct {
     rxs []*greprex
     done map[string]int
     savedGrepFileName string
-    savedGrepFile *File
+    savedGrepFile *file
     save *bufio.Writer
 }
 type greprex struct{ string ; bool ; *regexp.Regexp }
@@ -758,8 +766,8 @@ func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
     }
     var tt time.Time = g.targetInfo.ModTime()
     for _, val := range g.files {
-        var file *File
-        if file, _ = toFile(val); file == nil {
+        var file *file
+        if file, _ = to_file(val); file == nil {
             erro(ctx, "'%v' is not file (%T)", val, val).trace()
         }
         if file.info == nil && !file.isSysFile() {
@@ -779,14 +787,14 @@ func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
     }
     return
 }
-func (g *grepctx) isTargetFile(ctx Context, file *File) (res bool) {
+func (g *grepctx) isTargetFile(ctx Context, file *file) (res bool) {
     if file == nil {
         // ...
     } else if g.target.Value == file {
         res = true
     } else if s, _ := g.target.fullnameOrFinal(ctx); s == g.targetFullName {
         res = true
-    } else if f, y := toFile(g.target.Value); y && f.ident(ctx) == file.ident(ctx) {
+    } else if f, y := to_file(g.target.Value); y && f.ident(ctx) == file.ident(ctx) {
         res = true
     }
     return
@@ -832,20 +840,20 @@ func saveGrepCache(ctx Context) {
         if len(l) == 0 { continue }
         fmt.Fprintf(w, ":%s\n", k)
         for _, v := range l {
-            var file, ok = toFile(v)
+            var file, ok = to_file(v)
             if !ok { continue }
             fmt.Fprintf(w, "%s|%s|%s\n", file.ident(ctx), file.sub, file.dir)
         }
     }
 }
 
-func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name string) (res *File) {
+func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name string) (res *file) {
     var isAbs, isRel bool
     if isAbs = filepath.IsAbs(name); isAbs {
         res = stat(ctx, name, stat_nonexist{true})
     } else if isRel = isRelPath(name); isRel { // relative to targetDir
         res = stat(ctx, name, stat_dir{gc.targetDir}, stat_nonexist{true})
-    } else if res = file(ctx, name); res != nil && res.exists() {
+    } else if res = findfile(ctx, name); res != nil && res.exists() {
         return // found existed file
     }
 
@@ -875,7 +883,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
 
     // Search 'name.xxx' and check dir for
     // 'foo/bar' suffix. We use it if found.
-    alt = file(ctx, filepath.Base(name))
+    alt = findfile(ctx, filepath.Base(name))
     if alt != nil && strings.HasSuffix(alt.dir, pathSep+s) {
         dir := strings.TrimSuffix(alt.dir, pathSep+s)
         ok1 := alt.change(dir, s, alt.ident(ctx)) // <dir>, foo/bar, name.xxx
@@ -900,7 +908,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
     return
 }
 
-func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string) (file *File, err error) {
+func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string) (file *file, err error) {
     if file = searchGreppedName(ctx, gp, gc, sys, name); file == nil {
         // The 'name' is not matching the files database.
         if gc.discard { return }
@@ -944,7 +952,7 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
     return
 }
 
-func tempFile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file *File, err error) {
+func tempfile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file *file, err error) {
     var nameHash = sha256.New() // HashByte -> [sha256.Size]byte
     if _, err = fmt.Fprint(nameHash, prefix, hashee0); err != nil {
         erro(ctx, "hashing failed: %v", err).trace()
@@ -959,7 +967,7 @@ func tempFile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file
         // .deps/??/??/????????????????????????????????????????????????????????????
         // .grep/??/??/????????????????????????????????????????????????????????????
         // .cache/??/??/????????????????????????????????????????????????????????????
-        file = project.tempFile(ctx, filepath.Join(prefix, // e.g. ".deps", ".grep"
+        file = project.tempfile(ctx, filepath.Join(prefix, // e.g. ".deps", ".grep"
             fmt.Sprintf("%x", nameSum[ :1]),
             fmt.Sprintf("%x", nameSum[1:2]),
             fmt.Sprintf("%x", nameSum[2: ]),
@@ -977,7 +985,7 @@ func removeTempDirs(ctx Context, cleanDirs ...string) {
         if  clean || uni.cleanDotGrep  { cleanDirs = append(cleanDirs, ".grep") }
     }
     for _, dir := range cleanDirs {
-        if file, err := tempFile(ctx, dir, ""); err != nil {
+        if file, err := tempfile(ctx, dir, ""); err != nil {
             erro(ctx, "%v", err).trace()
         } else if s := file.fullname(); s == "" {
             erro(ctx, `"%v" has no fullname`, file).trace()
@@ -994,9 +1002,9 @@ func removeTempDirs(ctx Context, cleanDirs ...string) {
 }
 
 func getSavedDepsFileName(ctx Context, targetFullName string, strs []string) (filename string, err error) {
-    var ( file *File; hashees []interface{} )
+    var ( file *file; hashees []interface{} )
     for _, s := range strs { hashees = append(hashees, s) }
-    if file, err = tempFile(ctx, ".deps", targetFullName, hashees...); err != nil {
+    if file, err = tempfile(ctx, ".deps", targetFullName, hashees...); err != nil {
         erro(ctx, "get .deps temp file failed: %v", err).trace()
     } else {
         filename, _ = as{file}.fullnameOrFinal(ctx)
@@ -1005,8 +1013,8 @@ func getSavedDepsFileName(ctx Context, targetFullName string, strs []string) (fi
 }
 
 func getSavedGrepFileName(ctx Context, targetFullName string) (filename string, err error) {
-    var ( file *File )
-    if file, err = tempFile(ctx, ".grep", targetFullName); err != nil {
+    var ( file *file )
+    if file, err = tempfile(ctx, ".grep", targetFullName); err != nil {
         erro(ctx, "get .grep temp file failed: %v", err).trace()
     } else {
         filename, _ = as{file}.fullnameOrFinal(ctx)
@@ -1021,14 +1029,14 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
         return // No saved grepfile yet!
     }
 
-    var file, ok = toFile(gc.target)
+    var f, ok = to_file(gc.target)
     if !ok {
-        file = stat(ctx, gc.targetFullName)
-        if file != nil { gc.target.Value = file }
+        f = stat(ctx, gc.targetFullName)
+        if f != nil { gc.target.Value = f }
     }
-    if file != nil && file.info != nil {
+    if f != nil && f.info != nil {
         // Check previously saved grep file into.
-        if file.info.ModTime().After(gc.savedGrepFile.info.ModTime()) {
+        if f.info.ModTime().After(gc.savedGrepFile.info.ModTime()) {
             return
         }
     }
@@ -1049,12 +1057,12 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
         var s = scanner.Text() //gp.Line += 1
         var ( sys int; name string )
         if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &gp.Line, &gp.Column, &name); e == nil && n == 4 {
-            var file *File
-            if file, err = searchGrepped(ctx, gp, gc, sys == 1, name); err != nil {
+            var f *file
+            if f, err = searchGrepped(ctx, gp, gc, sys == 1, name); err != nil {
                 erro(ctx, "search grepped filename failed: %v", err).trace()
-            } else if file != nil {
-                file.position = gp
-                if gc.isTargetFile(ctx, file) { continue }
+            } else if f != nil {
+                f.position = gp
+                if gc.isTargetFile(ctx, f) { continue }
             } else if sys != 1 && !gc.discard {
                 warn(at(ctx,gp), "%s is nil file", name)
                 warn(ctx, "grepped %s is nil", name)
@@ -1069,10 +1077,10 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
 }
 
 func grepTargetFile(ctx Context, gc *grepctx) (err error) {
-    var ( file *os.File )
-    if file, err = os.Open(gc.targetFullName); err != nil {
+    var ( f *os.File )
+    if f, err = os.Open(gc.targetFullName); err != nil {
         erro(ctx, "%v", err).trace()
-    } else { defer func() { err = file.Close() } () }
+    } else { defer func() { err = f.Close() } () }
 
     for _, x := range gc.rxs {
         if x.Regexp != nil {
@@ -1086,22 +1094,22 @@ func grepTargetFile(ctx Context, gc *grepctx) (err error) {
     gp.Filename = gc.targetFullName
 
 
-    scanner := bufio.NewScanner(file)
+    scanner := bufio.NewScanner(f)
     scanner.Split(bufio.ScanLines)
 ForScan:
     for scanner.Scan() {
         var s = scanner.Text(); gp.Line += 1
         for _, x := range gc.rxs {
             if sm := x.FindStringSubmatch(s); len(sm) > 1 && sm[1] != "" {
-                var ( file *File ; name = sm[1]; sys = x.bool ) //strings.IndexFunc(s, isNotSpace)
+                var ( f *file ; name = sm[1]; sys = x.bool ) //strings.IndexFunc(s, isNotSpace)
                 if gp.Column = strings.Index(s, name); gc.save != nil {
                     var d = 0 ; if sys { d = 1 } // system files
                     fmt.Fprintf(gc.save, "%d %d %d %s\n", d, gp.Line, gp.Column, name)
                 }
-                if file, err = searchGrepped(ctx, gp, gc, sys, name); err != nil {
+                if f, err = searchGrepped(ctx, gp, gc, sys, name); err != nil {
                     erro(ctx, "search grepped '%s' failed: %v", name, err).trace()
-                } else if file != nil {
-                    if file.position = gp; gc.isTargetFile(ctx, file) { continue }
+                } else if f != nil {
+                    if f.position = gp; gc.isTargetFile(ctx, f) { continue }
                 } else if !sys && !gc.discard {
                     warn(at(ctx,gp), "%s is nil file", name)
                     warn(ctx, "grepped %s is nil", name)
@@ -1117,7 +1125,7 @@ ForScan:
 func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() to replace grepctx
     var targetName string
     switch v := gc.target.Value.(type) {
-    case *File:
+    case *file:
         targetName = v.ident(ctx)
         gc.targetInfo = v.info
         gc.targetFullName = v.fullname()
@@ -1277,7 +1285,7 @@ type modifier_grep struct { modifier_
     recursive bool `a,all;r,recur;rr,recursive`
     noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
 }
-func (ctx *modifier_grep) x(args ...Value) (result interface{}) {
+func (ctx *modifier_grep) x(args ...Value) (result any) {
     var uni = _universe(ctx)
     if false && uni.noDepsGrep || uni.noGrep { return }
 
@@ -1357,7 +1365,7 @@ func (ctx *modifier_grep) x(args ...Value) (result interface{}) {
     pc.grepped = grepped
 
     if !gc.noTraverse {
-        auto_set(ctx.Context, "~", makeNone(_position(ctx)))
+        auto_set(ctx.Context, defVoid, "~", makeNone(_position(ctx)))
         pc.grepped = nil
     } else {
         result = ease(ctx, pc.grepped)
@@ -1372,7 +1380,7 @@ func (ctx *dep_context) cast(t reflect.Type) (c Context) {
     return ctx.diagnostic.cast(t)
 }
 
-func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *File, savedDepsFileName, deps string) (files []Value) {
+func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *file, savedDepsFileName, deps string) (files []Value) {
     const parallel = true
     var (
         proj = _project(ctx)
@@ -1381,7 +1389,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         firstWord string
         err error
     )
-    var findDepFile = func(name string) (file *File) {
+    var findDepFile = func(name string) (file *file) {
         if filepath.IsAbs(name) {
             file = stat(ctx, name, stat_nonexist{true})
         } else if file = proj.file(ctx, name); file != nil && file.exists() {
@@ -1395,7 +1403,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *Fi
         if fullname == targetFullName { return true }
         return
     }
-    var addFile = func(file *File) {
+    var addFile = func(file *file) {
         filesMux.Lock()
         files = append(files, file)
         filesMux.Unlock()
@@ -1545,7 +1553,7 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
     } else if files = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, string(savedDepsBytes)); len(files) > 0 {
         if false { info(ctx, "loaded deps %s (%d files)", savedDepsFileName, len(files)).debug() }
         var savedDepsFileModTime = savedDepsFile.info.ModTime()
-        for _, val := range files { if file, ok := toFile(val); !ok {
+        for _, val := range files { if file, ok := to_file(val); !ok {
             // ignore
         } else if file.info.ModTime().After(savedDepsFileModTime) {
             files = nil // need to reload if outdated
@@ -1598,7 +1606,7 @@ type modifier_deps struct { modifier_
     flags []Value `f,flags,o,opts`
     cc string `cc,compiler`
 }
-func (ctx *modifier_deps) x(args ...Value) (result interface{}) {
+func (ctx *modifier_deps) x(args ...Value) (result any) {
     var uni = _universe(ctx)
     if uni.noDepsGrep || uni.noDeps { return }
 
@@ -1704,7 +1712,7 @@ CorrectCC:
             erro(ctx, "empty saved deps file name: %v", savedDepsFileName).trace()
         }
 
-        var savedDepsFile *File = nil//stat(ctx, savedDepsFileName)
+        var savedDepsFile *file = nil//stat(ctx, savedDepsFileName)
         if files = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, stdout.String()); len(files) == 0 {
             warn(ctx, "parse deps file failed").debug() // not saving if failed
         } else if err = os.MkdirAll(filepath.Dir(savedDepsFileName), os.FileMode(0755)); err != nil {
@@ -1727,10 +1735,10 @@ type modifier_touch struct { modifier_
     path bool `p,path`
     mode os.FileMode `m,mode`
 }
-func (ctx *modifier_touch) x(args ...Value) (result interface{}) {
+func (ctx *modifier_touch) x(args ...Value) (result any) {
     if len(args) == 0 { if val := auto_get(ctx, "@"); val != nil { args = append(args, val) }}
 
-    var files []*File
+    var files []*file
     for _, arg := range args {
         if err := touch(ctx, arg, uint32(ctx.mode), ctx.path); err != nil {
             erro(ctx, "touch '%v' failed: %v", arg, err).trace()
@@ -1764,7 +1772,7 @@ type modifier_check struct { modifier_
     dir Value `dir`
 }
 
-func (ctx *modifier_check) x(args ...Value) (result interface{}) {
+func (ctx *modifier_check) x(args ...Value) (result any) {
     var (
         pos = _position(ctx)
         makeResult func(bool) Value // returns results only if non-nil
@@ -1779,18 +1787,18 @@ func (ctx *modifier_check) x(args ...Value) (result interface{}) {
         (ctx.silent)) { makeResult = func(v bool) Value { return makeBoolean(pos, v) } }
 
     var checkFile = func (val Value, dir bool) {
-        var ( s string; f *File )
+        var ( s string; f *file )
         if v, y := val.(*boolean); y {
             if v.bool { val = auto_get(ctx, "@") } else { val = nil }
         }
 
         if val == nil {
             erro(ctx, "nil file value to check").trace()
-        } else if f, res = toFile(val); res {
+        } else if f, res = to_file(val); res {
             // best case
         } else if s = val.string(ctx); filepath.IsAbs(s) {
             if f = stat(at(ctx, val), s); f != nil { res = true }
-        } else if f = file(ctx, s); f != nil { res = true }
+        } else if f = findfile(ctx, s); f != nil { res = true }
 
         if f != nil {
             if !dir || ctx.regular { res = f.exists()
@@ -1834,7 +1842,7 @@ ForPairs:
         var key, str string
         switch key = p.key.string(ctx); key {
         case "status":
-            var exeres, _ = value.(*execResult)
+            var exeres, _ = value.(*exec_result)
             if exeres == nil {
                 erro(at(ctx,value), "value '%v' (%T) is not exec result", value, value).trace()
             } else { /*exeres.wg.Wait()*/ }
@@ -1868,7 +1876,7 @@ ForPairs:
                 break ForPairs
             }
         case "stdout", "stderr":
-            var exeres, _ = value.(*execResult)
+            var exeres, _ = value.(*exec_result)
             if exeres == nil {
                 erro(at(ctx,value), "value '%v' (%T) is not exec result", value, value).trace()
             } else { /*exeres.wg.Wait()*/ }
@@ -1907,14 +1915,14 @@ ForPairs:
                 break ForPairs
             }
         case "file", "dir": // file=xxx and dir=xxx, same as -file=xxx and -dir=xxx
-            var ( f *File; res bool )
-            if f, res = toFile(p.val); res {
+            var ( f *file; res bool )
+            if f, res = to_file(p.val); res {
                 // ok
             } else if str = p.val.string(ctx); filepath.IsAbs(str) {
                 if f = stat(at(ctx, p.val), str); f != nil {
                     // ok
                 }
-            } else if f = file(ctx, str); f != nil {
+            } else if f = findfile(ctx, str); f != nil {
                 // ok
             }
             switch key {
@@ -1985,8 +1993,8 @@ func copyRegular(ctx Context, src, dst string, opts *copyopts) (err error) {
     defer func(v1, v2 Value) { def1.value, def2.value = v1, v2 } (def1.value, def2.value)
 
     var pos = _position(ctx)
-    def1.value = makeStrlit(pos, dst)
-    def2.value = makeStrlit(pos, src)
+    def1.value = _strlit(pos, dst)
+    def2.value = _strlit(pos, src)
 
     var head, foot string
     if opts.head != nil { head = opts.head.string(ctx) }
@@ -2097,7 +2105,7 @@ type modifier_copyfile struct { modifier_
     head Value "h,head"
     foot Value "f,foot"
 }
-func (ctx *modifier_copyfile) x(args ...Value) (result interface{}) {
+func (ctx *modifier_copyfile) x(args ...Value) (result any) {
     var target Value
     var source Value
     if len(args) > 0 {
@@ -2118,7 +2126,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result interface{}) {
         filetime, srctime time.Time
     )
     switch tv := target.(type) {
-    case *File:
+    case *file:
         if filename = tv.fullname(); tv.info != nil {
             filetime = tv.info.ModTime()
         }
@@ -2132,7 +2140,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result interface{}) {
         }
     }
     switch tv := source.(type) {
-    case *File:
+    case *file:
         if srcname = tv.fullname(); tv.info != nil {
             srctime = tv.info.ModTime()
         }
@@ -2176,7 +2184,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result interface{}) {
         ctx.update, ctx.mode, ctx.head, ctx.foot,
         0, 0, 0,
     }
-    var file *File
+    var file *file
     if file = stat(ctx,srcname, stat_nonexist{true}); file == nil || file.info == nil {
         erro(ctx, "'%s' source file not found", srcname).trace()
     } else if !file.info.IsDir() {
@@ -2205,7 +2213,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result interface{}) {
 }
 
 type modifier_writefile struct { modifier_ }
-func (ctx *modifier_writefile) x(args ...Value) (result interface{}) {
+func (ctx *modifier_writefile) x(args ...Value) (result any) {
     args = xmerge(ctx, args...) //, plain
 
     var (
@@ -2249,10 +2257,10 @@ type modifier_readfile struct { modifier_
     head Value "h,head"
     foot Value "f,foot"
 }
-func (ctx *modifier_readfile) x(args ...Value) (result interface{}) {
+func (ctx *modifier_readfile) x(args ...Value) (result any) {
     var (
         filename string
-        file *File
+        file *file
         target as
     )
     if n := len(args); n > 1 {
@@ -2283,8 +2291,8 @@ func (ctx *modifier_readfile) x(args ...Value) (result interface{}) {
         if ctx.head != nil { s = ctx.head.string(ctx) }
         if len(bytes) > 0   { s += string(bytes) }
         if ctx.foot != nil { s = ctx.foot.string(ctx) }
-        auto_set(ctx.Context, "-", makeStrlit(_position(ctx), s))
-        auto_set(ctx.Context, "-file", file)
+        auto_set(ctx.Context, defVoid, "-", _strlit(_position(ctx), s))
+        auto_set(ctx.Context, defVoid, "-file", file)
     } else {
         erro(ctx, "%v", err).trace()
     }
@@ -2339,7 +2347,7 @@ type modifier_updatefile struct { modifier_
     append bool `a,app,append,append-content`
     mode os.FileMode "m,mode"
 }
-func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
+func (ctx *modifier_updatefile) x(args ...Value) (result any) {
     assert(ctx.mode != 0, "zero file mode")
 
     var target as
@@ -2350,9 +2358,9 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
     if isTrivial(target) { target.Value = auto_get(ctx, "@") }
     if isTrivial(target) {
         erro(ctx, "no file target to update").trace()
-    } else if f, y := target.Value.(*File); y {
+    } else if f, y := target.Value.(*file); y {
         filename = f.fullname()
-    } else if o, y := target.fullname(ctx); !y {
+    } else if o := target.fullname(ctx); o.Value == nil {
         erro(ctx, "update-file: not a file (%T: %v)\n", target.Value, target).trace()
     } else {
         filename = o.string(ctx)
@@ -2388,7 +2396,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
     // Check existed file content checksum
     var (
         content string
-        exeres *execResult
+        exeres *exec_result
     )
     if val := auto_get(ctx, "-"); val == nil {
         // no buffer value
@@ -2396,7 +2404,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result interface{}) {
         prompt(ctx, "%v: %T\n", filename, val).debug()
         panic(_failure(ctx, "%s", filename))
     } else {
-        exeres, _ = val.(*execResult)
+        exeres, _ = val.(*exec_result)
     }
 
     if content != "" {
@@ -2521,12 +2529,12 @@ type modifier_wait struct { modifier_
     noTarget bool `nt,no-target`
     asType string "a,as"
 }
-func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
+func (ctx *modifier_wait) x(args ...Value) (result any) {
     var (
-        waitForexecResult = ctx.stdout || ctx.stderr || ctx.status || ctx.execRes
+        waitForExecResult = ctx.stdout || ctx.stderr || ctx.status || ctx.execRes
         stampCurrentTarget = !ctx.noTarget
         target Value = auto_get(ctx, "@")
-        execRes *execResult
+        execRes *exec_result
         err error
     )
     if ctx.verbose {
@@ -2538,9 +2546,8 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
     }
 
     // Wait for prerequisites and/or execution
-    if _, _, execRes = wait(ctx, waitopts{
-        ctx.verbose, waitForexecResult, stampCurrentTarget,
-    }); execRes == nil { return }
+    _, _, execRes = wait(ctx, waitopts{ctx.verbose, waitForExecResult, stampCurrentTarget})
+    if execRes == nil { return }
 
     var (
         pos = _position(ctx)
@@ -2555,7 +2562,7 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
         switch ctx.asType {
         case "answer": v = makeAnswer (pos,(s == "yes"))
         case "bool":   v = makeBoolean(pos,(s == "true"))
-        default:       v = makeStrlit (pos,s)
+        default:       v = _strlit(pos,s)
         }
         a = append(a, v)
     }
@@ -2566,7 +2573,7 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
         switch ctx.asType {
         case "answer": v = makeAnswer (pos,(s == "yes"))
         case "bool":   v = makeBoolean(pos,(s == "true"))
-        default:       v = makeStrlit (pos,s)
+        default:       v = _strlit(pos,s)
         }
         a = append(a, v)
     }
@@ -2579,7 +2586,7 @@ func (ctx *modifier_wait) x(args ...Value) (result interface{}) {
     return
 }
 
-func reportFileUpdates(ctx Context, files []*File) {
+func reportFileUpdates(ctx Context, files []*file) {
     var start = _execution(ctx).start
     for _, file := range files {
         var (
@@ -2605,7 +2612,7 @@ type modifier_stamp struct { modifier_
     next   bool "n,nxt,next"  // traveNext if failed to stamp
     error  bool "e,err,error" // traveErro if failed to stamp
 }
-func (ctx *modifier_stamp) x(args ...Value) (result interface{}) {
+func (ctx *modifier_stamp) x(args ...Value) (result any) {
     var target = getTargetValue(ctx)
 
     if isNull(target) {
@@ -2625,7 +2632,7 @@ func (ctx *modifier_stamp) x(args ...Value) (result interface{}) {
         erro(ctx, "stamp(%v) error")
         errostack(ctx, 10, "%v", ctx).trace()
     } else {
-        if f, y := target.(*File); y {
+        if f, y := target.(*file); y {
             erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info)
         } else {
             erro(ctx, "failed stamp(%v) (%T)", target, target)
@@ -2647,7 +2654,7 @@ func (ctx *modifier_assert) z(args ...Value) (_ interface{}) {
             erro(ctx, "assert: nil").trace()
         }
 
-        if _, y := a.(*punctuation); y { continue }
+        if _, y := a.(*punct); y { continue }
 
         v := a.expand(ctx) //, final|w
         b := v.true(ctx)
@@ -2666,7 +2673,7 @@ func (ctx *modifier_assert) z(args ...Value) (_ interface{}) {
 type traverse_done struct{}
 
 type modifier_cond struct { modifier_ }
-func (ctx *modifier_cond) x(args ...Value) (result interface{}) {
+func (ctx *modifier_cond) x(args ...Value) (result any) {
     // TODO: make it lisp-like (cond), e.g.:
     //     (cond
     //       ((condition) ...)
@@ -2684,7 +2691,7 @@ func (ctx *modifier_cond) x(args ...Value) (result interface{}) {
 type traverse_case struct{}
 
 type modifier_case struct { modifier_ }
-func (ctx *modifier_case) x(args ...Value) (result interface{}) {
+func (ctx *modifier_case) x(args ...Value) (result any) {
     for _, a := range args {
         if a.true(ctx.Context) {
             panic(traverse_case{})
@@ -2697,18 +2704,16 @@ func (ctx *modifier_case) x(args ...Value) (result interface{}) {
 }
 
 type modifier_predictDirty struct { modifier_ }
-func (ctx *modifier_predictDirty) x(args ...Value) (result interface{}) {
-    var pc = _execution(ctx)
-    if res := pc.dirty(ctx, args...); res {
-        result = makePrediction(_position(ctx), res, /*reason*/"")
+func (ctx *modifier_predictDirty) x(args ...Value) (result any) {
+    if res := _execution(ctx).dirty(ctx, args...); res {
+        return makePrediction(_position(ctx), res, "")
     } else {
         panic(traverse_done{})
     }
-    return
 }
 
 type modifier_predictNoLoop struct { modifier_ }
-func (ctx *modifier_predictNoLoop) x(args ...Value) (result interface{}) {
+func (ctx *modifier_predictNoLoop) x(args ...Value) (result any) {
     var loop bool
     var target = auto_get(ctx, "@")
     for caller := _execution(ctx).caller(); caller != nil; caller = caller.caller() {
@@ -2732,7 +2737,7 @@ func (ctx *modifier_predictNoLoop) x(args ...Value) (result interface{}) {
 type modifier_predictTarget1stVisit struct { modifier_
     silent bool "s,silent"
 }
-func (ctx *modifier_predictTarget1stVisit) x(args ...Value) (result interface{}) {
+func (ctx *modifier_predictTarget1stVisit) x(args ...Value) (result any) {
     var target = auto_get(ctx, "@")
     if isNull(target) {
         erro(ctx, "target is <nil>").trace()
@@ -2763,7 +2768,7 @@ func (ctx *modifier_predictTarget1stVisit) x(args ...Value) (result interface{})
 type modifier_predictTargetMaxVisit struct { modifier_
     clo bool "c,closure"
 }
-func (ctx *modifier_predictTargetMaxVisit) x(args ...Value) (result interface{}) {
+func (ctx *modifier_predictTargetMaxVisit) x(args ...Value) (result any) {
     var nth int64
     for _, a := range args {
         if nth = a.int(ctx); nth <= 0 {
@@ -2836,7 +2841,7 @@ func (ctx *modifier_fork) _x(args ...Value) (result Value) {
     }
     return
 }
-func (ctx *modifier_fork) x(args ...Value) (result interface{}) {
+func (ctx *modifier_fork) x(args ...Value) (result any) {
     var (
         prog = _program(ctx)
         argv []string
@@ -2868,7 +2873,7 @@ func (ctx *modifier_fork) x(args ...Value) (result interface{}) {
 }
 
 type modifier_gitmodified struct { modifier_ }
-func (ctx *modifier_gitmodified) x(args ...Value) (result interface{}) {
+func (ctx *modifier_gitmodified) x(args ...Value) (result any) {
     var out = new(bytes.Buffer)
     var git = exec.Command("git", "status")
     git.Stdout, git.Stderr = out, os.Stderr
@@ -2902,7 +2907,7 @@ func (ctx *modifier_gitmodified) x(args ...Value) (result interface{}) {
 }
 
 type modifier_gitahead struct { modifier_ }
-func (ctx *modifier_gitahead) x(args ...Value) (result interface{}) {
+func (ctx *modifier_gitahead) x(args ...Value) (result any) {
     var out = new(bytes.Buffer)
     var git = exec.Command("git", "status")
     git.Stdout, git.Stderr = out, os.Stderr
@@ -2931,7 +2936,7 @@ var (
 func onceCacheTest0(ctx Context, target Value) (n int) {
     var rec map[Value]int
     var ent = _entry(ctx)
-    if x, y := ent.(*stemmed); y { ent = x.rule }
+    if x, y := ent.(*stemmed_rule); y { ent = x.rule }
 
     onceMutex.Lock(); defer onceMutex.Unlock()
     if onceCache0 == nil { onceCache0 = make(map[entry]map[Value]int, 64) }
@@ -2968,7 +2973,7 @@ func onceCacheTest2(ctx Context, target Value) (n int) {
         h = sha256.New()
         entry = _entry(ctx)
     )
-    if stemmed, ok := entry.(*stemmed); ok {
+    if stemmed, ok := entry.(*stemmed_rule); ok {
         entry = stemmed.rule
     }
 
@@ -2986,7 +2991,7 @@ func onceCacheTest2(ctx Context, target Value) (n int) {
     }
 
     for _, t := range merge(target) {
-        if f, ok := toFile(t); ok {
+        if f, ok := to_file(t); ok {
             fmt.Fprintf(h, "%s", f.fullname())
         } else {
             fmt.Fprintf(h, "%s", t.string(ctx))
@@ -3012,7 +3017,7 @@ func onceSHA256(ctx *modifier_once, target Value, args ...Value) (n int) {
         entry = _entry(ctx)
         h = sha256.New()
     )
-    if stemmed, ok := entry.(*stemmed); ok {
+    if stemmed, ok := entry.(*stemmed_rule); ok {
         entry = stemmed.rule
     }
 
@@ -3039,7 +3044,7 @@ type modifier_once struct { modifier_
     checksum bool `c,cs,checksum,s,sha,sha256,sum,h,hash`
     forval Value `for` // TODO: (once -for=$@)
 }
-func (ctx *modifier_once) x(args ...Value) (result interface{}) {
+func (ctx *modifier_once) x(args ...Value) (result any) {
     // TODO: (once)           --> once for the Rule, aka entry.doneOnce = true
     // TODO: (once -for=$@)   --> once for $@, aka entry.onces[$(expand $@)] = true
     var target Value = auto_get(ctx, "@")

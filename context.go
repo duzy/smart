@@ -61,7 +61,6 @@ type (
   act_dirt       struct{ a []Value }
   act_traversed  struct{ v Value }
   act_traverse   struct{ v Value }
-  // act_match_entry struct{ v Value }
   act_arguments  struct{}
   get_arguments  struct{}
   get_workdir    struct{}
@@ -69,24 +68,12 @@ type (
   get_project    struct{}
   get_scope      struct{}
   get_closure_scope struct{}
-  // get_object    struct{ s string }
-  // get_entry     struct{ s string }
   get_param_name struct{ i int }
   is_good_with   struct{ p property ; a []any }
   is_test_mode   struct{}
+  invalid_position struct{}
+  no_position struct{}
 )
-
-type invalid_position struct{}
-type no_position struct{}
-
-func _position(ctx Context) (_ Position) {
-  if x, y := do(ctx, get_position{}).(Position); y {
-    if x.valid() { return x }
-    return//panic(invalid_position{})
-  } else {
-    panic(no_position{})
-  }
-}
 
 func _parameters(ctx Context) (res map[string]*auto) {
   if t, y := do(ctx, propParameters).(map[string]*auto); y { res = t }
@@ -113,98 +100,15 @@ func count_diag(ctx Context, t ...diagType) (i int) {
   return
 }
 
-func ex_auto(ctx Context) (res bool) {
-  res, _ = do(ctx, propExAuto).(bool)
-  return
-}
-
-func ex_closure(ctx Context) (res bool) {
-  res, _ = do(ctx, propExClosure).(bool)
-  return
-}
-
-func ex_delegate(ctx Context) (res bool) {
-  res, _ = do(ctx, propExDelegate).(bool)
-  return
-}
-
-func ex_def(ctx Context) (res bool) {
-  res, _ = do(ctx, propExDef).(bool)
-  return
-}
-
-func ex_def0(ctx Context) (res bool) {
-  res, _ = do(ctx, propExDef0).(bool)
-  return
-}
-
-func ex_def1(ctx Context) (res bool) {
-  res, _ = do(ctx, propExDef1).(bool)
-  return
-}
-
-func ex_def2(ctx Context) (res bool) {
-  res, _ = do(ctx, propExDef2).(bool)
-  return
-}
-
-func ex_def_value(ctx Context) (res bool) {
-  res, _ = do(ctx, propExDefValue).(bool)
-  return
-}
-
-func ex_digital(ctx Context) (res bool) {
-  res, _ = do(ctx, propExDigital).(bool)
-  return
-}
-
-func ex_disjunction(ctx Context) (res bool) {
-  res, _ = do(ctx, propExDisjunction).(bool)
-  return
-}
-
-func ex_fullfile(ctx Context) (res bool) {
-  res, _ = do(ctx, propExFullFile).(bool)
-  return
-}
-
-func ex_pair_value(ctx Context) (res bool) {
-  res, _ = do(ctx, propExPairVal).(bool)
-  return
-}
-
-func ex_path_str(ctx Context) (res bool) {
-  res, _ = do(ctx, propExPathStr).(bool)
-  return
-}
-
-func ex_placeholder(ctx Context) (res bool) {
-  res, _ = do(ctx, propExPlaceholder).(bool)
-  return
-}
-
-func ex_condless(ctx Context) (res bool) {
-  res, _ = do(ctx, propExCondless).(bool)
-  return
-}
-
-func ex_final(ctx Context) (res bool) {
-  res, _ = do(ctx, propExFinal).(bool)
-  return
-}
-
-func goodwith(ctx Context, p property, a ...any) (res bool) {
-  res, _ = do(ctx, is_good_with{p, a}).(bool)
-  return
-}
-
 type Context interface { caster ; doer }
 type caster interface { cast(reflect.Type) Context }
 type doer interface { do(Context, any) any }
 
 func do(ctx Context, op any) any { return ctx.do(ctx, op) }
 func try[T any](ctx Context, op any) (_ T) {
-  if x, y := do(ctx, op).(T); y { return x }
+  if ctx != nil {
+    if x, y := do(ctx, op).(T); y { return x }
+  }
   return
 }
 func truly(ctx Context, op any) (_ bool) {
@@ -338,6 +242,22 @@ func _callstack(s string, i, j int, args ...any) (res callstack) {
       res = append(res, []byte(":"+s+" ")...)
       res = append(res, sm1[1]...)
       res = append(res, sm1[2]...)
+
+      if false {
+        // collapse duplicated lines
+        var dups int
+        for n := i+2; n+1 < len(v); n += 1 {
+          if bytes.Equal(v[i+0], v[n+0]) /* && bytes.Equal(v[i+1], v[n+1]) */ {
+            dups += 1
+          } else {
+            break
+          }
+        }
+        if 0 < dups {
+          res = append(res, []byte(fmt.Sprintf("  (%d)", dups))...)
+        }
+      }
+
       res = append(res, []byte(e+"\n")...)
       j -= 1
     }
@@ -398,22 +318,27 @@ func (d *diagpoint) debug(args ...any) *diagpoint {
 }
 
 type diagtracer struct { *diagpoint ; ctx Context }
-func (d diagtracer) trace() {
+func (d diagtracer) trace(a ...any) {
   if false {
     defer trace(d.ctx)
     d.stack = _callstack(d.tag(), 5, 0)
   } else {
-    trace(d.ctx)
+    trace(d.ctx, a...)
   }
 }
 
 type act_traced struct{}
 type too_many_diagnostics struct{ i int }
 type too_many_errors struct{ i int }
-type trace_errors struct { Context ; e int }
+type trace_err_evoke_loop struct { ctx Context ; string }
+type trace_errors struct { Context ; int }
+
+func (t trace_err_evoke_loop) String() string {
+  return "evoke loop: " + t.string
+}
 
 func (t trace_errors) String() string {
-  return fmt.Sprintf("%v %d, %v", typeof(t), t.e, ts(t.Context))
+  return fmt.Sprintf("%v %d, %v", typeof(t), t.int, ts(t.Context))
 }
 
 func (t too_many_diagnostics) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.i) }
@@ -424,14 +349,15 @@ func trace_recover(ctx Context) {
   var recovered int
   for e := recover() ; e != nil ; e = recover() {
     switch recovered += 1 ; t := e.(type) {
-    case       bailout:
-    case       trace_errors: x = t.Context
-    case       failure: erro(t.Context, t.Error())
-    case         Value: erro(at(ctx,t), "trace: %s", ts(t))
-    case        string: erro(   ctx   , "trace: %s", t)
-    case runtime.Error: erro(   ctx   , "trace: %s", t.Error())
-    case too_many_diagnostics: erro(ctx, "too many diagnostics (%v)", t.i)
-    case too_many_errors     : erro(ctx, "too many errors (%v)", t.i)
+    case              bailout:
+    case         trace_errors:  x = t.Context
+    case              failure: erro(t.Context, t.Error())
+    case                Value: erro(at(ctx,t), "trace: %s", ts(t))
+    case               string: erro(   ctx   , "trace: %s", t)
+    case        runtime.Error: erro(   ctx   , "trace: %s", t.Error())
+    case too_many_diagnostics: erro(   ctx   , "too many diagnostics (%v)", t.i)
+    case too_many_errors     : erro(   ctx   , "too many errors (%v)", t.i)
+    case trace_err_evoke_loop: erro(   ctx   , "evocation loop (%s)", t.string)
     default: panic(e) //erro(ctx, "trace: %s", ts(e))
     }
   }
@@ -441,10 +367,24 @@ func trace_recover(ctx Context) {
   }
 }
 
-func trace(ctx Context, _ ...any) {
-  defer trace_recover(ctx)
-  if x, y := do(ctx, act_traced{}).(int); y && x == 1 {
-    panic(trace_errors{ctx, x})
+type no_recover struct{}
+
+func trace(ctx Context, args ...any) {
+  var evoke_loop trace_err_evoke_loop
+  var rec = true
+  for _, a := range args {
+    switch t := a.(type) {
+    case no_recover: rec = false
+    case trace_err_evoke_loop: evoke_loop = t
+    }
+  }
+  if rec { defer trace_recover(ctx) }
+  if x, y := do(ctx, act_traced{}).(int); y && x > 0 {
+    if evoke_loop.string == "" {
+      panic(trace_errors{ctx, x})
+    } else {
+      panic(evoke_loop)
+    }
   }
   return
 }
@@ -687,60 +627,62 @@ func diagstack(ctx Context, n int, dt diagType, a ...any) (point diagtracer) {
 }
 
 func _positional(c Context) *positional { return cast[*positional](c) }
+func _position(ctx Context) (_ Position) {
+  if x, y := do(ctx, get_position{}).(Position); y {
+    if x.valid() {
+      return x
+    } else if true {
+      return
+    } else {
+      panic(invalid_position{})
+    }
+  } else {
+    panic(no_position{})
+  }
+}
 
+type count_positional struct {}
 type positional struct { Context ; position Position }
 func (p *positional) Position() Position { return p.position }
 func (p *positional) cast(t reflect.Type) Context { return implcast(p, t) }
 func (p *positional) ts(string) string { return ts(p.Context) }
 func (p *positional) do(ctx Context, op any) (_ any) {
-  switch op.(type) {
+  switch t := op.(type) {
+  case count_positional: return try[int](p.Context, t)+1
   case get_position: return p.position
   }
   if p.Context == nil { return }
   return p.Context.do(ctx, op)
 }
 
-func _at(ctx Context, p Position) Context { return &positional{ctx, p} }
 func at(ctx Context, a any) Context {
   if ctx == nil { panic("nil context") }
 
   var pos Position
+
   switch t := a.(type) {
-  case Position  : pos = t
-  case positioner: pos = t.Position()
   case doer:
     if x, y := do(ctx, get_position{}).(Position); y && x.valid() { pos = x }
-  default:
-    if false { erro(ctx, "non-position arg: %v", ts(a)).trace() }
-    return ctx
+  case Position  : pos = t
+  case positioner: pos = t.Position()
+  default: return ctx
   }
 
   if p := _position(ctx) ; p.valid() && pos.valid() && !p.same(&pos) {
-    for c, i, n := ctx, 0, 0; c != nil; c, i = inner(c), i+1 {
-      if _, y := c.(*positional); y {
-        if n += 1; n > /* 999 */100 {
-          warnstack(ctx, 3, "too many positions: %v/%v; %v", n, i, ctx).debug(16)
-          if true { flush(ctx) }
-          return ctx
-        }
-      }
+    if try[int](ctx, count_positional{}) < /*900*/200 {
+      ctx = &positional{ctx, pos}
+    } else {
+      errostack(ctx, 3, "too many positions").trace()
     }
-
-    ctx = _at(ctx, pos)
   }
   return ctx
 }
 
-func walkSmartBaseDirs(ctx Context, cwd string, vis func(string)bool) (s string) {
-  s = cwd
-  for s != "" {
-    file := stat(ctx, ".smart", stat_dir{s})
-    if file != nil && file.info.IsDir() && !vis(s) { break }
-    if up := filepath.Dir(s); up == s {
-      break
-    } else {
-      s = up
-    }
+func walkSmartBaseDirs(ctx Context, cwd string, vis func(string) bool) (s string) {
+  for s = cwd ; s != "" ; {
+    var f = stat(ctx, ".smart", stat_dir{s})
+    if f != nil && f.info.IsDir() && !vis(s) { break }
+    if up := filepath.Dir(s); up == s { break } else { s = up }
   }
   if s == "" { s = cwd }
   return
@@ -894,7 +836,7 @@ func CommandLine() {
 
   if false { loadGrepCache(context) }
 
-  if err := context.load(); err != nil {
+  if err := context.load(context); err != nil {
     erro(context, "loading work failed: %v", err)
   } else if dia.flush(context) > 0 {
     prompt(context, "loading work got %d errors\n", dia.erros)

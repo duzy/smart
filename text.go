@@ -7,10 +7,10 @@
 package smart
 
 import (
-    // TODO: csv "encoding/csv"
-    enc_xml "encoding/xml"
+    // enc_csv "encoding/csv"
     enc_json "encoding/json"
-    // yaml_enc "encoding/yaml"
+    enc_xml "encoding/xml"
+    // enc_yaml "encoding/yaml"
     // "strconv"
     "strings"
     "bytes"
@@ -21,16 +21,25 @@ import (
 // Value returned by (plain) modifier.
 type plain struct { elements ; name string }
 func (_ *plain) kind() Kind { return KindPlain }
-func (p *plain) String() string { return p.srclit(nil) }
-func (p *plain) srclit(o Object) (s string) {
-    if t := "plain"; p.name == "" {
-        s = fmt.Sprintf("{=%s", t)
-    } else {
-        s = fmt.Sprintf("{=(%s %s)", t, p.name)
-    }
-    for _, v := range p.elems {
-        s += " " + v.String()
-    }
+func (p *plain) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
+func (p *plain) String() (s string) {
+    s = "{="+typeof(p)
+    if t := p.name; t != "" { s += "("+t+")" }
+    for _, v := range p.elems { s += " " + v.String() }
+    s += "}"
+    return
+}
+func (p *plain) srclit(o object) (s string) {
+    s = "{="+typeof(p)
+    if t := p.name; t != "" { s += "("+t+")" }
+    for _, v := range p.elems { s += " " + srclit(o, v) }
+    s += "}"
+    return
+}
+func (p *plain) ts(t string) (s string) {
+    s = "{="+t
+    if t := p.name; t != "" { s += "("+t+")" }
+    for _, v := range p.elems { s += " " + ts(v) }
     s += "}"
     return
 }
@@ -80,12 +89,16 @@ func (p *plain) cmp(ctx Context, v Value) (_ cmpres) {
 
 type plainline struct { elements }
 func (_ *plainline) kind() Kind { return KindPlainLine }
-func (p *plainline) String() string { return p.srclit(nil) }
-func (p *plainline) srclit(o Object) (s string) {
+func (p *plainline) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
+func (p *plainline) String() (s string) {
     s = "{="+typeof(p)
-    for _, v := range p.elems {
-        s += " " + v.String()
-    }
+    for _, v := range p.elems { s += " " + v.String() }
+    s += "}"
+    return
+}
+func (p *plainline) srclit(o object) (s string) {
+    s = "{="+typeof(p)
+    for _, v := range p.elems { s += " " + srclit(o, v) }
     s += "}"
     return
 }
@@ -136,26 +149,25 @@ type (
     plainOpts struct { generalOpts }
 )
 func (_ *plainInt) evaluate(ctx Context, args ...Value) (_ Value) {
-    var (
-        program = _program(ctx)
-        name string
-        opts plainOpts
-    )
-    if args = parseOpts(ctx, &opts, args...); len(args) > 0 {
-        name = args[0].string(ctx)
-        program.language = name
+    var p = &plain{}
+    var prog = _program(ctx)
+    var opts plainOpts
+
+    if args = parseOpts(ctx, &opts, args...) ; len(args) > 0 {
+        p.name = args[0].string(ctx)
+        prog.language = p.name
     }
 
-    var recipes []Value
-    for _, recipe := range program.recipes {
-        recipes = append(recipes, recipe.expand(ctx))
+    for _, recipe := range prog.recipes {
+        p.elems = append(p.elems, recipe.expand(ctx))
     }
-    if len(recipes) == 1 {
-        if x, y := recipes[0].(*plainline); y {
-            recipes = merge(x.elems...)
+
+    if len(p.elems) == 1 {
+        if x, y := p.elems[0].(*plainline); y {
+            p.elems = merge(x.elems...)
         }
     }
-    return &plain{elements{recipes}, name}
+    return p
 }
 
 func multiline(ctx Context, recipes... Value) (res string) {
@@ -232,10 +244,10 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value) {
         case enc_xml.ProcInst:
             // TODO: ...
         case enc_xml.StartElement:
-            nn := makeGroup(pos, &bareword{valbase{pos},elem.Name.Local})
+            nn := makeGroup(pos, &word{valbase{pos},elem.Name.Local})
             for _, a := range elem.Attr {
                 var k, v Value
-                k = &bareword{valbase{pos},a.Name.Local}
+                k = &word{valbase{pos},a.Name.Local}
                 v = &strlit{valbase{pos},a.Value}
                 if s := a.Name.Space; s != "" {
                     k = makeGroup(pos, &strlit{valbase{pos},s}, k)
@@ -349,7 +361,7 @@ LoopJSON:
         case enc_json.Delim:
             switch d {
             case '[':
-                nn := makeGroup(pos, makeBareword(pos, JsonArray))
+                nn := makeGroup(pos, makeWord(pos, JsonArray))
                 if x == 0 {
                     nodes = append(nodes, nn)
                 } else {
@@ -358,7 +370,7 @@ LoopJSON:
                 stack = append(stack, nn) // APPEND
                 break SwitchNodeType
             case '{':
-                nn := makeGroup(pos, makeBareword(pos, JsonObject))
+                nn := makeGroup(pos, makeWord(pos, JsonObject))
                 if x == 0 {
                     nodes = append(nodes, nn)
                 } else {
@@ -419,18 +431,18 @@ LoopJSON:
             case enc_json.Delim:
                 var vn *group
                 switch vd {
-                case '[': vn = makeGroup(pos, makeBareword(pos, JsonArray))
-                case '{': vn = makeGroup(pos, makeBareword(pos, JsonObject))
+                case '[': vn = makeGroup(pos, makeWord(pos, JsonArray))
+                case '{': vn = makeGroup(pos, makeWord(pos, JsonObject))
                 default: err = errorIllJson; break LoopJSON
                 }
                 stack = append(stack, vn)
                 node.append(makePair(sv, vn))
             case string:
-                node.append(makePair(sv, makeStrlit(pos, vd)))
+                node.append(makePair(sv, _strlit(pos, vd)))
             case float64:
                 node.append(makePair(sv, makefloat(pos, vd)))
             case nil: // null
-                node.append(makePair(sv, makeBareword(pos, "null")))
+                node.append(makePair(sv, makeWord(pos, "null")))
             default:
                 err = errorIllJson; break LoopJSON
             }
@@ -442,7 +454,7 @@ LoopJSON:
                 node, value = stack[x-1], v
             }
         case nil: // null
-            if v := Value(makeBareword(pos, "null")); x == 0 {
+            if v := Value(makeWord(pos, "null")); x == 0 {
                 nodes = append(nodes, v)
             } else {
                 node, value = stack[x-1], v

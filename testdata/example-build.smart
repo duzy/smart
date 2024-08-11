@@ -1,12 +1,12 @@
 # Example to really generate files
 project example
 
-import (
-    'tools/gcc/c++'
-    './foo'
+use (
+    tools/gcc/c++
+    ./foo
 )
 
-files '*.o' '*.cpp' 'example'
+files *.o *.cpp example
 
 fo = foo
 var = var
@@ -22,7 +22,7 @@ compile_flags += \
   -I"include$." \
   -I"$//include" \
 
-run-example: [ (shell-stdout) (shell) ] : example
+run-example: {(shell-stdout) (shell)} example
 	@echo $(foo.var)
 	@echo $(foo.bar.var)
 	@echo $(foo.bar.a.var)
@@ -35,13 +35,13 @@ run-example: [ (shell-stdout) (shell) ] : example
 	@echo $(foobar)
 	./example
 
-example: [ (compare) (shell-stderr) (shell) (check-file) ] : example.o
+example: {(compare) (shell-stderr) (shell) (check-file)} example.o
 	$(link) -o $@ $<
 
-example.o: [ (compare) (shell-stderr) (shell) (check-file) ] : example.cpp
+example.o: {(compare) (shell-stderr) (shell) (check-file)} example.cpp
 	$(compile) -o $@ $^
 
-example.cpp: [ (compare) (plain) (update-file) ]
+example.cpp: {(compare) (plain c++) (update-file)}
 	#include <iostream>
 	int main() {
 	  std::cout << "$@" << std::endl;

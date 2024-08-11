@@ -6,4 +6,4 @@ files (
 
 val1 := foo.txt
 val2 := $(file foo.txt)
-val3 := $(fullname foo.txt)
+val3 := {=fullname foo.txt}

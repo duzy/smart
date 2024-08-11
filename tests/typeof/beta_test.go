@@ -20,7 +20,7 @@ func TestCheckLog1(t *testing.T) {
                         if !bytes.Equal(v, a) { t.Errorf("bad path:\n%s\n%s", v, a) }
 
                         v = []byte(fmt.Sprintf(`glob
-bareword
+word
 int
 int
 int
@@ -36,36 +36,36 @@ datetime
 datetime
 list
 time
-bareword
+word
 string
-compound
+strcomp
 path /path/to/somewhere
 path ./subdir/in/somewhere
 barefile
 barefile
-barecomp
-barecomp
+compound
+compound
 group
 pair
 pair
 pair
 flag
-bareword
-bareword
-bareword
-bareword
-bareword
-bareword
-bareword
-bareword
+word
+word
+word
+word
+word
+word
+word
+word
 barefile
 barefile
 barefile
-barecomp
-barefile bareword bareword group
+compound
+barefile word word group
 barefile list list
-barecomp -I/path/to/include
-barecomp -I%s/include
+compound -I/path/to/include
+compound -I%s/include
 list
 `, wd))
                         if !bytes.Equal(v, h) { t.Errorf("bad header:\n%s\n%s", v, h) }

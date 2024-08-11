@@ -1,9 +1,8 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2024, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
-
 package smart
 
 import (
@@ -42,7 +41,10 @@ type builtin_ struct {
 func (c builtin_) cast(t reflect.Type) Context {
     if reflect.TypeOf(c) == t { return c }
     if reflect.TypeOf((*builtin_)(nil)) == t { return &c }
-    return c.evocation.cast(t) // implcast(c, t)
+    return c.evocation.cast(t)
+}
+func (p *builtin_) ts(string) string {
+    return "{=builtin "+p.x.String()+" "+ts(p.Context)+"}"
 }
 
 type builtin_a interface{ a() bool }
@@ -119,22 +121,22 @@ var builtins = map[string]reflect.Type {
     `quote-join`: reflect.TypeOf((*builtin_quotejoin)(nil)).Elem(),
     `unique`:     reflect.TypeOf((*builtin_unique)(nil)).Elem(),
 
-    `split`:             reflect.TypeOf((*builtin_splitstring)(nil)).Elem(),
-    `split-string`:      reflect.TypeOf((*builtin_splitstring)(nil)).Elem(), // TODO: remove it?
-    `split-quote`:       reflect.TypeOf((*builtin_splitquote)(nil)).Elem(),
-    `split-quote-join`:  reflect.TypeOf((*builtin_splitquotejoin)(nil)).Elem(),
-    `split-join-quote`:  reflect.TypeOf((*builtin_splitjoinquote)(nil)).Elem(),
-    `field`:         reflect.TypeOf((*builtin_field)(nil)).Elem(),
-    `fields`:        reflect.TypeOf((*builtin_fields)(nil)).Elem(),
+    `split`:            reflect.TypeOf((*builtin_splitstring)(nil)).Elem(),
+    `split-string`:     reflect.TypeOf((*builtin_splitstring)(nil)).Elem(), // TODO: remove it?
+    `split-quote`:      reflect.TypeOf((*builtin_splitquote)(nil)).Elem(),
+    `split-quote-join`: reflect.TypeOf((*builtin_splitquotejoin)(nil)).Elem(),
+    `split-join-quote`: reflect.TypeOf((*builtin_splitjoinquote)(nil)).Elem(),
 
-    // `usee`:      reflect.TypeOf((*builtin_usee)(nil)).Elem(),
+    `field`:        reflect.TypeOf((*builtin_field)(nil)).Elem(),
+    `fields`:       reflect.TypeOf((*builtin_fields)(nil)).Elem(),
+
     `uses`:         reflect.TypeOf((*builtin_uses)(nil)).Elem(),
 
-    `path`:         reflect.TypeOf((*builtin_path)(nil)).Elem(),
     `bare`:         reflect.TypeOf((*builtin_bare)(nil)).Elem(),
-    `bareword`:     reflect.TypeOf((*builtin_bareword)(nil)).Elem(),
-    `finalize`:     reflect.TypeOf((*builtin_finalize)(nil)).Elem(),
-    `stringify`:    reflect.TypeOf((*builtin_finalize)(nil)).Elem(), // alias
+    `path`:         reflect.TypeOf((*builtin_path)(nil)).Elem(),
+    `word`:         reflect.TypeOf((*builtin_word)(nil)).Elem(),
+    `finalize`:     reflect.TypeOf((*builtin_finalize)(nil)).Elem(), // `stringify`
+    `resolve`:      reflect.TypeOf((*builtin_resolve)(nil)).Elem(),
     `string`:       reflect.TypeOf((*builtin_string)(nil)).Elem(),
     `strip`:        reflect.TypeOf((*builtin_strip)(nil)).Elem(),
     `trim`:         reflect.TypeOf((*builtin_trim)(nil)).Elem(),
@@ -148,11 +150,11 @@ var builtins = map[string]reflect.Type {
     `addprefix`:    reflect.TypeOf((*builtin_addprefix)(nil)).Elem(),
     `addsuffix`:    reflect.TypeOf((*builtin_addsuffix)(nil)).Elem(),
 
-    `uppercase`:    reflect.TypeOf((*builtin_uppercase)(nil)).Elem(),
-    `lowercase`:    reflect.TypeOf((*builtin_lowercase)(nil)).Elem(),
     `title`:        reflect.TypeOf((*builtin_title)(nil)).Elem(),
     `indent`:       reflect.TypeOf((*builtin_indent)(nil)).Elem(),
     `substring`:    reflect.TypeOf((*builtin_substring)(nil)).Elem(),
+    `uppercase`:    reflect.TypeOf((*builtin_uppercase)(nil)).Elem(),
+    `lowercase`:    reflect.TypeOf((*builtin_lowercase)(nil)).Elem(),
 
     // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
     `subst`:        reflect.TypeOf((*builtin_subst)(nil)).Elem(),
@@ -162,9 +164,8 @@ var builtins = map[string]reflect.Type {
     `filter`:       reflect.TypeOf((*builtin_filter)(nil)).Elem(),
     `filter-out`:   reflect.TypeOf((*builtin_filterout)(nil)).Elem(),
 
-    `decode-base64`:reflect.TypeOf((*builtin_decodebase64)(nil)).Elem(),
-    `encode-base64`:reflect.TypeOf((*builtin_encodebase64)(nil)).Elem(),
-
+    `decode-base64`: reflect.TypeOf((*builtin_decodebase64)(nil)).Elem(),
+    `encode-base64`: reflect.TypeOf((*builtin_encodebase64)(nil)).Elem(),
     /* TODO:
     `encode-base32`
     `decode-base32`
@@ -177,10 +178,9 @@ var builtins = map[string]reflect.Type {
     `encode-csv`
     `decode-csv` */
 
-    `fullname`:   reflect.TypeOf((*builtin_fullname)(nil)).Elem(),
     `ext`:        reflect.TypeOf((*builtin_ext)(nil)).Elem(),
 
-    `base`:       reflect.TypeOf((*builtin_base)(nil)).Elem(),
+    `base` :      reflect.TypeOf((*builtin_base)(nil)).Elem(),
     `bases`:      reflect.TypeOf((*builtin_bases)(nil)).Elem(),
     `base2`:      reflect.TypeOf((*builtin_base2)(nil)).Elem(),
     `base3`:      reflect.TypeOf((*builtin_base3)(nil)).Elem(),
@@ -330,16 +330,16 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.fullname":
             if x := v.expand(expandFullFile{ctx}); isTrivial(x) {
                 erro(at(ctx, v), "expecting file value: %v", ts(v)).trace()
-            } else if o, y := (as{x}.fullname(ctx)); y && o.Value != nil {
+            } else if o := (as{x}.fullname(ctx)); o.Value != nil {
                 val.Set(reflect.ValueOf(&o))
             } else {
                 erro(at(ctx,v), "%v: not a file: %v → %v", _project(ctx), v, ts(x))
                 errostack(ctx, 5).trace()
             }
-        case "smart.File":
+        case "smart.file":
             if x := v.expand(final{ctx}); isNone(x) {
                 erro(at(ctx,v), "expecting file value: %v", ts(v)).trace()
-            } else if file, y := toFile(x); y {
+            } else if file, y := to_file(x); y {
                 val.Set(reflect.ValueOf(file))
             } else if proj := _project(ctx); proj == nil {
                 erro(at(ctx,x), "no current project to find file '%v'", x).trace()
@@ -520,7 +520,7 @@ func (ctx *builtin_typeof) x() (res any) {
         //   $(fun abc)             args: (abc)
         //   $(fun a,b,c)           args: (a),(b),(c)
         //   $(fun a b c,1 2 3)     args: (a b c),(1 2 3)
-        elems = append(elems, makeBareword(arg.Position(), typeof(arg)))
+        elems = append(elems, makeWord(arg.Position(), typeof(arg)))
     }
     return elems
 }
@@ -533,7 +533,7 @@ func (ctx *builtin_origin) x() (res any) {
         if s := argstring(ctx, arg); s == "" {
             elems = append(elems, makeNull(arg.Position()))
         } else if d := scope.finddef(s); d != nil {
-            elems = append(elems, makeStrlit(arg.Position(), d.origin.String()))
+            elems = append(elems, _strlit(arg.Position(), d.o.String()))
         } else {
             elems = append(elems, makeNull(arg.Position()))
         }
@@ -618,16 +618,16 @@ func (ctx *builtin_position) x() (res any) {
     var vals []Value
     var pos = _position(ctx)
     if ctx.filename {
-        vals = append(vals, makeStrlit(pos, pos.Filename))
+        vals = append(vals, _strlit(pos, pos.Filename))
     } else if ctx.filenameQuoted {
         var s = pos.Filename //strconv.Quote(pos.Filename)
-        vals = append(vals, makeStrlit(pos, "\""+s+"\""))
+        vals = append(vals, _strlit(pos, "\""+s+"\""))
     }
 
     if ctx.line   { vals = append(vals, makeDecimal(pos, int64(pos.Line + ctx.addLine))) }
     if ctx.column { vals = append(vals, makeDecimal(pos, int64(pos.Column + ctx.addColumn))) }
 
-    if len(vals) == 0 { return makeStrlit(pos, pos.String()) }
+    if len(vals) == 0 { return _strlit(pos, pos.String()) }
     if len(vals) == 1 { return vals[0] }
     return vals
 }
@@ -645,7 +645,7 @@ func (ctx *builtin_date) x() (res any) {
             } else if s = t.Format(s); s == "" {
                 s = fmt.Sprintf("%v", t)
             }
-            vals = append(vals, makeStrlit(a.Position(), s))
+            vals = append(vals, _strlit(a.Position(), s))
         }
         return vals
     } else if ctx.time {
@@ -703,7 +703,7 @@ func (ctx *builtin_assert) c() (res any) { return ctx.x() }
 func (ctx *builtin_assert) x() (res any) {
     var d = ctx.debug ; if d < 1 { d = 1 }
     var s = ctx.stack ; if s < 1 { s = 1 }
-    var t = diagError ; if ctx.warn { t = diagWarn }
+    var t = diagError ; if ctx.warning { t = diagWarn }
 
     var hook = _universe(ctx).hooks.assert
     if ctx.evocation.a == nil && hook != nil && !hook(ctx, nil, false) {
@@ -762,17 +762,19 @@ func (ctx *builtin_defor) x() (res any) {
 type builtin_or struct { builtin_ }
 func (ctx *builtin_or) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
-    return !ex_final(ctx) && expandable(final{ctx}, ctx.evocation.a...)
+    return !truly(ctx, propExFinal) && expandable(final{ctx}, ctx.evocation.a...)
 }
 func (ctx *builtin_or) x() (res any) {
-    for _, a := range merge(ctx.evocation.a...) { if a.true(ctx) { return a } }
+    for _, a := range merge(ctx.evocation.a...) {
+        if a.true(ctx) { return a }
+    }
     return
 }
 
 type builtin_and struct { builtin_ }
 func (ctx *builtin_and) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
-    return !ex_final(ctx) && expandable(final{ctx}, ctx.evocation.a...)
+    return !truly(ctx, propExFinal) && expandable(final{ctx}, ctx.evocation.a...)
 }
 func (ctx *builtin_and) x() (res any) {
     for _, a := range merge(ctx.evocation.a...) {
@@ -801,20 +803,16 @@ func (ctx *builtin_xor) x() (res any) {
     return
 }
 
-type builtin_unequal struct { builtin_
-    final bool `final`
-}
-func (ctx *builtin_unequal) x() (res any) {
-    if ctx.trace { trace(ctx, "unequal") }
-
+type builtin_unequal struct { builtin_ }
+func (ctx *builtin_unequal) x() (_ any) {
     if len(ctx.evocation.a) != 2 {
         erro(ctx, "unequal: wrong number of arguments: %v", ctx.evocation.a)
         erro(ctx, "try: $(unequal <value-list>,<value-list>)").trace()
     }
 
-    var t bool
     var a = ctx.evocation.a[0].expand(final{ctx})
     var b = ctx.evocation.a[1].expand(final{ctx})
+    var t bool
     if ctx.final {
         t = a.string(ctx) != b.string(ctx)
     } else {
@@ -822,7 +820,7 @@ func (ctx *builtin_unequal) x() (res any) {
     }
 
     if t {
-        res = makeBoolean(_position(ctx), true)
+        return makeBoolean(_position(ctx), true)
     } else if n := ctx.debug; n>0 {
         if l, y := a.(*list); y {
             var v = l.elems[0]
@@ -843,12 +841,8 @@ func (ctx *builtin_unequal) x() (res any) {
     return
 }
 
-type builtin_equal struct { builtin_
-    final bool `final`
-}
+type builtin_equal struct { builtin_ }
 func (ctx *builtin_equal) x() (res any) {
-    if ctx.trace { trace(ctx, "equal") }
-
     if len(ctx.evocation.a) > 0 {
         if a := merge(ctx.evocation.a[0]); len(a) == 1 {
             ctx.evocation.a[0] = a[0]
@@ -1086,7 +1080,7 @@ func (ctx *builtin_if) a() (skip bool) {
 func (ctx *builtin_if) x() (res any) {
     if n := len(ctx.evocation.a); n > 1 {
         if checkpoints {
-            if !ex_final(ctx) && indeterminate(ctx, ctx.evocation.a[0]) {
+            if !truly(ctx, propExFinal) && indeterminate(ctx, ctx.evocation.a[0]) {
                 erro(ctx, "should skip: %v; %v", ctx.evocation.a[0], ts(ctx)).trace()
             }
         }
@@ -1099,9 +1093,7 @@ func (ctx *builtin_if) x() (res any) {
     return
 }
 
-type builtin_ifeq struct { builtin_
-    final bool `final`
-}
+type builtin_ifeq struct { builtin_ }
 func (ctx *builtin_ifeq) a() (skip bool) {
     for i, a := range ctx.evocation.a {
         if a = a.expand(ctx); i == 0 {
@@ -1122,9 +1114,7 @@ func (ctx *builtin_ifeq) x() (res any) {
     return
 }
 
-type builtin_ifne struct { builtin_
-    final bool `final`
-}
+type builtin_ifne struct { builtin_ }
 func (ctx *builtin_ifne) a() (skip bool) {
     for i, a := range ctx.evocation.a {
         if a = a.expand(ctx); i == 0 {
@@ -1197,8 +1187,9 @@ func (ctx *builtin_foreach) x() (res any) {
     if len(values) == 0 { return }
     if ctx.unique { values = unique(ctx, values...) }
 
-    var cc = automatic{ Context:ctx, defs:make(auto_defs), suppress:
-        func(s string) bool { return s == "_" } }
+    var cc = automatic{ Context:ctx, defs:make(defs_map),
+        suppress:func(s string) bool { return s == "_" },
+    }
 
     var vals []Value
     for _, val := range values {
@@ -1208,9 +1199,9 @@ func (ctx *builtin_foreach) x() (res any) {
             val = disjunction{val}
         }
 
-        cc.set(ctx, "_", val)
+        cc.set(ctx, defVoid, "_", val) // NOTE: don't use defAuto (it's code-block auto)
 
-        for _, v := range detachBarecompList(xmerge(&cc, ctx.evocation.a[1:]...)...) {
+        for _, v := range detachCompoundList(xmerge(&cc, ctx.evocation.a[1:]...)...) {
             if isEmpty(v) {
                 if ctx.empty {
                     if v == nil { v = makeNull(v.Position()) }
@@ -1243,7 +1234,7 @@ func (ctx *builtin_env) x() (res any) {
     for _, a := range ctx.evocation.a { if val := a.expand(ctx); isTrivial(val) {
         continue
     } else if s := strings.TrimSpace(val.string(ctx)); s != "" {
-        vals = append(vals, makeStrlit(a.Position(), os.Getenv(s)))
+        vals = append(vals, _strlit(a.Position(), os.Getenv(s)))
     }}
     return vals
 }
@@ -1263,7 +1254,7 @@ func (ctx *builtin_auto) a() (skip bool) {
 }
 func (ctx *builtin_auto) x() (_ any) {
     if 1 < len(ctx.evocation.a) {
-        var ac = automatic{ Context:ctx, defs:make(auto_defs), suppress:suppress_never }
+        var ac = automatic{ Context:ctx, defs:make(defs_map), suppress:suppress_never }
 
         for _, a := range merge(ctx.evocation.a[0]) {
             switch t := a.(type) {
@@ -1271,7 +1262,7 @@ func (ctx *builtin_auto) x() (_ any) {
                 if s := t.key.string(&ac); s == "" {
                     erro(at(ctx,t.key), "%v is empty for name", ts(t.key)).trace()
                 } else {
-                    ac.set(ctx, s, t.val)
+                    ac.set(ctx, defVoid, s, t.val) // NOTE: don't use defAuto (it's code-block auto)
                 }
             default:
                 erro(at(ctx,a), "%v is unsupported for auto", ts(a)).trace()
@@ -1365,7 +1356,7 @@ func (ctx *builtin_call) a() (skip bool) {
 }
 func (ctx *builtin_call) x() (res any) {
     if 0 < len(ctx.evocation.a) {
-        var o Object
+        var o object
         if s := ctx.evocation.a[0].string(ctx); s == "" {
             erro(ctx, "%v is empty for name", ts(ctx.evocation.a[0])).trace()
         } else if ctx._closure {
@@ -1440,7 +1431,7 @@ type builtin_plain struct { builtin_
 func (ctx *builtin_plain) c() (res any) {
     var scope = _scope(ctx)
     for _, a := range ctx.evocation.a {
-        var ( o Object ; s = a.string(ctx) )
+        var ( o object ; s = a.string(ctx) )
         if ctx.scope_ { _, o = scope.find(s) } else { o = project_resolve(ctx, s) }
         if o == nil {
             erro(at(ctx,a), "no such symbol: %s", s).trace()
@@ -1470,7 +1461,7 @@ func (ctx *builtin_shell) x() (res any) {
             errostack(ctx, 3, "%s", err).trace()
             return
         }
-        val := makeStrlit(pos, strings.TrimSpace(bufout.String()))
+        val := _strlit(pos, strings.TrimSpace(bufout.String()))
         vals = append(vals, val)
         bufout.Reset()
         buferr.Reset()
@@ -1485,7 +1476,7 @@ func (ctx *builtin_which) x() (res any) {
         if s, err := exec.LookPath(a.string(ctx)); err != nil {
             erro(ctx, "%v", err).trace()
         } else if s != "" {
-            vals = append(vals, makeStrlit(_position(ctx), s))
+            vals = append(vals, _strlit(_position(ctx), s))
         }
     }
     return vals
@@ -1668,49 +1659,103 @@ func (ctx *builtin_divide) x() (res any) {
 }
 
 type builtin_unique struct { builtin_
-    reverse bool `rev,reverse`
+    reverse  bool `reverse`
     keepAuto bool `auto,keepauto,keep-auto`
-    unexpand bool `un,ue,unexpand,ne,noexpand,no-expand`
-    plain bool `pl,pla,plain,pv,plainvalue,plain-value`
+    unexpand bool `unexpand,noexpand,no-expand`
 }
-func (ctx *builtin_unique) x() (res any) {
+func (ctx *builtin_unique) a() (skip bool) {
+    ctx.evocation.a = expand(ctx, ctx.evocation.a...)
+    return !(ctx.final || truly(ctx, propExFinal)) && expandable(final{ctx}, ctx.evocation.a...)
+}
+func (ctx *builtin_unique) x() (_ any) {
     var args = ctx.evocation.a
+    var t1, t2 time.Time
+
+    defer func() {
+        t3 := time.Now()
+        d0 := t3.Sub(t1)
+        d1 := t2.Sub(t1)
+        d2 := t3.Sub(t2)
+        if d0 > 1*time.Second {
+            for _, a := range args { a.string(ctx) }
+            t4 := time.Now()
+            d3 := t4.Sub(t3)
+            for i, a := range args { if i > 0 { a.cmp(ctx, args[i-1]) } }
+            t5 := time.Now()
+            d4 := t5.Sub(t4)
+            // for i, a := range args { if i > 0 { eq(ctx, a, args[i-1]) } }
+            for i, a := range args { if i > 0 { equal(ctx, a, args[i-1]) } }
+            t6 := time.Now()
+            d5 := t6.Sub(t5)
+            var args2 []Value
+            var seen = make(map[uint64]struct{})
+            for _, a := range args {
+                c := a.hash(ctx)
+                if _, y := seen[c]; y {
+                    note(ctx, "%v")
+                } else {
+                    seen[c] = struct{}{}
+                }
+                var t = true
+                for _, b := range args2 {
+                    if equal(ctx, a, b) { t = false ; break }
+                }
+                if t { args2 = append(args2, a) }
+            }
+            t7 := time.Now()
+            d6 := t7.Sub(t6)
+            note(ctx, "%v %v %v (%v, %v, %v, %v, %d %d)", d0, d1, d2, d3, d4, d5, d6, len(args), len(args2))//.debug(2)
+            t7 = time.Now()
+            unique(ctx, args...)
+            d6 = t7.Sub(t6)
+            erro(ctx, "unique: %v", d6).trace()
+        }
+    } ()
+
+    t1 = time.Now()
+
     if ctx.unexpand {
-        args = merge(args...)
-    } else if ctx.plain {
+        args =  merge(args...)
+    } else if ctx.final {
         args = xmerge(final{ctx}, args...)
     } else {
-        args = xmerge(ctx, args...)
+        args = xmerge(      ctx , args...)
     }
+
+    t2 = time.Now()
+
     if ctx.reverse {
         return reverse_unique(ctx, args...)
     } else {
-        return unique(ctx, args...)
+        return         unique(ctx, args...)
     }
 }
 
 type builtin_join struct { builtin_ }
 func (ctx *builtin_join) a() (skip bool) {
     var a = expand(ctx, ctx.evocation.a...)
-    skip = expandable(final{ctx}, a...)
+    if !truly(ctx, propExFinal) {
+        skip = expandable(final{ctx}, a[:len(a)-1]...)
+    }
     ctx.evocation.a = a
     return
 }
 func (ctx *builtin_join) x() (_ any) {
     if l := len(ctx.evocation.a); 0 < l {
-        var vals []Value
-        var sep Value
+        var t = &compound{}
         if l < 2 {
-            vals = merge(ctx.evocation.a...)
+            t.app(merge(ctx.evocation.a...)...)
         } else {
-            a := merge(ctx.evocation.a[:l-1]...)
-            sep = scalarize(ctx.evocation.a[l-1])
-            for i, v := range a {
-                vals = append(vals, v)
-                if i < len(a)-1 { vals = append(vals, sep) }
+            var sep = scalarize(ctx.evocation.a[l-1])
+            for i, v := range merge(ctx.evocation.a[:l-1]...) {
+                if 0 < i {
+                    t.app(sep, v)
+                } else {
+                    t.app(v)
+                }
             }
         }
-        return &barecomp{elements{vals}}
+        return t
     }
     return
 }
@@ -1744,7 +1789,7 @@ func (ctx *builtin_quote) x() (res any) {
         for _, a := range args {
             if v := a.string(ctx); v != "" { fields = append(fields, v) }
         }
-        res = makeStrlit(_position(ctx), strconv.Quote(strings.Join(fields, " ")))
+        res = _strlit(_position(ctx), strconv.Quote(strings.Join(fields, " ")))
     } else {
         res = makeNone(_position(ctx))
     }
@@ -1764,7 +1809,7 @@ func (ctx *builtin_quotejoin) x() (res any) {
         for _, a := range args[1:] {
             if v := a.string(ctx); v != "" { fields = append(fields, v) }
         }
-        res = makeStrlit(_position(ctx), strconv.Quote(strings.Join(fields, sep)))
+        res = _strlit(_position(ctx), strconv.Quote(strings.Join(fields, sep)))
     } else {
         res = makeNone(_position(ctx))
     }
@@ -1777,12 +1822,14 @@ type builtin_splitstring struct { builtin_
 }
 func (ctx *builtin_splitstring) x() (res any) {
     var fields []Value
-    if len(ctx.evocation.a) > 0 {
+    if 0 < len(ctx.evocation.a) {
         var sep = ctx.sep
         if sep == "" { sep = ctx.evocation.a[0].string(ctx) }
-        for _, a := range ctx.evocation.a[1:] { for _, s := range strings.Split(a.string(ctx), sep) {
-            fields = append(fields, makeStrlit(a.Position(), s))
-        }}
+        for _, a := range ctx.evocation.a[1:] {
+            for _, s := range strings.Split(a.string(ctx), sep) {
+                fields = append(fields, _strlit(a.Position(), s))
+            }
+        }
     }
     return fields
 }
@@ -1810,7 +1857,7 @@ ValueType:
             if v, err = joinstrings(ctx, elem, sep); err != nil { break ValueType }
             if s = v.string(ctx); s != "" { strs = append(strs, s) }
         }
-        res = makeStrlit(value.Position(), strings.Join(strs, sep))
+        res = _strlit(value.Position(), strings.Join(strs, sep))
     }
     return
 }
@@ -1856,7 +1903,7 @@ func (ctx *builtin_splitjoinquote) x() (res any) {
         if v, err = joinstrings(ctx, val, sep); err != nil {
             erro(ctx, "%v", err).trace()
         } else {
-            res = makeStrlit(_position(ctx), strconv.Quote(v.string(ctx)))
+            res = _strlit(_position(ctx), strconv.Quote(v.string(ctx)))
         }
     }
     return
@@ -1946,15 +1993,15 @@ func (ctx *builtin_bare) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a {
         switch p := a.Position(); t := a.(type) {
-        case *strlit, *compound:
-            a = makeBareword(p, a.string(ctx))
-        case *File:
-            a = makeBareword(p, t.ident(ctx))
+        case *strlit, *strcomp:
+            a = makeWord(p, a.string(ctx))
+        case *file:
+            a = makeWord(p, t.ident(ctx))
         case fullfile:
             if ctx.name {
-                a = makeBareword(p, t.ident(ctx))
+                a = makeWord(p, t.ident(ctx))
             } else {
-                a = makeBareword(p, t.string(ctx))
+                a = makeWord(p, t.string(ctx))
             }
         }
         vals = append(vals, a)
@@ -1962,31 +2009,63 @@ func (ctx *builtin_bare) x() (res any) {
     return vals
 }
 
-type builtin_bareword struct { builtin_ }
-func (ctx *builtin_bareword) x() (res any) {
+type builtin_word struct { builtin_ }
+func (ctx *builtin_word) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a {
-        if _, y := a.(*bareword); !y {
-            a = makeBareword(a.Position(), a.string(ctx))
+        if _, y := a.(*word); !y {
+            a = makeWord(a.Position(), a.string(ctx))
         }
         vals = append(vals, a)
     }
     return vals
 }
 
+type builtin_resolve struct { builtin_
+    closure bool `closure`
+    // expand bool `expand`
+}
+func (ctx *builtin_resolve) a() (skip bool) {
+    ctx.evocation.a = expand(ctx, ctx.evocation.a...)
+    return // where skip=false
+}
+func (ctx *builtin_resolve) x() (res any) {
+    if 0 < len(ctx.evocation.a) {
+        var resolve func(Context, string) object
+        if ctx.closure {
+            resolve = closure_resolve
+        } else {
+            resolve = project_resolve
+        }
+
+        var vals []Value
+        for _, a := range merge(ctx.evocation.a...) {
+            var name = a.string(ctx)
+            if o := resolve(ctx, name); o == nil {
+                erro(ctx, "%v is nil : %v", a, ts(a)).trace()
+            } else if x, y := o.(*def); !y {
+                erro(ctx, "%v is not def : %v : %v", a, o, ts(o)).trace()
+            } else if x.value != nil {
+                vals = append(vals, merge(x.value)...)
+            }
+        }
+        return vals
+    }
+    return
+}
+
 type builtin_string struct { builtin_
-    finalize bool //`final` // not returning strval
-    expand bool `ex,exp,expand`
+    expand bool `expand`
     name   bool `name,file-name,non-full`
+    con    bool `conjunct,conjunction`
     dis    bool `disjunct,disjunction`
-    con    bool `conjunct,conjunction` // default
-    clo  []string `clo,closure`
+    clo  []string `closure`
     def  []string `def,var`
     join []string `join`
 }
 func (ctx *builtin_string) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
-    return
+    return // where skip=false
 }
 func (ctx *builtin_string) x() (res any) {
     if 0 < len(ctx.evocation.a)+len(ctx.clo)+len(ctx.def) {
@@ -2008,7 +2087,7 @@ func (ctx *builtin_string) x() (res any) {
 
         vals = merge(append(vals, ctx.evocation.a...)...)
 
-        if ctx.finalize {
+        if ctx.final {
             return expand(final{ctx}, vals...)
         } else if expandable(final{ctx}, vals...) {
             return &strval{valbase{_position(ctx)},vals}
@@ -2043,50 +2122,54 @@ func (ctx *builtin_string) x() (res any) {
     return
 }
 
-type builtin_finalize struct { builtin_string }
+type builtin_finalize struct { builtin_ }
+func (ctx *builtin_finalize) a() (skip bool) {
+    ctx.evocation.a = expand(ctx, ctx.evocation.a...)
+    return // where skip=false
+}
 func (ctx *builtin_finalize) x() any {
-    ctx.finalize = true ; return ctx.builtin_string.x()
+    return expand(final{ctx}, merge(ctx.evocation.a...)...)
 }
 
 type builtin_filter struct { builtin_
     stem bool `stem`
     neg bool
 }
-func (ctx *builtin_filter) _do(pats []Value, values... Value) (result []Value) {
-    defer func(t0 time.Time) { if d := time.Now().Sub(t0); d > 1*time.Second {
-        pos := _position(ctx)
-        prompt(ctx, "%v: slow: %d result, %v\n", pos, len(result), result)
-        prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(pats), pats)
-        prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
-    }} (time.Now())
+func (ctx *builtin_filter) _x(pats []Value, values... Value) (result []Value) {
+    defer func(t0 time.Time) {
+        if d := time.Now().Sub(t0); d > 1*time.Second {
+            pos := _position(ctx)
+            prompt(ctx, "%v: slow: %d result, %v\n", pos, len(result), result)
+            prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(pats), pats)
+            prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
+        }
+    } (time.Now())
 
     var f = func(v Value) Value {
-        for _, pat := range pats { if full, res, stems := pat.match(ctx, v); full {
-            if ctx.neg { v = nil } else if ctx.stem {
-                var vals []Value
-                for _, s := range stems {
-                    vals = append(vals, makeStrlit(v.Position(), s))
+        for _, pat := range pats {
+            if full, res, stems := pat.match(ctx, v); full {
+                if ctx.neg {
+                    v = nil
+                } else if ctx.stem {
+                    v = ease(ctx, stems)
+                } else if false {
+                    if t, r := pat.stencil(ctx, stems); t != nil && len(r) == 0 {
+                        v = t
+                    } else {
+                        v = ease(ctx, res)
+                    }
                 }
-                v = ease(ctx, vals)
-            } else if true {
-                // 'v' is just good enough
-            } else if t, r := pat.stencil(ctx, stems); t != nil && len(r) == 0 {
-                v = t
-            } else if s, y := res.(string); y {
-                v = makeStrlit(v.Position(), s)
-            } else if a, y := res.([]string); y {
-                var vals []Value
-                for _, s := range a {
-                    vals = append(vals, makeStrlit(v.Position(), s))
-                }
-                v = ease(ctx, vals)
+                return v
             }
-            return v
-        }}
+        }
         if ctx.neg { return v } else { return nil }
     }
 
-    for _, v := range values { if t := f(v); t != nil { result = append(result, t) }}
+    for _, v := range values {
+        if t := f(v); t != nil {
+            result = append(result, t)
+        }
+    }
     return
 }
 func (ctx *builtin_filter) x() (res any) {
@@ -2107,7 +2190,7 @@ func (ctx *builtin_filter) x() (res any) {
         }
 
         vals = merge(ctx.evocation.a[i:]...)
-        vals = ctx._do(pats, vals...)
+        vals = ctx._x(pats, vals...)
         if len(vals) > 0 { res = vals }
     }
     return
@@ -2115,21 +2198,21 @@ func (ctx *builtin_filter) x() (res any) {
 
 // $(filter-out pattern…,text)
 type builtin_filterout struct { builtin_filter }
-func (ctx *builtin_filterout) _do(pats []Value, values... Value) (result []Value) { ctx.neg = true
-    return ctx.builtin_filter._do(pats, values...)
+func (ctx *builtin_filterout) _x(pats []Value, values... Value) []Value {
+    ctx.neg = true ; return ctx.builtin_filter._x(pats, values...)
 }
-func (ctx *builtin_filterout) x() (res any) { ctx.neg = true
-    return ctx.builtin_filter.x()
+func (ctx *builtin_filterout) x() any {
+    ctx.neg = true ; return ctx.builtin_filter.x()
 }
 
 type builtin_substring struct { builtin_ }
 func (ctx *builtin_substring) x() (_ any) {
     var res []Value
     if n := len(ctx.evocation.a); n > 1 {
-        var a = intVal(ctx, ctx.evocation.a[0], -1)
-        var b = intVal(ctx, ctx.evocation.a[1], -1)
+        var v1, v2 = ctx.evocation.a[0], ctx.evocation.a[1]
+        var a, b = intVal(ctx, v1, -1), intVal(ctx, v2, -1)
         if ctx.evocation.a = ctx.evocation.a[2:]; a < -1 && b < -1 {
-            erro(ctx, "wrong indices (%v, %v)", ctx.evocation.a[0], ctx.evocation.a[1]).trace()
+            erro(ctx, "wrong indices (%v, %v)", v1, v2).trace()
         }
         if a > b { t := a; a = b; b = t } // swap the wrong order
         if a == -1 { a = b }
@@ -2139,7 +2222,7 @@ func (ctx *builtin_substring) x() (_ any) {
             var s = arg.string(ctx)
             if i := len(s); i <= a { s = "" } else
             if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
-            res = append(res, makeStrlit(arg.Position(), s))
+            res = append(res, _strlit(arg.Position(), s))
         }
     }
     return res
@@ -2154,7 +2237,7 @@ func (ctx *builtin_subst) x() (_ any) {
         var s2 = ctx.evocation.a[1].string(ctx)
         for _, arg := range merge(ctx.evocation.a[2:]...) {
             s := strings.Replace(arg.string(ctx), s1, s2, -1)
-            res = append(res, makeStrlit(arg.Position(), s))
+            res = append(res, _strlit(arg.Position(), s))
         }
     }
     return res
@@ -2216,12 +2299,12 @@ ForSources:
     for _, src := range sources {
         var (
             source any = src
-            srcFile *File
+            srcFile *file
             srcPat Value
             stems []string
             ok bool
         )
-        if srcFile, ok = toFile(src); ok {
+        if srcFile, ok = to_file(src); ok {
             source = srcFile
         } else if ctx.findFiles {
             var s = src.string(ctx)
@@ -2232,7 +2315,7 @@ ForSources:
             }
         } else if !ctx.fullname {
             source = src
-        } else if o, y := (as{src}.fullname(ctx, closured...)); y {
+        } else if o := (as{src}.fullname(ctx, closured...)); o.Value != nil {
             source = o.string(ctx)
         } else {
             erro(at(ctx,src), "fullname '%v' failed", src)
@@ -2271,14 +2354,14 @@ ForSources:
             }
 
             if srcFile != nil {
-                var dstFile *File
+                var dstFile *file
                 if !ctx.nofilemap { dstFile = proj.file(ctx, nameStr) }
                 if dstFile == nil {
                     a := []any{
                         "%v: %v (%v): unmapped destination, aka files (...)",
                         proj, nameStr, dstPat,
                     }
-                    if t := files(ctx, nameVal, proj); ctx.erroDstNomap {
+                    if t := unmap_files(ctx, nameVal); ctx.erroDstNomap {
                         erro(at(ctx,srcPat), "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
                         errostack(at(ctx,dstPat), 16, a...).trace()
                     } else if ctx.warnDstNomap {
@@ -2297,27 +2380,27 @@ ForSources:
 
             // Deal with source value types
             switch pos := dstPat.Position(); src.(type) {
-            case *File, fullfile:
-            case *strlit, *compound:
-                res = append(res, makeStrlit(pos, nameStr))
+            case *file, fullfile:
+            case *strlit, *strcomp:
+                res = append(res, _strlit(pos, nameStr))
                 continue stencilTargetPats
             case *path:
                 res = append(res, _pathstr(ctx, nameStr))
                 continue stencilTargetPats
-            case *bareword, *barecomp:
+            case *word, *compound:
                 if strings.Contains(nameStr, pathSep) {
                     res = append(res, _pathstr(ctx, nameStr))
                 } else {
-                    res = append(res, makeBareword(pos, nameStr))
+                    res = append(res, makeWord(pos, nameStr))
                 }
                 continue stencilTargetPats
             default:
                 if strings.Contains(nameStr, pathSep) {
                     res = append(res, _pathstr(ctx, nameStr))
                 } else if true {
-                    res = append(res, makeBareword(pos, nameStr))
+                    res = append(res, makeWord(pos, nameStr))
                 } else {
-                    res = append(res, makeStrlit(pos, nameStr))
+                    res = append(res, _strlit(pos, nameStr))
                 }
                 continue stencilTargetPats
             }
@@ -2339,7 +2422,7 @@ func (ctx *builtin_title) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
         if s := a.string(ctx); s != "" {
-            res = append(res, makeStrlit(a.Position(), strings.Title(s)))
+            res = append(res, _strlit(a.Position(), strings.Title(s)))
         }
     }
     return res
@@ -2350,7 +2433,7 @@ func (ctx *builtin_uppercase) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
         if s := a.string(ctx); s != "" {
-            res = append(res, makeStrlit(a.Position(), strings.ToUpper(s)))
+            res = append(res, _strlit(a.Position(), strings.ToUpper(s)))
         }
     }
     return res
@@ -2361,7 +2444,7 @@ func (ctx *builtin_lowercase) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
         if s := a.string(ctx); s != "" {
-            res = append(res, makeStrlit(a.Position(), strings.ToLower(s)))
+            res = append(res, _strlit(a.Position(), strings.ToLower(s)))
         }
     }
     return res
@@ -2406,9 +2489,9 @@ func (ctx *builtin_trim) x() any {
             if i == 0 {
                 cutset = s
             } else if cutset == "" {
-                res = append(res, makeStrlit(a.Position(), strings.TrimSpace(s)))
+                res = append(res, _strlit(a.Position(), strings.TrimSpace(s)))
             } else {
-                res = append(res, makeStrlit(a.Position(), strings.Trim(s, cutset)))
+                res = append(res, _strlit(a.Position(), strings.Trim(s, cutset)))
             }
         }
     }
@@ -2431,9 +2514,9 @@ func (ctx *builtin_trimleft) x_0() any {
             if i == 0 {
                 cutset = s
             } else if cutset == "" {
-                res = append(res, makeStrlit(a.Position(), strings.TrimLeftFunc(s, unicode.IsSpace)))
+                res = append(res, _strlit(a.Position(), strings.TrimLeftFunc(s, unicode.IsSpace)))
             } else {
-                res = append(res, makeStrlit(a.Position(), strings.TrimLeft(s, cutset)))
+                res = append(res, _strlit(a.Position(), strings.TrimLeft(s, cutset)))
             }
         }
     }
@@ -2454,9 +2537,9 @@ func (ctx *builtin_trimright) x_0() any {
             if i == 0 {
                 cutset = s
             } else if cutset == "" {
-                res = append(res, makeStrlit(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
+                res = append(res, _strlit(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
             } else {
-                res = append(res, makeStrlit(a.Position(), strings.TrimRight(s, cutset)))
+                res = append(res, _strlit(a.Position(), strings.TrimRight(s, cutset)))
             }
         }
     }
@@ -2472,22 +2555,6 @@ func (ctx *builtin_trimright) x() (_ any) {
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 type builtin_trimprefix struct { builtin_ }
-func (ctx *builtin_trimprefix) x_0() any {
-    var res []Value
-    var cutset string
-    for i, a := range ctx.evocation.a {
-        if s := a.string(ctx); s != "" {
-            if i == 0 {
-                cutset = s
-            } else if cutset == "" {
-                res = append(res, makeStrlit(a.Position(), strings.TrimLeftFunc(s, unicode.IsSpace)))
-            } else {
-                res = append(res, makeStrlit(a.Position(), strings.TrimPrefix(s, cutset)))
-            }
-        }
-    }
-    return res
-}
 func (ctx *builtin_trimprefix) x() (_ any) {
     return ctx.trim(func(val, prefix Value, _s string) (res Value, s string) {
         if indeterminate(ctx, prefix) {
@@ -2497,42 +2564,30 @@ func (ctx *builtin_trimprefix) x() (_ any) {
         var t string
         if prefix.patterned(ctx) {
             var f, r, m = prefix.match(ctx, val)
-            if checkpoints {
-                if prefix.String() == "/**/testdata/" {
-                    var v = val.string(ctx)
-                    if f != false {
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).trace()
-                    }
-                    if x, y := r.([]string); !y || strings.TrimPrefix(v, joinPath(x...)) != "builtins/trimprefix" {
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).trace()
-                    }
-                    if len(m) != 1 {
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).trace()
-                    } else if strings.TrimPrefix(v, "/"+m[0]) != "/testdata/builtins/trimprefix" {
-                        note(ctx, "/%v", m[0])
-                        note(ctx, "%v", val)
-                        erro(ctx, "%v : %v %v %v", tv(prefix), f, r, m).trace()
-                    }
-                }
-            }
-            if f { return }
+            if checkpoints && truly(ctx, is_test_mode{}) { ctx.x_check_match(val, prefix, f, r, m) }
+            if f { return } // trim all for prefix
 
             t = _path(ctx, r)
         } else {
             t = prefix.string(ctx)
         }
 
-        if s = _s; s == "" { s = val.string(ctx) }
+        if s = _s ; s == "" { s = val.string(ctx) }
+
         if strings.HasPrefix(s, t) {
             _s = strings.TrimPrefix(s, t)
-        } else if false {
+        } else if true {
             _s = strings.TrimLeftFunc(s, unicode.IsSpace)
+        } else {
+            _s = s
         }
 
         switch val.(type) {
         case *path: res = _pathstr(ctx, _s)
-        default: res = makeStrlit(val.Position(), _s)
+        default: res = _strlit(val.Position(), _s)
         }
+
+        if checkpoints && truly(ctx, is_test_mode{}) { ctx.x_check(prefix, val, res) }
         return
     })
 }
@@ -2546,9 +2601,9 @@ func (ctx *builtin_trimsuffix) x_0() any {
             if i == 0 {
                 cutset = s
             } else if cutset == "" {
-                res = append(res, makeStrlit(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
+                res = append(res, _strlit(a.Position(), strings.TrimRightFunc(s, unicode.IsSpace)))
             } else {
-                res = append(res, makeStrlit(a.Position(), strings.TrimSuffix(s, cutset)))
+                res = append(res, _strlit(a.Position(), strings.TrimSuffix(s, cutset)))
             }
         }
     }
@@ -2568,7 +2623,7 @@ func (ctx *builtin_trimsuffix) x() (_ any) {
                     if f != false {
                         erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
                     }
-                    if x, y := r.([]string); !y || joinPath(x...) != "/testdata/builtins/trimsuffix" {
+                    if x, y := r.([]string); !y || joinpath(x...) != "/testdata/builtins/trimsuffix" {
                         erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
                     }
                     if len(_s) != 1 {
@@ -2594,7 +2649,7 @@ func (ctx *builtin_trimsuffix) x() (_ any) {
 
         switch val.(type) {
         case *path: res = _pathstr(ctx, _s)
-        default: res = makeStrlit(val.Position(), _s)
+        default: res = _strlit(val.Position(), _s)
         }
         return
     })
@@ -2616,9 +2671,9 @@ func (ctx *builtin_trimext) x() any {
                     s = strings.TrimSuffix(s, ext)
                     if ctx.all { ext = filepath.Ext(s) } else { break }
                 }
-                res = append(res, makeStrlit(a.Position(), s))
+                res = append(res, _strlit(a.Position(), s))
             } else if ext == filepath.Ext(s) {
-                res = append(res, makeStrlit(a.Position(), strings.TrimRight(s, ext)))
+                res = append(res, _strlit(a.Position(), strings.TrimRight(s, ext)))
             }
         }
     }
@@ -2839,7 +2894,7 @@ func (ctx *builtin_indent) x() (res any) {
         for _, line := range strings.Split(a.string(ctx), "\n") {
             lines = append(lines, s + line)
         }
-        l = append(l, makeStrlit(a.Position(), strings.Join(lines, "\n")))
+        l = append(l, _strlit(a.Position(), strings.Join(lines, "\n")))
     }
     return l
 }
@@ -2901,12 +2956,6 @@ func (ctx builtin_sort) x() (res any) {
     return
 }
 
-type builtin_word struct { builtin_ }
-func (ctx builtin_word) x() (res any) {
-    erro(ctx, "TODO: $(word ...)").trace()
-    return
-}
-
 type builtin_wordlist struct { builtin_ }
 func (ctx builtin_wordlist) x() (res any) {
     erro(ctx, "TODO: $(wordlist ...)").trace()
@@ -2939,7 +2988,7 @@ func (ctx *builtin_encodebase64) x() (res any) {
         enc := base64.NewEncoder(base64.StdEncoding, buf)
         for _, a := range ctx.evocation.a { enc.Write([]byte(a.string(ctx))) }
         enc.Close()
-        res = makeStrlit(pos, buf.String())
+        res = _strlit(pos, buf.String())
     }
     return
 }
@@ -2953,7 +3002,7 @@ func (ctx *builtin_decodebase64) x() (_ any) {
             if dat, err := base64.StdEncoding.DecodeString(s); err != nil {
                 erro(ctx, "decode '%s' failed: %v", s, err).trace()
             } else {
-                res = append(res, makeStrlit(a.Position(), string(dat)))
+                res = append(res, _strlit(a.Position(), string(dat)))
             }
         }
         return ease(ctx, res)
@@ -2961,23 +3010,26 @@ func (ctx *builtin_decodebase64) x() (_ any) {
     return
 }
 
-type builtin_fullname struct { builtin_ }
-func (ctx *builtin_fullname) x() (_ any) {
-    var res []Value
-    var p = []*project{_project(ctx)} // closure_projects(ctx)
-    for _, a := range merge(ctx.evocation.a...) {
-        if x, y := (as{a}.fullname(ctx, p...)); y { a = x }
-        res = append(res, a)
-    }
-    if 0 < len(res) { return res }
-    return
-}
+// type builtin_fullname struct { builtin_ }
+// func (ctx *builtin_fullname) x() (_ any) {
+//     var res []Value
+//     var p = _project(ctx)
+//     for _, a := range merge(ctx.evocation.a...) {
+//         if x := (as{a}.fullname(ctx, p)); x.Value != nil {
+//             if checkpoints && truly(ctx, is_test_mode{}) { ctx.x_check(p, a, x) }
+//             a = x
+//         }
+//         res = append(res, a)
+//     }
+//     if 0 < len(res) { return res }
+//     return
+// }
 
 type builtin_ext struct { builtin_ }
 func (ctx *builtin_ext) x() (_ any) {
     var res []Value
     for _, a := range merge(ctx.evocation.a...) {
-        res = append(res, makeStrlit(a.Position(), filepath.Ext(a.string(ctx))))
+        res = append(res, _strlit(a.Position(), filepath.Ext(a.string(ctx))))
     }
     if 0 < len(res) { return res }
     return
@@ -3004,7 +3056,7 @@ func (ctx *builtin_bases) x() (res any) {
         }
 
         _, s = bases(ctx, ctx.n, s)
-        l = append(l, makeStrlit(a.Position(), s))
+        l = append(l, _strlit(a.Position(), s))
     }
     return l
 }
@@ -3059,7 +3111,7 @@ func (ctx *builtin_dirs) x() any {
 
         var v Value
         var d = ctx.debug
-        if f, y := a.(*File); y {
+        if f, y := a.(*file); y {
             if ctx.fullname {
                 f = stat(ctx, s, stat_nonexist{true})
             } else {
@@ -3078,8 +3130,44 @@ func (ctx *builtin_dirs) x() any {
     return l
 }
 
-type builtin_dir struct { builtin_dirs }
-func (ctx *builtin_dir) x() any { ctx.n = 1; return ctx.builtin_dirs.x() }
+type builtin_dir struct { builtin_dirs ; sub Value `of` }
+func (ctx *builtin_dir) x() (_ any) {
+    var sub string
+    if ctx.sub != nil { sub = ctx.sub.string(ctx) }
+    if sub == "" { ctx.n = 1 ; return ctx.builtin_dirs.x() }
+
+    var l []Value
+    for _, a := range merge(ctx.evocation.a...) {
+        var s string
+        if ctx.fullname {
+            s, _ = as{a}.fullnameOrFinal(ctx)
+        } else {
+            s = a.string(ctx)
+        }
+        for {
+            var d = filepath.Dir(s)
+            if d == "" || d == s { break } else { s = d }
+            if true {
+                if x, e := os.Stat(filepath.Join(d,sub)); e == nil && x != nil {
+                    l = append(l, _pathstr(ctx, d))
+                    break
+                }
+            } else {
+                var f *file
+                if ctx.fullname {
+                    f = stat(ctx, filepath.Join(d,sub), stat_nonexist{false})
+                } else {
+                    f = stat(ctx, sub, stat_dir{d}, stat_nonexist{false})
+                }
+                if f != nil {
+                    l = append(l, f)
+                    break
+                }
+            }
+        }
+    }
+    return l
+}
 
 type builtin_dir2 struct { builtin_dirs }
 func (ctx *builtin_dir2) x() any { ctx.n = 2; return ctx.builtin_dirs.x() }
@@ -3185,7 +3273,7 @@ func (ctx *builtin_chopdir) x() (res any) {
                 v[0] = pathSep // for absolute paths
             }
         }
-        l = append(l, makeStrlit(a.Position(), filepath.Join(v...)))
+        l = append(l, _strlit(a.Position(), filepath.Join(v...)))
     }
     return l
 }
@@ -3199,7 +3287,7 @@ func (ctx *builtin_reldir) x() (res any) {
         if s := a.string(ctx); i == 0 {
             t = s
         } else if s, err = filepath.Rel(t, s); err == nil {
-            l = append(l, makeStrlit(a.Position(), s))
+            l = append(l, _strlit(a.Position(), s))
         } else {
             erro(ctx, "%v", err)
         }
@@ -3318,7 +3406,7 @@ type builtin_remove struct { builtin_
 func (ctx *builtin_remove) c() (res any) {
     var opts = ctx
     var remove func(Context, Value)
-    var removeFile = func(ctx Context, f *File) {
+    var removeFile = func(ctx Context, f *file) {
         var err error
         var s = f.fullname()
         if opts.skip != "" {
@@ -3369,9 +3457,9 @@ func (ctx *builtin_remove) c() (res any) {
             notestack(ctx, 5, "delegate: %v (%T, %v, %v)", d.x, d.x, d.o, d.a).debug(6)
         } else if v.patterned(ctx) {
             removePat(ctx, v)
-        } else if f, y := v.(*File); y {
+        } else if f, y := v.(*file); y {
             removeFile(ctx, f)
-        } else if f = file(ctx, v.string(ctx)); f != nil {
+        } else if f = findfile(ctx, v.string(ctx)); f != nil {
             removeFile(ctx, f)
         } else if p, y := v.(*path); y {
             removePath(ctx, p)
@@ -3662,7 +3750,7 @@ func (ctx *builtin_stat) x() (res any) {
 
     var vals []Value
 
-    var check = func(f *File) {
+    var check = func(f *file) {
         if f != nil && f.info != nil {
             var mode = f.info.Mode()
             if  (ctx.dir    && mode&os.ModeDir     != 0) ||
@@ -3673,7 +3761,7 @@ func (ctx *builtin_stat) x() (res any) {
     }
 
     var checkstat = func(a Value) {
-        var file *File
+        var file *file
         var s string
         if s = a.string(ctx); filepath.IsAbs(s) {
             file = stat(ctx, s)
@@ -3686,7 +3774,7 @@ func (ctx *builtin_stat) x() (res any) {
 
     for _, a := range merge(ctx.evocation.a...) {
         switch t := a.(type) {
-        case *File: check(t)
+        case *file: check(t)
         case *path: checkstat(a)
         default:    checkstat(a)
         }
@@ -3710,39 +3798,18 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
     var f = func(a Value) {
         ctx.Context = at(cc, a)
 
-        var fs []*File
-        var am []filemap_name
-        if f, y := toFile(a); y {
-            if !ctx.exists || f.exists() /* || f.stat(ctx) != nil */ {
-                res = append(res, f)
+        var fs []*file
+        if x, y := to_file(a); y {
+            if !ctx.exists || x.exists() /* || x.stat(ctx) != nil */ {
+                res = append(res, x)
             } else if ctx.report {
-                info(ctx, "no such file {%v %v %v}", f.dir, f.sub, f.name).debug()
+                info(ctx, "no such file {%v %v %v}", x.dir, x.sub, x.name).debug()
             }
             return
         }
 
-        if am = files(ctx, a, projs...); am == nil && false {
-            var s = a.string(ctx)
-            if s == "" {
-                erro(ctx, "%v is empty for searching file", ts(a)).trace()
-            }
-            if am = files(ctx, s, projs...); am == nil {
-                if f := file(ctx, s, projs...); f != nil {
-                    res = append(res, f)
-                    return
-                } else {
-                    if ctx.mapped {
-                        var t = unmap_files(ctx, a)
-                        erro(ctx, "not a file ; %v → %v", tv(a), t).trace()
-                    }
-                    return
-                }
-            }
-        }
-
-        for _, p := range projs {
-            fs = append(fs, p.selectFiles(ctx, am)...)
-        }
+        var am = unmap_files(ctx, a)
+        fs = append(fs, select_files(ctx, am)...)
 
         for _, f := range fs {
             if !ctx.exists || f.exists() {
@@ -3754,9 +3821,11 @@ func (ctx *builtin_file) z(projs []*project, args ...Value) (res []Value) {
             }
         }
 
-        if en > 0 { for i, m := range am {
-            info(at(ctx,m.pattern), "found %d. %s → %s → %v", i, m.name, ts(m.pattern), m.paths)
-        }}
+        if en > 0 {
+            for i, m := range am {
+                info(at(ctx,m.pattern), "found %d. %s → %s → %v", i, m.name, ts(m.pattern), m.paths)
+            }
+        }
     }
 
     for _, a := range merge(args...) {
@@ -3830,7 +3899,7 @@ type builtin_wildcard struct { builtin_
     filetype string `type,filetype,file-type` // dir, file, etc.
     dir string `dir,directory`
 }
-func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*File) {
+func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*file) {
     if false && checkpoints {
         if s := _workdir(ctx); s == "" {
             erro(ctx, "empty workdir").trace()
@@ -3975,9 +4044,9 @@ func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*
     top.Wait()
     return
 }
-func (ctx *builtin_wildcard) _project_0(p *project, pats ...Value) (files []*File) {
+func (ctx *builtin_wildcard) _project_0(p *project, pats ...Value) (files []*file) {
     for _, pat := range pats {
-        for _, a := range p.unmap_files(ctx, pat) {
+        for _, a := range p.unmap_files(ctx, pat, nil) {
             for _, loc := range a.paths {
                 var dir = loc.string(ctx)
                 note(ctx, "%v %v %v %v", pat, a.pattern, loc, dir).debug()
@@ -3986,13 +4055,13 @@ func (ctx *builtin_wildcard) _project_0(p *project, pats ...Value) (files []*Fil
     }
     return
 }
-func (ctx *builtin_wildcard) _project_1(p *project, pats ...Value) (files []*File) {
+func (ctx *builtin_wildcard) _project_1(p *project, pats ...Value) (files []*file) {
     var g sync.WaitGroup
     for _, pat := range pats {
         g.Add(1)
         func() {
             defer g.Done()
-            for _, a := range p.unmap_files(ctx, pat) {
+            for _, a := range p.unmap_files(ctx, pat, nil) {
                 note(ctx, "%v %v %v", pat, a.filemap.pattern, a.filemap.paths).debug()
             }
         } ()
@@ -4000,7 +4069,7 @@ func (ctx *builtin_wildcard) _project_1(p *project, pats ...Value) (files []*Fil
     g.Wait()
     return
 }
-func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File) {
+func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*file) {
     if false { defer func(t0 time.Time) {
         if d := time.Now().Sub(t0); d > 1*time.Second {
             var pos = _position(ctx)
@@ -4012,7 +4081,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
 
     var m sync.Mutex
     var g sync.WaitGroup
-    var collect = func(t ...*File) {
+    var collect = func(t ...*file) {
         m.Lock()
         files = append(files, t...)
         m.Unlock()
@@ -4075,7 +4144,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
 
     var f3 = func(pat Value) {
         defer g.Done()
-        for _, a := range p.unmap_files(ctx, pat) {
+        for _, a := range p.unmap_files(ctx, pat, nil) {
             g.Add(1) ; go f2(pat, a.filemap)
         }
     }
@@ -4086,7 +4155,7 @@ func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*File)
     g.Wait()
     return
 }
-func (ctx *builtin_wildcard) _do(pats ...Value) []*File {
+func (ctx *builtin_wildcard) _do(pats ...Value) []*file {
     if ctx.dir == "" {
         return ctx._project(_project(ctx), pats...)
     } else {
@@ -4102,11 +4171,11 @@ func (ctx *builtin_wildcard) x() any {
         } else if !(ctx.names || ctx.strs) {
             vals = append(vals, file)
         } else if ctx.strs {
-            vals = append(vals, makeStrlit(file.position, file.ident(ctx)))
+            vals = append(vals, _strlit(file.position, file.ident(ctx)))
         } else if strings.Contains(file.ident(ctx), pathSep) {
             vals = append(vals, _pathstr(ctx, file.ident(ctx)))
         } else {
-            vals = append(vals, makeBareword(file.position, file.ident(ctx)))
+            vals = append(vals, makeWord(file.position, file.ident(ctx)))
         }
     }
     return vals
@@ -4119,7 +4188,7 @@ func (ctx *builtin_readdir) x() (res any) {
         if fis, err := ioutil.ReadDir(a.string(ctx)); err == nil {
             v := new(list)
             for _, fi := range fis {
-                v.append(makeStrlit(a.Position(), fi.Name()))
+                v.append(_strlit(a.Position(), fi.Name()))
             }
             l = append(l, v)
         } else {
@@ -4138,7 +4207,7 @@ func (ctx *builtin_readfile) x() (res any) {
     var l []Value
     var closured = closure_projects(ctx)
     for _, v := range ctx.evocation.a {
-        if o, y := (as{v}.fullname(ctx, closured...)); !y {
+        if o := (as{v}.fullname(ctx, closured...)); o.Value == nil {
             errostack(at(ctx,v), 5, "%v is not a file", v).trace()
         } else if s, e := ioutil.ReadFile(o.string(ctx)); e != nil {
             errostack(at(ctx,v), 5, "read file failed: %v", e).trace()
@@ -4146,7 +4215,7 @@ func (ctx *builtin_readfile) x() (res any) {
             if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
             if ctx.trimLeft  { s = bytes.TrimLeftFunc (s, unicode.IsSpace) } else
             if ctx.trimRight { s = bytes.TrimRightFunc(s, unicode.IsSpace) }
-            l = append(l, makeStrlit(v.Position(), string(s)))
+            l = append(l, _strlit(v.Position(), string(s)))
         }
     }
     return l
@@ -4228,7 +4297,7 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
     )
     if len(ts) > 0 { ta = ts[0] } else { ta = time.Now() }
     if len(ts) > 1 { tm = ts[1] } else { tm = time.Now() }
-    if fi, k := toFile(file); k && fi.info != nil {
+    if fi, k := to_file(file); k && fi.info != nil {
         m = fi.info.Mode()
     } else if fi, e := os.Stat(filename); e == nil && fi != nil {
         m = fi.Mode()
@@ -4273,6 +4342,10 @@ func (ctx *builtin_touchfile) x() (res any) {
 // $(grep 'status=1',$@)
 // $(grep 'status=([0-9]+)',$1,$@)
 type builtin_grep struct { builtin_ }
+func (ctx *builtin_grep) a() (skip bool) {
+    ctx.evocation.a = expand(ctx, ctx.evocation.a...)
+    return !truly(ctx, propExFinal) && expandable(final{ctx}, ctx.evocation.a...)
+}
 func (ctx *builtin_grep) x() (_ any) {
     var (
         args = ctx.evocation.a
@@ -4280,8 +4353,6 @@ func (ctx *builtin_grep) x() (_ any) {
         res []Value
         rxs []*regexp.Regexp // TODO: move it into builtinGrepOpts
         result Value
-        err error
-
     )
     if !(nargs == 2 || nargs == 3) {
         erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").trace()
@@ -4291,10 +4362,12 @@ func (ctx *builtin_grep) x() (_ any) {
     var rvs = merge(args[0])
     switch nargs {
     case 2:   args = args[1:]
-    case 3: result = args[1] ; args = args[2:]
+    case 3: result = args[1]; args = args[2:]
     }
     for _, a := range rvs {
-        if s := a.string(ctx); s == "" {
+        if x, y := a.(*regexpat); y {
+            rxs = append(rxs, x.Regexp)
+        } else if s := a.string(ctx); s == "" {
             erro(at(ctx,a), "empty regexp").trace()
             return
         } else if r, e := regexp.Compile(s); e != nil {
@@ -4306,18 +4379,21 @@ func (ctx *builtin_grep) x() (_ any) {
     }
 
     var pos = _position(ctx)
-    var cc = automatic{Context:ctx, defs:make(auto_defs), suppress:IsDigits}
+    var cc = automatic{Context:ctx, defs:make(defs_map), suppress:IsDigits}
     var greped = func(line int, match []string) (done bool) {
         var vals []Value
         for i, s := range match {
-            if d, v := cc.set(ctx, fmt.Sprintf("%d",i), makeStrlit(pos, s)); d == nil {
+            // NOTE: don't use defAuto (it's code-block auto)
+            if d, v := cc.set(ctx, defVoid, fmt.Sprintf("%d",i), _strlit(pos, s)); d == nil {
                 erro(ctx, "set $%d to '%s' failed", i, s).trace()
                 return
-            } else { vals = append(vals, v) }
+            } else {
+                vals = append(vals, v)
+            }
         }
         defer func() {
             for i, v := range vals {
-                if d, v := cc.set(ctx, fmt.Sprintf("%d",i), v); d == nil {
+                if d, v := cc.set(ctx, defVoid, fmt.Sprintf("%d",i), v); d == nil {
                     erro(ctx, "restore $%d to '%s' failed", i, v).trace()
                 }
             }
@@ -4327,33 +4403,35 @@ func (ctx *builtin_grep) x() (_ any) {
     }
 
     for _, a := range merge(args...) {
-        var file *os.File
         var filename string
-
-        if f, y := a.(*File); y {
-            filename = f.fullname()
+        if x, y := a.(*file); y {
+            filename = x.fullname()
         } else {
             filename = a.string(ctx)
         }
 
+        var e error
+        var f *os.File
         if c := at(ctx, a); filename == "" {
             var pc = _execution(ctx)
             erro(c, "empty filename: %v", ts(a))
             erro(c, "%v %v", rvs, args)
             errostack(c, 5, "%p %v", pc, pc.search(ctx, "^")).trace()
             return
-        } else if file, err = os.Open(filename); err != nil {
-            erro(c, "%v", err)
-            errostack(c, 5, "%v (%T)", a.string(ctx), a).trace()
+        } else if f, e = os.Open(filename); e != nil {
+            erro(c, "%v", e)
+            errostack(c, 5, "%v (%v)", a.string(ctx), typeof(a)).trace()
             return
+        } else {
+            defer f.Close()
         }
 
-        defer file.Close()
-
         var line int // line number
-        var scanner = bufio.NewScanner(file)
+        var scanner = bufio.NewScanner(f)
         scanner.Split(bufio.ScanLines)
-        outer: for scanner.Scan() {
+
+    outer:
+        for scanner.Scan() {
             var text = scanner.Text()
             line += 1 // starting from #1
             for _, rx := range rxs {
@@ -4374,12 +4452,12 @@ var (
     rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
 
-func (project *project) strExpandConfig(ctx Context, s string) (result string, err error) {
+func (p *project) strExpandConfig(ctx Context, s string) (result string, err error) {
     var pos Position
     var index, line = 0, 0
     var res = new(bytes.Buffer)
     if v := auto_get(ctx, "-file"); v != nil {
-        if x, y := toFile(v); y { pos.Filename = x.fullname() }
+        if x, y := to_file(v); y { pos.Filename = x.fullname() }
     }
     for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
         line += strings.Count(s[index:m[0]], "\n")
@@ -4397,14 +4475,14 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
 
         var d *def
         var val Value
-        if d = project.resolveDef(ctx, name); d == nil {
+        if d = p.resolveDef(ctx, name); d == nil {
             if true {
                 prompt(ctx, "%v: %v undefined\n", pos, name)
-                warnstack(ctx, 10, "in %v", project).debug(6)
+                warnstack(ctx, 10, "in %v", p).debug(6)
             }
             continue
         } else if val = d.invoke(ctx, nil, nil); isNull(val) {
-            if f := project.configuration_sm(ctx); f == nil {
+            if f := p.configuration_sm(ctx); f == nil {
                 erro(at(ctx,d), "%v: configuration file not defined", name, f).trace()
                 return
             } else if !f.exists() {
@@ -4433,7 +4511,7 @@ func (project *project) strExpandConfig(ctx Context, s string) (result string, e
 }
 
 // https://www.gnu.org/software/autoconf/manual/autoconf-2.67/autoconf.html
-func autoconf(ctx Context, out *bytes.Buffer, project *project, str string) (err error) {
+func autoconf(ctx Context, out *bytes.Buffer, p *project, str string) (err error) {
     var num int
     for _, m := range rxAutoconf.FindAllStringSubmatch(str, -1) {
         info(ctx, "TODO: %v", m)
@@ -4446,7 +4524,9 @@ func autoconf(ctx Context, out *bytes.Buffer, project *project, str string) (err
 func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
     if s, e := p.strExpandConfig(ctx, str); e != nil {
         erro(ctx, "%v : %v", str, e).trace()
-    } else { str = s }
+    } else {
+        str = s
+    }
 
     var index = 0
 
@@ -4540,6 +4620,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
     if len(str) <= index {
         return
     }
+
     if _, e := out.WriteString(str[index:]); e != nil {
         erro(ctx, "%v", e).trace()
     }
@@ -4553,5 +4634,5 @@ func (ctx *builtin_untraversed) x() (res any) {
 
 type builtin_return struct { builtin_ }
 func (ctx *builtin_return) x() (res any) {
-    return &returner{valbase{_position(ctx)}, ctx.evocation.a }
+    return &returner{valbase{_position(ctx)}, ctx.evocation.a}
 }

@@ -20,9 +20,6 @@ import (
     "os"
 )
 
-var testConfigurationDiverged bool
-var testPromptConfiguration bool
-
 var configureOps = map[string] func(*modifier_configure, Value, ...Value) (Value) {
     "a":       (*modifier_configure)._answer,
     "answer":  (*modifier_configure)._answer,
@@ -41,6 +38,8 @@ var configureOps = map[string] func(*modifier_configure, Value, ...Value) (Value
 func _configurecontext(c Context) *configurecontext { return cast[*configurecontext](c) }
 func isConfigure(ctx Context) bool { return _configurecontext(ctx) != nil }
 
+type silent_configure struct {}
+
 type configurecontext struct {
     Context
     current *project
@@ -50,88 +49,85 @@ type configurecontext struct {
     defs map[string]struct{}
     done map[*def]struct{}
 }
-func (ctx *configurecontext) cast(t reflect.Type) Context { return implcast(ctx, t) }
-func (ctx *configurecontext) openConfigurationFile(p *project) (file *os.File) {
-    if f := p.configuration; f == nil {
+func (cc *configurecontext) cast(t reflect.Type) Context { return implcast(cc, t) }
+func (cc *configurecontext) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case silent_configure: if cc.silent { return true }
+    }
+    return cc.Context.do(ctx, op)
+}
+func (cc *configurecontext) open_configuration_sm(ctx Context, p *project) (res *os.File) {
+    if f := p.configuration_sm(ctx); f == nil {
         erro(ctx, "%p: nil configuration file", p).trace()
     } else if s := f.fullname(); s == "" {
         erro(ctx, "empty configuration file name: %v", f).trace()
-    } else if err := os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); err != nil {
-        erro(ctx, "make path %s failed: %v", filepath.Dir(s), err).trace()
-    } else if file, err = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); err != nil {
-        erro(ctx, "open configuration %s failed: %v", s, err).trace()
-    } else if testPromptConfiguration {
-        prompt(ctx, "%s:1: %v\n", s, p)
-        note(ctx, "%v", p).debug(16)
-    } else if testConfigurationDiverged || true {
-        return
-    } else if t := p.configuration_sm(ctx); t != nil && t != f && t.fullname() != f.fullname() {
-        erro(ctx, "%v: diverged configuration file (%v)", p, _project(ctx))
-        prompt(ctx, "%v:1: <--- at load-time\n", t.fullname())
-        prompt(ctx, "%v:1: <--- at configure-time\n", f.fullname()).debug()
+    } else if e := os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); e != nil {
+        erro(ctx, "make path %s failed: %v", filepath.Dir(s), e).trace()
+    } else {
+        res, e = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600))
+        if e != nil { erro(ctx, "%v", e).trace() }
     }
-
     return
 }
-func (ctx *configurecontext) execute(e entry) {
-    if p := e.owner(); p != ctx.current && p != nil {
+func (cc *configurecontext) execute(ctx Context, e entry) {
+    if p := e.owner(); p != cc.current && p != nil {
         if p.configured { return } // already configured
 
-        ctx.defs = make(map[string]struct{}) // reset defs for p
+        cc.defs = make(map[string]struct{}) // reset defs for p
 
         // NOTE: configuration.sm is created for every project
-        var f = ctx.openConfigurationFile(p)
+        var f = cc.open_configuration_sm(ctx, p)
         if f != nil {
-            if ctx.writer != nil {
-                if e := ctx.writer.Flush(); e != nil {
+            if cc.writer != nil {
+                if e := cc.writer.Flush(); e != nil {
                     erro(ctx, "%v", e).trace()
                 }
             }
-            if ctx.file != nil {
-                if e := ctx.file.Close(); e != nil {
+            if cc.file != nil {
+                if e := cc.file.Close(); e != nil {
                     erro(ctx, "%v", e).trace()
                 }
             }
         }
 
-        ctx.file, ctx.writer = f, bufio.NewWriter(f)
-        fmt.Fprintf(ctx.writer, "# %s (%s) configuration\n", p.spec, p.rel)
+        cc.file, cc.writer = f, bufio.NewWriter(f)
+        fmt.Fprintf(cc.writer, "# %s (%s) configuration\n", p.spec, p.name)
 
-        if !ctx.silent {
+        if !cc.silent {
             prompt(ctx, "configure %s …… (%s)\n", p.name, p.spec)
         }
 
-        ctx.current = p
+        cc.current = p
     }
 
     e.execute(ctx)
 
     var s = e.destiny().string(ctx)
-    if _, y := ctx.defs[s]; y { return }
+    if _, y := cc.defs[s]; y { return }
 
-    var d = ctx.current.finddef(s)
+    var d = cc.current.finddef(s)
     if d == nil {
-        erro(ctx, "%v: `%s` not configured", ctx.current, s).trace()
+        erro(ctx, "%v: `%s` not configured", cc.current, s).trace()
         return
     }
 
-    ctx.defs[s] = struct{}{}
+    cc.defs[s] = struct{}{}
 
     if d.value == nil {
         // Set <nil> value with exec-assign ('!=') to a None value.
-        fmt.Fprintf(ctx.writer, "%v !=\n", d.ident(ctx))
+        fmt.Fprintf(cc.writer, "%v !=\n", d.ident(ctx))
     } else {
-        fmt.Fprintf(ctx.writer, "%v = %v\n", d.ident(ctx), d.value.String())
+        fmt.Fprintf(cc.writer, "%v = %v\n", d.ident(ctx), d.value.String())
     }
     return
 }
-func (ctx *configurecontext) close() {
-    if ctx.writer != nil { if err := ctx.writer.Flush(); err != nil {} }
-    if ctx.file != nil   { if err := ctx.file.Close();   err != nil {} }
+func (cc *configurecontext) close() {
+    if cc.writer != nil { if err := cc.writer.Flush(); err != nil {} }
+    if cc.file != nil   { if err := cc.file.Close();   err != nil {} }
 }
 
-func (u *universe)  for_configs(cal func(*project, entry)) { u._for_configs(cal, nil, nil) }
-func (u *universe) _for_configs(cal func(*project, entry), pre func(*project) func(), inf func(*project)) {
+// func (u *universe)  for_configs(cal func(*project, entry)) { u._for_configs(cal, nil, nil) }
+func (u *universe) for_configs(cal func(*project, entry), pre func(*project) func(), inf func(*project)) {
     var m = make(map[*project]struct{}, 4)
     var f func(*project)
 
@@ -162,8 +158,7 @@ func promptLeavingDirectory(ctx Context, s string) diagtracer {
 
 type configure_silent struct{}
 
-func configure(ctx Context, ii ...interface{}) {
-    var u = _universe(ctx)
+func configure(ctx Context, ii ...any) {
     var c = configurecontext{
         Context: ctx, done: make(map[*def]struct{}, 8),
     }
@@ -176,13 +171,17 @@ func configure(ctx Context, ii ...interface{}) {
         }
     }
 
+    var u = _universe(ctx)
+
     // Remove existing configuration.sm files
-    u._for_configs(nil, nil, func(p *project) {
-        if f := p.configuration_sm(ctx); f != nil { os.Remove(f.fullname()) }
+    u.for_configs(nil, nil, func(p *project) {
+        if f := p.configuration_sm(ctx); f != nil {
+            os.Remove(f.fullname())
+        }
     })
 
-    u._for_configs(func(p *project, entry entry) {
-        c.execute(entry)
+    u.for_configs(func(p *project, entry entry) {
+        c.execute(ctx, entry)
     }, func(p *project) (f func()) {
         if !c.silent && p.configure != nil && !p.configured && len(p.configs) > 0 {
             /********/ { promptEnteringDirectory(ctx, p.absPath) }
@@ -211,14 +210,14 @@ type modifier_configure struct { modifier_
     accumulate bool `add,acc,accumulate`
 }
 
-func (ctx *modifier_configure) _param(name string, i interface{}) *pair {
+func (ctx *modifier_configure) _param(name string, i any) *pair {
     var val Value
     var pos = _position(ctx)
     switch t := i.(type) {
     case Value: val = t
-    case string: val = makeStrlit(pos, t)
+    case string: val = _strlit(pos, t)
     }
-    return makePair(makeBareword(pos, name), val)
+    return makePair(makeWord(pos, name), val)
 }
 
 // -value
@@ -307,12 +306,7 @@ func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
 func scanExitStatts(err error) (n, status int) {
     switch e := err.(type) {
     case *exitstatus: n, status = 1, e.int
-    // case *scanner.Error:
-    //     for _, t := range e.Errs {
-    //         if n, status = scanExitStatts(t); n == 1 { return }
-    //     }
-    default:
-        n, _ = fmt.Sscanf(err.Error(), fmtExitStatus, &status)
+    default: n, _ = fmt.Sscanf(err.Error(), fmtExitStatus, &status)
     }
     return
 }
@@ -321,38 +315,36 @@ type commonConfigureOpts struct {
     silent bool `silent`
     noResetHyphen bool `reset` // reset hyphen value, aka. "-"
 }
-func (ctx *modifier_configure) executeEntry(rule_name interface{}, target Value, paramsOrig ...Value) (configured bool, result Value) {
-    if _universe(ctx).traceConfig { defer un(l_trace(l_config, fmt.Sprintf("configureExecuteEntry(%s %v)", rule_name, ctx))) }
+func (ctx *modifier_configure) execute_entry(rule_name any, target Value, _params ...Value) (configured bool, result Value) {
+    if _universe(ctx).traceConfig { defer un(l_trace(l_config, fmt.Sprintf("configure.execute_entry(%s %v)", rule_name, ctx))) }
 
     var entries []entry
-    if program := _program(ctx); program == nil {
+
+    if p := _program(ctx); p == nil {
         errostack(ctx, 3, "needs program context to configure: %v", ctx).trace()
         return
-    } else if program.project.configure == nil {
-        errostack(ctx, 3, "%v: .configure not provided for %v (%s)", program.project, target, rule_name).trace()
+    } else if c := p.project.configure; c == nil {
+        errostack(ctx, 3, "%v: .configure not provided for %v (%s)", p.project.name, target, rule_name).trace()
         return
-    } else if entries = program.project.configure.resolveEntries(ctx, rule_name, false); entries == nil {
-        errostack(ctx, 3, "%T %v: unknown configuration action", rule_name, rule_name).trace()
+    } else if entries = c._entries(ctx, rule_name, false); entries == nil {
+        errostack(ctx, 3, "%v: unknown configuration action : %v %v", rule_name, c.entries.ks(true), c.bases[0].entries.ks(true)).trace()
         return
     }
 
-    var (
-        hyphen = auto_get(ctx,"-")
-        verbose = ctx.verbose
+    var hyphen = auto_get(ctx,"-")
+    var verbose = ctx.verbose
+    var commopts commonConfigureOpts
 
-        params []Value
-        commOpts commonConfigureOpts
-    )
-
-    paramsOrig = parseOpts(ctx, &commOpts, paramsOrig...)
+    _params = parseOpts(ctx, &commopts, _params...)
 
     // Reset the result/output def '-'?
     // NOTE: have to reset hyphen to ensure configured value is saved
-    if !commOpts.noResetHyphen { auto_set(ctx, "-", nil) }
+    if !commopts.noResetHyphen { auto_set(ctx, defVoid, "-", nil) }
 
     // verbose mode is on if silent flag was not set
-    if !verbose && !commOpts.silent { verbose = !commOpts.silent }
+    if !verbose && !commopts.silent { verbose = !commopts.silent }
 
+    var params []Value
     var prog = entries[0].programs()[0]
     for _, par := range prog.params {
         switch par.ident(ctx) {
@@ -363,43 +355,44 @@ func (ctx *modifier_configure) executeEntry(rule_name interface{}, target Value,
         }
     }
 
-ForInParams:
-    for _, a := range paramsOrig {
+paramsloop:
+    for _, a := range _params {
         var p, y = a.(*pair)
         if !y {
-            erro(at(ctx,a), "unsupported parameter %v (%T)", a, a).trace()
+            erro(at(ctx,a), "unsupported parameter %s", ts(a)).trace()
             return
         }
 
         var key, value = p.key.string(ctx), p.val
-        if _, y = value.(*compound); y {
-            value = makeStrlit(_position(ctx), value.string(ctx))
+        if _, y = value.(*strcomp); y {
+            value = _strlit(_position(ctx), value.string(ctx))
         } else if value != nil {
             value = value.expand(ctx)
         }
 
-        for _, par := range prog.params { if s := par.ident(ctx); s == key || s == strings.ToUpper(key) {
-            params = append(params, ctx._param(par.ident(ctx), value))
-            continue ForInParams
-        }}
+        for _, par := range prog.params {
+            if s := par.ident(ctx); s == key || s == strings.ToUpper(key) {
+                params = append(params, ctx._param(par.ident(ctx), value))
+                continue paramsloop
+            }
+        }
 
         if key == "INFO" {
             if false && verbose { prompt(ctx, "%s", p.val) }
         } else if true {
-            var params []string
-            for _, p := range prog.params { params = append(params, p.ident(ctx)) }
+            var ps []string
+            for _, p := range prog.params { ps = append(ps, p.ident(ctx)) }
 
             var t = auto_get(ctx,"@")
             ctx.Context = at(ctx.Context, a)
-            warn(ctx, "ignored param: %T %v; target: %T %v", a, a, t, t)
-            warn(at(ctx,prog.position), "%v params = %v", t, params).debug(16)
+            warn(ctx, "ignored param: {=%s %v}; target: {=%s %v}", typeof(a), a, typeof(t), t)
+            warn(at(ctx,prog.position), "%v params = %v", t, ps).debug(16)
             return
         }
     }
 
-    for _, entry := range entries {
-        var reses = entry.execute(ctx, params...)
-        if len(reses) > 0 { result = reses[0] }
+    for _, e := range entries {
+        if t := e.execute(ctx, params...); 0 < len(t) { result = t[0] }
     }
 
     configured = true
@@ -421,52 +414,64 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
 
     var params, infos []Value
 
-    if d := ctx.debug; d > 0 { defer func() {
-        note(ctx, "%v: %v -> %v %v", ts(target), args, infos, params).debug(1+d)
-    }()}
-
-    var cc Context = ctx
-    if ctx.force { cc = final{ctx} } // TODO: expandPathStr
-
-    for _, arg := range xmerge(cc, args...) {
-        if !isTrivial(arg) { switch t := arg.(type) {
-        case *raw, *strlit, *compound:
-            params, infos = append(params, ctx._param("INFO", t)), append(infos, t)
-        case *pair:
-            params = append(params, t)
-        default:
-            erro(at(ctx,arg), " unsupported parameter: %v{%v}, %v{%v}", typeof(t), t, typeof(arg), arg).trace()
-        }}
+    if 0 < ctx.debug {
+        defer func() {
+            note(ctx, "%v: %v → %v %v", ts(target), args, infos, params).debug(1+ctx.debug)
+        } ()
     }
 
-    var silent bool
-    if p := _configurecontext(ctx); p != nil { silent = p.silent }
+    var cc Context = ctx
+    if ctx.final { cc = final{ctx} } // TODO: expandPathStr
 
-    if silent {
-        // silent
-    } else if len(infos) == 0 {
-        var a interface{} = opName; if len(args) > 0 { a = args }
-        prompt(ctx, "%v %v …", target, a)
-    } else {
-        var s string
-        for _, info := range infos { s += info.string(ctx) }
-        if s != "" { prompt(ctx, "%s …", s) }
+    for _, arg := range xmerge(cc, args...) {
+        if !isTrivial(arg) {
+            switch t := arg.(type) {
+            case *raw, *strlit, *strcomp:
+                infos = append(infos, t)
+                params = append(params, ctx._param("INFO", t))
+            case *pair:
+                params = append(params, t)
+            default:
+                erro(at(ctx,arg), " unsupported parameter: {=%v %v}, {=%v %v}", typeof(t), t, typeof(arg), arg).trace()
+            }
+        }
     }
 
     var dia = _diagnostic(ctx)
     if dia.error() { return }
 
-    defer func() {
-        if silent {
+    var s string
+    var silent = truly(ctx, silent_configure{})
+    if !silent {
+        if len(infos) == 0 {
+            var a any = opName
+            if len(args) > 0 { a = args }
+            prompt(ctx, "%v %v …", target, a)
+        } else {
+            for _, info := range infos { s += info.string(ctx) }
+            if s != "" { prompt(ctx, "%s …", s) }
+        }
+    }
+
+    if x, y := configureOps[opName]; y {
+        configured, result = (x != nil), x(ctx, target, params...)
+    } else {
+        configured, result = ctx.execute_entry(name, target, params...)
+    }
+
+    if !silent {
+        if dia.count(diagInfo, diagWarn, diagError) > 0 {
             return
-        } else if dia.count(diagInfo, diagWarn, diagError) > 0 {
-            return
-        } else if false && dia.points != nil { t := true
+        }
+
+        if false && dia.points != nil {
+            var t = true
             for _, d := range dia.points {
                 if strings.HasSuffix(d.message, "…") { t = false; break }
             }
             if t { return }
         }
+
         if result == nil {
             prompt(ctx, "… <nil>\n")
         } else if isNull(result) {
@@ -478,17 +483,11 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
         } else {
             prompt(ctx, "… %v\n", s)
         }
-    } ()
-
-    if configureOp, y := configureOps[opName]; y {
-        configured, result = true, configureOp(ctx, target, params...)
-    } else {
-        configured, result = ctx.executeEntry(name, target, params...)
     }
     return
 }
 
-func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
+func (ctx *modifier_configure) x(ops ...Value) (result any) {
     var u = _universe(ctx)
     if u.traceConfig { defer un(l_trace(l_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, u.reconfigure))) }
 
@@ -503,7 +502,7 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
 
     if project.configure == nil {
         if project.name == "configure" {
-            if o := project.Lookup(dotConfigure); o != nil {
+            if o := project.Lookup(dot_configure); o != nil {
                 if d, y := o.(*def); y && d.value != nil && !isTrivial(d.value) {
                     if val := d.value.true(ctx); val {
                         if project.configure = project; ctx.verbose {
@@ -550,14 +549,14 @@ func (ctx *modifier_configure) x(ops ...Value) (result interface{}) {
         }
 
         switch v := value.(type) {
-        case *execResult:
+        case *exec_result:
             var s string
             if /*v.wg.Wait()*/; v.Status == 0 && v.Stdout.Buf != nil {
                 s = v.Stdout.Buf.String()
             } else if v.Stderr.Buf != nil {
                 s = v.Stderr.Buf.String()
             }
-            value = makeStrlit(_position(ctx), s)
+            value = _strlit(_position(ctx), s)
         }
 
         d.set(ctx, defConfig, value)
@@ -615,7 +614,7 @@ ForConfig:
     return
 }
 
-type filewalkFunc func(file *File, err error) error
+type filewalkFunc func(file *file, err error) error
 
 func walkFileInfos(ctx Context, root string, pats []Value, fn filepath.WalkFunc) (err error) {
     return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -654,11 +653,11 @@ type (
     configureconvertFunc func(string, *bytes.Buffer)
     configureconvertOpts struct {
         generalOpts
-        mode     os.FileMode `m,mode`
-        makePath bool `p,path`
-        mustConf bool `mc,mustconfig,mustconf,must-conf,must-config,nc,needsconfig,needs-config`
-        reconfig bool `r,reconfig`
-        update   bool `u,update`
+        mode     os.FileMode `mode`
+        makePath bool `path`
+        mustConf bool `mustconfig,mustconf,must-conf,must-config,nc,needsconfig,needs-config`
+        reconfig bool `reconfig`
+        update   bool `update`
     }
 )
 func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData configureconvertFunc, opts *configureconvertOpts, args ...Value) (_ Value) {
@@ -666,7 +665,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         closured = closure_projects(ctx)
         project = _project(ctx)
         filename string
-        f *File
+        f *file
         target as
     )
 
@@ -684,10 +683,10 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         }
         return
     } else if filename == "" {
-        errostack(ctx, 3, "%v: empty fullname: `%v`", target.Value, file).trace()
+        errostack(ctx, 3, "%v: empty fullname", target.Value).trace()
     }
 
-    if _, prev := auto_set(ctx, "@", f); opts.debug>0 {
+    if _, prev := auto_set(ctx, defVoid, "@", f); opts.debug>0 {
         info(ctx, "configure-file: %s->%s (%v -> %v)", f, filename, ts(prev), ts(f)).debug(opts.debug)
     }
 
@@ -699,7 +698,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
     if len(project.configs) == 0 {
         // no need to check configuration
     } else if f := project.configuration_sm(ctx); f == nil || !f.exists() {
-        prompt(ctx, "%v: %v\n", filename, file)
+        prompt(ctx, "%v\n", filename)
         if opts.mustConf {
             var d = opts.debug ; if d == 0 { d = 1 }
             errostack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, project).trace()
@@ -766,7 +765,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         if same {
             var tt = f.info.ModTime()
             for _, d := range merge(_execution(ctx).targets...) {
-                if f, y := toFile(d); !y { continue } else
+                if f, y := to_file(d); !y { continue } else
                 if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
             }
             if tt.After(f.info.ModTime()) { e = touch(ctx, f, 0, false, tt) }
@@ -797,7 +796,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
 }
 
 type modifier_configureinput struct { modifier_ }
-func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
+func (ctx *modifier_configureinput) x(args ...Value) (result any) {
     var opts = configureconvertOpts{ mode: os.FileMode(0600) }
     var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
         var p = _project(ctx)
@@ -838,7 +837,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result interface{}) {
 //     config.h: config.h.in [(configure-file)]
 //
 type modifier_configurefile struct { modifier_ }
-func (ctx *modifier_configurefile) x(args ...Value) (result interface{}) {
+func (ctx *modifier_configurefile) x(args ...Value) (result any) {
     var opts = configureconvertOpts{ mode: os.FileMode(0600) }
     var convert = func(str string, out *bytes.Buffer) {
         configurestring(ctx, out, _project(ctx), str)
@@ -851,31 +850,32 @@ func (ctx *modifier_configurefile) x(args ...Value) (result interface{}) {
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
 type modifier_extractconfiguration struct { modifier_
-    mode os.FileMode "m,mode"
-    makePath bool "p,path"
-    target string "t,target"
-    rxs []*regexp.Regexp "r,rx,regex" // regexp.Compile(s)
+    mode os.FileMode "mode"
+    makePath bool "path"
+    target string "target"
+    rxs []*regexp.Regexp "rx,regex" // regexp.Compile(s)
 }
-func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) {
-    var pos = _position(ctx)
+func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
     var pats []Value
+    var pos = _position(ctx)
     for _, arg := range args {
         switch a := arg.(type) {
         case *group: pats = append(pats, a.elems...)
         default:     pats = append(pats, a)
         }
     }
+
     if len(pats) == 0 {
         erro(ctx, "extract-configuration: missing file names (patterns)").trace()
         return
     }
+
     if len(ctx.rxs) == 0 {
         erro(ctx, "extract-configuration: missing -rx=... flags").trace()
         return
     }
-    if ctx.target == "" {
-        ctx.target = "configuration"
-    }
+
+    if ctx.target == "" { ctx.target = "configuration" }
 
     var outFile string
     if target := auto_get(ctx,"@"); isNull(target) {
@@ -892,52 +892,43 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
         }
     }
 
-    var (
-        err error
-        fil *os.File
-        out *bufio.Writer
-    )
-    if fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, ctx.mode); err != nil {
+    var fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, ctx.mode)
+    if err != nil {
         erro(ctx, " open file failed: %v", err).trace()
         return
-    } else {
-        out = bufio.NewWriter(fil)
     }
-    defer func() {
-        out.Flush()
-        fil.Close()
-    }()
+
+    var out = bufio.NewWriter(fil)
+    defer func() { out.Flush() ; fil.Close() } ()
 
     var depends, sources []Value
-    if d := auto_get(ctx, "^"); !isTrivial(d) {
-        depends = xmerge(ctx, d)
-    }
+    if d := auto_get(ctx, "^"); !isTrivial(d) { depends = xmerge(ctx, d) }
 
     var patsVal = ease(ctx, pats)
     for _, depend := range depends {
         var a []Value
         switch d := depend.(type) {
-        case *File:
+        case *file:
             if a = merge(call(ctx, "filter", nil, patsVal, d)); a != nil {
                 sources = append(sources, a...)
             }
         case *path:
             var s = d.string(ctx)
-            err = walkFiles(ctx, s, pats, func(file *File, err error) error {
+            err = walkFiles(ctx, s, pats, func(file *file, err error) error {
                 if err == nil { sources = append(sources, file) }
                 return err
             })
         default:
             var s = d.string(ctx)
-            dir := filepath.Dir(s)
-            name := filepath.Base(s)
-            file := stat(ctx, name, stat_dir{dir})
-            if file == nil {
+            var dir = filepath.Dir(s)
+            var name = filepath.Base(s)
+            var f = stat(ctx, name, stat_dir{dir})
+            if f == nil {
                 erro(ctx, " extract-configuration: `%s` file not found", name).trace()
                 return
-            } else if file.info.IsDir() {
-                err = walkFiles(ctx, s, pats, func(file *File, err error) error {
-                    if err == nil { sources = append(sources, file) }
+            } else if f.info.IsDir() {
+                err = walkFiles(ctx, s, pats, func(f *file, err error) error {
+                    if err == nil { sources = append(sources, f) }
                     return err
                 })
             } else if a = merge(call(ctx, "filter", nil, patsVal, d)); a != nil {
@@ -946,48 +937,48 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result interface{}) 
         }
     }
 
-    var exprs = make(map[string]int)
+    var exprs = make(map[string]struct{})
 
-ForSources:
+sourceloop:
     for _, source := range sources {
-        var (s string; f *os.File)
-        switch v := source.(type) {
-        case *File: s = v.fullname()
-        default: s = v.string(ctx)
+        var s string
+        switch t := source.(type) {
+        case *file: s = t.fullname()
+        default:    s = t.string(ctx)
         }
+
+        var f *os.File
         if f, err = os.Open(s); err != nil {
             prompt(ctx, "%v: (configure) %v: %v\n", pos, source, err)
-            continue ForSources
+            continue sourceloop
         }
 
         scanner := bufio.NewScanner(f)
         scanner.Split(bufio.ScanLines)
-        for scanner.Scan() { s := scanner.Text()
-        ForOpts:
+    scanloop:
+        for scanner.Scan() {
+            var s = scanner.Text()
             for _, x := range ctx.rxs {
-                sm := x.FindStringSubmatch(s)
-                if sm == nil { continue }
-                exprs[sm[1]] += 1
-                break ForOpts
+                if sm := x.FindStringSubmatch(s); sm == nil {
+                    continue
+                } else {
+                    exprs[sm[1]] = struct{}{}
+                    break scanloop
+                }
             }
         }
+
         f.Close()
     }
 
     var keys []string
-    for x, n := range exprs {
-        if n == 0 { continue }
-        keys = append(keys, x)
-    }
-
+    for x, _ := range exprs { keys = append(keys, x) }
     sort.Strings(keys)
 
-    for _, k := range keys {
-        fmt.Fprintf(out, "#%s :[(configure)]\n", k)
-    }
+    for _, k := range keys { fmt.Fprintf(out, "#%s :{(configure)}\n", k) }
 
     fmt.Fprintf(out, "\n")
-    fmt.Fprintf(out, "%s:[(configure -check)]:\\\n", ctx.target)
+    fmt.Fprintf(out, "%s:{(configure -check)}\\\n", ctx.target)
     for _, k := range keys { fmt.Fprintf(out, "  %s \\\n", k) }
     fmt.Fprintf(out, "\n")
     return

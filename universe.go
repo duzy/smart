@@ -42,10 +42,6 @@ type hooks struct {
     debug func(Context, string, []Value)
 }
 
-type benchmark struct {
-    benchmark_builtin_expand func(*builtin, Context, time.Time, reflect.Value)
-}
-
 type packagetype uint8
 
 const (
@@ -65,24 +61,21 @@ type universe struct {
     diagnostic
     commandline
 
-    benchmark
-
     *scope
 
+    // benchmark_builtin func(*builtin, *evocation, time.Time, reflect.Value)
+
     globe *globe
+    fset  *FileSet
 
     workdir string
     prefix  string // FIXME: prefix for distribution
-
-    fset    *FileSet
     paths   searchlist
     packages  map[string]packageinfo
-    statcache map[string]*filebase // File.fullname() -> File
+    statcache map[string]*filebase // file.fullname() -> File
     statmutex sync.Mutex
 
     hooks hooks
-
-    // filemaps valcache // value -> dirs
 
     expand_n int32
 
@@ -102,6 +95,27 @@ func (ctx *universe) _position() (p Position) {
     p.Filename, p.Line, p.Column = _workdir(ctx), 0, 0
     return
 }
+func (ctx *universe) ts(t string) string {
+    var s = ts(ctx.Context)
+    if  s == "{}"  {
+        s, _ = filepath.Rel(workBaseDir, ctx.workdir)
+        if s == "." { return fmt.Sprintf("{=%s}", t) }
+    }
+    return fmt.Sprintf("{=%s %s}", t, s)
+}
+func (ctx *universe) trimSpecPath(c Context, spec string) string {
+    spec = strings.ReplaceAll(spec, "../", "")
+    for _, s := range ctx.paths {
+        if s += pathSep; strings.HasPrefix(spec, s) {
+            spec = strings.TrimPrefix(spec, s)
+            break
+        }
+    }
+    if s := ctx.workdir+pathSep; strings.HasPrefix(spec, s) {
+        spec = strings.TrimPrefix(spec, s)
+    }
+    return spec
+}
 func (ctx *universe) do(_ctx Context, op any) (res any) {
     switch t := op.(type) {
     case act_on_erros:
@@ -111,7 +125,6 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
         }
         return
 
-	case is_test_mode: return ctx.testMode
     case get_workdir: return ctx.workdir
     case get_position: return ctx._position()
     case get_project: if ctx.globe != nil { return ctx.globe.main }
@@ -123,14 +136,6 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
     //     return
     }
     return ctx.diagnostic.do(_ctx, op)
-}
-func (ctx *universe) ts(t string) string {
-    var s = ts(ctx.Context)
-    if  s == "{}"  {
-        s, _ = filepath.Rel(workBaseDir, ctx.workdir)
-        if s == "." { return fmt.Sprintf("{=%s}", t) }
-    }
-    return fmt.Sprintf("{=%s %s}", t, s)
 }
 
 type commandline struct {
@@ -186,9 +191,8 @@ type commandline struct {
 
   parallel        bool `p,par,para,parallel`
 
-  testMode        bool
   fastMode        bool `f,fm,fast,fast-mode`
-  panicFailureOnErrosFlushed    bool `fe,foe,fail-on-errors`
+  panicFailureOnErrosFlushed bool `foe,fail-on-errors`
   errorUncache    bool `eu,error-uncache,error-no-cache`
 
   traceLaunch     bool `tl,trace-launch`
@@ -198,7 +202,7 @@ type commandline struct {
   traceEntering   bool `ti,trace-entering`
   traceConfig     bool `tc,trace-config`
 
-  slow time.Duration `sl,slow` // time.Millisecond
+  slow time.Duration `slow` // time.Millisecond
 }
 
 func _commandline() commandline { return commandline{
@@ -213,7 +217,7 @@ func _commandline() commandline { return commandline{
     panicFailureOnErrosFlushed: true,
     silentOptionalSelection: false,
 
-    slow: 9990 * time.Millisecond,
+    slow: 2999 * time.Millisecond,
 }}
 
 func new_universe(ii ...any) (ctx *universe) {
@@ -238,7 +242,6 @@ func new_universe(ii ...any) (ctx *universe) {
         }
     }
     if cl { ctx.commandline = _commandline() }
-    if true { ctx.benchmark_builtin_expand = (*builtin).benchmark_expand }
 
     var bin  = ease(ctx, os.Args[0])
     var args = ease(ctx, os.Args[1:])
@@ -257,7 +260,7 @@ func new_universe(ii ...any) (ctx *universe) {
     {
         var vs []Value
         for _, s := range strings.Fields(runtime.GOOS) {
-            vs = append(vs, makeBareword(pos, s))
+            vs = append(vs, makeWord(pos, s))
         }
         os = ease(ctx, vs)
     }
@@ -307,28 +310,25 @@ type stat_sub struct { string }
 type stat_nonexist struct { bool }
 type stat_fileinfo struct{ os.FileInfo }
 
-func stat(ctx Context, name string, ii ...any) (file *File) {
+func stat(ctx Context, name string, aa ...any) (_ *file) {
     var sub, dir string
     var nonexist bool
     var fileInfo os.FileInfo
-    for _, i := range ii {
-        switch t := i.(type) {
+    for _, a := range aa {
+        switch t := a.(type) {
         case *project: dir = t.absPath
         case stat_dir: dir = t.string
         case stat_sub: sub = t.string
         case stat_fileinfo: fileInfo = t.FileInfo
         case stat_nonexist: nonexist = t.bool
-        default:
-            erro(ctx, "invalid stat arg: %v", ts(i)).trace()
+        default: erro(ctx, "invalid stat arg: %v", ts(a)).trace()
         }
     }
 
-    var (
-        base *filebase
-        stub *filestub
-        fullname string
-        u = _universe(ctx)
-    )
+    var base *filebase
+    var stub *filestub
+    var fullname string
+    var u = _universe(ctx)
 
     u.statmutex.Lock(); defer u.statmutex.Unlock()
 
@@ -417,19 +417,19 @@ func stat(ctx Context, name string, ii ...any) (file *File) {
         stub = &filestub{ dir, sub, name, nil, head.other }
         head.other = stub
     } else {
-        if fileInfo == nil { fileInfo, _ = os.Stat(fullname)
+        if fileInfo == nil {
+            fileInfo, _ = os.Stat(fullname)
             if fileInfo == nil && !nonexist { return nil }
         }
 
-        base = &filebase{ filestub{ dir, sub, name, nil, nil }, fileInfo, false, nil, 0, 0, 0 }
+        base = &filebase{filestub{ dir, sub, name, nil, nil }, fileInfo, false, nil, 0, 0, 0}
         base.stub.other = &base.stub
         stub = &base.stub
         u.statcache[cleanFullname] = base
     }
 
 GotFile:
-    file = &File{valbase{_position(ctx)},base,stub}
-    return
+    return &file{valbase{_position(ctx)},base,stub}
 }
 
 func AddSearchPaths(paths... string) (err error) {
@@ -460,7 +460,7 @@ func startCPUProfile(ctx Context, name string, heap ...bool) (stop func()) {
     var fn string
     if filepath.IsAbs(name) { fn = name } else
     if m := _universe(ctx).globe.main; m == nil {} else
-    if f := m.tempFile(ctx, name); f == nil {
+    if f := m.tempfile(ctx, name); f == nil {
         fn = filepath.Join(_workdir(ctx), name)
     } else {
         fn = f.fullname()
@@ -487,7 +487,7 @@ func startHeapProfile(ctx Context, name string) (stop func()) {
     var fn string
     if filepath.IsAbs(name) { fn = name } else
     if m := _universe(ctx).globe.main; m == nil {} else
-    if f := m.tempFile(ctx, name); f == nil {
+    if f := m.tempfile(ctx, name); f == nil {
         fn = filepath.Join(_workdir(ctx), name)
     } else {
         fn = f.fullname()
@@ -511,7 +511,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
     switch g := goal.(type) {
     case *rule:
         var y bool
-        if result, y = executeEntry(ctx, g, args...); !y {
+        if result, y = execute_entry(ctx, g, args...); !y {
             erro(ctx, "update '%v' failed", g).trace()
         }
     default:
@@ -579,8 +579,8 @@ func (_tx *universe) run() (result []Value) {
         for _, goal := range vals {
             switch t := goal.(type) {
             case *null, *none: // just ignore
-            case *bareword:
-                if entries := proj.resolveEntries(ctx, t.s, true); entries == nil {
+            case *word:
+                if entries := proj._entries(ctx, t.s, true); entries == nil {
                     erro(ctx, "no such entry `%s`", t.s).trace()
                     return false
                 } else {
@@ -590,7 +590,7 @@ func (_tx *universe) run() (result []Value) {
                 }
             case *delegate:
                 var s = t.string(ctx)
-                if entries := proj.resolveEntries(ctx, s, true); entries == nil {
+                if entries := proj._entries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
                     return false
                 } else {
@@ -600,7 +600,7 @@ func (_tx *universe) run() (result []Value) {
                 }
             case flag:
                 var s = t.string(ctx)
-                if entries := proj.resolveEntries(ctx, s, true); entries == nil {
+                if entries := proj._entries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
                     return false
                 } else {
@@ -653,11 +653,10 @@ func (_tx *universe) run() (result []Value) {
 }
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
-func (u *universe) load() (err error) {
+func (u *universe) load(ctx Context) (err error) {
     if u.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
 
-    var base = _workdir(u)
-    var ctx Context = u
+    var base = u.workdir
     if s := filepath.Join(base, ".smart", "modules"); s != "" {
         if _, e := os.Stat(s); e == nil { u.AddSearchPaths(s) }
     }
@@ -668,8 +667,7 @@ func (u *universe) load() (err error) {
         }
         if s != "" {
             var pos Position
-            pos.Filename = s
-            pos.Line = 1
+            pos.Filename, pos.Line = s, 1
             ctx = at(ctx, pos)
         }
     }
@@ -716,7 +714,7 @@ func (u *universe) load() (err error) {
             var name string
             if p := _project(u.globe.top); p != nil { name = p.name }
             prompt(ctx, "└·%s … (%s)\n", name, d)
-        } else if d > u.slow {
+        } else if false && u.slow < d {
             if m := u.globe.main; m != nil {
                 warn(at(ctx, m.position), "slow loading (%v)!!\n", d).debug(6)
             } else {
@@ -751,7 +749,7 @@ func (l unilo) parse_args(base string, a ...string) {
         l.noGrep = v
     }
 
-    var mode = new(bareword)
+    var mode = new(word)
 
     for _, target := range args {
         switch t := target.(type) {

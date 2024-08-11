@@ -25,7 +25,7 @@ type (
     failureUnreachable string
     failureTargetNotFound struct { project *project; target string }
     failurePathNotFound   struct { project *project; path *path }
-    failureFileNotFound   struct { project *project; file *File }
+    failureFileNotFound   struct { project *project; file *file }
     failure     struct { Context; reason string }
     termination struct { position Position }
 )
