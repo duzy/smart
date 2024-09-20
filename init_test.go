@@ -16,9 +16,9 @@ import (
 
 type testcase_f1 func (*testcase)
 type testcase_f2 func (*testcase, string, string)
-type testcase  struct { Context ; *testing.T ; run func(testcase_f1) ; srcs, chks map[string]struct{} }
-type testcase1 struct { *testcase ; i any }
-type test_arg struct { name string; val any }
+type testcase   struct{ Context ; *testing.T ; run func(testcase_f1) ; srcs, chks map[string]struct{} }
+type testcase1  struct{ *testcase ; i any }
+type test_arg   struct{ name string; val any }
 type test_def_1 struct{}
 type test_def_2 struct{}
 type test_def_3 struct{}
@@ -68,7 +68,7 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 		ctx.paths = append(ctx.paths, testModulesPath)
 	}
 
-	res = &testcase{ ctx, t, nil, make(map[string]struct{}), make(map[string]struct{}) }
+	res = &testcase{ctx, t, nil, make(map[string]struct{}), make(map[string]struct{})}
 
 	const _dt_ = true
 	if _dt_ { defer trace(res) }
@@ -106,18 +106,21 @@ func (tc *testcase) do(ctx Context, op any) (_ any) {
 		return
 	case source_checked:
 		tc.chks[string(t)] = struct{}{}
-		if false {
-			if d := _project(ctx).resolveDef(ctx, "workspace"); d != nil {
-				note(ctx, "%v", t).debug()
-			}
-		}
 		return
+	case get_position:
+		if p := _project(ctx); p != nil {
+			return p.position
+		} else {
+			var p Position = _position(tc.Context)
+			if !p.valid() { p.Filename = _universe(tc.Context).workdir }
+			return p
+		}
 	}
 	return tc.Context.do(ctx, op)
 }
 
 func (tc *testcase) err(f string, i ...any) {
-	var ctx = tc.Context
+	var ctx Context = tc
 	if i == nil {
 		var s string
 		if n := strings.Index(f, ":"); n > 0 {
@@ -125,23 +128,13 @@ func (tc *testcase) err(f string, i ...any) {
 		} else {
 			s = strings.TrimSpace(f)
 		}
-		if d, _ := tc.obj(s).(*def); d != nil {
-			ctx = at(ctx, d.position)
+		if o := tc.obj(s); o != nil {
+			ctx = pc(ctx, o)
 		}
 	} else {
 		for _, a := range i {
-			if d, y := a.(*def); y && d != nil {
-				if d.value != nil {
-					ctx = at(ctx, d.value)
-				} else {
-					ctx = at(ctx, d.position)
-				}
-				break
-			} else if x, y := a.(Value); y && x != nil {
-				ctx = at(ctx, x)
-				break
-			} else if x, y := a.(tst); y && x.i != nil {
-				ctx = at(ctx, x.i)
+			if x, y := a.(positioner); y {
+				ctx = pc(ctx,x)
 				break
 			}
 		}
@@ -155,7 +148,7 @@ func (tc *testcase) flush() {
 	if n := dia.counterror(); n > 0 {
 		var pos Position
 		if p := _project(tc); p != nil { pos = p.position } else { pos = _position(tc) }
-		note(at(tc.Context, pos), "%v: %v errors", _project(tc), n).debug(1, skipint{2})
+		note(tc.Context, "%v: %v errors", _project(tc), n).debug(1, skipint{2})
 		tc.Errorf("%d errors in %s", dia.flush(tc.Context), pos.Filename)
 	}
 }
@@ -259,6 +252,23 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
 
 	defer func() {
+		if e := recover(); e != nil {
+			switch e := e.(type) {
+			case prerequisite_evoke_loop:
+				errostack(pc(ctx,e.Value), 16, "%v", e.Value).trace()
+			case trace_err_evoke_loop:
+				errostack(pc(ctx,e.Value), 16, "evoke loop: %v", e.Value).trace()
+			case traverse_state:
+				switch e.uint {
+				case traverse_done:
+				default:
+					errostack(pc(ctx,e.p), 16, "%v", tv(e)).trace()
+				}
+			default:
+				errostack(ctx, 16, "%v", tv(e)).trace()
+			}
+		}
+
 		d := _diagnostic(ctx.Context)
 		d.flush(ctx)
 

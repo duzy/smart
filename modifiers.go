@@ -13,7 +13,6 @@ import (
     "errors"
     "fmt"
     "hash/crc64"
-    // "hash/maphash"
     "io"
     "io/ioutil"
     "os"
@@ -41,9 +40,9 @@ type generalOpts struct {
 }
 
 type modifier_ struct { Context ; generalOpts }
-type modifier_v interface{ v(...Value) interface{} }
-type modifier_x interface{ x(...Value) interface{} }
-type modifier_y interface{ x(*execution, ...Value) interface{} }
+type modifier_v interface{ v(...Value) any }
+type modifier_x interface{ x(...Value) any }
+type modifier_y interface{ x(*execution, ...Value) any }
 
 var modifier_v_t = reflect.TypeOf((*modifier_v)(nil)).Elem()
 var modifier_x_t = reflect.TypeOf((*modifier_x)(nil)).Elem()
@@ -107,32 +106,37 @@ var (
 
         `by`:           reflect.TypeOf((*modifier_setDirtyPats)(nil)).Elem(),
         `dirty`:        reflect.TypeOf((*modifier_predictDirty)(nil)).Elem(),
-        // `dirty-by`:     reflect.TypeOf((*modifier_setDirtyPats)(nil)).Elem(),
-        // `dirty-opts`:   reflect.TypeOf((*modifier_setDirtyPats)(nil)).Elem(),
-        // `outdated`:         reflect.TypeOf((*modifier_predictDirty)(nil)).Elem(),
-        // `no-loop`:          reflect.TypeOf((*modifier_predictNoLoop)(nil)).Elem(),
-        // `target-1st-visit`: reflect.TypeOf((*modifier_predictTarget1stVisit)(nil)).Elem(),
-        // `target-max-visit`: reflect.TypeOf((*modifier_predictTargetMaxVisit)(nil)).Elem(),
     }
 
-    crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
+    crc64Table = crc64.MakeTable(crc64.ECMA)//crc64.ISO
 )
 
-func modify(x Context, g *group, hyphen bool) (res Value) {
-    var ctx = at(x, g.position)
+type is_modifying struct{}
+type    modifying struct{ Context }
+func (c modifying) do(ctx Context, op any) any {
+    switch op.(type) {
+    case is_modifying: return true
+    }
+    return c.Context.do(ctx, op)
+}
+
+func modify(ctx Context, g *group, hyphen bool) (res Value) {
     var name = g.elems[0].string(ctx)
     var args = g.elems[1:]
 
-    if t, y := modifiers[name]; !y {
-        var _, ent, _ = entryIndicator(ctx, _entry(ctx))
-        prompt(ctx, "%v: %s failed for %s\n", ent, name, _project(ctx))
-        erro(ctx, "unknown modifier: %s (args=%v)", name, args)
-        errostack(ctx, 5, "%v", ctx).trace()
-    } else {
-        mv := reflect.New(t)
-        mi := mv.Interface()
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        if x := cast[*execution_modifiers](ctx); x != nil { x.g = append(x.g, g) }
+    }
 
-        var pc = _execution(x)
+    if t, y := modifiers[name]; !y {
+        var _, e, _ = entryIndicator(ctx, _entry(ctx))
+        prompt(ctx, "%v: %s failed for %s\n", e, name, _project(ctx))
+        errostack(ctx, 5, "unknown modifier: %s (args=%v)", name, args).trace()
+    } else {
+        var mv = reflect.New(t)
+        var mi = mv.Interface()
+        var exe = _execution(ctx)
+
         var fv modifier_v
         var fx modifier_x
         var fy modifier_y
@@ -143,25 +147,26 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
         } else if fx, _ = mi.(modifier_x); fx == nil {
             if fy, _ = mi.(modifier_y); fy == nil {
                 errostack(ctx, 3, "%v: no method: (*%s).x(...)", name, typeof(mi)).trace()
-            } else if pc == nil {
-                errostack(ctx, 3, "%v: nil pc for: (*%s).x(...)", name, typeof(mi)).trace()
+            } else if exe == nil {
+                errostack(ctx, 3, "%v: nil execution: (*%s).x(...)", name, typeof(mi)).trace()
             }
         }
 
         if c := mv.Elem().FieldByName("Context"); c.IsValid() {
-            c.Set(reflect.ValueOf(ctx)) // c.Type().String() == "smart.Context"
+            c.Set(reflect.ValueOf(modifying{pc(ctx, g)})) // c.Type().String() == "smart.Context"
         } else {
             errostack(ctx, 3, "%v: no field: %s.Context", name, typeof(mi)).trace()
         }
 
         args = _opts(ctx, mv, args)
-        if false && name != "defer" { for i, a := range args { if g, y := a.(*group); y {
-            args[i] = modify(ctx, g, hyphen)
-        }}}
 
-        if fv != nil { res = ease(ctx, fv.v(args...)) }
-        if fx != nil { res = ease(ctx, fx.x(args...)) } else
-        if fy != nil { res = ease(ctx, fy.x(pc, args...)) }
+        if fv != nil {
+            res = ease(ctx, fv.v(args...))
+        } else if fx != nil {
+            res = ease(ctx, fx.x(args...))
+        } else if fy != nil {
+            res = ease(ctx, fy.x(exe, args...))
+        }
     }
 
     if !hyphen {
@@ -169,13 +174,9 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
     } else if res == nil {
         res = makeNull(g.position) // $- remains too
     } else if name == "defer" || name == "set" || name == "var" {
-        errostack(ctx, 3, "invalid result: (set ...) ⇒ %T %v", res, res).trace()
+        errostack(ctx, 3, "invalid result: (set ...) ⇒ %v", res).trace()
     } else if a := _automatic(ctx); a != nil {
         a.amend(ctx, "-", res)
-    }
-
-    if flush(ctx) > 0 {
-        erro(ctx, "got errors").trace()
     }
     return
 }
@@ -183,38 +184,44 @@ func modify(x Context, g *group, hyphen bool) (res Value) {
 type modifier struct { group }
 func (m *modifier) kind() Kind { return m.group.kind()|KindModifier }
 func (m *modifier) hash(ctx Context) uint64 { return fnv1(ctx, m, m.any()...) }
-func (m *modifier) cmp(ctx Context, v Value) (res cmpres) {
-    if o, y := v.(*modifier); y { res = m.group.cmp(ctx, &o.group) }
+func (m *modifier) cmp(ctx Context, v Value) (_ cmpres) {
+    if x, y := v.(*modifier); y { return m.group.cmp(ctx, &x.group) }
     return
 }
-func (m *modifier) expandable(ctx Context) (res bool) { return m.group.expandable(ctx) }
+func (m *modifier) expandable(ctx Context) bool { return m.group.expandable(ctx) }
 func (m *modifier) expand(ctx Context) Value { return modify(ctx, &m.group, false) }
 func (m *modifier) string(ctx Context) string { return m.expand(final{ctx}).string(ctx) }
 func (m *modifier) traverse(ctx Context) {
-    ctx = at(ctx, m.position)
-
     var name = m.elems[0].string(ctx)
     if name == "" {
-        erro(at(ctx,m.elems[0]), "empty name: %v", m.elems[0]).trace()
+        erro(ctx, "empty name: %v", m.elems[0]).trace()
     }
 
-    var pc, pg = _execution(ctx), _program(ctx)
+    var v1, v2 Value
+    var pg = _program(ctx)
+    var pc = _execution(ctx)
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        if x := cast[*execution_modifiers](ctx); x != nil { x.m = append(x.m, m) }
+        defer m.traverse_check(ctx, pg, name, &v1, &v2)
+    }
+
     if len(pc.interpreted) == 0 && len(pg.recipes) > 0 && name == "configure" {
-        if i, y := dialects["eval"]; y && i != nil { pc.interpret(ctx, i, m.elems[1:]) }
-    } else if i, y := dialects[name]; y && i != nil {
-        pc.interpret(ctx, i, m.elems[1:])
-        return
+        if x, y := dialects["eval"]; y && x != nil {
+            v1 = pc.interpret(ctx, x, m.elems[1:])
+        }
+    } else {
+        if x, y := dialects[name]; y && x != nil {
+            v1 = pc.interpret(ctx, x, m.elems[1:])
+            return
+        }
     }
 
-    if v := modify(ctx, &m.group, true); v != nil {
-        // TODO: deal with modify result `v`
-    }
+    v2 = modify(ctx, &m.group, true)
+    return
 }
 
-type modification struct {
-    valbase
-    list []*modifier
-}
+type modification struct { valbase ; list []*modifier }
 func (_ *modification) kind() Kind { return KindModification }
 func (g *modification) hash(ctx Context) uint64 {
     var a []any
@@ -243,21 +250,16 @@ func (g *modification) expandable(ctx Context) (res bool) {
     return
 }
 func (g *modification) expand(ctx Context) (res Value) {
-    var vals []Value
+    var va []Value
     for _, m := range g.list {
-        if v := m.expand(ctx); v != nil {
-            vals = append(vals, v)
-        }
+        if v := m.expand(ctx); v != nil { va = append(va, v) }
     }
-    return ease(ctx, vals)
+    return ease(ctx, va)
 }
 func (g *modification) traverse(ctx Context) {
-    var pc = _execution(ctx)
-    if pc != nil { pc.Wait() }
-
-    for _, m := range g.list {
-        m.traverse(at(ctx, m))
-    }
+    var e = _execution(ctx)
+    if e != nil { e.Wait() }
+    for _, m := range g.list { m.traverse(ctx) }
 }
 func (g *modification) String() (s string) {
     s = "{"
@@ -316,9 +318,9 @@ func (ctx *modifier_debug) x(args ...Value) (result any) {
     if ctx.cond != nil && !ctx.cond.true(ctx) { return }
     if ctx.s == 0 && ctx.stack > 0 { ctx.s = ctx.stack }
     if ctx.n == 0 && ctx.debug > 0 { ctx.n = ctx.debug }
-    for _, v := range ctx.info { info(at(ctx,v), "%s", v.string(ctx)).debug() }
-    for _, v := range ctx.warn { warn(at(ctx,v), "%s", v.string(ctx)).debug() }
-    for _, v := range ctx.erro { erro(at(ctx,v), "%s", v.string(ctx)).trace() }
+    for _, v := range ctx.info { info(ctx, "%s", v.string(ctx)).debug() }
+    for _, v := range ctx.warn { warn(ctx, "%s", v.string(ctx)).debug() }
+    for _, v := range ctx.erro { erro(ctx, "%s", v.string(ctx)).trace() }
 
     var (
         target  = auto_get(ctx, "@")
@@ -450,9 +452,16 @@ func (ctx *modifier_env) x(args ...Value) (result any) {
 }
 
 type modifier_var struct { modifier_ }
-func (ctx *modifier_var) x(args ...Value) (_ interface{}) {
-    // noop; TODO: do something better
-    return
+func (ctx *modifier_var) x(args ...Value) (_ any) {
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        if args != nil {
+            erro(ctx, "%v", args).trace()
+        }
+        switch p := _project(ctx); p.name {
+        case "configure.base":
+        }
+    }
+    return // no-op
 }
 
 // examples:
@@ -460,7 +469,7 @@ func (ctx *modifier_var) x(args ...Value) (_ interface{}) {
 //     [(set name)]          clear $(name)
 //     [(set -)]             clear $-
 type modifier_set struct { modifier_ }
-func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
+func (ctx *modifier_set) x(args ...Value) (_ any) {
     for _, arg := range args {
         var name string
         var value Value
@@ -470,7 +479,7 @@ func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
             name, value = a.key.string(ctx), a.val.expand(final{ctx})
             if value == nil { value = a.val }
         case flag:
-            name, value = a.Value.string(ctx), makeNone(a.Position())
+            name, value = a.Value.string(ctx), makeNull(a.Position())
             if name == "" { name = "-" }
         default:
             erro(ctx, "%v is unsupported (try: foo=value)", ts(arg)).trace()
@@ -493,8 +502,8 @@ func (ctx *modifier_set) x(args ...Value) (_ interface{}) {
 }
 
 type modifier_defer struct { modifier_ }
-func (ctx *modifier_defer) x(args ...Value) (_ interface{}) {
-    if pc := _execution(ctx); pc != nil { pc.defers = append(pc.defers, args...) }
+func (ctx *modifier_defer) x(a ...Value) (_ any) {
+    if x := _execution(ctx); x != nil { x.defers = append(x.defers, a...) }
     return
 }
 
@@ -582,11 +591,11 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result any) {
     } else if scope := proj.scope; scope == nil {
         erro(ctx, "empty closure context").trace()
     } else if def := scope.finddef("/"); def == nil {
-        erro(at(ctx,proj.position), "&/ is undefined").trace()
+        erro(ctx, "&/ is undefined").trace()
     } else if dir := def.value.string(ctx); dir == "" {
-        erro(at(ctx,proj.position), "&/ is empty").trace()
+        erro(ctx, "&/ is empty").trace()
     } else if !filepath.IsAbs(dir) {
-        erro(at(ctx,proj.position), "&/ is relative").trace()
+        erro(ctx, "&/ is relative").trace()
     } else /* if err := enter(ctx, dir); err == nil */ {
         pc.changedWD = dir
     }
@@ -640,23 +649,23 @@ func (ctx *modifier_mkdir) x(args ...Value) (result any) {
     } else {
         ctx.mode |= os.FileMode(0111)
     }
-    if len(args) == 0 { if v := auto_get(ctx, "@"); !isTrivial(v) {
-        args = append(args, v)
-    }}
-    for _, a := range xmerge(ctx, args...) { //, final
+    if len(args) == 0 {
+        if v := auto_get(ctx, "@"); !isTrivial(v) { args = append(args, v) }
+    }
+    for _, a := range xmerge(final{ctx}, args...) {
         var s string
-        if f, y := a.(*file); y {
-            s = f.fullname()
+        if x, y := a.(*file); y {
+            s = x.fullname()
         } else {
             s = a.string(ctx)
         }
         if strings.Contains(s, " /") || strings.Contains(s, " ./") || strings.Contains(s, " ../") {
-            erro(at(ctx, a), "multiple paths (%v): '%v'", typeof(a), s).trace()
+            erro(ctx, "multiple paths (%v): '%v'", typeof(a), s).trace()
         } else if strings.Contains(s, " ") {
-            warn(at(ctx, a), "path containing spaces (%v): '%v'", typeof(a), s).debug()
+            warn(ctx, "path containing spaces (%v): '%v'", typeof(a), s).debug()
         }
-        if err := os.MkdirAll(s, ctx.mode); err != nil {
-            erro(ctx, "path: %v(%v) ⇒ %s: %v", typeof(a), a, s, err).trace()
+        if e := os.MkdirAll(s, ctx.mode); e != nil {
+            erro(ctx, "path: %v(%v) ⇒ %s: %v", typeof(a), a, s, e).trace()
         }
     }
     return
@@ -664,7 +673,7 @@ func (ctx *modifier_mkdir) x(args ...Value) (result any) {
 
 type modifier_sudo struct { modifier_ }
 func (ctx *modifier_sudo) x(args ...Value) (result any) {
-    erro(at(ctx,ctx), "TODO: sudo modifier is not implemented yet").trace()
+    erro(ctx, "TODO: sudo modifier is not implemented yet").trace()
     return
 }
 
@@ -762,7 +771,7 @@ type greprex struct{ string ; bool ; *regexp.Regexp }
 func (g *greprex) String() string { return g.string }
 func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
     if g.targetInfo == nil {
-        erro(at(ctx,g.target), "'%v' not exists", g.target).trace()
+        erro(ctx, "'%v' not exists", g.target).trace()
     }
     var tt time.Time = g.targetInfo.ModTime()
     for _, val := range g.files {
@@ -901,9 +910,9 @@ func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name str
             }
         }
         if res == nil { res = stat(ctx, name, stat_nonexist{true}) }
-        warn(at(ctx,gp), "'%s' not found in %v", name, _project(ctx))
+        warn(ctx, "'%s' not found in %v", name, _project(ctx))
         warn(ctx, "grepped '%s' has no target dir in %v", name, _project(ctx))
-        warn(at(ctx,_project(ctx).position), "from project %v (for %v)", _project(ctx), name).debug(8)
+        warn(ctx, "from project %v (for %v)", _project(ctx), name).debug(8)
     }
     return
 }
@@ -945,14 +954,14 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
     if !gc.report {
         // ...
     } else if file == nil {
-        info(at(ctx,gp), "%s: `%s` not found", _project(ctx).name, name)
+        info(ctx, "%s: `%s` not found", _project(ctx).name, name)
     } else if !file.exists() {
-        info(at(ctx,gp), "%s: `%s` file not existed", _project(ctx).name, name)
+        info(ctx, "%s: `%s` file not existed", _project(ctx).name, name)
     }
     return
 }
 
-func tempfile(ctx Context, prefix, hashee0 string, hasheeN... interface{}) (file *file, err error) {
+func tempfile(ctx Context, prefix, hashee0 string, hasheeN... any) (file *file, err error) {
     var nameHash = sha256.New() // HashByte -> [sha256.Size]byte
     if _, err = fmt.Fprint(nameHash, prefix, hashee0); err != nil {
         erro(ctx, "hashing failed: %v", err).trace()
@@ -1002,7 +1011,7 @@ func removeTempDirs(ctx Context, cleanDirs ...string) {
 }
 
 func getSavedDepsFileName(ctx Context, targetFullName string, strs []string) (filename string, err error) {
-    var ( file *file; hashees []interface{} )
+    var ( file *file; hashees []any )
     for _, s := range strs { hashees = append(hashees, s) }
     if file, err = tempfile(ctx, ".deps", targetFullName, hashees...); err != nil {
         erro(ctx, "get .deps temp file failed: %v", err).trace()
@@ -1064,9 +1073,9 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
                 f.position = gp
                 if gc.isTargetFile(ctx, f) { continue }
             } else if sys != 1 && !gc.discard {
-                warn(at(ctx,gp), "%s is nil file", name)
+                warn(ctx, "%s is nil file", name)
                 warn(ctx, "grepped %s is nil", name)
-                warn(at(ctx,_project(ctx).position), "from project %v", _project(ctx)).debug(6)
+                warn(ctx, "from project %v", _project(ctx)).debug(6)
             }
         }
     }
@@ -1111,9 +1120,9 @@ ForScan:
                 } else if f != nil {
                     if f.position = gp; gc.isTargetFile(ctx, f) { continue }
                 } else if !sys && !gc.discard {
-                    warn(at(ctx,gp), "%s is nil file", name)
+                    warn(ctx, "%s is nil file", name)
                     warn(ctx, "grepped %s is nil", name)
-                    warn(at(ctx,_project(ctx).position), "from project %v", _project(ctx)).debug(6)
+                    warn(ctx, "from project %v", _project(ctx)).debug(6)
                 }
                 continue ForScan // found one
             }
@@ -1140,7 +1149,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
             gc.targetFullName = filepath.Join(gc.targetDir, targetName)
         }
         if file := stat(ctx, gc.targetFullName); file == nil {
-            erro(at(ctx,gc.target), "grep: '%s' not found (%v)", gc.targetFullName, gc.target).trace()
+            erro(ctx, "grep: '%s' not found (%v)", gc.targetFullName, gc.target).trace()
         } else {
             gc.targetInfo = file.info
         }
@@ -1178,7 +1187,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
         } else if false {
             var gp Position
             gp.Filename, gp.Line = gc.targetFullName, 1
-            warn(at(ctx,gp), "grebbed zero files")
+            warn(ctx, "grebbed zero files")
             warn(ctx, "grebbed zero files: %v", gc.targetFullName).debug(6)
         }
         gc.files = restore
@@ -1375,7 +1384,7 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
 
 type dep_context struct { diagnostic }
 func (ctx *dep_context) inner() Context { return &ctx.diagnostic }
-func (ctx *dep_context) cast(t reflect.Type) (c Context) {
+func (ctx *dep_context) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.diagnostic.cast(t)
 }
@@ -1430,22 +1439,22 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *fi
             prompt(ctx, "%v: unknown dep\n", file)
             if savedDepsFile != nil {
                 warn(ctx, "unknown dep '%v' for '%v'", word, firstWord)
-                warn(at(ctx,depPos), "from here: %s", word)
+                warn(ctx, "from here: %s", word)
                 if filepath.IsAbs(firstWord) {
                     var wp Position
                     wp.Filename, wp.Line = firstWord, 1
-                    warn(at(ctx,wp), "in here: %v", word)
+                    warn(ctx, "in here: %v", word)
                 }
-                warn(at(ctx,proj.position), "for project %v", proj)//.debug(6)
+                warn(ctx, "for project %v", proj)//.debug(6)
             } else {
                 erro(ctx, "unknown dep '%v' for '%v'", word, firstWord)
-                erro(at(ctx,depPos), "from here: %s", word)
+                erro(ctx, "from here: %s", word)
                 if filepath.IsAbs(firstWord) {
                     var wp Position
                     wp.Filename, wp.Line = firstWord, 1
-                    erro(at(ctx,wp), "in here: %v", word)
+                    erro(ctx, "in here: %v", word)
                 }
-                erro(at(ctx,proj.position), "for project %v", proj)//.debug(6)
+                erro(ctx, "for project %v", proj)//.debug(6)
             }
         } else if ignored(file.fullname()) {
             //continue // dep is the target itself
@@ -1520,13 +1529,13 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *fi
         if savedDepsFile == nil || savedDepsFileName == "" {
             // deps files not saved yet
         } else if err = os.Remove(savedDepsFileName); err != nil {
-            for s, p := range missing { erro(at(ctx,p), `missing "%v"`, s) }
+            for s, _ := range missing { erro(ctx, `missing "%v"`, s) }
             erro(ctx, `%v: "%v" %d deps missing in "%v"`, proj, targetVal, len(missing), savedDepsFileName)
-            errostack(ctx, 3, "%v", ctx).trace()
+            errostack(ctx, 3, "%s", ts(ctx)).trace()
         } else {
-            for s, p := range missing { warn(at(ctx,p), `missing "%v"`, s) }
+            for s, _ := range missing { warn(ctx, `missing "%v"`, s) }
             warn(ctx, `%v: "%v" missing %d deps (%v in total)`, proj, targetVal, len(missing), len(files))
-            warnstack(ctx, 3, "%T:", ctx).debug(6)
+            warnstack(ctx, 3, "%s:", ts(ctx)).debug(6)
             files = nil // To update savedDepsFileName
         }
     }
@@ -1586,13 +1595,9 @@ func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool
         if dep := string(m[4]); dep == lastTry {
             return false, ""
         } else if res = traverseMissingDep(ctx, dep); !res {
-            var (
-                s, l, c = string(m[1]), string(m[2]), string(m[3])
-                pos = convPosition(s, l, c)
-            )
             prompt(ctx, "%s: dep missing, project %v\n", m[4], _project(ctx))
             prompt(ctx, "%s\n", m[0]) // prompt the entire error line
-            erro(at(ctx,pos), "%v", ctx).trace()
+            erro(ctx, "%v", ctx).trace()
         } else if tried == "" { tried = dep }
     }
     return
@@ -1797,21 +1802,21 @@ func (ctx *modifier_check) x(args ...Value) (result any) {
         } else if f, res = to_file(val); res {
             // best case
         } else if s = val.string(ctx); filepath.IsAbs(s) {
-            if f = stat(at(ctx, val), s); f != nil { res = true }
+            if f = stat(ctx, s); f != nil { res = true }
         } else if f = findfile(ctx, s); f != nil { res = true }
 
         if f != nil {
             if !dir || ctx.regular { res = f.exists()
-                if ctx.verbose { warnstack(at(ctx,val), 3, "check regular file '%v': %v", val, res).debug() }
+                if ctx.verbose { warnstack(ctx, 3, "check regular file '%v': %v", val, res).debug() }
             } else if dir || ctx.isdir { res = f.info != nil && f.info.Mode().IsDir()
-                if ctx.verbose { warnstack(at(ctx,val), 3, "check dir '%v': %v", val, res).debug() }
+                if ctx.verbose { warnstack(ctx, 3, "check dir '%v': %v", val, res).debug() }
             } else if ctx.exists { res = f.exists()
-                if ctx.verbose { warnstack(at(ctx,val), 3, "check file exists '%v': %v", val, res).debug() }
+                if ctx.verbose { warnstack(ctx, 3, "check file exists '%v': %v", val, res).debug() }
             } else if ctx.verbose {
-                warnstack(at(ctx,val), 3, "check file '%v': %v", val, res).debug()
+                warnstack(ctx, 3, "check file '%v': %v", val, res).debug()
             }
         } else if ctx.verbose {
-            warnstack(at(ctx,val), 3, "check file '%v': %v", val, res).debug()
+            warnstack(ctx, 3, "check file '%v': %v", val, res).debug()
         }
 
         if makeResult != nil {
@@ -1844,7 +1849,7 @@ ForPairs:
         case "status":
             var exeres, _ = value.(*exec_result)
             if exeres == nil {
-                erro(at(ctx,value), "value '%v' (%T) is not exec result", value, value).trace()
+                erro(ctx, "value '%v' (%T) is not exec result", value, value).trace()
             } else { /*exeres.wg.Wait()*/ }
 
             var num = p.val.int(ctx)
@@ -1863,7 +1868,7 @@ ForPairs:
             if ctx.debug>0 {
                 var tar = auto_get(ctx, "@")
                 var val = auto_get(ctx, "-")
-                warn(at(ctx,program.position), "%v: %v", _entry(ctx), tar)
+                warn(ctx, "%v: %v", _entry(ctx), tar)
                 warn(ctx, "status=%v", exeres.Status)
                 warn(ctx, "hyphen=%v", val)
                 warn(ctx, "context: %v", ctx).debug(ctx.debug)
@@ -1878,7 +1883,7 @@ ForPairs:
         case "stdout", "stderr":
             var exeres, _ = value.(*exec_result)
             if exeres == nil {
-                erro(at(ctx,value), "value '%v' (%T) is not exec result", value, value).trace()
+                erro(ctx, "value '%v' (%T) is not exec result", value, value).trace()
             } else { /*exeres.wg.Wait()*/ }
 
             if ctx.verbose {
@@ -1887,7 +1892,7 @@ ForPairs:
             if ctx.debug>0 {
                 var tar = auto_get(ctx, "@")
                 var val = auto_get(ctx, "-")
-                warn(at(ctx,program.position), "%v: %v", _entry(ctx), tar)
+                warn(ctx, "%v: %v", _entry(ctx), tar)
                 warn(ctx, "status=%v", exeres.Status)
                 warn(ctx, "hyphen=%v", val)
                 warn(ctx, "context: %v", ctx).debug(ctx.debug)
@@ -1919,7 +1924,7 @@ ForPairs:
             if f, res = to_file(p.val); res {
                 // ok
             } else if str = p.val.string(ctx); filepath.IsAbs(str) {
-                if f = stat(at(ctx, p.val), str); f != nil {
+                if f = stat(ctx, str); f != nil {
                     // ok
                 }
             } else if f = findfile(ctx, str); f != nil {
@@ -2282,7 +2287,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result any) {
         }
         return
     } else if filename == "" {
-        errostack(at(ctx,target), 3, "%v: empty fullname", target).trace()
+        errostack(ctx, 3, "%v: empty fullname", target).trace()
     }
 
     var ( bytes []byte ; err error )
@@ -2416,7 +2421,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
     } else {
         if ctx.keep {
             // keep file
-        } else if file := stat(at(ctx, target), filename); file != nil && file.info != nil && file.info.Size() == 0 {
+        } else if file := stat(ctx, filename); file != nil && file.info != nil && file.info.Size() == 0 {
             file.info = nil
             if err := os.Remove(filename); err != nil {
                 erro(ctx, "remove file failed: %v", err).trace()
@@ -2427,13 +2432,13 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
                 var pos Position
                 pos.Filename = exeres.Stdout.log.filename
                 pos.Line = exeres.Stdout.log.lines + 1
-                erro(at(ctx,pos), "empty stdout")
+                erro(ctx, "empty stdout")
             }
             if exeres.Stderr.log != nil && exeres.Stdout.log != exeres.Stderr.log {
                 var pos Position
                 pos.Filename = exeres.Stderr.log.filename
                 pos.Line = exeres.Stderr.log.lines + 1
-                erro(at(ctx,pos), "empty stderr")
+                erro(ctx, "empty stderr")
             }
         }
 
@@ -2605,12 +2610,10 @@ func reportFileUpdates(ctx Context, files []*file) {
     }
 }
 
-type traverse_next struct{}
-
 type modifier_stamp struct { modifier_
-    prompt bool "m,prompt"
-    next   bool "n,nxt,next"  // traveNext if failed to stamp
-    error  bool "e,err,error" // traveErro if failed to stamp
+    prompt bool "prompt"
+    next   bool "nxt,next"  // traveNext if failed to stamp
+    error  bool "err,error" // traveErro if failed to stamp
 }
 func (ctx *modifier_stamp) x(args ...Value) (result any) {
     var target = getTargetValue(ctx)
@@ -2627,7 +2630,7 @@ func (ctx *modifier_stamp) x(args ...Value) (result any) {
     var p = prompt(ctx, "%v: %v\n", target, _project(ctx))
     if n := ctx.debug; n>0 { p.debug(n) }
     if ctx.next {
-        panic(traverse_next{})
+        panic(traverse_state{_position(ctx),traverse_next})
     } else if ctx.error {
         erro(ctx, "stamp(%v) error")
         errostack(ctx, 10, "%v", ctx).trace()
@@ -2645,10 +2648,10 @@ func (ctx *modifier_stamp) x(args ...Value) (result any) {
 type modifier_assert struct { modifier_
     msg string `msg,message`
 }
-func (ctx *modifier_assert) v(args ...Value) (_ interface{}) { ctx.z(args...) ; return }
-func (ctx *modifier_assert) x(args ...Value) (_ interface{}) { ctx.z(args...) ; return }
-func (ctx *modifier_assert) z(args ...Value) (_ interface{}) {
-    var uni = _universe(ctx)
+func (ctx *modifier_assert) v(args ...Value) (_ any) { ctx.z(args...) ; return }
+func (ctx *modifier_assert) x(args ...Value) (_ any) { ctx.z(args...) ; return }
+func (ctx *modifier_assert) z(args ...Value) (_ any) {
+    var u = _universe(ctx)
     for _, a := range args {
         if a == nil {
             erro(ctx, "assert: nil").trace()
@@ -2656,21 +2659,20 @@ func (ctx *modifier_assert) z(args ...Value) (_ interface{}) {
 
         if _, y := a.(*punct); y { continue }
 
-        v := a.expand(ctx) //, final|w
+        v := a.expand(final{ctx})
         b := v.true(ctx)
+        f := u.hooks.assert
 
-        if (uni.hooks.assert != nil && uni.hooks.assert(ctx, v, b)) || b {
+        if (f != nil && f(ctx, v, b)) || b {
             continue
-        } else if s := ctx.msg; s == "" {
-            erro(at(ctx,a), "assert: %v → %v → '%s'", ts(a), ts(v), v.string(ctx)).trace()
+        } else if ctx.msg == "" {
+            erro(ctx, "assert: %v → %v → '%s'", ts(a), v, v.string(ctx)).trace()
         } else {
-            erro(at(ctx,a), "assert: %v → %v: %s", ts(a), ts(v), s).trace()
+            erro(ctx, "assert: %v → %v: %s", ts(a), v, ctx.msg).trace()
         }
     }
     return
 }
-
-type traverse_done struct{}
 
 type modifier_cond struct { modifier_ }
 func (ctx *modifier_cond) x(args ...Value) (result any) {
@@ -2681,25 +2683,22 @@ func (ctx *modifier_cond) x(args ...Value) (result any) {
     for _, a := range args {
         if a == nil { warn(ctx, "nil arg").debug() }
         if a == nil || !a.true(ctx.Context) {
-            panic(traverse_done{})
-            return
+            panic(traverse_state{_position(ctx),traverse_done})
         }
     }
     return makeBoolean(_position(ctx), true)
 }
 
-type traverse_case struct{}
-
 type modifier_case struct { modifier_ }
 func (ctx *modifier_case) x(args ...Value) (result any) {
     for _, a := range args {
         if a.true(ctx.Context) {
-            panic(traverse_case{})
+            panic(traverse_state{_position(ctx),traverse_case})
         }
     }
 
     if ctx.verbose { prompt(ctx, "%v", auto_get(ctx, "@")) }
-    panic(traverse_next{})
+    panic(traverse_state{_position(ctx),traverse_next})
     return
 }
 
@@ -2708,7 +2707,7 @@ func (ctx *modifier_predictDirty) x(args ...Value) (result any) {
     if res := _execution(ctx).dirty(ctx, args...); res {
         return makePrediction(_position(ctx), res, "")
     } else {
-        panic(traverse_done{})
+        panic(traverse_state{_position(ctx),traverse_done})
     }
 }
 
@@ -3041,7 +3040,7 @@ func onceSHA256(ctx *modifier_once, target Value, args ...Value) (n int) {
 }
 
 type modifier_once struct { modifier_
-    checksum bool `c,cs,checksum,s,sha,sha256,sum,h,hash`
+    checksum bool `cs,checksum,sha,sha256,sum,hash`
     forval Value `for` // TODO: (once -for=$@)
 }
 func (ctx *modifier_once) x(args ...Value) (result any) {

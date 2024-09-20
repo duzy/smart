@@ -13,7 +13,7 @@ type testValueGeneralStruct struct {
 	assert_bool bool
 	assert_value Value
 }
-func testValueGeneralAssertHook(ctx Context, v Value, b bool, i interface{}) {
+func testValueGeneralAssertHook(ctx Context, v Value, b bool, i any) {
 	st := i.(*testValueGeneralStruct)
 	st.assert_bool = b
 	st.assert_value = v
@@ -680,11 +680,10 @@ func testValues_bug_01(ctx *testcase) {
 	} else {
 		if n { note(ctx, "%v", d).debug(); flush(ctx) }
 
-		var e string
-		var v Value
+		var e, v Value
 		func () {
 			defer func () {
-				if x, y := recover().(trace_err_evoke_loop); y { e = x.string }
+				if x, y := recover().(trace_err_evoke_loop); y { e = x.Value }
 			} ()
 			// ex_debug = true
 			v = d.value.expand(final{ctx})
@@ -692,8 +691,8 @@ func testValues_bug_01(ctx *testcase) {
 		} ()
 
 		if n { note(ctx, "%v → %v : err_evoke_loop=%s", d, v, e).debug(); flush(ctx) }
-		if e != "bug_1" {
-			ctx.err("expecting evocation loop: %s != bug_1", e)
+		if s, t := ts(e), "{=def bug_1.1}"; s != t {
+			ctx.err("expecting evocation loop: %s != %s", s, t)
 		}
 		if v != nil {
 			ctx.err("%v → %v", d, v)
@@ -711,11 +710,10 @@ func testValues_bug_01(ctx *testcase) {
 	} else {
 		if n { note(ctx, "%v", d).debug(); flush(ctx) }
 
-		var e string
-		var v Value
+		var e, v Value
 		func () {
 			defer func () {
-				if x, y := recover().(trace_err_evoke_loop); y { e = x.string }
+				if x, y := recover().(trace_err_evoke_loop); y { e = x.Value }
 			} ()
 			// ex_debug = true
 			v = d.value.expand(final{ctx})
@@ -723,8 +721,8 @@ func testValues_bug_01(ctx *testcase) {
 		} ()
 
 		if n { note(ctx, "%v → %v : err_evoke_loop=%s", d, v, e).debug(); flush(ctx) }
-		if e != "flags" {
-			ctx.err("expecting evocation loop: %s != flags", e)
+		if s, t := ts(e), "{=def .flags}"; s != t {
+			ctx.err("expecting evocation loop: %s != %s", e, t)
 		}
 		if v != nil {
 			ctx.err("%v → %v", d, v)

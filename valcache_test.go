@@ -819,6 +819,10 @@ func testValueCache(ctx *testcase) {
 		ctx.err(s)
 	} else if v.string(ctx) != "foo.o" {
 		ctx.err("%v %v", v, tst{v})
+	} else if a := p.unmap_files(ctx, v, nil); len(a) != 1 {
+		ctx.err("%v: miss cache : %v %v", v, tst{v}, a)
+	} else if a[0].pattern.string(ctx) != "**.o" {
+		ctx.err("%v: miss cache : %v %v", v, tst{v}, tst{a[0].pattern})
 	} else if t := unmap_files(ctx, v); len(t) != 1 {
 		ctx.err("%v %v ; %v", v, tst{v}, t)
 	} else if t[0].name != "foo.o" {

@@ -30,7 +30,7 @@ type (
     termination struct { position Position }
 )
 
-func _failure(ctx Context, a ...interface{}) failure {
+func _failure(ctx Context, a ...any) failure {
     var s string
     if y := false; 0 < len(a) {
         if s, y = a[0].(string); y {
@@ -68,10 +68,10 @@ func (e failureFileNotFound) Error() string {
     }
 }
 
-func assert(cond bool, s string, a ...interface{}) {
+func assert(cond bool, s string, a ...any) {
     if !cond { panic(failureAssert(fmt.Sprintf(s, a...))) }
 }
 
-func unreachable(a ...interface{}) {
+func unreachable(a ...any) {
     panic(failureUnreachable(fmt.Sprint(a...)))
 }

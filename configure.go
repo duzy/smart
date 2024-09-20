@@ -70,7 +70,15 @@ func (cc *configurecontext) open_configuration_sm(ctx Context, p *project) (res 
     return
 }
 func (cc *configurecontext) execute(ctx Context, e entry) {
-    if p := e.owner(); p != cc.current && p != nil {
+    var d *def
+    var s string
+    var p = e.owner()
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer cc.execute_check(ctx, e, p, &s, &d)
+    }
+
+    if p != cc.current && p != nil {
         if p.configured { return } // already configured
 
         cc.defs = make(map[string]struct{}) // reset defs for p
@@ -102,33 +110,31 @@ func (cc *configurecontext) execute(ctx Context, e entry) {
 
     e.execute(ctx)
 
-    var s = e.destiny().string(ctx)
+    s = e.destiny().string(ctx)
     if _, y := cc.defs[s]; y { return }
 
-    var d = cc.current.finddef(s)
-    if d == nil {
+    if d = cc.current.finddef(s); d == nil {
         erro(ctx, "%v: `%s` not configured", cc.current, s).trace()
         return
     }
 
     cc.defs[s] = struct{}{}
 
-    if d.value == nil {
+    if s := d.name; d.value == nil {
         // Set <nil> value with exec-assign ('!=') to a None value.
-        fmt.Fprintf(cc.writer, "%v !=\n", d.ident(ctx))
+        fmt.Fprintf(cc.writer, "%v !=\n", s)
     } else {
-        fmt.Fprintf(cc.writer, "%v = %v\n", d.ident(ctx), d.value.String())
+        fmt.Fprintf(cc.writer, "%v = %v\n", s, d.value.String())
     }
     return
 }
 func (cc *configurecontext) close() {
-    if cc.writer != nil { if err := cc.writer.Flush(); err != nil {} }
-    if cc.file != nil   { if err := cc.file.Close();   err != nil {} }
+    if cc.writer != nil { if e := cc.writer.Flush(); e != nil {} }
+    if cc.file != nil   { if e := cc.file.Close();   e != nil {} }
 }
 
-// func (u *universe)  for_configs(cal func(*project, entry)) { u._for_configs(cal, nil, nil) }
-func (u *universe) for_configs(cal func(*project, entry), pre func(*project) func(), inf func(*project)) {
-    var m = make(map[*project]struct{}, 4)
+func (u *universe) config(cal func(*project, entry), pre func(*project) func(), inf func(*project)) {
+    var m = make(map[*project]struct{})
     var f func(*project)
 
     f = func(p *project) {
@@ -140,7 +146,7 @@ func (u *universe) for_configs(cal func(*project, entry), pre func(*project) fun
 
         if inf != nil { inf(p) }
 
-        for _, u := range p.use.list { f(u.project) }
+        for _, t := range p.use.list { f(t.project) }
 
         if cal != nil { for _, e := range p.configs { cal(p, e) } }
     }
@@ -159,31 +165,27 @@ func promptLeavingDirectory(ctx Context, s string) diagtracer {
 type configure_silent struct{}
 
 func configure(ctx Context, ii ...any) {
-    var c = configurecontext{
-        Context: ctx, done: make(map[*def]struct{}, 8),
-    }
+    var cc = configurecontext{Context:ctx, done:make(map[*def]struct{},8)}
 
-    defer c.close()
+    defer cc.close()
 
     for _, i := range ii {
         switch i.(type) {
-        case configure_silent: c.silent = true
+        case configure_silent: cc.silent = true
         }
     }
 
-    var u = _universe(ctx)
+    u := _universe(ctx)
 
     // Remove existing configuration.sm files
-    u.for_configs(nil, nil, func(p *project) {
-        if f := p.configuration_sm(ctx); f != nil {
-            os.Remove(f.fullname())
-        }
+    u.config(nil, nil, func(p *project) {
+        if f := p.configuration_sm(ctx); f != nil { os.Remove(f.fullname()) }
     })
 
-    u.for_configs(func(p *project, entry entry) {
-        c.execute(ctx, entry)
+    u.config(func(p *project, entry entry) {
+        cc.execute(ctx, entry)
     }, func(p *project) (f func()) {
-        if !c.silent && p.configure != nil && !p.configured && len(p.configs) > 0 {
+        if !cc.silent && p.configure != nil && !p.configured && len(p.configs) > 0 {
             /********/ { promptEnteringDirectory(ctx, p.absPath) }
             f = func() { promptLeavingDirectory(ctx, p.absPath) }
         }
@@ -220,7 +222,6 @@ func (ctx *modifier_configure) _param(name string, i any) *pair {
     return makePair(makeWord(pos, name), val)
 }
 
-// -value
 func (ctx *modifier_configure) _value(_ Value, _ ...Value) (result Value) {
     return auto_get(ctx,"-")
 }
@@ -264,42 +265,50 @@ func (ctx *modifier_configure) _option(_ Value, args ...Value) (result Value) {
 func (ctx *modifier_configure) _package(_ Value, args ...Value) (result Value) {
     var names []string
     var t packagetype = packageSmart
-    for _, arg := range args { switch a := arg.(type) {
-    case *pair:
-        switch key, val := a.key.string(ctx), a.val.string(ctx); key {
-        case "type":
-            switch val {
-            case "", "smart": t = packageSmart
-            case "pkgconfig": t = packageConfig
-            default:          t = packageUnknown
-                erro(ctx, "package: unknown type %v", val)
-                return
+    for _, arg := range args {
+        switch a := arg.(type) {
+        case *pair:
+            switch key, val := a.key.string(ctx), a.val.string(ctx); key {
+            case "type":
+                switch val {
+                case "", "smart": t = packageSmart
+                case "pkgconfig": t = packageConfig
+                default:          t = packageUnknown
+                    erro(ctx, "package: unknown type %v", val)
+                    return
+                }
+            default:
+                prompt(ctx, "%v: package: `%v` unknown option", key)
             }
         default:
-            prompt(ctx, "%v: package: `%v` unknown option", key)
+            names = append(names, a.string(ctx))
         }
-    default:
-        names = append(names, a.string(ctx))
-    }}
+    }
 
     var u = _universe(ctx)
-    if  u.packages == nil {
+    if  u.packages == nil  {
         u.packages = make(map[string]packageinfo, 4)
     }
-    for _, name := range names { if info, y := u.packages[name]; !y {
-        var err error
-        switch t {
-        case packageSmart: // TODO: info, err = loadPackageSmartInfo(pos, name)
-        case packageConfig: // TODO: info, err = loadPackageConfigInfo(pos, name)
-        case packageUnknown:
-            prompt(ctx, "%v: package `%v`: unknown type\n", name)
+
+    for _, name := range names {
+        if x, y := u.packages[name]; !y {
+            var e error
+            switch t {
+            case packageSmart:  // TODO: x, e = loadPackageSmartInfo(pos, name)
+            case packageConfig: // TODO: x, e = loadPackageConfigInfo(pos, name)
+            case packageUnknown:
+                prompt(ctx, "%v: package `%v`: unknown type\n", name)
+            }
+            if e != nil {
+                return
+            }
+            if x.project != nil {
+                u.packages[name] = x
+                result = makeAnswer(_position(ctx), true)
+                break
+            }
         }
-        if err != nil { return } else if info.project != nil {
-            _universe(ctx).packages[name] = info
-            result = makeAnswer(_position(ctx), true)
-            break
-        }
-    }}
+    }
     return
 }
 
@@ -327,7 +336,7 @@ func (ctx *modifier_configure) execute_entry(rule_name any, target Value, _param
         errostack(ctx, 3, "%v: .configure not provided for %v (%s)", p.project.name, target, rule_name).trace()
         return
     } else if entries = c._entries(ctx, rule_name, false); entries == nil {
-        errostack(ctx, 3, "%v: unknown configuration action : %v %v", rule_name, c.entries.ks(true), c.bases[0].entries.ks(true)).trace()
+        errostack(pc(ctx,rule_name), 3, "%v: unknown configuration action : %v %v", rule_name, c.entries.ks(true), c.bases[0].entries.ks(true)).trace()
         return
     }
 
@@ -359,7 +368,7 @@ paramsloop:
     for _, a := range _params {
         var p, y = a.(*pair)
         if !y {
-            erro(at(ctx,a), "unsupported parameter %s", ts(a)).trace()
+            erro(pc(ctx,a), "unsupported parameter %s", tv(a)).trace()
             return
         }
 
@@ -384,9 +393,8 @@ paramsloop:
             for _, p := range prog.params { ps = append(ps, p.ident(ctx)) }
 
             var t = auto_get(ctx,"@")
-            ctx.Context = at(ctx.Context, a)
             warn(ctx, "ignored param: {=%s %v}; target: {=%s %v}", typeof(a), a, typeof(t), t)
-            warn(at(ctx,prog.position), "%v params = %v", t, ps).debug(16)
+            warn(ctx, "%v params = %v", t, ps).debug(16)
             return
         }
     }
@@ -400,39 +408,36 @@ paramsloop:
 }
 
 func (ctx *modifier_configure) execute(target, name Value, args []Value) (configured bool, result Value) {
-    if _universe(ctx).traceConfig { defer un(l_trace(l_config, "configureExecute")) }
+    if _universe(ctx).traceConfig { defer un(l_trace(l_config, "configure.execute")) }
 
     var opName string
-    if f, y := name.(flag); y {
-        opName = f.Value.string(ctx)
+    if x, y := name.(flag); y {
+        opName = x.Value.string(ctx)
     } else {
         opName = name.string(ctx)
     }
     if opName == "" {
-        erro(ctx, "empty configure name: %v", ts(name)).trace()
+        erro(pc(ctx,name), "empty configure name: %v", ts(name)).trace()
     }
 
-    var params, infos []Value
-
-    if 0 < ctx.debug {
-        defer func() {
-            note(ctx, "%v: %v → %v %v", ts(target), args, infos, params).debug(1+ctx.debug)
-        } ()
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer ctx.execute_check(target, name, opName, args, &configured, &result)
     }
 
     var cc Context = ctx
     if ctx.final { cc = final{ctx} } // TODO: expandPathStr
 
+    var params, infos []Value
     for _, arg := range xmerge(cc, args...) {
-        if !isTrivial(arg) {
-            switch t := arg.(type) {
-            case *raw, *strlit, *strcomp:
-                infos = append(infos, t)
-                params = append(params, ctx._param("INFO", t))
-            case *pair:
-                params = append(params, t)
-            default:
-                erro(at(ctx,arg), " unsupported parameter: {=%v %v}, {=%v %v}", typeof(t), t, typeof(arg), arg).trace()
+        switch t := arg.(type) {
+        case *raw, *strlit, *strcomp:
+            params = append(params, ctx._param("INFO", t))
+            infos = append(infos, t)
+        case *pair:
+            params = append(params, t)
+        default:
+            if !isTrivial(arg) {
+                erro(pc(ctx,arg), "unsupported configure parameter: %v", tv(arg)).trace()
             }
         }
     }
@@ -440,7 +445,6 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
     var dia = _diagnostic(ctx)
     if dia.error() { return }
 
-    var s string
     var silent = truly(ctx, silent_configure{})
     if !silent {
         if len(infos) == 0 {
@@ -448,6 +452,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
             if len(args) > 0 { a = args }
             prompt(ctx, "%v %v …", target, a)
         } else {
+            var s string
             for _, info := range infos { s += info.string(ctx) }
             if s != "" { prompt(ctx, "%s …", s) }
         }
@@ -489,53 +494,61 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
 
 func (ctx *modifier_configure) x(ops ...Value) (result any) {
     var u = _universe(ctx)
-    if u.traceConfig { defer un(l_trace(l_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, u.reconfigure))) }
-
-    var project = _project(ctx)
-    var program = _program(ctx)
-    if project == nil {
-        erro(ctx, " no project to configure: %v", ctx).trace()
-    }
-    if program == nil {
-        erro(ctx, " no program to configure: %v", ctx).trace()
+    if u.traceConfig {
+        defer un(l_trace(l_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", ctx, u.reconfigure)))
     }
 
-    if project.configure == nil {
-        if project.name == "configure" {
-            if o := project.Lookup(dot_configure); o != nil {
+    var proj = _project(ctx)
+    var prog = _program(ctx)
+    if proj == nil {
+        erro(ctx, "no project to configure: %v", ctx).trace()
+    }
+    if prog == nil {
+        erro(ctx, "no program to configure: %v", ctx).trace()
+    }
+
+    if proj.configure == nil {
+        if proj.name == "configure" {
+            if o := proj.Lookup(dot_configure); o != nil {
                 if d, y := o.(*def); y && d.value != nil && !isTrivial(d.value) {
                     if val := d.value.true(ctx); val {
-                        if project.configure = project; ctx.verbose {
-                            info(ctx, "self-configure project enabled: %v", _project(ctx)).debug()
+                        if proj.configure = proj; ctx.verbose {
+                            info(ctx, "self-configure project enabled: %v", proj).debug()
                         }
                     }
                 }
             }
         }
-        if project.configure == nil {
-            erro(ctx, " %v: .configure not provided", project).trace()
+        if proj.configure == nil {
+            erro(ctx, "%v: .configure not provided", proj).trace()
         }
     }
 
     var target = auto_get(ctx, "@")
     if target == nil {
-        erro(ctx, " target is trivial: %s", ctx).trace()
+        erro(ctx, "target is trivial: %s", ctx).trace()
     }
 
     var name = target.string(ctx)
     if name == "" {
-        erro(ctx, " target is empty: %v: %v", typeof(target), target).trace()
+        erro(ctx, "target is empty: %v: %v", typeof(target), target).trace()
     }
 
     var d *def
-    if d = project.finddef(name); d == nil {
-        d, _ = project.set(ctx, name, defConfig)
+    if d = proj.finddef(name); d == nil {
+        d, _ = proj.set(ctx, name, defConfig)
     }
     if d == nil {
-        erro(ctx, " cannot define configuration `%s`", name).trace()
+        erro(ctx, "cannot define configuration `%s`", name).trace()
     }
 
-    if result = d; !isNull(d.value) { // Check if it's already configured?
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer ctx.x_check(proj, d, &result)
+    }
+
+    result = d
+
+    if !isNull(d.value) { // Check if it's already configured?
         if !u.reconfigure { return } // return if not reconfigure
         if p := _configurecontext(ctx); p != nil {
             if _, y := p.done[d]; y { return }
@@ -566,11 +579,10 @@ func (ctx *modifier_configure) x(ops ...Value) (result any) {
     }
 
     var configured bool
-    var ce = _configurecontext(ctx)
+    var cc = _configurecontext(ctx)
 
-ForConfig:
     for i, a := range ops {
-        if d.value == nil && i > 0 { break ForConfig }
+        if d.value == nil && i > 0 { break }
 
         var name Value
         var para []Value
@@ -578,15 +590,15 @@ ForConfig:
         case flag: name = arg.Value
         case *argumented:
             if _, y := arg.Value.(flag); !y {
-                erro(at(ctx,a), "unsupported value: %v", ts(arg.Value)).trace()
+                erro(ctx, "unsupported value: %v", ts(arg.Value)).trace()
             }
             name, para = arg.Value, arg.args
         default:
-            erro(at(ctx,a), "unsupported: %v", ts(a)).trace()
+            erro(ctx, "unsupported: %v", ts(a)).trace()
         }
 
         if name == nil {
-            erro(at(ctx,a), "unknown configure `%v`", ts(a)).trace()
+            erro(ctx, "unknown configure `%v`", ts(a)).trace()
         }
 
         if d := ctx.debug; d > 0 { note(ctx, "%v: %v: %v", target, name, para).debug(d) }
@@ -609,7 +621,7 @@ ForConfig:
             d.set(ctx, defConfig, value)
         }
 
-        if d == nil { ce.done[d] = struct{}{} }
+        if d == nil { cc.done[d] = struct{}{} }
     }
     return
 }

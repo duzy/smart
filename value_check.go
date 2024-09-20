@@ -32,49 +32,49 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
 	switch _x.(type) {
 	case *builtin, *def, *project, self:
 		if s, t := ts(_x), ts(*x); s != t {
-			erro(at(ctx,p), "%v → %v → %v", s, t, *res).trace()
+			erro(ctx, "%v → %v → %v", s, t, *res).trace()
 		}
 	}
 
     if *res == nil {
-        if !_cl && x == nil {
-            erro(ctx, "%v: %v → %v", ts(p), ts(_x), ts(*x)).trace()
-        }
-
-        var v = _x
-        if a, y := v.(*auto); !y {
-            // ...
-        } else if d := auto_find(ctx, a.name); d != nil {
-            note(ctx, "%v", ts(_x))
-            note(ctx, "%v", ts(*x))
-            note(ctx, "%v", ts(p))
-            erro(ctx, "%v", ts(ctx)).trace()
-        }
-
-        if _cl {
-            // TODO: closure checkpoints ...
-        } else if _x == nil {
-            note(ctx, "%v: nil", ts(p))
-            erro(ctx, "%v", ts(ctx)).trace()
-        } else if d, y := _x.(*def); y && false {
-			if d == nil {
-				erro(ctx, "%v", ts(ctx)).trace()
-			} else if d.value != nil {
-				note(ctx, "x=%v", ts(_x))
-				note(ctx, "x=%v", ts(*x))
-				erro(ctx, "p=%v", ts(p)).trace()
+		if a, y := _x.(*auto); y {
+			if d := auto_find(ctx, a.name); d != nil {
+				errostack(ctx, 10, "%v : %v → %v", ts(p), ts(_x), ts(*x)).trace()
 			}
-        }
+		}
+
+		if _cl {
+            // TODO: closure checkpoints ...
+		} else {
+			if x == nil || *x == nil {
+				erro(ctx, "%v : %v → %v", ts(p), ts(_x), ts(*x)).trace()
+			}
+			if d, y := _x.(*def); y && false {
+				if d == nil {
+					erro(ctx, "%v", ts(ctx)).trace()
+				} else if d.value != nil {
+					erro(ctx, "%v : %v → %v", ts(p), ts(_x), ts(*x)).trace()
+				}
+			}
+		}
     } else if false && p != *res && equal(ctx, p, *res) {
-        note(ctx, "%v: %p != %p", ts(*res), *res, p)
-        erro(ctx, "%v", ts(ctx)).trace()
+        erro(ctx, "%v: %p != %p", ts(*res), *res, p).trace()
     }
 
 	if proj := _project(ctx); proj != nil {
-		if false && proj.name == "testvalue" {
-			note(ctx, "%s %s : %v → %v", proj.spec, proj.name, p, *res).debug()
+		if truly(ctx, is_modifying{}) {
+			switch proj.name {
+			case "configure.base":
+				var ent string
+				if t := _entry(ctx).destiny(); t != nil {
+					ent = t.string(ctx)
+				}
+				switch ent {
+				case "-library-c":
+					ex_check_configure_base_library_c(ctx, p, _x, _a, _o, _l, res, a, o)
+				}
+			}
 		}
-
 		switch proj.spec {
 		case "testdata/value/4":
 			ex_check_value_4(ctx, p, _x, _o, _a, res, x, o, a)
@@ -84,6 +84,79 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
 			ex_check_value_bug_01(ctx, p, _x, _o, _a, res, x, o, a)
 		case "testdata/rule/shell/for-stdout":
 			ex_check_rule_shell_forstdout(ctx, p, _x, _o, _a, res, x, a)
+		}
+	}
+}
+
+func ex_check_configure_base_library_c(ctx Context, p, _x Value, _a, _o []Value, _l token, res *Value, a, o *[]Value) {
+	var kind string
+	var t = auto_find(ctx, "TARGET")
+	var d = auto_find(ctx, "FUNCTION")
+	if d != nil && !isTrivial(d.value) {
+		kind = "function"
+	} else {
+		kind = "library"
+	}
+	switch p.String() {
+	case "$(ifdef FUNCTION,function,library)":
+		if (*res).String() != kind {
+			erro(ctx, "%v", *res).trace()
+		}
+	case "$(file .configure/$(ifdef FUNCTION,function,library)/$(TARGET).c)":
+		if t == nil || isTrivial(t.value) {
+			erro(ctx, "%v", *res).trace()
+		} else if s := t.string(ctx); s == "" {
+			erro(ctx, "%v", t.value).trace()
+		} else if x, y := (*res).(*file); !y {
+			erro(ctx, "%v", *res).trace()
+		} else if t := filepath.Join(".configure", kind, s+".c"); t != x.name {
+			erro(ctx, "%s != %s", x.name, t).trace()
+		}
+	case "$(file $(s).x)":
+		if t == nil || isTrivial(t.value) {
+			erro(ctx, "%v", *res).trace()
+		} else if s := t.string(ctx); s == "" {
+			erro(ctx, "%v %v", t.value, s).trace()
+		} else {
+			if len(*a) != 1 {
+				erro(ctx, "%v", *a).trace()
+			} else if l, y := (*a)[0].(*list); !y {
+				erro(ctx, "%v %v %v", typeof(*res), *res, ts((*a)[0])).trace()
+			} else if x, y := l.elems[0].(*compound); !y {
+				erro(ctx, "%v %v %v", typeof(*res), *res, ts(l.elems[0])).trace()
+			} else if f, y := x.elems[0].(*file); !y {
+				erro(ctx, "%v %v %v", typeof(*res), *res, ts(x.elems[0])).trace()
+			} else if t := filepath.Join(".configure", kind, s+".c"); t != f.name {
+				erro(ctx, "%s != %s", f.name, t).trace()
+			}
+			if x, y := (*res).(*file); !y {
+				erro(ctx, "%v %v", typeof(*res), *res).trace()
+			} else if t := filepath.Join(".configure", kind, s+".c.x"); t != x.name {
+				erro(ctx, "%s != %s", x.name, t).trace()
+			}
+		}
+	case "$(file $(s).o)":
+		if t == nil || isTrivial(t.value) {
+			erro(ctx, "%v", *res).trace()
+		} else if s := t.string(ctx); s == "" {
+			erro(ctx, "%v %v", t.value, s).trace()
+		} else {
+			if len(*a) != 1 {
+				erro(ctx, "%v", *a).trace()
+			} else if l, y := (*a)[0].(*list); !y {
+				erro(ctx, "%v %v %v", typeof(*res), *res, ts((*a)[0])).trace()
+			} else if x, y := l.elems[0].(*compound); !y {
+				erro(ctx, "%v %v %v", typeof(*res), *res, ts(l.elems[0])).trace()
+			} else if f, y := x.elems[0].(*file); !y {
+				erro(ctx, "%v %v %v", typeof(*res), *res, ts(x.elems[0])).trace()
+			} else if t := filepath.Join(".configure", kind, s+".c"); t != f.name {
+				erro(ctx, "%s != %s", f.name, t).trace()
+			}
+			if x, y := (*res).(*file); !y {
+				erro(ctx, "%v %v", typeof(*res), *res).trace()
+			} else if t := filepath.Join(".configure", kind, s+".c.o"); t != x.name {
+				erro(ctx, "%s != %s", x.name, t).trace()
+			}
 		}
 	}
 }
@@ -139,28 +212,28 @@ func ex_check_value_4(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o
 	switch s := ts(_x); s {
 	case "{=compound {=punct .} {=word test} {=punct .} {=word foreach}}":
 		if s, t := ts(*x), "{=def .test.foreach}"; s != t {
-			erro(at(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
+			erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
 		}
 	case "{=compound {=punct .} {=word test} {=punct .} {=word v}}":
 		if s, t := ts(*x), "{=def .test.v}"; s != t {
-			erro(at(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
+			erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
 		}
 	case "{=compound {=punct .} {=word test} {=punct .} {=word x}}":
 		switch p.String() {
 		case "&(.test.x)":
 			if _project(ctx).resolveDef(ctx, ".test.x") == nil {
 				if t := ts(*x); s != t {
-					erro(at(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
+					erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
 				}
 				if s, t := ts(*res), "{=closure "+ts(_x)+"}"; s != t {
-					erro(at(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
+					erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
 				}
 			} else if truly(ctx, propExClosure) {
 				if s, t := ts(*x), "{=def .test.x}"; s != t {
-					erro(at(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
+					erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
 				}
 				if s, t := ts(*res), "{=compound {=punct .} {=word test} {=punct .} {=word v}}"; s != t {
-					erro(at(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
+					erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
 				}
 			}
 		}
@@ -169,28 +242,28 @@ func ex_check_value_4(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o
 	case "&(.test.x)":
 		if truly(ctx, propExClosure) {
 			if s, t := (*res).String(), ".test.v"; s != t {
-				erro(at(ctx,p), "%v → %v → %v", s, t, *res).trace()
+				erro(ctx, "%v → %v → %v", s, t, *res).trace()
 			}
 		} else {
 			if t := (*res).String(); s != t {
-				erro(at(ctx,p), "%v → %v → %v", s, t, *res).trace()
+				erro(ctx, "%v → %v → %v", s, t, *res).trace()
 			}
 		}
 	case "&(value .test.v)":
 		if s, t := ts(_x), ts(*x); s != t {
-			erro(at(ctx,p), "%v → %v → %v", s, t, *res).trace()
+			erro(ctx, "%v → %v → %v", s, t, *res).trace()
 		}
 	case "$(value &(.test.x))":
 		if s, t := ts(_x), ts(*x); s != t {
-			erro(at(ctx,p), "%v → %v → %v", s, t, *res).trace()
+			erro(ctx, "%v → %v → %v", s, t, *res).trace()
 		}
 		if truly(ctx, propExClosure) {
 			if s, t := (*res).String(), "xx"; s != t {
-				erro(at(ctx,p), "%v → %v → %v", s, t, *res).trace()
+				erro(ctx, "%v → %v → %v", s, t, *res).trace()
 			}
 		} else {
 			if t := (*res).String(); s != t {
-				erro(at(ctx,p), "%v → %v → %v", s, t, *res).trace()
+				erro(ctx, "%v → %v → %v", s, t, *res).trace()
 			}
 		}
 	}
@@ -478,9 +551,15 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res
 	}
 }
 
-func expand_check_elem(ctx Context, elem, v Value) {
-	if a, b := elem.cmp(ctx, v), v.cmp(ctx, elem) ; a != b {
-		erro(ctx, "%v → %v : cmp→(%v,%v) : %v → %v", elem, v, a, b, ts(elem), ts(v)).trace()
+func expand_check_elem(ctx Context, e, v Value) {
+	if e == nil || v == nil {
+		erro(ctx, "nil : %v %v", tv(e), tv(v)).trace()
+	} else {
+		var a = e.cmp(ctx, v)
+		var b = v.cmp(ctx, e)
+		if a != b {
+			erro(ctx, "%v → %v : cmp→(%v,%v)", tv(e), tv(v), a, b).trace()
+		}
 	}
 }
 
@@ -571,25 +650,25 @@ func (p *selection) expand_check_value_optional(ctx Context, proj *project, _o, 
 
 func (p *compound) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && p.String() == v.String() {
-        note(at(ctx,p), "%v, %v ; %v == %v", res, p==v, p, v)
-        note(at(ctx,p), "%v", ts(p))
-        note(at(ctx,p), "%v", ts(v))
+        note(ctx, "%v, %v ; %v == %v", res, p==v, p, v)
+        note(ctx, "%v", ts(p))
+        note(ctx, "%v", ts(v))
         erro(ctx, "%v", ts(ctx)).trace()
     }
 }
 func (p *compound) expand_check(ctx Context, res *Value) {
 	if *res == nil {
 		if x, y := recover().(trace_err_evoke_loop); y {
-			erro(at(ctx,p), "%v : %v", p, x.string).trace()
+			erro(ctx, "%v : %v", p, x.string).trace()
 		} else {
-			erro(at(ctx,p), "%v : %v", p, ts(p)).trace()
+			erro(ctx, "%v : %v", p, ts(p)).trace()
 		}
 	} else if p.expandable(ctx) && equal(ctx, p, *res) {
 		if s := p.String(); strings.Contains(s, "$_") {
 			if r := (*res).String(); (*res) == p || r == s || strings.Contains(r, "$_") {
 				if d := auto_find(ctx, "_"); d != nil {
-					note(at(ctx,d), "%v", ts(d))
-					note(at(ctx,p), "%v → %v", ts(p), ts(*res))
+					note(ctx, "%v", ts(d))
+					note(ctx, "%v → %v", ts(p), ts(*res))
 					erro(ctx, "%v", ts(ctx)).trace()
 				}
 			}
@@ -604,26 +683,26 @@ func (p condval) cmp_check(ctx Context, v Value, res cmpres) {
 }
 func (p condval) expand_check(ctx Context, v, res Value) {
     if cond(v) {
-        note(at(ctx,p), "%v → %v → %v", p.Value, v, res)
-        note(at(ctx,p), "%-20v : %v", p.Value, ts(p.Value))
-        note(at(ctx,p), "%-20v : %v", v,       ts(v))
-        note(at(ctx,p), "%-20v : %v", res,     ts(res))
+        note(ctx, "%v → %v → %v", p.Value, v, res)
+        note(ctx, "%-20v : %v", p.Value, ts(p.Value))
+        note(ctx, "%-20v : %v", v,       ts(v))
+        note(ctx, "%-20v : %v", res,     ts(res))
         erro(ctx, "%v", ts(ctx)).trace()
     }
     if truly(ctx, propExFinal) {
         // ...
     } else {
         if v == nil {
-            note(at(ctx,p), "%v → %v", p.Value, res)
-            note(at(ctx,p), "%v : %v", p.Value, ts(p.Value))
+            note(ctx, "%v → %v", p.Value, res)
+            note(ctx, "%v : %v", p.Value, ts(p.Value))
             erro(ctx, "%v", ts(ctx)).trace()
             return
         }
         if !equal(ctx, v, p.Value) && p.Value.String() == v.String() {
-            note(at(ctx,p), "%v → %v → %v", p.Value, v, res)
-            note(at(ctx,p), "%-20v : %v", p.Value, ts(p.Value))
-            note(at(ctx,p), "%-20v : %v", v,       ts(v))
-            note(at(ctx,p), "%-20v : %v", res,     ts(res))
+            note(ctx, "%v → %v → %v", p.Value, v, res)
+            note(ctx, "%-20v : %v", p.Value, ts(p.Value))
+            note(ctx, "%-20v : %v", v,       ts(v))
+            note(ctx, "%-20v : %v", res,     ts(res))
             erro(ctx, "%v", ts(ctx)).trace()
         }
     }
@@ -631,9 +710,9 @@ func (p condval) expand_check(ctx Context, v, res Value) {
 
 func (p *path) cmp_check(ctx Context, v Value, res *cmpres) {
     if *res != cmpEqual && p.String() == v.String() {
-        note(at(ctx,p), "%v, %v, %v", p, p==v, *res)
-        note(at(ctx,p), "%v", ts(p))
-        note(at(ctx,v), "%v", ts(v))
+        note(ctx, "%v, %v, %v", p, p==v, *res)
+        note(ctx, "%v", ts(p))
+        note(ctx, "%v", ts(v))
         erro(ctx, "%v", ts(ctx)).trace()
     }
 }
@@ -714,27 +793,27 @@ func (p *delegate) cmp_check(ctx Context, v Value, res *cmpres) {
         erro(ctx, "%v, %v ⇔ %v, %v ⇔ %v", *res, p, v, ts(p), ts(v)).trace()
     }
 }
-func (p *delegate) exstr_check(ctx Context, v Value, nr bool) {
+func (p *delegate) final_val_check(ctx Context, v Value, nr bool) {
     if false && p.String() == "$/" {
-        note(at(ctx,p), "%v → %v", ts(p), ts(v))
+        note(ctx, "%v → %v", ts(p), ts(v))
         erro(ctx, "%v", ts(ctx)).trace()
     }
     if nr {
         var u = v.expandable(ctx)
         if v == p || (false && v.refs(ctx, p.x)) {
-            note(at(ctx,p), "%v → %v (%v)", ts(p), ts(v), (v==p))
+            note(ctx, "%v → %v (%v)", ts(p), ts(v), (v==p))
             erro(ctx, "%v", ts(ctx)).trace()
         }
         if u && v == p {
-            note(at(ctx,p), "%v → %v", ts(p), ts(v))
+            note(ctx, "%v → %v", ts(p), ts(v))
             erro(ctx, "%v", ts(ctx)).trace()
         }
         if p.String() == v.String() {
             if u {
-                note(at(ctx,p), "%v → %v , %v", ts(p), ts(v), p.cmp(ctx, v))
+                note(ctx, "%v → %v , %v", ts(p), ts(v), p.cmp(ctx, v))
                 erro(ctx, "%v", ts(ctx)).trace()
             } else {
-                note(at(ctx,p), "%v → %v , %v", ts(p), ts(v), v.cmp(ctx, p))
+                note(ctx, "%v → %v , %v", ts(p), ts(v), v.cmp(ctx, p))
                 erro(ctx, "%v", ts(ctx)).trace()
             }
             return
@@ -762,6 +841,14 @@ func (p *regexpat) cmp_check(ctx Context, v Value, res cmpres) {
 
 func (p *project) unmap_files_check(ctx Context, _k any, res *[]filemap_name) {
 	switch p.name {
+	case "configure.base":
+		if x, y := _k.(Value); y && *res == nil && truly(ctx, is_modifying{}) {
+			var s = x.string(ctx)
+			if strings.HasPrefix(s, ".configure/library/") && strings.HasSuffix(s, ".x") {
+				erro(ctx, "%s %v %s", typeof(_k), _k, s).trace()
+			}
+		}
+
 	case "testllvmconfig":
 		var k string
 		switch x := _k.(type) {
@@ -799,9 +886,9 @@ func (p *project) unmap_files_check(ctx Context, _k any, res *[]filemap_name) {
 			} else if t := (*res)[0]; t.name != k {
 				erro(ctx, "%v %v != %v", typeof(k), k, t.name).trace()
 			} else if x, y := t.pattern.(*file); !y {
-				erro(at(ctx,t.pattern), "%v %v != %v", typeof(k), k, t.pattern).trace()
+				erro(ctx, "%v %v != %v", typeof(k), k, t.pattern).trace()
 			} else if false && x.dir != outinc {
-				erro(at(ctx,t.pattern), "%s != %s", x.dir, outinc).trace()
+				erro(ctx, "%s != %s", x.dir, outinc).trace()
 			}
 		}
 	}
@@ -812,26 +899,26 @@ func select_file_1_check(ctx Context, m filemap_name, _res **file) {
 	case "llvm/Config/llvm-config.h.cmake":
 		s := p.resolveDef(ctx, "srcinc").string(ctx)
 		if x, y := m.pattern.(*file); !y {
-			erro(at(ctx,m.pattern), "%v", ts(m.pattern)).trace()
+			erro(ctx, "%v", ts(m.pattern)).trace()
 		} else if f.name != x.name {
-			erro(at(ctx,m.pattern), "%s != %s", f.name, x.name).trace()
+			erro(ctx, "%s != %s", f.name, x.name).trace()
 		} else if f.dir != x.dir {
-			erro(at(ctx,m.pattern), "%s != %s", f.dir, x.dir).trace()
+			erro(ctx, "%s != %s", f.dir, x.dir).trace()
 		} else if x.dir != s {
-			erro(at(ctx,m.pattern), "%s != %s", x.dir, s).trace()
+			erro(ctx, "%s != %s", x.dir, s).trace()
 		} else if f.dir != s {
-			erro(at(ctx,m.pattern), "%s != %s", f.dir, s).trace()
+			erro(ctx, "%s != %s", f.dir, s).trace()
 		}
 	case "llvm/Config/llvm-config.h":
 		s := p.resolveDef(ctx, "outinc").string(ctx)
 		if x, y := m.pattern.(*file); !y {
-			erro(at(ctx,m.pattern), "%v", ts(m.pattern)).trace()
+			erro(ctx, "%v", ts(m.pattern)).trace()
 		} else if f.name != x.name {
-			erro(at(ctx,m.pattern), "%s != %s", f.name, x.name).trace()
+			erro(ctx, "%s != %s", f.name, x.name).trace()
 		} else if f.dir != s {
-			erro(at(ctx,m.pattern), "%s != %s", f.dir, s).trace()
+			erro(ctx, "%s != %s", f.dir, s).trace()
 		} else if false && x.dir != s {
-			erro(at(ctx,m.pattern), "%s != %s", x.dir, s).trace()
+			erro(ctx, "%s != %s", x.dir, s).trace()
 		}
 	}
 }
@@ -938,6 +1025,15 @@ func (f flag) hit_check(ctx Context, c *valcache, _res **valcache, fullmatch *bo
 			}
 		} else if cacheMapping(ctx) {
 			erro(ctx, "%v: %v", p.name, v).trace()
+		}
+	}
+}
+
+func (p *builtin) evoke_check(ctx *evocation, res *Value) {
+	switch proj := _project(ctx); proj.name {
+	case "configure.base":
+		switch p.name {
+		case "file":
 		}
 	}
 }

@@ -271,7 +271,7 @@ func (p *project) unmap_entries_check(ctx Context, _k any, _res *[]entry) {
 				erro(ctx, "%v: %v", p.name, v).trace()
 			}
 		default:
-			if true { note(ctx, "%v: %v %v", p.name, ts(x), res).debug() }
+			// note(ctx, "%v: %v %v", p.name, ts(x), res).debug()
 		}
 	}
 }
@@ -293,10 +293,7 @@ func unmap_check(ctx *unmap, c *valcache, key any) {
 			var cc, y = c.puncs[MINUS]
 			if !y {
 				if truly(ctx, unmap_uncheck_y{}) { break }
-				erro(ctx, "%v %v", x, c.ks(true)).trace()
-			}
-			if cc == nil {
-				erro(ctx, "%v %v", x, c.ks(true)).trace()
+				erro(ctx, "%v %v %v", cacheMapping(ctx), x, c.ks(true)).trace()
 			}
 
 			var ss = cc.keys()

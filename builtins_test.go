@@ -15,7 +15,7 @@ type testAssertStruct struct {
 	bools []bool
 	vals []Value
 }
-func testAssertHook(ctx Context, v Value, b bool, i interface{}) {
+func testAssertHook(ctx Context, v Value, b bool, i any) {
 	s := i.(*testAssertStruct)
 	s.bools, s.vals = append(s.bools, b), append(s.vals, v)
 }
@@ -316,7 +316,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		name != "foobar/config/a.def.in" &&
 		name != "foobar/config/b.def.in" ;}
 	{
-		var c = original{at(ctx, pat3), defExpand1}
+		var c = original{ctx, defExpand1}
 		wg.Add(N)
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
@@ -332,7 +332,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		}
 	}
 	{
-		var c = original{at(ctx, pat4), defExpand1}
+		var c = original{ctx, defExpand1}
 		wg.Add(N)
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
@@ -350,7 +350,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		}
 	}
 	{
-		var c = original{at(ctx, pat3), defExpand1}
+		var c = original{ctx, defExpand1}
 		wg.Add(N)
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
@@ -366,7 +366,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		}
 	}
 	{
-		var c = original{at(ctx, pat4), defExpand1}
+		var c = original{ctx, defExpand1}
 		wg.Add(N)
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
@@ -384,7 +384,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		}
 	}
 	{
-		var c = original{at(ctx, pat3), defExpand1}
+		var c = original{ctx, defExpand1}
 		wg.Add(N)
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
@@ -400,7 +400,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		}
 	}
 	{
-		var c = original{at(ctx, pat4), defExpand1}
+		var c = original{ctx, defExpand1}
 		wg.Add(N)
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
@@ -1189,13 +1189,13 @@ func testBuiltin_foreach2(ctx *testcase) {
 	} else if l1.len() != 3 {
 		ctx.err("%v ; %d", tst{l.elems[1]}, l1.len())
 	} else if s, t := l0.String(), "bx$1? by$1? bz$1? baxx4 bayy4"; s != t {
-		for i, v := range l0.elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
+		for i, v := range l0.elems { note(ctx, "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{l0}, t, s)
 	} else if s, t := l1.String(), "-xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?"; s != t {
-		for i, v := range l1.elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
+		for i, v := range l1.elems { note(ctx, "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{l1}, t, s)
 	} else if s, t := x.String(), "bx$1? by$1? bz$1? baxx4 bayy4 -xvw -x{$(closure .test.foreach.x.{$1})}? -xW$1$2?"; s != t {
-		for i, v := range l.elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
+		for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{x}, t, s)
 	} else if v := ctx.val(d, "3"); v == nil {
 		ctx.err("%v", tst{d})
@@ -1983,15 +1983,15 @@ func testBuiltin_foreach5(ctx *testcase) {
 	} else if l, y := x.(*list); !y {
 		ctx.err("%v", tst{x})
 	} else if elems := merge(l.elems...); l.len() != 4 || len(elems) != 7 {
-		for i, v := range elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
+		for i, v := range elems { note(ctx, "%d. %v", i, tst{v}) }
 		ctx.err("%v ; %d, %d", tst{x}, l.len(), len(elems))
 	} else if _, y := elems[2].(condval); !y {
 		ctx.err("%v", tst{elems[2]})
 	} else if s, t := x.String(), "a~ -aox.o.a -ao{$(.test.x.o.{$2})}? ~a x.o.a &(.test.x.{$2} a,$2)? &(.test.x.o.{$2})?"; s != t {
-		for i, v := range elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
+		for i, v := range elems { note(ctx, "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{x}, t, s)
 	} else if s, t := x.string(ctx), "a~ -aox.o.a ~a x.o.a"; s != t {
-		for i, v := range elems { note(at(ctx,v), "%d. %v", i, tst{v}) }
+		for i, v := range elems { note(ctx, "%d. %v", i, tst{v}) }
 		ctx.err("%v → %s != %s", tst{x}, t, s)
 	} else if s, t := v.String(), "&(.test.x.a a,$2)? &(.test.x.&(.test.o).a)? &(.test.x.{$2} a,$2)? &(.test.x.&(.test.o).{$2})?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)

@@ -57,7 +57,7 @@ func (p *use) stat(ctx Context) (_ *statinfo) {
         return
 }
 func (p *use) traverse(ctx Context) {
-        erro(at(ctx,p.position), "cant traverse 'use' %v", p.project).trace()
+        erro(ctx, "cant traverse 'use' %v", p.project).trace()
         return
 }
 func (p *use) stamp(ctx Context) (_ []*file) {
@@ -124,7 +124,6 @@ func (p *uselist) Position() (pos Position) {
         }
         return
 }
-func (p *uselist) srclit(object) string { return "usee" }
 func (p *uselist) String() string {
         var s string
         for i, elem := range p.list {
@@ -229,7 +228,7 @@ func (p *uselist) expand(ctx Context) (res Value) {
         return
 }
 func (p *uselist) traverse(ctx Context) {
-        erro(at(ctx,p.list[0].position), "cant traverse 'uselist'").trace()
+        erro(ctx, "cant traverse 'uselist'").trace()
         return
 }
 func (p *uselist) append(ctx Context, proj *project, params []Value, opts useopts) {

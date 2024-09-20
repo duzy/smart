@@ -254,7 +254,7 @@ func testRules1(ctx *testcase) {
 type testShellForStdoutDebugStruct struct {
 	v, s string
 }
-func testShellForStdoutDebugHook(ctx Context, s string, v []Value, i interface{}) {
+func testShellForStdoutDebugHook(ctx Context, s string, v []Value, i any) {
 	t := i.(*testShellForStdoutDebugStruct)
 	for _, v := range v { t.v += ts(v) }
 	t.s += s

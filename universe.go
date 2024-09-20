@@ -125,8 +125,12 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
         }
         return
 
+    case get_position:
+        var p Position
+        p.Filename = ctx.workdir
+        return
+
     case get_workdir: return ctx.workdir
-    case get_position: return ctx._position()
     case get_project: if ctx.globe != nil { return ctx.globe.main }
     case get_scope: if ctx.scope != nil { return ctx.scope }
     // case get_closure_scope:
@@ -221,16 +225,12 @@ func _commandline() commandline { return commandline{
 }}
 
 func new_universe(ii ...any) (ctx *universe) {
-    var p positional
     ctx = &universe{}
-    ctx.Context = &p
     ctx.paths = searchPaths
     ctx.workdir = workBaseDir
     ctx.fset = NewFileSet()
     ctx.statcache = make(map[string]*filebase)
     ctx.scope = newscope(ctx._position(), nil, nil, `universe`)
-
-    p.position.Filename = ctx.workdir
 
     var cl = true
     for _, i := range ii {
@@ -256,7 +256,7 @@ func new_universe(ii ...any) (ctx *universe) {
     }
 
     var os Value // one of darwin, freebsd, linux, and so on.
-    var pos = p.position
+    var pos = ctx._position()
     {
         var vs []Value
         for _, s := range strings.Fields(runtime.GOOS) {
@@ -515,7 +515,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
             erro(ctx, "update '%v' failed", g).trace()
         }
     default:
-        erro(at(ctx,goal), "not an entry: %v", ts(goal)).trace()
+        erro(ctx, "not an entry: %v", ts(goal)).trace()
     }
     return
 }
@@ -545,13 +545,12 @@ func (_tx *universe) run() (result []Value) {
 
     var done bool
     for _, flag := range _tx.globe.flags {
-        if _tx.verboseExecFlags { info(at(ctx, flag), "%v", flag) }
+        if _tx.verboseExecFlags { info(ctx, "%v", flag) }
 
         var s = flag.Value.string(ctx)
         var args, _ = _tx.globe.args[flag]
         var entries, _ = _tx.globe.flagEntries[s]
         for _, entry := range entries {
-            var ctx = at(ctx, entry)
             if _tx.verboseExecFlags {
                 info(ctx, "%v", entry)
                 flush(ctx)
@@ -665,17 +664,12 @@ func (u *universe) load(ctx Context) (err error) {
             s = filepath.Join(base, deprFileName)
             if _, e := os.Stat(s); e != nil { s = "" }
         }
-        if s != "" {
-            var pos Position
-            pos.Filename, pos.Line = s, 1
-            ctx = at(ctx, pos)
-        }
     }
 
     defer func(l *loader) { u.globe.top = l } (u.globe.top)
     u.globe.top = &loader{terminal:terminal{ctx, []*scope{u.globe.scope}}}
 
-    var l = unilo{u, u.globe.top}
+    var l = ul{u, u.globe.top}
     l.parse_args(base, os.Args[1:]...)
 
     if u.verbose {
@@ -716,7 +710,7 @@ func (u *universe) load(ctx Context) (err error) {
             prompt(ctx, "└·%s … (%s)\n", name, d)
         } else if false && u.slow < d {
             if m := u.globe.main; m != nil {
-                warn(at(ctx, m.position), "slow loading (%v)!!\n", d).debug(6)
+                warn(ctx, "slow loading (%v)!!\n", d).debug(6)
             } else {
                 prompt(ctx, "%s:1:warning: slow loading (%v)!!\n", base, d).debug(6)
             }
@@ -732,7 +726,7 @@ func (u *universe) load(ctx Context) (err error) {
     return
 }
 
-func (l unilo) parse_args(base string, a ...string) {
+func (l ul) parse_args(base string, a ...string) {
     var args []Value
 
     if s := strings.Join(a, " "); s != "" {

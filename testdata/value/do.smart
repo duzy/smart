@@ -1,7 +1,7 @@
 project testvalue
 
 vals = {word foo/bar 'strlit' "strcomp" {=int 0} {=int 1}} {=answer yes} {=bool false} \
-    {=boolean true} {=path foo} {=path 'foo/bar'} {=file foobar} {=glob **.c} {=regex   xx} \
+    {=boolean true} {=path foo} {=path 'foo/bar'} {=file foobar} {=glob **.c} {=regex xx} \
     {=int 1} {=float .1} {=none anything goes} {=null} \
 
 disjunction0   = x{a b c}

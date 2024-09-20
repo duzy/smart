@@ -40,17 +40,17 @@ type knownerror struct {
   int // column
 }
 
-type exec_recipe_check func(Context, string, Value)
-type exec_output_check func(Context, string, int)
+type exec_check_recipe func(Context, string, Value)
+type exec_check_output func(Context, string, int)
 type exec_check struct{
   Context
-  exec_recipe_check
-  exec_output_check
+  exec_check_recipe
+  exec_check_output
 }
 func (p *exec_check) do(ctx Context, op any) any {
   switch op.(type) {
-  case exec_recipe_check: return p.exec_recipe_check
-  case exec_output_check: return p.exec_output_check
+  case exec_check_recipe: return p.exec_check_recipe
+  case exec_check_output: return p.exec_check_output
   }
   return p.Context.do(ctx, op)
 }
@@ -78,12 +78,12 @@ var (
       } else {
         p.scanned(diagError, l, g[4].int, fmt.Sprintf("%s", g[4].string))
       }
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
+      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
     regexp.MustCompile(`(.+?):(\d+):(\d+): warning: (.+)`): func(p *exec_buffer, l int, g []knownerror) {
       p.scanned(diagWarn, l, g[0].int, g[4].string)
       p.scanned(diagWarn, l, g[0].int, "warning").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
+      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
 
     regexp.MustCompile(`In file included from (.+?):(\d+):`): func(p *exec_buffer, l int, g []knownerror) {
@@ -143,17 +143,17 @@ var (
     regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`): func(p *exec_buffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf(`Import "%v" not found or errors`, g[4].string))
       p.scanned(diagError, l, g[0].int, "error").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
+      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
     regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`): func(p *exec_buffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf(`"%v" is not defined`, g[4].string))
       p.scanned(diagError, l, g[0].int, "error").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
+      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
     rxFatalErrorFileNotFound: func(p *exec_buffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf(`"%v" file not found`, g[4].string))
       p.scanned(diagError, l, g[0].int, "error").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(at(p,p.lpos(l, g[4].int)), "…reported here").trace() }
+      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
 
     // NOTE: python standard errors
@@ -171,7 +171,7 @@ var (
 
     regexp.MustCompile(`Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`): func(p *exec_buffer, l int, g []knownerror) {
       var pos = p.lpos(l, g[0].int)
-      if e := p.startDockerDaemon(pos, at(p, pos), p.container, g[1].string); e != nil {
+      if e := p.startDockerDaemon(pos, p, p.container, g[1].string); e != nil {
         p.scanned(diagError, l, g[0].int, fmt.Sprintf("start container failed: %v", e))
       }
     },
@@ -324,9 +324,7 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
 
   p.wrote += uint64(n)
 
-  var checkOutput exec_output_check
-  checkOutput, _ = do(p, checkOutput).(exec_output_check)
-
+  checkOutput, _ := do(p, exec_check_output(nil)).(exec_check_output)
   scanLine := p.scanErrors() || expandForLine ||
     (p.scanStdout && p == &p.Stdout) ||
     (p.scanStderr && p == &p.Stderr) ||
@@ -347,13 +345,9 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
       var line = p.line.Bytes()
 
       if checkOutput != nil {
-        var ctx Context = p.exec_context
-        if p.log != nil && !p.logPos.IsValid() {
-          var pos Position
-          pos.Filename, pos.Line = p.log.filename, p.lnum
-          ctx = at(p.exec_context, pos)
-        }
-        checkOutput(ctx, string(line), p.lnum)
+        var ( s string ; n int )
+        if p.log != nil && !p.logPos.IsValid() { s, n = p.log.filename, p.lnum }
+        checkOutput(pc(p.exec_context, s, n), string(line), p.lnum)
       }
 
       if expandForLine {
@@ -390,7 +384,7 @@ func (p *exec_buffer) startDockerDaemon(pos Position, ctx Context, container *pr
   var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
   if err = c.Run(); err != nil {
     if p.report {
-      erro(at(ctx,pos), "dokcer daemon not running (at %s)", sock).trace()
+      erro(ctx, "dokcer daemon not running (at %s)", sock).trace()
     }
   } else {
     // TODO: start docker daemon
@@ -411,8 +405,8 @@ func (p *exec_buffer) lpos(line, column int) Position {
 }
 func (p *exec_buffer) reportIncludedFrom() (res bool) {
   if p.includedFrom.pos1.IsValid() && p.includedFrom.pos2.IsValid() {
-    erro(at(p,p.includedFrom.pos1), "… included from here")
-    erro(at(p,p.includedFrom.pos2), "… reported here").trace()
+    erro(p, "… included from here")
+    erro(p, "… reported here").trace()
 
     p.includedFrom.pos1 = Position{}
     p.includedFrom.pos2 = Position{}
@@ -644,7 +638,7 @@ func (p *exec_context) ensureContainerRunning(containerName string) (err error) 
       erro(p.Context, "%s⇒run undefined", p.container).trace()
     }
   } else if err != nil {
-    erro(at(p.Context,p.container.position), "%v", err).trace()
+    erro(p.Context, "%v", err).trace()
   }
   return
 }
@@ -713,15 +707,15 @@ func (p *exec_context) check() (err error) {
       if !p.infos && rec.dt == diagInfo { continue }
       if !p.logPos.IsValid() { p.logPos = rec.position }
       if i == 0 && !rec.position.same(&rec.position) {
-        diag(at(ctx,rec.position), rec.dt, rec.msg)//.debug()
+        diag(ctx, rec.dt, rec.msg)//.debug()
       }
       if rec.num > 1 {
-        diag(at(ctx,rec.position), rec.dt, `%s (%d)`, rec.msg, rec.num)//.debug()
+        diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num)//.debug()
       } else {
-        diag(at(ctx,rec.position), rec.dt, rec.msg)//.debug()
+        diag(ctx, rec.dt, rec.msg)//.debug()
       }
       if n := (en+wn+in)-(i+1); i == 8 && 0 < n {
-        diag(at(ctx,rec.position), rec.dt, "%d more...", n)//.debug()
+        diag(ctx, rec.dt, "%d more...", n)//.debug()
         break
       }
     }}
@@ -743,15 +737,15 @@ func (p *exec_context) check() (err error) {
         }
       }
 
-      if diffLogPos && en > 0 { erro(at(ctx,p.logPos), "%v: %d known errors", str, en) }
+      if diffLogPos && en > 0 { erro(ctx, "%v: %d known errors", str, en) }
       erro(p, "%v: exit status %d", str, p.Status).trace()
     } else if wn > 0 {
-      if diffLogPos { warn(at(ctx,p.logPos), "%v: %d known warnings", str, wn) }
+      if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn) }
       warn(p, "%v: exit status %d", str, p.Status)
       warn(ctx, "%v: %d known warnings", str, wn)
       warnstack(ctx, 3).debug()
     } else if in > 0 && p.infos {
-      if diffLogPos { info(at(ctx,p.logPos), "%v: %d known messages", str, in) }
+      if diffLogPos { info(ctx, "%v: %d known messages", str, in) }
       info(p, "%v: exit status %d", str, p.Status)
       info(ctx, "%v: %d known messages", str, in)
       infostack(ctx, 8).debug()
@@ -849,7 +843,7 @@ func (ctx *exec_context) exec(cmd, opt string) {
   } else if logFile, err = os.Create(ctx.log.filename); err != nil {
     erro(ctx, "%v", err).trace()
   } else {
-    cmdline := joinRaws("\n", ctx.sources...)
+    cmdline := joinraws("\n", ctx.sources...)
     ctx.log.createWriter(logFile, ctx._workdir, cmdline)
   }
   ctx.Stdout.exec_context = ctx
@@ -859,7 +853,7 @@ func (ctx *exec_context) exec(cmd, opt string) {
   var _ctx = ctx.Context
   var u = _universe(ctx)
   for i, src := range ctx.sources {
-    ctx.Context = at(_ctx, src)
+    ctx.Context = _ctx
     ctx.current = i
 
     if a := "@"; strings.HasPrefix(src.s, a) {
@@ -1024,7 +1018,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   if exe.path { var s string
     if s = filepath.Dir(exe.targetName); s != "" && s != "." && s != "/" {
       if err := os.MkdirAll(s, os.FileMode(0755)); err != nil {
-        erro(at(ctx,exe.target), "make path '%s' for target failed: %v", s, err).trace()
+        erro(ctx, "make path '%s' for target failed: %v", s, err).trace()
       }
     }
   }
@@ -1058,8 +1052,8 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
         x := recipe.string(ctx)
         // builtin_foreach_d = false
 
-        note(at(ctx, recipe), "%v: %v", typeof(recipe), recipe)
-        note(at(ctx, recipe), "%v: %v", typeof(recipe), x).debug()
+        note(ctx, "%v: %v", typeof(recipe), recipe)
+        note(ctx, "%v: %v", typeof(recipe), x).debug()
       }}
 
       // Escape '$$' sequences.
@@ -1086,18 +1080,18 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     if exe.forRecipe != nil {
       a1.position, a1.s = recipePos, source
       a2.position, a2.int64 = recipePos, int64(len(exe.sources)+1)
-      ac.Context = at(ctx, recipePos)
+      ac.Context = ctx
       if val := exe.forRecipe.expand(final{ac}); false && val != nil {
         for i := 0; indeterminate(ac, val); i += 1 {
           if i < max_evoke { val = val.expand(final{ac}) } else {
-            erro(at(ctx, exe.forRecipe), "%v → %v", exe.forRecipe, val).trace()
+            erro(ctx, "%v → %v", exe.forRecipe, val).trace()
           }
         }
-        if false { note(at(ctx,exe.forRecipe), "%v → %v", exe.forRecipe, val).debug() }
+        if false { note(ctx, "%v → %v", exe.forRecipe, val).debug() }
       }
     }
 
-    if x, y := do(ctx, exec_recipe_check(nil)).(exec_recipe_check); y {
+    if x, y := do(ctx, exec_check_recipe(nil)).(exec_check_recipe); y {
       x(ctx, source, recipe)
     }
 

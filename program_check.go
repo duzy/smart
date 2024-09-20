@@ -5,12 +5,114 @@
 //
 package smart
 
+func (m *modifier) traverse_check(ctx Context, prog *program, name string, v1, v2 *Value) {
+	switch prog.project.name {
+	case "testdefaultconfigure":
+		switch name {
+		case "configure":
+			var t = _entry(ctx).destiny()
+			if t == nil {
+				erro(ctx, "%v: %v", _entry(ctx)).trace()
+			}
+			switch t.String() {
+			case "FOO":
+				if v := *v1; v == nil {
+					erro(ctx, "%v", v).trace()
+				} else if v.String() != "{=self testdefaultconfigure}" {
+					erro(ctx, "%v", v).trace()
+				}
+			}
+		}
+	}
+}
+
 func (prog *program) execute_check(ctx Context, result *Value) {
+	switch prog.project.name {
+	case "testdefaultconfigure":
+		if t := _entry(ctx).destiny(); t == nil {
+			erro(ctx, "%v: %v", _entry(ctx)).trace()
+		} else {
+			switch t.String() {
+			case "FOO":
+				var v = *result
+				if v == nil {
+					erro(ctx, "%v", t).trace()
+				} else if d, y := v.(*def); !y {
+					erro(ctx, "%v", t).trace()
+				} else if v = d.value; v == nil {
+					erro(ctx, "%v", d).trace()
+				} else if v.String() != "{=self testdefaultconfigure}" {
+					erro(ctx, "%v", d).trace()
+				}
+				if x := cast[*execution_modifiers](ctx); x == nil {
+					erro(ctx, "%v", t).trace()
+				} else {
+					if len(x.m) != 1 {
+						erro(ctx, "%v", x.m).trace()
+					} else if x.m[0].String() != "(configure)" {
+						erro(ctx, "%v", x.m[0]).trace()
+					}
+					if len(x.g) != 1 {
+						erro(ctx, "%v", x.g).trace()
+					} else if x.g[0].String() != "(configure)" {
+						erro(ctx, "%v", x.g[0]).trace()
+					}
+				}
+				if d := prog.project.finddef("FOO"); d == nil {
+					erro(ctx, "%v", t).trace()
+				} else if d.value == nil {
+					erro(ctx, "%v ; %v", d, v).trace()
+				} else if d.value != v {
+					erro(ctx, "%v", d).trace()
+				}
+			}
+		}
+	}
 	switch prog.project.spec {
 	case "testdata/rule/0": prog.execute_check_rule_0(ctx, result)
 	case "testdata/rule/1": prog.execute_check_rule_1(ctx, result)
 	case "testdata/rule/shell/for-stdout":
 		prog.execute_check_shell_for_stdout(ctx, result)
+	}
+}
+
+func (prog *program) execute_check_1(ctx Context) {
+	switch prog.project.name {
+	case "configure.base":
+		if t := _entry(ctx).destiny(); t == nil {
+			erro(ctx, "%v: %v", _entry(ctx)).trace()
+		} else if false {
+			var s = _scope(ctx)
+			switch t.String() {
+			case "-compiles-c":
+				if d := s.finddef("name"); d == nil {
+					erro(ctx, "%v : name", t).trace()
+				} else if d.value.String() != ".configure/compiles/$(TARGET)" {
+					erro(ctx, "%v : %s", t, d.value).trace()
+				}
+			case "-library-c":
+				if d := s.finddef("name"); d == nil {
+					erro(ctx, "%v : name", t).trace()
+				} else if d.value.String() != ".configure/library/$(TARGET)" {
+					erro(ctx, "%v : %s", t, d.value).trace()
+				}
+				if d := s.finddef("s"); d == nil {
+					erro(ctx, "%v : name", t).trace()
+				} else if d.value.String() != "$(file .configure/$(ifdef $(FUNCTION),function,library)/$(TARGET).c)" {
+					erro(ctx, "%v : %s", t, d.value).trace()
+				}
+				if d := s.finddef("x"); d == nil {
+					erro(ctx, "%v : name", t).trace()
+				} else if d.value.String() != "$(file $(s).x)" {
+					erro(ctx, "%v : %s", t, d.value).trace()
+				}
+				if d := s.finddef("o"); d == nil {
+					erro(ctx, "%v : name", t).trace()
+				} else if d.value.String() != "$(file $(s).o)" {
+					erro(ctx, "%v : %s", t, d.value).trace()
+				}
+			}
+		}
 	}
 }
 
@@ -28,19 +130,19 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
             erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
         }
 		if v := auto_get(ctx, "@"); ts(v) != "{=word rule0}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{=word rule1}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{=word rule1}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "^"); ts(v) != "{=list {=word rule1}}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "-"); ts(v) != "{=list {=word rule1} {=word rule1} {=flag {=null}} {=compound {=word x} {=word y} {=word z}}}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if auto_get(ctx, "<") != auto_get(ctx, ">") {
 			erro(ctx, "%v %v", ts(auto_get(ctx, "<")), ts(auto_get(ctx, ">"))).trace()
@@ -62,20 +164,20 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
             erro(ctx, "%v: %v, %v", ent, ts(*result), args).trace()
         }
     case "rule1":
-        if len(args) != 1 {
-            erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
-        }
+		if len(args) != 1 {
+			erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
+		}
 		if v := auto_get(ctx, "@"); ts(v) != "{=word rule1}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "^"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "ARG1"); v == nil {
 			erro(ctx, "ARG1").trace()
@@ -154,19 +256,19 @@ func (prog *program) execute_check_shell_for_stdout(ctx Context, result *Value) 
             erro(ctx, "%v: %d %v", ent, len(prog.params), ts(prog.params)).trace()
         }
 		if v := auto_get(ctx, "@"); ts(v) != "{=compound {=punct .} {=word test} {=punct .} {=decimal 0}}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "-"); ts(v) != ts(*result) {
-			errostack(at(ctx,v), 3, "%s != %s", ts(v), ts(*result)).trace()
+			errostack(ctx, 3, "%s != %s", ts(v), ts(*result)).trace()
 		}
 		if v := auto_get(ctx, "-"); v != *result {
-			errostack(at(ctx,v), 3, "%s != %s", ts(v), ts(*result)).trace()
+			errostack(ctx, 3, "%s != %s", ts(v), ts(*result)).trace()
 		}
 
 		switch o {
@@ -181,42 +283,42 @@ func (prog *program) execute_check_shell_for_stdout(ctx Context, result *Value) 
 		}
     case ".test1":
 		if v := auto_get(ctx, "@"); ts(v) != "{=compound {=punct .} {=word test1}}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
     case ".test2":
 		if v := auto_get(ctx, "@"); ts(v) != "{=compound {=punct .} {=word test2}}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
     case ".test":
         if len(args) != 2 { // NOTE: always use two args in this test case
             erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
         }
 		if v := auto_get(ctx, "@"); ts(v) != "{=compound {=punct .} {=word test}}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "<"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, ">"); ts(v) != "{}" {
-			erro(at(ctx,v), "%v", ts(v)).trace()
+			erro(ctx, "%v", ts(v)).trace()
 		}
 		if v := auto_get(ctx, "-"); ts(v) != ts(*result) {
-			errostack(at(ctx,v), 3, "%s != %s", ts(v), ts(*result)).trace()
+			errostack(ctx, 3, "%s != %s", ts(v), ts(*result)).trace()
 		}
 		if v := auto_get(ctx, "-"); v != *result {
-			errostack(at(ctx,v), 3, "%s != %s", ts(v), ts(*result)).trace()
+			errostack(ctx, 3, "%s != %s", ts(v), ts(*result)).trace()
 		}
 
 		switch ts(args) {

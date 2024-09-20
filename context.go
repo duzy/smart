@@ -29,8 +29,7 @@ const (
 type property uint64
 
 const (
-  propParameters property = 1<<iota
-  propFullVal
+  propFullVal property = 1<<iota
   propDirtyOpts
   propErros
   propExAuto
@@ -57,7 +56,6 @@ const (
 type (
   act_count_dia  struct{ t []diagType }
   act_on_erros   struct{ i int }
-  act_dirty_mark struct{ a []Value }
   act_dirt       struct{ a []Value }
   act_traversed  struct{ v Value }
   act_traverse   struct{ v Value }
@@ -69,14 +67,16 @@ type (
   get_scope      struct{}
   get_closure_scope struct{}
   get_param_name struct{ i int }
+  get_parameters struct{}
   is_good_with   struct{ p property ; a []any }
   is_test_mode   struct{}
   invalid_position struct{}
+  act_mark_dirty  struct{ a []Value }
   no_position struct{}
 )
 
 func _parameters(ctx Context) (res map[string]*auto) {
-  if t, y := do(ctx, propParameters).(map[string]*auto); y { res = t }
+  if t, y := do(ctx, get_parameters{}).(map[string]*auto); y { res = t }
   return
 }
 
@@ -169,7 +169,7 @@ func getTargetValue(ctx Context) (res Value) {
   } else if vals := expand(ctx, val); len(vals) == 1 {
     res = scalarize(vals[0])
   } else {
-    erro(at(ctx,val), "multiple targets: %v → %v", val, vals)
+    erro(ctx, "multiple targets: %v → %v", val, vals)
   }
   return
 }
@@ -330,11 +330,11 @@ func (d diagtracer) trace(a ...any) {
 type act_traced struct{}
 type too_many_diagnostics struct{ i int }
 type too_many_errors struct{ i int }
-type trace_err_evoke_loop struct { ctx Context ; string }
+type trace_err_evoke_loop struct { ctx Context ; Value }
 type trace_errors struct { Context ; int }
 
 func (t trace_err_evoke_loop) String() string {
-  return "evoke loop: " + t.string
+  return "evoke loop: " + ts(t.Value)
 }
 
 func (t trace_errors) String() string {
@@ -352,12 +352,12 @@ func trace_recover(ctx Context) {
     case              bailout:
     case         trace_errors:  x = t.Context
     case              failure: erro(t.Context, t.Error())
-    case                Value: erro(at(ctx,t), "trace: %s", ts(t))
-    case               string: erro(   ctx   , "trace: %s", t)
-    case        runtime.Error: erro(   ctx   , "trace: %s", t.Error())
-    case too_many_diagnostics: erro(   ctx   , "too many diagnostics (%v)", t.i)
-    case too_many_errors     : erro(   ctx   , "too many errors (%v)", t.i)
-    case trace_err_evoke_loop: erro(   ctx   , "evocation loop (%s)", t.string)
+    case                Value: erro(ctx, "trace: %s", ts(t))
+    case               string: erro(ctx, "trace: %s", t)
+    case        runtime.Error: erro(ctx, "trace: %s", t.Error())
+    case too_many_diagnostics: erro(ctx, "too many diagnostics (%v)", t.i)
+    case too_many_errors     : erro(ctx, "too many errors (%v)", t.i)
+    case trace_err_evoke_loop: erro(pc(ctx,t.Value), "evocation loop (%s)", t.Value)
     default: panic(e) //erro(ctx, "trace: %s", ts(e))
     }
   }
@@ -380,7 +380,7 @@ func trace(ctx Context, args ...any) {
   }
   if rec { defer trace_recover(ctx) }
   if x, y := do(ctx, act_traced{}).(int); y && x > 0 {
-    if evoke_loop.string == "" {
+    if evoke_loop.Value == nil {
       panic(trace_errors{ctx, x})
     } else {
       panic(evoke_loop)
@@ -389,7 +389,7 @@ func trace(ctx Context, args ...any) {
   return
 }
 
-type act_flush_diags struct{}
+type flush_diags struct{}
 
 const diagnostic_limit = 10_000
 var   diagnostic_limit_erros = 520
@@ -412,7 +412,7 @@ func (d *diagnostic) cast(t reflect.Type) Context { return implcast(d,t) }
 func (d *diagnostic) do(ctx Context, op any) any {
   switch t := op.(type) {
   case act_count_dia: return d.count(t.t...)
-  case act_flush_diags: return d.flush(ctx)
+  case flush_diags: return d.flush(ctx)
   case act_traced: if i := d.counterror(); i > 0 { d.traced += 1 ; return i }
   case property: if t&propErros != 0 { return d.erros }
   }
@@ -545,8 +545,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
   return
 }
 
-// func flush(ctx Context) int { return _diagnostic(ctx).flush(ctx) }
-func flush(ctx Context) (i int) { i, _ = do(ctx, act_flush_diags{}).(int); return }
+func flush(ctx Context) (i int) { i, _ = do(ctx, flush_diags{}).(int); return }
 
 func diag(ctx Context, dt diagType, f string, a ...any) (res diagtracer) {
   res = diagtracer{nil, ctx}
@@ -626,56 +625,14 @@ func diagstack(ctx Context, n int, dt diagType, a ...any) (point diagtracer) {
   return
 }
 
-func _positional(c Context) *positional { return cast[*positional](c) }
 func _position(ctx Context) (_ Position) {
-  if x, y := do(ctx, get_position{}).(Position); y {
-    if x.valid() {
-      return x
-    } else if true {
-      return
-    } else {
-      panic(invalid_position{})
-    }
+  if x, y := do(ctx, get_position{}).(Position); y && x.Filename != "" {
+    return x
+  } else if true {
+    return
   } else {
     panic(no_position{})
   }
-}
-
-type count_positional struct {}
-type positional struct { Context ; position Position }
-func (p *positional) Position() Position { return p.position }
-func (p *positional) cast(t reflect.Type) Context { return implcast(p, t) }
-func (p *positional) ts(string) string { return ts(p.Context) }
-func (p *positional) do(ctx Context, op any) (_ any) {
-  switch t := op.(type) {
-  case count_positional: return try[int](p.Context, t)+1
-  case get_position: return p.position
-  }
-  if p.Context == nil { return }
-  return p.Context.do(ctx, op)
-}
-
-func at(ctx Context, a any) Context {
-  if ctx == nil { panic("nil context") }
-
-  var pos Position
-
-  switch t := a.(type) {
-  case doer:
-    if x, y := do(ctx, get_position{}).(Position); y && x.valid() { pos = x }
-  case Position  : pos = t
-  case positioner: pos = t.Position()
-  default: return ctx
-  }
-
-  if p := _position(ctx) ; p.valid() && pos.valid() && !p.same(&pos) {
-    if try[int](ctx, count_positional{}) < /*900*/200 {
-      ctx = &positional{ctx, pos}
-    } else {
-      errostack(ctx, 3, "too many positions").trace()
-    }
-  }
-  return ctx
 }
 
 func walkSmartBaseDirs(ctx Context, cwd string, vis func(string) bool) (s string) {
@@ -760,10 +717,10 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
     case failure:
       erro(t.Context, t.Error()) ; t.Context = nil
       if f == nil { f = &t }
-    case         Value: erro(at(ctx,t), "assured: %s", ts(t))
-    case        string: erro(   ctx   , "assured: %s", t)
-    case runtime.Error: erro(   ctx   , "assured: %s", t.Error())
-    default:            erro(   ctx   , "assured: %s", ts(e))
+    case         Value: erro(ctx, "assured: %s", ts(t))
+    case        string: erro(ctx, "assured: %s", t)
+    case runtime.Error: erro(ctx, "assured: %s", t.Error())
+    default:            erro(ctx, "assured: %s", ts(e))
     }
   }
 

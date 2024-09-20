@@ -12,7 +12,7 @@ import (
 	// "io/ioutil"
 )
 
-func (l unilo) bases_check_param(ctx Context, implicitBase string, i int, elem, spec Value) {
+func (l ul) bases_check_param(ctx Context, implicitBase string, i int, elem, spec Value) {
 	switch l.project.name {
 	case "variant.bootstrap":
 		if d := l.scope().finddef("variant"); d != nil {
@@ -58,7 +58,7 @@ func (l unilo) bases_check_param(ctx Context, implicitBase string, i int, elem, 
 	return
 }
 
-func (l unilo) bases_check_i(ctx Context, i, implicitIndex int, implicitBase, absPath string, isDir bool, param Value) {
+func (l ul) bases_check_i(ctx Context, i, implicitIndex int, implicitBase, absPath string, isDir bool, param Value) {
 	switch p := l.project; p.name {
 	case "lib.std":
 		if s, t := ts(param), "{=path {=word app} {=compound {=punct .} {=word base}}}"; s != t {
@@ -72,7 +72,7 @@ func (l unilo) bases_check_i(ctx Context, i, implicitIndex int, implicitBase, ab
 	}
 }
 
-func (l unilo) bases_check(ctx Context, implicitIndex int, implicitBase string) {
+func (l ul) bases_check(ctx Context, implicitIndex int, implicitBase string) {
 	switch p := l.project; p.name {
 	case "general":
 		if len(p.bases) != 0 {
@@ -173,7 +173,7 @@ func (l unilo) bases_check(ctx Context, implicitIndex int, implicitBase string) 
 	}
 }
 
-func (l unilo) directory_check(ctx Context, spec, absDir string) {
+func (l ul) directory_check(ctx Context, spec, absDir string) {
 	if l.project != nil {
 		switch l.project.name {
 		case "configure.base", "lib.std":
@@ -190,7 +190,7 @@ func (l unilo) directory_check(ctx Context, spec, absDir string) {
 	}
 }
 
-func (l unilo) configure_check(ctx *load_configure, ident Value) {
+func (l ul) configure_check(ctx *load_configure, ident Value) {
 	if ctx.configure != "" {
 		if x, y := l.globe.loaded[ctx.abs]; !y || x == nil {
 			prompt(ctx, "%v: %v\n", ctx.abs, ctx.configure)
@@ -237,19 +237,25 @@ var langs_map = map[string]string{
 
 type source_checked string
 
-func (l unilo) source_check(ctx Context, filename string, src any, text *[]byte, res *Value) {
+func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, res *Value) {
 	if e := recover(); e != nil {
 		switch e := e.(type) {
 		case trace_err_evoke_loop:
-			erro(ctx, "%v : %v %v", l.project, e, ts(e.ctx)).trace()
+			erro(ctx, "%s : %v %v", l.project.name, e, ts(e.ctx)).trace()
 		default:
-			erro(ctx, "%v : %v: %v", l.project, typeof(e), e).trace()
+			var pos positioner = l.p
+			if pos == nil { pos = l.project }
+			if pos == nil {
+				erro(ctx, "%s : %s", l.project, tv(e)).trace()
+			} else {
+				erro(pc(ctx,pos), "%s : %s", l.project, tv(e)).trace()
+			}
 		}
 	}
 
 	do(ctx, source_checked(filename))
 
-	flat_mode := truly(ctx, parse_is_flat{})
+	flat_mode := truly(ctx, is_flat_mode{})
 	text_mode := truly(ctx, parse_is_text{})
 
 	if flat_mode {

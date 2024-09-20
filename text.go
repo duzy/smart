@@ -29,13 +29,6 @@ func (p *plain) String() (s string) {
     s += "}"
     return
 }
-func (p *plain) srclit(o object) (s string) {
-    s = "{="+typeof(p)
-    if t := p.name; t != "" { s += "("+t+")" }
-    for _, v := range p.elems { s += " " + srclit(o, v) }
-    s += "}"
-    return
-}
 func (p *plain) ts(t string) (s string) {
     s = "{="+t
     if t := p.name; t != "" { s += "("+t+")" }
@@ -96,12 +89,6 @@ func (p *plainline) String() (s string) {
     s += "}"
     return
 }
-func (p *plainline) srclit(o object) (s string) {
-    s = "{="+typeof(p)
-    for _, v := range p.elems { s += " " + srclit(o, v) }
-    s += "}"
-    return
-}
 func (p *plainline) string(ctx Context) (s string) {
     for i, v := range p.elems {
         if i > 0 { s += " " }
@@ -144,14 +131,11 @@ func (p *plainline) cmp(ctx Context, v Value) (_ cmpres) {
     return
 }
 
-type (
-    plainInt struct {}
-    plainOpts struct { generalOpts }
-)
-func (_ *plainInt) evaluate(ctx Context, args ...Value) (_ Value) {
+type plainint struct{}
+func (_ *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
     var p = &plain{}
     var prog = _program(ctx)
-    var opts plainOpts
+    var opts struct{ generalOpts }
 
     if args = parseOpts(ctx, &opts, args...) ; len(args) > 0 {
         p.name = args[0].string(ctx)

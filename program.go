@@ -24,9 +24,25 @@ type dirtyOpts struct {
     pats []Value
 }
 
-type act_exe_value struct{ v Value }
-type get_program struct{}
+type act_exe_res   struct{ v Value }
 type default_value struct{ v Value }
+type get_program   struct{}
+
+type is_ordered_prereq struct{}
+type is_prerequisite   struct{}
+
+type prerequisite struct{ Context ; ordered bool ; val Value }
+func (p *prerequisite) do(ctx Context, op any) any {
+    switch op.(type) {
+    case get_position: if p.val != nil { return p.val.Position() }
+    case is_ordered_prereq: return p.ordered
+    case is_prerequisite: return true
+    }
+    return p.Context.do(ctx, op)
+}
+func (p *prerequisite) ts(t string) string {
+    return "{="+t+" "+p.val.String()+" "+ts(p.Context)+"}"
+}
 
 func _execution(c Context) *execution { return cast[*execution](c) }
 
@@ -37,10 +53,10 @@ type execution struct {
 
     by dirtyOpts
 
-    prog *program
+    prog    *program
     projs []*project
 
-    defaultVal Value
+    defval Value
     defers   []Value
     values   []Value
 
@@ -59,10 +75,8 @@ type execution struct {
     grepped []Value
     targets []Value // all targets def
     ordered []Value
-    order bool
 
     countFiles int
-
     traceLevel int
 
     interpreted []interpreter
@@ -70,42 +84,39 @@ type execution struct {
 func (p *execution) inner() Context { return &p.automatic }
 func (p *execution) caller() *execution { return _execution(p.Context) }
 func (p *execution) cast(t reflect.Type) Context {
-    if reflect.TypeOf(p) == t { return p }
-    if reflect.TypeOf((*argumented_ctx)(nil)) == t { return nil }
-    if reflect.TypeOf((*stemmed)(nil)) == t { return nil }
+    if t == reflect.TypeOf(p) { return p }
+    if t == reflect.TypeOf((*argumented_ctx)(nil)) { return nil }
+    if t == reflect.TypeOf((*stemmed_ctx)(nil)) { return nil }
     return p.automatic.cast(t)
 }
 func (p *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
-    case get_program: return p.prog
-    case get_position: if p.prog != nil { return p.prog.position }
-    case get_project: if p.prog.project != nil { return p.prog.project }
-    case get_scope: if p.prog.project != nil { return p.prog.project.scope }
+    case get_program : return    p.prog
+    case get_position: if nil != p.prog         { return p.prog.position }
+    case get_project : if nil != p.prog.project { return p.prog.project }
+    case get_scope   : if nil != p.prog.project { return p.prog.project.scope }
 
-    case default_value: p.defaultVal = t.v
-    case act_exe_value: p.values = append(p.values, t.v)
-    case act_dirty_mark:       p.dirty_mark(t.a...)
-    case act_dirt:      return p.dirty(ctx,t.a...)
-    case act_traversed: return p.traversed(ctx,t.v)
-    case act_traverse: p.traverse(ctx, t.v); return
+    case default_value:  p.defval = t.v; return
+    case act_exe_res:    p.values = append(p.values, t.v); return
+    case act_mark_dirty: p.dirty_mark(t.a...)//; return
+    case act_traverse:   p.traverse(ctx, t.v); return
+    case act_traversed:  return p.traversed(ctx,t.v)
+    case act_dirt:       return p.dirty(ctx,t.a...)
+
+    case get_parameters:
+        var params map[string]*auto // TODO: store map[string]*auto in program
+        for _, param := range p.prog.params {
+            if params == nil { params = make(map[string]*auto, len(p.prog.params)) }
+            params[param.name] = param
+        }
+        return params
 
     case get_param_name:
-        if t.i < len(p.prog.params) {
-            res = p.prog.params[t.i].name
-        }
+        if t.i < len(p.prog.params) { res = p.prog.params[t.i].name }
         return
 
     case property:
-        if t&propExAuto != 0 { return true } //_, y = rule_autos[x.(*auto).name]
         if t&propDirtyOpts != 0 { return &p.by }
-        if t&propParameters != 0 {
-            var params map[string]*auto // TODO: store map[string]*auto in program
-            for _, param := range p.prog.params {
-                if params == nil { params = make(map[string]*auto, len(p.prog.params)) }
-                params[param.name] = param
-            }
-            return params
-        }
     }
     return p.automatic.do(ctx, op)
 }
@@ -114,7 +125,7 @@ func (p *execution) ts(t string) string {
 	return fmt.Sprintf("{=%s %v}", t, ts(p.Context)) // NOTE: hides {=automatic}
 }
 
-func (p *execution) aquire() func() { p.Lock() ; return func(){ p.Unlock() }}
+func (p *execution) aquire() func() { p.Lock() ; return p.Unlock }
 
 func (p *execution) depth() (res int) {
     for c := p.caller(); c != nil; c = c.caller() { res += 1 }
@@ -131,13 +142,13 @@ func (p *execution) calleeError(err error) {
 // traverse_context is a single thread traverse context, for traversing in a new goroutine,
 // a spawned traversal must be used and then merge.
 func (p *execution) level(n int) { p.traceLevel += n }
-func (p *execution) trace(a ...interface{}) { printIndentDots(p.traceLevel, a...) }
-func (p *execution) tracef(s string, a ...interface{}) { printIndentDots(p.traceLevel, fmt.Sprintf(s, a...)) }
+func (p *execution) trace(a ...any) { printIndentDots(p.traceLevel, a...) }
+func (p *execution) tracef(s string, a ...any) { printIndentDots(p.traceLevel, fmt.Sprintf(s, a...)) }
 
 func (p *execution) traversed(ctx Context, target Value) []Value {
     if !isTrivial(target) {
         if _, y := to_file(target); y { p.addFilesCount(1) }
-        if p.order {
+        if truly(ctx, is_ordered_prereq{}) {
             p.ordered = append(p.ordered, target)
             auto_set(ctx, defVoid, "|", makeList(p.ordered...))
         } else {
@@ -359,12 +370,12 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 }
 
 func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *file) {
-    var mapPrereqFile = func(name interface{}) {
-        var ms = unmap_files(unmap_uncheck_c{ctx}, name)
+    var mapPrereqFile = func(name any) {
+        var ms = unmap_files(unmap_uncheck_ctx{ctx}, name)
         if ms != nil {
             defer func() {
                 if prereqFile != nil { return }
-                for _, m := range ms { warn(at(ctx, m.pattern), "%v, skipped %v", name, m) }
+                for _, m := range ms { warn(ctx, "%v, skipped %v", name, m) }
                 warnstack(ctx, 3, "skipped %d, projects %v", len(ms), projects).debug(8)
             }()
         }
@@ -485,16 +496,16 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     defer p.defertrave(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
 
     if targetValue = getTargetValue(ctx); targetValue == nil {
-        erro(at(ctx,prereqValue), "%s: target is nil\n", prereqFinal).trace()
+        erro(ctx, "%s: target is nil\n", prereqFinal).trace()
     } else if isTrivial(targetValue) {
-        erro(at(ctx,prereqValue), "%s: target is trivial (%T)\n", prereqFinal, targetValue).trace()
+        erro(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue).trace()
     }
 
-    var projs = []*project{ p.prog.project } //ctx.projects(ctx)
+    var projs = []*project{ p.prog.project }
 
     if len(projs) == 0 {
-        note(at(ctx,targetValue), "%v", closure_projects(ctx))
-        erro(at(ctx,targetValue), "%v: %v → %v: no projects", p.prog.project, targetValue, prereqValue).trace()
+        note(ctx, "%v", closure_projects(ctx))
+        erro(ctx, "%v: %v → %v: no projects", p.prog.project, targetValue, prereqValue).trace()
     }
 
     prereqValue, prereqPattern, prereqFinal, prereqFile = probPrereqValue(ctx, projs, prereqValue)
@@ -507,8 +518,8 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     if traverseDetectLoops {
         if eq(ctx, targetValue, prereqValue) {
             prompt(ctx, "%v: %v: self dependency, consider using [(once)] to avoid\n", targetValue, prereqValue)
-            warn(at(ctx,prereqValue), "recursion: %T %v", prereqValue, prereqValue)
-            warn(at(ctx,targetValue), "recursion: %T %v", targetValue, targetValue)
+            warn(ctx, "recursion: %T %v", prereqValue, prereqValue)
+            warn(ctx, "recursion: %T %v", targetValue, targetValue)
             warn(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs)
             errostack(ctx, 16).trace()
         }
@@ -536,7 +547,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     t1 = time.Now()
 
     for _, proj := range projs {
-        var entries = proj._entries(unmap_uncheck_c{ctx}, prereqValue, false)
+        var entries = proj._entries(unmap_uncheck_ctx{ctx}, prereqValue, false)
         if len(entries) == 0 { continue }
         concreteList = append(concreteList, entries...)
         for _, entry := range entries {
@@ -548,7 +559,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
         }
     }
 
-    if d := time.Now().Sub(t1); d > 60*time.Second {
+    if d := time.Now().Sub(t1); 60*time.Second < d {
         for _, concrete := range concreteList {
             prompt(ctx, "%v: slow: %v %v\n", concrete.Position(), concrete, targetValue)
         }
@@ -563,15 +574,16 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 
     for _, proj := range projs {
         for _, p := range proj.patterns { assert(p.target.patterned(ctx), "not pattern") }
+
         var patterns = proj.resolvePatterns(ctx, prereqValue, prereqFinal)
         if len(patterns) == 0 { continue }
+
         stemmedList = append(stemmedList, patterns...)
-        for _, entry := range patterns {
-            entry.traverse(ctx)
-        }
+
+        for _, entry := range patterns { entry.traverse(ctx) }
     }
 
-    if d := time.Now().Sub(t2); d > 60*time.Second {
+    if d := time.Now().Sub(t2); 60*time.Second < d {
         for _, stemmed  := range stemmedList { prompt(ctx, "%v: slow: %v\n", stemmed.Position(), stemmed) }
         prompt(ctx, "%v: slow: %v: %v %v (%d stemmed)\n", _position(ctx), targetValue, prereqValue, d, len(stemmedList)).debug()
     }
@@ -579,10 +591,11 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     return // no operation
 }
 
-func (p *execution) prerequisites(ctx Context, prerequisites []Value) {
+func (p *execution) prerequisites(ctx Context, va []Value, ordered bool) {
     defer p.Wait()
-    for _, prerequisite := range prerequisites {
-        prerequisite.traverse(at(ctx, prerequisite))
+    var pre = prerequisite{ctx, ordered, nil}
+    for _, pre.val = range va {
+        pre.val.traverse(&pre)
     }
     return
 }
@@ -617,24 +630,25 @@ func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
 const maxCallRecursion  = 32 //64
 
 func (prog *program) workdir(ctx Context) (workdir string) {
+    var proj = prog.project
     if p := _execution(ctx); p == nil {
-        workdir = prog.project.absPath
+        workdir = proj.absPath
     } else if p.changedWD == "" {
         var o object
-        if o = prog.project.resolve(ctx, "CWD"); isTrivial(o) {
-            if o = prog.project.resolve(ctx, "/"); isTrivial(o) {
+        if o = proj.resolve(ctx, "CWD"); isTrivial(o) {
+            if o = proj.resolve(ctx, "/"); isTrivial(o) {
                 erro(ctx, "both $(CWD) and $/ are trivial").trace()
             }
         }
-        if v := o.expand(ctx); v != nil {//, final
-            workdir = v.string(ctx)
-        } else {
+        if v := o.expand(final{ctx}); v == nil {
             erro(ctx, "trivial %v", ts(o)).trace()
+        } else {
+            workdir = v.string(ctx)
         }
     } else if filepath.IsAbs(p.changedWD) {
         workdir = p.changedWD
     } else {
-        workdir = filepath.Join(prog.project.absPath, p.changedWD)
+        workdir = filepath.Join(proj.absPath, p.changedWD)
     }
     return
 }
@@ -698,8 +712,8 @@ ForPC:
         }}
 
         prompt(ctx, "%v: %v: %v, %v\n", a[0], auto_get(cast[*terminal](cc), "@"), cc, cast[*terminal](cc))
-        for i, t := range a { erro(at(ctx,t), "loop: %v: %v", i, t) }
-        errostack(at(ctx,prog.position), 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).trace()
+        for i, t := range a { erro(ctx, "loop: %v: %v", i, t) }
+        errostack(ctx, 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).trace()
     }
 
     if depth < maxCallRecursion {
@@ -710,7 +724,7 @@ ForPC:
         var tt = as{auto_get(c, "@")}
         var s, _ = tt.fullnameOrFinal(ctx)
         prompt(ctx, "%v: max recursion call (%d)\n", s, depth)
-        warn(at(ctx,tt), "max recursion call (%d)\n", depth).debug()
+        warn(ctx, "max recursion call (%d)\n", depth).debug()
 
         const collapse = false
         for ; c != nil; c = c.caller() { var n int
@@ -723,15 +737,15 @@ ForPC:
             if prog, t := _program(c), auto_get(c, "@"); prog == nil {
                 erro(ctx, "%v (@=%v)", _entry(ctx), tt)
                 break
-            } else if pos := prog.position; n > 0 {
-                erro(at(ctx,pos), "%v (repeated %d times)", t, n)
+            } else if n > 0 {
+                erro(ctx, "%v (repeated %d times)", t, n)
             } else if !collapse {
-                erro(at(ctx,pos), "%v : %v", t, auto_get(c, ">"))
+                erro(ctx, "%v : %v", t, auto_get(c, ">"))
             } else if depth -= 1; maxCallRecursion - depth > 5 {
-                erro(at(ctx,pos), "%v ... (%d)", t, maxCallRecursion - depth)
+                erro(ctx, "%v ... (%d)", t, maxCallRecursion - depth)
                 break
             } else {
-                erro(at(ctx,pos), "%v : %v", t, auto_get(c, ">"))
+                erro(ctx, "%v : %v", t, auto_get(c, ">"))
             }
 
             flush(ctx) // dump immediately
@@ -741,8 +755,8 @@ ForPC:
     }
 }
 
-func (prog *program) result_or_default_interpret(ctx *execution) (result Value) {
-    if result = auto_get(ctx, "-"); result != nil {
+func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
+    if res = auto_get(ctx, "-"); res != nil {
         return
     }
     if len(ctx.interpreted) == 0 {
@@ -754,7 +768,17 @@ func (prog *program) result_or_default_interpret(ctx *execution) (result Value) 
     return
 }
 
-func (prog *program) execute(ctx Context) (result Value) {
+type execution_modifiers struct {
+    Context
+    m []*modifier
+    g []*group
+}
+func (ctx *execution_modifiers) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.Context.cast(t)
+}
+
+func (prog *program) execute(ctx Context) (res Value) {
     var exe = execution{
         automatic:automatic{Context:ctx, defs:make(defs_map)},
         prog:prog, recs:make(map[Value]int), start:time.Now(),
@@ -763,7 +787,8 @@ func (prog *program) execute(ctx Context) (result Value) {
     ctx = &exe
 
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer prog.execute_check(ctx, &result)
+        exe.Context = &execution_modifiers{exe.Context, nil, nil}
+        defer prog.execute_check(ctx, &res)
     }
 
     defer func() {
@@ -771,15 +796,15 @@ func (prog *program) execute(ctx Context) (result Value) {
             if x, y := a.(*group); y {
                 modify(ctx, x, true)
             } else {
-                erro(at(ctx,a), "defer: not a modifier: %s", ts(a)).trace()
+                erro(ctx, "defer: not a modifier: %s", ts(a)).trace()
             }
         }
 
-        if result == nil { result = auto_get(ctx, "-") }
-        if result == nil { result = exe.defaultVal }
-        if result != nil { do(exe.Context, default_value{result}) }
+        if res == nil { res = auto_get(ctx, "-") }
+        if res == nil { res = exe.defval }
+        if res != nil { do(exe.Context, default_value{res}) }
 
-        exe.defaultVal = nil
+        exe.defval = nil
     } ()
 
     if true && checkpoints { prog.check_exe(ctx, &exe) }
@@ -794,14 +819,12 @@ func (prog *program) execute(ctx Context) (result Value) {
     }
 
     exe.do(ctx, act_arguments{})
+    exe.prerequisites(ctx, prog.depends, false)
+    exe.prerequisites(ctx, prog.ordered, true)
 
-    exe.order = false
-    exe.prerequisites(ctx, prog.depends)
+    if checkpoints && truly(ctx, is_test_mode{}) { prog.execute_check_1(ctx) }
 
-    exe.order = true
-    exe.prerequisites(ctx, prog.ordered)
-
-    if prog.language != ""    { return }
-    if len(prog.recipes) == 0 { return }
+    if     prog.language != "" { return }
+    if len(prog.recipes) == 0  { return }
     return prog.result_or_default_interpret(&exe)
 }

@@ -189,7 +189,7 @@ func (s *scanner) pick(offset int) (ch rune, w int) {
 // position and an error message. The position points to the beginning of
 // the offending token.
 //
-type scanFeedbackFn func(pos Position, msg string, a ...interface{})
+type scanFeedbackFn func(pos Position, msg string, a ...any)
 
 // A mode value is a set of flags (or 0).
 // They control scanner behavior.
@@ -281,14 +281,14 @@ func (s *scanner) init(file *tokfile, src []byte, mode scanmode, err, war, inf s
 	if s.next(); s.ch == bom { s.next() }
 }
 
-func (s *scanner) error(offs int, msg string, a ...interface{}) {
+func (s *scanner) error(offs int, msg string, a ...any) {
 	if s.err != nil { s.err(s.file.Position(s.file.Pos(offs)), msg, a...) }
 	s.ErrorCount++
 }
-func (s *scanner) warn(offs int, msg string, a ...interface{}) {
+func (s *scanner) warn(offs int, msg string, a ...any) {
 	if s.war != nil { s.war(s.file.Position(s.file.Pos(offs)), msg, a...) }
 }
-func (s *scanner) info(offs int, msg string, a ...interface{}) {
+func (s *scanner) info(offs int, msg string, a ...any) {
 	if s.inf != nil { s.inf(s.file.Position(s.file.Pos(offs)), msg, a...) }
 }
 

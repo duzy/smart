@@ -57,8 +57,8 @@ func (p *filemap) primePatterns(ctx Context) (pats []Value) {
     if pat := pattern.expand(ctx); isFinalValue(ctx, pat) {
       pats = append(pats, merge(pat)...)
     } else {
-      erro(at(ctx,pat), "indeterminate pattern: %v", ts(pat))
-      erro(at(ctx,pat), "%v", ts(ctx)).trace()
+      erro(ctx, "indeterminate pattern: %v", ts(pat))
+      erro(ctx, "%v", ts(ctx)).trace()
     }
   }
   return
@@ -77,7 +77,7 @@ func (p *filemap) match(ctx Context, val any) (_ bool, _ Value, _ string) {
 
 func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name string) {
   // TODO: escape file matching for 'String' and "strcomp" values
-  var res interface{}
+  var res any
   matched, res, _ = pat.match(ctx, val)
 
   if false && !matched && !(isNone(pat) || isNull(pat)) {
@@ -134,14 +134,13 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
     errostack(ctx, 5, "%s → %v", name, p.patts).trace()
   }
 
-  var pos = patts[0].Position()
   for _, path := range p.paths {
     if isNull(path) {
-      erro(at(ctx,pos), "nil path: name=%s",  name)
-      erro(at(ctx,pos), "nil path: %v", p).trace()
+      erro(ctx, "nil path: name=%s",  name)
+      erro(ctx, "nil path: %v", p).trace()
     } else if isNone(path) {
-      warn(at(ctx,pos), "nil path: name=%s",  name)
-      warn(at(ctx,pos), "nil path: %v", p).debug(32)
+      warn(ctx, "nil path: name=%s",  name)
+      warn(ctx, "nil path: %v", p).debug(32)
       continue
     }
 
@@ -149,7 +148,7 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
 
     if sub = path.string(ctx); sub == "" {
       if false {
-        erro(at(ctx,path), "empty filemap path: %v, patterns=%v", path, patts).trace()
+        erro(ctx, "empty filemap path: %v, patterns=%v", path, patts).trace()
       }
       return
     }
@@ -240,8 +239,8 @@ func (c debug_ctx) do(ctx Context, op any) any {
 }
 
 type unmap_uncheck_y struct{}
-type unmap_uncheck_c struct{ Context }
-func (c unmap_uncheck_c) do(ctx Context, op any) any {
+type unmap_uncheck_ctx struct{ Context }
+func (c unmap_uncheck_ctx) do(ctx Context, op any) any {
   switch op.(type) {
   case unmap_uncheck_y: return true
   }
@@ -346,7 +345,6 @@ func (p *project) cmp(ctx Context, v Value) (res cmpres) {
 
 type self struct { *project }
 func (_ self) ident(Context) string { return ".self" }
-func (p self) srclit(Context, object) string { return p.String() }
 func (p self) String() string { return "{=self "+p.name+"}" }
 func (p self) ts(t string) string { return "{="+t+" "+p.name+"}" }
 func (p self) kind() Kind { return p.project.kind()|KindSelf }
@@ -464,13 +462,13 @@ func (p *project) tempfile(ctx Context, name string) (f *file) {
       if p.name == "testdefaultconfigure" {
         var t = p.resolveDef(ctx, "outtmp")
         if t == nil {
-          erro(at(ctx,p), "%s: %v : %s", p.name, d, f.dir).trace()
+          erro(ctx, "%s: %v : %s", p.name, d, f.dir).trace()
         }
         if t := t.string(ctx); f.dir != t {
-          erro(at(ctx,p), "%s: %v : %s != %s", p.name, d, f.dir, t).trace()
+          erro(ctx, "%s: %v : %s != %s", p.name, d, f.dir, t).trace()
         }
         if strings.HasPrefix(f.dir, "/Volumes/workspace/go/src/extbit.io/smart") {
-          note(at(ctx,p), "%s: %v %v", p.name, t, d).debug(32)
+          note(ctx, "%s: %v %v", p.name, t, d).debug(32)
         }
       }
     }
@@ -675,7 +673,7 @@ func (p *project) new_entry(ctx Context, options []Value, target Value, prog *pr
     switch target.(type) {
     case *file, *path, *barefile, *percpat, *globpat, *regexpat:
     default:
-      if f := p.file(unmap_uncheck_c{ctx}, target); f != nil {
+      if f := p.file(unmap_uncheck_ctx{ctx}, target); f != nil {
         f.position = target.Position()
         target = f
       }
@@ -759,12 +757,12 @@ func (p *project) has_loaded(ctx Context, proj *project, traveUseLoop bool) (rp 
 func (p *project) has_loaded_recur(ctx Context, top, proj *project, depth int, traveUseLoop bool) (rp *project, res, isb bool, err error) {
   if depth > 1 && top == p && true {
     err = fmt.Errorf("loop '%v' (depth=%d)", p.loop_load_path(), depth)
-    erro(at(ctx,p.position), "%v: %v", p, err).trace()
+    erro(ctx, "%v: %v", p, err).trace()
   } else if depth > 128 {
     err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
-    erro(at(ctx,p.position), "%v: %v", p, err)
-    erro(at(ctx,top.position), "start: %v", top)
-    erro(at(ctx,proj.position), "target: %v", proj).trace()
+    erro(ctx, "%v: %v", p, err)
+    erro(ctx, "start: %v", top)
+    erro(ctx, "target: %v", proj).trace()
   }
   for _, base := range p.bases {
     if isb = base == proj; isb { return }
@@ -777,9 +775,9 @@ func (p *project) has_loaded_recur(ctx Context, top, proj *project, depth int, t
     if imp == top && !traveUseLoop {
       s := top.loop_load_path()
       err = fmt.Errorf("loop `%v`", s)
-      erro(at(ctx,top.position), "start: %v", top)
-      erro(at(ctx,proj.position), "stop: %v", proj)
-      erro(at(ctx,p.position), "%v: %v", p, err).trace()
+      erro(ctx, "start: %v", top)
+      erro(ctx, "stop: %v", proj)
+      erro(ctx, "%v: %v", p, err).trace()
     }
     if res = imp == proj; res { rp = imp; return }
     if rp, res, res, err = imp.has_loaded_recur(ctx, top, proj, depth+1, traveUseLoop); err != nil {

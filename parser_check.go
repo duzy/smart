@@ -10,18 +10,25 @@ import (
 	"strings"
 )
 
-func (l unilo) expr_check(ctx Context, _x *Value) {
+func (l ul) expr_check(ctx Context, _x *Value) {
 	x := *_x
 
 	switch t := x.(type) {
 	case *path:
-		if s := ts(t.elems) ; strings.Contains(s, "{=path ") {
-			erro(ctx, "nested path: %v", s).trace()
+		if false {
+			if s := ts(t.elems) ; strings.Contains(s, "{=path ") {
+				erro(ctx, "%v : nested path: %v", l.p.tok, s).trace()
+			}
+		}
+		for _, e := range t.elems {
+			if _, y := e.(*path); y {
+				erro(ctx, "%v : nested path: %v : %v", l.p.tok, t, e).trace()
+			}
 		}
 	case *globpat:
 		for _, e := range t.elems {
 			if _, y := e.(*path); y {
-				erro(ctx, "glob with path: %v : %v", t, e).trace()
+				erro(ctx, "%v : glob with path: %v : %v", l.p.tok, t, e).trace()
 			}
 		}
 	case *percpat:
@@ -126,8 +133,8 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 	}
 
 	var p = _project(ctx)
-	var flat_mode = truly(ctx, parse_is_flat{})
-	var is_config = truly(ctx, parse_is_config{})
+	var flat_mode = truly(ctx, is_flat_mode{})
+	var is_config = truly(ctx, is_config_mode{})
 
 	if is_config && d.o != defConfig {
 		erro(ctx, "%v : %v : %v", p, d.o, d).trace()
@@ -135,8 +142,7 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 
 	switch p.name {
 	case "variant.target.base":
-		if strings.HasPrefix(d.name, "std.") {
-		}
+		if strings.HasPrefix(d.name, "std.") {}
 	case "variant.target":
 		if strings.HasPrefix(d.name, "lang.") {
 			var lang = strings.TrimPrefix(d.name, "lang.")
@@ -165,9 +171,8 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 	}
 }
 
-func define_idents_check(ctx Context, idents, value Value, defs []*def) {
-	var p = _project(ctx)
-	switch p.name {
+func def_idents_check(ctx Context, idents, value Value, defs []*def) {
+	switch p := _project(ctx); p.name {
 	case "variant.target":
 		if len(defs) == 0 {
 			erro(ctx, "{=%v %v} : %v", typeof(idents), idents, value).trace()
@@ -193,7 +198,7 @@ func define_idents_check(ctx Context, idents, value Value, defs []*def) {
 	}
 }
 
-func (l unilo) files_check(ctx Context) {
+func (l ul) files_check(ctx Context) {
 	switch p := l.project; p.name {
 	case "variant.target.base":
 		if d := p.resolveDef(ctx, "variant.tag"); d == nil || d.value == nil {
@@ -256,7 +261,7 @@ func (l unilo) files_check(ctx Context) {
 	}
 }
 
-func (l unilo) files_check_2(ctx Context, path Value, patts, paths []Value, ms []filemap) {
+func (l ul) files_check_2(ctx Context, path Value, patts, paths []Value, ms []filemap) {
 	switch l.project.name {
 	case "llvm.Config":
 		if path == nil && paths != nil {
@@ -299,7 +304,7 @@ func (l unilo) files_check_2(ctx Context, path Value, patts, paths []Value, ms [
 	}
 }
 
-func (l unilo) parse_file_check_1(ctx Context, abs, rel, tmp string) {
+func (l ul) parse_file_check_1(ctx Context, abs, rel, tmp string) {
 	var p = l.project
 	if p == nil {
 		if false { erro(ctx, "nil project").trace() }
@@ -359,7 +364,7 @@ func (l unilo) parse_file_check_1(ctx Context, abs, rel, tmp string) {
 	}
 }
 
-func (l unilo) parse_file_check_new_project(ctx Context) {
+func (l ul) parse_file_check_new_project(ctx Context) {
 	switch p := l.project; p.name {
 	case "lib.std":
 		if len(p.bases) != 1 {
@@ -380,7 +385,7 @@ func (l unilo) parse_file_check_new_project(ctx Context) {
 	}
 }
 
-func (l unilo) parse_file_check_2(ctx Context, filename string) {
+func (l ul) parse_file_check_2(ctx Context, filename string) {
 	var p = l.project
 	if p == nil {
 		erro(ctx, "nil project").trace()
@@ -413,7 +418,7 @@ func (l unilo) parse_file_check_2(ctx Context, filename string) {
 	}
 }
 
-func (l unilo) parse_file_check_autoload_declared(ctx Context, p *project) {
+func (l ul) parse_file_check_autoload_declared(ctx Context, p *project) {
 	switch p.name {
 	case "testdefaultconfigure":
 		if len(p.configs) != 0 {
@@ -422,14 +427,14 @@ func (l unilo) parse_file_check_autoload_declared(ctx Context, p *project) {
 	}
 }
 
-func (l unilo) parse_file_check_autoload_appendix(ctx Context, p *project) {
+func (l ul) parse_file_check_autoload_appendix(ctx Context, p *project) {
 	switch p.name {
 	case "app.base":
 	case "configure.base":
 	}
 }
 
-func (l unilo) parse_file_check_dot_configure(ctx Context, p *project) {
+func (l ul) parse_file_check_dot_configure(ctx Context, p *project) {
 	switch p.name {
 	case "llvm.Config":
 		// TODO: check LLVM_VERSION
@@ -438,7 +443,7 @@ func (l unilo) parse_file_check_dot_configure(ctx Context, p *project) {
 	}
 }
 
-func (l unilo) parse_file_check_do_smart(ctx Context, p *project) {
+func (l ul) parse_file_check_do_smart(ctx Context, p *project) {
 	switch p.name {
 	case "testdefaultconfigure":
 		if len(p.configs) != 1 {
@@ -467,7 +472,7 @@ func (l unilo) parse_file_check_do_smart(ctx Context, p *project) {
 	}
 }
 
-func (l unilo) new_project_check_bases(ctx Context) {
+func (l ul) new_project_check_bases(ctx Context) {
 	switch p := l.project; p.name {
 	case "lib.std":
 		if len(p.bases) != 1 {
@@ -479,7 +484,7 @@ func (l unilo) new_project_check_bases(ctx Context) {
 	}
 }
 
-func (l unilo) rule_check(ctx Context, targets []Value, res *Value) {
+func (l ul) rule_check(ctx Context, targets []Value, res *Value) {
 	for _, target := range targets {
 		var v Value
 		switch t := target.(type) {
@@ -491,13 +496,17 @@ func (l unilo) rule_check(ctx Context, targets []Value, res *Value) {
 		}
 	}
 
-	filename := l.p.scanner.file.Name()
+	fn := l.p.scanner.file.Name()
 
 	switch l.project.name {
 	case "configure.base":
+		switch t := targets[0].String(); t {
+		case "-library-c":
+		}
+
 	case "lib.c++.inc":
 	case "llvm.Config":
-		if strings.HasSuffix(filename, "/llvm/Config/.configure") {
+		if strings.HasSuffix(fn, "/llvm/Config/.configure") {
 			target := targets[0]
 			if e := l.project.unmap_entries(ctx, target, nil); len(e) != 1 {
 				erro(ctx, "%v", target).trace()
@@ -516,7 +525,7 @@ func (l unilo) rule_check(ctx Context, targets []Value, res *Value) {
 	}
 }
 
-func (l unilo) rule_check_targets(ctx Context, targets []Value) {
+func (l ul) rule_check_targets(ctx Context, targets []Value) {
 	switch l.project.name {
 	case "lib.c++.inc":
 		if len(targets) != 1 {
@@ -527,13 +536,13 @@ func (l unilo) rule_check_targets(ctx Context, targets []Value) {
 	}
 }
 
-func (l unilo) rule_check_target(ctx Context, target Value) {
+func (l ul) rule_check_target(ctx Context, target Value) {
 	if indeterminate(ctx, target) {
 		erro(ctx, "%v : %v", target, ts(target)).trace()
 	}
 }
 
-func (l unilo) codeblock_check(ctx Context, op token, vars map[string]Value) {
+func (l ul) codeblock_check(ctx Context, op token, vars map[string]Value) {
 	if op == DEF {
 		erro(ctx, "wrong codeblock op: %v", op).trace()
 	}

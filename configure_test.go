@@ -33,10 +33,10 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		return
 	}
 
-	var triple = "arm64-apple-Darwin23.2.0-macho"
-	var outtmp, outdir, confsm, ws string
-	var workspace, workout, rel_remnant *def
 	var wd = _workdir(ctx)
+	var triple = "arm64-apple-Darwin23.2.0-macho"
+	var outtmp, outdir, confsm, ws, s string
+	var workspace, workout, rel_remnant *def
 
 	defer func() {
 		if outtmp != "" { os.RemoveAll(outtmp) }
@@ -185,7 +185,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v → %s", tst{d}, t)
 	}
 
-	s := "outtmp"
+	s = "outtmp"
 	if x := proj.configure.resolveDef(ctx, s); x == nil {
 		ctx.err("%s", s)
 	} else if y := proj.resolveDef(ctx, s); y == nil {
@@ -327,8 +327,9 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%s", b)
 	}
 
-	if d := ctx.def("FOO"); d == nil || d.value == nil {
-		ctx.err("FOO")
+	s = "FOO"
+	if d := ctx.def(s); d == nil || d.value == nil {
+		ctx.err("%s", s)
 	} else if d.value.String() != "{=self testdefaultconfigure}" {
 		ctx.err("%v", tst{d.value})
 	} else if d.value.ident(ctx) != ".self" {
@@ -361,8 +362,10 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		} else if !bytes.Contains(b, []byte("FOO = {=self "+p.name+"}\n")) {
 			c.err("%s", b)
 		}
-		if x, y := p.elems["FOO"]; !y {
-			c.err("FOO")
+
+		s := "FOO"
+		if x, y := p.elems[s]; !y {
+			c.err("%s", s)
 		} else if d, y := x.(*def); !y {
 			c.err("%v : %v", tst{x}, p)
 		} else if d.o != defConfig {
@@ -380,8 +383,8 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		} else if _, y := v.(self); !y {
 			c.err("%v : %v", typeof(v), v)
 		}
-		if d := c.def("FOO"); d == nil {
-			c.err("FOO")
+		if d := c.def(s); d == nil {
+			c.err("%s", s)
 		} else if d.o != defConfig {
 			c.err("%v : %v", d.o, d)
 		} else if v := d.value; v == nil {

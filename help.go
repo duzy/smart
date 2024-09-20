@@ -79,7 +79,7 @@ func print_options(ctx Context) {
 
     var opts []opt
 
-    _universe(ctx).for_configs(func(proj *project, entry entry) {
+    _universe(ctx).config(func(proj *project, entry entry) {
         var infos = ruleOptionInfos(ctx, entry)
         if infos != nil { opts = append(opts, opt{entry, infos}) }
     }, nil, nil)
@@ -101,7 +101,7 @@ func print_configuration(ctx Context) {
 
     var configs = make(map[*project][]entry)
 
-    _universe(ctx).for_configs(func(proj *project, entry entry) {
+    _universe(ctx).config(func(proj *project, entry entry) {
         entries, _ := configs[proj]
         entries = append(entries, entry)
         configs[proj] = entries

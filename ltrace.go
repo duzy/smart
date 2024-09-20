@@ -24,8 +24,8 @@ var (
 
 type l_tracer interface {
 	elapsed() time.Duration
-	tracef(string,...interface{})
-	trace(...interface{})
+	tracef(string,...any)
+	trace(...any)
 	level(int)
 }
 
@@ -36,7 +36,7 @@ func l_trace(t l_tracer, s string) l_tracer {
 	return t
 }
 
-func l_tracef(t l_tracer, f string, a ...interface{}) l_tracer {
+func l_tracef(t l_tracer, f string, a ...any) l_tracer {
 	t.trace(fmt.Sprintf(f, a...), "(")
 	t.level(+1)
 	t.tracef("%v", t.elapsed())
@@ -91,7 +91,7 @@ const (
 	ndots = len(dots)
 )
 
-func fprintIndentDots(w io.Writer, indent int, a ...interface{}) {
+func fprintIndentDots(w io.Writer, indent int, a ...any) {
 	i := 2 * indent
 	for i > ndots {
 		fmt.Fprint(w, dots)
@@ -125,20 +125,20 @@ func fprintIndentDots(w io.Writer, indent int, a ...interface{}) {
 	}
 }
 
-func printIndentDots(indent int, a ...interface{}) {
+func printIndentDots(indent int, a ...any) {
 	fprintIndentDots(stderr, indent, a...)
 }
 
-func (p *ltracing) traceAt(pos Position, a ...interface{}) {
+func (p *ltracing) traceAt(pos Position, a ...any) {
 	fmt.Fprintf(stderr, "%7d:%3d: ", pos.Line, pos.Column)
 	printIndentDots(p.indent, a...)
 }
 
-func (p *ltracing) trace(a ...interface{}) {
+func (p *ltracing) trace(a ...any) {
 	printIndentDots(p.indent, a...)
 }
 
-func (p *ltracing) tracef(s string, a ...interface{}) {
+func (p *ltracing) tracef(s string, a ...any) {
 	printIndentDots(p.indent, fmt.Sprintf(s, a...))
 }
 

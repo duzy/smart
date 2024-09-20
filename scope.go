@@ -251,11 +251,12 @@ func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *de
 			value = ease(ctx, vals)
 		}
 
-		if origin == defUndetermined { origin = defVoid }
+		if false && origin == defUndetermined { origin = defVoid }
+		// if x, y := s.elems[name]; y && x != nil {}
 
 		d = &def{ o:origin, value:value }
-		d.name, d.scope, d.position = name, s, _position(ctx)
-		s.replace(ctx, name, d)
+		d.position, d.name, d.scope = _position(ctx), name, s
+		s.elems[name] = d
 	} else if d, y = a.(*def); y {
 		if len(vals) == 1 {
 			d.set(ctx, origin, vals[0])
