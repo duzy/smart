@@ -79,48 +79,32 @@ func testAssert(ctx testcase1) {
 }
 
 func testPushContext(ctx *testcase) {
-	if s := "foo"; false {
-	} else if d := ctx.def(s); d == nil {
+	s := "foo"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if v.String() != "foobar" {
-		ctx.err("%v", tst{v})
-	} else if s := v.string(ctx); s != "foobar" {
-		ctx.err("%v → %s", tst{v}, s)
+	} else if ts(d.value) != "{=word foobar}" {
+		ctx.err("%v", tst{d.value})
 	}
 
-	if s := "foo1"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = "foo1"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if v.String() != "foobar" {
-		ctx.err("%v", tst{v})
-	} else if s := v.string(ctx); s != "foobar" {
-		ctx.err("%v → %s", tst{v}, s)
+	} else if ts(d.value) != "{=word foobar}" {
+		ctx.err("%v", tst{d.value})
 	}
 
-	if s := "foo2"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = "foo2"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if v.String() != "x" {
-		ctx.err("%v", tst{v})
-	} else if s := v.string(ctx); s != "x" {
-		ctx.err("%v → %s", tst{v}, s)
+	} else if ts(d.value) != "{=word x}" {
+		ctx.err("%v", tst{d.value})
 	}
 
-	if s := "foo3"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = "foo3"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if v.String() != "foobar" {
-		ctx.err("%v", tst{v})
-	} else if s := v.string(ctx); s != "foobar" {
-		ctx.err("%v → %s", tst{v}, s)
+	} else if ts(d.value) != "{=word foobar}" {
+		ctx.err("%v", tst{d.value})
 	}
 }
 

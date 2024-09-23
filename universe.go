@@ -785,8 +785,6 @@ type globe struct {
     main   *project
     loaded map[string]*project // loaded projects
 
-    stack []map[string]*def
-
     args map[Value][]Value
     flagEntries map[string][]entry
     flags []flag

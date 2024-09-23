@@ -243,9 +243,6 @@ var builtins = map[string]reflect.Type {
     `write-file`:   reflect.TypeOf((*builtin_writefile)(nil)).Elem(),  // io/ioutil/ioutil.go
     `touch-file`:   reflect.TypeOf((*builtin_readfile)(nil)).Elem(),  // io/ioutil/ioutil.go
 
-    `push-context`: reflect.TypeOf((*builtin_pushcontext)(nil)).Elem(),
-    `pop-context`:  reflect.TypeOf((*builtin_popcontext)(nil)).Elem(),
-
     `mkdir`:        reflect.TypeOf((*builtin_mkdir)(nil)).Elem(),     // os/file.go
     `chdir`:        reflect.TypeOf((*builtin_chdir)(nil)).Elem(),     // os/file.go
     `rename`:       reflect.TypeOf((*builtin_rename)(nil)).Elem(),    // os/file.go
@@ -548,59 +545,6 @@ func (ctx *builtin_defined) x() (_ any) {
             return true
         }
     }
-    return
-}
-
-type builtin_pushcontext struct { builtin_ }
-func (ctx *builtin_pushcontext) c() (res any) {
-    var (
-        scope = _scope(ctx)
-        uc = _universe(ctx)
-        m map[string]*def
-    )
-    for _, arg := range ctx.evocation.a {
-        var s = arg.string(ctx)
-        if s == "" { continue }
-        if m == nil { m = make(map[string]*def) }
-
-        var t *def
-        if o := scope.Lookup(s); o != nil { if d, y := o.(*def); y {
-            t = new(def) ; *t = *d
-        }}
-        m[s] = t
-    }
-    uc.globe.stack = append(uc.globe.stack, m)
-    return
-}
-
-type builtin_popcontext struct { builtin_
-    rules []Value `rule,rules`
-}
-func (ctx *builtin_popcontext) c() (res any) {
-    for _, arg := range ctx.evocation.a {
-        warn(ctx, "unused argument: %T %v", arg, arg).debug()
-        break
-    }
-
-    var rules []Value
-    for _, r := range ctx.rules { if v, y := r.(*group); !y {
-        rules = append(rules, v)
-    } else {
-        rules = append(rules, v.elems...)
-    }}
-
-    var scope = _scope(ctx)
-    var uc = _universe(ctx)
-    var l = len(uc.globe.stack)
-    if l == 0 { return }
-    for s, d := range uc.globe.stack[l-1] { if d == nil { if s == "" { continue }
-        scope.mutex.Lock()
-        delete(scope.elems, s)
-        scope.mutex.Unlock()
-    } else if o := scope.Lookup(d.name); o != nil { if t, ok := o.(*def); ok {
-        *t = *d
-    }}}
-    uc.globe.stack = uc.globe.stack[0:l-1]
     return
 }
 

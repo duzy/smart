@@ -61,6 +61,8 @@ type parser struct {
 	dialect  string // recipe dialect of current rule
 	configure  bool // is parsing configure program?
 
+	locals []map[string]*def
+
 	dd bool // helps debug parsing via `eval -dd=true{}`
 }
 
@@ -1982,7 +1984,7 @@ type clauseopts struct {
 
     keyword token // e.g. use, files, eval, etc.
 
-    skip bool // e.g. -cond(false{}), -if(no{})
+    skip bool // e.g. -cond({=false}), -if({=no})
 
 	conds []Value `if,cond,where`
 
@@ -2240,6 +2242,69 @@ func (p *parser) append(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	if !g.skip { call(final{ctx}, "append", g.remainder, g.spec...) }
 }
 
+func (l ul) clear_locals() {
+	// l.project.mutex.Lock()
+	for i := len(l.p.locals)-1; 0 <= i; i -= 1 {
+		for s, d := range l.p.locals[i] {
+			if d == nil {
+				delete(l.project.elems, s)
+			} else if o := l.project.Lookup(s); o != nil {
+				if x, y := o.(*def); y { *x = *d }
+			}
+		}
+	}
+	// l.project.mutex.Unlock()
+	l.p.locals = nil
+}
+
+func (l ul) local(ctx Context, _ *commentGroup, g *clauseopts, _ int) {
+	var local map[string]*def
+	var vals = xmerge(final{ctx}, append(g.remainder, g.spec...)...)
+
+	for _, a := range vals {
+		if x, y := a.(flag); y {
+			switch s := x.Value.string(ctx); s {
+			case "clear":
+				l.clear_locals()
+			case "pop":
+				if i := len(l.p.locals); 0 < i {
+					var last = l.p.locals[i-1]
+					l.p.locals = l.p.locals[:i-1]
+					// l.project.mutex.Lock()
+					for s, d := range last {
+						if d == nil {
+							delete(l.project.elems, s)
+						} else if false {
+							l.project.elems[s] = d
+						} else if o := l.project.Lookup(s); o != nil {
+							if x, y := o.(*def); y { *x = *d }
+						}
+					}
+					// l.project.mutex.Unlock()
+				}
+			default:
+				erro(ctx, "unsupported flag: %v", tv(a)).trace()
+			}
+			continue
+		}
+
+		var s = a.string(ctx)
+		if s == "" {
+			erro(ctx, "empty local: %v", tv(a)).trace()
+		}
+
+		if local == nil { local = make(map[string]*def) }
+
+		var t *def
+		if o := l.project.Lookup(s); o != nil {
+			if x, y := o.(*def); y { t = new(def); *t = *x }
+		}
+		local[s] = t
+	}
+
+	if local != nil { l.p.locals = append(l.p.locals, local) }
+}
+
 func (l ul) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	if g.skip { return }
 	if g.spec == nil {
@@ -2345,11 +2410,12 @@ func (l ul) spec(ctx Context, keyword token, pos Pos, f parseSpecFunc) {
 
 	switch p.tok {
 	case LINEND:
-		if keyword == EVAL {
+		switch keyword {
+		case EVAL, LOCAL:
 			f(ctx, nil, &opts, 0)
 			return
-		} else {
-			erro(ctx, "%v: nil specs", keyword).trace()
+		default:
+			erro(ctx, "%v: no specs, remainder: %v", keyword, opts.remainder).trace()
 		}
 	case LPAREN:
 		p.next(ctx, true)
@@ -3376,10 +3442,11 @@ func (l ul) clause(ctx Context) {
 
 	switch t := l.p.tok ; t {
 	case  INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_include); return
-	case    FILES: l.spec(ctx, t, l.p.expect(ctx, t), l.files)        ; return
+	case     EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_eval)   ; return
 	case   ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert)     ; return
 	case   APPEND: l.spec(ctx, t, l.p.expect(ctx, t), l.p.append)     ; return
-	case     EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_eval)   ; return
+	case    FILES: l.spec(ctx, t, l.p.expect(ctx, t), l.files)        ; return
+	case    LOCAL: l.spec(ctx, t, l.p.expect(ctx, t), l.local)        ; return
 	case      DEF: l.def_end(ctx)     ; return
 	case      FOR: l.for_done(ctx)    ; return
 	case  FOREACH: l.foreach_done(ctx); return
@@ -3875,6 +3942,8 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	}
 
 	if autoload { l.autoload(ctx, "appendix") }
+
+	l.clear_locals()
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		l.parse_file_check_2(ctx, filename)

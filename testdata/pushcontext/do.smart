@@ -2,12 +2,12 @@ project testbuiltins
 
 foo := foobar
 
-eval push-context foo
+local foo
 
 foo1 := $(foo)
 foo  := x
 foo2 := $(foo)
 
-eval pop-context
+local -pop
 
 foo3 := $(foo)

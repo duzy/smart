@@ -177,6 +177,7 @@ const (
 	USE        // use b
 	ASSERT     // assert clause
 	APPEND     // append values
+	LOCAL      // declare local def names
 	EVAL       // evaluate a builtin immediately
 	EXPORT     // export ...
 	INCLUDE    // include a.smart
@@ -353,6 +354,7 @@ var tokens = [...]string{
 	USE:       "use",
 	ASSERT:    "assert",
 	APPEND:    "append",
+	LOCAL:     "local",
 	EVAL:      "eval",
 	EXPORT:    "export",
 	INCLUDE:   "include",
