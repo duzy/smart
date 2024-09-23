@@ -631,7 +631,7 @@ func testValues_bug_01(ctx *testcase) {
 			ctx.err("%v", d)
 		} else if s, t := v.String(), "{x.{$1}}? {x.{$2}}? {y.{$1}}? {y.{$2}}? {z.{$1}}? {z.{$2}}?"; s != t {
 			ctx.err("%v : %s != %s", d, s, t)
-		} else if s, t := ts(v), "{=list {=list {=condval {=disjunction {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 1}}}}}} {=condval {=disjunction {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}} {=list {=condval {=disjunction {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 1}}}}}} {=condval {=disjunction {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}} {=list {=condval {=disjunction {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 1}}}}}} {=condval {=disjunction {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}}"; s != t {
+		} else if s, t := ts(v), "{=list {=list {=cond {=disjunction {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 1}}}}}} {=cond {=disjunction {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}} {=list {=cond {=disjunction {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 1}}}}}} {=cond {=disjunction {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}} {=list {=cond {=disjunction {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 1}}}}}} {=cond {=disjunction {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}}"; s != t {
 			ctx.err("%v : %s != %s", d, s, t)
 		}
 	}
@@ -664,7 +664,7 @@ func testValues_bug_01(ctx *testcase) {
 			ctx.err("%v", d)
 		} else if s, t := v.String(), "{&(x.{$1})}? {&(x.{$2})}? {&(y.{$1})}? {&(y.{$2})}? {&(z.{$1})}? {&(z.{$2})}?"; s != t {
 			ctx.err("%v : %s != %s", d, s, t)
-		} else if s, t := ts(v), "{=list {=list {=condval {=disjunction {=closure {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}} {=condval {=disjunction {=closure {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}} {=list {=condval {=disjunction {=closure {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}} {=condval {=disjunction {=closure {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}} {=list {=condval {=disjunction {=closure {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}} {=condval {=disjunction {=closure {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}}}"; s != t {
+		} else if s, t := ts(v), "{=list {=list {=cond {=disjunction {=closure {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}} {=cond {=disjunction {=closure {=compound {=word x} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}} {=list {=cond {=disjunction {=closure {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}} {=cond {=disjunction {=closure {=compound {=word y} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}} {=list {=cond {=disjunction {=closure {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}} {=cond {=disjunction {=closure {=compound {=word z} {=punct .} {=disjunction {=delegate {=auto 2}}}}}}}}}"; s != t {
 			ctx.err("%v : %s != %s", d, s, t)
 		}
 	}
@@ -1565,7 +1565,7 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if t, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if o, y := t.x.(condval); !y {
+	} else if o, y := t.x.(cond); !y {
 		ctx.err("%v", tst{t.x})
 	} else if _, y := o.Value.(*word); !y {
 		ctx.err("%v", tst{o.Value})

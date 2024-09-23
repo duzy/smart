@@ -669,7 +669,7 @@ func (u *universe) load(ctx Context) (err error) {
     defer func(l *loader) { u.globe.top = l } (u.globe.top)
     u.globe.top = &loader{terminal:terminal{ctx, []*scope{u.globe.scope}}}
 
-    var l = ul{u, u.globe.top}
+    l := ul{u, u.globe.top}
     l.parse_args(base, os.Args[1:]...)
 
     if u.verbose {
@@ -703,6 +703,8 @@ func (u *universe) load(ctx Context) (err error) {
         } ()
     }
 
+    if u.verboseImport { prompt(ctx, "┌→%s\n", base) }
+
     defer func(t time.Time) {
         if d := time.Now().Sub(t); u.verboseImport {
             var name string
@@ -717,12 +719,12 @@ func (u *universe) load(ctx Context) (err error) {
         }
     } (time.Now())
 
-    if u.verboseImport { prompt(ctx, "┌→%s\n", base) }
-
-    var spec, _ = filepath.Rel(workBaseDir, base)
+    spec, _ := filepath.Rel(workBaseDir, base)
     l.directory(l.loader, spec, base, nil)
 
-    if l.globe.main == nil { erro(ctx, "nothing loaded").trace() }
+    if l.globe.main == nil {
+        erro(ctx, "nothing loaded").trace()
+    }
     return
 }
 

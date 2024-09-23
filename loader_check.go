@@ -6,10 +6,10 @@
 package smart
 
 import (
+	"fmt"
 	"bytes"
 	"strings"
 	"path/filepath"
-	// "io/ioutil"
 )
 
 func (l ul) bases_check_param(ctx Context, implicitBase string, i int, elem, spec Value) {
@@ -237,6 +237,63 @@ var langs_map = map[string]string{
 
 type source_checked string
 
+func (l ul) pre_source_check(ctx Context, filename string, src any) {
+	var mode string
+
+	if d := l.project.resolveDef(ctx, ".mode"); d == nil {
+		erro(ctx, "%v", l.project).trace()
+	} else {
+		switch mode = d.string(ctx); mode {
+		case "clean", "configure", "goals":
+		default:
+			erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
+		}
+	}
+
+	if strings.HasSuffix(filename, "/llvm/Config/.configure.declared") {
+		if l.project.name != "llvm.Config" {
+			erro(ctx, "wrong project: %v", l.project.name).trace()
+		}
+		if d := l.project.resolveDef(ctx, "LLVM_TARGETS_TO_BUILD"); d == nil {
+			erro(pc(ctx,filename,1), "LLVM_TARGETS_TO_BUILD not def")
+			erro(pc(ctx,l.p.Position()), "%s", mode)
+			erro(ctx, "%s", mode).trace()
+		} else {
+			switch mode {
+			case "configure":
+				if d.string(ctx) != "" {
+					erro(ctx, "%v", d).trace()
+				}
+			case "clean", "goals":
+				if d.string(ctx) == "" {
+					erro(ctx, "%v", d).trace()
+				}
+			}
+		}
+	}
+	if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
+		if l.project.name != "llvm.Config" {
+			erro(ctx, "wrong project: %v", l.project.name).trace()
+		}
+		if d := l.project.resolveDef(ctx, "LLVM_TARGETS_TO_BUILD"); d == nil {
+			erro(pc(ctx,filename,1), "LLVM_TARGETS_TO_BUILD not def")
+			erro(pc(ctx,l.p.Position()), "%s", mode)
+			erro(ctx, "%s", mode).trace()
+		} else {
+			switch mode {
+			case "configure":
+				if d.string(ctx) != "" {
+					erro(ctx, "%v", d).trace()
+				}
+			case "clean", "goals":
+				if d.string(ctx) == "" {
+					erro(ctx, "%v", d).trace()
+				}
+			}
+		}
+	}
+}
+
 func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, res *Value) {
 	if e := recover(); e != nil {
 		switch e := e.(type) {
@@ -273,6 +330,18 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		erro(ctx, "%v : wrong result : %v", l.project.name, *res).trace()
 	}
 
+	var mode string
+
+	if d := l.project.resolveDef(ctx, ".mode"); d == nil {
+		erro(ctx, "%v", l.project).trace()
+	} else {
+		switch mode = d.string(ctx); mode {
+		case "clean", "configure", "goals":
+		default:
+			erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
+		}
+	}
+
 	if strings.HasSuffix(filename, pathSep+configuration_sm) {
 		if !flat_mode {
 			erro(ctx, "not flat mode in %v : res=%v", configuration_sm, *res).trace()
@@ -286,7 +355,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 				prompt(ctx, "%v:\n%s", filename, *text)
 				erro(ctx, "FOO not defined : %v", l.project.names()).trace()
 			} else if t := l.project.resolveDef(ctx, "FOO"); t != x {
-				erro(ctx, "%v", ts(t)).trace()
+				erro(ctx, "%v", tv(t)).trace()
 			} else if d, y := x.(*def); !y {
 				erro(ctx, "%v : %v", l.project.names(), ts(x)).trace()
 			} else if d.o != defConfig {
@@ -571,6 +640,25 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		}
 	}
 
+	if strings.HasSuffix(filename, "/app/.base/do.smart") {
+		if l.project.name != "app.base" {
+			erro(ctx, "wrong project: %v", l.project.name).trace()
+		}
+
+		w := l.project.absPath//"/Volumes/workspace/.smart/modules/app/.base"
+		t := fmt.Sprintf("$(if $(equal &/,%s),,%s/.autoload", w, w)
+		if d := l.project.resolveDef(ctx, ".autoload.declared"); d == nil {
+			erro(ctx, ".autoload.declared").trace()
+		} else if d.value.String() != t+".declared)" {
+			erro(ctx, "%v != %s.declared)", d, t).trace()
+		}
+		if d := l.project.resolveDef(ctx, ".autoload.appendix"); d == nil {
+			erro(ctx, ".autoload.appendix").trace()
+		} else if d.value.String() != t+".appendix)" {
+			erro(ctx, "%v != %s.appendix)", d, t).trace()
+		}
+	}
+
 	var srcdir, srcinc string
 	var ws = l.project.resolveDef(ctx, "workspace")
 
@@ -601,6 +689,26 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			erro(ctx, "%v", d).trace()
 		} else if srcdir != ws.string(ctx)+"/external/llvm-project" {
 			erro(ctx, "%v %s", d, l.project.absPath).trace()
+		}
+	}
+
+	if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
+		if l.project.name != "llvm.Config" {
+			erro(ctx, "wrong project: %v", l.project.name).trace()
+		}
+		if d := l.project.resolveDef(ctx, "LLVM_TARGETS_TO_BUILD"); d == nil && false {
+			erro(ctx, "%s: LLVM_TARGETS_TO_BUILD not def", mode).trace()
+		} else if false {
+			switch mode {
+			case "configure":
+				if d.string(ctx) != "" {
+					erro(ctx, "%v", d).trace()
+				}
+			case "clean", "goals":
+				if d.string(ctx) == "" {
+					erro(ctx, "%v", d).trace()
+				}
+			}
 		}
 	}
 

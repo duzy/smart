@@ -172,7 +172,7 @@ func ex_check_value_optional(ctx Context, p, _x Value, _o, _a []Value, res, x *V
 			erro(ctx, "%s != %s", s, t).trace()
 		}
 	case "$_→name?":
-		if s, t := ts(_x), "{=selection {=delegate {=auto _}}→{=condval {=word name}}}"; s != t {
+		if s, t := ts(_x), "{=selection {=delegate {=auto _}}→{=cond {=word name}}}"; s != t {
 			erro(ctx, "%s != %s", s, t).trace()
 		} else if s, v := ts(*x), auto_get(ctx, "_"); v == nil {
 			if s != t { erro(ctx, "%s != %s", s, t).trace() }
@@ -180,7 +180,7 @@ func ex_check_value_optional(ctx Context, p, _x Value, _o, _a []Value, res, x *V
 			erro(ctx, "%s != %s", s, t).trace()
 		}
 	case "$_→bar?":
-		if s, t := ts(_x), "{=selection {=delegate {=auto _}}→{=condval {=word bar}}}"; s != t {
+		if s, t := ts(_x), "{=selection {=delegate {=auto _}}→{=cond {=word bar}}}"; s != t {
 			erro(ctx, "%s != %s", s, t).trace()
 		}
 	}
@@ -199,7 +199,7 @@ func ex_check_value_optional(ctx Context, p, _x Value, _o, _a []Value, res, x *V
 		}
 	case "$($_→name?)":
 		if s, v := ts(*res), auto_get(ctx, "_"); v == nil {
-			if t := "{=delegate {=selection {=delegate {=auto _}}→{=condval {=word name}}}}"; s != t {
+			if t := "{=delegate {=selection {=delegate {=auto _}}→{=cond {=word name}}}}"; s != t {
 				erro(ctx, "%s != %s", s, t).trace()
 			}
 		} else if t := "{=self foo}"; s != t { // {=delegate {=def name}}
@@ -567,12 +567,12 @@ func (p *selection) expand_check(ctx Context, _o, _s, res *Value) {
 	if equal(ctx, p, *res) {
 		col := truly(ctx, propExCondless)
 		if col {
-			if _, y := (*res).(condval); y {
+			if _, y := (*res).(cond); y {
 				erro(ctx, "%v → %v", p, *res).trace()
 			}
 
-			var po = p.o; if x, y := po.(condval); y { po = x.Value }
-			var ps = p.s; if x, y := ps.(condval); y { ps = x.Value }
+			var po = p.o; if x, y := po.(cond); y { po = x.Value }
+			var ps = p.s; if x, y := ps.(cond); y { ps = x.Value }
 			if s, t := ts(*_o), ts(po); s != t {
 				erro(ctx, "%s != %s", s, t).trace()
 			}
@@ -580,7 +580,7 @@ func (p *selection) expand_check(ctx Context, _o, _s, res *Value) {
 				erro(ctx, "%s != %s", s, t).trace()
 			}
 
-			if !cond(p.o) && !cond(p.s) {
+			if !_cond(p.o) && !_cond(p.s) {
 				if s, t := (*res).String(), p.String(); s != t {
 					erro(ctx, "%v → %v : %s != %s", p, *res, s, t).trace()
 				}
@@ -590,10 +590,10 @@ func (p *selection) expand_check(ctx Context, _o, _s, res *Value) {
 			}
 		} else {
 			if s, t := ts(*_o), ts(p.o); s != t {
-				erro(ctx, "%s != %s : %v %v", s, t, cond(*_o), cond(p.o)).trace()
+				erro(ctx, "%s != %s : %v %v", s, t, _cond(*_o), _cond(p.o)).trace()
 			}
 			if s, t := ts(*_s), ts(p.s); s != t {
-				erro(ctx, "%s != %s : %v %v", s, t, cond(*_s), cond(p.s)).trace()
+				erro(ctx, "%s != %s : %v %v", s, t, _cond(*_s), _cond(p.s)).trace()
 			}
 			if s, t := (*res).String(), p.String(); s != t {
 				erro(ctx, "%v → %v : %s != %s", p, *res, s, t).trace()
@@ -611,12 +611,12 @@ func (p *selection) expand_check(ctx Context, _o, _s, res *Value) {
 		}
 		if false && *_s != nil {
 			if *_o != nil {
-				if x, y := (*_o).(condval); y {
+				if x, y := (*_o).(cond); y {
 					erro(ctx, "%v", ts(x)).trace()
 				}
 			}
 			if *_s != nil {
-				if x, y := (*_s).(condval); y {
+				if x, y := (*_s).(cond); y {
 					erro(ctx, "%v", ts(x)).trace()
 				}
 			}
@@ -676,13 +676,13 @@ func (p *compound) expand_check(ctx Context, res *Value) {
 	}
 }
 
-func (p condval) cmp_check(ctx Context, v Value, res cmpres) {
+func (p cond) cmp_check(ctx Context, v Value, res cmpres) {
     if res != cmpEqual && p.String() == v.String() {
         erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
     }
 }
-func (p condval) expand_check(ctx Context, v, res Value) {
-    if cond(v) {
+func (p cond) expand_check(ctx Context, v, res Value) {
+    if _cond(v) {
         note(ctx, "%v → %v → %v", p.Value, v, res)
         note(ctx, "%-20v : %v", p.Value, ts(p.Value))
         note(ctx, "%-20v : %v", v,       ts(v))

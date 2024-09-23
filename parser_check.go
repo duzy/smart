@@ -86,7 +86,7 @@ func (l ul) expr_check(ctx Context, _x *Value) {
 		}
 	case is_module("configure.base","configure/.base"):
 		if s := x.String(); strings.HasPrefix(s, "configure.funcs.lib") && strings.HasSuffix(s, "?") {
-			t := "{=condval {=compound {=word configure} {=punct .} {=word funcs} {=punct .} {=word lib} {=word "
+			t := "{=cond {=compound {=word configure} {=punct .} {=word funcs} {=punct .} {=word lib} {=word "
 			t += s[19:len(s)-1] + "}}}"
 			if s := ts(x); s != t {
 				erro(ctx, "%s != %s", s, t).trace()

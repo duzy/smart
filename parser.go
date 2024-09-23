@@ -353,6 +353,7 @@ func (p *parser) spaces(ctx Context) {
 
 func (p *parser) Position() Position { return p.loc(p.pos) }
 func (p *parser) loc(a Pos) Position { return Position(p.scanner.file.Position(a)) }
+func (p *parser) curline() int { return p.scanner.file.Line(p.pos) }
 func (p *parser) valbase() valbase { return valbase{p.loc(p.pos)} }
 
 func (p *parser) expected(ctx Context, pos Pos, msg string, a... any) {
@@ -405,41 +406,12 @@ func (p *parser) is_recipe_start() (res bool) {
 }
 
 // ----------------------------------------------------------------------------
-// Parsing
-
-// safePos returns a valid file position for a given position: If pos
-// is valid to begin with, safePos returns pos. If pos is out-of-range,
-// safePos returns the EOF position.
-//
-// This is hack to work around "artificial" end positions in the AST which
-// are computed by adding 1 to (presumably valid) token positions. If the
-// token positions are invalid due to parse errors, the resulting end position
-// may be past the file's EOF position, which would lead to panics if used
-// later on.
-//
-/*
-func (p *parser) _safePos(pos Pos) (res Pos) {
-	defer func() {
-		if recover() != nil {
-			res = Pos(p.scanner.file.Base() + p.scanner.file.Size()) // EOF position
-		}
-	}()
-	_ = p.scanner.file.Offset(pos) // trigger a panic if position is out-of-range
-	return pos
-}
-*/
-
-// ----------------------------------------------------------------------------
 // Words & Identifiers
 
-func (p *parser) bare(ctx Context) (x Value) {
-	tok, lit := p.tok, p.lit
-	pos := p.Position()
-	p.step()
-
-	if tok != WORD && lit == "" {
-		lit = tok.String()
-	}
+func (p *parser) bare(ctx Context) Value {
+	tok, lit, pos := p.tok, p.lit, p.Position()
+	if tok != WORD && lit == "" { lit = tok.String() }
+	p.step() // consumes the current token
 	return makeWord(pos, lit)
 }
 
@@ -1427,7 +1399,7 @@ func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
 
 func (l ul) closuredelegate_obj(ctx Context, lTok token, name Value, isClosure bool) (str string, obj Value) {
 	if x,  y := name.(*argumented) ; y { name = x.Value }
-	if _,  y := name.(condval) ; !y {
+	if _,  y := name.(cond) ; !y {
 		if v := name.expand(ctx) ; v == nil {
 			erro(ctx, "%v is nil", ts(name)).trace()
 		} else {
@@ -1452,7 +1424,7 @@ func (l ul) closuredelegate_obj(ctx Context, lTok token, name Value, isClosure b
 
 	if str == "" {
 		switch name.(type) {
-		case condval, *selection:
+		case cond, *selection:
 			return str, name
 		}
 		erro(ctx, "empty name: %s", ts(name)).trace()
@@ -3889,7 +3861,7 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 				switch t := l.p.tok ; t {
 				case LINEND, SPACE: l.p.next(ctx, true)
 				case USE: l.spec(ctx, t, l.p.expect(ctx, t), l.use)
-				case ASSERT, EVAL, FILES, INCLUDE: l.clause(ctx)
+				case APPEND, ASSERT, EVAL, FILES, INCLUDE: l.clause(ctx)
 				default: break declaration
 				}
 			}

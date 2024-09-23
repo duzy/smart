@@ -109,7 +109,7 @@ const (
     KindPunct
     KindUrl
     KindCompound
-    KindCondval
+    KindCond
     KindGlobpat
 
     KindObject
@@ -331,10 +331,6 @@ func (c *terminal) do(ctx Context, op any) any {
         var res []*scope
         for i, s := range c.s {
             if i == 0 || !c.s[0].has_outer(s) { res = append(res, s) }
-        }
-        if false && len(res) > 1 {
-            for i, s := range res { note(ctx, "%d. %v", i, s) }
-            note(ctx, "%v", ts(ctx)).debug()
         }
         if cc := c.Context; cc != nil {
             return append(res, closure_scopes(cc)...)
@@ -673,17 +669,14 @@ func (a as) file(ctx Context, projs ...*project) (f *file) {
     case *list: if a := t.elems; len(a) == 1 { return as{a[0]}.file(ctx) }
     case *word, *compound, *path:
         if projs == nil {
-            if p := _project(ctx); p != nil {
-                projs = append(projs, p)
-            }
+            if p := _project(ctx); p != nil { projs = append(projs, p) }
         }
         for _, p := range projs {
             if f = p.file(ctx, t); f != nil { return }
         }
     default: // case *strlit, *strval, *strcomp:
-        // NOTE: escape 'string' and "strcomp" values from file parsing
-        // NOTE: to optimize the performance.
-        erro(ctx, "not a file: %v", ts(v)).trace()
+        // NOTE: not parsing 'string' and "strcomp" values to file to optimize.
+        erro(ctx, "cannot convert to file: %v", tv(v)).trace()
     }
     return
 }
@@ -736,6 +729,15 @@ func joinraws(sep string, vals ...*raw) string {
 }
 
 type posctx struct{ Context ; pos any }
+func (p *posctx) ts(string) string {
+    switch t := p.pos.(type) {
+    case Position:
+        var s = filepath.Base(t.Filename)
+        return fmt.Sprintf("{=pc %s %s}", s, ts(p.Context))
+    default:
+        return fmt.Sprintf("{=pc %s %s}", t, ts(p.Context))
+    }
+}
 func (p *posctx) do(ctx Context, op any) (_ any) {
     switch op.(type) {
     case get_position:
@@ -1511,14 +1513,14 @@ func _optionalize(val Value) (name Value, okay bool) {
     }
     return
 }
-func optionalize(ctx Context, val Value) (res condval, okay bool) {
+func optionalize(ctx Context, val Value) (res cond, okay bool) {
     if v, y := _optionalize(val); y {
-        res, okay = condval{v}, true
+        res, okay = cond{v}, true
     } else if t, y := val.(*compound); y {
         if v, y := _optionalize(t.elems[t.len()-1]); y {
             x := _compound(t.elems[:t.len()-1]...)
             x.elems = append(x.elems, v)
-            res, okay = condval{x}, true
+            res, okay = cond{x}, true
         }
     }
     return
@@ -2453,33 +2455,33 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
     return
 }
 
-func cond(v Value) (y bool) {
+func _cond(v Value) (y bool) {
     switch t := v.(type) {
-    case     condval: return true
-    case disjunction: return cond(t.Value)
-    case        flag: //return cond(t.Value)
+    case     cond: return true
+    case disjunction: return _cond(t.Value)
+    case        flag: //return _cond(t.Value)
     case *compound:
         for _, e := range t.elems {
-            if cond(e) { return true }
+            if _cond(e) { return true }
         }
     }
     return
 }
 
 func condish(ctx Context, v Value) Value {
-    if x, y := v.(condval); truly(ctx, propExCondless) {
+    if x, y := v.(cond); truly(ctx, propExCondless) {
         if y {
             if checkpoints {
-                if cond(x.Value) {
-                    note(ctx, "nested condval: %v : %v", v, ts(v))
+                if _cond(x.Value) {
+                    note(ctx, "nested cond: %v : %v", v, ts(v))
                     erro(ctx, "%v", ts(ctx)).trace()
                 }
             }
             return x.Value // TODO: condless(x.Value)
         } else {
             if checkpoints {
-                if cond(v) {
-                    note(ctx, "nested condval: %v : %v", v, ts(v))
+                if _cond(v) {
+                    note(ctx, "nested cond: %v : %v", v, ts(v))
                     erro(ctx, "%v", ts(ctx)).trace()
                 }
             }
@@ -2487,49 +2489,49 @@ func condish(ctx Context, v Value) Value {
         }
     } else if y {
         if checkpoints {
-            if cond(x.Value) {
-                note(ctx, "nested condval: %v : %v", v, ts(v))
+            if _cond(x.Value) {
+                note(ctx, "nested cond: %v : %v", v, ts(v))
                 erro(ctx, "%v", ts(ctx)).trace()
             }
         }
         return x
     } else {
         if checkpoints {
-            if cond(v) {
-                note(ctx, "nesting condval: %v : %v", v, ts(v))
+            if _cond(v) {
+                note(ctx, "nesting cond: %v : %v", v, ts(v))
                 erro(ctx, "%v", ts(ctx)).trace()
             }
         }
-        return condval{v} // condish
+        return cond{v} // condish
     }
 }
 
-type condval struct { Value } // conditional component: compound, pair; aka optional
-func (p condval) kind() Kind { return p.Value.kind()|KindCondval }
-func (p condval) String() string { return p.Value.String()+"?" }
-func (p condval) string(ctx Context) (s string) {
+type cond struct { Value } // conditional component: compound, pair; aka optional
+func (p cond) kind() Kind { return p.Value.kind()|KindCond }
+func (p cond) String() string { return p.Value.String()+"?" }
+func (p cond) string(ctx Context) (s string) {
     p.final_val(ctx, func(v Value) { s = v.string(ctx) })
     return
 }
-func (p condval) hash(ctx Context) uint64 {
+func (p cond) hash(ctx Context) uint64 {
     return fnv1(ctx, nil, p.kind(), p.Value)
 }
-func (p condval) true(ctx Context) (t bool) {
+func (p cond) true(ctx Context) (t bool) {
     p.final_val(ctx, func(v Value) { t = v.true(ctx) })
     return
 }
-func (p condval) int(ctx Context) (i int64) {
+func (p cond) int(ctx Context) (i int64) {
     p.final_val(ctx, func(v Value) { i = v.int(ctx) })
     return
 }
-func (p condval) float(ctx Context) (f float64) {
+func (p cond) float(ctx Context) (f float64) {
     p.final_val(ctx, func(v Value) { f = v.float(ctx) })
     return
 }
-func (p condval) final_val(ctx Context, f func(Value)) {
+func (p cond) final_val(ctx Context, f func(Value)) {
     if t := p.expand(final{ctx}); t != nil && !equal(ctx, p, t) { f(t) }
 }
-func (p condval) expand(ctx Context) (res Value) {
+func (p cond) expand(ctx Context) (res Value) {
     var v = p.Value.expand(condless{ctx})
     if checkpoints && truly(ctx, is_test_mode{}) {
         defer func() { p.expand_check(ctx, v, res) } ()
@@ -2557,11 +2559,11 @@ func (p condval) expand(ctx Context) (res Value) {
         return v
     }
 }
-func (p condval) cmp(ctx Context, v Value) (res cmpres) {
+func (p cond) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints && truly(ctx, is_test_mode{}) {
         defer func() { p.cmp_check(ctx, v, res) } ()
     }
-    if x, y := v.(condval); y {
+    if x, y := v.(cond); y {
         return p.cmp(ctx, x.Value)
     } else if x, y := v.(*list); y && x.len() == 1 {
         return p.cmp(ctx, x.elems[0])
@@ -2671,7 +2673,7 @@ func (p *compound) String() (s string) {
     return
 }
 func (p *compound) string(ctx Context) (s string) {
-    if v := p.expand(final{ctx}); cond(v) && indeterminate(ctx, v) {
+    if v := p.expand(final{ctx}); _cond(v) && indeterminate(ctx, v) {
         return
     } else if equal(ctx, p, v) {
         for _, elem := range p.elems { s += elem.string(ctx) }
@@ -2723,7 +2725,7 @@ func (p *compound) expand(ctx Context) (res Value) {
             if v == nil { continue }
             if x, y := v.(disjunction); y {
                 switch x.Value.(type) {
-                case *compound, *word, condval: // these are singleton-values
+                case *compound, *word, cond: // these are singleton-values
                     a = append(a, x.Value)
                     continue
                 }
@@ -2737,7 +2739,7 @@ func (p *compound) expand(ctx Context) (res Value) {
                 }
             }
 
-            if cond(val) { c += 1 }
+            if _cond(val) { c += 1 }
 
             a = append(a, v)
         }
@@ -4503,7 +4505,7 @@ func (p *list) string(ctx Context) (s string) {
     for _, e := range p.elems {
         if e == nil {
             // TODO: special process for nil elements in a list??
-        } else if false && cond(e) && indeterminate(ctx, e) {
+        } else if false && _cond(e) && indeterminate(ctx, e) {
             continue
         } else if t := e.string(ctx); t != "" {
             if s != "" { s += " " }
@@ -4910,7 +4912,7 @@ func (s expanded) hash(ctx Context) uint64 { return fnv1(ctx, s, s.Value) }
 func (s expanded) _cmp(ctx Context, v Value) (res cmpres) {
     if x, y := v.(expanded); y {
         res = s.Value.cmp(ctx, x.Value)
-    } else if x, y := v.(condval); y {
+    } else if x, y := v.(cond); y {
         res = s.Value.cmp(ctx, x.Value)
     } else if x, y := v.(*list); y && x.len() == 1 {
         res = s.Value.cmp(ctx, x.elems[0])
@@ -5445,7 +5447,7 @@ func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
     }
     switch t := v.(type) {
     case *list: if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
-    case  condval:                return p.cmp(ctx, t.Value)
+    case  cond:                return p.cmp(ctx, t.Value)
     case *closure:
         if p == t { return cmpEqual }
         if res = p.x.cmp(ctx, t.x); res == cmpEqual {
@@ -5543,8 +5545,8 @@ func (p *selection) expand(ctx Context) (res Value) {
     }
 
     if !equal(ctx, o, p.o) || !equal(ctx, s, p.s) {
-        if cond(p.o) && !cond(o) { o = condish(ctx, o) }
-        if cond(p.s) && !cond(s) { s = condish(ctx, s) }
+        if _cond(p.o) && !_cond(o) { o = condish(ctx, o) }
+        if _cond(p.s) && !_cond(s) { s = condish(ctx, s) }
         return &selection{p.valbase, p.t, o, s}
     } else {
         return p
@@ -6473,6 +6475,10 @@ func ulist(v Value) (l *list) {
 func tv(i any) (_ string) {
     if i == nil {
         return "{=nil}"
+    } else if _, y := i.(*null); y {
+        return "{=null}"
+    } else if x, y := i.(*none); y {
+        return "{=none "+tv(x.x)+"}"
     } else {
         return fmt.Sprintf("{=%s %v}", typeof(i), i)
     }
@@ -6498,7 +6504,7 @@ func ts(i any) (s string) {
     case opt:         return "{="+t+" "+ts(x.Value)+"}"
     case skipped:     return "{="+t+" "+ts(x.Value)+"}"
     case expanded:    return "{="+t+" "+ts(x.Value)+"}"
-    case condval:     return "{="+t+" "+ts(x.Value)+"}"
+    case cond:     return "{="+t+" "+ts(x.Value)+"}"
     case untraversed: return "{="+t+" "+ts(x.Value)+"}"
     default:
         s = "{="+t

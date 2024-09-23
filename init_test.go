@@ -45,7 +45,12 @@ func testHasModule(name string) (res bool) {
 	return
 }
 
-func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
+type loaderros struct{ string; int }
+func (t loaderros) String() string {
+	return fmt.Sprintf("%s: %d errors", t.string, t.int)
+}
+
+func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	if !filepath.IsAbs(dir) { dir = filepath.Join(workBaseDir, dir) }
 	if _, e := os.Stat(dir); e != nil {
 		t.Errorf("%v", e)
@@ -89,8 +94,11 @@ func loadcase(t *testing.T, dir, name string, ii ...any) (res *testcase) {
 
 	ctx.diagnostic.flush(ctx)
 
-	if ctx.erros > 0 {
-		res.Errorf("%d errors in %s", ctx.erros, ctx._position().Filename)
+	if e := ctx.erros; e > 0 {
+		var s = name
+		if s == "" { s = spec }
+		if s == "" { s = dir }
+		panic(loaderros{s, e})
 	}
 	return
 }
@@ -248,7 +256,7 @@ func testRemoveConfigureDir(ctx *testcase, p *project) {
 }
 
 func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
-	ctx := loadcase(t, joinpath("testdata", spec), name, ii...)
+	ctx := loadcase(t, joinpath("testdata", spec), spec, name, ii...)
 	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
 
 	defer func() {
@@ -265,11 +273,12 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 					errostack(pc(ctx,e.p), 16, "%v", tv(e)).trace()
 				}
 			default:
-				errostack(ctx, 16, "%v", tv(e)).trace()
+				errostack(ctx, 16, "%v", tv(e))//.trace()
+				panic(e) // continues unwind
 			}
 		}
 
-		d := _diagnostic(ctx.Context)
+		d := _diagnostic(ctx)
 		d.flush(ctx)
 
 		if true { return }

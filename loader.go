@@ -93,7 +93,9 @@ func (p load_implicit) do(ctx Context, op any) any {
 type loaded_abs struct{}
 type load_abs struct{ Context ; abs string }
 func (p *load_abs) ts(string) string {
-    return "{=abs "+filepath.Base(p.abs)+" "+ts(p.Context)+"}"
+    var d, s = bases(2, p.abs)
+    if d != "" { s = "…/"+s }
+    return "{=abs "+s+" "+ts(p.Context)+"}"
 }
 func (p *load_abs) do(ctx Context, op any) (_ any) {
     switch op.(type) {
@@ -568,7 +570,7 @@ func (l ul) spec_file(ctx Context, specVal Value) (res *file, spec, fullname str
         return t, t.ident(ctx), t.fullname()
     default:
         if spec = specVal.string(ctx) ; spec == "" {
-            erro(ctx, "include: empty string: %v", specVal).trace()
+            erro(ctx, "empty string: %v", tv(specVal)).trace()
         }
 
         var f = l.project.file(ctx, specVal)
@@ -614,33 +616,33 @@ func (i include_ctx) ts(string) string {
 func (i include_ctx) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
     case get_position: if i.p.valid() { return i.p }
-	case get_include_opts : return &i.o
-	case is_config_mode: return i.o.isConfig
-	case is_flat_mode  : return true
+	case get_include_opts: return &i.o
+	case is_config_mode  : return i.o.isConfig
+	case is_flat_mode    : return true
 	}
 	return i.Context.do(ctx, op)
 }
 
-func (l ul) include(ctx Context, specVal Value, opts include_opts) {
+func (l ul) include(ctx Context, val Value, opts include_opts) {
     // Execute the rule entry to update include source.
-    if x, y := specVal.(*rule); y && x != nil {
+    if x, y := val.(*rule); y && x != nil {
         if z, y := execute_entry(ctx, x); !y {
-            erro(ctx, "%v: include entry failed : %s", x, ts(z)).trace()
+            erro(ctx, "%v: include entry failed : %s", x, tv(z)).trace()
         }
 
-        specVal = x.target
+        val = x.target
     }
 
-    var f, spec, fullname = l.spec_file(ctx, specVal)
+    var f, spec, fullname = l.spec_file(ctx, val)
     if (f == nil || !f.exists()) && opts.ifExists {
         return // ignore non-exists files
     }
 
     if spec == "" || fullname == "" {
-        erro(ctx, "include: empty string: %v", ts(specVal)).trace()
+        erro(ctx, "empty string: %v", tv(val)).trace()
     } else {
         l.source(include_ctx{
-            ctx, opts, specVal.Position(), l.trimSpecPath(ctx, spec),
+            ctx, opts, val.Position(), l.trimSpecPath(ctx, spec),
         }, fullname, nil)
     }
     return
@@ -824,11 +826,35 @@ func is_configure_project(proj *project) bool {
         proj.name == "configure.base"
 }
 
+type autoload_ctx struct {
+    Context
+    p Position
+    v Value
+}
+func (a autoload_ctx) ts(string) string {
+	return "{=autoload "+a.v.String()+" "+ts(a.Context)+"}"
+}
+func (a autoload_ctx) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+    case get_position: if a.p.valid() { return a.p }
+	case is_flat_mode: return true
+	}
+	return a.Context.do(ctx, op)
+}
+
 func (l ul) autoload(ctx Context, tag string) {
     if !is_configure_project(l.project) {
         if d := l.project.resolveDef(ctx, ".autoload."+tag); d != nil {
             for _, v := range merge(d.value.expand(final{ctx})) {
-                if !isTrivial(v) { l.include(ctx, v, include_opts{}) }
+                if isTrivial(v) {
+                    continue
+                } else if f, s, t := l.spec_file(ctx, v); f == nil || !f.exists() {
+                    erro(ctx, "no such source file: %v → %v", tv(d.value), tv(v)).trace()
+                } else if s == "" || t == "" {
+                    erro(ctx, "empty string: %v → %v", tv(d.value), tv(v)).trace()
+                } else {
+                    l.source(autoload_ctx{ctx,l.p.Position(),d.value}, t, nil)
+                }
             }
         }
     }
@@ -1025,34 +1051,34 @@ type source_loaded string
 func (l ul) source(ctx Context, filename string, src any) (res Value) {
     if l.traceLaunch { defer un(l_trace(l_launch, "loader.source")) }
 
+    var t = time.Now()
     var text []byte
 
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer l.source_check(ctx, filename, src, &text, &res)
+        if l.project != nil { l.pre_source_check(ctx, filename, src) }
+        defer  l.source_check(ctx, filename, src, &text, &res)
     }
 
-    defer func(t time.Time, p *parser) {
-        if l.p == nil { erro(ctx, "nil parser ; %v", p).trace() }
-        if d := time.Now().Sub(t); l.slow < d {
-            if prompt(ctx, "%s:0:warning: %s\n", filename, d); p == nil {
-                warnstack(ctx, 8, "%v : %v", d, l.project).debug(8)
-            } else if s, t := p.Position(), _position(ctx); s.same(&t) {
-                warnstack(ctx, 8, "%v : %v", d, l.project).debug(8)
-            } else {
-                warn(pc(ctx,s), "%v : %v", d, l.project)
-                warnstack(ctx, 8, "%v : %v", d, l.project).debug(128)
-            }
+    defer func(p *parser) {
+        if l.p == nil {
+            erro(ctx, "nil parser ; %v", p).trace()
+        } else if d := time.Now().Sub(t); l.slow < d {
+            if p != nil { ctx = pc(ctx,p.Position()) }
+
+            var t = l.p.Position()
+            if s := filename; s != t.Filename { warn(pc(ctx,s,1), "%s", d).debug() }
+            warnstack(pc(ctx,t), 8, "%v %v", d, l.project).debug(128)
         }
         l.p = p
-    } (time.Now(), l.p)
+    } (l.p)
 
-    var opts = try[*include_opts](ctx, get_include_opts{})
+    var opts, _ = do(ctx, get_include_opts{}).(*include_opts)
     var path_err bool
 
     text, path_err = load_source_bytes(ctx, filename, src)
     if path_err && (opts != nil && !opts.ifExists) {
-        prompt(ctx, "%v: no such source file\n", filename)
-        errostack(ctx, 3).trace()
+        var d = time.Now().Sub(t)
+        errostack(pc(ctx,filename), 3, "%v : no such source file", d).trace()
     }
 
     if text == nil { return }
@@ -1170,7 +1196,7 @@ func nonsource(name string, mo os.FileMode) (_ bool) {
     return
 }
 
-var loader_sources_bench = true
+var loader_sources_bench = false && checkpoints
 
 func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (_ bool) {
     if loader_sources_bench {

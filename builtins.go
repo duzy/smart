@@ -1229,7 +1229,7 @@ func (ctx *builtin_foreach) x() (res any) {
                     vals = append(vals, v)
                 }
             } else {
-                if !cond(v) && indeterminate(ctx, v) { v = condish(ctx, v) }
+                if !_cond(v) && indeterminate(ctx, v) { v = condish(ctx, v) }
                 vals = append(vals, v)
             }
         }
@@ -1404,13 +1404,45 @@ type builtin_defs struct { builtin_
     n int `num,number`
     r int `capture`
 }
-func (ctx *builtin_defs) x() (res any) {
+func (ctx *builtin_defs) x() (_ any) {
+    var names []bare
+    var pats []Value
+    for _, val := range merge(ctx.evocation.a...) {
+        if indeterminate(ctx, val) {
+            erro(ctx, "indeterminate name pattern: %v", tv(val)).trace()
+        } else {
+            pats = append(pats, val)
+        }
+    }
+defsloop:
+    for name, _ := range _project(ctx).elems {
+        var str string
+        for _, pat := range pats {
+            var neg bool
+            if x, y := pat.(negative); y { pat, neg = x.Value, y }
+
+            var a, _, c = pat.match(ctx, name)
+            if a && neg { continue defsloop }
+            if a || neg {
+                if ctx.r <= 0 || 0 == len(c) {
+                    str = name
+                } else if ctx.r <= len(c) {
+                    str = c[ctx.r-1]
+                }
+            }
+        }
+        if str != "" {
+            names = append(names, bare(str))
+        }
+    }
+    return names
+}
+func (ctx *builtin_defs) _x() (res any) {
     var find = func(pat Value) (res []bare) {
         var neg bool
         if x, y := pat.(negative); y { pat, neg = x.Value, y }
         for name, _ := range _project(ctx).elems {
-            var a, _, c = pat.match(ctx, name)
-            if a {
+            if a, _, c := pat.match(ctx, name); a {
                 if neg {
                     continue
                 } else if ctx.r <= 0 {
@@ -1433,7 +1465,7 @@ func (ctx *builtin_defs) x() (res any) {
     var names []bare
     for _, val := range merge(ctx.evocation.a...) {
         if indeterminate(ctx, val) {
-            erro(ctx, "indeterminate name pattern: %v", ts(val)).trace()
+            erro(ctx, "indeterminate name pattern: %v", tv(val)).trace()
         } else {
             names = append(names, find(val)...)
         }
@@ -3056,8 +3088,9 @@ func (ctx *builtin_ext) x() (_ any) {
     return
 }
 
-func bases(ctx Context, n int, s string) (d, b string) {
-    d, b = filepath.Dir(s), filepath.Base(s)
+func bases(n int, s string) (d, b string) {
+    d = filepath.Dir(s)
+    b = filepath.Base(s)
     for i := n-1; 0 < i; i -= 1 {
         b = filepath.Join(filepath.Base(d), b)
         d = filepath.Dir(d)
@@ -3076,7 +3109,7 @@ func (ctx *builtin_bases) x() (res any) {
             s = a.string(ctx)
         }
 
-        _, s = bases(ctx, ctx.n, s)
+        _, s = bases(ctx.n, s)
         l = append(l, _strlit(a.Position(), s))
     }
     return l
@@ -3903,13 +3936,13 @@ func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
 }
 
 type builtin_wildcard struct { builtin_
-    includeMissing bool `includemissing,include-missing,missing,unpresented,all-matched-names`
-    ignoreMissing bool `ignoremissing,ignore-missing`
-    errorMissing bool `err,errormissing,error-missing,no-missing`
+    includeMissing bool `include,includemissing,include-missing,missing,all`
+    ignoreMissing bool `ignore,ignoremissing,ignore-missing`
+    errorMissing bool `err,error,errormissing,error-missing,no-missing`
     names bool `name,names,nameonly`
     strs bool `str,strs,string,strings`
-    exclude []Value `excl,exclude,except,no,not`
-    filetype string `type,filetype,file-type` // dir, file, etc.
+    exclude []Value `exclude,except,no,not`
+    filetype string `type` // dir, file, etc.
     dir string `dir,directory`
 }
 func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*file) {

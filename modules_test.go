@@ -493,7 +493,7 @@ func testVariantTarget(ctx *testcase) {
 	}
 	if v := ctx.val(s, "xxx"); v == nil {
 		ctx.err(s)
-	} else if ts(v) != "{=condval {=closure {=compound {=word a} {=negative {=word xxx}}}}}" {
+	} else if ts(v) != "{=cond {=closure {=compound {=word a} {=negative {=word xxx}}}}}" {
 		ctx.err("%v", tst{v})
 	} else if s := v.String(); s != "&(a!xxx)?" {
 		ctx.err("%v : %s", tst{v}, s)
@@ -502,7 +502,7 @@ func testVariantTarget(ctx *testcase) {
 	}
 	if v := ctx.val(s, "foobar"); v == nil {
 		ctx.err(s)
-	} else if ts(v) != "{=condval {=closure {=compound {=word a} {=negative {=word foobar}}}}}" {
+	} else if ts(v) != "{=cond {=closure {=compound {=word a} {=negative {=word foobar}}}}}" {
 		ctx.err("%v", tst{v})
 	} else if s := v.String(); s != "&(a!foobar)?" {
 		ctx.err("%v : %s", tst{v}, s)
@@ -531,8 +531,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str2 = ts(t)
 		for _, s := range []string{
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}",
-			"{=condval {=pair {=flag {=word std}}={=closure {=flag {=compound {=word std} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}",
+			"{=cond {=pair {=flag {=word std}}={=closure {=flag {=compound {=word std} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}}",
 		}{
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
@@ -550,8 +550,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str2 = ts(v)
 		for _, s := range []string{
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word z}}}}}",
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word c}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=word z}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=word c}}}}}",
 		}{
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
@@ -567,8 +567,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str4 = ts(v)
 		for _, s := range []string{
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word z}}}}}",
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word c}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=word z}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=word c}}}}}",
 		}{
 			if strings.Count(str4, s) != 1 { ctx.err("%s : %s", s, str4) }
 		}
@@ -595,8 +595,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str2 = ts(t)
 		for _, s := range []string{
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}",
-			"{=condval {=pair {=flag {=word std}}={=closure {=flag {=compound {=word std} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}",
+			"{=cond {=pair {=flag {=word std}}={=closure {=flag {=compound {=word std} {=punct .} {=disjunction {=delegate {=auto 1}}}}}}}}",
 		}{
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
@@ -614,8 +614,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str2 = ts(v)
 		for _, s := range []string{
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word z++}}}}}",
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word c++}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=word z++}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=word c++}}}}}",
 		}{
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
@@ -631,8 +631,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str4 = ts(v)
 		for _, s := range []string{
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word z++}}}}}",
-			"{=condval {=closure {=flag {=compound {=word v} {=punct .} {=word c++}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=word z++}}}}}",
+			"{=cond {=closure {=flag {=compound {=word v} {=punct .} {=word c++}}}}}",
 		}{
 			if strings.Count(str4, s) != 1 { ctx.err("%s : %s", s, str4) }
 		}

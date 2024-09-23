@@ -331,7 +331,7 @@ func (p *project) cmp(ctx Context, v Value) (res cmpres) {
     switch t := v.(type) {
     case *list: if t.len() == 1 { res = p.cmp(ctx, t.elems[0]) }
     case *project: if t == p { res = cmpEqual }
-    case condval : res = p.cmp(ctx, t.Value)
+    case cond : res = p.cmp(ctx, t.Value)
     case expanded: res = p.cmp(ctx, t.Value)
     }
     if checkpoints {
@@ -355,7 +355,7 @@ func (p self) cmp(ctx Context, v Value) (res cmpres) {
     case *list: if t.len() == 1 { res = p.cmp(ctx, t.elems[0]) }
     case *project: if p.project == t { res = cmpEqual }
     case self: if p.project == t.project { res = cmpEqual }
-    case condval : res = p.cmp(ctx, t.Value)
+    case cond : res = p.cmp(ctx, t.Value)
     case expanded: res = p.cmp(ctx, t.Value)
     }
     if checkpoints {

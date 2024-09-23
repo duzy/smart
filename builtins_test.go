@@ -800,23 +800,23 @@ func testBuiltin_foreach(ctx *testcase) {
 			ctx.err("%v", tst{v})
 		} else if x.len() != 5 {
 			ctx.err("%v", tst{v})
-		} else if t, y := x.elems[2].(condval); !y {
+		} else if t, y := x.elems[2].(cond); !y {
 			ctx.err("%v", tst{x.elems[2]})
 		} else if _, y := t.Value.(*compound); !y {
 			ctx.err("%v", tst{t.Value})
-		} else if cond(t.Value) {
+		} else if _cond(t.Value) {
 			ctx.err("%v", tst{t.Value})
-		} else if t, y := x.elems[3].(condval); !y {
+		} else if t, y := x.elems[3].(cond); !y {
 			ctx.err("%v", tst{x.elems[3]})
 		} else if _, y := t.Value.(*compound); !y {
 			ctx.err("%v", tst{t.Value})
-		} else if cond(t.Value) {
+		} else if _cond(t.Value) {
 			ctx.err("%v", tst{t.Value})
-		} else if t, y := x.elems[4].(condval); !y {
+		} else if t, y := x.elems[4].(cond); !y {
 			ctx.err("%v", tst{x.elems[4]})
 		} else if _, y := t.Value.(*compound); !y {
 			ctx.err("%v", tst{t.Value})
-		} else if cond(t.Value) {
+		} else if _cond(t.Value) {
 			ctx.err("%v", tst{t.Value})
 		} else if s, t := v.String(), "x xq xp x&(.test.h)a? x&(.test.h)b? x&(.test.h)c?"; s != t {
 			ctx.err("%v != %s", tst{v}, s)
@@ -990,7 +990,7 @@ func testBuiltin_foreach(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if x, y := v.(condval); !y {
+	} else if x, y := v.(cond); !y {
 		ctx.err("%v", tst{v})
 	} else if _, y := x.Value.(*closure); !y {
 		ctx.err("%v", tst{x.Value})
@@ -1226,11 +1226,11 @@ func testBuiltin_foreach2(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if l.len() != 2 {
 		ctx.err("%v ; %d", tst{v}, l.len())
-	} else if t, y := l.elems[0].(condval); !y {
+	} else if t, y := l.elems[0].(cond); !y {
 		ctx.err("%v", tst{l.elems[0]})
 	} else if _, y := t.Value.(*delegate); !y {
 		ctx.err("%v", tst{t.Value})
-	} else if t, y := l.elems[1].(condval); !y {
+	} else if t, y := l.elems[1].(cond); !y {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if _, y := t.Value.(*delegate); !y {
 		ctx.err("%v", tst{t.Value})
@@ -1321,7 +1321,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		ctx.err("%v → %s != %s", tst{x.a[0]}, t, s)
 	} else if l, y := x.a[1].(*list); !y || l.len() != 1 {
 		ctx.err("%v", tst{x.a[1]})
-	} else if l0, y := l.elems[0].(condval); !y {
+	} else if l0, y := l.elems[0].(cond); !y {
 		ctx.err("%v", tst{l.elems[0]})
 	} else if l0p, y := l0.Value.(*pair); !y {
 		ctx.err("%v", tst{l0.Value})
@@ -1364,7 +1364,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, "a", nil); v == nil {
 			ctx.err("%v", tst{d})
-		} else if t, y := v.(condval); !y {
+		} else if t, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := t.Value.(*pair); !y {
 			ctx.err("%v", tst{t.Value})
@@ -1375,7 +1375,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, nil, "b"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if t, y := v.(condval); !y {
+		} else if t, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := t.Value.(*pair); !y {
 			ctx.err("%v", tst{t.Value})
@@ -1390,11 +1390,11 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v", tst{v})
 		} else if l.len() != 2 {
 			ctx.err("%v ; %d", tst{v}, l.len())
-		} else if x, y := l.elems[0].(condval); !y {
+		} else if x, y := l.elems[0].(cond); !y {
 			ctx.err("%v", tst{l.elems[0]})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if x, y := l.elems[1].(condval); !y {
+		} else if x, y := l.elems[1].(cond); !y {
 			ctx.err("%v", tst{l.elems[1]})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1426,11 +1426,11 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v", tst{v})
 		} else if l.len() != 2 {
 			ctx.err("%v ; %d", tst{v}, l.len())
-		} else if x, y := l.elems[0].(condval); !y {
+		} else if x, y := l.elems[0].(cond); !y {
 			ctx.err("%v", tst{l.elems[0]})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if x, y := l.elems[1].(condval); !y {
+		} else if x, y := l.elems[1].(cond); !y {
 			ctx.err("%v", tst{l.elems[1]})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1441,7 +1441,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, "if.x", nil); v == nil {
 			ctx.err("%v", tst{d})
-		} else if x, y := v.(condval); !y {
+		} else if x, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1452,7 +1452,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, nil, "if.y"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if x, y := v.(condval); !y {
+		} else if x, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1467,11 +1467,11 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v", tst{v})
 		} else if len(l.elems) != 2 {
 			ctx.err("%v", l.elems)
-		} else if x, y := l.elems[0].(condval); !y {
+		} else if x, y := l.elems[0].(cond); !y {
 			ctx.err("%v", tst{l.elems[0]})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
-		} else if x, y := l.elems[1].(condval); !y {
+		} else if x, y := l.elems[1].(cond); !y {
 			ctx.err("%v", tst{l.elems[1]})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1486,7 +1486,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, "zzz", nil); v == nil {
 			ctx.err("%v", tst{d})
-		} else if x, y := v.(condval); !y {
+		} else if x, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1497,7 +1497,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, nil, "zzz"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if x, y := v.(condval); !y {
+		} else if x, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1529,13 +1529,13 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v", tst{v})
 		} else if l.len() != 2 {
 			ctx.err("%v ; %d", tst{v}, l.len())
-		} else if x, y := l.elems[0].(condval); !y {
+		} else if x, y := l.elems[0].(cond); !y {
 			ctx.err("%v", tst{l.elems[0]})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
 		} else if s, t := x.String(), "std=&(.test.if.x)?"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
-		} else if x, y := l.elems[1].(condval); !y {
+		} else if x, y := l.elems[1].(cond); !y {
 			ctx.err("%v", tst{l.elems[1]})
 		} else if _, y := x.Value.(*delegate); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1548,7 +1548,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, "if.x", nil); v == nil {
 			ctx.err("%v", tst{d})
-		} else if x, y := v.(condval); !y {
+		} else if x, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1561,7 +1561,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, nil, "if.y"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if x, y := v.(condval); !y {
+		} else if x, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1578,7 +1578,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v", tst{v})
 		} else if len(l.elems) != 2 {
 			ctx.err("%v", l.elems)
-		} else if x, y := l.elems[0].(condval); !y {
+		} else if x, y := l.elems[0].(cond); !y {
 			ctx.err("%v", tst{l.elems[0]})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1586,7 +1586,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v → %s != %s", l.elems[0], t, s)
 		} else if s, t := l.elems[0].string(ctx), "std=xxx"; s != t {
 			ctx.err("%v → %s != %s", l.elems[0], t, s)
-		} else if x, y := l.elems[1].(condval); !y {
+		} else if x, y := l.elems[1].(cond); !y {
 			ctx.err("%v", tst{l.elems[1]})
 		} else if _, y := x.Value.(*pair); !y {
 			ctx.err("%v", tst{x.Value})
@@ -1601,7 +1601,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, "zzz", nil); v == nil {
 			ctx.err("%v", tst{d})
-		} else if _, y := v.(condval); !y {
+		} else if _, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if s, t := v.String(), "$(if $(.test.zzz),std=&(.test.zzz))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -1610,7 +1610,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 		}
 		if v := ctx.val(d, nil, "zzz"); v == nil {
 			ctx.err("%v", tst{d})
-		} else if _, y := v.(condval); !y {
+		} else if _, y := v.(cond); !y {
 			ctx.err("%v", tst{v})
 		} else if s, t := v.String(), "$(if $(.test.zzz),std=&(.test.zzz))?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -1657,7 +1657,7 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if len(l.elems) != 3 {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if x, y := l.elems[0].(condval); !y {
+	} else if x, y := l.elems[0].(cond); !y {
 		ctx.err("%v", tst{l.elems[0]})
 	} else if z, y := x.Value.(*compound); !y {
 		ctx.err("%v", tst{x.Value})
@@ -1675,7 +1675,7 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
 	} else if s, t := x.string(ctx), "X~1~"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if x, y := l.elems[1].(condval); !y {
+	} else if x, y := l.elems[1].(cond); !y {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if z, y := x.Value.(*compound); !y {
 		ctx.err("%v", tst{x.Value})
@@ -1691,7 +1691,7 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
 	} else if s, t := x.string(ctx), "X~2~"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if x, y := l.elems[2].(condval); !y {
+	} else if x, y := l.elems[2].(cond); !y {
 		ctx.err("%v", tst{l.elems[2]})
 	} else if z, y := x.Value.(*compound); !y {
 		ctx.err("%v", tst{x.Value})
@@ -1985,7 +1985,7 @@ func testBuiltin_foreach5(ctx *testcase) {
 	} else if elems := merge(l.elems...); l.len() != 4 || len(elems) != 7 {
 		for i, v := range elems { note(ctx, "%d. %v", i, tst{v}) }
 		ctx.err("%v ; %d, %d", tst{x}, l.len(), len(elems))
-	} else if _, y := elems[2].(condval); !y {
+	} else if _, y := elems[2].(cond); !y {
 		ctx.err("%v", tst{elems[2]})
 	} else if s, t := x.String(), "a~ -aox.o.a -ao{$(.test.x.o.{$2})}? ~a x.o.a &(.test.x.{$2} a,$2)? &(.test.x.o.{$2})?"; s != t {
 		for i, v := range elems { note(ctx, "%d. %v", i, tst{v}) }
@@ -2616,7 +2616,7 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[0]})
 	} else if _, y := l0.key.(flag); !y {
 		ctx.err("%v", tst{l0.key})
-	} else if l1, y := l.elems[1].(condval); !y {
+	} else if l1, y := l.elems[1].(cond); !y {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if l1c, y := l1.Value.(*pair); !y {
 		ctx.err("%v", tst{l1.Value})
@@ -2638,7 +2638,7 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v ; %d", tst{t}, l.len())
 	} else if _, y := l.elems[0].(*pair); !y {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if _, y := l.elems[1].(condval); !y {
+	} else if _, y := l.elems[1].(cond); !y {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if s, t := v.string(ctx), "-foo=bar"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -2666,7 +2666,7 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v %v", tst{v}, l.elems)
 	} else if _, y := l.elems[0].(*compound); !y {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if l1, y := l.elems[1].(condval); !y {
+	} else if l1, y := l.elems[1].(cond); !y {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if l1v, y := l1.Value.(*compound); !y {
 		ctx.err("%v", tst{l1.Value})
@@ -2686,7 +2686,7 @@ func testBuiltin_addprefix(ctx *testcase) {
 		ctx.err("%v %v", tst{t}, l.len())
 	} else if _, y := l.elems[0].(*compound); !y {
 		ctx.err("%v", tst{l.elems[0]})
-	} else if _, y := l.elems[1].(condval); !y {
+	} else if _, y := l.elems[1].(cond); !y {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if s, t := v.string(ctx), "foobar"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
