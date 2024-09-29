@@ -159,7 +159,7 @@ func (ac *automatic) search(ctx Context, name string) (res *def) {
     return
 }
 func (ac *automatic) set(ctx Context, o origin, name string, val Value) (out *def, old Value) {
-    if checkpoints && name == "-" {
+    if checkpoints && val != nil && name == "-" {
         if x, y := val.(*def); y && x.o != defConfig {
             errostack(ctx, 3, "set $- to def (%v): %v", x.o, x).debug(16)
         }

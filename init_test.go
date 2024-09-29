@@ -65,6 +65,15 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	ctx.globe.main = nil
 	ctx.workdir = dir
 
+	defer func() {
+		if ctx.diagnostic.flush(ctx) ; ctx.erros > 0 {
+			var s = name
+			if s == "" { s = spec }
+			if s == "" { s = dir }
+			panic(loaderros{s, ctx.erros})
+		}
+	} ()
+
 	if true && !test_mode {
 		erro(ctx, "not test mode").trace()
 	}
@@ -75,36 +84,21 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 
 	res = &testcase{ctx, t, nil, make(map[string]struct{}), make(map[string]struct{})}
 
-	const _dt_ = true
-	if _dt_ { defer trace(res) }
-
 	if e := ctx.load(res); e != nil {
 		erro(ctx, "%v", e).trace()
-        if !_dt_ { trace(ctx) }
 	} else if m := ctx.globe.main; m == nil {
 		erro(ctx, "%s", dir).trace()
-        if !_dt_ { trace(ctx) }
 	} else if name != "" && m.name != name {
 		erro(ctx, "project %v != %v", m.name, name).trace()
-        if !_dt_ { trace(ctx) }
 	} else {
 		res.Context = closure_with(ctx, m) // TODO: projectContext{ctx, m}
 		if false { testRemoveConfigureDir(res, _project(ctx)) }
-	}
-
-	ctx.diagnostic.flush(ctx)
-
-	if e := ctx.erros; e > 0 {
-		var s = name
-		if s == "" { s = spec }
-		if s == "" { s = dir }
-		panic(loaderros{s, e})
 	}
 	return
 }
 
 func (tc *testcase) String() string { return ts(tc.Context) }
-func (tc *testcase) ts(string) string { return fmt.Sprintf("{=test %v}", ts(tc.Context)) }
+func (tc *testcase) ts(string) string { return "{=test "+ts(tc.Context)+"}" }
 func (tc *testcase) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_test_mode: return test_mode

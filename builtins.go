@@ -3032,12 +3032,15 @@ func (ctx *builtin_ext) x() (_ any) {
     return
 }
 
-func bases(n int, s string) (d, b string) {
+func bases(n int, s string, t ...bool) (d, b string) {
     d = filepath.Dir(s)
     b = filepath.Base(s)
     for i := n-1; 0 < i; i -= 1 {
         b = filepath.Join(filepath.Base(d), b)
         d = filepath.Dir(d)
+    }
+    if t != nil && t[0] && d != "" && d != "." {
+        b = filepath.Join("…", b)
     }
     return
 }

@@ -305,6 +305,56 @@ func testValueGeneral(ctx testcase1) {
 	}
 
 	// TODO: test regexp.stencil(...)
+
+	if d := ctx.def("val6"); d == nil {
+		ctx.err("val6")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if tv(v) != "{=url http://extbit.io/help}" {
+		ctx.err("%v %v", tst{d}, tv(v))
+	} else if ts(v) != "{=url {=word http} {} {} {=compound {=word extbit} {=punct .} {=word io}} {} {=path {=punct root} {=word help}} {=[Value]} {}}" {
+		ctx.err("%v %v", tst{d}, ts(v))
+	}
+
+	if d := ctx.def("val7"); d == nil {
+		ctx.err("val7")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if tv(v) != "{=url https://extbit.com}" {
+		ctx.err("%v %v", tst{d}, tv(v))
+	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[Value]} {}}" {
+		ctx.err("%v %v", tst{d}, ts(v))
+	}
+
+	if d := ctx.def("val8"); d == nil {
+		ctx.err("val8")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if tv(v) != "{=url https://extbit.com?foo=x}" {
+		ctx.err("%v %v", tst{d}, tv(v))
+	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[Value] {=pair {=word foo}={=word x}}} {}}" {
+		ctx.err("%v %v", tst{d}, ts(v))
+	}
+
+	if d := ctx.def("val9"); d == nil {
+		ctx.err("val9")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if tv(v) != "{=url https://extbit.com?foo=x&bar=y#foobar}" {
+		ctx.err("%v %v", tst{d}, tv(v))
+	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[Value] {=pair {=word foo}={=word x}} {=pair {=word bar}={=word y}}} {=word foobar}}" {
+		ctx.err("%v %v", tst{d}, ts(v))
+	}
+
+	if d := ctx.def("val10"); d == nil {
+		ctx.err("val10")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if tv(v) != "{=url https://ext.pub?foo=x+y+z&bar=x%20y%20z#foo+bar}" {
+		ctx.err("%v, %v", tst{d}, tv(v))
+	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word ext} {=punct .} {=word pub}} {} {} {=[Value] {=pair {=word foo}={=word x+y+z}} {=pair {=word bar}={=compound {=word x} {=punct %} {=decimal 20} {=word y} {=punct %} {=decimal 20} {=word z}}}} {=word foo+bar}}" {
+		ctx.err("%v, %v", tst{d}, ts(v))
+	}
 }
 
 func testAutomatic(ctx *testcase) {

@@ -226,7 +226,7 @@ func IsDigits(s string) bool {
 
 // punctuation used as non-terminator
 func IsUntermPunct(r rune) bool {
-	// Most chars accepted in URI (RFC3986)
+	// Most chars accepted in URL (RFC3986)
 	return r == '-' || r == '+' || r == '@' /*|| r == '.' || r == '/'*/;
 }
 

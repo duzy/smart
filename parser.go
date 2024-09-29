@@ -495,6 +495,11 @@ func (l ul) braced(ctx Context) (x Value) {
 					l.p.expect(ctx, RBRACE)
 					return
 
+				case "str": // $(string ...)
+					x = l.braced_str(ctx)
+					l.p.expect(ctx, RBRACE)
+					return
+
 				default:
 					erro(pc(ctx,l.p), "unsupported braced type: %v", t).trace()
 				}
@@ -749,14 +754,10 @@ func (p *parser) is_list_term(ctx Context) bool {
 	return false
 }
 
-func (p *parser) isEndOfURL(ctx Context) bool {
-	return p.tok == SPACE || p.is_end_of_line() || p.is_list_term(ctx)
-}
-
 func (p *parser) rule_params(ctx Context, args []Value) (err error) {
 	var s = _scope(ctx)
 
-	if checkpoints {
+	if checkpoints && truly(ctx, is_test_mode{}) {
 		if !strings.HasPrefix(s.comment, "rule ") {
 			erro(ctx, "wrong scope for rule params: %s", s.comment).trace()
 		}
@@ -1111,8 +1112,8 @@ func (p *parser) escape(ctx Context) *escaped {
 }
 
 func (p *parser) literal(ctx Context) (_ Value) {
-	tok, lit := p.tok, p.lit
-	pos := p.Position()
+	tok, lit, pos := p.tok, p.lit, p.Position()
+
 	p.step()
 
 	// ESCAPE is handled in value.EscapeChar
@@ -1125,7 +1126,7 @@ func (p *parser) literal(ctx Context) (_ Value) {
 	case DATETIME:    return ParseDateTime(pos, lit)
 	case DATE:        return ParseDate(pos, lit)
 	case TIME:        return ParseTime(pos, lit)
-	case URI:         return ParseURL(pos, lit)
+	case URL:         return ParseURL(pos, lit)
 	case FLOATING:    return parseFloat(pos, lit)
 	case WORD:        return makeWord(pos, lit)
 	case RAW:         return makeRaw(pos, lit)
@@ -1274,74 +1275,151 @@ func isKnownURLScheme(s string) (result bool) {
 	return
 }
 
+type is_url          struct{}
+type is_url_query    struct{}
+type is_url_fragment struct{}
+type url_encoding struct{ Context }
+type url_query    struct{ Context }
+type url_fragment struct{ Context }
+
+func (u url_encoding) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_url: return true
+	}
+	return u.Context.do(ctx, op)
+}
+
+func (u url_query) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_url_query: return true
+	}
+	return u.Context.do(ctx, op)
+}
+
+func (u url_fragment) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_url_fragment: return true
+	}
+	return u.Context.do(ctx, op)
+}
+
 func (l ul) url(ctx Context, scheme Value) (res Value) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "URL")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "url")) }
 
-	var (
-		url = &URL{ Scheme:scheme }
+	var u = &url{ Scheme: scheme }
 
-		p = l.p
-
-		colon2 = NoPos
-		a = NoPos // @
-	)
-
-	p.expect(ctx, COLON) // consumes ':'
-
-	if p.tok == PCON {
-		p.step() // the first '/'
-		if p.tok == PCON {
-			p.expect(ctx, PCON) // the second '/'
-		} else {
-			erro(ctx, "TODO: URL path: %v (%T) (next: %s (%s))", scheme, scheme,  p.tok, p.lit).trace()
-		}
-	} else if !p.isEndOfURL(ctx) {
-		erro(ctx, "TODO: URL: %v (%T) (next: %s (%s))", scheme, scheme, p.tok, p.lit).trace()
-	}
-
-	if !p.isEndOfURL(ctx) {
-		userOrHost := l.composite(ctx)
-		if p.tok == COLON {
-			url.Username, colon2 = userOrHost, p.pos
-			p.step() // ':'
-			if p.tok != AT && p.tok != PCON && !p.isEndOfURL(ctx) {
-				url.Password = l.composite(ctx)
+	if false && checkpoints && truly(ctx, is_test_mode{}) {
+		defer func(t token) {
+			if l.project.name == "testvalue" {
+				note(ctx, "%v %v", u, l.p.tok).debug(3)
 			}
-		} else {
-			url.Host = userOrHost
-		}
-		if p.tok == AT {
-			p.step() // '@'
+		} (l.p.tok)
+	}
+
+	l.p.expect(ctx, COLON) // consumes ':'
+	l.p.expect(ctx, PCON) // the first '/'
+	l.p.expect(ctx, PCON) // the second '/'
+
+	ctx = url_encoding{ctx}
+
+	var x = l.unary(ctx)
+
+	switch l.p.tok {
+	case AT:
+		u.Username = x
+		x = l.unary(ctx)
+	case COLON:
+		u.Username = x
+		l.p.step() // ':'
+		u.Password = l.unary(ctx)
+		l.p.expect(ctx, AT)
+		x = l.unary(ctx)
+	case LINEND, EOF:
+		u.Host = x
+		return u
+	}
+
+	var h *compound
+	var p *path
+
+hostloop:
+	for l.p.tok == DOT {
+		if h == nil { h = &compound{} }
+		h.elems = append(h.elems, x, _punct(ctx,DOT))
+
+		l.p.step() // '.'
+
+		switch x = l.unary(ctx); l.p.tok {
+		case PCON, QUE, HASH:
+			h.elems = append(h.elems, x)
+			break hostloop
+		case LINEND, EOF:
+			h.elems = append(h.elems, x)
+			u.Host = h
+			return u
 		}
 	}
-	if url.Host == nil && colon2 == NoPos && a == NoPos && !p.isEndOfURL(ctx) {
-		url.Host = l.composite(ctx)
-		if p.tok == COLON {
-			//colon3 = p.pos
-			p.step() // ':'
-			if p.tok != SPACE && p.tok != LINEND {
-				url.Port = l.composite(ctx)
+
+	if h == nil {
+		u.Host = x
+	} else {
+		u.Host = h
+	}
+
+pathloop:
+	for l.p.tok == PCON {
+		if p == nil { p = makePath(_punct(ctx,PROOT)) }
+
+		l.p.step() // '/'
+
+		switch l.p.tok {
+		case QUE, HASH:
+			break pathloop
+		default:
+			x = l.unary(ctx)
+			p.elems = append(p.elems, x)
+		}
+	}
+	if p != nil {
+		u.Path = p
+	}
+
+	// scan '#' differently to comments
+	defer l.p.scanner.setBits(l.p.scanner.commentsOff())
+
+	if l.p.tok == QUE {
+		l.p.step() // '?'
+
+	queryloop:
+		for {
+			switch l.p.tok {
+			case HASH, LINEND, EOF:
+				break queryloop
+			}
+
+			x = l.unary(url_query{ctx})
+
+			if l.p.tok == ASSIGN {
+				l.p.step() // '='
+				x = &pair{ x, l.unary(url_query{ctx}) }
+			}
+
+			u.Query = append(u.Query, x)
+
+			if l.p.tok == CLOSURE {
+				l.p.step() // '&'
+			} else if l.p.tok == PERC {
+				erro(ctx, "unexpected %v in url", l.p.tok).trace()
 			}
 		}
 	}
-	if p.tok == PCON {
-		url.Path = l.path(ctx, _punct(ctx, p.tok))
+
+	if l.p.tok == HASH {
+		l.p.step() // '#'
+		u.Fragment = l.unary(url_fragment{ctx})
 	}
-	// scanning '#' as HASH instead of COMMENT
-	defer p.scanner.setBits(p.scanner.commentsOff())
-	if p.tok == QUE {
-		p.step() // '?'
-		if p.tok != HASH && !p.isEndOfURL(ctx) {
-			url.Query = l.composite(ctx)
-		}
-	}
-	if p.tok == HASH {
-		p.step() // '#'
-		if !p.isEndOfURL(ctx) {
-			url.Fragment = l.composite(ctx)
-		}
-	}
-	return url
+
+	return u
 }
 
 func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
@@ -1508,7 +1586,7 @@ func (l ul) closuredelegate_abc(ctx Context, isClosure, special bool) (tok token
 
 	if special {
 		if obj = l.resolve(ctx, nil, str); obj == nil {
-			erro(ctx, "not defined %v (name=%s)", tok, str).trace()
+			errostack(ctx, 8, "not defined %v (name=%s)", tok, str).trace()
 		}
 		return
 	}
@@ -1629,19 +1707,40 @@ func (l ul) unary(ctx Context) (x Value) {
 	case ASSIGN: // example: '=xxx'
 		if !truly(ctx, parse_left_hand_side{}) {
 			var v Value
-			var s = l.p.Position()
+			var p = l.p.Position()
 			if l.p.step(); l.p.is_list_term(ctx) {
-				v = makeNull(s)
+				v = makeNull(p)
 			} else {
 				v = l.expr(ctx)
 			}
-			return &pair{makeNull(s), v}
+			return &pair{makeNull(p), v}
 		}
 
 	case WORD:
-		return l.p.bare(ctx)
+		if x = l.p.bare(ctx) ; l.p.tok == PERC && truly(ctx, is_url_query{}) {
+			var comp = _compound(x)
+			for l.p.tok == PERC {
+				comp.elems = append(comp.elems, l.punct())
 
-	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URI, STRING/*, RAW*/:
+				// See https://en.wikipedia.org/wiki/Query_string#URL_encoding
+				// It should be decoded as '%HH' here, but we just treat it as a literal.
+			urlpercloop:
+				for l.p.tok != PERC {
+					switch l.p.tok {
+					case BINARY, OCTAL, INTEGER, HEXADECIMAL, WORD:
+						comp.elems = append(comp.elems, l.p.literal(ctx))
+					case HASH:
+						break urlpercloop
+					default:
+						erro(ctx, "bad url token: %v %v", l.p.tok, l.p.lit).trace()
+					}
+				}
+			}
+			x = comp
+		}
+		return
+
+	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URL, STRING/*, RAW*/:
 		return l.p.literal(ctx)
 
 	case STRCOMP:
@@ -1668,11 +1767,15 @@ func (l ul) unary(ctx Context) (x Value) {
 	case AT, BAR, PLUS, SEMICOLON:
 		return l.punct()
 
+	case PERC: // %bar (no prefix)
+		if truly(ctx, is_url_query{}) {
+			return l.punct()
+		} else {
+			return l.perc(ctx, nil)
+		}
+
 	case STAR, DAST, QUE, LBRACK: // * ** ? [
 		return l.glob(ctx, nil)
-
-	case PERC: // %bar (no prefix)
-		return l.perc(ctx, nil)
 
 	case MINUS:
 		return l.flag(ctx)
@@ -1681,7 +1784,6 @@ func (l ul) unary(ctx Context) (x Value) {
 		return l.negative(ctx)
 
 	case PCON: // The root of the path
-		if false { l.p.step() }
 		return _punct(ctx, PROOT)
 
 	case TILDE: // ~
@@ -1691,11 +1793,11 @@ func (l ul) unary(ctx Context) (x Value) {
 		return l.dot(ctx, nil)
 
 	case DOTDOT: // . ..
-		tok := l.p.tok
+		tok, pos := l.p.tok, l.p.Position()
 		if l.p.step() ; l.p.tok == PCON {
 			return _punct(ctx, tok)
 		} else {
-			return &punct{valbase{_position(ctx)}, tok}
+			return &punct{valbase{pos}, tok}
 		}
 
 	default:
@@ -1713,7 +1815,10 @@ func (l ul) unary(ctx Context) (x Value) {
 		}
 	}
 
-	erro(ctx, "unexpected '%v' (%s) (%v)", l.p.tok, l.p.lit, l.p.scanner.scanstate).trace()
+	if l.p.tok != EOF {
+		ctx = pc(ctx, l.p.Position())
+		erro(ctx, "unexpected '%v' (%s) (%v)", l.p.tok, l.p.lit, l.p.scanner.scanstate).trace()
+	}
 	return
 }
 
@@ -1751,7 +1856,9 @@ func (l ul) composite(ctx Context) (x Value) {
 
 	case COLON:
 		if truly(ctx, parse_is_recipe{false}) || !truly(ctx, parse_left_hand_side{}) {
-			if isKnownURLScheme(x.string(ctx)) { x = l.url(ctx, x) }
+			if t, y := x.(*word); y && isKnownURLScheme(t.s) {
+				x = l.url(ctx, x)
+			}
 		}
 	}
 	return
@@ -1852,8 +1959,8 @@ orloop:
 		v := l.expr(ctx)
 		w := v.expand(pc(final{ctx}, v))
 
-		if false {
-			note(pc(ctx,v), "%v → %v : %v", tv(v), tv(w), l.p.tok).debug(16)
+		if true && l.project.name == "configure.base" {
+			note(pc(ctx,v), "%v → %v : %v", tv(v), tv(w), l.p.tok).debug(3)
 		}
 
 		va = append(va, merge(w)...)
@@ -1863,6 +1970,12 @@ orloop:
 
 	for _, a := range va {
 		if a.true(ctx) { return a }
+	}
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		if l.project.name == "configure.base" {
+			erro(pc(ctx,l.p.Position()), "nil: %v", va).trace()
+		}
 	}
 	return
 }
@@ -1878,11 +1991,16 @@ func (l ul) braced_for(ctx Context) (res Value) {
 
 func (l ul) braced_foreach(ctx Context) Value {
 	var vals []Value
-	for l.p.tok != COMMA {
-		l.p.spaces(ctx)
+	for l.p.spaces(ctx); l.p.tok != COMMA; l.p.spaces(ctx) {
 		v := l.expr(ctx).expand(final{ctx})
 		vals = append(vals, merge(v)...)
 	}
+
+	var cc = automatic{ Context:ctx, defs:make(defs_map),
+		suppress:func(s string) bool { return s == "_" },
+	}
+
+	cc.set(ctx, defVoid, "_", nil)
 
 	var temps []Value
 	switch l.p.spaces(ctx); l.p.tok {
@@ -1890,7 +2008,7 @@ func (l ul) braced_foreach(ctx Context) Value {
 	case COMMA:
 		for l.p.step(); l.p.tok != RBRACE; {
 			l.p.spaces(ctx)
-			if v := l.expr(ctx); v != nil {
+			if v := l.expr(&cc); v != nil {
 				temps = append(temps, v)
 			} else {
 				erro(ctx, "nil ; %v", l.p.tok).trace()
@@ -1899,10 +2017,6 @@ func (l ul) braced_foreach(ctx Context) Value {
 	}
 
 	l.p.expect(ctx, RBRACE)
-
-	var cc = automatic{ Context:ctx, defs:make(defs_map),
-		suppress:func(s string) bool { return s == "_" },
-	}
 
 	var va []Value
 	for _, v := range vals {
@@ -1917,6 +2031,11 @@ func (l ul) braced_foreach(ctx Context) Value {
 		va = append(va, xmerge(&cc, temps...)...)
 	}
 	return ease(ctx, va)
+}
+
+func (l ul) braced_str(ctx Context) (res Value) {
+	l.p.next(ctx, true) // resumes 'str'
+	return ease(ctx, l.braced_elems(ctx))
 }
 
 func (l ul) braced_fullname(ctx Context) (res Value) {
@@ -2106,7 +2225,7 @@ func (l ul) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	return
 }
 
-func (l ul) parse_include(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+func (l ul) _include(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "include")) }
 
 	var opts = include_opts{ clauseopts: g }
@@ -2536,18 +2655,18 @@ func define(ctx Context, tok token, ident, value Value) (d *def) {
 
         if d, alt = proj.set(ctx, name, defUndetermined); alt == nil {
             if d == nil {
-                erro(ctx, "`%s` is undefined (%v)", name, ts(t)).trace()
+                erro(ctx, "`%s` is undefined (%v)", name, tv(t)).trace()
 			}
         } else if tok == ASSIGN || tok == ASSIGN_EXC {
             if a, y := alt.(*def); !y {
-                erro(ctx, "`%v` already defined (%s) (%v)", ident, typeof(alt), alt.owner()).trace()
+                erro(ctx, "`%v` already defined: %s (%v)", ident, tv(alt), alt.owner()).trace()
             } else if a.owner() == proj && a.o != defConfRef {
-                erro(ctx, "`%v` already defined (%s)", ident, typeof(alt)).trace()
+                erro(ctx, "`%v` already defined: %s", ident, tv(alt)).trace()
             } else {
                 d = a
             }
         } else if t, y := alt.(*def); !y {
-            erro(ctx, "%s: object is not def: %s, %v", name, typeof(alt), ts(prev)).trace()
+            erro(ctx, "%s: object is not def: %s, %v", name, tv(alt), tv(prev)).trace()
 		} else {
            d = t
         }
@@ -2663,7 +2782,7 @@ func (l ul) assign(ctx Context, ident Value) (res []*def) {
 }
 
 func (l ul) recipe(ctx Context) Value {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "Recipe")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "recipe")) }
 
 	// TODO: comment *commentGroup
 	// TODO: doc = p.leadComment
@@ -2676,22 +2795,23 @@ func (l ul) recipe(ctx Context) Value {
 		l.p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
 		if isList = true; !l.p.is_end_of_line() {
 			var a *argumented
+			var p = l.p.Position()
 			var x = l.expr(ctx) // parse first expr of recipe
 			if x != nil {
 				if a, _ = x.(*argumented); a != nil { x = a.Value }
 			}
 			if x == nil {
-				erro(ctx, "parsed value is nil").trace()
+				erro(pc(ctx,p), "parsed nil value, dialect=%s", l.p.dialect).trace()
 			} else if l.p.dialect == "value" {
 				// no resolving commands
 			} else if t, y := x.(*word); !y {
 				// does nothing
 			} else if s := l.resolve(ctx, t, t.s); isTrivial(s) {
-				erro(ctx, "no such symbol: %v, %s → %s; dialect=%s", t.s, ts(x), ts(s), l.p.dialect).trace()
+				erro(pc(ctx,p), "no such symbol: %v, %s → %s; dialect=%s", t.s, ts(x), ts(s), l.p.dialect).trace()
 			} else if b, y := s.(*builtin); !y {
-				erro(ctx, "'%s' is not a command (%s)", t.s, typeof(s)).trace()
+				erro(pc(ctx,p), "'%s' is not a command (%s)", t.s, typeof(s)).trace()
 			} else if !b.is_command() {
-				erro(ctx, "'%s' is not a command, use $(%s ...) instead", t.s, t.s).trace()
+				erro(pc(ctx,p), "'%s' is not a command, use $(%s ...) instead", t.s, t.s).trace()
 			} else { x = s }
 
 			if a != nil {
@@ -3104,10 +3224,12 @@ func (l ul) foreach_done(ctx Context) {
 		erro(ctx, "unexpected end of line").trace()
 	}
 
+	pos := l.p.Position()
+
 	l.p.expect(ctx, FOREACH)
 	l.p.spaces(ctx)
 
-	var params = l.values(ctx)
+	var vals = xmerge(final{ctx}, l.values(ctx)...)
 	var t = &template{
 		pos: l.p.pos, tok: l.p.tok, lit: l.p.lit,
 		state: l.p.scanner.scanstate,
@@ -3115,6 +3237,16 @@ func (l ul) foreach_done(ctx Context) {
 
 	l.p.spaces(ctx)
 	l.p.linend(ctx)
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		if strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
+			defer func(t time.Time) {
+				if d := time.Since(t); 1*time.Millisecond <= d {
+					note(pc(ctx,pos), "%v, %d values", d, len(vals)).debug()
+				}
+			} (time.Now())
+		}
+	}
 
 	var nested = 0
 	for l.p.tok != EOF {
@@ -3135,16 +3267,14 @@ func (l ul) foreach_done(ctx Context) {
 			defer func(s Pos) { l.p.stop = s } (l.p.stop)
 			l.p.stop = t.endPos
 
-			var a = map[string]Value{ "_" : nil }
-			for _, elem := range xmerge(final{ctx}, params...) {
-				if indeterminate(ctx, elem) {
+			var a = map[string]Value{}
+			for i, val := range vals {
+				if indeterminate(ctx, val) {
 					if false {
-						erro(ctx, "indeterminate : %v → %v", elem, elem.expand(final{ctx})).trace()
+						erro(ctx, "indeterminate: %d. %v → %v", i, tv(val), val.expand(final{ctx})).trace()
 					}
-				} else if isTrivial(elem) {
-					if false { info(ctx, "trivial %v", elem).debug() }
-				} else {
-					a["_"] = elem
+				} else if !isTrivial(val) {
+					a["_"] = val
 					l.codeblock(ctx, FOREACH, t, a)
 				}
 			}
@@ -3162,12 +3292,14 @@ func (l ul) foreach_done(ctx Context) {
 
 func (l ul) for_done(ctx Context) {
 	if l.p.spaces(ctx); l.p.tok == LINEND {
-		erro(ctx, "unexpected end of line").trace()
+		erro(ctx, "unexpected end-of-line").trace()
 	}
 
 	var opts struct {
 		skipNil bool `skip-nil,skip-null,skipnil,skipnull,no-nil,no-null`
 	}
+
+	pos := l.p.Position()
 
 	if l.p.expect(ctx, FOR); l.p.tok == LPAREN {
 		l.p.next(ctx, true) // LPAREN
@@ -3190,6 +3322,9 @@ func (l ul) for_done(ctx Context) {
 		n int
 	}
 
+	t0 := time.Now()
+
+	var npars int
 	var params []*nparam
 	var vars = map[string]Value{}
 	for l.p.spaces(ctx); l.p.tok != EOF && !l.p.is_end_of_line(); l.p.spaces(ctx) {
@@ -3229,6 +3364,7 @@ func (l ul) for_done(ctx Context) {
 			if n := len(elems); n > _v.n { _v.n = n }
 
 			_v.a = append(_v.a, &param{s, elems})
+			npars += len(elems)
 		}
 	}
 
@@ -3239,6 +3375,16 @@ func (l ul) for_done(ctx Context) {
 
 	l.p.spaces(ctx)
 	l.p.linend(ctx)
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		if strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
+			defer func(t time.Time) {
+				if d := time.Since(t); 1*time.Millisecond <= d {
+					note(pc(ctx,pos), "%v, %v, %d params", time.Since(t0)-d, d, npars).debug()
+				}
+			} (time.Now())
+		}
+	}
 
 	var nested = 0
 	for l.p.tok != EOF {
@@ -3328,7 +3474,7 @@ func (l ul) for_done(ctx Context) {
 func (l ul) codeblock(ctx Context, op token, t *template, vars map[string]Value) {
 	l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = t.pos, t.tok, t.lit, t.state
 
-	if false {
+	if false && checkpoints && truly(ctx, is_test_mode{}) {
 		pprofCounter += 1
 		defer startCPUProfile(ctx, fmt.Sprintf("template-%05d.prof", pprofCounter), true)()
 	}
@@ -3339,13 +3485,19 @@ func (l ul) codeblock(ctx Context, op token, t *template, vars map[string]Value)
 
 	var c = codeblock{automatic{Context:ctx, defs:make(defs_map)}}
 
-	if  _, y := vars["_"]; !y { vars["_"] = nil }
-
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		l.codeblock_check(ctx, op, vars)
+
+		if strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
+			defer func(t time.Time, pos Position) {
+				if d := time.Since(t); 10*time.Millisecond <= d {
+					note(pc(ctx,pos), "%v, %v", d, vars).debug(1)
+				}
+			} (time.Now(), l.p.Position())
+		}
 	}
 
-	// NOTE: only use defAuto in this case
+	// NOTE: defAuto is only used in this case!
 	for s, v := range vars { c.set(&c, defAuto, s, v) }
 
 	for l.p.tok != EOF && l.p.pos < l.p.stop {
@@ -3358,18 +3510,6 @@ func (l ul) codeblock(ctx Context, op token, t *template, vars map[string]Value)
 }
 
 func (l ul) repeat(ctx Context, t *template, params []Value) {
-	defer func(t time.Time, pos Pos, tok token, lit string, state scanstate) {
-		if l.ddd == "template.repeat" {
-			// dont check time in ddd mode
-		} else if d := time.Now().Sub(t); d > l.slow {
-            warnstack(ctx, 3, "slow: %v, prof-%d", d, pprofCounter).debug()
-        }
-
-		l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = pos, tok, lit, state
-	} (time.Now(), l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate)
-
-	// TODO: parseOpts(params) -> add option to turn off asFile in Context
-
 	if false { pprofCounter += 1
 		var (
 			profCpu = fmt.Sprintf("template-%05d.cpu.prof", pprofCounter)
@@ -3378,7 +3518,7 @@ func (l ul) repeat(ctx Context, t *template, params []Value) {
 			e error
 		)
 		if fCpu, e = os.Create(profCpu); e != nil {
-			erro(ctx, "%T: %v", e, e).trace()
+			erro(ctx, "%v", tv(e)).trace()
 		} else if e = pprof.StartCPUProfile(fCpu); e != nil {
 			fCpu.Close()
 			erro(ctx, "%v: %v", profCpu, e).trace()
@@ -3402,15 +3542,23 @@ func (l ul) repeat(ctx Context, t *template, params []Value) {
 		} ()
 	}
 
+	defer func(t time.Time, pos Pos, tok token, lit string, state scanstate) {
+		l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = pos, tok, lit, state
+	} (time.Now(), l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate)
+
 	var m = map[string]Value{}
 
-	for i, v := range t.params { if s := v.string(ctx); s != "" {
-		if i < len(params) { m[s] = params[i] } else {
-			m[s] = makeNull(v.Position())
+	for i, v := range t.params {
+		if s := v.string(ctx); s != "" {
+			if i < len(params) {
+				m[s] = params[i]
+			} else {
+				m[s] = makeNull(v.Position())
+			}
+		} else {
+			erro(ctx, "empty template param name: %v", tv(v)).trace()
 		}
-	} else {
-		erro(ctx, "empty template param name: %v %v", v, v).trace()
-	}}
+	}
 
 	l.codeblock(ctx, LPAREN, t, m)
 }
@@ -3441,7 +3589,7 @@ func (l ul) clause(ctx Context) {
 	}
 
 	switch t := l.p.tok ; t {
-	case  INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_include); return
+	case  INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l._include); return
 	case     EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_eval)   ; return
 	case   ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert)     ; return
 	case   APPEND: l.spec(ctx, t, l.p.expect(ctx, t), l.p.append)     ; return
@@ -3454,10 +3602,6 @@ func (l ul) clause(ctx Context) {
 	}
 
 	var x = l.expr(parse_left{ctx})
-
-	if strings.HasSuffix(l.p.scanner.file.Name(), "llvm/do.smart") && x.String() == "llvm/%%" {
-		note(ctx, "%v: %v %v", typeof(x), x, l.p.tok).debug()
-	}
 
 	if l.p.spaces(ctx); l.p.tok.is_assign() {
 		l.assign(ctx, x)

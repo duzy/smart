@@ -153,3 +153,9 @@ val3 = foo/oo/oo/oo/bar.c
 
 val4 := a\,b\,c,x\,y\,z
 val5 := $(quote a\,b\,c,x\,y\,z)
+
+val6  := http://extbit.io/help
+val7  := https://extbit.com
+val8  := https://extbit.com?foo=x
+val9  := https://extbit.com?foo=x&bar=y#foobar
+val10 := https://ext.pub?foo=x+y+z&bar=x%20y%20z#foo+bar

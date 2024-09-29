@@ -99,9 +99,10 @@ func (ctx *universe) ts(t string) string {
     var s = ts(ctx.Context)
     if  s == "{}"  {
         s, _ = filepath.Rel(workBaseDir, ctx.workdir)
-        if s == "." { return fmt.Sprintf("{=%s}", t) }
+        _, s = bases(3, s, true)
+        if s == "." || s == "" { return "{="+t+"}" }
     }
-    return fmt.Sprintf("{=%s %s}", t, s)
+    return "{="+t+" "+s+"}"
 }
 func (ctx *universe) trimSpecPath(c Context, spec string) string {
     spec = strings.ReplaceAll(spec, "../", "")

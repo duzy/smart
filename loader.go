@@ -93,8 +93,7 @@ func (p load_implicit) do(ctx Context, op any) any {
 type loaded_abs struct{}
 type load_abs struct{ Context ; abs string }
 func (p *load_abs) ts(string) string {
-    var d, s = bases(2, p.abs)
-    if d != "" { s = "…/"+s }
+    var _, s = bases(2, p.abs, true)
     return "{=abs "+s+" "+ts(p.Context)+"}"
 }
 func (p *load_abs) do(ctx Context, op any) (_ any) {
@@ -641,9 +640,8 @@ func (l ul) include(ctx Context, val Value, opts include_opts) {
     if spec == "" || fullname == "" {
         erro(ctx, "empty string: %v", tv(val)).trace()
     } else {
-        l.source(include_ctx{
-            ctx, opts, val.Position(), l.trimSpecPath(ctx, spec),
-        }, fullname, nil)
+        var p, s = val.Position(), l.trimSpecPath(ctx, spec)
+        l.source(include_ctx{ctx, opts, p, s}, fullname, nil)
     }
     return
 }

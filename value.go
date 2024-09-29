@@ -15,7 +15,7 @@ import (
     "hash/fnv" // "hash/maphash"
     "io/fs"
     "math"
-    "net/url"
+    net_url "net/url"
     "os"
     "path/filepath"
     "reflect"
@@ -1726,7 +1726,7 @@ func (p *Time) expand(Context) Value { return p }
 // ▶▶─<scheme>─(:)┬──────────────────────────────────────┬<path>┬───────────┬┬──────────────┬─▶◀
 //                └(//)┬──────────────┬<host>┬──────────┬┘      └(?)─<query>┘└(#)─<fragment>┘
 //                     └<userinfo>─(@)┘      └(:)─<port>┘
-type URL struct {
+type url struct {
     valbase
     Scheme Value
     Username Value
@@ -1734,65 +1734,52 @@ type URL struct {
     Host Value
     Port Value
     Path Value
-    Query Value
+    Query []Value
     Fragment Value
 }
-func (_ *URL) kind() Kind { return KindUrl }
-func (p *URL) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
-func (p *URL) String() (s string) {
-    if s = p.Scheme.String(); s == "" { return }
-    if s += ":"; p.Host == nil {
-        // ...
-    } else if _, ok := p.Host.(*none); ok {
-        var host string
-        if host = p.Host.String(); host == "" { return }
+func (_ *url) kind() Kind { return KindUrl }
+func (p *url) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
+func (p *url) ts(string) (s string) {
+    s = "{=url"
+    s += " " + ts(p.Scheme)
+    s += " " + ts(p.Username)
+    s += " " + ts(p.Password)
+    s += " " + ts(p.Host)
+    s += " " + ts(p.Port)
+    s += " " + ts(p.Path)
+    s += " " + ts(p.Query)
+    s += " " + ts(p.Fragment)
+    s += "}"
+    return
+}
+func (p *url) String() (s string) {
+    s = p.Scheme.String() + ":"
+    if p.Host != nil {
         s += "//"
-        if p.Username == nil {
-            // ...
-        } else if isNone(p.Username) {
-            var user string
-            if user = p.Username.String(); user != "" {
-                s += user + "@"
-            }
+        if p.Username != nil {
+            s += p.Username.String() + "@"
         }
-        s += host
-        if p.Port == nil {
-            // ...
-        } else if _, ok := p.Port.(*none); ok {
-            var port string
-            if port = p.Port.String(); port != "" {
-                s += ":" + port
-            }
+        s += p.Host.String()
+        if p.Port != nil {
+            s += ":" + p.Port.String()
         }
     }
-    if p.Path == nil {
-        // ...
-    } else if _, ok := p.Path.(*none); ok {
-        var path string
-        if path = p.Path.String(); path != "" {
-            //if !strings.HasPrefix(path, pathSep) { s += pathSep }
-            s += path
+    if p.Path != nil {
+        s += p.Path.String()
+    }
+    if p.Query != nil {
+        s += "?"
+        for i, q := range p.Query {
+            if 0 < i { s += "&" }
+            s += q.String()
         }
     }
-    if p.Query == nil {
-        // ...
-    } else if _, ok := p.Query.(*none); ok {
-        var query string
-        if query = p.Query.String(); query != "" {
-            s += "?" + query
-        }
-    }
-    if p.Fragment == nil {
-        // ...
-    } else if _, ok := p.Fragment.(*none); ok {
-        var fragment string
-        if fragment = p.Fragment.String(); fragment != "" {
-            s += "#" + fragment
-        }
+    if p.Fragment != nil {
+        s += "#" + p.Fragment.String()
     }
     return
 }
-func (p *URL) string(ctx Context) (s string) {
+func (p *url) string(ctx Context) (s string) {
     if s = p.Scheme.string(ctx) + ":"; p.Host != nil && !isNone(p.Host) {
         s += "//"
         if p.Username != nil && !isNone(p.Username) {
@@ -1811,27 +1798,31 @@ func (p *URL) string(ctx Context) (s string) {
         //if !strings.HasPrefix(path, pathSep) { s += pathSep }
         s += p.Path.string(ctx)
     }
-    if p.Query != nil && !isNone(p.Query) {
-        s += "?" + p.Query.string(ctx)
+    if p.Query != nil {
+        s += "?"
+        for i, q := range p.Query {
+            if 0 < i { s += "&" }
+            s += q.string(ctx)
+        }
     }
     if p.Fragment != nil && !isNone(p.Fragment) {
         s += "#" + p.Fragment.string(ctx)
     }
     return
 }
-func (p *URL) true(ctx Context) (t bool) {
+func (p *url) true(ctx Context) (t bool) {
     if p.Scheme != nil { if t = p.Scheme.true(ctx); t { return }}
     if p.Host   != nil { if t = p.Host  .true(ctx); t { return }}
     if p.Path   != nil { if t = p.Path  .true(ctx); t { return }}
     return //p.String() != "", nil
 }
-func (p *URL) int(ctx Context) (i int64) {
+func (p *url) int(ctx Context) (i int64) {
     if s := p.string(ctx); s != "" { i = int64(len(s)) }
     return
 }
-func (p *URL) float(ctx Context) (f float64) { return float64(p.int(ctx)) }
-func (p *URL) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*URL); ok {
+func (p *url) float(ctx Context) (f float64) { return float64(p.int(ctx)) }
+func (p *url) cmp(ctx Context, v Value) (res cmpres) {
+    if a, ok := v.(*url); ok {
         if p.Scheme == nil || a.Scheme == nil { return }
         if p.Scheme.cmp(ctx, a.Scheme) != cmpEqual { return }
         if p.Username != nil {
@@ -1855,8 +1846,10 @@ func (p *URL) cmp(ctx Context, v Value) (res cmpres) {
             if p.Path.cmp(ctx, a.Path) != cmpEqual { return }
         }
         if p.Query != nil {
-            if a.Query == nil { return }
-            if p.Query.cmp(ctx, a.Query) != cmpEqual { return }
+            if len(a.Query) != len(p.Query) { return }
+            for i, q := range p.Query {
+                if q.cmp(ctx, a.Query[i]) != cmpEqual { return }
+            }
         }
         if p.Fragment != nil {
             if a.Fragment == nil { return }
@@ -1873,15 +1866,15 @@ func (p *URL) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *URL) expand(ctx Context) (res Value) {
-    var o = &URL{ valbase: p.valbase }
+func (p *url) expand(ctx Context) (res Value) {
+    var o = &url{ valbase: p.valbase }
     if nil != p.Scheme   { o.Scheme   = p.Scheme.expand(ctx) }
     if nil != p.Username { o.Username = p.Username.expand(ctx) }
     if nil != p.Password { o.Password = p.Password.expand(ctx) }
     if nil != p.Host     { o.Host     = p.Host.expand(ctx) }
     if nil != p.Port     { o.Port     = p.Port.expand(ctx) }
     if nil != p.Path     { o.Path     = p.Path.expand(ctx) }
-    if nil != p.Query    { o.Query    = p.Query.expand(ctx) }
+    if nil != p.Query    { o.Query    = expand(ctx, p.Query...) }
     if nil != p.Fragment { o.Fragment = p.Fragment.expand(ctx) }
     if  o.Scheme != p.Scheme ||
         o.Username != p.Username ||
@@ -1889,7 +1882,7 @@ func (p *URL) expand(ctx Context) (res Value) {
         o.Host != p.Host ||
         o.Port != p.Port ||
         o.Path != p.Path ||
-        o.Query != p.Query ||
+        // o.Query != p.Query ||
         o.Fragment != p.Fragment {
         res = o
     } else {
@@ -1897,14 +1890,14 @@ func (p *URL) expand(ctx Context) (res Value) {
     }
     return
 }
-func (p *URL) match(ctx Context, i any) (full bool, s any, stems []string) {
+func (p *url) match(ctx Context, i any) (full bool, s any, stems []string) {
     full, s, stems = stringMatch(ctx, p, i)
     return
 }
-func (p *URL) stencil(ctx Context, stems []string) (val Value, rest []string) {
+func (p *url) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *URL) Validate() (res *url.URL) {
+func (p *url) Validate() (res *net_url.URL) {
     panic(fmt.Sprintf("validate %s", p))
     return
 }
@@ -6543,22 +6536,23 @@ func makeDate(pos Position, s time.Time) *Date  { return &Date{datetime{valbase{
 func makeTime(pos Position, t time.Time) *Time  { return &Time{datetime{valbase{pos},t}} }
 func makeRaw(pos Position, s string) *raw       { return &raw{valbase{pos},s} }
 func _strlit(pos Position, s string) *strlit { return &strlit{valbase{pos},s} }
-func makeUrl(pos Position, s *url.URL) *URL {
+func makeUrl(pos Position, s *net_url.URL) *url {
     var host, port string
     v := strings.Split(s.Host, ":")
     if len(v) == 1 { host = v[0] }
     if len(v) == 2 { host, port = v[0], v[1] }
     var password Value
     if t, ok := s.User.Password(); ok {password = _strlit(pos, t)}
-    return &URL{ // FIXME: calculate component positions
+    if s.RawQuery != "" { panic("url query: "+s.RawQuery) }
+    return &url{ // FIXME: calculate component positions
         valbase: valbase{pos},
-        Scheme: _strlit(pos, s.Scheme),
+        Scheme:   _strlit(pos, s.Scheme),
         Username: _strlit(pos, s.User.Username()),
         Password: password,
-        Host: _strlit(pos, host),
-        Port: _strlit(pos, port),
-        Path: _strlit(pos, s.Path),
-        Query: _strlit(pos, s.RawQuery),
+        Host:     _strlit(pos, host),
+        Port:     _strlit(pos, port),
+        Path:     _strlit(pos, s.Path),
+        // Query:    _strlit(pos, s.RawQuery),
         Fragment: _strlit(pos, s.Fragment),
     }
 }
@@ -6677,8 +6671,8 @@ func ParseTime(pos Position, s string) *Time {
     }
 }
 
-func ParseURL(pos Position, s string) *URL {
-    if u, e := url.Parse(s); e == nil {
+func ParseURL(pos Position, s string) *url {
+    if u, e := net_url.Parse(s); e == nil {
         return makeUrl(pos,u)
     } else {
         panic(e)
