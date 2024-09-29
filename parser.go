@@ -469,7 +469,8 @@ func (l ul) braced(ctx Context) (x Value) {
 				// Trim leading spaces differently to avoid messing the scan states.
 				// NOTE: the first SPACE and WORD do not become RAW.
 				for l.p.tok == SPACE || (l.p.tok == RAW && l.p.lit == " ") { l.p.step() }
-				if false { switch l.p.tok { case WORD: l.p.tok = RAW }}
+
+				if false { switch l.p.tok { case WORD: l.p.tok = RAW } }
 				if false { note(ctx, "%v %v %v", l.p.tok, l.p.lit, l.p.scanner.scanstate) }
 
 			case WORD:
@@ -756,13 +757,6 @@ func (p *parser) is_list_term(ctx Context) bool {
 
 func (p *parser) rule_params(ctx Context, args []Value) (err error) {
 	var s = _scope(ctx)
-
-	if checkpoints && truly(ctx, is_test_mode{}) {
-		if !strings.HasPrefix(s.comment, "rule ") {
-			erro(ctx, "wrong scope for rule params: %s", s.comment).trace()
-		}
-	}
-
 	for _, arg := range args {
 		switch arg.(type) {
 		case *word, *compound:
@@ -770,7 +764,7 @@ func (p *parser) rule_params(ctx Context, args []Value) (err error) {
 			s.alias(ctx, a, strconv.Itoa(len(p.ruparas)+1))
 			p.ruparas = append(p.ruparas, a)
 		default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
-			erro(ctx, "bad parameter form (%v)", ts(arg)).trace()
+			erro(ctx, "bad parameter form (%v)", tv(arg)).trace()
 		}
 	}
 	return
@@ -2751,7 +2745,7 @@ func define(ctx Context, tok token, ident, value Value) (d *def) {
 }
 
 func (l ul) assign_value(ctx Context, ident Value, tok token) (value Value) {
-	defer l.closescope(l.openscope(fmt.Sprintf("def %v", ident)))
+	defer l.closescope(l.openscope(tv(ident)))
 
 	vals := l.values(def_value{ctx})
 	l.p.lineComment = nil
@@ -2801,7 +2795,7 @@ func (l ul) recipe(ctx Context) Value {
 				if a, _ = x.(*argumented); a != nil { x = a.Value }
 			}
 			if x == nil {
-				erro(pc(ctx,p), "parsed nil value, dialect=%s", l.p.dialect).trace()
+				errostack(pc(ctx,p), 16, "parsed nil value, dialect=%s", l.p.dialect).trace()
 			} else if l.p.dialect == "value" {
 				// no resolving commands
 			} else if t, y := x.(*word); !y {
@@ -3056,7 +3050,7 @@ func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
 
 	// TODO: doc = p.leadComment
 	var depends, ordered, recipes []Value
-	defer l.closescope(l.openscope(fmt.Sprintf("rule %v", targets)))
+	defer l.closescope(l.openscope(tv(targets)))
 	defer func() {
 		// Close the rule scope and go back to project scope.
 		// The current scope must be project scope befor Rule.
@@ -3671,8 +3665,8 @@ func (l ul) new_declare(ctx Context, name, filename string, keyword token, opts 
 	do(ctx, declared_project{d.project})
 
     d.p = l.p
-    d.s = l.s
-    d.scope = newscope(d.position, sco, d.project, "project "+name)
+    d.s = l.loader.scope
+    d.scope = newscope(d.position, sco, d.project, /* "project "+ */name)
     d.scope.elems[".self"] = self{d.project}
     d.scope.elems[".usee"] = d.use
     d.use.owner_ = d.project
@@ -3714,7 +3708,7 @@ func (l ul) declare(ctx Context, keyword token, ident Value, name, filename stri
 	var prev = l.loader // nil if newly declared
 	var dec = l.new_declare(ctx, name, filename, keyword, declOpts)
 	if prev == nil || dec.project != prev.project {
-		l.project, l.s[0] = dec.project, dec.scope
+		l.project, l.loader.scope = dec.project, dec.scope
 	}
 
     if ll := _loader(l.loader.Context); ll != l.loader && ll == prev {
@@ -3813,7 +3807,7 @@ func (p parent) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (l ul) new_project(ctx Context, keyword token, filename string, isMainFile bool) (_ Value, _ string, _ bool) {
+func (l ul) _project(ctx Context, keyword token, filename string, isMainFile bool) (_ Value, _ string, _ bool) {
 	var implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
 
 	l.p.next(ctx, true) // aka. the keyword
@@ -3964,7 +3958,7 @@ func (l ul) close_project(ctx Context, name string) {
         erro(ctx, "project conflicts (%v, %v)", l.project, x.project).trace()
     }
 
-    l.p, l.s = x.p, x.s
+    l.p, l.loader.scope = x.p, x.s
 }
 
 func (l ul) parse(ctx Context, filename string) (_ bool) {
@@ -3997,6 +3991,7 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 		}
 	}
 
+
 	var rel,_ = filepath.Rel(l.workdir, abs)
 	var tmp   = joinTmpPath(ctx, l.workdir, rel)
 
@@ -4004,7 +3999,7 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 		erro(ctx, "%v: nil scope: %v", p, s).trace()
 	}
 
-	defer l.closescope(l.openscope("file "+filename))
+	defer l.closescope(l.openscope(bases(2, filename, true)))
 
 	if checkpoints {
 		if s := l.p.scanner.file.Name(); filename != s {
@@ -4049,7 +4044,7 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 		var name string
 		var prev = l.project
 
-		_, name, isMainFile = l.new_project(ctx, keyword, filename, isMainFile)
+		_, name, isMainFile = l._project(ctx, keyword, filename, isMainFile)
 		if prev != l.project { defer l.close_project(ctx, name) }
 		if checkpoints { l.parse_file_check_new_project(ctx) }
 

@@ -3032,7 +3032,11 @@ func (ctx *builtin_ext) x() (_ any) {
     return
 }
 
-func bases(n int, s string, t ...bool) (d, b string) {
+func bases(n int, s string, t ...bool) (res string) {
+    _, res = _bases(n, s, t...)
+    return
+}
+func _bases(n int, s string, t ...bool) (d, b string) {
     d = filepath.Dir(s)
     b = filepath.Base(s)
     for i := n-1; 0 < i; i -= 1 {
@@ -3056,7 +3060,7 @@ func (ctx *builtin_bases) x() (res any) {
             s = a.string(ctx)
         }
 
-        _, s = bases(ctx.n, s)
+        _, s = _bases(ctx.n, s)
         l = append(l, _strlit(a.Position(), s))
     }
     return l

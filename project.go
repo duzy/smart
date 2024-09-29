@@ -380,7 +380,7 @@ func select_file_1(ctx Context, m filemap_name) (res *file) {
 
   defer func() {
     if res == nil {
-      erro(ctx, "%s %v", m.name, m.pattern).trace()
+      erro(ctx, "%s %s", m.name, ts(m.pattern)).trace()
     } else {
       res.filemap = &m.filemap
     }

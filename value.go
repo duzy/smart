@@ -319,40 +319,53 @@ func (si *statinfo) exists() (res existence) {
 
 var traveTargetNotDefinedFile = fmt.Errorf("target not defined as file")
 
-// TODO: use chained-context instead of 'terminal' for closure-scopes
-type terminal struct { Context ; s []*scope }
-func (c *terminal) cast(t reflect.Type) Context { return implcast(c,t) }
-func (c *terminal) scope() (s *scope) { if 0 < len(c.s) { s = c.s[0] }; return }
-func (c *terminal) do(ctx Context, op any) any {
-    switch op.(type) {
-    case get_scope:
-        if 0 < len(c.s) { return c.s[0] }
-    case get_closure_scope:
+// TODO: use chained-context instead of 'term' for closure-scopes
+type term struct { Context ; *scope }
+func (c *term) cast(t reflect.Type) Context { return implcast(c,t) }
+func (c *term) ts(string) (s string) {
+    s = "{term"
+    if c.scope != nil {
+        s += " " + c.comment
+    } else {
+        s += " {}"
+    }
+    s += " " + ts(c.Context)
+    s += "}"
+    return
+}
+func (c *term) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case get_scope: return c.scope
+    case get_closure_scopes:
         var res []*scope
-        for i, s := range c.s {
-            if i == 0 || !c.s[0].has_outer(s) { res = append(res, s) }
+        if c.scope != nil {
+            res = append(res, c.scope)
         }
         if cc := c.Context; cc != nil {
-            return append(res, closure_scopes(cc)...)
-        } else {
-            return res
+            if x, y := do(cc, t).([]*scope); y && x != nil {
+                res = append(res, x...)
+            }
         }
+        return res
     }
-    if c.Context == nil { return nil }
+    if c.Context == nil { return }
     return c.Context.do(ctx, op)
 }
 
 func closure_scopes(ctx Context) (s []*scope) {
-  s, _ = do(ctx, get_closure_scope{}).([]*scope)
+  s, _ = do(ctx, get_closure_scopes{}).([]*scope)
   return
 }
 
 func closure_projects(ctx Context) (res []*project) {
-    var t = map[*project]struct{}{}
+    var m = map[*project]struct{}{}
     for _, s := range closure_scopes(ctx) {
-        if _, y := t[s.project]; !y {
-            for _, p := range s.project.family() { t[p] = struct{}{} }
-            res = append(res, s.project)
+        // NOTE: the globe scope has nil project
+        if s.project != nil {
+            if _, y := m[s.project]; !y {
+                for _, p := range s.project.family() { m[p] = struct{}{} }
+                res = append(res, s.project)
+            }
         }
     }
     return
@@ -454,16 +467,16 @@ func closure_entry(ctx Context, name any) (_ entry) {
 }
 
 func closure_with(ctx Context, a ...any) Context {
-    var ss []*scope
     for _, i := range a {
         switch t := i.(type) {
-        case   *scope: ss = append(ss, t)
-        case []*scope: ss = append(ss, t...)
-        case *project: ss = append(ss, t.scope)
-        case interface{ declscope() *scope }: ss = append(ss, t.declscope())
+        case *project: ctx = &term{ctx, t.scope}
+        case   *scope: ctx = &term{ctx, t}
+        case []*scope: for _, s := range t { ctx = &term{ctx, s} }
+        case interface{ declscope() *scope }:
+            ctx = &term{ctx, t.declscope()}
         }
     }
-    return &terminal{ctx, ss}
+    return ctx
 }
 
 func refdef(ctx Context, val Value, origin origin) (res bool) {
@@ -755,9 +768,9 @@ func pc(ctx Context, a any, n ...int) Context {
     var p any
     switch t := a.(type) {
     case   Position  : if t.valid() { p = t }
-    case   positioner: if t != nil  { p = t }
-    case []positioner: if t != nil  { p = t[0] }
-    case []Value     : if t != nil  { p = t[0] }
+    case   positioner: if t != nil  { p = t.Position() }
+    case []positioner: if t != nil  { p = t[0].Position() }
+    case []Value     : if t != nil  { p = t[0].Position() }
     case string:
         var pos Position
         pos.Filename = t
@@ -5030,15 +5043,6 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
                 goto dis // where e = false
             }
             v = project_resolve(ctx, s)
-            if false { if t := do(ctx, evoke_def{s}); t != nil {
-                if truly(ctx, is_test_mode{}) {
-                    panic(trace_err_evoke_loop{ctx,x})
-                } else if t == v {
-                    erro(ctx, "%v : evocation loop : %v → %v → %v", p, _x, x, t).trace(no_recover{},trace_err_evoke_loop{ctx,x})
-                } else {
-                    erro(ctx, "%v : evocation loop : %v → %v → %v → %v", p, _x, x, v, t).trace(no_recover{},trace_err_evoke_loop{ctx,x})
-                }
-            }}
         }
         if v != nil { x, e = v, true }
     } else if truly(ctx, propExClosure) {
@@ -5064,15 +5068,6 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
                 return // where e = false
             }
             v = closure_resolve(ctx, s)
-            if false { if t := do(ctx, evoke_def{s}); t != nil {
-                if truly(ctx, is_test_mode{}) {
-                    panic(trace_err_evoke_loop{ctx,x})
-                } else if t == v {
-                    erro(ctx, "%v : evocation loop : %v → %v → %v", p, _x, x, t).trace(no_recover{},trace_err_evoke_loop{ctx,x})
-                } else {
-                    erro(ctx, "%v : evocation loop : %v → %v → %v → %v", p, _x, x, v, t).trace(no_recover{},trace_err_evoke_loop{ctx,x})
-                }
-            }}
         }
         if v != nil { x, e = v, true }
     }
@@ -6762,7 +6757,6 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value, _ []Value) {
         }
         if tx != nil && equal(ctx, tx, x) {
             erro(ctx, "illicit x=%v, o=%v, a=%v", ts(x), ts(o), ts(a)).trace()
-            return
         }
     }
 
@@ -6770,8 +6764,11 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value, _ []Value) {
         if e := recover(); e != nil {
             switch e := e.(type) {
             case prerequisite_evoke_loop:
-                if false { note(ctx, "%v %v %v", x, e.Value, res).debug(5) }
-                res = makeNull(e.Value.Position())
+                if false {
+                    erro(ctx, "%v %v %v", x, e.Value, res).trace()
+                } else {
+                    res = makeNull(e.Value.Position())
+                }
             default:
                 panic(e)
             }

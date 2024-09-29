@@ -93,8 +93,7 @@ func (p load_implicit) do(ctx Context, op any) any {
 type loaded_abs struct{}
 type load_abs struct{ Context ; abs string }
 func (p *load_abs) ts(string) string {
-    var _, s = bases(2, p.abs, true)
-    return "{=abs "+s+" "+ts(p.Context)+"}"
+    return "{=abs "+bases(2, p.abs, true)+" "+ts(p.Context)+"}"
 }
 func (p *load_abs) do(ctx Context, op any) (_ any) {
     switch op.(type) {
@@ -109,15 +108,15 @@ func abs_ctx(ctx Context, abs string) Context {
 }
 
 type declare struct {
-    *project   // save loader.project -- the active project being loading
-    p *parser  // save loader.p
-    s []*scope // save loader.terminal.s
+    *project  // save loader.project -- the active project being loading
+    p *parser // save loader.p
+    s *scope  // save loader.term.s
 }
 
 func _loader(c Context) *loader { return cast[*loader](c) }
 
 type loader struct {
-    terminal      // .s -> declare.s
+    term             // .s -> declare.s
     p *parser        // -> declare.p
     project *project // -> declare.project -- the current project
 
@@ -127,15 +126,16 @@ type loader struct {
 
     verpre string // verbose prefix
 }
-func (l *loader) inner() Context { return &l.terminal }
+func (l *loader) inner() Context { return &l.term }
 func (l *loader) cast(t reflect.Type) Context {
     if reflect.TypeOf(l) == t { return l }
-    return l.terminal.cast(t)
+    return l.term.cast(t)
 }
 func (l *loader) ts(string) (s string) {
     s = "{=loader"
     if l.project != nil { s += " " + l.project.name }
-    s += " " + ts(l.Context) + "}"
+    if l.Context != nil { s += " " + ts(l.Context) }
+    s += "}"
     return
 }
 func (l *loader) do(ctx Context, op any) any {
@@ -146,7 +146,7 @@ func (l *loader) do(ctx Context, op any) any {
     case get_position:
         if l.p != nil { return l.p.Position() }
     }
-	return l.terminal.do(ctx, op)
+	return l.term.do(ctx, op)
 }
 
 type ul struct{ *universe ; *loader }
@@ -260,7 +260,7 @@ func nonTrivialDefsFromBase(ctx Context, p *project, name string) (dd []*def) {
     return
 }
 
-func (l ul) scope() *scope { return l.loader.scope() }
+func (l ul) scope() *scope { return l.loader.scope }
 func (l ul) search(ctx Context, spec string) (absPath string, isDir bool) {
     if checkpoints && l.project != nil && l.project.name == "variant.bootstrap" {
         defer func() {
@@ -646,7 +646,7 @@ func (l ul) include(ctx Context, val Value, opts include_opts) {
     return
 }
 
-func (l ul) openscope(comment string) (res []*scope) {
+func (l ul) openscope(comment string) *scope {
     if false && l.traceLaunch { defer un(l_trace(l_launch, "openscope")) }
 
     var pos Position
@@ -656,24 +656,26 @@ func (l ul) openscope(comment string) (res []*scope) {
         pos = l.p.Position()
     }
 
-    s := newscope(pos, l.scope(), l.project, comment)
-    res, l.s = l.s, append([]*scope{s}, l.s...)
-    return
+    var t = &term{} ; *t = l.term
+    l.term = term{t, newscope(pos, l.scope(), l.project, comment)}
+    return t.scope
 }
 
-func (l ul) closescope(scopes []*scope) {
+func (l ul) closescope(s *scope) {
     if false && l.traceLaunch { defer un(l_trace(l_launch, "closescope")) }
-
-    if true {
-        // nooooooooooooooooooop
-    } else if scope := l.scope(); scope == nil {
-        // nil scope
-    } else if s := scope.comment; strings.HasPrefix(s, "dir ") {
-        // Change the outer of dir scope to globe to avoid Finding symbols into the wrong context.
-        l.globe.SetScopeOuter(scope)
+    if x, y := l.term.Context.(*term); y {
+        var ctx Context = l.loader
+        if l.p != nil {
+            ctx = pc(l.loader, l.p.Position())
+        }
+        if x == &l.term {
+            erro(ctx, "conflict term: %s", x.comment).trace()
+        }
+        if x.scope != s {
+            erro(ctx, "conflict scope: %s != %s", x.comment, s.comment).trace()
+        }
+        l.term = *x
     }
-
-    l.s = scopes
 }
 
 // project example (base(var=value))
@@ -681,7 +683,7 @@ func (l ul) bases(ctx Context, implicitBase_ string, params ...Value) {
     if l.traceLaunch { defer un(l_trace(l_launch, "loader.bases")) }
 
     // For &(foobar) set from command line args
-    if true { ctx = closure_with(ctx, l.s) }
+    if true { ctx = closure_with(ctx, l.scope) }
 
     var implicitBases []Value
 
@@ -1139,7 +1141,7 @@ func (l ul) config_dir(ctx Context, pathname, linked string) (err error) {
     }
 
 	var sof, _ = filepath.Rel(workBaseDir, pathname)
-    defer l.closescope(l.openscope("config "+sof))
+    defer l.closescope(l.openscope(bases(2, sof, true)))
 
     var scope = l.scope()
 
@@ -1231,7 +1233,7 @@ func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (_ 
     }
 
 	var sof, _ = filepath.Rel(workBaseDir, path)
-    defer l.closescope(l.openscope("dir "+sof))
+    defer l.closescope(l.openscope(bases(2, sof, true)))
 
     // FIXES: use globe scope as outer to avoid chaining with the other unrelated projects.
     // It's important to name resolving for not interfering with other projects.
@@ -1288,7 +1290,7 @@ func (l ul) load(ctx Context, spec, absPath string, source any) {
     }
 
     if l.project != nil {
-        l.loader = &loader{terminal:terminal{ctx, []*scope{l.scope()}}}
+        l.loader = &loader{term:term{ctx, l.scope()}}
         ctx = l.loader
     }
 
@@ -1341,7 +1343,7 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
 
     var lo = l
     if l.project != nil /* && _loader(l.loader.Context) != nil */ {
-        lo.loader = &loader{terminal:terminal{ctx, []*scope{}}}
+        lo.loader = &loader{term:term{ctx,nil}}
         ctx = lo.loader
     }
     if !lo.sources(ctx, absDir, filter) {
@@ -1396,9 +1398,9 @@ func (p loadtext_ctx) do(ctx Context, op any) (_ any) {
 
 func (l ul) text(ctx Context, filename string, text string) Value {
     if l.globe.main == nil {
-        l.s[0] = l.globe.os.scope
+        l.loader.scope = l.globe.os.scope
     } else {
-        l.s[0] = l.globe.main.scope
+        l.loader.scope = l.globe.main.scope
     }
     return l.source(loadtext_ctx{ctx}, filename, text)
 }

@@ -6,7 +6,7 @@ foo_pos := &(foo.pos)
 foo.pos := foo
 
 foo_nest_1 := &(&(foo.tail))
-foo.tail := foo
+foo.tail   := foo
 foo_nest_2 := &(&(foo.tail))
 
 foo := foo

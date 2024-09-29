@@ -99,7 +99,7 @@ func (ctx *universe) ts(t string) string {
     var s = ts(ctx.Context)
     if  s == "{}"  {
         s, _ = filepath.Rel(workBaseDir, ctx.workdir)
-        _, s = bases(3, s, true)
+        s = bases(3, s, true)
         if s == "." || s == "" { return "{="+t+"}" }
     }
     return "{="+t+" "+s+"}"
@@ -134,7 +134,7 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
     case get_workdir: return ctx.workdir
     case get_project: if ctx.globe != nil { return ctx.globe.main }
     case get_scope: if ctx.scope != nil { return ctx.scope }
-    // case get_closure_scope:
+    // case get_closure_scopes:
     //     if m := ctx.globe.main; m != nil && m.scope != nil && false {
     //         return []*scope{ m.scope }
     //     }
@@ -653,7 +653,7 @@ func (_tx *universe) run() (result []Value) {
 }
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
-func (u *universe) load(ctx Context) (err error) {
+func (u *universe) load(ctx Context) {
     if u.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
 
     var base = u.workdir
@@ -668,7 +668,7 @@ func (u *universe) load(ctx Context) (err error) {
     }
 
     defer func(l *loader) { u.globe.top = l } (u.globe.top)
-    u.globe.top = &loader{terminal:terminal{ctx, []*scope{u.globe.scope}}}
+    u.globe.top = &loader{term:term{ctx, u.globe.scope}}
 
     l := ul{u, u.globe.top}
     l.parse_args(base, os.Args[1:]...)

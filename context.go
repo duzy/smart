@@ -65,7 +65,7 @@ type (
   get_position   struct{}
   get_project    struct{}
   get_scope      struct{}
-  get_closure_scope struct{}
+  get_closure_scopes struct{}
   get_param_name struct{ i int }
   get_parameters struct{}
   is_good_with   struct{ p property ; a []any }
@@ -793,9 +793,9 @@ func CommandLine() {
 
   if false { loadGrepCache(context) }
 
-  if err := context.load(context); err != nil {
-    erro(context, "loading work failed: %v", err)
-  } else if dia.flush(context) > 0 {
+  context.load(context)
+
+  if dia.flush(context) > 0 {
     prompt(context, "loading work got %d errors\n", dia.erros)
   } else if context.help {
     do_helpscreen(context)

@@ -16,7 +16,7 @@ import (
 
 type testcase_f1 func (*testcase)
 type testcase_f2 func (*testcase, string, string)
-type testcase   struct{ Context ; *testing.T ; run func(testcase_f1) ; srcs, chks map[string]struct{} }
+type testcase   struct{ Context ; *testing.T ; spec string ; run func(testcase_f1) ; srcs, chks map[string]struct{} }
 type testcase1  struct{ *testcase ; i any }
 type test_arg   struct{ name string; val any }
 type test_def_1 struct{}
@@ -58,10 +58,10 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	}
 
 	ctx := new_universe(ii...)
-	ctx.erros = total_erros
-	ctx.flushed = total_bytes
-	ctx.panicFailureOnErrosFlushed = false
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
+	ctx.panicFailureOnErrosFlushed = false
+	ctx.flushed = total_bytes
+	ctx.erros = total_erros
 	ctx.globe.main = nil
 	ctx.workdir = dir
 
@@ -82,11 +82,11 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 		ctx.paths = append(ctx.paths, testModulesPath)
 	}
 
-	res = &testcase{ctx, t, nil, make(map[string]struct{}), make(map[string]struct{})}
+	res = &testcase{ctx, t, spec, nil, make(map[string]struct{}), make(map[string]struct{})}
 
-	if e := ctx.load(res); e != nil {
-		erro(ctx, "%v", e).trace()
-	} else if m := ctx.globe.main; m == nil {
+	ctx.load(res)
+
+	if m := ctx.globe.main; m == nil {
 		erro(ctx, "%s", dir).trace()
 	} else if name != "" && m.name != name {
 		erro(ctx, "project %v != %v", m.name, name).trace()
@@ -98,7 +98,9 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 }
 
 func (tc *testcase) String() string { return ts(tc.Context) }
-func (tc *testcase) ts(string) string { return "{=test "+ts(tc.Context)+"}" }
+func (tc *testcase) ts(string) string {
+	return "{=test "+tc.spec+" "+ts(tc.Context)+"}"
+}
 func (tc *testcase) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_test_mode: return test_mode
@@ -123,26 +125,19 @@ func (tc *testcase) do(ctx Context, op any) (_ any) {
 
 func (tc *testcase) err(f string, i ...any) {
 	var ctx Context = tc
-	if i == nil {
-		var s string
-		if n := strings.Index(f, ":"); n > 0 {
-			s = strings.TrimSpace(f[:n])
-		} else {
-			s = strings.TrimSpace(f)
+argsloop:
+	for _, a := range i {
+		if x, y := a.(tst); y {
+			a = x.i
 		}
-		if o := tc.obj(s); o != nil {
-			ctx = pc(ctx, o)
-		}
-	} else {
-		for _, a := range i {
-			if x, y := a.(positioner); y {
-				ctx = pc(ctx,x)
-				break
-			}
+		switch t := a.(type) {
+		case positioner:
+			ctx = pc(ctx, t.Position())
+			break argsloop
 		}
 	}
 	erro(ctx, f, i...).debug(1, skipint{2})
-	flush(ctx) // to avoid affecting any other defer-traces after this err
+	if false { flush(ctx) }
 }
 
 func (tc *testcase) flush() {

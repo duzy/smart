@@ -201,7 +201,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 	} else if t := x.string(closure_with(ctx, proj.configure)); t == "" {
 		ctx.err("%v: %s", tst{x}, t)
 	} else if s == t {
-		ctx.err("%v", tst{x})
+		ctx.err("%v : %s == %s", x, s, t)
 	} else {
 		outtmp = x.string(ctx)
 		confsm = joinpath(outtmp, configuration_sm)

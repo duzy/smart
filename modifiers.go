@@ -526,7 +526,10 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result any) {
     // Closure the caller program, the context will be restored when execution is finished.
     var cc = pc.Context
     pc.Context = closure_with(cc)
-    assert(cast[*terminal](ctx) == pc.Context, "closure context: %v", ctx)
+
+    if false && cast[*term](ctx) != pc.Context {
+        erro(ctx, "wrong closure_with").trace()
+    }
 
     var proj = _project(ctx)
     var set = func(name string, val Value) (t Value) {

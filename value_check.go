@@ -78,6 +78,8 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
 		switch proj.spec {
 		case "testdata/value/4":
 			ex_check_value_4(ctx, p, _x, _o, _a, res, x, o, a)
+		case "testdata/value/closure":
+			ex_check_value_closure(ctx, p, _x, _o, _a, res, x, o, a)
 		case "testdata/value/optional":
 			ex_check_value_optional(ctx, p, _x, _o, _a, res, x, o, a)
 		case "testdata/value/bug_01":
@@ -208,6 +210,43 @@ func ex_check_value_optional(ctx Context, p, _x Value, _o, _a []Value, res, x *V
 	}
 }
 
+func ex_check_value_closure(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o, a *[]Value) {
+	if truly(ctx, propExFinal) { // ctx.(final)
+		switch v := *res ; p.String() {
+		case "&(foo.pre)":
+			if s := do(ctx, get_scope{}); s == nil {
+				erro(pc(ctx,p), "%v → %v : nil scope", p, *res).trace()
+			}
+			if cs := do(ctx, get_closure_scopes{}); cs == nil {
+				erro(pc(ctx,p), "%v → %v : nil closure scopes ; %v", p, *res, do(ctx, get_scope{})).trace()
+			}
+			if cs := closure_scopes(ctx); cs == nil {
+				erro(pc(ctx,p), "%v → %v : nil closure scopes ; %v", p, *res, do(ctx, get_closure_scopes{})).trace()
+			}
+			if cp := closure_projects(ctx); cp == nil {
+				erro(pc(ctx,p), "%v → %v : nil closure projects", p, *res).trace()
+			}
+			if o := closure_resolve(ctx, "foo.pre"); o == nil {
+				erro(pc(ctx,p), "%v → %v", p, *res).trace()
+			}
+			if ts(v) != "{=word foo}" {
+				erro(pc(ctx,v), "%v → %v", p, *res).trace()
+			}
+		case "&(foo.pos)":
+			if o := closure_resolve(ctx, "foo.pos"); o == nil {
+				erro(pc(ctx,p), "%v → %v", p, *res).trace()
+			}
+			if ts(v) != "{=word foo}" {
+				erro(pc(ctx,v), "%v → %v", p, *res).trace()
+			}
+		case "&(&(foo.tail))":
+			if ts(v) != "{=word foo}" {
+				erro(pc(ctx,v), "%v → %v", p, *res).trace()
+			}
+		}
+	}
+}
+
 func ex_check_value_4(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o, a *[]Value) {
 	switch s := ts(_x); s {
 	case "{=compound {=punct .} {=word test} {=punct .} {=word foreach}}":
@@ -223,17 +262,17 @@ func ex_check_value_4(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o
 		case "&(.test.x)":
 			if _project(ctx).resolveDef(ctx, ".test.x") == nil {
 				if t := ts(*x); s != t {
-					erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
+					erro(pc(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
 				}
 				if s, t := ts(*res), "{=closure "+ts(_x)+"}"; s != t {
-					erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
+					erro(pc(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
 				}
 			} else if truly(ctx, propExClosure) {
 				if s, t := ts(*x), "{=def .test.x}"; s != t {
-					erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
+					erro(pc(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
 				}
 				if s, t := ts(*res), "{=compound {=punct .} {=word test} {=punct .} {=word v}}"; s != t {
-					erro(ctx, "%s : %s != %s → %s", p, s, t, *res).trace()
+					erro(pc(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
 				}
 			}
 		}

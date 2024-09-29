@@ -607,7 +607,7 @@ func testClosure(ctx *testcase) {
 	} else if s := v.String(); s != "&(foo.pre)" {
 		ctx.err("%v → %s", tst{v}, s)
 	} else if s := v.string(ctx); s != "foo" {
-		ctx.err("%v → %s", tst{v}, s)
+		ctx.err("%v → %s ; %v", tst{v}, s, ts(ctx))
 	}
 
 	s = "foo_pos"
@@ -621,7 +621,7 @@ func testClosure(ctx *testcase) {
 	} else if s := v.String(); s != "&(foo.pos)" {
 		ctx.err("%v → %s", tst{v}, s)
 	} else if s := v.string(ctx); s != "foo" {
-		ctx.err("%v → %s", tst{v}, s)
+		ctx.err("%v → %s ; %v", tst{v}, s, ts(ctx))
 	}
 
 	s = "foo_nest_1"
@@ -635,7 +635,7 @@ func testClosure(ctx *testcase) {
 	} else if s := v.String(); s != "&(&(foo.tail))" {
 		ctx.err("%v → %s", tst{v}, s)
 	} else if s := v.string(ctx); s != "foo" {
-		ctx.err("%v → %s", tst{v}, s)
+		ctx.err("%v → %s ; %v", tst{v}, s, ts(ctx))
 	}
 
 	s = "foo_nest_2"
@@ -649,7 +649,7 @@ func testClosure(ctx *testcase) {
 	} else if s := v.String(); s != "&(&(foo.tail))" {
 		ctx.err("%v → %s", tst{v}, s)
 	} else if s := v.string(ctx); s != "foo" {
-		ctx.err("%v → %s", tst{v}, s)
+		ctx.err("%v → %s ; %v", tst{v}, s, ts(ctx))
 	}
 }
 

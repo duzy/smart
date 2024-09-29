@@ -56,9 +56,9 @@ type execution struct {
     prog    *program
     projs []*project
 
-    defval Value
-    defers   []Value
-    values   []Value
+    defval   Value
+    defers []Value
+    values []Value
 
     _env []*pair
     changedWD string
@@ -696,7 +696,7 @@ ForPC:
 
     if 0 <= loop {
         var t = auto_get(cc, "@")
-        if o := cast[*terminal](cc); o != nil { if v := auto_get(o, "@"); v != nil && eq(cc, v, t) {
+        if o := cast[*term](cc); o != nil { if v := auto_get(o, "@"); v != nil && eq(cc, v, t) {
             if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug() }
             // FIXES: skip execution as it's closure, for example:
             //
@@ -711,7 +711,7 @@ ForPC:
             return
         }}
 
-        prompt(ctx, "%v: %v: %v, %v\n", a[0], auto_get(cast[*terminal](cc), "@"), cc, cast[*terminal](cc))
+        prompt(ctx, "%v: %v: %v, %v\n", a[0], auto_get(cast[*term](cc), "@"), cc, cast[*term](cc))
         for i, t := range a { erro(ctx, "loop: %v: %v", i, t) }
         errostack(ctx, 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).trace()
     }

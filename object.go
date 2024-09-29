@@ -1034,7 +1034,7 @@ func (p *rule) traverse(ctx Context) {
     if _entry(ctx) == p {
         var proj = _project(ctx)
 
-        if c := cast[*terminal](ctx); c != nil {
+        if c := cast[*term](ctx); c != nil {
             if t := auto_get(c, "@"); t != nil && eq(ctx, t, target) {
                 if true { warn(ctx, "%v: %v: %v\n", proj, p, t) }
                 // FIXES: skip traversal as it's closure, for example:

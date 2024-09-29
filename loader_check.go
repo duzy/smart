@@ -302,11 +302,11 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		default:
 			var pos positioner = l.p
 			if pos == nil { pos = l.project }
-			if pos == nil {
-				erro(ctx, "%s : %s", l.project, tv(e)).trace()
-			} else {
-				erro(pc(ctx,pos), "%s : %s", l.project, tv(e)).trace()
+			switch typeof(e) {
+			case "errorString":
+				note(pc(ctx,pos), "%s", e)
 			}
+			erro(ctx, "%s %s", l.project, bases(3, filename, true)).trace()
 		}
 	}
 
