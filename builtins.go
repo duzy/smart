@@ -1282,7 +1282,7 @@ func (ctx *builtin_value) x() (res any) {
         var v Value
 
         if s := argstring(ctx, a); s != "" {
-            if d := p.resolveDef(ctx, s); d != nil { v = d.value }
+            if d := p.def(ctx, s); d != nil { v = d.value }
             if v == nil { v = auto_get(ctx, s) }
         }
 
@@ -4472,7 +4472,7 @@ func (p *project) strExpandConfig(ctx Context, s string) (result string, err err
 
         var d *def
         var val Value
-        if d = p.resolveDef(ctx, name); d == nil {
+        if d = p.def(ctx, name); d == nil {
             if true {
                 prompt(ctx, "%v: %v undefined\n", pos, name)
                 warnstack(ctx, 10, "in %v", p).debug(6)
@@ -4542,7 +4542,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
             name = str[ii[4]:ii[5]]
             hasv = ii[6] > ii[0] && ii[7] > ii[6]
         )
-        if d = p.resolveDef(ctx, name); d != nil {
+        if d = p.def(ctx, name); d != nil {
             if v := d.invoke(ctx, nil, nil); v == nil {
                 // noop, TODO: or #undef?
             } else if _, t := v.(*undef); t {

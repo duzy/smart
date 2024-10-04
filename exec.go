@@ -271,7 +271,7 @@ func (p *execLog) createWriter(file *os.File, dir, cmd string) {
 
 type execDiag struct {
   position Position
-  dt diagType
+  dt diagtype
   msg string
   num int
 }
@@ -414,7 +414,7 @@ func (p *exec_buffer) reportIncludedFrom() (res bool) {
   }
   return
 }
-func (p *exec_buffer) scanned(dt diagType, line, column int, msg string) (res *execDiag) {
+func (p *exec_buffer) scanned(dt diagtype, line, column int, msg string) (res *execDiag) {
   for _, rec := range p.scannedDiags {
     if rec.msg == "error" || rec.msg == "warning" { continue }
     if rec.msg == msg { rec.num += 1 ; return rec }

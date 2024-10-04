@@ -206,7 +206,7 @@ func testVariantTargetVars1(ctx *testcase) {
 	var p = _project(ctx)
 	var workspace, modules string
 
-	if d := p.resolveDef(ctx, "workspace"); d == nil {
+	if d := p.def(ctx, "workspace"); d == nil {
 		ctx.err("%v: workspace is nil", p)
 	} else if workspace = d.string(ctx); workspace == "" {
 		ctx.err("%v: %v", p, d)
@@ -217,12 +217,12 @@ func testVariantTargetVars1(ctx *testcase) {
 	}
 
 	for _, s := range []string {
-		"variant/do.smart",
-		"variant/bootstrap",
-		"variant/.target/do.smart",
 		"variant/.target/.base/do.smart",
+		"variant/.target/do.smart",
 		"variant/.target/darwin/do.smart",
 		"variant/.target/darwin/arm64/do.smart",
+		"variant/bootstrap",
+		"variant/do.smart",
 	}{
 		var t = filepath.Join(modules, s)
 		if _, y := ctx.chks[t]; !y {
@@ -2114,23 +2114,6 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		}
 	}
 
-	var cc1 = closure_with(ctx.Context, base.configure, base)
-	var cc2 = closure_with(ctx.Context, base, base.configure)
-	if inner(cc1) != ctx.Context {
-		ctx.err("%v != %v", typeof(inner(cc1)), typeof(ctx.Context))
-	} else if _scope(cc1) != base.configure.scope {
-		ctx.err("%v != %v", _project(cc1), base.configure)
-	} else if false && _project(cc1) != base.configure {
-		ctx.err("%v != %v", _project(cc1), base.configure)
-	}
-	if inner(cc2) != ctx.Context {
-		ctx.err("%v != %v", typeof(inner(cc2)), typeof(ctx.Context))
-	} else if _scope(cc2) != base.scope {
-		ctx.err("%v != %v", _project(cc2), base)
-	} else if false && _project(cc2) != base {
-		ctx.err("%v != %v", _project(cc2), base)
-	}
-
 	if v := ctx.val("/", proj); v == nil {
 		ctx.err("/")
 	} else if _, y := v.(*path); !y {
@@ -2259,6 +2242,15 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v %v", typeof(v), v)
 	}
 
+	var cc1 = closure_with(ctx.Context, base.configure, base)
+	var cc2 = closure_with(ctx.Context, base, base.configure)
+	if s, t := ts(cc1), "{=term llvm.Config {=term configure {=term arm64-darwin {=universe …/llvm/config/arm64-darwin}}}}"; s != t {
+		ctx.err("%s != %s", s, t)
+	}
+	if s, t := ts(cc2), "{=term configure {=term llvm.Config {=term arm64-darwin {=universe …/llvm/config/arm64-darwin}}}}"; s != t {
+		ctx.err("%s != %s", s, t)
+	}
+
 	var remnant string
 	var remnant_val = ctx.val("rel.remnant")
 	if v := remnant_val; v == nil {
@@ -2306,9 +2298,9 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	}
 
 	s = "rel.remnant"
-	if d := proj.resolveDef(cc1, s); d == nil {
+	if d := proj.def(cc1, s); d == nil {
 		ctx.err("%v: %s", proj, s)
-	} else if c := base.resolveDef(cc1, s); c != d {
+	} else if c := base.def(cc1, s); c != d {
 		ctx.err("%v : %v", tst{d}, tst{c})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})

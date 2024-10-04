@@ -26,29 +26,29 @@ func (p *project) configuration_sm_check(ctx Context, f *file) {
 			erro(ctx, "%v : %v", p, p.spec).trace()
 		}
 		if strings.HasPrefix(p.absPath, "/Volumes/workspace/") {
-			if d := p.resolveDef(ctx, "workspace"); d == nil || d.value == nil {
+			if d := p.def(ctx, "workspace"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workspace}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
 			}
-			if d := p.resolveDef(ctx, "workout"); d == nil || d.value == nil {
+			if d := p.def(ctx, "workout"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workout}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
 			} else {
 				workout = d.string(ctx)
 			}
-			if d := p.resolveDef(ctx, "workext"); d == nil || d.value == nil {
+			if d := p.def(ctx, "workext"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workspace} {=word external}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
 			}
-			if d := p.resolveDef(ctx, "rel.chop"); d == nil || d.value == nil {
+			if d := p.def(ctx, "rel.chop"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=list {=path {=percpat {=null} {=percpat {=null} {=null}}} {=compound {=punct .} {=word smart}} {=word modules} {=punct tail}} {=path {=punct root} {=word Volumes} {=word workspace} {=word .smart} {=word modules} {=punct tail}} {=path {=punct root} {=word Volumes} {=word workspace} {=word .smart} {=punct tail}} {=path {=punct root} {=word Volumes} {=word workspace} {=punct tail}}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
 			}
-			if d := p.resolveDef(ctx, "rel.remnant"); d == nil || d.value == nil {
+			if d := p.def(ctx, "rel.remnant"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=delegate {=builtin trim-prefix} {=list {=closure {=def rel.chop}}} {=list {=closure {=def /}}}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
@@ -66,7 +66,7 @@ func (p *project) configuration_sm_check(ctx Context, f *file) {
 					}
 				}
 			}
-			if d := p.resolveDef(ctx, "outtmp"); d == nil || d.value == nil {
+			if d := p.def(ctx, "outtmp"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workout} {=closure {=def rel.remnant}}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
@@ -130,14 +130,14 @@ func (p *project) configuration_sm_check(ctx Context, f *file) {
 		if !strings.HasSuffix(p.configure.spec, ".smart/modules/configure") {
 			erro(ctx, "%v : %v", p, p.configure.spec).trace()
 		}
-		if d := p.resolveDef(ctx, "variant"); d == nil || d.value == nil {
+		if d := p.def(ctx, "variant"); d == nil || d.value == nil {
 			erro(ctx, "%v : %v", p, d).trace()
 		} else if ts(d.value) != "{=path {=word darwin} {=word arm64} {=word bootstrap}}" {
 			erro(ctx, "%v : %v", p, ts(d)).trace()
 		} else if d.string(ctx) != "darwin/arm64/bootstrap" {
 			erro(ctx, "%v : %v", p, d.string(ctx)).trace()
 		}
-		if d := p.resolveDef(ctx, "variant.tag"); d == nil || d.value == nil {
+		if d := p.def(ctx, "variant.tag"); d == nil || d.value == nil {
 			erro(ctx, "%v : %v", p, d).trace()
 		} else if ts(d.value) != "{=word bootstrap}" {
 			erro(ctx, "%v : %v", p, ts(d)).trace()
@@ -147,43 +147,43 @@ func (p *project) configuration_sm_check(ctx Context, f *file) {
 			tag = s
 		}
 		if strings.HasPrefix(p.absPath, "/Volumes/workspace/") {
-			if d := p.resolveDef(ctx, "workspace"); d == nil || d.value == nil {
+			if d := p.def(ctx, "workspace"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			}
-			if d := p.resolveDef(ctx, "workout"); d == nil || d.value == nil {
+			if d := p.def(ctx, "workout"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else {
 				workout = d.string(ctx)
 			}
-			if d := p.resolveDef(ctx, "workext"); d == nil || d.value == nil {
+			if d := p.def(ctx, "workext"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) == "" {
 				erro(ctx, "%v : %v", p, ts(d)).trace()
 			}
-			if d := p.resolveDef(ctx, "rel.chop"); d == nil || d.value == nil {
+			if d := p.def(ctx, "rel.chop"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if s, t := d.string(ctx), srcdir+"/"; s != t {
 				erro(ctx, "%v : %s != %s", p, s, t).trace()
 			}
-			if d := p.resolveDef(ctx, "rel.remnant"); d == nil || d.value == nil {
+			if d := p.def(ctx, "rel.remnant"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, ts(d)).trace()
 			} else if ts(d.value) != "{=delegate {=builtin trim-prefix} {=list {=closure {=def rel.chop}}} {=list {=closure {=def /}}}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
 			} else if v := d.value.expand(final{ctx}); ts(v) != "{=path {=word testdata} {=word configuration}}" {
-				erro(ctx, "%v : %v → %v ; %s ; %v", p, d.value, v, srcdir, p.resolveDef(ctx, "/").value).trace()
+				erro(ctx, "%v : %v → %v ; %s ; %v", p, d.value, v, srcdir, p.def(ctx, "/").value).trace()
 			} else if s, t := d.string(ctx), filepath.Join("testdata", "configuration"); s != t {
 				erro(ctx, "%v : %s != %s", p, s, t).trace()
 			} else {
 				rel = s
 			}
-			if d := p.resolveDef(ctx, "target.triple"); d == nil || d.value == nil {
+			if d := p.def(ctx, "target.triple"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=delegate {=builtin join} {=list {=compound {=closure {=def target.arch}} {=closure {=compound {=word target} {=punct .} {=word sub}}}} {=closure {=def target.vendor}} {=closure {=def target.sys}} {=closure {=def target.abi}}} {=list {=flag {=null}}}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
 			} else {
 				triple = d.string(ctx)
 			}
-			if d := p.resolveDef(ctx, "target.out"); d == nil || d.value == nil {
+			if d := p.def(ctx, "target.out"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workout} {=closure {=def target.triple}} {=closure {=compound {=word variant} {=punct .} {=word tag}}}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
@@ -192,7 +192,7 @@ func (p *project) configuration_sm_check(ctx Context, f *file) {
 			} else {
 				out = s
 			}
-			if d := p.resolveDef(ctx, "target.tmp"); d == nil || d.value == nil {
+			if d := p.def(ctx, "target.tmp"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=path {=closure {=def target.out}} {=word tmp}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
@@ -201,7 +201,7 @@ func (p *project) configuration_sm_check(ctx Context, f *file) {
 			} else {
 				tmp = s
 			}
-			if d := p.resolveDef(ctx, "outtmp"); d == nil || d.value == nil {
+			if d := p.def(ctx, "outtmp"); d == nil || d.value == nil {
 				erro(ctx, "%v : %v", p, d).trace()
 			} else if ts(d.value) != "{=path {=closure {=def target.tmp}} {=closure {=def rel.remnant}}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
@@ -235,7 +235,7 @@ func (p *project) configuration_sm_check(ctx Context, f *file) {
 		if !strings.HasSuffix(p.configure.spec, "testdata/configuration/custom/configure") {
 			erro(ctx, "%v : %v", p, p.configure.spec).trace()
 		}
-		if d := p.configure.resolveDef(ctx, "foo"); d == nil || d.value == nil{
+		if d := p.configure.def(ctx, "foo"); d == nil || d.value == nil{
 			erro(ctx, "%v : %v", p, d).trace()
 		} else if ts(d.value) != "{=self configure}" {
 			erro(ctx, "%v : %v", p, ts(d.value)).trace()
@@ -286,7 +286,7 @@ func unmap_check(ctx *unmap, c *valcache, key any) {
 				var t = fmt.Sprintf("%s", a)
 				if b = s == t; b { break }
 			}
-			if !b { erro(ctx, "%v %v %v %v", typeof(key), key, ctx.a, c).trace() }
+			if !b { erro(ctx, "%v %v %v", tv(key), ctx.a, c).trace() }
 		}
 		switch x := key.(type) {
 		case flag:
@@ -297,15 +297,19 @@ func unmap_check(ctx *unmap, c *valcache, key any) {
 			}
 
 			var ss = cc.keys()
-			if len(ss) == 0 {
-				erro(ctx, "%v", x).trace()
-			}
+			if len(ss) == 0 { erro(ctx, "%v", x).trace() }
 
 			var v = x.Value
 			var k = v.String()
-			if _, y = ss[k]; !y {
-				erro(ctx, "%v", v).trace()
-			}
+			if _, y = ss[k]; !y { erro(ctx, "%v", v).trace() }
 		}
+	}
+
+	spec, _ := do(ctx, get_include_spec{}).(string)
+
+	switch spec {
+	case "configure/.base/.template":
+		note(ctx, "%v %v", tv(key), c)
+		note(ctx, "%v", ts(ctx)).debug(5)
 	}
 }

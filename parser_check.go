@@ -8,6 +8,7 @@ package smart
 import (
 	"path/filepath"
 	"strings"
+	"fmt"
 )
 
 func (l ul) expr_check(ctx Context, _x *Value) {
@@ -201,61 +202,61 @@ func def_idents_check(ctx Context, idents, value Value, defs []*def) {
 func (l ul) files_check(ctx Context) {
 	switch p := l.project; p.name {
 	case "variant.target.base":
-		if d := p.resolveDef(ctx, "variant.tag"); d == nil || d.value == nil {
+		if d := p.def(ctx, "variant.tag"); d == nil || d.value == nil {
 			erro(ctx, "variant.tag is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "variant.name"); d == nil || d.value == nil {
+		if d := p.def(ctx, "variant.name"); d == nil || d.value == nil {
 			erro(ctx, "variant.name is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "prefix"); d == nil || d.value == nil {
+		if d := p.def(ctx, "prefix"); d == nil || d.value == nil {
 			erro(ctx, "prefix is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outtmp"); d == nil || d.value == nil {
+		if d := p.def(ctx, "outtmp"); d == nil || d.value == nil {
 			erro(ctx, "outtmp is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outinc"); d == nil || d.value == nil {
+		if d := p.def(ctx, "outinc"); d == nil || d.value == nil {
 			erro(ctx, "outinc is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outobj"); d == nil || d.value == nil {
+		if d := p.def(ctx, "outobj"); d == nil || d.value == nil {
 			erro(ctx, "outobj is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outlib"); d == nil || d.value == nil {
+		if d := p.def(ctx, "outlib"); d == nil || d.value == nil {
 			erro(ctx, "outlib is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outbin"); d == nil || d.value == nil {
+		if d := p.def(ctx, "outbin"); d == nil || d.value == nil {
 			erro(ctx, "outbin is undefined").trace()
 		}
 	case "variant.target":
-		if d := p.resolveDef(ctx, "variant.tag"); d == nil || d.value == nil {
+		if d := p.def(ctx, "variant.tag"); d == nil || d.value == nil {
 			erro(ctx, "variant.tag is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "variant.name"); d == nil || d.value == nil {
+		if d := p.def(ctx, "variant.name"); d == nil || d.value == nil {
 			erro(ctx, "variant.name is undefined").trace()
 		}
 	case "app.base":
-		if d := p.resolveDef(ctx, "variant.tag"); d == nil || d.value == nil {
+		if d := p.def(ctx, "variant.tag"); d == nil || d.value == nil {
 			erro(ctx, "variant.tag is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "variant.name"); d == nil || d.value == nil {
+		if d := p.def(ctx, "variant.name"); d == nil || d.value == nil {
 			erro(ctx, "variant.name is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outinc"); d == nil {
+		if d := p.def(ctx, "outinc"); d == nil {
 			erro(ctx, "outinc is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outobj"); d == nil {
+		if d := p.def(ctx, "outobj"); d == nil {
 			erro(ctx, "outobj is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outlib"); d == nil {
+		if d := p.def(ctx, "outlib"); d == nil {
 			erro(ctx, "outlib is undefined").trace()
 		}
 	case "lib.std":
-		if d := p.resolveDef(ctx, "outinc"); d == nil {
+		if d := p.def(ctx, "outinc"); d == nil {
 			erro(ctx, "outinc is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outobj"); d == nil {
+		if d := p.def(ctx, "outobj"); d == nil {
 			erro(ctx, "outobj is undefined").trace()
 		}
-		if d := p.resolveDef(ctx, "outlib"); d == nil {
+		if d := p.def(ctx, "outlib"); d == nil {
 			erro(ctx, "outlib is undefined").trace()
 		}
 	}
@@ -268,8 +269,8 @@ func (l ul) files_check_2(ctx Context, path Value, patts, paths []Value, ms []fi
 			erro(ctx, "wrong paths: %v", paths).trace()
 		}
 
-		var srcinc = l.project.resolveDef(ctx, "srcinc").string(ctx)
-		var outinc = l.project.resolveDef(ctx, "outinc").string(ctx)
+		var srcinc = l.project.def(ctx, "srcinc").string(ctx)
+		var outinc = l.project.def(ctx, "outinc").string(ctx)
 		for _, m := range ms {
 			if x, y := m.pattern.(*file); y {
 				var t = l.project.file(ctx, x.name)
@@ -318,26 +319,26 @@ func (l ul) parse_file_check_1(ctx Context, abs, rel, tmp string) {
 		if len(p.bases) != 0 {
 			erro(ctx, "%v: %v", p, p.bases).trace()
 		}
-		if d := p.resolveDef(ctx, "workspace"); d == nil || d.value == nil {
+		if d := p.def(ctx, "workspace"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v %v", p, rel, d).trace()
 		} else if x, y := d.value.(*path); !y {
 			erro(ctx, "%v: %v", p, tst{d.value}).trace()
 		} else if s, t := x.string(ctx), dirs(3, abs); s != t {
 			erro(ctx, "%v: %v %v", p, s, t).trace()
 		}
-		if d := p.resolveDef(ctx, "workout"); d == nil || d.value == nil {
+		if d := p.def(ctx, "workout"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v %v", p, rel, d).trace()
 		} else if s, t := d.string(ctx), dirs(4, abs)+"/workout"; s != t {
 			erro(ctx, "%v: %v %v", p, s, t).trace()
 		} else {
 			workout = s
 		}
-		if d := p.resolveDef(ctx, "workext"); d == nil || d.value == nil {
+		if d := p.def(ctx, "workext"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v %v", p, rel, d).trace()
 		} else if s, t := d.string(ctx), dirs(3, abs)+"/external"; s != t {
 			erro(ctx, "%v: %v %v", p, s, t).trace()
 		}
-		if d := p.resolveDef(ctx, "CTD"); d == nil || d.value == nil {
+		if d := p.def(ctx, "CTD"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v %v", p, rel, d).trace()
 		} else if false && ts(d.value) != "{=closure {=word outtmp}}" {
 			erro(ctx, "%v: %v", p, d).trace()
@@ -351,10 +352,10 @@ func (l ul) parse_file_check_1(ctx Context, abs, rel, tmp string) {
 		if p.bases[0].name != "general" {
 			erro(ctx, "%v: %v", p, p.bases[0]).trace()
 		}
-		if p.resolveDef(ctx, "workout") != p.bases[0].resolveDef(ctx, "workout") {
+		if p.def(ctx, "workout") != p.bases[0].def(ctx, "workout") {
 			erro(ctx, "%v: workout", p).trace()
 		}
-		if d := p.resolveDef(ctx, "workout"); d == nil || d.value == nil {
+		if d := p.def(ctx, "workout"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v %v", p, rel, d).trace()
 		} else if s, t := d.value.string(ctx), dirs(6, abs)+"/workout"; s != t {
 			erro(ctx, "%v: %v %v", p, s, t).trace()
@@ -373,13 +374,13 @@ func (l ul) parse_file_check_new_project(ctx Context) {
 		if b := p.bases[0]; b.name != "app.base" {
 			erro(ctx, "%v: wrong bases[0]", b).trace()
 		}
-		if d := p.resolveDef(ctx, "outinc"); d == nil || d.value == nil {
+		if d := p.def(ctx, "outinc"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v", p, d).trace()
 		}
-		if d := p.resolveDef(ctx, "outobj"); d == nil || d.value == nil {
+		if d := p.def(ctx, "outobj"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v", p, d).trace()
 		}
-		if d := p.resolveDef(ctx, "outlib"); d == nil || d.value == nil {
+		if d := p.def(ctx, "outlib"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v", p, d).trace()
 		}
 	}
@@ -396,12 +397,12 @@ func (l ul) parse_file_check_2(ctx Context, filename string) {
 
 	switch p.name {
 	case "general":
-		if d := p.resolveDef(ctx, "workout"); d == nil || d.value == nil {
+		if d := p.def(ctx, "workout"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v", p, d).trace()
 		} else {
 			workout = d.string(ctx)
 		}
-		if d := p.resolveDef(ctx, "CTD"); d == nil || d.value == nil {
+		if d := p.def(ctx, "CTD"); d == nil || d.value == nil {
 			erro(ctx, "%v: %v", p, d).trace()
 		} else if false && ts(d.value) != "{=closure {=word outtmp}}" {
 			erro(ctx, "%v: %v", p, d).trace()
@@ -498,9 +499,36 @@ func (l ul) rule_check(ctx Context, targets []Value, res *Value) {
 
 	fn := l.p.scanner.file.Name()
 
+	if strings.HasSuffix(fn, "/configure/.base/.template") {
+		target := targets[0]
+		t := target.string(ctx)
+		if strings.HasPrefix(t, "HAVE_") {
+			name := strings.TrimPrefix(t, "HAVE_")
+			if e := l.project.unmap_entries(ctx, target, nil); len(e) != 1 {
+				erro(pc(ctx,target), "%v : no such entry : %s", tv(target), t)
+				note(pc(ctx,target), "%v", &l.project.entries).trace()
+			} else if e := l.project._entries(ctx, target); len(e) != 1 {
+				erro(pc(ctx,target), "%v : no such entry : %s", tv(target), t)
+				note(pc(ctx,target), "%v", &l.project.entries).trace()
+			} else if x, y := e[0].(rule_name); !y {
+				erro(pc(ctx,target), "%v %v", tv(target), tv(e[0])).trace()
+			} else if len(x.program) != 1 {
+				erro(pc(ctx,target), "%v", tv(target)).trace()
+			} else if p := x.program[0]; len(p.recipes) != 1 {
+				erro(pc(ctx,target), "%v : %v", tv(target), tv(p.recipes)).trace()
+			} else {
+				var t = fmt.Sprintf("$(or $(HAVE_FUN_%s),$(HAVE_SYM_%s))", name, name)
+				if r := p.recipes[0]; r.String() != t {
+					erro(pc(ctx,target), "%v : %v", tv(target), tv(r)).trace()
+				}
+			}
+		}
+	}
+
 	switch l.project.name {
 	case "configure.base":
-		switch t := targets[0].String(); t {
+		t := targets[0].String()
+		switch t {
 		case "-library-c":
 		}
 

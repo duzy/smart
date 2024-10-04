@@ -441,7 +441,7 @@ func (p *project) tempdir(ctx Context) (_ string) {
   var d *def
 
   for _, s := range []string{"outtmp", ".tmp", "CTD"} {
-    if d = p.resolveDef(ctx, s); d != nil { break }
+    if d = p.def(ctx, s); d != nil { break }
   }
 
   if d == nil { erro(ctx, "%v: tmp is not defined", p).trace() }
@@ -460,7 +460,7 @@ func (p *project) tempfile(ctx Context, name string) (f *file) {
     if f.dir != d { erro(ctx, "%v: %s != %s", p, f.dir, d).trace() }
     if truly(ctx, is_test_mode{}) {
       if p.name == "testdefaultconfigure" {
-        var t = p.resolveDef(ctx, "outtmp")
+        var t = p.def(ctx, "outtmp")
         if t == nil {
           erro(ctx, "%s: %v : %s", p.name, d, f.dir).trace()
         }
@@ -487,7 +487,7 @@ func (p *project) configuration_sm(ctx Context) (f *file) {
 func project_entry(c Context, s any, a ...bool) entry { return _project(c).entry(c, s, a...) }
 func project_resolve(c Context, s string) object { return _project(c).resolve(c, s) }
 
-func (p *project) resolveDef(ctx Context, name string) (res *def) {
+func (p *project) def(ctx Context, name string) (res *def) {
   if o := p.resolve(ctx, name); o != nil { res, _ = o.(*def) }
   return
 }
@@ -521,7 +521,7 @@ func (p *project) resolve(ctx Context, name string) (obj object) {
 func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) {
   entries = p.unmap_entries(ctx, name, nil)
 
-  if p.configure != nil && isConfigure(ctx) {
+  if false && p.configure != nil && isConfigure(ctx) {
     entries = append(entries, p.configure._entries(ctx, name, true)...)
   }
 
@@ -537,9 +537,7 @@ func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) 
     }
   }
 
-  if true { return /* FAST */ }
-
-  if entries == nil { /* SLOW */
+  if false && entries == nil { // NOTE: this would be SLOW
     for _, u := range p.use.list {
       t := u.project._entries(ctx, name, alwaysResolveBases)
       if t != nil { entries = append(entries, t...); break }

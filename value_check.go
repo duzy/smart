@@ -260,7 +260,7 @@ func ex_check_value_4(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o
 	case "{=compound {=punct .} {=word test} {=punct .} {=word x}}":
 		switch p.String() {
 		case "&(.test.x)":
-			if _project(ctx).resolveDef(ctx, ".test.x") == nil {
+			if _project(ctx).def(ctx, ".test.x") == nil {
 				if t := ts(*x); s != t {
 					erro(pc(ctx,p), "%s : %s != %s → %s", p, s, t, *res).trace()
 				}
@@ -899,7 +899,7 @@ func (p *project) unmap_files_check(ctx Context, _k any, res *[]filemap_name) {
 		switch k {
 		case "llvm/Config/llvm-config.h.cmake":
 			var srcinc string
-			if d := p.resolveDef(ctx, "srcinc"); d == nil {
+			if d := p.def(ctx, "srcinc"); d == nil {
 				erro(ctx, "%v %v %v", p.name, typeof(k), k).trace()
 			} else {
 				srcinc = d.string(ctx)
@@ -915,7 +915,7 @@ func (p *project) unmap_files_check(ctx Context, _k any, res *[]filemap_name) {
 			}
 		case "llvm/Config/llvm-config.h":
 			var outinc string
-			if d := p.resolveDef(ctx, "outinc"); d == nil {
+			if d := p.def(ctx, "outinc"); d == nil {
 				erro(ctx, "%v %v %v", p.name, typeof(k), k).trace()
 			} else {
 				outinc = d.string(ctx)
@@ -936,7 +936,7 @@ func (p *project) unmap_files_check(ctx Context, _k any, res *[]filemap_name) {
 func select_file_1_check(ctx Context, m filemap_name, _res **file) {
 	switch f, p := *_res, _project(ctx); f.name {
 	case "llvm/Config/llvm-config.h.cmake":
-		s := p.resolveDef(ctx, "srcinc").string(ctx)
+		s := p.def(ctx, "srcinc").string(ctx)
 		if x, y := m.pattern.(*file); !y {
 			erro(ctx, "%v", ts(m.pattern)).trace()
 		} else if f.name != x.name {
@@ -949,7 +949,7 @@ func select_file_1_check(ctx Context, m filemap_name, _res **file) {
 			erro(ctx, "%s != %s", f.dir, s).trace()
 		}
 	case "llvm/Config/llvm-config.h":
-		s := p.resolveDef(ctx, "outinc").string(ctx)
+		s := p.def(ctx, "outinc").string(ctx)
 		if x, y := m.pattern.(*file); !y {
 			erro(ctx, "%v", ts(m.pattern)).trace()
 		} else if f.name != x.name {
@@ -969,11 +969,11 @@ func select_files_check(ctx Context, m []filemap_name, res *[]*file) {
 
 	switch f := (*res)[0]; f.name {
 	case "llvm/Config/llvm-config.h.cmake":
-		if s := p.resolveDef(ctx, "srcinc").string(ctx); f.dir != s {
+		if s := p.def(ctx, "srcinc").string(ctx); f.dir != s {
 			erro(ctx, "%s != %s", f.dir, s).trace()
 		}
 	case "llvm/Config/llvm-config.h":
-		if s := p.resolveDef(ctx, "outinc").string(ctx); f.dir != s {
+		if s := p.def(ctx, "outinc").string(ctx); f.dir != s {
 			erro(ctx, "%s != %s", f.dir, s).trace()
 		}
 	}
@@ -994,11 +994,11 @@ func (a as) file_check(ctx Context, projs []*project, v Value, f **file) {
 			errostack(ctx, 5).trace()
 		}
 	} else if (*f).name == "llvm/Config/llvm-config.h.cmake" {
-		if s := p.resolveDef(ctx, "srcinc").string(ctx); (*f).dir != s {
+		if s := p.def(ctx, "srcinc").string(ctx); (*f).dir != s {
 			erro(ctx, "%s != %s", (*f).dir, s).trace()
 		}
 	} else if (*f).name == "llvm/Config/llvm-config.h" {
-		if s := p.resolveDef(ctx, "outinc").string(ctx); (*f).dir != s {
+		if s := p.def(ctx, "outinc").string(ctx); (*f).dir != s {
 			erro(ctx, "%s != %s", (*f).dir, s).trace()
 		}
 	}
@@ -1026,11 +1026,11 @@ func (a as) fullname_check(ctx Context, projs []*project, t Value, res fullname)
 			if x, y := res.Value.(*file); !y {
 				erro(ctx, "%v", res.Value).trace()
 			} else if x.name == "llvm/Config/llvm-config.h.cmake" {
-				if s := p.resolveDef(ctx, "srcinc").string(ctx); x.dir != s {
+				if s := p.def(ctx, "srcinc").string(ctx); x.dir != s {
 					erro(ctx, "%s != %s", x.dir, s).trace()
 				}
 			} else if x.name == "llvm/Config/llvm-config.h" {
-				if s := p.resolveDef(ctx, "outinc").string(ctx); x.dir != s {
+				if s := p.def(ctx, "outinc").string(ctx); x.dir != s {
 					erro(ctx, "%s != %s", x.dir, s).trace()
 				}
 			}

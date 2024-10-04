@@ -54,7 +54,7 @@ const (
 )
 
 type (
-  act_count_dia  struct{ t []diagType }
+  act_count_dia  struct{ t []diagtype }
   act_on_erros   struct{ i int }
   act_dirt       struct{ a []Value }
   act_traversed  struct{ v Value }
@@ -94,8 +94,7 @@ func _workdir(ctx Context) (_ string) {
   }
 }
 
-func count_error(ctx Context) int { return count_diag(ctx, diagError) }
-func count_diag(ctx Context, t ...diagType) (i int) {
+func count_diag(ctx Context, t ...diagtype) (i int) {
   i, _ = do(ctx, act_count_dia{t}).(int)
   return
 }
@@ -282,16 +281,16 @@ func db(ctx Context, ss ...string) (res bool) {
 }
 
 const (
-  diagInfo diagType = iota
+  diagInfo diagtype = iota
   diagWarn
   diagError
   diagPrompt
   diagPromptLine
 )
 
-type diagType int
+type diagtype int
 type diagpoint struct {
-  dt diagType
+  dt diagtype
   position Position
   message string
   stack []byte // see also debug.Stack()
@@ -371,14 +370,14 @@ type no_recover struct{}
 
 func trace(ctx Context, args ...any) {
   var evoke_loop trace_err_evoke_loop
-  var rec = true
+  var recov = true
   for _, a := range args {
     switch t := a.(type) {
-    case no_recover: rec = false
+    case no_recover: recov = false
     case trace_err_evoke_loop: evoke_loop = t
     }
   }
-  if rec { defer trace_recover(ctx) }
+  if recov { defer trace_recover(ctx) }
   if x, y := do(ctx, act_traced{}).(int); y && x > 0 {
     if evoke_loop.Value == nil {
       panic(trace_errors{ctx, x})
@@ -397,26 +396,28 @@ var   diagnostic_limit_bytes = 1_000_000
 
 func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
 
+type add_diag struct { dt diagtype; fmt string; a []any }
 type diagnostic struct {
   Context
   sync.Mutex
   newlines []*diagpoint
   points   []*diagpoint
   nested [][]*diagpoint // TODO: this shall perish
-  erros int // number of flushed erros
+  erros   int // number of flushed erros
   flushed int // in bytes
-  traced int
+  traced  int
 }
 func (d *diagnostic) aquire() (unlock func()) { d.Lock(); return func(){ d.Unlock() }}
 func (d *diagnostic) cast(t reflect.Type) Context { return implcast(d,t) }
-func (d *diagnostic) do(ctx Context, op any) any {
+func (d *diagnostic) do(ctx Context, op any) (_ any) {
   switch t := op.(type) {
-  case act_count_dia: return d.count(t.t...)
-  case flush_diags: return d.flush(ctx)
-  case act_traced: if i := d.counterror(); i > 0 { d.traced += 1 ; return i }
   case property: if t&propErros != 0 { return d.erros }
+  case flush_diags :  return d.flush(ctx)
+  case act_count_dia: return d.count(t.t...)
+  case act_traced  : if i := d.count(diagError); i > 0 { d.traced += 1 ; return i }
+  case add_diag: return diagtracer{ d.point(ctx, t.dt, t.fmt, t.a...), ctx }
   }
-  if d.Context == nil { return nil }
+  if d.Context == nil { return }
   return d.Context.do(ctx, op)
 }
 func (d *diagnostic) reset() { defer d.aquire()(); d.points = []*diagpoint{} }
@@ -429,14 +430,16 @@ func (d *diagnostic) add(point *diagpoint) *diagpoint {
     }
   }
 
-  if false && 0 < diagnostic_limit_bytes {
-    var x = d.flushed
-    for _, t := range append(d.points, d.newlines...) {
-      x += 1 + bytes.Count(t.stack, []byte("\n"))
-    }
-    if diagnostic_limit_bytes < x {
-      d.flushed = 0 // reset to avoid causing next panics
-      panic(too_many_diagnostics{x})
+  if false {
+    if 0 < diagnostic_limit_bytes {
+      var x = d.flushed
+      for _, t := range append(d.points, d.newlines...) {
+        x += 1 + bytes.Count(t.stack, []byte("\n"))
+      }
+      if diagnostic_limit_bytes < x {
+        d.flushed = 0 // reset to avoid causing next panics
+        panic(too_many_diagnostics{x})
+      }
     }
   }
 
@@ -458,13 +461,11 @@ func (d *diagnostic) nest(points []*diagpoint) {
   defer d.aquire()()
   d.nested = append(d.nested, points)
 }
-func (d *diagnostic) point(ctx Context, dt diagType, f string, args ...any) *diagpoint {
+func (d *diagnostic) point(ctx Context, dt diagtype, f string, args ...any) *diagpoint {
   if dt != diagPrompt { f = strings.TrimSpace(f) }
   return d.add(&diagpoint{dt, _position(ctx), fmt.Sprintf(f, args...), nil})
 }
-func (d *diagnostic) error() bool { return d.counterror() > 0 }
-func (d *diagnostic) counterror() int { return d.count(diagError) }
-func (d *diagnostic) count(dt ...diagType) (errs int) {
+func (d *diagnostic) count(dt ...diagtype) (errs int) {
   defer d.aquire()()
   for _, d := range d.points {
     for _, t := range dt {
@@ -476,19 +477,22 @@ func (d *diagnostic) count(dt ...diagType) (errs int) {
 func (d *diagnostic) flush(ctx Context) (errs int) {
   defer func() { if d.erros += errs ; errs > 0 { do(ctx, act_on_erros{errs}) }} ()
 
-  var flush = func(p *diagpoint, pend bool) bool {
-    defer func() {
-      if x, y := diagnostic_limit_erros, d.erros; 0 < x && x < y {
-        if false { d.erros = 0 } // reset to avoid causing next panics
-        panic(too_many_errors{y})
-      }
-      if x, y := diagnostic_limit_bytes, d.flushed; 0 < x && x < y {
-        if false { d.flushed = 0 } // reset to avoid causing next panics
-        panic(too_many_diagnostics{y})
-      }
-    } ()
+  var restrict_diagnostics = func() {
+    if x, y := diagnostic_limit_erros, d.erros; 0 < x && x < y {
+      if false { d.erros = 0 } // reset to avoid causing next panics
+      panic(too_many_errors{y})
+    }
+    if x, y := diagnostic_limit_bytes, d.flushed; 0 < x && x < y {
+      if false { d.flushed = 0 } // reset to avoid causing next panics
+      panic(too_many_diagnostics{y})
+    }
+  }
+
+  var flush_point = func(p *diagpoint, pend bool) (_ bool) {
+    defer restrict_diagnostics()
 
     const count_bytes = false
+
     pos, msg := p.position.String(), p.message
 
     if count_bytes {
@@ -498,12 +502,19 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
     }
 
     switch p.dt {
-    case diagError: fmt.Fprintf(stderr, "%v:error: %s\n",   pos, msg); errs += 1
-    case diagInfo : fmt.Fprintf(stderr, "%v:info: %s\n",    pos, msg)
-    case diagWarn : fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
-    case diagPromptLine: if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
-    case diagPrompt    : if msg != "" { fmt.Fprintf(stderr, "%s"  , msg) }
+    case diagInfo: fmt.Fprintf(stderr, "%v:info: %s\n", pos, msg)
+    case diagWarn: fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
+    case diagPromptLine:
+      if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
+    case diagPrompt:
+      if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
       if pend && !strings.HasSuffix(msg, "\n") { return true }
+    case diagError:
+      if errs += 1 ; p.stack == nil {
+        fmt.Fprintf(stderr, "%v:error: %s\n", pos, msg)
+      } else {
+        fmt.Fprintf(stderr, "%v: %s\n", pos, msg)
+      }
     }
 
     if p.stack != nil {
@@ -514,7 +525,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
         d.flushed += 1 + bytes.Count(p.stack, []byte("\n"))
       }
     }
-    return false
+    return
   }
 
   for {
@@ -527,7 +538,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
     }
     d.Unlock()
 
-    if point == nil || flush(point, true) { break }
+    if point == nil || flush_point(point, true) { break }
     if errs > 16 {
       fmt.Fprintf(stderr, "%v: too many errors (%d)\n", _position(ctx), errs)
       break
@@ -538,7 +549,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
   for i := 0; len(d.nested) > 0; d.nested = d.nested[1:] {
     i += 1
     fmt.Fprintf(stderr, "\n#%d:\n", i)
-    for _, d := range d.nested[0] { flush(d, false) }
+    for _, d := range d.nested[0] { flush_point(d, false) }
     fmt.Fprintf(stderr, "#%d;\n\n", i)
   }
   d.Unlock()
@@ -547,11 +558,8 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 
 func flush(ctx Context) (i int) { i, _ = do(ctx, flush_diags{}).(int); return }
 
-func diag(ctx Context, dt diagType, f string, a ...any) (res diagtracer) {
-  res = diagtracer{nil, ctx}
-  if d := _diagnostic(ctx) ; d != nil {
-    res.diagpoint = d.point(ctx, dt, f, a...)
-  }
+func diag(ctx Context, dt diagtype, f string, a ...any) (res diagtracer) {
+  res, _ = do(ctx, add_diag{dt, f, a}).(diagtracer)
   return
 }
 
@@ -580,7 +588,7 @@ func notestack(ctx Context, n int, a ...any) diagtracer {
   }
   return diagstack(ctx, n, diagPrompt, a...)
 }
-func diagstack(ctx Context, n int, dt diagType, a ...any) (point diagtracer) {
+func diagstack(ctx Context, n int, dt diagtype, a ...any) (point diagtracer) {
   var s string
 
   if 0 < len(a) {
@@ -734,7 +742,7 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
   var dia = _diagnostic(ctx) ; dia.flush(ctx)
   if len(dontCheckErrors) > 0 && dontCheckErrors[0] { return }
 
-  if errs = dia.counterror(); 0 < errs && recovered == 0 {
+  if errs = dia.count(diagError); 0 < errs && recovered == 0 {
     note(ctx, "got %d errors (flushed %d, recovered %d)", errs, dia.erros, recovered).debug(10)
     if f != nil && (len(dontCheckErrors) == 0 || !dontCheckErrors[0]) {
       panic(_failure(ctx, "fail [assured]"))
@@ -756,8 +764,10 @@ func CommandLine() {
     modulesPaths = append(modulesPaths, filepath.Join(s, ".smart", "modules"))
     return true
   })
-  packagePaths = append(packagePaths, filepath.Join(context.prefix, "user", "lib", "smart", "packages"))
-  modulesPaths = append(modulesPaths, filepath.Join(context.prefix, "user", "lib", "smart", "modules"))
+
+  var userLib = filepath.Join(context.prefix, "user", "lib", "smart")
+  packagePaths = append(packagePaths, filepath.Join(userLib, "packages"))
+  modulesPaths = append(modulesPaths, filepath.Join(userLib, "modules"))
 
   // make sure that .smart dirs have higher priority.
   context.paths = append(modulesPaths, context.paths...)
@@ -789,7 +799,7 @@ func CommandLine() {
   }
 
   var dia = _diagnostic(context)
-  if dia.counterror() > 0 { return }
+  if dia.count(diagError) > 0 { return }
 
   if false { loadGrepCache(context) }
 

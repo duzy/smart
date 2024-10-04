@@ -16,7 +16,14 @@ import (
 
 type testcase_f1 func (*testcase)
 type testcase_f2 func (*testcase, string, string)
-type testcase   struct{ Context ; *testing.T ; spec string ; run func(testcase_f1) ; srcs, chks map[string]struct{} }
+type testcase struct{
+	Context
+	*testing.T
+	spec string
+	run func(testcase_f1)
+	srcs map[string]struct{}
+	chks map[string]struct{}
+}
 type testcase1  struct{ *testcase ; i any }
 type test_arg   struct{ name string; val any }
 type test_def_1 struct{}
@@ -52,10 +59,7 @@ func (t loaderros) String() string {
 
 func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	if !filepath.IsAbs(dir) { dir = filepath.Join(workBaseDir, dir) }
-	if _, e := os.Stat(dir); e != nil {
-		t.Errorf("%v", e)
-		return
-	}
+	if _, e := os.Stat(dir); e != nil { panic(e) }
 
 	ctx := new_universe(ii...)
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
@@ -66,11 +70,11 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	ctx.workdir = dir
 
 	defer func() {
-		if ctx.diagnostic.flush(ctx) ; ctx.erros > 0 {
+		if ctx.diagnostic.flush(ctx); ctx.erros > 0 || count_diag(ctx, diagError) > 0 {
 			var s = name
 			if s == "" { s = spec }
 			if s == "" { s = dir }
-			panic(loaderros{s, ctx.erros})
+			panic(loaderros{s, ctx.erros + count_diag(ctx, diagError)})
 		}
 	} ()
 
@@ -105,12 +109,18 @@ func (tc *testcase) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_test_mode: return test_mode
 	case silent_configure: return true
-	case source_loaded:
+	case loading_source:
 		tc.srcs[string(t)] = struct{}{}
 		return
-	case source_checked:
+	case checked_source:
 		tc.chks[string(t)] = struct{}{}
 		return
+	case _loading_source:
+		_, y := tc.srcs[t.string]
+		return y
+	case _checked_source:
+		_, y := tc.chks[t.string]
+		return y
 	case get_position:
 		if p := _project(ctx); p != nil {
 			return p.position
@@ -141,12 +151,11 @@ argsloop:
 }
 
 func (tc *testcase) flush() {
-	var dia = _diagnostic(tc.Context)
-	if n := dia.counterror(); n > 0 {
+	if n := count_diag(tc.Context, diagError); n > 0 {
 		var pos Position
 		if p := _project(tc); p != nil { pos = p.position } else { pos = _position(tc) }
 		note(tc.Context, "%v: %v errors", _project(tc), n).debug(1, skipint{2})
-		tc.Errorf("%d errors in %s", dia.flush(tc.Context), pos.Filename)
+		tc.Errorf("%d errors in %s", flush(tc.Context), pos.Filename)
 	}
 }
 
@@ -246,7 +255,7 @@ func testRemoveConfigureDir(ctx *testcase, p *project) {
 
 func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	ctx := loadcase(t, joinpath("testdata", spec), spec, name, ii...)
-	ctx.run = func(f testcase_f1) { runcase(t, name, spec, f) }
+	ctx.run = func(f2 testcase_f1) { runcase(t, name, spec, f2) }
 
 	defer func() {
 		if e := recover(); e != nil {
@@ -270,14 +279,20 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 		d := _diagnostic(ctx)
 		d.flush(ctx)
 
-		if true { return }
-
-		if d.erros == 0 {
-			total_erros  = 0
-		} else {
-			total_erros += d.erros
+		if d.erros > 0 || count_diag(d, diagError) > 0 {
+			var s = name
+			if s == "" { s = spec }
+			panic(loaderros{s, d.erros + count_diag(d, diagError)})
 		}
-		total_bytes += d.flushed
+
+		if false {
+			if d.erros == 0 {
+				total_erros  = 0
+			} else {
+				total_erros += d.erros
+			}
+			total_bytes += d.flushed
+		}
 	} ()
 
 	f(ctx)

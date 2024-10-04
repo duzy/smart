@@ -15,7 +15,7 @@ import (
     "hash/fnv" // "hash/maphash"
     "io/fs"
     "math"
-    net_url "net/url"
+    neturl "net/url"
     "os"
     "path/filepath"
     "reflect"
@@ -323,15 +323,11 @@ var traveTargetNotDefinedFile = fmt.Errorf("target not defined as file")
 type term struct { Context ; *scope }
 func (c *term) cast(t reflect.Type) Context { return implcast(c,t) }
 func (c *term) ts(string) (s string) {
-    s = "{term"
     if c.scope != nil {
-        s += " " + c.comment
+        return "{=term "+c.comment+" "+ts(c.Context)+"}"
     } else {
-        s += " {}"
+        return ts(c.Context)
     }
-    s += " " + ts(c.Context)
-    s += "}"
-    return
 }
 func (c *term) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
@@ -471,9 +467,8 @@ func closure_with(ctx Context, a ...any) Context {
         switch t := i.(type) {
         case *project: ctx = &term{ctx, t.scope}
         case   *scope: ctx = &term{ctx, t}
-        case []*scope: for _, s := range t { ctx = &term{ctx, s} }
-        case interface{ declscope() *scope }:
-            ctx = &term{ctx, t.declscope()}
+        case []*scope: for _, s := range t {  ctx = &term{ctx, s}  }
+        case interface{ declscope() *scope }: ctx = &term{ctx, t.declscope()}
         }
     }
     return ctx
@@ -1910,7 +1905,7 @@ func (p *url) match(ctx Context, i any) (full bool, s any, stems []string) {
 func (p *url) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return p, stems
 }
-func (p *url) Validate() (res *net_url.URL) {
+func (p *url) Validate() (res *neturl.URL) {
     panic(fmt.Sprintf("validate %s", p))
     return
 }
@@ -2775,18 +2770,14 @@ func (p *compound) expand(ctx Context) (res Value) {
 func (p *compound) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 func (p *compound) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if indeterminate(ctx, p) {
-        erro(ctx, "%v : indeterminate : %v", p, ts(p)).trace()
+        erro(ctx, "indeterminate : %v", tv(p)).trace()
     }
-
-    // if s := p.String(); strings.HasPrefix(s, "{=file .configure/library/") && strings.HasSuffix(s, "}.x") {
-    //     defer func() { note(ctx, "%v %v %v", p.string(ctx), res, fullmatch).debug(5) } ()
-    // }
 
     if x, y := do(ctx, hit_bare{c, p}).(valcache_bool); y {
         return x.valcache, x.bool
     }
 
-    erro(ctx, "miss hit: %v : %v", ts(p), ts(ctx)).trace()
+    erro(ctx, "miss hit : %v : %v", ts(p), ts(ctx)).trace()
     return
 }
 func (p *compound) cmp(ctx Context, v Value) (res cmpres) {
@@ -4040,7 +4031,7 @@ func (p *file) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
     } else if len(ss) == 1 {
         return c.hit(ctx, p.name)
     } else {
-        return unmap_p(ctx, c, p.name, ss)
+        return unmap_path(ctx, c, p.name, ss)
     }
 }
 func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
@@ -6492,7 +6483,7 @@ func ts(i any) (s string) {
     case opt:         return "{="+t+" "+ts(x.Value)+"}"
     case skipped:     return "{="+t+" "+ts(x.Value)+"}"
     case expanded:    return "{="+t+" "+ts(x.Value)+"}"
-    case cond:     return "{="+t+" "+ts(x.Value)+"}"
+    case cond:        return "{="+t+" "+ts(x.Value)+"}"
     case untraversed: return "{="+t+" "+ts(x.Value)+"}"
     default:
         s = "{="+t
@@ -6531,7 +6522,7 @@ func makeDate(pos Position, s time.Time) *Date  { return &Date{datetime{valbase{
 func makeTime(pos Position, t time.Time) *Time  { return &Time{datetime{valbase{pos},t}} }
 func makeRaw(pos Position, s string) *raw       { return &raw{valbase{pos},s} }
 func _strlit(pos Position, s string) *strlit { return &strlit{valbase{pos},s} }
-func makeUrl(pos Position, s *net_url.URL) *url {
+func makeUrl(pos Position, s *neturl.URL) *url {
     var host, port string
     v := strings.Split(s.Host, ":")
     if len(v) == 1 { host = v[0] }
@@ -6667,7 +6658,7 @@ func ParseTime(pos Position, s string) *Time {
 }
 
 func ParseURL(pos Position, s string) *url {
-    if u, e := net_url.Parse(s); e == nil {
+    if u, e := neturl.Parse(s); e == nil {
         return makeUrl(pos,u)
     } else {
         panic(e)

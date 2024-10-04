@@ -78,8 +78,8 @@ type (
 	parse_no_path        struct{}
 )
 
-type token_aware struct { Context ; token }
-func (p token_aware) do(ctx Context, op any) (_ any) {
+type aware_token struct { Context ; token }
+func (p aware_token) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case parse_aware: return p.token == t.token
 	}
@@ -105,8 +105,8 @@ type parse_regex    struct { Context }
 type parse_rule     struct { Context }
 type parse_undef    struct { Context }
 
-func (p parse_undef) ts(string) (_ string) {
-	return fmt.Sprintf("{=undef %s}", ts(p.Context))
+func (p parse_undef) ts(t string) (_ string) {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
 func (p parse_undef) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
@@ -115,8 +115,8 @@ func (p parse_undef) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_perc) ts(string) (_ string) {
-	return fmt.Sprintf("{=perc %s}", ts(p.Context))
+func (p parse_perc) ts(t string) (_ string) {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
 func (p parse_perc) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
@@ -125,8 +125,8 @@ func (p parse_perc) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_glob) ts(string) (_ string) {
-	return fmt.Sprintf("{=glob %s}", ts(p.Context))
+func (p parse_glob) ts(t string) (_ string) {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
 func (p parse_glob) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
@@ -135,8 +135,8 @@ func (p parse_glob) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_params) ts(string) (_ string) {
-	return fmt.Sprintf("{=params %s}", ts(p.Context))
+func (p parse_params) ts(t string) (_ string) {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
 func (p parse_params) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
@@ -145,8 +145,8 @@ func (p parse_params) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_auto) ts(string) (_ string) {
-	return fmt.Sprintf("{=auto %s}", ts(p.Context))
+func (p parse_auto) ts(t string) (_ string) {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
 func (p parse_auto) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
@@ -162,8 +162,8 @@ func (p def_value) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_foreach) ts(string) (_ string) {
-	return fmt.Sprintf("{=foreach %s}", ts(p.Context))
+func (p parse_foreach) ts(t string) (_ string) {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
 func (p parse_foreach) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
@@ -172,8 +172,8 @@ func (p parse_foreach) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_rule) ts(string) (_ string) {
-	return "{=rule "+ts(p.Context)+"}"
+func (p parse_rule) ts(t string) (_ string) {
+	return "{="+t+" "+ts(p.Context)+"}"
 }
 func (p parse_rule) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
@@ -184,8 +184,8 @@ func (p parse_rule) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_recipe) ts(string) (_ string) {
-	return "{=recipe "+ts(p.Context)+"}"
+func (p parse_recipe) ts(t string) (_ string) {
+	return "{="+t+" "+ts(p.Context)+"}"
 }
 func (p parse_recipe) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
@@ -194,8 +194,8 @@ func (p parse_recipe) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_left) ts(string) string {
-	return fmt.Sprintf("{=left_hand_side %s}", ts(p.Context))
+func (p parse_left) ts(t string) string {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
 func (p parse_left) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
@@ -204,9 +204,9 @@ func (p parse_left) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p *parser) ts(string) string {
+func (p *parser) ts(_t string) string {
 	t, s := p.tok.String(), p.scanner.file.Name()
-	return "{=parser "+t+" "+s+"}"
+	return "{="+_t+" "+t+" "+s+"}"
 }
 
 // ----------------------------------------------------------------------------
@@ -840,7 +840,7 @@ func (l ul) list(ctx Context, a ...any) *list {
 func (l ul) group(ctx Context) *group {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "group")) }
 
-	ctx = parse_group{token_aware{ctx,COMMA}}
+	ctx = parse_group{aware_token{ctx,COMMA}}
 
 	l.p.expect(ctx, LPAREN)
 	l.p.spaces(ctx)
@@ -873,7 +873,7 @@ func (l ul) group(ctx Context) *group {
 func (l ul) argumented(ctx Context, x Value) *argumented {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "argumented")) }
 
-	ctx = parse_group{token_aware{ctx,COMMA}}
+	ctx = parse_group{aware_token{ctx,COMMA}}
 
 	l.p.next(ctx, true) // skip LPAREN
 
@@ -1177,7 +1177,7 @@ func (l ul) tilde(ctx Context) (res Value) {
 func (l ul) dot(ctx Context, x Value) (_ Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "dot")) }
 
-	ctx = token_aware{ctx, DOT}
+	ctx = aware_token{ctx, DOT}
 
 	l.p.step()
 
@@ -1668,7 +1668,7 @@ func (l ul) closuredelegate_abc(ctx Context, isClosure, special bool) (tok token
 func (l ul) closuredelegate(ctx Context, isClosure, special bool) (result Value) {
 	if l_traverse.enabled {	defer un(l_trace(l_traverse, "closuredelegate")) }
 
-	ctx = parse_call{token_aware{ctx, COMMA}}
+	ctx = parse_call{aware_token{ctx, COMMA}}
 
 	pos := l.p.Position()
 	tok, obj, args, opts := l.closuredelegate_abc(ctx, isClosure, special)
@@ -1920,11 +1920,11 @@ andloop:
 		case RBRACE: break andloop
 		}
 
-		v := l.expr(ctx)
+		v := l.expr(aware_token{ctx, COMMA})
 		w := v.expand(pc(final{ctx}, v))
 
-		if false {
-			note(pc(ctx,v), "%v → %v", tv(v), tv(w)).debug(3)
+		if false && strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
+			note(pc(ctx,v), "%s : %v → %v : %v", l.project.name, tv(v), tv(w), l.p.tok).debug(3)
 		}
 
 		va = append(va, merge(w)...)
@@ -1950,11 +1950,11 @@ orloop:
 		case RBRACE: break orloop
 		}
 
-		v := l.expr(ctx)
+		v := l.expr(aware_token{ctx, COMMA})
 		w := v.expand(pc(final{ctx}, v))
 
-		if true && l.project.name == "configure.base" {
-			note(pc(ctx,v), "%v → %v : %v", tv(v), tv(w), l.p.tok).debug(3)
+		if false && strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
+			note(pc(ctx,v), "%s : %v → %v : %v", l.project.name, tv(v), tv(w), l.p.tok).debug(3)
 		}
 
 		va = append(va, merge(w)...)
@@ -2219,7 +2219,7 @@ func (l ul) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	return
 }
 
-func (l ul) _include(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+func (l ul) incl(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "include")) }
 
 	var opts = include_opts{ clauseopts: g }
@@ -3470,7 +3470,7 @@ func (l ul) codeblock(ctx Context, op token, t *template, vars map[string]Value)
 
 	if false && checkpoints && truly(ctx, is_test_mode{}) {
 		pprofCounter += 1
-		defer startCPUProfile(ctx, fmt.Sprintf("template-%05d.prof", pprofCounter), true)()
+		defer cpu_profile(ctx, fmt.Sprintf("template-%05d.prof", pprofCounter), true)()
 	}
 
 	if !(l.p.pos < l.p.stop) {
@@ -3583,12 +3583,12 @@ func (l ul) clause(ctx Context) {
 	}
 
 	switch t := l.p.tok ; t {
-	case  INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l._include); return
-	case     EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_eval)   ; return
-	case   ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert)     ; return
-	case   APPEND: l.spec(ctx, t, l.p.expect(ctx, t), l.p.append)     ; return
-	case    FILES: l.spec(ctx, t, l.p.expect(ctx, t), l.files)        ; return
-	case    LOCAL: l.spec(ctx, t, l.p.expect(ctx, t), l.local)        ; return
+	case  INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.incl)      ; return
+	case     EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_eval); return
+	case   ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert)  ; return
+	case   APPEND: l.spec(ctx, t, l.p.expect(ctx, t), l.p.append)  ; return
+	case    FILES: l.spec(ctx, t, l.p.expect(ctx, t), l.files)     ; return
+	case    LOCAL: l.spec(ctx, t, l.p.expect(ctx, t), l.local)     ; return
 	case      DEF: l.def_end(ctx)     ; return
 	case      FOR: l.for_done(ctx)    ; return
 	case  FOREACH: l.foreach_done(ctx); return
@@ -3909,7 +3909,7 @@ func (l ul) _project(ctx Context, keyword token, filename string, isMainFile boo
 	if l.p.tok != LPAREN {
 		l.bases(cc, implicitBase) // for special bases, e.g. .base
 	} else {
-		var cc0 = parse_group{token_aware{ctx, COMMA}}
+		var cc0 = parse_group{aware_token{ctx, COMMA}}
 		for l.p.tok != EOF {
 			for l.p.next(ctx, true); !l.p.is_list_term(ctx); {
 				l.p.spaces(ctx)
@@ -3964,8 +3964,6 @@ func (l ul) close_project(ctx Context, name string) {
 func (l ul) parse(ctx Context, filename string) (_ bool) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "file '"+filename+"'")) }
 	if l.traceLaunch { defer un(l_trace(l_launch, "parse_file")) }
-
-    defer do(ctx, source_loaded(filename))
 
 	var keyword  = l.p.tok
 	var flatmode = truly(ctx, is_flat_mode{})

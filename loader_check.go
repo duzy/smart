@@ -150,7 +150,7 @@ func (l ul) bases_check(ctx Context, implicitIndex int, implicitBase string) {
 		if false && implicitBase != ".base" {
 			erro(ctx, "wrong implicit base: %v %v", implicitIndex, implicitBase).trace()
 		}
-		if d := p.resolveDef(ctx, "variant"); d == nil || d.value == nil {
+		if d := p.def(ctx, "variant"); d == nil || d.value == nil {
 			erro(ctx, "nil variant").trace()
 		} else if s, t := ts(d.value), "{=path {=word darwin} {=word arm64} {=word bootstrap}}"; s != t {
 			erro(ctx, "variant: %s != %s", s, t).trace()
@@ -235,50 +235,72 @@ var langs_map = map[string]string{
 	"swift" : "swift",
 }
 
-type source_checked string
+type  loading_source string
+type _loading_source struct{ string }
+type  checked_source string
+type _checked_source struct{ string }
 
 func (l ul) pre_source_check(ctx Context, filename string, src any) {
+	do(ctx, loading_source(filename))
+
 	var mode string
 
-	if d := l.project.resolveDef(ctx, ".mode"); d == nil {
-		erro(ctx, "%v", l.project).trace()
-	} else {
-		switch mode = d.string(ctx); mode {
-		case "clean", "configure", "goals":
-		default:
-			erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
-		}
-	}
-
-	if strings.HasSuffix(filename, "/llvm/Config/.configure.declared") {
-		if l.project.name != "llvm.Config" {
-			erro(ctx, "wrong project: %v", l.project.name).trace()
-		}
-		if d := l.project.resolveDef(ctx, "LLVM_TARGETS_TO_BUILD"); d == nil {
-			erro(pc(ctx,filename,1), "LLVM_TARGETS_TO_BUILD not def")
-			erro(pc(ctx,l.p.Position()), "%s", mode)
-			erro(ctx, "%s", mode).trace()
+	if l.project != nil {
+		if d := l.project.def(ctx, ".mode"); d == nil {
+			erro(ctx, "%v", l.project).trace()
 		} else {
-			switch mode {
-			case "configure":
-				if d.string(ctx) != "" {
-					erro(ctx, "%v", d).trace()
-				}
-			case "clean", "goals":
-				if d.string(ctx) == "" {
-					erro(ctx, "%v", d).trace()
-				}
+			switch mode = d.string(ctx); mode {
+			case "clean", "configure", "goals":
+			default:
+				erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
 			}
 		}
 	}
-	if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
-		if l.project.name != "llvm.Config" {
-			erro(ctx, "wrong project: %v", l.project.name).trace()
+
+	if strings.HasSuffix(filename, "/llvm/Config/do.smart") {
+		if false {
+			note(ctx, "%s %v %v", bases(3, filename, true), l.project, truly(ctx, _loading_source{filename})).debug()
 		}
-		if d := l.project.resolveDef(ctx, "LLVM_TARGETS_TO_BUILD"); d == nil {
+		if !truly(ctx, _loading_source{filename}) {
+			erro(ctx, "%v : %s", l.project, bases(5, filename, true)).trace()
+		} else {
+			var d = filepath.Dir(filename)
+			if s := filepath.Join(d,".configure.declared"); truly(ctx, _loading_source{s}) {
+				erro(ctx, "%v : %s", l.project, bases(5, s, true)).trace()
+			}
+			if s := filepath.Join(d,".configure.appendix"); truly(ctx, _loading_source{s}) {
+				erro(ctx, "%v : %s", l.project, bases(5, s, true)).trace()
+			}
+		}
+	}
+	if strings.HasSuffix(filename, "/llvm/Config/.configure.declared") {
+		erro(ctx, "%v %s", l.project, bases(3, filename, true)).trace()
+	}
+	if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
+		if false {
+			note(ctx, "%s %v %v", bases(3, filename, true), l.project, truly(ctx, _loading_source{filename})).debug()
+		}
+		if !truly(ctx, _loading_source{filename}) {
+			erro(ctx, "%v : %s", l.project, bases(5, filename, true)).trace()
+		} else {
+			var d = filepath.Dir(filename)
+			if s := filepath.Join(d,".configure.declared"); truly(ctx, _loading_source{s}) {
+				erro(ctx, "%v : %s", l.project, bases(5, s, true)).trace()
+			}
+			if s := filepath.Join(d,"do.smart"); !truly(ctx, _loading_source{s}) {
+				erro(ctx, "%v : %s", l.project, bases(5, s, true)).trace()
+			}
+			if l.project.name != "llvm.Config" {
+				erro(ctx, "wrong project: %v", l.project.name).trace()
+			}
+		}
+		var d = l.project.def(ctx, "LLVM_TARGETS_TO_BUILD")
+		if l.project.configuration == nil {
+			// note(ctx, "%s : %v", mode, d).debug()
+		} else if d == nil {
 			erro(pc(ctx,filename,1), "LLVM_TARGETS_TO_BUILD not def")
 			erro(pc(ctx,l.p.Position()), "%s", mode)
-			erro(ctx, "%s", mode).trace()
+			erro(ctx, "%s : %v", mode, l.project.configuration).trace()
 		} else {
 			switch mode {
 			case "configure":
@@ -310,7 +332,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		}
 	}
 
-	do(ctx, source_checked(filename))
+	do(ctx, checked_source(filename))
 
 	flat_mode := truly(ctx, is_flat_mode{})
 	text_mode := truly(ctx, parse_is_text{})
@@ -332,7 +354,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 
 	var mode string
 
-	if d := l.project.resolveDef(ctx, ".mode"); d == nil {
+	if d := l.project.def(ctx, ".mode"); d == nil {
 		erro(ctx, "%v", l.project).trace()
 	} else {
 		switch mode = d.string(ctx); mode {
@@ -354,7 +376,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			if x, y := l.project.elems["FOO"]; !y {
 				prompt(ctx, "%v:\n%s", filename, *text)
 				erro(ctx, "FOO not defined : %v", l.project.names()).trace()
-			} else if t := l.project.resolveDef(ctx, "FOO"); t != x {
+			} else if t := l.project.def(ctx, "FOO"); t != x {
 				erro(ctx, "%v", tv(t)).trace()
 			} else if d, y := x.(*def); !y {
 				erro(ctx, "%v : %v", l.project.names(), ts(x)).trace()
@@ -379,7 +401,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			if x, y := l.project.elems["FOO"]; !y {
 				prompt(ctx, "%v:\n%s", filename, *text)
 				erro(ctx, "FOO not defined : %v", l.project.names()).trace()
-			} else if t := l.project.resolveDef(ctx, "FOO"); t != x {
+			} else if t := l.project.def(ctx, "FOO"); t != x {
 				erro(ctx, "%v", ts(t)).trace()
 			} else if d, y := x.(*def); !y {
 				erro(ctx, "%v : %v", l.project.names(), ts(x)).trace()
@@ -404,24 +426,24 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		if len(l.project.bases) != 0 {
 			erro(ctx, "wrong bases: %v", l.project.bases).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.debug"); d == nil {
+		if d := l.project.def(ctx, "variant.debug"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if s := d.value.String(); s != "{=no}" && s != "{=yes}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		} else if s := ts(d.value); s != "{=answer no}" && s != "{=answer yes}" {
 			erro(ctx, "%v : %v", l.project, ts(d.value)).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.tag"); d == nil {
+		if d := l.project.def(ctx, "variant.tag"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if ts(d.value) != "{=word unknown}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.name"); d == nil {
+		if d := l.project.def(ctx, "variant.name"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if ts(d.value) != "{=closure {=def variant.tag}}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.targets"); d == nil {
+		if d := l.project.def(ctx, "variant.targets"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if x, y := d.value.(*list); !y {
 			erro(ctx, "%v : %v", l.project, d).trace()
@@ -444,101 +466,101 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			erro(ctx, "%v : %v", l.project, l.project.bases).trace()
 		}
 
-		if d := l.project.resolveDef(ctx, "variant.debug"); d != nil {
+		if d := l.project.def(ctx, "variant.debug"); d != nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.tag"); d != nil {
+		if d := l.project.def(ctx, "variant.tag"); d != nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.name"); d != nil {
+		if d := l.project.def(ctx, "variant.name"); d != nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.targets"); d != nil {
+		if d := l.project.def(ctx, "variant.targets"); d != nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		}
 
 		var workout string
-		if d := l.project.resolveDef(ctx, "workout"); d == nil {
+		if d := l.project.def(ctx, "workout"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if workout = d.string(ctx); workout == "" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "host.triple"); d == nil {
+		if d := l.project.def(ctx, "host.triple"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "$(join &(host.arch)&(host.sub) &(host.vendor) &(host.sys) &(host.abi),-)" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "host.out"); d == nil {
+		if d := l.project.def(ctx, "host.out"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != filepath.Join(workout, "&(host.triple)", "&(variant.tag)") {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "host.tmp"); d == nil {
+		if d := l.project.def(ctx, "host.tmp"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != filepath.Join("&(host.out)", "tmp") {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "target.triple"); d == nil {
+		if d := l.project.def(ctx, "target.triple"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "$(join &(target.arch)&(target.sub) &(target.vendor) &(target.sys) &(target.abi),-)" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "target.out"); d == nil {
+		if d := l.project.def(ctx, "target.out"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != filepath.Join(workout, "&(target.triple)", "&(variant.tag)") {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "target.tmp"); d == nil {
+		if d := l.project.def(ctx, "target.tmp"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != filepath.Join("&(target.out)", "tmp") {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "bootstrap.variant"); d == nil {
+		if d := l.project.def(ctx, "bootstrap.variant"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if ts(d.value) != "{=word bootstrap}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "bootstrap"); d == nil {
+		if d := l.project.def(ctx, "bootstrap"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != filepath.Join(workout, "&(host.triple)", "&(bootstrap.variant)") {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "clang_rt"); d == nil {
+		if d := l.project.def(ctx, "clang_rt"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "clang_rt.$(join $(sure $1) &(clang_rt.tail),-)" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "outtmp"); d == nil {
+		if d := l.project.def(ctx, "outtmp"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "&(target.tmp)/&(rel.remnant)" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "outpre"); d == nil {
+		if d := l.project.def(ctx, "outpre"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "&(target.out)/" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "outinc"); d == nil {
+		if d := l.project.def(ctx, "outinc"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "&(target.out)/include" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "outbin"); d == nil {
+		if d := l.project.def(ctx, "outbin"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "&(target.out)/bin" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "outlib"); d == nil {
+		if d := l.project.def(ctx, "outlib"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "&(target.out)/lib" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "outobj"); d == nil {
+		if d := l.project.def(ctx, "outobj"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "&(outtmp)" { //"&(target.out)/obj"
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "prefix"); d == nil {
+		if d := l.project.def(ctx, "prefix"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if d.value.String() != "&(outpre)" { //"&(target.out)/"
 			erro(ctx, "%v : %v", l.project, d).trace()
@@ -559,24 +581,24 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			erro(ctx, "%v : %v", l.project, l.project.bases).trace()
 		}
 
-		if d := l.project.resolveDef(ctx, "variant.debug"); d == nil {
+		if d := l.project.def(ctx, "variant.debug"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if s := d.value.String(); s != "{=no}" && s != "{=yes}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		} else if s := ts(d.value); s != "{=answer no}" && s != "{=answer yes}" {
 			erro(ctx, "%v : %v", l.project, ts(d.value)).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.tag"); d == nil {
+		if d := l.project.def(ctx, "variant.tag"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if ts(d.value) != "{=word unknown}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.name"); d == nil {
+		if d := l.project.def(ctx, "variant.name"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if ts(d.value) != "{=closure {=def variant.tag}}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.targets"); d == nil {
+		if d := l.project.def(ctx, "variant.targets"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if x, y := d.value.(*list); !y {
 			erro(ctx, "%v : %v", l.project, d).trace()
@@ -584,7 +606,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
 
-		if d := l.project.resolveDef(ctx, "use.*"); d == nil {
+		if d := l.project.def(ctx, "use.*"); d == nil {
 			erro(ctx, "%v : %v", l.project).trace()
 		} else if ts(d.value) == "{}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
@@ -596,7 +618,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 
 		for k, v := range langs_map {
 			var s = "lang."+k
-			if d := l.project.resolveDef(ctx, s); d == nil {
+			if d := l.project.def(ctx, s); d == nil {
 				erro(ctx, "%v : undefined %s", l.project, s).trace()
 			} else if ts(d.value) != "{=word "+v+"}" {
 				erro(ctx, "%v : %v", l.project, d).trace()
@@ -621,19 +643,19 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			erro(ctx, "%v : %v", l.project, l.project.bases).trace()
 		}
 
-		if d := l.project.resolveDef(ctx, "variant.debug"); d == nil {
+		if d := l.project.def(ctx, "variant.debug"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if s := d.value.String(); s != "{=no}" && s != "{=yes}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		} else if s := ts(d.value); s != "{=answer no}" && s != "{=answer yes}" {
 			erro(ctx, "%v : %v", l.project, ts(d.value)).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.tag"); d == nil {
+		if d := l.project.def(ctx, "variant.tag"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if ts(d.value) != "{=word bootstrap}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
 		}
-		if d := l.project.resolveDef(ctx, "variant.name"); d == nil {
+		if d := l.project.def(ctx, "variant.name"); d == nil {
 			erro(ctx, "%v : %v", l.project, l.project.names()).trace()
 		} else if ts(d.value) != "{=closure {=def variant.tag}}" {
 			erro(ctx, "%v : %v", l.project, d).trace()
@@ -647,12 +669,12 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 
 		w := l.project.absPath//"/Volumes/workspace/.smart/modules/app/.base"
 		t := fmt.Sprintf("$(if $(equal &/,%s),,%s/.autoload", w, w)
-		if d := l.project.resolveDef(ctx, ".autoload.declared"); d == nil {
+		if d := l.project.def(ctx, ".autoload.declared"); d == nil {
 			erro(ctx, ".autoload.declared").trace()
 		} else if d.value.String() != t+".declared)" {
 			erro(ctx, "%v != %s.declared)", d, t).trace()
 		}
-		if d := l.project.resolveDef(ctx, ".autoload.appendix"); d == nil {
+		if d := l.project.def(ctx, ".autoload.appendix"); d == nil {
 			erro(ctx, ".autoload.appendix").trace()
 		} else if d.value.String() != t+".appendix)" {
 			erro(ctx, "%v != %s.appendix)", d, t).trace()
@@ -660,7 +682,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 	}
 
 	var srcdir, srcinc string
-	var ws = l.project.resolveDef(ctx, "workspace")
+	var ws = l.project.def(ctx, "workspace")
 
 	if strings.HasSuffix(filename, "/external/do.smart") {
 		if l.project.name != "external" {
@@ -668,7 +690,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		} else if ws == nil {
 			erro(ctx, "%v: workspace", l.project.name).trace()
 		}
-		if d := l.project.resolveDef(ctx, "srcdir"); d == nil {
+		if d := l.project.def(ctx, "srcdir"); d == nil {
 			erro(ctx, "srcdir").trace()
 		} else if srcdir = d.string(ctx); srcdir == "" {
 			erro(ctx, "%v", d).trace()
@@ -683,7 +705,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		} else if ws == nil {
 			erro(ctx, "%v: workspace", l.project.name).trace()
 		}
-		if d := l.project.resolveDef(ctx, "srcdir"); d == nil {
+		if d := l.project.def(ctx, "srcdir"); d == nil {
 			erro(ctx, "srcdir").trace()
 		} else if srcdir = d.string(ctx); srcdir == "" {
 			erro(ctx, "%v", d).trace()
@@ -692,11 +714,17 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		}
 	}
 
+	if strings.HasSuffix(filename, "/llvm/Config/do.smart") {
+		if l.project.name != "llvm.Config" {
+			erro(ctx, "wrong project: %v", l.project.name).trace()
+		}
+	}
+
 	if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
 		if l.project.name != "llvm.Config" {
 			erro(ctx, "wrong project: %v", l.project.name).trace()
 		}
-		if d := l.project.resolveDef(ctx, "LLVM_TARGETS_TO_BUILD"); d == nil && false {
+		if d := l.project.def(ctx, "LLVM_TARGETS_TO_BUILD"); d == nil && false {
 			erro(ctx, "%s: LLVM_TARGETS_TO_BUILD not def", mode).trace()
 		} else if false {
 			switch mode {
@@ -718,14 +746,14 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		} else if ws == nil {
 			erro(ctx, "%v: workspace", l.project.name).trace()
 		}
-		if d := l.project.resolveDef(ctx, "srcinc"); d == nil {
+		if d := l.project.def(ctx, "srcinc"); d == nil {
 			erro(ctx, "srcinc").trace()
 		} else if srcinc = d.string(ctx); srcinc == "" {
 			erro(ctx, "%v", d).trace()
 		} else if srcinc != ws.string(ctx)+"/external/llvm-project/llvm/include" {
 			erro(ctx, "%v %s", d, l.project.absPath).trace()
 		}
-		if d := l.project.resolveDef(ctx, "src.def.in"); d == nil {
+		if d := l.project.def(ctx, "src.def.in"); d == nil {
 			erro(ctx, "src.def.in").trace()
 		} else {
 			var m = map[string]struct{}{
@@ -752,7 +780,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 				}
 			}
 		}
-		if d := l.project.resolveDef(ctx, "src.h.cmake"); d == nil {
+		if d := l.project.def(ctx, "src.h.cmake"); d == nil {
 			erro(ctx, "src.h.cmake").trace()
 		} else {
 			var m = map[string]struct{}{
@@ -776,7 +804,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 				}
 			}
 		}
-		if d := l.project.resolveDef(ctx, "headers"); d == nil {
+		if d := l.project.def(ctx, "headers"); d == nil {
 			erro(ctx, "headers").trace()
 		} else {
 			var m = map[string]struct{}{
@@ -842,7 +870,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		} else if ws == nil {
 			erro(ctx, "%v: workspace", l.project.name).trace()
 		}
-		if d := l.project.resolveDef(ctx, "srcinc"); d == nil {
+		if d := l.project.def(ctx, "srcinc"); d == nil {
 			erro(ctx, "srcinc").trace()
 		} else if srcinc = d.string(ctx); srcinc == "" {
 			erro(ctx, "%v", d).trace()

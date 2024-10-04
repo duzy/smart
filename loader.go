@@ -594,6 +594,7 @@ func (l ul) spec_file(ctx Context, specVal Value) (res *file, spec, fullname str
 }
 
 type get_include_opts struct{}
+type get_include_spec struct{}
 type is_config_mode struct{}
 type is_flat_mode struct{}
 
@@ -609,13 +610,14 @@ type include_ctx struct {
     p Position
     spec string
 }
-func (i include_ctx) ts(string) string {
-	return "{=include "+i.spec+" "+ts(i.Context)+"}"
+func (i include_ctx) ts(t string) string {
+	return "{="+t+" "+i.spec+" "+ts(i.Context)+"}"
 }
 func (i include_ctx) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
     case get_position: if i.p.valid() { return i.p }
 	case get_include_opts: return &i.o
+    case get_include_spec: return i.spec
 	case is_config_mode  : return i.o.isConfig
 	case is_flat_mode    : return true
 	}
@@ -844,7 +846,7 @@ func (a autoload_ctx) do(ctx Context, op any) (_ any) {
 
 func (l ul) autoload(ctx Context, tag string) {
     if !is_configure_project(l.project) {
-        if d := l.project.resolveDef(ctx, ".autoload."+tag); d != nil {
+        if d := l.project.def(ctx, ".autoload."+tag); d != nil {
             for _, v := range merge(d.value.expand(final{ctx})) {
                 if isTrivial(v) {
                     continue
@@ -1046,8 +1048,6 @@ func load_source_bytes(ctx Context, filename string, source ...any) (_ []byte, _
     }
 }
 
-type source_loaded string
-
 func (l ul) source(ctx Context, filename string, src any) (res Value) {
     if l.traceLaunch { defer un(l_trace(l_launch, "loader.source")) }
 
@@ -1055,8 +1055,8 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
     var text []byte
 
     if checkpoints && truly(ctx, is_test_mode{}) {
-        if l.project != nil { l.pre_source_check(ctx, filename, src) }
-        defer  l.source_check(ctx, filename, src, &text, &res)
+        l.pre_source_check(ctx, filename, src)
+        defer l.source_check(ctx, filename, src, &text, &res)
     }
 
     defer func(p *parser) {

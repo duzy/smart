@@ -63,8 +63,8 @@ func (ctx *builtin_trimprefix) x_check(prefix, val, res Value) {
 				}
 
 				var cp = closure_projects(ctx)
-				var r1 = cp[0].resolveDef(ctx, "/").value
-				var r2 =  proj.resolveDef(ctx, "/").value
+				var r1 = cp[0].def(ctx, "/").value
+				var r2 =  proj.def(ctx, "/").value
 				if false { note(ctx, "%-22v: %-50v; %-20v, %v, %v", proj, a, res, r1, r2) }
 
 				if ts(a) != ts(r1) {
@@ -110,7 +110,7 @@ func (ctx *builtin_trimprefix) x_check(prefix, val, res Value) {
 // 	case "testllvmconfig":
 // 		switch ss := a.String(); ss {
 // 		case "llvm/Config/llvm-config.h":
-// 			if d := p.resolveDef(ctx, "outinc"); d == nil {
+// 			if d := p.def(ctx, "outinc"); d == nil {
 // 				erro(ctx, "%v %v", a, x).trace()
 // 			} else if s := d.string(ctx); s == "" {
 // 				erro(ctx, "%v %v", a, d).trace()
@@ -120,7 +120,7 @@ func (ctx *builtin_trimprefix) x_check(prefix, val, res Value) {
 // 				erro(ctx, "%s != %s", t.dir, s).trace()
 // 			}
 // 		case "llvm/Config/llvm-config.h.cmake":
-// 			if d := p.resolveDef(ctx, "srcinc"); d == nil {
+// 			if d := p.def(ctx, "srcinc"); d == nil {
 // 				erro(ctx, "%v %v", a, x).trace()
 // 			} else if s := d.string(ctx); s == "" {
 // 				erro(ctx, "%v %v", a, d).trace()

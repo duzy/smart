@@ -88,7 +88,9 @@ func (u *unmap) do(ctx Context, op any) any {
 
 type bare_hit struct { Context ; *valcache ; s string ; i int ; solo bool }
 func (p *bare_hit) cast(t reflect.Type) Context { return implcast(p, t) }
-func (p *bare_hit) ts(t string) string { return fmt.Sprintf("{=%s %v %v}", t, p.s, ts(p.Context)) }
+func (p *bare_hit) ts(t string) string {
+	return "{="+t+" "+p.s+" "+ts(p.Context)+"}"
+}
 func (p *bare_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
     case act_unmap:
@@ -329,6 +331,8 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 		} ()
 	}
 
+	if len(p.a) > 1 { panic(fmt.Sprintf("valcache many: %s %d", typeof(k), len(p.a))) }
+
 	defer func() {
 		if res == nil && cacheMapping(ctx) {
 			erro(ctx, "no valcache for %v : %v", ts(k), p).trace()
@@ -346,7 +350,7 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 		if true {
 			return p.hit_words(ctx, t...)
 		} else {
-			return unmap_p(ctx, p, strings.Join(t, pathSep), t)
+			return unmap_path(ctx, p, strings.Join(t, pathSep), t)
 		}
 	case Value:
 		if indeterminate(ctx, t) {
@@ -557,9 +561,9 @@ func (u *unmap) word(ctx Context, c *valcache, s string) (res *valcache, fullmat
 func (*unmap) bare_hit(ctx Context, c *valcache, p *compound) (res *valcache, fullmatch bool) {
 	if true {
 		if s := p.string(ctx); strings.Contains(s, pathSep) {
-			return unmap_p(ctx, c, s, strings.Split(s, pathSep))
+			return unmap_path(ctx, c, s, strings.Split(s, pathSep))
 		} else {
-			_, res, fullmatch = unmap_w(ctx, c, s, cast[*path_hit](ctx) == nil)
+			_, res, fullmatch = unmap_word(ctx, c, s, cast[*path_hit](ctx) == nil)
 		}
 	} else {
 		for _, elem := range p.elems {
@@ -573,7 +577,7 @@ func (*unmap) bare_hit(ctx Context, c *valcache, p *compound) (res *valcache, fu
 	return
 }
 func (*unmap) path_hit(ctx Context, c *valcache, p *path) (_ *valcache, _ bool) {
-	s := p.string(ctx); return unmap_p(ctx, c, s, strings.Split(s, pathSep))
+	s := p.string(ctx); return unmap_path(ctx, c, s, strings.Split(s, pathSep))
 }
 func (*unmap) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
 	if test_hit && (do(ctx, propFullVal) == test_val || s == test_val) {
@@ -654,7 +658,10 @@ func (p *bare_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache, fu
         var fullval = do(ctx, propFullVal)
         for _, pat := range p.o[0][p.i:] {
             var c, _ = p.globs[pat]
-            if c == nil { erro(ctx, "nil glob: %v %v %v", s, pat, p.o).trace() }
+			if c == nil {
+				erro(ctx, "%v: nil cache : %v %v (i=%d)", pat, s, tv(fullval), p.i)
+				note(ctx, "%v", p).trace()
+			}
 
             p.i += 1
 
@@ -835,16 +842,42 @@ func (p *project) unmap_files(ctx Context, key any, m *map[*project]struct{}) (r
 	return
 }
 
-func unmap_(ctx *unmap, c *valcache, key any) {
-	defer unmap_check(ctx, c, key)
+func unmap__(ctx *unmap, c *valcache, key any) {
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		defer unmap_check(ctx, c, key)
+	}
+
+	var x string
+	switch t := key.(type) {
+	case string: x = t
+	case Value: x = t.string(ctx)
+	}
+	if x == "" {
+		erro(ctx, "empty key: %v", c).trace()
+	}
+
+	if s := strings.Split(x, pathSep); 1 < len(s) {
+		unmap_path(ctx, c, x, s)
+		return
+	} else {
+		unmap_word(ctx, c, x, true)
+		return
+	}
+}
+
+func unmap_void(ctx *unmap, c *valcache, key any) {
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		defer unmap_check(ctx, c, key)
+	}
+
 	switch x := key.(type) {
 	case string:
 		if x == "" {
 			erro(ctx, "empty key: %v", c).trace()
 		} else if s := strings.Split(x, pathSep); 1 < len(s) {
-			unmap_p(ctx, c, x, s); return
+			unmap_path(ctx, c, x, s); return
 		} else {
-			unmap_w(ctx, c, x, true); return
+			unmap_word(ctx, c, x, true); return
 		}
 	case valcache_hit:
 		x.hit(ctx, c); return
@@ -856,7 +889,7 @@ func unmap_(ctx *unmap, c *valcache, key any) {
 func unmap_any[T any](ctx Context, c *valcache, key any) (res []T) {
 	var u = unmap{ctx, nil}
 
-	unmap_(&u, c, key)
+	unmap_void(&u, c, key)
 
 	for _, a := range u.a {
 		if x, y := a.(T); y {
@@ -868,7 +901,7 @@ func unmap_any[T any](ctx Context, c *valcache, key any) (res []T) {
     return
 }
 
-func unmap_w(ctx Context, c *valcache, s string, solo bool) (_ Context, _ *valcache, y bool) {
+func unmap_word(ctx Context, c *valcache, s string, solo bool) (_ Context, _ *valcache, y bool) {
     var cc = &bare_hit{ctx, c, s, 0, solo}
 	for i, t := range strings.Split(s, DOT.String()) {
 		if c != nil && (0 < i) {
@@ -881,10 +914,10 @@ func unmap_w(ctx Context, c *valcache, s string, solo bool) (_ Context, _ *valca
 	return cc, c, y
 }
 
-func unmap_p(ctx Context, c *valcache, s string, ss []string) (_ *valcache, y bool) {
+func unmap_path(ctx Context, c *valcache, s string, ss []string) (_ *valcache, y bool) {
     var x = path_hit{ctx, s, ss, 0}
     for cc := Context(&x) ; c != nil && x.i < len(ss) ; x.i += 1 {
-        if cc, c, y = unmap_w(cc, c, ss[x.i], false); y { return c, y }
+        if cc, c, y = unmap_word(cc, c, ss[x.i], false); y { return c, y }
     }
     return
 }

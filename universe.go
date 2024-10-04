@@ -457,7 +457,7 @@ func (ctx *universe) AddSearchPaths(paths... string) (err error) {
     return nil
 }
 
-func startCPUProfile(ctx Context, name string, heap ...bool) (stop func()) {
+func cpu_profile(ctx Context, name string, heap ...bool) (stop func()) {
     var fn string
     if filepath.IsAbs(name) { fn = name } else
     if m := _universe(ctx).globe.main; m == nil {} else
@@ -484,7 +484,7 @@ func startCPUProfile(ctx Context, name string, heap ...bool) (stop func()) {
     }}
 }
 
-func startHeapProfile(ctx Context, name string) (stop func()) {
+func heap_profile(ctx Context, name string) (stop func()) {
     var fn string
     if filepath.IsAbs(name) { fn = name } else
     if m := _universe(ctx).globe.main; m == nil {} else
@@ -537,11 +537,11 @@ func (_tx *universe) run() (result []Value) {
     if _tx.cpuProf != "" || _tx.autoProfs {
         var name = _tx.cpuProf
         if name == "" { name = "run.cpu.auto.prof" }
-        defer startCPUProfile(ctx, name, true)()
+        defer cpu_profile(ctx, name, true)()
     } else if _tx.memProf != "" || _tx.autoProfs {
         var name = _tx.memProf
         if name == "" { name = "run.mem.auto.prof" }
-        defer startHeapProfile(ctx, name)()
+        defer heap_profile(ctx, name)()
     }
 
     var done bool

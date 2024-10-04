@@ -442,8 +442,7 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
         }
     }
 
-    var dia = _diagnostic(ctx)
-    if dia.error() { return }
+    if count_diag(ctx, diagError) > 0 { return }
 
     var silent = truly(ctx, silent_configure{})
     if !silent {
@@ -465,19 +464,9 @@ func (ctx *modifier_configure) execute(target, name Value, args []Value) (config
     }
 
     if !silent {
-        if dia.count(diagInfo, diagWarn, diagError) > 0 {
+        if count_diag(ctx, diagInfo, diagWarn, diagError) > 0 {
             return
-        }
-
-        if false && dia.points != nil {
-            var t = true
-            for _, d := range dia.points {
-                if strings.HasSuffix(d.message, "…") { t = false; break }
-            }
-            if t { return }
-        }
-
-        if result == nil {
+        } else if result == nil {
             prompt(ctx, "… <nil>\n")
         } else if isNull(result) {
             prompt(ctx, "… <null>\n")

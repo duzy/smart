@@ -1475,7 +1475,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *fi
                 errostack(ctx, 5, `%v: %v`, ctx).trace()
             }
         } else {
-            if n = _diagnostic(dc.Context).counterror(); n > 0 {
+            if n = count_diag(dc.Context, diagError); n > 0 {
                 // reset to reduce diags as we wish to continue with the errors
                 dc.points, dc.erros = nil, 0
                 var s = trimPromptString(targetVal.String())
