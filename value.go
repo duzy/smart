@@ -1983,7 +1983,7 @@ func (p *strlit) expand(ctx Context) Value {
     }
 }
 func (p *strlit) ts(t string) string {
-    return fmt.Sprintf("{=%s %s}", t, strings.Replace(p.s, "\n", "\\n", -1))
+    return "{="+t+" "+strings.Replace(p.s, "\n", "\\n", -1)+"}"
 }
 func (p *strlit) cmp(ctx Context, v Value) (res cmpres) {
     switch t := v.(type) {
@@ -2045,7 +2045,7 @@ func (p *strval) string(ctx Context) (s string) {
     return
 }
 func (p *strval) ts(t string) string {
-    var s = ts(p.v)[1:]
+    var s = ts(p.v)[2:]
     return fmt.Sprintf("{=%s %s}", t, s[:len(s)-1])
 }
 func (p *strval) expand(ctx Context) Value {

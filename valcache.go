@@ -114,7 +114,7 @@ func (p *flag_hit) do(ctx Context, op any) any {
 type path_hit struct { Context ; s string ; ss []string ; i int }
 func (p *path_hit) cast(t reflect.Type) Context { return implcast(p, t) }
 func (p *path_hit) ts(t string) string {
-	return fmt.Sprintf("{=%s %v %v}", t, p.s, ts(p.Context))
+	return "{="+t+" "+p.s+" "+ts(p.Context)+"}"
 }
 func (p *path_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
@@ -130,7 +130,7 @@ func (p *path_hit) do(ctx Context, op any) any {
 type globpat_hit struct { Context ; x *globpat }
 func (p *globpat_hit) cast(t reflect.Type) Context { return implcast(p, t) }
 func (p *globpat_hit) ts(t string) string {
-	return fmt.Sprintf("{=%s %v %v}", t, p.x, ts(p.Context))
+	return "{="+t+" "+p.x.String()+" "+ts(p.Context)+"}"
 }
 func (p *globpat_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
@@ -144,7 +144,7 @@ func (p *globpat_hit) do(ctx Context, op any) any {
 type percpat_hit struct { Context ; x *percpat }
 func (p *percpat_hit) cast(t reflect.Type) Context { return implcast(p, t) }
 func (p *percpat_hit) ts(t string) string {
-	return fmt.Sprintf("{=%s %v %v}", t, p.x, ts(p.Context))
+	return "{="+t+" "+p.x.String()+" "+ts(p.Context)+"}"
 }
 func (p *percpat_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
@@ -158,7 +158,7 @@ func (p *percpat_hit) do(ctx Context, op any) any {
 type regexpat_hit struct { Context ; x *regexpat }
 func (p *regexpat_hit) cast(t reflect.Type) Context { return implcast(p, t) }
 func (p *regexpat_hit) ts(t string) string {
-	return fmt.Sprintf("{=%s %v %v}", t, p.x, ts(p.Context))
+	return "{="+t+" "+p.x.String()+" "+ts(p.Context)+"}"
 }
 func (p *regexpat_hit) do(ctx Context, op any) any {
     switch t := op.(type) {
@@ -177,7 +177,7 @@ type rule_name struct { *rule ; name string }
 
 type filemap_name struct { filemap ; name string }
 func (p filemap_name) String() string {
-	return fmt.Sprintf("{%s %s}", p.filemap.String(), p.name)
+	return "{"+p.filemap.String()+" "+p.name+"}"
 }
 
 type filemap_slot struct { filemap }
@@ -209,7 +209,7 @@ type valcache struct {
 
 func (v valcache_value) String() string { return v.valcache.String() }
 func (v valcache_value) ts(t string) string {
-	return fmt.Sprintf("{=%s %v %v}", t, v.valcache, ts(v.Value))
+	return "{="+t+" "+v.valcache.String()+" "+ts(v.Value)+"}"
 }
 func (p *valcache) keys() (ss map[string]struct{}) {
 	ss = make(map[string]struct{})
@@ -325,8 +325,8 @@ func (p *valcache) fullmatch(ctx Context, k any) (res bool) {
 func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 	if test_hit && do(ctx, propFullVal) == test_val {
 		defer func() {
-			note(ctx, "%5v %v", k, p)
-			note(ctx, "%5v %v", fullmatch, res)
+			note(pc(ctx,k), "%5v %v", k, p)
+			note(pc(ctx,k), "%5v %v", fullmatch, res)
 			note(ctx, "%v", ts(ctx)).debug(30)
 		} ()
 	}
@@ -335,7 +335,7 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 
 	defer func() {
 		if res == nil && cacheMapping(ctx) {
-			erro(ctx, "no valcache for %v : %v", ts(k), p).trace()
+			erro(pc(ctx,k), "no valcache for %v : %v", ts(k), p).trace()
 		}
 	} ()
 
@@ -361,10 +361,10 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 				b, by := do(ctx, hit_word{p, x.target.string(ctx)}).(valcache_bool)
 				note(ctx, "%v : %v %v, %v %v", x.target, a.bool, ay, b.bool, by).debug()
 			}
-			erro(ctx, "non-valcacheable %v : %v", ts(k), p).trace()
+			erro(pc(ctx,k), "non-valcacheable %v : %v", ts(k), p).trace()
 		}
 	default:
-		erro(ctx, "non-valcacheable %v : %v", ts(k), p).trace()
+		erro(pc(ctx,k), "non-valcacheable %v : %v", ts(k), p).trace()
 	}
 	return
 }

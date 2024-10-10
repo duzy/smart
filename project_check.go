@@ -309,7 +309,9 @@ func unmap_check(ctx *unmap, c *valcache, key any) {
 
 	switch spec {
 	case "configure/.base/.template":
-		note(ctx, "%v %v", tv(key), c)
-		note(ctx, "%v", ts(ctx)).debug(5)
+		if false {
+			note(pc(ctx,key), "%v %v", tv(key), c)
+			note(pc(ctx,key), "%v", ts(ctx)).debug()
+		}
 	}
 }

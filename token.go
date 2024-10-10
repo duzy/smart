@@ -171,8 +171,6 @@ const (
 
 	_keyword_beg
 	PROJECT    // project a
-	PACKAGE    // package a
-	MODULE     // module a
 	CONFIGURE  // configure [...] TODO: use a different keyword
 	USE        // use b
 	ASSERT     // assert clause
@@ -348,8 +346,6 @@ var tokens = [...]string{
 	PERC:  "%",
 
 	PROJECT:   "project",
-	PACKAGE:   "package",
-	MODULE:    "module",
 	CONFIGURE: "configure",
 	USE:       "use",
 	ASSERT:    "assert",

@@ -320,7 +320,7 @@ func (l ul) search(ctx Context, spec string) (absPath string, isDir bool) {
     return
 }
 
-func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) (loaded *project) {
+func (l ul) use_one(ctx Context, opts useopts, specVal Value, params ...Value) (loaded *project) {
     var absPath, spec string
     var isDir, traveUseLoop bool
     if x, y := specVal.(*project); y {
@@ -595,13 +595,11 @@ func (l ul) spec_file(ctx Context, specVal Value) (res *file, spec, fullname str
 
 type get_include_opts struct{}
 type get_include_spec struct{}
-type is_config_mode struct{}
 type is_flat_mode struct{}
 
 type include_opts struct {
     *clauseopts
     ifExists bool `if-exists,ifexists`
-    isConfig bool
 }
 
 type include_ctx struct {
@@ -618,13 +616,37 @@ func (i include_ctx) do(ctx Context, op any) (_ any) {
     case get_position: if i.p.valid() { return i.p }
 	case get_include_opts: return &i.o
     case get_include_spec: return i.spec
-	case is_config_mode  : return i.o.isConfig
 	case is_flat_mode    : return true
 	}
 	return i.Context.do(ctx, op)
 }
 
-func (l ul) include(ctx Context, val Value, opts include_opts) {
+func (l ul) include(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "include")) }
+
+	var opts = include_opts{ clauseopts: g }
+	if va := parseOpts(ctx, &opts, g.remainder...); len(va) > 0 {
+		erro(ctx, "unknown opts: %v", va).trace()
+	}
+
+	if len(g.spec) < 1 {
+		erro(ctx, "expect include file: %v", g.spec).trace()
+	}
+
+	var val = g.spec[0].expand(final{ctx})
+
+	if l.p.spaces(ctx); l.p.tok == COLON {
+		switch val.(type) {
+		case *file, *strlit, *strcomp: // escape from file searching
+		default: if f := l.project.file(ctx, val); f != nil { val = f }
+		}
+		val = l.rule(ctx, nil, []Value{val}) // this should return a Rule
+	}
+
+    if g.skip { return }
+
+    ctx = pc(ctx, g.spec[0])
+
     // Execute the rule entry to update include source.
     if x, y := val.(*rule); y && x != nil {
         if z, y := execute_entry(ctx, x); !y {
@@ -681,7 +703,7 @@ func (l ul) closescope(s *scope) {
 }
 
 // project example (base(var=value))
-func (l ul) bases(ctx Context, implicitBase_ string, params ...Value) {
+func (l ul) bases(ctx Context, implicitBase string, params ...Value) {
     if l.traceLaunch { defer un(l_trace(l_launch, "loader.bases")) }
 
     // For &(foobar) set from command line args
@@ -711,14 +733,14 @@ func (l ul) bases(ctx Context, implicitBase_ string, params ...Value) {
                 segs = append(segs, makeWord(_position(ctx), s))
             }
             implicitBases = append(implicitBases, makePath(segs...))
-            implicitBase_ = "" // discard the implicit base
+            implicitBase = "" // discard the implicit base
         }
     }
 
     var implicitIndex int
-    if  implicitBase_ != ""  {
+    if  implicitBase != ""  {
         implicitIndex = len(implicitBases)
-        implicitBases = append(implicitBases, _pathstr(ctx, implicitBase_))
+        implicitBases = append(implicitBases, _pathstr(ctx, implicitBase))
     }
 
 ParamsLoop:
@@ -737,7 +759,7 @@ ParamsLoop:
         var specVal Value
         if specVal = elem.expand(final{ctx}); specVal == nil { specVal = elem }
         if checkpoints && truly(ctx, is_test_mode{}) {
-            l.bases_check_param(ctx, implicitBase_, i, elem, specVal)
+            l.bases_check_param(ctx, implicitBase, i, elem, specVal)
         }
 
         if indeterminate(ctx, specVal) {
@@ -750,7 +772,7 @@ ParamsLoop:
             note(ctx, "%v: invalid spec: %v → %v", l.project, elem, specVal)
             note(ctx, "%v: invalid spec: %v → %v", l.project, elem, spec)
             errostack(ctx, 5).trace()
-        } else if implicitBase_ != "" && spec == implicitBase_ {
+        } else if implicitBase != "" && spec == implicitBase {
             if i == implicitIndex {
                 ctx = load_implicit{ctx}
             } else {
@@ -781,12 +803,12 @@ ParamsLoop:
         }
 
         if checkpoints && truly(ctx, is_test_mode{}) {
-            l.bases_check_i(ctx, i, implicitIndex, implicitBase_, abs, isDir, elem)
+            l.bases_check_i(ctx, i, implicitIndex, implicitBase, abs, isDir, elem)
         }
     }
 
     if checkpoints && truly(ctx, is_test_mode{}) {
-        l.bases_check(ctx, implicitIndex, implicitBase_)
+        l.bases_check(ctx, implicitIndex, implicitBase)
     }
 
     usefor(ctx, l.project, func(op usevar, _, _ Value, name string) {
@@ -828,17 +850,20 @@ func is_configure_project(proj *project) bool {
         proj.name == "configure.base"
 }
 
+type is_autoload struct{}
+
 type autoload_ctx struct {
     Context
     p Position
     v Value
 }
-func (a autoload_ctx) ts(string) string {
-	return "{=autoload "+a.v.String()+" "+ts(a.Context)+"}"
+func (a autoload_ctx) ts(t string) string {
+	return "{="+t+" "+a.v.String()+" "+ts(a.Context)+"}"
 }
 func (a autoload_ctx) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
     case get_position: if a.p.valid() { return a.p }
+    case is_autoload: return true
 	case is_flat_mode: return true
 	}
 	return a.Context.do(ctx, op)
@@ -846,7 +871,7 @@ func (a autoload_ctx) do(ctx Context, op any) (_ any) {
 
 func (l ul) autoload(ctx Context, tag string) {
     if !is_configure_project(l.project) {
-        if d := l.project.def(ctx, ".autoload."+tag); d != nil {
+        if d := l.project.def(ctx, ".autoload."+tag); d != nil && d.value != nil {
             for _, v := range merge(d.value.expand(final{ctx})) {
                 if isTrivial(v) {
                     continue
@@ -862,22 +887,27 @@ func (l ul) autoload(ctx Context, tag string) {
     }
 }
 
-type load_configure struct {
+type is_config_mode struct{}
+
+type configure_ctx struct {
     Context
     abs, configure string
     local, isDir bool
+    configuration *file
     p *project
 }
-func (c *load_configure) do(ctx Context, op any) (_ any) {
+func (cc *configure_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
     case declared_project:
-        if t.absPath == c.abs {
-            c.p = t.project
+        if t.absPath == cc.abs {
+            cc.p = t.project
             return
         }
-    case loaded_abs: return c.abs
+    case loaded_abs: return cc.abs
+	case is_config_mode: if cc.configuration != nil { return true }
+	case is_flat_mode: if cc.configuration != nil { return true }
     }
-    return c.Context.do(ctx, op)
+    return cc.Context.do(ctx, op)
 }
 
 func (l ul) configure(ctx Context, ident Value, identStr string, declared bool) {
@@ -885,7 +915,7 @@ func (l ul) configure(ctx Context, ident Value, identStr string, declared bool) 
 
     if l.project.name == dot_configure { return }
 
-    var cc = load_configure{Context:ctx}
+    var cc = configure_ctx{Context:ctx}
 
     if checkpoints && truly(ctx, is_test_mode{}) {
         defer l.configure_check(&cc, ident)
@@ -980,8 +1010,9 @@ func (l ul) configure(ctx Context, ident Value, identStr string, declared bool) 
         erro(ctx, "%v: nil configuration file", ident).trace()
     } else if f.exists() || f.stat(ctx) != nil {
         // Initiate the configuration.sm file.
+        cc.configuration = f
         l.project.configuration = f
-        l.include(&cc, f, include_opts{isConfig:true})
+        l.source(&cc, f.fullname(), nil)
     }
 }
 
@@ -1113,10 +1144,12 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
         return ease(ctx, l.values(ctx))
     }
 
-    if l.parse(ctx, filename) && !truly(ctx, is_flat_mode{}) {
-        return l.project
+    l.parse(ctx, filename)
+
+    if truly(ctx, is_flat_mode{}) {
+        return nil
     } else {
-        return
+        return l.project
     }
 }
 
@@ -1196,19 +1229,7 @@ func nonsource(name string, mo os.FileMode) (_ bool) {
     return
 }
 
-var loader_sources_bench = false && checkpoints
-
-func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (_ bool) {
-    if loader_sources_bench {
-        defer func(t time.Time) {
-            if d := time.Now().Sub(t); l.verboseParse || d > time.Second {
-                note(ctx, "slow: %s (%v)", l.project, d).debug()
-            } else if debugSyntax(ctx, "sources") {
-                note(ctx, "sources: %s (%v)", l.project, time.Now().Sub(t)).debug(6)
-            }
-        } (time.Now())
-    }
-
+func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (sources []string) {
     fd, err := os.Open(path)
     if err != nil {
         erro(ctx, "%v", err).trace()
@@ -1232,13 +1253,6 @@ func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (_ 
         }
     }
 
-	var sof, _ = filepath.Rel(workBaseDir, path)
-    defer l.closescope(l.openscope(bases(2, sof, true)))
-
-    // FIXES: use globe scope as outer to avoid chaining with the other unrelated projects.
-    // It's important to name resolving for not interfering with other projects.
-    l.scope().outer = l.globe.scope
-
     for _, d := range fis {
         var name, mo = d.Name(), d.Mode()
         if nonsource(name, mo) || filter != nil && filter(d) { continue }
@@ -1252,9 +1266,9 @@ func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (_ 
             continue
         }
 
-        l.source(abs_ctx(ctx, path), filename, nil)
+        sources = append(sources, filename)
     }
-    return true
+    return
 }
 
 // ul.load loads script from a file or source code
@@ -1319,7 +1333,6 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
         }
 
         if loaded == nil { return }
-
         if l.globe.main == nil { l.globe.main = loaded }
 
         if proj := l.scope().project; proj == nil {
@@ -1333,7 +1346,9 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
         }
     } (time.Now(), l.verboseLoads)
 
-    defer l.directory_check(ctx, spec, absDir)
+	if checkpoints && truly(ctx, is_test_mode{}) {
+        defer l.directory_check(ctx, spec, absDir)
+    }
 
     // Check previously loaded project.
     if loaded, okay = l.globe.loaded[absDir]; okay && loaded != nil {
@@ -1346,18 +1361,26 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
         lo.loader = &loader{term:term{ctx,nil}}
         ctx = lo.loader
     }
-    if !lo.sources(ctx, absDir, filter) {
-        erro(ctx, "failed parsing module: %s", spec).trace()
-    }
+
+    var cc = abs_ctx(ctx, absDir)
+	var sof,_ = filepath.Rel(workBaseDir, absDir)
+    var scope = lo.openscope(bases(2, sof, true))
+    defer func() { if scope != nil { lo.closescope(scope) } } ()
+
+    // Use globe outer scope to avoid conflicting with other unrelated projects.
+    lo.scope().outer = lo.globe.scope
+    for _, s := range lo.sources(ctx, absDir, filter) { lo.source(cc, s, nil) }
+    lo.closescope(scope)
+    scope = nil
 
     if len(lo.declares) == 0 && filepath.Base(spec) != "@" {
         if truly(ctx, is_implicit_load{}) {
             warn(ctx, "%s not loaded (as %s, implicitly)", spec, absDir).debug()
             return // okay for implicit loading
-        } else {
-            for s, m := range l.globe.loaded { erro(ctx, "%v: %v", s, m) }
-            errostack(ctx, 3, "%s not loaded (as %s)", spec, absDir).trace()
         }
+
+        for s, m := range l.globe.loaded { erro(ctx, "%v: %v", s, m) }
+        errostack(ctx, 3, "%s not loaded (as %s)", spec, absDir).trace()
     }
 
     if loaded, okay = l.globe.loaded[absDir]; okay && loaded != nil {

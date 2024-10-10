@@ -15,7 +15,6 @@ import (
 	"runtime/pprof"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 )
@@ -357,6 +356,9 @@ func (p *parser) Position() Position { return p.loc(p.pos) }
 func (p *parser) loc(a Pos) Position { return Position(p.scanner.file.Position(a)) }
 func (p *parser) curline() int { return p.scanner.file.Line(p.pos) }
 func (p *parser) valbase() valbase { return valbase{p.loc(p.pos)} }
+func (p *parser) is_file(s string) bool {
+	return strings.HasSuffix(p.scanner.file.Name(), s)
+}
 
 func (p *parser) expected(ctx Context, pos Pos, msg string, a... any) {
 	if len(a) > 0 { msg = fmt.Sprintf(msg, a...) }
@@ -501,9 +503,13 @@ func (l ul) braced(ctx Context) (x Value) {
 					l.p.expect(ctx, RBRACE)
 					return
 
-				default:
-					erro(pc(ctx,l.p), "unsupported braced type: %v", t).trace()
+				case "word":
+					x = l.braced_word(ctx)
+					l.p.expect(ctx, RBRACE)
+					return
 				}
+
+				erro(pc(ctx,l.p), "unsupported braced type: %v %v", l.p.tok, l.p.lit).trace()
 				return
 
 			default:
@@ -2029,7 +2035,44 @@ func (l ul) braced_foreach(ctx Context) Value {
 
 func (l ul) braced_str(ctx Context) (res Value) {
 	l.p.next(ctx, true) // resumes 'str'
-	return ease(ctx, l.braced_elems(ctx))
+
+	var pos = l.p.Position()
+	var elems = expand(final{ctx}, l.braced_elems(ctx)...)
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		defer l.braced_str_check(ctx, elems, &res)
+	}
+
+	for _, v := range elems {
+		if indeterminate(ctx, v) {
+			return &strval{valbase{pos}, elems}
+		}
+	}
+
+	var s string
+	for _, v := range elems { s += v.string(ctx) }
+	return &strlit{valbase{pos}, s}
+}
+
+func (l ul) braced_word(ctx Context) (res Value) {
+	l.p.next(ctx, true) // resumes 'word'
+
+	var pos = l.p.Position()
+	var elems = expand(final{ctx}, l.braced_elems(ctx)...)
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		defer l.braced_word_check(ctx, elems, &res)
+	}
+
+	for _, v := range elems {
+		if indeterminate(ctx, v) {
+			erro(ctx, "indeterminate: %v", ts(v)).trace()
+		}
+	}
+
+	var s string
+	for _, v := range elems { s += v.string(ctx) }
+	return &word{valbase{pos}, s}
 }
 
 func (l ul) braced_fullname(ctx Context) (res Value) {
@@ -2198,51 +2241,10 @@ func (l ul) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		}
 	}
 
-	var wg sync.WaitGroup ; defer wg.Wait()
-
 	for _, specVal := range specVals {
-		if true { // TODO: use goroutine?
-			l.use_spec(ctx, opts, specVal, args...)
-		} else {
-			var dc = diagnostic{ Context: ctx }
-			wg.Add(1)
-			go func() {
-				defer func() {
-					if false { trace(&dc) }
-					if len(dc.points) > 0 { _diagnostic(ctx).nest(dc.points) }
-					wg.Done()
-				} ()
-				l.use_spec(ctx, opts, specVal, args...)
-			} ()
-		}
+		l.use_one(ctx, opts, specVal, args...)
 	}
 	return
-}
-
-func (l ul) incl(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "include")) }
-
-	var opts = include_opts{ clauseopts: g }
-
-	if va := parseOpts(ctx, &opts, g.remainder...); len(va) > 0 {
-		erro(ctx, "unknown opts: %v", va).trace()
-	}
-
-	if len(g.spec) < 1 {
-		erro(ctx, "expect include file: %v", g.spec).trace()
-	}
-
-	var x = g.spec[0].expand(final{ctx})
-
-	if l.p.spaces(ctx); l.p.tok == COLON {
-		switch x.(type) {
-		case *file, *strlit, *strcomp: // escape from file searching
-		default: if f := l.project.file(ctx, x); f != nil { x = f }
-		}
-		x = l.rule(ctx, nil, []Value{x}) // this should return a Rule
-	}
-
-	if !g.skip { l.include(pc(ctx, g.spec[0]), x, opts) }
 }
 
 func (l ul) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
@@ -2504,9 +2506,8 @@ DirParamsLoop:
 func (l ul) spec(ctx Context, keyword token, pos Pos, f parseSpecFunc) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "spec("+keyword.String()+")")) }
 
-	var p = l.p
 	var opts = clauseopts{ keyword: keyword }
-	for p.spaces(ctx); p.tok == MINUS; p.spaces(ctx) {
+	for l.p.spaces(ctx); l.p.tok == MINUS; l.p.spaces(ctx) {
 		opts.values = append(opts.values, l.expr(ctx))
 	}
 
@@ -2519,40 +2520,41 @@ func (l ul) spec(ctx Context, keyword token, pos Pos, f parseSpecFunc) {
 		}
 	}
 
-	p.spaces(ctx)
+	l.p.spaces(ctx)
 
-	switch p.tok {
+	switch l.p.tok {
 	case LINEND:
 		switch keyword {
 		case EVAL, LOCAL:
 			f(ctx, nil, &opts, 0)
 			return
-		default:
-			erro(ctx, "%v: no specs, remainder: %v", keyword, opts.remainder).trace()
 		}
+
+		erro(ctx, "%v: no specs, remainder: %v", keyword, opts.remainder).trace()
+
 	case LPAREN:
-		p.next(ctx, true)
-		for iota := 0; p.tok != RPAREN && p.tok != EOF && (p.stop == 0 || p.pos < p.stop); iota++ {
+		l.p.next(ctx, true)
+		for iota := 0; l.p.tok != RPAREN && l.p.tok != EOF && (l.p.stop == 0 || l.p.pos < l.p.stop); iota++ {
 			// TODO: collect documentation comments
-			for p.tok == SPACE || p.tok == LINEND { p.next(ctx, true) }
-			if p.tok == RPAREN || p.tok == EOF { break  }
+			for l.p.tok == SPACE || l.p.tok == LINEND { l.p.next(ctx, true) }
+			if l.p.tok == RPAREN || l.p.tok == EOF { break  }
 			if opts.spec = l.directive(ctx); true {
-				f(ctx, p.leadComment, &opts, iota)
+				f(ctx, l.p.leadComment, &opts, iota)
 			}
-			if p.tok == COMMA || p.tok == LINEND { p.next(ctx, true) }
+			if l.p.tok == COMMA || l.p.tok == LINEND { l.p.next(ctx, true) }
 		}
-		p.expect(ctx, RPAREN)
-		p.spaces(ctx)
-		if p.tok != EOF { p.linend(ctx) }
+		l.p.expect(ctx, RPAREN)
+		l.p.spaces(ctx)
+		if l.p.tok != EOF { l.p.linend(ctx) }
 		return
 	}
 
-	if p.tok != LINEND && p.tok != EOF && (p.stop == 0 || p.pos < p.stop) {
+	if l.p.tok != LINEND && l.p.tok != EOF && (l.p.stop == 0 || l.p.pos < l.p.stop) {
 		if opts.spec = l.directive(ctx); true { f(ctx, nil, &opts, 0) }
-		if p.tok == COMMA { p.next(ctx, true) }
+		if l.p.tok == COMMA { l.p.next(ctx, true) }
 	}
-	if p.tok != EOF && (p.stop == 0 || p.pos < p.stop) {
-		if p.spaces(ctx); p.lineComment == nil { p.linend(ctx) }
+	if l.p.tok != EOF && (l.p.stop == 0 || l.p.pos < l.p.stop) {
+		if l.p.spaces(ctx); l.p.lineComment == nil { l.p.linend(ctx) }
 	}
 }
 
@@ -3044,9 +3046,6 @@ func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
     if l.project != _scope(ctx).project {
 		erro(ctx, "mismatched project/scope : %v", targets).trace()
 	}
-	if l.project.keyword == PACKAGE {
-		erro(ctx, "rules forbidden in package : %v", targets).trace()
-	}
 
 	// TODO: doc = p.leadComment
 	var depends, ordered, recipes []Value
@@ -3233,7 +3232,7 @@ func (l ul) foreach_done(ctx Context) {
 	l.p.linend(ctx)
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
-		if strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
+		if l.p.is_file("/configure/.base/.template") {
 			defer func(t time.Time) {
 				if d := time.Since(t); 1*time.Millisecond <= d {
 					note(pc(ctx,pos), "%v, %d values", d, len(vals)).debug()
@@ -3371,7 +3370,7 @@ func (l ul) for_done(ctx Context) {
 	l.p.linend(ctx)
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
-		if strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
+		if l.p.is_file("/configure/.base/.template") {
 			defer func(t time.Time) {
 				if d := time.Since(t); 1*time.Millisecond <= d {
 					note(pc(ctx,pos), "%v, %v, %d params", time.Since(t0)-d, d, npars).debug()
@@ -3487,7 +3486,7 @@ func (l ul) codeblock(ctx Context, op token, t *template, vars map[string]Value)
 				if d := time.Since(t); 10*time.Millisecond <= d {
 					note(pc(ctx,pos), "%v, %v", d, vars).debug(1)
 				}
-			} (time.Now(), l.p.Position())
+			} (time.Now(), l.p.loc(t.pos))
 		}
 	}
 
@@ -3583,7 +3582,7 @@ func (l ul) clause(ctx Context) {
 	}
 
 	switch t := l.p.tok ; t {
-	case  INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.incl)      ; return
+	case  INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.include)   ; return
 	case     EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_eval); return
 	case   ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert)  ; return
 	case   APPEND: l.spec(ctx, t, l.p.expect(ctx, t), l.p.append)  ; return
@@ -3624,7 +3623,7 @@ func (l ul) clause(ctx Context) {
 // project returns a new project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
-func (l ul) new_declare(ctx Context, name, filename string, keyword token, opts *project_opts) (d *declare) {
+func (l ul) new_declare(ctx Context, name, filename string, opts *project_opts) (d *declare) {
 	if x, y := l.declares[name]; y { return x }
 
     var sco = l.scope()
@@ -3694,7 +3693,7 @@ type project_opts struct {
 	final bool `final` // no bases
 }
 
-func (l ul) declare(ctx Context, keyword token, ident Value, name, filename string, declOpts *project_opts) (_ bool) {
+func (l ul) declare(ctx Context, ident Value, name, filename string, declOpts *project_opts) (_ bool) {
 	if name == "@" {
 		erro(ctx, "deprecated project name: @").trace()
 	}
@@ -3706,7 +3705,7 @@ func (l ul) declare(ctx Context, keyword token, ident Value, name, filename stri
     }
 
 	var prev = l.loader // nil if newly declared
-	var dec = l.new_declare(ctx, name, filename, keyword, declOpts)
+	var dec = l.new_declare(ctx, name, filename, declOpts)
 	if prev == nil || dec.project != prev.project {
 		l.project, l.loader.scope = dec.project, dec.scope
 	}
@@ -3807,7 +3806,7 @@ func (p parent) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (l ul) _project(ctx Context, keyword token, filename string, isMainFile bool) (_ Value, _ string, _ bool) {
+func (l ul) _project(ctx Context, filename string, isMainFile bool) (_ Value, _ string, _ bool) {
 	var implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
 
 	l.p.next(ctx, true) // aka. the keyword
@@ -3887,7 +3886,7 @@ func (l ul) _project(ctx Context, keyword token, filename string, isMainFile boo
 	var name = ident.string(ctx)
 
 	if p := l.project; p != nil && p.name != name {
-		warnstack(ctx, 5, "%v: declared multiple projects in the same directory : %v", p, ident).debug()
+		errostack(ctx, 5, "%v: multiple projects in the directory : %v", p, ident).trace()
 	}
 
 	if name == "-" || name == "_" {
@@ -3896,7 +3895,7 @@ func (l ul) _project(ctx Context, keyword token, filename string, isMainFile boo
 
 	var _, prevDeclared = l.declares[name]
 
-	if l.declare(ctx, keyword, ident, name, filename, &opts) {
+	if l.declare(ctx, ident, name, filename, &opts) {
 		if l.project == nil {
 			erro(ctx, "undeclared project: %v", ident).trace()
 		}
@@ -3904,7 +3903,6 @@ func (l ul) _project(ctx Context, keyword token, filename string, isMainFile boo
 	}
 
 	var cc = parent{ctx, l.project}
-	var isPackage = keyword != PACKAGE
 
 	if l.p.tok != LPAREN {
 		l.bases(cc, implicitBase) // for special bases, e.g. .base
@@ -3915,25 +3913,30 @@ func (l ul) _project(ctx Context, keyword token, filename string, isMainFile boo
 				l.p.spaces(ctx)
 
 				val := parseOpts(ctx, &opts, l.expr(cc0))
-				if isPackage && !opts.final {
-					l.bases(cc, "", merge(val...)...)
+				if opts.final {
+					if val != nil {
+						erro(ctx, "no bases final project: %v", val).trace()
+					}
+					continue
 				}
+				l.bases(cc, "", merge(val...)...)
 			}
 			if l.p.tok != COMMA { break }
 		}
 		l.p.expect(ctx, RPAREN)
 	}
 
-	if checkpoints && truly(ctx, is_test_mode{}) { l.new_project_check_bases(ctx) }
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		l.project_check_bases(ctx)
+	}
 
 	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
 
-	if isPackage {
-		if !opts.noConf { l.configure(ctx, ident, name, prevDeclared) }
-		if !opts.noDock { l.container(ctx, ident, name) }
-		if checkpoints && truly(ctx, is_test_mode{}) {
-			// TODO: ...
-		}
+	if !opts.noConf { l.configure(ctx, ident, name, prevDeclared) }
+	if !opts.noDock { l.container(ctx, ident, name) }
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		// TODO: ...
 	}
 
 	return ident, name, isMainFile
@@ -4019,9 +4022,6 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	}
 
 	switch keyword {
-	case PACKAGE, MODULE:
-		erro(ctx, "deprecated keyword: %s", keyword).trace()
-
 	case CONFIGURE:
 		switch l.p.next(ctx, true); l.p.tok {
 		case DOT:
@@ -4036,13 +4036,13 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 
 	case PROJECT:
 		if flatmode {
-			erro(ctx, "project forbidden in flat file").trace()
+			erro(ctx, "project is forbidden in flat file").trace()
 		}
 
 		var name string
 		var prev = l.project
 
-		_, name, isMainFile = l._project(ctx, keyword, filename, isMainFile)
+		_, name, isMainFile = l._project(ctx, filename, isMainFile)
 		if prev != l.project { defer l.close_project(ctx, name) }
 		if checkpoints { l.parse_file_check_new_project(ctx) }
 

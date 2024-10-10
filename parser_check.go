@@ -473,7 +473,7 @@ func (l ul) parse_file_check_do_smart(ctx Context, p *project) {
 	}
 }
 
-func (l ul) new_project_check_bases(ctx Context) {
+func (l ul) project_check_bases(ctx Context) {
 	switch p := l.project; p.name {
 	case "lib.std":
 		if len(p.bases) != 1 {
@@ -481,6 +481,38 @@ func (l ul) new_project_check_bases(ctx Context) {
 		}
 		if b := p.bases[0]; b.name != "app.base" {
 			erro(ctx, "%v: wrong bases[0]", b).trace()
+		}
+	}
+}
+
+func (l ul) braced_str_check(ctx Context, elems []Value, res *Value) {
+	fn := l.p.scanner.file.Name()
+
+	if strings.HasSuffix(fn, "/configure/.base/.template") {
+		for _, v := range elems {
+			if indeterminate(ctx, v) {
+				erro(pc(ctx,v), "indeterminate str: %v", ts(v)).trace()
+			}
+		}
+
+		if _, y := (*res).(*strlit); !y {
+			erro(pc(ctx, *res), "%v", ts(*res)).trace()
+		}
+	}
+}
+
+func (l ul) braced_word_check(ctx Context, elems []Value, res *Value) {
+	fn := l.p.scanner.file.Name()
+
+	if strings.HasSuffix(fn, "/configure/.base/.template") {
+		for _, v := range elems {
+			if indeterminate(ctx, v) {
+				erro(pc(ctx,v), "indeterminate str: %v", ts(v)).trace()
+			}
+		}
+
+		if _, y := (*res).(*word); !y {
+			erro(pc(ctx, *res), "%v", ts(*res)).trace()
 		}
 	}
 }
@@ -502,7 +534,7 @@ func (l ul) rule_check(ctx Context, targets []Value, res *Value) {
 	if strings.HasSuffix(fn, "/configure/.base/.template") {
 		target := targets[0]
 		t := target.string(ctx)
-		if strings.HasPrefix(t, "HAVE_") {
+		if strings.HasPrefix(t, "HAVE_FUN_") || strings.HasPrefix(t, "HAVE_SYM_") {
 			name := strings.TrimPrefix(t, "HAVE_")
 			if e := l.project.unmap_entries(ctx, target, nil); len(e) != 1 {
 				erro(pc(ctx,target), "%v : no such entry : %s", tv(target), t)
@@ -511,15 +543,15 @@ func (l ul) rule_check(ctx Context, targets []Value, res *Value) {
 				erro(pc(ctx,target), "%v : no such entry : %s", tv(target), t)
 				note(pc(ctx,target), "%v", &l.project.entries).trace()
 			} else if x, y := e[0].(rule_name); !y {
-				erro(pc(ctx,target), "%v %v", tv(target), tv(e[0])).trace()
-			} else if len(x.program) != 1 {
-				erro(pc(ctx,target), "%v", tv(target)).trace()
-			} else if p := x.program[0]; len(p.recipes) != 1 {
-				erro(pc(ctx,target), "%v : %v", tv(target), tv(p.recipes)).trace()
-			} else {
-				var t = fmt.Sprintf("$(or $(HAVE_FUN_%s),$(HAVE_SYM_%s))", name, name)
-				if r := p.recipes[0]; r.String() != t {
-					erro(pc(ctx,target), "%v : %v", tv(target), tv(r)).trace()
+				erro(pc(ctx,target), "%v %v", ts(target), tv(e[0])).trace()
+			} else if len(x.program) == 1 {
+				if p := x.program[0]; len(p.recipes) == 1 {
+					// Checking for recipe:
+					//   $(or $(HAVE_FUN_$(uppercase $_)),$(HAVE_SYM_$(uppercase $_)))
+					var t = fmt.Sprintf("$(or $(HAVE_FUN_%s),$(HAVE_SYM_%s))", name, name)
+					if r := p.recipes[0]; r.String() != t {
+						erro(pc(ctx,target), "%v %v", ts(target), tv(r)).trace()
+					}
 				}
 			}
 		}

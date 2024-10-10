@@ -22,7 +22,7 @@ func testInit(t *testing.T) {
     var s scanner
 
     // 1st init
-    src1 := "module a"
+    src1 := "project a"
     f1 := fset.AddFile(filepath.Join("TestInit", "src1"), fset.Base(), len(src1))
     s.init(f1, []byte(src1), scanmode(0), nil, nil, nil)
     if f1.Size() != len(src1) {
@@ -35,8 +35,8 @@ func testInit(t *testing.T) {
     )
 
     _, tok, _ = s.scan() // module
-    if tok != MODULE {
-        t.Errorf("bad token: got %s, expected %s", tok, MODULE)
+    if tok != PROJECT {
+        t.Errorf("bad token: got %s, expected %s", tok, PROJECT)
     }
 
     _, tok, lit = s.scan()
@@ -1128,7 +1128,7 @@ use (
         t.Errorf("bad file size: got %d, expected %d", f2.Size(), len(src2))
     }
     results2 := []scanResult{
-        {-1, MODULE, `module` },
+        {-1, PROJECT, `project` },
         {-1, WORD, `M1` },
         {-1, LINEND, `` },
 

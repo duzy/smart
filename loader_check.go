@@ -190,7 +190,7 @@ func (l ul) directory_check(ctx Context, spec, absDir string) {
 	}
 }
 
-func (l ul) configure_check(ctx *load_configure, ident Value) {
+func (l ul) configure_check(ctx *configure_ctx, ident Value) {
 	if ctx.configure != "" {
 		if x, y := l.globe.loaded[ctx.abs]; !y || x == nil {
 			prompt(ctx, "%v: %v\n", ctx.abs, ctx.configure)
@@ -360,7 +360,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		switch mode = d.string(ctx); mode {
 		case "clean", "configure", "goals":
 		default:
-			erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
+			erro(ctx, "%v : wrong mode : %v : %s", l.project, d, mode).trace()
 		}
 	}
 
@@ -714,153 +714,155 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		}
 	}
 
-	if strings.HasSuffix(filename, "/llvm/Config/do.smart") {
-		if l.project.name != "llvm.Config" {
-			erro(ctx, "wrong project: %v", l.project.name).trace()
-		}
-	}
-
-	if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
-		if l.project.name != "llvm.Config" {
-			erro(ctx, "wrong project: %v", l.project.name).trace()
-		}
-		if d := l.project.def(ctx, "LLVM_TARGETS_TO_BUILD"); d == nil && false {
-			erro(ctx, "%s: LLVM_TARGETS_TO_BUILD not def", mode).trace()
-		} else if false {
+	if l.project.name == "llvm.Config" {
+		if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
+			d := l.project.def(ctx, "LLVM_TARGETS_TO_BUILD")
 			switch mode {
 			case "configure":
-				if d.string(ctx) != "" {
-					erro(ctx, "%v", d).trace()
+				if l.project.configuration != nil {
+					errostack(ctx, 5, "not loaded configuration.sm").trace()
+				}
+				if d == nil {
+					erro(ctx, "%s: LLVM_TARGETS_TO_BUILD is undef", mode).trace()
+				} else if d.value != nil {
+					erro(ctx, "%s: %v", mode, d).trace()
+				} else if d.string(ctx) != "" {
+					erro(ctx, "%s: %v", mode, d).trace()
 				}
 			case "clean", "goals":
-				if d.string(ctx) == "" {
-					erro(ctx, "%v", d).trace()
+				if l.project.configuration == nil {
+					errostack(ctx, 5, "not loaded configuration.sm").trace()
+				}
+				if d == nil {
+					erro(ctx, "%s: LLVM_TARGETS_TO_BUILD is undef", mode).trace()
+				} else if d.value == nil {
+					erro(ctx, "%s: %v", mode, d).trace()
+				} else if d.string(ctx) == "" {
+					erro(ctx, "%s: %v", mode, d).trace()
 				}
 			}
 		}
-	}
 
-	if strings.HasSuffix(filename, "/llvm/Config/do.smart") {
-		if l.project.name != "llvm.Config" {
-			erro(ctx, "wrong project: %v", l.project.name).trace()
-		} else if ws == nil {
-			erro(ctx, "%v: workspace", l.project.name).trace()
-		}
-		if d := l.project.def(ctx, "srcinc"); d == nil {
-			erro(ctx, "srcinc").trace()
-		} else if srcinc = d.string(ctx); srcinc == "" {
-			erro(ctx, "%v", d).trace()
-		} else if srcinc != ws.string(ctx)+"/external/llvm-project/llvm/include" {
-			erro(ctx, "%v %s", d, l.project.absPath).trace()
-		}
-		if d := l.project.def(ctx, "src.def.in"); d == nil {
-			erro(ctx, "src.def.in").trace()
-		} else {
-			var m = map[string]struct{}{
-				"llvm/Config/AsmParsers.def.in"     :struct{}{},
-				"llvm/Config/AsmPrinters.def.in"    :struct{}{},
-				"llvm/Config/Disassemblers.def.in"  :struct{}{},
-				"llvm/Config/TargetExegesis.def.in" :struct{}{},
-				"llvm/Config/TargetMCAs.def.in"     :struct{}{},
-				"llvm/Config/Targets.def.in"        :struct{}{},
+		if strings.HasSuffix(filename, "/llvm/Config/do.smart") {
+			if ws == nil {
+				erro(ctx, "%v: workspace", l.project.name).trace()
 			}
-			if x, y := d.value.(*list); !y {
-				erro(ctx, "%v", d.value).trace()
-			} else if x.len() != len(m) {
-				erro(ctx, "%d, %d; %v", x.len(), len(m), d.value).trace()
+			if d := l.project.def(ctx, "srcinc"); d == nil {
+				erro(ctx, "srcinc").trace()
+			} else if srcinc = d.string(ctx); srcinc == "" {
+				erro(ctx, "%v", d).trace()
+			} else if srcinc != ws.string(ctx)+"/external/llvm-project/llvm/include" {
+				erro(ctx, "%v %s", d, l.project.absPath).trace()
+			}
+			if d := l.project.def(ctx, "src.def.in"); d == nil {
+				erro(ctx, "src.def.in").trace()
 			} else {
-				for _, e := range x.elems {
-					if x, y := e.(*file); !y {
-						erro(ctx, "%v", ts(e)).trace()
-					} else if x.dir != srcinc {
-						erro(ctx, "%s != %s", x.dir, srcinc).trace()
-					} else if _, y = m[x.name]; !y {
-						erro(ctx, "%v", x.name).trace()
+				var m = map[string]struct{}{
+					"llvm/Config/AsmParsers.def.in"     :struct{}{},
+					"llvm/Config/AsmPrinters.def.in"    :struct{}{},
+					"llvm/Config/Disassemblers.def.in"  :struct{}{},
+					"llvm/Config/TargetExegesis.def.in" :struct{}{},
+					"llvm/Config/TargetMCAs.def.in"     :struct{}{},
+					"llvm/Config/Targets.def.in"        :struct{}{},
+				}
+				if x, y := d.value.(*list); !y {
+					erro(ctx, "%v", d.value).trace()
+				} else if x.len() != len(m) {
+					erro(ctx, "%d, %d; %v", x.len(), len(m), d.value).trace()
+				} else {
+					for _, e := range x.elems {
+						if x, y := e.(*file); !y {
+							erro(ctx, "%v", ts(e)).trace()
+						} else if x.dir != srcinc {
+							erro(ctx, "%s != %s", x.dir, srcinc).trace()
+						} else if _, y = m[x.name]; !y {
+							erro(ctx, "%v", x.name).trace()
+						}
 					}
 				}
 			}
-		}
-		if d := l.project.def(ctx, "src.h.cmake"); d == nil {
-			erro(ctx, "src.h.cmake").trace()
-		} else {
-			var m = map[string]struct{}{
-				"llvm/Config/abi-breaking.h.cmake" :struct{}{},
-				"llvm/Config/llvm-config.h.cmake"  :struct{}{},
-				"llvm/Config/config.h.cmake"       :struct{}{},
-			}
-			if x, y := d.value.(*list); !y {
-				erro(ctx, "%v", d.value).trace()
-			} else if x.len() != len(m) {
-				erro(ctx, "%d, %d; %v", x.len(), len(m), d.value).trace()
+			if d := l.project.def(ctx, "src.h.cmake"); d == nil {
+				erro(ctx, "src.h.cmake").trace()
 			} else {
-				for _, e := range x.elems {
-					if x, y := e.(*file); !y {
-						erro(ctx, "%v", ts(e)).trace()
-					} else if x.dir != srcinc {
-						erro(ctx, "%s != %s", x.dir, srcinc).trace()
-					} else if _, y = m[x.name]; !y {
-						erro(ctx, "%v", x.name).trace()
+				var m = map[string]struct{}{
+					"llvm/Config/abi-breaking.h.cmake" :struct{}{},
+					"llvm/Config/llvm-config.h.cmake"  :struct{}{},
+					"llvm/Config/config.h.cmake"       :struct{}{},
+				}
+				if x, y := d.value.(*list); !y {
+					erro(ctx, "%v", d.value).trace()
+				} else if x.len() != len(m) {
+					erro(ctx, "%d, %d; %v", x.len(), len(m), d.value).trace()
+				} else {
+					for _, e := range x.elems {
+						if x, y := e.(*file); !y {
+							erro(ctx, "%v", ts(e)).trace()
+						} else if x.dir != srcinc {
+							erro(ctx, "%s != %s", x.dir, srcinc).trace()
+						} else if _, y = m[x.name]; !y {
+							erro(ctx, "%v", x.name).trace()
+						}
 					}
 				}
 			}
-		}
-		if d := l.project.def(ctx, "headers"); d == nil {
-			erro(ctx, "headers").trace()
-		} else {
-			var m = map[string]struct{}{
-				"llvm/Config/AsmPrinters.def"    :struct{}{},
-				"llvm/Config/AsmParsers.def"     :struct{}{},
-				"llvm/Config/Disassemblers.def"  :struct{}{},
-				"llvm/Config/Targets.def"        :struct{}{},
-				"llvm/Config/TargetMCAs.def"     :struct{}{},
-				"llvm/Config/TargetExegesis.def" :struct{}{},
-				"llvm/Config/abi-breaking.h"     :struct{}{},
-				"llvm/Config/llvm-config.h"      :struct{}{},
-				"llvm/Config/config.h"           :struct{}{},
-			}
-			if x, y := d.value.(*list); !y {
-				erro(ctx, "%v", d.value).trace()
-			} else if x.len() != 2 {
-				erro(ctx, "%d; %v", x.len(), d.value).trace()
-			} else if x1,  y := x.elems[0].(*list); !y {
-				erro(ctx, "%v", x.elems[0]).trace()
-			} else if x2,  y := x.elems[1].(*list); !y {
-				erro(ctx, "%v", x.elems[1]).trace()
-			} else if x1.len()+x2.len() != len(m) {
-				erro(ctx, "%d, %d, %d; %v", x1.len(), x2.len(), len(m), d.value).trace()
+			if d := l.project.def(ctx, "headers"); d == nil {
+				erro(ctx, "headers").trace()
 			} else {
-				for _, e := range append(x1.elems, x2.elems...) {
-					if x, y := e.(*file); !y {
-						erro(ctx, "%v", ts(e)).trace()
-					} else if x.dir != srcinc {
-						erro(ctx, "%s != %s", x.dir, srcinc).trace()
-					} else if _, y = m[x.name]; !y {
-						erro(ctx, "%v", x.name).trace()
+				var m = map[string]struct{}{
+					"llvm/Config/AsmPrinters.def"    :struct{}{},
+					"llvm/Config/AsmParsers.def"     :struct{}{},
+					"llvm/Config/Disassemblers.def"  :struct{}{},
+					"llvm/Config/Targets.def"        :struct{}{},
+					"llvm/Config/TargetMCAs.def"     :struct{}{},
+					"llvm/Config/TargetExegesis.def" :struct{}{},
+					"llvm/Config/abi-breaking.h"     :struct{}{},
+					"llvm/Config/llvm-config.h"      :struct{}{},
+					"llvm/Config/config.h"           :struct{}{},
+				}
+				if x, y := d.value.(*list); !y {
+					erro(ctx, "%v", d.value).trace()
+				} else if x.len() != 2 {
+					erro(ctx, "%d; %v", x.len(), d.value).trace()
+				} else if x1,  y := x.elems[0].(*list); !y {
+					erro(ctx, "%v", x.elems[0]).trace()
+				} else if x2,  y := x.elems[1].(*list); !y {
+					erro(ctx, "%v", x.elems[1]).trace()
+				} else if x1.len()+x2.len() != len(m) {
+					erro(ctx, "%d, %d, %d; %v", x1.len(), x2.len(), len(m), d.value).trace()
+				} else {
+					for _, e := range append(x1.elems, x2.elems...) {
+						if x, y := e.(*file); !y {
+							erro(ctx, "%v", ts(e)).trace()
+						} else if x.dir != srcinc {
+							erro(ctx, "%s != %s", x.dir, srcinc).trace()
+						} else if _, y = m[x.name]; !y {
+							erro(ctx, "%v", x.name).trace()
+						}
 					}
 				}
 			}
-		}
-		for _, c := range l.project.filemap.value {
-			switch c.Value.String() {
-			case "$(headers)", "$(src.def.in)", "$(src.h.cmake)":
-				erro(ctx, "unexpanded: %v : %v", c.Value, c.Value.expand(original{ctx,defExpand1})).trace()
-			default:
-				note(ctx, "%v", c.Value).debug()
+			for _, c := range l.project.filemap.value {
+				switch c.Value.String() {
+				case "$(headers)", "$(src.def.in)", "$(src.h.cmake)":
+					erro(ctx, "unexpanded: %v : %v", c.Value, c.Value.expand(original{ctx,defExpand1})).trace()
+				default:
+					note(ctx, "%v", c.Value).debug()
+				}
 			}
-		}
-		if t := l.project.unmap_files(ctx, strings.Split("llvm/Config/llvm-config.h.cmake", pathSep), nil); t == nil {
-			erro(ctx, "%v: %v", l.project.name, &l.project.filemap).trace()
-		} else if x, y := t[0].pattern.(*file); !y {
-			erro(ctx, "%v", t[0].pattern).trace()
-		} else if x.dir != srcinc {
-			erro(ctx, "%s != %s", x.dir, srcinc).trace()
-		}
-		if t := l.project.unmap_files(ctx, strings.Split("llvm/Config/llvm-config.h", pathSep), nil); t == nil {
-			erro(ctx, "%v: %v", l.project.name, &l.project.filemap).trace()
-		} else if x, y := t[0].pattern.(*file); !y {
-			erro(ctx, "%v", t[0].pattern).trace()
-		} else if x.dir != srcinc {
-			erro(ctx, "%s != %s", x.dir, srcinc).trace()
+			if t := l.project.unmap_files(ctx, strings.Split("llvm/Config/llvm-config.h.cmake", pathSep), nil); t == nil {
+				erro(ctx, "%v: %v", l.project.name, &l.project.filemap).trace()
+			} else if x, y := t[0].pattern.(*file); !y {
+				erro(ctx, "%v", t[0].pattern).trace()
+			} else if x.dir != srcinc {
+				erro(ctx, "%s != %s", x.dir, srcinc).trace()
+			}
+			if t := l.project.unmap_files(ctx, strings.Split("llvm/Config/llvm-config.h", pathSep), nil); t == nil {
+				erro(ctx, "%v: %v", l.project.name, &l.project.filemap).trace()
+			} else if x, y := t[0].pattern.(*file); !y {
+				erro(ctx, "%v", t[0].pattern).trace()
+			} else if x.dir != srcinc {
+				erro(ctx, "%s != %s", x.dir, srcinc).trace()
+			}
 		}
 	}
 
