@@ -86,7 +86,9 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 		ctx.paths = append(ctx.paths, testModulesPath)
 	}
 
-	res = &testcase{ctx, t, spec, nil, make(map[string]struct{}), make(map[string]struct{})}
+	res = &testcase{ctx, t, spec, nil, nil, nil}
+	res.srcs = make(map[string]struct{})
+	res.chks = make(map[string]struct{})
 
 	ctx.load(res)
 
@@ -95,7 +97,7 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	} else if name != "" && m.name != name {
 		erro(ctx, "project %v != %v", m.name, name).trace()
 	} else {
-		res.Context = closure_with(ctx, m) // TODO: projectContext{ctx, m}
+		res.Context = closure_with(ctx, m)
 		if false { testRemoveConfigureDir(res, _project(ctx)) }
 	}
 	return
@@ -206,15 +208,15 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	switch t := i0.(type) {
 	case string:
 		if x = proj.resolve(ctx, t) ; x == nil {
-			note(ctx, "%v: %v", proj, reflect.ValueOf(proj.scope.elems).MapKeys())
-			erro(ctx, "%v: '%s' is nil", proj, t).trace()
+			note(ctx, "%v %v", proj, reflect.ValueOf(proj.scope.elems).MapKeys())
+			erro(ctx, "%v '%s' is nil", proj, t).trace()
 		}
 	case  Value:
 		if x = t ; t == nil {
-			erro(ctx, "%v: %s is nil", proj, ts(t)).trace()
+			erro(ctx, "%v %s is nil", proj, ts(t)).trace()
 		}
 	default:
-		erro(ctx, "%v: %v", proj, ts(i0)).trace()
+		erro(ctx, "%v %v", proj, ts(i0)).trace()
 	}
 
 	var c = original{ctx, origin}

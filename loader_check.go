@@ -191,6 +191,20 @@ func (l ul) directory_check(ctx Context, spec, absDir string) {
 }
 
 func (l ul) configure_check(ctx *configure_ctx, ident Value) {
+	var mode string
+
+	if l.project != nil {
+		if d := l.project.def(ctx, ".mode"); d == nil {
+			erro(ctx, "%v", l.project).trace()
+		} else {
+			switch mode = d.string(ctx); mode {
+			case "clean", "configure", "goals":
+			default:
+				erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
+			}
+		}
+	}
+
 	if ctx.configure != "" {
 		if x, y := l.globe.loaded[ctx.abs]; !y || x == nil {
 			prompt(ctx, "%v: %v\n", ctx.abs, ctx.configure)
@@ -202,9 +216,25 @@ func (l ul) configure_check(ctx *configure_ctx, ident Value) {
 
 	switch l.project.name {
 	case "lib.c++.inc":
-		// note(ctx, "%v %v %v %v", l.project.spec, ctx.configure, l.project.configuration, l.project.opt.configure).debug()
 		if ctx.configure != "configure/.base" {
-			erro(ctx, "%s : %v %v", l.project.spec, l.project.configuration, l.project.opt.configure).trace()
+			erro(ctx, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.opt.configure).trace()
+		}
+		if mode == "goals" && l.project.configuration == nil {
+			errostack(ctx, 5, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.configuration_sm(ctx).fullname()).trace()
+		}
+	case "lib.c++.abi":
+		if ctx.configure != "configure/.base" {
+			erro(ctx, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.opt.configure).trace()
+		}
+		if mode == "goals" && l.project.configuration == nil {
+			errostack(ctx, 5, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.configuration_sm(ctx).fullname()).trace()
+		}
+	case "llvm.Config":
+		if ctx.configure != "configure" {
+			erro(ctx, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.opt.configure).trace()
+		}
+		if mode == "goals" && l.project.configuration == nil {
+			errostack(ctx, 5, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.configuration_sm(ctx).fullname()).trace()
 		}
 	case "testdefaultconfigure", "testdeftwoconfigure":
 		if s, t := ts(l.project.opt.configure), "{=boolean true}"; s != t {
@@ -258,9 +288,6 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 	}
 
 	if strings.HasSuffix(filename, "/llvm/Config/do.smart") {
-		if false {
-			note(ctx, "%s %v %v", bases(3, filename, true), l.project, truly(ctx, _loading_source{filename})).debug()
-		}
 		if !truly(ctx, _loading_source{filename}) {
 			erro(ctx, "%v : %s", l.project, bases(5, filename, true)).trace()
 		} else {
@@ -277,9 +304,6 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 		erro(ctx, "%v %s", l.project, bases(3, filename, true)).trace()
 	}
 	if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
-		if false {
-			note(ctx, "%s %v %v", bases(3, filename, true), l.project, truly(ctx, _loading_source{filename})).debug()
-		}
 		if !truly(ctx, _loading_source{filename}) {
 			erro(ctx, "%v : %s", l.project, bases(5, filename, true)).trace()
 		} else {
@@ -294,22 +318,24 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 				erro(ctx, "wrong project: %v", l.project.name).trace()
 			}
 		}
-		var d = l.project.def(ctx, "LLVM_TARGETS_TO_BUILD")
 		if l.project.configuration == nil {
-			// note(ctx, "%s : %v", mode, d).debug()
-		} else if d == nil {
-			erro(pc(ctx,filename,1), "LLVM_TARGETS_TO_BUILD not def")
-			erro(pc(ctx,l.p.Position()), "%s", mode)
-			erro(ctx, "%s : %v", mode, l.project.configuration).trace()
-		} else {
-			switch mode {
-			case "configure":
-				if d.string(ctx) != "" {
-					erro(ctx, "%v", d).trace()
-				}
-			case "clean", "goals":
-				if d.string(ctx) == "" {
-					erro(ctx, "%v", d).trace()
+			erro(ctx, "%s: configuration is nil", l.project.name).trace()
+		} else if l.project.configuration.exists() {
+			var d = l.project.def(ctx, "LLVM_TARGETS_TO_BUILD")
+			if d == nil {
+				erro(pc(ctx,filename,1), "LLVM_TARGETS_TO_BUILD is not def")
+				erro(pc(ctx,l.p.Position()), "%s: %s", mode, l.project.name)
+				erro(ctx, "%s: %v", mode, l.project.configuration).trace()
+			} else {
+				switch mode {
+				case "configure":
+					if d.string(ctx) != "" {
+						erro(ctx, "%v", d).trace()
+					}
+				case "clean", "goals":
+					if d.string(ctx) == "" {
+						erro(ctx, "%v", d).trace()
+					}
 				}
 			}
 		}
@@ -716,29 +742,34 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 
 	if l.project.name == "llvm.Config" {
 		if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
+			if l.project.configuration == nil {
+				s := l.project.configuration_sm(ctx).fullname()
+				errostack(ctx, 5, "%s: not loaded configuration.sm; %v", mode, s).trace()
+			}
+
 			d := l.project.def(ctx, "LLVM_TARGETS_TO_BUILD")
 			switch mode {
 			case "configure":
-				if l.project.configuration != nil {
-					errostack(ctx, 5, "not loaded configuration.sm").trace()
-				}
-				if d == nil {
-					erro(ctx, "%s: LLVM_TARGETS_TO_BUILD is undef", mode).trace()
-				} else if d.value != nil {
-					erro(ctx, "%s: %v", mode, d).trace()
-				} else if d.string(ctx) != "" {
-					erro(ctx, "%s: %v", mode, d).trace()
+				if l.project.configuration.exists() {
+					errostack(ctx, 5, "%s: already loaded configuration.sm", mode).trace()
+				} else {
+					if d == nil {
+						erro(ctx, "%s: LLVM_TARGETS_TO_BUILD is undef", mode).trace()
+					} else if d.value != nil {
+						erro(ctx, "%s: %v", mode, d).trace()
+					} else if d.string(ctx) != "" {
+						erro(ctx, "%s: %v", mode, d).trace()
+					}
 				}
 			case "clean", "goals":
-				if l.project.configuration == nil {
-					errostack(ctx, 5, "not loaded configuration.sm").trace()
-				}
-				if d == nil {
-					erro(ctx, "%s: LLVM_TARGETS_TO_BUILD is undef", mode).trace()
-				} else if d.value == nil {
-					erro(ctx, "%s: %v", mode, d).trace()
-				} else if d.string(ctx) == "" {
-					erro(ctx, "%s: %v", mode, d).trace()
+				if l.project.configuration.exists() {
+					if d == nil {
+						errostack(ctx, 5, "%s: LLVM_TARGETS_TO_BUILD is undef", mode).trace()
+					} else if d.value == nil {
+						erro(ctx, "%s: %v", mode, d).trace()
+					} else if d.string(ctx) == "" {
+						erro(ctx, "%s: %v", mode, d).trace()
+					}
 				}
 			}
 		}

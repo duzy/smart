@@ -399,7 +399,7 @@ func (l ul) use_one(ctx Context, opts useopts, specVal Value, params ...Value) (
             l.load(ctx, spec, absPath, nil)
         }
         if loaded, _ = l.globe.loaded[absPath]; loaded == nil {
-            erro(ctx, "'%s' not loaded (%s)", spec, absPath).trace()
+            erro(ctx, "%s not loaded (%s)", spec, absPath).trace()
         }
         if loaded == l.project {
             erro(ctx, "%v : overwrote by %v (dir=%v)", prev, loaded, isDir).trace()
@@ -743,7 +743,7 @@ func (l ul) bases(ctx Context, implicitBase string, params ...Value) {
         implicitBases = append(implicitBases, _pathstr(ctx, implicitBase))
     }
 
-ParamsLoop:
+paramsloop:
     for i, elem := range append(implicitBases, params...) {
         if x, y := elem.(*list); y && len(x.elems) == 1 {
             elem = x.elems[0]
@@ -792,7 +792,7 @@ ParamsLoop:
         for _, base := range l.project.bases {
             if base.absPath == abs {
                 erro(ctx, "duplicated base: %v : %v → %v (in %v)", base, elem, spec).trace()
-                continue ParamsLoop
+                continue paramsloop
             }
         }
 
@@ -823,6 +823,7 @@ ParamsLoop:
 
 func (l ul) loadDotContainer(ctx Context, ident Value, identStr string, file *file) {
     if l.traceLaunch { defer un(l_trace(l_launch, "loader.loadDotContainer")) }
+
     if file.info == nil {
         erro(ctx, "%s: file not exists: %s", ident, file.fullname()).trace()
     } else if file.info.IsDir() {
@@ -1006,14 +1007,19 @@ func (l ul) configure(ctx Context, ident Value, identStr string, declared bool) 
     }
 
     // Load configuration.sm after .configure was loaded.
-    if f := l.project.configuration_sm(ctx); f == nil {
+    var c = l.project.configuration_sm(ctx)
+    if c == nil {
         erro(ctx, "%v: nil configuration file", ident).trace()
-    } else if f.exists() || f.stat(ctx) != nil {
-        // Initiate the configuration.sm file.
-        cc.configuration = f
-        l.project.configuration = f
-        l.source(&cc, f.fullname(), nil)
     }
+
+    cc.configuration = c
+    l.project.configuration = c
+
+    if !c.exists() || c.stat(ctx) == nil {
+        return // not configured yet
+    }
+
+    l.source(&cc, c.fullname(), nil)
 }
 
 func (l ul) container(ctx Context, ident Value, identStr string) {

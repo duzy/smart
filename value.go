@@ -2131,13 +2131,13 @@ func (p *punct) true(Context) (_ bool) { return }
 func (p *punct) int(Context) (_ int64) { return }
 func (p *punct) float(Context) (_ float64) { return }
 func (p *punct) expand(Context) Value { return p }
-func (p *punct) ts(string) (s string) {
+func (p *punct) ts(t string) (s string) {
     switch p.token {
     case PROOT: s = "root"
     case PTAIL: s = "tail"
     default:    s = p.token.String()
     }
-    return "{=punct "+s+"}"
+    return "{="+t+" "+s+"}"
 }
 func (p *punct) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints && truly(ctx, is_test_mode{}) {
@@ -2680,8 +2680,10 @@ func (p *compound) string(ctx Context) (s string) {
         for _, elem := range p.elems { s += elem.string(ctx) }
         return
     } else {
-        if checkpoints && eq(ctx, p, v) {
-            erro(ctx, "%v %v", p, v).trace()
+        if checkpoints && truly(ctx, is_test_mode{}) {
+            if eq(ctx, p, v) {
+                erro(ctx, "%v %v", p, v).trace()
+            }
         }
         return v.string(ctx)
     }

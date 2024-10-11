@@ -103,6 +103,7 @@ func (cc *configurecontext) execute(ctx Context, e entry) {
 
         if !cc.silent {
             prompt(ctx, "configure %s …… (%s)\n", p.name, p.spec)
+            if true { flush(ctx) }
         }
 
         cc.current = p
@@ -158,8 +159,10 @@ func promptEnteringDirectory(ctx Context, s string) diagtracer {
     return prompt(ctx, "smart: Entering directory '%s'\n", s)
 }
 
-func promptLeavingDirectory(ctx Context, s string) diagtracer {
-    return prompt(ctx, "smart: Leaving directory '%s'\n", s)
+func promptLeavingDirectory(ctx Context, s string) (res diagtracer) {
+    res = prompt(ctx, "smart: Leaving directory '%s'\n", s)
+    if true { flush(ctx) }
+    return
 }
 
 type configure_silent struct{}

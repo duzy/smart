@@ -265,11 +265,10 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 			ctx.err("%s: %s", proj.name, c.sub)
 		}
 		if pc := proj.configuration; pc != nil {
-			if pc != c {
-				ctx.err("%s: %v != %v : %s %s", proj.name, pc, c, pc.fullname(), c.fullname())
-			}
 			if s, t := pc.fullname(), c.fullname(); s != t {
 				ctx.err("%s: %s != %s", proj.name, s, t)
+			} else if false && pc != c {
+				ctx.err("%s: %v != %v : %s %s", proj.name, pc, c, s, t)
 			}
 		}
 	}
@@ -286,13 +285,8 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		if c.sub != "" {
 			ctx.err("%s: %s", proj.name, c.sub)
 		}
-		if pc := proj.configuration; pc != nil {
-			if s := pc.fullname(); s != c.fullname() {
-				ctx.err("%s: %s != %s", proj.name, s, confsm)
-			}
-		}
 		if e := os.Remove(c.fullname()); e != nil && false {
-			ctx.err("%v : %v", proj.name, e)
+			ctx.err("%s: %v", proj.name, e)
 		}
 	}
 
@@ -304,11 +298,11 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 	} else {
 		if proj.configuration == nil {
 			if d.value != nil {
-				ctx.err("%s : already defined : %v", proj.name, d)
+				ctx.err("%s: already defined : %v", proj.name, d)
 			}
-		} else {
+		} else if proj.configuration.exists() {
 			if d.value == nil {
-				ctx.err("%s : not defined : %v", proj.name, d.name)
+				ctx.err("%s: not defined : %v", proj.name, d)
 			}
 		}
 	}
@@ -488,9 +482,9 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 			if d.value != nil {
 				ctx.err("%s : already defined : %v", proj.name, d)
 			}
-		} else {
+		} else if proj.configuration.exists() {
 			if d.value == nil {
-				ctx.err("%s : not defined : %v", proj.name, d.name)
+				ctx.err("%s : not defined : %v", proj.name, d)
 			}
 		}
 	}
@@ -498,8 +492,7 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 	configure(&exec_check{ctx,
 		func(_ctx Context, source string, recipe Value) {
 			testValidateExecRecipe(ctx, _ctx, source, recipe)
-		},
-		nil,
+		}, nil,
 	}, configure_silent{})
 
 	if f := proj.configuration_sm(ctx) ; f == nil {

@@ -62,11 +62,9 @@ type universe struct {
     commandline
 
     *scope
+    *globe
 
-    // benchmark_builtin func(*builtin, *evocation, time.Time, reflect.Value)
-
-    globe *globe
-    fset  *FileSet
+    fset *FileSet
 
     workdir string
     prefix  string // FIXME: prefix for distribution

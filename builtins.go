@@ -1668,7 +1668,7 @@ func (ctx *builtin_unique) x() (_ any) {
     var args = ctx.evocation.a
     var t1, t2 time.Time
 
-    defer func() {
+    if false { defer func() {
         t3 := time.Now()
         d0 := t3.Sub(t1)
         d1 := t2.Sub(t1)
@@ -1707,7 +1707,7 @@ func (ctx *builtin_unique) x() (_ any) {
             d6 = t7.Sub(t6)
             erro(ctx, "unique: %v", d6).trace()
         }
-    } ()
+    } () }
 
     t1 = time.Now()
 

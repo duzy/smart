@@ -66,7 +66,6 @@ type parser struct {
 }
 
 type (
-	parse_aware          struct{ token }
 	parse_is_params      struct{}
 	parse_is_undef       struct{}
 	parse_is_glob        struct{}
@@ -77,10 +76,11 @@ type (
 	parse_no_path        struct{}
 )
 
-type aware_token struct { Context ; token }
-func (p aware_token) do(ctx Context, op any) (_ any) {
+type aware_token     struct { token }
+type aware_token_ctx struct { Context ; token }
+func (p aware_token_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case parse_aware: return p.token == t.token
+	case aware_token: return p.token == t.token
 	}
 	return p.Context.do(ctx, op)
 }
@@ -846,7 +846,7 @@ func (l ul) list(ctx Context, a ...any) *list {
 func (l ul) group(ctx Context) *group {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "group")) }
 
-	ctx = parse_group{aware_token{ctx,COMMA}}
+	ctx = parse_group{aware_token_ctx{ctx,COMMA}}
 
 	l.p.expect(ctx, LPAREN)
 	l.p.spaces(ctx)
@@ -879,7 +879,7 @@ func (l ul) group(ctx Context) *group {
 func (l ul) argumented(ctx Context, x Value) *argumented {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "argumented")) }
 
-	ctx = parse_group{aware_token{ctx,COMMA}}
+	ctx = parse_group{aware_token_ctx{ctx,COMMA}}
 
 	l.p.next(ctx, true) // skip LPAREN
 
@@ -1183,7 +1183,7 @@ func (l ul) tilde(ctx Context) (res Value) {
 func (l ul) dot(ctx Context, x Value) (_ Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "dot")) }
 
-	ctx = aware_token{ctx, DOT}
+	ctx = aware_token_ctx{ctx, DOT}
 
 	l.p.step()
 
@@ -1614,15 +1614,15 @@ func (l ul) closuredelegate_abc(ctx Context, isClosure, special bool) (tok token
 			if x, y := optionalize(ctx, name); y { name = x }
 
 			for _, v := range opts {
-				if p, y := v.(*pair);  y { v = p.key }
+				if p, y := v.(*pair); y { v = p.key }
 				if _, y := v.(flag); !y {
-					erro(ctx, "not a Flag: %v", ts(v)).trace()
+					erro(ctx, "not a flag: %v", ts(v)).trace()
 				}
 			}
 		}
 
 		if name == nil {
-			erro(ctx, "name %v is nil").trace()
+			erro(ctx, "name %v is nil", ts(name)).trace()
 		}
 
 		str, obj = l.closuredelegate_obj(ctx, tok, name, isClosure)
@@ -1674,7 +1674,7 @@ func (l ul) closuredelegate_abc(ctx Context, isClosure, special bool) (tok token
 func (l ul) closuredelegate(ctx Context, isClosure, special bool) (result Value) {
 	if l_traverse.enabled {	defer un(l_trace(l_traverse, "closuredelegate")) }
 
-	ctx = parse_call{aware_token{ctx, COMMA}}
+	ctx = parse_call{aware_token_ctx{ctx, COMMA}}
 
 	pos := l.p.Position()
 	tok, obj, args, opts := l.closuredelegate_abc(ctx, isClosure, special)
@@ -1696,9 +1696,9 @@ func (l ul) unary(ctx Context) (x Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "unary")) }
 
 	defer func(p Pos) {
-		if l.p.pos == p {
-			if x, y := x.(*punct); !y || x.token != PROOT {
-				erro(ctx, "syntax error").trace()
+		if p == l.p.pos && x != nil {
+			if z, y := x.(*punct); !y || z.token != PROOT {
+				erro(pc(ctx,x), "syntax error: %v", ts(x)).trace()
 			}
 		}
 	} (l.p.pos)
@@ -1762,7 +1762,9 @@ func (l ul) unary(ctx Context) (x Value) {
 		return l.braced(ctx)
 
 	case COMMA:
-		if !truly(ctx, parse_aware{COMMA}) { return l.punct() }
+		if !truly(ctx, aware_token{COMMA}) {
+			return l.punct()
+		}
 
 	case AT, BAR, PLUS, SEMICOLON:
 		return l.punct()
@@ -1817,7 +1819,9 @@ func (l ul) unary(ctx Context) (x Value) {
 
 	if l.p.tok != EOF {
 		ctx = pc(ctx, l.p.Position())
-		erro(ctx, "unexpected '%v' (%s) (%v)", l.p.tok, l.p.lit, l.p.scanner.scanstate).trace()
+		erro(ctx, "unexpected %v '%s'", l.p.tok, l.p.lit)
+		note(ctx, "x: %v %v", x, ts(x))
+		note(ctx, "scan: %v", l.p.scanner.scanstate).trace()
 	}
 	return
 }
@@ -1828,36 +1832,17 @@ func (l ul) composite(ctx Context) (x Value) {
 	x = l.unary(ctx)
 
 	switch l.p.tok { // check composible expressions
-	case ASSIGN: // example: key=value
-		if !truly(ctx, parse_left_hand_side{}) { x = l.pair(ctx, x) }
-
-	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: // foo→bar  foo⇒bar  foo~>bar
-		x = l.parse_select(ctx, x)
-
-	case QUE: // ?
-		if !truly(ctx, parse_is_glob{}) {
-			switch l.p.step() ; l.p.tok {
-			case COMMA, RPAREN, RBRACK, RBRACE, SPACE, SELECT_PROP, SELECT_PROG1, SELECT_PROG2, LINEND:
-				x = condish(ctx, x)
-				switch l.p.tok {
-				case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: // foo?→bar  foo?⇒bar  foo?~>bar
-					x = l.parse_select(ctx, x)
-				}
-				return
-			}
-		}
-
 	case PERC: // foo%bar ; FIXME: %/foo/bar -> {=path % foo bar}
-		x = l.perc(ctx, x)
+		return l.perc(ctx, x)
 
 	case DOT: // foo.bar.baz.o ; FIXME: push bits when parsing $(...)
-		x = l.dot(ctx, x)//if truly(ctx, parse_aware{DOT}) { x = l.dot(ctx, x) }
-		// TODO: if truly(ctx, parse_aware{DOTDOT}) { x = l.dotdot(ctx, x) }
+		return l.dot(ctx, x)//if truly(ctx, aware_token{DOT}) { x = l.dot(ctx, x) }
+		// TODO: if truly(ctx, aware_token{DOTDOT}) { x = l.dotdot(ctx, x) }
 
 	case COLON:
 		if truly(ctx, parse_is_recipe{false}) || !truly(ctx, parse_left_hand_side{}) {
-			if t, y := x.(*word); y && isKnownURLScheme(t.s) {
-				x = l.url(ctx, x)
+			if w, y := x.(*word); y && isKnownURLScheme(w.s) {
+				return l.url(ctx, x)
 			}
 		}
 	}
@@ -1885,8 +1870,16 @@ composeloop:
 	case COLON, COMPOSED, RPAREN, RBRACK, RBRACE, RAW, SPACE, SEMICOLON, LINEND, EOF:
 		return // terminate
 
+	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
+		return l.parse_select(ctx, x)
+
 	case COMMA:
-		if truly(ctx, parse_aware{COMMA}) { return }
+		if truly(ctx, aware_token{COMMA}) { return }
+
+	case ASSIGN: // example: key=value
+		if !truly(ctx, parse_left_hand_side{}) {
+			return l.pair(ctx, x)
+		}
 
 	case LPAREN:
 		if !truly(ctx, parse_no_argumented{}) {
@@ -1895,8 +1888,23 @@ composeloop:
 		}
 
 	case PCON: // path, except -I/path/to/include
-		x = l.path(ctx, x)
-		goto composeloop
+		if !truly(ctx, parse_no_path{}) {
+			x = l.path(ctx, x)
+			goto composeloop
+		}
+
+	case QUE: // ?
+		if !truly(ctx, parse_is_glob{}) {
+			switch l.p.step() ; l.p.tok {
+			case COMMA, RPAREN, RBRACK, RBRACE, SPACE, SELECT_PROP, SELECT_PROG1, SELECT_PROG2, LINEND:
+				x = condish(ctx, x)
+				switch l.p.tok {
+				case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: // foo?→bar  foo?⇒bar  foo?~>bar
+					x = l.parse_select(ctx, x)
+				}
+				return
+			}
+		}
 	}
 
 	var p = l.p.pos
@@ -1926,7 +1934,7 @@ andloop:
 		case RBRACE: break andloop
 		}
 
-		v := l.expr(aware_token{ctx, COMMA})
+		v := l.expr(aware_token_ctx{ctx,COMMA})
 		w := v.expand(pc(final{ctx}, v))
 
 		if false && strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
@@ -1956,7 +1964,7 @@ orloop:
 		case RBRACE: break orloop
 		}
 
-		v := l.expr(aware_token{ctx, COMMA})
+		v := l.expr(aware_token_ctx{ctx, COMMA})
 		w := v.expand(pc(final{ctx}, v))
 
 		if false && strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
@@ -2486,16 +2494,18 @@ func (l ul) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 func (l ul) directive(ctx Context) (props []Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "spec")) }
 
-DirParamsLoop:
+paramsloop:
 	for l.p.tok != EOF {
-		switch l.p.spaces(ctx); l.p.tok {
-		case COMMA, LINEND, RPAREN, RBRACE, SELECT_PROG1, COLON:
-			break DirParamsLoop
-		}
+		l.p.spaces(ctx)
 
 		if l.p.lineComment != nil {
 			// TODO: comment = p.lineComment
 			break
+		}
+
+		switch l.p.tok {
+		case COLON, COMMA, RPAREN, RBRACE, SELECT_PROP, SELECT_PROG1, SELECT_PROG2, LINEND:
+			break paramsloop
 		}
 
 		props = append(props, l.expr(ctx))
@@ -3907,19 +3917,21 @@ func (l ul) _project(ctx Context, filename string, isMainFile bool) (_ Value, _ 
 	if l.p.tok != LPAREN {
 		l.bases(cc, implicitBase) // for special bases, e.g. .base
 	} else {
-		var cc0 = parse_group{aware_token{ctx, COMMA}}
+		var cc0 = parse_group{aware_token_ctx{ctx, COMMA}}
 		for l.p.tok != EOF {
 			for l.p.next(ctx, true); !l.p.is_list_term(ctx); {
 				l.p.spaces(ctx)
 
-				val := parseOpts(ctx, &opts, l.expr(cc0))
+				v := parseOpts(ctx, &opts, l.expr(cc0))
+
 				if opts.final {
-					if val != nil {
-						erro(ctx, "no bases final project: %v", val).trace()
+					if v != nil {
+						erro(ctx, "no bases for final project: %v", ts(v)).trace()
 					}
 					continue
 				}
-				l.bases(cc, "", merge(val...)...)
+
+				l.bases(cc, "", merge(v...)...)
 			}
 			if l.p.tok != COMMA { break }
 		}
@@ -3932,8 +3944,10 @@ func (l ul) _project(ctx Context, filename string, isMainFile bool) (_ Value, _ 
 
 	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
 
-	if !opts.noConf { l.configure(ctx, ident, name, prevDeclared) }
-	if !opts.noDock { l.container(ctx, ident, name) }
+	if isMainFile {
+		if !opts.noConf { l.configure(ctx, ident, name, prevDeclared) }
+		if !opts.noDock { l.container(ctx, ident, name) }
+	}
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		// TODO: ...
@@ -3970,13 +3984,12 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 
 	var keyword  = l.p.tok
 	var flatmode = truly(ctx, is_flat_mode{})
-	var p = _project(ctx)
 
 	var abs string
 	var isMainFile bool // aka do.smart, build.smart
 
 	if flatmode {
-		if p == nil {
+		if p := _project(ctx); p == nil {
 			errostack(ctx, 10, "nil project").trace()
 		} else {
 			abs = p.absPath
@@ -3997,14 +4010,14 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	var tmp   = joinTmpPath(ctx, l.workdir, rel)
 
 	if s := l.scope(); /* p == nil || */ s == nil {
-		erro(ctx, "%v: nil scope: %v", p, s).trace()
+		erro(ctx, "%v: nil scope: %v", _project(ctx), s).trace()
 	}
 
 	defer l.closescope(l.openscope(bases(2, filename, true)))
 
 	if checkpoints {
 		if s := l.p.scanner.file.Name(); filename != s {
-			erro(ctx, "%v: %s != %s", p, filename, s).trace()
+			erro(ctx, "%v: %s != %s", _project(ctx), filename, s).trace()
 		}
 		if truly(ctx, is_test_mode{}) {
 			defer l.parse_file_check_1(ctx, abs, rel, tmp)
@@ -4073,7 +4086,7 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 
 		if false && autoload { l.autoload(ctx, "amid") }
 
-		if l.mode&ImportsOnly == 0 { // rest of module body
+		if l.mode&ImportsOnly == 0 {
 			for l.p.tok != EOF { l.clause(ctx) }
 		}
 	}
