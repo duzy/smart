@@ -160,7 +160,7 @@ type commandline struct {
 
   buildPlugins    bool `bp,bup,build-plugins,buildplugins`
 
-  silentOptionalSelection bool
+  silentOptionalArrow bool
 
   verbose         bool `v,verb,verbose`
   verboseBreaks   bool `vb,vbrk,verbose-breaks`
@@ -218,7 +218,7 @@ func _commandline() commandline { return commandline{
     parallel: false, // FIXME: program.traverse not working in parallel
 
     panicFailureOnErrosFlushed: true,
-    silentOptionalSelection: false,
+    silentOptionalArrow: false,
 
     slow: 2999 * time.Millisecond,
 }}

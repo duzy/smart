@@ -334,6 +334,7 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 	if len(p.a) > 1 { panic(fmt.Sprintf("valcache many: %s %d", typeof(k), len(p.a))) }
 
 	defer func() {
+		switch k.(type) { case *none, *null: return }
 		if res == nil && cacheMapping(ctx) {
 			erro(pc(ctx,k), "no valcache for %v : %v", ts(k), p).trace()
 		}
@@ -361,7 +362,10 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 				b, by := do(ctx, hit_word{p, x.target.string(ctx)}).(valcache_bool)
 				note(ctx, "%v : %v %v, %v %v", x.target, a.bool, ay, b.bool, by).debug()
 			}
-			erro(pc(ctx,k), "non-valcacheable %v : %v", ts(k), p).trace()
+			if x, y := k.(positioner); y {
+				if p := x.Position(); p.valid() { ctx = pc(ctx, k) }
+			}
+			erro(ctx, "non-valcacheable %v : %v", ts(k), p).trace()
 		}
 	default:
 		erro(pc(ctx,k), "non-valcacheable %v : %v", ts(k), p).trace()
@@ -800,9 +804,17 @@ func (p *project) map_files(ctx Context, patts, paths []Value) (res []filemap) {
 
     for _, patt := range patts {
         if patt == nil {
-            erro(ctx, "nil pattern : paths=%v", paths).trace()
-        } else if c, _ := p.filemap.hit(cache{ctx}, patt); c == nil {
-            erro(ctx, "cache failed : %v", ts(patt)).trace()
+            erro(pc(ctx,patt), "nil pattern : paths=%v", paths).trace()
+		}
+
+		switch patt.(type) {
+		case *null, *none:
+			if false { note(pc(ctx,patt), "null pattern → %v", paths).debug() }
+			continue
+		}
+
+		if c, _ := p.filemap.hit(cache{ctx}, patt); c == nil {
+            erro(pc(ctx,patt), "cache failed : %v", ts(patt)).trace()
         } else {
             t  := filemap{base, patt}
             c.a = append(c.a, filemap_slot{t})
@@ -928,8 +940,4 @@ func unmap_entries(ctx Context, key any) []entry {
 
 func unmap_files(ctx Context, key any) []filemap_name {
     return _project(ctx).unmap_files(ctx, key, nil)
-}
-
-func map_files(ctx Context, patts, paths []Value) []filemap {
-    return _project(ctx).map_files(ctx, patts, paths)
 }

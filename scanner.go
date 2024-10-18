@@ -44,10 +44,10 @@ func (s scanstate) String() string {
 	var t string
 	switch s.ch {
 	case '\n': t = "\\n"
-	default  : t = string(s.ch)
+	default: t = string(s.ch)
 	}
-	return fmt.Sprintf("{%s, {%v %v %v}, %016b %016b}", t,
-		s.lineOffset, s.offset, s.readOffset, s.bitss, s.bits)
+	return fmt.Sprintf("{=scan %s {%v %v %v} %016b %016b}",
+		t, s.lineOffset, s.offset, s.readOffset, s.bitss, s.bits)
 }
 
 func (s *scanstate) push(bits scanbits) (prev scanbits) {

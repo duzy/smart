@@ -78,7 +78,7 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 		}
 	} ()
 
-	if true && !test_mode {
+	if !test_mode {
 		erro(ctx, "not test mode").trace()
 	}
 
@@ -264,7 +264,7 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 			switch e := e.(type) {
 			case prerequisite_evoke_loop:
 				errostack(pc(ctx,e.Value), 16, "%v", e.Value).trace()
-			case trace_err_evoke_loop:
+			case trace_evoke_loop_err:
 				errostack(pc(ctx,e.Value), 16, "evoke loop: %v", e.Value).trace()
 			case traverse_state:
 				switch e.uint {
@@ -331,8 +331,8 @@ func run(t *testing.T, str, spec, name string, ii ...any) {
 				v.f()
 			case test_configure:
 				c.configure = v.bool
-			case test_silentOptionalSelection:
-				c.silentOptionalSelection = v.bool
+			case test_silentOptionalArrow:
+				c.silentOptionalArrow = v.bool
 			case test_variant:
 				t.Errorf("TODO: variant=%s", v.string)
 			default:
@@ -411,7 +411,7 @@ type (
 	test_hook_assert struct { f func(Context, Value, bool, any); i any }
 	test_hook_debug  struct { f func(Context, string, []Value, any); i any }
 	test_variant     struct { string }
-	test_silentOptionalSelection struct { bool }
+	test_silentOptionalArrow struct { bool }
 )
 
 func Test(t *testing.T) {
@@ -462,7 +462,7 @@ func Test(t *testing.T) {
 	run(t, "value", "value/13",          "testvalue", testValues13)
 	run(t, "value", "value/placeholder", "testvalue", testPlaceholders)
 	run(t, "value", "value/glob",        "testvalue", testGlob)
-	run(t, "value", "value/optional",    "testvalue", testOptional, test_silentOptionalSelection{true})
+	run(t, "value", "value/optional",    "testvalue", testOptional, test_silentOptionalArrow{true})
 
 	// builtins_test.go
 	run(t, "builtins", "builtins/wildcard",   "testbuiltins", testBuiltin_wildcard)

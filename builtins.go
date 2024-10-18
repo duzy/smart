@@ -660,7 +660,7 @@ func (ctx *builtin_assert) x() (res any) {
         if false {
             var v = a.expand(final{ctx})
             prompt(ctx, "assert: %v ⇒ %v: %v\n", ts(a), ts(v))
-            diagstack(ctx, s, t, "%v ⇒ '%s'", ts(a), a.string(ctx)).debug(d)
+            diagstack(ctx, s, t, "%v → %v ⇒ '%s'", ts(a), ts(v), v.string(ctx)).debug(d)
         } else if true {
             diagstack(ctx, s, t, "%v ⇒ '%s'", ts(a), a.string(ctx)).debug(d)
         } else {
@@ -3897,16 +3897,6 @@ type builtin_wildcard struct { builtin_
     dir string `dir,directory`
 }
 func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*file) {
-    if false && checkpoints {
-        if s := _workdir(ctx); s == "" {
-            erro(ctx, "empty workdir").trace()
-        } else if !strings.HasPrefix(topDir, s) {
-            note(ctx, "_directory: %s", topDir)
-            note(ctx, "_directory: %s", s)
-            erro(ctx, "_directory").trace()
-        }
-    }
-
     type subr struct {
         d, n, dn string // dir, name, dir+name
         pat chan Value

@@ -50,8 +50,15 @@ func (l ul) expr_check(ctx Context, _x *Value) {
 	if l.project == nil {
 		if false { erro(ctx, "nil project").trace() }
 		return
-	} else if false && l.project.name == "testvalue" {
-		note(ctx, "%s %s %s", l.project.name, l.project.spec, filename)
+	}
+
+	switch l.project.spec {
+	case "testdata/value/optional":
+		if ts(x) == "{=arrow {=project foo}→{=word name}}" {
+			if x.String() != "{=project foo}→name" {
+				erro(ctx, "%v %v", x, l.p.tok).trace()
+			}
+		}
 	}
 
 	switch {
@@ -125,6 +132,72 @@ func (l ul) expr_check(ctx Context, _x *Value) {
 	return
 }
 
+func (l ul) expr_check_1(ctx Context, x Value, tok token, _res *Value) {
+	if l.project != nil {
+		switch l.project.spec {
+		case "testdata/valcache/2":
+			switch x.string(ctx) {
+			case "???":
+				if s, t := x.String(), "{=glob ???}"; s != t {
+					erro(ctx, "%s != %s", s, t).trace()
+				}
+				if s, t := ts(x), "{=globpat {=globmeta ?} {=globmeta ?} {=globmeta ?}}"; s != t {
+					erro(ctx, "%s != %s", s, t).trace()
+				}
+			case "*.c++":
+				if s, t := x.String(), "*.c++"; s != t {
+					erro(ctx, "%s != %s", s, t).trace()
+				}
+				if s, t := ts(x), "{=globpat {=globmeta *} {=punct .} {=word c++}}"; s != t {
+					erro(ctx, "%s != %s", s, t).trace()
+				}
+			case "**.c++":
+				if s, t := x.String(), "**.c++"; s != t {
+					erro(ctx, "%s != %s", s, t).trace()
+				}
+				if s, t := ts(x), "{=globpat {=globmeta *} {=punct .} {=word c++}}"; s != t {
+					erro(ctx, "%s != %s", s, t).trace()
+				}
+			}
+		case "testdata/value/optional":
+			if _, y := x.(cond); y {
+				erro(ctx, "unexpected {=cond ...} : %s %v", ts(x), ts(*_res)).trace()
+			}
+			switch tok {
+			case SELECT_PROP:
+				if x.String() == "foo" && ts(x) != "{=word foo}" {
+					erro(ctx, "%s %s %s", ts(x), tok, ts(*_res)).trace()
+				}
+				switch ts(x) {
+				case "{=word foo}":
+					switch ts(*_res) {
+					case "{=cond {=arrow {=project foo}→{=word name}}}":
+					case "{=cond {=arrow {=project foo}→{=word baz}}}":
+					case "{=cond {=arrow {=cond {=arrow {=project foo}→{=word name}}}→{=word value}}}":
+					case "{=cond {=arrow {=arrow {=project foo}→{=word name}}→{=word value}}}":
+					case "{=cond {=arrow {=def name}→{=word value}}}":
+					default:
+						erro(ctx, "unexpected %s", ts(*_res)).trace()
+					}
+				case "{=cond {=word fo}}":
+					switch ts(*_res) {
+					case        "{=arrow {=project foo}→{=word bar}}":
+					case "{=cond {=arrow {=project foo}→{=word bar}}}":
+					default:
+						erro(ctx, "unexpected %s", ts(*_res)).trace()
+					}
+				}
+			}
+			switch l.p.tok {
+			case QUE:
+				if s, t := ts(*_res), "{=arrow {=project foo}→{=word name}}"; s == t {
+					erro(ctx, "expected {=cond ...} : %s %s", s, t).trace()
+				}
+			}
+		}
+	}
+}
+
 func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 	var d = *_d
 	if d == nil {
@@ -141,6 +214,17 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 		erro(ctx, "%v : %v : %v", p, d.o, d).trace()
 	}
 
+	var mode string
+	if d := p.def(ctx, ".mode"); d == nil {
+		erro(ctx, "%v: .mode is undef", p).trace()
+	} else {
+		switch mode = d.string(ctx); mode {
+		case "clean", "configure", "goals":
+		default:
+			erro(ctx, "%v : wrong mode : %s", p, mode).trace()
+		}
+	}
+
 	switch p.name {
 	case "variant.target.base":
 		if strings.HasPrefix(d.name, "std.") {}
@@ -153,7 +237,53 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 				erro(ctx, "wrong: %v :", lang, d).trace()
 			}
 		}
-	case "testdefaultconfigure", "testdeftwoconfigure":
+	case "llvm.Support.base":
+		if false && strings.HasPrefix(d.name, "check.") {
+			if p.configuration == nil {
+				erro(ctx, "%s: %v : %v %v", mode, d, p.configuration, p.configuration.exists()).trace()
+			}
+			if p.configuration.exists() {
+				erro(ctx, "%s: %v : %v", mode, d, p.configuration).trace()
+			}
+		}
+		switch d.name {
+		case "check.1":
+			if s, t := ts(d.value), "{=delegate {=arrow {=project llvm.Config}→{=word LLVM_ON_UNIX}}}"; s != t {
+				erro(ctx, "%s: %v : %s : %s : %v %v", mode, d, ts(d.value), d.string(ctx), p.configuration, p.configuration.exists()).trace()
+			}
+		case "check.2":
+			if s, t := ts(d.value), "{=delegate {=arrow {=project llvm.Config}→{=word HAVE_SYSEXITS_H}}}"; s != t {
+				erro(ctx, "%s: %v : %s : %s : %v %v", mode, d, ts(d.value), d.string(ctx), p.configuration, p.configuration.exists()).trace()
+			}
+		}
+	}
+
+	switch p.spec {
+	// case "../../../../.smart/modules/llvm/Support/.base":
+	case "testdata/value/optional":
+		switch d.name {
+		case "val0":
+			if s, t := ts(d.value), "{=project foo}"; s != t {
+				erro(ctx, "%s != %s", s, t).trace()
+			}
+		case "val1":
+			if s, t := ts(d.value), "{=delegate {=cond {=word name}}}"; s != t {
+				erro(ctx, "%s != %s", s, t).trace()
+			}
+		case "val2":
+			if s, t := ts(d.value), "{=project foo}"; s != t {
+				erro(ctx, "%s != %s", s, t).trace()
+			}
+		case "val4":
+			if s, t := ts(d.value), "{=delegate {=arrow {=cond {=word fo}}→{=word bar}}}"; s != t {
+				erro(ctx, "%s != %s", s, t).trace()
+			}
+		case "val5":
+			if s, t := ts(d.value), "{=delegate {=cond {=arrow {=cond {=word fo}}→{=word bar}}}}"; s != t {
+				erro(ctx, "%s != %s", s, t).trace()
+			}
+		}
+	case "testdata/configuration", "testdata/configuration/two":
 		if true || flat_mode {
 			var s = _scope(ctx)
 			if x, y := p.elems[d.name]; !y {

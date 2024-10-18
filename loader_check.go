@@ -343,18 +343,20 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 }
 
 func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, res *Value) {
-	if e := recover(); e != nil {
-		switch e := e.(type) {
-		case trace_err_evoke_loop:
-			erro(ctx, "%s : %v %v", l.project.name, e, ts(e.ctx)).trace()
-		default:
-			var pos positioner = l.p
-			if pos == nil { pos = l.project }
-			switch typeof(e) {
-			case "errorString":
-				note(pc(ctx,pos), "%s", e)
+	if false {
+		if e := recover(); e != nil {
+			switch e := e.(type) {
+			case trace_evoke_loop_err:
+				erro(ctx, "%s : %v %v", l.project.name, e, ts(e.Context)).trace()
+			default:
+				var pos positioner = l.p
+				if pos == nil { pos = l.project }
+				switch typeof(e) {
+				case "errorString":
+					note(pc(ctx,pos), "%s", e)
+				}
+				erro(ctx, "%s: %s %s", typeof(e), l.project, bases(3, filename, true)).trace()
 			}
-			erro(ctx, "%s %s", l.project, bases(3, filename, true)).trace()
 		}
 	}
 
@@ -373,8 +375,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			erro(ctx, "nil result in text mode: %v", *res).trace()
 		}
 	}
-
-	if !(flat_mode || text_mode) && *res != l.project {
+	if false && !(flat_mode || text_mode) && *res != l.project {
 		erro(ctx, "%v : wrong result : %v", l.project.name, *res).trace()
 	}
 

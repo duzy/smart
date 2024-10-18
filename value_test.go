@@ -667,7 +667,7 @@ func testValues_bug_01(ctx *testcase) {
 		var v Value
 		func () {
 			defer func () {
-				if x, y := recover().(trace_err_evoke_loop); y {
+				if x, y := recover().(trace_evoke_loop_err); y {
 					erro(ctx, "%s", x.string).trace()
 				}
 			} ()
@@ -700,12 +700,12 @@ func testValues_bug_01(ctx *testcase) {
 		var v Value
 		func () {
 			defer func () {
-				if x, y := recover().(trace_err_evoke_loop); y {
+				if x, y := recover().(trace_evoke_loop_err); y {
 					erro(ctx, "%s", x.string).trace()
 				}
 			} ()
 			// ex_debug = true
-			v = d.value.expand(final{ctx})
+			v = d.value.expand(trace_evoke_loop{final{ctx}})
 			ex_debug = false
 		} ()
 
@@ -733,10 +733,10 @@ func testValues_bug_01(ctx *testcase) {
 		var e, v Value
 		func () {
 			defer func () {
-				if x, y := recover().(trace_err_evoke_loop); y { e = x.Value }
+				if x, y := recover().(trace_evoke_loop_err); y { e = x.Value }
 			} ()
 			// ex_debug = true
-			v = d.value.expand(final{ctx})
+			v = d.value.expand(trace_evoke_loop{final{ctx}})
 			ex_debug = false
 		} ()
 
@@ -763,16 +763,16 @@ func testValues_bug_01(ctx *testcase) {
 		var e, v Value
 		func () {
 			defer func () {
-				if x, y := recover().(trace_err_evoke_loop); y { e = x.Value }
+				if x, y := recover().(trace_evoke_loop_err); y { e = x.Value }
 			} ()
 			// ex_debug = true
-			v = d.value.expand(final{ctx})
+			v = d.value.expand(trace_evoke_loop{final{ctx}})
 			ex_debug = false
 		} ()
 
 		if n { note(ctx, "%v → %v : err_evoke_loop=%s", d, v, e).debug(); flush(ctx) }
 		if s, t := ts(e), "{=def .flags}"; s != t {
-			ctx.err("expecting evocation loop: %s != %s", e, t)
+			ctx.err("expecting evocation loop: %s != %s", s, t)
 		}
 		if v != nil {
 			ctx.err("%v → %v", d, v)
@@ -1613,6 +1613,8 @@ func testOptional(ctx *testcase) {
 		ctx.err("val1")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
+	} else if s, t := ts(v), "{=delegate {=cond {=word name}}}"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
 	} else if o, y := t.x.(cond); !y {
@@ -1665,10 +1667,14 @@ func testOptional(ctx *testcase) {
 		ctx.err("val3")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
+	} else if s, t := ts(v), "{=delegate {=cond {=arrow {=project foo}→{=word baz}}}}"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if t, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if _, y := t.x.(*selection); !y {
+	} else if c, y := t.x.(cond); !y {
 		ctx.err("%v", tst{t.x})
+	} else if _, y := c.Value.(*arrow); !y {
+		ctx.err("%v", tst{c.Value})
 	} else if s, t := v.String(), "$({=project foo}→baz?)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
@@ -1685,7 +1691,7 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if t, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if _, y := t.x.(*selection); !y {
+	} else if _, y := t.x.(*arrow); !y {
 		ctx.err("%v", tst{t.x})
 	} else if s, t := v.String(), "$(fo?→bar)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, s, t)
@@ -1705,8 +1711,10 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if t, y := v.(*delegate); !y {
 		ctx.err("%v", tst{v})
-	} else if _, y := t.x.(*selection); !y {
+	} else if c, y := t.x.(cond); !y {
 		ctx.err("%v", tst{t.x})
+	} else if _, y := c.Value.(*arrow); !y {
+		ctx.err("%v", tst{c.Value})
 	} else if s, t := v.String(), "$(fo?→bar?)"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
@@ -1751,9 +1759,29 @@ func testOptional(ctx *testcase) {
 		ctx.err("val8")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "$({=project foo}→bar?)?"; s != t {
+	} else if s, t := v.String(), "$({=project foo}→bar)?"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, s, t)
 	} else if s, t := "", v.string(ctx); s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	}
+
+	if d := ctx.def("val10"); d == nil {
+		ctx.err("val10")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := v.String(), "{=project foo}"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "foo"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	}
+
+	if d := ctx.def("val11"); d == nil {
+		ctx.err("val11")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := v.String(), "{=project foo}"; s != t {
+		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.string(ctx), "foo"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, s, t)
 	}
 }

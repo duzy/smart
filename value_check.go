@@ -166,46 +166,46 @@ func ex_check_configure_base_library_c(ctx Context, p, _x Value, _a, _o []Value,
 func ex_check_value_optional(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o, a *[]Value) {
 	switch s := _x.String(); s {
 	case "$_→name":
-		if s, t := ts(_x), "{=selection {=delegate {=auto _}}→{=word name}}"; s != t {
-			erro(ctx, "%s != %s", s, t).trace()
+		if s, t := ts(_x), "{=arrow {=delegate {=auto _}}→{=word name}}"; s != t {
+			erro(pc(ctx,_x), "%s != %s", s, t).trace()
 		} else if s, v := ts(*x), auto_get(ctx, "_"); v == nil {
 			if s != t { erro(ctx, "%s != %s", s, t).trace() }
 		} else if t := "{=def name}"; s != t {
-			erro(ctx, "%s != %s", s, t).trace()
+			erro(pc(ctx,_x), "%s != %s", s, t).trace()
 		}
 	case "$_→name?":
-		if s, t := ts(_x), "{=selection {=delegate {=auto _}}→{=cond {=word name}}}"; s != t {
-			erro(ctx, "%s != %s", s, t).trace()
+		if s, t := ts(_x), "{=cond {=arrow {=delegate {=auto _}}→{=word name}}}"; s != t {
+			erro(pc(ctx,_x), "%s != %s", s, t).trace()
 		} else if s, v := ts(*x), auto_get(ctx, "_"); v == nil {
 			if s != t { erro(ctx, "%s != %s", s, t).trace() }
 		} else if t := "{=def name}"; s != t {
-			erro(ctx, "%s != %s", s, t).trace()
+			erro(pc(ctx,_x), "%s != %s", s, t).trace()
 		}
 	case "$_→bar?":
-		if s, t := ts(_x), "{=selection {=delegate {=auto _}}→{=cond {=word bar}}}"; s != t {
-			erro(ctx, "%s != %s", s, t).trace()
+		if s, t := ts(_x), "{=cond {=arrow {=delegate {=auto _}}→{=word bar}}}"; s != t {
+			erro(pc(ctx,_x), "%s != %s", s, t).trace()
 		}
 	}
 	switch s := p.String() ; s {
 	case "$(foo)":
 		if s, t := ts(*res), "{=project foo}"; s != t {
-			erro(ctx, "%s != %s", s, t).trace()
+			erro(pc(ctx,*res), "%s != %s", s, t).trace()
 		}
 	case "$($_→name)":
 		if s, v := ts(*res), auto_get(ctx, "_"); v == nil {
-			if t := "{=delegate {=selection {=delegate {=auto _}}→{=word name}}}"; s != t {
-				erro(ctx, "%s != %s", s, t).trace()
+			if t := "{=delegate {=arrow {=delegate {=auto _}}→{=word name}}}"; s != t {
+				erro(pc(ctx,*res), "%s != %s", s, t).trace()
 			}
 		} else if t := "{=self foo}"; s != t { // {=delegate {=def name}}
-			erro(ctx, "%s != %s", s, t).trace()
+			erro(pc(ctx,*res), "%s != %s", s, t).trace()
 		}
 	case "$($_→name?)":
 		if s, v := ts(*res), auto_get(ctx, "_"); v == nil {
-			if t := "{=delegate {=selection {=delegate {=auto _}}→{=cond {=word name}}}}"; s != t {
-				erro(ctx, "%s != %s", s, t).trace()
+			if t := "{=delegate {=cond {=arrow {=delegate {=auto _}}→{=word name}}}}"; s != t {
+				erro(pc(ctx,*res), "%s != %s", s, t).trace()
 			}
 		} else if t := "{=self foo}"; s != t { // {=delegate {=def name}}
-			erro(ctx, "%s != %s", s, t).trace()
+			erro(pc(ctx,*res), "%s != %s", s, t).trace()
 		}
 	}
 }
@@ -602,7 +602,7 @@ func expand_check_elem(ctx Context, e, v Value) {
 	}
 }
 
-func (p *selection) expand_check(ctx Context, _o, _s, res *Value) {
+func (p *arrow) expand_check(ctx Context, _o, _s, res *Value) {
 	if equal(ctx, p, *res) {
 		col := truly(ctx, propExCondless)
 		if col {
@@ -667,7 +667,7 @@ func (p *selection) expand_check(ctx Context, _o, _s, res *Value) {
 	}
 }
 
-func (p *selection) expand_check_value_optional(ctx Context, proj *project, _o, _s, res *Value) {
+func (p *arrow) expand_check_value_optional(ctx Context, proj *project, _o, _s, res *Value) {
 	switch s := p.String() ; s {
 	case "$_→name":
 		if v := auto_get(ctx, "_"); v == nil {
@@ -697,11 +697,12 @@ func (p *compound) cmp_check(ctx Context, v Value, res cmpres) {
 }
 func (p *compound) expand_check(ctx Context, res *Value) {
 	if *res == nil {
-		if x, y := recover().(trace_err_evoke_loop); y {
-			erro(ctx, "%v : %v", p, x.string).trace()
-		} else {
-			erro(ctx, "%v : %v", p, ts(p)).trace()
+		if false {
+			if x, y := recover().(trace_evoke_loop_err); y {
+				erro(ctx, "%v : %v", p, x.string).trace()
+			}
 		}
+		erro(ctx, "%v : %v", p, ts(p)).trace()
 	} else if p.expandable(ctx) && equal(ctx, p, *res) {
 		if s := p.String(); strings.Contains(s, "$_") {
 			if r := (*res).String(); (*res) == p || r == s || strings.Contains(r, "$_") {

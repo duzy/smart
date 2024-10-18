@@ -35,8 +35,8 @@ type prerequisite struct{ Context ; ordered bool ; val Value }
 func (p *prerequisite) do(ctx Context, op any) any {
     switch op.(type) {
     case get_position: if p.val != nil { return p.val.Position() }
+    case is_prerequisite, evoke_loop_null: return true
     case is_ordered_prereq: return p.ordered
-    case is_prerequisite: return true
     }
     return p.Context.do(ctx, op)
 }

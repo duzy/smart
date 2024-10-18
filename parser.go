@@ -69,7 +69,6 @@ type (
 	parse_is_params      struct{}
 	parse_is_undef       struct{}
 	parse_is_glob        struct{}
-	parse_is_auto        struct{ string }
 	parse_is_recipe      struct{ bool } // builtin or text
 	parse_left_hand_side struct{}
 	parse_no_argumented  struct{}
@@ -81,6 +80,15 @@ type aware_token_ctx struct { Context ; token }
 func (p aware_token_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case aware_token: return p.token == t.token
+	}
+	return p.Context.do(ctx, op)
+}
+
+type can_select struct{}
+type selection struct{ Context }
+func (p selection) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case can_select: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -144,6 +152,9 @@ func (p parse_params) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
+type parse_is_auto   struct{ string }
+type parse_is_defval struct{}
+
 func (p parse_auto) ts(t string) (_ string) {
 	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
@@ -156,6 +167,7 @@ func (p parse_auto) do(ctx Context, op any) (_ any) {
 
 func (p def_value) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
+	case parse_is_defval: return true
 	case parse_is_auto: return IsDigits(t.string)
 	}
 	return p.Context.do(ctx, op)
@@ -295,8 +307,8 @@ func (p *parser) step() {
 		var comment *commentGroup
 		var endline int
 
-		// If the comment is on same line as the previous token; it
-		// cannot be a lead comment but may be a line comment.
+		// If the comment is on same line as the previous token;
+		// it cannot be a lead comment but may be a line comment.
 		if p.scanner.file.Line(p.pos) == p.scanner.file.Line(prev) {
 			comment, endline = p.consumecommentGroup(0)
 			if p.scanner.file.Line(p.pos) != endline {
@@ -319,14 +331,7 @@ func (p *parser) step() {
 		}
 	}
 
-	// if p.tok != LINEND && p.lineComment != nil { p.tok = LINEND }
-
-	// if p.dd {
-	// 	var t = warn(ctx, "%v %v %v", p.tok, p.lit, p.scanner.scanstate)
-	// 	if p.tok == STRCOMP { t.debug(12) }
-	// 	if p.tok == LINEND { t.debug(24) }
-	// 	flush(ctx)
-	// }
+	if false && p.tok != LINEND && p.lineComment != nil { p.tok = LINEND }
 }
 func (p *parser) next(ctx Context, ws bool) { if p.step(); ws { p.spaces(ctx) } }
 func (p *parser) spaces(ctx Context) {
@@ -336,13 +341,14 @@ func (p *parser) spaces(ctx Context) {
 		} else if p.tok == ESCAPE && p.lit == "\n" {
 			if p.step(); p.tok == LINEND || p.lineComment != nil { break }
 			if truly(ctx, parse_is_recipe{true}) {
-			TokFor:
+			tokloop:
 				for p.tok != EOF {
 					switch p.tok {
 					case RECIPE: // TODO: using p.is_recipe_start()
 						if true { p.scanner.pop(isStrcompLine) }
 						p.step()
-					default: break TokFor
+					default:
+						break tokloop
 					}
 				}
 			}
@@ -672,20 +678,18 @@ func (l ul) braced(ctx Context) (x Value) {
 	return
 }
 
-func (l ul) selector(ctx Context) (res Value) { return l.expr(ctx) }
-func (l ul) parse_select(ctx Context, lhs Value) (res Value) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "Select")) }
+func (l ul) arrow(ctx Context, lhs Value) (res Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "arrow")) }
 
-	var p = l.p
-	var tok = p.tok // the arrow '->' or '=>'
+	var tok = l.p.tok // the arrow '->' or '=>'
 
-	ctx = ctx
-	p.step() // skip '->' or '=>'
+	ctx = pc(ctx, l.p)
+	l.p.step() // skip '->' or '=>'
 
 	switch t := lhs.(type) {
-	case *selection:
+	case *arrow:
 		if v := t.expand(ctx); isNull(v) {
-			erro(ctx, "nil selection: %v", lhs).trace()
+			erro(ctx, "nil arrow: %v", lhs).trace()
 		} else {
 			lhs = v
 		}
@@ -696,8 +700,8 @@ func (l ul) parse_select(ctx Context, lhs Value) (res Value) {
         default:
             if o := l.resolve(ctx, t, t.s); false {
 				erro(ctx, "resolve '%v' failed", lhs)
-				erro(ctx, "parser is here (tok=%s)", tok)
-				erro(ctx, "parser to go here (tok=%s, lit=%s)", p.tok, p.lit).trace()
+				note(ctx, "parser is here (tok=%s)", tok)
+				note(ctx, "parser to go here (tok=%s, lit=%s)", l.p.tok, l.p.lit).trace()
             } else if !isNull(o) {
 				lhs = o
 			} else if tok == SELECT_PROG2 {
@@ -705,14 +709,14 @@ func (l ul) parse_select(ctx Context, lhs Value) (res Value) {
 				return
 			} else {
 				erro(ctx, "%v: '%v' is undefined (name=%v, obj=%v)", l.project, lhs, t, o)
-				erro(ctx, "%v: parser is here (name=%s, tok=%s)", l.project, t.s, tok)
-				erro(ctx, "%v: parser to go here (tok=%s, lit=%s)", l.project, p.tok, p.lit).trace()
+				note(ctx, "%v: parser is here (name=%s, tok=%s)", l.project, t.s, tok)
+				note(ctx, "%v: parser to go here (tok=%s, lit=%s)", l.project, l.p.tok, l.p.lit).trace()
             }
         }
     case *compound: // for cases like '.foo'
 		name := lhs.string(ctx)
         if o := l.resolve(ctx, t, name); false {
-			erro(ctx, "resolve selection object '%v' (%s) error", lhs, name).trace()
+			erro(ctx, "resolve arrow object '%v' (%s) error", lhs, name).trace()
         } else if !isNull(o) {
 			lhs = o
 		} else if tok == SELECT_PROG2 {
@@ -722,22 +726,20 @@ func (l ul) parse_select(ctx Context, lhs Value) (res Value) {
 			erro(ctx, "'%v' is undefined", lhs).trace()
         }
 	case *globpat:
-		if o, y := optionalize(ctx, lhs); y { lhs = o } else {
-			erro(ctx, "selection of '%v' is undefined", lhs).trace()
+		erro(ctx, "arrow of glob: %v", lhs).trace()
+	}
+
+	var rhs = l.composite(ctx)
+
+	if checkpoints {
+		if _, y := optionalize(ctx, rhs); y {
+			erro(pc(ctx,rhs), "unexpected optional expr: %v", tv(rhs)).trace()
+		} else if isNull(rhs) {
+			erro(pc(ctx,rhs), "unexpected null expr: %v", ts(rhs)).trace()
 		}
 	}
 
-	if rhs := l.selector(ctx); isNull(rhs) {
-		res = makeNull(_position(ctx))
-	} else {
-		if v, y := optionalize(ctx, rhs); y { rhs = v } // foo→bar?
-		res = makeSelection(_position(ctx), tok, lhs, rhs)
-	}
-
-	if (p.tok == SELECT_PROP || p.tok == SELECT_PROG1 || p.tok == SELECT_PROG2) {
-		res = l.parse_select(ctx, res) // Continue the selection recursivly.
-	}
-	return
+	return makeArrow(_position(ctx), tok, lhs, rhs)
 }
 
 // ----------------------------------------------------------------------------
@@ -794,7 +796,7 @@ func (l ul) depends(ctx Context, params bool) (res []Value) {
 			// FIXME: detects unexpected colon ':'
 			erro(ctx, "unexpected colon").trace()
 		} else if l.p.spaces(ctx) ; !l.p.is_end_of_line() {
-			var val = l.expr(ctx)
+			var val = l.expr(selection{ctx})
 
 			if x, y := val.(*globpat); y && x.len() == 1 {
 				if z, y := x.elems[0].(*globrange); y {
@@ -933,9 +935,16 @@ func (l ul) glob(ctx Context, x Value) (g *globpat) {
 		var v Value
 
 		p := l.p.pos
+
 		switch l.p.tok {
-		case SELECT_PROP, SELECT_PROG1, SELECT_PROG2, PCON, RBRACE, RPAREN, COMMA, SPACE, LINEND, EOF:
+		case PCON, RBRACE, RPAREN, COMMA, SPACE, LINEND, EOF:
 			return
+		case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
+			if truly(ctx, can_select{}) {
+				return
+			} else {
+				v = l.punct()
+			}
 		case STAR, DAST, QUE:
 			v = l.globmeta(ctx) // * ** ?
 		case LBRACK:
@@ -1161,7 +1170,8 @@ func (p *parser) is_dot_term(ctx Context) bool {
 	// Expressions like `FOO.BAR(xxx)` does not count.
 	switch p.tok {
 	case SPACE, LPAREN, COLON, PCON, ASSIGN: fallthrough
-	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: return true
+	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
+		if true || truly(ctx, can_select{}) { return true }
 	}
 	return p.is_end_of_line() || p.is_list_term(ctx)
 }
@@ -1477,9 +1487,12 @@ func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
     return
 }
 
-func (l ul) closuredelegate_obj(ctx Context, lTok token, name Value, isClosure bool) (str string, obj Value) {
-	if x,  y := name.(*argumented) ; y { name = x.Value }
-	if _,  y := name.(cond) ; !y {
+func (l ul) closuredelegate_obj(ctx Context, tok token, name Value, isClosure bool) (str string, obj Value) {
+	if x, y := name.(*argumented); y {
+		name = x.Value
+	}
+
+	if _, y := name.(cond); !y {
 		if v := name.expand(ctx) ; v == nil {
 			erro(ctx, "%v is nil", ts(name)).trace()
 		} else {
@@ -1487,14 +1500,19 @@ func (l ul) closuredelegate_obj(ctx Context, lTok token, name Value, isClosure b
 		}
 	}
 
+	switch t := name.(type) {
+	case  *def: return t.name, t
+	case entry: return t.ident(ctx), t
+	}
+
 	if indeterminate(ctx, name) {
-		return str, name
+		return "", name
 	}
 
 	str = name.string(ctx)
 
-	if lTok == LBRACE {
-		if t := _project(ctx)._entries(ctx, name, false) ; t == nil {
+	if tok == LBRACE {
+		if t := l.project._entries(ctx, name, false); t == nil {
 			erro(ctx, "resolved %v is nil", ts(name)).trace()
 		} else {
 			obj, _ = t[0].(object)
@@ -1504,10 +1522,11 @@ func (l ul) closuredelegate_obj(ctx Context, lTok token, name Value, isClosure b
 
 	if str == "" {
 		switch name.(type) {
-		case cond, *selection:
-			return str, name
+		case cond, *arrow:
+			return "", name
+		default:
+			erro(ctx, "empty name: %s", ts(name)).trace()
 		}
-		erro(ctx, "empty name: %s", ts(name)).trace()
 	}
 
 	if t := l.resolve(ctx, name, str) ; t != nil {
@@ -1520,7 +1539,7 @@ func (l ul) closuredelegate_obj(ctx Context, lTok token, name Value, isClosure b
 		return
 	}
 
-	errostack(ctx, 32, "undefined %v : %s", name, ts(name)).trace()
+	errostack(pc(ctx,name), 32, "undefined %v : %s → %s", name, ts(name), str).trace()
 	return
 }
 
@@ -1600,7 +1619,7 @@ func (l ul) closuredelegate_abc(ctx Context, isClosure, special bool) (tok token
 			erro(ctx, "unexpected spaces").trace()
 		}
 
-		if name = l.expr(ctx); name == nil {
+		if name = l.expr(selection{ctx}); name == nil {
 			erro(ctx, "%v : no name parsed", tok).trace()
 		}
 
@@ -1662,8 +1681,8 @@ func (l ul) closuredelegate_abc(ctx Context, isClosure, special bool) (tok token
 	}
 
 	if obj == nil && str != "" {
-		if proj := _project(ctx); proj.ext.Plugin != nil {
-			if t, e := proj.ext.Lookup(str); e == nil && t != nil {
+		if l.project.ext.Plugin != nil {
+			if t, e := l.project.ext.Lookup(str); e == nil && t != nil {
 				erro(ctx, "TODO: convert ext symbol: %v : %v", name, ts(t)).trace()
 			}
 		}
@@ -1695,19 +1714,21 @@ func (l ul) closuredelegate(ctx Context, isClosure, special bool) (result Value)
 func (l ul) unary(ctx Context) (x Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "unary")) }
 
-	defer func(p Pos) {
-		if p == l.p.pos && x != nil {
+	pos := l.p.pos
+
+	defer func() {
+		if pos == l.p.pos && x != nil {
 			if z, y := x.(*punct); !y || z.token != PROOT {
 				erro(pc(ctx,x), "syntax error: %v", ts(x)).trace()
 			}
 		}
-	} (l.p.pos)
+	} ()
 
 	switch l.p.tok {
 	case ASSIGN: // example: '=xxx'
 		if !truly(ctx, parse_left_hand_side{}) {
 			var v Value
-			var p = l.p.Position()
+			var p = l.p.loc(pos)
 			if l.p.step(); l.p.is_list_term(ctx) {
 				v = makeNull(p)
 			} else {
@@ -1776,7 +1797,7 @@ func (l ul) unary(ctx Context) (x Value) {
 			return l.perc(ctx, nil)
 		}
 
-	case STAR, DAST, QUE, LBRACK: // * ** ? [
+	case STAR, DAST, QUE, LBRACK: // * ** ? [    -- NOTE: ? is an exception
 		return l.glob(ctx, nil)
 
 	case MINUS:
@@ -1811,17 +1832,17 @@ func (l ul) unary(ctx Context) (x Value) {
 		}
 	}
 
+	if l.p.tok != EOF {
+		ctx = pc(ctx, l.p.loc(pos))
+		erro(ctx, "unexpected %v '%s'", l.p.tok, l.p.lit)
+		note(ctx, "x: %v %v", x, ts(x))
+		note(ctx, "%v", l.p.scanner.scanstate).trace()
+	}
+
 	if l.p.lineComment != nil {
 		for _, c := range l.p.lineComment.list {
 			erro(ctx, "# %s", c.string).trace()
 		}
-	}
-
-	if l.p.tok != EOF {
-		ctx = pc(ctx, l.p.Position())
-		erro(ctx, "unexpected %v '%s'", l.p.tok, l.p.lit)
-		note(ctx, "x: %v %v", x, ts(x))
-		note(ctx, "scan: %v", l.p.scanner.scanstate).trace()
 	}
 	return
 }
@@ -1855,6 +1876,8 @@ func (l ul) expr(ctx Context) (x Value) {
 
 	x = l.composite(ctx)
 
+	if checkpoints && truly(ctx, is_test_mode{}) { defer l.expr_check_1(ctx, x, l.p.tok, &x) }
+
 	if truly(ctx, parse_left_hand_side{}) && l.p.tok.is_assign() { return }
 	if truly(ctx, parse_is_glob{}) { return }
 	if truly(ctx, parse_is_params{}) {
@@ -1865,13 +1888,10 @@ func (l ul) expr(ctx Context) (x Value) {
 
 	var n int
 
-composeloop:
+composeloop: // parses right-fixes
 	switch l.p.tok {
 	case COLON, COMPOSED, RPAREN, RBRACK, RBRACE, RAW, SPACE, SEMICOLON, LINEND, EOF:
 		return // terminate
-
-	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
-		return l.parse_select(ctx, x)
 
 	case COMMA:
 		if truly(ctx, aware_token{COMMA}) { return }
@@ -1895,15 +1915,15 @@ composeloop:
 
 	case QUE: // ?
 		if !truly(ctx, parse_is_glob{}) {
-			switch l.p.step() ; l.p.tok {
-			case COMMA, RPAREN, RBRACK, RBRACE, SPACE, SELECT_PROP, SELECT_PROG1, SELECT_PROG2, LINEND:
-				x = condish(ctx, x)
-				switch l.p.tok {
-				case SELECT_PROP, SELECT_PROG1, SELECT_PROG2: // foo?→bar  foo?⇒bar  foo?~>bar
-					x = l.parse_select(ctx, x)
-				}
-				return
-			}
+			l.p.step()
+			x = condish(ctx, x)
+			goto composeloop
+		}
+
+	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
+		if truly(ctx, can_select{}) {
+			x = l.arrow(ctx, x)
+			goto composeloop
 		}
 	}
 
@@ -2087,12 +2107,11 @@ func (l ul) braced_fullname(ctx Context) (res Value) {
 	l.p.next(ctx, true) // resumes 'fullname'
 
 	var elems []Value
-	var p = _project(ctx)
 	for _, elem := range l.braced_elems(ctx) {
 		if false {
 			erro(ctx, "TODO: %v", ts(elem)).trace()
 		} else {
-			elems = append(elems, as{elem}.fullname(ctx, p))
+			elems = append(elems, as{elem}.fullname(ctx, l.project))
 		}
 	}
 	return ease(ctx, elems)
@@ -2315,8 +2334,11 @@ func (l ul) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		}
 	}
 
-	var ms []filemap = map_files(ctx, patts, paths)
-	if checkpoints && truly(ctx, is_test_mode{}) { l.files_check_2(ctx, path, patts, paths, ms) }
+	var ms []filemap = l.project.map_files(ctx, patts, paths)
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		l.files_check_2(ctx, path, patts, paths, ms)
+	}
 }
 
 func (l ul) eval_configuration(ctx Context, g *clauseopts, props []Value) {
@@ -2504,8 +2526,9 @@ paramsloop:
 		}
 
 		switch l.p.tok {
-		case COLON, COMMA, RPAREN, RBRACE, SELECT_PROP, SELECT_PROG1, SELECT_PROG2, LINEND:
-			break paramsloop
+		case COLON, COMMA, RPAREN, RBRACE, LINEND: break paramsloop
+		case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
+			if /* truly(ctx, can_select{}) */true { break paramsloop }
 		}
 
 		props = append(props, l.expr(ctx))
@@ -2609,7 +2632,7 @@ func for_idents(ctx Context, idents Value, f func(ident Value, stem []Value)) {
     }
 }
 
-func def_idents(ctx Context, tok token, idents, value Value) (defs []*def) {
+func (l ul) def_idents(ctx Context, tok token, idents, value Value) (defs []*def) {
 	for_idents(ctx, idents, func(ident Value, stems []Value) {
 		if checkpoints && truly(ctx, is_test_mode{}) {
 			if x, y := idents.(*argumented); y {
@@ -2618,7 +2641,7 @@ func def_idents(ctx Context, tok token, idents, value Value) (defs []*def) {
 				}
 			}
 		}
-		if d := define(ctx, tok, ident, value); d != nil { defs = append(defs, d) }
+		if d := l.define(ctx, tok, ident, value); d != nil { defs = append(defs, d) }
 	})
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		def_idents_check(ctx, idents, value, defs)
@@ -2626,7 +2649,7 @@ func def_idents(ctx Context, tok token, idents, value Value) (defs []*def) {
     return
 }
 
-func define(ctx Context, tok token, ident, value Value) (d *def) {
+func (l ul) define(ctx Context, tok token, ident, value Value) (d *def) {
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		defer define_check(ctx, tok, ident, value, &d)
 	}
@@ -2640,7 +2663,7 @@ func define(ctx Context, tok token, ident, value Value) (d *def) {
     case *group:
         erro(ctx, "TODO: multiple defs: %v", t.elems).trace()
 
-    case *selection:
+    case *arrow:
         if v := t.expand(final{ctx}); v == nil {
             erro(ctx, "%v is nil", ts(t)).trace()
         } else if x, y := v.(*def); !y {
@@ -2656,17 +2679,16 @@ func define(ctx Context, tok token, ident, value Value) (d *def) {
         }
 
         // Resolve base value to derive.
-		var proj = _project(ctx)
-        var prev = proj.resolve(ctx, name)
+        var prev = l.project.resolve(ctx, name)
 
-        if d, alt = proj.set(ctx, name, defUndetermined); alt == nil {
+        if d, alt = l.project.set(ctx, name, defUndetermined); alt == nil {
             if d == nil {
                 erro(ctx, "`%s` is undefined (%v)", name, tv(t)).trace()
 			}
         } else if tok == ASSIGN || tok == ASSIGN_EXC {
             if a, y := alt.(*def); !y {
                 erro(ctx, "`%v` already defined: %s (%v)", ident, tv(alt), alt.owner()).trace()
-            } else if a.owner() == proj && a.o != defConfRef {
+            } else if a.owner() == l.project && a.o != defConfRef {
                 erro(ctx, "`%v` already defined: %s", ident, tv(alt)).trace()
             } else {
                 d = a
@@ -2775,7 +2797,7 @@ func (l ul) assign(ctx Context, ident Value) (res []*def) {
 
 	var value = l.assign_value(ctx, ident, tok)
 
-	res = def_idents(ctx, tok, ident, value)
+	res = l.def_idents(ctx, tok, ident, value)
 
 	if checkpoints {
 		if len(res) == 0 {
@@ -3601,7 +3623,8 @@ func (l ul) clause(ctx Context) {
 	case      DEF: l.def_end(ctx)     ; return
 	case      FOR: l.for_done(ctx)    ; return
 	case  FOREACH: l.foreach_done(ctx); return
-	case USE,TEMPLATE: erro(ctx, "unexpected %v", t).trace()
+	case USE, TEMPLATE:
+		erro(ctx, "unexpected %v", t).trace()
 	}
 
 	var x = l.expr(parse_left{ctx})

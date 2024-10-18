@@ -326,60 +326,93 @@ func (d diagtracer) trace(a ...any) {
   }
 }
 
-type act_traced struct{}
-type too_many_diagnostics struct{ i int }
-type too_many_errors struct{ i int }
-type trace_err_evoke_loop struct { ctx Context ; Value }
-type trace_errors struct { Context ; int }
+type act_traced           struct{}
+type too_many_diagnostics struct{ int }
+type too_many_errors      struct{ int }
+type trace_errors         struct{ Context ; int }
+type trace_evoke_loop_err struct{ Context ; Value }
+type trace_evoke_loop     struct{ Context }
+type evoke_loop_null      struct{}
+type evoke_loop_pani      struct{}
 
-func (t trace_err_evoke_loop) String() string {
+func (x trace_evoke_loop) cast(t reflect.Type) Context { return implcast(x,t) }
+func (x trace_evoke_loop) do(ctx Context, op any) (_ any) {
+  switch op.(type) {
+  case evoke_loop_pani: return true
+  }
+  return x.Context.do(ctx, op)
+}
+
+func (t trace_evoke_loop_err) String() string {
   return "evoke loop: " + ts(t.Value)
 }
 
 func (t trace_errors) String() string {
-  return fmt.Sprintf("%v %d, %v", typeof(t), t.int, ts(t.Context))
+  return fmt.Sprintf("trace %d errors, %v", t.int, ts(t.Context))
 }
 
-func (t too_many_diagnostics) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.i) }
-func (t too_many_errors) String() string { return fmt.Sprintf("too many errors (%d)", t.i) }
+func (t too_many_diagnostics) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.int) }
+func (t too_many_errors) String() string { return fmt.Sprintf("too many errors (%d)", t.int) }
+
+// NOTE: never recover test_fail in trace_recover, it will break the test runner
+type test_fail struct{ Context; int; i int }
+func (t test_fail) String() string {
+  return fmt.Sprintf("test fail, %d errors, %v", t.int, ts(t.Context))
+}
 
 func trace_recover(ctx Context) {
-  var x Context
+  var te trace_errors
   var recovered int
-  for e := recover() ; e != nil ; e = recover() {
+
+  for e := recover(); e != nil; e = recover() {
     switch recovered += 1 ; t := e.(type) {
     case              bailout:
-    case         trace_errors:  x = t.Context
+    case         trace_errors: te = t
     case              failure: erro(t.Context, t.Error())
     case                Value: erro(ctx, "trace: %s", ts(t))
     case               string: erro(ctx, "trace: %s", t)
     case        runtime.Error: erro(ctx, "trace: %s", t.Error())
-    case too_many_diagnostics: erro(ctx, "too many diagnostics (%v)", t.i)
-    case too_many_errors     : erro(ctx, "too many errors (%v)", t.i)
-    case trace_err_evoke_loop: erro(pc(ctx,t.Value), "evocation loop (%s)", t.Value)
-    default: panic(e) //erro(ctx, "trace: %s", ts(e))
+    case too_many_diagnostics: erro(ctx, "too many diagnostics (%v)", t.int)
+    case too_many_errors     : erro(ctx, "too many errors (%v)", t.int)
+    case trace_evoke_loop_err: erro(pc(ctx,t.Value), "evocation loop (%s)", t.Value)
+    case test_fail:
+      if t.i += 1; t.i == 1 {
+        note(ctx, "%s (%d panics)", t, recovered).debug(1024)
+      }
+      panic(t)
+    default:
+      panic(e) //erro(ctx, "trace: %s", ts(e))
     }
   }
+
   if recovered > 0 {
-    erro(ctx, "%s (%d panics)", ts(x), recovered).debug(512)
+    note(ctx, "%s (%d panics)", ts(te.Context), recovered).debug(512)
     if true { flush(ctx) }
+  }
+
+  if false && truly(ctx, is_test_mode{}) {
+    if te.Context != nil && 0 < te.int {
+      panic(test_fail{te.Context, te.int, 0}) // rethrow to break the test runner
+    }
   }
 }
 
 type no_recover struct{}
 
 func trace(ctx Context, args ...any) {
-  var evoke_loop trace_err_evoke_loop
+  var evoke_loop trace_evoke_loop_err
   var recov = true
   for _, a := range args {
     switch t := a.(type) {
     case no_recover: recov = false
-    case trace_err_evoke_loop: evoke_loop = t
+    case trace_evoke_loop_err: evoke_loop = t
     }
   }
   if recov { defer trace_recover(ctx) }
   if x, y := do(ctx, act_traced{}).(int); y && x > 0 {
-    if evoke_loop.Value == nil {
+    if truly(ctx, is_test_mode{}) {
+      panic(test_fail{ctx, x, 0})
+    } else if evoke_loop.Value == nil {
       panic(trace_errors{ctx, x})
     } else {
       panic(evoke_loop)

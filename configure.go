@@ -102,7 +102,9 @@ func (cc *configurecontext) execute(ctx Context, e entry) {
         fmt.Fprintf(cc.writer, "# %s (%s) configuration\n", p.spec, p.name)
 
         if !cc.silent {
-            prompt(ctx, "configure %s …… (%s)\n", p.name, p.spec)
+            u := _universe(ctx)
+            s := u.trimSpecPath(ctx, p.spec)
+            prompt(ctx, "configure %s …… (%s)\n", p.name, s)
             if true { flush(ctx) }
         }
 

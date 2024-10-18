@@ -750,10 +750,12 @@ func (p *posctx) do(ctx Context, op any) (_ any) {
     switch op.(type) {
     case get_position:
         if p.pos != nil {
+            var pos Position
             switch t := p.pos.(type) {
-            case positioner: return t.Position()
-            case Position  : return t
+            case positioner: pos = t.Position()
+            case Position: pos = t
             }
+            if pos.valid() { return pos }
         }
     }
     return p.Context.do(ctx, op)
@@ -762,6 +764,7 @@ func (p *posctx) do(ctx Context, op any) (_ any) {
 func pc(ctx Context, a any, n ...int) Context {
     var p any
     switch t := a.(type) {
+    case  *parser    : p = t.Position()
     case   Position  : if t.valid() { p = t }
     case   positioner: if t != nil  { p = t.Position() }
     case []positioner: if t != nil  { p = t[0].Position() }
@@ -4943,7 +4946,7 @@ func dis_evoke(ctx Context, a, b Value) (_ bool) {
 var ex_debug bool
 
 func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value) {
-    var ( t, x Value ; a, o []Value ; entry, e bool )
+    var ( t, x Value ; a, o []Value ; ent, e bool )
 
     if checkpoints && truly(ctx, is_test_mode{}) {
         defer ex_check(ctx, p, _x, _a, _o, _l, _cl, &e, &res, &t, &x, &a, &o)
@@ -4987,24 +4990,13 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         }
     }
 
-    switch _l { case LBRACE, STRING, STRCOMP: entry = true } // &{xxx}  &'xxx'  &"xxx", else/ILLEGAL &(xxx)
+    switch _l { case LBRACE, STRING, STRCOMP: ent = true } // &{xxx}  &'xxx'  &"xxx", else/ILLEGAL &(xxx)
 
     // NOTE: `x` must be expandable in final context for x.string() as resolving name.
 
     if !_cl && _x.kind()&KindAuto != 0 {
         if x.kind()&KindDef != 0 {
-            e = true //x.(*def).origin == defParam
-            if false && truly(ctx, is_prerequisite{}) {
-                defer func() {
-                    switch e := recover().(type) {
-                    case prerequisite_evoke_loop:
-                        if false { note(ctx, "%v %v %v", _x, x, res).debug(5) }
-                        res = makeNull(x.Position())
-                    default:
-                        if e != nil { panic(e) }
-                    }
-                } ()
-            }
+            e = true // x.(*def).origin == defParam
         } else {
             e = truly(ctx, propExAuto)
         }
@@ -5012,10 +5004,11 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         e = false
     } else if !_cl && truly(ctx, propExDelegate) {
         if x.kind()&(KindAuto|KindBuiltin|KindDef) != 0 {
-            e = true ; goto dis
+            e = true
+            goto dis
         }
         var v Value
-        if entry {
+        if ent {
             if v = _project(ctx).entry(ctx, x); v == nil {
                 goto dis // where e = false
             }
@@ -5030,7 +5023,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
                     s = t.string(ctx)
                 }
             default:
-                erro(ctx, "unexable: {=%s %v}", typeof(x), x).trace()
+                erro(ctx, "unexable: %s", tv(x)).trace()
             }
             if s == "" {
                 goto dis // where e = false
@@ -5040,7 +5033,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         if v != nil { x, e = v, true }
     } else if truly(ctx, propExClosure) {
         var v Value
-        if entry {
+        if ent {
             if v = closure_entry(ctx, x); v == nil {
                 return // where e = false
             }
@@ -5055,7 +5048,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
                     s = t.string(ctx)
                 }
             default:
-                erro(ctx, "unexable: {=%s %v}", typeof(x), x).trace()
+                erro(ctx, "unexable: %s", tv(x)).trace()
             }
             if s == "" {
                 return // where e = false
@@ -5090,9 +5083,9 @@ dis:
 
     if x, y := t.(expanded); y {
         return x.Value
+    } else {
+        return t
     }
-
-    return t
 }
 
 type delegate struct {
@@ -5215,7 +5208,7 @@ func (p *delegate) ident(ctx Context) (name string) {
     const sel = true
     switch x := p.x.(type) {
     case interface{ ident(Context) string }: name = x.ident(ctx)
-    case *selection: if sel { name = x.string(ctx) }
+    case *arrow: if sel { name = x.string(ctx) }
     }
     return
 }
@@ -5226,7 +5219,7 @@ func (p *delegate) src(l string) (s string) {
 func (p *delegate) _src() (s string) { // source representation
     switch x := p.x.(type) {
     case       *def:       s += x.name
-    case *selection:       s += x.String()
+    case *arrow:       s += x.String()
     default: if x != nil { s += x.String() }
     }
 
@@ -5443,28 +5436,28 @@ func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-type selection struct {
+type arrow struct {
     valbase
     t token
-    o Value // object or selection
+    o Value // object or arrow
     s Value
 }
-func (p *selection) hash(ctx Context) uint64 { return fnv1(ctx, p, p.t, p.o, p.s) }
-func (p *selection) String() string {
+func (p *arrow) hash(ctx Context) uint64 { return fnv1(ctx, p, p.t, p.o, p.s) }
+func (p *arrow) String() string {
     return p.o.String() + p.t.String() + p.s.String()
 }
-func (p *selection) string(ctx Context) (s string) {
+func (p *arrow) string(ctx Context) (s string) {
     p.ex(ctx, func(v Value) { s = v.string(ctx) })
     return
 }
-func (p *selection) ts(t string) string {
+func (p *arrow) ts(t string) string {
     return "{="+t+" "+ts(p.o)+p.t.String()+ts(p.s)+"}"
 }
-func (p *selection) true(ctx Context) (t bool) {
+func (p *arrow) true(ctx Context) (t bool) {
     p.ex(ctx, func(v Value) { t = v.true(ctx) })
     return
 }
-func (p *selection) int(ctx Context) (i int64) {
+func (p *arrow) int(ctx Context) (i int64) {
     var e error
     p.ex(ctx, func(v Value) {
         if s := v.string(ctx); s != "" {
@@ -5476,7 +5469,7 @@ func (p *selection) int(ctx Context) (i int64) {
     }
     return
 }
-func (p *selection) float(ctx Context) (f float64) {
+func (p *arrow) float(ctx Context) (f float64) {
     var e error
     p.ex(ctx, func(v Value) {
         if s := v.string(ctx); s != "" {
@@ -5488,16 +5481,16 @@ func (p *selection) float(ctx Context) (f float64) {
     }
     return
 }
-func (p *selection) refs(ctx Context, v Value) bool {
+func (p *arrow) refs(ctx Context, v Value) bool {
     return p.o.refs(ctx, v) || p.s.refs(ctx, v)
 }
-func (p *selection) defs(ctx Context, s ...string) []*def {
+func (p *arrow) defs(ctx Context, s ...string) []*def {
     return append(p.o.defs(ctx, s...), p.s.defs(ctx, s...)...)
 }
-func (p *selection) expandable(ctx Context) (res bool) {
+func (p *arrow) expandable(ctx Context) (res bool) {
     return p.o.expandable(ctx) || p.s.expandable(ctx)
 }
-func (p *selection) expand(ctx Context) (res Value) {
+func (p *arrow) expand(ctx Context) (res Value) {
     var o, s Value
 
     if checkpoints && truly(ctx, is_test_mode{}) {
@@ -5528,15 +5521,15 @@ func (p *selection) expand(ctx Context) (res Value) {
     if !equal(ctx, o, p.o) || !equal(ctx, s, p.s) {
         if _cond(p.o) && !_cond(o) { o = condish(ctx, o) }
         if _cond(p.s) && !_cond(s) { s = condish(ctx, s) }
-        return &selection{p.valbase, p.t, o, s}
+        return &arrow{p.valbase, p.t, o, s}
     } else {
         return p
     }
 }
-func (p *selection) ex(ctx Context, f func(Value)) {
+func (p *arrow) ex(ctx Context, f func(Value)) {
     if v := p.expand(ctx); v != nil && !equal(ctx, v, p) { f(v) }
 }
-func (p *selection) traverse(ctx Context) {
+func (p *arrow) traverse(ctx Context) {
     if val := p.expand(ctx); isTrivial(val) {
         warn(ctx, "selected trivial value '%v' (%v, %v) ", p, ts(p.o), ts(p.s)).debug(10)
     } else {
@@ -5544,7 +5537,7 @@ func (p *selection) traverse(ctx Context) {
         val.traverse(ctx)
     }
 }
-func (p *selection) updated(ctx Context) (res bool) { // NOTE: this seems not affecting the result
+func (p *arrow) updated(ctx Context) (res bool) { // NOTE: this seems not affecting the result
     if val := p.expand(ctx); isTrivial(val) {
         note(ctx, "selected value '%v' is trivial", p).debug()
     } else {
@@ -5552,7 +5545,7 @@ func (p *selection) updated(ctx Context) (res bool) { // NOTE: this seems not af
     }
     return res
 }
-func (p *selection) updatedDeps(ctx Context, v ...Value) (res []Value) { // NOTE: this seems not affecting the result
+func (p *arrow) updatedDeps(ctx Context, v ...Value) (res []Value) { // NOTE: this seems not affecting the result
     if val := p.expand(ctx); isTrivial(val) {
         note(ctx, "selected value '%v' is trivial", p).debug()
     } else {
@@ -5560,8 +5553,8 @@ func (p *selection) updatedDeps(ctx Context, v ...Value) (res []Value) { // NOTE
     }
     return res
 }
-func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
-    if x, y := v.(*selection); y {
+func (p *arrow) cmp(ctx Context, v Value) (res cmpres) {
+    if x, y := v.(*arrow); y {
         if p.t == x.t {
             if  res = p.o.cmp(ctx, x.o); res == cmpEqual {
                 res = p.s.cmp(ctx, x.s)
@@ -5572,7 +5565,7 @@ func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            if x, y := v.(*selection); y {
+            if x, y := v.(*arrow); y {
                 note(ctx, "%v %v, %v", ts(p.o), ts(x.o), p.o.cmp(ctx, x.o))
                 note(ctx, "%v %v, %v", ts(p.s), ts(x.s), p.s.cmp(ctx, x.s))
             }
@@ -5581,16 +5574,16 @@ func (p *selection) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *selection) stat(ctx Context) (_ *statinfo) {
-    erro(ctx, "cant stat selection %v, must expand it first", p).trace()
+func (p *arrow) stat(ctx Context) (_ *statinfo) {
+    erro(ctx, "cant stat arrow %v, must expand it first", p).trace()
     return
 }
-func (p *selection) stamp(ctx Context) (_ []*file) {
-    erro(ctx, "cant stamp selection %v, must expand it first", p).trace()
+func (p *arrow) stamp(ctx Context) (_ []*file) {
+    erro(ctx, "cant stamp arrow %v, must expand it first", p).trace()
     return
 }
-func (p *selection) delete(ctx Context) (_ []*file) {
-    erro(ctx, "cant stamp selection %v, must expand it first", p).trace()
+func (p *arrow) delete(ctx Context) (_ []*file) {
+    erro(ctx, "cant stamp arrow %v, must expand it first", p).trace()
     return
 }
 
@@ -6453,7 +6446,7 @@ func ulist(v Value) (l *list) {
     return
 }
 
-func tv(i any) (_ string) {
+func tv(i any) (s string) {
     if i == nil {
         return "{=nil}"
     } else if _, y := i.(*null); y {
@@ -6461,7 +6454,17 @@ func tv(i any) (_ string) {
     } else if x, y := i.(*none); y {
         return "{=none "+tv(x.x)+"}"
     } else {
-        return fmt.Sprintf("{=%s %v}", typeof(i), i)
+        if x, y := i.(interface{ String() string }); y {
+            s = x.String()
+        } else {
+            s = fmt.Sprintf("%v", i)
+        }
+
+        t := "{=" + typeof(i) + " "
+        if !strings.HasPrefix(s, t) {
+            s = t + s + "}"
+        }
+        return
     }
 }
 func ts(i any) (s string) {
@@ -6513,7 +6516,7 @@ func makeOption(pos Position, v bool) *option          { return &option{boolean{
 
 func makeNull(pos Position) *null { return &null{valbase{pos}} }
 func makeNone(pos Position) *none { return &none{valbase{pos}, nil} }
-func makeSelection(pos Position, tok token, lhs, rhs Value) *selection { return &selection{valbase{pos}, tok, lhs, rhs} }
+func makeArrow(pos Position, tok token, lhs, rhs Value) *arrow { return &arrow{valbase{pos}, tok, lhs, rhs} }
 func makeBoolean(pos Position, v bool) *boolean { return &boolean{valbase{pos},v} }
 func makeBinary(pos Position, i int64) *binary { return &binary{integer{valbase{pos},i}} }
 func makeOctal(pos Position, i int64) *octal { return &octal{integer{valbase{pos},i}} }
@@ -6681,9 +6684,9 @@ type prerequisite_evoke_loop struct{ Context ; Value }
 type evoke_builtin struct{ name string }
 type evoke_def     struct{ name string }
 type evoke_x       struct{ name string }
-type evoke_avoid_loop struct{ Value }
-type evoke_eval       struct{ Value }
-type evoke_count      struct{}
+type evoke_detect_loop struct{ Value }
+type evoke_eval        struct{ Value }
+type evoke_count       struct{}
 
 type evocation struct {
     automatic
@@ -6722,17 +6725,14 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
         u, _ := p.Context.do(ctx, t).(uint)
         return 1 + u
 
-    case evoke_avoid_loop:
+    case evoke_detect_loop:
         if t.Value == p.x {
             switch p.x.(type) {
-            case *auto, *def:
-                if truly(ctx, is_prerequisite{}) { panic(prerequisite_evoke_loop{ctx, p.x}) }
-                if truly(ctx, is_test_mode{})    { panic(trace_err_evoke_loop{ctx, p.x}) }
-                errostack(pc(ctx,p.x), 16, "evoke loop : %v", p.x).trace()
+            case *auto, *def: return true
             }
         }
         if u, y := do(ctx, evoke_count{}).(uint); y && u > 255 {
-            errostack(pc(ctx,p.x), 16, "%s : %v", ts(p.x), p.x).trace()
+            errostack(pc(ctx,p.x), 16, "%s : %s", p.x, ts(p.x)).trace()
         }
 
     case get_position:
@@ -6742,7 +6742,7 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
 }
 
 func evoke(ctx Context, x Value, o, a []Value) (res Value, _ []Value) {
-    if true || checkpoints {
+    if false && checkpoints {
         var tx Value
         switch t := x.(type) {
         case *closure : tx = t.x
@@ -6753,27 +6753,24 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value, _ []Value) {
         }
     }
 
-    defer func() {
-        if e := recover(); e != nil {
-            switch e := e.(type) {
-            case prerequisite_evoke_loop:
-                if false {
-                    erro(ctx, "%v %v %v", x, e.Value, res).trace()
-                } else {
-                    res = makeNull(e.Value.Position())
-                }
-            default:
-                panic(e)
-            }
+    if truly(ctx, evoke_detect_loop{x}) {
+        if truly(ctx, evoke_loop_null{}) {
+            return makeNull(x.Position()), a
         }
-    } ()
-
-    do(ctx, evoke_avoid_loop{x})
+        if truly(ctx, evoke_loop_pani{}) {
+            panic(trace_evoke_loop_err{ctx, x})
+        } else if false {
+            errostack(pc(ctx,x), 32, "evoke loop: %v", x).trace()
+        } else {
+            note(pc(ctx,x), "evoke loop: %v", x).debug()
+            return makeNull(_position(ctx)), a
+        }
+    }
 
     // NOTE: the evo.a represents the arguments, which is a COPY of the original slice;
     // NOTE: making a COPY of the argument slice FIXES the bug of delegate-altered-args.
     var ev = evocation{automatic{Context:ctx, defs:make(defs_map)},
-        x, copyvals(a), copyvals(o) }
+        x, copyvals(a), copyvals(o)}
 
     switch t := x.(type) {
     case interface{ evoke(*evocation) Value }:

@@ -326,9 +326,9 @@ func (l ul) use_one(ctx Context, opts useopts, specVal Value, params ...Value) (
     if x, y := specVal.(*project); y {
         loaded = x
     } else if spec = specVal.string(ctx); spec == "" {
-        erro(ctx, "empty spec: %v", ts(specVal)).trace()
+        erro(pc(ctx,specVal), "empty spec: %v", ts(specVal)).trace()
     } else if absPath, isDir = l.search(ctx, spec); absPath == "" {
-        erro(ctx, "missing `%s` (in %v)", spec, l.paths).trace()
+        erro(pc(ctx,specVal), "missing `%s` (in %v)", spec, l.paths).trace()
     } else {
         loaded, y = l.globe.loaded[absPath]
 
@@ -336,14 +336,17 @@ func (l ul) use_one(ctx Context, opts useopts, specVal Value, params ...Value) (
             if ll.project.absPath == absPath {
                 var s string // TODO: build load path
                 // TODO: ll.opt.traveUseLoop
-                erro(ctx, "%s: loop detected : %s", l.project, s).trace()
+                erro(pc(ctx,specVal), "%s: loop detected : %s", l.project, s).trace()
             }
         }
     }
 
     defer func() {
         if loaded == nil {
-            erro(ctx, "%v not loaded (%v,dir=%v)", spec, absPath, isDir).trace()
+            if false {
+                erro(ctx, "%v not loaded (%v,dir=%v)", spec, absPath, isDir).trace()
+            }
+            return
         }
 
         var scope = l.project.scope
@@ -393,10 +396,10 @@ func (l ul) use_one(ctx Context, opts useopts, specVal Value, params ...Value) (
     var prev = l.project
 
     if loaded == nil {
-        if isDir {
-            l.directory(ctx, spec, absPath, nil)
+        if cc := pc(ctx, specVal); isDir {
+            l.directory(cc, spec, absPath, nil)
         } else {
-            l.load(ctx, spec, absPath, nil)
+            l.load(cc, spec, absPath, nil)
         }
         if loaded, _ = l.globe.loaded[absPath]; loaded == nil {
             erro(ctx, "%s not loaded (%s)", spec, absPath).trace()
@@ -406,10 +409,8 @@ func (l ul) use_one(ctx Context, opts useopts, specVal Value, params ...Value) (
         }
     }
 
-    if checkpoints {
-        if prev != l.project {
-            erro(ctx, "active project changed: %v -> %v, use %v", prev, l.project, loaded).trace()
-        }
+    if checkpoints && prev != l.project {
+        erro(ctx, "active project changed: %v → %v, use %v", prev, l.project, loaded).trace()
     }
 
     // Check against the current load list before appending loaded.
@@ -796,10 +797,10 @@ paramsloop:
             }
         }
 
-        if isDir {
-            l.directory(abs_ctx(ctx, abs), spec, abs, nil)
+        if cc := abs_ctx(ctx, abs); isDir {
+            l.directory(cc, spec, abs, nil)
         } else {
-            l.load(abs_ctx(ctx, abs), spec, abs, nil)
+            l.load(cc, spec, abs, nil)
         }
 
         if checkpoints && truly(ctx, is_test_mode{}) {
@@ -826,10 +827,10 @@ func (l ul) loadDotContainer(ctx Context, ident Value, identStr string, file *fi
 
     if file.info == nil {
         erro(ctx, "%s: file not exists: %s", ident, file.fullname()).trace()
-    } else if file.info.IsDir() {
-        l.directory(ctx, dot_container, file.fullname(), nil)
+    } else if cc := pc(ctx, ident); file.info.IsDir() {
+        l.directory(cc, dot_container, file.fullname(), nil)
     } else {
-        l.file(ctx, file.fullname(), nil)
+        l.file(cc, file.fullname(), nil)
     }
 
     if x, y := l.globe.loaded[file.fullname()]; y && x != nil {
@@ -970,7 +971,7 @@ func (l ul) configure(ctx Context, ident Value, identStr string, declared bool) 
         return
     }
 
-    if cc.isDir {
+    if cc.Context = pc(cc.Context, ident); cc.isDir {
         l.directory(&cc, cc.configure, cc.abs, nil)
     } else {
         l.file(&cc, cc.abs, nil)
