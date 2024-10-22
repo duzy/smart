@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"strings"
 	"path/filepath"
+	"regexp"
 )
 
 func (l ul) bases_check_param(ctx Context, implicitBase string, i int, elem, spec Value) {
@@ -926,6 +927,26 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			erro(ctx, "%s != %s", x.dir, srcinc).trace()
 		} else if false {
 			note(ctx, "%v", x.dir).debug()
+		}
+	}
+
+	if strings.HasSuffix(filename, "/modules/external/python/c/.base/do.smart") {
+		if d := l.project.def(ctx, "headers"); d != nil {
+			re := regexp.MustCompile(`^(cpython/)?[^/]+\.h$`)
+			va := merge(d.value)
+			n := 0
+			for _, v := range va {
+				if x, y := v.(*file); !y {
+					erro(ctx, "%v", tv(v)).trace()
+				} else if !re.MatchString(x.name) {
+					erro(ctx, "%s", x.name).trace()
+				} else {
+					n += 1
+				}
+			}
+			if n < 1 || len(va) != n {
+				erro(ctx, "%d != %d; %v", len(va), n, d.value).trace()
+			}
 		}
 	}
 }

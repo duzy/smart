@@ -488,6 +488,11 @@ func (l ul) braced(ctx Context) (x Value) {
 					l.p.expect(ctx, RBRACE)
 					return
 
+				case "file": // NOTE: , conflicts with typed=FILE
+					x = l.braced_file(ctx)
+					l.p.expect(ctx, RBRACE)
+					return
+
 				case "plain":
 					x = &plain{elements{l.braced_plain(ctx, t)}, t}
 					l.p.expect(ctx, RBRACE)
@@ -544,19 +549,19 @@ func (l ul) braced(ctx Context) (x Value) {
 	}
 
 	switch typed {
-	case BARE: // {=bare ... }
+	case BARE: // {=bare ...}
 		x = l.p.bare(ctx)
 		l.p.spaces(ctx)
 		l.p.expect(ctx, RBRACE)
 		return
-	case GLOB: // {=glob ... }
+	case GLOB: // {=glob ...}
 		x = l.glob(ctx, nil)
 		l.p.spaces(ctx)
 		l.p.expect(ctx, RBRACE)
 		return
 	case REGEX: // {=regex ...}
 		return l.p.regex(ctx)
-	case FILE: // {=file ... }
+	case FILE: // {=file ...}
 		if v := l.expr(ctx); v != nil {
 			var s = v.string(ctx)
 			var a = []any{stat_nonexist{true}}
@@ -566,7 +571,7 @@ func (l ul) braced(ctx Context) (x Value) {
 		l.p.spaces(ctx)
 		l.p.expect(ctx, RBRACE)
 		return
-	case PATH: // {=path ... }
+	case PATH: // {=path ...}
 		if v := l.expr(ctx); v != nil {
 			if t, y := v.(*path); !y {
 				x = l.path(ctx, v)
@@ -827,16 +832,15 @@ func (l ul) values(ctx Context, a ...any) (values []Value) {
 		}
 	}
 
-	var p = l.p
-	for p.spaces(ctx); !p.is_list_term(ctx); p.spaces(ctx) {
-		var prev = p.pos
-		if values = append(values, l.expr(ctx)); p.pos == prev {
-			erro(ctx, "bad: %v %v; %v", p.tok, p.lit, values).trace()
+	for l.p.spaces(ctx); !l.p.is_list_term(ctx); l.p.spaces(ctx) {
+		var prev = l.p.pos
+		if values = append(values, l.expr(ctx)); l.p.pos == prev {
+			erro(ctx, "bad: %v %v; %v", l.p.tok, l.p.lit, values).trace()
 		}
 
 		// If there's a comment right after the parsed expression, we break
 		// the expression list to treat the end-of-line comment like a LINEND.
-		if p.tok == EOF || p.tok == LINEND || p.lineComment != nil { break }
+		if l.p.tok == EOF || l.p.tok == LINEND || l.p.lineComment != nil { break }
 	}
 	return
 }
@@ -2103,6 +2107,20 @@ func (l ul) braced_word(ctx Context) (res Value) {
 	return &word{valbase{pos}, s}
 }
 
+func (l ul) braced_file(ctx Context) (res Value) {
+	l.p.next(ctx, true) // resumes 'fullname'
+
+	var elems []Value
+	for _, elem := range l.braced_elems(ctx) {
+		if f := l.project.file(ctx, elem); f != nil {
+			elems = append(elems, f)
+		} else {
+			erro(ctx, "not a file: %v", tv(elem)).trace()
+		}
+	}
+	return ease(ctx, elems)
+}
+
 func (l ul) braced_fullname(ctx Context) (res Value) {
 	l.p.next(ctx, true) // resumes 'fullname'
 
@@ -2632,23 +2650,6 @@ func for_idents(ctx Context, idents Value, f func(ident Value, stem []Value)) {
     }
 }
 
-func (l ul) def_idents(ctx Context, tok token, idents, value Value) (defs []*def) {
-	for_idents(ctx, idents, func(ident Value, stems []Value) {
-		if checkpoints && truly(ctx, is_test_mode{}) {
-			if x, y := idents.(*argumented); y {
-				if !strings.HasPrefix(ident.string(ctx), x.Value.string(ctx)) {
-					erro(ctx, "%v : wrong ident: %v, lost '%s', stems=%v", idents, ident, x.Value, stems).trace()
-				}
-			}
-		}
-		if d := l.define(ctx, tok, ident, value); d != nil { defs = append(defs, d) }
-	})
-	if checkpoints && truly(ctx, is_test_mode{}) {
-		def_idents_check(ctx, idents, value, defs)
-	}
-    return
-}
-
 func (l ul) define(ctx Context, tok token, ident, value Value) (d *def) {
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		defer define_check(ctx, tok, ident, value, &d)
@@ -2778,33 +2779,48 @@ func (l ul) define(ctx Context, tok token, ident, value Value) (d *def) {
     }
 }
 
-func (l ul) assign_value(ctx Context, ident Value, tok token) (value Value) {
-	defer l.closescope(l.openscope(tv(ident)))
+func (l ul) def_value(ctx Context, idents []Value, tok token) (value Value) {
+	defer l.closescope(l.openscope(tv(idents)))
 
 	vals := l.values(def_value{ctx})
 	l.p.lineComment = nil
 	return ease(ctx, vals)
 }
 
-func (l ul) assign(ctx Context, ident Value) (res []*def) {
+func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 	if l_traverse.enabled || debugSyntax(ctx, "define") {
-		defer un(l_trace(l_traverse, fmt.Sprintf("assign(%s)", ident)))
+		defer un(l_trace(l_traverse, fmt.Sprintf("assign(%s)", idents)))
 	}
 
 	var tok = l.p.tok
 
 	l.p.next(ctx, true) // the assign token
 
-	var value = l.assign_value(ctx, ident, tok)
+	var value = l.def_value(ctx, idents, tok)
 
-	res = l.def_idents(ctx, tok, ident, value)
+	for _, ids := range idents {
+		var ds []*def
+		var _ids = ids.expand(final{ctx})
 
-	if checkpoints {
-		if len(res) == 0 {
-			erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
-		} else if len(res) == 1 && res[0].value == nil && value != nil && !isNull(value) {
-			erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
+		for_idents(ctx, _ids, func(ident Value, stems []Value) {
+			if d := l.define(ctx, tok, ident, value); d != nil { ds = append(ds, d) }
+		})
+
+		if checkpoints {
+			var ctx = pc(ctx, ids)
+			if len(ds) == 0 && false {
+				erro(ctx, "%v : %v %v %v", tv(ids), tv(_ids), tok, ts(value)).trace()
+			}
+			if len(ds) == 1 && ds[0].value == nil && value != nil && !isNull(value) {
+				erro(ctx, "%v : %v %v %v", tv(ids), tv(_ids), tok, ts(value)).trace()
+			}
 		}
+
+		res = append(res, ds...)
+	}
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		def_idents_check(ctx, idents, value, res)
 	}
 	return
 }
@@ -3604,7 +3620,9 @@ func (l ul) call(ctx Context, name Value, args []Value) (result bool) {
 }
 
 func (l ul) clause(ctx Context) {
-	if l_traverse.enabled { defer un(l_tracef(l_traverse, "clause(%v, %v)", l.p.tok, l.p.pos)) }
+	if l_traverse.enabled {
+		defer un(l_tracef(l_traverse, "clause(%v, %v)", l.p.tok, l.p.pos))
+	}
 
 	l.p.spaces(ctx)
 
@@ -3627,29 +3645,30 @@ func (l ul) clause(ctx Context) {
 		erro(ctx, "unexpected %v", t).trace()
 	}
 
-	var x = l.expr(parse_left{ctx})
+	var vals []Value
 
-	if l.p.spaces(ctx); l.p.tok.is_assign() {
-		l.assign(ctx, x)
-		return
+	for l.p.tok != LINEND && l.p.tok != EOF {
+		var x = l.expr(parse_left{ctx})
+
+		l.p.spaces(ctx)
+
+		vals = append(vals, x)
+
+		if l.p.tok.is_assign() {
+			l.assign(ctx, vals)
+			return
+		}
+
+		if l.p.tok.is_rule_delim() {
+			l.rule(ctx, nil, vals)
+			return
+		}
 	}
 
-	if l.p.tok.is_rule_delim() {
-		l.rule(ctx, nil, []Value{x})
-		return
-	} else if a, y := x.(*argumented); y {
-		l.call(ctx, a.Value, a.args)
-		return
-	}
-
-	if vals := l.values(ctx, x); l.p.tok != EOF {
-		return
-	} else if strings.HasSuffix(l.p.scanner.file.Name(), pathSep+configuration_sm) {
-		if false { note(ctx, "%v (kit=%s)", l.p.tok, l.p.lit).debug() }
-	} else if truly(ctx, is_config_mode{}) {
-		note(ctx, "bad clause: %v (kit=%s) after %v", l.p.tok, l.p.lit, vals).debug(3)
-	} else {
-		erro(ctx, "bad clause: %v (lit=%s) after %v", l.p.tok, l.p.lit, vals).trace()
+	for _, v := range vals {
+		if x, y := v.(*argumented); y {
+			l.call(ctx, x.Value, x.args)
+		}
 	}
 }
 

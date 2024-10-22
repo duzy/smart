@@ -3890,8 +3890,6 @@ type builtin_wildcard struct { builtin_
     includeMissing bool `include,includemissing,include-missing,missing,all`
     ignoreMissing bool `ignore,ignoremissing,ignore-missing`
     errorMissing bool `err,error,errormissing,error-missing,no-missing`
-    names bool `name,names,nameonly`
-    strs bool `str,strs,string,strings`
     exclude []Value `exclude,except,no,not`
     filetype string `type` // dir, file, etc.
     dir string `dir,directory`
@@ -4057,14 +4055,16 @@ func (ctx *builtin_wildcard) _project_1(p *project, pats ...Value) (files []*fil
     return
 }
 func (ctx *builtin_wildcard) _project(p *project, pats ...Value) (files []*file) {
-    if false { defer func(t0 time.Time) {
-        if d := time.Now().Sub(t0); d > 1*time.Second {
-            var pos = _position(ctx)
-            prompt(ctx, "%v: slow: %d patterns, %v\n", pos, len(pats), pats)
-            prompt(ctx, "%v: slow: %d files\n", pos, len(files))
-            prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
-        }
-    }(time.Now())}
+    if false {
+        defer func(t0 time.Time) {
+            if d := time.Now().Sub(t0); d > 1*time.Second {
+                var pos = _position(ctx)
+                prompt(ctx, "%v: slow: %d patterns, %v\n", pos, len(pats), pats)
+                prompt(ctx, "%v: slow: %d files\n", pos, len(files))
+                prompt(ctx, "%v: slow: %v\n", pos, d).debug(4)
+            }
+        } (time.Now())
+    }
 
     var m sync.Mutex
     var g sync.WaitGroup
@@ -4150,19 +4150,16 @@ func (ctx *builtin_wildcard) _do(pats ...Value) []*file {
     }
 }
 func (ctx *builtin_wildcard) x() any {
+    if len(ctx.exclude) > 0 {
+        ctx.exclude = xmerge(final{ctx.Context}, ctx.exclude...)
+    }
+
     var vals []Value
-    if len(ctx.exclude) > 0 { ctx.exclude = merge(ctx.exclude...) }
-    for _, file := range ctx._do(merge(ctx.evocation.a...)...) {
-        if file == nil {
+    for _, f := range ctx._do(merge(ctx.evocation.a...)...) {
+        if f == nil {
             errostack(ctx, 3, "nil file: %v", ctx.evocation.a).trace()
-        } else if !(ctx.names || ctx.strs) {
-            vals = append(vals, file)
-        } else if ctx.strs {
-            vals = append(vals, _strlit(file.position, file.ident(ctx)))
-        } else if strings.Contains(file.ident(ctx), pathSep) {
-            vals = append(vals, _pathstr(ctx, file.ident(ctx)))
         } else {
-            vals = append(vals, makeWord(file.position, file.ident(ctx)))
+            vals = append(vals, f)
         }
     }
     return vals

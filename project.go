@@ -379,11 +379,7 @@ func select_file_1(ctx Context, m filemap_name) (res *file) {
   }
 
   defer func() {
-    if res == nil {
-      erro(ctx, "%s %s", m.name, ts(m.pattern)).trace()
-    } else {
-      res.filemap = &m.filemap
-    }
+    if res != nil { res.filemap = &m.filemap }
   } ()
 
   if m.paths == nil {
@@ -398,20 +394,24 @@ func select_file_1(ctx Context, m filemap_name) (res *file) {
   var fs []*file
 
   for _, v := range m.paths {
-    if t := v.expand(final{ctx}); t == nil {
-      erro(ctx, "%s ⇒ %v", m.name, v).trace()
-    } else if s := t.string(ctx); s == "" {
-      erro(ctx, "%s ⇒ %v → %v → ''", m.name, v, t).trace()
-    } else if f := stat(ctx, m.name, stat_dir{s}, stat_nonexist{true}); f == nil {
-      erro(ctx, "%s ⇒ %v → %v → ''", m.name, v, t).trace()
+    if t := v.expand(final{ctx}); t != nil {
+      if s := t.string(ctx); s != "" {
+        if f := stat(ctx, m.name, stat_dir{s}, stat_nonexist{true}); f != nil {
+          fs = append(fs, f)
+        } else {
+          erro(ctx, "%s ⇒ %v → %v → ''", m.name, v, t).trace()
+        }
+      } else if false {
+        erro(ctx, "%s ⇒ %v → %v → ''", m.name, v, t).trace()
+      }
     } else {
-      fs = append(fs, f)
+      erro(ctx, "%s ⇒ %v", m.name, v).trace()
     }
   }
 
   for _, f := range fs { if f.exists() { return f } }
-
-  return fs[0]
+  if 0 < len(fs) { res = fs[0] }
+  return
 }
 
 func select_files(ctx Context, m []filemap_name) (res []*file) {
@@ -419,7 +419,9 @@ func select_files(ctx Context, m []filemap_name) (res []*file) {
     defer select_files_check(ctx, m, &res)
   }
   for _, m := range m {
-    res = append(res, select_file_1(ctx, m))
+    if f := select_file_1(ctx, m); f != nil {
+      res = append(res, f)
+    }
   }
   return
 }

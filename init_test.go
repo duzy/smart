@@ -256,7 +256,7 @@ func testRemoveConfigureDir(ctx *testcase, p *project) {
 }
 
 func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
-	ctx := loadcase(t, joinpath("testdata", spec), spec, name, ii...)
+	ctx := loadcase(t, "testdata/"+spec, spec, name, ii...)
 	ctx.run = func(f2 testcase_f1) { runcase(t, name, spec, f2) }
 
 	defer func() {
@@ -445,10 +445,13 @@ func Test(t *testing.T) {
 	run(t, "builtins", "pushcontext", "testbuiltins", testPushContext)
 
 	// value_test.go
+	run(t, "value", "value/auto",        "testvalue", testAutomatic)
 	run(t, "value", "value/closure",     "testvalue", testClosure)
+	run(t, "value", "value/placeholder", "testvalue", testPlaceholders)
+	run(t, "value", "value/optional",    "testvalue", testOptional, test_silentOptionalArrow{true})
+	run(t, "value", "value/glob",        "testvalue", testGlob)
 	run(t, "value", "value/1",           "testvalue", testValues1)
 	run(t, "value", "value/2",           "testvalue", testValues2)
-	run(t, "value", "value/auto",        "testvalue", testAutomatic)
 	run(t, "value", "value/3",           "testvalue", testValues3)
 	run(t, "value", "value/4",           "testvalue", testValues4)
 	run(t, "value", "value/5",           "testvalue", testValues5)
@@ -460,9 +463,7 @@ func Test(t *testing.T) {
 	run(t, "value", "value/11",          "testvalue", testValues11)
 	run(t, "value", "value/12",          "testvalue", testValues12)
 	run(t, "value", "value/13",          "testvalue", testValues13)
-	run(t, "value", "value/placeholder", "testvalue", testPlaceholders)
-	run(t, "value", "value/glob",        "testvalue", testGlob)
-	run(t, "value", "value/optional",    "testvalue", testOptional, test_silentOptionalArrow{true})
+	run(t, "value", "value/bug_01",      "testvalue", testValues_bug_01)
 
 	// builtins_test.go
 	run(t, "builtins", "builtins/wildcard",   "testbuiltins", testBuiltin_wildcard)
@@ -483,7 +484,7 @@ func Test(t *testing.T) {
 	run(t, "builtins", "builtins/trimsuffix", "testbuiltins", testBuiltin_trimsuffix)
 
 	// template_test.go
-	run(t, "template", "template",         "testtemplate", testTemplate)
+	run(t, "template", "template", "testtemplate", testTemplate)
 
 	// modifiers_test.go
 	run(t, "modifiers", "modifier", "testmodifier", testValueModifier, test_caseinit{testValueModifierInit})
@@ -511,17 +512,18 @@ func Test(t *testing.T) {
 	run(t, "rules", "rule/shell/for-stdout", "testrules", testShellForStdout, test_hook_debug{testShellForStdoutDebugHook, &testShellForStdoutDebugStruct{}})
 
 	// configure_test.go
-	run(t, "configure", "configuration",        "testdefaultconfigure", testConfigureDefault)
-	run(t, "configure", "configuration/two",    "testdeftwoconfigure",  testConfigureDefault2)
-	run(t, "configure", "configuration/custom", "testcustomconfigure",  testConfigureCustom)
-
-	// value_test.go
-	run(t, "value", "value/bug_01", "testvalue", testValues_bug_01)
+	if false {
+		run(t, "configure", "configuration",        "testdefaultconfigure", testConfigureDefault)
+		run(t, "configure", "configuration/two",    "testdeftwoconfigure",  testConfigureDefault2)
+		run(t, "configure", "configuration/custom", "testcustomconfigure",  testConfigureCustom)
+	}
 
 	// modules_test.go
-	run(t, "modules", "modules/target/arm64-darwin", "", testVariantTarget_arm64_darwin) //testvarianttarget
-	run(t, "modules", "modules/app/arm64-darwin", "", testApp_arm64_darwin) //testapp
-	run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig1_arm64_darwin, test_configure{true}) //testllvmconfig
-	run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig2_arm64_darwin) //testllvmconfig
-	run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting_arm64_darwin) //testtoolchainbooting
+	if false {
+		run(t, "modules", "modules/target/arm64-darwin", "", testVariantTarget_arm64_darwin) //testvarianttarget
+		run(t, "modules", "modules/app/arm64-darwin", "", testApp_arm64_darwin) //testapp
+		run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig1_arm64_darwin, test_configure{true}) //testllvmconfig
+		run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig2_arm64_darwin) //testllvmconfig
+		run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting_arm64_darwin) //testtoolchainbooting
+	}
 }

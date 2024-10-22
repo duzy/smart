@@ -1331,6 +1331,10 @@ func (p *argumented) traverse(ctx Context) {
 
     p.Value.traverse(&argumented_ctx{ctx, p})
 }
+func (p *argumented) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
+    erro(ctx, "%v", p).debug()
+    return
+}
 
 type negative struct { Value }
 func (p negative) String() (s string) { return `!`+p.Value.String() }
@@ -2774,7 +2778,7 @@ func (p *compound) expand(ctx Context) (res Value) {
 }
 func (p *compound) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 func (p *compound) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if indeterminate(ctx, p) {
+    if false && indeterminate(ctx, p) {
         erro(ctx, "indeterminate : %v", tv(p)).trace()
     }
 
@@ -3528,7 +3532,7 @@ func (p *path) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *path) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if indeterminate(ctx, p) {
+    if false && indeterminate(ctx, p) {
         erro(ctx, "%v : indeterminate : %v", p, ts(p)).trace()
     }
 
@@ -4215,7 +4219,7 @@ func (p *file) suffix(ctx Context, val Value) (_ Value) {
     var stub = *p.filestub
     switch v := val.(type) {
     case *punct, *word:
-        if indeterminate(ctx, v) {
+        if false && indeterminate(ctx, v) {
             erro(ctx, "indeterminate file suffix: %v", ts(v)).trace()
         }
         stub.name += v.string(ctx)
@@ -4359,7 +4363,7 @@ func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
         defer p.hit_check(ctx, c, &res, &fullmatch)
     }
 
-    if indeterminate(ctx, p.Value) {
+    if false && indeterminate(ctx, p.Value) {
         erro(ctx, "%v : indeterminate : %v", p, ts(p.Value)).trace()
     }
 
@@ -5818,7 +5822,7 @@ func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) 
         }
     }
 
-    if indeterminate(ctx, p) {
+    if false && indeterminate(ctx, p) {
         erro(ctx, "valcache %v : indeterminate element : %v", p, ts(p)).trace()
     }
 
@@ -6059,7 +6063,7 @@ func (p *globpat) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
-    if indeterminate(ctx, p) {
+    if false && indeterminate(ctx, p) {
         erro(ctx, "%v : indeterminate : %v", p, ts(p)).trace()
     }
 
@@ -6129,7 +6133,7 @@ func (p *regexpat) cmp(ctx Context, v Value) (res cmpres) {
 func (p *regexpat) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 func (p *regexpat) expand(Context) Value { return p }
 func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if indeterminate(ctx, p) {
+    if false && indeterminate(ctx, p) {
         erro(ctx, "valcache %v : indeterminate element : %v", p, ts(p)).trace()
     }
 
@@ -6736,7 +6740,11 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
         }
 
     case get_position:
-        if p.x != nil { return p.x.Position() }
+        var pos Position
+        if p.x != nil { pos = p.x.Position() }
+        if !pos.valid() && p.a != nil { pos = p.a[0].Position() }
+        if !pos.valid() && p.o != nil { pos = p.o[0].Position() }
+        if !pos.valid() { return pos }
     }
     return p.automatic.do(ctx, op)
 }

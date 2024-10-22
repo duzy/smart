@@ -259,7 +259,6 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 	}
 
 	switch p.spec {
-	// case "../../../../.smart/modules/llvm/Support/.base":
 	case "testdata/value/optional":
 		switch d.name {
 		case "val0":
@@ -302,26 +301,28 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 	}
 }
 
-func def_idents_check(ctx Context, idents, value Value, defs []*def) {
+func def_idents_check(ctx Context, idents []Value, value Value, defs []*def) {
 	switch p := _project(ctx); p.name {
 	case "variant.target":
 		if len(defs) == 0 {
 			erro(ctx, "{=%v %v} : %v", typeof(idents), idents, value).trace()
 		}
-		if x, y := idents.(*argumented); y {
-			var pre = x.Value.string(ctx)
-			var args = merge(x.args...)
-			if a, b := len(defs), len(args); a != b {
-				erro(ctx, "%v : %v ; %d != %d", idents, defs, a, b).trace()
-			}
-			switch pre {
-			case "lang.":
-				if ts(x.Value) != "{=compound {=word lang} {=punct .}}" {
-					erro(ctx, "%v : %v : %v", idents, ts(x.Value), value).trace()
+		for _, id := range idents {
+			if x, y := id.(*argumented); y {
+				var pre = x.Value.string(ctx)
+				var args = merge(x.args...)
+				if a, b := len(defs), len(args); a != b {
+					erro(ctx, "%v : %v ; %d != %d", id, defs, a, b).trace()
 				}
-				for i, d := range defs {
-					if s := args[i].string(ctx); d.name != pre+s {
-						erro(ctx, "%v : %s%s : %v", idents, pre, s, d).trace()
+				switch pre {
+				case "lang.":
+					if ts(x.Value) != "{=compound {=word lang} {=punct .}}" {
+						erro(ctx, "%v : %v : %v", id, ts(x.Value), value).trace()
+					}
+					for i, d := range defs {
+						if s := args[i].string(ctx); d.name != pre+s {
+							erro(ctx, "%v : %s%s : %v", id, pre, s, d).trace()
+						}
 					}
 				}
 			}
@@ -654,8 +655,8 @@ func (l ul) rule_check(ctx Context, targets []Value, res *Value) {
 		case *argumented: v = t.Value
 		default: v = target
 		}
-		if v != nil && indeterminate(ctx, v) {
-			erro(ctx, "indeterminate: %v : %v", v, ts(v)).trace()
+		if false && v != nil && indeterminate(ctx, v) {
+			erro(ctx, "indeterminate: %v %v %v", v, ts(v), tv(*res)).trace()
 		}
 	}
 

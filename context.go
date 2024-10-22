@@ -29,8 +29,7 @@ const (
 type property uint64
 
 const (
-  propFullVal property = 1<<iota
-  propDirtyOpts
+  propDirtyOpts property = 1<<iota
   propErros
   propExAuto
   propExClosure
@@ -787,23 +786,22 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
 }
 
 func CommandLine() {
-  var context = new_universe() ; defer assured(context, false)
-  if  context.traceLaunch { defer un(l_trace(l_launch, "CommandLine")) }
-
+  var ctx = new_universe() ; defer assured(ctx, false)
   var modulesPaths, packagePaths searchlist
-  walkSmartBaseDirs(context, context.workdir, func(s string) bool {
+
+  walkSmartBaseDirs(ctx, ctx.workdir, func(s string) bool {
     if baseTmpPath == "" { baseTmpPath = s }
     packagePaths = append(packagePaths, filepath.Join(s, ".smart", "packages"))
     modulesPaths = append(modulesPaths, filepath.Join(s, ".smart", "modules"))
     return true
   })
 
-  var userLib = filepath.Join(context.prefix, "user", "lib", "smart")
+  var userLib = filepath.Join(ctx.prefix, "user", "lib", "smart")
   packagePaths = append(packagePaths, filepath.Join(userLib, "packages"))
   modulesPaths = append(modulesPaths, filepath.Join(userLib, "modules"))
 
   // make sure that .smart dirs have higher priority.
-  context.paths = append(modulesPaths, context.paths...)
+  ctx.paths = append(modulesPaths, ctx.paths...)
   for _, s := range modulesPaths {
     searchFile := filepath.Join(s, ".search")
     if fi, _ := os.Stat(searchFile); fi == nil { continue }
@@ -825,38 +823,37 @@ func CommandLine() {
         line = filepath.Clean(filepath.Join(s, line))
       }
       if fi, err = os.Stat(line); err == nil && fi.IsDir() {
-        context.paths = append(context.paths, line)
+        ctx.paths = append(ctx.paths, line)
       }
     }
     if err != nil { fmt.Fprintf(stderr, "%v: %v", file, err); return }
   }
 
-  var dia = _diagnostic(context)
-  if dia.count(diagError) > 0 { return }
+  if ctx.count(diagError) > 0 { return }
 
-  if false { loadGrepCache(context) }
+  if false { loadGrepCache(ctx) }
 
-  context.load(context)
+  ctx.load(ctx)
 
-  if dia.flush(context) > 0 {
-    prompt(context, "loading work got %d errors\n", dia.erros)
-  } else if context.help {
-    do_helpscreen(context)
-  } else if context.printFlags {
-    print_flag_trace(context)
-  } else if context.printConfig {
-    print_configuration(context)
+  if ctx.flush(ctx) > 0 {
+    prompt(ctx, "loading work got %d errors\n", ctx.erros)
+  } else if ctx.help {
+    do_helpscreen(ctx)
+  } else if ctx.printFlags {
+    print_flag_trace(ctx)
+  } else if ctx.printConfig {
+    print_configuration(ctx)
   } else if numUpdatedPlugins > 0 { // see buildPlugin
-    prompt(context, "plugins updated, please relaunch.\n")
-  } else if context.commandline.configure {
-    configure(context)
-  } else if result := context.run(); dia.flush(context) > 0 {
-    prompt(context, "run work got %d errors\n", dia.erros)
+    prompt(ctx, "plugins updated, please relaunch.\n")
+  } else if ctx.commandline.configure {
+    configure(ctx)
+  } else if result := ctx.run(); ctx.flush(ctx) > 0 {
+    prompt(ctx, "run work got %d errors\n", ctx.erros)
   } else if result != nil {
     for i, v := range result {
       if s := ""; v == nil {
         s = "<nil>"
-      } else if s = strings.TrimSpace(v.string(context)); s == "" {
+      } else if s = strings.TrimSpace(v.string(ctx)); s == "" {
         continue
       } else if i == 0 {
         fmt.Fprintf(stderr, "%s", s)
@@ -867,5 +864,5 @@ func CommandLine() {
     fmt.Fprintf(stderr, "\n")
   }
 
-  // if false { promptLeavingDirectory(context) }
+  // if false { promptLeavingDirectory(ctx) }
 }

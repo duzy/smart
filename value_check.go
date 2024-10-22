@@ -935,30 +935,32 @@ func (p *project) unmap_files_check(ctx Context, _k any, res *[]filemap_name) {
 }
 
 func select_file_1_check(ctx Context, m filemap_name, _res **file) {
-	switch f, p := *_res, _project(ctx); f.name {
-	case "llvm/Config/llvm-config.h.cmake":
-		s := p.def(ctx, "srcinc").string(ctx)
-		if x, y := m.pattern.(*file); !y {
-			erro(ctx, "%v", ts(m.pattern)).trace()
-		} else if f.name != x.name {
-			erro(ctx, "%s != %s", f.name, x.name).trace()
-		} else if f.dir != x.dir {
-			erro(ctx, "%s != %s", f.dir, x.dir).trace()
-		} else if x.dir != s {
-			erro(ctx, "%s != %s", x.dir, s).trace()
-		} else if f.dir != s {
-			erro(ctx, "%s != %s", f.dir, s).trace()
-		}
-	case "llvm/Config/llvm-config.h":
-		s := p.def(ctx, "outinc").string(ctx)
-		if x, y := m.pattern.(*file); !y {
-			erro(ctx, "%v", ts(m.pattern)).trace()
-		} else if f.name != x.name {
-			erro(ctx, "%s != %s", f.name, x.name).trace()
-		} else if f.dir != s {
-			erro(ctx, "%s != %s", f.dir, s).trace()
-		} else if false && x.dir != s {
-			erro(ctx, "%s != %s", x.dir, s).trace()
+	if f := *_res; f != nil {
+		switch p := _project(ctx); f.name {
+		case "llvm/Config/llvm-config.h.cmake":
+			s := p.def(ctx, "srcinc").string(ctx)
+			if x, y := m.pattern.(*file); !y {
+				erro(ctx, "%v", ts(m.pattern)).trace()
+			} else if f.name != x.name {
+				erro(ctx, "%s != %s", f.name, x.name).trace()
+			} else if f.dir != x.dir {
+				erro(ctx, "%s != %s", f.dir, x.dir).trace()
+			} else if x.dir != s {
+				erro(ctx, "%s != %s", x.dir, s).trace()
+			} else if f.dir != s {
+				erro(ctx, "%s != %s", f.dir, s).trace()
+			}
+		case "llvm/Config/llvm-config.h":
+			s := p.def(ctx, "outinc").string(ctx)
+			if x, y := m.pattern.(*file); !y {
+				erro(ctx, "%v", ts(m.pattern)).trace()
+			} else if f.name != x.name {
+				erro(ctx, "%s != %s", f.name, x.name).trace()
+			} else if f.dir != s {
+				erro(ctx, "%s != %s", f.dir, s).trace()
+			} else if false && x.dir != s {
+				erro(ctx, "%s != %s", x.dir, s).trace()
+			}
 		}
 	}
 }

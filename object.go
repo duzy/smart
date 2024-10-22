@@ -745,7 +745,7 @@ func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
         var n = time.Now()
         var a = xmerge(final{ctx}, ctx.a...)
         var m = time.Now().Sub(n)
-        notestack(pc(ctx,p), 5, "slow %v: %v, %v (%d args)", p, d, m, len(a)).debug(5)
+        notestack(ctx, 5, "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a)).debug(5)
     } else if f := v.Elem().FieldByName("timing"); f.IsValid() {
         if f.Type().Kind() == reflect.Bool && f.Bool() {
             notestack(ctx, 5, "%v: %v", p, d).debug(5)

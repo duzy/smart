@@ -251,17 +251,15 @@ func testRules1(ctx *testcase) {
 	}
 }
 
-type testShellForStdoutDebugStruct struct {
-	v, s string
-}
+type testShellForStdoutDebugStruct struct { v, s string }
 func testShellForStdoutDebugHook(ctx Context, s string, v []Value, i any) {
 	t := i.(*testShellForStdoutDebugStruct)
 	for _, v := range v { t.v += ts(v) }
 	t.s += s
 }
 func testShellForStdout(ctx testcase1) {
-	if _universe(ctx).hooks.debug == nil {
-		ctx.err("hooks.debug, %v", _universe(ctx).hooks)
+	if u := _universe(ctx); u.hooks.debug == nil {
+		ctx.err("hooks.debug, %v", u.hooks)
 	}
 
 	var t = ctx.i.(*testShellForStdoutDebugStruct)
