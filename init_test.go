@@ -20,7 +20,7 @@ type testcase struct{
 	Context
 	*testing.T
 	spec string
-	run func(testcase_f1)
+	// run func(testcase_f1)
 	srcs map[string]struct{}
 	chks map[string]struct{}
 }
@@ -33,8 +33,6 @@ type test_final struct{}
 
 const testModulesPath = "/Volumes/workspace/.smart/modules"
 
-var total_erros int
-var total_bytes int
 var test_mode bool
 
 func init() {
@@ -64,13 +62,11 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	ctx := new_universe(ii...)
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
 	ctx.panicFailureOnErrosFlushed = false
-	ctx.flushed = total_bytes
-	ctx.erros = total_erros
 	ctx.globe.main = nil
 	ctx.workdir = dir
 
 	defer func() {
-		if ctx.diagnostic.flush(ctx); ctx.erros > 0 || count_diag(ctx, diagError) > 0 {
+		if ctx.flush(ctx); ctx.erros > 0 || count_diag(ctx, diagError) > 0 {
 			var s = name
 			if s == "" { s = spec }
 			if s == "" { s = dir }
@@ -86,7 +82,7 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 		ctx.paths = append(ctx.paths, testModulesPath)
 	}
 
-	res = &testcase{ctx, t, spec, nil, nil, nil}
+	res = &testcase{ctx, t, spec, nil, nil}
 	res.srcs = make(map[string]struct{})
 	res.chks = make(map[string]struct{})
 
@@ -98,7 +94,6 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 		erro(ctx, "project %v != %v", m.name, name).trace()
 	} else {
 		res.Context = closure_with(ctx, m)
-		if false { testRemoveConfigureDir(res, _project(ctx)) }
 	}
 	return
 }
@@ -257,7 +252,7 @@ func testRemoveConfigureDir(ctx *testcase, p *project) {
 
 func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	ctx := loadcase(t, "testdata/"+spec, spec, name, ii...)
-	ctx.run = func(f2 testcase_f1) { runcase(t, name, spec, f2) }
+	// ctx.run = func(f2 testcase_f1) { runcase(t, name, spec, f2) }
 
 	defer func() {
 		if e := recover(); e != nil {
@@ -285,15 +280,6 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 			var s = name
 			if s == "" { s = spec }
 			panic(loaderros{s, d.erros + count_diag(d, diagError)})
-		}
-
-		if false {
-			if d.erros == 0 {
-				total_erros  = 0
-			} else {
-				total_erros += d.erros
-			}
-			total_bytes += d.flushed
 		}
 	} ()
 
@@ -329,8 +315,6 @@ func run(t *testing.T, str, spec, name string, ii ...any) {
 				}
 			case test_caseinit:
 				v.f()
-			case test_configure:
-				c.configure = v.bool
 			case test_silentOptionalArrow:
 				c.silentOptionalArrow = v.bool
 			case test_variant:
@@ -406,7 +390,6 @@ func _evoke_(ctx Context, v Value, ii ...any) (res Value) {
 }
 
 type (
-	test_configure   struct { bool }
 	test_caseinit    struct { f func() }
 	test_hook_assert struct { f func(Context, Value, bool, any); i any }
 	test_hook_debug  struct { f func(Context, string, []Value, any); i any }
@@ -512,18 +495,14 @@ func Test(t *testing.T) {
 	run(t, "rules", "rule/shell/for-stdout", "testrules", testShellForStdout, test_hook_debug{testShellForStdoutDebugHook, &testShellForStdoutDebugStruct{}})
 
 	// configure_test.go
-	if false {
-		run(t, "configure", "configuration",        "testdefaultconfigure", testConfigureDefault)
-		run(t, "configure", "configuration/two",    "testdeftwoconfigure",  testConfigureDefault2)
-		run(t, "configure", "configuration/custom", "testcustomconfigure",  testConfigureCustom)
-	}
+	run(t, "configure", "configuration",        "testdefaultconfigure", testConfigureDefault)
+	run(t, "configure", "configuration/two",    "testdeftwoconfigure",  testConfigureDefault2)
+	run(t, "configure", "configuration/custom", "testcustomconfigure",  testConfigureCustom)
 
 	// modules_test.go
-	if false {
-		run(t, "modules", "modules/target/arm64-darwin", "", testVariantTarget_arm64_darwin) //testvarianttarget
-		run(t, "modules", "modules/app/arm64-darwin", "", testApp_arm64_darwin) //testapp
-		run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig1_arm64_darwin, test_configure{true}) //testllvmconfig
-		run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig2_arm64_darwin) //testllvmconfig
-		run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting_arm64_darwin) //testtoolchainbooting
-	}
+	run(t, "modules", "modules/target/arm64-darwin",            "", testVariantTarget)
+	run(t, "modules", "modules/app/arm64-darwin",               "", testApp)
+	run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1)
+	run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2)
+	run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting)
 }

@@ -58,7 +58,7 @@ type parser struct {
 	targets []Value // targets of current rule
 	ruparas []*auto // parameters of current rule
 	dialect  string // recipe dialect of current rule
-	configure  bool // is parsing configure program?
+	// configure  bool // is parsing configure program?
 
 	locals []map[string]*def
 
@@ -344,7 +344,7 @@ func (p *parser) spaces(ctx Context) {
 			tokloop:
 				for p.tok != EOF {
 					switch p.tok {
-					case RECIPE: // TODO: using p.is_recipe_start()
+					case RECIPE: // TODO: using p.recipe_start()
 						if true { p.scanner.pop(isStrcompLine) }
 						p.step()
 					default:
@@ -406,11 +406,11 @@ func (p *parser) linend(ctx Context) (ok bool) {
 	return
 }
 
-func (p *parser) is_recipe_start() (res bool) {
+func (p *parser) recipe_start() (res bool) {
 	if p.tok == RECIPE {
 		res = true
 	} else if p.tok == SPACE && p.lit == "\t" {
-		p.tok, res = RECIPE, true // Fixes recipe \t
+		p.tok, res = RECIPE, true // FIXES recipe \t
 	}
 	return
 }
@@ -762,7 +762,7 @@ func (p *parser) is_list_term(ctx Context) bool {
 	if p.lineComment != nil || p.tok.is_list_delim() || (truly(ctx, parse_left_hand_side{}) && p.tok.is_assign()) {
 		return true
 	}
-	if truly(ctx, parse_is_recipe{false}) && p.tok == RECIPE { // TODO: using p.is_recipe_start()
+	if truly(ctx, parse_is_recipe{false}) && p.tok == RECIPE { // TODO: using p.recipe_start()
 		return true
 	}
 	return false
@@ -2287,7 +2287,7 @@ func (l ul) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	}
 
 	for _, specVal := range specVals {
-		l.use_one(ctx, opts, specVal, args...)
+		l.use_spec(ctx, opts, specVal, args...)
 	}
 	return
 }
@@ -2357,44 +2357,6 @@ func (l ul) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		l.files_check_2(ctx, path, patts, paths, ms)
 	}
-}
-
-func (l ul) eval_configuration(ctx Context, g *clauseopts, props []Value) {
-	if l.project == nil {
-		erro(ctx, "configuration: nil project").trace()
-	} else if l.project.configure == nil {
-		erro(ctx, "configuration: no %s for %v", dot_configure, l.project).trace()
-	}
-
-	if e := l.project.configure.defaultEntry; e != nil {
-		e.execute(ctx)
-	}
-
-	if flush(ctx) > 0 { return }
-
-	if l.project.configured {
-		prompt(ctx, "configuration: %v already configured\n", l.project)
-		return
-	}
-
-	var ce = configurecontext{Context:ctx} ; defer ce.close()
-
-	for _, dep := range xmerge(ctx, props/*[1:]*/...) {
-		if x, y := dep.(executer); !y {
-			erro(ctx, "unsupported prerequisite: %v", ts(dep)).trace()
-		} else {
-			x.execute(ctx)
-		}
-	}
-
-	if flush(ctx) > 0 { return }
-
-	/***/ promptEnteringDirectory(ctx, l.project.absPath)
-	defer promptLeavingDirectory(ctx, l.project.absPath)
-
-	for _, e := range l.project.configs { ce.execute(ctx, e) }
-
-	l.project.configured = true // relaxes configure()
 }
 
 func (p *parser) assert(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
@@ -2468,11 +2430,10 @@ func (l ul) local(ctx Context, _ *commentGroup, g *clauseopts, _ int) {
 	if local != nil { l.p.locals = append(l.p.locals, local) }
 }
 
-func (l ul) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+func (l ul) eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	if g.skip { return }
 	if g.spec == nil {
 		var opts struct {
-			configuration bool `configuration`
 			optimize Value `opt,optimize`
 		}
 
@@ -2496,8 +2457,6 @@ func (l ul) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 			}
 		}
 
-		// NOTE: see also universeContext.configure()
-		if opts.configuration { l.eval_configuration(ctx, g, g.spec) }
 		return
 	}
 
@@ -2511,8 +2470,8 @@ func (l ul) parse_eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	if a, y := prop0.(*argumented); y { prop0, opts = a.Value, a.args }
 
 	name := prop0.string(ctx)
-	if name == "configuration" {
-		erro(ctx, "use '-configuration' instead (%v)", prop0).trace()
+	switch name { case "-configuration", "configuration":
+		erro(ctx, "configuration is done at parse time", prop0).trace()
 	}
 
 	resolved := l.resolve(ctx, prop0, name)
@@ -2832,14 +2791,27 @@ func (l ul) recipe(ctx Context) Value {
 	// TODO: doc = p.leadComment
 	var elems []Value
 	var isList, isPlainline bool
+	var p Position
 
 	switch l.p.dialect {
-	case "", "eval", "value":
+	case "", "value":
 		l.p.scanner.pop(isStrcompLine)
 		l.p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
+		p = l.p.Position()
+		if isList = true; !l.p.is_end_of_line() {
+			var c = parse_recipe{ctx, true} // builtin value recipe
+			for l.p.tok != EOF && l.p.tok != SEMICOLON && l.p.tok != LINEND && l.p.lineComment == nil {
+				elems = append(elems, l.expr(c))
+				if l.p.spaces(ctx); l.p.lineComment != nil { break }
+			}
+		}
+
+	case "eval":
+		l.p.scanner.pop(isStrcompLine)
+		l.p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
+		p = l.p.Position()
 		if isList = true; !l.p.is_end_of_line() {
 			var a *argumented
-			var p = l.p.Position()
 			var x = l.expr(ctx) // parse first expr of recipe
 			if x != nil {
 				if a, _ = x.(*argumented); a != nil { x = a.Value }
@@ -2869,9 +2841,6 @@ func (l ul) recipe(ctx Context) Value {
 
 			for l.p.tok != EOF && l.p.tok != SEMICOLON && l.p.tok != LINEND && l.p.lineComment == nil {
 				if l.p.spaces(ctx); l.p.lineComment != nil { break }
-				if /* l.p.tok == ESCAPE || */ l.p.tok == RECIPE {
-					note(ctx, "%v %v, %v, %v %v", x, ts(x), l.p.tok, l.p.is_recipe_start(), l.p.tok.is_rule_delim()).debug(3)
-				}
 				if !l.p.tok.is_rule_delim() {
 					x = l.expr(c)
 				} else {
@@ -2891,6 +2860,7 @@ func (l ul) recipe(ctx Context) Value {
 	default:
 		l.p.scanner.push(isStrcompLine) // NOTE: scanner does not set isStrcompLine correctly, fixit here
 		l.p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in line-string mode
+		p = l.p.Position()
 
 		switch l.p.dialect {
 		case "plain", "text": isPlainline = true
@@ -2912,7 +2882,7 @@ func (l ul) recipe(ctx Context) Value {
 	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
 
     if len(elems) == 0 {
-        return makeNone(_position(ctx))
+        return makeNone(p)
 	} else if isPlainline {
 		return &plainline{elements{merge(elems...)}}
     } else if isList {
@@ -2968,29 +2938,23 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 	case *delegate, *closure:
 		var v = xmerge(final{ctx}, val)
 		if len(v) == 0 {
-			erro(ctx, "empty modifier name: %v", n).trace()
+			erro(pc(ctx,val), "empty modifier name: %v", n).trace()
 		}
 
 		name, elems = v[0].string(ctx), v[1:]
 
 	default:
-		erro(ctx, "unsupported modifier: %v", ts(n)).trace()
-	}
-
-	switch name {
-	case "configure":
-		if false { l.define_configs(ctx) }
-		l.p.configure = true // set configure flag and define configure variables
-	case "":
-		erro(ctx, "empty modifier name: %v", ts(val)).trace()
+		erro(pc(ctx,val), "unsupported modifier: %v", ts(n)).trace()
 	}
 
 	if _, y := dialects[name]; y {
-		if l.p.dialect == "" { l.p.dialect = name } else {
-			erro(ctx, "multi-dialects unsupported, already defined '%s'", l.p.dialect).trace()
+		if l.p.dialect == "" {
+			l.p.dialect = name
+		} else {
+			erro(pc(ctx,l.p), "multi-dialects unsupported, already defined '%s'", l.p.dialect).trace()
 		}
 	} else if _, y = modifiers[name]; !y {
-		erro(ctx, "`%s` no such dialect or modifier", name).trace()
+		errostack(pc(ctx,l.p), 24, "`%s` no such dialect or modifier", name).trace()
 	}
 
 	for l.p.tok != RPAREN && l.p.tok != EOF {
@@ -3010,14 +2974,14 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 
 		if l.p.tok == COMMA { l.p.next(ctx, true) }
 		if l.p.pos == t {
-			erro(ctx, "unsupported modifier arg: %v '%v'", l.p.tok, l.p.lit).trace()
+			erro(pc(ctx,l.p), "unsupported modifier arg: %v '%v'", l.p.tok, l.p.lit).trace()
 		}
 	}
 
 	l.p.expect(ctx, RPAREN)
 
 	if val == nil && len(elems) == 0 {
-		erro(ctx, "empty modifier").trace()
+		erro(pc(ctx,l.p), "empty modifier").trace()
 	} else {
 		res = new(modifier)
 		res.position = _position(ctx)
@@ -3101,7 +3065,7 @@ func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
 	defer func() {
 		// Close the rule scope and go back to project scope.
 		// The current scope must be project scope befor Rule.
-		l.p.dialect, l.p.configure, l.p.ruparas = "", false, nil
+		l.p.dialect, l.p.ruparas = "", nil
 	} ()
 
 	l.p.dialect = ""
@@ -3137,21 +3101,14 @@ func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
 		// Parse recipes in the program scope.
 		l.p.scanner.recipes(true) // Turn on recipes before LINEND.
 		if l.p.linend(ctx) { // Take the new line.
-			for l.p.tok != EOF && l.p.is_recipe_start() {
+			for l.p.recipe_start() {
 				recipes = append(recipes, l.recipe(ctx))
 			}
 		}
 		l.p.scanner.recipes(false)
 	}
 
-	if l.p.configure {
-		if d, a := l.project.set(ctx, targets[0], defConfig); d == nil {
-			erro(ctx, "%v ; %v", d, a).trace()
-		}
-	}
-
 	var prog = program{
-		configure: l.p.configure,
 		language:  l.p.dialect,
 		params:    l.p.ruparas,
 		project:   l.project,
@@ -3189,11 +3146,6 @@ func (l ul) entries(ctx Context, prog *program, targets, options []Value) (res [
 				var s = x.Value.string(ctx)
 				l.globe.AddFlagEntry(s, entry)
 			}
-        } else if l.p.configure {
-            if entry.patterned(ctx) {
-                erro(ctx, "unsupported pattern configures: %v", target).trace()
-            }
-            prog.project.configs = append(prog.project.configs, entry)
         }
     }
     return
@@ -3619,6 +3571,228 @@ func (l ul) call(ctx Context, name Value, args []Value) (result bool) {
 	return
 }
 
+func (l ul) configure_save(ctx Context) {
+	var configs = l.project.configs
+	if configs == nil { return }
+
+	var f = l.project.configuration_sm(ctx)
+	var fn = f.fullname()
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		if c := l.project.configuration; c != nil && c.fullname() != fn {
+			erro(ctx, "%v: %s != %s", l.project.name, c.fullname(), fn).trace()
+		}
+		defer l.configure_save_check(ctx, configs, f, fn)
+	}
+
+	if e := os.MkdirAll(filepath.Dir(fn), os.FileMode(0755)); e != nil {
+		erro(ctx, "make path %s failed: %v", filepath.Dir(fn), e).trace()
+	}
+
+	var fm = os.O_RDWR | os.O_CREATE | os.O_TRUNC
+
+	if o, e := os.OpenFile(fn, fm, os.FileMode(0600)); e != nil {
+		erro(ctx, "%v: %v", l.project.name, e).trace()
+	} else {
+		defer o.Close()
+
+        fmt.Fprintf(o, "# %s (%s)\n", l.project.name, l.project.spec) // configuration
+
+		for _, c := range configs {
+			fmt.Fprintf(o, "configure %s = %s\n", c.name, c.value)
+		}
+
+		fmt.Fprintf(o, "\n# %d configs, %s\n", len(configs), l.project)
+		l.project.configuration = f // saved configuration.sm
+	}
+}
+
+func (l ul) configure_set(ctx Context, name string, vals ...Value) {
+	if d, a := l.project.set(ctx, name, defConfig, vals...); d == nil {
+		erro(pc(ctx,l.p), "cannot configure %s (alt=%v)", name, tv(a)).trace()
+	} else if a != nil {
+		erro(pc(ctx,l.p), "conflict configure %s: %v", name, ts(a)).trace()
+	} else {
+		l.project.configs = append(l.project.configs, d)
+	}
+}
+
+func (l ul) configure_conv(ctx Context, vt, val Value) (res Value) {
+	if x, y := vt.(*argumented); y {
+		if f, y := x.Value.(flag); y {
+			vt = f.Value
+		} else {
+			erro(pc(ctx,x.Value), "wrong conv word: %v %v", tv(x.Value), tv(val)).trace()
+		}
+	}
+
+	if x, y := vt.(*word); !y {
+		erro(pc(ctx,vt), "wrong conv word: %v %v", tv(vt), tv(val)).trace()
+	} else {
+		switch x.s {
+		case "answer":
+			return makeAnswer(val.Position(), val.true(ctx))
+		case "bool", "boolean":
+			return makeBoolean(val.Position(), val.true(ctx))
+		case "value":
+			return val.expand(ctx)
+		}
+
+		erro(pc(ctx,vt), "wrong conv op: %v %v", x.s, tv(val)).trace()
+	}
+	return
+}
+
+func (l ul) configure_one(ctx Context) {
+	var nv = l.expr(ctx)
+	l.p.spaces(ctx)
+
+	var skip bool
+	var name string
+	switch x := nv.(type) {
+	case *word:
+		name = x.s
+
+	case *compound:
+		for _, v := range x.elems {
+			if w, y := v.(*word); y {
+				name += w.s
+			} else {
+				erro(pc(ctx,v), "unsupported configure: %v", ts(v)).trace()
+			}
+		}
+
+	default:
+		erro(pc(ctx,nv), "unsupported configure: %v", ts(nv)).trace()
+	}
+
+	if name == "" {
+		erro(pc(ctx,nv), "empty configure: %v", ts(nv)).trace()
+	}
+
+	if d := l.project.def(ctx, name); d != nil && d.o == defConfig {
+		skip = true
+	}
+
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		defer l.configure_check(ctx, name)
+	}
+
+	var vt Value
+	if l.p.tok == MINUS {
+		vt = l.expr(ctx)
+		l.p.spaces(ctx)
+	}
+
+	if l.p.tok == ASSIGN {
+		l.p.next(ctx, true) // skips the '=' token
+
+		var vals []Value
+		if l.p.tok != LINEND && l.p.lineComment == nil {
+			vals = append(vals, l.expr(ctx))
+		}
+
+		if !skip {
+			l.configure_set(ctx, name, vals...)
+		}
+		return
+	} else if l.p.tok.is_assign() {
+		erro(pc(ctx,l.p), "%v: only '=' can assign a configure", nv).trace()
+	}
+
+	var deps, recipes []Value
+	if l.p.tok == COLON {
+		l.p.next(ctx, true) // skips the ':' token
+
+		defer func() { l.p.dialect = "" } ()
+
+		for l.p.tok != EOF {
+			deps = append(deps, l.expr(ctx))
+			l.p.spaces(ctx)
+
+			switch l.p.tok {
+			case SEMICOLON, LINEND:
+				goto dorecipes
+			}
+		}
+		if l.p.dialect != "" {
+			note(pc(ctx,l.p), "configure %v").debug()
+		}
+	}
+
+dorecipes:
+	if l.p.tok == SEMICOLON { // ;
+		recipes = append(recipes, l.recipe(ctx))
+	} else /*if p.tok == LINEND || p.lineComment != nil*/ {
+		l.p.scanner.recipes(true) // turn on recipes before LINEND.
+		if l.p.linend(ctx) { // Take the new line.
+			for l.p.recipe_start() {
+				recipes = append(recipes, l.recipe(ctx))
+			}
+		}
+		l.p.scanner.recipes(false)
+	}
+
+	if skip { return }
+
+	var exe = execution{
+		automatic:automatic{Context:pc(ctx,nv), defs:make(defs_map)},
+		recs:make(map[Value]int), start:time.Now(), proj:l.project,
+		recipes:recipes, language:l.p.dialect,
+	}
+
+	defer func() {
+		for _, a := range exe.defers {
+			if x, y := a.(*group); y {
+				modify(ctx, x, true)
+			} else {
+				erro(pc(ctx,a), "defer: not a modifier: %s", ts(a)).trace()
+			}
+		}
+	} ()
+
+    exe.set(ctx, defVoid, "@", nv)
+
+	var pre = prerequisite{&exe, false, nil}
+	for _, dep := range deps { dep.traverse(&pre) }
+
+	var res = auto_get(&exe, "-")
+	if res == nil && recipes != nil && len(exe.interpreted) == 0 {
+		if x, y := dialects[""]; y && x != nil {
+			res = exe.interpret(&exe, x, nil)
+		}
+	}
+
+	if vt != nil {
+		res = l.configure_conv(ctx, vt, res)
+	}
+
+	var vals []Value
+	if res != nil { vals = append(vals, res) }
+
+	l.configure_set(ctx, name, vals...)
+}
+
+func (l ul) configure(ctx Context) {
+	l.p.expect(ctx, CONFIGURE)
+	l.p.spaces(ctx)
+	if l.p.tok == LPAREN {
+		l.p.next(ctx, true)
+		l.p.linend(ctx)
+		l.p.spaces(ctx)
+		for l.p.tok != EOF {
+			l.configure_one(ctx)
+			l.p.spaces(ctx)
+			if l.p.tok == RPAREN {
+				l.p.next(ctx, true)
+				break
+			}
+		}
+	} else {
+		l.configure_one(ctx)
+	}
+}
+
 func (l ul) clause(ctx Context) {
 	if l_traverse.enabled {
 		defer un(l_tracef(l_traverse, "clause(%v, %v)", l.p.tok, l.p.pos))
@@ -3632,15 +3806,16 @@ func (l ul) clause(ctx Context) {
 	}
 
 	switch t := l.p.tok ; t {
-	case  INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.include)   ; return
-	case     EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.parse_eval); return
-	case   ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert)  ; return
-	case   APPEND: l.spec(ctx, t, l.p.expect(ctx, t), l.p.append)  ; return
-	case    FILES: l.spec(ctx, t, l.p.expect(ctx, t), l.files)     ; return
-	case    LOCAL: l.spec(ctx, t, l.p.expect(ctx, t), l.local)     ; return
-	case      DEF: l.def_end(ctx)     ; return
-	case      FOR: l.for_done(ctx)    ; return
-	case  FOREACH: l.foreach_done(ctx); return
+	case   INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.include)   ; return
+	case      EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.eval)      ; return
+	case    ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert)  ; return
+	case    APPEND: l.spec(ctx, t, l.p.expect(ctx, t), l.p.append)  ; return
+	case     FILES: l.spec(ctx, t, l.p.expect(ctx, t), l.files)     ; return
+	case     LOCAL: l.spec(ctx, t, l.p.expect(ctx, t), l.local)     ; return
+	case       DEF: l.def_end(ctx)     ; return
+	case       FOR: l.for_done(ctx)    ; return
+	case   FOREACH: l.foreach_done(ctx); return
+	case CONFIGURE: l.configure(ctx)   ; return
 	case USE, TEMPLATE:
 		erro(ctx, "unexpected %v", t).trace()
 	}
@@ -3738,8 +3913,6 @@ func (l ul) new_declare(ctx Context, name, filename string, opts *project_opts) 
 
 type project_opts struct {
 	configure Value `conf,config,configure` // detects dot_configure if empty
-	noConf bool `noconf,no-conf,no-config,no-configure`
-	noDock bool `nodock,no-dock` // don't load container project
 	traveUseLoop bool `break,loop` // don't recursively use this project
 	multiUseAllowed bool `multi`  // this project is used multiple times
 	final bool `final` // no bases
@@ -3858,7 +4031,7 @@ func (p parent) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (l ul) _project(ctx Context, filename string, isMainFile bool) (_ Value, _ string, _ bool) {
+func (l ul) projec(ctx Context, filename string, isMainFile bool) (_ Value, _ string, _ bool) {
 	var implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
 
 	l.p.next(ctx, true) // aka. the keyword
@@ -3987,14 +4160,9 @@ func (l ul) _project(ctx Context, filename string, isMainFile bool) (_ Value, _ 
 	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
 
 	if isMainFile {
-		if !opts.noConf { l.configure(ctx, ident, name, prevDeclared) }
-		if !opts.noDock { l.container(ctx, ident, name) }
+		l.configuration(ctx, ident, name)
+		l.container(ctx, ident, name)
 	}
-
-	if checkpoints && truly(ctx, is_test_mode{}) {
-		// TODO: ...
-	}
-
 	return ident, name, isMainFile
 }
 
@@ -4031,11 +4199,7 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	var isMainFile bool // aka do.smart, build.smart
 
 	if flatmode {
-		if p := _project(ctx); p == nil {
-			errostack(ctx, 10, "nil project").trace()
-		} else {
-			abs = p.absPath
-		}
+		abs = l.project.absPath
 	} else {
 		switch filepath.Base(filename) {
 		case dot_base, dot_configure:
@@ -4052,14 +4216,14 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	var tmp   = joinTmpPath(ctx, l.workdir, rel)
 
 	if s := l.scope(); /* p == nil || */ s == nil {
-		erro(ctx, "%v: nil scope: %v", _project(ctx), s).trace()
+		erro(ctx, "%v: nil scope: %v", l.project, s).trace()
 	}
 
 	defer l.closescope(l.openscope(bases(2, filename, true)))
 
 	if checkpoints {
 		if s := l.p.scanner.file.Name(); filename != s {
-			erro(ctx, "%v: %s != %s", _project(ctx), filename, s).trace()
+			erro(ctx, "%v: %s != %s", l.project, filename, s).trace()
 		}
 		if truly(ctx, is_test_mode{}) {
 			defer l.parse_file_check_1(ctx, abs, rel, tmp)
@@ -4077,27 +4241,15 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	}
 
 	switch keyword {
-	case CONFIGURE:
-		switch l.p.next(ctx, true); l.p.tok {
-		case DOT:
-			if err := l.config_dir(ctx, abs, abs); err != nil {
-				erro(ctx, "parsing configure directory failed, '%s': %v", abs, err).trace()
-			} else {
-				l.p.next(ctx, true) // skip the '.' token and consequence spaces
-			}
-		default:
-			erro(ctx, "unknown configuration '%v', currently only 'configure .' is supported", l.p.tok).trace()
-		}
-
 	case PROJECT:
 		if flatmode {
-			erro(ctx, "project is forbidden in flat file").trace()
+			erro(pc(ctx,l.p), "project is forbidden in flat file").trace()
 		}
 
 		var name string
 		var prev = l.project
 
-		_, name, isMainFile = l._project(ctx, filename, isMainFile)
+		_, name, isMainFile = l.projec(ctx, filename, isMainFile)
 		if prev != l.project { defer l.close_project(ctx, name) }
 		if checkpoints { l.parse_file_check_new_project(ctx) }
 

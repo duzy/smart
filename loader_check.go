@@ -191,7 +191,7 @@ func (l ul) directory_check(ctx Context, spec, absDir string) {
 	}
 }
 
-func (l ul) configure_check(ctx *configure_ctx, ident Value) {
+func (l ul) configuration_check(ctx *configure_ctx, ident Value) {
 	var mode string
 
 	if l.project != nil {
@@ -199,7 +199,7 @@ func (l ul) configure_check(ctx *configure_ctx, ident Value) {
 			erro(ctx, "%v", l.project).trace()
 		} else {
 			switch mode = d.string(ctx); mode {
-			case "clean", "configure", "goals":
+			case "clean", /* "configure", */ "goals":
 			default:
 				erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
 			}
@@ -220,29 +220,35 @@ func (l ul) configure_check(ctx *configure_ctx, ident Value) {
 		if ctx.configure != "configure/.base" {
 			erro(ctx, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.opt.configure).trace()
 		}
-		if mode == "goals" && l.project.configuration == nil {
+		if l.project.configuration != nil {
 			errostack(ctx, 5, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.configuration_sm(ctx).fullname()).trace()
 		}
 	case "lib.c++.abi":
 		if ctx.configure != "configure/.base" {
 			erro(ctx, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.opt.configure).trace()
 		}
-		if mode == "goals" && l.project.configuration == nil {
+		if l.project.configuration != nil {
 			errostack(ctx, 5, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.configuration_sm(ctx).fullname()).trace()
 		}
 	case "llvm.Config":
 		if ctx.configure != "configure" {
 			erro(ctx, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.opt.configure).trace()
 		}
-		if mode == "goals" && l.project.configuration == nil {
+		if l.project.configuration != nil {
 			errostack(ctx, 5, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.configuration_sm(ctx).fullname()).trace()
 		}
 	case "testdefaultconfigure", "testdeftwoconfigure":
+		if l.project.configuration != nil {
+			errostack(ctx, 5, "%s: %s %v %v", mode, l.project.spec, l.project.configuration, l.project.configuration_sm(ctx).fullname()).trace()
+		}
 		if s, t := ts(l.project.opt.configure), "{=boolean true}"; s != t {
 			erro(ctx, "incorrect -configure: %s != %s : %v", s, t, l.project.configure).trace()
 		}
 		if ctx.configure != "configure" {
 			erro(ctx, "incorrect configure name: %s", ctx.configure).trace()
+		}
+		if d := l.project.def(ctx, "FOO"); d != nil {
+			erro(ctx, "already configured FOO").trace()
 		}
 	}
 }
@@ -281,7 +287,7 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 			erro(ctx, "%v", l.project).trace()
 		} else {
 			switch mode = d.string(ctx); mode {
-			case "clean", "configure", "goals":
+			case "clean", /* "configure", */ "goals":
 			default:
 				erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
 			}
@@ -300,6 +306,9 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 				erro(ctx, "%v : %s", l.project, bases(5, s, true)).trace()
 			}
 		}
+	}
+	if strings.HasSuffix(filename, "/llvm/Config/.configure") {
+		note(ctx, "%v %s", l.project, bases(3, filename, true)).debug()
 	}
 	if strings.HasSuffix(filename, "/llvm/Config/.configure.declared") {
 		erro(ctx, "%v %s", l.project, bases(3, filename, true)).trace()
@@ -320,11 +329,11 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 			}
 		}
 		if l.project.configuration == nil {
-			erro(ctx, "%s: configuration is nil", l.project.name).trace()
+			errostack(ctx, 16, "%s: configuration is nil", l.project.name).trace()
 		} else if l.project.configuration.exists() {
 			var d = l.project.def(ctx, "LLVM_TARGETS_TO_BUILD")
 			if d == nil {
-				erro(pc(ctx,filename,1), "LLVM_TARGETS_TO_BUILD is not def")
+				erro(pc(ctx,filename), "LLVM_TARGETS_TO_BUILD is not def")
 				erro(pc(ctx,l.p.Position()), "%s: %s", mode, l.project.name)
 				erro(ctx, "%s: %v", mode, l.project.configuration).trace()
 			} else {
@@ -386,7 +395,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		erro(ctx, "%v", l.project).trace()
 	} else {
 		switch mode = d.string(ctx); mode {
-		case "clean", "configure", "goals":
+		case "clean", /* "configure", */ "goals":
 		default:
 			erro(ctx, "%v : wrong mode : %v : %s", l.project, d, mode).trace()
 		}
@@ -422,8 +431,8 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 
 	if strings.Contains(filename, "testdata/configuration/") && strings.HasSuffix(filename, "/do.smart") {
 		switch l.project.name {
-		case "testdefaultconfigure", "testdeftwoconfigure":
-			if !bytes.Contains(*text, []byte("FOO : {(configure)} ; $(.self)\n")) {
+		case "testdefaultconfigure":
+			if !bytes.Contains(*text, []byte("configure FOO : foo ; $(.self)\n")) {
 				erro(ctx, "wrong text: %s", *text).trace()
 			}
 			if x, y := l.project.elems["FOO"]; !y {
@@ -435,14 +444,20 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 				erro(ctx, "%v : %v", l.project.names(), ts(x)).trace()
 			} else if d.o != defConfig {
 				erro(ctx, "%v %v", d.o, x).trace()
-			} else if false {
-				if d.value == nil {
-					erro(ctx, "%v %v", d.o, x).trace()
-				} else if d.value.String() != "$(.self)" {
-					erro(ctx, "%v %v", d.o, x).trace()
-				}
-			} else if false {
-				note(ctx, "%v : %v : %s", l.project, x, filename)
+			}
+		case "testdeftwoconfigure":
+			if !bytes.Contains(*text, []byte("configure FOO : foo\n\t$(.self)")) {
+				erro(ctx, "wrong text: %s", *text).trace()
+			}
+			if x, y := l.project.elems["FOO"]; !y {
+				prompt(ctx, "%v:\n%s", filename, *text)
+				erro(ctx, "FOO not defined : %v", l.project.names()).trace()
+			} else if t := l.project.def(ctx, "FOO"); t != x {
+				erro(ctx, "%v", ts(t)).trace()
+			} else if d, y := x.(*def); !y {
+				erro(ctx, "%v : %v", l.project.names(), ts(x)).trace()
+			} else if d.o != defConfig {
+				erro(ctx, "%v %v", d.o, x).trace()
 			}
 		}
 	}
@@ -697,15 +712,17 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 
 		w := l.project.absPath//"/Volumes/workspace/.smart/modules/app/.base"
 		t := fmt.Sprintf("$(if $(equal &/,%s),,%s/.autoload", w, w)
-		if d := l.project.def(ctx, ".autoload.declared"); d == nil {
-			erro(ctx, ".autoload.declared").trace()
-		} else if d.value.String() != t+".declared)" {
-			erro(ctx, "%v != %s.declared)", d, t).trace()
-		}
-		if d := l.project.def(ctx, ".autoload.appendix"); d == nil {
-			erro(ctx, ".autoload.appendix").trace()
-		} else if d.value.String() != t+".appendix)" {
-			erro(ctx, "%v != %s.appendix)", d, t).trace()
+		if false {
+			if d := l.project.def(ctx, ".autoload.declared"); d == nil {
+				erro(ctx, ".autoload.declared").trace()
+			} else if d.value.String() != t+".declared)" {
+				erro(ctx, "%v != %s.declared)", d, t).trace()
+			}
+			if d := l.project.def(ctx, ".autoload.appendix"); d == nil {
+				erro(ctx, ".autoload.appendix").trace()
+			} else if d.value.String() != t+".appendix)" {
+				erro(ctx, "%v != %s.appendix)", d, t).trace()
+			}
 		}
 	}
 

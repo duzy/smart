@@ -11,17 +11,17 @@ type executer interface { execute(Context, ...Value) []Value }
 
 // eval evaluates smart statements
 type eval struct { accumulation bool ; o origin }
-func (p *eval) evaluate(ctx Context, args ...Value) (result Value) {
-    var prog = _program(ctx)
-    if prog == nil {
-        erro(ctx, "needs program context to evaluate: %v", ctx).trace()
+func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
+    var exe = _execution(ctx)
+    if exe == nil {
+        erro(ctx, "wrong eval context: %v", ts(ctx)).trace()
     }
 
     var list []Value
     var opts struct { generalOpts }
     args = parseOpts(final{ctx}, &opts, args...)
 
-    for _, recipe := range prog.recipes {
+    for _, recipe := range exe.recipes {
         var vals = merge(recipe)
 
         if n := len(vals); n < 1 {
@@ -35,8 +35,7 @@ func (p *eval) evaluate(ctx Context, args ...Value) (result Value) {
 
         switch t := op.(type) {
         case *returner:
-            result = ease(ctx, t.vals)
-            return
+            return ease(ctx, t.vals)
 
         case invoker:
             if v := t.invoke(ctx, ov, vals[1:]); v != nil {
@@ -75,6 +74,5 @@ func (p *eval) evaluate(ctx Context, args ...Value) (result Value) {
         }
     }
 
-    result = ease(ctx, list)
-    return
+    return ease(ctx, list)
 }

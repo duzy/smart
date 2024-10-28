@@ -68,7 +68,6 @@ var (
         `defer`:        reflect.TypeOf((*modifier_defer)(nil)).Elem(),
 
         `closure`:      reflect.TypeOf((*modifier_closure)(nil)).Elem(),
-        `for`:          reflect.TypeOf((*modifier_for)(nil)).Elem(),
 
         `cd`:           reflect.TypeOf((*modifier_cd)(nil)).Elem(),
         `mkdir`:        reflect.TypeOf((*modifier_mkdir)(nil)).Elem(),
@@ -85,7 +84,7 @@ var (
         `update-file`:     reflect.TypeOf((*modifier_updatefile)(nil)).Elem(),
         `configure-input`: reflect.TypeOf((*modifier_configureinput)(nil)).Elem(),
         `configure-file`:  reflect.TypeOf((*modifier_configurefile)(nil)).Elem(),
-        `configure`:       reflect.TypeOf((*modifier_configure)(nil)).Elem(),
+        // `configure`:       reflect.TypeOf((*modifier_configure)(nil)).Elem(),
 
         `wait`:         reflect.TypeOf((*modifier_wait)(nil)).Elem(),
         `stamp`:        reflect.TypeOf((*modifier_stamp)(nil)).Elem(),
@@ -198,26 +197,26 @@ func (m *modifier) traverse(ctx Context) {
     }
 
     var v1, v2 Value
-    var pg = _program(ctx)
-    var pc = _execution(ctx)
+    // var pg = _program(ctx)
+    var exe = _execution(ctx)
 
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        if x := cast[*execution_modifiers](ctx); x != nil { x.m = append(x.m, m) }
-        defer m.traverse_check(ctx, pg, name, &v1, &v2)
-    }
+    // if checkpoints && truly(ctx, is_test_mode{}) {
+    //     if x := cast[*execution_modifiers](ctx); x != nil { x.m = append(x.m, m) }
+    //     defer m.traverse_check(ctx, pg, name, &v1, &v2)
+    // }
 
-    if len(pc.interpreted) == 0 && len(pg.recipes) > 0 && name == "configure" {
+    if len(exe.interpreted) == 0 && len(exe.recipes) > 0 && name == "configure" {
         if x, y := dialects["eval"]; y && x != nil {
-            v1 = pc.interpret(ctx, x, m.elems[1:])
+            if v1 = exe.interpret(ctx, x, m.elems[1:]); v1 == nil {}
         }
     } else {
         if x, y := dialects[name]; y && x != nil {
-            v1 = pc.interpret(ctx, x, m.elems[1:])
+            v1 = exe.interpret(ctx, x, m.elems[1:])
             return
         }
     }
 
-    v2 = modify(ctx, &m.group, true)
+    if v2 = modify(ctx, &m.group, true); v2 == nil {}
     return
 }
 
@@ -439,10 +438,10 @@ type modifier_env struct { modifier_ }
 func (ctx *modifier_env) x(args ...Value) (result any) {
     args = xmerge(ctx, args...)
 
-    if pc := _execution(ctx); pc != nil {
+    if exe := _execution(ctx); exe != nil {
         for _, a := range args {
             if p, y := a.(*pair); y {
-                pc._env = append(pc._env, p)
+                exe._env = append(exe._env, p)
             } else {
                 erro(ctx, "env: not a pair value: %v (%T)", a, a).trace()
             }
@@ -522,12 +521,12 @@ type modifier_closure struct { modifier_
     // depFirst bool `<,dep-first` // TODO: -<=value
     // depLast  bool `>,dep-last` // TODO: ->=value
 }
-func (ctx *modifier_closure) x(pc *execution, args ...Value) (result any) {
+func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
     // Closure the caller program, the context will be restored when execution is finished.
-    var cc = pc.Context
-    pc.Context = closure_with(cc)
+    var cc = exe.Context
+    exe.Context = closure_with(cc)
 
-    if false && cast[*term](ctx) != pc.Context {
+    if false && cast[*term](ctx) != exe.Context {
         erro(ctx, "wrong closure_with").trace()
     }
 
@@ -600,14 +599,8 @@ func (ctx *modifier_closure) x(pc *execution, args ...Value) (result any) {
     } else if !filepath.IsAbs(dir) {
         erro(ctx, "&/ is relative").trace()
     } else /* if err := enter(ctx, dir); err == nil */ {
-        pc.changedWD = dir
+        exe.changedWD = dir
     }
-    return
-}
-
-type modifier_for struct { modifier_ }
-func (ctx *modifier_for) x(args ...Value) (result any) {
-    // TODO: ...
     return
 }
 
@@ -634,9 +627,7 @@ func (ctx *modifier_cd) x(args ...Value) (result any) {
                 erro(ctx, "make path '%s' failed: %v", dir, err)
             }
         }
-        // if err := enter(ctx, dir); err == nil {
-        if pc := _execution(ctx); pc != nil { pc.changedWD = dir }
-        // }
+        if exe := _execution(ctx); exe != nil { exe.changedWD = dir }
     } else {
         erro(ctx, "wrong number of cd args: %v", args).trace()
     }

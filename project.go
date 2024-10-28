@@ -266,10 +266,8 @@ type project struct {
 
   use *uselist
 
-  // configuration *file // default file, decided at load time
   configure *project // .configure
-  configured bool
-  configuration *file // configuration.sm
+  configuration *file // configuration.sm if saved or loaded
 
 	absPath string
   tmpPath string
@@ -281,7 +279,7 @@ type project struct {
   entries valcache
 
   patterns   []*rule // order is important
-  configs    []entry // configure entries
+  configs    []*def // configure entries
   defaultEntry entry
 
   ext project_ext
@@ -439,41 +437,43 @@ func (p *project) file(ctx Context, a any) *file {
   return select_file(ctx, p.unmap_files(ctx, a, nil))
 }
 
-func (p *project) tempdir(ctx Context) (_ string) {
-  var d *def
-
-  for _, s := range []string{"outtmp", ".tmp", "CTD"} {
-    if d = p.def(ctx, s); d != nil { break }
+func (p *project) tempdir(ctx Context) (d *def, s string) {
+  for _, t := range []string{"outtmp", ".tmp", "CTD"} {
+    if d = p.def(ctx, t); d != nil { break }
   }
 
-  if d == nil { erro(ctx, "%v: tmp is not defined", p).trace() }
+  if d == nil {
+    erro(ctx, "%v: tmp is not defined", p).trace()
+  }
 
-  return d.string(ctx)
+  s = filepath.Clean(d.string(/*closure_with(ctx,p)*/ctx))
+
+  if checkpoints && truly(ctx, is_test_mode{}) {
+    p.tempdir_check(ctx, d, s)
+  }
+  return
 }
 
 func (p *project) tempfile(ctx Context, name string) (f *file) {
-  if false { if f = p.file(ctx, name); f != nil { return } }
+  var t, d = p.tempdir(ctx)
+  switch d {
+  case "", "/":
+    erro(ctx, "%v: %s: tempdir is illegal: %v → '%s', %s", p.name, name, t, t.string(ctx), d)
+    note(ctx, "%v", p.def(ctx, "outtmp"))
+    note(ctx, "%v", p.def(ctx, "target.tmp"))
+    note(ctx, "%v", p.def(ctx, "target.out"))
+    note(ctx, "%v", p.def(ctx, "target.triple"))
+    note(ctx, "%v", p.def(ctx, "rel.remnant"))
+    note(ctx, "%v", p.def(ctx, "rel.chop"))
+    note(ctx, "%v", p.def(ctx, "variant.tag")).trace()
+  }
 
-  var d = p.tempdir(ctx)
-  f = stat(ctx, name, stat_dir{d}, stat_nonexist{true})
-  if f == nil { erro(ctx, "%v: not a file: %v : %v", p, name, d).trace() }
+  if f = stat(ctx, name, stat_dir{d}, stat_nonexist{true}); f == nil {
+    erro(ctx, "%v: not a file: %v : %v", p, name, d).trace()
+  }
 
-  if checkpoints {
-    if f.dir != d { erro(ctx, "%v: %s != %s", p, f.dir, d).trace() }
-    if truly(ctx, is_test_mode{}) {
-      if p.name == "testdefaultconfigure" {
-        var t = p.def(ctx, "outtmp")
-        if t == nil {
-          erro(ctx, "%s: %v : %s", p.name, d, f.dir).trace()
-        }
-        if t := t.string(ctx); f.dir != t {
-          erro(ctx, "%s: %v : %s != %s", p.name, d, f.dir, t).trace()
-        }
-        if strings.HasPrefix(f.dir, "/Volumes/workspace/go/src/extbit.io/smart") {
-          note(ctx, "%s: %v %v", p.name, t, d).debug(32)
-        }
-      }
-    }
+  if checkpoints && truly(ctx, is_test_mode{}) {
+    p.tempfile_check(ctx, name, d, f)
   }
   return
 }
@@ -482,7 +482,9 @@ func (p *project) configuration_sm(ctx Context) (f *file) {
   if f = p.tempfile(ctx, configuration_sm); f == nil {
     erro(ctx, "%v: no file %s", p, configuration_sm).trace()
   }
-  if checkpoints && truly(ctx, is_test_mode{}) { p.configuration_sm_check(ctx, f) }
+  if checkpoints && truly(ctx, is_test_mode{}) {
+    p.configuration_sm_check(ctx, f)
+  }
   return
 }
 

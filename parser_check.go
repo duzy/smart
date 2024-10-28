@@ -581,25 +581,31 @@ func (l ul) parse_file_check_do_smart(ctx Context, p *project) {
 		if len(p.configs) != 1 {
 			erro(ctx, "wrong configs: %v", p.configs).trace()
 		}
-		if p.configs[0].String() != "FOO" {
-			erro(ctx, "wrong configs[0]: %v", p.configs[0]).trace()
-		}
-	case "testcustomconfigure":
-		var configs = []string{"FOO1","FOO2","FOO3","FOO4","FOO5"}
-		if len(p.configs) != len(configs) {
-			erro(ctx, "wrong configs: %v", p.configs).trace()
-		}
-		for i, s := range configs {
-			if p.configs[i].String() != s {
-				erro(ctx, "wrong configs[%d]: %v", i, p.configs[i]).trace()
-			}
+		if s, t := "FOO⇒{=self testdefaultconfigure}", p.configs[0].String(); s != t {
+			erro(ctx, "wrong configs[0]: %s != %s", s, t).trace()
 		}
 	case "testdeftwoconfigure":
 		if len(p.configs) != 1 {
 			erro(ctx, "wrong configs: %v", p.configs).trace()
 		}
-		if p.configs[0].String() != "FOO" {
-			erro(ctx, "wrong configs[0]: %v", p.configs[0]).trace()
+		if s, t := "FOO⇒{=self testdeftwoconfigure}", p.configs[0].String(); s != t {
+			erro(ctx, "wrong configs[0]: %s != %s", s, t).trace()
+		}
+	case "testcustomconfigure":
+		if s, t := "FOO0⇒123", p.configs[0].String(); s != t {
+			erro(ctx, "wrong configs[0]: %s != %s", s, t).trace()
+		}
+		if s, t := "FOO1⇒{=yes}", p.configs[1].String(); s != t {
+			erro(ctx, "wrong configs[1]: %s != %s", s, t).trace()
+		}
+		if s, t := "FOO2⇒{=true}", p.configs[2].String(); s != t {
+			erro(ctx, "wrong configs[2]: %s != %s", s, t).trace()
+		}
+		if s, t := "FOO3⇒{=true}", p.configs[3].String(); s != t {
+			erro(ctx, "wrong configs[3]: %s != %s", s, t).trace()
+		}
+		if s, t := "FOO4⇒{=true}", p.configs[4].String(); s != t {
+			erro(ctx, "wrong configs[4]: %s != %s", s, t).trace()
 		}
 	}
 }
@@ -757,6 +763,27 @@ func (l ul) codeblock_check(ctx Context, op token, vars map[string]Value) {
 			} else if !strings.HasPrefix(w.s, "LIBCXX_ENABLE_") {
 				erro(ctx, "wrong name : %v", w).trace()
 			}
+		}
+	}
+}
+
+func (l ul) configure_check(ctx Context, name string) {
+	if d := l.project.def(ctx, name); d == nil {
+		erro(ctx, "nil configure: %v", name).trace()
+	} else if d.value == nil {
+		erro(ctx, "nil configure: %v", d).trace()
+	}
+}
+
+func (l ul) configure_save_check(ctx Context, configs []*def, f *file, fn string) {
+	switch l.project.spec {
+	case "testdata/configuration/.base":
+		if configs != nil {
+			erro(ctx, "%v %v", l.project, f).trace()
+		}
+	case "testdata/configuration":
+		if configs == nil {
+			erro(ctx, "%v %v", l.project, f).trace()
 		}
 	}
 }

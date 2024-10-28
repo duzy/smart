@@ -1,7 +1,9 @@
 project testcustomconfigure
 
-FOO1: {(configure -a('FOO1 answer'))}       ; {=true}
-FOO2: {(configure -answer('FOO2 answer'))}  ; {=true}
-FOO3: {(configure -b('FOO3 boolean'))}      ; {=true}
-FOO4: {(configure -bool('FOO4 boolean'))}   ; {=true}
-FOO5: {(configure -boolean('FOO5 answer'))} ; {=true}
+configure FOO0 = 123
+configure (
+  FOO1 -answer( 'FOO1'); {=true}
+  FOO2 -bool(   'FOO2'); {=true}
+  FOO3 -boolean('FOO3'); {=true}
+  FOO4 -value(  'FOO4'); {=true}
+)

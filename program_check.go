@@ -5,26 +5,27 @@
 //
 package smart
 
-func (m *modifier) traverse_check(ctx Context, prog *program, name string, v1, v2 *Value) {
-	switch prog.project.name {
-	case "testdefaultconfigure":
-		switch name {
-		case "configure":
-			var t = _entry(ctx).destiny()
-			if t == nil {
-				erro(ctx, "%v: %v", _entry(ctx)).trace()
-			}
-			switch t.String() {
-			case "FOO":
-				if v := *v1; v == nil {
-					erro(ctx, "%v", v).trace()
-				} else if v.String() != "{=self testdefaultconfigure}" {
-					erro(ctx, "%v", v).trace()
-				}
-			}
-		}
-	}
-}
+// func (m *modifier) traverse_check(ctx Context, prog *program, name string, v1, v2 *Value) {
+// 	if prog == nil { return }
+// 	switch prog.project.name {
+// 	case "testdefaultconfigure":
+// 		switch name {
+// 		case "configure":
+// 			var t = _entry(ctx).destiny()
+// 			if t == nil {
+// 				erro(ctx, "%v: %v", _entry(ctx)).trace()
+// 			}
+// 			switch t.String() {
+// 			case "FOO":
+// 				if v := *v1; v == nil {
+// 					erro(ctx, "%v", v).trace()
+// 				} else if v.String() != "{=self testdefaultconfigure}" {
+// 					erro(ctx, "%v", v).trace()
+// 				}
+// 			}
+// 		}
+// 	}
+// }
 
 func (prog *program) execute_check(ctx Context, result *Value) {
 	switch prog.project.name {

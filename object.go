@@ -524,9 +524,9 @@ func (d *def) origin(ctx Context, o origin) (res origin) {
 func (d *def) val(ctx Context, value Value, vals ...Value) { d.set(ctx, d.o, value, vals...) }
 func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer d.set_check(ctx, origin, value, app...)
+        defer d.set_check(ctx, origin, value, app)
         if d.o == defConfig && d.value != nil {
-            erro(ctx, "%v %v → %v %v %v", d.o, d, origin, value, app).trace()
+            erro(ctx, "duplicated %v %v → %v %v %v", d.o, d, origin, value, app).trace()
         }
     }
 
@@ -569,7 +569,7 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
     // d.Unlock()
     return
 }
-func (d *def) set_check(ctx Context, origin origin, value Value, app ...Value) {
+func (d *def) set_check(ctx Context, origin origin, value Value, app []Value) {
     if truly(ctx, propExDef) && isNull(d.value) && (value != nil || len(app) > 0) {
         erro(ctx, "%v ; %v %v", d, value, app).trace()
     }

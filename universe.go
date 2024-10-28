@@ -180,8 +180,7 @@ type commandline struct {
 
   checkLoadGraph  bool `ckld,check-loads`
 
-  configure       bool `c,con,conf,configure`               // optionConfigure
-  reconfigure     bool `rc,rec,reconf,reconfig,reconfigure` // optionReconfig
+  reconfigure     bool `rc,reconf,reconfig,reconfigure`
 
   saveGrepSource  bool `savgs,save-grep-source`
 
@@ -519,140 +518,55 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
     return
 }
 
-func (_tx *universe) run() (result []Value) {
-    if _tx.noRun { return }
+func (l ul) parse_args(base string, a ...string) {
+    var args []Value
 
-    var main = _tx.globe.main
-    if main == nil {
-        erro(_tx, "no targets to update `%v`", _tx.globe.goals).trace()
-    }
-
-    var ctx Context = closure_with(_tx, main.scope)
-    if _tx.verbose { info(ctx, "goal: %v", main).debug() }
-
-    removeTempDirs(ctx)
-
-    if _tx.cpuProf != "" || _tx.autoProfs {
-        var name = _tx.cpuProf
-        if name == "" { name = "run.cpu.auto.prof" }
-        defer cpu_profile(ctx, name, true)()
-    } else if _tx.memProf != "" || _tx.autoProfs {
-        var name = _tx.memProf
-        if name == "" { name = "run.mem.auto.prof" }
-        defer heap_profile(ctx, name)()
-    }
-
-    var done bool
-    for _, flag := range _tx.globe.flags {
-        if _tx.verboseExecFlags { info(ctx, "%v", flag) }
-
-        var s = flag.Value.string(ctx)
-        var args, _ = _tx.globe.args[flag]
-        var entries, _ = _tx.globe.flagEntries[s]
-        for _, entry := range entries {
-            if _tx.verboseExecFlags {
-                info(ctx, "%v", entry)
-                flush(ctx)
-            }
-
-            var res = entry.execute(ctx, args...)
-            result = append(result, res...)
-            done = true
+    if s := strings.Join(a, " "); s != "" {
+        if v := l.text(l.universe, base, s); v != nil {
+            args = parseOpts(l.universe, &l.commandline, merge(v)...)
         }
     }
-    if done { return }
 
-    var updated int
-    var goals []Value
-    var collect func(proj *project, vals []Value) bool
-    collect = func(proj *project, vals []Value) bool {
-        if len(vals) == 0 {
-            if entry := proj.defaultEntry; entry != nil {
-                goals = append(goals, entry)
+    if v := l.fastMode; v { // Turn off many things for fast mode:
+        //l.noImportFiles = v
+        l.noDepsGrep = v
+        l.noDeps = v
+        l.noGrep = v
+    }
+
+    var mode = new(word)
+
+    for _, target := range args {
+        switch t := target.(type) {
+        case *pair: l.globe.pairs = append(l.globe.pairs, t)
+        case flag: l.globe.flags = append(l.globe.flags, t)
+            if s := t.Value.string(l.universe); s == "clean" {
+                mode.position, mode.s = t.Position(), "clean"
+            }
+        case *argumented:
+            l.globe.args[t.Value] = t.args
+            if f, ok := t.Value.(flag); ok {
+                l.globe.flags = append(l.globe.flags, f)
             } else {
-                // NOTE: ignored project
+                l.globe.goals.append(l.universe, t/*.Value*/)
             }
-            return true
+        default:
+            l.globe.goals.append(l.universe, t)
         }
-        for _, goal := range vals {
-            switch t := goal.(type) {
-            case *null, *none: // just ignore
-            case *word:
-                if entries := proj._entries(ctx, t.s, true); entries == nil {
-                    erro(ctx, "no such entry `%s`", t.s).trace()
-                    return false
-                } else {
-                    for _, entry := range entries {
-                        goals = append(goals, entry)
-                    }
-                }
-            case *delegate:
-                var s = t.string(ctx)
-                if entries := proj._entries(ctx, s, true); entries == nil {
-                    erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
-                    return false
-                } else {
-                    for _, entry := range entries {
-                        goals = append(goals, entry)
-                    }
-                }
-            case flag:
-                var s = t.string(ctx)
-                if entries := proj._entries(ctx, s, true); entries == nil {
-                    erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
-                    return false
-                } else {
-                    for _, entry := range entries {
-                        goals = append(goals, entry)
-                    }
-                }
-            case *argumented:
-                {
-                    // For examples:
-                    //     project-name(-clean)
-                    //     project/spec(-clean)
-                    //     xxxx()
-                    var (
-                        s = t.Value.string(ctx)
-                        args = merge(t.args...)
-                        found int
-                    )
-                    for _, p := range _tx.globe.loaded {
-                        if p.name == s || p.spec == s { found += 1
-                            if !collect(p, args) { return false }
-                        }
-                    }
-                    if found == 0 {
-                        erro(ctx, `"%s" not loaded: %v`, s, args).trace()
-                        return false
-                    }
-                }
-            default:
-                errostack(ctx, 3, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).trace()
-                return false
-            }
-        }
-        return true
     }
 
-    if collect(main, merge(_tx.globe.goals.value)) {
-        if len(goals) == 0 {
-            if entry := main.defaultEntry; entry != nil {
-                goals = append(goals, entry)
-            }
-        }
-        for _, goal := range goals {
-            var args, _ = _tx.globe.args[goal]
-            result = append(result, updateGoal(ctx, goal, args)...)
-            updated += 1
-        }
+    if mode.s == "" {
+        mode.s = "goals"
     }
-    return
+
+    l.globe.mode.value = mode
 }
 
 // load loads smart files, making it as individual func to avoid being abused by loaders.
 func (u *universe) load(ctx Context) {
     if u.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
+
+    if false { loadGrepCache(ctx) }
 
     var base = u.workdir
     if s := filepath.Join(base, ".smart", "modules"); s != "" {
@@ -727,53 +641,135 @@ func (u *universe) load(ctx Context) {
     return
 }
 
-func (l ul) parse_args(base string, a ...string) {
-    var args []Value
+func (u *universe) run() (result []Value) {
+    if u.noRun { return }
 
-    if s := strings.Join(a, " "); s != "" {
-        if v := l.text(l.universe, base, s); v != nil {
-            args = parseOpts(l.universe, &l.commandline, merge(v)...)
+    var main = u.globe.main
+    if main == nil {
+        erro(u, "no targets to update `%v`", u.globe.goals).trace()
+    }
+
+    var ctx Context = closure_with(u, main.scope)
+    if u.verbose { info(ctx, "goal: %v", main).debug() }
+
+    removeTempDirs(ctx)
+
+    if u.cpuProf != "" || u.autoProfs {
+        var name = u.cpuProf
+        if name == "" { name = "run.cpu.auto.prof" }
+        defer cpu_profile(ctx, name, true)()
+    } else if u.memProf != "" || u.autoProfs {
+        var name = u.memProf
+        if name == "" { name = "run.mem.auto.prof" }
+        defer heap_profile(ctx, name)()
+    }
+
+    var done bool
+    for _, flag := range u.globe.flags {
+        if u.verboseExecFlags { info(ctx, "%v", flag) }
+
+        var s = flag.Value.string(ctx)
+        var args, _ = u.globe.args[flag]
+        var entries, _ = u.globe.flagEntries[s]
+        for _, entry := range entries {
+            if u.verboseExecFlags {
+                info(ctx, "%v", entry)
+                flush(ctx)
+            }
+
+            var res = entry.execute(ctx, args...)
+            result = append(result, res...)
+            done = true
         }
     }
+    if done { return }
 
-    if v := l.reconfigure; v { l.universe.configure = v }
-    if v := l.fastMode; v { // Turn off many things for fast mode:
-        //l.noImportFiles = v
-        l.noDepsGrep = v
-        l.noDeps = v
-        l.noGrep = v
-    }
-
-    var mode = new(word)
-
-    for _, target := range args {
-        switch t := target.(type) {
-        case *pair: l.globe.pairs = append(l.globe.pairs, t)
-        case flag: l.globe.flags = append(l.globe.flags, t)
-            if s := t.Value.string(l.universe); s == "clean" {
-                mode.position, mode.s = t.Position(), "clean"
-            }
-        case *argumented:
-            l.globe.args[t.Value] = t.args
-            if f, ok := t.Value.(flag); ok {
-                l.globe.flags = append(l.globe.flags, f)
+    var updated int
+    var goals []Value
+    var collect func(proj *project, vals []Value) bool
+    collect = func(proj *project, vals []Value) bool {
+        if len(vals) == 0 {
+            if entry := proj.defaultEntry; entry != nil {
+                goals = append(goals, entry)
             } else {
-                l.globe.goals.append(l.universe, t/*.Value*/)
+                // NOTE: ignored project
             }
-        default:
-            l.globe.goals.append(l.universe, t)
+            return true
         }
+        for _, goal := range vals {
+            switch t := goal.(type) {
+            case *null, *none: // just ignore
+            case *word:
+                if entries := proj._entries(ctx, t.s, true); entries == nil {
+                    erro(ctx, "no such entry `%s`", t.s).trace()
+                    return false
+                } else {
+                    for _, entry := range entries {
+                        goals = append(goals, entry)
+                    }
+                }
+            case *delegate:
+                var s = t.string(ctx)
+                if entries := proj._entries(ctx, s, true); entries == nil {
+                    erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
+                    return false
+                } else {
+                    for _, entry := range entries {
+                        goals = append(goals, entry)
+                    }
+                }
+            case flag:
+                var s = t.string(ctx)
+                if entries := proj._entries(ctx, s, true); entries == nil {
+                    erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
+                    return false
+                } else {
+                    for _, entry := range entries {
+                        goals = append(goals, entry)
+                    }
+                }
+            case *argumented:
+                {
+                    // For examples:
+                    //     project-name(-clean)
+                    //     project/spec(-clean)
+                    //     xxxx()
+                    var (
+                        s = t.Value.string(ctx)
+                        args = merge(t.args...)
+                        found int
+                    )
+                    for _, p := range u.globe.loaded {
+                        if p.name == s || p.spec == s { found += 1
+                            if !collect(p, args) { return false }
+                        }
+                    }
+                    if found == 0 {
+                        erro(ctx, `"%s" not loaded: %v`, s, args).trace()
+                        return false
+                    }
+                }
+            default:
+                errostack(ctx, 3, "%v: unknown target: %v (%s)", proj, goal, typeof(goal)).trace()
+                return false
+            }
+        }
+        return true
     }
 
-    if mode.s == "" {
-        if l.universe.configure {
-            mode.s = "configure"
-        } else {
-            mode.s = "goals"
+    if collect(main, merge(u.globe.goals.value)) {
+        if len(goals) == 0 {
+            if entry := main.defaultEntry; entry != nil {
+                goals = append(goals, entry)
+            }
+        }
+        for _, goal := range goals {
+            var args, _ = u.globe.args[goal]
+            result = append(result, updateGoal(ctx, goal, args)...)
+            updated += 1
         }
     }
-
-    l.globe.mode.value = mode
+    return
 }
 
 // A globe represents a global execution context.

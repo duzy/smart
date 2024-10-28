@@ -355,8 +355,13 @@ func (t too_many_errors) String() string { return fmt.Sprintf("too many errors (
 
 // NOTE: never recover test_fail in trace_recover, it will break the test runner
 type test_fail struct{ Context; int; i int }
-func (t test_fail) String() string {
-  return fmt.Sprintf("test fail, %d errors, %v", t.int, ts(t.Context))
+func (t test_fail) String() (s string) {
+  if t.int == 1 {
+    s = fmt.Sprintf("test fail, %v", ts(t.Context))
+  } else {
+    s = fmt.Sprintf("test fail, %d errors, %v", t.int, ts(t.Context))
+  }
+  return
 }
 
 func trace_recover(ctx Context) {
@@ -462,19 +467,6 @@ func (d *diagnostic) add(point *diagpoint) *diagpoint {
     }
   }
 
-  if false {
-    if 0 < diagnostic_limit_bytes {
-      var x = d.flushed
-      for _, t := range append(d.points, d.newlines...) {
-        x += 1 + bytes.Count(t.stack, []byte("\n"))
-      }
-      if diagnostic_limit_bytes < x {
-        d.flushed = 0 // reset to avoid causing next panics
-        panic(too_many_diagnostics{x})
-      }
-    }
-  }
-
   if point.dt == diagPromptLine {
     d.newlines = append(d.newlines, point)
     return point
@@ -520,10 +512,10 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
     }
   }
 
+  const count_bytes = false
+
   var flush_point = func(p *diagpoint, pend bool) (_ bool) {
     defer restrict_diagnostics()
-
-    const count_bytes = false
 
     pos, msg := p.position.String(), p.message
 
@@ -831,8 +823,6 @@ func CommandLine() {
 
   if ctx.count(diagError) > 0 { return }
 
-  if false { loadGrepCache(ctx) }
-
   ctx.load(ctx)
 
   if ctx.flush(ctx) > 0 {
@@ -845,8 +835,6 @@ func CommandLine() {
     print_configuration(ctx)
   } else if numUpdatedPlugins > 0 { // see buildPlugin
     prompt(ctx, "plugins updated, please relaunch.\n")
-  } else if ctx.commandline.configure {
-    configure(ctx)
   } else if result := ctx.run(); ctx.flush(ctx) > 0 {
     prompt(ctx, "run work got %d errors\n", ctx.erros)
   } else if result != nil {

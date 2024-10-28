@@ -459,7 +459,7 @@ func ex_check_value_bug_01(ctx Context, p, _x Value, _o, _a []Value, res, x *Val
 			erro(ctx, "%v → %v : %v → %v : %v", s, t, _a, *a, do(ctx, evoke_x{})).trace()
 		}
 
-		if s, t := ts(_a), "{=[Value] {=list {=delegate {=auto 1}}} {=list {=delegate {=auto 2}}}}"; s != t {
+		if s, t := ts(_a), "{=[]Value {=list {=delegate {=auto 1}}} {=list {=delegate {=auto 2}}}}"; s != t {
 			erro(ctx, "%v → %v : %v → %v : %v", s, t, _a, *a, do(ctx, evoke_x{})).trace()
 		} else if s := ts(*a); s != t {
 			erro(ctx, "%v → %v : %v → %v : %v", s, t, _a, *a, do(ctx, evoke_x{})).trace()
@@ -473,7 +473,7 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res
 	switch p.String() {
 	case "${.test $1,$2}":
 		if a1, a2 := auto_get(ctx, "1"), auto_get(ctx, "2") ; a1 != nil && a2 != nil {
-			if ts(*a) != sfmt("{=[Value] {=list %s} {=list %s}}", ts(a1), ts(a2)) {
+			if ts(*a) != sfmt("{=[]Value {=list %s} {=list %s}}", ts(a1), ts(a2)) {
 				errostack(ctx, 5, "%s %s: %s, %s ; %v, %v", typeof(_x), typeof(*x), ts(a1), ts(a2), ts(_a), ts(*a)).trace()
 			}
 			switch o {
@@ -512,7 +512,7 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res
 			}
 		}
 	case "$(debug $(line) $(str))":
-		if ts(_a) != "{=[Value] {=list {=delegate {=auto line}} {=delegate {=auto str}}}}" {
+		if ts(_a) != "{=[]Value {=list {=delegate {=auto line}} {=delegate {=auto str}}}}" {
 			erro(ctx, "%v", ts(_a)).trace()
 		}
 
@@ -545,14 +545,14 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res
 		}
 
 		switch ts(*a) {
-		case "{=[Value] {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}":
+		case "{=[]Value {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}":
 			switch o {
 			case defExpand0, defExpand1:
 				if ts(*res) != "{=delegate {=builtin debug} {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}" {
 					errostack(ctx, 5, "%v", ts(*res)).trace()
 				}
 			}
-		case "{=[Value] {=list {=word b} {=word a}}}":
+		case "{=[]Value {=list {=word b} {=word a}}}":
 			switch o {
 			case defExpand0:
 				if ts(*res) != "{=delegate {=builtin debug} {=list {=word b} {=word a}}}" {
@@ -563,18 +563,18 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res
 					errostack(ctx, 5, "%v", ts(*res)).trace()
 				}
 			}
-		case "{=[Value]}":
+		case "{=[]Value}":
 			var t = []Value{auto_get(ctx, "1"), auto_get(ctx, "2")}
-			if ts(t) != "{=[Value] {} {}}" {
+			if ts(t) != "{=[]Value {} {}}" {
 				errostack(ctx, 5, "%v %v", ts(*x), ts(t)).trace()
 			}
 			if ts(*res) != "{}" {
 				errostack(ctx, 5, "%v", ts(*res)).trace()
 			}
 		case
-			`{=[Value] {=list {=decimal 1} {=strlit test one\n}}}`,
-			`{=[Value] {=list {=decimal 2} {=strlit test two\n}}}`,
-			`{=[Value] {=list {=decimal 3} {=strlit test thr\n}}}`:
+			`{=[]Value {=list {=decimal 1} {=strlit test one\n}}}`,
+			`{=[]Value {=list {=decimal 2} {=strlit test two\n}}}`,
+			`{=[]Value {=list {=decimal 3} {=strlit test thr\n}}}`:
 			if ts(*res) != "{}" {
 				errostack(ctx, 5, "%v", ts(*res)).trace()
 			}

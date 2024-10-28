@@ -512,35 +512,28 @@ func getHashDir(ctx Context, k []byte) string {
     return filepath.Join(dir, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
 }
 
-func getRecipesHash(ctx Context, target Value, values ...Value) (k, v hashbytes, err error) {
-    var (
-        // target = getTargetValue(ctx)
-        program = _program(ctx)
-        key = sha256.New()
-        val = sha256.New()
-    )
-    fmt.Fprintf(key, "%s", program.project.absPath)
-    fmt.Fprintf(key, "%s", program.position)
-    fmt.Fprintf(key, "%s", target.string(ctx)) // targetStr
+func (p *execution) getRecipesHash(ctx Context, target Value, values ...Value) (k, v hashbytes, err error) {
+    var key = sha256.New()
+    var val = sha256.New()
+
+    fmt.Fprintf(key, "%s", target.string(ctx))
+
+    if p.prog != nil && p.prog.project != nil {
+        fmt.Fprintf(key, "%s", p.prog.project.absPath)
+    }
 
     for _, value := range values {
-        if false {
-            // FIXME: String() varies when &(var) is used
-            fmt.Fprintf(val, "%v", value.string(ctx))
-        } else {
-            fmt.Fprintf(val, "%v", value)
-        }
+        fmt.Fprintf(val, "%v", value)
     }
+
     copy(k[:], key.Sum(nil))
     copy(v[:], val.Sum(nil))
     return
 }
 
-func updateRecipesHash(ctx Context, target Value) (k, v hashbytes, err error) {
-    var program = _program(ctx)
-    if k, v, err = getRecipesHash(ctx, target, program.recipes...); err != nil {
+func (p *execution) updateRecipesHash(ctx Context, target Value) (k, v hashbytes, err error) {
+    if k, v, err = p.getRecipesHash(ctx, target, p.recipes...); err != nil {
         erro(ctx, "hashing recipes failed: %v", err).trace()
-        return
     }
 
     var dir = getHashDir(ctx, k[:])
@@ -567,12 +560,9 @@ func updateRecipesHash(ctx Context, target Value) (k, v hashbytes, err error) {
     return
 }
 
-func isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
+func (p *execution) isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
     var k, v hashbytes
-    if program := _program(ctx); program == nil {
-        erro(ctx, "no program in context %v", ctx).trace()
-        return
-    } else if k, v, err = getRecipesHash(ctx, target, program.recipes...); err != nil {
+    if k, v, err = p.getRecipesHash(ctx, target, p.recipes...); err != nil {
         erro(ctx, "compute recipes hash failed: %v", err).trace()
         return
     }
@@ -608,8 +598,7 @@ func wait(ctx Context, opts waitopts) (target Value, files []*file, execRes *exe
     }
 
     if target = getTargetValue(ctx); target == nil {
-        erro(ctx, "target is nil")
-        errostack(ctx, 8).trace()
+        errostack(ctx, 8, "target is nil").trace()
     }
 
     if isTrivial(target) {
@@ -772,6 +761,7 @@ func pc(ctx Context, a any, n ...int) Context {
     case string:
         var pos Position
         pos.Filename = t
+        if 0 == len(n) { pos.Line = 1 }
         if 0 < len(n) { pos.Line = n[0] }
         if 1 < len(n) { pos.Column = n[0] }
         p = pos
@@ -866,10 +856,10 @@ func typeof(arg any) (s string) {
     }
 
     switch t := reflect.TypeOf(arg) ; t.Kind() {
-    case reflect.Array: return "["+t.Elem().Name()+"]"
-    case reflect.Slice: return "["+t.Elem().Name()+"]"
-    case reflect.Ptr  : return     t.Elem().Name()
-    default:            return     t.Name()
+    case reflect.Array: return "[]"+t.Elem().Name()
+    case reflect.Slice: return "[]"+t.Elem().Name()
+    case reflect.Ptr  : return      t.Elem().Name()
+    default:            return      t.Name()
     }
 }
 
@@ -4947,8 +4937,6 @@ func dis_evoke(ctx Context, a, b Value) (_ bool) {
     return
 }
 
-var ex_debug bool
-
 func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value) {
     var ( t, x Value ; a, o []Value ; ent, e bool )
 
@@ -6476,7 +6464,7 @@ func ts(i any) (s string) {
 
     var t = typeof(i) //strings.Replace(fmt.Sprintf("%T", i), "smart.", "", -1)
 
-    if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+    if strings.HasPrefix(t, "[]") {
         v := reflect.ValueOf(i)
         s  = "{="+t
         for i := 0; i < v.Len(); i += 1 {

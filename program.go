@@ -53,8 +53,11 @@ type execution struct {
 
     by dirtyOpts
 
-    prog    *program
-    projs []*project
+    proj *project
+    prog *program
+    params  []*auto
+    recipes []Value
+    language string
 
     defval   Value
     defers []Value
@@ -91,10 +94,12 @@ func (p *execution) cast(t reflect.Type) Context {
 }
 func (p *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
+    case get_position:
+        if len(p.recipes) > 0 { return p.recipes[0].Position() }
+
     case get_program : return    p.prog
-    case get_position: if nil != p.prog         { return p.prog.position }
-    case get_project : if nil != p.prog.project { return p.prog.project }
-    case get_scope   : if nil != p.prog.project { return p.prog.project.scope }
+    case get_project : if nil != p.proj { return p.proj }
+    case get_scope   : if nil != p.proj { return p.proj.scope }
 
     case default_value:  p.defval = t.v; return
     case act_exe_res:    p.values = append(p.values, t.v); return
@@ -105,14 +110,14 @@ func (p *execution) do(ctx Context, op any) (res any) {
 
     case get_parameters:
         var params map[string]*auto // TODO: store map[string]*auto in program
-        for _, param := range p.prog.params {
-            if params == nil { params = make(map[string]*auto, len(p.prog.params)) }
+        for _, param := range p.params {
+            if params == nil { params = make(map[string]*auto, len(p.params)) }
             params[param.name] = param
         }
         return params
 
     case get_param_name:
-        if t.i < len(p.prog.params) { res = p.prog.params[t.i].name }
+        if t.i < len(p.params) { res = p.params[t.i].name }
         return
 
     case property:
@@ -215,10 +220,10 @@ func (p *execution) dirty_mark(vals ...Value) {
     if false && enableDirtyMark { p.dirty_mark(vals...) }
 }
 
-func (p *execution) interpret(ctx Context, i interpreter, params []Value) (res Value) {
+func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Value) {
     var target, _, _ = wait(ctx, waitopts{
-        ReportUpdates: false,
         ExecResults: false,
+        ReportUpdates: false,
         StampCurrentTarget: false,
     })
 
@@ -229,7 +234,7 @@ func (p *execution) interpret(ctx Context, i interpreter, params []Value) (res V
         }
     }
 
-    if res = i.evaluate(ctx, params...); res != nil {
+    if res = i.evaluate(ctx, args...); res != nil {
         if d, prev := auto_set(ctx, defVoid, "-", res); d == nil {
             var _, ent, _ = entryIndicator(ctx, _entry(ctx))
             prompt(ctx, "%v: %s\n", ent, intername(i))
@@ -240,7 +245,7 @@ func (p *execution) interpret(ctx Context, i interpreter, params []Value) (res V
 
     p.interpreted = append(p.interpreted, i)
 
-    if _, _, err := updateRecipesHash(ctx, target); err != nil {
+    if _, _, err := p.updateRecipesHash(ctx, target); err != nil {
         var _, ent, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
         erro(ctx, "update recipes hash failed: %v", err)
@@ -314,7 +319,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 
     if outdated {
         assert(reason != "", "needs outdated reason")
-    } else if y, e := isRecipesChanged(ctx, target); e != nil {
+    } else if y, e := p.isRecipesChanged(ctx, target); e != nil {
         erro(ctx, "recipes changed: %v", e).trace()
         return
     } else if y {
@@ -416,9 +421,6 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
         case flag, *strlit, *strcomp:
             return // skip checking files for performance
         }
-        for _, p := range _entry(ctx).programs() {
-            if p.configure { return }
-        }
 
         mapPrereqFile(prereqValue)
         return
@@ -501,11 +503,11 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
         erro(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue).trace()
     }
 
-    var projs = []*project{ p.prog.project }
+    var projs = []*project{ p.proj }
 
     if len(projs) == 0 {
         note(ctx, "%v", closure_projects(ctx))
-        erro(ctx, "%v: %v → %v: no projects", p.prog.project, targetValue, prereqValue).trace()
+        erro(ctx, "%v: %v → %v: no projects", p.proj, targetValue, prereqValue).trace()
     }
 
     prereqValue, prereqPattern, prereqFinal, prereqFile = probPrereqValue(ctx, projs, prereqValue)
@@ -613,7 +615,6 @@ type program struct {
     ordered  []Value // order-only
     recipes  []Value
     language  string
-    configure bool
 }
 
 func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
@@ -682,13 +683,13 @@ func (prog *program) check_exe(ctx Context, exe *execution) {
     var a = []Value{ auto_get(cc, "@") }
     var depth, loop int = 0, -1
 
-ForPC:
+callerloop:
     for c := exe.caller(); c != nil; c = c.caller() {
         if _program(c) == prog {
-            if depth += 1; depth == maxCallRecursion { break ForPC }
+            if depth += 1; depth == maxCallRecursion { break callerloop }
             var t = auto_get(c, "@")
             for i, v := range a {
-                if eq(ctx, t, v) { loop = i; break ForPC }
+                if eq(ctx, t, v) { loop = i; break callerloop }
             }
             if loop < 0 { a = append(a, t) }
         }
@@ -696,20 +697,22 @@ ForPC:
 
     if 0 <= loop {
         var t = auto_get(cc, "@")
-        if o := cast[*term](cc); o != nil { if v := auto_get(o, "@"); v != nil && eq(cc, v, t) {
-            if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug() }
-            // FIXES: skip execution as it's closure, for example:
-            //
-            //   %.h($(headers)): $(srcinc)/%.h update-file
-            //
-            // where the 'update-file' is like:
-            //
-            //   update-file: [((in)) (closure) (set @=&@)] $(in) \
-            //       [(read-file $>) (update-file -p)]
-            //
-            // see also Rule.traverse for the same skip.
-            return
-        }}
+        if o := cast[*term](cc); o != nil {
+            if v := auto_get(o, "@"); v != nil && eq(cc, v, t) {
+                if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug() }
+                // FIXES: skip execution as it's closure, for example:
+                //
+                //   %.h($(headers)): $(srcinc)/%.h update-file
+                //
+                // where the 'update-file' is like:
+                //
+                //   update-file: [((in)) (closure) (set @=&@)] $(in) \
+                //       [(read-file $>) (update-file -p)]
+                //
+                // see also Rule.traverse for the same skip.
+                return
+            }
+        }
 
         prompt(ctx, "%v: %v: %v, %v\n", a[0], auto_get(cast[*term](cc), "@"), cc, cast[*term](cc))
         for i, t := range a { erro(ctx, "loop: %v: %v", i, t) }
@@ -781,7 +784,9 @@ func (ctx *execution_modifiers) cast(t reflect.Type) Context {
 func (prog *program) execute(ctx Context) (res Value) {
     var exe = execution{
         automatic:automatic{Context:ctx, defs:make(defs_map)},
-        prog:prog, recs:make(map[Value]int), start:time.Now(),
+        recs:make(map[Value]int), start:time.Now(), prog:prog,
+        proj:prog.project, params:prog.params, recipes:prog.recipes,
+        language:prog.language,
     }
 
     ctx = &exe

@@ -79,8 +79,6 @@ func (cc *configurecontext) execute(ctx Context, e entry) {
     }
 
     if p != cc.current && p != nil {
-        if p.configured { return } // already configured
-
         cc.defs = make(map[string]struct{}) // reset defs for p
 
         // NOTE: configuration.sm is created for every project
@@ -136,27 +134,6 @@ func (cc *configurecontext) close() {
     if cc.file != nil   { if e := cc.file.Close();   e != nil {} }
 }
 
-func (u *universe) config(cal func(*project, entry), pre func(*project) func(), inf func(*project)) {
-    var m = make(map[*project]struct{})
-    var f func(*project)
-
-    f = func(p *project) {
-        if _, y := m[p]; y { return } else { m[p] = struct{}{} }
-
-        if pre != nil { if f := pre(p); f != nil { defer f() }}
-
-        for _, base := range p.bases { f(base) }
-
-        if inf != nil { inf(p) }
-
-        for _, t := range p.use.list { f(t.project) }
-
-        if cal != nil { for _, e := range p.configs { cal(p, e) } }
-    }
-
-    f(u.globe.main)
-}
-
 func promptEnteringDirectory(ctx Context, s string) diagtracer {
     return prompt(ctx, "smart: Entering directory '%s'\n", s)
 }
@@ -164,42 +141,6 @@ func promptEnteringDirectory(ctx Context, s string) diagtracer {
 func promptLeavingDirectory(ctx Context, s string) (res diagtracer) {
     res = prompt(ctx, "smart: Leaving directory '%s'\n", s)
     if true { flush(ctx) }
-    return
-}
-
-type configure_silent struct{}
-
-func configure(ctx Context, ii ...any) {
-    var cc = configurecontext{Context:ctx, done:make(map[*def]struct{},8)}
-
-    defer cc.close()
-
-    for _, i := range ii {
-        switch i.(type) {
-        case configure_silent: cc.silent = true
-        }
-    }
-
-    u := _universe(ctx)
-
-    // Remove existing configuration.sm files
-    u.config(nil, nil, func(p *project) {
-        if f := p.configuration_sm(ctx); f != nil { os.Remove(f.fullname()) }
-    })
-
-    u.config(func(p *project, entry entry) {
-        cc.execute(ctx, entry)
-    }, func(p *project) (f func()) {
-        if !cc.silent && p.configure != nil && !p.configured && len(p.configs) > 0 {
-            /********/ { promptEnteringDirectory(ctx, p.absPath) }
-            f = func() { promptLeavingDirectory(ctx, p.absPath) }
-        }
-        return
-    }, func(p *project) {
-        if !p.configured && p.configure != nil && p.configure.defaultEntry != nil {
-            p.configure.defaultEntry.execute(ctx)
-        }
-    })
     return
 }
 

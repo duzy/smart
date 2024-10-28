@@ -312,7 +312,7 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if tv(v) != "{=url http://extbit.io/help}" {
 		ctx.err("%v %v", tst{d}, tv(v))
-	} else if ts(v) != "{=url {=word http} {} {} {=compound {=word extbit} {=punct .} {=word io}} {} {=path {=punct root} {=word help}} {=[Value]} {}}" {
+	} else if ts(v) != "{=url {=word http} {} {} {=compound {=word extbit} {=punct .} {=word io}} {} {=path {=punct root} {=word help}} {=[]Value} {}}" {
 		ctx.err("%v %v", tst{d}, ts(v))
 	}
 
@@ -322,7 +322,7 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if tv(v) != "{=url https://extbit.com}" {
 		ctx.err("%v %v", tst{d}, tv(v))
-	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[Value]} {}}" {
+	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[]Value} {}}" {
 		ctx.err("%v %v", tst{d}, ts(v))
 	}
 
@@ -332,7 +332,7 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if tv(v) != "{=url https://extbit.com?foo=x}" {
 		ctx.err("%v %v", tst{d}, tv(v))
-	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[Value] {=pair {=word foo}={=word x}}} {}}" {
+	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[]Value {=pair {=word foo}={=word x}}} {}}" {
 		ctx.err("%v %v", tst{d}, ts(v))
 	}
 
@@ -342,7 +342,7 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if tv(v) != "{=url https://extbit.com?foo=x&bar=y#foobar}" {
 		ctx.err("%v %v", tst{d}, tv(v))
-	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[Value] {=pair {=word foo}={=word x}} {=pair {=word bar}={=word y}}} {=word foobar}}" {
+	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[]Value {=pair {=word foo}={=word x}} {=pair {=word bar}={=word y}}} {=word foobar}}" {
 		ctx.err("%v %v", tst{d}, ts(v))
 	}
 
@@ -352,7 +352,7 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if tv(v) != "{=url https://ext.pub?foo=x+y+z&bar=x%20y%20z#foo+bar}" {
 		ctx.err("%v, %v", tst{d}, tv(v))
-	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word ext} {=punct .} {=word pub}} {} {} {=[Value] {=pair {=word foo}={=word x+y+z}} {=pair {=word bar}={=compound {=word x} {=punct %} {=decimal 20} {=word y} {=punct %} {=decimal 20} {=word z}}}} {=word foo+bar}}" {
+	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word ext} {=punct .} {=word pub}} {} {} {=[]Value {=pair {=word foo}={=word x+y+z}} {=pair {=word bar}={=compound {=word x} {=punct %} {=decimal 20} {=word y} {=punct %} {=decimal 20} {=word z}}}} {=word foo+bar}}" {
 		ctx.err("%v, %v", tst{d}, ts(v))
 	}
 }
@@ -671,9 +671,7 @@ func testValues_bug_01(ctx *testcase) {
 					erro(ctx, "%s", x.string).trace()
 				}
 			} ()
-			// ex_debug = true
 			v = d.value.expand(final{ctx})
-			ex_debug = false
 		} ()
 
 		if n { note(ctx, "%v → %v", d, v).debug(); flush(ctx) }
@@ -704,9 +702,7 @@ func testValues_bug_01(ctx *testcase) {
 					erro(ctx, "%s", x.string).trace()
 				}
 			} ()
-			// ex_debug = true
 			v = d.value.expand(trace_evoke_loop{final{ctx}})
-			ex_debug = false
 		} ()
 
 		if n { note(ctx, "%v → %v", d, v).debug(); flush(ctx) }
@@ -735,9 +731,7 @@ func testValues_bug_01(ctx *testcase) {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y { e = x.Value }
 			} ()
-			// ex_debug = true
 			v = d.value.expand(trace_evoke_loop{final{ctx}})
-			ex_debug = false
 		} ()
 
 		if n { note(ctx, "%v → %v : err_evoke_loop=%s", d, v, e).debug(); flush(ctx) }
@@ -765,9 +759,7 @@ func testValues_bug_01(ctx *testcase) {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y { e = x.Value }
 			} ()
-			// ex_debug = true
 			v = d.value.expand(trace_evoke_loop{final{ctx}})
-			ex_debug = false
 		} ()
 
 		if n { note(ctx, "%v → %v : err_evoke_loop=%s", d, v, e).debug(); flush(ctx) }

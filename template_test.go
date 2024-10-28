@@ -563,7 +563,9 @@ func testTemplate(ctx *testcase) {
 }
 
 func testTemplateForeach(ctx *testcase) {
-	if s := ".test.a"; false {} else
+	var s string
+
+	s = ".test.a"
 	if t := unmap_entries(ctx, s); t == nil {
 		ctx.err(s)
 	} else if len(t) != 1 {
@@ -590,13 +592,13 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%v: %v", t.target, t.program[0].depends[1])
 	} else if len(t.program[0].recipes) != 1 {
 		ctx.err("%v: %v", t.target, t.program[0].recipes)
-	} else if t.program[0].recipes[0].String() != "print a $^" {
-		ctx.err("%v: %v", t.target, t.program[0].recipes[0])
+	} else if s, x := "print a $^", t.program[0].recipes[0].String(); s != x {
+		ctx.err("%v: %s != %s", t.target, x, s)
 	} else if r[0].String() != ".test.a" {
 		ctx.err("%v", tst{r[0]})
 	}
 
-	if s := ".test.b"; false {} else
+	s = ".test.b"
 	if t := unmap_entries(ctx, s); t == nil {
 		ctx.err(s)
 	} else if r := ctx.rule(s); r == nil {
@@ -617,13 +619,13 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%v: %v", t.target, t.program[0].depends[1])
 	} else if len(t.program[0].recipes) != 1 {
 		ctx.err("%v: %v", t.target, t.program[0].recipes)
-	} else if t.program[0].recipes[0].String() != "print b $^" {
-		ctx.err("%v: %v", t.target, t.program[0].recipes[0])
+	} else if s, x := "print b $^", t.program[0].recipes[0].String(); s != x {
+		ctx.err("%v: %s != %s", t.target, x, s)
 	} else if r[0].String() != ".test.b" {
 		ctx.err("%v", tst{r[0]})
 	}
 
-	if s := ".test.c"; false {} else
+	s = ".test.c"
 	if t := unmap_entries(ctx, s); t == nil {
 		ctx.err(s)
 	} else if r := ctx.rule(s); r == nil {
@@ -644,8 +646,8 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%v: %v", t.target, t.program[0].depends[1])
 	} else if len(t.program[0].recipes) != 1 {
 		ctx.err("%v: %v", t.target, t.program[0].recipes)
-	} else if t.program[0].recipes[0].String() != "print c $^" {
-		ctx.err("%v: %v", t.target, t.program[0].recipes[0])
+	} else if s, x := "print c $^", t.program[0].recipes[0].String(); s != x {
+		ctx.err("%v: %s != %s", t.target, x, s)
 	} else if r[0].String() != ".test.c" {
 		ctx.err("%v", tst{r[0]})
 	}

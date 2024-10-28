@@ -1,4 +1,6 @@
 # NOTE: outtmp must be set before configuration; -configure loads <.smart/modules>/configure by default
 project -configure -set(variant=darwin/arm64/bootstrap) testdefaultconfigure
 
-FOO : {(configure)} ; $(.self)
+configure FOO : foo ; $(.self)
+
+foo:

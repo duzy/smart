@@ -79,10 +79,10 @@ func print_options(ctx Context) {
 
     var opts []opt
 
-    _universe(ctx).config(func(proj *project, entry entry) {
-        var infos = ruleOptionInfos(ctx, entry)
-        if infos != nil { opts = append(opts, opt{entry, infos}) }
-    }, nil, nil)
+    // _universe(ctx).config(func(proj *project, entry entry) {
+    //     var infos = ruleOptionInfos(ctx, entry)
+    //     if infos != nil { opts = append(opts, opt{entry, infos}) }
+    // }, nil, nil)
 
     if len(opts) == 0 { return }
 
@@ -101,11 +101,11 @@ func print_configuration(ctx Context) {
 
     var configs = make(map[*project][]entry)
 
-    _universe(ctx).config(func(proj *project, entry entry) {
-        entries, _ := configs[proj]
-        entries = append(entries, entry)
-        configs[proj] = entries
-    }, nil, nil)
+    // _universe(ctx).config(func(proj *project, entry entry) {
+    //     entries, _ := configs[proj]
+    //     entries = append(entries, entry)
+    //     configs[proj] = entries
+    // }, nil, nil)
 
     for project, entries := range configs {
         prompt(ctx, `
@@ -121,7 +121,6 @@ func print_configuration(ctx Context) {
 
 func ruleOptionInfos(ctx Context, e entry) (infos []Value) {
     for _, p := range e.programs() {
-        if!p.configure { continue }
         for _, depend := range p.depends {
             g, ok := depend.(*modification)
             if!ok { continue }

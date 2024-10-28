@@ -134,15 +134,15 @@ func (p *plainline) cmp(ctx Context, v Value) (_ cmpres) {
 type plainint struct{}
 func (_ *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
     var p = &plain{}
-    var prog = _program(ctx)
+    var exe = _execution(ctx)
     var opts struct{ generalOpts }
 
     if args = parseOpts(ctx, &opts, args...) ; len(args) > 0 {
         p.name = args[0].string(ctx)
-        prog.language = p.name
+        exe.language = p.name
     }
 
-    for _, recipe := range prog.recipes {
+    for _, recipe := range exe.recipes {
         p.elems = append(p.elems, recipe.expand(ctx))
     }
 
@@ -284,7 +284,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value) {
 
 type xml struct { whitespace bool }
 func (p *xml) evaluate(ctx Context, args ...Value) (result Value) {
-    var source = multiline(ctx, _program(ctx).recipes...)
+    var source = multiline(ctx, _execution(ctx).recipes...)
     if v := DecodeXML(ctx, source, p.whitespace); v != nil {
         return &XML{ v }
     } else {
@@ -471,18 +471,13 @@ LoopJSON:
 }
 
 type json struct {}
-
 func (_ *json) evaluate(ctx Context, args ...Value) (result Value) {
-    var program = _program(ctx)
-    if program == nil {
-        erro(ctx, `needs program context to evaluate: %v`, ctx).trace()
-        return
-    }
-    var source = multiline(ctx, program.recipes...)
+    var recipes = _execution(ctx).recipes
+    var source = multiline(ctx, recipes...)
     if v := DecodeJSON(ctx, source); v != nil {
         return &JSON{ result }
     } else {
-        return &JSON{ makeNone(program.position) }
+        return &JSON{ makeNone(recipes[0].Position()) }
     }
 }
 
@@ -512,7 +507,7 @@ func DecodeYAML(ctx Context, source string, ws bool) (result Value) {
 
 type yaml struct { whitespace bool }
 func (p *yaml) evaluate(ctx Context, args ...Value) (result Value) {
-    var source = multiline(ctx, _program(ctx).recipes...)
+    var source = multiline(ctx, _execution(ctx).recipes...)
     if v := DecodeYAML(ctx, source, p.whitespace); v != nil {
         return &YAML{ result }
     } else {

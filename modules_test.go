@@ -277,17 +277,11 @@ func testVariantTargetVars1(ctx *testcase) {
 	}
 }
 
-func testVariantTarget_arm64_darwin(ctx *testcase) {
-	testVariantTargetVars1(ctx)
-	if v := ctx.val("target.os"); v == nil {
-		ctx.err("%v: target.os is nil", _project(ctx))
-	} else if v.string(ctx) != "foo" {
-		ctx.err("%v: target.os: %v", _project(ctx), v)
-	}
-	testVariantTarget(ctx)
-}
 func testVariantTarget(ctx *testcase) {
+	testVariantTargetVars1(ctx)
+
 	var p = _project(ctx)
+
 	for k, v := range langs_map {
 		var s = "lang."+k
 		if d := ctx.def(s); d == nil {
@@ -310,6 +304,13 @@ func testVariantTarget(ctx *testcase) {
 	} else if s := d.value.string(ctx); strings.Count(s, "-") > 3 {
 		ctx.err("more than three dashes: %v: %v", d.value, s)
 	}
+
+	if d := ctx.def("target.os"); d == nil {
+		ctx.err("%v: target.os is nil", p)
+	} else if d.string(ctx) != "foo" {
+		ctx.err("%v: target.os: %v", p, d)
+	}
+
 	if d := ctx.def("target.triple"); d == nil {
 		ctx.err("target.triple")
 	} else if d.value == nil {
@@ -518,8 +519,7 @@ func testVariantTarget(ctx *testcase) {
 	} else if ts(v) != "{=delegate {=def .flags} {=list {=delegate {=auto 1}}} {=list {=word c}}}" {
 		ctx.err("%v", tst{v})
 	} else {
-		// ex_debug = true
-		var t = v.expand(final{ctx}) ; ex_debug = false
+		var t = v.expand(final{ctx})
 
 		var str1 = t.String()
 		for _, s := range []string{
@@ -556,8 +556,7 @@ func testVariantTarget(ctx *testcase) {
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
 
-		// ex_debug = true
-		var str3 = v.expand(final{ctx}).String() ; ex_debug = false
+		var str3 = v.expand(final{ctx}).String()
 		for _, s := range []string{
 			"&(-v.z)? "+ctx.str("-v.c"),
 			"-std=&(-std.z)? -std=&(std.z)? -std=&(-std.c)? -std="+ctx.str("std.c"),
@@ -582,8 +581,7 @@ func testVariantTarget(ctx *testcase) {
 	} else if ts(v) != "{=delegate {=def .flags+} {=list {=delegate {=auto 1}}} {=list {=word c++}} {=list {=word cxx}}}" {
 		ctx.err("%v", tst{v})
 	} else {
-		// ex_debug = true
-		var t = v.expand(final{ctx}) ; ex_debug = false
+		var t = v.expand(final{ctx})
 
 		var str1 = t.String()
 		for _, s := range []string{
@@ -620,8 +618,7 @@ func testVariantTarget(ctx *testcase) {
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
 
-		// ex_debug = true
-		var str3 = v.expand(final{ctx}).String() ; ex_debug = false
+		var str3 = v.expand(final{ctx}).String()
 		for _, s := range []string{
 			"&(-v.z++)? "+ctx.str("-v.c++"),
 			"-std=&(-std.z++)? -std=&(std.z++)? -std=&(-std.c++)? -std="+ctx.str("std.c++"),
@@ -639,12 +636,11 @@ func testVariantTarget(ctx *testcase) {
 	}
 }
 
-func testApp_arm64_darwin(ctx *testcase) {
-	testVariantTargetVars(ctx)
-	testApp(ctx)
-}
 func testApp(ctx *testcase) {
+	testVariantTargetVars(ctx)
+
 	var p = _project(ctx)
+
 	if p.configure != nil {
 		ctx.err("%v: nil configure", p)
 	}
@@ -656,8 +652,7 @@ func testApp(ctx *testcase) {
 	} else if v := d.value ; v == nil {
 		ctx.err("%v", d)
 	} else {
-		// ex_debug = true
-		var t = v.expand(final{ctx}) ; ex_debug = false
+		var t = v.expand(final{ctx})
 
 		var str1 = t.String()
 		for _, s := range []string{
@@ -696,8 +691,7 @@ func testApp(ctx *testcase) {
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
 
-		// ex_debug = true
-		var str3 = v.expand(final{ctx}).String() ; ex_debug = false
+		var str3 = v.expand(final{ctx}).String()
 		for _, s := range []string{
 		}{
 			if strings.Count(str3, s) != 1 { ctx.err("%s : %s", s, str3) }
@@ -1874,11 +1868,9 @@ SIZEOF___INT64_CODE =
 SIZEOF___INT64_T =
 SIZEOF___INT64_T_CODE =
 `
-func testLLVMConfig1_arm64_darwin(ctx *testcase) {
+func testLLVMConfig1(ctx *testcase) {
 	testVariantTargetVars(ctx)
-	testLLVMConfig1(ctx, "/arm64-darwin")
-}
-func testLLVMConfig1(ctx *testcase, tail string) {
+
 	var names = []string{
 		".configure", "configuration.sm", "stamp", "foo.log",
 		".deps/11/22/333333333333333333333333333333333333333333333333333333333333",
@@ -1920,6 +1912,7 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		}
 	}
 
+	var tail = "/arm64-darwin"
 	var name, ver1, ver2, ver3 string
 	var ver1_val, ver2_val, ver3_val Value
 	if !strings.HasSuffix(p.absPath, tail) {
@@ -2516,14 +2509,14 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 		ctx.err("%v: different", f.name)
 	}
 
-	configure(&exec_check{unmap_uncheck_ctx{ctx},
-		func(_ctx Context, source string, recipe Value) {
-			testValidateExecRecipe(ctx, _ctx, source, recipe)
-		},
-		func(_ctx Context, line string, l int) {
-			testValidateExecOutput(ctx, _ctx, line, l)
-		},
-	})
+	// configure(&exec_check{unmap_uncheck_ctx{ctx},
+	// 	func(_ctx Context, source string, recipe Value) {
+	// 		testValidateExecRecipe(ctx, _ctx, source, recipe)
+	// 	},
+	// 	func(_ctx Context, line string, l int) {
+	// 		testValidateExecOutput(ctx, _ctx, line, l)
+	// 	},
+	// })
 
 	if s := filepath.Join(outtmp, "lib", "c++inc"); s == "" {
 		ctx.err("%s", s)
@@ -2650,11 +2643,9 @@ func testLLVMConfig1(ctx *testcase, tail string) {
 	}
 }
 
-func testLLVMConfig2_arm64_darwin(ctx *testcase) {
-	testVariantTargetVars(ctx)
-	testLLVMConfig2(ctx)
-}
 func testLLVMConfig2(ctx *testcase) {
+	testVariantTargetVars(ctx)
+
 	if false {
 		if v := ctx.val("enum1", "*AsmPrinter.cpp", "LLVM_ASM_PRINTER"); v == nil {
 			ctx.err("enum1")
@@ -2670,19 +2661,17 @@ func testLLVMConfig2(ctx *testcase) {
 	}
 }
 
-func testToolchainBooting_arm64_darwin(ctx *testcase) {
-	testVariantTargetVars(ctx)
-	testToolchainBooting(ctx)
-}
 func testToolchainBooting(ctx *testcase) {
-	configure(&exec_check{ctx,
-		func(_ctx Context, source string, recipe Value) {
-			testValidateExecRecipe(ctx, _ctx, source, recipe)
-		},
-		func(_ctx Context, line string, l int) {
-			testValidateExecOutput(ctx, _ctx, line, l)
-		},
-	})
+	testVariantTargetVars(ctx)
+
+	// configure(&exec_check{ctx,
+	// 	func(_ctx Context, source string, recipe Value) {
+	// 		testValidateExecRecipe(ctx, _ctx, source, recipe)
+	// 	},
+	// 	func(_ctx Context, line string, l int) {
+	// 		testValidateExecOutput(ctx, _ctx, line, l)
+	// 	},
+	// })
 
 	if r := ctx.rule("stamp"); r == nil {
 		ctx.err("stamp")

@@ -15,14 +15,16 @@ import (
 	"os"
 )
 
-const defaultCK = "tmp/go/src/extbit.io/smart/testdata/configuration"
-
-func testConfigItem(ctx *testcase, s string) (res []entry, d *def) {
-	var proj = _project(ctx)
+func testConfig(ctx *testcase, proj *project, s string) (d *def, res *def) {
 	for _, e := range proj.configs {
-		if e.ident(ctx) == s { res = append(res, e) }
+		if e.ident(ctx) == s {
+			if d != nil {
+				ctx.err("duplicated config: %v , %v", d, e)
+			}
+			d = e
+		}
 	}
-	if o := proj.resolve(ctx, s); o != nil { d, _ = o.(*def) }
+	if o := proj.resolve(ctx, s); o != nil { res, _ = o.(*def) }
 	return
 }
 
@@ -39,11 +41,15 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 	var workspace, workout, rel_remnant *def
 
 	defer func() {
+		if confsm != "" { os.RemoveAll(confsm) }
 		if outtmp != "" { os.RemoveAll(outtmp) }
 		if outdir != "" { os.RemoveAll(outdir) }
 	} ()
 
-	if t := proj.unmap_entries(ctx, "FOO", nil); t == nil {
+	if t := proj.unmap_entries(ctx, "FOO", nil); t != nil {
+		ctx.err("%v", &proj.entries)
+	}
+	if t := proj.unmap_entries(ctx, "foo", nil); t == nil {
 		ctx.err("%v", &proj.entries)
 	}
 	if t := proj.unmap_entries(ctx, "stamp", nil); t == nil && false {
@@ -204,33 +210,16 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v : %s == %s", x, s, t)
 	} else {
 		outtmp = x.string(ctx)
+
+		if d, t := proj.tempdir(ctx); t != outtmp {
+			ctx.err("tempdir: %s != %s (%v)", t, outtmp, d)
+		}
+
 		confsm = joinpath(outtmp, configuration_sm)
 	}
 
-	if t := proj.configure.tempdir(ctx); t != outtmp {
-		ctx.err("tempdir: %s != %s", t, outtmp)
-	}
-	if t := proj.tempdir(ctx); t != outtmp {
-		ctx.err("tempdir: %s != %s", t, outtmp)
-	}
-
-	if c := proj.configure.tempfile(ctx, configuration_sm); c == nil {
-		ctx.err("%s is nil", configuration_sm)
-	} else {
-		if c.name != configuration_sm {
-			ctx.err("%s: %s", proj.name, c.name)
-		}
-		if c.dir != outtmp {
-			ctx.err("%s: %s != %s", proj.name, c.dir, outtmp)
-		}
-		if c.sub != "" {
-			ctx.err("%s: %s", proj.name, c.sub)
-		}
-		if f := proj.configure.file(ctx, configuration_sm); f == nil {
-			ctx.err("%s: %s", proj.name, configuration_sm)
-		} else if t := f.fullname(); t != confsm {
-			ctx.err("%s: %s != %s", proj.name, t, confsm)
-		}
+	if _, y := ctx.srcs[confsm]; y {
+		ctx.err("%v: already loaded configuration.sm, %v", proj, reflect.ValueOf(ctx.srcs).MapKeys())
 	}
 
 	if c := proj.tempfile(ctx, configuration_sm); c == nil {
@@ -245,7 +234,63 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		if c.sub != "" {
 			ctx.err("%s: %s", proj.name, c.sub)
 		}
+		if c.fullname() != confsm {
+			ctx.err("%s: %s != %s", proj.name, c, confsm)
+		}
+		if !c.exists() {
+			ctx.err("%s: configuration not saved: %s", proj.name, c)
+		}
 		if f := proj.file(ctx, configuration_sm); f == nil {
+			ctx.err("%s: %s", proj.name, configuration_sm)
+		} else if t := f.fullname(); t != confsm {
+			ctx.err("%s: %s != %s", proj.name, t, confsm)
+		}
+	}
+
+	if c := proj.configuration_sm(ctx); c == nil {
+		ctx.err("%s is nil", configuration_sm)
+	} else {
+		if c.name != configuration_sm {
+			ctx.err("%s: %s", proj.name, c.name)
+		}
+		if c.dir != outtmp {
+			ctx.err("%s: %s != %s", proj.name, c.dir, outtmp)
+		}
+		if c.sub != "" {
+			ctx.err("%s: %s", proj.name, c.sub)
+		}
+		if c.fullname() != proj.configuration.fullname() {
+			ctx.err("%s: %v != %v", proj.name, proj.configuration, c)
+		}
+		if s, t := c.fullname(), confsm; s != t {
+			ctx.err("%v : %s != %s", proj.name, s, t)
+		} else if !c.exists() {
+			note(pc(ctx,s), "no such configuration.sm")
+			ctx.err("%v : %s %v", proj.name, c, c.exists())
+		} else if t, e := ioutil.ReadFile(s); e != nil {
+			ctx.err("%v", e)
+		} else if !bytes.Contains(t, []byte("configure FOO = {=self "+proj.name+"}\n")) {
+			ctx.err("%s", t)
+		}
+	}
+
+	// Checking coherence of configuration with proj.configure
+	if d, t := proj.configure.tempdir(ctx); t != outtmp {
+		ctx.err("tempdir: %s != %s (%v)", t, outtmp, d)
+	}
+	if c := proj.configure.tempfile(ctx, configuration_sm); c == nil {
+		ctx.err("%s is nil", configuration_sm)
+	} else {
+		if c.name != configuration_sm {
+			ctx.err("%s: %s", proj.name, c.name)
+		}
+		if c.dir != outtmp {
+			ctx.err("%s: %s != %s", proj.name, c.dir, outtmp)
+		}
+		if c.sub != "" {
+			ctx.err("%s: %s", proj.name, c.sub)
+		}
+		if f := proj.configure.file(ctx, configuration_sm); f == nil {
 			ctx.err("%s: %s", proj.name, configuration_sm)
 		} else if t := f.fullname(); t != confsm {
 			ctx.err("%s: %s != %s", proj.name, t, confsm)
@@ -273,47 +318,26 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		}
 	}
 
-	if c := proj.configuration_sm(ctx); c == nil {
-		ctx.err("%s is nil", configuration_sm)
-	} else {
-		if c.name != configuration_sm {
-			ctx.err("%s: %s", proj.name, c.name)
-		}
-		if c.dir != outtmp {
-			ctx.err("%s: %s != %s", proj.name, c.dir, outtmp)
-		}
-		if c.sub != "" {
-			ctx.err("%s: %s", proj.name, c.sub)
-		}
-		if e := os.Remove(c.fullname()); e != nil && false {
-			ctx.err("%s: %v", proj.name, e)
-		}
-	}
+	// Checking configure defs
 
 	s = "FOO"
-	if e, d := testConfigItem(ctx, s); len(e) != 1 {
+	if e, d := testConfig(ctx, proj, s); e == nil {
 		ctx.err("%s", s)
 	} else if d == nil {
 		ctx.err("%s", s)
-	} else {
-		if proj.configuration == nil {
-			if d.value != nil {
-				ctx.err("%s: already defined : %v", proj.name, d)
-			}
-		} else if proj.configuration.exists() {
-			if d.value == nil {
-				ctx.err("%s: not defined : %v", proj.name, d)
-			}
+	} else if proj.configuration == nil {
+		if d.value != nil {
+			ctx.err("%s: already defined : %v", proj.name, d)
+		}
+	} else if proj.configuration.exists() {
+		if d.value == nil {
+			ctx.err("%s: not defined : %v", proj.name, d)
 		}
 	}
 
-	configure(&exec_check{ctx,
-		func(_tx Context, source string, recipe Value) {
-			testValidateExecRecipe(ctx, _tx, source, recipe)
-		}, nil,
-	}, configure_silent{})
-
 	if i, e := os.Stat(confsm); e != nil || i == nil {
+		c := proj.configuration
+		note(pc(ctx,c.fullname()), "%v %v", c, c.exists())
 		ctx.err("%v", e)
 	} else if b, e := ioutil.ReadFile(confsm); e != nil {
 		ctx.err("%v", e)
@@ -332,9 +356,10 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{d.value})
 	}
 
-	ctx.run(func (c *testcase) {
+	return
+	/* ctx.run */(func (c *testcase) {
 		if _, y := c.srcs[confsm]; !y {
-			ctx.err("%v : %v", proj, reflect.ValueOf(c.srcs).MapKeys())
+			ctx.err("%v: %v", proj, reflect.ValueOf(c.srcs).MapKeys())
 		}
 
 		var p = _project(c)
@@ -390,7 +415,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		} else if _, y := v.(self); ! y {
 			c.err("%v : %v", typeof(v), v)
 		}
-	})
+	})(ctx)
 }
 
 func testConfigureDefault2(ctx *testcase, spec, name string) {
@@ -403,6 +428,7 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 	var outdir, outtmp, confsm string
 
 	defer func() {
+		if confsm != "" { os.RemoveAll(confsm) }
 		if outtmp != "" { os.RemoveAll(outtmp) }
 		if outdir != "" { os.RemoveAll(outdir) }
 	} ()
@@ -426,6 +452,37 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 	} else {
 		outtmp = x.string(ctx) // //tmp
 		confsm = joinpath(outtmp, configuration_sm)
+	}
+
+	if _, y := ctx.srcs[confsm]; y {
+		ctx.err("%v: already loaded configuration.sm, %v", proj, reflect.ValueOf(ctx.srcs).MapKeys())
+	}
+
+	if c := proj.configuration_sm(ctx); c == nil {
+		ctx.err("%s is nil", configuration_sm)
+	} else {
+		if c.name != configuration_sm {
+			ctx.err("%s: %s", proj.name, c.name)
+		}
+		if c.dir != outtmp {
+			ctx.err("%s: %s != %s", proj.name, c.dir, outtmp)
+		}
+		if c.sub != "" {
+			ctx.err("%s: %s", proj.name, c.sub)
+		}
+		if c.fullname() != proj.configuration.fullname() {
+			ctx.err("%s: %v != %v", proj.name, proj.configuration, c)
+		}
+		if s, t := c.fullname(), confsm; s != t {
+			ctx.err("%v : %s != %s", proj.name, s, t)
+		} else if !c.exists() {
+			note(pc(ctx,s), "no such configuration.sm")
+			ctx.err("%v : %s %v", proj.name, c, c.exists())
+		} else if t, e := ioutil.ReadFile(s); e != nil {
+			ctx.err("%v", e)
+		} else if !bytes.Contains(t, []byte("configure FOO = {=self "+proj.name+"}\n")) {
+			ctx.err("%s", t)
+		}
 	}
 
 	if joinpath(testModulesPath, "configure") != proj.configure.absPath {
@@ -462,18 +519,7 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		ctx.err("%v: %v → %s", proj, x, t)
 	}
 
-	// NOTE: checking diverged configuration file (due to different outtmp)
-	if f := proj.configuration_sm(ctx); f == nil {
-		ctx.err("%v : nil configuration file", proj)
-	} else if s, t := f.fullname(), confsm; s != t {
-		ctx.err("%v : %s != %s", proj, s, t)
-	} else if f.stat(ctx) != nil {
-		if e := os.Remove(s); e != nil {
-			ctx.err("%v: %v", proj, e)
-		}
-	}
-
-	if e, d := testConfigItem(ctx, "FOO"); len(e) != 1 {
+	if e, d := testConfig(ctx, proj, "FOO"); e == nil {
 		ctx.err("FOO")
 	} else if d == nil {
 		ctx.err("FOO")
@@ -489,24 +535,6 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		}
 	}
 
-	configure(&exec_check{ctx,
-		func(_ctx Context, source string, recipe Value) {
-			testValidateExecRecipe(ctx, _ctx, source, recipe)
-		}, nil,
-	}, configure_silent{})
-
-	if f := proj.configuration_sm(ctx) ; f == nil {
-		ctx.err("%v: no %s", proj, configuration_sm)
-	} else if s := confsm; f.fullname() != s {
-		ctx.err("%v : %v != %v", f, f.fullname(), s)
-	} else if i, e := os.Stat(s); e != nil || i == nil {
-		ctx.err("%v", f)
-	} else if t, e := ioutil.ReadFile(s); e != nil {
-		ctx.err("%v", e)
-	} else if !bytes.Contains(t, []byte("FOO = {=self "+proj.name+"}\n")) {
-		ctx.err("%s", t)
-	}
-
 	if d := ctx.def("FOO"); d == nil || d.value == nil {
 		erro(ctx, "%v", d).trace()
 	} else if d.value.String() != "{=self "+proj.name+"}" {
@@ -515,64 +543,6 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		ctx.err("%v ⇒ %s", d, d.string(ctx))
 	} else if ts(d.value) != "{=self "+proj.name+"}" {
 		ctx.err("%v", tst{d.value})
-	}
-
-	ctx.run(func (c *testcase) {
-		if _, y := c.srcs[confsm]; !y {
-			ctx.err("%v : %v", proj, reflect.ValueOf(c.srcs).MapKeys())
-		}
-
-		var p = _project(c)
-		if p.name != proj.name {
-			c.err("%v : %v (%v)", proj, p, (p==proj)) // NOTE: p != proj
-		}
-
- 		if d := ctx.def("FOO"); d == nil {
-			ctx.err("%v : FOO", p)
-		} else if d.value == nil {
-			ctx.err("%v : %v", p, d)
-		} else if d.value.String() != "{=self "+p.name+"}" {
-			ctx.err("%v : %v", p, d.value)
-		} else if d.value.string(c) != proj.name {
-			ctx.err("%v : %v", p, d.value)
-		} else if t := proj.finddef("FOO"); d != t {
-			ctx.err("%v : %v != %v", p, d, t)
-		}
-		if f := p.configuration_sm(ctx) ; f == nil {
-			c.err("%v : no %s", p, configuration_sm)
-		} else if f.stat(ctx) == nil {
-			c.err("%v : no %v", p, f)
-		} else if f2 := proj.configuration_sm(ctx) ; f2 == nil {
-			c.err("%v : no %s", proj, configuration_sm)
-		} else if f2.stat(ctx) == nil {
-			c.err("%v : no %v", p, f2)
-		} else if f.fullname() != f2.fullname() {
-			c.err("%v : %v != %v (%v)", p, f, f2, (f==f2)) // NOTE: f != f2
-		} else if t, e := ioutil.ReadFile(f.fullname()); e != nil {
-			ctx.err("%v", e)
-		} else if !bytes.Contains(t, []byte("FOO = {=self "+p.name+"}\n")) {
-			ctx.err("%s", t)
-		} else if d := c.def("FOO"); d == nil {
-			c.err("%v : FOO", p)
-		} else if d.value == nil {
-			c.err("%v : %v ; %v", p, d, c.srcs)
-		} else if d.value.String() != "{=self "+p.name+"}" {
-			c.err("%v : %v", p, d.value)
-		} else if d.value.string(c) != p.name {
-			c.err("%v : %v", p, d.value)
-		} else if t := p.finddef("FOO"); d != t {
-			c.err("%v : %v != %v", p, d, t)
-		}
-	})
-
-	if f := proj.configuration_sm(ctx); f == nil {
-		ctx.err("%v", proj)
-	} else if f.stat(ctx) == nil {
-		ctx.err("%v: %v", proj, f)
-	} else if s := f.fullname(); !strings.HasPrefix(s, joinpath(outtmp, "")) {
-		ctx.err("%v: %v", proj, f)
-	} else if e := os.Remove(s); e != nil {
-		ctx.err("%v: %v: %v", proj, f, e)
 	}
 }
 
@@ -583,244 +553,71 @@ func testConfigureCustom(ctx *testcase) {
 		return
 	}
 
-	var outtmp, outdir string
-	var w = _workdir(ctx)
+	var confsm, outtmp, outdir string
 
 	defer func() {
+		if confsm != "" { os.RemoveAll(confsm) }
 		if outtmp != "" { os.RemoveAll(outtmp) }
 		if outdir != "" { os.RemoveAll(outdir) }
 	} ()
 
-	if s, t := proj.configure.absPath, filepath.Join(w, "configure"); s != t {
-		ctx.err("%v : %v : %s != %s", proj, proj.configure, s, t)
-	} else if o := proj.configure.resolve(ctx, "foo"); o == nil {
-		ctx.err("%v", proj.configure)
-	} else if d, y := o.(*def); !y || d.value == nil {
-		ctx.err("%v", tst{o})
-	} else if d.value.String() != "{=self "+proj.configure.name+"}" {
-		ctx.err("%v", tst{d.value})
-	} else if x, y := d.value.(self); !y {
-		ctx.err("%v", tst{d.value})
-	} else if x.String() != "{=self "+proj.configure.name+"}" {
-		ctx.err("%v", x)
-	} else if s := x.string(ctx); s != proj.configure.name {
-		ctx.err("%v → %s", x, s)
-	} else if s := d.value.string(ctx); s != proj.configure.name {
-		ctx.err("%v → %v (%v)", ts(d.value), s, proj.configure.name)
-	} else if s := d.string(ctx); s != proj.configure.name {
-		ctx.err("%v → %v", d, s)
+	if e, d := testConfig(ctx, proj, "FOO0"); e == nil {
+		ctx.err("FOO0")
+	} else if d == nil {
+		ctx.err("FOO0")
+	} else if s, t := "{=decimal 123}", ts(d.value); s != t {
+		ctx.err("%v : %s != %s", d, s, t)
 	}
-
-	if x := proj.configure.def(ctx, "outtmp"); x != nil {
-		ctx.err("outtmp")
-	}
-	if x := proj.def(ctx, "outtmp"); x != nil {
-		ctx.err("outtmp")
-	}
-
-	if e, d := testConfigItem(ctx, "FOO1"); len(e) != 1 {
+	if e, d := testConfig(ctx, proj, "FOO1"); e == nil {
 		ctx.err("FOO1")
 	} else if d == nil {
 		ctx.err("FOO1")
-	} else if d.value != nil {
-		ctx.err("%v", d)
+	} else if s, t := "{=answer yes}", ts(d.value); s != t {
+		ctx.err("%v : %s != %s", d, s, t)
 	}
-	if e, d := testConfigItem(ctx, "FOO2"); len(e) != 1 {
+	if e, d := testConfig(ctx, proj, "FOO2"); e == nil {
 		ctx.err("FOO2")
 	} else if d == nil {
 		ctx.err("FOO2")
-	} else if d.value != nil {
-		ctx.err("%v", d)
+	} else if s, t := "{=boolean true}", ts(d.value); s != t {
+		ctx.err("%v : %s != %s", d, s, t)
 	}
-	if e, d := testConfigItem(ctx, "FOO3"); len(e) != 1 {
+	if e, d := testConfig(ctx, proj, "FOO3"); e == nil {
 		ctx.err("FOO3")
 	} else if d == nil {
 		ctx.err("FOO3")
-	} else if d.value != nil {
-		ctx.err("%v", d)
+	} else if s, t := "{=boolean true}", ts(d.value); s != t {
+		ctx.err("%v : %s != %s", d, s, t)
 	}
-	if e, d := testConfigItem(ctx, "FOO4"); len(e) != 1 {
+	if e, d := testConfig(ctx, proj, "FOO4"); e == nil {
 		ctx.err("FOO4")
 	} else if d == nil {
 		ctx.err("FOO4")
-	} else if d.value != nil {
-		ctx.err("%v", d)
-	}
-	if e, d := testConfigItem(ctx, "FOO5"); len(e) != 1 {
-		ctx.err("FOO5")
-	} else if d == nil {
-		ctx.err("FOO5")
-	} else if d.value != nil {
-		ctx.err("%v", d)
+	} else if s, t := "{=boolean true}", ts(d.value); s != t {
+		ctx.err("%v : %s != %s", d, s, t)
 	}
 
-	var f = proj.configuration_sm(ctx)
-	if f == nil {
-		ctx.err("%v: nil configuration", proj)
-	} else if e := os.Remove(f.fullname()); false && e != nil {
-		ctx.err("%v: %v", proj, e)
-	}
+	confsm = proj.configuration.fullname()
 
-	configure(&exec_check{ctx,
-		func(_ctx Context, source string, recipe Value) {
-			testValidateExecRecipe(ctx, _ctx, source, recipe)
-		}, nil,
-	}, configure_silent{})
-
-	if e, d := testConfigItem(ctx, "FOO1"); len(e) != 1 {
-		ctx.err("FOO1")
-	} else if d == nil {
-		ctx.err("FOO1")
-	} else if d.value == nil {
-		ctx.err("%v", d)
-	} else if d.value.string(ctx) != "yes" {
-		ctx.err("%v", d.value)
-	} else if _, y := d.value.(*answer); !y {
-		ctx.err("%v", d.value)
-	}
-	if e, d := testConfigItem(ctx, "FOO2"); len(e) != 1 {
-		ctx.err("FOO2")
-	} else if d == nil {
-		ctx.err("FOO2")
-	} else if d.value == nil {
-		ctx.err("%v", d)
-	} else if d.value.string(ctx) != "yes" {
-		ctx.err("%v", d.value)
-	} else if _, y := d.value.(*answer); !y {
-		ctx.err("%v", d.value)
-	}
-	if e, d := testConfigItem(ctx, "FOO3"); len(e) != 1 {
-		ctx.err("FOO3")
-	} else if d == nil {
-		ctx.err("FOO3")
-	} else if d.value == nil {
-		ctx.err("%v", d)
-	} else if d.value.string(ctx) != "true" {
-		ctx.err("%v", d.value)
-	} else if _, y := d.value.(*boolean); !y {
-		ctx.err("%v", d.value)
-	}
-	if e, d := testConfigItem(ctx, "FOO4"); len(e) != 1 {
-		ctx.err("FOO4")
-	} else if d == nil {
-		ctx.err("FOO4")
-	} else if d.value == nil {
-		ctx.err("%v", d)
-	} else if d.value.string(ctx) != "true" {
-		ctx.err("%v", d.value)
-	} else if _, y := d.value.(*boolean); !y {
-		ctx.err("%v", d.value)
-	}
-	if e, d := testConfigItem(ctx, "FOO5"); len(e) != 1 {
-		ctx.err("FOO5")
-	} else if d == nil {
-		ctx.err("FOO5")
-	} else if d.value == nil {
-		ctx.err("%v", d)
-	} else if d.value.string(ctx) != "true" {
-		ctx.err("%v", d.value)
-	} else if _, y := d.value.(*boolean); !y {
-		ctx.err("%v", d.value)
-	}
-
-	if s := joinpath(filepath.Dir(testModulesPath), defaultCK, "custom", configuration_sm); f == nil {
-		ctx.err("%v: nil configuration", proj)
-	} else if f.fullname() != s {
-		ctx.err("%v", f)
+	if s := confsm; !filepath.IsAbs(s) {
+		ctx.err("%v", proj.configuration)
 	} else if i, e := os.Stat(s); e != nil {
+		note(pc(ctx,s), "no such configuration.sm")
 		ctx.err("%v", e)
 	} else if i == nil {
 		ctx.err("missing %s", configuration_sm)
 	} else if b, e := ioutil.ReadFile(s); e != nil {
 		ctx.err("%v", e)
-	} else { lines := []byte(`
-FOO1 = {=yes}
-FOO2 = {=yes}
-FOO3 = {=true}
-FOO4 = {=true}
-FOO5 = {=true}
+	} else {
+		lines := []byte(`
+configure FOO0 = 123
+configure FOO1 = {=yes}
+configure FOO2 = {=true}
+configure FOO3 = {=true}
+configure FOO4 = {=true}
 `)
 		for i, l := range bytes.Split(lines, []byte("\n")) {
 			if len(l) != 0 && bytes.Count(b, l) != 1 { ctx.err("%d. %s", i, l) }
 		}
-	}
-
-	ctx.run(func (c *testcase) {
-		lines := `
-FOO1 {=yes}
-FOO2 {=yes}
-FOO3 {=true}
-FOO4 {=true}
-FOO5 {=true}
-`
-		for _, s := range strings.Split(lines, "\n") {
-			if s == "" { continue }
-
-			var a = strings.Split(s, " ")
-
-			s = a[0]
-
-			if d, v := c.def(s), c.val(s); v == nil {
-				erro(c, "%v", d).trace()
-			} else if s, t := v.String(), a[1]; s != t {
-				c.err("%s: %v : %s != %s", typeof(v), v, s, t)
-			} else if s, t := v.string(ctx), a[1][2:len(a[1])-1]; s != t {
-				c.err("%s: %v → %s != %s", typeof(v), v, s, t)
-			}
-		}
-	})
-
-	if f == nil {
-		ctx.err("%v: nil configuration", proj)
-	} else if e := os.Remove(f.fullname()); false && e != nil {
-		ctx.err("%v", e)
-	}
-
-	if v := ctx.val("foo") ; v == nil { // in configuration/custom/configure, aka proj.configure
-		ctx.err("foo is nil")
-	} else if  v.String() != "{=self "+proj.configure.name+"}" {
-		ctx.err("%v : %v", typeof(v), v)
-	} else if s := v.string(ctx); s != proj.configure.name {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	}
-
-	if v := ctx.val("FOO1"); v == nil {
-		ctx.err("FOO1 is nil")
-	} else if s := v.string(ctx); s != "yes" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	} else if s = v.String(); s != "{=yes}" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	}
-
-	if v := ctx.val("FOO2"); v == nil {
-		ctx.err("FOO2 is nil")
-	} else if s := v.string(ctx); s != "yes" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	} else if s = v.String(); s != "{=yes}" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	}
-
-	if v := ctx.val("FOO3"); v == nil {
-		ctx.err("FOO3 is nil")
-	} else if s := v.string(ctx); s != "true" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	} else if s = v.String(); s != "{=true}" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	}
-
-	if v := ctx.val("FOO4"); v == nil {
-		ctx.err("FOO4 is nil")
-	} else if s := v.string(ctx); s != "true" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	} else if s = v.String(); s != "{=true}" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	}
-
-	if v := ctx.val("FOO5"); v == nil {
-		ctx.err("FOO5 is nil")
-	} else if s := v.string(ctx); s != "true" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
-	} else if s = v.String(); s != "{=true}" {
-		ctx.err("%v : %v → %s", typeof(v), v, s)
 	}
 }

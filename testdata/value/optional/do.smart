@@ -2,14 +2,14 @@ project testvalue
 
 use ./foo
 
-val0 := $(foo)
-val1 := $(name?)
-val2 := $(foo→name?)
-val3 := $(foo→baz?)
-val4 := $(fo?→bar)
-val5 := $(fo?→bar?)
-val6 := $(foreach $(foo),$($_→name))
-val7 := $(foreach $(foo),$($_→name?))
-val8 := $(foreach $(foo),$($_→bar?))
+val0  := $(foo)
+val1  := $(name?)
+val2  := $(foo→name?)
+val3  := $(foo→baz?)
+val4  := $(fo?→bar)
+val5  := $(fo?→bar?)
+val6  := $(foreach $(foo),$($_→name))
+val7  := $(foreach $(foo),$($_→name?))
+val8  := $(foreach $(foo),$($_→bar?))
 val10 := $(foo→name→value?)
 val11 := $(foo→name?→value?)
