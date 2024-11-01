@@ -639,18 +639,22 @@ func (l ul) braced_str_check(ctx Context, elems []Value, res *Value) {
 }
 
 func (l ul) braced_word_check(ctx Context, elems []Value, res *Value) {
-	fn := l.p.scanner.file.Name()
-
+	var fn = l.p.scanner.file.Name()
 	if strings.HasSuffix(fn, "/configure/.base/.template") {
 		for _, v := range elems {
 			if indeterminate(ctx, v) {
-				erro(pc(ctx,v), "indeterminate str: %v", ts(v)).trace()
+				erro(pc(ctx,v), "indeterminate: %v", ts(v)).trace()
 			}
 		}
-
 		if _, y := (*res).(*word); !y {
-			erro(pc(ctx, *res), "%v", ts(*res)).trace()
+			erro(pc(ctx, elems[0]), "not word: %v", ts(*res)).trace()
 		}
+	}
+}
+
+func (l ul) braced_defs_check(ctx Context, elems []Value, res *Value) {
+	var fn = l.p.scanner.file.Name()
+	if strings.HasSuffix(fn, "/configure/.base/.template") {
 	}
 }
 

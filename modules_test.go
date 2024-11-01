@@ -1871,6 +1871,12 @@ SIZEOF___INT64_T_CODE =
 func testLLVMConfig1(ctx *testcase) {
 	testVariantTargetVars(ctx)
 
+	if ctx.prompts == nil {
+		ctx.err("no prompts")
+	} else {
+		note(ctx, "TODO: check %d prompts", len(ctx.prompts)).debug()
+	}
+
 	var names = []string{
 		".configure", "configuration.sm", "stamp", "foo.log",
 		".deps/11/22/333333333333333333333333333333333333333333333333333333333333",

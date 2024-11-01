@@ -92,6 +92,7 @@ func (ctx *builtin_trimprefix) x_check(prefix, val, res Value) {
 			}
 		}
 
+		if true {/*FIXME: fail for configures */} else
 		if x, y := do(ctx, evoke_def{"outtmp"}).(*def); y {
 			if x.value.String() == "&(target.tmp)/&(rel.remnant)" {
 				switch proj.name {

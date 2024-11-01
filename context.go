@@ -353,7 +353,7 @@ func (t trace_errors) String() string {
 func (t too_many_diagnostics) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.int) }
 func (t too_many_errors) String() string { return fmt.Sprintf("too many errors (%d)", t.int) }
 
-// NOTE: never recover test_fail in trace_recover, it will break the test runner
+// NOTE: never recover test_fail in recover_trace, it will break the test runner
 type test_fail struct{ Context; int; i int }
 func (t test_fail) String() (s string) {
   if t.int == 1 {
@@ -364,7 +364,7 @@ func (t test_fail) String() (s string) {
   return
 }
 
-func trace_recover(ctx Context) {
+func recover_trace(ctx Context) {
   var te trace_errors
   var recovered int
 
@@ -383,6 +383,7 @@ func trace_recover(ctx Context) {
       if t.i += 1; t.i == 1 {
         note(ctx, "%s (%d panics)", t, recovered).debug(1024)
       }
+      flush(ctx)
       panic(t)
     default:
       panic(e) //erro(ctx, "trace: %s", ts(e))
@@ -412,7 +413,7 @@ func trace(ctx Context, args ...any) {
     case trace_evoke_loop_err: evoke_loop = t
     }
   }
-  if recov { defer trace_recover(ctx) }
+  if recov { defer recover_trace(ctx) }
   if x, y := do(ctx, act_traced{}).(int); y && x > 0 {
     if truly(ctx, is_test_mode{}) {
       panic(test_fail{ctx, x, 0})

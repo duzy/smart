@@ -18,8 +18,8 @@ func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
     }
 
     var list []Value
-    var opts struct { generalOpts }
-    args = parseOpts(final{ctx}, &opts, args...)
+    var opts struct { generalopts }
+    args = parse_opts(final{ctx}, &opts, args...)
 
     for _, recipe := range exe.recipes {
         var vals = merge(recipe)

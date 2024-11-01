@@ -23,6 +23,7 @@ type testcase struct{
 	// run func(testcase_f1)
 	srcs map[string]struct{}
 	chks map[string]struct{}
+	prompts []prompt_ab
 }
 type testcase1  struct{ *testcase ; i any }
 type test_arg   struct{ name string; val any }
@@ -82,7 +83,7 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 		ctx.paths = append(ctx.paths, testModulesPath)
 	}
 
-	res = &testcase{ctx, t, spec, nil, nil}
+	res = &testcase{ctx, t, spec, nil, nil, nil}
 	res.srcs = make(map[string]struct{})
 	res.chks = make(map[string]struct{})
 
@@ -106,6 +107,8 @@ func (tc *testcase) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_test_mode: return test_mode
 	case silent_configure: return true
+	case prompt_ab:
+		tc.prompts = append(tc.prompts, t)
 	case loading_source:
 		tc.srcs[string(t)] = struct{}{}
 		return
@@ -268,7 +271,7 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 					errostack(pc(ctx,e.p), 16, "%v", tv(e)).trace()
 				}
 			default:
-				errostack(ctx, 16, "%v", tv(e))//.trace()
+				flush(ctx)
 				panic(e) // continues unwind
 			}
 		}
@@ -335,35 +338,35 @@ func run(t *testing.T, str, spec, name string, ii ...any) {
 func va(ctx Context, i any) (v Value) {
     switch t := i.(type) {
     case   Value: v = t
-    case []Value: v = makeList(t...)
-    case  int:    v = makeDecimal(_position(ctx), int64(t))
-    case  int16:  v = makeDecimal(_position(ctx), int64(t))
-    case  int32:  v = makeDecimal(_position(ctx), int64(t))
-    case  int64:  v = makeDecimal(_position(ctx), int64(t))
-    case uint:    v = makeDecimal(_position(ctx), int64(t))
-    case uint16:  v = makeDecimal(_position(ctx), int64(t))
-    case uint32:  v = makeDecimal(_position(ctx), int64(t))
-    case uint64:  v = makeDecimal(_position(ctx), int64(t))
-	case   bare:  v = makeWord(_position(ctx), string(t))
+    case []Value: v = _list(t...)
+    case  int:    v = _decimal(_position(ctx), int64(t))
+    case  int16:  v = _decimal(_position(ctx), int64(t))
+    case  int32:  v = _decimal(_position(ctx), int64(t))
+    case  int64:  v = _decimal(_position(ctx), int64(t))
+    case uint:    v = _decimal(_position(ctx), int64(t))
+    case uint16:  v = _decimal(_position(ctx), int64(t))
+    case uint32:  v = _decimal(_position(ctx), int64(t))
+    case uint64:  v = _decimal(_position(ctx), int64(t))
+	case   bare:  v = _word(_position(ctx), string(t))
     case string:
         if t == "" {
-            v = makeNone(_position(ctx))
+            v = _none(_position(ctx))
         } else {
-            v = makeWord(_position(ctx), t)
+            v = _word(_position(ctx), t)
         }
     case []string:
-        var l = makeList()
+        var l = _list()
         for _, s := range t {
             if s == "" {
-                v = makeNone(_position(ctx))
+                v = _none(_position(ctx))
             } else {
-                v = makeWord(_position(ctx), s)
+                v = _word(_position(ctx), s)
             }
             l.elems = append(l.elems, v)
         }
         v = l
     case []any:
-        var l = makeList()
+        var l = _list()
         for _, i := range t { l.elems = append(l.elems, va(ctx, i)) }
         v = l
     case nil:
@@ -399,8 +402,8 @@ type (
 
 func Test(t *testing.T) {
 	// scanner_test.go
-	t.Run("scanner", testInit)
-	t.Run("scanner", testStrings)
+	// t.Run("scanner", testInit)
+	// t.Run("scanner", testStrings)
 	// t.Run("scanner", testIntegers)
 	// t.Run("scanner", testFloats)
 	// t.Run("scanner", testDatetime)

@@ -8,11 +8,10 @@ package smart
 import (
     "encoding/base64"
     "path/filepath"
-    // "hash/crc64"
     "io/ioutil"
     "net/http"
     "os/exec"
-    _context "context"
+    "context"
     "reflect"
     "strings"
     "strconv"
@@ -36,7 +35,7 @@ const (
 
 type builtin_ struct {
     *evocation
-    generalOpts
+    generalopts
 }
 func (c builtin_) cast(t reflect.Type) Context {
     if reflect.TypeOf(c) == t { return c }
@@ -299,7 +298,7 @@ func trimRightSpaces(s string) string {
 func _set(ctx Context, val reflect.Value, v Value) {
     switch val.Kind() {
     case reflect.Bool:
-        if t := v == nil || v.true(ctx); true { val.SetBool(t) }
+        val.SetBool(/* v == nil || */ v.true(ctx))
     case reflect.Float32, reflect.Float64:
         val.SetFloat(v.float(ctx))
     case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -319,50 +318,42 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.Value":
             val.Set(reflect.ValueOf(v))
         default:
-            erro(ctx, "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type()).trace()
+            erro(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type()).trace()
         }
     case reflect.Ptr:
         switch val.Type().Elem().String() {
         case "smart.fullname":
-            if x := v.expand(expandFullFile{ctx}); isTrivial(x) {
-                erro(ctx, "expecting file value: %v", ts(v)).trace()
-            } else if o := (as{x}.fullname(ctx)); o.Value != nil {
-                val.Set(reflect.ValueOf(&o))
+            if t := (as{v}.fullname(fullfile_ctx{ctx})); t.Value != nil {
+                val.Set(reflect.ValueOf(&t))
             } else {
-                erro(ctx, "%v: not a file: %v → %v", _project(ctx), v, ts(x))
-                errostack(ctx, 5).trace()
+                note(ctx, "%v → %v", v, (as{v}.file(ctx)))
+                errostack(pc(ctx,v), 16, "not a file: %v → %s", tv(v), ts(v.expand(ctx))).trace()
             }
         case "smart.file":
-            if x := v.expand(final{ctx}); isNone(x) {
-                erro(ctx, "expecting file value: %v", ts(v)).trace()
-            } else if file, y := to_file(x); y {
-                val.Set(reflect.ValueOf(file))
-            } else if proj := _project(ctx); proj == nil {
-                erro(ctx, "no current project to find file '%v'", x).trace()
-            } else if file = proj.file(ctx, x.string(ctx)); file != nil {
-                val.Set(reflect.ValueOf(file))
+            if t := (as{v}.file(ctx)); t != nil {
+                val.Set(reflect.ValueOf(t))
             } else {
-                erro(ctx, "'%v' is not a file", x).trace()
+                errostack(pc(ctx,v), 16, "not a file: %v → %s", tv(v), ts(v.expand(ctx))).trace()
             }
         case "regexp.Regexp":
-            if rx, e := regexp.Compile(v.string(ctx)); e != nil {
-                erro(ctx, "compile regexp '%v' failed: %v", v, e).trace()
-            } else {
+            if rx, e := regexp.Compile(v.string(ctx)); e == nil {
                 val.Set(reflect.ValueOf(rx))
+            } else {
+                errostack(pc(ctx,v), 16, "wrong regexp: %v: %v", tv(v), e).trace()
             }
         default:
-            erro(ctx, "option type unsupported: %v{%v} → %v, %v", typeof(v), v, val.Elem().Kind(), val.Type().Elem()).trace()
+            errostack(pc(ctx,v), 16, "option type unsupported: %v → %v, %v", ts(v), val.Elem().Kind(), val.Type().Elem()).trace()
         }
     default:
         switch val.Type().String() {
         case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
             var t = v.int(ctx)
-            if t == 0 { warn(ctx, "zero file mode").debug() }
+            if t == 0 { warn(pc(ctx,v), "zero file mode").debug() }
             val.SetUint(uint64(t))
-        case "regex.Regex": // aka. reflect.Ptr
-            erro(ctx, "TODO: regexp: %T %v → %v, %v", v, v, val.Kind(), val.Type()).trace()
+        case "regexp.Regexp": // aka. reflect.Ptr
+            erro(pc(ctx,v), "TODO: regexp: %v → %v, %v", tv(v), val.Kind(), val.Type()).trace()
         default:
-            erro(ctx, "option type unsupported: %T %v → %v, %v", v, v, val.Kind(), val.Type()).trace()
+            erro(pc(ctx,v), "option type unsupported: %v → %v, %v", tv(v), val.Kind(), val.Type()).trace()
         }
     }
 }
@@ -394,7 +385,7 @@ outer:
         // skip parsing patterns, e.g. -I%
         if !a.patterned(ctx) {
             switch t := a.(type) {
-            case        flag: f, value = t, makeBoolean(t.Position(), true)
+            case        flag: f, value = t, _boolean(t.Position(), true)
             case       *pair: if f, y = t.key.(flag);   y { value = t.val }
             case *argumented: if f, y = t.Value.(flag); y { value = ease(ctx, t.args) }
             }
@@ -435,13 +426,15 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
     for i := 0; i < ot.NumField(); i += 1 {
         var ft, fv = ot.Field(i), opts.Field(i)
         if t := fv.Type(); fv.Kind() != reflect.Struct {
-            if ft.Anonymous && ft.Name == "Context" && t.String() == "smart.Context" {
-                continue
+            if ft.Anonymous && ft.Name == "Context" {
+                if t.String() == "smart.Context" {
+                    continue
+                }
             }
             rest = _opt(ctx, ft.Tag, fv, rest...)
         } else if !ft.Anonymous {
             continue
-        } else if ft.Name == "generalOpts" {
+        } else if ft.Name == "generalopts" {
             general = fv.Addr()
         } else if strings.HasPrefix(ft.Name, "builtin_") {
             if builtin.IsValid() { note(ctx, "embedded multiple builtins: %v", ft).debug(3) }
@@ -456,20 +449,20 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
     if modifier.IsValid() { rest = _opts(ctx, modifier, rest) }
     return
 }
-func parseOpts(ctx Context, store any, args ...Value) (rest []Value) {
+func parse_opts(ctx Context, store any, args ...Value) (rest []Value) {
     return _opts(ctx, reflect.ValueOf(store), args)
 }
 
 // see https://go.dev/doc/tutorial/generics
 func _opts_[Opts any](ctx Context, args ...Value) (opts Opts, res []Value) {
-    res = parseOpts(ctx, &opts, args...)
+    res = parse_opts(ctx, &opts, args...)
     return
 }
 
 func _parseHeadArgs(ctx Context, store any, args ...Value) (head, rest []Value) {
     if len(args) == 0 {
         // zero args
-    } else if head = parseOpts(ctx, store, args[0]); len(head) > 0 {
+    } else if head = parse_opts(ctx, store, args[0]); len(head) > 0 {
         rest = args[1:] //xmerge(ctx, args[1:]...)
     } else if len(args) == 1 {
         // done
@@ -516,7 +509,7 @@ func (ctx *builtin_typeof) x() (res any) {
         //   $(fun abc)             args: (abc)
         //   $(fun a,b,c)           args: (a),(b),(c)
         //   $(fun a b c,1 2 3)     args: (a b c),(1 2 3)
-        elems = append(elems, makeWord(arg.Position(), typeof(arg)))
+        elems = append(elems, _word(arg.Position(), typeof(arg)))
     }
     return elems
 }
@@ -566,8 +559,8 @@ func (ctx *builtin_position) x() (res any) {
         vals = append(vals, _strlit(pos, "\""+s+"\""))
     }
 
-    if ctx.line   { vals = append(vals, makeDecimal(pos, int64(pos.Line + ctx.addLine))) }
-    if ctx.column { vals = append(vals, makeDecimal(pos, int64(pos.Column + ctx.addColumn))) }
+    if ctx.line   { vals = append(vals, _decimal(pos, int64(pos.Line + ctx.addLine))) }
+    if ctx.column { vals = append(vals, _decimal(pos, int64(pos.Column + ctx.addColumn))) }
 
     if len(vals) == 0 { return _strlit(pos, pos.String()) }
     if len(vals) == 1 { return vals[0] }
@@ -648,15 +641,24 @@ func (ctx *builtin_assert) x() (res any) {
     var t = diagError ; if ctx.warning { t = diagWarn }
 
     var hook = _universe(ctx).hooks.assert
+
     if ctx.evocation.a == nil && hook != nil && !hook(ctx, nil, false) {
         prompt(ctx, "assert: %v\n", ctx.evocation.a)
         diagstack(ctx, s, t).debug(d)
     }
 
     for _, a := range ctx.evocation.a {
+        if a == nil {
+            erro(ctx, "nil argument").trace()
+            continue
+        }
+
         var ctx = pc(ctx,a)
         var okay = a.true(ctx)
-        if hook != nil && hook(ctx, a, okay) || okay { continue }
+        if hook != nil && hook(ctx, a, okay) || okay {
+            continue
+        }
+
         if false {
             var v = a.expand(final{ctx})
             prompt(ctx, "assert: %v ⇒ %v: %v\n", ts(a), ts(v))
@@ -738,7 +740,7 @@ func (ctx *builtin_xor) x() (res any) {
         var t = vals[0].true(ctx)
         for _, a := range vals[1:] {
             if a.true(ctx) != t {
-                return makeBoolean(a.Position(), true)
+                return _boolean(a.Position(), true)
             }
         }
     }
@@ -762,7 +764,7 @@ func (ctx *builtin_unequal) x() (_ any) {
     }
 
     if t {
-        return makeBoolean(_position(ctx), true)
+        return _boolean(_position(ctx), true)
     } else if n := ctx.debug; n>0 {
         if l, y := a.(*list); y {
             var v = l.elems[0]
@@ -789,7 +791,7 @@ func (ctx *builtin_equal) x() (res any) {
         if a := merge(ctx.evocation.a[0]); len(a) == 1 {
             ctx.evocation.a[0] = a[0]
         } else {
-            ctx.evocation.a[0] = makeList(a...)
+            ctx.evocation.a[0] = _list(a...)
         }
     }
 
@@ -833,7 +835,7 @@ func (ctx *builtin_greater) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
     } else if t := ctx.evocation.a[0].cmp(ctx, ctx.evocation.a[1]); t == cmpGreater {
-        res = makeBoolean(_position(ctx), true)
+        res = _boolean(_position(ctx), true)
     }
     return
 }
@@ -843,7 +845,7 @@ func (ctx *builtin_less) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
     } else if t := ctx.evocation.a[0].cmp(ctx, ctx.evocation.a[1]); t == cmpSmaller {
-        res = makeBoolean(_position(ctx), true)
+        res = _boolean(_position(ctx), true)
     }
     return
 }
@@ -875,7 +877,7 @@ func (ctx *builtin_match) x() (result any) {
             if res != nil {
                 res.bool = !res.bool
             } else {
-                result = makeBoolean(_position(ctx), true)
+                result = _boolean(_position(ctx), true)
             }
         } ()
     }
@@ -889,7 +891,7 @@ func (ctx *builtin_match) x() (result any) {
                 matched, _, _ = left.match(ctx, right)
             }
             if matched {
-                if res == nil { res = makeBoolean(_position(ctx), true) }
+                if res == nil { res = _boolean(_position(ctx), true) }
                 if !ctx.all { return res }
             } else if ctx.all {
                 res = nil
@@ -929,9 +931,9 @@ ForValList:
             if ctx.negated { matched = !matched }
             if matched {
                 if ctx.all {
-                    if res == nil { res = makeBoolean(pos, true) }
+                    if res == nil { res = _boolean(pos, true) }
                 } else {
-                    return makeBoolean(pos, true)
+                    return _boolean(pos, true)
                 }
             } else if ctx.all {
                 return nil
@@ -942,9 +944,9 @@ ForValList:
             if ctx.negated { matched = !matched }
             if matched {
                 if ctx.all {
-                    if res == nil { res = makeBoolean(pos, true) }
+                    if res == nil { res = _boolean(pos, true) }
                 } else {
-                    return makeBoolean(pos, true)
+                    return _boolean(pos, true)
                 }
             } else if ctx.all {
                 return nil
@@ -1500,7 +1502,7 @@ func (ctx *builtin_servehttp) c() (res any) {
         io.WriteString(w, fmt.Sprintf(s, root))
         go func() {
             time.Sleep(1 * time.Second)
-            server.Shutdown(_context.Background())
+            server.Shutdown(context.Background())
         } ()
     }
 
@@ -1581,14 +1583,14 @@ func (ctx *builtin_plus) x() (res any) {
             var i = a.int(ctx)
             if n == 0 { num = i } else { num += i }
         }
-        return makeDecimal(_position(ctx), num)
+        return _decimal(_position(ctx), num)
     } else {
         var num float64
         for n, a := range ctx.evocation.a {
             var f = a.float(ctx)
             if n == 0 { num = f } else { num += f }
         }
-        return makefloat(_position(ctx), num)
+        return _float(_position(ctx), num)
     }
 }
 
@@ -1602,14 +1604,14 @@ func (ctx *builtin_minus) x() (res any) {
             var i = a.int(ctx)
             if n == 0 { num = i } else { num -= i }
         }
-        return makeDecimal(_position(ctx), num)
+        return _decimal(_position(ctx), num)
     } else {
         var num float64
         for n, a := range ctx.evocation.a {
             var f = a.float(ctx)
             if n == 0 { num = f } else { num -= f }
         }
-        return makefloat(_position(ctx), num)
+        return _float(_position(ctx), num)
     }
 }
 
@@ -1768,9 +1770,9 @@ func (ctx *builtin_compose) x() (res any) {
     if l := len(ctx.evocation.a); 0 < l {
         var con conjunction
         if l < 2 {
-            con.list = makeList(merge(ctx.evocation.a...)...)
+            con.list = _list(merge(ctx.evocation.a...)...)
         } else {
-            con.list = makeList(merge(ctx.evocation.a[:l-1]...)...)
+            con.list = _list(merge(ctx.evocation.a[:l-1]...)...)
             con.sep  = ctx.evocation.a[l-1]
         }
         return con
@@ -1788,7 +1790,7 @@ func (ctx *builtin_quote) x() (res any) {
         }
         res = _strlit(_position(ctx), strconv.Quote(strings.Join(fields, " ")))
     } else {
-        res = makeNone(_position(ctx))
+        res = _none(_position(ctx))
     }
     return
 }
@@ -1808,7 +1810,7 @@ func (ctx *builtin_quotejoin) x() (res any) {
         }
         res = _strlit(_position(ctx), strconv.Quote(strings.Join(fields, sep)))
     } else {
-        res = makeNone(_position(ctx))
+        res = _none(_position(ctx))
     }
     return
 }
@@ -1991,14 +1993,14 @@ func (ctx *builtin_bare) x() (res any) {
     for _, a := range ctx.evocation.a {
         switch p := a.Position(); t := a.(type) {
         case *strlit, *strcomp:
-            a = makeWord(p, a.string(ctx))
+            a = _word(p, a.string(ctx))
         case *file:
-            a = makeWord(p, t.ident(ctx))
+            a = _word(p, t.ident(ctx))
         case fullfile:
             if ctx.name {
-                a = makeWord(p, t.ident(ctx))
+                a = _word(p, t.ident(ctx))
             } else {
-                a = makeWord(p, t.string(ctx))
+                a = _word(p, t.string(ctx))
             }
         }
         vals = append(vals, a)
@@ -2011,7 +2013,7 @@ func (ctx *builtin_word) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a {
         if _, y := a.(*word); !y {
-            a = makeWord(a.Position(), a.string(ctx))
+            a = _word(a.Position(), a.string(ctx))
         }
         vals = append(vals, a)
     }
@@ -2388,14 +2390,14 @@ ForSources:
                 if strings.Contains(nameStr, pathSep) {
                     res = append(res, _pathstr(ctx, nameStr))
                 } else {
-                    res = append(res, makeWord(pos, nameStr))
+                    res = append(res, _word(pos, nameStr))
                 }
                 continue stencilTargetPats
             default:
                 if strings.Contains(nameStr, pathSep) {
                     res = append(res, _pathstr(ctx, nameStr))
                 } else if true {
-                    res = append(res, makeWord(pos, nameStr))
+                    res = append(res, _word(pos, nameStr))
                 } else {
                     res = append(res, _strlit(pos, nameStr))
                 }
@@ -2941,7 +2943,7 @@ outer:
     }
 
     if n == len(vals) {
-        return makeBoolean(_position(ctx), true)
+        return _boolean(_position(ctx), true)
     } else {
         return
     }
@@ -3634,14 +3636,14 @@ outer:
         case *pair: // symlink srcName=dstName srcName=>dstName...
             srcNameVal, dstNameVal = t.key, t.val
         case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
-            if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
+            if aa = parse_opts(ctx, &opts, t.elems...); len(aa) != 2 {
                 erro(ctx, "expects two values for group").trace()
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
             }
         case *list: // XXX: symlink old new, old new, ...
-            if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
+            if aa = parse_opts(ctx, &opts, t.elems...); len(aa) != 2 {
                 erro(ctx, "expects two values for list").trace()
                 return
             } else {
@@ -3827,8 +3829,7 @@ func (ctx *builtin_file) z(args ...Value) (res []Value) {
 
     for _, a := range merge(args...) {
         if f(a); en > 0 {
-            erro(ctx, `%v: %v is not a file (%v)`, ts(a), res)
-            errostack(ctx, 5).trace()
+            errostack(ctx, 5, `%v: %v is not a file (%v)`, ts(a), res).trace()
         }
     }
     return
@@ -4176,7 +4177,7 @@ func (ctx *builtin_readdir) x() (res any) {
             }
             l = append(l, v)
         } else {
-            break //l = append(l, makeNone(pos))
+            break //l = append(l, _none(pos))
         }
     }
     return l

@@ -21,17 +21,3 @@ func (cc *configurecontext) execute_check(ctx Context, e entry, p *project, s *s
 		}
 	}
 }
-
-func (ctx *modifier_configure) execute_check(target, name Value, op string, args []Value, configured *bool, result *Value) {
-	switch p := _project(ctx); p.name {
-	case "testdefaultconfigure":
-		note(ctx, "%s %v %v %v", p.name, target, name, op).debug(2)
-	}
-}
-
-func (ctx *modifier_configure) x_check(p *project, d *def, result *any) {
-	switch p.name {
-	case "testdefaultconfigure":
-		if false { note(ctx, "%v %v %v", p.name, d, *result).debug(2) }
-	}
-}

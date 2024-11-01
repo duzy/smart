@@ -216,9 +216,9 @@ func (c final) do(ctx Context, op any) any {
         propExPlaceholder|propExDefValue|propExDisjunction|propExPairVal|propExFinal)
 }
 
-type expandFullFile struct { Context }
-func (c expandFullFile) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c expandFullFile) do(ctx Context, op any) any {
+type fullfile_ctx struct { Context }
+func (c fullfile_ctx) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c fullfile_ctx) do(ctx Context, op any) any {
     return dob(ctx, c.Context, op, propExFullFile)
 }
 
@@ -651,14 +651,14 @@ func wait(ctx Context, opts waitopts) (target Value, files []*file, execRes *exe
 
 type as struct { Value }
 func (a as) ts(string) string { return "{=as "+ts(a.Value)+"}" }
-func (a as) file(ctx Context, projs ...*project) (f *file) {
+func (a as) file(ctx Context, projs ...*project) (res *file) {
     var v = a.Value.expand(final{ctx})
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer a.file_check(ctx, projs, v, &f)
+        defer a.file_check(ctx, projs, v, &res)
     }
     switch t := v.(type) {
-    case  as: return t.file(ctx, projs...)
-    case  fullfile: return t.file
+    case as: return t.file(ctx, projs...)
+    case fullfile: return t.file
     case *barefile: return t.file
     case *file: return t
     case *rule: return as{t.target}.file(ctx)
@@ -669,9 +669,9 @@ func (a as) file(ctx Context, projs ...*project) (f *file) {
             if p := _project(ctx); p != nil { projs = append(projs, p) }
         }
         for _, p := range projs {
-            if f = p.file(ctx, t); f != nil { return }
+            if f := p.file(ctx, t); f != nil { return f }
         }
-    default: // case *strlit, *strval, *strcomp:
+    default: // *strlit, *strval, *strcomp:
         // NOTE: not parsing 'string' and "strcomp" values to file to optimize.
         erro(ctx, "cannot convert to file: %v", tv(v)).trace()
     }
@@ -692,14 +692,15 @@ func (a as) fullnameOrFinal(ctx Context, projs ...*project) (s string, y bool) {
 }
 func (a as) fullname(ctx Context, projs ...*project) (res fullname) {
     if a.Value != nil {
-        switch t := scalarize(a.Value).(type) {
+        v := scalarize(a.Value)
+        switch t := v.(type) {
         case *file:
             res.Value = t
         default:
-            if f := a.file(ctx, projs...); f != nil { res.Value = f }
-            if checkpoints && truly(ctx, is_test_mode{}) {
-                a.fullname_check(ctx, projs, t, res)
-            }
+            res.Value = a.file(ctx, projs...)
+        }
+        if checkpoints && truly(ctx, is_test_mode{}) {
+            a.fullname_check(ctx, projs, v, res)
         }
     }
     return
@@ -753,6 +754,7 @@ func (p *posctx) do(ctx Context, op any) (_ any) {
 func pc(ctx Context, a any, n ...int) Context {
     var p any
     switch t := a.(type) {
+    case  *scanner   : p = t.pos(n...)
     case  *parser    : p = t.Position()
     case   Position  : if t.valid() { p = t }
     case   positioner: if t != nil  { p = t.Position() }
@@ -1321,9 +1323,8 @@ func (p *argumented) traverse(ctx Context) {
 
     p.Value.traverse(&argumented_ctx{ctx, p})
 }
-func (p *argumented) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
-    erro(ctx, "%v", p).debug()
-    return
+func (p *argumented) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
+    return c.hit(ctx, p.Value)
 }
 
 type negative struct { Value }
@@ -4068,22 +4069,24 @@ func (p *file) stamp(ctx Context) (files []*file) {
 
     if p.info, e = os.Stat(fn); e != nil {
         if truly(ctx, file_must_stamp{p}) {
-            if x, y := e.(*fs.PathError); y {
-                erro(ctx, "no such file: %v", x.Path).trace()
+            note(pc(ctx,fn), "stamp no such file")
+            if _, y := e.(*fs.PathError); y {
+                errostack(ctx, 8, "no such file %v", p.name).trace()
             } else {
-                erro(ctx, "%v", e).trace()
+                errostack(ctx, 8, "%v", e).trace()
             }
         } else { return }
     } else if p.info == nil {
         if truly(ctx, file_must_stamp{p}) {
-            erro(ctx, "no such file: %v", p).trace()
+            note(pc(ctx,fn), "stamp no such file")
+            errostack(ctx, 8, "no such file %v", p.name).trace()
         }
         return
     }
 
     files = append(files, p)
 
-    if !isConfigure(ctx) {
+    if !is_configurecontext(ctx) {
         p._updated = true
         do(ctx, act_mark_dirty{[]Value{p}})
     }
@@ -4663,9 +4666,13 @@ func (p *group) Position() Position { return p.valbase.Position() }
 func (p *group) String() string {
     var strs []string
     for _, elem := range p.elems {
-        strs = append(strs, elem.String())
+        if elem == nil {
+            strs = append(strs, "<nil>")
+        } else {
+            strs = append(strs, elem.String())
+        }
     }
-    return fmt.Sprintf("(%s)", strings.Join(strs, " "))
+    return "(" + strings.Join(strs, " ") + ")"
 }
 func (p *group) string(ctx Context) (s string) {
     s = "("
@@ -4746,7 +4753,7 @@ func parseGroupValue(ctx Context, g *group) (result Value) {
         if w != nil {
             switch w.s {
             case "plain", "json", "yaml", "xml":
-                result = makeList(g.elems[1:]...)
+                result = _list(g.elems[1:]...)
             }
         }
         if isNull(result) { result = g }
@@ -5734,7 +5741,7 @@ func (p *percpat) stencil(ctx Context, stems []string) (val Value, rest []string
     }
 
     if len(stems) > 0 {
-        if s := stems[0]; s != "" { vals = append(vals, makeWord(p.position, s)) }
+        if s := stems[0]; s != "" { vals = append(vals, _word(p.position, s)) }
         rest = stems[1:]
     } else {
         // return
@@ -6359,7 +6366,7 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
             case "~" : v = makePunct(pos, TILDE)
             case "." : v = makePunct(pos, DOT)
             case "..": v = makePunct(pos, DOTDOT)
-            default  : v = makeWord(pos, s)
+            default  : v = _word(pos, s)
             }
         } else if s == "" {
             if i+1 == len(a) {
@@ -6371,7 +6378,7 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
                 continue
             }
         } else {
-            v = makeWord(pos, s)
+            v = _word(pos, s)
         }
         segments = append(segments, v)
     }
@@ -6386,28 +6393,28 @@ func ease(ctx Context, a any) (res Value) {
     case      nil: return
     case    Value: elems = append(elems, merge(t   )...)
     case  []Value: elems = append(elems, merge(t...)...)
-    case     bare: elems = append(elems, makeWord(   _position(ctx),  string(t)))
-    case     bool: elems = append(elems, makeBoolean(_position(ctx),         t ))
-    case    int  : elems = append(elems, makeDecimal(_position(ctx),   int64(t)))
-    case    int16: elems = append(elems, makeDecimal(_position(ctx),   int64(t)))
-    case    int32: elems = append(elems, makeDecimal(_position(ctx),   int64(t)))
-    case    int64: elems = append(elems, makeDecimal(_position(ctx),         t ))
-    case   uint  : elems = append(elems, makeDecimal(_position(ctx),   int64(t)))
-    case   uint16: elems = append(elems, makeDecimal(_position(ctx),   int64(t)))
-    case   uint32: elems = append(elems, makeDecimal(_position(ctx),   int64(t)))
-    case   uint64: elems = append(elems, makeDecimal(_position(ctx),   int64(t)))
-    case  float32: elems = append(elems, makefloat(  _position(ctx), float64(t)))
-    case  float64: elems = append(elems, makefloat(  _position(ctx),         t ))
+    case     bare: elems = append(elems, _word(   _position(ctx),  string(t)))
+    case     bool: elems = append(elems, _boolean(_position(ctx),         t ))
+    case    int  : elems = append(elems, _decimal(_position(ctx),   int64(t)))
+    case    int16: elems = append(elems, _decimal(_position(ctx),   int64(t)))
+    case    int32: elems = append(elems, _decimal(_position(ctx),   int64(t)))
+    case    int64: elems = append(elems, _decimal(_position(ctx),         t ))
+    case   uint  : elems = append(elems, _decimal(_position(ctx),   int64(t)))
+    case   uint16: elems = append(elems, _decimal(_position(ctx),   int64(t)))
+    case   uint32: elems = append(elems, _decimal(_position(ctx),   int64(t)))
+    case   uint64: elems = append(elems, _decimal(_position(ctx),   int64(t)))
+    case  float32: elems = append(elems, _float(  _position(ctx), float64(t)))
+    case  float64: elems = append(elems, _float(  _position(ctx),         t ))
     case   string: elems = append(elems, _strlit( _position(ctx),         t ))
     case []string: for _, s := range t { elems = append(elems, _strlit(_position(ctx),        s )) }
-    case   []bare: for _, s := range t { elems = append(elems, makeWord(  _position(ctx), string(s))) }
+    case   []bare: for _, s := range t { elems = append(elems, _word(  _position(ctx), string(s))) }
     default: erro(ctx, "unsupported result: %v", tv(t)).trace()
     }
 
     if n := len(elems) ; 1 == n {
         return  elems[0]
     } else if 1 < n {
-        return makeList(elems...)
+        return _list(elems...)
     } else {
         return makeNull(_position(ctx))
     }
@@ -6503,21 +6510,21 @@ func (p tst) Position() (_ Position) {
 }
 
 func makeArgumented(val Value, a ...Value) *argumented { return &argumented{val, a} }
-func makeAnswer(pos Position, v bool) *answer          { return &answer{boolean{valbase{pos},v}} }
-func makeOption(pos Position, v bool) *option          { return &option{boolean{valbase{pos},v}} }
+func _answer(pos Position, v bool) *answer          { return &answer{boolean{valbase{pos},v}} }
+func _option(pos Position, v bool) *option          { return &option{boolean{valbase{pos},v}} }
 
 func makeNull(pos Position) *null { return &null{valbase{pos}} }
-func makeNone(pos Position) *none { return &none{valbase{pos}, nil} }
-func makeArrow(pos Position, tok token, lhs, rhs Value) *arrow { return &arrow{valbase{pos}, tok, lhs, rhs} }
-func makeBoolean(pos Position, v bool) *boolean { return &boolean{valbase{pos},v} }
-func makeBinary(pos Position, i int64) *binary { return &binary{integer{valbase{pos},i}} }
-func makeOctal(pos Position, i int64) *octal { return &octal{integer{valbase{pos},i}} }
-func makeDecimal(pos Position, i int64) *decimal { return &decimal{integer{valbase{pos},i}} }
-func makeHexadecimal(pos Position, i int64) *hexadecimal { return &hexadecimal{integer{valbase{pos},i}} }
-func makefloat(pos Position, f float64) *float  { return &float{valbase{pos},f} }
+func _none(pos Position) *none { return &none{valbase{pos}, nil} }
+func _arrow(pos Position, tok token, lhs, rhs Value) *arrow { return &arrow{valbase{pos}, tok, lhs, rhs} }
+func _boolean(pos Position, v bool) *boolean { return &boolean{valbase{pos},v} }
+func _binary(pos Position, i int64) *binary { return &binary{integer{valbase{pos},i}} }
+func _octal(pos Position, i int64) *octal { return &octal{integer{valbase{pos},i}} }
+func _decimal(pos Position, i int64) *decimal { return &decimal{integer{valbase{pos},i}} }
+func _hexadecimal(pos Position, i int64) *hexadecimal { return &hexadecimal{integer{valbase{pos},i}} }
+func _float(pos Position, f float64) *float  { return &float{valbase{pos},f} }
 func makeDate(pos Position, s time.Time) *Date  { return &Date{datetime{valbase{pos},s}} }
 func makeTime(pos Position, t time.Time) *Time  { return &Time{datetime{valbase{pos},t}} }
-func makeRaw(pos Position, s string) *raw       { return &raw{valbase{pos},s} }
+func _raw(pos Position, s string) *raw       { return &raw{valbase{pos},s} }
 func _strlit(pos Position, s string) *strlit { return &strlit{valbase{pos},s} }
 func makeUrl(pos Position, s *neturl.URL) *url {
     var host, port string
@@ -6539,10 +6546,10 @@ func makeUrl(pos Position, s *neturl.URL) *url {
         Fragment: _strlit(pos, s.Fragment),
     }
 }
-func makeWord(pos Position, w string) *word { return &word{valbase{pos},w} }
+func _word(pos Position, w string) *word { return &word{valbase{pos},w} }
 func _compound(elems ...Value) *compound { return &compound{elements{elems}} }
 func makeStrcomp(elems ...Value) *strcomp { return &strcomp{elements{elems}} }
-func makeList(elems ...Value) *list { return &list{elements{elems}} }
+func _list(elems ...Value) *list { return &list{elements{elems}} }
 func list_t[T Value](ii ...T) *list {
     var elems []Value
     for _, i := range ii { elems = append(elems, i) }
@@ -6570,11 +6577,11 @@ func makeClosure(pos Position, tok token, obj Value, opts []Value, args ...Value
 
 func Make(pos Position, in any) (out Value) {
     switch v := in.(type) {
-    case int:       out = makeDecimal(pos,int64(v))
-    case int32:     out = makeDecimal(pos,int64(v))
-    case int64:     out = makeDecimal(pos,v)
-    case float32:   out = makefloat(pos,float64(v))
-    case float64:   out = makefloat(pos,v)
+    case int:       out = _decimal(pos,int64(v))
+    case int32:     out = _decimal(pos,int64(v))
+    case int64:     out = _decimal(pos,v)
+    case float32:   out = _float(pos,float64(v))
+    case float64:   out = _float(pos,v)
     case string:    out = _strlit(pos, v)
     case time.Time: out = &datetime{valbase{pos},v} // FIXME: NewDate, NewTime
     case Value:     out = v
@@ -6594,7 +6601,7 @@ func ParseBinary(pos Position, s string) *binary {
         s = s[2:]
     }
     if i, e := strconv.ParseInt(s, 2, 64); e == nil {
-        return makeBinary(pos,i)
+        return _binary(pos,i)
     } else {
         panic(e)
     }
@@ -6605,7 +6612,7 @@ func ParseOctal(pos Position, s string) *octal {
         s = s[1:]
     }
     if i, e := strconv.ParseInt(s, 8, 64); e == nil {
-        return makeOctal(pos,i)
+        return _octal(pos,i)
     } else {
         panic(e)
     }
@@ -6613,7 +6620,7 @@ func ParseOctal(pos Position, s string) *octal {
 
 func ParseDecimal(pos Position, s string) *decimal {
     if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-        return makeDecimal(pos,i)
+        return _decimal(pos,i)
     } else {
         panic(e)
     }
@@ -6624,7 +6631,7 @@ func ParseHexadecimal(pos Position, s string) *hexadecimal {
         s = s[2:]
     }
     if i, e := strconv.ParseInt(s, 16, 64); e == nil {
-        return makeHexadecimal(pos,i)
+        return _hexadecimal(pos,i)
     } else {
         panic(e)
     }
@@ -6632,7 +6639,7 @@ func ParseHexadecimal(pos Position, s string) *hexadecimal {
 
 func parseFloat(pos Position, s string) *float {
     if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
-        return makefloat(pos,f)
+        return _float(pos,f)
     } else {
         panic(e)
     }
@@ -6730,9 +6737,9 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
     case get_position:
         var pos Position
         if p.x != nil { pos = p.x.Position() }
-        if !pos.valid() && p.a != nil { pos = p.a[0].Position() }
-        if !pos.valid() && p.o != nil { pos = p.o[0].Position() }
-        if !pos.valid() { return pos }
+        if !pos.valid() && p.a != nil && p.a[0] != nil { pos = p.a[0].Position() }
+        if !pos.valid() && p.o != nil && p.o[0] != nil { pos = p.o[0].Position() }
+        if  pos.valid() { return pos }
     }
     return p.automatic.do(ctx, op)
 }
@@ -6780,7 +6787,7 @@ type opt  struct { Value }
 type opts struct { vals []Value }
 
 func call(ctx Context, name string, o []Value, a ...Value) (res Value) {
-    if v := _universe(ctx).scope.lookup(name); v != nil {
+    if v := _universe(ctx).lookup(name); v != nil {
         if t, _ := evoke(ctx, v, o, a); !equal(ctx, v, t) { res = t }
     }
     return

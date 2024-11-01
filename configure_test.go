@@ -59,6 +59,10 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", &proj.entries)
 	}
 
+	if ctx.prompts != nil {
+		ctx.err("too many prompts: %d", len(ctx.prompts))
+	}
+
 	if w := joinpath(testModulesPath, "configure"); proj.configure.absPath != w {
 		ctx.err("%v.%v: %s != %s", proj, proj.configure, proj.configure.absPath, w)
 	} else if len(proj.configure.bases) != 1 {
@@ -454,6 +458,10 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		confsm = joinpath(outtmp, configuration_sm)
 	}
 
+	if ctx.prompts != nil {
+		ctx.err("too many prompts: %d", len(ctx.prompts))
+	}
+
 	if _, y := ctx.srcs[confsm]; y {
 		ctx.err("%v: already loaded configuration.sm, %v", proj, reflect.ValueOf(ctx.srcs).MapKeys())
 	}
@@ -560,6 +568,10 @@ func testConfigureCustom(ctx *testcase) {
 		if outtmp != "" { os.RemoveAll(outtmp) }
 		if outdir != "" { os.RemoveAll(outdir) }
 	} ()
+
+	if ctx.prompts != nil {
+		ctx.err("too many prompts: %d", len(ctx.prompts))
+	}
 
 	if e, d := testConfig(ctx, proj, "FOO0"); e == nil {
 		ctx.err("FOO0")

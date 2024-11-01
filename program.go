@@ -9,6 +9,7 @@ package smart
 import (
     "path/filepath"
     "reflect"
+    "strings"
     "sync"
     "time"
     "fmt"
@@ -16,7 +17,7 @@ import (
 )
 
 type dirtyOpts struct {
-    generalOpts
+    generalopts
     verboseUpdated  bool "verbose-updated"  // vu,
     verboseOutdated bool "verbose-outdated" // vo,
     checksum bool "checksum" // cs,crc,
@@ -155,10 +156,10 @@ func (p *execution) traversed(ctx Context, target Value) []Value {
         if _, y := to_file(target); y { p.addFilesCount(1) }
         if truly(ctx, is_ordered_prereq{}) {
             p.ordered = append(p.ordered, target)
-            auto_set(ctx, defVoid, "|", makeList(p.ordered...))
+            auto_set(ctx, defVoid, "|", _list(p.ordered...))
         } else {
             p.targets = append(p.targets, target)
-            auto_set(ctx, defVoid, "^", makeList(p.targets...))
+            auto_set(ctx, defVoid, "^", _list(p.targets...))
             auto_set(ctx, defVoid, "<", p.targets[0])
             auto_set(ctx, defVoid, ">", p.targets[len(p.targets)-1])
         }
@@ -227,7 +228,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
         StampCurrentTarget: false,
     })
 
-    if !isConfigure(ctx) {
+    if !is_configurecontext(ctx) {
         if _, y := target.(*file); y && p != nil && !p.dirty(ctx) {
             // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
             return
@@ -235,11 +236,17 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
     }
 
     if res = i.evaluate(ctx, args...); res != nil {
+        if t, y := auto_get(ctx, "@").(*file); y {
+            if strings.HasPrefix(t.name, ".configure/library/HAVE_") {
+                if strings.HasSuffix(t.name, ".log") {
+                    note(ctx, "%v %v %v", p.language, t.name, res).debug()
+                }
+            }
+        }
         if d, prev := auto_set(ctx, defVoid, "-", res); d == nil {
             var _, ent, _ = entryIndicator(ctx, _entry(ctx))
             prompt(ctx, "%v: %s\n", ent, intername(i))
-            erro(ctx, "set buffer value failed: %v -> %v", prev, res)
-            errostack(ctx, 3).trace()
+            errostack(ctx, 3, "set buffer value failed: %v → %v", prev, res).trace()
         }
     }
 
@@ -248,8 +255,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
     if _, _, err := p.updateRecipesHash(ctx, target); err != nil {
         var _, ent, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
-        erro(ctx, "update recipes hash failed: %v", err)
-        errostack(ctx, 3).trace()
+        errostack(ctx, 3, "update recipes hash failed: %v", err).trace()
     }
     return
 }
@@ -664,17 +670,17 @@ func (prog *program) target(ctx Context, exe *execution) (target Value) {
     case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
     case    *file: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
     default:
+        if _, y := a.(flag); y {
+            if s := prog.project.name; s == "configure" || s == "configure.base" {
+                break
+            }
+        }
         if f := prog.project.file(ctx, a); f != nil {
             if f._traved > 1 { return } else { target = f }
         }
     }
 
-    if exe.recs[target] += 1; false {
-        if exe.recs[target] > 1 {
-            if _universe(ctx).traceExec { l_exec.trace(fmt.Sprintf("exec: %v", target)) }
-            return
-        }
-    }
+    exe.recs[target] += 1
     return
 }
 

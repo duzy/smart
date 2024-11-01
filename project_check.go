@@ -6,7 +6,6 @@
 package smart
 
 import (
-	"fmt"
 	"strings"
 	"path/filepath"
 )
@@ -406,21 +405,12 @@ func (p *project) tempfile_check(ctx Context, name, d string, f *file) {
 func unmap_check(ctx *unmap, c *valcache, key any) {
 	switch p := _project(ctx); p.name {
 	case "configure.base":
-		var s = fmt.Sprintf("%s", key)
-		if false && !truly(ctx, unmap_uncheck_y{}) {
-			var b bool
-			for _, a := range ctx.a {
-				var t = fmt.Sprintf("%s", a)
-				if b = s == t; b { break }
-			}
-			if !b { erro(ctx, "%v %v %v", tv(key), ctx.a, c).trace() }
-		}
 		switch x := key.(type) {
 		case flag:
 			var cc, y = c.puncs[MINUS]
 			if !y {
 				if truly(ctx, unmap_uncheck_y{}) { break }
-				erro(ctx, "%v %v %v", cacheMapping(ctx), x, c.ks(true)).trace()
+				errostack(ctx, 16, "%v %v %v", cacheMapping(ctx), x, c.ks(true)).trace()
 			}
 
 			var ss = cc.keys()

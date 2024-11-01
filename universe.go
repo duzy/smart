@@ -258,7 +258,7 @@ func new_universe(ii ...any) (ctx *universe) {
     {
         var vs []Value
         for _, s := range strings.Fields(runtime.GOOS) {
-            vs = append(vs, makeWord(pos, s))
+            vs = append(vs, _word(pos, s))
         }
         os = ease(ctx, vs)
     }
@@ -272,7 +272,7 @@ func new_universe(ii ...any) (ctx *universe) {
 
     // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
     ctx.globe.os,    _ = ctx.globe.set(ctx, ".os",    defVoid, os)
-    ctx.globe.goals, _ = ctx.globe.set(ctx, ".goals", defVoid, makeNone(pos))
+    ctx.globe.goals, _ = ctx.globe.set(ctx, ".goals", defVoid, _none(pos))
     ctx.globe.mode,  _ = ctx.globe.set(ctx, ".mode",  defVoid, makeNull(pos))
     return
 }
@@ -523,7 +523,7 @@ func (l ul) parse_args(base string, a ...string) {
 
     if s := strings.Join(a, " "); s != "" {
         if v := l.text(l.universe, base, s); v != nil {
-            args = parseOpts(l.universe, &l.commandline, merge(v)...)
+            args = parse_opts(l.universe, &l.commandline, merge(v)...)
         }
     }
 

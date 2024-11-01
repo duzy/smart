@@ -90,21 +90,25 @@ func (p load_implicit) do(ctx Context, op any) any {
     return p.Context.do(ctx, op)
 }
 
-type loaded_abs struct{}
-type load_abs struct{ Context ; abs string }
-func (p *load_abs) ts(string) string {
+type abs_path struct{}
+type abs_ctx struct{ Context ; abs string }
+func (p *abs_ctx) ts(string) string {
     return "{=abs "+bases(2, p.abs, true)+" "+ts(p.Context)+"}"
 }
-func (p *load_abs) do(ctx Context, op any) (_ any) {
+func (p *abs_ctx) do(ctx Context, op any) (_ any) {
     switch op.(type) {
-    case loaded_abs: return p.abs
+    case abs_path: return p.abs
+    case get_position:
+        var pos, _ = p.Context.do(ctx, op).(Position)
+        if !pos.valid() { pos.Filename, pos.Line = p.abs, 1 }
+        return pos
     }
     return p.Context.do(ctx, op)
 }
 
-func abs_ctx(ctx Context, abs string) Context {
-    if do(ctx, loaded_abs{}) == abs { return ctx }
-    return &load_abs{ctx, abs}
+func _abs_ctx(ctx Context, abs string) Context {
+    if do(ctx, abs_path{}) == abs { return ctx }
+    return &abs_ctx{ctx, abs}
 }
 
 type declare struct {
@@ -119,6 +123,7 @@ type loader struct {
     term             // .s -> declare.s
     p *parser        // -> declare.p
     project *project // -> declare.project -- the current project
+    promptEnteringDirectory bool
 
     declares map[string]*declare
 
@@ -192,7 +197,7 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
                 var val = spec
                 if x, y := spec.(*argumented); y {
                     val = x.Value
-                    op.remainder = parseOpts(final{ctx}, &op, x.args...)
+                    op.remainder = parse_opts(final{ctx}, &op, x.args...)
                 }
                 if name := val.string(ctx); name == "" {
                     if c := user.configure; c != nil {
@@ -627,7 +632,7 @@ func (l ul) include(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "include")) }
 
 	var opts = include_opts{ clauseopts: g }
-	if va := parseOpts(ctx, &opts, g.remainder...); len(va) > 0 {
+	if va := parse_opts(ctx, &opts, g.remainder...); len(va) > 0 {
 		erro(ctx, "unknown opts: %v", va).trace()
 	}
 
@@ -732,7 +737,7 @@ func (l ul) bases(ctx Context, implicitBase string, params ...Value) {
         if numBaseParams == 0 {
             var segs []Value
             for _, s := range ss[:len(ss)-2] {
-                segs = append(segs, makeWord(_position(ctx), s))
+                segs = append(segs, _word(_position(ctx), s))
             }
             implicitBases = append(implicitBases, makePath(segs...))
             implicitBase = "" // discard the implicit base
@@ -798,7 +803,7 @@ paramsloop:
             }
         }
 
-        if cc := abs_ctx(ctx, abs); isDir {
+        if cc := _abs_ctx(ctx, abs); isDir {
             l.directory(cc, spec, abs, nil)
         } else {
             l.file(cc, spec, abs, nil)
@@ -914,7 +919,7 @@ func (cc *configure_ctx) do(ctx Context, op any) (_ any) {
             cc.p = t.project
             return
         }
-    case loaded_abs: return cc.abs
+    case abs_path: return cc.abs
 	case is_config_mode: if cc.configuration != nil { return true }
 	case is_flat_mode: if cc.configuration != nil { return true }
     }
@@ -1132,25 +1137,9 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
 		// smod = scanner.ScanComments
 	}
 
+    f := l.fset.AddFile(filename, -1, len(text))
     l.p = &parser{}
-    l.p.scanner.init(
-        l.fset.AddFile(filename, -1, len(text)), text, smod,
-        func(p Position, s string, a ...any) {
-            if a == nil { a = append(a, 4, 4) }
-            note(ctx, "%s", s)
-            erro(ctx, "scan=%v", l.p.scanner.scanstate).debug(a...)
-        },
-        func(p Position, s string, a ...any) {
-            if a == nil { a = append(a, 4, 1) }
-            warn(ctx, "%s", s)
-            warn(ctx, "scan=%v", l.p.scanner.scanstate).debug(a...)
-        },
-        func(p Position, s string, a ...any) {
-            if a == nil { a = append(a, 4, 1) }
-            info(ctx, "%s", s)
-            info(ctx, "scan=%v", l.p.scanner.scanstate).debug(a...)
-        })
-
+    l.p.scanner.init(ctx, f, text, smod)
 	l.p.next(ctx, true) // starts scanning
 
     if truly(ctx, parse_is_text{}) {
@@ -1322,8 +1311,8 @@ func (l ul) file(ctx Context, spec, absPath string, source any) {
         ctx = lo.loader
     }
 
+    defer lo.configure_save(ctx)
     lo.source(ctx, absPath, source)
-    lo.configure_save(ctx)
     return
 }
 
@@ -1377,16 +1366,14 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
         ctx = lo.loader
     }
 
-    var cc = abs_ctx(ctx, absDir)
+    var cc = _abs_ctx(ctx, absDir)
 	var sof,_ = filepath.Rel(workBaseDir, absDir)
-    var scope = lo.openscope(bases(2, sof, true))
-    defer func() { if scope != nil { lo.closescope(scope) } } ()
+    defer lo.closescope(lo.openscope(bases(2, sof, true)))
+    defer lo.configure_save(ctx)
 
     // Use globe outer scope to avoid conflicting with other unrelated projects.
     lo.scope().outer = lo.globe.scope
     for _, s := range lo.sources(ctx, absDir, filter) { lo.source(cc, s, nil) }
-    lo.configure_save(ctx)
-    lo.closescope(scope); scope = nil
 
     if len(lo.declares) == 0 && filepath.Base(spec) != "@" {
         if truly(ctx, is_implicit_load{}) {

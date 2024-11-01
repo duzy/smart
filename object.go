@@ -195,14 +195,14 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
         if p, y := val.(*pair); y {
             if a.name = p.key.string(ctx); a.name == "" {
-                erro(ctx, "empty name: %v", p.key).trace()
+                erro(pc(ctx,a), "empty name: %v", p.key).trace()
                 return
             }
 
             if params != nil {
                 if _, y = params[a.name]; !y {
                     var keys = reflect.ValueOf(params).MapKeys()
-                    errostack(ctx, 16, "unknown arg#%d: %v ; known: %v", i, p, keys).trace()
+                    errostack(pc(ctx,a), 16, "unknown arg#%d: %v ; known: %v", i, p, keys).trace()
                     return
                 }
             }
@@ -211,7 +211,7 @@ func (ac *automatic) args(ctx Context, vals []Value) {
                 if x, y := a.value.(*list); y {
                     x.elems = append(x.elems, merge(p.val)...)
                 } else {
-                    a.value = makeList(a.value)
+                    a.value = _list(a.value)
                 }
                 continue
             }
@@ -556,7 +556,7 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
     if n := len(vals); 1 == n {
         value = vals[0]
     } else if 1 < n {
-        value = makeList(vals...)
+        value = _list(vals...)
     } else if origin == defExecute {
         value = nil
     } else {
@@ -741,14 +741,14 @@ func (p *builtin) refs(ctx Context, v Value) (res bool) {
     return
 }
 func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
-    if d := time.Now().Sub(t); d > 2*time.Second {
-        var n = time.Now()
+    var n = time.Now()
+    if d := n.Sub(t); d > 2*time.Second {
         var a = xmerge(final{ctx}, ctx.a...)
-        var m = time.Now().Sub(n)
-        notestack(ctx, 5, "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a)).debug(5)
+        var m = time.Since(n)
+        notestack(pc(ctx,p), 16, "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a)).debug(256)
     } else if f := v.Elem().FieldByName("timing"); f.IsValid() {
         if f.Type().Kind() == reflect.Bool && f.Bool() {
-            notestack(ctx, 5, "%v: %v", p, d).debug(5)
+            notestack(pc(ctx,p), 16, "%v: %v", p, d).debug(256)
         }
     }
 }

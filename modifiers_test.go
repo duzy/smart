@@ -11,7 +11,7 @@ import (
 
 type test_mod_1 struct { modifier_ }
 func (ctx *test_mod_1) v(args ...Value) any {
-	return append(args, makeWord(_position(ctx), "test_mod_1"))
+	return append(args, _word(_position(ctx), "test_mod_1"))
 }
 
 func testValueModifierInit() {

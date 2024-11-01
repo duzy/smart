@@ -135,9 +135,9 @@ type plainint struct{}
 func (_ *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
     var p = &plain{}
     var exe = _execution(ctx)
-    var opts struct{ generalOpts }
+    var opts struct{ generalopts }
 
-    if args = parseOpts(ctx, &opts, args...) ; len(args) > 0 {
+    if args = parse_opts(ctx, &opts, args...) ; len(args) > 0 {
         p.name = args[0].string(ctx)
         exe.language = p.name
     }
@@ -288,7 +288,7 @@ func (p *xml) evaluate(ctx Context, args ...Value) (result Value) {
     if v := DecodeXML(ctx, source, p.whitespace); v != nil {
         return &XML{ v }
     } else {
-        return &XML{ makeNone(_position(ctx)) }
+        return &XML{ _none(_position(ctx)) }
     }
 }
 
@@ -345,7 +345,7 @@ LoopJSON:
         case enc_json.Delim:
             switch d {
             case '[':
-                nn := makeGroup(pos, makeWord(pos, JsonArray))
+                nn := makeGroup(pos, _word(pos, JsonArray))
                 if x == 0 {
                     nodes = append(nodes, nn)
                 } else {
@@ -354,7 +354,7 @@ LoopJSON:
                 stack = append(stack, nn) // APPEND
                 break SwitchNodeType
             case '{':
-                nn := makeGroup(pos, makeWord(pos, JsonObject))
+                nn := makeGroup(pos, _word(pos, JsonObject))
                 if x == 0 {
                     nodes = append(nodes, nn)
                 } else {
@@ -415,8 +415,8 @@ LoopJSON:
             case enc_json.Delim:
                 var vn *group
                 switch vd {
-                case '[': vn = makeGroup(pos, makeWord(pos, JsonArray))
-                case '{': vn = makeGroup(pos, makeWord(pos, JsonObject))
+                case '[': vn = makeGroup(pos, _word(pos, JsonArray))
+                case '{': vn = makeGroup(pos, _word(pos, JsonObject))
                 default: err = errorIllJson; break LoopJSON
                 }
                 stack = append(stack, vn)
@@ -424,21 +424,21 @@ LoopJSON:
             case string:
                 node.append(makePair(sv, _strlit(pos, vd)))
             case float64:
-                node.append(makePair(sv, makefloat(pos, vd)))
+                node.append(makePair(sv, _float(pos, vd)))
             case nil: // null
-                node.append(makePair(sv, makeWord(pos, "null")))
+                node.append(makePair(sv, _word(pos, "null")))
             default:
                 err = errorIllJson; break LoopJSON
             }
             //prompt(ctx, "node: %v\n", node)
         case float64:
-            if v := Value(makefloat(pos, d)); x == 0 {
+            if v := Value(_float(pos, d)); x == 0 {
                 nodes = append(nodes, v)
             } else {
                 node, value = stack[x-1], v
             }
         case nil: // null
-            if v := Value(makeWord(pos, "null")); x == 0 {
+            if v := Value(_word(pos, "null")); x == 0 {
                 nodes = append(nodes, v)
             } else {
                 node, value = stack[x-1], v
@@ -477,7 +477,7 @@ func (_ *json) evaluate(ctx Context, args ...Value) (result Value) {
     if v := DecodeJSON(ctx, source); v != nil {
         return &JSON{ result }
     } else {
-        return &JSON{ makeNone(recipes[0].Position()) }
+        return &JSON{ _none(recipes[0].Position()) }
     }
 }
 
@@ -511,6 +511,6 @@ func (p *yaml) evaluate(ctx Context, args ...Value) (result Value) {
     if v := DecodeYAML(ctx, source, p.whitespace); v != nil {
         return &YAML{ result }
     } else {
-        return &YAML{ makeNone(_position(ctx)) }
+        return &YAML{ _none(_position(ctx)) }
     }
 }

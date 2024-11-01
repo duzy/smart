@@ -44,6 +44,7 @@ func (s scanstate) String() string {
 	var t string
 	switch s.ch {
 	case '\n': t = "\\n"
+	case '}': t = "\\}"
 	default: t = string(s.ch)
 	}
 	return fmt.Sprintf("{=scan %s {%v %v %v} %016b %016b}",
@@ -121,21 +122,15 @@ type scanner struct { // immutable state
 	file *tokfile     // source file handle
 	dir  string       // directory portion of file.Name()
 	src  []byte       // source
-	err  scanFeedbackFn // error reporting; or nil
-	war  scanFeedbackFn // warning handler; or nil
-	inf  scanFeedbackFn // info handler; or nil
 	mode scanmode     // scanning mode
 
 	// scanning state
 	scanstate
-
-	// public state - ok to modify
-	ErrorCount int // number of errors encountered
 }
 
 // Read the next Unicode char into s.ch.
 // s.ch < 0 means end-of-file.
-func (s *scanner) next() {
+func (s *scanner) next(ctx Context) {
 	var newline = s.ch == '\n'
 
 	if s.readOffset < len(s.src) {
@@ -145,7 +140,7 @@ func (s *scanner) next() {
 			s.file.AddLine(s.offset)
 		}
 		var w int
-		s.ch, w = s.pick(s.readOffset)
+		s.ch, w = s.pick(ctx, s.readOffset)
 		s.readOffset += w
 	} else {
 		s.offset = len(s.src)
@@ -165,35 +160,28 @@ func (s *scanner) next() {
 	}
 }
 
-func (s *scanner) pickNext() (ch rune, w int) {
-	if n := s.readOffset + 1; n < len(s.src) { ch, w = s.pick(n) }
+func (s *scanner) pickNext(ctx Context) (ch rune, w int) {
+	if n := s.readOffset + 1; n < len(s.src) { ch, w = s.pick(ctx, n) }
 	return
 }
 
-func (s *scanner) pick(offset int) (ch rune, w int) {
+func (s *scanner) pick(ctx Context, offset int) (ch rune, w int) {
 	switch ch, w = rune(s.src[offset]), 1; {
-	case ch == 0: s.error(offset, "illegal character NUL")
+	case ch == 0:
+		erro(pc(ctx,s.pos(offset)), "illegal character NUL").trace()
 	case ch >= 0x80: // Non ASCII
 		ch, w = utf8.DecodeRune(s.src[offset:])
 		if ch == utf8.RuneError && w == 1 {
-			s.error(offset, "illegal UTF-8 encoding")
+			erro(pc(ctx,s.pos(offset)), "illegal UTF-8 encoding").trace()
 		} else if ch == bom && offset > 0 {
-			s.error(offset, "illegal byte order mark")
+			erro(pc(ctx,s.pos(offset)), "illegal byte order mark").trace()
 		}
 	}
 	return
 }
 
-// An scanFeedbackFn may be provided to scanner.init. If a syntax error is
-// encountered and a handler was installed, the handler is called with a
-// position and an error message. The position points to the beginning of
-// the offending token.
-//
-type scanFeedbackFn func(pos Position, msg string, a ...any)
-
 // A mode value is a set of flags (or 0).
 // They control scanner behavior.
-//
 type scanmode uint
 type scanbits uint
 func (bits scanbits) is(t scanbits)     bool { return bits&t != 0 }
@@ -240,32 +228,15 @@ func IsIdentifier(r rune) bool {
 	return IsLetter(r) || IsDigit(r) || IsUntermPunct(r) //|| r == '\\'
 }
 
-// Init prepares the scanner s to tokenize the text src by setting the
-// scanner at the beginning of src. The scanner uses the file set file
-// for position information and it adds line information for each line.
-// It is ok to re-use the same file when re-scanning the same file as
-// line information which is already present is ignored. Init causes a
-// panic if the file size does not match the src size.
-//
-// Calls to Scan will invoke the error handler err if they encounter a
-// syntax error and err is not nil. Also, for each error encountered,
-// the scanner field ErrorCount is incremented by one. The mode parameter
-// determines how comments are handled.
-//
-// Note that Init may call err if there is an error in the first character
-// of the file.
-//
-func (s *scanner) init(file *tokfile, src []byte, mode scanmode, err, war, inf scanFeedbackFn) {
+func (s *scanner) init(ctx Context, file *tokfile, src []byte, mode scanmode) {
 	// Explicitly initialize all fields since a scanner may be reused.
 	if file.Size() != len(src) {
 		panic(fmt.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src)))
 	}
+
 	s.file = file
 	s.dir, _ = filepath.Split(file.Name())
 	s.src = src
-	s.err = err
-	s.war = war
-	s.inf = inf
 	s.mode = mode
 
 	s.ch = ' '
@@ -275,35 +246,29 @@ func (s *scanner) init(file *tokfile, src []byte, mode scanmode, err, war, inf s
 	s.bits = 0
 	s.bitss = nil
 
-	s.ErrorCount = 0
-
 	// The BOM at file beginning will be discarded.
-	if s.next(); s.ch == bom { s.next() }
+	if s.next(ctx); s.ch == bom { s.next(ctx) }
 }
 
-func (s *scanner) error(offs int, msg string, a ...any) {
-	if s.err != nil { s.err(s.file.Position(s.file.Pos(offs)), msg, a...) }
-	s.ErrorCount++
-}
-func (s *scanner) warn(offs int, msg string, a ...any) {
-	if s.war != nil { s.war(s.file.Position(s.file.Pos(offs)), msg, a...) }
-}
-func (s *scanner) info(offs int, msg string, a ...any) {
-	if s.inf != nil { s.inf(s.file.Position(s.file.Pos(offs)), msg, a...) }
+func (s *scanner) pos(offs ...int) Position {
+	if 0 < len(offs) {
+		return s.file.Position(s.file.Pos(offs[0]))
+	}
+	return s.file.Position(s.file.Pos(s.offset))
 }
 
-func (s *scanner) scanComment() (res string) {
-	for s.ch == ' '  || s.ch == '\t' { s.next() } // skip preceding spaces
+func (s *scanner) scanComment(ctx Context) (res string) {
+	for s.ch == ' '  || s.ch == '\t' { s.next(ctx) } // skip preceding spaces
 
 	var offs = s.offset
-	for s.ch != '\n' && s.ch != -1 { s.next() }
+	for s.ch != '\n' && s.ch != -1 { s.next(ctx) }
 	return string(s.src[offs:s.offset])
 }
 
-func (s *scanner) scanIdentifier() string {
+func (s *scanner) scanIdentifier(ctx Context) string {
 	var offs = s.offset
 	for IsIdentifier(s.ch) {
-		if s.next(); s.ch == '-' { // Looking for '->'
+		if s.next(ctx); s.ch == '-' { // Looking for '->'
 			var n = s.offset + 1 // No need UTF8 decoding!
 			if n < len(s.src) && rune(s.src[n]) == '>' { break }
 		}
@@ -320,29 +285,29 @@ func digitVal(ch rune) int {
 	return 16 // larger than any legal digit val
 }
 
-func (s *scanner) scanMantissa(base int) {
+func (s *scanner) scanMantissa(ctx Context, base int) {
 	if digitVal(s.ch) < base { // first digit
-		s.next()
+		s.next(ctx)
 		if true {
-			for digitVal(s.ch) < base { s.next() }
+			for digitVal(s.ch) < base { s.next(ctx) }
 		} else {
 			// NOTE: disable '_' number separaters as ParseInt not support it and
 			//       it's not recoverable from ints back to strings.
 			for s.ch == '_' || digitVal(s.ch) < base {
 				if s.ch == '_' {
-					if s.next(); s.ch == '_' {
-						s.error(s.offset-1, "invalid digit group")
+					if s.next(ctx); s.ch == '_' {
+						erro(pc(ctx,s), "invalid digit group").trace()
 						break
 					}
 				} else {
-					s.next()
+					s.next(ctx)
 				}
 			}
 		}
 	}
 }
 
-func (s *scanner) scanDatetime() (tok token) {
+func (s *scanner) scanDatetime(ctx Context) (tok token) {
 	var (
 		ch byte
 		hasDate = false
@@ -376,18 +341,18 @@ checkDate:
 
 	// month range is 01-12
 	if ch = s.src[o+5]; ch != '0' && ch != '1' {
-		s.error(o+5, "bad month"); goto exit
+		erro(pc(ctx,s.pos(o+5)), "bad month").trace(); goto exit
 	}
 	if ch = s.src[o+6]; ch < '0' || '9' < ch {
-		s.error(o+6, "bad month"); goto exit
+		erro(pc(ctx,s.pos(o+6)), "bad month").trace(); goto exit
 	}
 
 	// month-day range is 01-28, 01-29, 01-30, 01-31 based on month/year
 	if ch = s.src[o+8]; ch < '0' && '3' < ch {
-		s.error(o+8, "bad month day"); goto exit
+		erro(pc(ctx,s.pos(o+8)), "bad month day").trace(); goto exit
 	}
 	if ch = s.src[o+9]; ch < '0' || '9' < ch {
-		s.error(o+9, "bad month day"); goto exit
+		erro(pc(ctx,s.pos(o+9)), "bad month day").trace(); goto exit
 	}
 
 	if o += 10; o == l {
@@ -400,36 +365,36 @@ checkDate:
 		o += 1 // consume 'T'
 		hasTime = true
 	} else {
-		s.error(o, "bad time"); goto exit
+		erro(pc(ctx,s.pos(o)), "bad time").trace(); goto exit
 	}
 
 	if l-o < 9 || s.src[o+2] != ':' || s.src[o+5] != ':' {
-		s.error(o, "illegal time"); goto exit
+		erro(pc(ctx,s.pos(o)), "illegal time").trace(); goto exit
 	}
 
 checkTime:
 	// hour range is 00-23
 	if ch = s.src[o+0]; ch < '0' || '2' < ch {
-		s.error(o+0, "bad hour"); goto exit
+		erro(pc(ctx,s.pos(o+0)), "bad hour").trace(); goto exit
 	}
 	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
-		s.error(o+1, "bad hour"); goto exit
+		erro(pc(ctx,s.pos(o+1)), "bad hour").trace(); goto exit
 	}
 
 	// minute range is 00-59
 	if ch = s.src[o+3]; ch < '0' || '5' < ch {
-		s.error(o+3, "bad minute"); goto exit
+		erro(pc(ctx,s.pos(o+3)), "bad minute").trace(); goto exit
 	}
 	if ch = s.src[o+4]; ch < '0' || '9' < ch {
-		s.error(o+4, "bad minute"); goto exit
+		erro(pc(ctx,s.pos(o+4)), "bad minute").trace(); goto exit
 	}
 
 	// second ranges are 00-59 00-58, 00-59, 00-60 based on leap second rules
 	if ch = s.src[o+6]; ch < '0' || '5' < ch {
-		s.error(o+6, "bad second"); goto exit
+		erro(pc(ctx,s.pos(o+6)), "bad second").trace(); goto exit
 	}
 	if ch = s.src[o+7]; ch < '0' || '9' < ch {
-		s.error(o+7, "bad second"); goto exit
+		erro(pc(ctx,s.pos(o+7)), "bad second").trace(); goto exit
 	}
 
 	if ch = s.src[o+8]; IsDatetimeTerminator(rune(ch)) {
@@ -445,51 +410,52 @@ checkTime:
 			} else if ch == '+' || ch == '-' {
 				o += 1; goto checkNumOffset // consume '+' or '-'
 			} else if ch < '0' || '9' < ch {
-				s.error(o, "bad secfrac"); goto exit
+				erro(pc(ctx,s.pos(o)), "bad secfrac").trace(); goto exit
 			}
 		}
 	} else if ch == '+' || ch == '-' {
 		o += 9; goto checkNumOffset // consume 00:00:00+
 	} else {
-		s.error(o, "bad time"); goto exit
+		erro(pc(ctx,s.pos(o)), "bad time").trace(); goto exit
 	}
 
 checkNumOffset:
 	if ch = s.src[o+2]; ch != ':' {
-		s.error(o+2, "bad offset"); goto exit
+		erro(pc(ctx,s.pos(o+2)), "bad offset").trace(); goto exit
 	}
 
 	// hour range is 00-23
 	if ch = s.src[o+0]; ch < '0' || '2' < ch {
-		s.error(o+0, "bad hour"); goto exit
+		erro(pc(ctx,s.pos(o+0)), "bad hour").trace(); goto exit
 	}
 	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
-		s.error(o+1, "bad hour"); goto exit
+		erro(pc(ctx,s.pos(o+1)), "bad hour").trace(); goto exit
 	}
 
 	// minute range is 00-59
 	if ch = s.src[o+3]; ch < '0' || '5' < ch {
-		s.error(o+3, "bad minute"); goto exit
+		erro(pc(ctx,s.pos(o+3)), "bad minute").trace(); goto exit
 	}
 	if ch = s.src[o+4]; ch < '0' || '9' < ch {
-		s.error(o+4, "bad minute"); goto exit
+		erro(pc(ctx,s.pos(o+4)), "bad minute").trace(); goto exit
 	}
 
 	o += 5 // consume 00:00
 
 success:
-	for i := s.offset; i < o; i++ { s.next() }
+	for i := s.offset; i < o; i++ { s.next(ctx) }
 	switch {
 	case hasDate && hasTime: tok = DATETIME
 	case hasDate && !hasTime: tok = DATE
 	case !hasDate && hasTime: tok = TIME
 	default: tok = ILLEGAL
 	}
+
 exit:
 	return
 }
 
-func (s *scanner) scanNumber(seenDecimalPoint bool) (token, string) {
+func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string) {
 	// digitVal(s.ch) < 10
 	offs := s.offset
 	tok := INTEGER
@@ -497,51 +463,51 @@ func (s *scanner) scanNumber(seenDecimalPoint bool) (token, string) {
 	if seenDecimalPoint {
 		offs--
 		tok = FLOAT
-		s.scanMantissa(10)
+		s.scanMantissa(ctx, 10)
 		goto exponent
 	}
 
-	if t := s.scanDatetime(); t != ILLEGAL {
+	if t := s.scanDatetime(ctx); t != ILLEGAL {
 		tok = t; goto exit
 	}
 
 	if s.ch == '0' {
 		// int or float
 		offs := s.offset
-		s.next()
+		s.next(ctx)
 		if s.ch == 'b' || s.ch == 'B' {
 			// binary int
-			s.next()
-			s.scanMantissa(2)
+			s.next(ctx)
+			s.scanMantissa(ctx, 2)
 			tok = BINARY
 			if s.offset-offs <= 2 {
 				// only scanned "0b" or "0B"
-				s.error(offs, "illegal binary number")
+				erro(pc(ctx,offs), "illegal binary number").trace()
 			}
 		} else if s.ch == 'x' || s.ch == 'X' {
 			// hexadecimal int
-			s.next()
-			s.scanMantissa(16)
+			s.next(ctx)
+			s.scanMantissa(ctx, 16)
 			tok = HEXADECIMAL
 			if s.offset-offs <= 2 {
 				// only scanned "0x" or "0X"
-				s.error(offs, "illegal hexadecimal number")
+				erro(pc(ctx,offs), "illegal hexadecimal number").trace()
 			}
 		} else {
 			// octal int or float
 			seenDecimalDigit := false
-			s.scanMantissa(8)
+			s.scanMantissa(ctx, 8)
 			if s.ch == '8' || s.ch == '9' {
 				// illegal octal int or float
 				seenDecimalDigit = true
-				s.scanMantissa(10)
+				s.scanMantissa(ctx, 10)
 			}
 			if s.ch == '.' || s.ch == 'e' || s.ch == 'E' || s.ch == 'i' {
 				goto fraction
 			}
 			// octal int
 			if seenDecimalDigit {
-				s.error(offs, "illegal octal number")
+				erro(pc(ctx,offs), "illegal octal number").trace()
 			}
 			if s.offset-offs > 1 {
 				tok = OCTAL
@@ -553,7 +519,7 @@ func (s *scanner) scanNumber(seenDecimalPoint bool) (token, string) {
 	}
 
 	// decimal int or float
-	s.scanMantissa(10)
+	s.scanMantissa(ctx, 10)
 
 fraction:
 	if s.ch == '.' {
@@ -565,55 +531,55 @@ fraction:
 			}
 		}
 		tok = FLOAT
-		s.next()
-		s.scanMantissa(10)
+		s.next(ctx)
+		s.scanMantissa(ctx, 10)
 	}
 
 exponent:
 	if s.ch == 'e' || s.ch == 'E' {
 		tok = FLOAT
-		s.next()
+		s.next(ctx)
 		if s.ch == '-' || s.ch == '+' {
-			s.next()
+			s.next(ctx)
 		}
-		s.scanMantissa(10)
+		s.scanMantissa(ctx, 10)
 	}
 
 	/*
 	if s.ch == 'i' {
 		tok = IMAG
-		s.next()
+		s.next(ctx)
 	} */
 
 exit:
 	return tok, string(s.src[offs:s.offset])
 }
 
-func (s *scanner) scanEscape(quote rune) bool {
+func (s *scanner) scanEscape(ctx Context, quote rune) bool {
 	var n int
 	var base, max uint32
 	var offs = s.offset
 	switch s.ch {
 	case 'a', 'b', 'f', 'n', 'r', 't', 'v', '\\', '$', quote:
-		s.next()
+		s.next(ctx)
 		return true
 	case '0', '1', '2', '3', '4', '5', '6', '7':
 		n, base, max = 3, 8, 255
 	case 'x':
-		s.next()
+		s.next(ctx)
 		n, base, max = 2, 16, 255
 	case 'u':
-		s.next()
+		s.next(ctx)
 		n, base, max = 4, 16, unicode.MaxRune
 	case 'U':
-		s.next()
+		s.next(ctx)
 		n, base, max = 8, 16, unicode.MaxRune
 	case '\n':
-		s.next()
+		s.next(ctx)
 	default:
 		var msg = "unknown escape sequence"
 		if s.ch < 0 { msg = "escape sequence not terminated" }
-		s.error(offs, msg)
+		erro(pc(ctx,offs), msg).trace()
 		return false
 	}
 
@@ -623,23 +589,23 @@ func (s *scanner) scanEscape(quote rune) bool {
 		if d >= base {
 			var msg = fmt.Sprintf("illegal character %#U in escape sequence", s.ch)
 			if s.ch < 0 { msg = "escape sequence not terminated" }
-			s.error(s.offset, msg)
+			erro(pc(ctx,offs), msg).trace()
 			return false
 		}
 		x = x*base + d
-		s.next()
+		s.next(ctx)
 		n--
 	}
 
 	if x > max || 0xD800 <= x && x < 0xE000 {
-		s.error(offs, "escape sequence is invalid Unicode code point")
+		erro(pc(ctx,offs), "escape sequence is invalid Unicode code point").trace()
 		return false
 	}
 
 	return true
 }
 
-func (s *scanner) scanStrliting(ml bool) string {
+func (s *scanner) scanStrliting(ctx Context, ml bool) string {
 	// '\'' opening already consumed
 	offs := s.offset - 1
 	if ml { offs -= 1 }
@@ -647,16 +613,16 @@ func (s *scanner) scanStrliting(ml bool) string {
 	for s.readOffset < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 { // if ch < 0 {
-			s.error(offs, "raw string literal not terminated")
+			erro(pc(ctx,offs), "raw string literal not terminated").trace()
 			break
 		}
-		if ch == '\\' { s.next() } // escapes
-		s.next()
+		if ch == '\\' { s.next(ctx) } // escapes
+		s.next(ctx)
 		if ch == '\'' {
 			if !ml { break }
 			if s.ch == '\'' {
-				if s.next(); s.ch == '\'' {
-					s.next()
+				if s.next(ctx); s.ch == '\'' {
+					s.next(ctx)
 					break
 				}
 			}
@@ -666,7 +632,7 @@ func (s *scanner) scanStrliting(ml bool) string {
 	return string(s.src[offs+1:s.offset-1])
 }
 
-func (s *scanner) scanString(ml bool) string {
+func (s *scanner) scanString(ctx Context, ml bool) string {
 	// '"' opening already consumed
 	offs := s.offset - 1
 	if ml { offs -= 1 }
@@ -674,41 +640,41 @@ func (s *scanner) scanString(ml bool) string {
 	for s.readOffset < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 {
-			s.error(offs, "string literal not terminated")
+			erro(pc(ctx,offs), "string literal not terminated").trace()
 			break
 		}
-		s.next()
+		s.next(ctx)
 		if ch == '"' {
 			if !ml {
 				break
 			}
 			if s.ch == '"' {
-				if s.next(); s.ch == '"' {
-					s.next()
+				if s.next(ctx); s.ch == '"' {
+					s.next(ctx)
 					break
 				}
 			}
 		}
 		switch ch {
-		case '\\': s.scanEscape('"')
+		case '\\': s.scanEscape(ctx, '"')
 		case '$': //
 		}
 	}
 	return string(s.src[offs:s.offset])
 }
 
-func (s *scanner) scanStrcomp(q rune) (tok token, lit string) {
+func (s *scanner) scanStrcomp(ctx Context, q rune) (tok token, lit string) {
 	if q != 0 && s.ch == q {
 		switch q {
 		case '"':
 			tok = COMPOSED
 			s.pop(isStrcompString)
-			s.next() // take the ending '"'
+			s.next(ctx) // take the ending '"'
 			return
 		case '}':
 			tok = RBRACE
 			s.pop(isBracedPlain)
-			s.next() // take the ending '"'
+			s.next(ctx) // take the ending '"'
 			return
 		}
 	}
@@ -719,33 +685,33 @@ func (s *scanner) scanStrcomp(q rune) (tok token, lit string) {
 	case '{': // mistaken strcomp string terminated with line feed
 		if q == '}' {
 			tok = LBRACE
-			s.next()
+			s.next(ctx)
 			return
 		}
 	case '\n': // mistaken strcomp string terminated with line feed
 		tok = LINEND
 		s.pop(isStrcompString|isStrcompLine)
-		if s.next(); s.ch != '\t' { s.bits &^= isRecipes }
+		if s.next(ctx); s.ch != '\t' { s.bits &^= isRecipes }
 		return
 	case '\\':
-		if s.next(); q == 0 { // skim the \ character
+		if s.next(ctx); q == 0 { // skim the \ character
 			tok, lit = ESCAPE, string(s.ch)
-			s.next() // the escaped character
+			s.next(ctx) // the escaped character
 			if s.bits&isRecipes != 0 && s.ch == '\t' {
-				s.next() // skip escaped recipe-tab
+				s.next(ctx) // skip escaped recipe-tab
 			}
-		} else if s.scanEscape(q) {
+		} else if s.scanEscape(ctx, q) {
 			tok, lit = ESCAPE, string(s.src[offs+1:s.offset])
 		} else {
 			tok, lit = ILLEGAL, string(s.src[offs:s.offset])
-			s.error(offs, fmt.Sprintf("illegal strcomp escape %#U", s.ch))
-			s.next() // discard
+			erro(pc(ctx,offs), "illegal strcomp escape %#U", s.ch).trace()
+			s.next(ctx) // discard
 		}
 		return
 	case '&', '$': // Escapes '&', '$', but '&&' or '$$' is not escaped.
 		if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
-			s.next() //! The first & or $
-			s.next() //! The second & or $
+			s.next(ctx) //! The first & or $
+			s.next(ctx) //! The second & or $
 		} else if s.ch == '$' {
 			return DELEGATE, lit
 		} else {
@@ -754,34 +720,35 @@ func (s *scanner) scanStrcomp(q rune) (tok token, lit string) {
 	}
 
 l:
-	for ; s.readOffset < len(s.src) ; s.next() {
+	for ; s.readOffset < len(s.src) ; s.next(ctx) {
 		switch s.ch { case '\\', '\n', '$', '&', q: break l }
 	}
 	tok, lit = RAW, string(s.src[offs:s.offset])
 	return
 }
 
-func (s *scanner) scan() (pos Pos, tok token, lit string) {
+func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 	switch pos = s.file.Pos(s.offset) ; {
 	case s.offset >= len(s.src) || s.ch == -1: return pos, EOF, ""
-	case s.bits.isBracedPlain()  : tok, lit = s.scanStrcomp('}')
-	case s.bits.isStrcompString(): tok, lit = s.scanStrcomp('"')
-	case s.bits.isStrcompLine()  : tok, lit = s.scanStrcomp(0)
+	case s.bits.isBracedPlain()  : tok, lit = s.scanStrcomp(ctx, '}')
+	case s.bits.isStrcompString(): tok, lit = s.scanStrcomp(ctx, '"')
+	case s.bits.isStrcompLine()  : tok, lit = s.scanStrcomp(ctx, 0)
 	}
 
 	if tok != 0 && tok != CLOSURE && tok != DELEGATE { return }
 	if tok != 0 && s.ch != '$' && s.ch != '&' {
-		s.error(s.offset, string(s.src[s.offset:]))
+		erro(pc(ctx,s), "unexpected '%s'", string(s.src[s.offset:])).trace()
 	}
 
 	if IsDigit(s.ch) { // '0' <= s.ch && s.ch <= '9'
-		tok, lit = s.scanNumber(false)
+		tok, lit = s.scanNumber(ctx, false)
 		return
 	}
+
 	if IsLetter(s.ch) {
-		if lit = s.scanIdentifier() ; len(lit) > 1 && s.ch != '/' && s.ch != '.' {
+		if lit = s.scanIdentifier(ctx); len(lit) > 1 && s.ch != '/' && s.ch != '.' && s.ch != '~' {
 			if tok = lookup_keyword(lit) ; !tok.is_keyword() && tok != WORD {
-				s.error(s.offset, "unexpected token '"+tok.String()+"' "+lit)
+				erro(pc(ctx,s), "unexpected token '%s' %s", tok, lit).trace()
 			}
 		} else {
 			tok = WORD
@@ -792,7 +759,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 
 	var ch, offs = s.ch, s.offset
 
-	s.next()
+	s.next(ctx)
 
 	if s.bits.isBraceRaw() {
 		tok, lit = RAW, string(ch)
@@ -800,18 +767,18 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 		switch ch {
 		case '\\':
 			if tok = ESCAPE; IsDigit(s.ch) {
-				_, lit = s.scanNumber(false)
+				_, lit = s.scanNumber(ctx, false)
 			} else {
 				lit = string(s.ch)
-				s.next() // escape a single char
+				s.next(ctx) // escape a single char
 			}
 		case '{':
 			s.push(isBraceRaw)
 		case '}':
 			if s.bits.isBrace() { tok, lit = RBRACE, "" }
 			if s.pop(isBrace|isBraceRaw); false {/* * */}
-			if s.bits.isBrace() && !s.bits.isBraceRaw() {
-				s.error(offs, fmt.Sprintf("wrong scanner states: tok=%v lit=%v", tok, lit))
+			if false && s.bits.isBrace() && !s.bits.isBraceRaw() {
+				erro(pc(ctx,s.pos(offs)), "wrong brace").trace()
 			}
 		}
 		return
@@ -824,23 +791,23 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 			lit = string(ch)
 		} else {
 			tok = COMMENT
-			lit = s.scanComment()
-			s.next() // discard '\n'
+			lit = s.scanComment(ctx)
+			s.next(ctx) // discard '\n'
 		}
 	case '!':
 		if tok = EXC; s.ch == '=' {
 			tok = ASSIGN_EXC
-			s.next()
+			s.next(ctx)
 		}
 	case '?':
 		if tok = QUE; s.ch == '=' {
 			tok = ASSIGN_QUE
-			s.next()
+			s.next(ctx)
 		}
 	case '+':
 		if tok = PLUS; s.ch == '=' {
 			tok = ASSIGN_ADD
-			s.next()
+			s.next(ctx)
 		}
 	case '-':
 		if s.ch == '-' { // "-->" => "-", "->"
@@ -851,48 +818,48 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 			}
 		} else if s.ch == '=' { // -=
 			tok = ASSIGN_SUB
-			s.next()
+			s.next(ctx)
 			if s.ch == '+' { // -=+
 				tok = ASSIGN_SSH
-				s.next()
+				s.next(ctx)
 			}
 		} else if s.ch == '+' { // -+
-			s.next()
+			s.next(ctx)
 			if s.ch == '=' { // -+=
 				tok = ASSIGN_SAD
-				s.next()
+				s.next(ctx)
 			} else {
 				tok = ILLEGAL
 			}
 		} else if s.ch == '>' {
 			tok = SELECT_PROP
-			s.next()
+			s.next(ctx)
 		} else if '0' <= s.ch && s.ch <= '9' {
-			tok, lit = s.scanNumber(false)
+			tok, lit = s.scanNumber(ctx, false)
 			lit = "-" + lit // minus number
 		} else {
 			tok = MINUS
 		}
 	case '\\':
 		tok, lit = ESCAPE, string(s.ch)
-		s.next() // eat escaped char
+		s.next(ctx) // eat escaped char
 		if s.bits&isRecipes != 0 && s.ch == '\t' {
-			s.next() // skip escaped recipe-tab
+			s.next(ctx) // skip escaped recipe-tab
 		}
 	case '\'':
 		if tok = STRING; s.ch == '\'' {
-			if s.next(); s.ch == '\'' { // '''
-				lit = s.scanStrliting(true)
+			if s.next(ctx); s.ch == '\'' { // '''
+				lit = s.scanStrliting(ctx, true)
 			} else if offs := s.offset - 2; false {
 				lit = string(s.src[offs:s.offset])
 			} else {
 				lit = "" // empty string ''
 			}
 		} else {
-			lit = s.scanStrliting(false)
+			lit = s.scanStrliting(ctx, false)
 		}
 	case '"':
-		if s.bits.isStrcompString() { s.error(offs, "composed") }
+		if s.bits.isStrcompString() { erro(pc(ctx,s.pos(offs)), "composed").trace() }
 		tok = STRCOMP
 		s.push(isStrcompString)
 	case '$', '&':
@@ -923,7 +890,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 		}
 		if CLOSURE < tok && tok <= CLOSURE__ {
 			lit = string(ch)
-			s.next() // eat special
+			s.next(ctx) // eat special
 		} else if ch == '(' || ch == '{' || ch == ':' {
 			s.push(isCall)
 		} else {
@@ -935,22 +902,22 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 		if s.bits.isCallZero() { s.bits |= isCallParen } else { s.push(isGroup) }
 	case ')':
 		tok, lit = RPAREN, string(ch)
-		if s.bits&(isCallParen|isGroup) == 0 { s.error(offs, "unexpected right-paren") }
+		if s.bits&(isCallParen|isGroup) == 0 { erro(pc(ctx,s.pos(offs)), "unexpected right-paren").trace() }
 		s.pop(isGroup|isCallParen)
 	case '{':
 		tok = LBRACE
 		if s.bits.isCallZero() { s.bits |= isCallBrace } else { s.push(isBrace) }
 	case '}':
 		tok = RBRACE
-		if s.bits&(isCallBrace|isBrace) == 0 { s.error(offs, "unexpected right-brace") }
+		if s.bits&(isCallBrace|isBrace) == 0 { erro(pc(ctx,s.pos(offs)), "unexpected right-brace").trace() }
 		s.pop(isBrace|isCallBrace)
 	case '=':
 		if s.ch == '>' { // =>
 			tok = SELECT_PROG1
-			s.next() // concume the '>'
+			s.next(ctx) // concume the '>'
 		} else if s.ch == '+' {
 			tok = ASSIGN_SHI
-			s.next()
+			s.next(ctx)
 		} else {
 			tok = ASSIGN
 		}
@@ -959,35 +926,35 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 			tok, lit = RECIPE, string(ch)
 			s.push(isStrcompLine)
 		} else {
-			for s.ch == ' ' || s.ch == '\t' { s.next() }
+			for s.ch == ' ' || s.ch == '\t' { s.next(ctx) }
 			tok, lit = SPACE, string(s.src[offs:s.offset])
 		}
 	case '~':
 		if s.ch == '>' { // ~>
 			tok = SELECT_PROG2
-			s.next() // concume the '>'
+			s.next(ctx) // concume the '>'
 		} else {
 			tok = TILDE
 		}
 	case '.':
 		if tok = DOT; s.ch == '.' {
 			tok = DOTDOT
-			s.next()
+			s.next(ctx)
 		} else if IsDigit(s.ch) {
 			if n := s.offset-2; n > -1 && unicode.IsSpace(rune(s.src[n])) { // skip xxx.1
-				tok, lit = s.scanNumber(true)
+				tok, lit = s.scanNumber(ctx, true)
 			}
 		}
 	case ':':
 		if s.ch == '=' {
 			tok = ASSIGN_CO1
-			s.next() // consume '='
+			s.next(ctx) // consume '='
 		} else if s.ch == ':' {
 			tok = DOLON
-			s.next() // consume the second ':'
+			s.next(ctx) // consume the second ':'
 			if s.ch == '=' {
 				tok = ASSIGN_CO2
-				s.next() // consume '='
+				s.next(ctx) // consume '='
 			}
 		} else {
 			tok = COLON
@@ -995,7 +962,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 	case '*':
 		if tok = STAR; s.ch == '*' {
 			tok = DAST
-			s.next() // consume the second '*'
+			s.next(ctx) // consume the second '*'
 		}
 	case '%':
 		tok = PERC
@@ -1018,9 +985,9 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 	case '⩴':
 		tok = ASSIGN_CO2
 	case ';':
-		if s.ch == '=' { tok = ASSIGN_SC1 ; s.next() } else
-		if s.ch == ':' { tok = SOLON      ; s.next()
-			if s.ch == '=' { tok = ASSIGN_CO3 ; s.next() }
+		if s.ch == '=' { tok = ASSIGN_SC1 ; s.next(ctx) } else
+		if s.ch == ':' { tok = SOLON      ; s.next(ctx)
+			if s.ch == '=' { tok = ASSIGN_CO3 ; s.next(ctx) }
 		} else {
 			tok = SEMICOLON
 		}
@@ -1039,7 +1006,7 @@ func (s *scanner) scan() (pos Pos, tok token, lit string) {
 		if s.pop(isStrcompLine); s.ch != '\t' { s.bits &^= isRecipes }
 	default:
 		// next reports unexpected BOMs - don't repeat
-		if ch != bom { s.error(s.file.Offset(pos), fmt.Sprintf("illegal %#U", ch)) }
+		if ch != bom { erro(pc(ctx,s.pos(s.file.Offset(pos))), "illegal %#U", ch).trace() }
 		tok = ILLEGAL
 		lit = string(ch)
 	}

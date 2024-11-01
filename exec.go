@@ -466,7 +466,7 @@ func (p *exec_result) String() string {
 }
 
 type exec_opts struct {
-  generalOpts
+  generalopts
   logFileName *fullname "log"
   forRecipe Value `forrecipe,forrecipes,for-recipe,for-recipes`
   forStdout Value `forstdout,for-stdout,for-out`
@@ -753,9 +753,9 @@ func (p *exec_context) check() (err error) {
 
     if p.retStatus {
       if p.zeroErrs && en == 0 && err == nil {
-        p.vals = append(p.vals, makeDecimal(p.logPos, int64(p.Status)))
+        p.vals = append(p.vals, _decimal(p.logPos, int64(p.Status)))
       } else {
-        p.vals = append(p.vals, makeNone(p.logPos))
+        p.vals = append(p.vals, _none(p.logPos))
       }
     } else if p.Status != 0 || err != nil {
       // break
@@ -796,7 +796,7 @@ func (ctx *exec_context) exec(cmd, opt string) {
     ctx.x = nil
 
     // Stamp the target file.
-    if ctx.stamp && !isConfigure(ctx) {
+    if ctx.stamp && !is_configurecontext(ctx) {
       var files = ctx.target.stamp(files_must_stamp{ctx})
       if !ctx.prompt && ctx.report { reportFileUpdates(ctx, files) }
     }
@@ -903,53 +903,53 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
   var (
     pos = _position(ctx)
-    exe = &exec_context{Context:ctx, current:-1, x:p}
+    ec = &exec_context{Context:ctx, current:-1, x:p}
     cmd = p.cmd
   )
   defer func() {
-    exe.Stdout.exec_context = nil
-    exe.Stderr.exec_context = nil
+    ec.Stdout.exec_context = nil
+    ec.Stderr.exec_context = nil
   }()
 
-  exe.scanStderr = true
-  exe.exec_result.position = pos
-  args = parseOpts(ctx, &exe.exec_opts, args...)
+  ec.scanStderr = true
+  ec.exec_result.position = pos
+  args = parse_opts(ctx, &ec.exec_opts, args...)
 
-  if exe.deprecated {
+  if ec.deprecated {
     erro(ctx, "deprecated args: -v (-to), -w (-te), -a (-se), -d (-t)").trace()
-  } else if d := exe.debug; false && d>0 { defer func() {
-    note(ctx, "%v: %v (%v)", _entry(ctx), exe.target.Value, result).debug(d)
+  } else if d := ec.debug; false && d>0 { defer func() {
+    note(ctx, "%v: %v (%v)", _entry(ctx), ec.target.Value, result).debug(d)
   }()}
 
-  if !exe.prompt { exe.prompt = exe.promStr != "" }
+  if !ec.prompt { ec.prompt = ec.promStr != "" }
 
-  switch exe.tie {
-  case "stdout", "out" : exe.tieStdout = true
-  case "stderr", "err" : exe.tieStderr = true
-  case "all"   , "both": exe.tieStdout, exe.tieStderr = true, true
+  switch ec.tie {
+  case "stdout", "out" : ec.tieStdout = true
+  case "stderr", "err" : ec.tieStderr = true
+  case "all"   , "both": ec.tieStdout, ec.tieStderr = true, true
   }
 
-  var pc = _execution(ctx)
-  var program = _program(pc)
-  if exe.target.Value = getTargetValue(ctx); program == nil {
+  var exe = _execution(ctx)
+  var program = _program(exe)
+  if ec.target.Value = getTargetValue(ctx); program == nil {
     erro(ctx, "needs program context to exec: %v", ctx).trace()
-  } else if exe.stamp && exe.target.patterned(ctx) {
-    errostack(ctx, 5, "target is pattern: %v", exe.target).trace()
-  } else if _, ok := exe.target.Value.(flag); ok {
+  } else if ec.stamp && ec.target.patterned(ctx) {
+    errostack(ctx, 5, "target is pattern: %v", ec.target).trace()
+  } else if _, ok := ec.target.Value.(flag); ok {
     // no stamp required for Flags
-  } else if _, ok = to_file(exe.target.Value); !ok {
+  } else if _, ok = to_file(ec.target.Value); !ok {
     // no stamp required for non-file targets
-  } else if exe.targetName, _ = exe.target.fullnameOrFinal(ctx); isConfigure(exe) {
+  } else if ec.targetName, _ = ec.target.fullnameOrFinal(ctx); is_configurecontext(ec) {
     // does nothing
-  } else if exe.waitRes {
+  } else if ec.waitRes {
     // good to work without (stamp) or (wait) with the -wait flag
   } else if m := program.getModifiers(ctx, "wait"); len(m) > 0 {
     // should be good to work
-  } else if t := exe.target.Value; !(exe.stamp || exe.noStamp || exe.silentErrs) {
+  } else if t := ec.target.Value; !(ec.stamp || ec.noStamp || ec.silentErrs) {
     warn(ctx, "add -stamp or -nostamp to (shell); target=%v(%v)", typeof(t), t).debug()
   }
 
-  if (exe.retStdout && exe.retStatus) || (exe.retStderr && exe.retStatus) {
+  if (ec.retStdout && ec.retStatus) || (ec.retStderr && ec.retStatus) {
     erro(ctx, "cannot have both status and stdout|stderr at the same time (try -so or -se)").trace()
   }
 
@@ -957,28 +957,28 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     if p.contained && i == 0 {
       if s = v.string(ctx); s == "shell" { cmd = defaultShell }
     } else if s = strings.TrimSpace(v.string(ctx)); s != "" {
-      exe.args = append(exe.args, s)
+      ec.args = append(ec.args, s)
     }
   }
 
   if p.contained {
     if program.project.name == dot_container {
-      exe.container = program.project
+      ec.container = program.project
     } else if _, sym := program.project.find(dot_container); sym != nil {
-      exe.container = sym.(*project)
+      ec.container = sym.(*project)
     }
 
-    if exe.container == nil {
+    if ec.container == nil {
       erro(ctx, "container unavailable (in %s)", program.project.name).trace()
     }
 
     var stringify = func(name string) (str string) {
-      var ctx = closure_with(ctx, exe.container.scope)
-      if obj := exe.container.resolve(ctx, name); obj != nil {
+      var ctx = closure_with(ctx, ec.container.scope)
+      if obj := ec.container.resolve(ctx, name); obj != nil {
         if d, _ := obj.(*def); d != nil {
           if v := d.invoke(ctx, nil, nil); v != nil {
             if str = v.string(ctx); str == "-" {
-              /*if v, err = def.DiscloseValue(exe.container); err == nil && v != nil {
+              /*if v, err = def.DiscloseValue(ec.container); err == nil && v != nil {
                   if str, err = v.string(ctx); str == "" { str = "-" }
                   prompt(ctx, "%v: %v (%v)\n", name, str, def)
                 }*/
@@ -1000,23 +1000,23 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     }
 
     if uni.verbose {
-      prompt(ctx, "%v: container=%v, image=%v\n", exe.container, containerName, containerImage)
+      prompt(ctx, "%v: container=%v, image=%v\n", ec.container, containerName, containerImage)
     }
 
-    exe.args = append(exe.args, "exec", containerName, cmd)
+    ec.args = append(ec.args, "exec", containerName, cmd)
     cmd = "docker"
   }
 
   // FIXME: work directory conflicts sometimes even the 'sh.Dir' is set to cwd.
   // Because the current work directory is not thread safe.
-  if exe._workdir == "" {
-    if exe._workdir = program.workdir(ctx); exe._workdir == "" {
+  if ec._workdir == "" {
+    if ec._workdir = program.workdir(ctx); ec._workdir == "" {
       erro(ctx, "CWD is empty").trace()
     }
   }
 
-  if exe.path { var s string
-    if s = filepath.Dir(exe.targetName); s != "" && s != "." && s != "/" {
+  if ec.path { var s string
+    if s = filepath.Dir(ec.targetName); s != "" && s != "." && s != "/" {
       if err := os.MkdirAll(s, os.FileMode(0755)); err != nil {
         erro(ctx, "make path '%s' for target failed: %v", s, err).trace()
       }
@@ -1026,7 +1026,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   var ac *automatic
   var a1 *strlit
   var a2 *decimal
-  if exe.forRecipe != nil {
+  if ec.forRecipe != nil {
     a1, a2 = &strlit{}, &decimal{}
     ac = &automatic{Context:ctx, defs:make(defs_map)}
     ac.args(ac.Context, []Value{a1, a2})
@@ -1035,10 +1035,15 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   var source string
   var recipePos Position
   for i, recipe := range program.recipes {
-    if recipe = recipe.expand(ctx); !fixEvokedFullnames && exe.fullname {
+    var t = recipe
+    if recipe = recipe.expand(ctx); !fixEvokedFullnames && ec.fullname {
       // NOTE: do a second expand for fullname because delegate to file skipped
       //       fullname expansion (FIXME: fixEvokedFullnames)
-      recipe = recipe.expand(expandFullFile{ctx})
+      recipe = recipe.expand(fullfile_ctx{ctx})
+    }
+
+    if strings.HasSuffix(ec.targetName, ".log") {
+      note(pc(ctx,recipe), "%v %v", t, recipe).debug()
     }
 
     if !recipePos.IsValid() { recipePos = recipe.Position() }
@@ -1073,21 +1078,21 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     // Remove tabs in line breakings.
     source = strings.Replace(source, "\\\n\t", "\\\n", -1)
 
-    if exe.correction {
-      source = correctCommandFlags(ctx, source, exe.warnCorrection)
+    if ec.correction {
+      source = correctCommandFlags(ctx, source, ec.warnCorrection)
     }
 
-    if exe.forRecipe != nil {
+    if ec.forRecipe != nil {
       a1.position, a1.s = recipePos, source
-      a2.position, a2.int64 = recipePos, int64(len(exe.sources)+1)
+      a2.position, a2.int64 = recipePos, int64(len(ec.sources)+1)
       ac.Context = ctx
-      if val := exe.forRecipe.expand(final{ac}); false && val != nil {
+      if val := ec.forRecipe.expand(final{ac}); false && val != nil {
         for i := 0; indeterminate(ac, val); i += 1 {
           if i < max_evoke { val = val.expand(final{ac}) } else {
-            erro(ctx, "%v → %v", exe.forRecipe, val).trace()
+            erro(ctx, "%v → %v", ec.forRecipe, val).trace()
           }
         }
-        if false { note(ctx, "%v → %v", exe.forRecipe, val).debug() }
+        if false { note(ctx, "%v → %v", ec.forRecipe, val).debug() }
       }
     }
 
@@ -1095,40 +1100,40 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
       x(ctx, source, recipe)
     }
 
-    exe.sources = append(exe.sources, &raw{valbase{recipePos}, source})
+    ec.sources = append(ec.sources, &raw{valbase{recipePos}, source})
     recipePos, source = Position{}, ""
   }
 
-  if len(program.recipes) > 0 && len(exe.sources) == 0 {
+  if len(program.recipes) > 0 && len(ec.sources) == 0 {
     erro(ctx, "empty recipes: %v", program.recipes).trace()
   }
 
   if true {
-    exe.exec(cmd, p.opt)
+    ec.exec(cmd, p.opt)
   } else {
-    go exe.exec(cmd, p.opt)
+    go ec.exec(cmd, p.opt)
   }
 
   // Add stdout result
-  if exe.retStdout {
+  if ec.retStdout {
     var s string
-    if exe.Stdout.Buf != nil { s = exe.Stdout.Buf.String() }
-    exe.vals = append(exe.vals, _strlit(pos, s))
+    if ec.Stdout.Buf != nil { s = ec.Stdout.Buf.String() }
+    ec.vals = append(ec.vals, _strlit(pos, s))
   }
 
   // Add stderr result
-  if exe.retStderr {
+  if ec.retStderr {
     var s string
-    if exe.Stderr.Buf != nil { s = exe.Stderr.Buf.String() }
-    exe.vals = append(exe.vals, _strlit(pos, s))
+    if ec.Stderr.Buf != nil { s = ec.Stderr.Buf.String() }
+    ec.vals = append(ec.vals, _strlit(pos, s))
   }
 
   // The execution is performed asynchronously, the result can't be fetched immediately.
-  // Caller should do a t.wait(...) or exe.wait() before using the result.
-  if exe.vals == nil {
-    result = &exe.exec_result
+  // Caller should do a t.wait(...) or ec.wait() before using the result.
+  if ec.vals == nil {
+    result = &ec.exec_result
   } else {
-    result = ease(ctx, exe.vals)
+    result = ease(ctx, ec.vals)
   }
   return
 }

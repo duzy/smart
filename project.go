@@ -525,7 +525,7 @@ func (p *project) resolve(ctx Context, name string) (obj object) {
 func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) {
   entries = p.unmap_entries(ctx, name, nil)
 
-  if false && p.configure != nil && isConfigure(ctx) {
+  if false && p.configure != nil && is_configurecontext(ctx) {
     entries = append(entries, p.configure._entries(ctx, name, true)...)
   }
 
@@ -653,7 +653,7 @@ func (p *project) resolvePatterns2(ctx Context, val Value, s string) (res []*ste
     var a, _, _ = base.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
   }
-  if p.configure != nil && isConfigure(ctx) {
+  if p.configure != nil && is_configurecontext(ctx) {
     var a, _, _ = p.configure.resolvePatterns123(ctx, val, s)
     res = append(res, a...)
   }

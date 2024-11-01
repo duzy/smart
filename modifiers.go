@@ -27,7 +27,7 @@ import (
 )
 
 // NOTE: all single character opt names/shortcuts should be preserved for general purposes.
-type generalOpts struct {
+type generalopts struct {
     debug    int  `d,db,dbg,debug` // NOTE: compatible with 'bool'
     stack    int  `stack,stacknum,stack-num,stack-number`
     fail     bool `fail` // fail on errors
@@ -39,7 +39,7 @@ type generalOpts struct {
     warning  bool `warn,warning` // prompts more warnings
 }
 
-type modifier_ struct { Context ; generalOpts }
+type modifier_ struct { Context ; generalopts }
 type modifier_v interface{ v(...Value) any }
 type modifier_x interface{ x(...Value) any }
 type modifier_y interface{ x(*execution, ...Value) any }
@@ -264,7 +264,7 @@ func (g *modification) String() (s string) {
     s = "{"
     for i, m := range g.list {
         if i > 0 { s += " " }
-        s += m.String()
+        if m != nil { s += m.String() }
     }
     s += "}"
     return
@@ -368,7 +368,7 @@ func (ctx *modifier_print) x(args ...Value) (result any) {
     if val := auto_get(ctx, "-"); val != nil { content = val.string(ctx) }
     if ctx.stdout { fmt.Fprint(stdout, content) }
     if ctx.stderr { fmt.Fprint(stderr, content) }
-    if ctx.reset  { auto_set(ctx, defVoid, "-", makeNone(_position(ctx))) }
+    if ctx.reset  { auto_set(ctx, defVoid, "-", _none(_position(ctx))) }
     return
 }
 
@@ -511,7 +511,7 @@ type modifier_setDirtyPats struct { modifier_
 }
 func (ctx *modifier_setDirtyPats) x(args ...Value) (result any) {
     var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
-    if y { ctx.pats = parseOpts(final{ctx}, opts, args...) }
+    if y { ctx.pats = parse_opts(final{ctx}, opts, args...) }
     return
 }
 
@@ -610,8 +610,6 @@ type modifier_cd struct{ modifier_
     printLeave bool `print-leave`
 }
 func (ctx *modifier_cd) x(args ...Value) (result any) {
-    // if false && ctx.printEnter { promptEnteringDirectory(ctx) }
-    // if false && ctx.printLeave { promptLeavingDirectory(ctx) }
     if (ctx.printEnter || ctx.printLeave) && len(args) == 0 { return }
     if len(args) == 1 {
         var dir = args[0].string(ctx)
@@ -1368,7 +1366,7 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
     pc.grepped = grepped
 
     if !gc.noTraverse {
-        auto_set(ctx.Context, defVoid, "~", makeNone(_position(ctx)))
+        auto_set(ctx.Context, defVoid, "~", _none(_position(ctx)))
         pc.grepped = nil
     } else {
         result = ease(ctx, pc.grepped)
@@ -1779,11 +1777,11 @@ func (ctx *modifier_check) x(args ...Value) (result any) {
         res bool
     )
 
-    if ctx.answer { makeResult = func(v bool) Value { return makeAnswer(pos, v) } }
+    if ctx.answer { makeResult = func(v bool) Value { return _answer(pos, v) } }
     if makeResult == nil && ( ctx.boolean ||
         (ctx.file != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
         (ctx.dir  != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
-        (ctx.silent)) { makeResult = func(v bool) Value { return makeBoolean(pos, v) } }
+        (ctx.silent)) { makeResult = func(v bool) Value { return _boolean(pos, v) } }
 
     var checkFile = func (val Value, dir bool) {
         var ( s string; f *file )
@@ -2483,8 +2481,6 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
         return
     }
 
-    // if false { promptEnteringDirectory(ctx) }
-
     // Create or update the file with new content
 
     var (
@@ -2559,8 +2555,8 @@ func (ctx *modifier_wait) x(args ...Value) (result any) {
         if b := execRes.Stdout.Buf; b != nil { s = b.String() }
         if ctx.trim { s = strings.TrimSpace(s) }
         switch ctx.asType {
-        case "answer": v = makeAnswer (pos,(s == "yes"))
-        case "bool":   v = makeBoolean(pos,(s == "true"))
+        case "answer": v = _answer (pos,(s == "yes"))
+        case "bool":   v = _boolean(pos,(s == "true"))
         default:       v = _strlit(pos,s)
         }
         a = append(a, v)
@@ -2570,15 +2566,15 @@ func (ctx *modifier_wait) x(args ...Value) (result any) {
         if b := execRes.Stderr.Buf; b != nil { s = b.String() }
         if ctx.trim { s = strings.TrimSpace(s) }
         switch ctx.asType {
-        case "answer": v = makeAnswer (pos,(s == "yes"))
-        case "bool":   v = makeBoolean(pos,(s == "true"))
+        case "answer": v = _answer (pos,(s == "yes"))
+        case "bool":   v = _boolean(pos,(s == "true"))
         default:       v = _strlit(pos,s)
         }
         a = append(a, v)
     }
     if ctx.status {
         // TODO: warn(ctx, "deprecated (wait -status), use (shell -status) instead; %v", execRes).debug()
-        a = append(a, makeDecimal(pos,int64(execRes.Status)))
+        a = append(a, _decimal(pos,int64(execRes.Status)))
     }
 
     if len(a) > 0 { result = ease(ctx, a) }
@@ -2680,7 +2676,7 @@ func (ctx *modifier_cond) x(args ...Value) (result any) {
             panic(traverse_state{_position(ctx),traverse_done})
         }
     }
-    return makeBoolean(_position(ctx), true)
+    return _boolean(_position(ctx), true)
 }
 
 type modifier_case struct { modifier_ }
