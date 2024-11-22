@@ -2,9 +2,9 @@ project testvalue
 
 #TEST: compound compares with flag
 .test.foo := -
-assert $(equal(-d) $(.test.foo)foobar,-foobar)
-assert $(equal(-d) -foobar,$(.test.foo)foobar)
+assert $(equal $(.test.foo)foobar,-foobar)
+assert $(equal -foobar,$(.test.foo)foobar)
 
 .test.foo := -foo
-assert $(equal(-d) $(.test.foo)bar,-foobar)
-assert $(equal(-d) -foobar,$(.test.foo)bar)
+assert $(equal $(.test.foo)bar,-foobar)
+assert $(equal -foobar,$(.test.foo)bar)

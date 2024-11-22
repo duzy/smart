@@ -99,10 +99,10 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	return
 }
 
+func (tc *testcase) inner() Context { return tc.Context }
+func (tc *testcase) cast(t reflect.Type) Context { return icast(tc,t) }
+func (tc *testcase) ts(string) string { return "{=test "+tc.spec+" "+ts(tc.Context)+"}" }
 func (tc *testcase) String() string { return ts(tc.Context) }
-func (tc *testcase) ts(string) string {
-	return "{=test "+tc.spec+" "+ts(tc.Context)+"}"
-}
 func (tc *testcase) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_test_mode: return test_mode
@@ -193,7 +193,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		case test_def_1: origin = defExpand1
 		case test_def_2: origin = defExpand2
 		case test_def_3: origin = defExpand3
-		case test_final: ctx = final{ctx}
+		case test_final: ctx = _final(ctx)
 		case   *project: proj, ctx = t, closure_with(ctx, t.scope)
 		case    skipint: s.int = t.int+1
 		case       opt : o = append(o, t.Value)
@@ -347,7 +347,7 @@ func va(ctx Context, i any) (v Value) {
     case uint16:  v = _decimal(_position(ctx), int64(t))
     case uint32:  v = _decimal(_position(ctx), int64(t))
     case uint64:  v = _decimal(_position(ctx), int64(t))
-	case   bare:  v = _word(_position(ctx), string(t))
+	case   bare:  v =    _word(_position(ctx), string(t))
     case string:
         if t == "" {
             v = _none(_position(ctx))
@@ -355,22 +355,22 @@ func va(ctx Context, i any) (v Value) {
             v = _word(_position(ctx), t)
         }
     case []string:
-        var l = _list()
+        var elems []Value
         for _, s := range t {
             if s == "" {
                 v = _none(_position(ctx))
             } else {
                 v = _word(_position(ctx), s)
             }
-            l.elems = append(l.elems, v)
+            elems = append(elems, v)
         }
-        v = l
+        v = _list(elems...)
     case []any:
-        var l = _list()
-        for _, i := range t { l.elems = append(l.elems, va(ctx, i)) }
-        v = l
+        var elems []Value
+        for _, i := range t { elems = append(elems, va(ctx, i)) }
+        v = _list(elems...)
     case nil:
-        v = makeNull(_position(ctx))
+        v = _null(_position(ctx))
     default:
         erro(ctx, "%v", ts(i)).trace()
     }
@@ -401,6 +401,12 @@ type (
 )
 
 func Test(t *testing.T) {
+	// context_test.go
+	t.Run("context", testInner)
+
+	// position_test.go
+	t.Run("position", testPositionExample)
+
 	// scanner_test.go
 	// t.Run("scanner", testInit)
 	// t.Run("scanner", testStrings)
@@ -412,9 +418,6 @@ func Test(t *testing.T) {
 	// t.Run("scanner", testCalls)
 	// t.Run("scanner", testRules)
 	// t.Run("scanner", testProgConstructs)
-
-	// position_test.go
-	t.Run("position", testPositionExample)
 
 	// parser_test.go
 	t.Run("parser", testParseFile)

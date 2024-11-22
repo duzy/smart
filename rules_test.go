@@ -5,8 +5,42 @@
 //
 package smart
 
+import (
+	"strings"
+)
+
 func testRules0(ctx *testcase) {
 	var p = _project(ctx)
+
+	if d := ctx.def("items"); d == nil {
+		ctx.err("items")
+	} else if s, t := "{=list {=word a} {=word b} {=word c}}", ts(d.value); s != t {
+		ctx.err("%v: %s != %s", d.value, s, t)
+	} else if s, t := "a b c", d.value.String(); s != t {
+		ctx.err("%v: %s != %s", d.value, s, t)
+	}
+
+	if d := ctx.def("line"); d == nil {
+		ctx.err("line")
+	} else if s, t := "{=list {=plainline {=raw foo } {=delegate {=auto 1}} {=raw 	}} {=word bar}}", ts(d.value); s != t {
+		ctx.err("%v: %s != %s", d.value, s, t)
+	} else if s, t := "{=plainline foo $1	} bar", d.value.String(); s != t {
+		ctx.err("%v: %s != %s", d.value, s, t)
+	} else if s, t := "foo 	\nbar", d.value.string(ctx); s != t {
+		t = strings.ReplaceAll(t, "\n", `\n`)
+		s = strings.ReplaceAll(s, "\n", `\n`)
+		ctx.err("%v: %s != %s", d.value, t, s)
+	}
+
+	if d := ctx.def("lines"); d == nil {
+		ctx.err("lines")
+	} else if s, t := "{=list {=plainline {=raw line-} {=word foo}} {=plainline {=raw line-} {=word bar}}}", ts(d.value); s != t {
+		ctx.err("%v: %s != %s", d.value, s, t)
+	} else if s, t := "{=plainline line-foo} {=plainline line-bar}", d.value.String(); s != t {
+		ctx.err("%v: %s != %s", d.value, s, t)
+	} else if s, t := "line-foo\nline-bar\n", d.value.string(ctx); s != t {
+		ctx.err("%v: %s != %s", d.value, s, t)
+	}
 
 	if p.entries.puncs == nil {
 		ctx.err("%v", ts(&p.entries))
@@ -42,6 +76,17 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v", tst{x.a[0]})
 		} else if len(z.program) != 1 {
 			ctx.err("%v", ts(z.program))
+		}
+		for _, tag := range []string{"x","y","z","xx","yy","zz","xxx","yyy","zzz"} {
+			if x, y := p.entries.words["rule-"+tag]; !y {
+				ctx.err("%v", p.entries.words)
+			} else if len(x.a) != 1 {
+				ctx.err("%v", ts(x))
+			} else if z, y := x.a[0].(*rule); !y {
+				ctx.err("%v", tst{x.a[0]})
+			} else if len(z.program) != 1 {
+				ctx.err("%v", ts(z.program))
+			}
 		}
 	}
 
@@ -112,11 +157,99 @@ func testRules0(ctx *testcase) {
 	if r == nil {
 		ctx.err(s)
 	} else if len(r) != 1 {
-		ctx.err("%v", tst{r})
+		ctx.err("%v", r)
 	} else if v := _evoke_(ctx, r[0], bare("xxyzz")); v == nil {
-		ctx.err("%v", tst{r})
-	} else if ts(v) != "{=plain(text) {=word xxyzz}}" {
-		ctx.err("%v", tst{v})
+		ctx.err("%v", r[0])
+	} else if s, t := "{=plain(text) xxyzz}", v.String(); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := "{=plain(text) {=word xxyzz}}", ts(v); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	}
+
+	for _, tag := range []string{"x", "y", "z"} {
+		s = "rule-"+tag
+		r = ctx.rule(s)
+		if r == nil {
+			ctx.err("no such %s; %v", s, p.entries)
+		} else if len(r) != 1 {
+			ctx.err("%v", r)
+		} else if recipes := r[0].programs()[0].recipes; len(recipes) != 1 {
+			ctx.err("%v", recipes)
+		} else if s, t := "", recipes[0].string(ctx); s != t {
+			ctx.err("%v : %s != %s", recipes[0], t, s)
+		} else if s, t := "{=plainline $(foreach $(ARGS),arg-$_)}", recipes[0].String(); s != t {
+			ctx.err("%v : %s != %s", recipes[0], t, s)
+		} else if s, t := "{=plainline {=delegate {=builtin foreach} {=list {=delegate {=auto ARGS}}} {=list {=compound {=word arg-} {=delegate {=auto _}}}}}}", ts(recipes[0]); s != t {
+			ctx.err("%v : %s != %s", recipes[0], t, s)
+		} else if v := _evoke_(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
+			ctx.err("%v", r[0])
+		} else if s, t := "{=plain(text) $(foreach aa bb cc,arg-$_)}", v.String(); s != t {
+			ctx.err("%v : %s != %s", v, t, s)
+		} else if s, t := "{=plain(text) {=delegate {=builtin foreach} {=list {=list {=word aa} {=word bb} {=word cc}}} {=list {=compound {=word arg-} {=delegate {=auto _}}}}}}", ts(v); s != t {
+			ctx.err("%v : %s != %s", v, t, s)
+		} else if s, t := "arg-aa arg-bb arg-cc", v.string(ctx); s != t {
+			t = strings.ReplaceAll(t, "\n", `\n`)
+			s = strings.ReplaceAll(s, "\n", `\n`)
+			ctx.err("%v : %s != %s", v, t, s)
+		}
+	}
+
+	for _, tag := range []string{"xx", "yy", "zz"} {
+		s = "rule-"+tag
+		r = ctx.rule(s)
+		if r == nil {
+			ctx.err("no such %s; %v", s, p.entries)
+		} else if len(r) != 1 {
+			ctx.err("%v", r)
+		} else if recipes := r[0].programs()[0].recipes; len(recipes) != 1 {
+			ctx.err("%v", recipes)
+		} else if s, t := "{=plainline $(foreach $(ARGS),{=plainline arg-$_})}", recipes[0].String(); s != t {
+			ctx.err("%v : %s != %s", recipes[0], t, s)
+		} else if s, t := "{=plainline {=delegate {=builtin foreach} {=list {=delegate {=auto ARGS}}} {=list {=plainline {=raw arg-} {=delegate {=auto _}}}}}}", ts(recipes[0]); s != t {
+			ctx.err("%v : %s != %s", recipes[0], t, s)
+		} else if v := _evoke_(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
+			ctx.err("%v", r[0])
+		} else if s, t := "{=plain(text) $(foreach aa bb cc,{=plainline arg-$_})}", v.String(); s != t {
+			ctx.err("%v : %s != %s", v, t, s)
+		} else if s, t := "{=plain(text) {=delegate {=builtin foreach} {=list {=list {=word aa} {=word bb} {=word cc}}} {=list {=plainline {=raw arg-} {=delegate {=auto _}}}}}}", ts(v); s != t {
+			ctx.err("%v : %s != %s", v, t, s)
+		} else if s, t := "{=plain(text) $(foreach aa bb cc,{=plainline arg-$_})}", v.String(); s != t {
+			ctx.err("%v : %s != %s", v, t, s)
+		} else if s, t := "{=plain(text) {=delegate {=builtin foreach} {=list {=list {=word aa} {=word bb} {=word cc}}} {=list {=plainline {=raw arg-} {=delegate {=auto _}}}}}}", ts(v); s != t {
+			ctx.err("%v : %s != %s", v, t, s)
+		} else if s, t := "arg-aa\narg-bb\narg-cc\n", v.string(ctx); s != t {
+			t = strings.ReplaceAll(t, "\n", `\n`)
+			s = strings.ReplaceAll(s, "\n", `\n`)
+			ctx.err("%v : %s != %s", v, t, s)
+		}
+	}
+
+	for _, tag := range []string{"xxx", "yyy", "zzz"} {
+		s = "rule-"+tag
+		r = ctx.rule(s)
+		if r == nil {
+			ctx.err("no such %s; %v", s, p.entries)
+		} else if len(r) != 1 {
+			ctx.err("%v", r)
+		} else if recipes := r[0].programs()[0].recipes; len(recipes) != 3 {
+			ctx.err("%v", recipes)
+		} else if s, t := "{=plainline {=compound {=word arg-} {=word a}}}", ts(recipes[0]); s != t {
+			ctx.err("%v : %s != %s", recipes[0], t, s)
+		} else if s, t := "{=plainline {=compound {=word arg-} {=word b}}}", ts(recipes[1]); s != t {
+			ctx.err("%v : %s != %s", recipes[1], t, s)
+		} else if s, t := "{=plainline {=compound {=word arg-} {=word c}}}", ts(recipes[2]); s != t {
+			ctx.err("%v : %s != %s", recipes[2], t, s)
+		} else if v := _evoke_(ctx, r[0], bare("aa"), bare("bb"), bare("cc")); v == nil {
+			ctx.err("%v", r[0])
+		} else if s, t := "arg-a\narg-b\narg-c\n", v.string(ctx); s != t {
+			t = strings.ReplaceAll(t, "\n", `\n`)
+			s = strings.ReplaceAll(s, "\n", `\n`)
+			ctx.err("%v : %s != %s", v, t, s)
+		} else if s, t := "{=plain(text) {=plainline arg-a} {=plainline arg-b} {=plainline arg-c}}", v.String(); s != t {
+			ctx.err("%v : %s != %s", v, t, s)
+		} else if s, t := "{=plain(text) {=plainline {=compound {=word arg-} {=word a}}} {=plainline {=compound {=word arg-} {=word b}}} {=plainline {=compound {=word arg-} {=word c}}}}", ts(v); s != t {
+			ctx.err("%v : %s != %s", v, t, s)
+		}
 	}
 }
 
@@ -339,7 +472,7 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%v", r)
 	} else if ts(v) != "{=delegate {=builtin debug} {=list {=word b} {=word a}}}" {
 		ctx.err("%v", tst{v})
-	} else if v := _evoke_(final{ctx}, r[0], "a", "b"); v == nil {
+	} else if v := _evoke_(_final(ctx), r[0], "a", "b"); v == nil {
 		ctx.err("%v", r)
 	} else if ts(v) != "{=null}" {
 		ctx.err("%v", tst{v})

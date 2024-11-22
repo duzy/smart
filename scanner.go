@@ -26,16 +26,16 @@ const (
 	isBraceRaw       // 0000001000000000                   512
 	isBracedPlain    // 0000010000000000                  1024
 	isRecipes        // 0000100000000000                  2048
-	isRecipeTab      // 000100000000000 \t                4096
-	isHashValid      // 001000000000000 scan '#' as HASH token (commentsOff)
-	isMaximumBit     // 1000000000000000                  8192
+	isRecipeTab      // 0001000000000000 \t                4096
+	isHashValid      // 0010000000000000 scan '#' as HASH token (commentsOff)
+	isMaximumBit     // 1000000000000000                   8192
 )
 
 type scanstate struct {
 	ch         rune  // current character
 	offset     int   // character offset
-	readOffset int   // reading offset (position after current character)
-	lineOffset int   // current line offset
+	offsetRead int   // reading offset (position after current character)
+	offsetLine int   // current line offset
 	bitss []scanbits // scan bits stack
 	bits    scanbits // scan bits
 }
@@ -48,7 +48,7 @@ func (s scanstate) String() string {
 	default: t = string(s.ch)
 	}
 	return fmt.Sprintf("{=scan %s {%v %v %v} %016b %016b}",
-		t, s.lineOffset, s.offset, s.readOffset, s.bitss, s.bits)
+		t, s.offsetLine, s.offset, s.offsetRead, s.bitss, s.bits)
 }
 
 func (s *scanstate) push(bits scanbits) (prev scanbits) {
@@ -96,7 +96,7 @@ func (s *scanstate) recipes(v bool) {
 }
 
 func (s *scanstate) canRecipe() (res bool) {
-	if t := s.bits; (s.lineOffset == s.offset-1) && t.canRecipe() {
+	if t := s.bits; (s.offsetLine == s.offset-1) && t.canRecipe() {
 		res = !t.is(isCallParen|isCallBrace|isCallColonL|isCallColonR|isGroup)
 	}
 	return
@@ -123,8 +123,6 @@ type scanner struct { // immutable state
 	dir  string       // directory portion of file.Name()
 	src  []byte       // source
 	mode scanmode     // scanning mode
-
-	// scanning state
 	scanstate
 }
 
@@ -133,19 +131,19 @@ type scanner struct { // immutable state
 func (s *scanner) next(ctx Context) {
 	var newline = s.ch == '\n'
 
-	if s.readOffset < len(s.src) {
-		s.offset = s.readOffset
+	if s.offsetRead < len(s.src) {
+		s.offset = s.offsetRead
 		if s.ch == '\n' {
-			s.lineOffset = s.offset
+			s.offsetLine = s.offset
 			s.file.AddLine(s.offset)
 		}
 		var w int
-		s.ch, w = s.pick(ctx, s.readOffset)
-		s.readOffset += w
+		s.ch, w = s.pick(ctx, s.offsetRead)
+		s.offsetRead += w
 	} else {
 		s.offset = len(s.src)
 		if s.ch == '\n' {
-			s.lineOffset = s.offset
+			s.offsetLine = s.offset
 			s.file.AddLine(s.offset)
 		}
 		s.ch = -1 // eof
@@ -161,7 +159,7 @@ func (s *scanner) next(ctx Context) {
 }
 
 func (s *scanner) pickNext(ctx Context) (ch rune, w int) {
-	if n := s.readOffset + 1; n < len(s.src) { ch, w = s.pick(ctx, n) }
+	if n := s.offsetRead + 1; n < len(s.src) { ch, w = s.pick(ctx, n) }
 	return
 }
 
@@ -241,8 +239,8 @@ func (s *scanner) init(ctx Context, file *tokfile, src []byte, mode scanmode) {
 
 	s.ch = ' '
 	s.offset = 0
-	s.readOffset = 0
-	s.lineOffset = 0
+	s.offsetRead = 0
+	s.offsetLine = 0
 	s.bits = 0
 	s.bitss = nil
 
@@ -610,7 +608,7 @@ func (s *scanner) scanStrliting(ctx Context, ml bool) string {
 	offs := s.offset - 1
 	if ml { offs -= 1 }
 
-	for s.readOffset < len(s.src) {
+	for s.offsetRead < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 { // if ch < 0 {
 			erro(pc(ctx,offs), "raw string literal not terminated").trace()
@@ -637,7 +635,7 @@ func (s *scanner) scanString(ctx Context, ml bool) string {
 	offs := s.offset - 1
 	if ml { offs -= 1 }
 
-	for s.readOffset < len(s.src) {
+	for s.offsetRead < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 {
 			erro(pc(ctx,offs), "string literal not terminated").trace()
@@ -719,10 +717,18 @@ func (s *scanner) scanStrcomp(ctx Context, q rune) (tok token, lit string) {
 		}
 	}
 
-l:
-	for ; s.readOffset < len(s.src) ; s.next(ctx) {
-		switch s.ch { case '\\', '\n', '$', '&', q: break l }
+rawloop:
+	for ; s.offsetRead < len(s.src) ; s.next(ctx) {
+		switch s.ch {
+		case '\\', '\n', '$', '&', q: break rawloop
+		case '{':
+			if i := s.offsetRead; i < len(s.src) && s.src[i] == '=' {
+				// note(ctx, "%s", s.src[offs:i+1]).debug(5)
+				return LBRACE, lit
+			}
+		}
 	}
+
 	tok, lit = RAW, string(s.src[offs:s.offset])
 	return
 }
@@ -735,9 +741,17 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 	case s.bits.isStrcompLine()  : tok, lit = s.scanStrcomp(ctx, 0)
 	}
 
-	if tok != 0 && tok != CLOSURE && tok != DELEGATE { return }
-	if tok != 0 && s.ch != '$' && s.ch != '&' {
-		erro(pc(ctx,s), "unexpected '%s'", string(s.src[s.offset:])).trace()
+	if tok != 0 {
+		switch tok {
+		case CLOSURE, DELEGATE, LBRACE:
+		default: return
+		}
+
+		switch s.ch {
+		case '$', '&', '{':
+		default:
+			erro(pc(ctx,s), "unexpected '%s'", string(s.src[s.offset:])).trace()
+		}
 	}
 
 	if IsDigit(s.ch) { // '0' <= s.ch && s.ch <= '9'
@@ -746,7 +760,8 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 	}
 
 	if IsLetter(s.ch) {
-		if lit = s.scanIdentifier(ctx); len(lit) > 1 && s.ch != '/' && s.ch != '.' && s.ch != '~' {
+		lit = s.scanIdentifier(ctx)
+		if len(lit) > 1 && s.ch != '/' && s.ch != '.' && s.ch != '~' {
 			if tok = lookup_keyword(lit) ; !tok.is_keyword() && tok != WORD {
 				erro(pc(ctx,s), "unexpected token '%s' %s", tok, lit).trace()
 			}
@@ -811,7 +826,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		}
 	case '-':
 		if s.ch == '-' { // "-->" => "-", "->"
-			if s.readOffset < len(s.src) && s.src[s.readOffset] == '>' {
+			if s.offsetRead < len(s.src) && s.src[s.offsetRead] == '>' {
 				tok, lit = WORD, "-"
 			} else {
 				tok = MINUS
@@ -859,11 +874,14 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 			lit = s.scanStrliting(ctx, false)
 		}
 	case '"':
-		if s.bits.isStrcompString() { erro(pc(ctx,s.pos(offs)), "composed").trace() }
-		tok = STRCOMP
-		s.push(isStrcompString)
+		if s.bits.isStrcompString() {
+			erro(pc(ctx,s.pos(offs)), "composed").trace()
+		} else {
+			tok = STRCOMP
+			s.push(isStrcompString)
+		}
 	case '$', '&':
-		var isDelegate = ch == '$' // assert(s.offset == s.readOffset-1)
+		var isDelegate = ch == '$' // assert(s.offset == s.offsetRead-1)
 		switch tok, ch = CLOSURE, rune(s.src[s.offset]); ch {
 		case '/' : tok = CLOSURE_r
 		case '.' : tok = CLOSURE_D
@@ -898,19 +916,39 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		}
 		if isDelegate { tok = token(DELEGATE + (tok - CLOSURE)) }
 	case '(':
-		tok, lit = LPAREN, string(ch)
+		tok = LPAREN
 		if s.bits.isCallZero() { s.bits |= isCallParen } else { s.push(isGroup) }
 	case ')':
-		tok, lit = RPAREN, string(ch)
-		if s.bits&(isCallParen|isGroup) == 0 { erro(pc(ctx,s.pos(offs)), "unexpected right-paren").trace() }
-		s.pop(isGroup|isCallParen)
+		tok = RPAREN
+		t := isCallParen|isGroup
+		if s.bits&t == 0 {
+			if n := len(s.bitss); n > 0 {
+				if b := s.bitss[n-1]; b&t != 0 {
+					// Fix nested right-paren in recipes
+					s.bits, s.bitss = b, s.bitss[0:n-1]
+					goto poprparen
+				}
+			}
+			erro(pc(ctx,s.pos(offs)), "unexpected right-paren, %016b %016b", s.bits, s.bitss).trace()
+		}
+		poprparen: s.pop(t)
 	case '{':
 		tok = LBRACE
 		if s.bits.isCallZero() { s.bits |= isCallBrace } else { s.push(isBrace) }
 	case '}':
 		tok = RBRACE
-		if s.bits&(isCallBrace|isBrace) == 0 { erro(pc(ctx,s.pos(offs)), "unexpected right-brace").trace() }
-		s.pop(isBrace|isCallBrace)
+		t := isCallBrace|isBrace
+		if s.bits&t == 0 {
+			if n := len(s.bitss); n > 0 {
+				if b := s.bitss[n-1]; b&t != 0 {
+					// Fix nested right-brace in recipes
+					s.bits, s.bitss = b, s.bitss[0:n-1]
+					goto poprbrace
+				}
+			}
+			erro(pc(ctx,s.pos(offs)), "unexpected right-brace, %016b %016b", s.bits, s.bitss).trace()
+		}
+		poprbrace: s.pop(t)
 	case '=':
 		if s.ch == '>' { // =>
 			tok = SELECT_PROG1
@@ -1006,9 +1044,12 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		if s.pop(isStrcompLine); s.ch != '\t' { s.bits &^= isRecipes }
 	default:
 		// next reports unexpected BOMs - don't repeat
-		if ch != bom { erro(pc(ctx,s.pos(s.file.Offset(pos))), "illegal %#U", ch).trace() }
-		tok = ILLEGAL
-		lit = string(ch)
+		if ch != bom {
+			erro(pc(ctx,s.pos(s.file.Offset(pos))), "illegal %#U", ch).trace()
+		} else {
+			tok = ILLEGAL
+			lit = string(ch)
+		}
 	}
 	return
 }

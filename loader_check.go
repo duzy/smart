@@ -373,7 +373,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 	do(ctx, checked_source(filename))
 
 	flat_mode := truly(ctx, is_flat_mode{})
-	text_mode := truly(ctx, parse_is_text{})
+	text_mode := truly(ctx, is_text{})
 
 	if flat_mode {
 		if *res != nil {

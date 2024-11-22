@@ -6,7 +6,7 @@
 
 package smart
 
-func (cc *configurecontext) execute_check(ctx Context, e entry, p *project, s *string, _d **def) {
+func (cc *configurecontext) execute_check(ctx *execution, e entry, p *project, s *string, _d **def) {
 	switch p.name {
 	case "testdefaultconfigure":
 		if d := *_d; d == nil {

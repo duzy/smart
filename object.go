@@ -7,8 +7,8 @@
 package smart
 
 import (
-    "reflect"
     "os/exec"
+    "reflect"
     "strings"
     "strconv"
     "sync"
@@ -112,28 +112,46 @@ func (m defs_map) String() (s string) {
 }
 
 func _automatic(c Context) *automatic { return cast[*automatic](c) }
-func suppress_always(string) bool { return true }
-func suppress_never(string) bool { return false }
 
+type ex_auto   struct {}
+type find_auto struct { string }
 type automatic struct {
     Context
     sync.RWMutex
     defs defs_map
-    suppress func(string) bool
 }
-func (ac *automatic) cast(t reflect.Type) Context { return implcast(ac, t) }
+func (ac *automatic) cast(t reflect.Type) Context { return icast(ac, t) }
+func (ac *automatic) inner() Context { return ac.Context }
 func (ac *automatic) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
-    case act_arguments:
-        ac.args(ctx, try[ []Value ](ctx, get_arguments{}))
-        return
+    case ex_auto: return true
+    case init_args:
+        if t.automatic == nil {
+            ac.Context.do(ctx, init_args{ac})
+            return
+        }
+    case find_auto:
+        if false {
+            if ta := _automatic(ctx); ta == ac {
+                var d1, d2, d3 *def
+                if true {
+                    d1, _ = ta.defs[t.string]
+                }
+                if tb := _automatic(ta.Context); tb != nil {
+                    d2, _ = tb.defs[t.string]
+                    d3, _ = do(ta.Context, op).(*def)
+                }
+                notestack(ctx, 16, "%v → %v, %v, %v, %v", t.string, d1, d2, d3, typeof(ctx)).debug(64)
+            }
+        }
+        if d, _ := ac.defs[t.string]; d != nil { return d }
     case property:
         if t&propExAuto != 0 { return true }
     }
     return ac.Context.do(ctx, op)
 }
 func (ac *automatic) amend(ctx Context, name string, val Value) (out *def, res Value) {
-    if d := ac.search(ctx, name); d == nil {
+    if d, _ := ac.do(ctx, find_auto{name}).(*def); d == nil {
         return ac.set(ctx, defVoid, name, val)
     } else if res = d.value; d.value != val {
         out, d.value = d, val
@@ -141,30 +159,13 @@ func (ac *automatic) amend(ctx Context, name string, val Value) (out *def, res V
     return
 }
 func (ac *automatic) has(s string) (y bool) { _, y = ac.defs[s]; return }
-func (ac *automatic) def(ctx Context, name string) (res *def, y bool) {
-    ac.Lock() ; defer ac.Unlock()
-    res, y = ac.defs[name]
-    return
-}
-func (ac *automatic) search(ctx Context, name string) (res *def) {
-    if res, _ = ac.def(ctx, name) ; res != nil { return }
-    if ac.suppress == nil || !ac.suppress(name) {
-        if t := _automatic(ac.Context) ; t != nil {
-            if t == ac {
-                erro(ctx, "%v: automatic loop", name).trace()
-            }
-            return t.search(ctx, name)
-        }
-    }
-    return
-}
 func (ac *automatic) set(ctx Context, o origin, name string, val Value) (out *def, old Value) {
     if checkpoints && val != nil && name == "-" {
         if x, y := val.(*def); y && x.o != defConfig {
             errostack(ctx, 3, "set $- to def (%v): %v", x.o, x).debug(16)
         }
     }
-    if out, _ = ac.def(ctx, name) ; out == nil {
+    if out, _ = ac.defs[name] ; out == nil {
         out = &def{o:o, value:val}
         out.position = _position(ctx)
         out.scope = _scope(ctx)
@@ -186,12 +187,12 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
     if vals == nil { return }
 
-    var argnum int // setup named/number parameters ($1, $2, etc.)
+    var argn int // setup named/number parameters ($1, $2, etc.)
     var args = make(map[string]*arg, len(vals)) // compact args: combine duplicated pairs
     var params = _parameters(ctx)
 
     for i, val := range vals {
-        var a = &arg{ id: strconv.Itoa(argnum+1) }
+        var a = &arg{ id: strconv.Itoa(argn+1) }
 
         if p, y := val.(*pair); y {
             if a.name = p.key.string(ctx); a.name == "" {
@@ -218,13 +219,13 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
             a.value = p.val
         } else {
-            a.name, a.value = _paramname(ctx, argnum), scalarize(val)
+            a.name, a.value = _paramname(ctx, argn), scalarize(val)
             if a.name == "" { a.name = a.id }
         }
 
         if a.id != a.name { args[a.id] = a }
         args[a.name] = a
-        argnum += 1
+        argn += 1
 
         if d, _ := ac.set(ctx, defParam, a.name, a.value); d == nil {
             erro(ac, "arg '%s' not set", a.name).trace()
@@ -244,7 +245,10 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 }
 
 func auto_find(ctx Context, name string) (d *def) {
-    if a := _automatic(ctx); a != nil { d = a.search(ctx, name) }
+    d, _ = do(ctx, find_auto{name}).(*def)
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        auto_find_check(ctx, name, d)
+    }
     return
 }
 
@@ -309,14 +313,14 @@ func (a *auto) set(ctx Context, o origin, value Value, app ...Value) {
 func (a *auto) isDigit() bool { return IsDigits(a.name) }
 func (a *auto) isPlaceholder() bool { return a.name == "_" }
 func (a *auto) expandable(ctx Context) (res bool) {
-    if truly(ctx, propExAuto) {
+    if truly(ctx, ex_auto{}) {
         var d = auto_find(ctx, a.name)
         return d != nil && d.value != nil
     }
     return
 }
 func (a *auto) expand(ctx Context) (res Value) {
-    if truly(ctx, propExAuto) {
+    if truly(ctx, ex_auto{}) {
         var d = auto_find(ctx, a.name)
         if d != nil && d.value != nil { return d }
     }
@@ -343,11 +347,26 @@ func (a *auto) traverse(ctx Context) {
     return
 }
 
+type def_evocation struct { *evocation }
+func (c def_evocation) inner() Context { return c.evocation }
+func (c def_evocation) cast(t reflect.Type) Context { return icast(c, t) }
+func (c def_evocation) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case find_auto:
+        if s := t.string; IsDigits(s) {
+            if _, y := c.defs[s]; !y {
+                return
+            }
+        }
+    }
+    return c.evocation.do(ctx, op)
+}
+
 // A def represents a definition, it's a caller but mustn't be a Valuer.
 type def struct {
     knownobject
-    o origin
     value Value
+    o origin
 }
 func (d *def) kind() Kind { return d.knownobject.kind()|KindDef }
 func (d *def) hash(ctx Context) uint64 { return fnv1(ctx, d, d.value) }
@@ -458,27 +477,41 @@ func (d *def) expandable(ctx Context) (res bool) {
 }
 func (d *def) expand(Context) Value { return d }
 func (d *def) evoke(ctx *evocation) (res Value) {
-    // d.Lock()
-    var o, v = d.o, d.value
-    // d.Unlock()
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer d.evoke_check(ctx, &res)
+    }
 
-    ctx.a = expand(ctx.Context, ctx.a...) // to save the changed args
+    var o origin
+    var v Value
+    {
+        // d.Lock()
+        o, v = d.o, d.value
+        // d.Unlock()
+    }
 
-    if !truly(ctx, propExDefValue) && expandable(ctx, ctx.a...) {
-        return d
-    } else if v == nil {
+    if ctx.a != nil { // to save the changed args
+        ctx.a = expand(ctx.Context, ctx.a...)
+        if !truly(ctx, propExDefValue) {
+            if expandable(ctx, ctx.a...) {
+                return d
+            }
+        }
+    }
+
+    if v == nil {
         return
     }
 
-    ctx.suppress = func(s string) bool { return s == "_" || IsDigits(s) }
+    cc := def_evocation{ctx}
+    ctx.args(cc, ctx.a)
 
-    res, _ = do(ctx, evoke_eval{v}).(Value)
+    v = v.expand(cc)
 
-    ctx.suppress = nil
-
-    if res != nil && o == defExecute { res = d.xexec(ctx, res) }
-    if res != nil { return scalarize(res) }
-    return
+    if o == defExecute {
+        return scalarize(d.xexe(cc, v))
+    } else {
+        return scalarize(v)
+    }
 }
 func (d *def) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*def); y {
@@ -543,7 +576,7 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
     if !isTrivial(value) { vals = append(vals, merge(value)...) }
     if len(app ) > 0     { vals = append(vals, merge(app...)...) }
     if len(vals) > 0 && origin != defExpand0 {
-        vals = expand(original{ctx,origin}, vals...)
+        vals = expand(original{ctx, origin}, vals...)
     }
 
     if value == nil && len(app) > 0 {
@@ -560,7 +593,7 @@ func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
     } else if origin == defExecute {
         value = nil
     } else {
-        value = makeNull(d.position)
+        value = _null(d.position)
     }
 
     // d.Lock()
@@ -585,7 +618,7 @@ func (d *def) invoke(ctx Context, o, a []Value) (res Value) {
 	res, _ = evoke(ctx, d, o, a)
     return
 }
-func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
+func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
     if isTrivial(value) { return }
 
     var cmd string
@@ -598,10 +631,13 @@ func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
     var stdout, stderr bytes.Buffer
     var sh = exec.Command("sh", "-c", cmd)
     sh.Stdout, sh.Stderr = &stdout, &stderr
-    if err := sh.Run(); err != nil {
+    defer func() {
         stdout.Reset()
         stderr.Reset()
-        erro(ctx, "%v: execute command failed: %v", d.name, err)
+    } ()
+
+    if e := sh.Run(); e != nil {
+        erro(ctx, "%v: execute command failed: %v", d.name, e)
         erro(ctx, "%v: execute command: %s", d.name, cmd).trace()
         return
     }
@@ -609,8 +645,6 @@ func (d *def) xexec(ctx Context, value Value, a ...Value) (res Value) {
     var pos = value.Position()
     if !pos.IsValid() { pos = _position(ctx) }
     res = _strlit(pos, strings.TrimSpace(stdout.String()))
-    stdout.Reset()
-    stderr.Reset()
     return
 }
 func (d *def) sel(ctx Context, name string) (res any) {
@@ -743,7 +777,7 @@ func (p *builtin) refs(ctx Context, v Value) (res bool) {
 func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
     var n = time.Now()
     if d := n.Sub(t); d > 2*time.Second {
-        var a = xmerge(final{ctx}, ctx.a...)
+        var a = xmerge(_final(ctx), ctx.a...)
         var m = time.Since(n)
         notestack(pc(ctx,p), 16, "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a)).debug(256)
     } else if f := v.Elem().FieldByName("timing"); f.IsValid() {
@@ -754,7 +788,9 @@ func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
 }
 func (p *builtin) expand(Context) Value { return p }
 func (p *builtin) evoke(ctx *evocation) (res Value) {
-    if checkpoints && truly(ctx, is_test_mode{}) { defer p.evoke_check(ctx, &res) }
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer p.evoke_check(ctx, &res)
+    }
 
     _v := reflect.New(p.t)
     _i := _v.Interface()
@@ -762,12 +798,12 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     defer p.benchmark(ctx, time.Now(), _v)
 
     if f := _v.Elem().FieldByName("builtin_"); !f.IsValid() {
-        erro(ctx, "no such field: %s.builtin_", _v.Elem().Type()).trace()
+        errostack(pc(ctx,_i), 8, "no such field: %s.builtin_", _v.Elem().Type()).trace()
     } else if f.CanAddr() {
         b := (*builtin_)(unsafe.Pointer(f.Addr().Pointer()))
         b.evocation = ctx
     } else if f := _v.Elem().FieldByName("evocation"); !f.IsValid() {
-        erro(ctx, "no such field: %s.evocation", _v.Elem().Type()).trace()
+        errostack(pc(ctx,_i), 8, "no such field: %s.evocation", _v.Elem().Type()).trace()
     } else if f.CanSet() {
         // FIXME: can't set value for struct fields of type `*evocation`
         f.Set(reflect.ValueOf(ctx))
@@ -775,7 +811,7 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
         // FIXME: still can't set pointer for values of type `**evocation`
         f.Addr().SetPointer(unsafe.Pointer(ctx))
     } else {
-        unreachable("cannot set builtin_.evocation")
+        errostack(pc(ctx,_i), 8, "cannot set field: %s.evocation", _v.Elem().Type()).trace()
     }
 
     if ctx.o != nil {
@@ -784,32 +820,31 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
         }
     }
 
-    var force = /* truly(ctx, propExFinal) || */ builtinFinalField(ctx, _v, _i, false)
+    var force = /* truly(ctx, is_final{}) || */ builtinFinalField(ctx, _v, _i, false)
 
-    if x, y := _i.(builtin_a); y {
-        if skip := x.a(); skip && !force { return p }
-    } else {
+    switch t := _i.(type) {
+    case builtin_a:
+        if skip := t.a(); skip && !force { return p }
+    default:
         ctx.a = expand(ctx, ctx.a...)
-        if !force && expandable(final{ctx}, ctx.a...) { return p }
+        if !force && indeterminate(ctx, ctx.a...) { return p }
     }
 
-    switch x := _i.(type) {
+    switch t := _i.(type) {
     case builtin_c:
-        if t := x.c(); t != nil {
-            erro(ctx, "discarded command result: %v", t).trace()
+        if v := t.c(); v != nil {
+            erro(ctx, "discarded command result: %v", v).trace()
         }
         return
     case builtin_x:
-        if t := x.x(); t == nil {
+        if v := t.x(); v == nil {
             return
-        } else if _, y := t.(skip); y {
+        } else if _, y := v.(skip); y {
             return p
         } else {
-            return ease(ctx, t)
+            return ease(ctx, v)
         }
     default:
-        // p.t.Name()    → builtin_auto
-        // p.t.PkgPath() → extbit.io/smart
         erro(ctx, "no method: %v (%s)", p.t.Name(), ts(_v)).trace()
     }
     return
@@ -818,14 +853,12 @@ func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
     switch t := v.(type) {
     case *builtin:
         if p.t == t.t /* || p.name == a.name */ { res = cmpEqual }
-        if checkpoints {
-            if res != cmpEqual {
-                if p.t == t.t {
-                    erro(ctx, "%v", ts(v)).trace()
-                }
-                if p.name == t.name {
-                    erro(ctx, "%v", ts(v)).trace()
-                }
+        if res != cmpEqual {
+            if p.t == t.t {
+                erro(ctx, "%v", ts(v)).trace()
+            }
+            if p.name == t.name {
+                erro(ctx, "%v", ts(v)).trace()
             }
         }
     case *list:
@@ -838,7 +871,8 @@ type get_entry struct{}
 
 type rule_ctx struct { Context ; rule *rule ; args []Value }
 func (p *rule_ctx) Position() Position { return p.rule.Position() }
-func (p *rule_ctx) cast(t reflect.Type) Context { return implcast(p, t) }
+func (p *rule_ctx) cast(t reflect.Type) Context { return icast(p, t) }
+func (p *rule_ctx) inner() Context { return p.Context }
 func (p *rule_ctx) ts(t string) (s string) {
     s = "{="+t+" "+p.rule.String()
     if p.args != nil {
@@ -852,10 +886,15 @@ func (p *rule_ctx) ts(t string) (s string) {
     s += " "+ts(p.Context)+"}"
     return
 }
-func (p *rule_ctx) do(ctx Context, op any) any {
-    switch op.(type) {
+func (p *rule_ctx) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
     case get_entry: return p.rule
-    case get_arguments: if p.args != nil { return p.args }
+    case get_args: if p.args != nil { return p.args }
+    case init_args:
+        if p.args != nil && t.automatic != nil {
+            t.args(ctx, p.args)
+            return
+        }
     }
     return dob(ctx, p.Context, op)
 }
@@ -1113,7 +1152,8 @@ type get_stems struct {}
 
 type stemmed_ctx struct { Context ; *stemmed_rule }
 func (p *stemmed_ctx) hash(ctx Context) uint64 { return fnv1(ctx, p, p.target) }
-func (p *stemmed_ctx) cast(t reflect.Type) Context { return implcast(p,t) }
+func (p *stemmed_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *stemmed_ctx) inner() Context { return p.Context }
 func (p *stemmed_ctx) ts(_t string) string {
     var s, t = p.target.String(), p.rule.target.String()
     return "{="+_t+" "+s+" "+t+" "+ts(p.Context)+"}"

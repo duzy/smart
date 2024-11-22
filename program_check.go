@@ -5,29 +5,107 @@
 //
 package smart
 
-// func (m *modifier) traverse_check(ctx Context, prog *program, name string, v1, v2 *Value) {
-// 	if prog == nil { return }
-// 	switch prog.project.name {
-// 	case "testdefaultconfigure":
-// 		switch name {
-// 		case "configure":
-// 			var t = _entry(ctx).destiny()
-// 			if t == nil {
-// 				erro(ctx, "%v: %v", _entry(ctx)).trace()
-// 			}
-// 			switch t.String() {
-// 			case "FOO":
-// 				if v := *v1; v == nil {
-// 					erro(ctx, "%v", v).trace()
-// 				} else if v.String() != "{=self testdefaultconfigure}" {
-// 					erro(ctx, "%v", v).trace()
-// 				}
-// 			}
-// 		}
-// 	}
-// }
+import (
+	"strings"
+)
 
-func (prog *program) execute_check(ctx Context, result *Value) {
+func (exe *execution) sources_check(ctx *exec_ctx, cc Context, i int, rv Value, s string) {
+	if exe.proj != nil && exe.proj.name == "configure.base" {
+		switch _entry(ctx).destiny().string(ctx) {
+		case "-library-c", "-library-c++":
+			if strings.HasSuffix(ctx.targetName, ".log") {}
+
+			if r, y := rv.(*recipe); !y || r.len() == 0 {
+				erro(pc(ctx,rv), "%v. %v", i, rv).trace()
+			} else {
+				for i, e := range r.elems {
+					switch ts(e) {
+					case "{=delegate {=def x}}":
+						if v := e.expand(cc); v == nil || ts(v) == "{=null}" || ts(e) == ts(v) {
+							var s1, s2 = e.string(cc), e.string(ctx)
+							erro(pc(ctx,e), "%d. %s → %s → %s (%s)", i, ts(e), ts(v), s1, s2)
+							note(pc(ctx,rv), "%v,", ts(e.expand(ctx)))
+							note(pc(ctx,rv), "%v,", ts(e.expand(fullfile_ctx{ctx})))
+							note(pc(ctx,rv), "%v.", ts(e.expand(_final(ctx))))
+							note(pc(ctx,rv), "%v", ts(rv)).trace()
+						}
+						if v := e.expand(_final(ctx)); v == nil || ts(v) == "{=null}" || ts(e) == ts(v) {
+							var s1, s2 = e.string(cc), e.string(ctx)
+							erro(pc(ctx,e), "%d. %s → %s → %s (%s)", i, ts(e), ts(v), s1, s2)
+							note(pc(ctx,rv), "%v,", ts(e.expand(ctx)))
+							note(pc(ctx,rv), "%v,", ts(e.expand(fullfile_ctx{ctx})))
+							note(pc(ctx,rv), "%v;", ts(e.expand(_final(ctx))))
+							note(pc(ctx,rv), "%v,", ts(e.expand(cc)))
+							note(pc(ctx,rv), "%v,", ts(e.expand(fullfile_ctx{cc})))
+							note(pc(ctx,rv), "%v.", ts(e.expand(_final(cc))))
+							note(pc(ctx,rv), "%v", ts(rv)).trace()
+						}
+					}
+				}
+			}
+
+			var v = rv.expand(cc)
+			if r, y := v.(*recipe); !y || r.len() == 0 {
+				erro(pc(ctx,rv), "%v. %v", i, v).trace()
+			} else {
+				for i, e := range r.elems {
+					switch ts(e) {
+					case "{=null}":
+						erro(pc(ctx,e), "%d. %s", i, ts(e))
+						note(pc(ctx,rv), "%v", ts(rv))
+						note(pc(ctx,rv), "%v", ts(v)).trace()
+					}
+				}
+			}
+		case "-header-c", "-header-c++":
+		}
+	}
+}
+
+func (exe *execution) evaluate_check(ctx Context, i interpreter, args []Value, res Value) {
+	if t, y := auto_get(ctx, "@").(*file); y {
+		var fn = t.fullname()
+		if strings.HasPrefix(t.name, ".configure/") {
+			if false && strings.HasSuffix(t.name, ".c") {
+				notestack(pc(ctx,fn), 2, "%v %v", exe.language, res).debug()
+				flush(ctx)
+			}
+			if x, y := res.(*plain); y && x.len() > 0 {
+				if exe.language != x.name {
+					erro(ctx, "%s != %s ; %v", exe.language, x.name, ts(res)).trace()
+				}
+				if x, y := x.elems[0].(*plainline); y && x.len() > 0 {
+					if x, y := x.elems[0].(*delegate); y && ts(x.x) == "{=builtin foreach}" {
+						if s, t := "{=list {=null}}", ts(x.a[0]); s == t {
+							notestack(pc(ctx,fn), 2, "%v", res).debug()
+							erro(ctx, "%v : %v", ts(x.x), ts(x.a[0])).trace()
+						}
+						for _, a := range x.a[1:] {
+							if s, t := "{=delegate {=auto _}}", ts(a); !strings.Contains(t, s) {
+								notestack(pc(ctx,fn), 2, "%v", res).debug()
+								erro(ctx, "%v : %v %v : %s", ts(x.x), ts(x.a[0]), a, ts(t)).trace()
+							}
+						}
+					}
+				}
+			}
+			if t.stat(ctx) == nil {
+				switch {
+				case
+					strings.HasSuffix(t.name, ".c"),
+					strings.HasSuffix(t.name, ".c++"),
+					strings.HasSuffix(t.name, ".log"):
+					errostack(pc(ctx,fn), 6, "%v %v", exe.language, res).trace()
+				}
+			}
+		}
+	}
+}
+
+func (exe *execution) interpret_check(ctx Context, i interpreter, args []Value, res Value) {
+}
+
+func (prog *program) execute_check(ctx *execution, result *Value) {
 	switch prog.project.name {
 	case "testdefaultconfigure":
 		if t := _entry(ctx).destiny(); t == nil {
@@ -77,7 +155,7 @@ func (prog *program) execute_check(ctx Context, result *Value) {
 	}
 }
 
-func (prog *program) execute_check_1(ctx Context) {
+func (prog *program) execute_check_1(ctx *execution) {
 	switch prog.project.name {
 	case "configure.base":
 		if t := _entry(ctx).destiny(); t == nil {
@@ -123,7 +201,7 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
         erro(ctx, "%v: nil result", ts(ent)).trace()
     }
 
-    var args = try[[]Value](ctx, get_arguments{})
+    var args = try[[]Value](ctx, get_args{})
 
     switch ent.destiny().string(ctx) {
     case "rule0":
@@ -199,8 +277,8 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
 			} else if s := ts(x.elems[0]); s != "{=word xxyzz}" {
 				erro(ctx, "%v: %v", ent, tv(x.elems[0])).trace()
 			}
-			if (*result).string(ctx) != "xxyzz" {
-				erro(ctx, "%v: %v %v", ent, ts(*result), args).trace()
+			if s, t := (*result).string(ctx), "xxyzz"; s != t {
+				erro(ctx, "%v: %v: %s != %s", ent, ts((*result)), s, t).trace()
 			}
 		} else if t := "{=list {=word rule0} {=word xyz}}"; s == t {
 			if v := auto_get(ctx, "-"); v == nil {
@@ -219,8 +297,8 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
 			} else if s := ts(x.elems[1]); s != "{=word xyz}" {
 				erro(ctx, "%v: %v", ent, tv(x.elems[0])).trace()
 			}
-			if (*result).string(ctx) != "rule0 xyz" {
-				erro(ctx, "%v: %v %v", ent, ts(*result), args).trace()
+			if s, t := (*result).string(ctx), "rule0 xyz"; s != t {
+				erro(ctx, "%v: %v: %s != %s", ent, ts((*result)), s, t).trace()
 			}
 		} else {
 			erro(ctx, "%v: %s != %s", v, s, t).trace()
@@ -242,7 +320,7 @@ func (prog *program) execute_check_shell_for_stdout(ctx Context, result *Value) 
 		erro(ctx, "%v: nil result", ts(ent)).trace()
 	}
 
-    var args = try[[]Value](ctx, get_arguments{})
+    var args = try[[]Value](ctx, get_args{})
 	var o = try[origin](ctx, get_origin{})
 
     switch ent.destiny().string(ctx) {
@@ -346,7 +424,7 @@ func (prog *program) execute_check_shell_for_stdout(ctx Context, result *Value) 
 	}
 
 	switch o {
-	case 0, defExpand0, defExpand1:
+	case defExpand0, defExpand1, 0:
 	default:
 		errostack(ctx, 5, "untested: %v: %v %s %s", ent.destiny(), o, ts(args), ts(*result)).trace()
 	}

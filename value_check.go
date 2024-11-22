@@ -42,7 +42,6 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
 				errostack(ctx, 10, "%v : %v → %v", ts(p), ts(_x), ts(*x)).trace()
 			}
 		}
-
 		if _cl {
             // TODO: closure checkpoints ...
 		} else {
@@ -62,19 +61,30 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
     }
 
 	if proj := _project(ctx); proj != nil {
-		if truly(ctx, is_modifying{}) {
-			switch proj.name {
-			case "configure.base":
-				var ent string
-				if t := _entry(ctx).destiny(); t != nil {
-					ent = t.string(ctx)
-				}
-				switch ent {
-				case "-library-c":
-					ex_check_configure_base_library_c(ctx, p, _x, _a, _o, _l, res, a, o)
+		switch proj.name {
+		case "configure.base":
+			if ent := _entry(ctx); ent != nil {
+				switch ent.destiny().string(ctx) {
+				case "-compiles-c", "-library-c", "-symbol-c":
+					if truly(ctx, is_exec{}) {
+						switch p.String() {
+						case "$(file $(name).c)", "$(file $(name).c++)", "$(file $(name).log)":
+							if _, y := (*res).(*file); !y {
+								errostack(ctx, 8, "not a file: %v: %v → %v", p, ts(p), ts(*res)).trace()
+							}
+						case "$<", "$>", "$(file $(s).x)", "$(file $(s).o)":
+							if _, y := (*res).(fullfile); !y {
+								errostack(ctx, 8, "not a fullfile: %v: %v → %v", p, ts(p), ts(*res)).trace()
+							}
+						}
+					}
+					if truly(ctx, is_modify{}) {
+						ex_check_configure_base_library_c(ctx, p, _x, _a, _o, _l, res, a, o)
+					}
 				}
 			}
 		}
+
 		switch proj.spec {
 		case "testdata/value/4":
 			ex_check_value_4(ctx, p, _x, _o, _a, res, x, o, a)
@@ -211,7 +221,7 @@ func ex_check_value_optional(ctx Context, p, _x Value, _o, _a []Value, res, x *V
 }
 
 func ex_check_value_closure(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o, a *[]Value) {
-	if truly(ctx, propExFinal) { // ctx.(final)
+	if truly(ctx, is_final{}) { // ctx.(final)
 		switch v := *res ; p.String() {
 		case "&(foo.pre)":
 			if s := do(ctx, get_scope{}); s == nil {
@@ -311,7 +321,7 @@ func ex_check_value_4(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o
 func ex_check_value_bug_01(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, o, a *[]Value) {
 	switch s := p.String() ; s {
 	case "$1":
-		if truly(ctx, propExFinal) {
+		if truly(ctx, is_final{}) {
 			x1, x2, x3, x4 := do(ctx, evoke_x{}), do(ctx, evoke_def{}), do(ctx, evoke_def{"bug_0.2"}), do(ctx, evoke_def{"bug_0.1"})
 			s1, s2, s3, s4 := ts(x1), ts(x2), ts(x3), ts(x4)
 			s0 := (*res).String()
@@ -383,7 +393,11 @@ func ex_check_value_bug_01(ctx Context, p, _x Value, _o, _a []Value, res, x *Val
 		}
 		if s0 == "" {
 			if t := (*res).String(); s != t {
-				erro(ctx, "%v → %v : %v → %v : %v, %v, %v", s, t, _a, *a, s1, s2, s3).trace()
+				note(ctx, "1: %v :→ %v", v1, s1)
+				note(ctx, "2: %v :→ %v", v2, s2)
+				note(ctx, "3: %v :→ %v", v3, s3)
+				note(ctx, "%v :→ %v", _a, *a)
+				errostack(ctx, 8, "%s != %s", s, t).trace()
 			}
 		}
 
@@ -446,7 +460,7 @@ func ex_check_value_bug_01(ctx Context, p, _x Value, _o, _a []Value, res, x *Val
 		}
 
 	case "$(okay.1 $1,$2)":
-		if truly(ctx, propExFinal) {
+		if truly(ctx, is_final{}) {
 			if s, t := (*res).String(), "{x.{$1}}? {x.{$2}}? {y.{$1}}? {y.{$2}}? {z.{$1}}? {z.{$2}}?"; s != t {
 				erro(ctx, "%v → %v : %v → %v : %v", s, t, _a, *a, do(ctx, evoke_x{})).trace()
 			} else {
@@ -468,7 +482,7 @@ func ex_check_value_bug_01(ctx Context, p, _x Value, _o, _a []Value, res, x *Val
 }
 
 func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res, x *Value, a *[]Value) {
-	o := try[origin](ctx, get_origin{})
+	var o = try[origin](ctx, get_origin{})
 
 	switch p.String() {
 	case "${.test $1,$2}":
@@ -584,7 +598,7 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res
 	}
 
 	switch o {
-	case 0, defExpand0, defExpand1:
+	case defExpand0, defExpand1, 0:
 	default:
 		errostack(ctx, 5, "untested: %v %s %s", o, ts(_a), ts(*res)).trace()
 	}
@@ -592,13 +606,10 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res
 
 func expand_check_elem(ctx Context, e, v Value) {
 	if e == nil || v == nil {
-		erro(ctx, "nil : %v %v", tv(e), tv(v)).trace()
-	} else {
-		var a = e.cmp(ctx, v)
-		var b = v.cmp(ctx, e)
-		if a != b {
-			erro(ctx, "%v → %v : cmp→(%v,%v)", tv(e), tv(v), a, b).trace()
-		}
+		erro(ctx, "nil : %v → %v", ts(e), ts(v)).trace()
+	} else if a, b := e.cmp(ctx, v), v.cmp(ctx, e); a != b {
+		erro(ctx, "cmp(%s, %s) → (%v, %v)", e, v, a, b)
+		note(ctx, "%v → %v", ts(e), ts(v)).trace()
 	}
 }
 
@@ -729,7 +740,7 @@ func (p cond) expand_check(ctx Context, v, res Value) {
         note(ctx, "%-20v : %v", res,     ts(res))
         erro(ctx, "%v", ts(ctx)).trace()
     }
-    if truly(ctx, propExFinal) {
+    if truly(ctx, is_final{}) {
         // ...
     } else {
         if v == nil {
@@ -882,7 +893,7 @@ func (p *regexpat) cmp_check(ctx Context, v Value, res cmpres) {
 func (p *project) unmap_files_check(ctx Context, _k any, res *[]filemap_name) {
 	switch p.name {
 	case "configure.base":
-		if x, y := _k.(Value); y && *res == nil && truly(ctx, is_modifying{}) {
+		if x, y := _k.(Value); y && *res == nil && truly(ctx, is_modify{}) {
 			var s = x.string(ctx)
 			if strings.HasPrefix(s, ".configure/library/") && strings.HasSuffix(s, ".x") {
 				erro(ctx, "%s %v %s", typeof(_k), _k, s).trace()
@@ -989,6 +1000,9 @@ func (a as) file_check(ctx Context, projs []*project, v Value, f **file) {
 
 	if *f == nil {
 		var s = v.string(ctx)
+		if s == "" {
+			return // note(ctx, "as.file %v", ts(v)).debug()
+		}
 		if f := findfile(ctx, s, projs...); f != nil {
 			for _, m := range unmap_files(ctx, f) {
 				erro(ctx, "FIXME: %v (%s) ⇒ %v", v, s, m)
@@ -1072,10 +1086,171 @@ func (f flag) hit_check(ctx Context, c *valcache, _res **valcache, fullmatch *bo
 }
 
 func (p *builtin) evoke_check(ctx *evocation, res *Value) {
-	switch proj := _project(ctx); proj.name {
-	case "configure.base":
-		switch p.name {
-		case "file":
+	var proj = _project(ctx)
+
+	if proj.name == "configure.base" && p.name == "file" {
+		switch (*res).(type) {
+		case fullfile:
+			if len(ctx.a) == 1 && truly(ctx, is_compound{}) {
+				errostack(ctx, 8, "unexpected fullfile: %v → %v", ts(ctx.a[0]), ts(*res)).trace()
+			}
+		case *file:
+			if len(ctx.a) == 1 {
+				if truly(ctx, is_compound{}) {
+					// note(ctx, "%v → %v", ts(ctx.a[0]), ts(*res)).debug()
+				} else if truly(ctx, is_exec{}) {
+					errostack(ctx, 8, "expected fullfile: %v → %v", ts(ctx.a[0]), ts(*res)).trace()
+				}
+			}
+		default:
+			for _, a := range ctx.a {
+				if x, y := a.(*list); !y {
+					errostack(pc(ctx,a), 8, "%v ; %v", ts(a), ts(*res)).trace()
+				} else if x.len() != 1 {
+					errostack(pc(ctx,a), 8, "%v ; %v", ts(x.elems), ts(*res)).trace()
+				} else {
+					a = x.elems[0]
+				}
+
+				var s = a.string(ctx)
+
+				if strings.HasPrefix(ts(a), "{=compound {=fullfile .configure/") {
+					if filepath.IsAbs(s) {
+						errostack(pc(ctx,a), 8, "%v ; %v", ts(a), ts(*res)).trace()
+					}
+				}
+
+				if x, y := a.(*compound); y {
+					if strings.Contains(ts(a), "{=fullfile .configure/") {
+						if strings.Contains(s, "/Volumes/workout/") {
+							errostack(pc(ctx,a), 8, "%v ; %v", ts(a), ts(*res)).trace()
+						}
+					}
+				} else if x != nil && x.len() == 0 {
+					errostack(pc(ctx,a), 8, "%v ; %v", ts(a), ts(*res)).trace()
+				}
+
+				if f := proj.file(ctx, s); f == nil {
+					if strings.Contains(s, ".configure/") {
+						if strings.HasSuffix(s, ".x") || strings.HasSuffix(s, ".o") {
+							errostack(pc(ctx,a), 8, "not a file: %v ; %v", ts(a), ts(*res)).trace()
+						}
+					}
+				}
+			}
 		}
 	}
+
+	if truly(ctx, is_exec{}) {
+		switch proj.name {
+		case "configure.base":
+			var e = _entry(ctx)
+			if e == nil {
+				errostack(ctx, 8, "%v %v → %v", ctx.x, ctx.a, *res).trace()
+			}
+			switch e.destiny().string(ctx) {
+			case "-compiles-c", "-library-c", "-symbol-c":
+				switch p.name {
+				case "file":
+					if len(ctx.a) == 1 {
+						var s = ctx.a[0].String()
+						if strings.HasPrefix(s, "{=file .configure/") {
+							if strings.HasSuffix(s, ".c}.x") {
+								if _, y := (*res).(fullfile); !y {
+									errostack(ctx, 8, "not a fullfile: %v %v → %v", ctx.x, ctx.a[0], *res).trace()
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func (d *def) evoke_check(ctx *evocation, _res *Value) {
+	if ent := _entry(ctx); ent != nil {
+		switch proj := _project(ctx); proj.name {
+		case "configure.base":
+			switch ent.destiny().string(ctx) {
+			case "-cc", "-cxx", "-compiles-c", "-compiles-c++", "-library-c", "-library-c++", "-symbol-c", "-symbol-c++", "-function-c", "-function-c++", "-type-c", "-type-c++", "-variable-c", "-variable-c++", "-struct-member-c", "-struct-member-c++", "-headers-c", "-headers-c++":
+				switch d.name {
+				case "name":
+					if t := auto_find(ctx, "TARGET"); t == nil {
+						erro(ctx, "TARGET is nil: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+					}
+					if _, y := (*_res).(*path); !y {
+						errostack(ctx, 8, "not a path: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+					}
+				case "x", "o", "s":
+					if !truly(ctx, is_compound{}) && truly(ctx, is_exec{}) {
+						if _, y := (*_res).(fullfile); !y {
+							errostack(ctx, 8, "not a fullfile: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+						}
+					} else {
+						if _, y := (*_res).(*file); !y {
+							errostack(ctx, 8, "not a file: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+						}
+					}
+					if s := d.string(ctx); s == "" {
+						errostack(ctx, 8, "empty: %v → %v (%T)", d, s, (*_res)).trace()
+					}
+				case "@":
+					if _, y := (*_res).(fullfile); !y {
+						errostack(ctx, 8, "not a fullfile: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+					}
+					if s := d.string(ctx); s == "" {
+						errostack(ctx, 8, "empty: %v → %v (%T)", d, s, (*_res)).trace()
+					}
+				}
+			case "-feature-c", "-feature-c++", "-sizeof-c", "-sizeof-c++", "-alignof-c", "-alignof-c++":
+				if _, y := (*_res).(fullfile); !y {
+					errostack(ctx, 8, "not a fullfile: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+				}
+			case "-program-stdout", "-program-stderr", "-program-status":
+				if _, y := (*_res).(fullfile); !y {
+					errostack(ctx, 8, "not a fullfile: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+				}
+			}
+		}
+	}
+}
+
+func auto_find_check(ctx Context, name string, d *def) {
+	if p := _project(ctx); p != nil {
+		switch p.spec {
+		case "testdata/value/auto":
+			if t := do(ctx, find_auto{name}); d != nil && t == nil {
+				var a = _automatic(ctx)
+				var m, _ = a.defs[name]
+				note(ctx, "%v", ts(ctx))
+				note(ctx, "%v", ts(a))
+				errostack(ctx, 8, "%v %v %v", name, d, m).debug(16)
+			}
+			if false {
+				if ed, _ := do(ctx, evoke_def{"foo"}).(*def); ed != nil {
+					note(ctx, "%v %s", d, ts(ctx)).debug(32)
+				}
+			}
+		case "testdata/value/placeholder":
+			if false {
+				if ed, _ := do(ctx, evoke_def{"val1"}).(*def); ed != nil {
+					note(ctx, "%v %s", d, ts(ctx)).debug(32)
+				}
+				if ed, _ := do(ctx, evoke_def{"val2"}).(*def); ed != nil {
+					note(ctx, "%v %s", d, ts(ctx)).debug(32)
+				}
+				if ed, _ := do(ctx, evoke_def{"val3"}).(*def); ed != nil {
+					note(ctx, "%v %s", d, ts(ctx)).debug(32)
+				}
+				if ed, _ := do(ctx, evoke_def{"val4"}).(*def); ed != nil {
+					note(ctx, "%v %s", d, ts(ctx)).debug(32)
+				}
+				if ed, _ := do(ctx, evoke_def{"val5"}).(*def); ed != nil {
+					note(ctx, "%v %s", d, ts(ctx)).debug(32)
+				}
+			}
+		}
+	}
+	return
 }

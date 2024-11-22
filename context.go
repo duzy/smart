@@ -42,24 +42,23 @@ const (
   propExDefValue
   propExDigital // $0, $1, ...
   propExDisjunction
-  propExFullFile
   propExPairVal
   propExPathStr
   propExPlaceholder // $_
   propExCondless
-  propExFinal // aka x.string(ctx)
   propReversal
   propUnmap
 )
 
 type (
+  act_mark_dirty struct{ a []Value }
   act_count_dia  struct{ t []diagtype }
-  act_on_erros   struct{ i int }
   act_dirt       struct{ a []Value }
+  act_on_erros   struct{ i int }
   act_traversed  struct{ v Value }
   act_traverse   struct{ v Value }
-  act_arguments  struct{}
-  get_arguments  struct{}
+  init_args      struct{ *automatic }
+  get_args       struct{}
   get_workdir    struct{}
   get_position   struct{}
   get_project    struct{}
@@ -70,7 +69,6 @@ type (
   is_good_with   struct{ p property ; a []any }
   is_test_mode   struct{}
   invalid_position struct{}
-  act_mark_dirty  struct{ a []Value }
   no_position struct{}
 )
 
@@ -102,42 +100,90 @@ type Context interface { caster ; doer }
 type caster interface { cast(reflect.Type) Context }
 type doer interface { do(Context, any) any }
 
-func do(ctx Context, op any) any { return ctx.do(ctx, op) }
+func do(c Context, o any) any { return c.do(c, o) }
+
+func truly(ctx Context, op any) (_ bool) {
+  if x, y := do(ctx, op).(bool); x && y { return x }
+  return
+}
+
 func try[T any](ctx Context, op any) (_ T) {
   if ctx != nil {
     if x, y := do(ctx, op).(T); y { return x }
   }
   return
 }
-func truly(ctx Context, op any) (_ bool) {
-  if x, y := do(ctx, op).(bool); x && y { return x }
-  return
-}
 
 func cast[T Context](ctx Context) (res T) {
   if ctx != nil {
-    var t = ctx.cast(reflect.TypeOf(res))
-    if t != nil { return t.(T) }
+    if t := ctx.cast(reflect.TypeOf(res)); t != nil {
+      return t.(T)
+    }
   }
   return
 }
 
-func implcast(ctx Context, t reflect.Type) (c Context) {
+func icast(ctx Context, t reflect.Type) (res Context) {
   if v := reflect.ValueOf(ctx); v.Type() == t {
-    c = ctx
+    res = ctx
   } else if i := _inner(v); i != nil {
-    c = i.(Context).cast(t)
+    res = i.(Context).cast(t)
   }
   return
 }
 
-func _inner(v reflect.Value) (i any) {
-  if x, y := v.Interface().(interface{ inner() Context }); y && x != nil {
-    i = x.inner()
+func _inner(v reflect.Value) (i Context) {
+  if x, y := v.Interface().(interface{ inner() Context }); y {
+    return x.inner()
   } else if t := v.Type(); t.Kind() == reflect.Struct {
+    for n := 0; false && n < v.NumField(); n++ {
+      if ft := t.Field(n); ft.Anonymous {
+        var fv = v.FieldByIndex(ft.Index)
+        if fv.CanInterface() {
+          if f := fv.Interface(); ft.Name == "Context" {
+            i, _ = f.(Context)
+            return
+          } else if i, y = f.(Context); y {
+            return
+          }
+        }
+        if fv.Type().Kind() == reflect.Struct && fv.CanAddr() {
+          if fv = fv.Addr(); fv.CanInterface() {
+            if i, y = fv.Interface().(Context) ; y {
+              return
+            }
+          }
+        }
+      }
+    }
     if x, y := t.FieldByName("Context"); y && x.Anonymous {
       if v = v.FieldByIndex(x.Index); v.IsValid() {
-        i = v.Interface()
+        if i, y = v.Interface().(Context) ; y {
+          return
+        }
+        if false && v.Type().Kind() == reflect.Struct && v.CanAddr() {
+          if i, y = v.Addr().Interface().(Context) ; y {
+            return
+          }
+        }
+      }
+    } else if false {
+      for n := 0; n < v.NumField(); n++ {
+        if f := t.Field(n); f.Anonymous {
+          var fv = v.FieldByIndex(f.Index)
+          if fv.CanInterface() {
+            if i, y = fv.Interface().(Context); y {
+              return
+            }
+          }
+          if fv.Type().Kind() == reflect.Struct && fv.CanAddr() {
+            if fv = fv.Addr(); fv.CanInterface() {
+              if i, y = fv.Interface().(Context) ; y {
+                return
+              }
+            }
+          }
+        }
       }
     }
   } else if t.Kind() == reflect.Pointer {
@@ -146,10 +192,7 @@ func _inner(v reflect.Value) (i any) {
   return
 }
 
-func inner(ctx Context) (c Context) {
-  if i := _inner(reflect.ValueOf(ctx)); i != nil { c = i.(Context) }
-  return
-}
+func inner(c Context) Context { return _inner(reflect.ValueOf(c)) }
 
 func _scope(ctx Context) (s *scope) {
   s, _ = do(ctx, get_scope{}).(*scope)
@@ -161,22 +204,22 @@ func _project(ctx Context) (p *project) {
   return
 }
 
-func getTargetValue(ctx Context) (res Value) {
+func auto_target_value(ctx Context) (res Value) {
   if val := auto_get(ctx, "@"); val == nil {
     if false { erro(ctx, "target is nil") }
-  } else if vals := expand(ctx, val); len(vals) == 1 {
-    res = scalarize(vals[0])
+  } else if v := val.expand(ctx); v == nil {
+    erro(ctx, "multiple targets: %v → %v", val, v)
   } else {
-    erro(ctx, "multiple targets: %v → %v", val, vals)
+    res = scalarize(v)
   }
   return
 }
 
-func getTargetValueString(ctx Context) (val Value, str string) {
-  if val = getTargetValue(ctx); isNull(val) {
-    if false { erro(ctx, "target '%v' is nil", val) }
+func auto_target_valstr(ctx Context) (val Value, str string) {
+  if val = auto_target_value(ctx); val == nil {
+    if false { erro(ctx, "target is nil") }
   } else {
-    str, _ = as{val}.fullnameOrFinal(ctx)
+    str, _ = as{val}.fullname_string(ctx)
   }
   return
 }
@@ -186,7 +229,7 @@ type frames  struct{ int }
 type skipint struct{ int }
 
 var (
-  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_bits)?|tr(?:ace(?:_recover)?|uly|y)|erro|(?:diagtracer|\(\*diagnostic\))\.trace)\(.+\)$`)
+  callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_bits)?|(?:recover_)?tr(?:ace|uly|y)|erro|(?:diagtracer|\(\*diagnostic\))\.trace)\(.+\)$`)
   callstackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
   callstackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
 )
@@ -315,15 +358,9 @@ func (d *diagpoint) debug(args ...any) *diagpoint {
   return d
 }
 
-type diagtracer struct { *diagpoint ; ctx Context }
-func (d diagtracer) trace(a ...any) {
-  if false {
-    defer trace(d.ctx)
-    d.stack = _callstack(d.tag(), 5, 0)
-  } else {
-    trace(d.ctx, a...)
-  }
-}
+type diagtracer struct { *diagpoint ; c Context }
+func (d diagtracer) trace(a ...any) { trace(d.c, a...) }
+func (d diagtracer) flush() { flush(d.c) }
 
 type act_traced           struct{}
 type too_many_diagnostics struct{ int }
@@ -332,12 +369,13 @@ type trace_errors         struct{ Context ; int }
 type trace_evoke_loop_err struct{ Context ; Value }
 type trace_evoke_loop     struct{ Context }
 type evoke_loop_null      struct{}
-type evoke_loop_pani      struct{}
+type evoke_loop_panic     struct{}
 
-func (x trace_evoke_loop) cast(t reflect.Type) Context { return implcast(x,t) }
+func (x trace_evoke_loop) inner() Context { return x.Context }
+func (x trace_evoke_loop) cast(t reflect.Type) Context { return icast(x,t) }
 func (x trace_evoke_loop) do(ctx Context, op any) (_ any) {
   switch op.(type) {
-  case evoke_loop_pani: return true
+  case evoke_loop_panic: return true
   }
   return x.Context.do(ctx, op)
 }
@@ -405,22 +443,22 @@ func recover_trace(ctx Context) {
 type no_recover struct{}
 
 func trace(ctx Context, args ...any) {
-  var evoke_loop trace_evoke_loop_err
+  var loop trace_evoke_loop_err
   var recov = true
   for _, a := range args {
     switch t := a.(type) {
     case no_recover: recov = false
-    case trace_evoke_loop_err: evoke_loop = t
+    case trace_evoke_loop_err: loop = t
     }
   }
   if recov { defer recover_trace(ctx) }
   if x, y := do(ctx, act_traced{}).(int); y && x > 0 {
     if truly(ctx, is_test_mode{}) {
       panic(test_fail{ctx, x, 0})
-    } else if evoke_loop.Value == nil {
+    } else if loop.Value == nil {
       panic(trace_errors{ctx, x})
     } else {
-      panic(evoke_loop)
+      panic(loop)
     }
   }
   return
@@ -446,7 +484,8 @@ type diagnostic struct {
   traced  int
 }
 func (d *diagnostic) aquire() (unlock func()) { d.Lock(); return func(){ d.Unlock() }}
-func (d *diagnostic) cast(t reflect.Type) Context { return implcast(d,t) }
+func (d *diagnostic) cast(t reflect.Type) Context { return icast(d,t) }
+func (d *diagnostic) inner() Context { return d.Context }
 func (d *diagnostic) do(ctx Context, op any) (_ any) {
   switch t := op.(type) {
   case property: if t&propErros != 0 { return d.erros }

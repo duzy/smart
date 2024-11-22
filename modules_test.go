@@ -519,7 +519,7 @@ func testVariantTarget(ctx *testcase) {
 	} else if ts(v) != "{=delegate {=def .flags} {=list {=delegate {=auto 1}}} {=list {=word c}}}" {
 		ctx.err("%v", tst{v})
 	} else {
-		var t = v.expand(final{ctx})
+		var t = v.expand(_final(ctx))
 
 		var str1 = t.String()
 		for _, s := range []string{
@@ -556,7 +556,7 @@ func testVariantTarget(ctx *testcase) {
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
 
-		var str3 = v.expand(final{ctx}).String()
+		var str3 = v.expand(_final(ctx)).String()
 		for _, s := range []string{
 			"&(-v.z)? "+ctx.str("-v.c"),
 			"-std=&(-std.z)? -std=&(std.z)? -std=&(-std.c)? -std="+ctx.str("std.c"),
@@ -581,7 +581,7 @@ func testVariantTarget(ctx *testcase) {
 	} else if ts(v) != "{=delegate {=def .flags+} {=list {=delegate {=auto 1}}} {=list {=word c++}} {=list {=word cxx}}}" {
 		ctx.err("%v", tst{v})
 	} else {
-		var t = v.expand(final{ctx})
+		var t = v.expand(_final(ctx))
 
 		var str1 = t.String()
 		for _, s := range []string{
@@ -618,7 +618,7 @@ func testVariantTarget(ctx *testcase) {
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
 
-		var str3 = v.expand(final{ctx}).String()
+		var str3 = v.expand(_final(ctx)).String()
 		for _, s := range []string{
 			"&(-v.z++)? "+ctx.str("-v.c++"),
 			"-std=&(-std.z++)? -std=&(std.z++)? -std=&(-std.c++)? -std="+ctx.str("std.c++"),
@@ -652,7 +652,7 @@ func testApp(ctx *testcase) {
 	} else if v := d.value ; v == nil {
 		ctx.err("%v", d)
 	} else {
-		var t = v.expand(final{ctx})
+		var t = v.expand(_final(ctx))
 
 		var str1 = t.String()
 		for _, s := range []string{
@@ -691,7 +691,7 @@ func testApp(ctx *testcase) {
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
 
-		var str3 = v.expand(final{ctx}).String()
+		var str3 = v.expand(_final(ctx)).String()
 		for _, s := range []string{
 		}{
 			if strings.Count(str3, s) != 1 { ctx.err("%s : %s", s, str3) }
@@ -1930,7 +1930,7 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%s", name)
 	} else if v.String() != "$(grep {=regex ^ *set\\(LLVM_VERSION_MAJOR +([0-9]+) *\\)},$1,{=file LLVMVersion.cmake})" { // '18'
 		ctx.err("%s: %v : %s", name, v, tst{v})
-	} else if t := v.expand(final{ctx}); ts(t) != "{=strlit 20}" {
+	} else if t := v.expand(_final(ctx)); ts(t) != "{=strlit 20}" {
 		ctx.err("%s: %v : %s", name, v, tst{t})
 	} else if ver1_val, ver1 = v, v.string(ctx); ver1 != "20" {
 		ctx.err("%s: %v : %v", name, ver1, v)
@@ -1941,7 +1941,7 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%s", name)
 	} else if v.String() != "$(grep {=regex ^ *set\\(LLVM_VERSION_MINOR +([0-9]+) *\\)},$1,{=file LLVMVersion.cmake})" { // '0'
 		ctx.err("%s: %v : %s", name, v, tst{v})
-	} else if t := v.expand(final{ctx}); ts(t) != "{=strlit 0}" {
+	} else if t := v.expand(_final(ctx)); ts(t) != "{=strlit 0}" {
 		ctx.err("%s: %v : %s", name, v, tst{t})
 	} else if ver2_val, ver2 = v, v.string(ctx); ver2 != "0" {
 		ctx.err("%s: %v : %v", name, ver2, v)
@@ -1952,7 +1952,7 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%s", name)
 	} else if v.String() != "$(grep {=regex ^ *set\\(LLVM_VERSION_PATCH +([0-9]+) *\\)},$1,{=file LLVMVersion.cmake})" { // '0'
 		ctx.err("%s: %v : %s", name, v, tst{v})
-	} else if t := v.expand(final{ctx}); ts(t) != "{=strlit 0}" {
+	} else if t := v.expand(_final(ctx)); ts(t) != "{=strlit 0}" {
 		ctx.err("%s: %v : %s", name, v, tst{t})
 	} else if ver3_val, ver3 = v, v.string(ctx); ver3 != "0" {
 		ctx.err("%s: %v : %v", name, ver3, v)
@@ -2040,18 +2040,18 @@ func testLLVMConfig1(ctx *testcase) {
 	} else if recipes := r.programs()[0].recipes; len(recipes) != 1 {
 		ctx.err("VERSION: %v", r)
 	} else {
-		recipe := recipes[0]//.expand(final{ctx})
-		verval := ver.expand(final{ctx})
+		recipe := recipes[0]//.expand(_final(ctx))
+		verval := ver.expand(_final(ctx))
 		if x, y := recipe.(*list); !y {
-			ctx.err("%v: %v", typeof(recipe), recipe)
+			ctx.err("%v", tst{recipe})
 		} else if x.len() == 0 { // != 1
 			ctx.err("%v %v", x.len(), ts(x.elems))
 		} else if elem := x.elems[0]; elem == nil {
-			ctx.err("%v: %v", typeof(elem), elem)
+			ctx.err("%v", tst{elem})
 		} else if x, y := elem.(*def); !y {
-			ctx.err("%v: %v", typeof(elem), elem)
-		} else if v := x.value.expand(final{ctx}); v == nil {
-			ctx.err("%v: %v", typeof(x.value), x.value)
+			ctx.err("%v", tst{elem})
+		} else if v := x.value.expand(_final(ctx)); v == nil {
+			ctx.err("%v", tst{x.value})
 		} else if false && v.String() != verval.String() {
 			ctx.err("%v: %v != %v", typeof(v), v, verval)
 		}
@@ -2150,7 +2150,7 @@ func testLLVMConfig1(ctx *testcase) {
 	} else if v1.String() != proj.absPath {
 		ctx.err("%v", ts(v1))
 	} else if v1.string(ctx) != proj.absPath {
-		ctx.err("%v: %v: %v", _project(ctx), typeof(v1), v1)
+		ctx.err("%v: %v", _project(ctx), tv(v1))
 	} else if v2 := ctx.val("root2"); v2 == nil {
 		ctx.err("root2")
 	} else if _, y := v2.(*path); !y {
@@ -2165,7 +2165,7 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("root3")
 	} else if c, y := v3.(*closure); !y {
 		ctx.err("%v", tst{v3})
-	} else if t := c.expand(final{ctx}); t == nil {
+	} else if t := c.expand(_final(ctx)); t == nil {
 		ctx.err("%v", c)
 	} else if p, y := t.(*path); !y || len(p.elems) == 0 {
 		ctx.err("%v: %v: %v", c, typeof(t), t)
@@ -2173,16 +2173,16 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%v: %v → %v ; %v", proj, c, p, tail)
 	} else if cc := closure_with(ctx.Context, proj); _project(cc) == nil {
 		ctx.err("%v: %v != %v", c, _project(cc), proj)
-	} else if t := c.expand(final{cc}); t == nil {
+	} else if t := c.expand(_final(cc)); t == nil {
 		ctx.err("%v", c)
 	} else if p, y := t.(*path); !y {
-		ctx.err("%v: %v: %v", c, typeof(t), t)
+		ctx.err("%v: %v", c, tv(t))
 	} else if len(p.elems) == 0 {
 		ctx.err("%v: %v", c, p.elems)
 	} else if p.elems[len(p.elems)-1].String() == filepath.Base(tail) {
 		ctx.err("%v: %v → %v ; %v", proj, c, p, tail)
 	} else if v3.String() != "&/" {
-		ctx.err("%v: %v", typeof(v3), v3)
+		ctx.err("%v", tv(v3))
 	} else if v3.string(cc) != v1.string(ctx) {
 		note(ctx, "%v: %v", _project(ctx), v1.string(ctx))
 		note(ctx, "%v: %v", _project(ctx), v3.string(ctx))
@@ -2200,9 +2200,9 @@ func testLLVMConfig1(ctx *testcase) {
 		note(ctx, "%v: %v", _project(ctx), v3.string(ctx))
 		ctx.err("%v: %v ; %v{%v}",  _project(ctx), v3, typeof(ctx.Context), typeof(inner(ctx.Context)))
 	} else if !strings.HasSuffix(v3.string(ctx), tail) {
-		ctx.err("%v: %v %v", typeof(v3), v3, tail)
+		ctx.err("%v: %v", tv(v3), tail)
 	} else if strings.HasSuffix(v3.string(cc), tail) {
-		ctx.err("%v: %v %v", typeof(v3), v3, tail)
+		ctx.err("%v: %v", tv(v3), tail)
 	}
 
 	var chop0, chop1 string
@@ -2214,31 +2214,31 @@ func testLLVMConfig1(ctx *testcase) {
 	if v := ctx.val("chop0"); v == nil {
 		ctx.err("chop0")
 	} else if chop0 = v.string(ctx); chop0 == "" {
-		ctx.err("%v %v", typeof(v), v)
+		ctx.err("%v", tv(v))
 	}
 
 	if v := ctx.val("chop1"); v == nil {
 		ctx.err("chop1")
 	} else if chop1 = v.string(ctx); chop1 == "" {
-		ctx.err("%v %v", typeof(v), v)
+		ctx.err("%v", tv(v))
 	} else if strings.HasSuffix(chop1, tail) {
-		ctx.err("%v %v %s", typeof(v), v, chop1)
+		ctx.err("%v %s", tv(v), chop1)
 	}
 
 	if v := ctx.val("rel.chop"); v == nil { // from general
 		ctx.err("rel.chop")
 	} else if !strings.HasPrefix(v.String(), chop1) {
-		ctx.err("%v %v", typeof(v), v)
+		ctx.err("%v", tv(v))
 	} else if !strings.HasPrefix(v.string(ctx), chop1) {
-		ctx.err("%v %v", typeof(v), v)
+		ctx.err("%v", tv(v))
 	} else if !strings.HasSuffix(v.String(), chop0) {
-		ctx.err("%v %v", typeof(v), v)
+		ctx.err("%v", tv(v))
 	} else if !strings.HasSuffix(v.string(ctx), chop0) {
-		ctx.err("%v %v", typeof(v), v)
+		ctx.err("%v", tv(v))
 	} else if !strings.HasSuffix(v.String(), chop3) {
-		ctx.err("%v %v", typeof(v), v)
+		ctx.err("%v", tv(v))
 	} else if !strings.HasSuffix(v.string(ctx), chop3) {
-		ctx.err("%v %v", typeof(v), v)
+		ctx.err("%v", tv(v))
 	}
 
 	var cc1 = closure_with(ctx.Context, base.configure, base)
@@ -2255,46 +2255,46 @@ func testLLVMConfig1(ctx *testcase) {
 	if v := remnant_val; v == nil {
 		ctx.err("%v: rel.remnant", proj)
 	} else if _, y := v.(*delegate); !y {
-		ctx.err("%v: %v", typeof(v), v)
+		ctx.err("%v", tst{v})
 	} else if v.String() != "$(trim-prefix &(rel.chop),&/)" { // from general
-		ctx.err("%v: %v", typeof(v), v)
+		ctx.err("%v", tst{v})
 	} else if s0 := v.string(ctx); s0 == "" {
-		ctx.err("%v: %v", typeof(v), v)
+		ctx.err("%v", tst{v})
 	} else if s1 := v.string(cc1); s1 == "" {
-		ctx.err("%v: %v", typeof(v), v)
+		ctx.err("%v", tst{v})
 	} else if s2 := v.string(cc2); s2 == "" {
-		ctx.err("%v: %v", typeof(v), v)
+		ctx.err("%v", tst{v})
 	} else if v0 := ctx.val("remnant0"); v0 == nil {
 		ctx.err("%v: remnant0", proj)
 	} else if v0.string(ctx) == v.string(ctx) {
-		ctx.err("%v: %v: %v", proj, typeof(v), v)
+		ctx.err("%v: %v", proj,	tv(v))
 	} else if v0.string(ctx) != v.string(closure_with(ctx, proj)) {
 		note(ctx, "%v → %v", v, v0.string(ctx))
 		note(ctx, "%v → %v", v,  v.string(closure_with(ctx, proj)))
 		note(ctx, "%v → %v", v,  v.string(closure_with(ctx.Context, base)))
 		note(ctx, "%v → %v", v,  v.string(closure_with(ctx.Context, base.configure)))
-		ctx.err("%v: %v: %v", proj, typeof(v), v)
+		ctx.err("%v: %v", proj, tv(v))
 	} else if v1 := ctx.val("remnant1"); v0 == nil {
 		ctx.err("%v: remnant1", proj)
 	} else if v1.string(ctx) == v.string(ctx) {
-		ctx.err("%v: %v: %v", proj, typeof(v), v)
+		ctx.err("%v: %v", proj, tv(v))
 	} else if v1.string(ctx) != v.string(closure_with(ctx, proj)) {
 		note(ctx, "%v → %v", v, v1.string(ctx))
 		note(ctx, "%v → %v", v,  v.string(closure_with(ctx, proj)))
 		note(ctx, "%v → %v", v,  v.string(closure_with(ctx.Context, base)))
 		note(ctx, "%v → %v", v,  v.string(closure_with(ctx.Context, base.configure)))
-		ctx.err("%v: %v: %v", proj, typeof(v), v)
+		ctx.err("%v: %v", proj, tv(v))
 	} else if strings.HasSuffix(s1, tail) {
 		note(ctx, "%v → %v", v, s0)
 		note(ctx, "%v → %v", v, s1)
 		note(ctx, "%v → %v", v, s2)
-		ctx.err("%v: %v: %v", proj, typeof(v), v)
+		ctx.err("%v: %v", proj, tv(v))
 	} else {
 		remnant = s1
 	}
 
 	if remnant == "" {
-		ctx.err("%v: %v: %v", proj, typeof(remnant_val), remnant_val)
+		ctx.err("%v: %v", proj, tv(remnant_val))
 	}
 
 	s = "rel.remnant"

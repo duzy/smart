@@ -588,7 +588,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%v: %v", t.target, t.program[0].depends)
 	} else if t.program[0].depends[0].String() != "a" {
 		ctx.err("%v: %v", t.target, t.program[0].depends[0])
-	} else if t.program[0].depends[1].String() != "$(foreach a d e f,foo=a)" {
+	} else if t.program[0].depends[1].String() != "$(foreach a d e f,foo=$_)" {
 		ctx.err("%v: %v", t.target, t.program[0].depends[1])
 	} else if len(t.program[0].recipes) != 1 {
 		ctx.err("%v: %v", t.target, t.program[0].recipes)
@@ -615,7 +615,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%v: %v", t.target, t.program[0].depends)
 	} else if t.program[0].depends[0].String() != "b" {
 		ctx.err("%v: %v", t.target, t.program[0].depends[0])
-	} else if t.program[0].depends[1].String() != "$(foreach b d e f,foo=b)" {
+	} else if t.program[0].depends[1].String() != "$(foreach b d e f,foo=$_)" {
 		ctx.err("%v: %v", t.target, t.program[0].depends[1])
 	} else if len(t.program[0].recipes) != 1 {
 		ctx.err("%v: %v", t.target, t.program[0].recipes)
@@ -642,7 +642,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%v: %v", t.target, t.program[0].depends)
 	} else if t.program[0].depends[0].String() != "c" {
 		ctx.err("%v: %v", t.target, t.program[0].depends[0])
-	} else if t.program[0].depends[1].String() != "$(foreach c d e f,foo=c)" {
+	} else if t.program[0].depends[1].String() != "$(foreach c d e f,foo=$_)" {
 		ctx.err("%v: %v", t.target, t.program[0].depends[1])
 	} else if len(t.program[0].recipes) != 1 {
 		ctx.err("%v: %v", t.target, t.program[0].recipes)

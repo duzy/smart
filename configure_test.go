@@ -157,7 +157,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{target_triple})
 	} else if t := ts(target_triple.value); t != "{=delegate {=builtin join} {=list {=compound {=closure {=def target.arch}} {=closure {=compound {=word target} {=punct .} {=word sub}}}} {=closure {=def target.vendor}} {=closure {=def target.sys}} {=closure {=def target.abi}}} {=list {=flag {=null}}}}" {
 		ctx.err("%v : %s", tst{target_triple}, t)
-	} else if v := target_triple.value.expand(final{ctx}); v == nil || v == target_triple.value {
+	} else if v := target_triple.value.expand(_final(ctx)); v == nil || v == target_triple.value {
 		ctx.err("%v : %s", tst{target_triple}, v)
 	} else if t := v.String(); t != "arm64&(target.sub)-apple-'Darwin'23.2.0-macho" {
 		ctx.err("%v : %s", tst{target_triple}, t)

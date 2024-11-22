@@ -111,6 +111,7 @@ const (
     KindCompound
     KindCond
     KindGlobpat
+    KindRecipe
 
     KindObject
     KindKnownObject
@@ -193,7 +194,8 @@ type get_origin struct{}
 
 // Original initiation of def values.
 type original struct { Context ; o origin }
-func (c original) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c original) cast(t reflect.Type) Context { return icast(c, t) }
+func (c original) inner() Context { return c.Context }
 func (c original) ts(t string) string {
 	return fmt.Sprintf("{=%s %v %v}", t, c.o, ts(c.Context))
 }
@@ -205,44 +207,53 @@ func (c original) do(ctx Context, op any) any {
 }
 
 // Optimize value for final strings
+type is_final struct {}
 type final struct { Context }
-func (c final) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c final) cast(t reflect.Type) Context { return icast(c, t) }
+func (c final) inner() Context { return c.Context }
 func (c final) ts(t string) string { return fmt.Sprintf("{=%s %v}", t, ts(c.Context)) }
 func (c final) do(ctx Context, op any) any {
     switch op.(type) {
+    case is_final, ex_delegate, ex_closure: return true
     case final: return c
     }
     return dob(ctx, c.Context, op, propExClosure|propExDelegate|propExAuto|
-        propExPlaceholder|propExDefValue|propExDisjunction|propExPairVal|propExFinal)
+        propExPlaceholder|propExDefValue|propExDisjunction|propExPairVal)
 }
 
-type fullfile_ctx struct { Context }
-func (c fullfile_ctx) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c fullfile_ctx) do(ctx Context, op any) any {
-    return dob(ctx, c.Context, op, propExFullFile)
+func _final(ctx Context) Context {
+    if x, y := ctx.(final); y {
+        return x
+    } else {
+        return final{ctx}
+    }
 }
 
 type expandPathStr struct { Context }
-func (c expandPathStr) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c expandPathStr) cast(t reflect.Type) Context { return icast(c, t) }
+func (c expandPathStr) inner() Context { return c.Context }
 func (c expandPathStr) do(ctx Context, op any) any {
     return dob(ctx, c.Context, op, propExPathStr)
 }
 
 type condless struct { Context }
-func (c condless) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c condless) cast(t reflect.Type) Context { return icast(c, t) }
+func (c condless) inner() Context { return c.Context }
 func (c condless) do(ctx Context, op any) any {
     return dob(ctx, c.Context, op, propExCondless)
 }
 
 type reversal struct { Context }
-func (c reversal) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c reversal) cast(t reflect.Type) Context { return icast(c, t) }
+func (c reversal) inner() Context { return c.Context }
 func (c reversal) do(ctx Context, op any) any {
     return dob(ctx, c.Context, op, propReversal)
 }
 
 type partialBit uint
 type partial struct { Context ; bit partialBit }
-func (c partial) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c partial) cast(t reflect.Type) Context { return icast(c, t) }
+func (c partial) inner() Context { return c.Context }
 func (c partial) ts(t string) string {
 	return fmt.Sprintf("{=%s %b %v}", t, c.bit, ts(c.Context))
 }
@@ -250,17 +261,13 @@ func (c partial) do(ctx Context, op any) any {
     if x, y := op.(is_good_with) ; y {
         for _, v := range x.a {
             switch t := v.(type) {
+            case *closure : return c.do(ctx, op)
+            case *delegate: return c.do(ctx, op)
             case *auto:
                 if true || x.p&(propExAuto) != 0 {
                     if c.bit&placeholderPart != 0 && t.isPlaceholder() { return true }
                     if c.bit&digitalPart != 0 && t.isDigit() { return true }
                 }
-            // case *compound:
-            //     for _, e := range t.elems {
-            //         if t := c.do(ctx, op, e); t != nil && t.(bool) { return true }
-            //     }
-            case *closure : return c.do(ctx, op)
-            case *delegate: return c.do(ctx, op)
             }
         }
     }
@@ -269,26 +276,24 @@ func (c partial) do(ctx Context, op any) any {
 }
 
 type negate struct { Context ; property }
-func (c negate) cast(t reflect.Type) Context { return implcast(c, t) }
-func (c negate) do(ctx Context, op any) any {
-    if x, y := op.(property); y && x&c.property != 0 { return false }
-    if c.Context == nil { return nil }
+func (c negate) cast(t reflect.Type) Context { return icast(c, t) }
+func (c negate) inner() Context { return c.Context }
+func (c negate) do(ctx Context, op any) (_ any) {
+    if x, y := op.(property); y && x&c.property != 0 { return }
     return c.Context.do(ctx, op)
 }
 
-// A Comment node represents a single #-style comment.
+// A comment node represents a single #-style comment.
 type comment struct {
     pos Position // position of "#" starting the comment
     string // comment text (excluding '\n')
 }
 func (c *comment) String() string { return "{"+c.string+"}" }
 
-// A commentGroup represents a sequence of comments
+// A commentgroup represents a sequence of comments
 // with no other tokens and no empty lines between.
-type commentGroup struct {
-    list []*comment // len(List) > 0
-}
-func (g *commentGroup) Position() Position { return g.list[0].pos }
+type commentgroup struct { comments []*comment }
+func (g *commentgroup) Position() Position { return g.comments[0].pos }
 
 type statinfo struct {
     file *file
@@ -321,7 +326,8 @@ var traveTargetNotDefinedFile = fmt.Errorf("target not defined as file")
 
 // TODO: use chained-context instead of 'term' for closure-scopes
 type term struct { Context ; *scope }
-func (c *term) cast(t reflect.Type) Context { return implcast(c,t) }
+func (c *term) cast(t reflect.Type) Context { return icast(c,t) }
+func (c *term) inner() Context { return c.Context }
 func (c *term) ts(string) (s string) {
     if c.scope != nil {
         return "{=term "+c.comment+" "+ts(c.Context)+"}"
@@ -597,7 +603,7 @@ func wait(ctx Context, opts waitopts) (target Value, files []*file, execRes *exe
         p.calleeErrsM.Unlock()
     }
 
-    if target = getTargetValue(ctx); target == nil {
+    if target = auto_target_value(ctx); target == nil {
         errostack(ctx, 8, "target is nil").trace()
     }
 
@@ -652,13 +658,14 @@ func wait(ctx Context, opts waitopts) (target Value, files []*file, execRes *exe
 type as struct { Value }
 func (a as) ts(string) string { return "{=as "+ts(a.Value)+"}" }
 func (a as) file(ctx Context, projs ...*project) (res *file) {
-    var v = a.Value.expand(final{ctx})
+    var v = scalarize(a.Value.expand(ctx))
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer a.file_check(ctx, projs, v, &res)
+        defer a.file_check(ctx, projs, a.Value, &res)
     }
+    if x, y := v.(fullname); y { v = x.Value }
     switch t := v.(type) {
     case as: return t.file(ctx, projs...)
-    case fullfile: return t.file
+    case  fullfile: return t.file
     case *barefile: return t.file
     case *file: return t
     case *rule: return as{t.target}.file(ctx)
@@ -673,34 +680,31 @@ func (a as) file(ctx Context, projs ...*project) (res *file) {
         }
     default: // *strlit, *strval, *strcomp:
         // NOTE: not parsing 'string' and "strcomp" values to file to optimize.
-        erro(ctx, "cannot convert to file: %v", tv(v)).trace()
+        // erro(pc(ctx,a), "cannot convert to file: %v", tv(a.Value)).trace()
     }
     return
 }
-func (a as) fullnameFile(ctx Context, projs ...*project) (f *file, s string, ok bool) {
-    if f = a.file(ctx, projs...); f == nil {
-        // no fullname
-    } else if s = f.fullname(); filepath.IsAbs(s) {
-        ok = true
+func (a as) file_fullname(ctx Context, projs ...*project) (f *file, s string, y bool) {
+    if f = a.file(ctx, projs...); f != nil {
+        if s = f.fullname(); filepath.IsAbs(s) {
+            y = true
+        }
     }
     return
 }
-// DEPRECATED
-func (a as) fullnameOrFinal(ctx Context, projs ...*project) (s string, y bool) {
-    if _, s, y = a.fullnameFile(ctx, projs...); !y { s = a.string(ctx) }
+func (a as) fullname_string(ctx Context, projs ...*project) (s string, y bool) {
+    if _, s, y = a.file_fullname(ctx, projs...); !y { s = a.string(ctx) }
     return
 }
 func (a as) fullname(ctx Context, projs ...*project) (res fullname) {
     if a.Value != nil {
-        v := scalarize(a.Value)
-        switch t := v.(type) {
-        case *file:
-            res.Value = t
-        default:
-            res.Value = a.file(ctx, projs...)
+        if f := a.file(ctx, projs...); f != nil {
+            res.Value = f
+        } else {
+            erro(ctx, "nil file : %v : %v → %v", a.Value, ts(a.Value), a.Value.expand(ctx)).trace()
         }
         if checkpoints && truly(ctx, is_test_mode{}) {
-            a.fullname_check(ctx, projs, v, res)
+            a.fullname_check(ctx, projs, a.Value, res)
         }
     }
     return
@@ -727,6 +731,8 @@ func joinraws(sep string, vals ...*raw) string {
 }
 
 type posctx struct{ Context ; pos any }
+func (p *posctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *posctx) inner() Context { return p.Context }
 func (p *posctx) ts(string) string {
     switch t := p.pos.(type) {
     case Position:
@@ -753,20 +759,22 @@ func (p *posctx) do(ctx Context, op any) (_ any) {
 
 func pc(ctx Context, a any, n ...int) Context {
     var p any
-    switch t := a.(type) {
-    case  *scanner   : p = t.pos(n...)
-    case  *parser    : p = t.Position()
-    case   Position  : if t.valid() { p = t }
-    case   positioner: if t != nil  { p = t.Position() }
-    case []positioner: if t != nil  { p = t[0].Position() }
-    case []Value     : if t != nil  { p = t[0].Position() }
-    case string:
-        var pos Position
-        pos.Filename = t
-        if 0 == len(n) { pos.Line = 1 }
-        if 0 < len(n) { pos.Line = n[0] }
-        if 1 < len(n) { pos.Column = n[0] }
-        p = pos
+    if a != nil {
+        switch t := a.(type) {
+        case  *scanner   : p = t.pos(n...)
+        case  *parser    : p = t.Position()
+        case   Position  : if t.valid() { p = t }
+        case   positioner: if t != nil  { p = t.Position() }
+        case []positioner: if t != nil  { p = t[0].Position() }
+        case []Value     : if t != nil  { p = t[0].Position() }
+        case string:
+            var pos Position
+            pos.Filename = t
+            if 0 == len(n) { pos.Line = 1 }
+            if 0 < len(n) { pos.Line = n[0] }
+            if 1 < len(n) { pos.Column = n[0] }
+            p = pos
+        }
     }
     if p != nil { ctx = &posctx{ctx,p} }
     return ctx
@@ -901,10 +909,15 @@ func diff(ctx Context, a, b []Value) bool {
     }
 }
 
-func indeterminate(ctx Context, val Value) bool {
+func indeterminate(ctx Context, vals ...Value) (_ bool) {
     var x, y = do(ctx, final{}).(final)
     if !y { x.Context = ctx }
-    return val.expandable(x)
+    for _, v := range vals {
+        if v.expandable(x) {
+            return true
+        }
+    }
+    return
 }
 
 func isFinalValue(ctx Context, val Value) bool {
@@ -1133,8 +1146,6 @@ func (p undef) cmp(ctx Context, v Value) (_ cmpres) {
     }
 }
 
-func _null(ctx Context) *null { return &null{valbase{_position(ctx)}} }
-
 type null struct { valbase }
 func (_ *null) kind() Kind { return KindNull }
 func (_ *null) String() string { return "{}" } // {=null}
@@ -1200,15 +1211,21 @@ func (p *none) traverse(ctx Context) {
 }
 
 type argumented_ctx struct { Context ; *argumented }
-func (ac *argumented_ctx) cast(t reflect.Type) Context { return implcast(ac,t) }
+func (ac *argumented_ctx) cast(t reflect.Type) Context { return icast(ac,t) }
+func (ac *argumented_ctx) inner() Context { return ac.Context }
 func (ac *argumented_ctx) ts(t string) (s string) {
     return fmt.Sprintf("{=%s %v %s}", t, ac.argumented, ts(ac.Context))
 }
-func (ac *argumented_ctx) do(ctx Context, op any) any {
-    switch op.(type) {
-    case get_arguments: return ac.args
+func (ac *argumented_ctx) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case get_args: return ac.args
+    case init_args:
+        if ac.args != nil && t.automatic != nil {
+            t.args(ctx, ac.args)
+            return
+        }
     }
-    return dob(ctx, ac.Context, op)
+    return ac.Context.do(ctx, op)
 }
 
 type argumented struct { Value ; args []Value }
@@ -1295,7 +1312,7 @@ func (p *argumented) traverse(ctx Context) {
         var proj = _project(ctx)
         // NOTE: expand here to avoid args being expanded in the wrong context
         for i, a := range args {
-            if a = a.expand(final{ctx}); a.patterned(ctx) {
+            if a = a.expand(_final(ctx)); a.patterned(ctx) {
                 // TODO: deal with pattern args using expandPatterned instead of stenciling:
                 if stems := _stems(ctx); len(stems) > 0 {
                     if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
@@ -1310,14 +1327,6 @@ func (p *argumented) traverse(ctx Context) {
                 }
             }
             args[i] = a
-        }
-    }
-
-    if false && checkpoints {
-        if s := p.Value.String(); len(args) == 1 && strings.HasPrefix(s, "{=file .configure/library/") {
-            if a := args[0]; a.String() == "$(INCLUDE)" {
-                note(ctx, "%v %v %v %v", do(ctx, get_arguments{}), s, ts(a), ts(a.expand(final{ctx}))).debug()
-            }
         }
     }
 
@@ -2286,26 +2295,13 @@ func (p *word) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *word) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    return c.hit(ctx, p.s)
-}
 func (p *word) prefix(ctx Context, v Value) Value { return _suffix(ctx, v, p) }
 func (p *word) suffix(ctx Context, v Value) Value { return _bifix(ctx, p, v) }
-func (p *word) expand(ctx Context) (res Value) {
-    if res = p; false && truly(ctx, propExFullFile) {
-        if f := findfile(ctx, p.string(ctx)); f != nil {
-            res = f.expand(ctx)
-        }
-    }
-    return
-}
-func (p *word) match(ctx Context, i any) (full bool, s any, stems []string) {
-    return stringMatch(ctx, p, i)
-}
-func (p *word) stencil(ctx Context, stems []string) (val Value, rest []string) {
-    return p, stems
-}
+func (p *word) stencil(ctx Context, stems []string) (_ Value, _ []string) { return p, stems }
+func (p *word) match(ctx Context, i any) (_ bool, _ any, _ []string) { return stringMatch(ctx, p, i) }
+func (p *word) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) { return c.hit(ctx, p.s) }
 func (p *word) traverse(ctx Context) { do(ctx, act_traverse{p}) }
+func (p *word) expand(ctx Context) Value { return p }
 
 type qualword struct { valbase; words []string } // TODO: foo.bar.zar, foo.&(bar).zar ???
 func (p *qualword) String() string { return strings.Join(p.words,".") }
@@ -2456,9 +2452,9 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
 
 func _cond(v Value) (y bool) {
     switch t := v.(type) {
-    case     cond: return true
+    case cond: return true
+    // case flag: return _cond(t.Value)
     case disjunction: return _cond(t.Value)
-    case        flag: //return _cond(t.Value)
     case *compound:
         for _, e := range t.elems {
             if _cond(e) { return true }
@@ -2472,16 +2468,14 @@ func condish(ctx Context, v Value) Value {
         if y {
             if checkpoints {
                 if _cond(x.Value) {
-                    note(ctx, "nested cond: %v : %v", v, ts(v))
-                    erro(ctx, "%v", ts(ctx)).trace()
+                    erro(ctx, "nested cond: %v : %v", v, ts(v)).trace()
                 }
             }
             return x.Value // TODO: condless(x.Value)
         } else {
             if checkpoints {
                 if _cond(v) {
-                    note(ctx, "nested cond: %v : %v", v, ts(v))
-                    erro(ctx, "%v", ts(ctx)).trace()
+                    erro(ctx, "nested cond: %v : %v", v, ts(v)).trace()
                 }
             }
             return v
@@ -2489,16 +2483,14 @@ func condish(ctx Context, v Value) Value {
     } else if y {
         if checkpoints {
             if _cond(x.Value) {
-                note(ctx, "nested cond: %v : %v", v, ts(v))
-                erro(ctx, "%v", ts(ctx)).trace()
+                erro(ctx, "nested cond: %v : %v", v, ts(v)).trace()
             }
         }
         return x
     } else {
         if checkpoints {
             if _cond(v) {
-                note(ctx, "nesting cond: %v : %v", v, ts(v))
-                erro(ctx, "%v", ts(ctx)).trace()
+                erro(ctx, "nesting cond: %v : %v", v, ts(v)).trace()
             }
         }
         return cond{v} // condish
@@ -2528,7 +2520,7 @@ func (p cond) float(ctx Context) (f float64) {
     return
 }
 func (p cond) final_val(ctx Context, f func(Value)) {
-    if t := p.expand(final{ctx}); t != nil && !equal(ctx, p, t) { f(t) }
+    if t := p.expand(_final(ctx)); t != nil && !equal(ctx, p, t) { f(t) }
 }
 func (p cond) expand(ctx Context) (res Value) {
     var v = p.Value.expand(condless{ctx})
@@ -2536,8 +2528,8 @@ func (p cond) expand(ctx Context) (res Value) {
         defer func() { p.expand_check(ctx, v, res) } ()
     }
 
-    if v == nil { // only truly(ctx, propExFinal)
-        return makeNull(p.Position())
+    if v == nil { // only truly(ctx, is_final{})
+        return _null(p.Position())
     } else if x, y := v.(disjunction); y {
         var vals []Value
         for _, v := range merge(x.Value) {
@@ -2564,11 +2556,11 @@ func (p cond) cmp(ctx Context, v Value) (res cmpres) {
     }
     if x, y := v.(cond); y {
         return p.cmp(ctx, x.Value)
-    } else if x, y := v.(*list); y && x.len() == 1 {
-        return p.cmp(ctx, x.elems[0])
-    } else {
-        return p.Value.cmp(ctx, v)
     }
+    if x, y := v.(*list); y && x.len() == 1 {
+        return p.cmp(ctx, x.elems[0])
+    }
+    return p.Value.cmp(ctx, v)
 }
 
 type conjunction struct { *list ; sep Value }
@@ -2585,7 +2577,7 @@ func (p conjunction) string(ctx Context) (s string) {
     if p.sep != nil { sep = p.sep.string(ctx) }
 
     var ss []string
-    var elems = expand(final{ctx}, p.elems...)
+    var elems = expand(_final(ctx), p.elems...)
     for _,  elem := range elems {
         if isFinalValue(ctx, elem) {
             ss = append(ss, elem.string(ctx))
@@ -2611,9 +2603,7 @@ func (p conjunction) expand(ctx Context) (res Value) {
 type disjunction struct { Value }
 func (p disjunction) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p disjunction) String() string { return "{"+p.Value.String()+"}" }
-func (p disjunction) ts(t string) (s string) {
-    return fmt.Sprintf("{=%s %v}", t, ts(p.Value))
-}
+func (p disjunction) ts(t string) string { return "{="+t+" "+ts(p.Value)+"}" }
 func (p disjunction) expand(ctx Context) (res Value) {
     const DIS = false // var DIS = truly(ctx, propExDisjunction)
 
@@ -2658,10 +2648,24 @@ func (p disjunction) cmp(ctx Context, v Value) (res cmpres) {
     }
     if checkpoints {
         if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
+            errostack(ctx, 8, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
+}
+
+type is_compound    struct {}
+type wants_fullfile struct {}
+type compound_ctx   struct { Context }
+func (c compound_ctx) cast(t reflect.Type) Context { return icast(c, t) }
+func (c compound_ctx) inner() Context { return c.Context }
+func (c compound_ctx) do(ctx Context, op any) any {
+    switch t := op.(type) {
+    case is_compound: return true
+    case wants_fullfile: return false
+    case property: if t&(propExCondless) != 0 { return true }
+    }
+    return c.Context.do(ctx, op)
 }
 
 type compound struct { elements }
@@ -2672,15 +2676,26 @@ func (p *compound) String() (s string) {
     return
 }
 func (p *compound) string(ctx Context) (s string) {
-    if v := p.expand(final{ctx}); _cond(v) && indeterminate(ctx, v) {
+    var v = p.expand(_final(ctx))
+    if _cond(v) && indeterminate(ctx, v) {
         return
     } else if equal(ctx, p, v) {
-        for _, elem := range p.elems { s += elem.string(ctx) }
+        if o, y := v.(*compound); y {
+            for _, elem := range o.elems {
+                if _, y := elem.(fullfile); y {
+                    errostack(pc(ctx,elem), 8, "unexpected fullfile: %v ; %v ; %v", ts(elem), ts(v), ts(p)).trace()
+                } else {
+                    s += elem.string(ctx)
+                }
+            }
+        } else {
+            errostack(pc(ctx,p), 8, "unexpected compound: %v ; %v", ts(v), ts(p)).trace()
+        }
         return
     } else {
         if checkpoints && truly(ctx, is_test_mode{}) {
             if eq(ctx, p, v) {
-                erro(ctx, "%v %v", p, v).trace()
+                erro(ctx, "%s == %s", ts(p), ts(v)).trace()
             }
         }
         return v.string(ctx)
@@ -2705,11 +2720,14 @@ func (p *compound) int(ctx Context) (res int64) {
     }
     return
 }
+func (p *compound) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 func (p *compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *compound) expandable(ctx Context) bool { return p.elements.expandable(ctx) }
 func (p *compound) expand(ctx Context) (res Value) {
-    if checkpoints && truly(ctx, is_test_mode{}) { defer p.expand_check(ctx, &res) }
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer p.expand_check(ctx, &res)
+    }
 
     type record struct { v []Value ; c int }
 
@@ -2722,7 +2740,7 @@ func (p *compound) expand(ctx Context) (res Value) {
                 erro(ctx, "%v: nil component #%d", ts(p), i).trace()
             }
 
-            var v = val.expand(condless{ctx})
+            var v = val.expand(compound_ctx{ctx})
             if v == nil { continue }
             if x, y := v.(disjunction); y {
                 switch x.Value.(type) {
@@ -2767,7 +2785,6 @@ func (p *compound) expand(ctx Context) (res Value) {
         return p
     }
 }
-func (p *compound) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 func (p *compound) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if false && indeterminate(ctx, p) {
         erro(ctx, "indeterminate : %v", tv(p)).trace()
@@ -2968,6 +2985,25 @@ func (p *compound) app(vals ...Value) {
     }
 }
 
+type recipe struct { strcomp }
+func (_ *recipe) kind() Kind { return KindRecipe }
+func (p *recipe) String() string { return p.src() }
+func (p *recipe) expand(ctx Context) (_ Value) {
+    if x, y := p.strcomp.expand(ctx).(*strcomp); y {
+        return &recipe{strcomp{x.elements}}
+    } else {
+        erro(ctx, "recipe.expand: %v", tv(x)).trace()
+    }
+    return
+}
+func (p *recipe) cmp(ctx Context, v Value) (res cmpres) {
+    if x, y := v.(*recipe); y {
+        return p.strcomp.cmp(ctx, &x.strcomp)
+    } else {
+        return p.strcomp.cmp(ctx, v)
+    }
+}
+
 // barefile reduces file lookups, it works like an alias of a File.
 type barefile struct {
     Value
@@ -2997,7 +3033,7 @@ func (p *barefile) refs(ctx Context, v Value) bool { return p.Value.refs(ctx, v)
 func (p *barefile) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
 func (p *barefile) expandable(ctx Context) bool { return p.Value.expandable(ctx) }
 func (p *barefile) expand(ctx Context) (res Value) {
-    if truly(ctx, propExFullFile) {
+    if truly(ctx, wants_fullfile{}) {
         var f = p.file
         if f == nil { f = findfile(ctx, p.Value.string(ctx)) }
         if f != nil { if v := f.expand(ctx); v != f { return v }}
@@ -3557,7 +3593,7 @@ func (p *path) match2(ctx Context, srcs ...string) (full bool, res, stems []stri
     }
 
     var segs = expand_path_elems(ctx, p.elems...)
-    if expandable(final{ctx}, segs...) {
+    if expandable(_final(ctx), segs...) {
         if false { erro(ctx, "expandable path: %v, %v", p, segs).trace() }
         return
     }
@@ -3914,12 +3950,13 @@ func _punct(ctx Context, tok token) *punct {
     return &punct{valbase{_position(ctx)}, tok}
 }
 
-func to_file(v Value) (f *file, y bool) {
-    if f, y = v.(*file); !y {
+func to_file(v Value) (x *file, y bool) {
+    if x, y = v.(*file); !y {
         switch t := v.(type) {
-        case fullfile: f, y = t.file, true
-        case fullname: f, y = to_file(t.Value)
-        case as: f, y = to_file(t.Value) // t.file(ctx)
+        case       as: x, y = to_file(t.Value)
+        case fullname: x, y = to_file(t.Value)
+        case fullfile: x, y = t.file, true
+        case *list: if t.len() == 1 { x, y = to_file(t.elems[0]) }
         }
     }
     return
@@ -3935,13 +3972,65 @@ func splitFileName(ctx Context, val Value) (dir, name string) {
     return
 }
 
+
+type fullfile_ctx struct { Context }
+func (c fullfile_ctx) cast(t reflect.Type) Context { return icast(c, t) }
+func (c fullfile_ctx) inner() Context { return c.Context }
+func (c fullfile_ctx) do(ctx Context, op any) any {
+    switch op.(type) {
+    case wants_fullfile: return true
+    }
+    return c.Context.do(ctx, op)
+}
+
+type fullfile struct { *file }
+func (o fullfile) string(Context) string { return o.fullname() }
+func (o fullfile) ts(string) string { return "{=fullfile "+o.filestub.name+"}" }
+func (o fullfile) expand(ctx Context) Value {
+    if truly(ctx, is_compound{}) { return o.file }
+    return o
+}
+
+func try_fullfile(ctx Context, f *file) Value {
+    // if !truly(ctx, is_compound{}) && truly(ctx, is_exec{})
+    if truly(ctx, wants_fullfile{}) {
+        return fullfile{f}
+    }
+    return f
+}
+
 type fullname struct { Value }
-func (p fullname) hash(ctx Context) uint64 { return fnv1(ctx, p, p.Value) }
-func (o fullname) expand(ctx Context) Value { return fullname{o.Value.expand(ctx)} }
+func (o fullname) hash(ctx Context) uint64 { return fnv1(ctx, o, o.Value) }
 func (o fullname) ts(string) string { return "{=fullname "+ts(o.Value)+"}" }
-func (o fullname) string(ctx Context) (res string) {
-    if x, y := o.Value.(*file); y && x != nil { return x.fullname() }
-    return o.Value.string(ctx)
+func (o fullname) expand(ctx Context) Value {
+    if truly(ctx, is_compound{}) { return o.Value }
+    return fullname{o.Value.expand(ctx)}
+}
+func (o fullname) String() string {
+    if v := o.Value; v == nil {
+        panic("nil file value")
+    } else if x, y := v.(*file); y {
+        if x == nil {
+            panic("nil file")
+        } else if x.filestub == nil {
+            panic("nil file stub")
+        }
+    }
+    return o.Value.String()
+}
+func (o fullname) string(ctx Context) (_ string) {
+    if v := o.Value; v != nil {
+        if x, y := v.(*file); y {
+            if x == nil {
+                erro(ctx, "nil file").trace()
+            } else if x.filestub == nil {
+                erro(ctx, "nil file stub").trace()
+            }
+            return x.fullname()
+        }
+        return v.string(ctx)
+    }
+    return
 }
 func (o fullname) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints && truly(ctx, is_test_mode{}) {
@@ -3990,13 +4079,11 @@ func (o fullname) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-type fullfile struct { *file }
-func (u fullfile) string(ctx Context) string { return u.fullname() }
-func (u fullfile) expand(ctx Context) Value { return u }
-
 type file_must_stamp struct{ *file }
 
 type files_must_stamp struct{ Context }
+func (c files_must_stamp) cast(t reflect.Type) Context { return icast(c,t) }
+func (c files_must_stamp) inner() Context { return c.Context }
 func (c files_must_stamp) do(ctx Context, op any) any {
     switch op.(type) {
     case file_must_stamp: return true
@@ -4015,7 +4102,7 @@ func (p *file) String() string { return "{=file "+p.filestub.name+"}" }
 func (p *file) string(Context) string { return p.filestub.name }
 func (p *file) ident(Context) string { return p.filestub.name }
 func (p *file) true(Context) (_ bool) {
-    if p.filestub.name != "" { return true } // p.exists() == existenceConfirmed
+    if p.filestub.name != "" { return true }
     return
 }
 func (p *file) fullname() string {
@@ -4039,23 +4126,6 @@ func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
         // FIXME: file should keep both 'match' and 'pre', or just remove searchInMatchedPaths
         var f = p.filemap.stat(ctx, p.filestub.name)
         if f != nil && f.info != nil { p.info, res = f.info, true }
-    }
-    return
-}
-func (p *file) absolute_delete(ctx Context) (files []*file, err error) {
-    var fullname string
-    if fullname = p.fullname(); fullname == "" {
-        erro(ctx, "file `%s` has no fullname", p).trace()
-    }
-
-    if p.info == nil {
-        // ignore
-    } else if err = os.Remove(fullname); err != nil {
-        erro(ctx, "%v", err).trace()
-    } else {
-        // TODO: ctx.Globe().delete(fullname)
-        files = append(files, p)
-        p.info = nil
     }
     return
 }
@@ -4093,10 +4163,10 @@ func (p *file) stamp(ctx Context) (files []*file) {
     return
 }
 func (p *file) expandable(ctx Context) bool {
-    return truly(ctx, propExFullFile) && !filepath.IsAbs(p.filestub.name)
+    return false//BUG:truly(ctx, fullfile{}) && !filepath.IsAbs(p.filestub.name)
 }
 func (p *file) expand(ctx Context) Value {
-    if truly(ctx, propExFullFile) {
+    if truly(ctx, wants_fullfile{}) {
         return fullfile{p}
     } else {
         return p
@@ -4145,7 +4215,7 @@ func (p *file) traverse(ctx Context) {
     if p._traved == 0 && !p.isSysFile() {
         do(ctx, act_traverse{p})
     } else if x := _execution(ctx); x != nil {
-        x.defertrave(ctx, getTargetValue(ctx), p, nil, p)
+        x.defertrave(ctx, auto_target_value(ctx), p, nil, p)
     }
 }
 
@@ -4370,16 +4440,15 @@ func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
 type strcomp struct { elements } // "string compound"
 func (_ *strcomp) kind() Kind { return KindStrcomp }
 func (p *strcomp) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
-func (p *strcomp) String() (s string) {
+func (p *strcomp) String() (s string) { return `"` + p.src() + `"` }
+func (p *strcomp) src() (s string) {
     for _, elem := range p.elems { s += elem.String() }
 
-    var (
-        buf bytes.Buffer
-        err error
-    )
-    buf.WriteString(`"`)
+    var err error
+    var buf bytes.Buffer
+    // buf.WriteString(`"`)
     defer func() {
-        buf.WriteString(`"`)
+        // buf.WriteString(`"`)
         s = buf.String()
     } ()
 
@@ -4412,7 +4481,7 @@ func (p *strcomp) String() (s string) {
     return
 }
 func (p *strcomp) string(ctx Context) (s string) {
-    if v := p.expand(final{ctx}); equal(ctx, v, p) {
+    if v := p.expand(_final(ctx)); equal(ctx, v, p) {
         for _, elem := range p.elems { s += elem.string(ctx) }
     } else {
         s = v.string(ctx)
@@ -4502,13 +4571,11 @@ func (p *list) String() (s string) {
 }
 func (p *list) string(ctx Context) (s string) {
     for _, e := range p.elems {
-        if e == nil {
-            // TODO: special process for nil elements in a list??
-        } else if false && _cond(e) && indeterminate(ctx, e) {
-            continue
-        } else if t := e.string(ctx); t != "" {
-            if s != "" { s += " " }
-            s += t
+        if e != nil {
+            if t := e.string(ctx); t != "" {
+                if s != "" && !strings.HasSuffix(s, "\n") { s += " " }
+                s += t
+            }
         }
     }
     return
@@ -4870,6 +4937,12 @@ func (p *pair) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return
 }
 func (p *pair) cmp(ctx Context, v Value) (res cmpres) {
+    if x, y := v.(cond); y {
+        return p.cmp(ctx, x.Value)
+    }
+    if x, y := v.(*list); y && len(x.elems) == 1 {
+        return p.cmp(ctx, x.elems[0])
+    }
     if x, y := v.(*pair); y {
         if p == x {
             if checkpoints && truly(ctx, is_test_mode{}) {
@@ -4886,13 +4959,10 @@ func (p *pair) cmp(ctx Context, v Value) (res cmpres) {
             }
             res = cmpEqual
         } else {
-            res = p.key.cmp(ctx, x.key)
-            if res == cmpEqual {
+            if  res = p.key.cmp(ctx, x.key); res == cmpEqual {
                 res = p.val.cmp(ctx, x.val)
             }
         }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
     }
     if checkpoints && truly(ctx, is_test_mode{}) {
         if res != cmpEqual && p.String() == v.String() {
@@ -4951,14 +5021,6 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         defer ex_check(ctx, p, _x, _a, _o, _l, _cl, &e, &res, &t, &x, &a, &o)
     }
 
-    if false {
-        switch _x.(type) {
-        case *project, self:
-            a = expand(ctx, _a...)
-            return _x
-        }
-    }
-
     x = _x.expand(ctx)
 
     switch t := x.(type) {
@@ -4983,7 +5045,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
             va = append(va, v)
         }
         switch len(va) {
-        case 0 : return makeNull(_x.Position())
+        case 0 : return _null(_x.Position())
         case 1 : return va[0]
         default: return disjunction{&list{elements{va}}}
         }
@@ -4997,7 +5059,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         if x.kind()&KindDef != 0 {
             e = true // x.(*def).origin == defParam
         } else {
-            e = truly(ctx, propExAuto)
+            e = truly(ctx, ex_auto{})
         }
     } else if dis_evoke(ctx, x, _x) {
         e = false
@@ -5087,6 +5149,7 @@ dis:
     }
 }
 
+type ex_delegate struct {}
 type delegate struct {
     valbase
     l   token
@@ -5158,7 +5221,7 @@ func (p *delegate) aone(ctx Context, v Value) (res bool) {
     return
 }
 func (p *delegate) final_val(ctx Context) (_ Value) {
-    var v = p.expand(final{ctx})
+    var v = p.expand(_final(ctx))
     if v == nil || equal(ctx, p, v) || (v.expandable(ctx) && !p.aone(ctx, v)) {
         return
     }
@@ -5331,6 +5394,7 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
+type ex_closure struct {}
 type closure struct { delegate }
 func (p *closure) kind() Kind { return p.valbase.kind()|KindClosure }
 func (p *closure) hash(ctx Context) uint64 {
@@ -5358,7 +5422,7 @@ func (p *closure) true(ctx Context) (t bool) {
 func (p *closure) prefix(ctx Context, v Value) Value { return _suffix(ctx, v, p) }
 func (p *closure) suffix(ctx Context, v Value) Value { return _compound(p).suffix(ctx, v) }
 func (p *closure) final_val(ctx Context) (_ Value) {
-    var v = p.expand(final{ctx})
+    var v = p.expand(_final(ctx))
     if v == nil || equal(ctx, p, v) || (v.expandable(ctx) && !p.aone(ctx, v)) {
         return
     }
@@ -6165,7 +6229,7 @@ func baremerge(args ...Value) (elems []Value) {
             elems = append(elems, baremerge(l.elems...)...)
         } else if d, o := arg.(*def); o {
             if d.value == nil {
-                elems = append(elems, makeNull(d.position))
+                elems = append(elems, _null(d.position))
             } else {
                 elems = append(elems, d.value)
             }
@@ -6305,28 +6369,6 @@ func expand_path_elems(ctx Context, elems ...Value) (res []Value) {
     return
 }
 
-func DEPRECATED_unique(ctx Context, values ...Value) (elems []Value) {
-outer:
-    for i, a := range values {
-        for _, b := range values[i+1:] {
-            if equal(ctx, a, b) { continue outer }
-        }
-        elems = append(elems, a)
-    }
-    return
-}
-func DEPRECATED_reverse_unique(ctx Context, values ...Value) (elems []Value) {
-outer:
-    for j := len(values)-1; 0 <= j; j -= 1 {
-        var v = values[j]
-        for i := j; 0 <= i; i -= 1 {
-            if equal(ctx, values[i], v) { continue outer }
-        }
-        elems = append(elems, v)
-    }
-    return
-}
-
 func unique(ctx Context, values ...Value) (elems []Value) {
     seen := make(map[uint64]struct{}, len(values))
     for _, v := range values {
@@ -6387,10 +6429,11 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
 
 func refs(ctx Context, a Value, v Value) bool { return a == v || a.refs(ctx, v) }
 func ease(ctx Context, a any) (res Value) {
+    if a == nil { return }
+
     var elems []Value
 
     switch t := a.(type) {
-    case      nil: return
     case    Value: elems = append(elems, merge(t   )...)
     case  []Value: elems = append(elems, merge(t...)...)
     case     bare: elems = append(elems, _word(   _position(ctx),  string(t)))
@@ -6408,15 +6451,15 @@ func ease(ctx Context, a any) (res Value) {
     case   string: elems = append(elems, _strlit( _position(ctx),         t ))
     case []string: for _, s := range t { elems = append(elems, _strlit(_position(ctx),        s )) }
     case   []bare: for _, s := range t { elems = append(elems, _word(  _position(ctx), string(s))) }
-    default: erro(ctx, "unsupported result: %v", tv(t)).trace()
+    default: erro(ctx, "unsupported value: %v", ts(t)).trace()
     }
 
-    if n := len(elems) ; 1 == n {
+    if n := len(elems); 1 == n {
         return  elems[0]
     } else if 1 < n {
         return _list(elems...)
     } else {
-        return makeNull(_position(ctx))
+        return _null(_position(ctx))
     }
 }
 
@@ -6425,7 +6468,7 @@ func scalarize(v Value) (res Value) { // NOTE: unexpanded is not scalar
     case *none: t.x = scalarize(t.x)
     case *list:
         var n = len(t.elems)
-        if n == 0 { return makeNull(t.Position()) }
+        if n == 0 { return _null(t.Position()) }
         if n == 1 { return scalarize(t.elems[0]) }
     }
     return v
@@ -6509,30 +6552,31 @@ func (p tst) Position() (_ Position) {
     return
 }
 
-func makeArgumented(val Value, a ...Value) *argumented { return &argumented{val, a} }
-func _answer(pos Position, v bool) *answer          { return &answer{boolean{valbase{pos},v}} }
-func _option(pos Position, v bool) *option          { return &option{boolean{valbase{pos},v}} }
-
-func makeNull(pos Position) *null { return &null{valbase{pos}} }
-func _none(pos Position) *none { return &none{valbase{pos}, nil} }
+func _argumented(val Value, a ...Value) *argumented { return &argumented{val, a} }
 func _arrow(pos Position, tok token, lhs, rhs Value) *arrow { return &arrow{valbase{pos}, tok, lhs, rhs} }
+func _answer(pos Position, v bool) *answer { return &answer{boolean{valbase{pos},v}} }
+func _option(pos Position, v bool) *option { return &option{boolean{valbase{pos},v}} }
+
+func _null(pos Position) *null { return &null{valbase{pos}} }
+func _none(pos Position) *none { return &none{valbase{pos}, nil} }
 func _boolean(pos Position, v bool) *boolean { return &boolean{valbase{pos},v} }
 func _binary(pos Position, i int64) *binary { return &binary{integer{valbase{pos},i}} }
 func _octal(pos Position, i int64) *octal { return &octal{integer{valbase{pos},i}} }
 func _decimal(pos Position, i int64) *decimal { return &decimal{integer{valbase{pos},i}} }
 func _hexadecimal(pos Position, i int64) *hexadecimal { return &hexadecimal{integer{valbase{pos},i}} }
 func _float(pos Position, f float64) *float  { return &float{valbase{pos},f} }
-func makeDate(pos Position, s time.Time) *Date  { return &Date{datetime{valbase{pos},s}} }
-func makeTime(pos Position, t time.Time) *Time  { return &Time{datetime{valbase{pos},t}} }
 func _raw(pos Position, s string) *raw       { return &raw{valbase{pos},s} }
 func _strlit(pos Position, s string) *strlit { return &strlit{valbase{pos},s} }
+func makeDate(pos Position, s time.Time) *Date  { return &Date{datetime{valbase{pos},s}} }
+func makeTime(pos Position, t time.Time) *Time  { return &Time{datetime{valbase{pos},t}} }
 func makeUrl(pos Position, s *neturl.URL) *url {
     var host, port string
-    v := strings.Split(s.Host, ":")
+    var v = strings.Split(s.Host, ":")
     if len(v) == 1 { host = v[0] }
     if len(v) == 2 { host, port = v[0], v[1] }
+
     var password Value
-    if t, ok := s.User.Password(); ok {password = _strlit(pos, t)}
+    if t, y := s.User.Password(); y {password = _strlit(pos, t)}
     if s.RawQuery != "" { panic("url query: "+s.RawQuery) }
     return &url{ // FIXME: calculate component positions
         valbase: valbase{pos},
@@ -6548,16 +6592,16 @@ func makeUrl(pos Position, s *neturl.URL) *url {
 }
 func _word(pos Position, w string) *word { return &word{valbase{pos},w} }
 func _compound(elems ...Value) *compound { return &compound{elements{elems}} }
-func makeStrcomp(elems ...Value) *strcomp { return &strcomp{elements{elems}} }
+func _strcomp(elems ...Value) *strcomp { return &strcomp{elements{elems}} }
 func _list(elems ...Value) *list { return &list{elements{elems}} }
 func list_t[T Value](ii ...T) *list {
     var elems []Value
     for _, i := range ii { elems = append(elems, i) }
     return &list{elements{elems}}
 }
-func makeGroup(pos Position, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
+func _group(pos Position, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
 func _globmeta(pos Position, tok token) *globmeta { return &globmeta{valbase{pos},tok} }
-func _globrange(v Value) *globrange { return &globrange{v} }
+func _globrange(val Value) *globrange { return &globrange{val} }
 func _globpat(elems ...Value) *globpat { return &globpat{elements{elems}} }
 
 func makePair(k, v Value) (p *pair) { return &pair{k, v} }
@@ -6671,7 +6715,6 @@ func ParseURL(pos Position, s string) *url {
 
 const (
     max_evoke = 999
-    fixEvokedFullnames = false
 )
 
 // NOTE: evokeTraceDots is for debugging call trace, if this finally goes into a formal
@@ -6684,7 +6727,6 @@ type evoke_builtin struct{ name string }
 type evoke_def     struct{ name string }
 type evoke_x       struct{ name string }
 type evoke_detect_loop struct{ Value }
-type evoke_eval        struct{ Value }
 type evoke_count       struct{}
 
 type evocation struct {
@@ -6693,13 +6735,14 @@ type evocation struct {
     a []Value
     o []Value
 }
+func (p *evocation) inner() Context { return &p.automatic }
 func (p *evocation) cast(t reflect.Type) Context {
-    if reflect.TypeOf(p) == t { return p }
     if reflect.TypeOf((*automatic)(nil)) == t { return &p.automatic }
+    if reflect.TypeOf(p) == t { return p }
     return p.automatic.cast(t)
 }
 func (p *evocation) ts(t string) string {
-	return fmt.Sprintf("{=%s %s %s}", t, p.x, ts(p.Context))
+    return "{="+t+" "+p.x.String()+" "+ts(p.Context)+"}"
 }
 func (p *evocation) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
@@ -6715,10 +6758,6 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
         if p.x != nil && (t.name == "" || t.name == p.x.ident(ctx)) {
             return p.x
         }
-
-    case evoke_eval:
-        p.args(ctx, p.a)
-        return t.expand(ctx)
 
     case evoke_count:
         u, _ := p.Context.do(ctx, t).(uint)
@@ -6739,40 +6778,25 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
         if p.x != nil { pos = p.x.Position() }
         if !pos.valid() && p.a != nil && p.a[0] != nil { pos = p.a[0].Position() }
         if !pos.valid() && p.o != nil && p.o[0] != nil { pos = p.o[0].Position() }
-        if  pos.valid() { return pos }
+        if  pos.valid()  {  return pos  }
     }
     return p.automatic.do(ctx, op)
 }
 
 func evoke(ctx Context, x Value, o, a []Value) (res Value, _ []Value) {
-    if false && checkpoints {
-        var tx Value
-        switch t := x.(type) {
-        case *closure : tx = t.x
-        case *delegate: tx = t.x
-        }
-        if tx != nil && equal(ctx, tx, x) {
-            erro(ctx, "illicit x=%v, o=%v, a=%v", ts(x), ts(o), ts(a)).trace()
-        }
-    }
-
     if truly(ctx, evoke_detect_loop{x}) {
-        if truly(ctx, evoke_loop_null{}) {
-            return makeNull(x.Position()), a
+        switch {
+        case truly(ctx, evoke_loop_null{}): return _null(x.Position()), a
+        case truly(ctx, evoke_loop_panic{}): panic(trace_evoke_loop_err{ctx, x})
         }
-        if truly(ctx, evoke_loop_pani{}) {
-            panic(trace_evoke_loop_err{ctx, x})
-        } else if false {
-            errostack(pc(ctx,x), 32, "evoke loop: %v", x).trace()
-        } else {
-            note(pc(ctx,x), "evoke loop: %v", x).debug()
-            return makeNull(_position(ctx)), a
-        }
+        if false { errostack(pc(ctx,x), 32, "evoke loop: %v", x).trace() }
+        if false { note(pc(ctx,x), "evoke loop: %v", x).debug(64) }
+        return _null(_position(ctx)), a
     }
 
     // NOTE: the evo.a represents the arguments, which is a COPY of the original slice;
     // NOTE: making a COPY of the argument slice FIXES the bug of delegate-altered-args.
-    var ev = evocation{automatic{Context:ctx, defs:make(defs_map)},
+    ev := evocation{automatic{Context:ctx, defs:make(defs_map)},
         x, copyvals(a), copyvals(o)}
 
     switch t := x.(type) {

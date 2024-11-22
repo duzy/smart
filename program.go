@@ -8,6 +8,7 @@ package smart
 
 import (
     "path/filepath"
+    "unicode"
     "reflect"
     "strings"
     "sync"
@@ -17,7 +18,7 @@ import (
 )
 
 type dirtyOpts struct {
-    generalopts
+    general_opts
     verboseUpdated  bool "verbose-updated"  // vu,
     verboseOutdated bool "verbose-outdated" // vo,
     checksum bool "checksum" // cs,crc,
@@ -31,19 +32,6 @@ type get_program   struct{}
 
 type is_ordered_prereq struct{}
 type is_prerequisite   struct{}
-
-type prerequisite struct{ Context ; ordered bool ; val Value }
-func (p *prerequisite) do(ctx Context, op any) any {
-    switch op.(type) {
-    case get_position: if p.val != nil { return p.val.Position() }
-    case is_prerequisite, evoke_loop_null: return true
-    case is_ordered_prereq: return p.ordered
-    }
-    return p.Context.do(ctx, op)
-}
-func (p *prerequisite) ts(t string) string {
-    return "{="+t+" "+p.val.String()+" "+ts(p.Context)+"}"
-}
 
 func _execution(c Context) *execution { return cast[*execution](c) }
 
@@ -63,6 +51,9 @@ type execution struct {
     defval   Value
     defers []Value
     values []Value
+
+    prerequisite Value
+    _ordered bool
 
     _env []*pair
     changedWD string
@@ -96,11 +87,15 @@ func (p *execution) cast(t reflect.Type) Context {
 func (p *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
     case get_position:
+        if p.prerequisite != nil { return p.prerequisite.Position() }
         if len(p.recipes) > 0 { return p.recipes[0].Position() }
 
     case get_program : return    p.prog
     case get_project : if nil != p.proj { return p.proj }
     case get_scope   : if nil != p.proj { return p.proj.scope }
+
+    case is_ordered_prereq: return p.prerequisite != nil && p._ordered
+    case is_prerequisite, evoke_loop_null: return p.prerequisite != nil
 
     case default_value:  p.defval = t.v; return
     case act_exe_res:    p.values = append(p.values, t.v); return
@@ -127,8 +122,13 @@ func (p *execution) do(ctx Context, op any) (res any) {
     return p.automatic.do(ctx, op)
 }
 
-func (p *execution) ts(t string) string {
-	return fmt.Sprintf("{=%s %v}", t, ts(p.Context)) // NOTE: hides {=automatic}
+func (p *execution) ts(t string) (s string) {
+    s = "{=" + t
+    if v := p.prerequisite; v != nil {
+        s += " " + v.String()
+    }
+    s += " " + ts(p.Context) + "}"
+	return
 }
 
 func (p *execution) aquire() func() { p.Lock() ; return p.Unlock }
@@ -221,41 +221,106 @@ func (p *execution) dirty_mark(vals ...Value) {
     if false && enableDirtyMark { p.dirty_mark(vals...) }
 }
 
+func (p *execution) sources(ctx *exec_ctx) (sources []*raw) {
+    var a1 *strlit
+    var a2 *decimal
+    var ac *automatic
+    if ctx.forRecipe != nil {
+        a1, a2 = &strlit{}, &decimal{}
+        ac = &automatic{Context:ctx, defs:make(defs_map)}
+        ac.args(ac.Context, []Value{a1, a2})
+    }
+
+    var pos Position
+    var source string
+    for i, recipe := range p.recipes {
+        if !pos.IsValid() { pos = recipe.Position() }
+
+        var cc Context = _final(pc(ctx,pos))
+        var s = recipe.string(cc)
+
+        if checkpoints && truly(ctx, is_test_mode{}) {
+            p.sources_check(ctx, cc, i, recipe, s)
+        }
+
+        if s = strings.TrimRightFunc(s, unicode.IsSpace); s == "" {
+            source += "\n" // an empty line
+            continue
+        } else {
+            // Escape '$$' sequences.
+            s = strings.Replace(s, "$$", "$", -1)
+
+            // Duplicate all %
+            //s = strings.Replace(s, "%", "%%", -1)
+
+            source += s
+        }
+
+        if strings.HasSuffix(source, "\\") {
+            source += "\n" // append the line feed
+            if i < len(p.recipes) { continue }
+        }
+
+        // Remove tabs in line breakings.
+        source = strings.Replace(source, "\\\n\t", "\\\n", -1)
+        sources = append(sources, &raw{valbase{pos}, source})
+
+        if ctx.forRecipe != nil {
+            a1.position, a1.s     = pos, source
+            a2.position, a2.int64 = pos, int64(len(sources)+1)
+            ac.Context = ctx
+            if v := ctx.forRecipe.expand(_final(ac)); false && v != nil {
+                for i := 0; indeterminate(ac, v); i += 1 {
+                    if i < max_evoke {
+                        v = v.expand(_final(ac))
+                    } else {
+                        erro(ctx, "%v → %v", ctx.forRecipe, v).trace()
+                    }
+                }
+            }
+        }
+
+        pos, source = Position{}, ""
+    }
+
+    if len(sources) == 0 && 0 < len(p.recipes) {
+        erro(ctx, "empty recipes: %v", p.recipes).trace()
+    }
+    return
+}
+
 func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Value) {
-    var target, _, _ = wait(ctx, waitopts{
+    target, _, _ := wait(ctx, waitopts{
         ExecResults: false,
         ReportUpdates: false,
         StampCurrentTarget: false,
     })
 
-    if !is_configurecontext(ctx) {
-        if _, y := target.(*file); y && p != nil && !p.dirty(ctx) {
-            // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
-            return
-        }
+    if _, y := target.(*file); y && p != nil && !p.dirty(ctx) {
+        // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
+        return
     }
 
-    if res = i.evaluate(ctx, args...); res != nil {
-        if t, y := auto_get(ctx, "@").(*file); y {
-            if strings.HasPrefix(t.name, ".configure/library/HAVE_") {
-                if strings.HasSuffix(t.name, ".log") {
-                    note(ctx, "%v %v %v", p.language, t.name, res).debug()
-                }
-            }
-        }
+    res = i.evaluate(ctx, args...)
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        p.evaluate_check(ctx, i, args, res)
+    }
+
+    if res != nil {
         if d, prev := auto_set(ctx, defVoid, "-", res); d == nil {
             var _, ent, _ = entryIndicator(ctx, _entry(ctx))
             prompt(ctx, "%v: %s\n", ent, intername(i))
-            errostack(ctx, 3, "set buffer value failed: %v → %v", prev, res).trace()
+            errostack(ctx, 5, "set buffer value failed: %v → %v", prev, res).trace()
         }
     }
 
     p.interpreted = append(p.interpreted, i)
 
-    if _, _, err := p.updateRecipesHash(ctx, target); err != nil {
+    if _, _, e := p.updateRecipesHash(ctx, target); e != nil {
         var _, ent, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
-        errostack(ctx, 3, "update recipes hash failed: %v", err).trace()
+        errostack(ctx, 5, "update recipes hash failed: %v", e).trace()
     }
     return
 }
@@ -307,7 +372,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     var targetFull string
     var opts, args = _opts_[dirtyOpts](ctx, aa...)
 
-    if targetFile, targetFull, y = target.fullnameFile(ctx); !y {
+    if targetFile, targetFull, y = target.file_fullname(ctx); !y {
         targetFull = target.string(ctx)
     } else if n := targetFile._traved; n > 1 {
         if false { warnstack(ctx, 5, "%v, %v, %d", targetFile, targetFull, n).debug(10) }
@@ -476,14 +541,12 @@ func (p *execution) defertrave(ctx Context, targetValue, prereqValue, prereqPatt
 }
 
 func with(ctx Context, target Value) (res bool) {
-    if ac := _automatic(ctx); ac == nil {
-        return
-    } else if t := ac.search(ctx, "@"); t == nil || t.value == nil {
+    if t := auto_find(ctx, "@"); t == nil || t.value == nil {
         return
     } else if res = equal(ctx, target, t.value); res {
         return
     } else {
-        return with(inner(ac), target)
+        return with(inner(ctx), target)
     }
 }
 
@@ -503,7 +566,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 
     defer p.defertrave(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
 
-    if targetValue = getTargetValue(ctx); targetValue == nil {
+    if targetValue = auto_target_value(ctx); targetValue == nil {
         erro(ctx, "%s: target is nil\n", prereqFinal).trace()
     } else if isTrivial(targetValue) {
         erro(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue).trace()
@@ -599,12 +662,11 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     return // no operation
 }
 
-func (p *execution) prerequisites(ctx Context, va []Value, ordered bool) {
+func (p *execution) prerequisites(va []Value, ordered bool) {
     defer p.Wait()
-    var pre = prerequisite{ctx, ordered, nil}
-    for _, pre.val = range va {
-        pre.val.traverse(&pre)
-    }
+    p._ordered = ordered
+    for _, p.prerequisite = range va { p.prerequisite.traverse(p) }
+    p.prerequisite = nil
     return
 }
 
@@ -647,7 +709,7 @@ func (prog *program) workdir(ctx Context) (workdir string) {
                 erro(ctx, "both $(CWD) and $/ are trivial").trace()
             }
         }
-        if v := o.expand(final{ctx}); v == nil {
+        if v := o.expand(_final(ctx)); v == nil {
             erro(ctx, "trivial %v", ts(o)).trace()
         } else {
             workdir = v.string(ctx)
@@ -660,15 +722,15 @@ func (prog *program) workdir(ctx Context) (workdir string) {
     return
 }
 
-func (prog *program) target(ctx Context, exe *execution) (target Value) {
+func (prog *program) target(ctx *execution) (target Value) {
     if target = _entry(ctx).destiny(); target == nil {
         erro(ctx, "%v: nil entry target", target).trace()
     }
 
     switch a := target.(type) {
     case *strlit, *strcomp: // NOTE: skip strings to optimize speed from searching
+    case *file: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
     case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-    case    *file: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
     default:
         if _, y := a.(flag); y {
             if s := prog.project.name; s == "configure" || s == "configure.base" {
@@ -680,17 +742,17 @@ func (prog *program) target(ctx Context, exe *execution) (target Value) {
         }
     }
 
-    exe.recs[target] += 1
+    ctx.recs[target] += 1
     return
 }
 
-func (prog *program) check_exe(ctx Context, exe *execution) {
-    var cc = exe.Context
+func (prog *program) check_exe(ctx *execution) {
+    var cc = ctx.Context
     var a = []Value{ auto_get(cc, "@") }
     var depth, loop int = 0, -1
 
 callerloop:
-    for c := exe.caller(); c != nil; c = c.caller() {
+    for c := ctx.caller(); c != nil; c = c.caller() {
         if _program(c) == prog {
             if depth += 1; depth == maxCallRecursion { break callerloop }
             var t = auto_get(c, "@")
@@ -727,11 +789,11 @@ callerloop:
 
     if depth < maxCallRecursion {
         // continues
-    } else if c := exe.caller(); c != nil {
-        exe.traceLevel = c.traceLevel
+    } else if c := ctx.caller(); c != nil {
+        ctx.traceLevel = c.traceLevel
 
         var tt = as{auto_get(c, "@")}
-        var s, _ = tt.fullnameOrFinal(ctx)
+        var s, _ = tt.fullname_string(ctx)
         prompt(ctx, "%v: max recursion call (%d)\n", s, depth)
         warn(ctx, "max recursion call (%d)\n", depth).debug()
 
@@ -782,60 +844,61 @@ type execution_modifiers struct {
     m []*modifier
     g []*group
 }
+func (ctx *execution_modifiers) inner() Context { return ctx.Context }
 func (ctx *execution_modifiers) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.Context.cast(t)
 }
 
-func (prog *program) execute(ctx Context) (res Value) {
-    var exe = execution{
-        automatic:automatic{Context:ctx, defs:make(defs_map)},
+func (prog *program) execute(_ctx Context) (res Value) {
+    var exe = &execution{
+        automatic:automatic{Context:_ctx, defs:make(defs_map)},
         recs:make(map[Value]int), start:time.Now(), prog:prog,
         proj:prog.project, params:prog.params, recipes:prog.recipes,
         language:prog.language,
     }
 
-    ctx = &exe
-
-    if checkpoints && truly(ctx, is_test_mode{}) {
+    if checkpoints && truly(exe, is_test_mode{}) {
         exe.Context = &execution_modifiers{exe.Context, nil, nil}
-        defer prog.execute_check(ctx, &res)
+        defer prog.execute_check(exe, &res)
     }
 
     defer func() {
         for _, a := range exe.defers {
             if x, y := a.(*group); y {
-                modify(ctx, x, true)
+                modify(exe, x, true)
             } else {
-                erro(ctx, "defer: not a modifier: %s", ts(a)).trace()
+                erro(exe, "defer: not a modifier: %s", ts(a)).trace()
             }
         }
 
-        if res == nil { res = auto_get(ctx, "-") }
+        if res == nil { res = auto_get(exe, "-") }
         if res == nil { res = exe.defval }
         if res != nil { do(exe.Context, default_value{res}) }
 
         exe.defval = nil
     } ()
 
-    if true && checkpoints { prog.check_exe(ctx, &exe) }
+    if checkpoints { prog.check_exe(exe) }
 
     // NOTE: set "@" before setting auto args
     // Select the right target value before setting parameters,
     // because the target could be overrided by parameters.
-    exe.set(ctx, defVoid, "@", prog.target(ctx, &exe))
+    exe.set(exe, defVoid, "@", prog.target(exe))
 
-    if t := _stems(ctx); t != nil {
-        exe.set(ctx, defVoid, "*", ease(ctx, t))
+    if t := _stems(exe); t != nil {
+        exe.set(exe, defVoid, "*", ease(exe, t))
     }
 
-    exe.do(ctx, act_arguments{})
-    exe.prerequisites(ctx, prog.depends, false)
-    exe.prerequisites(ctx, prog.ordered, true)
+    exe.do(exe, init_args{})
+    exe.prerequisites(prog.depends, false)
+    exe.prerequisites(prog.ordered, true)
 
-    if checkpoints && truly(ctx, is_test_mode{}) { prog.execute_check_1(ctx) }
+    if checkpoints && truly(exe, is_test_mode{}) {
+        prog.execute_check_1(exe)
+    }
 
     if     prog.language != "" { return }
     if len(prog.recipes) == 0  { return }
-    return prog.result_or_default_interpret(&exe)
+    return prog.result_or_default_interpret(exe)
 }

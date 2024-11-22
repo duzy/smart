@@ -64,7 +64,7 @@ type universe struct {
     *scope
     *globe
 
-    fset *FileSet
+    fset *fileset
 
     workdir string
     prefix  string // FIXME: prefix for distribution
@@ -129,6 +129,7 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
         p.Filename = ctx.workdir
         return
 
+    case no_exec: return ctx.noExec
     case get_workdir: return ctx.workdir
     case get_project: if ctx.globe != nil { return ctx.globe.main }
     case get_scope: if ctx.scope != nil { return ctx.scope }
@@ -141,6 +142,7 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
     return ctx.diagnostic.do(_ctx, op)
 }
 
+type no_exec struct{}
 type commandline struct {
   help            bool `h,help`
 
@@ -191,11 +193,11 @@ type commandline struct {
   noDepsGrep      bool `nodg,ngd,no-deps-grep,no-grep-deps`
   noImportFiles   bool `noif,no-import-files`
 
-  parallel        bool `p,par,para,parallel`
+  parallel        bool `par,para,parallel`
 
-  fastMode        bool `f,fm,fast,fast-mode`
-  panicFailureOnErrosFlushed bool `foe,fail-on-errors`
+  fastMode        bool `fast,fast-mode`
   errorUncache    bool `eu,error-uncache,error-no-cache`
+  panicFailureOnErrosFlushed bool `foe,fail-on-errors`
 
   traceLaunch     bool `tl,trace-launch`
   traceParsing    bool `tp,trace-parse`
@@ -226,7 +228,7 @@ func new_universe(ii ...any) (ctx *universe) {
     ctx = &universe{}
     ctx.paths = searchPaths
     ctx.workdir = workBaseDir
-    ctx.fset = NewFileSet()
+    ctx.fset = _fileset()
     ctx.statcache = make(map[string]*filebase)
     ctx.scope = newscope(ctx._position(), nil, nil, `universe`)
 
@@ -273,7 +275,7 @@ func new_universe(ii ...any) (ctx *universe) {
     // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
     ctx.globe.os,    _ = ctx.globe.set(ctx, ".os",    defVoid, os)
     ctx.globe.goals, _ = ctx.globe.set(ctx, ".goals", defVoid, _none(pos))
-    ctx.globe.mode,  _ = ctx.globe.set(ctx, ".mode",  defVoid, makeNull(pos))
+    ctx.globe.mode,  _ = ctx.globe.set(ctx, ".mode",  defVoid, _null(pos))
     return
 }
 

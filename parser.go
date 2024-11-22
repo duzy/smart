@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/pprof"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -47,9 +48,9 @@ type parser struct {
 	tok token  // one token look-ahead
 	lit string // token literal
 
-	comments  []*commentGroup
-	leadComment *commentGroup // last lead comment
-	lineComment *commentGroup // last line comment
+	comments  []*commentgroup
+	leadComment *commentgroup // last lead comment
+	lineComment *commentgroup // last line comment
 
 	templates []*template
 
@@ -69,15 +70,17 @@ type (
 	parse_is_params      struct{}
 	parse_is_undef       struct{}
 	parse_is_glob        struct{}
-	parse_is_recipe      struct{ bool } // builtin or text
-	parse_left_hand_side struct{}
+	is_recipe      struct{ bool } // builtin or text
+	left_hand_side struct{}
 	parse_no_argumented  struct{}
 	parse_no_path        struct{}
 )
 
-type aware_token     struct { token }
-type aware_token_ctx struct { Context ; token }
-func (p aware_token_ctx) do(ctx Context, op any) (_ any) {
+type aware_token struct { token }
+type p_aware_ctx struct { Context ; token }
+func (p p_aware_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_aware_ctx) inner() Context { return p.Context }
+func (p p_aware_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case aware_token: return p.token == t.token
 	}
@@ -86,6 +89,8 @@ func (p aware_token_ctx) do(ctx Context, op any) (_ any) {
 
 type can_select struct{}
 type selection struct{ Context }
+func (p selection) cast(t reflect.Type) Context { return icast(p,t) }
+func (p selection) inner() Context { return p.Context }
 func (p selection) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case can_select: return true
@@ -93,124 +98,165 @@ func (p selection) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-type codeblock    struct { automatic }
-type def_value      struct { Context }
-type parse_auto     struct { Context }
-type parse_bare     struct { Context }
-type parse_braced   struct { Context }
-type parse_call     struct { Context }
-type parse_foreach  struct { Context }
-type parse_glob     struct { Context }
-type parse_group    struct { Context }
-type parse_left     struct { Context }
-type parse_modifier struct { Context }
-type parse_params   struct { Context }
-type parse_path     struct { Context }
-type parse_perc     struct { Context }
-type parse_recipe   struct { Context ; builtin bool }
-type parse_regex    struct { Context }
-type parse_rule     struct { Context }
-type parse_undef    struct { Context }
-
-func (p parse_undef) ts(t string) (_ string) {
-	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
+type codeblock      struct { automatic ; token }
+type p_defvalue_ctx struct { Context }
+type p_braced_ctx   struct { Context }
+type p_bare_ctx     struct { Context }
+type p_auto_ctx     struct { Context }
+type p_foreach_txt  struct { Context ; a *auto }
+type p_group_ctx    struct { Context }
+type p_left_ctx     struct { Context }
+type p_modifier     struct { Context }
+type p_params       struct { Context }
+type p_path         struct { Context }
+type p_perc         struct { Context }
+type p_glob         struct { Context }
+type p_regex        struct { Context }
+type p_undef_ctx    struct { Context }
+type p_rule_ctx     struct { Context }
+type recipe_ctx struct {
+	Context
+	builtin bool
+	lines [][]Value
+	elems []Value
 }
-func (p parse_undef) do(ctx Context, op any) (_ any) {
+
+func (p *codeblock) inner() Context { return p.Context }
+func (p *codeblock) cast(t reflect.Type) Context {
+    if reflect.TypeOf(p) == t { return p }
+    return p.automatic.cast(t)
+}
+func (p *codeblock) ts(t string) (_ string) {
+	return "{="+t+" "+p.token.String()+" "+ts(p.Context)+"}"
+}
+
+func (p p_undef_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_undef_ctx) inner() Context { return p.Context }
+func (p p_undef_ctx) ts(t string) (_ string) {
+	return "{="+t+" "+ts(p.Context)+"}"
+}
+func (p p_undef_ctx) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case parse_is_undef: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_perc) ts(t string) (_ string) {
+func (p p_perc) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_perc) inner() Context { return p.Context }
+func (p p_perc) ts(t string) (_ string) {
 	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
-func (p parse_perc) do(ctx Context, op any) (_ any) {
+func (p p_perc) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case parse_no_argumented: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_glob) ts(t string) (_ string) {
+func (p p_glob) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_glob) inner() Context { return p.Context }
+func (p p_glob) ts(t string) (_ string) {
 	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
-func (p parse_glob) do(ctx Context, op any) (_ any) {
+func (p p_glob) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case parse_is_glob: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_params) ts(t string) (_ string) {
+func (p p_params) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_params) inner() Context { return p.Context }
+func (p p_params) ts(t string) (_ string) {
 	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
-func (p parse_params) do(ctx Context, op any) (_ any) {
+func (p p_params) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case parse_is_params: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-type parse_is_auto   struct{ string }
-type parse_is_defval struct{}
+type is_auto_preserved struct{ string }
+type is_auto           struct{ string }
+type is_defvalue       struct{}
 
-func (p parse_auto) ts(t string) (_ string) {
+func (p p_auto_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_auto_ctx) inner() Context { return p.Context }
+func (p p_auto_ctx) ts(t string) (_ string) {
 	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
-func (p parse_auto) do(ctx Context, op any) (_ any) {
+func (p p_auto_ctx) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case parse_is_auto: return true
+	case is_auto: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p def_value) do(ctx Context, op any) (_ any) {
+func (p p_defvalue_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_defvalue_ctx) inner() Context { return p.Context }
+func (p p_defvalue_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case parse_is_defval: return true
-	case parse_is_auto: return IsDigits(t.string)
+	case is_auto: return IsDigits(t.string)
+	case is_defvalue: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_foreach) ts(t string) (_ string) {
-	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
-}
-func (p parse_foreach) do(ctx Context, op any) (_ any) {
+func (p p_foreach_txt) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_foreach_txt) inner() Context { return p.Context }
+func (p p_foreach_txt) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
+func (p p_foreach_txt) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case parse_is_auto: if t.string == "_" { return true }
+    case find_auto: if t.string == "_" { return p.a }
+	case is_auto: if t.string == "_" { return true }
+	case is_auto_preserved: if t.string == "_" { return true }
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_rule) ts(t string) (_ string) {
-	return "{="+t+" "+ts(p.Context)+"}"
-}
-func (p parse_rule) do(ctx Context, op any) (_ any) {
+func (p p_rule_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_rule_ctx) inner() Context { return p.Context }
+func (p p_rule_ctx) ts(t string) string { return "{="+t+" "+ts(p.Context)+"}" }
+func (p p_rule_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case parse_is_auto:
+	case is_auto:
 		if IsDigits(t.string) { return true }
 		if _, y := rule_autos[t.string]; y { return true }
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_recipe) ts(t string) (_ string) {
+type add_recipe_line struct{ a []Value }
+type is_recipe_start struct{}
+
+func (p *recipe_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *recipe_ctx) inner() Context { return p.Context }
+func (p *recipe_ctx) ts(t string) (_ string) {
 	return "{="+t+" "+ts(p.Context)+"}"
 }
-func (p parse_recipe) do(ctx Context, op any) (_ any) {
+func (p *recipe_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case parse_is_recipe: return t.bool == p.builtin
+	case is_recipe:
+		return t.bool == p.builtin
+	case is_recipe_start:
+		return p.elems == nil
+	case add_recipe_line:
+		p.lines = append(p.lines, t.a)
+		return len(p.lines)
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p parse_left) ts(t string) string {
+func (p p_left_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_left_ctx) inner() Context { return p.Context }
+func (p p_left_ctx) ts(t string) string {
 	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
 }
-func (p parse_left) do(ctx Context, op any) (_ any) {
+func (p p_left_ctx) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case parse_left_hand_side: return true
+	case left_hand_side: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -246,8 +292,7 @@ func (p *parser) scan(ctx Context) {
 	p.pos, p.tok, p.lit = p.scanner.scan(ctx)
 }
 
-// Consume a comment and return it and the line on which it ends.
-func (p *parser) consumeComment(ctx Context) (res *comment, endline int) {
+func (p *parser) comment(ctx Context) (res *comment, endline int) {
 	// /*-style comments may end on a different line than where they start.
 	// Scan the comment for '\n' chars and adjust endline accordingly.
 	endline = p.scanner.file.Line(p.pos)
@@ -266,51 +311,31 @@ func (p *parser) consumeComment(ctx Context) (res *comment, endline int) {
 	return
 }
 
-// Consume a group of adjacent comments, add it to the parser's
-// comments list, and return it together with the line at which
-// the last comment in the group ends. A non-comment token or n
-// empty lines terminate a comment group.
-//
-func (p *parser) consumecommentGroup(ctx Context, n int) (res *commentGroup, endline int) {
-	res = new(commentGroup)
+func (p *parser) commentgroup(ctx Context, n int) (res *commentgroup, endline int) {
+	res = new(commentgroup)
 	p.comments = append(p.comments, res)
 	endline = p.scanner.file.Line(p.pos)
 	for p.tok == COMMENT && p.scanner.file.Line(p.pos) <= endline+n {
 		var com *comment
-		com, endline = p.consumeComment(ctx)
-		res.list = append(res.list, com)
+		com, endline = p.comment(ctx)
+		res.comments = append(res.comments, com)
 	}
 	return
 }
 
-// Advance to the next non-comment token. In the process, collect
-// any comment groups encountered, and remember the last lead and
-// and line comments.
-//
-// A lead comment is a comment group that starts and ends in a
-// line without any other tokens and that is followed by a non-comment
-// token on the line immediately after the comment group.
-//
-// A line comment is a comment group that follows a non-comment
-// token on the same line, and that has no tokens after it on the line
-// where it ends.
-//
-// Lead and line comments may be considered documentation that is
-// stored in the AST.
-//
 func (p *parser) step(ctx Context) {
 	p.leadComment = nil
 	p.lineComment = nil
 
 	var prev = p.pos
 	if p.scan(ctx); p.tok == COMMENT {
-		var comment *commentGroup
+		var comment *commentgroup
 		var endline int
 
 		// If the comment is on same line as the previous token;
 		// it cannot be a lead comment but may be a line comment.
 		if p.scanner.file.Line(p.pos) == p.scanner.file.Line(prev) {
-			comment, endline = p.consumecommentGroup(ctx, 0)
+			comment, endline = p.commentgroup(ctx, 0)
 			if p.scanner.file.Line(p.pos) != endline {
 				// The next token is on a different line, thus
 				// the last comment group is a line comment.
@@ -321,7 +346,7 @@ func (p *parser) step(ctx Context) {
 		// consume successor comments, if any
 		endline = -1
 		for p.tok == COMMENT {
-			comment, endline = p.consumecommentGroup(ctx, 1)
+			comment, endline = p.commentgroup(ctx, 1)
 		}
 
 		if endline+1 == p.scanner.file.Line(p.pos) {
@@ -338,11 +363,11 @@ func (p *parser) next(ctx Context, ws bool) {
 }
 func (p *parser) spaces(ctx Context) {
 	for p.lineComment == nil && p.tok != EOF {
-		if p.tok == SPACE || (p.tok == RECIPE && truly(ctx, parse_is_recipe{true})) {
+		if p.tok == SPACE || (p.tok == RECIPE && truly(ctx, is_recipe{true})) {
 			p.step(ctx)
 		} else if p.tok == ESCAPE && p.lit == "\n" {
 			if p.step(ctx); p.tok == LINEND || p.lineComment != nil { break }
-			if truly(ctx, parse_is_recipe{true}) {
+			if truly(ctx, is_recipe{true}) {
 			tokloop:
 				for p.tok != EOF {
 					switch p.tok {
@@ -362,7 +387,7 @@ func (p *parser) spaces(ctx Context) {
 
 func (p *parser) Position() Position { return p.loc(p.pos) }
 func (p *parser) loc(a Pos) Position { return Position(p.scanner.file.Position(a)) }
-func (p *parser) curline() int { return p.scanner.file.Line(p.pos) }
+func (p *parser) line() int { return p.scanner.file.Line(p.pos) }
 func (p *parser) valbase() valbase { return valbase{p.loc(p.pos)} }
 func (p *parser) is_file(s string) bool {
 	return strings.HasSuffix(p.scanner.file.Name(), s)
@@ -388,10 +413,11 @@ func (p *parser) expected(ctx Context, pos Pos, msg string, a... any) {
 
 func (p *parser) expect(ctx Context, tok token) Pos {
 	var pos = p.pos
-	if p.tok != tok && !(tok == LINEND && p.lineComment != nil) {
+	if p.tok == tok {
+		p.step(ctx) // move forward
+	} else {
 		p.expected(ctx, pos, "'"+tok.String()+"'")
 	}
-	p.step(ctx) // move forward
 	return pos
 }
 
@@ -449,7 +475,7 @@ func (l ul) arrow(ctx Context, lhs Value) (res Value) {
             } else if !isNull(o) {
 				lhs = o
 			} else if tok == SELECT_PROG2 {
-				res = makeNull(_position(ctx)) // ignore
+				res = _null(_position(ctx)) // ignore
 				return
 			} else {
 				erro(ctx, "%v: '%v' is undefined (name=%v, obj=%v)", l.project, lhs, t, o)
@@ -464,7 +490,7 @@ func (l ul) arrow(ctx Context, lhs Value) (res Value) {
         } else if !isNull(o) {
 			lhs = o
 		} else if tok == SELECT_PROG2 {
-			res = makeNull(_position(ctx)) // ignore
+			res = _null(_position(ctx)) // ignore
 			return
 		} else {
 			erro(ctx, "'%v' is undefined", lhs).trace()
@@ -498,7 +524,7 @@ func (l ul) braced(ctx Context) (x Value) {
 
 	pos := l.p.Position()
 
-	ctx = parse_braced{ctx}
+	ctx = p_braced_ctx{ctx}
 
 	l.p.expect(ctx, LBRACE)
 
@@ -590,18 +616,13 @@ func (l ul) braced(ctx Context) (x Value) {
 
 		case WORD:
 			switch t := l.p.lit; t {
-			case "fullname":
-				x = l.braced_fullname(ctx)
-				l.p.expect(ctx, RBRACE)
-				return
-
 			case "plain":
-				x = &plain{elements{l.braced_plain(ctx, t)}, t}
+				x = &plain{elements{l.braced_plain(ctx)}, t}
 				l.p.expect(ctx, RBRACE)
 				return
 
 			case "plainline":
-				x = &plainline{elements{l.braced_plain(ctx, "")}}
+				x = &plainline{elements{l.braced_plain(ctx)}}
 				l.p.expect(ctx, RBRACE)
 				return
 
@@ -621,6 +642,11 @@ func (l ul) braced(ctx Context) (x Value) {
 				l.p.expect(ctx, RBRACE)
 				return
 
+			case "fullname":
+				x = l.braced_fullname(ctx)
+				l.p.expect(ctx, RBRACE)
+				return
+
 			case "defs":
 				x = l.braced_defs(ctx)
 				l.p.expect(ctx, RBRACE)
@@ -635,7 +661,7 @@ func (l ul) braced(ctx Context) (x Value) {
 		}
 	} else { // {...}
 		if v := l.values(ctx); len(v) == 0 {
-			x = makeNull(pos)
+			x = _null(pos)
 		} else if len(v) == 1 {
 			x = disjunction{v[0]}
 		} else {
@@ -676,10 +702,10 @@ func (p *parser) is_end_of_line() bool {
 func (p *parser) is_list_term(ctx Context) bool {
 	// If there's a comment right after the parsed expression, we break
 	// the expression list to treat the end-of-line comment like a LINEND.
-	if p.lineComment != nil || p.tok.is_list_delim() || (truly(ctx, parse_left_hand_side{}) && p.tok.is_assign()) {
+	if p.lineComment != nil || p.tok.is_list_delim() || (truly(ctx, left_hand_side{}) && p.tok.is_assign()) {
 		return true
 	}
-	if truly(ctx, parse_is_recipe{false}) && p.tok == RECIPE { // TODO: using p.recipe_start()
+	if truly(ctx, is_recipe{false}) && p.tok == RECIPE { // TODO: using p.recipe_start()
 		return true
 	}
 	return false
@@ -706,7 +732,7 @@ func (l ul) depends(ctx Context, params bool) (res []Value) {
 	l.p.spaces(ctx)
 
 	if params && l.p.tok == LPAREN {
-		if g := l.group(parse_params{ctx}); 0 < g.len() {
+		if g := l.group(p_params{ctx}); 0 < g.len() {
 			if x, y := g.elems[0].(*group); y && g.len() == 1 { g = x }
 			l.p.rule_params(ctx, g.elems)
 		}
@@ -769,7 +795,7 @@ func (l ul) list(ctx Context, a ...any) *list {
 func (l ul) group(ctx Context) *group {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "group")) }
 
-	ctx = parse_group{aware_token_ctx{ctx,COMMA}}
+	ctx = p_group_ctx{p_aware_ctx{ctx,COMMA}}
 
 	l.p.expect(ctx, LPAREN)
 	l.p.spaces(ctx)
@@ -796,13 +822,13 @@ func (l ul) group(ctx Context) *group {
 		}
 	}
 	l.p.expect(ctx, RPAREN)
-	return makeGroup(_position(ctx), elems...)
+	return _group(_position(ctx), elems...)
 }
 
 func (l ul) argumented(ctx Context, x Value) *argumented {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "argumented")) }
 
-	ctx = parse_group{aware_token_ctx{ctx,COMMA}}
+	ctx = p_group_ctx{p_aware_ctx{ctx,COMMA}}
 
 	l.p.next(ctx, true) // skip LPAREN
 
@@ -821,7 +847,7 @@ func (l ul) argumented(ctx Context, x Value) *argumented {
 		a = append(a, l.list(ctx))
 	}
 	l.p.expect(ctx, RPAREN)
-	return makeArgumented(x, a...)
+	return _argumented(x, a...)
 }
 
 func (l ul) globmeta(ctx Context) (x *globmeta) {
@@ -844,7 +870,7 @@ func (l ul) globrange(ctx Context) (x *globrange) {
 func (l ul) glob(ctx Context, x Value) (g *globpat) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "glob")) }
 
-	ctx = parse_glob{ctx}
+	ctx = p_glob{ctx}
 
 	if y := x == nil; y {
 		g = &globpat{}
@@ -903,7 +929,7 @@ func is_perc_term(t token) (_ bool) {
 func (l ul) perc(ctx Context, x Value) Value {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "perc")) }
 
-	ctx = parse_perc{ctx}
+	ctx = p_perc{ctx}
 
 	var y Value
 	var pos = l.p.pos
@@ -940,7 +966,7 @@ func (p *parser) regex(ctx Context) (_ Value) {
 	var rx string
 	var pos = p.Position()
 
-	ctx = parse_regex{ctx}
+	ctx = p_regex{ctx}
 
 	if checkpoints {
 		if !p.scanner.bits.isBrace() {
@@ -973,7 +999,7 @@ func (l ul) pair(ctx Context, x Value) *pair {
 
 	var y Value
 	if l.p.is_list_term(ctx) {
-		y = makeNull(_position(ctx))
+		y = _null(_position(ctx))
 	} else {
 		y = l.expr(ctx)
 	}
@@ -988,7 +1014,7 @@ func (l ul) flag(ctx Context) flag {
 
 	// exclude "-)" "-]" "-}" "-\n", "-=", "-:", etc.
 	if l.p.is_end_of_line() || l.p.is_list_term(ctx) || l.p.tok == SPACE || l.p.tok == RECIPE {
-		return flag{makeNull(_position(ctx))}
+		return flag{_null(_position(ctx))}
 	}
 
 	var x = l.unary(ctx)
@@ -1084,7 +1110,7 @@ func (l ul) strcomp(ctx Context) *strcomp {
 
 	l.p.expect(ctx, COMPOSED)
 
-	return makeStrcomp(elems...)
+	return _strcomp(elems...)
 }
 
 func (p *parser) is_dot_term(ctx Context) bool {
@@ -1114,7 +1140,7 @@ func (l ul) tilde(ctx Context) (res Value) {
 func (l ul) dot(ctx Context, x Value) (_ Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "dot")) }
 
-	ctx = aware_token_ctx{ctx, DOT}
+	ctx = p_aware_ctx{ctx, DOT}
 
 	l.p.step(ctx)
 
@@ -1151,7 +1177,7 @@ func (l ul) path(ctx Context, start Value) (res *path) {
 		erro(ctx, "nil path starter").trace()
 	}
 
-	ctx = parse_path{ctx}
+	ctx = p_path{ctx}
 
 	switch t := start.(type) {
 	case     *path: res = t
@@ -1213,6 +1239,8 @@ type url_encoding struct{ Context }
 type url_query    struct{ Context }
 type url_fragment struct{ Context }
 
+func (u url_encoding) cast(t reflect.Type) Context { return icast(u,t) }
+func (u url_encoding) inner() Context { return u.Context }
 func (u url_encoding) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case is_url: return true
@@ -1220,6 +1248,8 @@ func (u url_encoding) do(ctx Context, op any) (_ any) {
 	return u.Context.do(ctx, op)
 }
 
+func (u url_query) cast(t reflect.Type) Context { return icast(u,t) }
+func (u url_query) inner() Context { return u.Context }
 func (u url_query) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case is_url_query: return true
@@ -1227,6 +1257,8 @@ func (u url_query) do(ctx Context, op any) (_ any) {
 	return u.Context.do(ctx, op)
 }
 
+func (u url_fragment) cast(t reflect.Type) Context { return icast(u,t) }
+func (u url_fragment) inner() Context { return u.Context }
 func (u url_fragment) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case is_url_fragment: return true
@@ -1386,12 +1418,11 @@ func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
 		}
 	}
 
-	if truly(ctx, parse_is_auto{str}) {
-		if a := s.auto(ctx, str); a == nil {
-			erro(ctx, "failed auto: %v", ts(name)).trace()
-		} else {
+	if truly(ctx, is_auto{str}) {
+		if a := s.auto(ctx, str); a != nil {
 			return a
 		}
+		erro(ctx, "auto unresolved: %v", ts(name)).trace()
 	}
 
 	if truly(ctx, is_config_mode{}) {
@@ -1409,15 +1440,12 @@ func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
 }
 
 func (l ul) closuredelegate_obj(ctx Context, tok token, name Value, isClosure bool) (str string, obj Value) {
-	if x, y := name.(*argumented); y {
-		name = x.Value
-	}
-
+	if x, y := name.(*argumented); y { name = x.Value }
 	if _, y := name.(cond); !y {
-		if v := name.expand(ctx) ; v == nil {
-			erro(ctx, "%v is nil", ts(name)).trace()
-		} else {
+		if v := name.expand(ctx) ; v != nil {
 			name = v
+		} else {
+			erro(ctx, "%v is nil", ts(name)).trace()
 		}
 	}
 
@@ -1433,18 +1461,17 @@ func (l ul) closuredelegate_obj(ctx Context, tok token, name Value, isClosure bo
 	str = name.string(ctx)
 
 	if tok == LBRACE {
-		if t := l.project._entries(ctx, name, false); t == nil {
-			erro(ctx, "resolved %v is nil", ts(name)).trace()
-		} else {
+		if t := l.project._entries(ctx, name, false); t != nil {
 			obj, _ = t[0].(object)
 			return
+		} else {
+			erro(ctx, "resolved %v is nil", ts(name)).trace()
 		}
 	}
 
 	if str == "" {
 		switch name.(type) {
-		case cond, *arrow:
-			return "", name
+		case cond, *arrow: return "", name
 		default:
 			erro(ctx, "empty name: %s", ts(name)).trace()
 		}
@@ -1469,8 +1496,7 @@ func (l ul) auto_arg0(ctx Context, tokLp token, isClosure bool) (_ Value) {
 		erro(ctx, "auto: incorrect left paren: %v", tokLp).trace()
 	}
 
-	var ac = automatic{Context:ctx, defs:make(defs_map)}
-
+	ac := automatic{Context:ctx, defs:make(defs_map)}
 	ctx = &ac
 
 	var vals []Value
@@ -1500,13 +1526,27 @@ func (l ul) auto_arg0(ctx Context, tokLp token, isClosure bool) (_ Value) {
 	return _list(vals...)
 }
 
-func (l ul) closuredelegate_args(ctx Context, name string, tokLp token, isClosure bool) (args []Value) {
+func (l ul) args(ctx Context, name string, tokLp token, isClosure bool) (args []Value) {
 	switch name {
-	case "auto"    : args = append(args, l.auto_arg0(ctx, tokLp, isClosure)); if !isClosure { ctx = parse_auto{ctx} }
-	case "case"    : args = append(args, l.list(ctx)); ctx = parse_undef{ctx}
-	case "foreach" : args = append(args, l.list(ctx)); ctx = parse_foreach{ctx}
-	case "and","or": ctx = parse_undef{ctx}; args = append(args, l.list(ctx))
-	default:         args = append(args, l.list(ctx))
+	case "auto":
+		args = append(args, l.auto_arg0(ctx, tokLp, isClosure))
+		if !isClosure { ctx = p_auto_ctx{ctx} }
+
+	case "case":
+		args = append(args, l.list(ctx))
+		ctx = p_undef_ctx{ctx}
+
+	case "foreach":
+		o := objbase{valbase{l.p.Position()}, l.scope()}
+		args = append(args, l.list(ctx))
+		ctx = p_foreach_txt{ctx, &auto{knownobject{o, "_"}}}
+
+	case "and", "or":
+		ctx = p_undef_ctx{ctx}
+		args = append(args, l.list(ctx))
+
+	default:
+		args = append(args, l.list(ctx))
 	}
 
 	for l.p.tok == COMMA {
@@ -1516,7 +1556,7 @@ func (l ul) closuredelegate_args(ctx Context, name string, tokLp token, isClosur
 	return
 }
 
-func (l ul) closuredelegate_abc(ctx Context, isClosure, special bool) (tok token, obj Value, args, opts []Value) {
+func (l ul) abc(ctx Context, isClosure, special bool) (tok token, obj Value, args, opts []Value) {
 	var name Value
 	var str string
 
@@ -1568,7 +1608,7 @@ func (l ul) closuredelegate_abc(ctx Context, isClosure, special bool) (tok token
 		str, obj = l.closuredelegate_obj(ctx, tok, name, isClosure)
 
 		if (tok == LPAREN && l.p.tok != RPAREN) || (tok == LBRACE && l.p.tok != RBRACE) {
-			args = l.closuredelegate_args(ctx, str, tok, isClosure)
+			args = l.args(ctx, str, tok, isClosure)
 		}
 
 		switch tok {
@@ -1614,10 +1654,10 @@ func (l ul) closuredelegate_abc(ctx Context, isClosure, special bool) (tok token
 func (l ul) closuredelegate(ctx Context, isClosure, special bool) (result Value) {
 	if l_traverse.enabled {	defer un(l_trace(l_traverse, "closuredelegate")) }
 
-	ctx = parse_call{aware_token_ctx{ctx, COMMA}}
+	ctx = p_aware_ctx{ctx, COMMA}
 
 	pos := l.p.Position()
-	tok, obj, args, opts := l.closuredelegate_abc(ctx, isClosure, special)
+	tok, obj, args, opts := l.abc(ctx, isClosure, special)
 
 	if obj == nil {
 		erro(ctx, "%v : nil symbol", tok).trace()
@@ -1626,10 +1666,11 @@ func (l ul) closuredelegate(ctx Context, isClosure, special bool) (result Value)
 	if isClosure {
 		return makeClosure(pos, tok, obj, opts, args...)
 	} else if x, y := obj.(*def); y && x.o == defAuto {
-		return x.value
-	} else {
-		return makeDelegate(pos, tok, obj, opts, args...)
+		if !truly(ctx, is_auto_preserved{x.name}) {
+			return x.value
+		}
 	}
+	return makeDelegate(pos, tok, obj, opts, args...)
 }
 
 func (l ul) unary(ctx Context) (x Value) {
@@ -1647,15 +1688,15 @@ func (l ul) unary(ctx Context) (x Value) {
 
 	switch l.p.tok {
 	case ASSIGN: // example: '=xxx'
-		if !truly(ctx, parse_left_hand_side{}) {
+		if !truly(ctx, left_hand_side{}) {
 			var v Value
 			var p = l.p.loc(pos)
 			if l.p.step(ctx); l.p.is_list_term(ctx) {
-				v = makeNull(p)
+				v = _null(p)
 			} else {
 				v = l.expr(ctx)
 			}
-			return &pair{makeNull(p), v}
+			return &pair{_null(p), v}
 		}
 
 	case WORD:
@@ -1761,7 +1802,7 @@ func (l ul) unary(ctx Context) (x Value) {
 	}
 
 	if l.p.lineComment != nil {
-		for _, c := range l.p.lineComment.list {
+		for _, c := range l.p.lineComment.comments {
 			erro(ctx, "# %s", c.string).trace()
 		}
 	}
@@ -1782,7 +1823,7 @@ func (l ul) composite(ctx Context) (x Value) {
 		// TODO: if truly(ctx, aware_token{DOTDOT}) { x = l.dotdot(ctx, x) }
 
 	case COLON:
-		if truly(ctx, parse_is_recipe{false}) || !truly(ctx, parse_left_hand_side{}) {
+		if truly(ctx, is_recipe{false}) || !truly(ctx, left_hand_side{}) {
 			if w, y := x.(*word); y && isKnownURLScheme(w.s) {
 				return l.url(ctx, x)
 			}
@@ -1799,7 +1840,7 @@ func (l ul) expr(ctx Context) (x Value) {
 
 	if checkpoints && truly(ctx, is_test_mode{}) { defer l.expr_check_1(ctx, x, l.p.tok, &x) }
 
-	if truly(ctx, parse_left_hand_side{}) && l.p.tok.is_assign() { return }
+	if truly(ctx, left_hand_side{}) && l.p.tok.is_assign() { return }
 	if truly(ctx, parse_is_glob{}) { return }
 	if truly(ctx, parse_is_params{}) {
 		if g, y := x.(*group); y && g.len() == 1 {
@@ -1818,7 +1859,7 @@ composeloop: // parses right-fixes
 		if truly(ctx, aware_token{COMMA}) { return }
 
 	case ASSIGN: // example: key=value
-		if !truly(ctx, parse_left_hand_side{}) {
+		if !truly(ctx, left_hand_side{}) {
 			return l.pair(ctx, x)
 		}
 
@@ -1875,8 +1916,8 @@ andloop:
 		case RBRACE: break andloop
 		}
 
-		v := l.expr(aware_token_ctx{ctx,COMMA})
-		w := v.expand(pc(final{ctx}, v))
+		v := l.expr(p_aware_ctx{ctx,COMMA})
+		w := v.expand(pc(_final(ctx), v))
 
 		if false && strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
 			note(pc(ctx,v), "%s : %v → %v : %v", l.project.name, tv(v), tv(w), l.p.tok).debug(3)
@@ -1905,8 +1946,8 @@ orloop:
 		case RBRACE: break orloop
 		}
 
-		v := l.expr(aware_token_ctx{ctx, COMMA})
-		w := v.expand(pc(final{ctx}, v))
+		v := l.expr(p_aware_ctx{ctx, COMMA})
+		w := v.expand(pc(_final(ctx), v))
 
 		if false && strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
 			note(pc(ctx,v), "%s : %v → %v : %v", l.project.name, tv(v), tv(w), l.p.tok).debug(3)
@@ -1938,19 +1979,55 @@ func (l ul) braced_for(ctx Context) (res Value) {
 	return
 }
 
+type foreach_text struct { Context }
+func (f foreach_text) inner() Context { return f.Context }
+func (f foreach_text) cast(t reflect.Type) Context { return icast(f, t) }
+func (f foreach_text) do(c Context, o any) (_ any) {
+    switch t := o.(type) {
+    case find_auto: if t.string == "_" { return }
+    }
+	return f.Context.do(c, o)
+}
+
+type foreach_txt struct { automatic }
+func (p *foreach_txt) inner() Context { return &p.automatic }
+func (p *foreach_txt) cast(t reflect.Type) Context { return icast(p, t) }
+func (p *foreach_txt) do(c Context, o any) (_ any) {
+    switch t := o.(type) {
+    case find_auto:
+		if s := t.string; s == "_" {
+			if _, y := p.defs[s]; !y {
+				return
+			}
+		}
+    }
+	return p.automatic.do(c, o)
+}
+
 func (l ul) braced_foreach(ctx Context) Value {
+	l.p.expect(ctx, FOREACH)
+	l.p.spaces(ctx)
+
+	var ac = p_aware_ctx{ctx, COMMA}
 	var vals []Value
-	for l.p.spaces(ctx); l.p.tok != COMMA; l.p.spaces(ctx) {
-		vals = append(vals, l.expr(ctx))
+
+valsloop:
+	for {
+		switch l.p.tok {
+		case COMMA, RBRACE, LINEND, END:
+			break valsloop
+		}
+
+		vals = append(vals, l.expr(ac))
+		l.p.spaces(ac)
 	}
 
-	var cc = automatic{ Context:ctx, defs:make(defs_map) }
-	cc.suppress = func(s string) bool { return s == "_" }
+	cc := foreach_txt{automatic{ Context:ctx, defs:make(defs_map) }}
 	cc.set(ctx, defVoid, "_", nil)
 
 	var temps []Value
 	switch l.p.spaces(ctx); l.p.tok {
-	case RBRACE: return makeNull(l.p.Position())
+	case RBRACE: return _null(l.p.Position())
 	case COMMA:
 		for l.p.step(ctx); l.p.tok != RBRACE; {
 			l.p.spaces(ctx)
@@ -1965,17 +2042,21 @@ func (l ul) braced_foreach(ctx Context) Value {
 	l.p.expect(ctx, RBRACE)
 
 	var va []Value
+	var recipe_start = truly(ctx, is_recipe_start{})
 	for _, val := range vals {
-		for _, elem := range merge(val.expand(final{ctx})) {
+		for _, elem := range merge(val.expand(_final(ctx))) {
 			if isEmpty(elem) { continue }
-			if indeterminate(ctx, elem) {
-				elem = disjunction{elem}
-			}
+			if indeterminate(ctx, elem) { elem = disjunction{elem} }
 
-			// NOTE: don't use defAuto, it's for code-block auto
+			// NOTE: don't use defAuto, it's for codeblock auto only
 			cc.set(ctx, defVoid, "_", elem)
 
-			va = append(va, xmerge(&cc, temps...)...)
+			var a = xmerge(final{&cc}, temps...)
+			if recipe_start && l.p.tok == LINEND {
+				do(ctx, add_recipe_line{a})
+			} else {
+				va = append(va, a...)
+			}
 		}
 	}
 	return ease(ctx, va)
@@ -1985,7 +2066,7 @@ func (l ul) braced_str(ctx Context) (res Value) {
 	l.p.next(ctx, true) // resumes 'str'
 
 	var pos = l.p.Position()
-	var elems = expand(final{ctx}, l.braced_elems(ctx)...)
+	var elems = expand(_final(ctx), l.braced_elems(ctx)...)
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		defer l.braced_str_check(ctx, elems, &res)
@@ -2006,7 +2087,7 @@ func (l ul) braced_word(ctx Context) (res Value) {
 	l.p.next(ctx, true) // resumes 'word'
 
 	var pos = l.p.Position()
-	var elems = expand(final{ctx}, l.braced_elems(ctx)...)
+	var elems = expand(_final(ctx), l.braced_elems(ctx)...)
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		defer l.braced_word_check(ctx, elems, &res)
@@ -2047,7 +2128,7 @@ func (l ul) braced_defs(ctx Context) (res Value) {
 
 	l.p.spaces(ctx)
 
-	var pats = expand(final{ctx}, l.braced_elems(ctx)...)
+	var pats = expand(_final(ctx), l.braced_elems(ctx)...)
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		defer l.braced_defs_check(ctx, pats, &res)
@@ -2123,18 +2204,21 @@ func (l ul) braced_fullname(ctx Context) (res Value) {
 
 	var elems []Value
 	for _, elem := range l.braced_elems(ctx) {
-		if false {
-			erro(ctx, "TODO: %v", ts(elem)).trace()
+		var v = elem.expand(_final(ctx))
+		if indeterminate(ctx, v) {
+			v = fullname{v}
 		} else {
-			elems = append(elems, as{elem}.fullname(ctx, l.project))
+			v = as{v}.fullname(ctx, l.project)
 		}
+		elems = append(elems, v)
 	}
 	return ease(ctx, elems)
 }
 
-func (l ul) braced_plain(ctx Context, t string) (elems []Value) {
+func (l ul) braced_plain(ctx Context) (elems []Value) {
 	l.p.scanner.push(isBracedPlain)
-	l.p.next(ctx, true)
+	l.p.next(ctx, true) // aka LBRACE
+	if l.p.tok == RAW { l.p.lit = trimLeftSpaces(l.p.lit) }
 	elems = l.braced_elems(ctx)
 	l.p.scanner.pop(isBracedPlain)
 	return
@@ -2277,7 +2361,7 @@ func (l ul) braced_project(ctx Context) (_ *project) {
 // Clauses & Declarations
 
 type clauseopts struct {
-	generalopts
+	general_opts
 
     keyword token // e.g. use, files, eval, etc.
 
@@ -2289,7 +2373,7 @@ type clauseopts struct {
 	spec []Value
 }
 
-type parseSpecFunc func(Context, *commentGroup, *clauseopts, int)
+type parseSpecFunc func(Context, *commentgroup, *clauseopts, int)
 
 func isValidImport(lit string) bool {
 	const illegalChars = `!"#$%&'()*,:;<=>?[\]^{|}` + "`\uFFFD"
@@ -2344,7 +2428,7 @@ func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useopts, p
     return
 }
 
-func (l ul) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+func (l ul) use(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	if l.p.imports = append(l.p.imports, &use_spec{ g.spec }); g.skip {
 		// TODO: maybe give some information
 		return
@@ -2388,11 +2472,11 @@ func (l ul) use(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	return
 }
 
-func (l ul) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+func (l ul) files(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	if checkpoints && truly(ctx, is_test_mode{}) { defer l.files_check(ctx) }
 	if len(g.spec) != 1 { erro(ctx, "too many properties: %v", g.spec).trace() }
 
-	var path Value
+	var p Value
 	var patts, paths []Value
 
 	if l.p.tok == SELECT_PROG1 {
@@ -2400,18 +2484,18 @@ func (l ul) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		if l.p.tok == LINEND || l.p.lineComment != nil {
 			erro(ctx, "expecting files path").trace()
 		}
-		path = l.expr(ctx)
+		p = l.expr(ctx)
 	}
 
 	l.p.spaces(ctx)
 
 	if g.skip { return }
 
-	if t := parse_opts(ctx, &g.generalopts, g.remainder...); t != nil {
+	if t := parse_opts(ctx, &g.general_opts, g.remainder...); t != nil {
 		erro(ctx, "unsupported opts: %v", t).trace()
 	}
 
-	if t := g.spec[0].expand(original{ctx,defExpand1}); t == nil {
+	if t := g.spec[0].expand(original{ctx, defExpand1}); t == nil {
 		erro(ctx, "nil: %v", g.spec[0]).trace()
 	} else if x, y := t.(*group); y {
 		patts = merge(x.elems...)
@@ -2419,13 +2503,12 @@ func (l ul) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		patts = merge(t)
 	}
 
-	if path == nil {
+	if p == nil {
 		if len(patts) == 1 {
 			if x, y := patts[0].(*argumented); y {
 				if f, y := x.Value.(flag); y {
 					switch f.Value.string(ctx) {
-					default:
-						// TODO: parse files options
+					default: // TODO: parse files options
 						erro(ctx, "invalid files flag: %v").trace()
 					}
 				}
@@ -2434,32 +2517,30 @@ func (l ul) files(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 	} else {
 		if len(patts) == 1 {
 			if f, y := patts[0].(flag); y {
-				var name = f.Value.string(ctx)
-				switch name {
-				default:
-					// TODO: parse files options
+				switch f.Value.string(ctx) {
+				default: // TODO: parse files options
 					erro(ctx, "invalid files flag: %v").trace()
 				}
 			}
 		}
-		switch x := path.expand(original{ctx,defExpand1}).(type) {
+		switch x := p.expand(original{ctx, defExpand1}).(type) {
 		case *group: paths = x.elems
 		default: paths = []Value{ x }
 		}
 	}
 
-	var ms []filemap = l.project.map_files(ctx, patts, paths)
+	t := l.project.map_files(ctx, patts, paths)
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
-		l.files_check_2(ctx, path, patts, paths, ms)
+		l.files_check_2(ctx, p, patts, paths, t)
 	}
 }
 
-func (p *parser) assert(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+func (p *parser) assert(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	if !g.skip { call(ctx, "assert", g.remainder, g.spec...) }
 }
 
-func (p *parser) append(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+func (p *parser) append(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	if !g.skip { call(ctx, "append", g.remainder, g.spec...) }
 }
 
@@ -2478,9 +2559,9 @@ func (l ul) clear_locals() {
 	l.p.locals = nil
 }
 
-func (l ul) local(ctx Context, _ *commentGroup, g *clauseopts, _ int) {
+func (l ul) local(ctx Context, _ *commentgroup, g *clauseopts, _ int) {
 	var local map[string]*def
-	var vals = xmerge(final{ctx}, append(g.remainder, g.spec...)...)
+	var vals = xmerge(_final(ctx), append(g.remainder, g.spec...)...)
 
 	for _, a := range vals {
 		if x, y := a.(flag); y {
@@ -2526,14 +2607,14 @@ func (l ul) local(ctx Context, _ *commentGroup, g *clauseopts, _ int) {
 	if local != nil { l.p.locals = append(l.p.locals, local) }
 }
 
-func (l ul) eval(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+func (l ul) eval(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	if g.skip { return }
 	if g.spec == nil {
 		var opts struct {
 			optimize Value `opt,optimize`
 		}
 
-		for _, op := range parse_opts(final{ctx}, &opts, g.values...) {
+		for _, op := range parse_opts(_final(ctx), &opts, g.values...) {
 			var val Value
 			if v, y := op.(*pair); y { op, val = v.key, v.val }
 			if v, y := op.(flag); y {
@@ -2720,7 +2801,7 @@ func (l ul) define(ctx Context, tok token, ident, value Value) (d *def) {
         erro(ctx, "TODO: multiple defs: %v", t.elems).trace()
 
     case *arrow:
-        if v := t.expand(final{ctx}); v == nil {
+        if v := t.expand(_final(ctx)); v == nil {
             erro(ctx, "%v is nil", ts(t)).trace()
         } else if x, y := v.(*def); !y {
             erro(ctx, "%v is not a def: %v", ts(t), ts(v)).trace()
@@ -2834,10 +2915,10 @@ func (l ul) define(ctx Context, tok token, ident, value Value) (d *def) {
     }
 }
 
-func (l ul) def_value(ctx Context, idents []Value, tok token) (value Value) {
+func (l ul) defvalue(ctx Context, idents []Value, tok token) (value Value) {
 	defer l.closescope(l.openscope(tv(idents)))
 
-	vals := l.values(def_value{ctx})
+	vals := l.values(p_defvalue_ctx{ctx})
 	l.p.lineComment = nil
 	return ease(ctx, vals)
 }
@@ -2851,11 +2932,11 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 
 	l.p.next(ctx, true) // the assign token
 
-	var value = l.def_value(ctx, idents, tok)
+	var value = l.defvalue(ctx, idents, tok)
 
 	for _, ids := range idents {
 		var ds []*def
-		var _ids = ids.expand(final{ctx})
+		var _ids = ids.expand(_final(ctx))
 
 		for_idents(ctx, _ids, func(ident Value, stems []Value) {
 			if d := l.define(ctx, tok, ident, value); d != nil { ds = append(ds, d) }
@@ -2880,14 +2961,14 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 	return
 }
 
-func (l ul) recipe(ctx Context) Value {
+func (l ul) recipe(ctx Context) (recipes []Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "recipe")) }
 
-	// TODO: comment *commentGroup
+	// TODO: comment *commentgroup
 	// TODO: doc = p.leadComment
+	var p Position
 	var elems []Value
 	var isList, isPlainline bool
-	var p Position
 
 	switch l.p.dialect {
 	case "", "value":
@@ -2895,9 +2976,9 @@ func (l ul) recipe(ctx Context) Value {
 		l.p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
 		p = l.p.Position()
 		if isList = true; !l.p.is_end_of_line() {
-			var c = parse_recipe{ctx, true} // builtin value recipe
+			var c = recipe_ctx{ctx, true, nil, nil} // builtin value recipe
 			for l.p.tok != EOF && l.p.tok != SEMICOLON && l.p.tok != LINEND && l.p.lineComment == nil {
-				elems = append(elems, l.expr(c))
+				elems = append(elems, l.expr(&c))
 				if l.p.spaces(ctx); l.p.lineComment != nil { break }
 			}
 		}
@@ -2907,14 +2988,15 @@ func (l ul) recipe(ctx Context) Value {
 		l.p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
 		p = l.p.Position()
 		if isList = true; !l.p.is_end_of_line() {
-			var a *argumented
 			var x = l.expr(ctx) // parse first expr of recipe
-			if x != nil {
-				if a, _ = x.(*argumented); a != nil { x = a.Value }
-			}
+
+			var a *argumented
+			if a, _ = x.(*argumented); a != nil { x = a.Value }
 			if x == nil {
 				errostack(pc(ctx,p), 16, "parsed nil value, dialect=%s", l.p.dialect).trace()
-			} else if l.p.dialect == "value" {
+			}
+
+			if l.p.dialect == "value" {
 				// no resolving commands
 			} else if t, y := x.(*word); !y {
 				// does nothing
@@ -2933,12 +3015,12 @@ func (l ul) recipe(ctx Context) Value {
 			}
 
 			var cmdargs []Value
-			var c = parse_recipe{ctx, true} // builtin recipe
+			var c = recipe_ctx{ctx, true, nil, nil} // builtin recipe
 
 			for l.p.tok != EOF && l.p.tok != SEMICOLON && l.p.tok != LINEND && l.p.lineComment == nil {
 				if l.p.spaces(ctx); l.p.lineComment != nil { break }
 				if !l.p.tok.is_rule_delim() {
-					x = l.expr(c)
+					x = l.expr(&c)
 				} else {
 					erro(ctx, "unsupported token: %s, %v", l.p.tok, elems).trace()
 				}
@@ -2962,29 +3044,43 @@ func (l ul) recipe(ctx Context) Value {
 		case "plain", "text": isPlainline = true
 		}
 
-		var c = parse_recipe{ctx, false} // builtin text
+		var c = recipe_ctx{ctx, false, nil, nil} // builtin text
 		for !l.p.is_end_of_line() {
 			var x Value
 			if l.p.tok == RAW {
-				x = l.literal(c)
+				x = l.literal(&c)
 			} else {
-				x = l.expr(c)
+				x = l.expr(&c)
 			}
-			elems = append(elems, x)
+			if c.lines == nil {
+				c.elems = append(c.elems, x)
+			}
 		}
 		l.p.scanner.pop(isStrcompLine)
+
+		if c.lines != nil {
+			if c.elems != nil {
+				erro(ctx, "%v %v", c.elems, c.lines).trace()
+			}
+			for _, a := range c.lines {
+				recipes = append(recipes, &plainline{elements{merge(a...)}})
+			}
+			return
+		}
+
+		elems = c.elems
 	}
 
 	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
 
     if len(elems) == 0 {
-        return _none(p)
-	} else if isPlainline {
-		return &plainline{elements{merge(elems...)}}
+        return []Value{ _none(p) }
     } else if isList {
-        return _list(elems...)
-    } else {
-        return makeStrcomp(elems...)
+        return []Value{ _list(elems...) }
+	} else if isPlainline {
+		return []Value{ &plainline{elements{merge(elems...)}} }
+	} else {
+		return []Value{ &recipe{strcomp{elements{elems}}} }
     }
 }
 
@@ -3021,7 +3117,7 @@ func (l ul) define_configs(ctx Context) {
 func (l ul) modifier(ctx Context) (res *modifier) {
 	l.p.spaces(ctx)
 
-	ctx = parse_modifier{ctx}
+	ctx = p_modifier{ctx}
 
 	l.p.expect(ctx, LPAREN)
 	l.p.spaces(ctx)
@@ -3032,7 +3128,7 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 	switch n := val.(type) {
 	case *word: name = n.s
 	case *delegate, *closure:
-		var v = xmerge(final{ctx}, val)
+		var v = xmerge(_final(ctx), val)
 		if len(v) == 0 {
 			erro(pc(ctx,val), "empty modifier name: %v", n).trace()
 		}
@@ -3149,7 +3245,7 @@ var rule_autos = map[string]struct{}{
 func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
 	if l_traverse.enabled || debugSyntax(ctx, "rule") { defer un(l_trace(l_traverse, "rule")) }
 
-	ctx = parse_rule{ctx}
+	ctx = p_rule_ctx{ctx}
 
     if l.project != _scope(ctx).project {
 		erro(ctx, "mismatched project/scope : %v", targets).trace()
@@ -3158,18 +3254,14 @@ func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
 	// TODO: doc = p.leadComment
 	var depends, ordered, recipes []Value
 	defer l.closescope(l.openscope(tv(targets)))
-	defer func() {
-		// Close the rule scope and go back to project scope.
-		// The current scope must be project scope befor Rule.
-		l.p.dialect, l.p.ruparas = "", nil
-	} ()
+	defer func() { l.p.dialect, l.p.ruparas = "", nil } ()
 
 	l.p.dialect = ""
 	l.p.ruparas = nil
 
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
-	targets = expand(final{ctx}, targets...)
+	targets = expand(_final(ctx), targets...)
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		if targets != nil { l.rule_check_targets(ctx, targets) }
@@ -3192,13 +3284,13 @@ func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
 
 	if l.p.tok == SEMICOLON { // ;
 		// Parse inline recipe in the program scope.
-		recipes = append(recipes, l.recipe(ctx))
+		recipes = append(recipes, l.recipe(ctx)...)
 	} else /*if p.tok == LINEND || p.lineComment != nil*/ {
 		// Parse recipes in the program scope.
 		l.p.scanner.recipes(true) // Turn on recipes before LINEND.
 		if l.p.linend(ctx) { // Take the new line.
 			for l.p.recipe_start() {
-				recipes = append(recipes, l.recipe(ctx))
+				recipes = append(recipes, l.recipe(ctx)...)
 			}
 		}
 		l.p.scanner.recipes(false)
@@ -3219,7 +3311,7 @@ func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
 	} else if 1 < len(res) {
 		return list_t[entry](res...)
 	} else {
-		return makeNull(prog.position)
+		return _null(prog.position)
 	}
 }
 
@@ -3318,7 +3410,7 @@ func (l ul) foreach_done(ctx Context) {
 	l.p.expect(ctx, FOREACH)
 	l.p.spaces(ctx)
 
-	var vals = xmerge(final{ctx}, l.values(ctx)...)
+	var vals = xmerge(_final(ctx), l.values(ctx)...)
 	var t = &template{
 		pos: l.p.pos, tok: l.p.tok, lit: l.p.lit,
 		state: l.p.scanner.scanstate,
@@ -3360,7 +3452,7 @@ func (l ul) foreach_done(ctx Context) {
 			for i, val := range vals {
 				if indeterminate(ctx, val) {
 					if false {
-						erro(ctx, "indeterminate: %d. %v → %v", i, tv(val), val.expand(final{ctx})).trace()
+						erro(ctx, "indeterminate: %d. %v → %v", i, tv(val), val.expand(_final(ctx))).trace()
 					}
 				} else if !isTrivial(val) {
 					a["_"] = val
@@ -3442,7 +3534,7 @@ func (l ul) for_done(ctx Context) {
 			}
 
 			// Make sure all elements are expanded.
-			elems = xmerge(final{ctx}, elems...)
+			elems = xmerge(_final(ctx), elems...)
 
 			if _, y := vars[s]; y {
 				erro(ctx, "duplicated key: %v", s).trace()
@@ -3572,18 +3664,10 @@ func (l ul) codeblock(ctx Context, op token, t *template, vars map[string]Value)
 		erro(ctx, "bad range: [%v %v) (%v)", l.p.pos, l.p.stop, t.name).trace()
 	}
 
-	var c = codeblock{automatic{Context:ctx, defs:make(defs_map)}}
+	var c = codeblock{automatic{Context:ctx, defs:make(defs_map)}, op}
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		l.codeblock_check(ctx, op, vars)
-
-		if false && l.p.is_file("/configure/.base/.template") {
-			defer func(t time.Time, pos Position) {
-				if d := time.Since(t); 10*time.Millisecond <= d {
-					note(pc(ctx,pos), "%v, %v", d, vars).debug(1)
-				}
-			} (time.Now(), l.p.loc(t.pos))
-		}
 	}
 
 	// NOTE: defAuto is only used in this case!
@@ -3642,7 +3726,7 @@ func (l ul) repeat(ctx Context, t *template, params []Value) {
 			if i < len(params) {
 				m[s] = params[i]
 			} else {
-				m[s] = makeNull(v.Position())
+				m[s] = _null(v.Position())
 			}
 		} else {
 			erro(ctx, "empty template param name: %v", tv(v)).trace()
@@ -3740,7 +3824,7 @@ func (l ul) configure_conv(ctx *execution, vt, val Value) (res Value) {
 			erro(pc(ctx,x.Value), "wrong conv word: %v %v", tv(x.Value), tv(val)).trace()
 		}
 		if false { vt = x.Value }
-		args = xmerge(final{ctx}, x.args...)
+		args = xmerge(_final(ctx), x.args...)
 	}
 
 	if x, y := op.(*word); !y {
@@ -3915,12 +3999,12 @@ func (l ul) configure_one(ctx Context) {
 
 dorecipes:
 	if l.p.tok == SEMICOLON { // ;
-		recipes = append(recipes, l.recipe(ctx))
+		recipes = append(recipes, l.recipe(ctx)...)
 	} else /*if p.tok == LINEND || p.lineComment != nil*/ {
 		l.p.scanner.recipes(true) // turn on recipes before LINEND.
 		if l.p.linend(ctx) { // Take the new line.
 			for l.p.recipe_start() {
-				recipes = append(recipes, l.recipe(ctx))
+				recipes = append(recipes, l.recipe(ctx)...)
 			}
 		}
 		l.p.scanner.recipes(false)
@@ -3946,8 +4030,7 @@ dorecipes:
 
     exe.set(ctx, defVoid, "@", nv)
 
-	var pre = prerequisite{&exe, false, nil}
-	for _, dep := range deps { dep.traverse(&pre) }
+    for _, exe.prerequisite = range deps { exe.prerequisite.traverse(&exe) }
 
 	var res = auto_get(&exe, "-")
 	if res == nil && recipes != nil && len(exe.interpreted) == 0 {
@@ -4016,7 +4099,7 @@ func (l ul) clause(ctx Context) {
 	var vals []Value
 
 	for l.p.tok != LINEND && l.p.tok != EOF {
-		var x = l.expr(parse_left{ctx})
+		var x = l.expr(p_left_ctx{ctx})
 
 		l.p.spaces(ctx)
 
@@ -4149,7 +4232,7 @@ func (l ul) declare(ctx Context, ident Value, name, filename string, declOpts *p
         }
     }
 
-	if x := try[[]Value](ctx, get_arguments{}); len(x) != 0 {
+	if x := try[[]Value](ctx, get_args{}); len(x) != 0 {
 		for _, arg := range merge(x...) {
 			switch t := arg.(type) {
 			case *pair:
@@ -4195,6 +4278,8 @@ func (l ul) pre_project_set(ctx Context, args ...Value) {
 type declared_project struct { *project }
 
 type parent struct { Context ; *project }
+func (p parent) cast(t reflect.Type) Context { return icast(p,t) }
+func (p parent) inner() Context { return p.Context }
 func (p parent) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case declared_project:
@@ -4325,7 +4410,7 @@ func (l ul) projec(ctx Context, filename string, isMainFile bool) (_ Value, _ st
 	if l.p.tok != LPAREN {
 		l.bases(cc, implicitBase) // for special bases, e.g. .base
 	} else {
-		var cc0 = parse_group{aware_token_ctx{ctx, COMMA}}
+		var cc0 = p_group_ctx{p_aware_ctx{ctx, COMMA}}
 		for l.p.tok != EOF {
 			for l.p.next(ctx, true); !l.p.is_list_term(ctx); {
 				l.p.spaces(ctx)

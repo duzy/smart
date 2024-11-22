@@ -34,7 +34,8 @@ type char rune
 func (c char) String() string { return string(rune(c)) }
 
 type cache struct { Context } // versus `unmap`
-func (c cache) cast(t reflect.Type) Context { return implcast(c, t) }
+func (c cache) inner() Context { return c.Context }
+func (c cache) cast(t reflect.Type) Context { return icast(c, t) }
 func (c cache) do(ctx Context, op any) any {
     switch t := op.(type) {
     case hit_punc:
@@ -59,7 +60,8 @@ func (c cache) do(ctx Context, op any) any {
 }
 
 type unmap struct { Context ; a []any } // versus `cache`
-func (u *unmap) cast(t reflect.Type) Context { return implcast(u, t) }
+func (u *unmap) inner() Context { return u.Context }
+func (u *unmap) cast(t reflect.Type) Context { return icast(u, t) }
 func (u *unmap) do(ctx Context, op any) any {
     switch t := op.(type) {
     case act_unmap:
@@ -89,7 +91,8 @@ func (u *unmap) do(ctx Context, op any) any {
 type full_kval struct{}
 
 type bare_hit struct { Context ; *valcache ; s string ; i int ; solo bool }
-func (p *bare_hit) cast(t reflect.Type) Context { return implcast(p, t) }
+func (p *bare_hit) inner() Context { return p.Context }
+func (p *bare_hit) cast(t reflect.Type) Context { return icast(p, t) }
 func (p *bare_hit) ts(t string) string {
 	return "{="+t+" "+p.s+" "+ts(p.Context)+"}"
 }
@@ -105,6 +108,8 @@ func (p *bare_hit) do(ctx Context, op any) any {
 }
 
 type flag_hit struct { Context ; flag }
+func (p *flag_hit) inner() Context { return p.Context }
+func (p *flag_hit) cast(t reflect.Type) Context { return icast(p, t) }
 func (p *flag_hit) do(ctx Context, op any) any {
 	switch op.(type) {
 	case full_kval: return p.flag
@@ -113,7 +118,8 @@ func (p *flag_hit) do(ctx Context, op any) any {
 }
 
 type path_hit struct { Context ; s string ; ss []string ; i int }
-func (p *path_hit) cast(t reflect.Type) Context { return implcast(p, t) }
+func (p *path_hit) inner() Context { return p.Context }
+func (p *path_hit) cast(t reflect.Type) Context { return icast(p, t) }
 func (p *path_hit) ts(t string) string {
 	return "{="+t+" "+p.s+" "+ts(p.Context)+"}"
 }
@@ -128,7 +134,8 @@ func (p *path_hit) do(ctx Context, op any) any {
 }
 
 type globpat_hit struct { Context ; x *globpat }
-func (p *globpat_hit) cast(t reflect.Type) Context { return implcast(p, t) }
+func (p *globpat_hit) inner() Context { return p.Context }
+func (p *globpat_hit) cast(t reflect.Type) Context { return icast(p, t) }
 func (p *globpat_hit) ts(t string) string {
 	return "{="+t+" "+p.x.String()+" "+ts(p.Context)+"}"
 }
@@ -142,7 +149,8 @@ func (p *globpat_hit) do(ctx Context, op any) any {
 }
 
 type percpat_hit struct { Context ; x *percpat }
-func (p *percpat_hit) cast(t reflect.Type) Context { return implcast(p, t) }
+func (p *percpat_hit) inner() Context { return p.Context }
+func (p *percpat_hit) cast(t reflect.Type) Context { return icast(p, t) }
 func (p *percpat_hit) ts(t string) string {
 	return "{="+t+" "+p.x.String()+" "+ts(p.Context)+"}"
 }
@@ -156,7 +164,8 @@ func (p *percpat_hit) do(ctx Context, op any) any {
 }
 
 type regexpat_hit struct { Context ; x *regexpat }
-func (p *regexpat_hit) cast(t reflect.Type) Context { return implcast(p, t) }
+func (p *regexpat_hit) inner() Context { return p.Context }
+func (p *regexpat_hit) cast(t reflect.Type) Context { return icast(p, t) }
 func (p *regexpat_hit) ts(t string) string {
 	return "{="+t+" "+p.x.String()+" "+ts(p.Context)+"}"
 }
@@ -177,7 +186,7 @@ type rule_name struct { *rule ; name string }
 
 type filemap_name struct { filemap ; name string }
 func (p filemap_name) String() string {
-	return "{"+p.filemap.String()+" "+p.name+"}"
+	return "{filemap="+p.filemap.String()+" name="+p.name+"}"
 }
 
 type filemap_slot struct { filemap }

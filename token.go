@@ -6,7 +6,7 @@
 package smart
 
 import (
-	got "go/token"
+	gt "go/token"
 	"strconv"
 )
 
@@ -446,7 +446,7 @@ func (tok token) is_list_delim() bool {
 	Line     int     -- line number, starting at 1
 	Column   int     -- column number, starting at 1 (byte count)
 */
-type Position struct { got.Position }
+type Position struct { gt.Position }
 func (p *Position) valid() bool { return p.Filename != "" && p.Line > 0 }
 func (p *Position) IsValid() bool { return p.valid() && p.Column > 0 && p.Offset >= 0 }
 func (p *Position) same(o *Position) bool {
@@ -472,28 +472,26 @@ func convPosition(filename, line, column string) (pos Position) {
 	return
 }
 
-const NoPos Pos = Pos(got.NoPos)
+const NoPos Pos = Pos(gt.NoPos)
 
-type Pos got.Pos
+type Pos gt.Pos
 
 func (p Pos) IsValid() bool {
-	return got.Pos(p).IsValid()
+	return gt.Pos(p).IsValid()
 }
 
-type tokfile struct {
-	*got.File
-}
+type tokfile struct { *gt.File }
 
 func (f *tokfile) string() string {
 	return f.Name() //fmt.Sprintf("{%s}", f.Name())
 }
 
 func (f *tokfile) Offset(p Pos) int {
-	return f.File.Offset(got.Pos(p))
+	return f.File.Offset(gt.Pos(p))
 }
 
 func (f *tokfile) Line(p Pos) int {
-	return f.File.Line(got.Pos(p))
+	return f.File.Line(gt.Pos(p))
 }
 
 func (f *tokfile) Pos(offset int) Pos {
@@ -501,26 +499,22 @@ func (f *tokfile) Pos(offset int) Pos {
 }
 
 func (f *tokfile) PositionFor(p Pos, adjusted bool) (pos Position) {
-	return Position{ f.File.PositionFor(got.Pos(p), adjusted) }
+	return Position{ f.File.PositionFor(gt.Pos(p), adjusted) }
 }
 
 func (f *tokfile) Position(p Pos) (pos Position) {
-	return Position{ f.File.Position(got.Pos(p)) }
+	return Position{ f.File.Position(gt.Pos(p)) }
 }
 
-type FileSet struct {
-	*got.FileSet
-}
+type fileset struct { *gt.FileSet }
 
-// NewFileSet creates a new file set.
-func NewFileSet() *FileSet {
-	return &FileSet{ got.NewFileSet() }
-}
+// _fileset creates a new file set.
+func _fileset() *fileset { return &fileset{ gt.NewFileSet() } }
 
-func (s *FileSet) AddFile(filename string, base, size int) *tokfile {
+func (s *fileset) AddFile(filename string, base, size int) *tokfile {
 	return &tokfile{ s.FileSet.AddFile(filename, base, size) }
 }
 
-func (s *FileSet) Iterate(f func(*tokfile) bool) {
-	s.FileSet.Iterate(func(a *got.File) bool { return f(&tokfile{a}) })
+func (s *fileset) Iterate(f func(*tokfile) bool) {
+	s.FileSet.Iterate(func(a *gt.File) bool { return f(&tokfile{a}) })
 }

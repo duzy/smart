@@ -83,6 +83,8 @@ type is_implicit_load struct{}
 
 // implicit load, e.g. via foo.bar.Baz (implicitly loads foo/bar for base of Baz)
 type load_implicit struct{ Context }
+func (p load_implicit) cast(t reflect.Type) Context { return icast(p,t) }
+func (p load_implicit) inner() Context { return p.Context }
 func (p load_implicit) do(ctx Context, op any) any {
     switch op.(type) {
     case is_implicit_load: return true
@@ -92,6 +94,8 @@ func (p load_implicit) do(ctx Context, op any) any {
 
 type abs_path struct{}
 type abs_ctx struct{ Context ; abs string }
+func (p *abs_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *abs_ctx) inner() Context { return p.Context }
 func (p *abs_ctx) ts(string) string {
     return "{=abs "+bases(2, p.abs, true)+" "+ts(p.Context)+"}"
 }
@@ -197,7 +201,7 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
                 var val = spec
                 if x, y := spec.(*argumented); y {
                     val = x.Value
-                    op.remainder = parse_opts(final{ctx}, &op, x.args...)
+                    op.remainder = parse_opts(_final(ctx), &op, x.args...)
                 }
                 if name := val.string(ctx); name == "" {
                     if c := user.configure; c != nil {
@@ -615,6 +619,8 @@ type include_ctx struct {
     p Position
     spec string
 }
+func (i include_ctx) cast(t reflect.Type) Context { return icast(i,t) }
+func (i include_ctx) inner() Context { return i.Context }
 func (i include_ctx) ts(t string) string {
 	return "{="+t+" "+i.spec+" "+ts(i.Context)+"}"
 }
@@ -628,7 +634,7 @@ func (i include_ctx) do(ctx Context, op any) (_ any) {
 	return i.Context.do(ctx, op)
 }
 
-func (l ul) include(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
+func (l ul) include(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "include")) }
 
 	var opts = include_opts{ clauseopts: g }
@@ -640,7 +646,7 @@ func (l ul) include(ctx Context, doc *commentGroup, g *clauseopts, _ int) {
 		erro(ctx, "expect include file: %v", g.spec).trace()
 	}
 
-	var val = g.spec[0].expand(final{ctx})
+	var val = g.spec[0].expand(_final(ctx))
 
 	if l.p.spaces(ctx); l.p.tok == COLON {
 		switch val.(type) {
@@ -764,7 +770,7 @@ paramsloop:
 
         var spec string
         var specVal Value
-        if specVal = elem.expand(final{ctx}); specVal == nil { specVal = elem }
+        if specVal = elem.expand(_final(ctx)); specVal == nil { specVal = elem }
         if checkpoints && truly(ctx, is_test_mode{}) {
             l.bases_check_param(ctx, implicitBase, i, elem, specVal)
         }
@@ -873,6 +879,8 @@ type autoload_ctx struct {
     p Position
     v Value
 }
+func (a autoload_ctx) cast(t reflect.Type) Context { return icast(a,t) }
+func (a autoload_ctx) inner() Context { return a.Context }
 func (a autoload_ctx) ts(t string) string {
 	return "{="+t+" "+bases(2, a.v.String(), true)+" "+ts(a.Context)+"}"
 }
@@ -888,7 +896,7 @@ func (a autoload_ctx) do(ctx Context, op any) (_ any) {
 func (l ul) autoload(ctx Context, tag string) {
     if !is_configure_project(l.project) {
         if d := l.project.def(ctx, ".autoload."+tag); d != nil && d.value != nil {
-            for _, v := range merge(d.value.expand(final{ctx})) {
+            for _, v := range merge(d.value.expand(_final(ctx))) {
                 if isTrivial(v) {
                     continue
                 } else if f, s, t := l.spec_file(ctx, v); f == nil || !f.exists() {
@@ -912,6 +920,8 @@ type configure_ctx struct {
     configuration *file
     p *project
 }
+func (cc *configure_ctx) cast(t reflect.Type) Context { return icast(cc,t) }
+func (cc *configure_ctx) inner() Context { return cc.Context }
 func (cc *configure_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
     case declared_project:
@@ -1142,7 +1152,7 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
     l.p.scanner.init(ctx, f, text, smod)
 	l.p.next(ctx, true) // starts scanning
 
-    if truly(ctx, parse_is_text{}) {
+    if truly(ctx, is_text{}) {
         return ease(ctx, l.values(ctx))
     }
 
@@ -1397,11 +1407,13 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
     return
 }
 
-type parse_is_text struct{}
+type is_text struct{}
 type loadtext_ctx struct{ Context }
+func (p loadtext_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p loadtext_ctx) inner() Context { return p.Context }
 func (p loadtext_ctx) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case parse_is_text: return true
+	case is_text: return true
 	}
 	return p.Context.do(ctx, op)
 }

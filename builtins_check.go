@@ -36,6 +36,7 @@ func (ctx *builtin_trimprefix) x_check_match(val, prefix Value, f bool, r any, m
         }
     }
 }
+
 func (ctx *builtin_trimprefix) x_check(prefix, val, res Value) {
     var pre, str, t = prefix.string(ctx), val.string(ctx), res.string(ctx)
 
@@ -106,30 +107,23 @@ func (ctx *builtin_trimprefix) x_check(prefix, val, res Value) {
     }
 }
 
-// func (ctx *builtin_fullname) x_check(p *project, a Value, x fullname) {
-// 	switch p.name {
-// 	case "testllvmconfig":
-// 		switch ss := a.String(); ss {
-// 		case "llvm/Config/llvm-config.h":
-// 			if d := p.def(ctx, "outinc"); d == nil {
-// 				erro(ctx, "%v %v", a, x).trace()
-// 			} else if s := d.string(ctx); s == "" {
-// 				erro(ctx, "%v %v", a, d).trace()
-// 			} else if t := x.Value.(*file) ; t.name != ss {
-// 				erro(ctx, "%s != %s", t.name, ss).trace()
-// 			} else if t.dir != s {
-// 				erro(ctx, "%s != %s", t.dir, s).trace()
-// 			}
-// 		case "llvm/Config/llvm-config.h.cmake":
-// 			if d := p.def(ctx, "srcinc"); d == nil {
-// 				erro(ctx, "%v %v", a, x).trace()
-// 			} else if s := d.string(ctx); s == "" {
-// 				erro(ctx, "%v %v", a, d).trace()
-// 			} else if t := x.Value.(*file) ; t.name != ss {
-// 				erro(ctx, "%s != %s", t.name, ss).trace()
-// 			} else if t.dir != s {
-// 				erro(ctx, "%s != %s", t.dir, s).trace()
-// 			}
-// 		}
-// 	}
-// }
+func (ctx *builtin_auto) check_res(ar []Value) {
+    var a = ctx.evocation.a[1]
+
+    if a.String() == "$(a)" && auto_find(ctx, "a") == nil {
+        if x, y := a.(*list); !y || x.len() != 1 {
+            erro(ctx, "%v", ts(a)).trace()
+        } else if z, y := x.elems[0].(*delegate); !y {
+            erro(ctx, "%v", ts(x.elems[0])).trace()
+        } else if x, y := z.x.(*auto); !y {
+            erro(ctx, "%v", ts(z.x)).trace()
+        } else if x.name != "a" {
+            erro(ctx, "%v", ts(x)).trace()
+        }
+        if len(ar) == 1 {
+            if x, y := ar[0].(*list); y && x.len() == 0 {
+                erro(ctx, "%v → %v", ts(a), ts(x)).trace()
+            }
+        }
+    }
+}

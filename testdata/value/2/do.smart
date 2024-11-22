@@ -15,11 +15,11 @@ project testvalue
 .test.1   := $(.test) $3
 
 .test.x   := .test.ba
-.test.2  ::= $(.test) $3
-.test.3   := $(.test) $3
+.test.2   := $(.test) $3
+.test.3  ::= $(.test) $3
 
 .test     += z $(call(-closure) &(.test.x),$1$2,$2$1)
 .test     += Z $3
 .test.x   := .test.ab
-.test.4  ::= $(.test) . $3
-.test.5   := $(.test) . $3
+.test.4   := $(.test) . $3
+.test.5  ::= $(.test) . $3

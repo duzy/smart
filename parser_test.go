@@ -24,7 +24,7 @@ func testParseFile(t *testing.T) {
 	//         `testdata/dialect.smart`,
 	// }
 	// for i, filename := range files {
-	// 	_, err := ParseFile(NewFileSet(), filename, nil, mode)
+	// 	_, err := ParseFile(_fileset(), filename, nil, mode)
 	// 	if err != nil {
 	// 		t.Fatalf("ParseFile: #%d: %v", i, err)
 	// 	}
@@ -32,7 +32,7 @@ func testParseFile(t *testing.T) {
 }
 
 func testParseDir(t *testing.T) {
-	// fset, dir := NewFileSet(), "testdata"
+	// fset, dir := _fileset(), "testdata"
 	// _, err := ParseDir(fset, dir, nil, DeclarationErrors)
 	// if err != nil {
 	//         t.Fatalf("ParseDir(%s): %v", dir, err)

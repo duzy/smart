@@ -7,6 +7,7 @@ package smart
 
 import (
   "path/filepath"
+  "reflect"
   "strings"
   "plugin"
   "sync"
@@ -231,6 +232,8 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
 
 type debug_y struct{}
 type debug_ctx struct{ Context }
+func (c debug_ctx) cast(t reflect.Type) Context { return icast(c,t) }
+func (c debug_ctx) inner() Context { return c.Context }
 func (c debug_ctx) do(ctx Context, op any) any {
   switch op.(type) {
   case debug_y: return true
@@ -240,6 +243,8 @@ func (c debug_ctx) do(ctx Context, op any) any {
 
 type unmap_uncheck_y struct{}
 type unmap_uncheck_ctx struct{ Context }
+func (c unmap_uncheck_ctx) cast(t reflect.Type) Context { return icast(c,t) }
+func (c unmap_uncheck_ctx) inner() Context { return c.Context }
 func (c unmap_uncheck_ctx) do(ctx Context, op any) any {
   switch op.(type) {
   case unmap_uncheck_y: return true
@@ -248,6 +253,8 @@ func (c unmap_uncheck_ctx) do(ctx Context, op any) any {
 }
 
 type project_ctx struct{ Context ; p *project }
+func (c project_ctx) cast(t reflect.Type) Context { return icast(c,t) }
+func (c project_ctx) inner() Context { return c.Context }
 func (c project_ctx) do(ctx Context, op any) any {
   switch op.(type) {
   case get_project: return c.p
@@ -392,7 +399,7 @@ func select_file_1(ctx Context, m filemap_name) (res *file) {
   var fs []*file
 
   for _, v := range m.paths {
-    if t := v.expand(final{ctx}); t != nil {
+    if t := v.expand(_final(ctx)); t != nil {
       if s := t.string(ctx); s != "" {
         if f := stat(ctx, m.name, stat_dir{s}, stat_nonexist{true}); f != nil {
           fs = append(fs, f)

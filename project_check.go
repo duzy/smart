@@ -179,7 +179,7 @@ func (p *project) configuration_sm_check(ctx Context, f *file) {
 				erro(ctx, "%v : %v", p, ts(d)).trace()
 			} else if ts(d.value) != "{=delegate {=builtin trim-prefix} {=list {=closure {=def rel.chop}}} {=list {=closure {=def /}}}}" {
 				erro(ctx, "%v : %v", p, ts(d.value)).trace()
-			} else if v := d.value.expand(final{ctx}); ts(v) != "{=path {=word testdata} {=word configuration}}" {
+			} else if v := d.value.expand(_final(ctx)); ts(v) != "{=path {=word testdata} {=word configuration}}" {
 				erro(ctx, "%v : %v → %v : %s ; %v", p, d.value, v, srcdir, p.def(ctx, "/").value).trace()
 			} else if s, t := d.string(ctx), filepath.Join("testdata", "configuration"); s != t {
 				erro(ctx, "%v : %s != %s", p, s, t).trace()

@@ -12,23 +12,28 @@ import (
     enc_xml "encoding/xml"
     // enc_yaml "encoding/yaml"
     // "strconv"
+    "reflect"
     "strings"
     "bytes"
     "fmt"
     "io"
 )
 
+type is_plain_only struct{}
+type plain_ctx struct { Context ; only bool }
+func (p plain_ctx) inner() Context { return p.Context }
+func (p plain_ctx) cast(t reflect.Type) Context { return icast(p, t) }
+func (p plain_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case is_plain_only: return p.only
+    }
+    return p.Context.do(ctx, op)
+}
+
 // Value returned by (plain) modifier.
 type plain struct { elements ; name string }
 func (_ *plain) kind() Kind { return KindPlain }
 func (p *plain) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
-func (p *plain) String() (s string) {
-    s = "{="+typeof(p)
-    if t := p.name; t != "" { s += "("+t+")" }
-    for _, v := range p.elems { s += " " + v.String() }
-    s += "}"
-    return
-}
 func (p *plain) ts(t string) (s string) {
     s = "{="+t
     if t := p.name; t != "" { s += "("+t+")" }
@@ -36,12 +41,25 @@ func (p *plain) ts(t string) (s string) {
     s += "}"
     return
 }
-func (p *plain) string(ctx Context) (s string) {
-    for i, v := range p.elems {
-        if i > 0 { s += " " }
-        s += v.string(ctx)
-    }
+func (p *plain) String() (s string) {
+    s = "{=plain"
+    if t := p.name; t != "" { s += "("+t+")" }
+    for _, v := range p.elems { s += " " + v.String() }
+    s += "}"
     return
+}
+func (p *plain) string(ctx Context) string {
+    var w = new(bytes.Buffer)
+    var cc = plain_ctx{ctx,len(p.elems)==1}
+    for i, v := range p.elems {
+        if x, y := v.(*plainline); y {
+            w.WriteString(x.string(cc))
+        } else {
+            if 0 < i { w.WriteString(" ") }
+            w.WriteString(v.string(cc))
+        }
+    }
+    return w.String()
 }
 func (p *plain) float(ctx Context) (_ float64) {
     if p.len() > 0 { return p.elems[0].float(ctx) }
@@ -80,20 +98,40 @@ func (p *plain) cmp(ctx Context, v Value) (_ cmpres) {
     return
 }
 
+type is_plainline struct {}
+type plainline_ctx struct { Context }
+func (p plainline_ctx) inner() Context { return p.Context }
+func (p plainline_ctx) cast(t reflect.Type) Context { return icast(p, t) }
+func (p plainline_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case is_plainline: return true
+    }
+    return p.Context.do(ctx, op)
+}
+
 type plainline struct { elements }
 func (_ *plainline) kind() Kind { return KindPlainLine }
 func (p *plainline) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
 func (p *plainline) String() (s string) {
-    s = "{="+typeof(p)
-    for _, v := range p.elems { s += " " + v.String() }
+    s = "{=plainline"
+    if p.elems != nil {
+        s += " "
+        for _, v := range p.elems { s += v.String() }
+    }
     s += "}"
     return
 }
 func (p *plainline) string(ctx Context) (s string) {
-    for i, v := range p.elems {
-        if i > 0 { s += " " }
-        s += v.string(ctx)
+    if len(p.elems) == 1 {
+        if d, y := p.elems[0].(*delegate); y {
+            if b, y := d.x.(*builtin); y && b.name == "foreach" {
+                return d.string(plainline_ctx{ctx})
+            }
+        }
     }
+
+    for _, v := range p.elems { s += v.string(ctx) }
+    s += "\n"
     return
 }
 func (p *plainline) float(ctx Context) (_ float64) {
@@ -131,27 +169,29 @@ func (p *plainline) cmp(ctx Context, v Value) (_ cmpres) {
     return
 }
 
+// func _plainline(vals ...Value) (p *plainline) { return }
+
 type plainint struct{}
 func (_ *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
-    var p = &plain{}
+    var res = &plain{}
     var exe = _execution(ctx)
-    var opts struct{ generalopts }
+    var opts struct{ general_opts }
 
     if args = parse_opts(ctx, &opts, args...) ; len(args) > 0 {
-        p.name = args[0].string(ctx)
-        exe.language = p.name
+        res.name = args[0].string(ctx)
+        exe.language = res.name
     }
 
     for _, recipe := range exe.recipes {
-        p.elems = append(p.elems, recipe.expand(ctx))
+        res.elems = append(res.elems, recipe.expand(ctx))
     }
 
-    if len(p.elems) == 1 {
-        if x, y := p.elems[0].(*plainline); y {
-            p.elems = merge(x.elems...)
+    if len(res.elems) == 1 {
+        if x, y := res.elems[0].(*plainline); y {
+            res.elems = merge(x.elems...)
         }
     }
-    return p
+    return res
 }
 
 func multiline(ctx Context, recipes... Value) (res string) {
@@ -228,13 +268,13 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value) {
         case enc_xml.ProcInst:
             // TODO: ...
         case enc_xml.StartElement:
-            nn := makeGroup(pos, &word{valbase{pos},elem.Name.Local})
+            nn := _group(pos, &word{valbase{pos},elem.Name.Local})
             for _, a := range elem.Attr {
                 var k, v Value
                 k = &word{valbase{pos},a.Name.Local}
                 v = &strlit{valbase{pos},a.Value}
                 if s := a.Name.Space; s != "" {
-                    k = makeGroup(pos, &strlit{valbase{pos},s}, k)
+                    k = _group(pos, &strlit{valbase{pos},s}, k)
                 }
                 nn.append(makePair(k, v))
             }
@@ -268,7 +308,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value) {
         }
     }
     if x := len(nodes); x > 1 {
-        g := makeGroup(pos)
+        g := _group(pos)
         for _, node := range nodes {
             g.append(node)
         }
@@ -345,7 +385,7 @@ LoopJSON:
         case enc_json.Delim:
             switch d {
             case '[':
-                nn := makeGroup(pos, _word(pos, JsonArray))
+                nn := _group(pos, _word(pos, JsonArray))
                 if x == 0 {
                     nodes = append(nodes, nn)
                 } else {
@@ -354,7 +394,7 @@ LoopJSON:
                 stack = append(stack, nn) // APPEND
                 break SwitchNodeType
             case '{':
-                nn := makeGroup(pos, _word(pos, JsonObject))
+                nn := _group(pos, _word(pos, JsonObject))
                 if x == 0 {
                     nodes = append(nodes, nn)
                 } else {
@@ -415,8 +455,8 @@ LoopJSON:
             case enc_json.Delim:
                 var vn *group
                 switch vd {
-                case '[': vn = makeGroup(pos, _word(pos, JsonArray))
-                case '{': vn = makeGroup(pos, _word(pos, JsonObject))
+                case '[': vn = _group(pos, _word(pos, JsonArray))
+                case '{': vn = _group(pos, _word(pos, JsonObject))
                 default: err = errorIllJson; break LoopJSON
                 }
                 stack = append(stack, vn)
@@ -458,7 +498,7 @@ LoopJSON:
     if x := len(nodes); x == 1 {
         result = nodes[0]
     } else {
-        g := makeGroup(pos)
+        g := _group(pos)
         for _, v := range nodes {
             g.append(v)
         }

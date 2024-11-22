@@ -34,7 +34,8 @@ type configurecontext struct {
     defs map[string]struct{}
     done map[*def]struct{}
 }
-func (cc *configurecontext) cast(t reflect.Type) Context { return implcast(cc, t) }
+func (cc *configurecontext) inner() Context { return cc.Context }
+func (cc *configurecontext) cast(t reflect.Type) Context { return icast(cc, t) }
 func (cc *configurecontext) do(ctx Context, op any) (_ any) {
     switch op.(type) {
     case silent_configure: if cc.silent { return true }
@@ -54,7 +55,7 @@ func (cc *configurecontext) open_configuration_sm(ctx Context, p *project) (res 
     }
     return
 }
-func (cc *configurecontext) execute(ctx Context, e entry) {
+func (cc *configurecontext) execute(ctx *execution, e entry) {
     var d *def
     var s string
     var p = e.owner()
@@ -165,7 +166,7 @@ type (
     configureconvertArgs func([]Value, *bytes.Buffer) []Value
     configureconvertFunc func(string, *bytes.Buffer)
     configureconvertOpts struct {
-        generalopts
+        general_opts
         mode     os.FileMode `mode`
         makePath bool `path`
         mustConf bool `mustconfig,mustconf,must-conf,must-config,nc,needsconfig,needs-config`
@@ -173,10 +174,9 @@ type (
         update   bool `update`
     }
 )
-func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData configureconvertFunc, opts *configureconvertOpts, args ...Value) (_ Value) {
+func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData configureconvertFunc, opts *configureconvertOpts, args ...Value) (_ Value) {
     var (
         closured = closure_projects(ctx)
-        project = _project(ctx)
         filename string
         f *file
         target as
@@ -186,7 +186,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
 
     if target.Value = auto_get(ctx, "@"); isTrivial(target.Value) {
         erro(ctx, "'@' is not defined").trace()
-    } else if f, filename, _ = target.fullnameFile(ctx, closured...); f == nil {
+    } else if f, filename, _ = target.file_fullname(ctx, closured...); f == nil {
         if depend := auto_get(ctx,">"); !isTrivial(depend) {
             panic(traveTargetNotDefinedFile)
         } else if true {
@@ -208,15 +208,15 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         info(ctx, "configure-file: %v: %v (%s) (%v)", auto_get(ctx,"@"), f.fullname(), closured).debug(opts.debug)
     }
 
-    if len(project.configs) == 0 {
+    if len(ctx.proj.configs) == 0 {
         // no need to check configuration
-    } else if f := project.configuration_sm(ctx); f == nil || !f.exists() {
+    } else if f := ctx.proj.configuration_sm(ctx); f == nil || !f.exists() {
         prompt(ctx, "%v\n", filename)
         if opts.mustConf {
             var d = opts.debug ; if d == 0 { d = 1 }
-            errostack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, project).trace()
+            errostack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, ctx.proj).trace()
         } else if true {
-            warnstack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, project).debug(opts.debug)
+            warnstack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, ctx.proj).debug(opts.debug)
         }
     }
 
@@ -248,7 +248,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
     if data.Len() == 0 {
         prompt(ctx, "%v: %v %v\n", filename, auto_get(ctx,"@"), auto_get(ctx,">"))
         errostack(ctx, 5, "empty configuration data").trace()
-    } else if f := _project(ctx).configuration_sm(ctx); (f == nil || !f.exists()) && opts.debug>0 {
+    } else if f := ctx.proj.configuration_sm(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
         prompt(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,"@"), strings.TrimSpace(data.String())).debug()
     }
@@ -277,7 +277,7 @@ func configureconvert(ctx Context, dealArgs configureconvertArgs, dealData confi
         }
         if same {
             var tt = f.info.ModTime()
-            for _, d := range merge(_execution(ctx).targets...) {
+            for _, d := range merge(ctx.targets...) {
                 if f, y := to_file(d); !y { continue } else
                 if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
             }
@@ -341,8 +341,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result any) {
         }
         return args
     }
-
-    return configureconvert(ctx, dealArgs, nil, &opts, args...)
+    return configureconvert(_execution(ctx), dealArgs, nil, &opts, args...)
 }
 
 // configure-file modifier (see also builtinConfigureFile), example usage:
@@ -355,7 +354,7 @@ func (ctx *modifier_configurefile) x(args ...Value) (result any) {
     var convert = func(str string, out *bytes.Buffer) {
         configurestring(ctx, out, _project(ctx), str)
     }
-    return configureconvert(ctx, nil, convert, &opts, args...)
+    return configureconvert(_execution(ctx), nil, convert, &opts, args...)
 }
 
 // extract-configuration extracts configuration from C/C++ files, example usage:

@@ -35,15 +35,19 @@ const (
 
 type builtin_ struct {
     *evocation
-    generalopts
+    general_opts
 }
-func (c builtin_) cast(t reflect.Type) Context {
+func (c *builtin_) inner() Context { return c.evocation }
+func (c *builtin_) cast(t reflect.Type) Context {
+    if reflect.TypeOf((*builtin_)(nil)) == t { return c }
     if reflect.TypeOf(c) == t { return c }
-    if reflect.TypeOf((*builtin_)(nil)) == t { return &c }
     return c.evocation.cast(t)
 }
+func (c *builtin_) do(ctx Context, op any) (_ any) {
+    return c.evocation.do(ctx, op)
+}
 func (p *builtin_) ts(string) string {
-    return "{=builtin "+p.x.String()+" "+ts(p.Context)+"}"
+    return "{=builtin_"+p.x.String()+" "+ts(p.Context)+"}"
 }
 
 type builtin_a interface{ a() bool }
@@ -86,6 +90,7 @@ var builtins = map[string]reflect.Type {
     `if`:        reflect.TypeOf((*builtin_if)(nil)).Elem(),
     `ifeq`:      reflect.TypeOf((*builtin_ifeq)(nil)).Elem(),
     `ifne`:      reflect.TypeOf((*builtin_ifne)(nil)).Elem(),
+    `ifarg`:     reflect.TypeOf((*builtin_ifarg)(nil)).Elem(),
     `ifdef`:     reflect.TypeOf((*builtin_ifdef)(nil)).Elem(),
 
     `for`:       reflect.TypeOf((*builtin_for)(nil)).Elem(),
@@ -178,8 +183,7 @@ var builtins = map[string]reflect.Type {
 
     `ext`:        reflect.TypeOf((*builtin_ext)(nil)).Elem(),
 
-    `base` :      reflect.TypeOf((*builtin_base)(nil)).Elem(),
-    `bases`:      reflect.TypeOf((*builtin_bases)(nil)).Elem(),
+    `base` :      reflect.TypeOf((*builtin_base1)(nil)).Elem(),
     `base2`:      reflect.TypeOf((*builtin_base2)(nil)).Elem(),
     `base3`:      reflect.TypeOf((*builtin_base3)(nil)).Elem(),
     `base4`:      reflect.TypeOf((*builtin_base4)(nil)).Elem(),
@@ -188,11 +192,11 @@ var builtins = map[string]reflect.Type {
     `base7`:      reflect.TypeOf((*builtin_base7)(nil)).Elem(),
     `base8`:      reflect.TypeOf((*builtin_base8)(nil)).Elem(),
     `base9`:      reflect.TypeOf((*builtin_base9)(nil)).Elem(),
+    `bases`:      reflect.TypeOf((*builtin_bases)(nil)).Elem(),
 
     `chopdir`:    reflect.TypeOf((*builtin_chopdir)(nil)).Elem(),
 
     `dir`:        reflect.TypeOf((*builtin_dir)(nil)).Elem(),
-    `dirs`:       reflect.TypeOf((*builtin_dirs)(nil)).Elem(),
     `dir2`:       reflect.TypeOf((*builtin_dir2)(nil)).Elem(),
     `dir3`:       reflect.TypeOf((*builtin_dir3)(nil)).Elem(),
     `dir4`:       reflect.TypeOf((*builtin_dir4)(nil)).Elem(),
@@ -201,9 +205,9 @@ var builtins = map[string]reflect.Type {
     `dir7`:       reflect.TypeOf((*builtin_dir7)(nil)).Elem(),
     `dir8`:       reflect.TypeOf((*builtin_dir8)(nil)).Elem(),
     `dir9`:       reflect.TypeOf((*builtin_dir9)(nil)).Elem(),
+    `dirs`:       reflect.TypeOf((*builtin_dirs)(nil)).Elem(),
 
-    `undir`:      reflect.TypeOf((*builtin_undir)(nil)).Elem(),
-    `undirs`:     reflect.TypeOf((*builtin_undirs)(nil)).Elem(),
+    `undir`:      reflect.TypeOf((*builtin_undir1)(nil)).Elem(),
     `undir2`:     reflect.TypeOf((*builtin_undir2)(nil)).Elem(),
     `undir3`:     reflect.TypeOf((*builtin_undir3)(nil)).Elem(),
     `undir4`:     reflect.TypeOf((*builtin_undir4)(nil)).Elem(),
@@ -212,6 +216,7 @@ var builtins = map[string]reflect.Type {
     `undir7`:     reflect.TypeOf((*builtin_undir7)(nil)).Elem(),
     `undir8`:     reflect.TypeOf((*builtin_undir8)(nil)).Elem(),
     `undir9`:     reflect.TypeOf((*builtin_undir9)(nil)).Elem(),
+    `undirs`:     reflect.TypeOf((*builtin_undirs)(nil)).Elem(),
 
     `reldir`:       reflect.TypeOf((*builtin_reldir)(nil)).Elem(),
     `relative-dir`: reflect.TypeOf((*builtin_reldir)(nil)).Elem(),
@@ -222,7 +227,7 @@ var builtins = map[string]reflect.Type {
     `wildcard`:     reflect.TypeOf((*builtin_wildcard)(nil)).Elem(),
 
     `read-dir`:     reflect.TypeOf((*builtin_readdir)(nil)).Elem(),  // io/ioutil/ioutil.go
-    `read-file`:    reflect.TypeOf((*builtin_readfile)(nil)).Elem(),  // io/ioutil/ioutil.go
+    `read-file`:    reflect.TypeOf((*builtin_readfile)(nil)).Elem(), // io/ioutil/ioutil.go
 
     `grep`:         reflect.TypeOf((*builtin_grep)(nil)).Elem(),
 
@@ -239,7 +244,7 @@ var builtins = map[string]reflect.Type {
     `append`:       reflect.TypeOf((*builtin_append)(nil)).Elem(),
     // `pop`:          reflect.TypeOf((*builtin_pop)(nil)).Elem(),
 
-    `write-file`:   reflect.TypeOf((*builtin_writefile)(nil)).Elem(),  // io/ioutil/ioutil.go
+    `write-file`:   reflect.TypeOf((*builtin_writefile)(nil)).Elem(), // io/ioutil/ioutil.go
     `touch-file`:   reflect.TypeOf((*builtin_readfile)(nil)).Elem(),  // io/ioutil/ioutil.go
 
     `mkdir`:        reflect.TypeOf((*builtin_mkdir)(nil)).Elem(),     // os/file.go
@@ -318,7 +323,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.Value":
             val.Set(reflect.ValueOf(v))
         default:
-            erro(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type()).trace()
+            errostack(pc(ctx,v), 16, "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type()).trace()
         }
     case reflect.Ptr:
         switch val.Type().Elem().String() {
@@ -327,19 +332,19 @@ func _set(ctx Context, val reflect.Value, v Value) {
                 val.Set(reflect.ValueOf(&t))
             } else {
                 note(ctx, "%v → %v", v, (as{v}.file(ctx)))
-                errostack(pc(ctx,v), 16, "not a file: %v → %s", tv(v), ts(v.expand(ctx))).trace()
+                errostack(pc(ctx,v), 16, "not a file: %v → %s", ts(v), ts(v.expand(ctx))).trace()
             }
         case "smart.file":
             if t := (as{v}.file(ctx)); t != nil {
                 val.Set(reflect.ValueOf(t))
             } else {
-                errostack(pc(ctx,v), 16, "not a file: %v → %s", tv(v), ts(v.expand(ctx))).trace()
+                errostack(pc(ctx,v), 16, "not a file: %v → %s", ts(v), ts(v.expand(ctx))).trace()
             }
         case "regexp.Regexp":
             if rx, e := regexp.Compile(v.string(ctx)); e == nil {
                 val.Set(reflect.ValueOf(rx))
             } else {
-                errostack(pc(ctx,v), 16, "wrong regexp: %v: %v", tv(v), e).trace()
+                errostack(pc(ctx,v), 16, "wrong regexp: %v: %v", ts(v), e).trace()
             }
         default:
             errostack(pc(ctx,v), 16, "option type unsupported: %v → %v, %v", ts(v), val.Elem().Kind(), val.Type().Elem()).trace()
@@ -351,9 +356,9 @@ func _set(ctx Context, val reflect.Value, v Value) {
             if t == 0 { warn(pc(ctx,v), "zero file mode").debug() }
             val.SetUint(uint64(t))
         case "regexp.Regexp": // aka. reflect.Ptr
-            erro(pc(ctx,v), "TODO: regexp: %v → %v, %v", tv(v), val.Kind(), val.Type()).trace()
+            errostack(pc(ctx,v), 16, "TODO: regexp: %v → %v, %v", ts(v), val.Kind(), val.Type()).trace()
         default:
-            erro(pc(ctx,v), "option type unsupported: %v → %v, %v", tv(v), val.Kind(), val.Type()).trace()
+            errostack(pc(ctx,v), 16, "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type()).trace()
         }
     }
 }
@@ -434,7 +439,7 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
             rest = _opt(ctx, ft.Tag, fv, rest...)
         } else if !ft.Anonymous {
             continue
-        } else if ft.Name == "generalopts" {
+        } else if ft.Name == "general_opts" {
             general = fv.Addr()
         } else if strings.HasPrefix(ft.Name, "builtin_") {
             if builtin.IsValid() { note(ctx, "embedded multiple builtins: %v", ft).debug(3) }
@@ -486,19 +491,27 @@ func _parseHeadArgsRequired(ctx Context, store any, args ...Value) (head, rest [
     return
 }
 
-func argstring(ctx Context, arg Value) (s string) {
-    if isFinalValue(ctx, arg) {
-        s = arg.string(ctx)
-    }
+func argstring(ctx Context, a Value) (_ string) {
+    if isFinalValue(ctx, a) { return a.string(ctx) }
     return
 }
 
 type builtin_noop struct { builtin_ }
+func (ctx *builtin_noop) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_noop) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_noop) c() any { return nil }
 func (ctx *builtin_noop) x() any { return nil }
 
 type builtin_typeof struct { builtin_
     expand bool `expand`
+}
+func (ctx *builtin_typeof) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_typeof) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_typeof) a() (skip bool) { return }
 func (ctx *builtin_typeof) x() (res any) {
@@ -515,22 +528,32 @@ func (ctx *builtin_typeof) x() (res any) {
 }
 
 type builtin_origin struct { builtin_ }
+func (ctx *builtin_origin) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_origin) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_origin) x() (res any) {
     var elems []Value
     var scope = _scope(ctx)
-    for _, arg := range ctx.evocation.a {
-        if s := argstring(ctx, arg); s == "" {
-            elems = append(elems, makeNull(arg.Position()))
+    for _, a := range ctx.evocation.a {
+        if s := a.string(ctx); s == "" {
+            elems = append(elems, _null(a.Position()))
         } else if d := scope.finddef(s); d != nil {
-            elems = append(elems, _strlit(arg.Position(), d.o.String()))
+            elems = append(elems, _strlit(a.Position(), d.o.String()))
         } else {
-            elems = append(elems, makeNull(arg.Position()))
+            elems = append(elems, _null(a.Position()))
         }
     }
     return elems
 }
 
 type builtin_defined struct { builtin_ }
+func (ctx *builtin_defined) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_defined) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_defined) x() (_ any) {
     var scope = _scope(ctx)
     for _, arg := range ctx.evocation.a {
@@ -548,6 +571,11 @@ type builtin_position struct { builtin_
     column bool `col,column`
     addLine int `add,add-line`
     addColumn int `add-column`
+}
+func (ctx *builtin_position) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_position) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_position) x() (res any) {
     var vals []Value
@@ -569,6 +597,11 @@ func (ctx *builtin_position) x() (res any) {
 
 type builtin_date struct { builtin_
     time bool `tm,time,now`
+}
+func (ctx *builtin_date) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_date) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_date) x() (res any) {
     if t := time.Now(); len(ctx.evocation.a) > 0 {
@@ -595,6 +628,11 @@ type builtin_debug struct { builtin_
     s int `stack`
     n int `num`
 }
+func (ctx *builtin_debug) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_debug) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_debug) x() (res any) {
     var s bytes.Buffer
     for i, a := range ctx.evocation.a {
@@ -610,6 +648,11 @@ func (ctx *builtin_debug) x() (res any) {
 }
 
 type builtin_error struct { builtin_ }
+func (ctx *builtin_error) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_error) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_error) x() (res any) {
     var s bytes.Buffer
     for i, a := range ctx.evocation.a {
@@ -622,6 +665,11 @@ func (ctx *builtin_error) x() (res any) {
 }
 
 type builtin_warning struct { builtin_ }
+func (ctx *builtin_warning) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_warning) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_warning) x() (res any) {
     var s bytes.Buffer
     for i, a := range ctx.evocation.a {
@@ -633,6 +681,11 @@ func (ctx *builtin_warning) x() (res any) {
 }
 
 type builtin_assert struct { builtin_ ; msg string `msg,message` }
+func (ctx *builtin_assert) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_assert) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_assert) a() (skip bool) { return }
 func (ctx *builtin_assert) c() (res any) { return ctx.x() }
 func (ctx *builtin_assert) x() (res any) {
@@ -660,7 +713,7 @@ func (ctx *builtin_assert) x() (res any) {
         }
 
         if false {
-            var v = a.expand(final{ctx})
+            var v = a.expand(_final(ctx))
             prompt(ctx, "assert: %v ⇒ %v: %v\n", ts(a), ts(v))
             diagstack(ctx, s, t, "%v → %v ⇒ '%s'", ts(a), ts(v), v.string(ctx)).debug(d)
         } else if true {
@@ -675,6 +728,11 @@ func (ctx *builtin_assert) x() (res any) {
 }
 
 type builtin_sure struct { builtin_ }
+func (ctx *builtin_sure) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_sure) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_sure) x() (res any) {
     for _, a := range ctx.evocation.a {
         if !a.true(ctx) {
@@ -686,6 +744,11 @@ func (ctx *builtin_sure) x() (res any) {
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
 type builtin_defor struct { builtin_ } // aka. defined-or
+func (ctx *builtin_defor) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_defor) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_defor) x() (res any) {
     for _, a := range merge(ctx.evocation.a...) {
         erro(ctx, "TODO: %v", ts(a)).trace()
@@ -702,9 +765,14 @@ func (ctx *builtin_defor) x() (res any) {
 }
 
 type builtin_or struct { builtin_ }
+func (ctx *builtin_or) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_or) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_or) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
-    return !truly(ctx, propExFinal) && expandable(final{ctx}, ctx.evocation.a...)
+    return !truly(ctx, is_final{}) && expandable(_final(ctx), ctx.evocation.a...)
 }
 func (ctx *builtin_or) x() (res any) {
     for _, a := range merge(ctx.evocation.a...) {
@@ -714,9 +782,14 @@ func (ctx *builtin_or) x() (res any) {
 }
 
 type builtin_and struct { builtin_ }
+func (ctx *builtin_and) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_and) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_and) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
-    return !truly(ctx, propExFinal) && expandable(final{ctx}, ctx.evocation.a...)
+    return !truly(ctx, is_final{}) && expandable(_final(ctx), ctx.evocation.a...)
 }
 func (ctx *builtin_and) x() (res any) {
     for _, a := range merge(ctx.evocation.a...) {
@@ -728,6 +801,11 @@ func (ctx *builtin_and) x() (res any) {
 // $(not x y z) ⇒ (not (or x y z))
 // $(not x,y,z) ⇒ (and (not x) (not y) (not z))
 type builtin_not struct { builtin_ }
+func (ctx *builtin_not) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_not) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_not) x() (res any) {
     var t bool
     for _, a := range ctx.evocation.a { if t = a.true(ctx); t { break } }
@@ -735,6 +813,11 @@ func (ctx *builtin_not) x() (res any) {
 }
 
 type builtin_xor struct { builtin_ }
+func (ctx *builtin_xor) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_xor) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_xor) x() (res any) {
     if vals := merge(ctx.evocation.a...); len(vals) > 1 {
         var t = vals[0].true(ctx)
@@ -748,14 +831,19 @@ func (ctx *builtin_xor) x() (res any) {
 }
 
 type builtin_unequal struct { builtin_ }
+func (ctx *builtin_unequal) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_unequal) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_unequal) x() (_ any) {
     if len(ctx.evocation.a) != 2 {
         erro(ctx, "unequal: wrong number of arguments: %v", ctx.evocation.a)
         erro(ctx, "try: $(unequal <value-list>,<value-list>)").trace()
     }
 
-    var a = ctx.evocation.a[0].expand(final{ctx})
-    var b = ctx.evocation.a[1].expand(final{ctx})
+    var a = ctx.evocation.a[0].expand(_final(ctx))
+    var b = ctx.evocation.a[1].expand(_final(ctx))
     var t bool
     if ctx.final {
         t = a.string(ctx) != b.string(ctx)
@@ -786,6 +874,11 @@ func (ctx *builtin_unequal) x() (_ any) {
 }
 
 type builtin_equal struct { builtin_ ; str bool `str,string` }
+func (ctx *builtin_equal) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_equal) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_equal) x() (res any) {
     if len(ctx.evocation.a) > 0 {
         if a := merge(ctx.evocation.a[0]); len(a) == 1 {
@@ -801,8 +894,8 @@ func (ctx *builtin_equal) x() (res any) {
         erro(ctx, "try: $(equal <value-list>,<value-list>)").trace()
     }
 
-    var a = ctx.evocation.a[0].expand(final{ctx})
-    var b = ctx.evocation.a[1].expand(final{ctx})
+    var a = ctx.evocation.a[0].expand(_final(ctx))
+    var b = ctx.evocation.a[1].expand(_final(ctx))
 
     if ctx.str {
         if a.string(ctx) == b.string(ctx) { return true }
@@ -831,6 +924,11 @@ func (ctx *builtin_equal) x() (res any) {
 }
 
 type builtin_greater struct { builtin_ }
+func (ctx *builtin_greater) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_greater) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_greater) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(greater <value-list>,<value-list>)")
@@ -841,6 +939,11 @@ func (ctx *builtin_greater) x() (res any) {
 }
 
 type builtin_less struct { builtin_ }
+func (ctx *builtin_less) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_less) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_less) x() (res any) {
     if n := len(ctx.evocation.a); n != 2 {
         erro(ctx, "wrong number of arguments, try: $(less <value-list>,<value-list>)")
@@ -856,6 +959,11 @@ type builtin_match struct { builtin_
     regexps []*regexp.Regexp //`re,rx,reg,regex,regexp`
     negated bool `ne,neg,negated,negative,not`
     all bool `all`
+}
+func (ctx *builtin_match) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_match) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_match) x() (result any) {
     if n := len(ctx.evocation.a); n < 2 {
@@ -966,6 +1074,11 @@ ForValList:
 // 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
 // 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
 type builtin_case struct { builtin_ }
+func (ctx *builtin_case) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_case) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_case) a() (skip bool) { return }
 func (ctx *builtin_case) x() (_ any) {
     var val Value
@@ -1012,6 +1125,11 @@ func (ctx *builtin_case) x() (_ any) {
 }
 
 type builtin_if struct { builtin_ }
+func (ctx *builtin_if) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_if) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_if) a() (skip bool) {
     for i, a := range ctx.evocation.a {
         if a = a.expand(ctx); i == 0 {
@@ -1025,7 +1143,7 @@ func (ctx *builtin_if) x() (_ any) {
     if n := len(ctx.evocation.a); n > 1 {
         var a = ctx.evocation.a[0]
         if checkpoints && truly(ctx, is_test_mode{}) {
-            if !truly(ctx, propExFinal) && indeterminate(ctx, a) {
+            if !truly(ctx, is_final{}) && indeterminate(ctx, a) {
                 erro(ctx, "should skip: %v ; %v", a, ts(ctx)).trace()
             }
         }
@@ -1038,7 +1156,39 @@ func (ctx *builtin_if) x() (_ any) {
     return
 }
 
+type builtin_ifarg struct { builtin_ }
+func (ctx *builtin_ifarg) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_ifarg) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_ifarg) a() (skip bool) {
+    for i, a := range ctx.evocation.a {
+        if a = a.expand(ctx); i == 0 {
+            skip = indeterminate(ctx, a)
+        }
+        ctx.evocation.a[i] = a
+    }
+    return
+}
+func (ctx *builtin_ifarg) x() (_ any) {
+    if n := len(ctx.evocation.a); n > 1 {
+        var s = ctx.evocation.a[0].string(ctx)
+        if d := auto_find(ctx, s); d != nil && !isTrivial(d.value) {
+            return ctx.evocation.a[1].expand(ctx)
+        } else if n > 2 {
+            return expand(ctx, ctx.evocation.a[2:]...)
+        }
+    }
+    return
+}
+
 type builtin_ifdef struct { builtin_ }
+func (ctx *builtin_ifdef) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_ifdef) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_ifdef) a() (skip bool) {
     for i, a := range ctx.evocation.a {
         if a = a.expand(ctx); i == 0 {
@@ -1061,6 +1211,11 @@ func (ctx *builtin_ifdef) x() (_ any) {
 }
 
 type builtin_ifeq struct { builtin_ }
+func (ctx *builtin_ifeq) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_ifeq) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_ifeq) a() (skip bool) {
     for i, a := range ctx.evocation.a {
         if a = a.expand(ctx); i == 0 {
@@ -1082,6 +1237,11 @@ func (ctx *builtin_ifeq) x() (_ any) {
 }
 
 type builtin_ifne struct { builtin_ }
+func (ctx *builtin_ifne) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_ifne) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_ifne) a() (skip bool) {
     for i, a := range ctx.evocation.a {
         if a = a.expand(ctx); i == 0 {
@@ -1106,6 +1266,7 @@ func (ctx *builtin_ifne) x() (_ any) {
 type builtin_for struct { builtin_
     empty bool `empty,allow-empty`
 }
+func (ctx *builtin_for) inner() Context { return &ctx.builtin_ }
 func (ctx *builtin_for) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtin_.cast(t)
@@ -1122,10 +1283,17 @@ type builtin_foreach struct { builtin_
     x_closure bool `x-closure`
     x_values  bool `x-values`
 }
+func (ctx *builtin_foreach) inner() Context { return &ctx.builtin_ }
 func (ctx *builtin_foreach) cast(t reflect.Type) Context {
     if reflect.TypeOf(partial{}) == t { return nil }
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_foreach) do(c Context, op any) (_ any) {
+    // switch t := op.(type) {
+    // case find_auto: if t.string == "_" { return }
+    // }
+    return ctx.builtin_.do(c, op)
 }
 func (ctx *builtin_foreach) a() (skip bool) {
     for i, a := range ctx.evocation.a {
@@ -1136,7 +1304,7 @@ func (ctx *builtin_foreach) a() (skip bool) {
                 a = b
             }
         } else {
-            a = a.expand(partial{ctx, digitalPart})
+            a = a.expand(foreach_text{ctx})
         }
         ctx.evocation.a[i] = a
     }
@@ -1154,11 +1322,8 @@ func (ctx *builtin_foreach) x() (res any) {
     if len(values) == 0 { return }
     if ctx.unique { values = unique(ctx, values...) }
 
-    var cc = automatic{ Context:ctx, defs:make(defs_map),
-        suppress:func(s string) bool { return s == "_" },
-    }
-
     var vals []Value
+    var line = truly(ctx, is_plainline{})
     for _, val := range values {
         if isEmpty(val) {
             if !ctx.empty { continue }
@@ -1166,18 +1331,28 @@ func (ctx *builtin_foreach) x() (res any) {
             val = disjunction{val}
         }
 
-        cc.set(ctx, defVoid, "_", val) // NOTE: don't use defAuto (it's for code-block auto)
+        // NOTE: don't use defAuto (it's for codeblock auto)
+        ctx.set(ctx, defVoid, "_", val)
 
-        for _, v := range detachCompoundList(xmerge(&cc, ctx.evocation.a[1:]...)...) {
+        var elems []Value
+        for _, v := range detachCompoundList(xmerge(ctx, ctx.evocation.a[1:]...)...) {
             if isEmpty(v) {
                 if ctx.empty {
-                    if v == nil { v = makeNull(v.Position()) }
+                    if v == nil { v = _null(v.Position()) }
                     vals = append(vals, v)
                 }
             } else {
                 if !_cond(v) && indeterminate(ctx, v) { v = condish(ctx, v) }
                 vals = append(vals, v)
             }
+        }
+
+        if elems == nil {
+            continue
+        } else if line {
+            vals = append(vals, &plainline{elements{elems}})
+        } else {
+            vals = append(vals, elems...)
         }
     }
     return vals
@@ -1186,27 +1361,52 @@ func (ctx *builtin_foreach) x() (res any) {
 type builtin_count struct { builtin_
     vals []Value `value`
 }
+func (ctx *builtin_count) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_count) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_count) x() (res any) {
     var num int64
     var vals = valvec(ctx.vals)
-    for _, a := range ctx.evocation.a { if a.true(ctx) || vals.has2(ctx, a) {
-        num += 1
-    }}
+    for _, a := range ctx.evocation.a {
+        if a.true(ctx) || vals.has2(ctx, a) {
+            num += 1
+        }
+    }
     return num
 }
 
 type builtin_env struct { builtin_ }
+func (ctx *builtin_env) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_env) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_env) x() (res any) {
     var vals []Value
-    for _, a := range ctx.evocation.a { if val := a.expand(ctx); isTrivial(val) {
-        continue
-    } else if s := strings.TrimSpace(val.string(ctx)); s != "" {
-        vals = append(vals, _strlit(a.Position(), os.Getenv(s)))
-    }}
+    for _, a := range ctx.evocation.a {
+        if val := a.expand(ctx); isTrivial(val) {
+            continue
+        } else if s := strings.TrimSpace(val.string(ctx)); s != "" {
+            vals = append(vals, _strlit(a.Position(), os.Getenv(s)))
+        }
+    }
     return vals
 }
 
 type builtin_auto struct { builtin_ }
+func (ctx *builtin_auto) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_auto) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_auto) do(c Context, op any) (_ any) {
+    // switch op.(type) {
+    // case find_auto: return
+    // }
+    return ctx.builtin_.do(c, op)
+}
 func (ctx *builtin_auto) a() (skip bool) {
     if len(ctx.evocation.a) == 0 {
         // noop
@@ -1221,51 +1421,34 @@ func (ctx *builtin_auto) a() (skip bool) {
 }
 func (ctx *builtin_auto) x() (_ any) {
     if 1 < len(ctx.evocation.a) {
-        var ac = automatic{ Context:ctx, defs:make(defs_map), suppress:suppress_never }
-
         for _, a := range merge(ctx.evocation.a[0]) {
             switch t := a.(type) {
             case *pair:
-                if s := t.key.string(&ac); s == "" {
+                if s := t.key.string(ctx); s == "" {
                     erro(ctx, "%v is empty for name", ts(t.key)).trace()
                 } else {
-                    ac.set(ctx, defVoid, s, t.val) // NOTE: don't use defAuto (it's code-block auto)
+                    ctx.set(ctx, defVoid, s, t.val) // NOTE: don't use defAuto (it's codeblock auto)
                 }
             default:
                 erro(ctx, "%v is unsupported for auto", ts(a)).trace()
             }
         }
 
-        ar := expand(&ac, ctx.evocation.a[1:]...)
-
-        if checkpoints && truly(ctx, is_test_mode{}) { ctx.check_res(&ac, ar) }
-
-        return ar
+        var vals = expand(ctx, ctx.evocation.a[1:]...)
+        if checkpoints && truly(ctx, is_test_mode{}) {
+            ctx.check_res(vals)
+        }
+        return vals
     }
     return
 }
-func (ctx *builtin_auto) check_res(ac *automatic, ar []Value) {
-    var a = ctx.evocation.a[1]
-
-    if a.String() == "$(a)" && auto_find(ac, "a") == nil {
-        if x, y := a.(*list); !y || x.len() != 1 {
-            erro(ac, "%v", ts(a)).trace()
-        } else if z, y := x.elems[0].(*delegate); !y {
-            erro(ac, "%v", ts(x.elems[0])).trace()
-        } else if x, y := z.x.(*auto); !y {
-            erro(ac, "%v", ts(z.x)).trace()
-        } else if x.name != "a" {
-            erro(ac, "%v", ts(x)).trace()
-        }
-        if len(ar) == 1 {
-            if x, y := ar[0].(*list); y && x.len() == 0 {
-                erro(ac, "%v → %v", ts(a), ts(x)).trace()
-            }
-        }
-    }
-}
 
 type builtin_var struct { builtin_ }
+func (ctx *builtin_var) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_var) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_var) a() (skip bool) {
     erro(ctx, "%v", ctx.evocation.a).trace()
     return
@@ -1277,13 +1460,18 @@ func (ctx *builtin_var) x() (res any) {
 
 // $(value <name>,...)
 type builtin_value struct { builtin_ }
+func (ctx *builtin_value) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_value) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_value) x() (res any) {
     var vals []Value
     var p = _project(ctx)
     for _, a := range merge(ctx.evocation.a...) {
         var v Value
 
-        if s := argstring(ctx, a); s != "" {
+        if s := a.string(ctx); s != "" {
             if d := p.def(ctx, s); d != nil { v = d.value }
             if v == nil { v = auto_get(ctx, s) }
         }
@@ -1296,12 +1484,17 @@ func (ctx *builtin_value) x() (res any) {
 
 // $(closure <name>,...)
 type builtin_closure struct { builtin_ }
+func (ctx *builtin_closure) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_closure) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_closure) x() (res any) {
     var vals []Value
     for _, a := range merge(ctx.evocation.a...) {
         var v Value
 
-        if s := argstring(ctx, a); s != "" {
+        if s := a.string(ctx); s != "" {
             if d := closure_finddef(ctx, s); d != nil { v = d.value }
         }
 
@@ -1313,6 +1506,11 @@ func (ctx *builtin_closure) x() (res any) {
 
 // $(call <name>, <arg>,...)
 type builtin_call struct { builtin_ ; _closure bool `closure` }
+func (ctx *builtin_call) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_call) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_call) a() (skip bool) {
     if 0 < len(ctx.evocation.a) {
         var a = expand(ctx, ctx.evocation.a...)
@@ -1349,6 +1547,11 @@ func (ctx *builtin_call) x() (res any) {
 type builtin_defs struct { builtin_
     n int `num,number`
     r int `capture`
+}
+func (ctx *builtin_defs) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_defs) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_defs) x() (_ any) {
     var names []bare
@@ -1420,12 +1623,22 @@ func (ctx *builtin_defs) _x() (res any) {
 }
 
 type builtin_list struct { builtin_ }
+func (ctx *builtin_list) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_list) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_list) x() (res any) {
     return ctx.evocation.a
 }
 
 type builtin_plain struct { builtin_
     scope_ bool `findscope,find-scope,scope`
+}
+func (ctx *builtin_plain) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_plain) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_plain) c() (res any) {
     var scope = _scope(ctx)
@@ -1444,6 +1657,11 @@ func (ctx *builtin_plain) c() (res any) {
 }
 
 type builtin_shell struct { builtin_ }
+func (ctx *builtin_shell) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_shell) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_shell) x() (res any) {
     var pos = _position(ctx)
     var vals []Value
@@ -1469,6 +1687,11 @@ func (ctx *builtin_shell) x() (res any) {
 }
 
 type builtin_which struct { builtin_ }
+func (ctx *builtin_which) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_which) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_which) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a {
@@ -1485,6 +1708,11 @@ type builtin_servehttp struct { builtin_
     ssl bool `ssl`
     host string `host`
     port int `port`
+}
+func (ctx *builtin_servehttp) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_servehttp) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_servehttp) c() (res any) {
     if ctx.port == 0 { ctx.port = 80 }
@@ -1533,6 +1761,11 @@ type builtin_append struct { builtin_
     _auto    bool `auto`
     _closure bool `closure`
 }
+func (ctx *builtin_append) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_append) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_append) x() (_ any) {
     if len(ctx.evocation.a) < 2 {
         erro(ctx, "insufficient number of arguments: %v", ctx.evocation.a).trace()
@@ -1576,6 +1809,11 @@ func (ctx *builtin_append) x() (_ any) {
 type builtin_plus struct { builtin_
     int bool `int,integer`
 }
+func (ctx *builtin_plus) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_plus) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_plus) x() (res any) {
     if ctx.int {
         var num int64
@@ -1596,6 +1834,11 @@ func (ctx *builtin_plus) x() (res any) {
 
 type builtin_minus struct { builtin_
     int bool `int,integer`
+}
+func (ctx *builtin_minus) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_minus) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_minus) x() (res any) {
     if ctx.int {
@@ -1618,6 +1861,11 @@ func (ctx *builtin_minus) x() (res any) {
 type builtin_multiply struct { builtin_
     int bool `int,integer`
 }
+func (ctx *builtin_multiply) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_multiply) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_multiply) x() (res any) {
     if ctx.int {
         var num int64
@@ -1638,6 +1886,11 @@ func (ctx *builtin_multiply) x() (res any) {
 
 type builtin_divide  struct { builtin_
     int bool `int,integer`
+}
+func (ctx *builtin_divide) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_divide) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_divide) x() (res any) {
     if ctx.int {
@@ -1662,9 +1915,14 @@ type builtin_unique struct { builtin_
     keepAuto bool `auto,keepauto,keep-auto`
     unexpand bool `unexpand,noexpand,no-expand`
 }
+func (ctx *builtin_unique) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_unique) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_unique) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
-    return !(ctx.final || truly(ctx, propExFinal)) && expandable(final{ctx}, ctx.evocation.a...)
+    return !(ctx.final || truly(ctx, is_final{})) && expandable(_final(ctx), ctx.evocation.a...)
 }
 func (ctx *builtin_unique) x() (_ any) {
     var args = ctx.evocation.a
@@ -1716,7 +1974,7 @@ func (ctx *builtin_unique) x() (_ any) {
     if ctx.unexpand {
         args =  merge(args...)
     } else if ctx.final {
-        args = xmerge(final{ctx}, args...)
+        args = xmerge(_final(ctx), args...)
     } else {
         args = xmerge(      ctx , args...)
     }
@@ -1731,10 +1989,15 @@ func (ctx *builtin_unique) x() (_ any) {
 }
 
 type builtin_join struct { builtin_ }
+func (ctx *builtin_join) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_join) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_join) a() (skip bool) {
     var a = expand(ctx, ctx.evocation.a...)
-    if !truly(ctx, propExFinal) {
-        skip = expandable(final{ctx}, a[:len(a)-1]...)
+    if !truly(ctx, is_final{}) {
+        skip = expandable(_final(ctx), a[:len(a)-1]...)
     }
     ctx.evocation.a = a
     return
@@ -1760,9 +2023,14 @@ func (ctx *builtin_join) x() (_ any) {
 }
 
 type builtin_compose struct { builtin_ }
+func (ctx *builtin_compose) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_compose) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_compose) a() (skip bool) {
     var a = expand(ctx, ctx.evocation.a...)
-    // skip = !ctx.compose && expandable(final{ctx}, a...)
+    // skip = !ctx.compose && expandable(_final(ctx), a...)
     ctx.evocation.a = a
     return
 }
@@ -1781,6 +2049,11 @@ func (ctx *builtin_compose) x() (res any) {
 }
 
 type builtin_quote struct { builtin_ }
+func (ctx *builtin_quote) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_quote) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_quote) x() (res any) {
     var args = merge(ctx.evocation.a...)
     if l := len(args); l > 0 {
@@ -1796,6 +2069,11 @@ func (ctx *builtin_quote) x() (res any) {
 }
 
 type builtin_quotejoin struct { builtin_ }
+func (ctx *builtin_quotejoin) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_quotejoin) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_quotejoin) x() (res any) {
     var sep string
     var args = merge(ctx.evocation.a...)
@@ -1818,6 +2096,11 @@ func (ctx *builtin_quotejoin) x() (res any) {
 // $(split-string .,1.2.3)
 type builtin_splitstring struct { builtin_
     sep string `sep,separator`
+}
+func (ctx *builtin_splitstring) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_splitstring) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_splitstring) x() (res any) {
     var fields []Value
@@ -1863,6 +2146,11 @@ ValueType:
 
 // TODO: deprecate this and add -quote to builtin_splitstring
 type builtin_splitquote struct { builtin_splitstring }
+func (ctx *builtin_splitquote) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_splitquote) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_splitquote) x() (res any) {
     res = ctx.builtin_splitstring.x()
     if v, y := res.(Value); y && v != nil { quotestrings(v) }
@@ -1871,6 +2159,11 @@ func (ctx *builtin_splitquote) x() (res any) {
 
 // TODO: deprecate this and add -quote to builtin_splitstring
 type builtin_splitquotejoin struct { builtin_splitstring }
+func (ctx *builtin_splitquotejoin) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_splitquotejoin) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_splitquotejoin) x() (res any) {
     res = ctx.builtin_splitstring.x()
     if val, y := res.(Value); y && val != nil {
@@ -1888,6 +2181,11 @@ func (ctx *builtin_splitquotejoin) x() (res any) {
 }
 
 type builtin_splitjoinquote struct { builtin_splitstring }
+func (ctx *builtin_splitjoinquote) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_splitjoinquote) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_splitjoinquote) x() (res any) {
     res = ctx.builtin_splitstring.x()
     if val, y := res.(Value); y && val != nil {
@@ -1909,6 +2207,11 @@ func (ctx *builtin_splitjoinquote) x() (res any) {
 }
 
 type builtin_field struct { builtin_ }
+func (ctx *builtin_field) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_field) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_field) x() (res any) {
     var fields []string
     if l := len(ctx.evocation.a); l >= 2 {
@@ -1929,12 +2232,22 @@ func (ctx *builtin_field) x() (res any) {
 }
 
 type builtin_fields struct { builtin_ }
+func (ctx *builtin_fields) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_fields) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_fields) x() (res any) {
     // TODO: ...
     return
 }
 
 type builtin_usee struct { builtin_ }
+func (ctx *builtin_usee) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_usee) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_usee) x() (res any) {
     var proj = _project(ctx)
     if proj == nil {
@@ -1951,6 +2264,11 @@ func (ctx *builtin_usee) x() (res any) {
 }
 
 type builtin_uses struct { builtin_ }
+func (ctx *builtin_uses) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_uses) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_uses) x() (res any) {
     var proj = _project(ctx)
     if proj == nil {
@@ -1973,6 +2291,11 @@ outer:
 }
 
 type builtin_path struct { builtin_ }
+func (ctx *builtin_path) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_path) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_path) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
@@ -1987,6 +2310,11 @@ func (ctx *builtin_path) x() any {
 
 type builtin_bare struct { builtin_
     name bool `name,filename,file-name,non-full,not-full`
+}
+func (ctx *builtin_bare) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_bare) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_bare) x() (res any) {
     var vals []Value
@@ -2009,6 +2337,11 @@ func (ctx *builtin_bare) x() (res any) {
 }
 
 type builtin_word struct { builtin_ }
+func (ctx *builtin_word) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_word) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_word) x() (res any) {
     var vals []Value
     for _, a := range ctx.evocation.a {
@@ -2023,6 +2356,11 @@ func (ctx *builtin_word) x() (res any) {
 type builtin_resolve struct { builtin_
     closure bool `closure`
     // expand bool `expand`
+}
+func (ctx *builtin_resolve) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_resolve) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_resolve) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
@@ -2062,6 +2400,11 @@ type builtin_string struct { builtin_
     def  []string `def,var`
     join []string `join`
 }
+func (ctx *builtin_string) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_string) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_string) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
     return // where skip=false
@@ -2087,8 +2430,8 @@ func (ctx *builtin_string) x() (res any) {
         vals = merge(append(vals, ctx.evocation.a...)...)
 
         if ctx.final {
-            return expand(final{ctx}, vals...)
-        } else if expandable(final{ctx}, vals...) {
+            return expand(_final(ctx), vals...)
+        } else if expandable(_final(ctx), vals...) {
             return &strval{valbase{_position(ctx)},vals}
         } else if 0 < len(ctx.join) {
             var s bytes.Buffer
@@ -2122,17 +2465,27 @@ func (ctx *builtin_string) x() (res any) {
 }
 
 type builtin_finalize struct { builtin_ }
+func (ctx *builtin_finalize) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_finalize) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_finalize) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
     return // where skip=false
 }
 func (ctx *builtin_finalize) x() any {
-    return expand(final{ctx}, merge(ctx.evocation.a...)...)
+    return expand(_final(ctx), merge(ctx.evocation.a...)...)
 }
 
 type builtin_filter struct { builtin_
     stem bool `stem`
     neg bool
+}
+func (ctx *builtin_filter) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_filter) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_filter) _x(pats []Value, values... Value) (result []Value) {
     defer func(t0 time.Time) {
@@ -2197,6 +2550,11 @@ func (ctx *builtin_filter) x() (res any) {
 
 // $(filter-out pattern…,text)
 type builtin_filterout struct { builtin_filter }
+func (ctx *builtin_filterout) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_filterout) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_filterout) _x(pats []Value, values... Value) []Value {
     ctx.neg = true ; return ctx.builtin_filter._x(pats, values...)
 }
@@ -2205,6 +2563,11 @@ func (ctx *builtin_filterout) x() any {
 }
 
 type builtin_substring struct { builtin_ }
+func (ctx *builtin_substring) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_substring) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_substring) x() (_ any) {
     var res []Value
     if n := len(ctx.evocation.a); n > 1 {
@@ -2229,6 +2592,11 @@ func (ctx *builtin_substring) x() (_ any) {
 
 // $(subst from,to,text)
 type builtin_subst struct { builtin_ }
+func (ctx *builtin_subst) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_subst) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_subst) x() (_ any) {
     var res []Value
     if len(ctx.evocation.a) > 2 {
@@ -2253,6 +2621,11 @@ type builtin_patsubst struct { builtin_
     nofilemap bool `nomap,no-map,nofile,nofiles,no-files,no-filemap`
     erroDstNomap bool `err-dst-nomap,error-dst-nomap`
     warnDstNomap bool `warn-dst-nomap`
+}
+func (ctx *builtin_patsubst) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_patsubst) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_patsubst) x() (_ any) {
     if len(ctx.evocation.a) < 3 {
@@ -2417,6 +2790,11 @@ ForSources:
 }
 
 type builtin_title struct { builtin_ }
+func (ctx *builtin_title) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_title) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_title) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
@@ -2428,6 +2806,11 @@ func (ctx *builtin_title) x() any {
 }
 
 type builtin_uppercase struct { builtin_ }
+func (ctx *builtin_uppercase) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_uppercase) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_uppercase) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
@@ -2439,6 +2822,11 @@ func (ctx *builtin_uppercase) x() any {
 }
 
 type builtin_lowercase struct { builtin_ }
+func (ctx *builtin_lowercase) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_lowercase) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_lowercase) x() any {
     var res []Value
     for _, a := range ctx.evocation.a {
@@ -2480,6 +2868,11 @@ func (ctx *builtin_) trim(f func(_, _ Value, _ string) (Value, string), ss ...st
 type builtin_strip struct { builtin_trimspace }
 
 type builtin_trim struct { builtin_ }
+func (ctx *builtin_trim) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_trim) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_trim) x() any {
     var res []Value
     var cutset string
@@ -2498,13 +2891,23 @@ func (ctx *builtin_trim) x() any {
 }
 
 type builtin_trimspace struct { builtin_trim }
+func (ctx *builtin_trimspace) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_trimspace) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_trimspace) a() (skip bool) {
     var a = expand(ctx, ctx.evocation.a...)
-    ctx.evocation.a = append([]Value{_null(ctx)}, a...)
+    ctx.evocation.a = append([]Value{_null(_position(ctx))}, a...)
     return
 }
 
 type builtin_trimleft struct { builtin_ }
+func (ctx *builtin_trimleft) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_trimleft) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_trimleft) x_0() any {
     var res []Value
     var cutset string
@@ -2528,6 +2931,11 @@ func (ctx *builtin_trimleft) x() (_ any) {
 }
 
 type builtin_trimright struct { builtin_ }
+func (ctx *builtin_trimright) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_trimright) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_trimright) x_0() any {
     var res []Value
     var cutset string
@@ -2554,6 +2962,11 @@ func (ctx *builtin_trimright) x() (_ any) {
 // $(trim-prefix %/foo, xxx/foo/a/b/c)
 // $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
 type builtin_trimprefix struct { builtin_ }
+func (ctx *builtin_trimprefix) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_trimprefix) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_trimprefix) x() (_ any) {
     return ctx.trim(func(val, prefix Value, _s string) (res Value, s string) {
         if indeterminate(ctx, prefix) {
@@ -2592,6 +3005,11 @@ func (ctx *builtin_trimprefix) x() (_ any) {
 }
 
 type builtin_trimsuffix struct { builtin_ }
+func (ctx *builtin_trimsuffix) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_trimsuffix) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_trimsuffix) x_0() any {
     var res []Value
     var cutset string
@@ -2658,6 +3076,11 @@ type builtin_trimext struct { builtin_trim
     all bool `all`
     ext []string `ext`
 }
+func (ctx *builtin_trimext) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_trimext) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_trimext) x() any {
     var ext string
     var res []Value
@@ -2680,6 +3103,11 @@ func (ctx *builtin_trimext) x() any {
 }
 
 type builtin_addprefix struct { builtin_ }
+func (ctx *builtin_addprefix) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_addprefix) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_addprefix) a() (skip bool) {
     for i, a := range ctx.evocation.a {
         if a = a.expand(ctx); i == 0 {
@@ -2713,6 +3141,11 @@ func (ctx *builtin_addprefix) x() (_ any) {
 }
 
 type builtin_addsuffix struct { builtin_ }
+func (ctx *builtin_addsuffix) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_addsuffix) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_addsuffix) a() (skip bool) {
     for i, a := range ctx.evocation.a {
         if a = a.expand(ctx); i == 0 {
@@ -2746,6 +3179,11 @@ func (ctx *builtin_addsuffix) x() (_ any) {
 }
 
 type builtin_printf struct{ builtin_ }
+func (ctx *builtin_printf) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_printf) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_printf) c() (_ any) { return ctx.x() }
 func (ctx *builtin_printf) x() (_ any) {
     if len(ctx.evocation.a) < 1 {
@@ -2808,6 +3246,11 @@ type builtin_print struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
 }
+func (ctx *builtin_print) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_print) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_print) c() (_ any) { return ctx.x() }
 func (ctx *builtin_print) x() (_ any) {
     var diag = _diagnostic(ctx)
@@ -2831,6 +3274,11 @@ func (ctx *builtin_print) x() (_ any) {
 type builtin_printl struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
+}
+func (ctx *builtin_printl) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_printl) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_printl) c() (_ any) { return ctx.x() }
 func (ctx *builtin_printl) x() (_ any) {
@@ -2856,6 +3304,11 @@ type builtin_println struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
 }
+func (ctx *builtin_println) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_println) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_println) c() (_ any) { return ctx.x() }
 func (ctx *builtin_println) x() (_ any) {
     var dia = _diagnostic(ctx)
@@ -2878,6 +3331,11 @@ func (ctx *builtin_println) x() (_ any) {
 }
 
 type builtin_indent struct { builtin_ }
+func (ctx *builtin_indent) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_indent) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_indent) x() (res any) {
     var l []Value
     var s string // indent
@@ -2899,6 +3357,11 @@ func (ctx *builtin_indent) x() (res any) {
 }
 
 type builtin_findstring struct { builtin_ }
+func (ctx *builtin_findstring) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_findstring) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_findstring) x() (res any) {
     // TODO: $(findstring find,text)
     return
@@ -2911,6 +3374,11 @@ func (ctx *builtin_findstring) x() (res any) {
 type builtin_contains struct { builtin_
     match  bool `match,pat,pattern`
     string bool `str,string`
+}
+func (ctx *builtin_contains) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_contains) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_contains) x() (_ any) {
     if len(ctx.evocation.a) < 2 {
@@ -2950,36 +3418,66 @@ outer:
 }
 
 type builtin_sort struct { builtin_ }
-func (ctx builtin_sort) x() (res any) {
+func (ctx *builtin_sort) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_sort) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_sort) x() (res any) {
     erro(ctx, "TODO: $(sort ...)").trace()
     return
 }
 
 type builtin_wordlist struct { builtin_ }
-func (ctx builtin_wordlist) x() (res any) {
+func (ctx *builtin_wordlist) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_wordlist) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_wordlist) x() (res any) {
     erro(ctx, "TODO: $(wordlist ...)").trace()
     return
 }
 
 type builtin_words struct { builtin_ }
-func (ctx builtin_words) x() (res any) {
+func (ctx *builtin_words) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_words) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_words) x() (res any) {
     erro(ctx, "TODO: $(words ...)").trace()
     return
 }
 
 type builtin_firstword struct { builtin_ }
-func (ctx builtin_firstword) x() (res any) {
+func (ctx *builtin_firstword) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_firstword) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_firstword) x() (res any) {
     erro(ctx, "TODO: $(firstword ...)").trace()
     return
 }
 
 type builtin_lastword struct { builtin_ }
-func (ctx builtin_lastword) x() (res any) {
+func (ctx *builtin_lastword) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_lastword) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_lastword) x() (res any) {
     erro(ctx, "TODO: $(lastword ...)").trace()
     return
 }
 
 type builtin_encodebase64 struct { builtin_ }
+func (ctx *builtin_encodebase64) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_encodebase64) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_encodebase64) x() (res any) {
     if len(ctx.evocation.a) > 0 {
         pos := _position(ctx)
@@ -2993,6 +3491,11 @@ func (ctx *builtin_encodebase64) x() (res any) {
 }
 
 type builtin_decodebase64 struct { builtin_ }
+func (ctx *builtin_decodebase64) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_decodebase64) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_decodebase64) x() (_ any) {
     if len(ctx.evocation.a) > 0 {
         var res []Value
@@ -3009,22 +3512,12 @@ func (ctx *builtin_decodebase64) x() (_ any) {
     return
 }
 
-// type builtin_fullname struct { builtin_ }
-// func (ctx *builtin_fullname) x() (_ any) {
-//     var res []Value
-//     var p = _project(ctx)
-//     for _, a := range merge(ctx.evocation.a...) {
-//         if x := (as{a}.fullname(ctx, p)); x.Value != nil {
-//             if checkpoints && truly(ctx, is_test_mode{}) { ctx.x_check(p, a, x) }
-//             a = x
-//         }
-//         res = append(res, a)
-//     }
-//     if 0 < len(res) { return res }
-//     return
-// }
-
 type builtin_ext struct { builtin_ }
+func (ctx *builtin_ext) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_ext) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_ext) x() (_ any) {
     var res []Value
     for _, a := range merge(ctx.evocation.a...) {
@@ -3052,12 +3545,17 @@ func _bases(n int, s string, t ...bool) (d, b string) {
 }
 
 type builtin_bases struct { builtin_ ; n int `num,size,count` }
+func (ctx *builtin_bases) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_bases) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_bases) x() (res any) {
     var l []Value
     for _, a := range ctx.evocation.a {
         var s string
         if ctx.fullname {
-            s, _ = as{a}.fullnameOrFinal(ctx)
+            s, _ = as{a}.fullname_string(ctx)
         } else {
             s = a.string(ctx)
         }
@@ -3068,32 +3566,113 @@ func (ctx *builtin_bases) x() (res any) {
     return l
 }
 
-type builtin_base struct { builtin_bases }
-func (ctx *builtin_base) x() any { ctx.n = 1; return ctx.builtin_bases.x() }
+type builtin_base1 struct { builtin_bases }
+func (ctx *builtin_base1) inner() Context { return &ctx.builtin_bases }
+func (ctx *builtin_base1) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_bases.cast(t)
+}
+func (ctx *builtin_base1) x() any { ctx.n = 1; return ctx.builtin_bases.x() }
 
 type builtin_base2 struct { builtin_bases }
+func (ctx *builtin_base2) inner() Context { return &ctx.builtin_bases }
+func (ctx *builtin_base2) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_bases.cast(t)
+}
 func (ctx *builtin_base2) x() any { ctx.n = 2; return ctx.builtin_bases.x() }
 
 type builtin_base3 struct { builtin_bases }
+func (ctx *builtin_base3) inner() Context { return &ctx.builtin_bases }
+func (ctx *builtin_base3) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_bases.cast(t)
+}
 func (ctx *builtin_base3) x() any { ctx.n = 3; return ctx.builtin_bases.x() }
 
 type builtin_base4 struct { builtin_bases }
+func (ctx *builtin_base4) inner() Context { return &ctx.builtin_bases }
+func (ctx *builtin_base4) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_bases.cast(t)
+}
 func (ctx *builtin_base4) x() any { ctx.n = 4; return ctx.builtin_bases.x() }
 
 type builtin_base5 struct { builtin_bases }
+func (ctx *builtin_base5) inner() Context { return &ctx.builtin_bases }
+func (ctx *builtin_base5) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_bases.cast(t)
+}
 func (ctx *builtin_base5) x() any { ctx.n = 5; return ctx.builtin_bases.x() }
 
 type builtin_base6 struct { builtin_bases }
+func (ctx *builtin_base6) inner() Context { return &ctx.builtin_bases }
+func (ctx *builtin_base6) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_bases.cast(t)
+}
 func (ctx *builtin_base6) x() any { ctx.n = 6; return ctx.builtin_bases.x() }
 
 type builtin_base7 struct { builtin_bases }
+func (ctx *builtin_base7) inner() Context { return &ctx.builtin_bases }
+func (ctx *builtin_base7) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_bases.cast(t)
+}
 func (ctx *builtin_base7) x() any { ctx.n = 7; return ctx.builtin_bases.x() }
 
 type builtin_base8 struct { builtin_bases }
+func (ctx *builtin_base8) inner() Context { return &ctx.builtin_bases }
+func (ctx *builtin_base8) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_bases.cast(t)
+}
 func (ctx *builtin_base8) x() any { ctx.n = 8; return ctx.builtin_bases.x() }
 
 type builtin_base9 struct { builtin_bases }
+func (ctx *builtin_base9) inner() Context { return &ctx.builtin_bases }
+func (ctx *builtin_base9) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_bases.cast(t)
+}
 func (ctx *builtin_base9) x() any { ctx.n = 9; return ctx.builtin_bases.x() }
+
+type builtin_dir struct { builtin_dirs ; sub Value `has,contain,contains` }
+func (ctx *builtin_dir) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
+}
+func (ctx *builtin_dir) x() (_ any) {
+    var sub string
+    if ctx.sub != nil {
+        sub = ctx.sub.string(ctx)
+    }
+    if sub == "" {
+        ctx.n = 1
+        return ctx.builtin_dirs.x()
+    }
+
+    var l []Value
+    for _, a := range merge(ctx.evocation.a...) {
+        var s string
+        if ctx.fullname {
+            s, _ = as{a}.fullname_string(ctx)
+        } else {
+            s = a.string(ctx)
+        }
+        for {
+            var d = filepath.Dir(s)
+            if d == "" || d == s { break } else { s = d }
+            if _, e := os.Stat(filepath.Join(d,sub)); e == nil {
+                l = append(l, _pathstr(ctx, d))
+                break
+            }
+        }
+    }
+    return l
+}
 
 func dirs(n int, s string) (_ string) {
     for n > 0 {
@@ -3104,111 +3683,123 @@ func dirs(n int, s string) (_ string) {
 }
 
 type builtin_dirs struct { builtin_ ; n int `num,size,count` }
+func (ctx *builtin_dirs) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_dirs) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_dirs) x() any {
     var l []Value
     for _, a := range merge(ctx.evocation.a...) {
         var s string
         if ctx.fullname {
-            s, _ = as{a}.fullnameOrFinal(ctx)
+            s, _ = as{a}.fullname_string(ctx)
         } else {
             s = a.string(ctx)
         }
 
         s = dirs(ctx.n, s)
 
-        var v Value
-        var d = ctx.debug
         if f, y := a.(*file); y {
             if ctx.fullname {
                 f = stat(ctx, s, stat_nonexist{true})
             } else {
-                f = stat(ctx, s, stat_sub{f.sub}, stat_dir{f.dir}, stat_nonexist{true})
+                f = stat(ctx, s, stat_nonexist{true}, stat_sub{f.sub}, stat_dir{f.dir})
             }
-            if d>0 { note(ctx, "%v ⇒ %v %v", ts(a), f, f.fullname()).debug(d) }
-            v = f
+            l = append(l, f)
         } else if s != "" {
-            if d>0 { note(ctx, "%v ⇒ %v", ts(a), s).debug(d) }
-            v = _pathstr(ctx, s)
+            l = append(l, _pathstr(ctx, s))
         } else {
             continue
         }
-        l = append(l, v)
     }
     return l
 }
 
-type builtin_dir struct { builtin_dirs ; sub Value `of` }
-func (ctx *builtin_dir) x() (_ any) {
-    var sub string
-    if ctx.sub != nil { sub = ctx.sub.string(ctx) }
-    if sub == "" { ctx.n = 1 ; return ctx.builtin_dirs.x() }
-
-    var l []Value
-    for _, a := range merge(ctx.evocation.a...) {
-        var s string
-        if ctx.fullname {
-            s, _ = as{a}.fullnameOrFinal(ctx)
-        } else {
-            s = a.string(ctx)
-        }
-        for {
-            var d = filepath.Dir(s)
-            if d == "" || d == s { break } else { s = d }
-            if true {
-                if x, e := os.Stat(filepath.Join(d,sub)); e == nil && x != nil {
-                    l = append(l, _pathstr(ctx, d))
-                    break
-                }
-            } else {
-                var f *file
-                if ctx.fullname {
-                    f = stat(ctx, filepath.Join(d,sub), stat_nonexist{false})
-                } else {
-                    f = stat(ctx, sub, stat_dir{d}, stat_nonexist{false})
-                }
-                if f != nil {
-                    l = append(l, f)
-                    break
-                }
-            }
-        }
-    }
-    return l
+type builtin_dir1 struct { builtin_dirs }
+func (ctx *builtin_dir1) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir1) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
 }
+func (ctx *builtin_dir1) x() any { ctx.n = 1; return ctx.builtin_dirs.x() }
 
 type builtin_dir2 struct { builtin_dirs }
+func (ctx *builtin_dir2) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir2) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
+}
 func (ctx *builtin_dir2) x() any { ctx.n = 2; return ctx.builtin_dirs.x() }
 
 type builtin_dir3 struct { builtin_dirs }
+func (ctx *builtin_dir3) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir3) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
+}
 func (ctx *builtin_dir3) x() any { ctx.n = 3; return ctx.builtin_dirs.x() }
 
 type builtin_dir4 struct { builtin_dirs }
+func (ctx *builtin_dir4) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir4) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
+}
 func (ctx *builtin_dir4) x() any { ctx.n = 4; return ctx.builtin_dirs.x() }
 
 type builtin_dir5 struct { builtin_dirs }
+func (ctx *builtin_dir5) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir5) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
+}
 func (ctx *builtin_dir5) x() any { ctx.n = 5; return ctx.builtin_dirs.x() }
 
 type builtin_dir6 struct { builtin_dirs }
+func (ctx *builtin_dir6) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir6) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
+}
 func (ctx *builtin_dir6) x() any { ctx.n = 6; return ctx.builtin_dirs.x() }
 
 type builtin_dir7 struct { builtin_dirs }
+func (ctx *builtin_dir7) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir7) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
+}
 func (ctx *builtin_dir7) x() any { ctx.n = 7; return ctx.builtin_dirs.x() }
 
 type builtin_dir8 struct { builtin_dirs }
+func (ctx *builtin_dir8) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir8) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
+}
 func (ctx *builtin_dir8) x() any { ctx.n = 8; return ctx.builtin_dirs.x() }
 
 type builtin_dir9 struct { builtin_dirs }
+func (ctx *builtin_dir9) inner() Context { return &ctx.builtin_dirs }
+func (ctx *builtin_dir9) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_dirs.cast(t)
+}
 func (ctx *builtin_dir9) x() any { ctx.n = 9; return ctx.builtin_dirs.x() }
 
-type builtin_undirs struct { builtin_
-    n int `num,size,count`
+type builtin_undirs struct { builtin_ ; n int `num,size,count` }
+func (ctx *builtin_undirs) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_undirs) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_undirs) x() any {
     var l []Value
     for _, a := range ctx.evocation.a {
         var s string
         if ctx.fullname {
-            s, _ = as{a}.fullnameOrFinal(ctx)
+            s, _ = as{a}.fullname_string(ctx)
         } else {
             s = a.string(ctx)
         }
@@ -3225,34 +3816,84 @@ func (ctx *builtin_undirs) x() any {
     return l
 }
 
-type builtin_undir struct { builtin_undirs }
-func (ctx *builtin_undir) x() any { ctx.n = 1; return ctx.builtin_undirs.x() }
+type builtin_undir1 struct { builtin_undirs }
+func (ctx *builtin_undir1) inner() Context { return &ctx.builtin_undirs }
+func (ctx *builtin_undir1) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_undirs.cast(t)
+}
+func (ctx *builtin_undir1) x() any { ctx.n = 1; return ctx.builtin_undirs.x() }
 
 type builtin_undir2 struct { builtin_undirs }
+func (ctx *builtin_undir2) inner() Context { return &ctx.builtin_undirs }
+func (ctx *builtin_undir2) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_undirs.cast(t)
+}
 func (ctx *builtin_undir2) x() any { ctx.n = 2; return ctx.builtin_undirs.x() }
 
 type builtin_undir3 struct { builtin_undirs }
+func (ctx *builtin_undir3) inner() Context { return &ctx.builtin_undirs }
+func (ctx *builtin_undir3) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_undirs.cast(t)
+}
 func (ctx *builtin_undir3) x() any { ctx.n = 3; return ctx.builtin_undirs.x() }
 
 type builtin_undir4 struct { builtin_undirs }
+func (ctx *builtin_undir4) inner() Context { return &ctx.builtin_undirs }
+func (ctx *builtin_undir4) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_undirs.cast(t)
+}
 func (ctx *builtin_undir4) x() any { ctx.n = 4; return ctx.builtin_undirs.x() }
 
 type builtin_undir5 struct { builtin_undirs }
+func (ctx *builtin_undir5) inner() Context { return &ctx.builtin_undirs }
+func (ctx *builtin_undir5) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_undirs.cast(t)
+}
 func (ctx *builtin_undir5) x() any { ctx.n = 5; return ctx.builtin_undirs.x() }
 
 type builtin_undir6 struct { builtin_undirs }
+func (ctx *builtin_undir6) inner() Context { return &ctx.builtin_undirs }
+func (ctx *builtin_undir6) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_undirs.cast(t)
+}
 func (ctx *builtin_undir6) x() any { ctx.n = 6; return ctx.builtin_undirs.x() }
 
 type builtin_undir7 struct { builtin_undirs }
+func (ctx *builtin_undir7) inner() Context { return &ctx.builtin_undirs }
+func (ctx *builtin_undir7) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_undirs.cast(t)
+}
 func (ctx *builtin_undir7) x() any { ctx.n = 7; return ctx.builtin_undirs.x() }
 
 type builtin_undir8 struct { builtin_undirs }
+func (ctx *builtin_undir8) inner() Context { return &ctx.builtin_undirs }
+func (ctx *builtin_undir8) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_undirs.cast(t)
+}
 func (ctx *builtin_undir8) x() any { ctx.n = 8; return ctx.builtin_undirs.x() }
 
 type builtin_undir9 struct { builtin_undirs }
+func (ctx *builtin_undir9) inner() Context { return &ctx.builtin_undirs }
+func (ctx *builtin_undir9) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_undirs.cast(t)
+}
 func (ctx *builtin_undir9) x() any { ctx.n = 9; return ctx.builtin_undirs.x() }
 
 type builtin_chopdir struct { builtin_ }
+func (ctx *builtin_chopdir) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_chopdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_chopdir) x() (res any) {
     var l []Value
     var n = 0
@@ -3286,6 +3927,11 @@ func (ctx *builtin_chopdir) x() (res any) {
 }
 
 type builtin_reldir struct { builtin_ }
+func (ctx *builtin_reldir) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_reldir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_reldir) x() (res any) {
     var err error
     var l []Value
@@ -3304,6 +3950,11 @@ func (ctx *builtin_reldir) x() (res any) {
 
 type builtin_mkdir struct { builtin_
     all bool `all,p,path`
+}
+func (ctx *builtin_mkdir) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_mkdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_mkdir) c() (res any) {
     for i, nargs := 0, len(ctx.evocation.a); i < nargs; i += 1 {
@@ -3351,6 +4002,11 @@ func (ctx *builtin_mkdir) c() (res any) {
 }
 
 type builtin_chdir struct { builtin_ }
+func (ctx *builtin_chdir) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_chdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_chdir) c() (res any) {
     if len(ctx.evocation.a) == 1 {
         var str = ctx.evocation.a[0].string(ctx)
@@ -3364,6 +4020,11 @@ func (ctx *builtin_chdir) c() (res any) {
 }
 
 type builtin_rename struct { builtin_ }
+func (ctx *builtin_rename) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_rename) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_rename) c() (res any) {
     for i, nargs := 0, len(ctx.evocation.a); i < nargs; i += 1 {
         var (
@@ -3409,6 +4070,11 @@ type builtin_remove struct { builtin_
     ignoreMissing bool `ig,ignore,ignore-missing,ignore-not-found`
     warnNotFile bool `warn-not-file`
     all bool `all,recursive`
+}
+func (ctx *builtin_remove) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_remove) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_remove) c() (res any) {
     var opts = ctx
@@ -3487,6 +4153,11 @@ func (ctx *builtin_remove) c() (res any) {
 }
 
 type builtin_truncate struct { builtin_ }
+func (ctx *builtin_truncate) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_truncate) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_truncate) c() (res any) {
     for i, nargs := 0, len(ctx.evocation.a); i < nargs; i += 1 {
         var (
@@ -3533,6 +4204,11 @@ func (ctx *builtin_truncate) c() (res any) {
 }
 
 type builtin_link struct { builtin_ }
+func (ctx *builtin_link) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_link) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_link) c() (res any) {
     for i, nargs := 0, len(ctx.evocation.a); i < nargs; i += 1 {
         var (
@@ -3621,6 +4297,11 @@ type builtin_symlink struct { builtin_
     force    bool `force,overwrite`
     update   bool `update`
     relative bool `rel,relative`
+}
+func (ctx *builtin_symlink) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_symlink) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_symlink) c() (res any) {
 outer:
@@ -3746,6 +4427,11 @@ type builtin_stat struct { builtin_
     file   bool `file`
     dir    bool `dir`
 }
+func (ctx *builtin_stat) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_stat) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_stat) x() (res any) {
     if len(ctx.evocation.a) == 0 { return }
 
@@ -3795,50 +4481,44 @@ type builtin_file struct { builtin_
     report bool `report,reportmissing,report-missing`
     ignore bool `ignore,ignore-missing,missing,nonexist,non-exist`
 }
-func (ctx *builtin_file) x() any { return ctx.z(ctx.evocation.a...) }
-func (ctx *builtin_file) z(args ...Value) (res []Value) {
-    var en int
-    var f = func(a Value) {
+func (ctx *builtin_file) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_file) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_file) x() any {
+    var res []Value
+    for _, a := range merge(ctx.evocation.a...) {
         if x, y := to_file(a); y {
             if !ctx.exists || x.exists() /* || x.stat(ctx) != nil */ {
-                res = append(res, x)
+                res = append(res, try_fullfile(ctx, x))
             } else if ctx.report {
                 info(ctx, "no such file {%v %v %v}", x.dir, x.sub, x.name).debug()
             }
-            return
+            continue
         }
-
-        var am = unmap_files(ctx, a)
-
-        for _, f := range select_files(ctx, am) {
+        for _, f := range select_files(ctx, unmap_files(ctx, a)) {
             if !ctx.exists || f.exists() {
-                res = append(res, f)
+                res = append(res, try_fullfile(ctx, f))
             } else if ctx.ignore {
                 if ctx.verbose { info(ctx, "%v → %v", tv(a), f).debug() }
             } else if ctx.exists {
-                en += 1
-            }
-        }
-
-        if en > 0 {
-            for i, m := range am {
-                info(ctx, "found %d. %s → %s → %v", i, m.name, ts(m.pattern), m.paths)
+                errostack(ctx, 5, `not a file: %v : %s ; %s`, a, ts(a), ts(res)).trace()
             }
         }
     }
-
-    for _, a := range merge(args...) {
-        if f(a); en > 0 {
-            errostack(ctx, 5, `%v: %v is not a file (%v)`, ts(a), res).trace()
-        }
-    }
-    return
+    return res
 }
 
 type builtin_glob struct { builtin_
     symbol bool `sym,symlink,symbol`
     dir bool `dir,directory`
     file bool `file`
+}
+func (ctx *builtin_glob) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_glob) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_glob) x() (_ any) {
     var cwd string // TODO: get current work directory
@@ -3894,6 +4574,11 @@ type builtin_wildcard struct { builtin_
     exclude []Value `exclude,except,no,not`
     filetype string `type` // dir, file, etc.
     dir string `dir,directory`
+}
+func (ctx *builtin_wildcard) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_wildcard) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_wildcard) _directory(topDir string, pats ...Value) (files []*file) {
     type subr struct {
@@ -4152,7 +4837,7 @@ func (ctx *builtin_wildcard) _do(pats ...Value) []*file {
 }
 func (ctx *builtin_wildcard) x() any {
     if len(ctx.exclude) > 0 {
-        ctx.exclude = xmerge(final{ctx.Context}, ctx.exclude...)
+        ctx.exclude = xmerge(_final(ctx.Context), ctx.exclude...)
     }
 
     var vals []Value
@@ -4167,6 +4852,11 @@ func (ctx *builtin_wildcard) x() any {
 }
 
 type builtin_readdir struct { builtin_ }
+func (ctx *builtin_readdir) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_readdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_readdir) x() (res any) {
     var l []Value
     for _, a := range ctx.evocation.a {
@@ -4188,6 +4878,11 @@ type builtin_readfile struct { builtin_
     trimLeft  bool `tl,trim-left`
     trimRight bool `tr,trim-right`
 }
+func (ctx *builtin_readfile) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_readfile) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_readfile) x() (res any) {
     var l []Value
     var closured = closure_projects(ctx)
@@ -4208,6 +4903,11 @@ func (ctx *builtin_readfile) x() (res any) {
 
 type builtin_writefile struct { builtin_
     path bool `path`
+}
+func (ctx *builtin_writefile) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_writefile) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_writefile) x() (res any) {
     // $(write-file filename,content)
@@ -4265,7 +4965,7 @@ outer:
 }
 
 func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
-    var a, filename, c = as{file}.fullnameFile(ctx)
+    var a, filename, c = as{file}.file_fullname(ctx)
 
     if filename == "" {
         errostack(ctx, 3, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c).trace()
@@ -4312,6 +5012,11 @@ type builtin_touchfile struct { builtin_
     mode os.FileMode `mode`
     path bool `path`
 }
+func (ctx *builtin_touchfile) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_touchfile) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_touchfile) x() (res any) {
     // $(touch-file filename)
     // $(touch-file -p filename)
@@ -4327,9 +5032,20 @@ func (ctx *builtin_touchfile) x() (res any) {
 // $(grep 'status=1',$@)
 // $(grep 'status=([0-9]+)',$1,$@)
 type builtin_grep struct { builtin_ }
+func (ctx *builtin_grep) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_grep) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_grep) do(c Context, op any) (_ any) {
+    switch t := op.(type) {
+    case find_auto: if IsDigits(t.string) { return }
+    }
+    return ctx.builtin_.do(c, op)
+}
 func (ctx *builtin_grep) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
-    return !truly(ctx, propExFinal) && expandable(final{ctx}, ctx.evocation.a...)
+    return !truly(ctx, is_final{}) && expandable(_final(ctx), ctx.evocation.a...)
 }
 func (ctx *builtin_grep) x() (_ any) {
     var (
@@ -4364,12 +5080,11 @@ func (ctx *builtin_grep) x() (_ any) {
     }
 
     var pos = _position(ctx)
-    var cc = automatic{Context:ctx, defs:make(defs_map), suppress:IsDigits}
     var greped = func(line int, match []string) (done bool) {
         var vals []Value
         for i, s := range match {
-            // NOTE: don't use defAuto (it's code-block auto)
-            if d, v := cc.set(ctx, defVoid, fmt.Sprintf("%d",i), _strlit(pos, s)); d == nil {
+            // NOTE: don't use defAuto (it's codeblock auto)
+            if d, v := ctx.set(ctx, defVoid, fmt.Sprintf("%d",i), _strlit(pos, s)); d == nil {
                 erro(ctx, "set $%d to '%s' failed", i, s).trace()
                 return
             } else {
@@ -4378,12 +5093,12 @@ func (ctx *builtin_grep) x() (_ any) {
         }
         defer func() {
             for i, v := range vals {
-                if d, v := cc.set(ctx, defVoid, fmt.Sprintf("%d",i), v); d == nil {
+                if d, v := ctx.set(ctx, defVoid, fmt.Sprintf("%d",i), v); d == nil {
                     erro(ctx, "restore $%d to '%s' failed", i, v).trace()
                 }
             }
         } ()
-        res = append(res, result.expand(&cc))
+        res = append(res, result.expand(ctx))
         return
     }
 
@@ -4401,7 +5116,7 @@ func (ctx *builtin_grep) x() (_ any) {
             var pc = _execution(ctx)
             erro(c, "empty filename: %v", ts(a))
             erro(c, "%v %v", rvs, args)
-            errostack(c, 5, "%p %v", pc, pc.search(ctx, "^")).trace()
+            errostack(c, 5, "%p %v", pc, auto_find(pc, "^")).trace()
             return
         } else if f, e = os.Open(filename); e != nil {
             erro(c, "%v", e)
@@ -4613,11 +5328,21 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
 }
 
 type builtin_untraversed struct { builtin_ }
+func (ctx *builtin_untraversed) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_untraversed) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_untraversed) x() (res any) {
     return untraversed{ease(ctx, ctx.evocation.a)}
 }
 
 type builtin_return struct { builtin_ }
+func (ctx *builtin_return) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_return) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
 func (ctx *builtin_return) x() (res any) {
     return &returner{valbase{_position(ctx)}, ctx.evocation.a}
 }
