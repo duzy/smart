@@ -459,7 +459,7 @@ func closure_entries(ctx Context, name any) (entries []entry) {
     return
 }
 
-func closure_entry(ctx Context, name any) (_ entry) {
+func closure_entry(ctx Context, name any, _ ...bool) (_ entry) {
     var entries = closure_entries(ctx, name)
     if n := len(entries) ; 0 < n {
         if 1 < n { erro(ctx, "%d entries: %s", n, name).trace() }
@@ -2654,9 +2654,9 @@ func (p disjunction) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-type is_compound    struct {}
-type wants_fullfile struct {}
-type compound_ctx   struct { Context }
+type wants_fullfile  struct {}
+type is_compound     struct {}
+type    compound_ctx struct { Context }
 func (c compound_ctx) cast(t reflect.Type) Context { return icast(c, t) }
 func (c compound_ctx) inner() Context { return c.Context }
 func (c compound_ctx) do(ctx Context, op any) any {
@@ -5002,42 +5002,58 @@ func (u untraversed) expand(ctx Context) Value {
     return untraversed{u.Value.expand(ctx)}
 }
 
-func dis_evoke(ctx Context, a, b Value) (_ bool) {
-    if b == nil || equal(ctx, a, b) {
-        switch a.(type) {
-        case *auto, *project, self:
-            return true
-        default:
-            return indeterminate(ctx, a)
-        }
-    }
-    return
-}
-
 func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value) {
-    var ( t, x Value ; a, o []Value ; ent, e bool )
+    var ( v, t, x Value ; a, o []Value ; ent, e bool )
 
     if checkpoints && truly(ctx, is_test_mode{}) {
         defer ex_check(ctx, p, _x, _a, _o, _l, _cl, &e, &res, &t, &x, &a, &o)
+    }
+
+    var unex = func() Value {
+        if !equal(ctx, _x, x) || diff(ctx, a, _a) {
+            if d := (delegate{valbase{p.Position()}, _l, x, _o, a}); _cl {
+                return &closure{d}
+            } else {
+                return &d
+            }
+        }
+        return p
+    }
+
+    var _unex = func() Value {
+        a = expand(ctx, _a...)
+        return unex()
+    }
+
+    var _exp = func() Value {
+        if t, a = evoke(ctx, x, _o, _a); equal(ctx, x, t) {
+            return unex()
+        } else if x, y := t.(expanded); y {
+            return x.Value
+        } else {
+            return t
+        }
     }
 
     x = _x.expand(ctx)
 
     switch t := x.(type) {
     case disjunction:
-        erro(ctx, "TODO: %v", ts(x)).trace()
-    case *auto:
-        if equal(ctx, x, _x) {
-            goto dis // where e = false
-        }
+        erro(ctx, "TODO: %s", ts(x)).trace()
     case *project, self:
         a = expand(ctx, _a...)
         return x
+    case *auto:
+        if equal(ctx, x, _x) {
+            return _unex()
+        } else {
+            return _exp()
+        }
     case *list:
         var va []Value
         var vb = valbase{p.Position()}
         for _, v := range t.elems {
-            if d := ( delegate{vb, _l, v, _o, _a} ); _cl {
+            if d := (delegate{vb, _l, v, _o, _a}); _cl {
                 v = ex(ctx, &closure{d}, v, _a, _o, _l, true)
             } else {
                 v = ex(ctx, &d, v, _a, _o, _l, false)
@@ -5055,98 +5071,58 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
 
     // NOTE: `x` must be expandable in final context for x.string() as resolving name.
 
-    if !_cl && _x.kind()&KindAuto != 0 {
-        if x.kind()&KindDef != 0 {
-            e = true // x.(*def).origin == defParam
+    if _, y := _x.(*auto); y && !_cl {
+        if _, y = x.(*def); !y && !truly(ctx, ex_auto{}) {
+            return _unex()
         } else {
-            e = truly(ctx, ex_auto{})
+            return _exp()
         }
-    } else if dis_evoke(ctx, x, _x) {
-        e = false
-    } else if !_cl && truly(ctx, propExDelegate) {
-        if x.kind()&(KindAuto|KindBuiltin|KindDef) != 0 {
-            e = true
-            goto dis
+    } else if equal(ctx, x, _x) && indeterminate(ctx, x) {
+        return _unex()
+    }
+
+    var res_ent func (Context, any, ...bool) entry
+    var res_obj func (Context, string) object
+    if !_cl && truly(ctx, propExDelegate) {
+        switch x.(type) {
+        case *auto, *builtin, *def:
+            return _exp()
         }
-        var v Value
-        if ent {
-            if v = _project(ctx).entry(ctx, x); v == nil {
-                goto dis // where e = false
-            }
-        } else {
-            var s string
-            switch t := x.(type) {
-            case object: s = t.ident(ctx)
-            case stringer:
-                if indeterminate(ctx, x) {
-                    goto dis // where e = false
-                } else {
-                    s = t.string(ctx)
-                }
-            default:
-                erro(ctx, "unexable: %s", tv(x)).trace()
-            }
-            if s == "" {
-                goto dis // where e = false
-            }
-            v = project_resolve(ctx, s)
-        }
-        if v != nil { x, e = v, true }
+        res_ent = project_entry
+        res_obj = project_resolve
     } else if truly(ctx, propExClosure) {
-        var v Value
-        if ent {
-            if v = closure_entry(ctx, x); v == nil {
-                return // where e = false
-            }
-        } else {
-            var s string
-            switch t := x.(type) {
-            case object: s = t.ident(ctx)
-            case stringer:
-                if indeterminate(ctx, x) {
-                    goto dis // where e = false
-                } else {
-                    s = t.string(ctx)
-                }
-            default:
-                erro(ctx, "unexable: %s", tv(x)).trace()
-            }
-            if s == "" {
-                return // where e = false
-            }
-            v = closure_resolve(ctx, s)
-        }
-        if v != nil { x, e = v, true }
-    }
-
-dis:
-    var unex = func() Value {
-        if !equal(ctx, _x, x) || diff(ctx, a, _a) {
-            if d := (delegate{valbase{p.Position()}, _l, x, _o, a}); _cl {
-                return &closure{d}
-            } else {
-                return &d
-            }
-        }
-        return p
-    }
-
-    if !e {
-        a = expand(ctx, _a...)
-        return unex()
-    }
-
-    t, a = evoke(ctx, x, _o, _a)
-
-    if equal(ctx, x, t) {
-        return unex()
-    }
-
-    if x, y := t.(expanded); y {
-        return x.Value
+        res_ent = closure_entry
+        res_obj = closure_resolve
     } else {
-        return t
+        return _unex()
     }
+
+    if indeterminate(ctx, x) {
+        return _unex()
+    }
+
+    if ent {
+        if v = res_ent(ctx, x); v == nil {
+            return _unex()
+        }
+    } else {
+        var s string
+        switch t := x.(type) {
+        case   object: s = t.ident(ctx)
+        case stringer: s = t.string(ctx)
+        default:
+            erro(ctx, "unexable: %s", tv(x)).trace()
+        }
+        if s == "" {
+            return _unex()
+        }
+        if v = res_obj(ctx, s); v == nil {
+            return _unex()
+        }
+    }
+
+    x = v
+    return _exp()
 }
 
 type ex_delegate struct {}

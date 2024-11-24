@@ -613,25 +613,23 @@ type include_opts struct {
     ifExists bool `if-exists,ifexists`
 }
 
-type include_ctx struct {
+type p_include struct {
     Context
     o include_opts
     p Position
     spec string
 }
-func (i include_ctx) cast(t reflect.Type) Context { return icast(i,t) }
-func (i include_ctx) inner() Context { return i.Context }
-func (i include_ctx) ts(t string) string {
-	return "{="+t+" "+i.spec+" "+ts(i.Context)+"}"
-}
-func (i include_ctx) do(ctx Context, op any) (_ any) {
+func (p p_include) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_include) inner() Context { return p.Context }
+func (p p_include) ts(t string) string { return "{="+t+" "+p.spec+" "+ts(p.Context)+"}" }
+func (p p_include) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-    case get_position: if i.p.valid() { return i.p }
-	case get_include_opts: return &i.o
-    case get_include_spec: return i.spec
+    case get_position: if p.p.valid() { return p.p }
+	case get_include_opts: return &p.o
+    case get_include_spec: return p.spec
 	case is_flat_mode    : return true
 	}
-	return i.Context.do(ctx, op)
+	return p.Context.do(ctx, op)
 }
 
 func (l ul) include(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
@@ -678,7 +676,7 @@ func (l ul) include(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
         erro(ctx, "empty string: %v", tv(val)).trace()
     } else {
         var p, s = val.Position(), l.trimSpecPath(ctx, spec)
-        l.source(include_ctx{ctx, opts, p, s}, fullname, nil)
+        l.source(p_include{ctx, opts, p, s}, fullname, nil)
     }
     return
 }
@@ -874,17 +872,17 @@ func is_configure_project(proj *project) bool {
 
 type is_autoload struct{}
 
-type autoload_ctx struct {
+type p_autoload struct {
     Context
     p Position
     v Value
 }
-func (a autoload_ctx) cast(t reflect.Type) Context { return icast(a,t) }
-func (a autoload_ctx) inner() Context { return a.Context }
-func (a autoload_ctx) ts(t string) string {
+func (a p_autoload) cast(t reflect.Type) Context { return icast(a,t) }
+func (a p_autoload) inner() Context { return a.Context }
+func (a p_autoload) ts(t string) string {
 	return "{="+t+" "+bases(2, a.v.String(), true)+" "+ts(a.Context)+"}"
 }
-func (a autoload_ctx) do(ctx Context, op any) (_ any) {
+func (a p_autoload) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
     case get_position: if a.p.valid() { return a.p }
     case is_autoload: return true
@@ -904,7 +902,7 @@ func (l ul) autoload(ctx Context, tag string) {
                 } else if s == "" || t == "" {
                     continue//erro(ctx, "empty string: %v → %v", tv(d.value), tv(v)).trace()
                 } else {
-                    l.source(autoload_ctx{ctx,l.p.Position(),v}, t, nil)
+                    l.source(p_autoload{ctx,l.p.Position(),v}, t, nil)
                 }
             }
         }

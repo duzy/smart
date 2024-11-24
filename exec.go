@@ -253,7 +253,7 @@ func (p *execlog) createWriter(file *os.File, dir, cmd string) {
   fmt.Fprintf(p, "%s\n", cmd)
 }
 
-type execDiag struct {
+type exec_diag struct {
   position Position
   dt diagtype
   msg string
@@ -390,13 +390,13 @@ func (p *exec_buffer) reportIncludedFrom() (res bool) {
   }
   return
 }
-func (p *exec_buffer) scanned(dt diagtype, line, column int, msg string) (res *execDiag) {
+func (p *exec_buffer) scanned(dt diagtype, line, column int, msg string) (res *exec_diag) {
   for _, rec := range p.scannedDiags {
     if rec.msg == "error" || rec.msg == "warning" { continue }
     if rec.msg == msg { rec.num += 1 ; return rec }
   }
 
-  res = &execDiag{ p.lpos(line, column), dt, msg, 1 }
+  res = &exec_diag{ p.lpos(line, column), dt, msg, 1 }
   p.scannedDiags = append(p.scannedDiags, res)
   return
 }
@@ -499,8 +499,8 @@ type exec_ctx struct {
   sh *exec.Cmd
   args []string
 
+  scannedDiags []*exec_diag
   start time.Time
-  scannedDiags []*execDiag
 }
 
 func (p *exec_ctx) cast(t reflect.Type) Context { return icast(p,t) }
@@ -687,22 +687,24 @@ func (p *exec_ctx) check() (err error) {
       prompt(ctx, "%v: %d warnings\n", p.targetName, wn)
     }
 
-    if p.scanErrors() { for i, rec := range p.scannedDiags {
-      if !p.infos && rec.dt == diagInfo { continue }
-      if !p.logPos.IsValid() { p.logPos = rec.position }
-      if i == 0 && !rec.position.same(&rec.position) {
-        diag(ctx, rec.dt, rec.msg)//.debug()
+    if p.scanErrors() {
+      for i, rec := range p.scannedDiags {
+        if !p.infos && rec.dt == diagInfo { continue }
+        if !p.logPos.IsValid() { p.logPos = rec.position }
+        if i == 0 && !rec.position.same(&rec.position) {
+          diag(ctx, rec.dt, rec.msg)//.debug()
+        }
+        if rec.num > 1 {
+          diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num)//.debug()
+        } else {
+          diag(ctx, rec.dt, rec.msg)//.debug()
+        }
+        if n := (en+wn+in)-(i+1); i == 8 && 0 < n {
+          diag(ctx, rec.dt, "%d more...", n)//.debug()
+          break
+        }
       }
-      if rec.num > 1 {
-        diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num)//.debug()
-      } else {
-        diag(ctx, rec.dt, rec.msg)//.debug()
-      }
-      if n := (en+wn+in)-(i+1); i == 8 && 0 < n {
-        diag(ctx, rec.dt, "%d more...", n)//.debug()
-        break
-      }
-    }}
+    }
 
     var pos = _position(ctx)
     if !p.logPos.IsValid() && p.log != nil {

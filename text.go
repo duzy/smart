@@ -169,13 +169,11 @@ func (p *plainline) cmp(ctx Context, v Value) (_ cmpres) {
     return
 }
 
-// func _plainline(vals ...Value) (p *plainline) { return }
-
 type plainint struct{}
-func (_ *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
+func (p *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
     var res = &plain{}
     var exe = _execution(ctx)
-    var opts struct{ general_opts }
+    var opts struct { general_opts }
 
     if args = parse_opts(ctx, &opts, args...) ; len(args) > 0 {
         res.name = args[0].string(ctx)
@@ -190,6 +188,10 @@ func (_ *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
         if x, y := res.elems[0].(*plainline); y {
             res.elems = merge(x.elems...)
         }
+    }
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        p.evaluate_check(ctx, args, exe.recipes, res)
     }
     return res
 }

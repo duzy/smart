@@ -9,9 +9,42 @@ import (
 	"strings"
 )
 
+func (*plainint) evaluate_check(ctx Context, args, recipes []Value, p *plain) {
+	if t, y := auto_get(ctx, "@").(*file); y {
+		if strings.HasPrefix(t.name, ".configure/") && strings.HasSuffix(t.name, ".c") {
+			for i, recipe := range recipes {
+				if x, y := recipe.(*plainline); y && x.len() == 1 {
+					if x, y := x.elems[0].(*delegate); y && len(x.a) == 2 {
+						// if x.String() == `$(foreach $(INCLUDE),"#include $_\n")` {}
+						if b, y := x.x.(*builtin); y && b.name == "foreach" {
+							if d, y := p.elems[i].(*plainline).elems[0].(*delegate); y {
+								if false && x.a[0].String() == `$(INCLUDE)` {
+									note(ctx, "%v → %v", x.a[0], d.a[0]).debug()
+								}
+								if x.a[1].String() == `"#include $_\n"` {
+									s := `{=list {=strcomp {=raw #include } {=delegate {=auto _}} {=escaped \n}}}`
+									if t := ts(x.a[1]); s != t {
+										erro(pc(ctx,x), "%v: %s != %s", x.a[1], t, s).trace()
+									} else {
+										note(pc(ctx,x), "%s %s %s", x, x.expand(ctx), ts(x))
+										note(pc(ctx,x), "%s %s", auto_find(ctx, "_"), ts(ctx))
+										note(pc(ctx,x), "%s : %v → %v", t, x.a[1], d.a[1]).debug(3)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return
+}
+
 func (exe *execution) sources_check(ctx *exec_ctx, cc Context, i int, rv Value, s string) {
 	if exe.proj != nil && exe.proj.name == "configure.base" {
-		switch _entry(ctx).destiny().string(ctx) {
+		switch dest := _entry(ctx).destiny().string(ctx); dest {
+		case "-header-c", "-header-c++":
 		case "-library-c", "-library-c++":
 			if strings.HasSuffix(ctx.targetName, ".log") {}
 
@@ -57,28 +90,28 @@ func (exe *execution) sources_check(ctx *exec_ctx, cc Context, i int, rv Value, 
 					}
 				}
 			}
-		case "-header-c", "-header-c++":
 		}
 	}
 }
 
 func (exe *execution) evaluate_check(ctx Context, i interpreter, args []Value, res Value) {
 	if t, y := auto_get(ctx, "@").(*file); y {
-		var fn = t.fullname()
 		if strings.HasPrefix(t.name, ".configure/") {
-			if false && strings.HasSuffix(t.name, ".c") {
-				notestack(pc(ctx,fn), 2, "%v %v", exe.language, res).debug()
-				flush(ctx)
-			}
+			var fn = t.fullname()
 			if x, y := res.(*plain); y && x.len() > 0 {
 				if exe.language != x.name {
 					erro(ctx, "%s != %s ; %v", exe.language, x.name, ts(res)).trace()
 				}
+				// {=plainline $(foreach {},"#include xxx\n")}
 				if x, y := x.elems[0].(*plainline); y && x.len() > 0 {
-					if x, y := x.elems[0].(*delegate); y && ts(x.x) == "{=builtin foreach}" {
+					if x, y := x.elems[0].(*delegate); y && ts(x.x) == "{=builtin foreach}" && len(x.a) == 2 {
 						if s, t := "{=list {=null}}", ts(x.a[0]); s == t {
-							notestack(pc(ctx,fn), 2, "%v", res).debug()
-							erro(ctx, "%v : %v", ts(x.x), ts(x.a[0])).trace()
+							notestack(pc(ctx,fn), 3, "%v", res).debug()
+							erro(ctx, "%v : %v : %s != %s", ts(x.x), x.a[0], t, s).trace()
+						}
+						if s, t := `{=strval {=raw #include } {=delegate {=auto _}} {=raw \n}}`, ts(x.a[1]); s != t {
+							notestack(pc(ctx,fn), 3, "%v", res).debug()
+							erro(ctx, "%v : %v : %s != %s", ts(x.x), x.a[1], t, s).trace()
 						}
 						for _, a := range x.a[1:] {
 							if s, t := "{=delegate {=auto _}}", ts(a); !strings.Contains(t, s) {

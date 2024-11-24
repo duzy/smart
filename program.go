@@ -236,7 +236,7 @@ func (p *execution) sources(ctx *exec_ctx) (sources []*raw) {
     for i, recipe := range p.recipes {
         if !pos.IsValid() { pos = recipe.Position() }
 
-        var cc Context = _final(pc(ctx,pos))
+        var cc Context = _final(pc(ctx, pos))
         var s = recipe.string(cc)
 
         if checkpoints && truly(ctx, is_test_mode{}) {
@@ -309,7 +309,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
 
     if res != nil {
         if d, prev := auto_set(ctx, defVoid, "-", res); d == nil {
-            var _, ent, _ = entryIndicator(ctx, _entry(ctx))
+            _, ent, _ := entryIndicator(ctx, _entry(ctx))
             prompt(ctx, "%v: %s\n", ent, intername(i))
             errostack(ctx, 5, "set buffer value failed: %v → %v", prev, res).trace()
         }
@@ -318,7 +318,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
     p.interpreted = append(p.interpreted, i)
 
     if _, _, e := p.updateRecipesHash(ctx, target); e != nil {
-        var _, ent, _ = entryIndicator(ctx, _entry(ctx))
+        _, ent, _ := entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
         errostack(ctx, 5, "update recipes hash failed: %v", e).trace()
     }

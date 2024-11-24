@@ -63,28 +63,8 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
 	if proj := _project(ctx); proj != nil {
 		switch proj.name {
 		case "configure.base":
-			if ent := _entry(ctx); ent != nil {
-				switch ent.destiny().string(ctx) {
-				case "-compiles-c", "-library-c", "-symbol-c":
-					if truly(ctx, is_exec{}) {
-						switch p.String() {
-						case "$(file $(name).c)", "$(file $(name).c++)", "$(file $(name).log)":
-							if _, y := (*res).(*file); !y {
-								errostack(ctx, 8, "not a file: %v: %v → %v", p, ts(p), ts(*res)).trace()
-							}
-						case "$<", "$>", "$(file $(s).x)", "$(file $(s).o)":
-							if _, y := (*res).(fullfile); !y {
-								errostack(ctx, 8, "not a fullfile: %v: %v → %v", p, ts(p), ts(*res)).trace()
-							}
-						}
-					}
-					if truly(ctx, is_modify{}) {
-						ex_check_configure_base_library_c(ctx, p, _x, _a, _o, _l, res, a, o)
-					}
-				}
-			}
+			ex_check_configure_base(ctx, p, _x, _a, _o, _l, _cl, e, res, t, x, a, o)
 		}
-
 		switch proj.spec {
 		case "testdata/value/4":
 			ex_check_value_4(ctx, p, _x, _o, _a, res, x, o, a)
@@ -96,6 +76,37 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *b
 			ex_check_value_bug_01(ctx, p, _x, _o, _a, res, x, o, a)
 		case "testdata/rule/shell/for-stdout":
 			ex_check_rule_shell_forstdout(ctx, p, _x, _o, _a, res, x, a)
+		}
+	}
+}
+
+func ex_check_configure_base(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, e *bool, res, t, x *Value, a, o *[]Value) {
+	if at := ts(auto_get(ctx, "@")); strings.HasPrefix(at, "{=file .configure/library/HAVE_LIB") {
+		switch s := p.String(); s {
+		case `$(foreach $(INCLUDE),"#include $_\n")`:
+			if v := (*res).String(); strings.HasPrefix(v, `$(foreach {},"#include`) {
+				erro(pc(ctx,p), "%s : %s → %s ; %v", at, s, v, *a).trace()
+			}
+		}
+	}
+	if ent := _entry(ctx); ent != nil {
+		switch ent.destiny().string(ctx) {
+		case "-compiles-c", "-library-c", "-symbol-c":
+			if truly(ctx, is_exec{}) {
+				switch p.String() {
+				case "$(file $(name).c)", "$(file $(name).c++)", "$(file $(name).log)":
+					if _, y := (*res).(*file); !y {
+						errostack(ctx, 8, "not a file: %v: %v → %v", p, ts(p), ts(*res)).trace()
+					}
+				case "$<", "$>", "$(file $(s).x)", "$(file $(s).o)":
+					if _, y := (*res).(fullfile); !y {
+						errostack(ctx, 8, "not a fullfile: %v: %v → %v", p, ts(p), ts(*res)).trace()
+					}
+				}
+			}
+			if truly(ctx, is_modify{}) {
+				ex_check_configure_base_library_c(ctx, p, _x, _a, _o, _l, res, a, o)
+			}
 		}
 	}
 }

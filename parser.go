@@ -67,22 +67,26 @@ type parser struct {
 }
 
 type (
-	parse_is_params      struct{}
-	parse_is_undef       struct{}
-	parse_is_glob        struct{}
-	is_recipe      struct{ bool } // builtin or text
-	left_hand_side struct{}
-	parse_no_argumented  struct{}
-	parse_no_path        struct{}
+	left_hand_side  struct{}
+	p_is_params     struct{}
+	p_is_undef      struct{}
+	p_is_glob       struct{}
+	p_no_argumented struct{}
+	p_no_path       struct{}
 )
 
-type aware_token struct { token }
-type p_aware_ctx struct { Context ; token }
-func (p p_aware_ctx) cast(t reflect.Type) Context { return icast(p,t) }
-func (p p_aware_ctx) inner() Context { return p.Context }
-func (p p_aware_ctx) do(ctx Context, op any) (_ any) {
+type   aware_token struct { token }
+type p_aware_comma struct { Context }
+type p_aware_dot   struct { Context }
+func (p p_aware_comma) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case aware_token: return p.token == t.token
+	case aware_token: return t.token == COMMA
+	}
+	return p.Context.do(ctx, op)
+}
+func (p p_aware_dot) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case aware_token: return t.token == DOT
 	}
 	return p.Context.do(ctx, op)
 }
@@ -112,6 +116,7 @@ type p_path         struct { Context }
 type p_perc         struct { Context }
 type p_glob         struct { Context }
 type p_regex        struct { Context }
+type p_strcomp      struct { Context }
 type p_undef_ctx    struct { Context }
 type p_rule_ctx     struct { Context }
 type recipe_ctx struct {
@@ -137,7 +142,7 @@ func (p p_undef_ctx) ts(t string) (_ string) {
 }
 func (p p_undef_ctx) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case parse_is_undef: return true
+	case p_is_undef: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -149,19 +154,29 @@ func (p p_perc) ts(t string) (_ string) {
 }
 func (p p_perc) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case parse_no_argumented: return true
+	case p_no_argumented: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p p_glob) cast(t reflect.Type) Context { return icast(p,t) }
 func (p p_glob) inner() Context { return p.Context }
-func (p p_glob) ts(t string) (_ string) {
-	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
-}
+func (p p_glob) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_glob) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
 func (p p_glob) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case parse_is_glob: return true
+	case p_is_glob: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+
+type p_is_strcomp struct {}
+func (p p_strcomp) inner() Context { return p.Context }
+func (p p_strcomp) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_strcomp) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
+func (p p_strcomp) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case p_is_strcomp: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -173,7 +188,7 @@ func (p p_params) ts(t string) (_ string) {
 }
 func (p p_params) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case parse_is_params: return true
+	case p_is_params: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -230,6 +245,7 @@ func (p p_rule_ctx) do(ctx Context, op any) (_ any) {
 
 type add_recipe_line struct{ a []Value }
 type is_recipe_start struct{}
+type is_recipe       struct{ bool } // builtin or text
 
 func (p *recipe_ctx) cast(t reflect.Type) Context { return icast(p,t) }
 func (p *recipe_ctx) inner() Context { return p.Context }
@@ -795,7 +811,7 @@ func (l ul) list(ctx Context, a ...any) *list {
 func (l ul) group(ctx Context) *group {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "group")) }
 
-	ctx = p_group_ctx{p_aware_ctx{ctx,COMMA}}
+	ctx = p_group_ctx{p_aware_comma{ctx}}
 
 	l.p.expect(ctx, LPAREN)
 	l.p.spaces(ctx)
@@ -828,7 +844,7 @@ func (l ul) group(ctx Context) *group {
 func (l ul) argumented(ctx Context, x Value) *argumented {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "argumented")) }
 
-	ctx = p_group_ctx{p_aware_ctx{ctx,COMMA}}
+	ctx = p_group_ctx{p_aware_comma{ctx}}
 
 	l.p.next(ctx, true) // skip LPAREN
 
@@ -862,6 +878,7 @@ func (l ul) globrange(ctx Context) (x *globrange) {
 	l.p.expect(ctx, LBRACK) // skip '['
 
 	chars := l.expr(ctx)
+
 	l.p.expect(ctx, RBRACK) // skip ']'
 
 	return _globrange(chars)
@@ -1103,7 +1120,7 @@ func (l ul) strcomp(ctx Context) *strcomp {
 		if l.p.tok == RAW {
 			elems = append(elems, l.literal(ctx))
 		} else {
-			elems = append(elems, l.expr(ctx))
+			elems = append(elems, l.expr(p_strcomp{ctx}))
 		}
 		if l.p.pos == p { erro(ctx, "syntax error").trace() }
 	}
@@ -1140,7 +1157,7 @@ func (l ul) tilde(ctx Context) (res Value) {
 func (l ul) dot(ctx Context, x Value) (_ Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "dot")) }
 
-	ctx = p_aware_ctx{ctx, DOT}
+	ctx = p_aware_dot{ctx}
 
 	l.p.step(ctx)
 
@@ -1482,7 +1499,7 @@ func (l ul) closuredelegate_obj(ctx Context, tok token, name Value, isClosure bo
 		return
 	}
 
-	if isClosure || truly(ctx, parse_is_undef{}) || dis_evoke(ctx, name, nil) {
+	if isClosure || truly(ctx, p_is_undef{}) {
 		obj = name // recursive delegation or closure
 		return
 	}
@@ -1654,10 +1671,8 @@ func (l ul) abc(ctx Context, isClosure, special bool) (tok token, obj Value, arg
 func (l ul) closuredelegate(ctx Context, isClosure, special bool) (result Value) {
 	if l_traverse.enabled {	defer un(l_trace(l_traverse, "closuredelegate")) }
 
-	ctx = p_aware_ctx{ctx, COMMA}
-
 	pos := l.p.Position()
-	tok, obj, args, opts := l.abc(ctx, isClosure, special)
+	tok, obj, args, opts := l.abc(p_aware_comma{ctx}, isClosure, special)
 
 	if obj == nil {
 		erro(ctx, "%v : nil symbol", tok).trace()
@@ -1841,8 +1856,8 @@ func (l ul) expr(ctx Context) (x Value) {
 	if checkpoints && truly(ctx, is_test_mode{}) { defer l.expr_check_1(ctx, x, l.p.tok, &x) }
 
 	if truly(ctx, left_hand_side{}) && l.p.tok.is_assign() { return }
-	if truly(ctx, parse_is_glob{}) { return }
-	if truly(ctx, parse_is_params{}) {
+	if truly(ctx, p_is_glob{}) { return }
+	if truly(ctx, p_is_params{}) {
 		if g, y := x.(*group); y && g.len() == 1 {
 			if _, y = g.elems[0].(*group); y { return }
 		}
@@ -1864,19 +1879,19 @@ composeloop: // parses right-fixes
 		}
 
 	case LPAREN:
-		if !truly(ctx, parse_no_argumented{}) {
+		if !truly(ctx, p_no_argumented{}) {
 			x = l.argumented(ctx, x)
 			goto composeloop
 		}
 
 	case PCON: // path, except -I/path/to/include
-		if !truly(ctx, parse_no_path{}) {
+		if !truly(ctx, p_no_path{}) {
 			x = l.path(ctx, x)
 			goto composeloop
 		}
 
 	case QUE: // ?
-		if !truly(ctx, parse_is_glob{}) {
+		if !truly(ctx, p_is_glob{}) {
 			l.p.step(ctx)
 			x = condish(ctx, x)
 			goto composeloop
@@ -1888,6 +1903,8 @@ composeloop: // parses right-fixes
 			goto composeloop
 		}
 	}
+
+	if truly(ctx, p_is_strcomp{}) { return }
 
 	var p = l.p.pos
 	var y = l.unary(ctx)// NOTE: it's unary, not composite
@@ -1916,7 +1933,7 @@ andloop:
 		case RBRACE: break andloop
 		}
 
-		v := l.expr(p_aware_ctx{ctx,COMMA})
+		v := l.expr(p_aware_comma{ctx})
 		w := v.expand(pc(_final(ctx), v))
 
 		if false && strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
@@ -1946,7 +1963,7 @@ orloop:
 		case RBRACE: break orloop
 		}
 
-		v := l.expr(p_aware_ctx{ctx, COMMA})
+		v := l.expr(p_aware_comma{ctx})
 		w := v.expand(pc(_final(ctx), v))
 
 		if false && strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
@@ -1984,31 +2001,30 @@ func (f foreach_text) inner() Context { return f.Context }
 func (f foreach_text) cast(t reflect.Type) Context { return icast(f, t) }
 func (f foreach_text) do(c Context, o any) (_ any) {
     switch t := o.(type) {
-    case find_auto: if t.string == "_" { return }
-    }
-	return f.Context.do(c, o)
-}
-
-type foreach_txt struct { automatic }
-func (p *foreach_txt) inner() Context { return &p.automatic }
-func (p *foreach_txt) cast(t reflect.Type) Context { return icast(p, t) }
-func (p *foreach_txt) do(c Context, o any) (_ any) {
-    switch t := o.(type) {
     case find_auto:
 		if s := t.string; s == "_" {
-			if _, y := p.defs[s]; !y {
-				return
+			var a *automatic
+			switch t := f.Context.(type) {
+			case *automatic: a = t
+			case *builtin_foreach: a = &t.automatic
+			}
+			if a != nil {
+				if _project(c).name == "configure.base" {
+					note(c, "%v", a.defs).debug()
+				}
+				if _, y := a.defs[s]; !y {
+					return
+				}
 			}
 		}
     }
-	return p.automatic.do(c, o)
+	return f.Context.do(c, o)
 }
 
 func (l ul) braced_foreach(ctx Context) Value {
 	l.p.expect(ctx, FOREACH)
 	l.p.spaces(ctx)
 
-	var ac = p_aware_ctx{ctx, COMMA}
 	var vals []Value
 
 valsloop:
@@ -2018,11 +2034,12 @@ valsloop:
 			break valsloop
 		}
 
+		ac := p_aware_comma{ctx}
 		vals = append(vals, l.expr(ac))
 		l.p.spaces(ac)
 	}
 
-	cc := foreach_txt{automatic{ Context:ctx, defs:make(defs_map) }}
+	cc := automatic{ Context:ctx, defs:make(defs_map) }
 	cc.set(ctx, defVoid, "_", nil)
 
 	var temps []Value
@@ -2031,7 +2048,7 @@ valsloop:
 	case COMMA:
 		for l.p.step(ctx); l.p.tok != RBRACE; {
 			l.p.spaces(ctx)
-			if v := l.expr(&cc); v != nil {
+			if v := l.expr(foreach_text{&cc}); v != nil {
 				temps = append(temps, v)
 			} else {
 				erro(ctx, "nil ; %v", l.p.tok).trace()
@@ -2051,7 +2068,7 @@ valsloop:
 			// NOTE: don't use defAuto, it's for codeblock auto only
 			cc.set(ctx, defVoid, "_", elem)
 
-			var a = xmerge(final{&cc}, temps...)
+			var a = xmerge(final{foreach_text{&cc}}, temps...)
 			if recipe_start && l.p.tok == LINEND {
 				do(ctx, add_recipe_line{a})
 			} else {
@@ -4410,7 +4427,7 @@ func (l ul) projec(ctx Context, filename string, isMainFile bool) (_ Value, _ st
 	if l.p.tok != LPAREN {
 		l.bases(cc, implicitBase) // for special bases, e.g. .base
 	} else {
-		var cc0 = p_group_ctx{p_aware_ctx{ctx, COMMA}}
+		var cc0 = p_group_ctx{p_aware_comma{ctx}}
 		for l.p.tok != EOF {
 			for l.p.next(ctx, true); !l.p.is_list_term(ctx); {
 				l.p.spaces(ctx)
