@@ -2009,9 +2009,6 @@ func (f foreach_text) do(c Context, o any) (_ any) {
 			case *builtin_foreach: a = &t.automatic
 			}
 			if a != nil {
-				if _project(c).name == "configure.base" {
-					note(c, "%v", a.defs).debug()
-				}
 				if _, y := a.defs[s]; !y {
 					return
 				}

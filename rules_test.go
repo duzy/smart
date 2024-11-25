@@ -183,9 +183,9 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v : %s != %s", recipes[0], t, s)
 		} else if v := _evoke_(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
 			ctx.err("%v", r[0])
-		} else if s, t := "{=plain(text) $(foreach aa bb cc,arg-$_)}", v.String(); s != t {
+		} else if s, t := "{=plain(text) arg-aa arg-bb arg-cc}", v.String(); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
-		} else if s, t := "{=plain(text) {=delegate {=builtin foreach} {=list {=list {=word aa} {=word bb} {=word cc}}} {=list {=compound {=word arg-} {=delegate {=auto _}}}}}}", ts(v); s != t {
+		} else if s, t := "{=plain(text) {=compound {=word arg-} {=word aa}} {=compound {=word arg-} {=word bb}} {=compound {=word arg-} {=word cc}}}", ts(v); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
 		} else if s, t := "arg-aa arg-bb arg-cc", v.string(ctx); s != t {
 			t = strings.ReplaceAll(t, "\n", `\n`)
@@ -209,13 +209,9 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v : %s != %s", recipes[0], t, s)
 		} else if v := _evoke_(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
 			ctx.err("%v", r[0])
-		} else if s, t := "{=plain(text) $(foreach aa bb cc,{=plainline arg-$_})}", v.String(); s != t {
+		} else if s, t := "{=plain(text) {=plainline arg-aa} {=plainline arg-bb} {=plainline arg-cc}}", v.String(); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
-		} else if s, t := "{=plain(text) {=delegate {=builtin foreach} {=list {=list {=word aa} {=word bb} {=word cc}}} {=list {=plainline {=raw arg-} {=delegate {=auto _}}}}}}", ts(v); s != t {
-			ctx.err("%v : %s != %s", v, t, s)
-		} else if s, t := "{=plain(text) $(foreach aa bb cc,{=plainline arg-$_})}", v.String(); s != t {
-			ctx.err("%v : %s != %s", v, t, s)
-		} else if s, t := "{=plain(text) {=delegate {=builtin foreach} {=list {=list {=word aa} {=word bb} {=word cc}}} {=list {=plainline {=raw arg-} {=delegate {=auto _}}}}}}", ts(v); s != t {
+		} else if s, t := "{=plain(text) {=plainline {=raw arg-} {=word aa}} {=plainline {=raw arg-} {=word bb}} {=plainline {=raw arg-} {=word cc}}}", ts(v); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
 		} else if s, t := "arg-aa\narg-bb\narg-cc\n", v.string(ctx); s != t {
 			t = strings.ReplaceAll(t, "\n", `\n`)

@@ -85,6 +85,7 @@ func ex_check_configure_base(ctx Context, p, _x Value, _a, _o []Value, _l token,
 		switch s := p.String(); s {
 		case `$(foreach $(INCLUDE),"#include $_\n")`:
 			if v := (*res).String(); strings.HasPrefix(v, `$(foreach {},"#include`) {
+				note(ctx, "%v → %v ; %v %v %v", p, *res, _cl, truly(ctx, propExClosure), truly(ctx, propExDelegate))
 				erro(pc(ctx,p), "%s : %s → %s ; %v", at, s, v, *a).trace()
 			}
 		}

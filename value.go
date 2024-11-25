@@ -5083,6 +5083,7 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
 
     var res_ent func (Context, any, ...bool) entry
     var res_obj func (Context, string) object
+
     if !_cl && truly(ctx, propExDelegate) {
         switch x.(type) {
         case *auto, *builtin, *def:
