@@ -102,8 +102,13 @@ func (exe *execution) evaluate_check(ctx Context, i interpreter, args []Value, r
 				if exe.language != x.name {
 					erro(ctx, "%s != %s ; %v", exe.language, x.name, ts(res)).trace()
 				}
-				// {=plainline $(foreach {},"#include xxx\n")}
+				// $(foreach $(INCLUDE),"#include $_\n") → $(foreach {},"#include xxx\n")
 				if x, y := x.elems[0].(*plainline); y && x.len() > 0 {
+					if false {
+						if x.String() == "{=plainline {}}" || ts(x) == "{=plainline {=null}}" {
+							erro(pc(ctx,x), "%s %v %s", typeof(i), x, ts(x)).debug(2)
+						}
+					}
 					if x, y := x.elems[0].(*delegate); y && ts(x.x) == "{=builtin foreach}" && len(x.a) == 2 {
 						if s, t := "{=list {=null}}", ts(x.a[0]); s == t {
 							notestack(pc(ctx,fn), 3, "%v", res).debug()
@@ -298,7 +303,7 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
 		} else if t := "{=word xxyzz}"; s == t {
 			if v := auto_get(ctx, "-"); v == nil {
 				erro(ctx, "-").trace()
-			} else if s, t := ts(v), "{=plain(text) {=word xxyzz}}"; s != t {
+			} else if s, t := ts(v), "{=plain(text) {=plainline {=word xxyzz}}}"; s != t {
 				erro(ctx, "%v: %s != %s", v, s, t).trace()
 			}
 			if x, y := (*result).(*plain); !y {
@@ -307,21 +312,29 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
 				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if x.len() != 1 {
 				erro(ctx, "%v: %v", ent, ts(*result)).trace()
-			} else if s := ts(x.elems[0]); s != "{=word xxyzz}" {
-				erro(ctx, "%v: %v", ent, tv(x.elems[0])).trace()
+			} else if s := ts(x.elems[0]); s != "{=plainline {=word xxyzz}}" {
+				erro(ctx, "%v: %v", ent, s).trace()
 			}
-			if s, t := (*result).string(ctx), "xxyzz"; s != t {
+			if s, t := (*result).string(ctx), "xxyzz\n"; s != t {
 				erro(ctx, "%v: %v: %s != %s", ent, ts((*result)), s, t).trace()
 			}
 		} else if t := "{=list {=word rule0} {=word xyz}}"; s == t {
 			if v := auto_get(ctx, "-"); v == nil {
 				erro(ctx, "-").trace()
-			} else if s, t := ts(v), "{=plain(text) {=word rule0} {=word xyz}}"; s != t {
+			} else if s, t := ts(v), "{=plain(text) {=plainline {=list {=word rule0} {=word xyz}}}}"; s != t {
 				erro(ctx, "%v: %s != %s", v, s, t).trace()
 			}
 			if x, y := (*result).(*plain); !y {
 				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if x.name != "text" {
+				erro(ctx, "%v: %v", ent, ts(*result)).trace()
+			} else if x.len() != 1 {
+				erro(ctx, "%v: %v", ent, ts(*result)).trace()
+			} else if x, y := x.elems[0].(*plainline); !y {
+				erro(ctx, "%v: %v", ent, ts(*result)).trace()
+			} else if x.len() != 1 {
+				erro(ctx, "%v: %v", ent, ts(*result)).trace()
+			} else if x, y := x.elems[0].(*list); !y {
 				erro(ctx, "%v: %v", ent, ts(*result)).trace()
 			} else if x.len() != 2 {
 				erro(ctx, "%v: %v", ent, ts(*result)).trace()
@@ -330,7 +343,7 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
 			} else if s := ts(x.elems[1]); s != "{=word xyz}" {
 				erro(ctx, "%v: %v", ent, tv(x.elems[0])).trace()
 			}
-			if s, t := (*result).string(ctx), "rule0 xyz"; s != t {
+			if s, t := (*result).string(ctx), "rule0 xyz\n"; s != t {
 				erro(ctx, "%v: %v: %s != %s", ent, ts((*result)), s, t).trace()
 			}
 		} else {

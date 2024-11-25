@@ -112,6 +112,12 @@ func (p plainline_ctx) do(ctx Context, op any) (_ any) {
 type plainline struct { elements }
 func (_ *plainline) kind() Kind { return KindPlainLine }
 func (p *plainline) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
+func (p *plainline) ts(t string) (s string) {
+    s = "{="+t
+    for _, v := range p.elems { s += " " + ts(v) }
+    s += "}"
+    return
+}
 func (p *plainline) String() (s string) {
     s = "{=plainline"
     if p.elems != nil {
@@ -131,6 +137,22 @@ func (p *plainline) string(ctx Context) (s string) {
     }
 
     for _, v := range p.elems { s += v.string(ctx) }
+
+    if i := len(p.elems); 0 < i {
+        var v = p.elems[i-1]
+        if _, y := v.(*null); y {
+            return
+        }
+        if x, y := v.(*list); y {
+            if i := x.len(); 0 < i {
+                v = x.elems[i-1]
+            }
+        }
+        if _, y := v.(*plainline); y {
+            return
+        }
+    }
+
     s += "\n"
     return
 }
@@ -184,7 +206,7 @@ func (p *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
         res.elems = append(res.elems, recipe.expand(final{ctx}))
     }
 
-    if len(res.elems) == 1 {
+    if false && len(res.elems) == 1 {
         if x, y := res.elems[0].(*plainline); y {
             res.elems = merge(x.elems...)
         }

@@ -35,11 +35,11 @@ func testRules0(ctx *testcase) {
 	if d := ctx.def("lines"); d == nil {
 		ctx.err("lines")
 	} else if s, t := "{=list {=plainline {=raw line-} {=word foo}} {=plainline {=raw line-} {=word bar}}}", ts(d.value); s != t {
-		ctx.err("%v: %s != %s", d.value, s, t)
+		ctx.err("%v: %s != %s ; %s", d.value, s, t, ts(d.value))
 	} else if s, t := "{=plainline line-foo} {=plainline line-bar}", d.value.String(); s != t {
-		ctx.err("%v: %s != %s", d.value, s, t)
+		ctx.err("%v: %s != %s ; %s", d.value, s, t, ts(d.value))
 	} else if s, t := "line-foo\nline-bar\n", d.value.string(ctx); s != t {
-		ctx.err("%v: %s != %s", d.value, s, t)
+		ctx.err("%v: %s != %s ; %s", d.value, s, t, ts(d.value))
 	}
 
 	if p.entries.puncs == nil {
@@ -160,9 +160,9 @@ func testRules0(ctx *testcase) {
 		ctx.err("%v", r)
 	} else if v := _evoke_(ctx, r[0], bare("xxyzz")); v == nil {
 		ctx.err("%v", r[0])
-	} else if s, t := "{=plain(text) xxyzz}", v.String(); s != t {
+	} else if s, t := "{=plain(text) {=plainline xxyzz}}", v.String(); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "{=plain(text) {=word xxyzz}}", ts(v); s != t {
+	} else if s, t := "{=plain(text) {=plainline {=word xxyzz}}}", ts(v); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
 	}
 
@@ -183,13 +183,13 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v : %s != %s", recipes[0], t, s)
 		} else if v := _evoke_(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
 			ctx.err("%v", r[0])
-		} else if s, t := "{=plain(text) arg-aa arg-bb arg-cc}", v.String(); s != t {
+		} else if s, t := "{=plain(text) {=plainline arg-aa arg-bb arg-cc}}", v.String(); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
-		} else if s, t := "{=plain(text) {=compound {=word arg-} {=word aa}} {=compound {=word arg-} {=word bb}} {=compound {=word arg-} {=word cc}}}", ts(v); s != t {
+		} else if s, t := "{=plain(text) {=plainline {=list {=compound {=word arg-} {=word aa}} {=compound {=word arg-} {=word bb}} {=compound {=word arg-} {=word cc}}}}}", ts(v); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
-		} else if s, t := "arg-aa arg-bb arg-cc", v.string(ctx); s != t {
-			t = strings.ReplaceAll(t, "\n", `\n`)
-			s = strings.ReplaceAll(s, "\n", `\n`)
+		} else if s, t := "arg-aa arg-bb arg-cc\n", v.string(ctx); s != t {
+			// t = strings.ReplaceAll(t, "\n", `\n`)
+			// s = strings.ReplaceAll(s, "\n", `\n`)
 			ctx.err("%v : %s != %s", v, t, s)
 		}
 	}
@@ -209,9 +209,9 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v : %s != %s", recipes[0], t, s)
 		} else if v := _evoke_(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
 			ctx.err("%v", r[0])
-		} else if s, t := "{=plain(text) {=plainline arg-aa} {=plainline arg-bb} {=plainline arg-cc}}", v.String(); s != t {
+		} else if s, t := "{=plain(text) {=plainline {=plainline arg-aa} {=plainline arg-bb} {=plainline arg-cc}}}", v.String(); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
-		} else if s, t := "{=plain(text) {=plainline {=raw arg-} {=word aa}} {=plainline {=raw arg-} {=word bb}} {=plainline {=raw arg-} {=word cc}}}", ts(v); s != t {
+		} else if s, t := "{=plain(text) {=plainline {=list {=plainline {=raw arg-} {=word aa}} {=plainline {=raw arg-} {=word bb}} {=plainline {=raw arg-} {=word cc}}}}}", ts(v); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
 		} else if s, t := "arg-aa\narg-bb\narg-cc\n", v.string(ctx); s != t {
 			t = strings.ReplaceAll(t, "\n", `\n`)

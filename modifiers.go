@@ -2329,12 +2329,12 @@ func crc64CompareFileChecksum(ctx Context, filename1, filename2 string) (same bo
 }
 
 type modifier_updatefile struct { modifier_
-    verbFilename bool `vf,verbfile,verb-filename`
-    path   bool `p,path,md,makedir,make-dir,mp,makepath,make-path`
-    zero   bool `z,zero;e,empty;az,allow-zero;ae,allow-empty`
-    keep   bool `k,keep,keep-file`
-    append bool `a,app,append,append-content`
-    mode os.FileMode "m,mode"
+    verbFilename bool `verbfile,verb-filename`
+    path   bool `path,makedir,make-dir,makepath,make-path`
+    zero   bool `zero,empty,allow-zero,allow-empty`
+    keep   bool `keep,keep-file`
+    append bool `app,append,append-content`
+    mode os.FileMode "mode"
 }
 func (ctx *modifier_updatefile) x(args ...Value) (result any) {
     assert(ctx.mode != 0, "zero file mode")
@@ -2350,11 +2350,6 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
         erro(ctx, "update-file: not a file: %v", ts(target.Value)).trace()
     } else if filename = t.string(ctx); filename == "" {
         erro(ctx, "update-file: empty fullname: %v", ts(target.Value)).trace()
-    }
-
-    if ctx.debug > 0 {
-        warnstack(ctx, 5, "update-file: %v (fullname=%v, project=%v)",
-            target.Value, filename, _project(ctx)).debug(ctx.debug)
     }
 
     if ctx.path { // Make path (mkdir -p)
