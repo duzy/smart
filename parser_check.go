@@ -652,9 +652,21 @@ func (l ul) braced_word_check(ctx Context, elems []Value, res *Value) {
 	}
 }
 
-func (l ul) braced_defs_check(ctx Context, elems []Value, res *Value) {
+func (l ul) braced_defs_check(ctx Context, pats []Value, res *Value) {
 	var fn = l.p.scanner.file.Name()
 	if strings.HasSuffix(fn, "/configure/.base/.template") {
+		for _, pat := range pats {
+			var n = _project(ctx).name
+			var s = pat.String()
+			for _, os := range []string{"darwin","linux","bsd","mingw"} {
+				if strings.HasPrefix(s, fmt.Sprintf(`^%sconfigure\.`, os)) {
+					errostack(pc(ctx,pat), 6, "%s: %v", n, s).debug()
+				}
+				if strings.HasPrefix(s, fmt.Sprintf(`^(?:%s)?configure\.`, os)) {
+					errostack(pc(ctx,pat), 6, "%s: %v", n, s).debug()
+				}
+			}
+		}
 	}
 }
 
@@ -743,7 +755,7 @@ func (l ul) rule_check_target(ctx Context, target Value) {
 	}
 }
 
-func (l ul) codeblock_check(ctx Context, op token, vars map[string]Value) {
+func (l ul) codeblock_check(ctx *automatic, op token) {
 	if op == DEF {
 		erro(ctx, "wrong codeblock op: %v", op).trace()
 	}
@@ -760,9 +772,9 @@ func (l ul) codeblock_check(ctx Context, op token, vars map[string]Value) {
 		}
 	case "lib.c++.inc":
 		if op == FOR {
-			if x, y := vars["feature"]; !y {
+			if x, y := ctx.defs["feature"]; !y {
 				erro(ctx, "no 'feature' : %v : %v", x, ts(x)).trace()
-			} else if w, y := x.(*word); !y {
+			} else if w, y := x.value.(*word); !y {
 				erro(ctx, "wrong feature : %v : %v", x, ts(x)).trace()
 			} else if !strings.HasPrefix(w.s, "LIBCXX_ENABLE_") {
 				erro(ctx, "wrong name : %v", w).trace()
@@ -773,9 +785,9 @@ func (l ul) codeblock_check(ctx Context, op token, vars map[string]Value) {
 
 func (l ul) configure_check(ctx Context, name string) {
 	if d := l.project.def(ctx, name); d == nil {
-		erro(ctx, "nil configure: %v", name).trace()
+		errostack(ctx, 8, "nil configure: %v", name).trace()
 	} else if d.value == nil {
-		erro(ctx, "nil configure: %v", d).trace()
+		errostack(ctx, 8, "nil configure: %v", d).trace()
 	}
 }
 

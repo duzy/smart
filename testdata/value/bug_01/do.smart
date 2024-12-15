@@ -6,14 +6,14 @@ cross.build  := {=no}
 cross.target := $(if &(cross.build),$(foreach(-unique) &(--target),--target=$_ -Xclang -triple=$_))
 
 .flag := $(foreach(-unique) \
-    $(filter-out $(foreach $1,&($2!$_) &($2~&(target.os)!$_)), &($2) &($2~&(target.os))) \
-                 $(foreach $1,&($2.$_) &($2~&(target.os).$_)) \
+    $(filter-out $(foreach $1,&($2!$_) &(&(target.os)~$2!$_)), &($2) &(&(target.os)~$2)) \
+                 $(foreach $1,&($2.$_) &(&(target.os)~$2.$_)) \
    ,$(or $3,$2)$_$(or $4))
 
 .flags := &(cross.target) \
     $(foreach(-unique) $1 $2,&(-v.$_)) \
     $(foreach(-unique) $1 $2,$(addprefix -std=,&(-std.$_) &(std.$_))) \
-    $(if $(or &(-g) &(-g~&(target.os)) $(foreach $1 $2,&(-g.$_) &(-g~&(target.os).$_))),-g) \
+    $(if $(or &(-g) &(&(target.os)~-g) $(foreach $1 $2,&(-g.$_) &(&(target.os)~-g.$_))),-g) \
     $(foreach(-final) -g -O -D -f -m -W -I -no -isystem -isystem-after,$(.flag $1 $2,$_,$_)) \
     $(foreach(-final) --sysroot -isysroot -iwithsysroot -iframeworkwithsysroot,$(.flag $1 $2,$_,$_=)) \
     $(.flag $1,$(or(-final) $3,$2)flags)
@@ -27,7 +27,7 @@ bug_0.2 := $(foreach(-unique) $(foreach $1,&($2.$_)),$_)
 bug_0.1 := $(foreach(-final) x y z,$(bug_0.2 $1 $2,$_,$_))
 bug_0   := $(bug_0.1 $1,$2)
 
-bug_1.2 := $(filter-out $(foreach $1,&($2!$_) &($2~&(target.os)!$_)), &($2) &($2~&(target.os)))
+bug_1.2 := $(filter-out $(foreach $1,&($2!$_) &(&(target.os)~$2!$_)), &($2) &(&(target.os)~$2))
 bug_1.2 := &($2)
 bug_1.1 := $(bug_1.2 $1,$(or(-final) $3,$2)bug_1)
 bug_1   := $(bug_1.1 $1,$2)

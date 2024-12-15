@@ -1,7 +1,5 @@
 //
 //  Copyright (C) 2012-2024, Duzy Chan <code@extbit.io>, all rights reserverd.
-//  Use of this source code is governed by a BSD-style license that can be
-//  found in the LICENSE file.
 //
 package smart
 
@@ -41,7 +39,8 @@ func (*plainint) evaluate_check(ctx Context, args, recipes []Value, p *plain) {
 	return
 }
 
-func (exe *execution) sources_check(ctx *exec_ctx, cc Context, i int, rv Value, s string) {
+func (ctx *exec_ctx) sources_check(cc Context, i int, rv Value, s string) {
+	var exe = _execution(ctx)
 	if exe.proj != nil && exe.proj.name == "configure.base" {
 		switch dest := _entry(ctx).destiny().string(ctx); dest {
 		case "-header-c", "-header-c++":
@@ -98,16 +97,14 @@ func (exe *execution) evaluate_check(ctx Context, i interpreter, args []Value, r
 	if t, y := auto_get(ctx, "@").(*file); y {
 		if strings.HasPrefix(t.name, ".configure/") {
 			var fn = t.fullname()
-			if x, y := res.(*plain); y && x.len() > 0 {
+			if x, y := res.(*plain); y && 0 < x.len() {
 				if exe.language != x.name {
 					erro(ctx, "%s != %s ; %v", exe.language, x.name, ts(res)).trace()
 				}
 				// $(foreach $(INCLUDE),"#include $_\n") → $(foreach {},"#include xxx\n")
-				if x, y := x.elems[0].(*plainline); y && x.len() > 0 {
-					if false {
-						if x.String() == "{=plainline {}}" || ts(x) == "{=plainline {=null}}" {
-							erro(pc(ctx,x), "%s %v %s", typeof(i), x, ts(x)).debug(2)
-						}
+				if x, y := x.elems[0].(*plainline); y && 0 < x.len() {
+					if false && (x.String() == "{=plainline {}}" || ts(x) == "{=plainline {=null}}") {
+						erro(pc(ctx,x), "%s %v %s", typeof(i), x, ts(x)).debug(2)
 					}
 					if x, y := x.elems[0].(*delegate); y && ts(x.x) == "{=builtin foreach}" && len(x.a) == 2 {
 						if s, t := "{=list {=null}}", ts(x.a[0]); s == t {
@@ -127,13 +124,13 @@ func (exe *execution) evaluate_check(ctx Context, i interpreter, args []Value, r
 					}
 				}
 			}
-			if t.stat(ctx) == nil {
+			if s := typeof(i); s != `plainint` && t.stat(ctx) == nil {
 				switch {
 				case
 					strings.HasSuffix(t.name, ".c"),
 					strings.HasSuffix(t.name, ".c++"),
 					strings.HasSuffix(t.name, ".log"):
-					errostack(pc(ctx,fn), 6, "%v %v", exe.language, res).trace()
+					errostack(pc(ctx,fn), 6, "%s %v %v", s, exe.language, res).trace()
 				}
 			}
 		}
@@ -145,6 +142,20 @@ func (exe *execution) interpret_check(ctx Context, i interpreter, args []Value, 
 
 func (prog *program) execute_check(ctx *execution, result *Value) {
 	switch prog.project.name {
+	case "configure.base":
+		if x1, y := ctx.defs["TYPE"]; y {
+			if x2, y := ctx.defs["TARGET"]; y {
+				s := strings.ToUpper(x1.string(ctx))
+				s  = strings.Replace(s, " ", "_",  -1)
+				s  = strings.Replace(s, "*", "_P", -1)
+				if t := x2.string(ctx); "SIZEOF_"+s != t && "ALIGNOF_"+s != t {
+					erro(ctx, "%v : %s != %s", ctx.prerequisite, s, t).trace()
+				}
+				if a, y := ctx.prerequisite.(*argumented); false && y && a != nil {
+					note(ctx, "%v %v %v", a, x1, x2).debug(2)
+				}
+			}
+		}
 	case "testdefaultconfigure":
 		if t := _entry(ctx).destiny(); t == nil {
 			erro(ctx, "%v: %v", _entry(ctx)).trace()
@@ -161,20 +172,6 @@ func (prog *program) execute_check(ctx *execution, result *Value) {
 				} else if v.String() != "{=self testdefaultconfigure}" {
 					erro(ctx, "%v", d).trace()
 				}
-				if x := cast[*execution_modifiers](ctx); x == nil {
-					erro(ctx, "%v", t).trace()
-				} else {
-					if len(x.m) != 1 {
-						erro(ctx, "%v", x.m).trace()
-					} else if x.m[0].String() != "(configure)" {
-						erro(ctx, "%v", x.m[0]).trace()
-					}
-					if len(x.g) != 1 {
-						erro(ctx, "%v", x.g).trace()
-					} else if x.g[0].String() != "(configure)" {
-						erro(ctx, "%v", x.g[0]).trace()
-					}
-				}
 				if d := prog.project.finddef("FOO"); d == nil {
 					erro(ctx, "%v", t).trace()
 				} else if d.value == nil {
@@ -190,6 +187,29 @@ func (prog *program) execute_check(ctx *execution, result *Value) {
 	case "testdata/rule/1": prog.execute_check_rule_1(ctx, result)
 	case "testdata/rule/shell/for-stdout":
 		prog.execute_check_shell_for_stdout(ctx, result)
+	}
+}
+
+func (prog *program) execute_check_0(ctx *execution) {
+	switch prog.project.name {
+	case "configure.base":
+		switch t := prog.target(ctx); t.String() {
+		case "-sizeof-c":
+			for _, dep := range prog.depends {
+				if x, y := dep.(*argumented); y && x.Value.String() == "$(name).c.x" {
+					if len(x.args) != 3 {
+						erro(ctx, "%v %v", t, x).trace()
+					}
+					for i, s := range []string{"$(TYPE)","$(INCLUDE)","$(LIB)"} {
+						if x.args[i].String() != s {
+							erro(ctx, "%v %v %v != %s", t, x.Value, x.args[i], s).trace()
+						}
+					}
+				}
+			}
+		default:
+			if false { note(ctx, "%v", t).debug() }
+		}
 	}
 }
 
@@ -347,7 +367,7 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
 				erro(ctx, "%v: %v: %s != %s", ent, ts((*result)), s, t).trace()
 			}
 		} else {
-			erro(ctx, "%v: %s != %s", v, s, t).trace()
+			erro(ctx, "%v : %s != %s ; %s", v, s, t, v.string(ctx)).trace()
 		}
     }
 }

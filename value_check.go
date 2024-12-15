@@ -616,12 +616,13 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res
 	}
 }
 
-func expand_check_elem(ctx Context, e, v Value) {
-	if e == nil || v == nil {
-		erro(ctx, "nil : %v → %v", ts(e), ts(v)).trace()
-	} else if a, b := e.cmp(ctx, v), v.cmp(ctx, e); a != b {
-		erro(ctx, "cmp(%s, %s) → (%v, %v)", e, v, a, b)
-		note(ctx, "%v → %v", ts(e), ts(v)).trace()
+func expand_check_elem(ctx Context, v, w Value) {
+	if v == nil || w == nil {
+		erro(ctx, "nil : %v → %v", ts(v), ts(w)).trace()
+	} else if a, b := v.cmp(ctx, w), w.cmp(ctx, v); a != b {
+		note(ctx, "%v", ts(v))
+		note(ctx, "%v", ts(w))
+		erro(pc(ctx,v), "cmp(%s, %s) → (%v, %v)", v, w, a, b).trace()
 	}
 }
 
@@ -1184,45 +1185,51 @@ func (d *def) evoke_check(ctx *evocation, _res *Value) {
 	if ent := _entry(ctx); ent != nil {
 		switch proj := _project(ctx); proj.name {
 		case "configure.base":
-			switch ent.destiny().string(ctx) {
+			switch dest := ent.destiny().string(ctx); dest {
 			case "-cc", "-cxx", "-compiles-c", "-compiles-c++", "-library-c", "-library-c++", "-symbol-c", "-symbol-c++", "-function-c", "-function-c++", "-type-c", "-type-c++", "-variable-c", "-variable-c++", "-struct-member-c", "-struct-member-c++", "-headers-c", "-headers-c++":
 				switch d.name {
 				case "name":
 					if t := auto_find(ctx, "TARGET"); t == nil {
-						erro(ctx, "TARGET is nil: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+						erro(ctx, "TARGET is nil: %s, %v → %v (%T)", dest, d, ts(*_res), (*_res)).trace()
 					}
 					if _, y := (*_res).(*path); !y {
-						errostack(ctx, 8, "not a path: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+						errostack(ctx, 8, "not a path: %s, %v → %v (%T)", dest, d, ts(*_res), (*_res)).trace()
 					}
 				case "x", "o", "s":
 					if !truly(ctx, is_compound{}) && truly(ctx, is_exec{}) {
 						if _, y := (*_res).(fullfile); !y {
-							errostack(ctx, 8, "not a fullfile: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+							errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(*_res), (*_res)).trace()
 						}
 					} else {
 						if _, y := (*_res).(*file); !y {
-							errostack(ctx, 8, "not a file: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+							errostack(ctx, 8, "not a file: %s, %v → %v (%T)", dest, d, ts(*_res), (*_res)).trace()
 						}
 					}
 					if s := d.string(ctx); s == "" {
-						errostack(ctx, 8, "empty: %v → %v (%T)", d, s, (*_res)).trace()
+						errostack(ctx, 8, "empty: %s, %v → %v (%T)", dest, d, s, (*_res)).trace()
 					}
 				case "@":
 					if _, y := (*_res).(fullfile); !y {
-						errostack(ctx, 8, "not a fullfile: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
+						errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(*_res), (*_res)).trace()
 					}
 					if s := d.string(ctx); s == "" {
-						errostack(ctx, 8, "empty: %v → %v (%T)", d, s, (*_res)).trace()
+						errostack(ctx, 8, "empty: %s, %v → %v (%T)", dest, d, s, (*_res)).trace()
 					}
 				}
 			case "-feature-c", "-feature-c++", "-sizeof-c", "-sizeof-c++", "-alignof-c", "-alignof-c++":
-				if _, y := (*_res).(fullfile); !y {
-					errostack(ctx, 8, "not a fullfile: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
-				}
+				// if _, y := (*_res).(fullfile); !y {
+				// 	note(ctx, "%v", auto_get(ctx, "@"))
+				// 	note(ctx, "%v", auto_get(ctx, "<"))
+				// 	note(ctx, "%v", auto_get(ctx, ">"))
+				// 	errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(*_res), (*_res)).trace()
+				// }
 			case "-program-stdout", "-program-stderr", "-program-status":
-				if _, y := (*_res).(fullfile); !y {
-					errostack(ctx, 8, "not a fullfile: %v → %v (%T)", d, ts(*_res), (*_res)).trace()
-				}
+				// if _, y := (*_res).(fullfile); !y {
+				// 	note(ctx, "%v", auto_get(ctx, "@"))
+				// 	note(ctx, "%v", auto_get(ctx, "<"))
+				// 	note(ctx, "%v", auto_get(ctx, ">"))
+				// 	errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(*_res), (*_res)).trace()
+				// }
 			}
 		}
 	}
@@ -1230,6 +1237,16 @@ func (d *def) evoke_check(ctx *evocation, _res *Value) {
 
 func auto_find_check(ctx Context, name string, d *def) {
 	if p := _project(ctx); p != nil {
+		switch p.name {
+		case "configure.base":
+			if false && d != nil && d.name == "TYPE" && d.value != nil {
+				switch d.value.String() {
+				case "_Bool", "char", "int", "long", "long long":
+				default:
+					errostack(pc(ctx,d), 8, "%v %v", d.o, d.value).trace()
+				}
+			}
+		}
 		switch p.spec {
 		case "testdata/value/auto":
 			if t := do(ctx, find_auto{name}); d != nil && t == nil {
@@ -1265,4 +1282,126 @@ func auto_find_check(ctx Context, name string, d *def) {
 		}
 	}
 	return
+}
+
+func (ac *automatic) set_check(ctx Context, o origin, name string, val Value, _out **def, _old *Value) {
+	if _project(ctx).name == "configure.base" {
+		switch name {
+		case "@", "<", ">":
+			if val.patterned(ctx) {
+				errostack(ctx, 3, "%v %v %v %s", o, name, val, ts(val)).trace()
+			} else if s := val.String(); strings.Contains(s, "%") {
+				errostack(ctx, 3, "%v %v %v %s", o, name, val, ts(val)).trace()
+			}
+		case "TYPE":
+			v := val.String()
+
+			if strings.Contains(v, "$1") {
+				errostack(ctx, 8, "%v %v %v %s %v", o, name, val, ac.defs, *_old).trace()
+			}
+
+			a := auto_get(ctx, "@").string(ctx)
+			s := strings.ToUpper(val.string(ctx))
+			s  = strings.Replace(s, " ", "_",  -1)
+			s  = strings.Replace(s, "*", "_P", -1)
+
+			switch {
+			case a == "-alignof-c":
+				s = "ALIGNOF_" + s
+				if x, y := ac.defs["TARGET"]; !y || x.value == nil {
+					errostack(ctx, 8, "%v %v %v %s", o, name, val, ac.defs).trace()
+				} else if s != x.value.String() {
+					errostack(ctx, 8, "%v %v %v : %s != %s", o, name, val, x.value, s).trace()
+				} else if strings.Contains(v, "$1") {
+					errostack(ctx, 8, "%v %v %v : %s %s", o, name, val, x.value, s).trace()
+				}
+			case a == "-sizeof-c":
+				s = "SIZEOF_" + s
+				if x, y := ac.defs["TARGET"]; !y || x.value == nil {
+					errostack(ctx, 8, "%v %v %v %s", o, name, val, ac.defs).trace()
+				} else if s != x.value.String() {
+					errostack(ctx, 8, "%v %v %v : %s != %s", o, name, val, x.value, s).trace()
+				} else if strings.Contains(v, "$1") {
+					errostack(ctx, 8, "%v %v %v : %s %s", o, name, val, x.value, s).trace()
+				}
+			case !strings.Contains(a, s):
+				// @⇒{=file .configure/type/size/SIZEOF__BOOL.c.x}
+				// @⇒{=file .configure/type/size/SIZEOF_CHAR.c.x}
+				errostack(ctx, 8, "%v %v %v %s %v", o, name, val, ac.defs, *_old).trace()
+			}
+
+			switch {
+			case strings.Contains(a, ".configure/type/align/ALIGNOF_"):
+				// *⇒'align' 'ALIGNOF_CHAR'
+				t := auto_get(ctx, "*").string(ctx)
+				if !strings.Contains(t, "ALIGNOF_"+s) {
+					errostack(ctx, 8, "%v %v %v %s %v", o, name, val, ac.defs, *_old).trace()
+				}
+			case strings.Contains(a, ".configure/type/size/SIZEOF_"):
+				// *⇒'size' 'SIZEOF_CHAR'
+				t := auto_get(ctx, "*").string(ctx)
+				if !strings.Contains(t, "SIZEOF_"+s) {
+					errostack(ctx, 8, "%v %v %v %s %v", o, name, val, ac.defs, *_old).trace()
+				}
+			}
+		}
+	}
+}
+
+func (ac *automatic) find_auto_check(ctx Context, d *def, name string) {
+	if _project(ctx).name == "configure.base" {
+		if name == "TYPE" && d.value != nil {
+			if s := d.value.string(ctx); s == "_Bool" {
+				if x, y := ac.defs["@"]; y {
+					s = strings.ToUpper(s)
+					s = strings.Replace(s, " ", "_",  -1)
+					s = strings.Replace(s, "*", "_P", -1)
+					a := x.String()
+					switch {
+					case strings.Contains(a, "SIZEOF_"+s),
+						strings.Contains(a, "ALIGNOF_"+s),
+						strings.Contains(a, "HAVE_TYPE_"+s): // okay
+					default:
+						erro(ctx, "TYPE is incorrect: %s %v", s, x).trace()
+					}
+				}
+			}
+		}
+	}
+}
+
+func (ac *argumented_ctx) init_args_check(ctx Context, args []Value) {
+	// switch fmt.Sprintf("%s", args) {
+	// case "[_Bool $(configure.include.type._Bool?) $(LIB)]":
+	// 	note(ctx, "%v", args).debug()
+	// }
+	if false && 0 < len(args) && args[0].String() == "_Bool" {
+		note(ctx, "%v %v", args, auto_get(ctx, "1")).debug()
+	}
+	return
+}
+
+func (p *argumented) traverse_check(ctx Context, str string, args []Value) {
+	if x, y := ctx.(*execution); y {
+		if _project(ctx).name == "configure.base" {
+			if p.Value.String() == "$(name).c.x" && len(p.args) == 3 {
+				var a = auto_get(&x.automatic, "@")
+				var t = auto_get(&x.automatic, "TYPE")
+				if p.args[0].String() != "$(TYPE)" {
+					errostack(ctx, 8, "%v %v %v %v", t, a, str, args).trace()
+				}
+				if p.args[1].String() != "$(INCLUDE)" {
+					errostack(ctx, 8, "%v %v %v %v", t, a, str, args).trace()
+				}
+				if p.args[2].String() != "$(LIB)" {
+					errostack(ctx, 8, "%v %v %v %v", t, a, str, args).trace()
+				}
+				if t != nil && t.string(ctx) != p.args[0].string(ctx) {
+					if v, y := x.prerequisite.(*argumented); y && v != nil {
+						errostack(ctx, 8, "%v %v %v %v %v %v", t, a, (p==v), v.Value, v.args, args).trace()
+					}
+				}
+			}
+		}
+	}
 }

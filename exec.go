@@ -14,10 +14,11 @@ import (
   "os"
   "os/exec"
   "path/filepath"
+  "unicode"
   "regexp"
   "reflect"
-  "strconv"
   "strings"
+  "strconv"
   "sync"
   "sync/atomic"
   "time"
@@ -31,13 +32,44 @@ const (
   maxRetries = 1
 )
 
-type exitstatus struct { int }
-func (p *exitstatus) Error() string { return fmt.Sprintf(fmtExitStatus, p.int) }
+type exec_opts struct {
+  general_opts
+  logName *fullname "log"
+  forRecipe Value `forrecipe,forrecipes,for-recipe,for-recipes`
+  forStdout Value `forstdout,for-stdout,for-out`
+  forStderr Value `forstderr,for-stderr,for-err`
+  removeOnFail bool `drop-fail,drop-failure,remove-failure,remove-on-fail`
+  infos       bool `scan-infos`
+  silent      bool `silent,silent-errors` // silent errors
+  zeroStatusErrors bool `zero-status-errors`
+  zeroErrs    bool `no-error,no-errors,zero-errors` // require zero error scaned from STDERR
+  tieStdout   bool `tie-out,tie-stdout` // tied with log
+  tieStderr   bool `tie-err,tie-stderr` // tied with log
+  bufStdout   bool `stdout,save-stdout`
+  bufStderr   bool `stderr,save-stderr`
+  stdin       bool `stdin,in,input`
+  report      bool `report,report-stamp,verbose-stamp`
+  retStdout   bool `return-stdout,result-stdout,stdout`
+  retStderr   bool `return-stderr,result-stderr,stderr`
+  retStatus   bool `return-status,result-status,status` // may work with zero-errors
+  scanStdout  bool `scan-stdout,scan-out`
+  scanStderr  bool `scan-stderr,scan-err`
+  parallel    bool `parallel,no-order`
+  path        bool `path`
+  prompt      bool `prompt,msg`
+  promptSrc   bool `prompt-src,prompt-source,verbose-source`
+  cmd         string `cmd`
+  tie         string `tie` // all, both, stdout, stderr, out, err
+  _workdir    string `cd,change-dir,dir,workdir,work-dir,work-directory`
+}
 
 type knownerror struct {
   string // capture
   int // column
 }
+
+type exitstatus struct { int }
+func (p *exitstatus) Error() string { return fmt.Sprintf(fmtExitStatus, p.int) }
 
 var (
   defaultShell = "bash"
@@ -46,12 +78,20 @@ var (
   workingMutex = new(sync.Mutex)
   working atomic.Value // number of working executions
 
-  stdout = &stdWriter{std:os.Stdout}
-  stderr = &stdWriter{std:os.Stderr}
+  stdout = &std_writer{io:os.Stdout}
+  stderr = &std_writer{io:os.Stderr}
 
   rxFatalErrorFileNotFound = regexp.MustCompile(`(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`)
+  rxNoticeLines = []*regexp.Regexp{
+    regexp.MustCompile(`ld: library '[^']+' not found`),
+  }
 
-  knownerrors = map[*regexp.Regexp]func(*exec_buffer, int, []knownerror) { // `(?P<first>\d+)\.(\d+).(?P<second>\d+)`
+  zeroStatusErrors = []*regexp.Regexp{
+    regexp.MustCompile(`bash: (.+?): No such file or directory`),
+  }
+
+  // `(?P<first>\d+)\.(\d+).(?P<second>\d+)`
+  knownerrors = map[*regexp.Regexp]func(*exec_buffer, int, []knownerror) {
     regexp.MustCompile(`exit status (\-?[0-9]+)`): func(p *exec_buffer, l int, g []knownerror) {
       if g[1].string != "0" { p.scanned(diagError, l, g[0].int, g[0].string) }
     },
@@ -62,22 +102,21 @@ var (
       } else {
         p.scanned(diagError, l, g[4].int, fmt.Sprintf("%s", g[4].string))
       }
-      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
     regexp.MustCompile(`(.+?):(\d+):(\d+): warning: (.+)`): func(p *exec_buffer, l int, g []knownerror) {
       p.scanned(diagWarn, l, g[0].int, g[4].string)
       p.scanned(diagWarn, l, g[0].int, "warning").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
 
-    regexp.MustCompile(`In file included from (.+?):(\d+):`): func(p *exec_buffer, l int, g []knownerror) {
-      p.includedFrom.pos1 = p.pos(g[1].string, g[2].string, "1")
-      p.includedFrom.pos2 = p.lpos(l, g[2].int)
-    },
-    regexp.MustCompile(`In file included from (.+?):(\d+):(\d+):`): func(p *exec_buffer, l int, g []knownerror) {
-      p.includedFrom.pos1 = p.pos(g[1].string, g[2].string, g[3].string)
-      p.includedFrom.pos2 = p.lpos(l, g[3].int)
-    },
+    // regexp.MustCompile(`In file included from (.+?):(\d+):`): func(p *exec_buffer, l int, g []knownerror) {
+    //   p.includedFrom.pos1 = p.pos(g[1].string, g[2].string, "1")
+    //   p.includedFrom.pos2 = p.lpos(l, g[2].int)
+    // },
+    //
+    // regexp.MustCompile(`In file included from (.+?):(\d+):(\d+):`): func(p *exec_buffer, l int, g []knownerror) {
+    //   p.includedFrom.pos1 = p.pos(g[1].string, g[2].string, g[3].string)
+    //   p.includedFrom.pos2 = p.lpos(l, g[3].int)
+    // },
 
     regexp.MustCompile(`ar: (.+?): No such file or directory`): func(p *exec_buffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf("'%v' file not found", filepath.Base(g[1].string)))
@@ -127,17 +166,14 @@ var (
     regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`): func(p *exec_buffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf(`Import "%v" not found or errors`, g[4].string))
       p.scanned(diagError, l, g[0].int, "error").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
     regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`): func(p *exec_buffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf(`"%v" is not defined`, g[4].string))
       p.scanned(diagError, l, g[0].int, "error").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
     rxFatalErrorFileNotFound: func(p *exec_buffer, l int, g []knownerror) {
       p.scanned(diagError, l, g[0].int, fmt.Sprintf(`"%v" file not found`, g[4].string))
       p.scanned(diagError, l, g[0].int, "error").position = p.pos(g[1].string, g[2].string, g[3].string)
-      if false && !p.reportIncludedFrom() { erro(p, "…reported here").trace() }
     },
 
     // NOTE: python standard errors
@@ -176,10 +212,6 @@ var (
       p.scanned(diagError, l, g[0].int, g[0].string)
     },
   }
-
-  noticelines = []*regexp.Regexp{
-    regexp.MustCompile(`ld: library '[^']+' not found`),
-  }
 )
 
 func init() { working.Store(0) }
@@ -212,41 +244,41 @@ func trimPromptStringX(str string, x int) (s string) {
   return
 }
 
-type stdWriter struct {
+type std_writer struct {
   sync.Mutex
-  std io.Writer
+  io io.Writer
   suffixDots bool
 }
 
-func (w *stdWriter) Write(p []byte) (n int, err error) {
+func (w *std_writer) Write(p []byte) (n int, err error) {
   w.Lock(); defer w.Unlock()
   if w.suffixDots {
     if !bytes.HasPrefix(p, udots) {
-      w.std.Write([]byte("\n"))
+      w.io.Write([]byte("\n"))
     }
     w.suffixDots = false
   }
-  if n, err = w.std.Write(p); bytes.HasSuffix(p, udots) {
+  if n, err = w.io.Write(p); bytes.HasSuffix(p, udots) {
     w.suffixDots = true
   }
   return
 }
 
-type execlog struct {
+type exec_log struct {
   sync.Mutex
   writer *bufio.Writer
   filename string
   lines int
 }
 
-func (p *execlog) Write(b []byte) (n int, err error) {
+func (p *exec_log) Write(b []byte) (n int, err error) {
   p.Lock(); defer p.Unlock()
   p.lines += bytes.Count(b, []byte("\n"))
   n, err = p.writer.Write(b)
   return
 }
 
-func (p *execlog) createWriter(file *os.File, dir, cmd string) {
+func (p *exec_log) createWriter(file *os.File, dir, cmd string) {
   p.writer = bufio.NewWriter(file)
   fmt.Fprintf(p, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
   fmt.Fprintf(p, "Compilation started at %v\n\n", time.Now())
@@ -271,12 +303,10 @@ type exec_buffer struct {
   wrote uint64
 
   forLine Value
-
-  includedFrom struct { pos1, pos2 Position }
 }
 
 func is_notice_line(s string) (_ bool) {
-  for _, x := range noticelines {
+  for _, x := range rxNoticeLines {
     if x.MatchString(s) { return true }
   }
   return
@@ -326,12 +356,26 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
 
       var line = p.line.Bytes()
 
+      if checkpoints && truly(p, is_test_mode{}) {
+        p.check_line(string(line), p.lnum)
+      }
+
       if expandForLine {
         c := p.exec_ctx
-        c.line.s, c.lino.int64 = string(line), int64(p.lnum)
+        c.line.s = string(line)
+        c.lino.int64 = int64(p.lnum)
         v := p.forLine.expand(_final(p.Context))
         if !isNull(v) && is_notice_line(c.line.s) {
           note(p, "%v : %d. %s → %v", p.forLine, line, c.line.s, ts(v)).debug()
+        }
+      }
+
+      if p.zeroStatusErrors {
+        for _, rx := range zeroStatusErrors {
+          if sm := rx.FindSubmatch(line); sm != nil {
+            p.resetStatusZero = true
+            break
+          }
         }
       }
 
@@ -378,17 +422,6 @@ func (p *exec_buffer) lpos(line, column int) Position {
     pos.Filename, pos.Line, pos.Column = p.log.filename, line, column
   }
   return pos
-}
-func (p *exec_buffer) reportIncludedFrom() (res bool) {
-  if p.includedFrom.pos1.IsValid() && p.includedFrom.pos2.IsValid() {
-    erro(p, "… included from here")
-    erro(p, "… reported here").trace()
-
-    p.includedFrom.pos1 = Position{}
-    p.includedFrom.pos2 = Position{}
-    res = true
-  }
-  return
 }
 func (p *exec_buffer) scanned(dt diagtype, line, column int, msg string) (res *exec_diag) {
   for _, rec := range p.scannedDiags {
@@ -441,36 +474,6 @@ func (p *exec_result) String() string {
   return s.String()
 }
 
-type exec_opts struct {
-  general_opts
-  logName *fullname "log"
-  forRecipe Value `forrecipe,forrecipes,for-recipe,for-recipes`
-  forStdout Value `forstdout,for-stdout,for-out`
-  forStderr Value `forstderr,for-stderr,for-err`
-  removeOnFail bool `drop-fail,drop-failure,remove-failure,remove-on-fail`
-  infos       bool `scan-infos`
-  silent      bool `silent,silent-errors` // silent errors
-  zeroErrs    bool `no-error,no-errors,zero-errors` // require zero error scaned from STDERR
-  tieStdout   bool `tie-out,tie-stdout` // tied with log
-  tieStderr   bool `tie-err,tie-stderr` // tied with log
-  bufStdout   bool `stdout,save-stdout`
-  bufStderr   bool `stderr,save-stderr`
-  stdin       bool `stdin,in,input`
-  report      bool `report,report-stamp,verbose-stamp`
-  retStdout   bool `return-stdout,result-stdout,stdout`
-  retStderr   bool `return-stderr,result-stderr,stderr`
-  retStatus   bool `return-status,result-status,status` // may work with zero-errors
-  scanStdout  bool `scan-stdout,scan-out`
-  scanStderr  bool `scan-stderr,scan-err`
-  parallel    bool `parallel,no-order`
-  path        bool `path`
-  prompt      bool `prompt,msg`
-  promptSrc   bool `prompt-src,prompt-source,verbose-source`
-  promStr     string `cmd`
-  tie         string `tie` // all, both, stdout, stderr, out, err
-  _workdir    string `cd,change-dir,dir,workdir,work-dir,work-directory`
-}
-
 type is_exec struct{}
 type exec_ctx struct {
   Context
@@ -478,13 +481,10 @@ type exec_ctx struct {
   exec_opts
   exec_result
 
-  sources []*raw
-  current int
-
   line strlit
   lino decimal
 
-  log *execlog
+  log *exec_log
   logPos Position
 
   target as
@@ -501,15 +501,12 @@ type exec_ctx struct {
 
   scannedDiags []*exec_diag
   start time.Time
-}
 
-func (p *exec_ctx) cast(t reflect.Type) Context { return icast(p,t) }
-func (p *exec_ctx) inner() Context { return p.Context }
-// func (p *exec_ctx) String() string { return p.Context.String() }
-func (p *exec_ctx) Position() Position {
-  if p.current < 0 { return _program(p).position }
-  return p.sources[p.current].position
+  resetStatusZero bool
 }
+func (p *exec_ctx) inner() Context { return p.Context }
+func (p *exec_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+// func (p *exec_ctx) String() string { return p.Context.String() }
 func (p *exec_ctx) ts(t string) (s string) {
   s = "{=" + t
   if p.sh != nil {
@@ -571,7 +568,7 @@ func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
 }
 
 // DEPRECATED
-func (p *exec_ctx) ensureContainerRunning(containerName string) (err error) {
+func (p *exec_ctx) DEPRECATED_ensureContainerRunning(containerName string) (err error) {
   var (
     stdoutR, stdoutW = io.Pipe()
     stderrR, stderrW = io.Pipe()
@@ -643,19 +640,24 @@ func (p *exec_ctx) run(exe *execution) (err error) {
     return
   }
 
+  if checkpoints && truly(p, is_test_mode{}) { defer p.run_check(exe) }
+
   exe.Add(1)
   p.num += 1
 
-  var run = func(c *exec.Cmd) {
+  run := func(c *exec.Cmd) {
     defer exe.Done()
 
-    if err = c.Run(); err == nil {
+    err = c.Run();
+
+    if err == nil {
       err = p.check()
-    } else if ee, ok := err.(*exec.ExitError); !ok {
+    } else if x, y := err.(*exec.ExitError); y {
+      if p.Status = x.ExitCode(); p.Status == 0 { err = p.check() } // success!
+      if p.resetStatusZero { p.Status = 0 }
+    } else {
       erro(p.Context, "exec failed: %v", err).trace()
       return
-    } else if p.Status = ee.ExitCode(); p.Status == 0 {
-      err = p.check() // success!
     }
   }
 
@@ -750,15 +752,84 @@ func (p *exec_ctx) check() (err error) {
   return
 }
 
-func (ctx *exec_ctx) exec(exe *execution, cmd, opt string) {
+func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
+    var a1 *strlit
+    var a2 *decimal
+    var ac *automatic
+    if ctx.forRecipe != nil {
+        a1, a2 = &strlit{}, &decimal{}
+        ac = &automatic{Context:ctx, defs:make(defs_map)}
+        ac.args(ac.Context, []Value{a1, a2})
+    }
+
+    var pos Position
+    var source string
+    for i, recipe := range recipes {
+        if !pos.IsValid() { pos = recipe.Position() }
+
+        var cc Context = _final(pc(ctx, pos))
+        var s = recipe.string(cc)
+
+        if checkpoints && truly(ctx, is_test_mode{}) {
+            ctx.sources_check(cc, i, recipe, s)
+        }
+
+        if s = strings.TrimRightFunc(s, unicode.IsSpace); s == "" {
+            source += "\n" // an empty line
+            continue
+        } else {
+            // Escape '$$' sequences.
+            s = strings.Replace(s, "$$", "$", -1)
+
+            // Duplicate all %
+            //s = strings.Replace(s, "%", "%%", -1)
+
+            source += s
+        }
+
+        if strings.HasSuffix(source, "\\") {
+            source += "\n" // append the line feed
+            if i < len(recipes) { continue }
+        }
+
+        // Remove tabs in line breakings.
+        source = strings.Replace(source, "\\\n\t", "\\\n", -1)
+        sources = append(sources, &raw{valbase{pos}, source})
+
+        if ctx.forRecipe != nil {
+            a1.position, a1.s     = pos, source
+            a2.position, a2.int64 = pos, int64(len(sources)+1)
+            ac.Context = ctx
+            if v := ctx.forRecipe.expand(_final(ac)); false && v != nil {
+                for i := 0; indeterminate(ac, v); i += 1 {
+                    if i < max_evoke {
+                        v = v.expand(_final(ac))
+                    } else {
+                        erro(ctx, "%v → %v", ctx.forRecipe, v).trace()
+                    }
+                }
+            }
+        }
+
+        pos, source = Position{}, ""
+    }
+
+    if len(sources) == 0 && 0 < len(recipes) {
+        erro(ctx, "empty recipes: %v", recipes).trace()
+    }
+    return
+}
+
+func (ctx *exec_ctx) exec(cmd, opt string) {
+  var exe = _execution(ctx)
   var env, sep = exe.env(ctx)
-  var envstr string
+  var envs string
   var logFile *os.File
 
   for i, s := range env[sep:] {
-    if i > 0 { envstr += " && " }
+    if i > 0 { envs += " && " }
     if k := strings.Index(s, "="); k > 0 {
-      envstr += fmt.Sprintf(`%s%s`, s[:k+1], strconv.Quote(s[k+2:]))
+      envs += fmt.Sprintf(`%s%s`, s[:k+1], strconv.Quote(s[k+2:]))
     }
   }
 
@@ -776,14 +847,14 @@ func (ctx *exec_ctx) exec(exe *execution, cmd, opt string) {
     ctx.container = nil
     ctx.sh = nil
 
-    if !is_configurecontext(ctx) && ctx.target.Value != nil {
-      var files = ctx.target.stamp(files_must_stamp{ctx})
+    if !ctx.silent && !is_configurecontext(ctx) && ctx.target.Value != nil {
+      var files = ctx.target.stamp(must_files_stamp{ctx})
       if !ctx.prompt && ctx.report { reportFileUpdates(ctx, files) }
     }
 
-    if ctx.prompt {
-      var ps = ctx.promStr
-      if ps += trimPromptString(ctx.targetName); exe.caller() == nil { ps += " …… ok" }
+    if !ctx.silent && ctx.prompt {
+      var ps = ctx.cmd + trimPromptString(ctx.targetName)
+      if _execution(exe.Context) == nil { ps += " …… ok" }
       if ps != "" {
         var s = time.Now().Sub(ctx.start).String()
         if n := ctx.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
@@ -796,13 +867,12 @@ func (ctx *exec_ctx) exec(exe *execution, cmd, opt string) {
 
   ctx.Stdout.forLine = ctx.forStdout
   ctx.Stderr.forLine = ctx.forStderr
+
   if ctx.forStdout != nil || ctx.forStderr != nil {
     ac := automatic{Context:ctx.Context, defs:make(defs_map)}
     ac.args(ac.Context, []Value{&ctx.line, &ctx.lino})
-    if d, y := ac.defs["1"]; y {
-      ac.Lock()
-      ac.defs["_"] = d // alias
-      ac.Unlock()
+    if x, y := ac.defs["1"]; y {
+      ac.defs["_"] = x // alias
     } else {
       erro(ctx, "wrong args: %v", ac.defs).trace()
     }
@@ -814,8 +884,10 @@ func (ctx *exec_ctx) exec(exe *execution, cmd, opt string) {
   if ctx.tieStdout { ctx.Stdout.Tie = stdout }
   if ctx.tieStderr { ctx.Stderr.Tie = stderr }
   if ctx.logName != nil {
-    ctx.log = &execlog{ filename: ctx.logName.string(ctx) }
+    ctx.log = &exec_log{ filename: ctx.logName.string(ctx) }
   }
+
+  var srcs = ctx.sources(exe.recipes)
 
   if ctx.log == nil || ctx.log.filename == "" {
     // no log required
@@ -824,7 +896,7 @@ func (ctx *exec_ctx) exec(exe *execution, cmd, opt string) {
   } else if logFile, err = os.Create(ctx.log.filename); err != nil {
     erro(ctx, "%v", err).trace()
   } else {
-    cmdline := joinraws("\n", ctx.sources...)
+    cmdline := joinraws("\n", srcs...)
     ctx.log.createWriter(logFile, ctx._workdir, cmdline)
   }
 
@@ -832,27 +904,18 @@ func (ctx *exec_ctx) exec(exe *execution, cmd, opt string) {
   ctx.Stderr.exec_ctx = ctx
   ctx.start = time.Now()
 
-  var _ctx = ctx.Context
   var noExec = truly(ctx, no_exec{})
-  for i, src := range ctx.sources {
-    ctx.Context = _ctx
-    ctx.current = i
-
-    if a := "@"; strings.HasPrefix(src.s, a) {
-      src.s = strings.TrimPrefix(src.s, a)
-    } else if ctx.promptSrc && !ctx.prompt {
-      var s string = src.s
+  for _, src := range srcs {
+    if src.trim("@"); src.s == "" { continue }
+    if ctx.promptSrc && !ctx.prompt {
+      s := src.s
       s = strings.Replace(s, "\n", "\\n", -1)
       s = strings.Replace(s, "\\\\n", "\\\n", -1)
-      prompt(ctx, "%s\n", s)//.debug()
+      prompt(ctx, "%s\n", s)
     }
 
-    if src.s = strings.TrimSpace(src.s); src.s == "" { continue }
-
-    if cmd == "docker" && len(envstr) > 0 {
-      src.s = fmt.Sprintf("%s && %s", envstr, src.s)
-    }
-
+    if checkpoints && truly(ctx, is_test_mode{}) { ctx.exec_check(exe, src) }
+    if cmd == "docker" && len(envs) > 0 { src.s = envs+" && "+src.s }
     if noExec { continue }
 
     ctx.sh = exec.Command(cmd, ctx.args...)
@@ -866,9 +929,7 @@ func (ctx *exec_ctx) exec(exe *execution, cmd, opt string) {
     }
     if   opt != "" { ctx.sh.Args = append(ctx.sh.Args, opt) }
     if src.s != "" { ctx.sh.Args = append(ctx.sh.Args, src.s) }
-
-    var err = ctx.run(exe)
-    if ctx.Status != 0 || err != nil { break }
+    if e := ctx.run(exe); ctx.Status != 0 || e != nil { break }
   }
 }
 
@@ -877,19 +938,19 @@ type executor struct {
   contained bool
 }
 func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
-  var exe = _execution(ctx)
-  if exe.prog == nil {
+  var prog = _program(ctx)
+  if prog == nil {
     erro(ctx, "needs program context to exec: %v", ctx).trace()
   }
 
   var cmd = p.cmd
-  var ec = &exec_ctx{Context:ctx, current:-1}
+  var ec = &exec_ctx{Context:ctx}
   ec.exec_result.position = _position(ctx)
   ec.scanStderr = true
 
   args = parse_opts(ctx, &ec.exec_opts, args...)
 
-  if !ec.prompt { ec.prompt = ec.promStr != "" }
+  if !ec.prompt { ec.prompt = ec.cmd != "" }
 
   switch ec.tie {
   case "stdout", "out": ec.tieStdout = true
@@ -918,14 +979,18 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   }
 
   if p.contained {
-    if exe.proj.name == dot_container {
-      ec.container = exe.proj
-    } else if _, sym := exe.proj.find(dot_container); sym != nil {
-      ec.container = sym.(*project)
+    var proj = _project(ctx)
+    if proj == nil {
+      erro(ctx, "nil project").trace()
     }
 
+    if proj.name == dot_container {
+      ec.container = proj
+    } else if _, sym := proj.find(dot_container); sym != nil {
+      ec.container = sym.(*project)
+    }
     if ec.container == nil {
-      erro(ctx, "%s: nil container", exe.proj.name).trace()
+      erro(ctx, "%s: nil container", proj.name).trace()
     }
 
     var stringify = func(name string) (str string) {
@@ -960,7 +1025,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
   }
 
   if ec._workdir == "" {
-    ec._workdir = exe.prog.workdir(ctx)
+    ec._workdir = prog.workdir(ctx)
     if ec._workdir == "" {
       erro(ctx, "workdir is empty").trace()
     }
@@ -974,8 +1039,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     }
   }
 
-  ec.sources = exe.sources(ec)
-  ec.exec(exe, cmd, p.opt)
+  ec.exec(cmd, p.opt)
 
   if ec.retStdout {
     var s string

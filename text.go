@@ -185,8 +185,10 @@ func (p *plainline) expand(ctx Context) (_ Value) {
 func (p *plainline) cmp(ctx Context, v Value) (_ cmpres) {
     if x, y := v.(*plainline); y {
         return compareElems(ctx, p.elems, x.elems)
-    } else if v.string(ctx) == p.string(ctx) {
-        return cmpEqual
+    } else if false {
+        if v.string(ctx) == p.string(ctx) {
+            return cmpEqual
+        }
     }
     return
 }

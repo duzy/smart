@@ -103,8 +103,11 @@ func (o origin) String() string {
 type defs_map map[string]*def
 func (m defs_map) len() int { return len(m) }
 func (m defs_map) String() (s string) {
+    seen := make(map[string]struct{}) // NOTE: digits alias: 1 2 3...
     for _, d := range m {
+        if _, y := seen[d.name]; y { continue }
         if s == "" { s = "{" } else { s += "," }
+        seen[d.name] = struct{}{}
         s += d.String()
     }
     if s != "" { s += "}" }
@@ -115,36 +118,38 @@ func _automatic(c Context) *automatic { return cast[*automatic](c) }
 
 type ex_auto   struct {}
 type find_auto struct { string }
+type set_auto  struct { o origin; s string; v Value }
+type res_auto  struct { d *def; v Value }
 type automatic struct {
     Context
     sync.RWMutex
     defs defs_map
+    params map[string]*auto
 }
 func (ac *automatic) cast(t reflect.Type) Context { return icast(ac, t) }
 func (ac *automatic) inner() Context { return ac.Context }
+func (ac *automatic) ts(t string) (_ string) {
+    return "{="+t+" "+ac.defs.String()+" "+ts(ac.Context)+"}"
+}
 func (ac *automatic) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
     case ex_auto: return true
     case init_args:
         if t.automatic == nil {
-            ac.Context.do(ctx, init_args{ac})
-            return
+            panic("automatic.init_args")
+            // ac.Context.do(ctx, init_args{ac})
+            // return
         }
     case find_auto:
-        if false {
-            if ta := _automatic(ctx); ta == ac {
-                var d1, d2, d3 *def
-                if true {
-                    d1, _ = ta.defs[t.string]
-                }
-                if tb := _automatic(ta.Context); tb != nil {
-                    d2, _ = tb.defs[t.string]
-                    d3, _ = do(ta.Context, op).(*def)
-                }
-                notestack(ctx, 16, "%v → %v, %v, %v, %v", t.string, d1, d2, d3, typeof(ctx)).debug(64)
+        if d, _ := ac.defs[t.string]; d != nil {
+            if checkpoints && truly(ctx, is_test_mode{}) {
+                ac.find_auto_check(ctx, d, t.string)
             }
+            return d
         }
-        if d, _ := ac.defs[t.string]; d != nil { return d }
+    case set_auto:
+        d, v := ac.set(ctx, t.o, t.s, t.v)
+        return res_auto{ d, v }
     case property:
         if t&propExAuto != 0 { return true }
     }
@@ -160,26 +165,32 @@ func (ac *automatic) amend(ctx Context, name string, val Value) (out *def, res V
 }
 func (ac *automatic) has(s string) (y bool) { _, y = ac.defs[s]; return }
 func (ac *automatic) set(ctx Context, o origin, name string, val Value) (out *def, old Value) {
-    if checkpoints && val != nil && name == "-" {
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer ac.set_check(ctx, o, name, val, &out, &old)
+    }
+
+    if name == "-" && val != nil {
         if x, y := val.(*def); y && x.o != defConfig {
             errostack(ctx, 3, "set $- to def (%v): %v", x.o, x).debug(16)
         }
     }
-    if out, _ = ac.defs[name] ; out == nil {
-        out = &def{o:o, value:val}
-        out.position = _position(ctx)
-        out.scope = _scope(ctx)
-        out.name = name
 
-        ac.Lock()
-        ac.defs[name] = out
-        ac.Unlock()
-    } else {
+    if out, _ = ac.defs[name]; out != nil {
         old = out.value
         // out.Lock()
         out.value = val
         // out.Unlock()
+        return
     }
+
+    out = &def{o:o, value:val}
+    out.position = _position(ctx)
+    out.scope = _scope(ctx)
+    out.name = name
+
+    ac.Lock()
+    ac.defs[name] = out
+    ac.Unlock()
     return
 }
 func (ac *automatic) args(ctx Context, vals []Value) {
@@ -189,10 +200,9 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
     var argn int // setup named/number parameters ($1, $2, etc.)
     var args = make(map[string]*arg, len(vals)) // compact args: combine duplicated pairs
-    var params = _parameters(ctx)
 
     for i, val := range vals {
-        var a = &arg{ id: strconv.Itoa(argn+1) }
+        a := &arg{ id: strconv.Itoa(argn+1) }
 
         if p, y := val.(*pair); y {
             if a.name = p.key.string(ctx); a.name == "" {
@@ -200,26 +210,26 @@ func (ac *automatic) args(ctx Context, vals []Value) {
                 return
             }
 
-            if params != nil {
-                if _, y = params[a.name]; !y {
-                    var keys = reflect.ValueOf(params).MapKeys()
+            if ac.params != nil {
+                if _, y = ac.params[a.name]; !y {
+                    var keys = reflect.ValueOf(ac.params).MapKeys()
                     errostack(pc(ctx,a), 16, "unknown arg#%d: %v ; known: %v", i, p, keys).trace()
                     return
                 }
             }
 
-            if a, y := args[a.name]; y {
-                if x, y := a.value.(*list); y {
+            if t, y := args[a.name]; y {
+                if x, y := t.value.(*list); y {
                     x.elems = append(x.elems, merge(p.val)...)
                 } else {
-                    a.value = _list(a.value)
+                    a.value = _list(t.value)
                 }
                 continue
             }
 
             a.value = p.val
         } else {
-            a.name, a.value = _paramname(ctx, argn), scalarize(val)
+            a.name, a.value = _param_name(ctx, argn), scalarize(val)
             if a.name == "" { a.name = a.id }
         }
 
@@ -257,9 +267,13 @@ func auto_get(ctx Context, name string) (_ Value) {
     return
 }
 
-func auto_set(ctx Context, o origin, name string, val Value) (out *def, res Value) {
-    if ac := _automatic(ctx); ac != nil { out, res = ac.set(ctx, o, name, val) }
-    return
+func auto_set(ctx Context, o origin, name string, val Value) (_ *def, _ Value) {
+    t, _ := do(ctx, set_auto{o, name, val}).(res_auto)
+    if t.d != nil && name == "TYPE" && _project(ctx).name == "configure.base" {
+        note(ctx, "%v %v", t.d, t.v)
+        note(ctx, "%v", ts(ctx)).debug()
+    }
+    return t.d, t.v
 }
 
 func hasAutoInner(ctx Context, target Value) (res bool) {
@@ -352,6 +366,7 @@ func (c def_evocation) inner() Context { return c.evocation }
 func (c def_evocation) cast(t reflect.Type) Context { return icast(c, t) }
 func (c def_evocation) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
+    case param_name: return
     case find_auto:
         if s := t.string; IsDigits(s) {
             if _, y := c.defs[s]; !y {
@@ -502,13 +517,13 @@ func (d *def) evoke(ctx *evocation) (res Value) {
         return
     }
 
-    cc := def_evocation{ctx}
-    ctx.args(cc, ctx.a)
+    de := def_evocation{ctx}
+    ctx.args(de, ctx.a)
 
-    v = v.expand(cc)
+    v = v.expand(de)
 
     if o == defExecute {
-        return scalarize(d.xexe(cc, v))
+        return scalarize(d.xexe(de, v))
     } else {
         return scalarize(v)
     }
@@ -867,7 +882,7 @@ func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-type get_entry struct{}
+type get_rule struct{}
 
 type rule_ctx struct { Context ; rule *rule ; args []Value }
 func (p *rule_ctx) Position() Position { return p.rule.Position() }
@@ -888,18 +903,14 @@ func (p *rule_ctx) ts(t string) (s string) {
 }
 func (p *rule_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
-    case get_entry: return p.rule
-    case get_args: if p.args != nil { return p.args }
-    case init_args:
-        if p.args != nil && t.automatic != nil {
-            t.args(ctx, p.args)
-            return
-        }
+    case  get_rule: return p.rule
+    case  get_args: if p.args != nil { return p.args }
+    case init_args: if p.args != nil { t.args(ctx, p.args); return }
     }
-    return dob(ctx, p.Context, op)
+    return p.Context.do(ctx, op)
 }
 
-func _entry(ctx Context) entry { return try[entry](ctx, get_entry{}) }
+func _entry(ctx Context) entry { return try[entry](ctx, get_rule{}) }
 
 type entry interface {
     destiny() Value // aka target
@@ -982,7 +993,7 @@ func (p *rule) String() string {
 }
 func (p *rule) updated(ctx Context) (res bool) {
     if res = p.target.updated(ctx); res {
-        do(ctx, act_mark_dirty{[]Value{ p.target }})
+        do(ctx, mark_dirty{[]Value{ p.target }})
     }
     return
 }
@@ -996,16 +1007,16 @@ func (p *rule) execute(ctx Context, a ...Value) (res []Value) {
 
     ctx = &rule_ctx{ctx, p, a}
 
-    for _, pg := range p.program {
-        if v := pg.execute(ctx); v != nil {
+    for _, prog := range p.program {
+        if v := prog.execute(ctx); v != nil {
             res = append(res, v)
         }
     }
     return
 }
 func (p *rule) recipes() (res []Value) {
-    for _, pg := range p.program {
-        for _, recipe := range pg.recipes {
+    for _, prog := range p.program {
+        for _, recipe := range prog.recipes {
             res = append(res, recipe)
         }
     }
@@ -1108,7 +1119,7 @@ progloop:
                     }
                 }
             } ()
-            if v := prog.execute(ctx); v != nil { do(ctx, act_exe_res{v}) }
+            if v := prog.execute(ctx); v != nil { do(ctx, exe_res{v}) }
             return
         } () {
         case traverse_done: break progloop
@@ -1155,7 +1166,7 @@ func (p *stemmed_ctx) hash(ctx Context) uint64 { return fnv1(ctx, p, p.target) }
 func (p *stemmed_ctx) cast(t reflect.Type) Context { return icast(p,t) }
 func (p *stemmed_ctx) inner() Context { return p.Context }
 func (p *stemmed_ctx) ts(_t string) string {
-    var s, t = p.target.String(), p.rule.target.String()
+    s, t := p.target.String(), p.rule.target.String()
     return "{="+_t+" "+s+" "+t+" "+ts(p.Context)+"}"
 }
 func (p *stemmed_ctx) do(ctx Context, op any) (_ any) {

@@ -7,11 +7,14 @@ package smart
 
 import (
 	"strings"
+	"fmt"
 )
 
 func testTemplate(ctx *testcase) {
-	if s := "xyz"; false {
-	} else if d := ctx.def(s); d == nil {
+	var s string
+
+	s = "xyz"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand2 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -23,8 +26,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := "var.xxx"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = "var.xxx"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand0 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -42,8 +45,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := "var.yyy"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = "var.yyy"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand0 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -61,8 +64,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := "var.zzz"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = "var.zzz"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand0 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -80,8 +83,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := "vars"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = "vars"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -109,8 +112,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := "var2"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = "var2"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -144,8 +147,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.1"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.1"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -157,8 +160,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.2"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.2"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -182,8 +185,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.3"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.3"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -199,8 +202,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.4"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.4"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -232,8 +235,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.5"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.5"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -255,8 +258,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.6"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.6"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -280,8 +283,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.7"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.7"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -313,8 +316,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.8"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.8"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -370,8 +373,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.9"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.9"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -397,8 +400,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.10"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.10"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
 		ctx.err("%v %v", d.o, tst{d})
@@ -454,8 +457,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.11"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.11"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defVoid {
 		ctx.err("%v %v", d.o, tst{d})
@@ -481,8 +484,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.12"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.12"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defVoid {
 		ctx.err("%v %v", d.o, tst{d})
@@ -538,8 +541,8 @@ func testTemplate(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	}
 
-	if s := ".test.13"; false {
-	} else if d := ctx.def(s); d == nil {
+	s = ".test.13"
+	if d := ctx.def(s); d == nil {
 		ctx.err(s)
 	} else if d.o != defVoid {
 		ctx.err("%v %v", d.o, tst{d})
@@ -560,6 +563,15 @@ func testTemplate(ctx *testcase) {
 	} else if s != "a1=x1 a2=x2 a1=y1 a2=y2 b1=x1 b2=x2 b1=y1 b2=y2" {
 		ctx.err("%v", tst{v})
 	}
+	return
+	for i := 1; i < 13; i += 1 {
+		s = fmt.Sprintf("t.test.%d", i)
+		if d := ctx.def(s); d == nil {
+			ctx.err("%s", s)
+		} else if s, t := fmt.Sprintf("%d .test.%d", i, i), d.string(ctx); s != t {
+			ctx.err("%s != %s", s, t)
+		}
+	}
 }
 
 func testTemplateForeach(ctx *testcase) {
@@ -567,7 +579,7 @@ func testTemplateForeach(ctx *testcase) {
 
 	s = ".test.a"
 	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err(s)
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
 	} else if len(t) != 1 {
 		ctx.err("%s %v", s, t)
 	} else if x, y := t[0].(rule_name); !y {
@@ -600,9 +612,9 @@ func testTemplateForeach(ctx *testcase) {
 
 	s = ".test.b"
 	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err(s)
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
 	} else if r := ctx.rule(s); r == nil {
-		ctx.err(s)
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if _, y := t.target.(*compound); !y {
@@ -627,9 +639,9 @@ func testTemplateForeach(ctx *testcase) {
 
 	s = ".test.c"
 	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err(s)
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
 	} else if r := ctx.rule(s); r == nil {
-		ctx.err(s)
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if _, y := t.target.(*compound); !y {
@@ -650,5 +662,177 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%v: %s != %s", t.target, x, s)
 	} else if r[0].String() != ".test.c" {
 		ctx.err("%v", tst{r[0]})
+	}
+
+	s = ".test.a.aaa"
+	if t := unmap_entries(ctx, s); t == nil {
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	} else if r := ctx.rule(s); r == nil {
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	} else if t, y := r[0].(rule_name); !y {
+		ctx.err("%v", tst{r[0]})
+	} else if len(t.program) != 1 {
+		ctx.err("%v: %v", t.target, t.program)
+	} else if len(t.program[0].recipes) != 1 {
+		ctx.err("%v: %v", t.target, t.program[0].recipes)
+	} else if s, x := "print foa.aaa foa.aaa $@", t.program[0].recipes[0].String(); s != x {
+		ctx.err("%v: %s != %s", t.target, x, s)
+	}
+
+	s = ".test.b.bbb"
+	if t := unmap_entries(ctx, s); t == nil {
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	} else if r := ctx.rule(s); r == nil {
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	} else if t, y := r[0].(rule_name); !y {
+		ctx.err("%v", tst{r[0]})
+	} else if len(t.program) != 1 {
+		ctx.err("%v: %v", t.target, t.program)
+	} else if len(t.program[0].recipes) != 1 {
+		ctx.err("%v: %v", t.target, t.program[0].recipes)
+	} else if s, x := "print fob.bbb fob.bbb $@", t.program[0].recipes[0].String(); s != x {
+		ctx.err("%v: %s != %s", t.target, x, s)
+	}
+
+	s = ".test.c.ccc"
+	if t := unmap_entries(ctx, s); t == nil {
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	} else if r := ctx.rule(s); r == nil {
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	} else if t, y := r[0].(rule_name); !y {
+		ctx.err("%v", tst{r[0]})
+	} else if len(t.program) != 1 {
+		ctx.err("%v: %v", t.target, t.program)
+	} else if len(t.program[0].recipes) != 1 {
+		ctx.err("%v: %v", t.target, t.program[0].recipes)
+	} else if s, x := "print foc.ccc foc.ccc $@", t.program[0].recipes[0].String(); s != x {
+		ctx.err("%v: %s != %s", t.target, x, s)
+	}
+
+	s = ".test.o.bar"
+	if t := unmap_entries(ctx, s); t == nil {
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	} else if r := ctx.rule(s); r == nil {
+		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	} else if t, y := r[0].(rule_name); !y {
+		ctx.err("%v", tst{r[0]})
+	} else if len(t.program) != 1 {
+		ctx.err("%v: %v", t.target, t.program)
+	} else if len(t.program[0].recipes) != 1 {
+		ctx.err("%v: %v", t.target, t.program[0].recipes)
+	} else if s, x := "print foo.bar foo.bar $@", t.program[0].recipes[0].String(); s != x {
+		ctx.err("%v: %s != %s", t.target, x, s)
+	}
+
+	s = "v.a"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "foa.aaa" {
+		ctx.err("%v", d)
+	}
+
+	s = "v.b"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "fob.bbb" {
+		ctx.err("%v", d)
+	}
+
+	s = "v.c"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "foc.ccc" {
+		ctx.err("%v", d)
+	}
+
+	s = "v.o"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "foo.bar" {
+		ctx.err("%v", d)
+	}
+
+	s = "v1.a"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "a" {
+		ctx.err("%v", d)
+	}
+
+	s = "v1.b"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "b" {
+		ctx.err("%v", d)
+	}
+
+	s = "v1.c"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "c" {
+		ctx.err("%v", d)
+	}
+
+	s = "v1.o"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "o" {
+		ctx.err("%v", d)
+	}
+
+	s = "v2.a"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "aaa" {
+		ctx.err("%v", d)
+	}
+
+	s = "v2.b"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "bbb" {
+		ctx.err("%v", d)
+	}
+
+	s = "v2.c"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "ccc" {
+		ctx.err("%v", d)
+	}
+
+	s = "v2.o"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "bar" {
+		ctx.err("%v", d)
+	}
+
+	s = "v.a.aaa"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "foa.aaa" {
+		ctx.err("%v", d)
+	}
+
+	s = "v.b.bbb"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "fob.bbb" {
+		ctx.err("%v", d)
+	}
+
+	s = "v.c.ccc"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "foc.ccc" {
+		ctx.err("%v", d)
+	}
+
+	s = "v.o.bar"
+	if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if d.string(ctx) != "foo.bar" {
+		ctx.err("%v", d)
 	}
 }

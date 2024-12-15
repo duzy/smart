@@ -207,7 +207,7 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
                     if c := user.configure; c != nil {
                         note(ctx, "%v", ts(c.resolve(ctx, "use.*")))
                     }
-                    erro(ctx, "%v: empty use spec: %v", user, ts(spec)).trace()
+                    erro(pc(ctx,o), "%v: empty use spec: %v", user, ts(spec)).trace()
                 } else {
                     f(op, spec, val, name)
                 }
@@ -218,9 +218,16 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
 func (l ul) usevars(ctx Context, user, usee *project) {
     var ddd = l.ddd == "use"
     usefor(ctx, user, func(op usevar, spec, val Value, name string) {
+        var prefix string
+        if m := name_prefix.FindStringSubmatch(name); m != nil {
+            prefix, name = m[1], m[3]
+        }
+
         var useDef *def
-        if o := usee.Lookup("use."+name); o != nil {
-            if d, y := o.(*def); y && d != nil { useDef = d } else {
+        if o := usee.Lookup(prefix+"use."+name); o != nil {
+            if d, y := o.(*def); y && d != nil {
+                useDef = d
+            } else {
                 erro(ctx, "use.%s: nil def: %T %v", name, o, o).trace()
             }
         }
@@ -760,7 +767,7 @@ paramsloop:
             elem = x.elems[0]
         }
         if x, y := elem.(*argumented); y {
-            elem, ctx = x.Value, &argumented_ctx{ctx, x}
+            elem, ctx = x.Value, x.ctx(ctx)
         }
         if x, y := elem.(*pair); y {
             erro(pc(ctx,x), "use -set(%v) instead", x).trace()
@@ -823,7 +830,12 @@ paramsloop:
     }
 
     usefor(ctx, l.project, func(op usevar, _, _ Value, name string) {
-        var us = "use." + name
+        var prefix string
+        if m := name_prefix.FindStringSubmatch(name); m != nil {
+            prefix, name = m[1], m[3]
+        }
+
+        var us = prefix+"use."+name
         var d, a = l.project.set(ctx, us, defVoid)
         if d == nil && a != nil { d, _ = a.(*def) }
         if d == nil { return }
@@ -870,7 +882,7 @@ func is_configure_project(proj *project) bool {
         proj.name == "configure.base"
 }
 
-type is_autoload struct{}
+type is_autoload struct{ string }
 
 type p_autoload struct {
     Context
@@ -883,10 +895,12 @@ func (a p_autoload) ts(t string) string {
 	return "{="+t+" "+bases(2, a.v.String(), true)+" "+ts(a.Context)+"}"
 }
 func (a p_autoload) do(ctx Context, op any) (_ any) {
-	switch op.(type) {
+	switch t := op.(type) {
     case get_position: if a.p.valid() { return a.p }
-    case is_autoload: return true
 	case is_flat_mode: return true
+    case is_autoload:
+        if t.string == "" { return true }
+        return strings.HasSuffix(a.v.string(ctx), t.string)
 	}
 	return a.Context.do(ctx, op)
 }
@@ -1044,23 +1058,21 @@ func (l ul) configuration(ctx Context, ident Value, identStr string) {
 
 func (l ul) container(ctx Context, ident Value, identStr string) {
     if l.project.name != dot_container {
-        if _, e := os.Stat(".dock"); e == nil {
-            erro(ctx, "Must rename .dock into .container !").trace()
+        if _, e := os.Stat(filepath.Join(l.project.absPath, ".dock")); e == nil {
+            erro(ctx, "must rename .dock into .container !").trace()
         }
 
         // Looking for project specific .container module
-        if f := stat(ctx, dot_container, l.project); f.exists() {
+        if f := stat(ctx, dot_container, l.project); f != nil && f.exists() {
             l.dot_container(ctx, ident, identStr, f)
-            if l.verbose {
-                info(ctx, "%v for %s (%s)\n", f, l.project.spec, l.project).debug()
-            }
             return
         }
 
         // Looking for .smart/.container
         walkSmartBaseDirs(ctx, l.project.absPath, func(s string) bool {
-            var f = stat(ctx, dot_container, stat_dir{filepath.Join(s, ".smart")})
-            if f.exists() {
+            d := stat_dir{filepath.Join(s, ".smart")}
+            f := stat(ctx, dot_container, d)
+            if f != nil && f.exists() {
                 l.dot_container(ctx, ident, identStr, f)
             }
             return false
@@ -1119,9 +1131,8 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
     defer func(p *parser) {
         if l.p == nil {
             erro(ctx, "nil parser ; %v", p).trace()
-        } else if d := time.Now().Sub(t); l.slow < d {
+        } else if d := time.Now().Sub(t); false && l.slow < d {
             if p != nil { ctx = pc(ctx,p.Position()) }
-
             var t = l.p.Position()
             if s := filename; s != t.Filename { warn(pc(ctx,s), "%s", d).debug() }
             warnstack(pc(ctx,t), 8, "%v %v", d, l.project).debug(128)
@@ -1141,9 +1152,9 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
     if text == nil { return }
 
 	var smod scanmode
-	if l.mode&ParseComments != 0 {
-		// smod = scanner.ScanComments
-	}
+	// if l.mode&ParseComments != 0 {
+	// 	smod = scanner.ScanComments
+	// }
 
     f := l.fset.AddFile(filename, -1, len(text))
     l.p = &parser{}

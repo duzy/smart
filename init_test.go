@@ -12,6 +12,8 @@ import (
 	"testing"
 	"fmt"
 	"os"
+	pkg_flag "flag"
+	pkg_time "time"
 )
 
 type testcase_f1 func (*testcase)
@@ -401,6 +403,10 @@ type (
 )
 
 func Test(t *testing.T) {
+	if false {
+		pkg_flag.Set("test.timeout", fmt.Sprintf("%v", 3600*pkg_time.Second))
+	}
+
 	// context_test.go
 	t.Run("context", testInner)
 
@@ -430,7 +436,7 @@ func Test(t *testing.T) {
 	run(t, "value", "value", "testvalue", testValueGeneral, test_hook_assert{testValueGeneralAssertHook, &testValueGeneralStruct{}})
 
 	// builtins_test.go
-	run(t, "builtins", "assert", "testbuiltins", testAssert, test_hook_assert{testAssertHook, &testAssertStruct{}})
+	run(t, "builtins", "assert",      "testbuiltins", testAssert, test_hook_assert{testAssertHook, &testAssertStruct{}})
 	run(t, "builtins", "pushcontext", "testbuiltins", testPushContext)
 
 	// value_test.go
@@ -506,9 +512,27 @@ func Test(t *testing.T) {
 	run(t, "configure", "configuration/custom", "testcustomconfigure",  testConfigureCustom)
 
 	// modules_test.go
-	run(t, "modules", "modules/target/arm64-darwin",            "", testVariantTarget)
-	run(t, "modules", "modules/app/arm64-darwin",               "", testApp)
-	run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1)
-	run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2)
-	run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting)
+	run(t, "modules", "modules/target/arm64-darwin",                "", testVariantTarget)
+
+	if true {
+		run(t, "modules", "modules/app/arm64-darwin",               "", testApp)
+	} else if false {
+		run(t, "modules", "modules/app/simple/arm64-darwin",        "", testApp)
+	} else if false {
+		run(t, "modules", "modules/app/complex/arm64-darwin",       "", testApp)
+	} else if false {
+		run(t, "modules", "modules/app/arm64-darwin",               "", testApp)
+		run(t, "modules", "modules/app/simple/arm64-darwin",        "", testApp)
+		run(t, "modules", "modules/app/complex/arm64-darwin",       "", testApp)
+	} else if false {
+		run(t, "modules", "modules/app/arm64-darwin",               "", testApp)
+		run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1)
+		run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2)
+		run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting)
+	} else if false {
+		run(t, "modules", "modules/app/complex/arm64-darwin",       "", testApp)
+		run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1)
+		run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2)
+		run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting)
+	}
 }

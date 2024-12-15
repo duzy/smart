@@ -58,11 +58,17 @@ const (
 	PTAIL    // the tail of a path, aka "" after the last '/' in a path
 
 	_operator_beg
-	CARET     // ^
 	LANGLE    // <
 	LBRACE    // {    left curly
 	LBRACK    // [
 	LPAREN    // (
+
+	RPAREN    // )
+	RBRACK    // ]
+	RBRACE    // }    right curly
+	RANGLE    // >
+
+	CARET     // ^
 	COMMA     // ,
 	DOT       // .    period
 	DOTDOT    // ..
@@ -73,11 +79,6 @@ const (
 	SELECT_PROG2 // ~> 'foo⇢xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
 	// ⤌ ⤍	⤎ ⤏	⤐	⤑
 
-	RPAREN    // )
-	RBRACK    // ]
-	RBRACE    // }    right curly
-	RANGLE    // >
-
 	SEMICOLON // ;
 
 	EXC       // !    exclamation
@@ -87,8 +88,8 @@ const (
 	STAR      // *    Single Asterisk
 	DAST      // **   Double Asterisk
 
-	PLUS  // unary +
 	MINUS // unary -
+	PLUS  // unary +
 	PCON  // path concatenation '/'
 	PERC  // percent sign '%'(REM)
 
@@ -247,11 +248,17 @@ var tokens = [...]string{
 	PROOT:    "", // the "" before the first '/' in a path
 	PTAIL:    "", // the "" after the last '/' in a path
 
-	CARET:  "^",
 	LANGLE: "<",
 	LBRACE: "{",
 	LBRACK: "[",
 	LPAREN: "(",
+
+	RPAREN: ")",
+	RBRACK: "]",
+	RBRACE: "}",
+	RANGLE: ">",
+
+	CARET:  "^",
 	COMMA:  ",",
 	DOT:    ".",
 	DOTDOT: "..",
@@ -260,11 +267,6 @@ var tokens = [...]string{
 	SELECT_PROP:  "→", // foo->bar
 	SELECT_PROG1: "⇒", // foo=>bar foo⇒bar
 	SELECT_PROG2: "⇢", // foo~>bar foo⇢bar
-
-	RPAREN: ")",
-	RBRACK: "]",
-	RBRACE: "}",
-	RANGLE: ">",
 
 	SEMICOLON: ";",
 
@@ -342,8 +344,8 @@ var tokens = [...]string{
 	ASSIGN_SAD: "-+=",
 	ASSIGN_SSH: "-=+",
 
-	PLUS:  "+",
 	MINUS: "-",
+	PLUS:  "+",
 	PCON:  "/",
 	PERC:  "%",
 

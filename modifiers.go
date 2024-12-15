@@ -125,10 +125,6 @@ func modify(ctx Context, g *group, hyphen bool) (res Value) {
     var name = g.elems[0].string(ctx)
     var args = g.elems[1:]
 
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        if x := cast[*execution_modifiers](ctx); x != nil { x.g = append(x.g, g) }
-    }
-
     if t, y := modifiers[name]; !y {
         var _, e, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s failed for %s\n", e, name, _project(ctx))
@@ -193,26 +189,11 @@ func (m *modifier) expandable(ctx Context) bool { return m.group.expandable(ctx)
 func (m *modifier) expand(ctx Context) Value { return modify(ctx, &m.group, false) }
 func (m *modifier) string(ctx Context) string { return m.expand(_final(ctx)).string(ctx) }
 func (m *modifier) traverse(ctx Context) {
-    var name = m.elems[0].string(ctx)
-    if name == "" {
+    if name := m.elems[0].string(ctx); name == "" {
         erro(ctx, "empty name: %v", m.elems[0]).trace()
+    } else if truly(ctx, interpret{name, m.elems[1:]}) {
+        modify(ctx, &m.group, true)
     }
-
-    var v1, v2 Value
-    var exe = _execution(ctx)
-
-    if len(exe.interpreted) == 0 && len(exe.recipes) > 0 && name == "configure" {
-        if x, y := dialects["eval"]; y && x != nil {
-            if v1 = exe.interpret(ctx, x, m.elems[1:]); v1 == nil {}
-        }
-    } else {
-        if x, y := dialects[name]; y && x != nil {
-            v1 = exe.interpret(ctx, x, m.elems[1:])
-            return
-        }
-    }
-
-    if v2 = modify(ctx, &m.group, true); v2 == nil {}
     return
 }
 
@@ -252,8 +233,7 @@ func (g *modification) expand(ctx Context) (res Value) {
     return ease(ctx, va)
 }
 func (g *modification) traverse(ctx Context) {
-    var e = _execution(ctx)
-    if e != nil { e.Wait() }
+    if e := _execution(ctx); e != nil { e.Wait() }
     for _, m := range g.list { m.traverse(ctx) }
 }
 func (g *modification) String() (s string) {
@@ -1732,13 +1712,13 @@ func (ctx *modifier_touch) x(args ...Value) (result any) {
         if err := touch(ctx, arg, uint32(ctx.mode), ctx.path); err != nil {
             erro(ctx, "touch '%v' failed: %v", arg, err).trace()
         } else {
-            files = append(files, arg.stamp(files_must_stamp{ctx})...)
+            files = append(files, arg.stamp(must_files_stamp{ctx})...)
         }
     }
 
-    var program = _program(ctx)
-    if ctx.verbose { reportFileUpdates(ctx, files) }
-    if len(program.getModifiers(ctx, "stamp")) > 0 {
+    var p = _program(ctx)
+    if false && ctx.verbose { reportFileUpdates(ctx, files) }
+    if len(p.getModifiers(ctx, "stamp")) > 0 {
         warn(ctx, "no need to use a (stamp) after (touch)").debug()
     }
     return
@@ -1873,7 +1853,7 @@ ForPairs:
             if ctx.verbose {
                 prompt(ctx, "checking %s (status=%d) … ", key, exeres.Status)
             }
-            if ctx.debug>0 {
+            if 0 < ctx.debug {
                 var tar = auto_get(ctx, "@")
                 var val = auto_get(ctx, "-")
                 warn(ctx, "%v: %v", _entry(ctx), tar)
@@ -2330,7 +2310,7 @@ func crc64CompareFileChecksum(ctx Context, filename1, filename2 string) (same bo
 
 type modifier_updatefile struct { modifier_
     verbFilename bool `verbfile,verb-filename`
-    path   bool `path,makedir,make-dir,makepath,make-path`
+    path   bool `p,path,makedir,make-dir,makepath,make-path`
     zero   bool `zero,empty,allow-zero,allow-empty`
     keep   bool `keep,keep-file`
     append bool `app,append,append-content`
@@ -2340,6 +2320,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
     assert(ctx.mode != 0, "zero file mode")
 
     var target as
+    var content string
     var filename string
     if len(args) > 0 { target.Value = args[0] }
 
@@ -2350,6 +2331,12 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
         erro(ctx, "update-file: not a file: %v", ts(target.Value)).trace()
     } else if filename = t.string(ctx); filename == "" {
         erro(ctx, "update-file: empty fullname: %v", ts(target.Value)).trace()
+    }
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer func() {
+            ctx.x_check(target.Value, filename, content, args, result)
+        } ()
     }
 
     if ctx.path { // Make path (mkdir -p)
@@ -2371,7 +2358,6 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
     }
 
     // Check existed file content checksum
-    var content string
     var exeres *exec_result
     if val := auto_get(ctx, "-"); val == nil {
         // no buffer value
@@ -2477,7 +2463,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
                 prompt(ctx, "%s: invalid file\n", filename)
                 errostack(ctx, 6, "%v: invalid file '%s'", _project(ctx), filename).trace()
             } else {
-                var fs = t.stamp(files_must_stamp{ctx})
+                var fs = t.stamp(must_files_stamp{ctx})
                 if false && ctx.verbose { reportFileUpdates(ctx, fs) }
                 result = t // resulting the updated file
             }
@@ -2557,20 +2543,18 @@ func (ctx *modifier_wait) x(args ...Value) (result any) {
     return
 }
 
-func reportFileUpdates(ctx Context, files []*file) {
+func reportFileUpdates(ctx Context, fs []*file) {
     var start = _execution(ctx).start
-    for _, file := range files {
-        var (
-            mod = file.info.ModTime()
-            d = time.Now().Sub(start)
-        )
+    for _, f := range fs {
+        var mod = f.info.ModTime()
+        var d = time.Now().Sub(start)
         if mod.After(start) {
-            prompt(ctx, "Updated %v (%v)\n", file, d)
+            prompt(ctx, "Updated %v (%v)\n", f.name, d)
         } else {
-            prompt(ctx, "File %v not changed (%v, ModTime=%v)\n", file, d, mod)
-            warn(ctx, "incorrect timestamp: %v (JobTime=%v, ModTime=%v)", file, start, mod)
-            warn(ctx, "the target path name is: %v", file.fullname())
-            warn(ctx, "try 'touch' the target %v if the path name and command are correct", file)
+            prompt(ctx, "File %v not changed (%v, ModTime=%v)\n", f, d, mod)
+            warn(ctx, "incorrect timestamp: %v (JobTime=%v, ModTime=%v)", f, start, mod)
+            warn(ctx, "the target path name is: %v", f.fullname())
+            warn(ctx, "try 'touch' the target %v if the path name and command are correct", f)
             info(ctx, "you may ignore the warnings if all correct")
         }
     }
@@ -2590,7 +2574,7 @@ func (ctx *modifier_stamp) x(args ...Value) (result any) {
         errostack(ctx, 6, "%v", ctx).trace()
     }
 
-    var v = target.stamp(files_must_stamp{ctx})
+    var v = target.stamp(must_files_stamp{ctx})
     if v != nil { return /* Done! */ }
 
     var p = prompt(ctx, "%v: %v\n", target, _project(ctx))
@@ -2626,15 +2610,17 @@ func (ctx *modifier_assert) z(args ...Value) (_ any) {
         if _, y := a.(*punct); y { continue }
 
         v := a.expand(_final(ctx))
-        b := v.true(ctx)
+        b := v != nil && v.true(ctx)
         f := u.hooks.assert
 
         if (f != nil && f(ctx, v, b)) || b {
             continue
         } else if ctx.msg == "" {
-            erro(ctx, "assert: %v → %v → '%s'", ts(a), v, v.string(ctx)).trace()
+            var s string
+            if v != nil { s = v.string(ctx) }
+            erro(pc(ctx,a), "assert: %v → %v → '%s'", a, v, s).trace()
         } else {
-            erro(ctx, "assert: %v → %v: %s", ts(a), v, ctx.msg).trace()
+            erro(pc(ctx,a), "assert: %v → %v: %s", a, v, ctx.msg).trace()
         }
     }
     return
@@ -2675,100 +2661,6 @@ func (ctx *modifier_predictDirty) x(args ...Value) (result any) {
     } else {
         panic(traverse_state{_position(ctx),traverse_done})
     }
-}
-
-type modifier_predictNoLoop struct { modifier_ }
-func (ctx *modifier_predictNoLoop) x(args ...Value) (result any) {
-    var loop bool
-    var target = auto_get(ctx, "@")
-    for caller := _execution(ctx).caller(); caller != nil; caller = caller.caller() {
-        var t = auto_get(caller, "@")
-        var same = t != nil && target == t
-        if!same && false { same = eq(ctx, target, t) }
-        if same {
-            //fmt.Printf("%s: loop: %v\n", pos, ctx.def.target.value)
-            loop = true
-            break
-        }
-    }
-
-    var s string
-    if !loop { s = "not " }
-    s = fmt.Sprintf("loop %sdetected (%v)", s, target)
-    result = makePrediction(_position(ctx), !loop, s)
-    return
-}
-
-type modifier_predictTarget1stVisit struct { modifier_
-    silent bool "s,silent"
-}
-func (ctx *modifier_predictTarget1stVisit) x(args ...Value) (result any) {
-    var target = auto_get(ctx, "@")
-    if isNull(target) {
-        erro(ctx, "target is <nil>").trace()
-    }
-
-    var num int
-    for caller := _execution(ctx).caller(); caller != nil; caller = caller.caller() {
-        if false {
-            var t = auto_get(caller, "@")
-            var same = t != nil && target == t
-            if !same && false { same = eq(ctx, target, t) }
-            if same { num += 1 }
-        } else if n := caller.recs[target]; n > 0 {
-            num += n
-        }
-    }
-
-    var s string
-    ;      if ctx.silent {
-    } else if num == 0  { //s = "zero"
-    } else { s = fmt.Sprintf("%v visits", num+1)
-    }
-
-    result = makePrediction(_position(ctx), num==0, s)
-    return
-}
-
-type modifier_predictTargetMaxVisit struct { modifier_
-    clo bool "c,closure"
-}
-func (ctx *modifier_predictTargetMaxVisit) x(args ...Value) (result any) {
-    var nth int64
-    for _, a := range args {
-        if nth = a.int(ctx); nth <= 0 {
-            erro(ctx, "needs positive number (%s)", ts(a)).trace()
-        }
-    }
-
-    var (
-        num int64
-        head bool = true
-        target = auto_get(ctx, "@")
-    )
-    if isNull(target) {
-        erro(ctx, "target is <nil>").trace()
-    }
-    for caller := _execution(ctx).caller(); caller != nil; caller = caller.caller() {
-        var ct = auto_get(caller, "@")
-        if n := caller.recs[target]; n > 0 { num += int64(n) }
-        if ctx.debug > 0 && num > 0 {
-            if head { head = false
-                prompt(ctx, "  %s: nth(%d)\n", _position(ctx), nth)
-            }
-            var pos = _program(caller).position
-            prompt(ctx, "    %s: %v\n", pos, ct)
-        }
-    }
-
-    var s string;
-    ;      if ctx.silent {
-    } else if num == 0  { //s = "nth: zero"
-    } else if num < nth { //s = "nth"
-    } else { s = fmt.Sprintf("%d visits", num+1) }
-
-    result = makePrediction(_position(ctx), num<nth, s)
-    return
 }
 
 type modifier_fork struct { modifier_

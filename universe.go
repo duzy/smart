@@ -125,11 +125,12 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
         return
 
     case get_position:
-        var p Position
+        p := Position{}
         p.Filename = ctx.workdir
         return
 
-    case no_exec: return ctx.noExec
+	case is_test_mode: if ctx.testMode { return true }
+    case no_exec: if ctx.noExec { return ctx.noExec }
     case get_workdir: return ctx.workdir
     case get_project: if ctx.globe != nil { return ctx.globe.main }
     case get_scope: if ctx.scope != nil { return ctx.scope }
@@ -144,69 +145,70 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
 
 type no_exec struct{}
 type commandline struct {
-  help            bool `h,help`
+    help            bool `h,help`
 
-  debug           bool `d,db,debug`
-  debugErrors     bool `de,dberro,debug-errors`
-  debugWarns      bool `dw,dbwarn,debug-warns`
-  debugInfos      bool `di,dbinfo,debug-infos`
-  debugPrompt     bool `dp,dbprom,debug-prompt`
-  debugSyntax []string `ds,dbsyntax,debug-syntax`
+    debug           bool `d,db,debug`
+    debugErrors     bool `de,dberro,debug-errors`
+    debugWarns      bool `dw,dbwarn,debug-warns`
+    debugInfos      bool `di,dbinfo,debug-infos`
+    debugPrompt     bool `dp,dbprom,debug-prompt`
+    debugSyntax []string `ds,dbsyntax,debug-syntax`
 
-  autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
-  cpuProf         string `cpuprof,cpu-profile`
-  memProf         string `memprof,memory-profile`
+    autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
+    cpuProf         string `cpuprof,cpu-profile`
+    memProf         string `memprof,memory-profile`
 
-  printConfig     bool `opts,print-options,printoptions`
-  printFlags      bool `flags,print-flags,printflags`
+    printConfig     bool `opts,print-options,printoptions`
+    printFlags      bool `flags,print-flags,printflags`
 
-  buildPlugins    bool `bp,bup,build-plugins,buildplugins`
+    buildPlugins    bool `bp,bup,build-plugins,buildplugins`
 
-  silentOptionalArrow bool
+    silentOptionalArrow bool
 
-  verbose         bool `v,verb,verbose`
-  verboseBreaks   bool `vb,vbrk,verbose-breaks`
-  verboseChecks   bool `vc,vchk,verbose-checks`
-  verboseImport   bool `vi,vimp,verbose-import`
-  verboseLoads    bool `vl,vloa,verbose-loading`
-  verboseParse    bool `vp,vpar,verbose-parsing`
-  verboseUsing    bool `vu,vuse,verbose-using`
-  verboseExecFlags bool `vxf,verbose-exec-flag`
+    verbose         bool `v,verb,verbose`
+    verboseBreaks   bool `vb,vbrk,verbose-breaks`
+    verboseChecks   bool `vc,vchk,verbose-checks`
+    verboseImport   bool `vi,vimp,verbose-import`
+    verboseLoads    bool `vl,vloa,verbose-loading`
+    verboseParse    bool `vp,vpar,verbose-parsing`
+    verboseUsing    bool `vu,vuse,verbose-using`
+    verboseExecFlags bool `vxf,verbose-exec-flag`
 
-  allowClosureFilemap bool `cf,closure-filemap,closure-files`
+    allowClosureFilemap bool `cf,closure-filemap,closure-files`
 
-  cleanDotCache   bool `clcac,clean-cache,clear-cache;rmc,rm-cache`
-  cleanDotDeps    bool `cldep,clean-deps,clear-deps;rmd,rm-deps`
-  cleanDotGrep    bool `clgrp,clean-grep,clear-grep;rmg,rm-grep`
-  cleanTmpDirs    bool `cltmp,clean-temp,clear-temp;rmt,rm-temp`
+    cleanDotCache   bool `clcac,clean-cache,clear-cache;rmc,rm-cache`
+    cleanDotDeps    bool `cldep,clean-deps,clear-deps;rmd,rm-deps`
+    cleanDotGrep    bool `clgrp,clean-grep,clear-grep;rmg,rm-grep`
+    cleanTmpDirs    bool `cltmp,clean-temp,clear-temp;rmt,rm-temp`
 
-  checkLoadGraph  bool `ckld,check-loads`
+    checkLoadGraph  bool `ckld,check-loads`
 
-  reconfigure     bool `rc,reconf,reconfig,reconfigure`
+    reconfigure     bool `rc,reconf,reconfig,reconfigure`
 
-  saveGrepSource  bool `savgs,save-grep-source`
+    saveGrepSource  bool `savgs,save-grep-source`
 
-  noRun           bool `nor,no-run`
-  noExec          bool `nox,ne,no-exec,no-execute`  // optionNoExec
-  noDeps          bool `nod,no-deps`
-  noGrep          bool `nog,no-grep`
-  noDepsGrep      bool `nodg,ngd,no-deps-grep,no-grep-deps`
-  noImportFiles   bool `noif,no-import-files`
+    noRun           bool `nor,no-run`
+    noExec          bool `nox,ne,no-exec,no-execute`  // optionNoExec
+    noDeps          bool `nod,no-deps`
+    noGrep          bool `nog,no-grep`
+    noDepsGrep      bool `nodg,ngd,no-deps-grep,no-grep-deps`
+    noImportFiles   bool `noif,no-import-files`
 
-  parallel        bool `par,para,parallel`
+    parallel        bool `par,para,parallel`
 
-  fastMode        bool `fast,fast-mode`
-  errorUncache    bool `eu,error-uncache,error-no-cache`
-  panicFailureOnErrosFlushed bool `foe,fail-on-errors`
+    testMode        bool `test,test-mode`
+    fastMode        bool `fast,fast-mode`
+    errorUncache    bool `eu,error-uncache,error-no-cache`
+    panicFailureOnErrosFlushed bool `foe,fail-on-errors`
 
-  traceLaunch     bool `tl,trace-launch`
-  traceParsing    bool `tp,trace-parse`
-  traceExecutor   bool `te,trace-executor`
-  traceExec       bool `tx,trace-exec`
-  traceEntering   bool `ti,trace-entering`
-  traceConfig     bool `tc,trace-config`
+    traceLaunch     bool `tl,trace-launch`
+    traceParsing    bool `tp,trace-parse`
+    traceExecutor   bool `te,trace-executor`
+    traceExec       bool `tx,trace-exec`
+    traceEntering   bool `ti,trace-entering`
+    traceConfig     bool `tc,trace-config`
 
-  slow time.Duration `slow` // time.Millisecond
+    slow time.Duration `slow` // time.Millisecond
 }
 
 func _commandline() commandline { return commandline{
@@ -303,7 +305,7 @@ type filebase struct {
     _traved int
     _dirty  int
 }
-func (p *filebase) exists() bool { return p.info != nil }
+func (p *filebase) exists() bool { return p != nil && p.info != nil }
 
 type stat_dir struct { string }
 type stat_sub struct { string }

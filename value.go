@@ -42,7 +42,6 @@ const (
     enable_assertions   = true
     enable_grep_bench   = true
     traverseDetectLoops = true // turn on/off traverse loop detection
-    traverseExpandArgumented = true
 )
 
 const (
@@ -161,16 +160,6 @@ func (n existence) String() (s string) {
 
 func sfmt(f string, i ...any) string { return fmt.Sprintf(f, i...) }
 
-func dob(ctx, inner Context, op any, bits ...property) (_ any) {
-    if x, y := op.(property); y {
-        for _, b := range bits {
-            if x&b != 0 { return true }
-        }
-    }
-    if inner == nil || inner == ctx { return }
-    return inner.do(ctx, op)
-}
-
 func original_bits(o origin) (_ property) {
     switch o {
     case defConfig:
@@ -200,10 +189,12 @@ func (c original) ts(t string) string {
 	return fmt.Sprintf("{=%s %v %v}", t, c.o, ts(c.Context))
 }
 func (c original) do(ctx Context, op any) any {
-    switch op.(type) {
+    switch t := op.(type) {
     case get_origin: return c.o
+    case property:
+        if t&original_bits(c.o) != 0 { return true }
     }
-    return dob(ctx, c.Context, op, original_bits(c.o))
+    return c.Context.do(ctx, op)
 }
 
 // Optimize value for final strings
@@ -213,12 +204,14 @@ func (c final) cast(t reflect.Type) Context { return icast(c, t) }
 func (c final) inner() Context { return c.Context }
 func (c final) ts(t string) string { return fmt.Sprintf("{=%s %v}", t, ts(c.Context)) }
 func (c final) do(ctx Context, op any) any {
-    switch op.(type) {
+    switch t := op.(type) {
     case is_final, ex_delegate, ex_closure: return true
     case final: return c
+    case property:
+        if t&(propExAuto|propExClosure|propExDelegate|propExPlaceholder|
+            propExDefValue|propExDisjunction|propExPairVal) != 0 { return true }
     }
-    return dob(ctx, c.Context, op, propExClosure|propExDelegate|propExAuto|
-        propExPlaceholder|propExDefValue|propExDisjunction|propExPairVal)
+    return c.Context.do(ctx, op)
 }
 
 func _final(ctx Context) Context {
@@ -233,21 +226,33 @@ type expandPathStr struct { Context }
 func (c expandPathStr) cast(t reflect.Type) Context { return icast(c, t) }
 func (c expandPathStr) inner() Context { return c.Context }
 func (c expandPathStr) do(ctx Context, op any) any {
-    return dob(ctx, c.Context, op, propExPathStr)
+    switch t := op.(type) {
+    case property:
+        if t&propExPathStr != 0 { return true }
+    }
+    return c.Context.do(ctx, op)
 }
 
 type condless struct { Context }
 func (c condless) cast(t reflect.Type) Context { return icast(c, t) }
 func (c condless) inner() Context { return c.Context }
 func (c condless) do(ctx Context, op any) any {
-    return dob(ctx, c.Context, op, propExCondless)
+    switch t := op.(type) {
+    case property:
+        if t&propExCondless != 0 { return true }
+    }
+    return c.Context.do(ctx, op)
 }
 
 type reversal struct { Context }
 func (c reversal) cast(t reflect.Type) Context { return icast(c, t) }
 func (c reversal) inner() Context { return c.Context }
 func (c reversal) do(ctx Context, op any) any {
-    return dob(ctx, c.Context, op, propReversal)
+    switch t := op.(type) {
+    case property:
+        if t&propReversal != 0 { return true }
+    }
+    return c.Context.do(ctx, op)
 }
 
 type partialBit uint
@@ -593,7 +598,7 @@ type waitopts struct {
     ExecResults        bool
     StampCurrentTarget bool
 }
-func wait(ctx Context, opts waitopts) (target Value, files []*file, execRes *exec_result) {
+func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_result) {
     var calleeErrs []error
     if p := _execution(ctx) ; p != nil {
         if false { p.WaitGroup.Wait() } // FIXME: deadlock
@@ -648,8 +653,8 @@ func wait(ctx Context, opts waitopts) (target Value, files []*file, execRes *exe
     }
 
     if opts.StampCurrentTarget {
-        if files = target.stamp(ctx); files != nil {
-            reportFileUpdates(ctx, files)
+        if fs = target.stamp(ctx); fs != nil {
+            if false { reportFileUpdates(ctx, fs) }
         }
     }
     return
@@ -760,11 +765,12 @@ func (p *posctx) do(ctx Context, op any) (_ any) {
 func pc(ctx Context, a any, n ...int) Context {
     var p any
     if a != nil {
+        if x, y := a.(*file); y { a = x.fullname() }
         switch t := a.(type) {
         case  *scanner   : p = t.pos(n...)
         case  *parser    : p = t.Position()
         case   Position  : if t.valid() { p = t }
-        case   positioner: if t != nil  { p = t.Position() }
+        case   positioner: if t != nil  { p = t   .Position() }
         case []positioner: if t != nil  { p = t[0].Position() }
         case []Value     : if t != nil  { p = t[0].Position() }
         case string:
@@ -1210,20 +1216,26 @@ func (p *none) traverse(ctx Context) {
     erro(ctx, "none traversal").trace()
 }
 
-type argumented_ctx struct { Context ; *argumented }
+type argumented_ctx struct { Context ; val Value; args []Value }
 func (ac *argumented_ctx) cast(t reflect.Type) Context { return icast(ac,t) }
 func (ac *argumented_ctx) inner() Context { return ac.Context }
 func (ac *argumented_ctx) ts(t string) (s string) {
-    return fmt.Sprintf("{=%s %v %s}", t, ac.argumented, ts(ac.Context))
+    for i, a := range ac.args {
+        if i > 0 { s += "," }
+        s += a.String()
+    }
+    return "{="+t+" "+ac.val.String()+"("+s+") "+ts(ac.Context)+"}"
 }
 func (ac *argumented_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
     case get_args: return ac.args
     case init_args:
-        if ac.args != nil && t.automatic != nil {
-            t.args(ctx, ac.args)
-            return
+        t.args(ctx, ac.args)
+
+        if checkpoints && truly(ctx, is_test_mode{}) {
+            ac.init_args_check(ctx, ac.args)
         }
+        return
     }
     return ac.Context.do(ctx, op)
 }
@@ -1296,41 +1308,54 @@ func (p *argumented) cmp(ctx Context, v Value) (res cmpres) {
     } else if l, y := v.(*list); y && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
     }
-    if checkpoints {
+    if checkpoints && truly(ctx, is_test_mode{}) {
         if res != cmpEqual && p.String() == v.String() {
             erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
     }
     return
 }
-func (p *argumented) traverse(ctx Context) {
-    //!< IMPORTANT! - Don't merge-expand arguments here!
-    //!< Arguments should be passed to program.execute as it is.
-    var args = p.args
-
-    if traverseExpandArgumented {
-        var proj = _project(ctx)
-        // NOTE: expand here to avoid args being expanded in the wrong context
-        for i, a := range args {
-            if a = a.expand(_final(ctx)); a.patterned(ctx) {
-                // TODO: deal with pattern args using expandPatterned instead of stenciling:
-                if stems := _stems(ctx); len(stems) > 0 {
-                    if val, rest := a.stencil(ctx, stems); len(rest) > 0 {
-                        erro(ctx, "partial stencil: %v, %T %v, %v, %v", a, val, val, rest, stems).trace()
-                    } else if f, y := to_file(val); y {
-                        a = f
-                    } else if f := proj.file(ctx, val.string(ctx)); f != nil {
-                        a = f
-                    } else {
-                        a = val //_strlit(a.Position(), str)
-                    }
+func (p *argumented) ctx(ctx Context) *argumented_ctx {
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        if _project(ctx).name == "configure.base" {
+            defer func(s string) {
+                if s != p.String() {
+                    errostack(ctx, 8, "%s != %s", p, s).debug(6)
                 }
-            }
-            args[i] = a
+            } (p.String())
         }
     }
 
-    p.Value.traverse(&argumented_ctx{ctx, p})
+    //!< IMPORTANT! - Don't merge-expand arguments here!
+    //!< Arguments should be passed to program.execute as it is.
+    var args []Value
+    var proj = _project(ctx)
+
+    // NOTE: expand here to avoid args being expanded in the wrong context
+    for _, a := range p.args {
+        // TODO: deal with pattern args using expandPatterned instead of stenciling:
+        if a = a.expand(_final(ctx)); a.patterned(ctx) {
+            if stems := _stems(ctx); len(stems) > 0 {
+                if v, rest := a.stencil(ctx, stems); len(rest) > 0 {
+                    erro(ctx, "partial stencil: %v, %v, %v, %v", a, v, rest, stems).trace()
+                } else if f := (as{a}).file(ctx, proj); f != nil {
+                    a = f
+                } else {
+                    a = v
+                }
+            }
+        }
+        args = append(args, a)
+    }
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        p.traverse_check(ctx, p.String(), args)
+    }
+
+    return &argumented_ctx{ctx, p.Value, args}
+}
+func (p *argumented) traverse(ctx Context) {
+    p.Value.traverse(p.ctx(ctx))
 }
 func (p *argumented) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
     return c.hit(ctx, p.Value)
@@ -1919,10 +1944,11 @@ func (p *url) Validate() (res *neturl.URL) {
 
 type raw struct { valbase; s string }
 func (_ *raw) kind() Kind { return KindRaw }
-func (p *raw) String() string { return p.s }
-func (p *raw) string(ctx Context) string { return p.s }
+func (p *raw) expand(Context) Value { return p }
 func (p *raw) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
-func (p *raw) true(ctx Context) bool { return p.s != "" }
+func (p *raw) String() string { return p.s }
+func (p *raw) string(Context) string { return p.s }
+func (p *raw) true(Context) bool { return p.s != "" }
 func (p *raw) int(ctx Context) (_ int64) {
     if i, e := strconv.ParseInt(p.s, 10, 64); e != nil {
         erro(ctx, "%v", e).trace()
@@ -1939,7 +1965,16 @@ func (p *raw) float(ctx Context) (_ float64) {
         return f
     }
 }
-func (p *raw) expand(Context) Value { return p }
+func (p *raw) trim(pre string) {
+    p.s = strings.TrimSpace(strings.TrimPrefix(p.s, pre))
+    return
+}
+func (p *raw) match(ctx Context, i any) (bool, any, []string) {
+    return stringMatch(ctx, p, i)
+}
+func (p *raw) stencil(ctx Context, stems []string) (Value, []string) {
+    return p, stems
+}
 func (p *raw) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*raw); ok {
         if p.s == a.s { res = cmpEqual }
@@ -1952,12 +1987,6 @@ func (p *raw) cmp(ctx Context, v Value) (res cmpres) {
         }
     }
     return
-}
-func (p *raw) match(ctx Context, i any) (bool, any, []string) {
-    return stringMatch(ctx, p, i)
-}
-func (p *raw) stencil(ctx Context, stems []string) (Value, []string) {
-    return p, stems
 }
 
 type strlit struct { valbase; s string }
@@ -2227,10 +2256,16 @@ func (p *punct) suffix(ctx Context, val Value) Value {
 type bare string
 type word struct { valbase; s string }
 func (_ *word) kind() Kind { return KindWord }
-func (p *word) String() string { return p.s }
-func (p *word) string(ctx Context) string { return p.s }
 func (p *word) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
-func (p *word) true(ctx Context) bool { return p.s != "" }
+func (p *word) true(Context) bool { return p.s != "" }
+func (p *word) string(Context) string { return p.s }
+func (p *word) String() string {
+    if strings.Contains(p.s, " ") {
+        return "{=word "+p.s+"}"
+    } else {
+        return p.s
+    }
+}
 func (p *word) int(ctx Context) (_ int64) {
     if i, e := strconv.ParseInt(p.s, 10, 64); e != nil {
         erro(ctx, "%v", e).trace()
@@ -4079,14 +4114,14 @@ func (o fullname) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-type file_must_stamp struct{ *file }
+type must_file_stamp struct{ *file }
 
-type files_must_stamp struct{ Context }
-func (c files_must_stamp) cast(t reflect.Type) Context { return icast(c,t) }
-func (c files_must_stamp) inner() Context { return c.Context }
-func (c files_must_stamp) do(ctx Context, op any) any {
+type must_files_stamp struct{ Context }
+func (c must_files_stamp) cast(t reflect.Type) Context { return icast(c,t) }
+func (c must_files_stamp) inner() Context { return c.Context }
+func (c must_files_stamp) do(ctx Context, op any) any {
     switch op.(type) {
-    case file_must_stamp: return true
+    case must_file_stamp: return true
     }
     return c.Context.do(ctx, op)
 }
@@ -4129,7 +4164,7 @@ func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
     }
     return
 }
-func (p *file) stamp(ctx Context) (files []*file) {
+func (p *file) stamp(ctx Context) (res []*file) {
     var fn = p.fullname()
     if fn == "" {
         erro(ctx, "file `%s` has no fullname", p).trace()
@@ -4138,32 +4173,33 @@ func (p *file) stamp(ctx Context) (files []*file) {
     var e error
 
     if p.info, e = os.Stat(fn); e != nil {
-        if truly(ctx, file_must_stamp{p}) {
-            note(pc(ctx,fn), "stamp no such file")
+        if truly(ctx, must_file_stamp{p}) {
+            ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
             if _, y := e.(*fs.PathError); y {
-                errostack(ctx, 8, "no such file %v", p.name).trace()
+                errostack(ctx, 8, "no such file: %s", p.name).trace()
             } else {
                 errostack(ctx, 8, "%v", e).trace()
             }
-        } else { return }
+        }
+        return
     } else if p.info == nil {
-        if truly(ctx, file_must_stamp{p}) {
-            note(pc(ctx,fn), "stamp no such file")
-            errostack(ctx, 8, "no such file %v", p.name).trace()
+        if truly(ctx, must_file_stamp{p}) {
+            ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
+            errostack(ctx, 8, "no such file: %s", p.name).trace()
         }
         return
     }
 
-    files = append(files, p)
+    res = append(res, p)
 
     if !is_configurecontext(ctx) {
         p._updated = true
-        do(ctx, act_mark_dirty{[]Value{p}})
+        do(ctx, mark_dirty{[]Value{p}})
     }
     return
 }
 func (p *file) expandable(ctx Context) bool {
-    return false//BUG:truly(ctx, fullfile{}) && !filepath.IsAbs(p.filestub.name)
+    return false//BUG: truly(ctx, fullfile{}) && !filepath.IsAbs(p.filestub.name)
 }
 func (p *file) expand(ctx Context) Value {
     if truly(ctx, wants_fullfile{}) {
@@ -4171,12 +4207,6 @@ func (p *file) expand(ctx Context) Value {
     } else {
         return p
     }
-}
-func (p *file) exists() (res bool) {
-    if p != nil && p.filebase != nil {
-        res = p.filebase.exists()
-    }
-    return
 }
 func (p *file) updated(ctx Context) bool { return p._updated }
 func (p *file) updatedDeps(_ Context, v ...Value) []Value {
@@ -4215,7 +4245,7 @@ func (p *file) traverse(ctx Context) {
     if p._traved == 0 && !p.isSysFile() {
         do(ctx, act_traverse{p})
     } else if x := _execution(ctx); x != nil {
-        x.defertrave(ctx, auto_target_value(ctx), p, nil, p)
+        x.traved(ctx, auto_target_value(ctx), p, nil, p)
     }
 }
 
@@ -5332,7 +5362,9 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
     }
 
     switch t := v.(type) {
-    case *list: if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
+    case *list:
+        if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
+
     case *delegate:
         if p == t { return cmpEqual }
 
@@ -5363,10 +5395,6 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
         }
 
         return cr
-    case *def:
-        if false && len(p.a) == 0 && t.value != nil {
-            return p.cmp(ctx, t.value)
-        }
     }
     return
 }
@@ -6115,8 +6143,12 @@ func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
 
 type regexpat struct { valbase ; *regexp.Regexp }
 func (p *regexpat) hash(ctx Context) uint64 { return fnv1(ctx, p, p.Regexp.String()) }
-func (p *regexpat) String() string { return "{=regex "+p.Regexp.String()+"}" }
 func (p *regexpat) string(ctx Context) (s string) { return p.Regexp.String() }
+func (p *regexpat) String() string {
+    var s = p.Regexp.String()
+    if x, y := strings.CutSuffix(s, "$"); y { s = x + "$$" }
+    return "{=regex "+s+"}"
+}
 func (p *regexpat) ts(string) string { return p.String() }
 func (p *regexpat) patterned(ctx Context) bool { return true }
 func (p *regexpat) match(ctx Context, i any) (full bool, result any, stems []string) {

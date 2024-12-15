@@ -92,3 +92,7 @@ done
 for(-skip-nil) k1=(a1 b1 c1) k2=(a2 b2) and v1=(x1 y1) v2=(x2 y2 z2)
 .test.13 += $(k1)=$(v1) $(k2)=$(v2)
 done
+
+for {=defs(id) {=regex ^\.test\.([0-9]+)$$}}
+t$0 := $(id)
+done

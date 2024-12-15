@@ -1,6 +1,32 @@
 project testtemplate
 
+foa.aaa := aaa
+fob.bbb := bbb
+foc.ccc := ccc
+foo.bar := bar
+
 foreach a b c
 .test.$_ : $_ $(foreach $_ d e f,foo=$_)
 	print $_ $^
+done
+
+foreach {=defs {=regex ^fo([a-z])\.([a-z]+)$$}}
+v.$1 ::= $_
+done
+
+foreach {=defs(1) {=regex ^fo([a-z])\.([a-z]+)$$}}
+v1.$1 ::= $_
+done
+
+foreach {=defs(2) {=regex ^fo([a-z])\.([a-z]+)$$}}
+v2.$2 ::= $_
+done
+
+foreach {=defs(1 2) {=regex ^fo([a-z])\.([a-z]+)$$}}
+.test.$1.$2 :
+	print $_ $0 $@
+done
+
+foreach {=defs(a b) {=regex ^fo([a-z])\.([a-z]+)$$}}
+v.$(a).$(b) ::= $_
 done

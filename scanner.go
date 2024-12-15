@@ -708,8 +708,8 @@ func (s *scanner) scanStrcomp(ctx Context, q rune) (tok token, lit string) {
 		return
 	case '&', '$': // Escapes '&', '$', but '&&' or '$$' is not escaped.
 		if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
-			s.next(ctx) //! The first & or $
-			s.next(ctx) //! The second & or $
+			s.next(ctx) //! the first & or $
+			s.next(ctx) //! the second & or $
 		} else if s.ch == '$' {
 			return DELEGATE, lit
 		} else {
@@ -746,7 +746,6 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		case CLOSURE, DELEGATE, LBRACE:
 		default: return
 		}
-
 		switch s.ch {
 		case '$', '&', '{':
 		default:
@@ -777,9 +776,21 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 	s.next(ctx)
 
 	if s.bits.isBraceRaw() {
-		tok, lit = RAW, string(ch)
-
 		switch ch {
+		case '$':
+			if s.ch == '$' {
+				s.next(ctx)
+				return pos, RAW, string(ch)
+			} else if false {
+				note(pc(ctx,s.pos(offs)), "%s %s", string(ch), string(s.ch)).debug()
+			}
+		case '&':
+			if s.ch == '&' {
+				s.next(ctx)
+				return pos, RAW, string(ch)
+			} else if false {
+				note(pc(ctx,s.pos(offs)), "%s %s", string(ch), string(s.ch)).debug()
+			}
 		case '\\':
 			if tok = ESCAPE; IsDigit(s.ch) {
 				_, lit = s.scanNumber(ctx, false)
@@ -787,16 +798,21 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 				lit = string(s.ch)
 				s.next(ctx) // escape a single char
 			}
+			return
 		case '{':
 			s.push(isBraceRaw)
+			return pos, RAW, string(ch)
 		case '}':
-			if s.bits.isBrace() { tok, lit = RBRACE, "" }
-			if s.pop(isBrace|isBraceRaw); false {/* * */}
-			if false && s.bits.isBrace() && !s.bits.isBraceRaw() {
-				erro(pc(ctx,s.pos(offs)), "wrong brace").trace()
+			t := s.bits.isBrace()
+			s.pop(isBrace|isBraceRaw)
+			if t {
+				return pos, RBRACE, ""
+			} else {
+				return pos, RAW, string(ch)
 			}
+		default:
+			return pos, RAW, string(ch)
 		}
-		return
 	}
 
 	switch ch {

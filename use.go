@@ -241,9 +241,15 @@ func (p *uselist) append(ctx Context, proj *project, params []Value, opts useopt
 }
 
 func (p *uselist) sel(ctx Context, name string) (result any) {
+        var prefix string
+        if m := name_prefix.FindStringSubmatch(name); m != nil {
+            prefix, name = m[1], m[3]
+        }
+
         var vals []Value
-        var n = "use."+name
-        for _, u := range p.list { if u.opts.noVars { continue }
+        var n = prefix+"use."+name
+        for _, u := range p.list {
+                if u.opts.noVars { continue }
                 if o := u.project.Lookup(n); o != nil {
                         vals = append(vals, o)
                 }

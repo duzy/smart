@@ -7,9 +7,11 @@ package smart
 
 import (
 	"regexp"
+	// "context"
 	"strings"
     "io/ioutil"
 	"path/filepath"
+	// "time"
 	"fmt"
 	"os"
 )
@@ -348,8 +350,8 @@ func testVariantTarget(ctx *testcase) {
 		"-diagnostics", "-platform_version",
 	}{
 		s1 := fmt.Sprintf("%s(-unique)", flag)
-		s2 := fmt.Sprintf("%s~&(target.os)(-unique)", flag)
-		s3 := fmt.Sprintf("%s~foo(-unique)", flag)
+		s2 := fmt.Sprintf("&(target.os)~%s(-unique)", flag)
+		s3 := fmt.Sprintf("foo~%s(-unique)", flag)
 		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v ; %v", s1, usev) }
 		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v ; %v", s2, usev) }
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v ; %v", s3, uses) }
@@ -362,8 +364,8 @@ func testVariantTarget(ctx *testcase) {
 		for _, lang := range langs_map {
 			s0 := fmt.Sprintf("%s.%s", flag, lang)
 			s1 := fmt.Sprintf("%s.%s(-unique)", flag, lang)
-			s2 := fmt.Sprintf("%s~&(target.os).%s(-unique)", flag, lang)
-			s3 := fmt.Sprintf("%s~foo.%s(-unique)", flag, lang)
+			s2 := fmt.Sprintf("&(target.os)~%s.%s(-unique)", flag, lang)
+			s3 := fmt.Sprintf("foo~%s.%s(-unique)", flag, lang)
 			if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
 			if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
 			if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
@@ -376,8 +378,8 @@ func testVariantTarget(ctx *testcase) {
 	}
 	for _, flag := range []string{"-l","-framework"} {
 		s1 := fmt.Sprintf("%s(-unique -reverse)", flag)
-		s2 := fmt.Sprintf("%s~&(target.os)(-unique -reverse)", flag)
-		s3 := fmt.Sprintf("%s~foo(-unique -reverse)", flag)
+		s2 := fmt.Sprintf("&(target.os)~%s(-unique -reverse)", flag)
+		s3 := fmt.Sprintf("foo~%s(-unique -reverse)", flag)
 		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
 		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
@@ -390,8 +392,8 @@ func testVariantTarget(ctx *testcase) {
 	for _, flag := range []string{"ar","asm","c","cpp","cxx","oc","ocxx","cl","cuda","cudaxx","ld"} {
 		s0 := fmt.Sprintf("%sflags", flag)
 		s1 := fmt.Sprintf("%sflags(-unique -auto)", flag)
-		s2 := fmt.Sprintf("%sflags~&(target.os)(-unique -auto)", flag)
-		s3 := fmt.Sprintf("%sflags~foo(-unique -auto)", flag)
+		s2 := fmt.Sprintf("&(target.os)~%sflags(-unique -auto)", flag)
+		s3 := fmt.Sprintf("foo~%sflags(-unique -auto)", flag)
 		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
 		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
@@ -405,8 +407,8 @@ func testVariantTarget(ctx *testcase) {
 		for _, suffix := range strings.Fields("shared program") {
 			s0 := fmt.Sprintf("%sflags.%s", flag, suffix)
 			s1 := fmt.Sprintf("%sflags.%s(-unique -auto)", flag, suffix)
-			s2 := fmt.Sprintf("%sflags~&(target.os).%s(-unique -auto)", flag, suffix)
-			s3 := fmt.Sprintf("%sflags~foo.%s(-unique -auto)", flag, suffix)
+			s2 := fmt.Sprintf("&(target.os)~%sflags.%s(-unique -auto)", flag, suffix)
+			s3 := fmt.Sprintf("foo~%sflags.%s(-unique -auto)", flag, suffix)
 			if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
 			if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
 			if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
@@ -420,8 +422,8 @@ func testVariantTarget(ctx *testcase) {
 	for _, flag := range []string{"ld.framework","ldlibs","loadlibs","loadlibes"} {
 		s0 := fmt.Sprintf("%s", flag)
 		s1 := fmt.Sprintf("%s(-unique -auto -reverse)", flag)
-		s2 := fmt.Sprintf("%s~&(target.os)(-unique -auto -reverse)", flag)
-		s3 := fmt.Sprintf("%s~foo(-unique -auto -reverse)", flag)
+		s2 := fmt.Sprintf("&(target.os)~%s(-unique -auto -reverse)", flag)
+		s3 := fmt.Sprintf("foo~%s(-unique -auto -reverse)", flag)
 		if strings.Count(usev, " "+s1) != 1 { ctx.err("%v", s1) }
 		if strings.Count(usev, " "+s2) != 1 { ctx.err("%v", s2) }
 		if strings.Count(uses, " "+s3) != 1 { ctx.err("%v", s3) }
@@ -645,6 +647,9 @@ func testApp(ctx *testcase) {
 		ctx.err("%v: nil configure", p)
 	}
 
+	// cc, cancel := context.WithTimeout(context.Background(), 2400*time.Second)
+	// defer cancel()
+
 	s := ".flag"
 	d := ctx.def(s)
 	if d == nil {
@@ -655,16 +660,15 @@ func testApp(ctx *testcase) {
 		var t = v.expand(_final(ctx))
 
 		var str1 = t.String()
-		for _, s := range []string{
-			"{$(filter-out $(foreach $1,&($2!$_) &($2~darwin!$_)),&($2) &($2~darwin))}?",
-			"{$(foreach $1,&($2.$_) &($2~darwin.$_))}?",
+		for _, s := range []string {
+			"{$(filter-out $(foreach $1,&($2!$_) &(darwin~$2!$_)),&($2) &(darwin~$2))}?",
+			"{$(foreach $1,&($2.$_) &(darwin~$2.$_))}?",
 		}{
 			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
 		}
 
 		var str2 = ts(t)
-		for _, s := range []string{
-			// TODO: ...
+		for _, s := range []string {
 		}{
 			if strings.Count(str2, s) != 1 { ctx.err("%s : %s", s, str2) }
 		}
@@ -674,13 +678,13 @@ func testApp(ctx *testcase) {
 	} else {
 		var str1 = v.String()
 		for _, s := range []string{
-			"$(or $3,-x){$(filter-out &(-x!a)? &(-x~&(target.os)!a)? &(-x!b)? &(-x~&(target.os)!b)? &(-x!c)? &(-x~&(target.os)!c)?,&(-x) &(-x~&(target.os)))}$(or $4)?",
+			"$(or $3,-x){$(filter-out &(-x!a)? &(&(target.os)~-x!a)? &(-x!b)? &(&(target.os)~-x!b)? &(-x!c)? &(&(target.os)~-x!c)?,&(-x) &(&(target.os)~-x))}$(or $4)?",
 			"$(or $3,-x){&(-x.a)}$(or $4)?",
-			"$(or $3,-x){&(-x~&(target.os).a)}$(or $4)?",
+			"$(or $3,-x){&(&(target.os)~-x.a)}$(or $4)?",
 			"$(or $3,-x){&(-x.b)}$(or $4)?",
-			"$(or $3,-x){&(-x~&(target.os).b)}$(or $4)?",
+			"$(or $3,-x){&(&(target.os)~-x.b)}$(or $4)?",
 			"$(or $3,-x){&(-x.c)}$(or $4)?",
-			"$(or $3,-x){&(-x~&(target.os).c)}$(or $4)?",
+			"$(or $3,-x){&(&(target.os)~-x.c)}$(or $4)?",
 		}{
 			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
 		}
@@ -703,6 +707,10 @@ func testApp(ctx *testcase) {
 			if strings.Count(str4, s) != 1 { ctx.err("%s : %s", s, str4) }
 		}
 	}
+
+	// select {
+	// case <-cc.Done():
+	// }
 }
 
 func _testApp(ctx *testcase) {
@@ -715,16 +723,16 @@ func _testApp(ctx *testcase) {
 	}
 
 	flag1 := func(a ...any) string { // $(.flag $1)
-		return fmt.Sprintf("$(foreach(-unique) $(filter-out $(foreach $1,&(%[1]s!$_) &(%[1]s~&(target.os)!$_)),&(%[1]s) &(%[1]s~&(target.os))) $(foreach $1,&(%[1]s.$_) &(%[1]s~&(target.os).$_)),$(or $3,%[1]s)$_$(or $4))", a...)
+		return fmt.Sprintf("$(foreach(-unique) $(filter-out $(foreach $1,&(%[1]s!$_) &(&(target.os)~%[1]s!$_)),&(%[1]s) &(&(target.os)~%[1]s)) $(foreach $1,&(%[1]s.$_) &(&(target.os)~%[1]s.$_)),$(or $3,%[1]s)$_$(or $4))", a...)
 	}
 	flag2 := func(a ...any) string { if len(a) > 1 { a[0], a[1] = a[1], a[0] } // $(.flag $1 yyy,xxx)
-		return fmt.Sprintf("$(foreach(-unique) $(filter-out $(foreach $1 %[1]s,&(%[2]s!$_) &(%[2]s~&(target.os)!$_)),&(%[2]s) &(%[2]s~&(target.os))) $(foreach $1 %[1]s,&(%[2]s.$_) &(%[2]s~&(target.os).$_)),%[2]s$_$(or $4))", a...)
+		return fmt.Sprintf("$(foreach(-unique) $(filter-out $(foreach $1 %[1]s,&(%[2]s!$_) &(&(target.os)~%[2]s!$_)),&(%[2]s) &(&(target.os)~%[2]s)) $(foreach $1 %[1]s,&(%[2]s.$_) &(&(target.os)~%[2]s.$_)),%[2]s$_$(or $4))", a...)
 	}
 	flag3 := func(a ...any) string { // $(.flag $1,xxx,yy)
-		return fmt.Sprintf("$(foreach(-unique) $(filter-out &(%[1]s!%[2]s) &(%[1]s~&(target.os)!%[2]s),&(%[1]s) &(%[1]s~&(target.os))) &(%[1]s.%[2]s) &(%[1]s~&(target.os).%[2]s),$(or $3,%[1]s)$_$(or $4))", a...)
+		return fmt.Sprintf("$(foreach(-unique) $(filter-out &(%[1]s!%[2]s) &(&(target.os)~%[1]s!%[2]s),&(%[1]s) &(&(target.os)~%[1]s)) &(%[1]s.%[2]s) &(&(target.os)~%[1]s.%[2]s),$(or $3,%[1]s)$_$(or $4))", a...)
 	}
 	flag4 := func(a ...any) string { // $(.flag $1,xxx,y,y)
-		return fmt.Sprintf("$(foreach(-unique) $(filter-out &(%[1]s!%[2]s) &(%[1]s~&(target.os)!%[2]s) &(%[1]s!c) &(%[1]s~&(target.os)!c),&(%[1]s) &(%[1]s~&(target.os))) &(%[1]s.%[2]s) &(%[1]s~&(target.os).%[2]s) &(%[1]s.%[3]s) &(%[1]s~&(target.os).%[3]s),%[1]s$_$(or $4))", a...)
+		return fmt.Sprintf("$(foreach(-unique) $(filter-out &(%[1]s!%[2]s) &(&(target.os)~%[1]s!%[2]s) &(%[1]s!c) &(&(target.os)~%[1]s!c),&(%[1]s) &(&(target.os)~%[1]s)) &(%[1]s.%[2]s) &(&(target.os)~%[1]s.%[2]s) &(%[1]s.%[3]s) &(&(target.os)~%[1]s.%[3]s),%[1]s$_$(or $4))", a...)
 	}
 
 	var foo1 = strings.Fields(ss(`cppflags-foo cppflags~foo~<OS>
@@ -748,9 +756,9 @@ func _testApp(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if strings.Count(s, "$(foreach(-unique) ") != 1 {
 		ctx.err("%v", d)
-	} else if strings.Count(s, "$(filter-out $(foreach $1,&($2!$_) &($2~&(target.os)!$_)),&($2) &($2~&(target.os)))") != 1 {
+	} else if strings.Count(s, "$(filter-out $(foreach $1,&($2!$_) &(&(target.os)~$2!$_)),&($2) &(&(target.os)~$2))") != 1 {
 		ctx.err("%v", d)
-	} else if strings.Count(s, "$(foreach $1,&($2.$_) &($2~&(target.os).$_)),") != 1 {
+	} else if strings.Count(s, "$(foreach $1,&($2.$_) &(&(target.os)~$2.$_)),") != 1 {
 		ctx.err("%v", d)
 	} else if strings.Count(s, ",$(or $3,$2)$_$(or $4))") != 1 {
 		ctx.err("%v", d)
@@ -763,23 +771,23 @@ func _testApp(ctx *testcase) {
 		ctx.err("%v", v)
 	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x!a) &(-x~&(target.os)!a)") != 1 {
+	} else if strings.Count(s, "&(-x!a) &(&(target.os)~-x!a)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x!b) &(-x~&(target.os)!b)") != 1 {
+	} else if strings.Count(s, "&(-x!b) &(&(target.os)~-x!b)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x!c) &(-x~&(target.os)!c),") != 1 {
+	} else if strings.Count(s, "&(-x!c) &(&(target.os)~-x!c),") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, ",&(-x) &(-x~&(target.os))") != 1 {
+	} else if strings.Count(s, ",&(-x) &(&(target.os)~-x)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x.a) &(-x~&(target.os).a)") != 1 {
+	} else if strings.Count(s, "&(-x.a) &(&(target.os)~-x.a)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x.b) &(-x~&(target.os).b)") != 1 {
+	} else if strings.Count(s, "&(-x.b) &(&(target.os)~-x.b)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x.c) &(-x~&(target.os).c)") != 1 {
+	} else if strings.Count(s, "&(-x.c) &(&(target.os)~-x.c)") != 1 {
 		ctx.err("%v", v)
-	} else if s1 := "$(filter-out &(-x!a) &(-x~&(target.os)!a) &(-x!b) &(-x~&(target.os)!b) &(-x!c) &(-x~&(target.os)!c),&(-x) &(-x~&(target.os)))"; strings.Count(s, s1) != 1 {
+	} else if s1 := "$(filter-out &(-x!a) &(&(target.os)~-x!a) &(-x!b) &(&(target.os)~-x!b) &(-x!c) &(&(target.os)~-x!c),&(-x) &(&(target.os)~-x))"; strings.Count(s, s1) != 1 {
 		ctx.err("%v", v)
-	} else if s2 := "&(-x.a) &(-x~&(target.os).a) &(-x.b) &(-x~&(target.os).b) &(-x.c) &(-x~&(target.os).c)"; strings.Count(s, s2) != 1 {
+	} else if s2 := "&(-x.a) &(&(target.os)~-x.a) &(-x.b) &(&(target.os)~-x.b) &(-x.c) &(&(target.os)~-x.c)"; strings.Count(s, s2) != 1 {
 		ctx.err("%v", v)
 	} else if s3 := "$(or $3,-x)$_$(or $4))"; strings.Count(s, s3) != 1 {
 		ctx.err("%v", v)
@@ -816,23 +824,23 @@ func _testApp(ctx *testcase) {
 		ctx.err("%v", v)
 	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-z!a) &(-z~&(target.os)!a)") != 1 {
+	} else if strings.Count(s, "&(-z!a) &(&(target.os)~-z!a)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-z!b) &(-z~&(target.os)!b)") != 1 {
+	} else if strings.Count(s, "&(-z!b) &(&(target.os)~-z!b)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-z!c) &(-z~&(target.os)!c),") != 1 {
+	} else if strings.Count(s, "&(-z!c) &(&(target.os)~-z!c),") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, ",&(-z) &(-z~&(target.os))") != 1 {
+	} else if strings.Count(s, ",&(-z) &(&(target.os)~-z)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-z.a) &(-z~&(target.os).a)") != 1 {
+	} else if strings.Count(s, "&(-z.a) &(&(target.os)~-z.a)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-z.b) &(-z~&(target.os).b)") != 1 {
+	} else if strings.Count(s, "&(-z.b) &(&(target.os)~-z.b)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-z.c) &(-z~&(target.os).c)") != 1 {
+	} else if strings.Count(s, "&(-z.c) &(&(target.os)~-z.c)") != 1 {
 		ctx.err("%v", v)
-	} else if s1 := "$(filter-out &(-z!a) &(-z~&(target.os)!a) &(-z!b) &(-z~&(target.os)!b) &(-z!c) &(-z~&(target.os)!c),&(-z) &(-z~&(target.os)))"; strings.Count(s, s1) != 1 {
+	} else if s1 := "$(filter-out &(-z!a) &(&(target.os)~-z!a) &(-z!b) &(&(target.os)~-z!b) &(-z!c) &(&(target.os)~-z!c),&(-z) &(&(target.os)~-z))"; strings.Count(s, s1) != 1 {
 		ctx.err("%v", v)
-	} else if s2 := "&(-z.a) &(-z~&(target.os).a) &(-z.b) &(-z~&(target.os).b) &(-z.c) &(-z~&(target.os).c)"; strings.Count(s, s2) != 1 {
+	} else if s2 := "&(-z.a) &(&(target.os)~-z.a) &(-z.b) &(&(target.os)~-z.b) &(-z.c) &(&(target.os)~-z.c)"; strings.Count(s, s2) != 1 {
 		ctx.err("%v", v)
 	} else if s3 := "$(or $3,-z)$_$(or $4))"; strings.Count(s, s3) != 1 {
 		ctx.err("%v", v)
@@ -847,23 +855,23 @@ func _testApp(ctx *testcase) {
 		ctx.err("%v", v)
 	} else if strings.Count(s, "$(foreach(-unique) $(filter-out &") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x!a) &(-x~&(target.os)!a)") != 1 {
+	} else if strings.Count(s, "&(-x!a) &(&(target.os)~-x!a)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x!b) &(-x~&(target.os)!b)") != 1 {
+	} else if strings.Count(s, "&(-x!b) &(&(target.os)~-x!b)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x!c) &(-x~&(target.os)!c),") != 1 {
+	} else if strings.Count(s, "&(-x!c) &(&(target.os)~-x!c),") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, ",&(-x) &(-x~&(target.os))") != 1 {
+	} else if strings.Count(s, ",&(-x) &(&(target.os)~-x)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x.a) &(-x~&(target.os).a)") != 1 {
+	} else if strings.Count(s, "&(-x.a) &(&(target.os)~-x.a)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x.b) &(-x~&(target.os).b)") != 1 {
+	} else if strings.Count(s, "&(-x.b) &(&(target.os)~-x.b)") != 1 {
 		ctx.err("%v", v)
-	} else if strings.Count(s, "&(-x.c) &(-x~&(target.os).c)") != 1 {
+	} else if strings.Count(s, "&(-x.c) &(&(target.os)~-x.c)") != 1 {
 		ctx.err("%v", v)
-	} else if s1 := "$(filter-out &(-x!a) &(-x~&(target.os)!a) &(-x!b) &(-x~&(target.os)!b) &(-x!c) &(-x~&(target.os)!c),&(-x) &(-x~&(target.os)))"; strings.Count(s, s1) != 1 {
+	} else if s1 := "$(filter-out &(-x!a) &(&(target.os)~-x!a) &(-x!b) &(&(target.os)~-x!b) &(-x!c) &(&(target.os)~-x!c),&(-x) &(&(target.os)~-x))"; strings.Count(s, s1) != 1 {
 		ctx.err("%v", v)
-	} else if s2 := "&(-x.a) &(-x~&(target.os).a) &(-x.b) &(-x~&(target.os).b) &(-x.c) &(-x~&(target.os).c)"; strings.Count(s, s2) != 1 {
+	} else if s2 := "&(-x.a) &(&(target.os)~-x.a) &(-x.b) &(&(target.os)~-x.b) &(-x.c) &(&(target.os)~-x.c)"; strings.Count(s, s2) != 1 {
 		ctx.err("%v", v)
 	} else if s3 := "-y$_$(or $4))"; strings.Count(s, s3) != 1 {
 		ctx.err("%v", v)
@@ -962,7 +970,7 @@ func _testApp(ctx *testcase) {
 		ctx.err("%v", v1)
 	} else if strings.Count(s, "$(foreach(-unique) $1 c,-std=&(-std.$_) -std=&(std.$_))") != 1 {
 		ctx.err("%v", v1)
-	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.os)) $(foreach $1 c,&(-g.$_) &(-g~&(target.os).$_))),-g)") != 1 {
+	} else if strings.Count(s, "$(if $(or &(-g) &(&(target.os)~-g) $(foreach $1 c,&(-g.$_) &(&(target.os)~-g.$_))),-g)") != 1 {
 		ctx.err("%v", v1)
 	} else if t := flag2("-g", "c"); strings.Count(s, t) != 1 {
 		note(ctx, "%v", t) ; ctx.err("%v", v1)
@@ -996,7 +1004,7 @@ func _testApp(ctx *testcase) {
 		ctx.err("%v", v2)
 	} else if strings.Count(s, "$(foreach(-unique) $1 c,-std=&(-std.$_) -std=&(std.$_))") != 1 {
 		ctx.err("%v", v2)
-	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.os)) $(foreach $1 c,&(-g.$_) &(-g~&(target.os).$_))),-g)") != 1 {
+	} else if strings.Count(s, "$(if $(or &(-g) &(&(target.os)~-g) $(foreach $1 c,&(-g.$_) &(&(target.os)~-g.$_))),-g)") != 1 {
 		ctx.err("%v", v2)
 	} else if t := flag2("-g", "c"); strings.Count(s, t) != 1 {
 		note(ctx, "%v", t) ; ctx.err("%v", v2)
@@ -1066,7 +1074,7 @@ func _testApp(ctx *testcase) {
 		ctx.err("%v", s)
 	} else if strings.Count(s, "-std=&(std.c)") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.os)) &(-g.fxxbxx) &(-g~&(target.os).fxxbxx) &(-g.c) &(-g~&(target.os).c)),-g)") != 1 {
+	} else if strings.Count(s, "$(if $(or &(-g) &(&(target.os)~-g) &(-g.fxxbxx) &(&(target.os)~-g.fxxbxx) &(-g.c) &(&(target.os)~-g.c)),-g)") != 1 {
 		ctx.err("%v", s)
 	} else if t := flag4("-g", "fxxbxx", "c"); strings.Count(s, t) != 1 {
 		note(ctx, "%v", t) ; ctx.err("%v", v1)
@@ -1108,7 +1116,7 @@ func _testApp(ctx *testcase) {
 		ctx.err("%v", s)
 	} else if strings.Count(s, "-std=&(std.c)") != 1 {
 		ctx.err("%v", s)
-	} else if strings.Count(s, "$(if $(or &(-g) &(-g~&(target.os)) &(-g.fxxbxx) &(-g~&(target.os).fxxbxx) &(-g.c) &(-g~&(target.os).c)),-g)") != 1 {
+	} else if strings.Count(s, "$(if $(or &(-g) &(&(target.os)~-g) &(-g.fxxbxx) &(&(target.os)~-g.fxxbxx) &(-g.c) &(&(target.os)~-g.c)),-g)") != 1 {
 		ctx.err("%v", s)
 	} else if t := flag4("-g", "fxxbxx", "c"); strings.Count(s, t) != 1 {
 		note(ctx, "%v", t) ; ctx.err("%v", v2)
@@ -1133,9 +1141,9 @@ func _testApp(ctx *testcase) {
 	} else if t := flag3("cflags", "fxxbxx"); strings.Count(s, t) != 1 {
 		note(ctx, "%v", t) ; ctx.err("%v", v2)
 	} else if s1 := v1.string(ctx); s1 == "" {
-		ctx.err("%T %v → %s", v2, v2, s1)
+		ctx.err("%v → %s", ts(v2), s1)
 	} else if s2 := v2.string(ctx); s2 == "" {
-		ctx.err("%T %v → %s", v2, v2, s2)
+		ctx.err("%v → %s", ts(v2), s2)
 	} else if !validFlags(ctx, v1, s1) {
 		ctx.err("%s", s1)
 	} else if !validFlags(ctx, v2, s2) {
@@ -1162,15 +1170,15 @@ func _testApp(ctx *testcase) {
 	} else if s := v.String(); s == "" {
 		ctx.err("%v", tst{v})
 	} else if s := v.string(ctx); s == "" {
-		ctx.err("%T %v ⇒ %s", v, v, s)
+		ctx.err("%v ⇒ %s", ts(v), s)
 	} else if false {
 		for _, t := range foo1 {
 			if n := strings.Count(s, t); n != 1 {
-				ctx.err("%v : %s ; %T %v", t, s, v, v)
+				ctx.err("%v : %s ; %v", t, s, ts(v))
 			}
 		}
 	} else if strings.Count(s, "-std=fxxbar") != 1 {
-		ctx.err("%T %v ⇒ %s", v, v, s)
+		ctx.err("%v ⇒ %s", ts(v), s)
 	}
 
 	if v := ctx.val(".test.2"); v == nil {
@@ -1182,7 +1190,7 @@ func _testApp(ctx *testcase) {
 	} else if false {
 		for _, t := range foo1 {
 			if n := strings.Count(s, t); n != 1 {
-				ctx.err("%v : %s ; %T %v", t, s, v, v)
+				ctx.err("%v : %s ; %v", t, s, ts(v))
 			}
 		}
 	} else if strings.Count(s, "-std=fxxbar") != 1 {
@@ -1198,7 +1206,7 @@ func _testApp(ctx *testcase) {
 	} else if false {
 		for _, t := range foo1 {
 			if n := strings.Count(s, t); n != 1 {
-				ctx.err("%v : %s ; %T %v", t, s, v, v)
+				ctx.err("%v : %s ; %v", t, s, ts(v))
 			}
 		}
 	} else if strings.Count(s, "-std=fxxbar") != 1 {
@@ -1214,7 +1222,7 @@ func _testApp(ctx *testcase) {
 	} else {
 		for _, t := range foo1 {
 			if n := strings.Count(s, t); n != 1 {
-				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+				ctx.err("%v (%d) : %s ; %v", t, n, s, ts(v))
 			}
 		}
 	}
@@ -1242,7 +1250,7 @@ func _testApp(ctx *testcase) {
 	} else {
 		for _, t := range foo3 {
 			if n := strings.Count(s, t); n != 1 {
-				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+				ctx.err("%v (%d) : %s ; %v", t, n, s, ts(v))
 			}
 		}
 	}
@@ -1260,7 +1268,7 @@ func _testApp(ctx *testcase) {
 	} else {
 		for _, t := range foo4 {
 			if n := strings.Count(s, t); n != 1 {
-				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+				ctx.err("%v (%d) : %s ; %v", t, n, s, ts(v))
 			}
 		}
 	}
@@ -1276,7 +1284,7 @@ func _testApp(ctx *testcase) {
 	} else {
 		for _, t := range foo5 {
 			if n := strings.Count(s, t); n != 1 {
-				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+				ctx.err("%v (%d) : %s ; %v", t, n, s, ts(v))
 			}
 		}
 	}
@@ -1292,7 +1300,7 @@ func _testApp(ctx *testcase) {
 	} else {
 		for _, t := range foo6 {
 			if n := strings.Count(s, t); n != 1 {
-				ctx.err("%v (%d) : %s ; %T %v", t, n, s, v, v)
+				ctx.err("%v (%d) : %s ; %v", t, n, s, ts(v))
 			}
 		}
 	}

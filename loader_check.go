@@ -199,7 +199,7 @@ func (l ul) configuration_check(ctx *configure_ctx, ident Value) {
 			erro(ctx, "%v", l.project).trace()
 		} else {
 			switch mode = d.string(ctx); mode {
-			case "clean", /* "configure", */ "goals":
+			case "clean", "goals":
 			default:
 				erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
 			}
@@ -287,7 +287,7 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 			erro(ctx, "%v", l.project).trace()
 		} else {
 			switch mode = d.string(ctx); mode {
-			case "clean", /* "configure", */ "goals":
+			case "clean", "goals":
 			default:
 				erro(ctx, "%v : wrong mode : %s", l.project, mode).trace()
 			}
@@ -353,23 +353,6 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 }
 
 func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, res *Value) {
-	if false {
-		if e := recover(); e != nil {
-			switch e := e.(type) {
-			case trace_evoke_loop_err:
-				erro(ctx, "%s : %v %v", l.project.name, e, ts(e.Context)).trace()
-			default:
-				var pos positioner = l.p
-				if pos == nil { pos = l.project }
-				switch typeof(e) {
-				case "errorString":
-					note(pc(ctx,pos), "%s", e)
-				}
-				erro(ctx, "%s: %s %s", typeof(e), l.project, bases(3, filename, true)).trace()
-			}
-		}
-	}
-
 	do(ctx, checked_source(filename))
 
 	flat_mode := truly(ctx, is_flat_mode{})
@@ -395,7 +378,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		erro(ctx, "%v", l.project).trace()
 	} else {
 		switch mode = d.string(ctx); mode {
-		case "clean", /* "configure", */ "goals":
+		case "clean", "goals":
 		default:
 			erro(ctx, "%v : wrong mode : %v : %s", l.project, d, mode).trace()
 		}
@@ -425,6 +408,638 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 				erro(ctx, "%v : %v", d.o, ts(d.value)).trace()
 			} else if false {
 				note(ctx, "%v : %v : %s", l.project, x, filename)
+			}
+		}
+	}
+
+	if strings.HasSuffix(filename, "/configure/.base/.template") {
+		if truly(ctx, is_autoload{ "/app/.configure" }) {
+			if d := l.project.def(ctx, "configure.heads"); d == nil {
+				errostack(ctx, 6, "configure.heads").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"<stdarg.h>",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d.value).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.types"); d == nil {
+				errostack(ctx, 6, "configure.types").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					// "_Bool",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d.value).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.funcs"); d == nil {
+				erro(ctx, "configure.funcs").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"va_arg", "va_copy", "va_start", "va_end",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.symbs"); d == nil {
+				erro(ctx, "configure.symbs").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			for _, s := range []string{
+				"va_list",
+			}{
+				name := fmt.Sprintf("configure.include.type.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<stdarg.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			for _, s := range []string{
+				"va_arg","va_copy","va_start","va_end",
+			}{
+				name := fmt.Sprintf("configure.include.func.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<stdarg.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+				name = fmt.Sprintf("configure.include.symb.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<stdarg.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+				name = fmt.Sprintf("HAVE_%s", strings.ToUpper(s))
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "yes" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+				name = fmt.Sprintf("HAVE_SYM_%s", strings.ToUpper(s))
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "yes" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+				name = fmt.Sprintf("HAVE_FUN_%s", strings.ToUpper(s))
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "no" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+		}
+		if truly(ctx, is_autoload{ "/app/basic/.configure" }) {
+			if d := l.project.def(ctx, "configure.heads"); d == nil {
+				errostack(ctx, 6, "configure.heads").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"<stdarg.h>",
+					"<stdbool.h>",
+					"<sched.h>",
+					"<sys/time.h>",
+					"<sys/types.h>",
+					"<sys/socket.h>",
+					"<sys/uio.h>",
+					"<netdb.h>",
+					"<time.h>",
+					"<util.h>",
+					"<mach-o/dyld.h>",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d.value).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.funcs"); d == nil {
+				erro(ctx, "configure.funcs").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"__main", "va_arg", "va_copy", "va_start", "va_end", "_Unwind_Backtrace",
+					"getaddrinfo","freeaddrinfo","gai_strerror","openpty","forkpty","sendfile",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.symbs"); d == nil {
+				erro(ctx, "configure.symbs").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"CPU_COUNT", "CLOCK_MONOTONIC", "true", "false",
+					"_dyld_shared_cache_contains_path",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			for _, s := range []string{
+				"va_list",
+			}{
+				name := fmt.Sprintf("configure.include.type.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<stdarg.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			for _, s := range []string{
+				"bool",
+			}{
+				name := fmt.Sprintf("configure.include.type.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<stdbool.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			for _, s := range []string{
+				"getaddrinfo","freeaddrinfo","gai_strerror",
+			}{
+				name := fmt.Sprintf("configure.include.func.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<sys/types.h> <sys/socket.h> <netdb.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			for _, s := range []string{
+				"va_arg","va_copy","va_start","va_end",
+			}{
+				name := fmt.Sprintf("configure.include.func.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<stdarg.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			for _, s := range []string{
+				"CPU_COUNT",
+			}{
+				name := fmt.Sprintf("configure.include.symb.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<sched.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			for _, s := range []string{
+				"CLOCK_MONOTONIC",
+			}{
+				name := fmt.Sprintf("configure.include.symb.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<time.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			for _, s := range []string{
+				"timeval",
+			}{
+				name := fmt.Sprintf("configure.include.struct.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<sys/time.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			for _, s := range []string{
+				"tm",
+			}{
+				name := fmt.Sprintf("configure.include.struct.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<time.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			for _, s := range []string{
+				"_Unwind_Backtrace",
+			}{
+				name := fmt.Sprintf("configure.lib.func.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "unwind" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+			if os := "darwin"; true {
+				for _, s := range []string{
+					"sendfile",
+				}{
+					name := fmt.Sprintf(os+"~configure.include.func.%s", s)
+					if d := l.project.def(ctx, name); d == nil {
+						errostack(ctx, 6, "%s", name).trace()
+					} else if t := d.string(ctx); t != "<sys/types.h> <sys/socket.h> <sys/uio.h>" {
+						errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+					}
+				}
+				for _, s := range []string{
+					"openpty","forkpty",
+				}{
+					name := fmt.Sprintf(os+"~configure.include.func.%s", s)
+					if d := l.project.def(ctx, name); d == nil {
+						errostack(ctx, 6, "%s", name).trace()
+					} else if t := d.string(ctx); t != "<util.h>" {
+						errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+					}
+				}
+				for _, s := range []string{
+					"_dyld_shared_cache_contains_path",
+				}{
+					name := fmt.Sprintf(os+"~configure.include.symb.%s", s)
+					if d := l.project.def(ctx, name); d == nil {
+						errostack(ctx, 6, "%s", name).trace()
+					} else if t := d.string(ctx); t != "<mach-o/dyld.h>" {
+						errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+					}
+				}
+			}
+			if os := "linux"; false {
+				for _, s := range []string{
+					"sendfile",
+				}{
+					name := fmt.Sprintf(os+"~configure.include.func.%s", s)
+					if d := l.project.def(ctx, name); d == nil {
+						errostack(ctx, 6, "%s", name).trace()
+					} else if t := d.string(ctx); t != "<sys/sendfile.h>" {
+						errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+					}
+				}
+				for _, s := range []string{
+					"openpty","forkpty",
+				}{
+					name := fmt.Sprintf(os+"~configure.include.func.%s", s)
+					if d := l.project.def(ctx, name); d == nil {
+						errostack(ctx, 6, "%s", name).trace()
+					} else if t := d.string(ctx); t != "<pty.h>" {
+						errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+					}
+				}
+				for _, s := range []string{
+					"CAN_RAW_JOIN_FILTERS",
+				}{
+					name := fmt.Sprintf(os+"~configure.include.symb.%s", s)
+					if d := l.project.def(ctx, name); d == nil {
+						errostack(ctx, 6, "%s", name).trace()
+					} else if t := d.string(ctx); t != "<linux/can/raw.h>" {
+						errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+					}
+				}
+			}
+			if os := "bsd"; false {
+				for _, s := range []string{
+					"sendfile",
+				}{
+					name := fmt.Sprintf(os+"~configure.include.func.%s", s)
+					if d := l.project.def(ctx, name); d == nil {
+						errostack(ctx, 6, "%s", name).trace()
+					} else if t := d.string(ctx); t != "<sys/sendfile.h>" {
+						errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+					}
+				}
+				for _, s := range []string{
+					"getmode","setmode",
+				}{
+					name := fmt.Sprintf(os+"~configure.include.func.%s", s)
+					if d := l.project.def(ctx, name); d == nil {
+						errostack(ctx, 6, "%s", name).trace()
+					} else if t := d.string(ctx); t != "<bsd/unistd.h>" {
+						errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+					}
+				}
+			}
+			if os := "mingw"; false {
+				for _, s := range []string{
+					"closesocket",
+				}{
+					name := fmt.Sprintf(os+"~configure.include.func.%s", s)
+					if d := l.project.def(ctx, name); d == nil {
+						errostack(ctx, 6, "%s", name).trace()
+					} else if t := d.string(ctx); t != "<winsock.h>" {
+						errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+					}
+				}
+			}
+		}
+		if truly(ctx, is_autoload{ "/app/simple/.configure" }) {
+			if d := l.project.def(ctx, "configure.lib.func._Unwind_Backtrace"); d == nil {
+				errostack(ctx, 6, "configure.lib.func._Unwind_Backtrace").trace()
+			} else if t := d.string(ctx); t != "unwind" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "configure.lib.func.dlopen"); d == nil {
+				errostack(ctx, 6, "configure.lib.func.dlopen").trace()
+			} else if t := d.string(ctx); t != "dl" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "darwin~configure.lib.func.ffi_call"); d == nil {
+				errostack(ctx, 6, "darwin~configure.lib.func.ffi_call").trace()
+			} else if t := d.string(ctx); t != "ffi" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "darwin~configure.funcs.util.h"); d == nil {
+				errostack(ctx, 6, "darwin~configure.funcs.util.h").trace()
+			} else if t := d.string(ctx); t != "openpty forkpty" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "darwin~configure.include.func.openpty"); d == nil {
+				errostack(ctx, 6, "darwin~configure.include.func.openpty").trace()
+			} else if t := d.string(ctx); t != "<util.h>" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "darwin~configure.include.func.forkpty"); d == nil {
+				errostack(ctx, 6, "darwin~configure.include.func.forkpty").trace()
+			} else if t := d.string(ctx); t != "<util.h>" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "darwin~configure.include.func.setxattr"); d == nil {
+				errostack(ctx, 6, "darwin~configure.include.func.setxattr").trace()
+			} else if t := d.string(ctx); t != "<sys/xattr.h>" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "darwin~configure.include.func.fsetxattr"); d == nil {
+				errostack(ctx, 6, "darwin~configure.include.func.fsetxattr").trace()
+			} else if t := d.string(ctx); t != "<sys/xattr.h>" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "darwin~configure.include.func.mach_absolute_time"); d == nil {
+				errostack(ctx, 6, "darwin~configure.include.func.mach_absolute_time").trace()
+			} else if t := d.string(ctx); t != "<mach/mach_time.h>" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "darwin~configure.include.symb._dyld_shared_cache_contains_path"); d == nil {
+				errostack(ctx, 6, "darwin~configure.include.symb._dyld_shared_cache_contains_path").trace()
+			} else if t := d.string(ctx); t != "<mach-o/dyld.h>" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "darwin~configure.include.func.sendfile"); d == nil {
+				errostack(ctx, 6, "darwin~configure.include.func.sendfile").trace()
+			} else if t := d.string(ctx); t != "<sys/types.h> <sys/socket.h> <sys/uio.h>" {
+				errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+			}
+			if d := l.project.def(ctx, "configure.heads"); d == nil {
+				erro(ctx, "configure.heads").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"<complex.h>",
+					"<ctype.h>",
+					"<errno.h>",
+					"<float.h>",
+
+					"<stdatomic.h>",
+					"<stdbool.h>",
+					"<stddef.h>",
+					"<stdint.h>",
+
+					"<sys/socket.h>",
+					"<sys/types.h>",
+					"<sys/time.h>",
+
+					"<netdb.h>",
+
+					"<sys/select.h>",
+					"<sys/stat.h>",
+					"<sys/termio.h>",
+					"<sys/times.h>",
+					"<sys/uio.h>",
+					"<sys/utime.h>",
+					"<sys/wait.h>",
+
+					"<execinfo.h>",
+					"<locale.h>",
+					"<poll.h>",
+					"<pthread.h>",
+					"<setjmp.h>",
+					"<stdarg.h>",
+					"<stdlib.h>",
+					"<stdio.h>",
+					"<time.h>",
+					"<unistd.h>",
+
+					"<libintl.h>",
+
+					"<util.h>",
+					"<sys/xattr.h>",
+					"<mach-o/dyld.h>",
+					"<mach/mach_time.h>",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.types"); d == nil {
+				erro(ctx, "configure.types").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"_Bool", "char", "short", "int", "long", "long long",
+					"float", "double", "void*", "atomic_int", "bool", "size_t",
+					"uint32_t", "uint64_t", "socklen_t", "sa_family_t",
+					"id_t", "key_t", "time_t", "timer_t", "uid_t", "gid_t",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.structs"); d == nil {
+				erro(ctx, "configure.structs").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"passwd", "sockaddr", "statfs", "timeval", "tm",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.funcs"); d == nil {
+				erro(ctx, "configure.funcs").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"__main", "select", "socket", "stat", "getitimer", "gettimeofday", "ffi_call",
+					"readv", "writev", "preadv", "pwritev", "localeconv", "setlocale", "textdomain",
+					"times", "utimes", "getaddrinfo", "freeaddrinfo", "gethostbyname", "getnameinfo",
+					"wait", "wait3", "wait4", "waitid", "waitpid", "backtrace", "poll", "ppoll",
+					"openpty", "forkpty", "setxattr", "fsetxattr", "mach_absolute_time", "exit",
+					"_longjmp", "longjmp", "_setjmp", "setjmp", "sigsetjmp", "siglongjmp", "dlopen",
+					"va_arg", "va_copy", "va_start", "va_end", "abort", "atexit", "fopen", "fclose",
+					"_Unwind_Backtrace", "access", "alarm", "brk", "chdir", "chroot", "chown", "close",
+					"pthread_create", "pthread_init", "pthread_kill",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.symbs"); d == nil {
+				erro(ctx, "configure.symbs").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"CLOCK_MONOTONIC",
+					"_dyld_shared_cache_contains_path",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.lib*"); d == nil {
+				erro(ctx, "configure.lib*").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"curses","ncurses","ncursesw","terminfo","tinfo","intl","unwind","dl","ffi",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+		}
+		if truly(ctx, is_autoload{ "/app/complex/.configure" }) {
+			for _, s := range []string{
+				"_Unwind_Backtrace",
+				"_Unwind_DeleteException",
+				"_Unwind_FindEnclosingFunction",
+				"_Unwind_ForcedUnwind",
+				"_Unwind_GetCFA",
+				"_Unwind_GetGR",
+				"_Unwind_GetIP",
+				"_Unwind_GetIPInfo",
+				"_Unwind_GetLanguageSpecificData",
+				"_Unwind_GetRegionStart",
+				"_Unwind_RaiseException",
+				"_Unwind_Resume",
+				"_Unwind_Resume_or_Rethrow",
+				"_Unwind_SetGR",
+				"_Unwind_SetIP",
+			}{
+				name := fmt.Sprintf("configure.lib.func.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "unwind" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
 			}
 		}
 	}

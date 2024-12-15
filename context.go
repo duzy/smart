@@ -51,7 +51,7 @@ const (
 )
 
 type (
-  act_mark_dirty struct{ a []Value }
+  mark_dirty struct{ a []Value }
   act_count_dia  struct{ t []diagtype }
   act_dirt       struct{ a []Value }
   act_on_erros   struct{ i int }
@@ -63,22 +63,16 @@ type (
   get_position   struct{}
   get_project    struct{}
   get_scope      struct{}
+  param_name struct{ i int }
   get_closure_scopes struct{}
-  get_param_name struct{ i int }
-  get_parameters struct{}
   is_good_with   struct{ p property ; a []any }
   is_test_mode   struct{}
   invalid_position struct{}
   no_position struct{}
 )
 
-func _parameters(ctx Context) (res map[string]*auto) {
-  if t, y := do(ctx, get_parameters{}).(map[string]*auto); y { res = t }
-  return
-}
-
-func _paramname(ctx Context, n int) (_ string) {
-  if x, y := do(ctx, get_param_name{n}).(string); y { return x }
+func _param_name(ctx Context, n int) (_ string) {
+  if x, y := do(ctx, param_name{n}).(string); y { return x }
   return
 }
 
@@ -489,9 +483,9 @@ func (d *diagnostic) inner() Context { return d.Context }
 func (d *diagnostic) do(ctx Context, op any) (_ any) {
   switch t := op.(type) {
   case property: if t&propErros != 0 { return d.erros }
-  case flush_diags :  return d.flush(ctx)
+  case flush_diags:  return d.flush(ctx)
   case act_count_dia: return d.count(t.t...)
-  case act_traced  : if i := d.count(diagError); i > 0 { d.traced += 1 ; return i }
+  case act_traced : if i := d.count(diagError); i > 0 { d.traced += 1 ; return i }
   case add_diag: return diagtracer{ d.point(ctx, t.dt, t.fmt, t.a...), ctx }
   }
   if d.Context == nil { return }
@@ -546,7 +540,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
       if false { d.erros = 0 } // reset to avoid causing next panics
       panic(too_many_errors{y})
     }
-    if x, y := diagnostic_limit_bytes, d.flushed; 0 < x && x < y {
+    if x, y := diagnostic_limit_bytes, d.flushed; false && 0 < x && x < y {
       if false { d.flushed = 0 } // reset to avoid causing next panics
       panic(too_many_diagnostics{y})
     }

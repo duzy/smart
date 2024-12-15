@@ -7,6 +7,7 @@
 package smart
 
 import (
+	"regexp"
 	"reflect"
 	"strings"
 	"bytes"
@@ -15,6 +16,9 @@ import (
 	"fmt"
 	"io"
 )
+
+var         name_prefix = regexp.MustCompile(`^((android|darwin|linux|bsd|ios|windows|mingw|[^~]+)~)(.+)$`)
+var illegal_name_prefix = regexp.MustCompile(`^use\.(android|darwin|linux|bsd|ios|windows|mingw|[^~]+)~`)
 
 // A scope maintains a set of objects;
 // TODO: remote scope struct, use scopeContext instead
@@ -236,7 +240,12 @@ func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *de
 	}
 
 	if name == "" {
-		erro(ctx, "empty name: %s : %s", ident, ts(ident)).trace()
+		errostack(ctx, 3, "empty name: %s : %s", ident, ts(ident)).trace()
+	}
+	if checkpoints {
+		if illegal_name_prefix.MatchString(name) {
+			errostack(ctx, 3, "illegal name: %v", name).trace()
+		}
 	}
 
 	var y bool

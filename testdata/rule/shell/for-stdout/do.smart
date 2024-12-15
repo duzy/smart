@@ -16,11 +16,11 @@ project testrules
 .test.v3  = ${.test $1,$2}
 .test.v4 := $(.test.v3 a,b)
 
-.test1: {(shell -for-stdout=${.test $1,$2})}
+.test1:{(shell -for-stdout=${.test $1,$2})}
 	echo "test one"
 	echo "test two"
 
-.test2: {(shell -for-stderr=${.test $1,$2})}
+.test2:{(shell -for-stderr=${.test $1,$2})}
 	echo "test one" > /dev/stderr
 	echo "test two" > /dev/stderr
 	echo "test thr" > /dev/stderr
