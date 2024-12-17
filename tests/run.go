@@ -12,7 +12,7 @@ import (
 func main() {
         var a = os.Args[1:]
 
-        if err := loader.AddSearchPaths(a...); err != nil {
+        if err := loader.AddPaths(a...); err != nil {
                 fmt.Fprintf(os.Stderr, "error: %s\n", err)
                 return
         }

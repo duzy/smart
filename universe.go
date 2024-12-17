@@ -169,7 +169,6 @@ type commandline struct {
     verboseBreaks   bool `vb,vbrk,verbose-breaks`
     verboseChecks   bool `vc,vchk,verbose-checks`
     verboseImport   bool `vi,vimp,verbose-import`
-    verboseLoads    bool `vl,vloa,verbose-loading`
     verboseParse    bool `vp,vpar,verbose-parsing`
     verboseUsing    bool `vu,vuse,verbose-using`
     verboseExecFlags bool `vxf,verbose-exec-flag`
@@ -434,7 +433,7 @@ GotFile:
     return &file{valbase{_position(ctx)},base,stub}
 }
 
-func AddSearchPaths(paths... string) (err error) {
+func AddPaths(paths... string) (err error) {
     for _, s := range paths {
         if s, err = filepath.Abs(s); err != nil {
             break
@@ -446,7 +445,7 @@ func AddSearchPaths(paths... string) (err error) {
     return
 }
 
-func (ctx *universe) AddSearchPaths(paths... string) (err error) {
+func (ctx *universe) AddPaths(paths... string) (err error) {
     for _, s := range paths {
         if s, err = filepath.Abs(s); err != nil { break }
         if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
@@ -566,19 +565,17 @@ func (l ul) parse_args(base string, a ...string) {
     l.globe.mode.value = mode
 }
 
-// load loads smart files, making it as individual func to avoid being abused by loaders.
 func (u *universe) load(ctx Context) {
     if u.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
 
     if false { loadGrepCache(ctx) }
 
-    var base = u.workdir
-    if s := filepath.Join(base, ".smart", "modules"); s != "" {
-        if _, e := os.Stat(s); e == nil { u.AddSearchPaths(s) }
+    if s := filepath.Join(u.workdir, ".smart", "modules"); s != "" {
+        if _, e := os.Stat(s); e == nil { u.AddPaths(s) }
     }
-    if s := filepath.Join(base, mainFileName); s != "" {
+    if s := filepath.Join(u.workdir, mainFileName); s != "" {
         if _, e := os.Stat(s); e != nil {
-            s = filepath.Join(base, deprFileName)
+            s = filepath.Join(u.workdir, deprFileName)
             if _, e := os.Stat(s); e != nil { s = "" }
         }
     }
@@ -587,7 +584,7 @@ func (u *universe) load(ctx Context) {
     u.globe.top = &loader{term:term{ctx, u.globe.scope}}
 
     l := ul{u, u.globe.top}
-    l.parse_args(base, os.Args[1:]...)
+    l.parse_args(u.workdir, os.Args[1:]...)
 
     if u.verbose {
         defer func(t time.Time) {
@@ -620,7 +617,7 @@ func (u *universe) load(ctx Context) {
         } ()
     }
 
-    if u.verboseImport { prompt(ctx, "┌→%s\n", base) }
+    if u.verboseImport { prompt(ctx, "┌→%s\n", u.workdir) }
 
     defer func(t time.Time) {
         if d := time.Now().Sub(t); u.verboseImport {
@@ -631,13 +628,13 @@ func (u *universe) load(ctx Context) {
             if m := u.globe.main; m != nil {
                 warn(ctx, "slow loading (%v)!!\n", d).debug(6)
             } else {
-                prompt(ctx, "%s:1:warning: slow loading (%v)!!\n", base, d).debug(6)
+                prompt(ctx, "%s:1:warning: slow loading (%v)!!\n", u.workdir, d).debug(6)
             }
         }
     } (time.Now())
 
-    spec, _ := filepath.Rel(workBaseDir, base)
-    l.directory(l.loader, spec, base, nil)
+    spec, _ := filepath.Rel(workBaseDir, u.workdir)
+    l.directory(l.loader, spec, u.workdir, nil)
 
     if l.globe.main == nil {
         erro(ctx, "nothing loaded").trace()

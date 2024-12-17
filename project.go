@@ -586,7 +586,7 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
         var pt = pat.target
         var pa = pat.arged
         var full, r, stems = pt.match(ctx, s)
-        var m = _path(ctx, r)
+        var m = _joinpath(ctx, r)
         prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
       }
       warnstack(ctx, 3).debug(6)
@@ -623,7 +623,7 @@ func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
 ForPatterns:
   for _, pat := range p.patterns {
     if full, r, stems := pat.target.match(ctx, s); full {
-      var m = _path(ctx, r)
+      var m = _joinpath(ctx, r)
 
       if true {
         for sc := _stemmed(ctx); sc != nil; { // pattern loop detection

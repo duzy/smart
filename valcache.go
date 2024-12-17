@@ -307,12 +307,12 @@ func (p *valcache) perc_o(s string) { p._o(s, 1) }
 func (p *valcache) rege_o(s string) { p._o(s, 2) }
 
 func (p *valcache) do_filemap_name(ctx Context, f filemap, a any) {
-	do(ctx, filemap_name{f, _path(ctx, a)})
+	do(ctx, filemap_name{f, _joinpath(ctx, a)})
 	return
 }
 
 func (p *valcache) do_rule_name(ctx Context, r *rule, a any) {
-	do(ctx, rule_name{r, _path(ctx, a)})
+	do(ctx, rule_name{r, _joinpath(ctx, a)})
 	return
 }
 

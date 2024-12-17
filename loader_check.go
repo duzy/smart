@@ -464,7 +464,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 					}
 				}
 				for _, s := range []string{
-					"va_arg", "va_copy", "va_start", "va_end",
+					"va_arg",  "va_start", "va_end",
 				}{
 					if strings.Count(t, s) == 0 {
 						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
@@ -500,7 +500,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 				}
 			}
 			for _, s := range []string{
-				"va_arg","va_copy","va_start","va_end",
+				"va_arg","va_start","va_end",
 			}{
 				name := fmt.Sprintf("configure.include.func.%s", s)
 				if d := l.project.def(ctx, name); d == nil {

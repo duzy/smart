@@ -811,8 +811,8 @@ func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
   return
 }
 
-func CommandLine() {
-  var ctx = new_universe() ; defer assured(ctx, false)
+func Main() {
+  var ctx = new_universe()//; defer assured(ctx, false)
   var modulesPaths, packagePaths searchlist
 
   walkSmartBaseDirs(ctx, ctx.workdir, func(s string) bool {
@@ -828,31 +828,50 @@ func CommandLine() {
 
   // make sure that .smart dirs have higher priority.
   ctx.paths = append(modulesPaths, ctx.paths...)
+
   for _, s := range modulesPaths {
     searchFile := filepath.Join(s, ".search")
     if fi, _ := os.Stat(searchFile); fi == nil { continue }
-    var file, err = os.Open(searchFile)
-    if err != nil { fmt.Fprintf(stderr, "%v", err); return } else { defer file.Close() }
-    for r := bufio.NewReader(file); err == nil; {
-      var ( fi os.FileInfo; line string )
+
+    var f, err = os.Open(searchFile)
+    if err != nil {
+      fmt.Fprintf(stderr, "%v", err)
+      return
+    }
+
+    defer f.Close()
+
+    for r := bufio.NewReader(f); err == nil; {
+      var fi os.FileInfo
+      var line string
       if line, err = r.ReadString('\n'); err != nil {
-        if err != io.EOF { fmt.Fprintf(stderr, "%v", err) } else { err = nil
-          if line == "" { break } }
+        if err != io.EOF {
+          fmt.Fprintf(stderr, "%v", err)
+        } else {
+          err = nil
+          if line == "" { break }
+        }
       } else {
         line = strings.TrimSpace(line)
       }
-      if strings.HasPrefix(line, "#") {
-        continue
-      } else if filepath.IsAbs(line) {
+
+      if strings.HasPrefix(line, "#") { continue }
+
+      if filepath.IsAbs(line) {
         line = filepath.Clean(line)
       } else {
         line = filepath.Clean(filepath.Join(s, line))
       }
+
       if fi, err = os.Stat(line); err == nil && fi.IsDir() {
         ctx.paths = append(ctx.paths, line)
       }
     }
-    if err != nil { fmt.Fprintf(stderr, "%v: %v", file, err); return }
+
+    if err != nil {
+      fmt.Fprintf(stderr, "%v: %v", f, err)
+      return
+    }
   }
 
   if ctx.count(diagError) > 0 { return }
@@ -872,6 +891,7 @@ func CommandLine() {
   } else if result := ctx.run(); ctx.flush(ctx) > 0 {
     prompt(ctx, "run work got %d errors\n", ctx.erros)
   } else if result != nil {
+    fmt.Fprintf(stderr, "7\n")
     for i, v := range result {
       if s := ""; v == nil {
         s = "<nil>"
@@ -885,6 +905,4 @@ func CommandLine() {
     }
     fmt.Fprintf(stderr, "\n")
   }
-
-  // if false { promptLeavingDirectory(ctx) }
 }

@@ -715,16 +715,16 @@ func (a as) fullname(ctx Context, projs ...*project) (res fullname) {
     return
 }
 
-// joinPath is different from filepath.Join, which trims and discards empty segments
+// joinpath is different from filepath.Join, which trims and discards empty segments
 func joinpath(segs ...string) string { return strings.Join(segs, pathSep) }
-func _path(ctx Context, i any) (str string) {
+func _joinpath(ctx Context, i any) (_ string) {
     switch s := i.(type) {
     case      nil:
-    case   string: str = s
-    case []string: str = joinpath(s...)
-    case interface{ string(Context) string }: str = s.string(ctx)
+    case   string: return s
+    case []string: return joinpath(s...)
+    case interface{ string(Context) string }: return s.string(ctx)
     default:
-        note(ctx, "unexpected path str: %v", ts(i)).debug(6)
+        note(ctx, "unexpected path str: %s", ts(i)).debug(6)
     }
     return
 }
@@ -770,9 +770,21 @@ func pc(ctx Context, a any, n ...int) Context {
         case  *scanner   : p = t.pos(n...)
         case  *parser    : p = t.Position()
         case   Position  : if t.valid() { p = t }
-        case   positioner: if t != nil  { p = t   .Position() }
-        case []positioner: if t != nil  { p = t[0].Position() }
-        case []Value     : if t != nil  { p = t[0].Position() }
+        case   positioner: if t != nil  { p = t.Position() }
+        case []positioner:
+            for _, v := range t {
+                if x := v.Position(); x.valid() {
+                    p = x
+                    break
+                }
+            }
+        case []Value:
+            for _, v := range t {
+                if x := v.Position(); x.valid() {
+                    p = x
+                    break
+                }
+            }
         case string:
             var pos Position
             pos.Filename = t
@@ -2894,7 +2906,7 @@ func (p *compound) cmp(ctx Context, v Value) (res cmpres) {
                 } else if m, r, t := fL.Value.match(ctx, fR.Value); m {
                     if isNull(elems[1]) || isNone(elems[1]) { res = cmpEqual }
                 } else if r != nil { // matched prefix
-                    var s = _path(ctx, r)
+                    var s = _joinpath(ctx, r)
                     var sL = s + elems[1].string(ctx)
                     var sR = fR.Value.string(ctx)
                     if sL == sR {
@@ -2947,7 +2959,7 @@ func (p *compound) match(ctx Context, i any) (full bool, res any, stems []string
     var rs string
     for n, elem = range p.elems {
         var _, r, ss = elem.match(ctx, s)
-        var t = _path(ctx, r)
+        var t = _joinpath(ctx, r)
         if t == "" { break } else {
             stems = append(stems, ss...)
             s = s[len(t):]
@@ -3608,7 +3620,7 @@ func (p *path) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
 
 func matchPathSeg(ctx Context, seg Value, src string) (bool, string, []string) {
     var full, i, ss = seg.match(ctx, src)
-    var s = _path(ctx, i)
+    var s = _joinpath(ctx, i)
     // if !full {
     //     if x, y := seg.(*punct); y && PTAIL == x.token && numSrc < lenSrcs {
     //         // ...

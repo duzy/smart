@@ -442,9 +442,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
 
         var proj *project
         var res, isb bool
-        if false && loaded.opt.multiUseAllowed {
-            // ...
-        } else if proj, res, isb = loaded.has_loaded(ctx, up, traveUseLoop); isb {
+        if proj, res, isb = loaded.has_loaded(ctx, up, traveUseLoop); isb {
             if l.project.has_base(up) {
                 // common bases are fine
             } else {
@@ -1151,14 +1149,9 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
 
     if text == nil { return }
 
-	var smod scanmode
-	// if l.mode&ParseComments != 0 {
-	// 	smod = scanner.ScanComments
-	// }
-
     f := l.fset.AddFile(filename, -1, len(text))
     l.p = &parser{}
-    l.p.scanner.init(ctx, f, text, smod)
+    l.p.scanner.init(ctx, f, text, 0)
 	l.p.next(ctx, true) // starts scanning
 
     if truly(ctx, is_text{}) {
@@ -1295,22 +1288,11 @@ func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (so
 // ul.load loads script from a file or source code
 func (l ul) file(ctx Context, spec, absPath string, source any) {
     if l.traceLaunch { defer un(l_trace(l_launch, "loader.load")) }
-    if false { defer flush(ctx) }
-
-    defer func(t time.Time) {
-        if d := time.Now().Sub(t) ; l.verboseLoads && d>1*time.Second {
-            if x, _ := l.globe.loaded[absPath] ; l.project == nil {
-                prompt(ctx, "load (%15s) ⇒ %s (%s)\n", d, x, spec)
-            } else {
-                prompt(ctx, "load (%15s) %s ⇒ %s (%s)\n", d, l.project.name, x, spec)
-            }
-        }
-    } (time.Now())
 
     if absPath == "" {
-        erro(ctx, "%v: no such base: %v", l.project, spec).trace()
+        errostack(ctx, 5, "%v: no such base: %v", l.project.name, spec).trace()
     } else if !filepath.IsAbs(absPath) {
-        erro(ctx, "%v: not absolute path: %v", l.project, spec).trace()
+        errostack(ctx, 5, "%v: not absolute path: %v", l.project.name, spec).trace()
     }
 
     // Check loaded project.
@@ -1344,30 +1326,23 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
 
     var okay bool
     var loaded *project
-    defer func(t time.Time, ver bool) {
+    defer func(t time.Time) {
         if spec == "." { spec = absDir }
 
-        if d := time.Now().Sub(t) ; ver && 1*time.Second < d {
-            if p := l.project ; p != nil {
-                note(ctx, "load (%15s) %s ⇒ %s (%s)\n", d, p.name, loaded, spec).debug()
-            } else {
-                note(ctx, "load (%15s) ⇒ %s (%s)\n", d, loaded, spec).debug()
-            }
-        }
-
         if loaded == nil { return }
+
         if l.globe.main == nil { l.globe.main = loaded }
 
-        if proj := l.scope().project; proj == nil {
-            if false { erro(ctx, "%v: no owner project for %s", loaded.name, l.scope()).trace() }
-        } else if name, _ := proj.Lookup(loaded.name).(*project); name == nil {
-            if _, alt := proj.projectname(ctx, loaded.name, loaded); alt != nil {
-                if val, y := alt.(*project); !y || val == nil {
-                    erro(ctx, "name `%s' already taken (%T).", loaded.name, alt).trace()
+        if l.project != nil {
+            if name, _ := l.project.Lookup(loaded.name).(*project); name == nil {
+                if _, alt := l.project.projectname(ctx, loaded.name, loaded); alt != nil {
+                    if x, y := alt.(*project); !y || x == nil {
+                        erro(ctx, "`%s' already taken: %s", loaded.name, alt).trace()
+                    }
                 }
             }
         }
-    } (time.Now(), l.verboseLoads)
+    } (time.Now())
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
         defer l.directory_check(ctx, spec, absDir)

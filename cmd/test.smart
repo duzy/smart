@@ -1,7 +1,0 @@
-module test
-
-foo = 'This is from test.foo'
-bar = 'This is from test.bar'
-
-foobar:
-	print 'This is from test.foobar'

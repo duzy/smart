@@ -236,8 +236,6 @@ var builtins = map[string]reflect.Type {
     // commands ------------------------------------------------------------------
     `print`:        reflect.TypeOf((*builtin_print)(nil)).Elem(),
     `printf`:       reflect.TypeOf((*builtin_printf)(nil)).Elem(),
-    `printl`:       reflect.TypeOf((*builtin_printl)(nil)).Elem(),
-    `println`:      reflect.TypeOf((*builtin_println)(nil)).Elem(),
 
     `plain`:        reflect.TypeOf((*builtin_plain)(nil)).Elem(),
 
@@ -303,7 +301,7 @@ func trimRightSpaces(s string) string {
 func _set(ctx Context, val reflect.Value, v Value) {
     switch val.Kind() {
     case reflect.Bool:
-        val.SetBool(/* v == nil || */ v.true(ctx))
+        val.SetBool(v.true(ctx))
     case reflect.Float32, reflect.Float64:
         val.SetFloat(v.float(ctx))
     case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -426,11 +424,13 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
 
     rest = merge(args...)
 
-    var builtin, general, modifier reflect.Value
+    var builtin, general, modifier, dots reflect.Value
     var ot = opts.Type()
     for i := 0; i < ot.NumField(); i += 1 {
         var ft, fv = ot.Field(i), opts.Field(i)
-        if t := fv.Type(); fv.Kind() != reflect.Struct {
+        if ft.Tag == "..." {
+            dots = fv
+        } else if t := fv.Type(); fv.Kind() != reflect.Struct {
             if ft.Anonymous && ft.Name == "Context" {
                 if t.String() == "smart.Context" {
                     continue
@@ -449,9 +449,13 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
             modifier = fv.Addr()
         }
     }
-    if  builtin.IsValid() { rest = _opts(ctx,  builtin, rest) }
     if  general.IsValid() { rest = _opts(ctx,  general, rest) }
+    if  builtin.IsValid() { rest = _opts(ctx,  builtin, rest) }
     if modifier.IsValid() { rest = _opts(ctx, modifier, rest) }
+    if dots.IsValid() && rest != nil {
+        _set(ctx, dots, ease(ctx, rest))
+        rest = nil
+    }
     return
 }
 func parse_opts(ctx Context, store any, args ...Value) (rest []Value) {
@@ -2979,7 +2983,7 @@ func (ctx *builtin_trimprefix) x() (_ any) {
             if checkpoints && truly(ctx, is_test_mode{}) { ctx.x_check_match(val, prefix, f, r, m) }
             if f { return } // trim all for prefix
 
-            t = _path(ctx, r)
+            t = _joinpath(ctx, r)
         } else {
             t = prefix.string(ctx)
         }
@@ -3052,7 +3056,7 @@ func (ctx *builtin_trimsuffix) x() (_ any) {
             }
             if f { return }
 
-            t = _path(ctx, r)
+            t = _joinpath(ctx, r)
         } else {
             t = suffix.string(ctx)
         }
@@ -3178,73 +3182,10 @@ func (ctx *builtin_addsuffix) x() (_ any) {
     return res
 }
 
-type builtin_printf struct{ builtin_ }
-func (ctx *builtin_printf) inner() Context { return &ctx.builtin_ }
-func (ctx *builtin_printf) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtin_.cast(t)
-}
-func (ctx *builtin_printf) c() (_ any) { return ctx.x() }
-func (ctx *builtin_printf) x() (_ any) {
-    if len(ctx.evocation.a) < 1 {
-        erro(ctx, "not enough args, try $(printf 'format', ...)").trace()
-    }
-
-    var vals = merge(ctx.evocation.a[0])
-    if len(vals) != 1 {
-        erro(ctx, "not enough args, try $(printf 'format', ...)").trace()
-    }
-
-    var i int
-    var a []any
-    var f = vals[0].string(ctx)
-
-outer:
-    for _, v := range merge(ctx.evocation.a[1:]...) {
-    ForFmt:
-        for i < len(f) {
-            if f[i] != '%' { i += 1; continue }
-            for i += 1; i < len(f); i += 1 {
-                switch f[i] {
-                case '%': continue ForFmt
-                case '+', '-', '#', ' ', '.', '0', '1', '2', '3',
-                    '4', '5', '6', '7', '8', '9': continue
-                case 'c', 'd', 'o', 'O', 'q', 'U':
-                    a = append(a, v.int(ctx))
-                    continue outer
-                case 'e', 'E', 'f', 'F', 'g', 'G':
-                    a = append(a, v.float(ctx))
-                    continue outer
-                case 'b', 'x', 'X':
-                    switch k := v.kind(); {
-                    case k&KindInteger != 0:
-                        a = append(a, v.int(ctx))
-                        continue outer
-                    case k&KindFloat != 0:
-                        a = append(a, v.float(ctx))
-                        continue outer
-                    default:
-                        if t, e := strconv.Atoi(v.string(ctx)) ; e == nil { a = append(a, t) } else {
-                            erro(ctx, "%v: %v", v, e).trace()
-                        }
-                        continue outer
-                    }
-                case 'v':
-                    a = append(a, v/* .string(ctx) */)
-                    continue outer
-                case 't', 'T':
-                    a = append(a, v)
-                    continue outer
-                }
-            }
-        }
-    }
-    return fmt.Sprintf(f, a...)
-}
-
 type builtin_print struct{ builtin_
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
     noWarn bool `nowarn,nowarns,no-warn,no-warns`
+    f string `...`
 }
 func (ctx *builtin_print) inner() Context { return &ctx.builtin_ }
 func (ctx *builtin_print) cast(t reflect.Type) Context {
@@ -3254,8 +3195,8 @@ func (ctx *builtin_print) cast(t reflect.Type) Context {
 func (ctx *builtin_print) c() (_ any) { return ctx.x() }
 func (ctx *builtin_print) x() (_ any) {
     var diag = _diagnostic(ctx)
-    if ctx.noErrs && diag.count(diagError) > 0 { return }
-    if ctx.noWarn && diag.count(diagWarn) > 0 { return }
+    if ctx.noErrs && 0 < diag.count(diagError) { return }
+    if ctx.noWarn && 0 < diag.count(diagWarn)  { return }
 
     var sb bytes.Buffer
     var x = len(ctx.evocation.a)
@@ -3266,35 +3207,6 @@ func (ctx *builtin_print) x() (_ any) {
             fmt.Fprintf(&sb, " ")
         }
         fmt.Fprintf(&sb, "%s", escapedString(ctx, a))
-    }
-    prompt(ctx, sb.String())
-    return
-}
-
-type builtin_printl struct{ builtin_
-    noErrs bool `noerrs,noerrors,no-errs,no-errors`
-    noWarn bool `nowarn,nowarns,no-warn,no-warns`
-}
-func (ctx *builtin_printl) inner() Context { return &ctx.builtin_ }
-func (ctx *builtin_printl) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtin_.cast(t)
-}
-func (ctx *builtin_printl) c() (_ any) { return ctx.x() }
-func (ctx *builtin_printl) x() (_ any) {
-    var diag = _diagnostic(ctx)
-    if ctx.noErrs && diag.count(diagError) > 0 { return }
-    if ctx.noWarn && diag.count(diagWarn) > 0 { return }
-
-    var sb bytes.Buffer
-    var x = len(ctx.evocation.a)
-    for i, a := range ctx.evocation.a {
-        if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
-        var s = escapedString(ctx, a)
-        fmt.Fprintf(&sb, "%s", s)
-        if i == x && !strings.HasSuffix(s, "\n") {
-            fmt.Fprintf(&sb, "\n")
-        }
     }
     prompt(ctx, sb.String())
     return
@@ -3328,6 +3240,70 @@ func (ctx *builtin_println) x() (_ any) {
     fmt.Fprintf(&sb, "\n")
     prompt(ctx, sb.String())
     return
+}
+
+type builtin_printf struct{ builtin_ }
+func (ctx *builtin_printf) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_printf) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_printf) c() (_ any) { return ctx.x() }
+func (ctx *builtin_printf) x() (_ any) {
+    if len(ctx.evocation.a) < 1 {
+        erro(ctx, "not enough args, try $(printf 'format', ...)").trace()
+    }
+
+    var vals = merge(ctx.evocation.a[0])
+    if len(vals) != 1 {
+        erro(ctx, "not enough args, try $(printf 'format', ...)").trace()
+    }
+
+    var i int
+    var a []any
+    var f = vals[0].string(ctx)
+
+outer:
+    for _, v := range merge(ctx.evocation.a[1:]...) {
+    fmtloop:
+        for i < len(f) {
+            if f[i] != '%' { i += 1; continue }
+            for i += 1; i < len(f); i += 1 {
+                switch f[i] {
+                case '%': continue fmtloop
+                case '+', '-', '#', ' ', '.', '0', '1', '2', '3',
+                    '4', '5', '6', '7', '8', '9': continue
+                case 'c', 'd', 'o', 'O', 'q', 'U':
+                    a = append(a, v.int(ctx))
+                    continue outer
+                case 'e', 'E', 'f', 'F', 'g', 'G':
+                    a = append(a, v.float(ctx))
+                    continue outer
+                case 'b', 'x', 'X':
+                    switch k := v.kind(); {
+                    case k&KindInteger != 0:
+                        a = append(a, v.int(ctx))
+                        continue outer
+                    case k&KindFloat != 0:
+                        a = append(a, v.float(ctx))
+                        continue outer
+                    default:
+                        if t, e := strconv.Atoi(v.string(ctx)) ; e == nil { a = append(a, t) } else {
+                            erro(ctx, "%v: %v", v, e).trace()
+                        }
+                        continue outer
+                    }
+                case 'v':
+                    a = append(a, v/* .string(ctx) */)
+                    continue outer
+                case 't', 'T':
+                    a = append(a, v)
+                    continue outer
+                }
+            }
+        }
+    }
+    return fmt.Sprintf(f, a...)
 }
 
 type builtin_indent struct { builtin_ }

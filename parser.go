@@ -2511,7 +2511,7 @@ func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useopts, p
 }
 
 func (l ul) use(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
-	if l.p.imports = append(l.p.imports, &use_spec{ g.spec }); g.skip {
+	if l.p.imports = append(l.p.imports, &use_spec{g.spec}); g.skip {
 		// TODO: maybe give some information
 		return
 	}
@@ -2520,7 +2520,7 @@ func (l ul) use(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	switch v := g.spec[0].(type) {
     case *pair:
         var s string
-        if f, ok := v.key.(flag); !ok {
+        if f, y := v.key.(flag); !y {
             erro(ctx, "'%v' invalid use spec", v.key)
         } else if s = f.Value.string(ctx); s != "list" {
             erro(ctx, "'%v' invalid use spec, do you mean -list?", v.key)
@@ -2537,14 +2537,14 @@ func (l ul) use(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 		if !isTrivial(val) { specVals = append(specVals, val) }
 	}
 	if len(specVals) == 0 {
-        erro(ctx, "empty use spec: %v", ts(g.spec[0])).trace()
+        erro(pc(ctx,g.spec), "empty use spec: %v", ts(g.spec[0])).trace()
     }
 
 	var opts useopts
 	var args = parse_opts(ctx, &opts, append(g.remainder, g.spec[1:]...)...)
 	for _, a := range args {
-		if _, ok := a.(flag); ok || true {
-			erro(ctx, "unkown use opts: %v", ts(a)).trace()
+		if _, y := a.(flag); y {
+			erro(pc(ctx,a), "unkown use opts: %v", ts(a)).trace()
 		}
 	}
 
@@ -2807,9 +2807,11 @@ func (l ul) spec(ctx Context, keyword token, pos Pos, f parseSpecFunc) {
 			// TODO: collect documentation comments
 			for l.p.tok == SPACE || l.p.tok == LINEND { l.p.next(ctx, true) }
 			if l.p.tok == RPAREN || l.p.tok == EOF { break  }
-			if opts.spec = l.directive(ctx); true {
-				f(ctx, l.p.leadComment, &opts, iota)
-			}
+
+			opts.spec = l.directive(ctx)
+
+			f(ctx, l.p.leadComment, &opts, iota)
+
 			if l.p.tok == COMMA || l.p.tok == LINEND { l.p.next(ctx, true) }
 		}
 		l.p.expect(ctx, RPAREN)
@@ -2819,9 +2821,13 @@ func (l ul) spec(ctx Context, keyword token, pos Pos, f parseSpecFunc) {
 	}
 
 	if l.p.tok != LINEND && l.p.tok != EOF && (l.p.stop == 0 || l.p.pos < l.p.stop) {
-		if opts.spec = l.directive(ctx); true { f(ctx, nil, &opts, 0) }
+		opts.spec = l.directive(ctx)
+
+		f(ctx, nil, &opts, 0)
+
 		if l.p.tok == COMMA { l.p.next(ctx, true) }
 	}
+
 	if l.p.tok != EOF && (l.p.stop == 0 || l.p.pos < l.p.stop) {
 		if l.p.spaces(ctx); l.p.lineComment == nil { l.p.linend(ctx) }
 	}
@@ -4399,7 +4405,8 @@ func (l ul) proj(ctx Context, filename string, isMainFile bool) (_ Value, _ stri
 
 	var vals []Value
 	for l.p.tok == MINUS {
-		val := l.expr(ctx); l.p.spaces(ctx)
+		val := l.expr(ctx)
+		l.p.spaces(ctx)
 
 		if a, y := val.(*argumented); y {
 			if f, y := a.Value.(flag); y {
@@ -4488,10 +4495,8 @@ func (l ul) proj(ctx Context, filename string, isMainFile bool) (_ Value, _ stri
 		isMainFile = isMainFile && !prevDeclared;
 	}
 
-	var cc = parent{ctx, l.project}
-
 	if l.p.tok != LPAREN {
-		l.bases(cc, implicitBase) // for special bases, e.g. .base
+		l.bases(parent{ctx, l.project}, implicitBase) // for special bases, e.g. .base
 	} else {
 		var cc0 = p_group_ctx{p_aware_comma{ctx}}
 		for l.p.tok != EOF {
@@ -4507,7 +4512,7 @@ func (l ul) proj(ctx Context, filename string, isMainFile bool) (_ Value, _ stri
 					continue
 				}
 
-				l.bases(cc, "", merge(v...)...)
+				l.bases(parent{ctx, l.project}, "", merge(v...)...)
 			}
 			if l.p.tok != COMMA { break }
 		}
