@@ -108,6 +108,7 @@ type p_braced_ctx   struct { Context }
 type p_bare_ctx     struct { Context }
 type p_auto_ctx     struct { Context }
 type p_foreach_txt  struct { Context ; a *auto }
+type p_grep_txt     struct { Context ; o objbase ; a map[string]*auto }
 type p_group_ctx    struct { Context }
 type p_left_ctx     struct { Context }
 type p_modifier     struct { Context }
@@ -227,6 +228,35 @@ func (p p_foreach_txt) do(ctx Context, op any) (_ any) {
     case find_auto: if t.string == "_" { return p.a }
 	case is_auto: if t.string == "_" { return true }
 	case is_auto_preserved: if t.string == "_" { return true }
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p *p_grep_txt) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *p_grep_txt) inner() Context { return p.Context }
+func (p *p_grep_txt) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
+func (p *p_grep_txt) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case is_auto_preserved:
+		if p.a != nil {
+			if _, y := p.a[t.string]; y { return true }
+		}
+	case is_auto:
+		if p.a != nil {
+			if _, y := p.a[t.string]; y { return true }
+		}
+    case find_auto:
+		if p.a != nil {
+			if x, y := p.a[t.string]; y { return x }
+		}
+	case regex_subexp_auto:
+		p.a = map[string]*auto{"0":&auto{knownobject{p.o, "0"}}}
+		for i, name := range t.SubexpNames() {
+			if 0 < i {
+				if name == "" { name = strconv.Itoa(i) }
+				p.a[name] = &auto{knownobject{p.o, name}}
+			}
+		}
 	}
 	return p.Context.do(ctx, op)
 }
@@ -658,13 +688,13 @@ func (l ul) braced(ctx Context) (x Value) {
 				l.p.expect(ctx, RBRACE)
 				return
 
-			case "fullname":
-				x = l.braced_fullname(ctx)
+			case "defs":
+				x = l.braced_defs(ctx)
 				l.p.expect(ctx, RBRACE)
 				return
 
-			case "defs":
-				x = l.braced_defs(ctx)
+			case "fullname":
+				x = l.braced_fullname(ctx)
 				l.p.expect(ctx, RBRACE)
 				return
 			}
@@ -977,6 +1007,8 @@ func (l ul) perc(ctx Context, x Value) Value {
 	return makePercpat(l.p.loc(pos), x, y)
 }
 
+type regex_subexp_auto struct{ *regexp.Regexp }
+
 func (l ul) regex(ctx Context) (_ Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "regex")) }
 
@@ -1017,6 +1049,8 @@ rxloop:
 	var x = &regexpat{valbase{pos}, nil} // TODO: correct regexp pattern value
 	if x.Regexp, err = regexp.Compile(rx); err != nil {
 		erro(pc(ctx,l.p), "regex: %v", err).trace()
+	} else {
+		do(ctx, regex_subexp_auto{x.Regexp})
 	}
 	return x
 }
@@ -1298,15 +1332,7 @@ func (u url_fragment) do(ctx Context, op any) (_ any) {
 func (l ul) url(ctx Context, scheme Value) (res Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "url")) }
 
-	var u = &url{ Scheme: scheme }
-
-	if false && checkpoints && truly(ctx, is_test_mode{}) {
-		defer func(t token) {
-			if l.project.name == "testvalue" {
-				note(ctx, "%v %v", u, l.p.tok).debug(3)
-			}
-		} (l.p.tok)
-	}
+	var u = &url{valbase:l.p.valbase(), Scheme:scheme}
 
 	l.p.expect(ctx, COLON) // consumes ':'
 	l.p.expect(ctx, PCON) // the first '/'
@@ -1561,6 +1587,10 @@ func (l ul) args(ctx Context, name string, tokLp token, isClosure bool) (args []
 		args = append(args, l.auto_arg0(ctx, tokLp, isClosure))
 		if !isClosure { ctx = p_auto_ctx{ctx} }
 
+	case "and", "or":
+		ctx = p_undef_ctx{ctx}
+		args = append(args, l.list(ctx))
+
 	case "case":
 		args = append(args, l.list(ctx))
 		ctx = p_undef_ctx{ctx}
@@ -1570,8 +1600,9 @@ func (l ul) args(ctx Context, name string, tokLp token, isClosure bool) (args []
 		args = append(args, l.list(ctx))
 		ctx = p_foreach_txt{ctx, &auto{knownobject{o, "_"}}}
 
-	case "and", "or":
-		ctx = p_undef_ctx{ctx}
+	case "grep":
+		o := objbase{valbase{l.p.Position()}, l.scope()}
+		ctx = &p_grep_txt{ctx, o, nil}
 		args = append(args, l.list(ctx))
 
 	default:
@@ -1596,7 +1627,7 @@ func (l ul) abc(ctx Context, isClosure, special bool) (tok token, obj Value, arg
 
 	if special {
 		if obj = l.resolve(ctx, nil, str); obj == nil {
-			errostack(pc(ctx,pos), 8, "not defined %v (name=%s)", tok, str).trace()
+			errostack(pc(ctx,pos), 10, "not defined %v (name=%s)", tok, str).trace()
 		}
 		return
 	}
@@ -1968,22 +1999,21 @@ andloop:
 }
 
 func (l ul) braced_or(ctx Context) (_ Value) {
-	var va []Value
-
 	l.p.expect(ctx, OR) // consumes `or`
+
+	var va []Value
 
 orloop:
 	for l.p.tok != EOF {
 		switch l.p.spaces(ctx); l.p.tok {
-		case COMMA: l.p.step(ctx); continue orloop
-		case RBRACE: break orloop
+		case  COMMA: l.p.step(ctx); continue orloop
+		case RBRACE:                   break orloop
 		}
 
 		v := l.expr(p_aware_comma{ctx})
-		w := v.expand(pc(_final(ctx), v))
-
-		if false && strings.HasSuffix(l.p.scanner.file.Name(), "/configure/.base/.template") {
-			note(pc(ctx,v), "%s : %v → %v : %v", l.project.name, tv(v), tv(w), l.p.tok).debug(3)
+		w := v.expand(_final(pc(ctx, v)))
+		if false && v.String() == "$(base &(variant))" {
+			notestack(ctx, 8, "%s: %v → %v", _project(ctx).name, v, w).debug()
 		}
 
 		va = append(va, merge(w)...)
@@ -1993,12 +2023,6 @@ orloop:
 
 	for _, a := range va {
 		if a.true(ctx) { return a }
-	}
-
-	if checkpoints && truly(ctx, is_test_mode{}) {
-		if l.project.name == "configure.base" {
-			erro(pc(ctx,l.p.Position()), "nil: %v", va).trace()
-		}
 	}
 	return
 }
@@ -2081,7 +2105,7 @@ valsloop:
 			// NOTE: don't use defAuto, it's for codeblock auto only
 			cc.set(ctx, defVoid, "_", elem)
 
-			var a = xmerge(final{foreach_text{&cc}}, temps...)
+			var a = xmerge(_final(foreach_text{&cc}), temps...)
 			if recipe_start && l.p.tok == LINEND {
 				do(ctx, add_recipe_line{a})
 			} else {
@@ -3232,7 +3256,7 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 			erro(pc(ctx,l.p), "multi-dialects unsupported, already defined '%s'", l.p.dialect).trace()
 		}
 	} else if _, y = modifiers[name]; !y {
-		errostack(pc(ctx,l.p), 24, "`%s` no such dialect or modifier", name).trace()
+		errostack(pc(ctx,l.p), 24, "no such dialect or modifier: %s", name).trace()
 	}
 
 	for l.p.tok != RPAREN && l.p.tok != EOF {
@@ -3834,6 +3858,10 @@ func (l ul) call(ctx Context, name Value, args []Value) (result bool) {
 }
 
 func (l ul) configure_save(ctx Context) {
+	if l.project == nil {
+		erro(ctx, "nil project").trace()
+	}
+
 	var configs = l.project.configs
 	if configs == nil { return }
 
@@ -3894,108 +3922,147 @@ func promptLeavingDirectory(ctx Context, s string) (_ *diagpoint) {
 	return prompt(ctx, "smake: Leaving directory '%s'\n", s).diagpoint
 }
 
-type prompt_ab struct{ a, b *diagpoint }
+var rxConfigRuleHeaders  = regexp.MustCompile(`^\-headers\-`)
+var rxConfigRuleFunction = regexp.MustCompile(`^\-function\-`)
+var rxConfigRuleSymbol   = regexp.MustCompile(`^\-symbol\-`)
+var rxConfigIgnoreErrors_function = []*regexp.Regexp{
+	regexp.MustCompile(`call to undeclared library function '(.+?)' with type '(.+?)'; *(.+)`),
+	regexp.MustCompile(`use of undeclared identifier '(.+?)'`),
+}
 
-func (l ul) configure_conv(ctx *execution, vt, val Value) (res Value) {
-	var args []Value
-	var op Value = vt
-	if x, y := vt.(*argumented); y {
-		if f, y := x.Value.(flag); y {
-			op = f.Value
-		} else {
-			erro(pc(ctx,x.Value), "wrong conv word: %v %v", tv(x.Value), tv(val)).trace()
+func configure_ignore(ctx Context, rx *regexp.Regexp, s [][]byte) (_ bool) {
+	switch rx {
+	case rxCodeLinePanic:
+		for _, t := range rxConfigIgnoreErrors_function {
+			if t.Match(s[5]) { return true }
 		}
-		if false { vt = x.Value }
-		args = xmerge(_final(ctx), x.args...)
+		erro(ctx, "%s %s", rx, do(ctx, is_rule{rxConfigRuleFunction})).debug()
+	case rxIgnoringDirectory, rxLdManyMinVersions:
+		if false { note(pc(ctx,s[2]), "%s", s[1]).debug() }
+		return true
 	}
-
-	if x, y := op.(*word); !y {
-		erro(pc(ctx,vt), "wrong conv word: %v %v", tv(vt), tv(val)).trace()
-	} else {
-		switch x.s {
-		case "answer":
-			return _answer(val.Position(), val.true(ctx))
-		case "bool", "boolean":
-			return _boolean(val.Position(), val.true(ctx))
-		case "value":
-			return val.expand(ctx)
-		}
-
-		if l.project.configure == nil {
-			erro(pc(ctx,vt), "wrong conv: %v %v", tv(vt), tv(val)).trace()
-		}
-
-		var _params = make(map[string]Value)
-		for _, arg := range args {
-			switch t := arg.(type) {
-			case *pair:
-				_params[t.key.string(ctx)] = t
-			case *raw, *strlit, *strval, *strcomp:
-				_params["INFO"] = &pair{_word(t.Position(),"INFO"), t}
-
-				if !l.promptEnteringDirectory {
-					l.promptEnteringDirectory = true
-					t := promptEnteringDirectory(ctx, l.project.absPath)
-					do(ctx, prompt_ab{t, nil})
-				}
-
-				s := t.string(ctx)
-				a := prompt(pc(ctx,vt), "%s …", s)
-				defer func(i int) {
-					if count_diag(ctx, diagInfo, diagWarn, diagError) <= i {
-						if res != nil {
-							s = res.string(ctx)
-						} else {
-							s = "<nil>"
-						}
-						b := prompt(ctx, "… %s\n", s)
-						do(ctx, prompt_ab{a.diagpoint, b.diagpoint})
-						flush(ctx)
-
-						if checkpoints && truly(ctx, is_test_mode{}) {
-							l.configure_conv_check(ctx, vt, val, res, a.diagpoint, b.diagpoint)
-						}
-					}
-				} (count_diag(ctx, diagInfo, diagWarn, diagError))
-
-			default:
-				if !isTrivial(arg) {
-					erro(pc(ctx,arg), "wrong arg: %s", tv(arg)).trace()
-				}
-			}
-		}
-
-		var vals []Value
-		for _, ent := range l.project.configure._entries(ctx, vt, false) {
-			var params []Value
-			for _, prog := range ent.programs() {
-				for _, p := range prog.params {
-					pos := p.Position()
-					w := _word(pos, p.ident(ctx))
-					if x, y := _params[w.s]; y {
-						params = append(params, x)
-					} else {
-						switch /* strings.ToUpper */(w.s) {
-						case "TARGET": params = append(params, &pair{w, auto_get(ctx, "@")})
-						case "VALUE":  params = append(params, &pair{w, val})
-						case "LANG", "LANGUAGE":
-							if ctx.language != "" {
-								params = append(params, &pair{w, _strlit(pos, ctx.language)})
-							}
-						}
-					}
-				}
-			}
-			vals = append(vals, ent.execute(ctx, params...)...)
-		}
-
-		return ease(ctx, vals)
+	if false {
+		erro(ctx, "%s", rx)
+		errostack(ctx, 3, "%s", s[0]).debug(16)
 	}
 	return
 }
 
-func (l ul) configure_one(ctx Context) {
-	var nv = l.expr(ctx)
+type prompt_ab struct{ a, b *diagpoint }
+type is_configure struct{}
+type is_configure_ignore struct{ rx *regexp.Regexp ; s [][]byte }
+type p_configure struct{ Context }
+func (p p_configure) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_configure) inner() Context { return p.Context }
+func (p p_configure) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case is_configure: return true
+	case is_configure_ignore:
+		if configure_ignore(ctx, t.rx, t.s) { return true }
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (l ul) configure2(ctx *execution, tar, val Value) (res Value) {
+	var args []Value
+	var op = tar
+	if x, y := op.(*argumented); y {
+		if f, y := x.Value.(flag); y {
+			op = f.Value
+		} else {
+			errostack(pc(ctx,x.Value), 8, "wrong configure word: %v %v", tv(x.Value), tv(val)).trace()
+		}
+		args = xmerge(_final(ctx), x.args...)
+	}
+
+	var x, y = op.(*word)
+	if !y {
+		errostack(pc(ctx,op), 8, "wrong configure word: %v %v", tv(op), tv(val)).trace()
+	}
+
+	switch x.s {
+	case "answer":
+		return _answer(val.Position(), val.true(ctx))
+	case "bool", "boolean":
+		return _boolean(val.Position(), val.true(ctx))
+	case "value":
+		return val.expand(ctx)
+	}
+
+	var _params = make(map[string]Value)
+	for _, arg := range args {
+		switch t := arg.(type) {
+		case *pair:
+			_params[t.key.string(ctx)] = t
+
+		case *raw, *strlit, *strval, *strcomp:
+			_params["INFO"] = &pair{_word(t.Position(),"INFO"), t}
+
+			if !l.promptEnteringDirectory {
+				l.promptEnteringDirectory = true
+				do(ctx, prompt_ab{promptEnteringDirectory(ctx, l.project.absPath), nil})
+			}
+
+			s := t.string(ctx)
+			a := prompt(pc(ctx,op), "%s …", s)
+			defer func(i int) {
+				if count_diag(ctx, diagInfo, diagWarn, diagError) <= i {
+					if res != nil {
+						s = res.string(ctx)
+					} else {
+						s = "<nil>"
+					}
+
+					b := prompt(ctx, "… %s\n", s)
+					do(ctx, prompt_ab{a.diagpoint, b.diagpoint})
+					flush(ctx)
+
+					if checkpoints && truly(ctx, is_test_mode{}) {
+						l.configure2_check(ctx, op, val, res, a.diagpoint, b.diagpoint)
+					}
+				}
+			} (count_diag(ctx, diagInfo, diagWarn, diagError))
+
+		default:
+			if !isTrivial(arg) {
+				errostack(pc(ctx,arg), 8, "wrong arg: %s", tv(arg)).trace()
+			}
+		}
+	}
+
+	var vals []Value
+
+	if l.project.configure == nil {
+		errostack(pc(ctx,op), 8, "wrong configure: %v %v", tv(op), tv(val)).trace()
+	}
+	for _, ent := range l.project.configure._entries(ctx, tar, false) {
+		var params []Value
+		for _, prog := range ent.programs() {
+			for _, p := range prog.params {
+				w := _word(p.Position(), p.ident(ctx))
+				if x, y := _params[w.s]; y {
+					params = append(params, x)
+				} else {
+					switch w.s {
+					case "TARGET": params = append(params, &pair{w, auto_get(ctx, "@")})
+					case "VALUE":  params = append(params, &pair{w, val})
+					case "LANG", "LANGUAGE":
+						if ctx.language != "" {
+							lang := _word(w.position, ctx.language)
+							params = append(params, &pair{w, lang})
+						}
+					}
+				}
+			}
+		}
+		vals = append(vals, ent.execute(p_configure{ctx}, params...)...)
+	}
+
+	return ease(ctx, vals)
+}
+
+func (l ul) configure1(ctx Context) {
+	nv := l.expr(ctx)
 	l.p.spaces(ctx)
 
 	var skip bool
@@ -4018,30 +4085,32 @@ func (l ul) configure_one(ctx Context) {
 		errostack(pc(ctx,nv), 16, "empty configure: %v", ts(nv)).trace()
 	}
 
-	if d := l.project.def(ctx, name); d != nil && d.o == defConfig {
-		skip = true
-	}
-
-	if checkpoints && truly(ctx, is_test_mode{}) {
-		defer l.configure_check(ctx, name)
-	}
+	if d := l.project.def(ctx, name); d != nil && d.o == defConfig { skip = true }
 
 	var vt Value
-	var conds []Value
+	if checkpoints && truly(ctx, is_test_mode{}) {
+		defer l.configure_check(ctx, name)
+		if name == "LLVM_EXTERNAL_POLLY_SOURCE_DIR" {
+			defer func() { note(ctx, "%v %v", vt, l.project.def(ctx, name)).debug(5) } ()
+		}
+	}
 	for l.p.tok == MINUS {
 		t := l.expr(ctx)
 		l.p.spaces(ctx)
 
-		if a, y := t.(*argumented); y {
-			if x, y := a.Value.(flag); y {
+		switch t := t.(type) {
+		case *argumented:
+			if x, y := t.Value.(flag); y {
 				switch x.Value.String() {
 				case "cond":
-					conds = append(conds, a.args...)
-					continue
+					// conds = append(conds, a.args...)
+					// continue
 				}
 			}
-		} else if x, y := t.(flag); y && x.Value.String() == "cond" {
-			erro(pc(ctx,x.Value), "needs cond value").trace()
+		case flag:
+			if t.Value.String() == "cond" {
+				erro(pc(ctx,t.Value), "needs cond value").trace()
+			}
 		}
 
 		vt = t
@@ -4057,11 +4126,11 @@ func (l ul) configure_one(ctx Context) {
 		}
 
 		if !skip {
-			l.configure_set(ctx, name, vals...)
+			l.configure_set(ctx, name, expand(_final(ctx), vals...)...)
 		}
 		return
 	} else if l.p.tok.is_assign() {
-		erro(pc(ctx,l.p), "%v: only '=' can assign a configure", nv).trace()
+		errostack(pc(ctx,l.p), 8, "%v: only '=' can assign a configure", nv).trace()
 	}
 
 	var deps []Value
@@ -4128,11 +4197,8 @@ dorecipes:
 		}
 	}
 
-	if vt != nil {
-		res = l.configure_conv(&exe, vt, res)
-	}
-
 	var vals []Value
+	if vt != nil { res = l.configure2(&exe, vt, res) }
 	if res != nil { vals = append(vals, res) }
 
 	l.configure_set(ctx, name, vals...)
@@ -4146,7 +4212,7 @@ func (l ul) configure(ctx Context) {
 		l.p.linend(ctx)
 		l.p.spaces(ctx)
 		for l.p.tok != EOF {
-			l.configure_one(ctx)
+			l.configure1(ctx)
 			l.p.spaces(ctx)
 			if l.p.tok == RPAREN {
 				l.p.next(ctx, true)
@@ -4154,7 +4220,7 @@ func (l ul) configure(ctx Context) {
 			}
 		}
 	} else {
-		l.configure_one(ctx)
+		l.configure1(ctx)
 	}
 }
 
@@ -4172,17 +4238,17 @@ func (l ul) clause(ctx Context) {
 
 	switch t := l.p.tok ; t {
 	case   INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.include)   ; return
-	case      EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.eval)      ; return
 	case    ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert)  ; return
 	case    APPEND: l.spec(ctx, t, l.p.expect(ctx, t), l.p.append)  ; return
 	case     FILES: l.spec(ctx, t, l.p.expect(ctx, t), l.files)     ; return
 	case     LOCAL: l.spec(ctx, t, l.p.expect(ctx, t), l.local)     ; return
+	case      EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.eval)      ; return
 	case       DEF: l.def_end(ctx)     ; return
 	case       FOR: l.for_done(ctx)    ; return
 	case   FOREACH: l.foreach_done(ctx); return
 	case CONFIGURE: l.configure(ctx)   ; return
 	case USE, TEMPLATE:
-		erro(ctx, "unexpected %v", t).trace()
+		errostack(ctx, 6, "unexpected %v", t).trace()
 	}
 
 	var vals []Value
@@ -4495,24 +4561,13 @@ func (l ul) proj(ctx Context, filename string, isMainFile bool) (_ Value, _ stri
 		isMainFile = isMainFile && !prevDeclared;
 	}
 
-	if l.p.tok != LPAREN {
-		l.bases(parent{ctx, l.project}, implicitBase) // for special bases, e.g. .base
+	if cc := (parent{ctx, l.project}); l.p.tok != LPAREN {
+		l.bases(cc, implicitBase) // for special bases, e.g. .base
 	} else {
 		var cc0 = p_group_ctx{p_aware_comma{ctx}}
 		for l.p.tok != EOF {
-			for l.p.next(ctx, true); !l.p.is_list_term(ctx); {
-				l.p.spaces(ctx)
-
-				v := parse_opts(ctx, &opts, l.expr(cc0))
-
-				if opts.final {
-					if v != nil {
-						erro(ctx, "no bases for final project: %v", ts(v)).trace()
-					}
-					continue
-				}
-
-				l.bases(parent{ctx, l.project}, "", merge(v...)...)
+			for l.p.next(ctx, true); !l.p.is_list_term(ctx); l.p.spaces(ctx) {
+				l.bases(cc, "", merge(l.expr(cc0))...)
 			}
 			if l.p.tok != COMMA { break }
 		}
@@ -4577,7 +4632,6 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 		}
 	}
 
-
 	var rel,_ = filepath.Rel(l.workdir, abs)
 	var tmp   = joinTmpPath(ctx, l.workdir, rel)
 
@@ -4617,7 +4671,10 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 
 		_, name, isMainFile = l.proj(ctx, filename, isMainFile)
 		if prev != l.project { defer l.close_project(ctx, name) }
-		if checkpoints { l.parse_file_check_new_project(ctx) }
+
+		if checkpoints && truly(ctx, is_test_mode{}) {
+			l.parse_file_check_new_project(ctx)
+		}
 
 	case EOF:
 		return

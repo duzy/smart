@@ -1,7 +1,8 @@
 project testvalue
 
-vals = {word foo/bar 'strlit' "strcomp" {=int 0} {=int 1}} {=answer yes} {=bool false} \
-    {=boolean true} {=path foo} {=path 'foo/bar'} {=file foobar} {=glob **.c} {=regex xx} \
+vals = {word foo/bar 'strlit' "strcomp" {=int 0} {=int 1}} \
+    {=answer yes} {=bool false} {=boolean true} \
+    {=path foo} {=path 'foo/bar'} {=file foobar} {=glob **.c} {=regex xx} \
     {=int 1} {=float .1} {=none anything goes} {=null} \
 
 disjunction0   = x{a b c}
@@ -159,3 +160,7 @@ val7  := https://extbit.com
 val8  := https://extbit.com?foo=x
 val9  := https://extbit.com?foo=x&bar=y#foobar
 val10 := https://ext.pub?foo=x+y+z&bar=x%20y%20z#foo+bar
+
+configure conf0 = $(grep {=regex .+?\.o},$0,$//test.txt)
+configure conf1 = $(grep {=regex (.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt)
+# configure conf2 = {=grep {=regex (.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt}

@@ -44,8 +44,8 @@ const (
     FindRule
 
     anywhere = FromHere
-    global   = FromGlobe
     local    = FromProject
+    global   = FromGlobe
     nonlocal = FromGlobe | FromBase | FromProject
 )
 
@@ -443,9 +443,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
         var proj *project
         var res, isb bool
         if proj, res, isb = loaded.has_loaded(ctx, up, traveUseLoop); isb {
-            if l.project.has_base(up) {
-                // common bases are fine
-            } else {
+            if !l.project.has_base(up) {
                 erro(ctx, "`%s` is already a base", spec).trace()
             }
         } else if res && !use.opts.reuse && !up.opt.multiUseAllowed && !loaded.opt.multiUseAllowed {
@@ -465,7 +463,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
 
     if l.verboseImport {
         defer func(t time.Time) {
-            prompt(ctx, "%s├┤ %s:import(%s) (%s)\n", l.verpre, l.project, spec, time.Now().Sub(t))
+            prompt(ctx, "%s├┤ %s:import(%s) (%s)\n", l.verpre, l.project, spec, time.Since(t))
         } (time.Now()) //*time.Millisecond // µs, ms, s ┼
     }
 
@@ -477,7 +475,7 @@ const pluginDifferentVersionError = `plugin was built with a different version o
 var numUpdatedPlugins = 0
 
 func (l ul) buildPlugin(ctx Context, s, src string) (err error) {
-    if l.traceLaunch { defer un(l_trace(l_launch, "loader.buildPlugin")) }
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.buildPlugin")) }
 
     prompt(ctx, "smart: Build %v …", src)
     dir, _ := filepath.Split(src)
@@ -497,7 +495,7 @@ func (l ul) buildPlugin(ctx Context, s, src string) (err error) {
 }
 
 func (l ul) loadPlugin(ctx Context) (err error) {
-    if l.traceLaunch { defer un(l_trace(l_launch, "loader.loadPlugin")) }
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.loadPlugin")) }
     if l.project == nil {
         erro(ctx, "current project is nil").trace()
     }
@@ -720,7 +718,7 @@ func (l ul) closescope(s *scope) {
 
 // project example (base(var=value))
 func (l ul) bases(ctx Context, implicitBase string, params ...Value) {
-    if l.traceLaunch { defer un(l_trace(l_launch, "loader.bases")) }
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.bases")) }
 
     // For &(foobar) set from command line args
     if true { ctx = closure_with(ctx, l.scope) }
@@ -851,7 +849,7 @@ func filespec(workdir, filename string) (spec string) {
 }
 
 func (l ul) dot_container(ctx Context, ident Value, identStr string, f *file) {
-    if l.traceLaunch { defer un(l_trace(l_launch, "loader.dot_container")) }
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.dot_container")) }
 
     if s := f.fullname(); f.info == nil {
         erro(ctx, "%s: file not exists: %s", ident, s).trace()
@@ -882,7 +880,7 @@ func is_configure_project(proj *project) bool {
 
 type is_autoload struct{ string }
 
-type p_autoload struct {
+type p_autoload struct{
     Context
     p Position
     v Value
@@ -1116,7 +1114,7 @@ func load_source_bytes(ctx Context, filename string, source ...any) (_ []byte, _
 }
 
 func (l ul) source(ctx Context, filename string, src any) (res Value) {
-    if l.traceLaunch { defer un(l_trace(l_launch, "loader.source")) }
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.source")) }
 
     var t = time.Now()
     var text []byte
@@ -1139,19 +1137,17 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
     } (l.p)
 
     var opts, _ = do(ctx, get_include_opts{}).(*include_opts)
-    var path_err bool
+    var err bool
 
-    text, path_err = load_source_bytes(ctx, filename, src)
-    if path_err && (opts != nil && !opts.ifExists) {
-        var d = time.Now().Sub(t)
-        errostack(pc(ctx,filename), 3, "%v : no such source file", d).trace()
+    text, err = load_source_bytes(ctx, filename, src)
+    if err && (opts != nil && !opts.ifExists) {
+        errostack(pc(ctx,filename), 3, "%v : no such source file", time.Since(t)).trace()
     }
 
     if text == nil { return }
 
-    f := l.fset.AddFile(filename, -1, len(text))
     l.p = &parser{}
-    l.p.scanner.init(ctx, f, text, 0)
+    l.p.scanner.init(ctx, l.fset.AddFile(filename, -1, len(text)), text, 0)
 	l.p.next(ctx, true) // starts scanning
 
     if truly(ctx, is_text{}) {
@@ -1287,12 +1283,12 @@ func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (so
 
 // ul.load loads script from a file or source code
 func (l ul) file(ctx Context, spec, absPath string, source any) {
-    if l.traceLaunch { defer un(l_trace(l_launch, "loader.load")) }
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.load")) }
 
     if absPath == "" {
-        errostack(ctx, 5, "%v: no such base: %v", l.project.name, spec).trace()
+        errostack(pc(ctx,l.p), 5, "%v: no such base: %v", l.project.name, spec).trace()
     } else if !filepath.IsAbs(absPath) {
-        errostack(ctx, 5, "%v: not absolute path: %v", l.project.name, spec).trace()
+        errostack(pc(ctx,l.p), 5, "%v: not absolute path: %v", l.project.name, spec).trace()
     }
 
     // Check loaded project.
@@ -1326,10 +1322,17 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
 
     var okay bool
     var loaded *project
-    defer func(t time.Time) {
+    defer func(t time.Time, p *project) {
         if spec == "." { spec = absDir }
 
         if loaded == nil { return }
+        if p != nil {
+            if d := p.def(ctx, loaded.name); d != nil {
+                note(pc(ctx,d.value), "conflicts project name {=%s %v}", typeof(d), d)
+                note(ctx, "conflicts project name %v", loaded)
+                errostack(pc(ctx,d.value), 6, "%v %v", d, loaded).trace()
+            }
+        }
 
         if l.globe.main == nil { l.globe.main = loaded }
 
@@ -1342,7 +1345,7 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
                 }
             }
         }
-    } (time.Now())
+    } (time.Now(), l.project)
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
         defer l.directory_check(ctx, spec, absDir)
@@ -1360,14 +1363,15 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
         ctx = lo.loader
     }
 
-    var cc = _abs_ctx(ctx, absDir)
-	var sof,_ = filepath.Rel(workBaseDir, absDir)
+	var sof, _ = filepath.Rel(workBaseDir, absDir)
     defer lo.closescope(lo.openscope(bases(2, sof, true)))
     defer lo.configure_save(ctx)
 
     // Use globe outer scope to avoid conflicting with other unrelated projects.
     lo.scope().outer = lo.globe.scope
-    for _, s := range lo.sources(ctx, absDir, filter) { lo.source(cc, s, nil) }
+
+    var cc = _abs_ctx(ctx, absDir)
+    for _, s := range lo.sources(cc, absDir, filter) { lo.source(cc, s, nil) }
 
     if len(lo.declares) == 0 && filepath.Base(spec) != "@" {
         if truly(ctx, is_implicit_load{}) {

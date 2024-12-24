@@ -795,11 +795,11 @@ func (l ul) configure_save_check(ctx Context, configs []*def, f *file, fn string
 	switch l.project.spec {
 	case "testdata/configuration/.base":
 		if configs != nil {
-			erro(ctx, "%v %v", l.project, f).trace()
+			errostack(ctx, 6, "%v %v", l.project, f).trace()
 		}
 	case "testdata/configuration":
 		if configs == nil {
-			erro(ctx, "%v %v", l.project, f).trace()
+			errostack(ctx, 6, "%v %v", l.project, f).trace()
 		}
 	}
 }

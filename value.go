@@ -355,8 +355,10 @@ func (c *term) do(ctx Context, op any) (_ any) {
         }
         return res
     }
-    if c.Context == nil { return }
-    return c.Context.do(ctx, op)
+    if c.Context != nil {
+        return c.Context.do(ctx, op)
+    }
+    return
 }
 
 func closure_scopes(ctx Context) (s []*scope) {
@@ -487,7 +489,7 @@ func closure_with(ctx Context, a ...any) Context {
 
 func refdef(ctx Context, val Value, origin origin) (res bool) {
     for _, def := range val.defs(ctx) {
-        if def.o == origin || origin == _defAny { return true }
+        if def.o == origin { return true }
         if true && def.value != nil && refdef(ctx, def.value, origin) { return true }
     }
     return
@@ -765,7 +767,10 @@ func (p *posctx) do(ctx Context, op any) (_ any) {
 func pc(ctx Context, a any, n ...int) Context {
     var p any
     if a != nil {
-        if x, y := a.(*file); y { a = x.fullname() }
+        switch t := a.(type) {
+        case []byte: a = string(t)
+        case *file: a = t.fullname()
+        }
         switch t := a.(type) {
         case  *scanner   : p = t.pos(n...)
         case  *parser    : p = t.Position()
@@ -789,8 +794,8 @@ func pc(ctx Context, a any, n ...int) Context {
             var pos Position
             pos.Filename = t
             if 0 == len(n) { pos.Line = 1 }
-            if 0 < len(n) { pos.Line = n[0] }
-            if 1 < len(n) { pos.Column = n[0] }
+            if 0 <  len(n) { pos.Line = n[0] }
+            if 1 <  len(n) { pos.Column = n[1] }
             p = pos
         }
     }
@@ -2546,13 +2551,11 @@ func condish(ctx Context, v Value) Value {
 
 type cond struct { Value } // conditional component: compound, pair; aka optional
 func (p cond) kind() Kind { return p.Value.kind()|KindCond }
+func (p cond) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p cond) String() string { return p.Value.String()+"?" }
 func (p cond) string(ctx Context) (s string) {
     p.final_val(ctx, func(v Value) { s = v.string(ctx) })
     return
-}
-func (p cond) hash(ctx Context) uint64 {
-    return fnv1(ctx, nil, p.kind(), p.Value)
 }
 func (p cond) true(ctx Context) (t bool) {
     p.final_val(ctx, func(v Value) { t = v.true(ctx) })
@@ -3030,6 +3033,28 @@ func (p *compound) app(vals ...Value) {
             p.elems = append(p.elems, v)
         }
     }
+}
+
+type prefix_value struct { Value; prefix Value }
+func (p prefix_value) expand(ctx Context) (_ Value) {
+    return prefix_value{p.Value.expand(ctx), p.prefix.expand(ctx)}
+}
+func (p prefix_value) string(ctx Context) (_ string) {
+    if s := p.Value.string(ctx); s != "" {
+        return p.prefix.string(ctx) + s
+    }
+    return
+}
+
+type value_suffix struct { Value; suffix Value }
+func (p value_suffix) expand(ctx Context) (_ Value) {
+    return value_suffix{p.suffix.expand(ctx), p.Value.expand(ctx)}
+}
+func (p value_suffix) string(ctx Context) (_ string) {
+    if s := p.Value.string(ctx); s != "" {
+        return s + p.suffix.string(ctx)
+    }
+    return
 }
 
 type recipe struct { strcomp }

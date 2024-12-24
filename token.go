@@ -474,6 +474,14 @@ func convPosition(filename, line, column string) (pos Position) {
 	return
 }
 
+func atoi(a any) (res int) {
+	switch t := a.(type) {
+	case string: res, _ = strconv.Atoi(t)
+	case []byte: res, _ = strconv.Atoi(string(t))
+	}
+	return
+}
+
 const NoPos Pos = Pos(gt.NoPos)
 
 type Pos gt.Pos

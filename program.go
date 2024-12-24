@@ -9,6 +9,7 @@ package smart
 import (
     "path/filepath"
     "reflect"
+    "strings"
     "sync"
     "time"
     "fmt"
@@ -32,6 +33,9 @@ type is_ordered_prereq struct{}
 type is_prerequisite   struct{}
 
 func _execution(c Context) *execution { return cast[*execution](c) }
+
+type execution_lang struct{}
+type missing_file struct{ file string }
 
 type interpret struct { name string ; args []Value }
 type execution struct {
@@ -63,6 +67,8 @@ type execution struct {
 
     calleeErrs []error
     calleeErrsM sync.Mutex
+
+    missing []string
 
     grepping bool
     grepped []Value
@@ -110,8 +116,14 @@ func (p *execution) do(ctx Context, op any) (res any) {
         }
         return
 
+    case execution_lang:
+        return p.language
+
     case interpret:
         return p.interp(ctx, t.name, t.args)
+
+    case missing_file:
+        p.missing = append(p.missing, t.file)
 
     case property:
         if t&propDirtyOpts != 0 { return &p.by }
@@ -239,7 +251,15 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
         StampCurrentTarget: false,
     })
 
-    if _, y := target.(*file); y && p != nil && !p.dirty(ctx) {
+    if false && truly(ctx, is_test_univ{}) {
+        if x, y := target.(*file); y && strings.HasSuffix(x.name, ".log") {
+            defer func() {
+                var cc = pc(pc(ctx,auto_get(ctx,">")),x.fullname())
+                notestack(cc, 3, "%v %v %v", p.language, args, res).debug(12)
+            } ()
+        }
+    }
+    if _, y := target.(*file); y && !truly(ctx, is_configure{}) && !p.dirty(ctx) {
         // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
         return
     }
@@ -844,7 +864,6 @@ func (prog *program) execute(_ctx Context) (res Value) {
         prog.execute_check_1(exe)
     }
 
-    if     prog.language != "" { return }
     if len(prog.recipes) == 0  { return }
     return prog.result_or_default_interpret(exe)
 }

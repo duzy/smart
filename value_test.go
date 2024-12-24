@@ -355,6 +355,27 @@ func testValueGeneral(ctx testcase1) {
 	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word ext} {=punct .} {=word pub}} {} {} {=[]Value {=pair {=word foo}={=word x+y+z}} {=pair {=word bar}={=compound {=word x} {=punct %} {=decimal 20} {=word y} {=punct %} {=decimal 20} {=word z}}}} {=word foo+bar}}" {
 		ctx.err("%v, %v", tst{d}, ts(v))
 	}
+
+	s := "foo.o foo . o "
+	s += "foo-x.o foo -x -x x . o "
+	s += "foo-x-y.o foo -x-y -y y . o "
+	s += "foo-x-y-z.o foo -x-y-z -z z . o "
+	s += "foobar.o foobar . o"
+	if d := ctx.def("conf1"); d == nil {
+		ctx.err("conf1")
+	} else if d.o != defConfig {
+		ctx.err("%v %v", d.origin, d)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if x, y := v.(*list); !y {
+		ctx.err("%v %v", typeof(v), v)
+	} else if x.len() != 5*7 {
+		ctx.err("%d, %v", x.len(), x)
+	} else if t := x.string(ctx); s != t {
+		ctx.err("%s != %s; %v", s, t, x)
+	} else if false {
+		note(pc(ctx,v), "%v", v).debug()
+	}
 }
 
 func testAutomatic(ctx *testcase) {

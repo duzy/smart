@@ -295,7 +295,7 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 	}
 
 	if strings.HasSuffix(filename, "/llvm/Config/do.smart") {
-		if !truly(ctx, _loading_source{filename}) {
+		if truly(ctx, is_test_case{}) && !truly(ctx, _loading_source{filename}) {
 			erro(ctx, "%v : %s", l.project, bases(5, filename, true)).trace()
 		} else {
 			var d = filepath.Dir(filename)
@@ -307,14 +307,14 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 			}
 		}
 	}
-	if strings.HasSuffix(filename, "/llvm/Config/.configure") {
-		note(ctx, "%v %s", l.project, bases(3, filename, true)).debug()
+	if strings.HasSuffix(filename, "/llvm/Config/.configure") && false {
+		note(ctx, "%s %s", l.project, bases(3, filename, true)).debug()
 	}
 	if strings.HasSuffix(filename, "/llvm/Config/.configure.declared") {
-		erro(ctx, "%v %s", l.project, bases(3, filename, true)).trace()
+		erro(ctx, "%s %s", l.project, bases(3, filename, true)).trace()
 	}
 	if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
-		if !truly(ctx, _loading_source{filename}) {
+		if truly(ctx, is_test_case{}) && !truly(ctx, _loading_source{filename}) {
 			erro(ctx, "%v : %s", l.project, bases(5, filename, true)).trace()
 		} else {
 			var d = filepath.Dir(filename)
@@ -426,6 +426,112 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 					}
 				}
 				for _, s := range []string{
+					"<stdlib.h>",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d.value).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.types"); d == nil {
+				errostack(ctx, 6, "configure.types").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d.value).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.funcs"); d == nil {
+				erro(ctx, "configure.funcs").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+					"exit",
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			if d := l.project.def(ctx, "configure.symbs"); d == nil {
+				erro(ctx, "configure.symbs").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
+				}{
+					if strings.Count(t, s) == 0 {
+						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
+					}
+				}
+			}
+			for _, s := range []string{
+				"exit",
+			}{
+				name := fmt.Sprintf("configure.include.func.%s", s)
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "<stdlib.h>" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+				name = fmt.Sprintf("configure.include.symb.%s", s)
+				if d := l.project.def(ctx, name); d != nil {
+					errostack(ctx, 6, "%v", d).trace()
+				}
+				name = fmt.Sprintf("HAVE_%s", strings.ToUpper(s))
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "yes" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+				name = fmt.Sprintf("HAVE_SYM_%s", strings.ToUpper(s))
+				if d := l.project.def(ctx, name); d != nil {
+					errostack(ctx, 6, "%v", d).trace()
+				}
+				name = fmt.Sprintf("HAVE_FUN_%s", strings.ToUpper(s))
+				if d := l.project.def(ctx, name); d == nil {
+					errostack(ctx, 6, "%s", name).trace()
+				} else if t := d.string(ctx); t != "yes" {
+					errostack(pc(ctx,d.value), 6, "no %v", d).trace()
+				}
+			}
+		}
+		if truly(ctx, is_autoload{ "/app/stdarg/.configure" }) {
+			if d := l.project.def(ctx, "configure.heads"); d == nil {
+				errostack(ctx, 6, "configure.heads").trace()
+			} else {
+				var t = d.string(ctx)
+				if false {
+					for _, v := range merge(d.value) {
+						if i := strings.Count(t, v.string(ctx)); i > 1 {
+							erro(pc(ctx,v), "duplicated %d %s ; %s", i, v, t).trace()
+						}
+					}
+				}
+				for _, s := range []string{
 					"<stdarg.h>",
 				}{
 					if strings.Count(t, s) == 0 {
@@ -445,7 +551,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 					}
 				}
 				for _, s := range []string{
-					// "_Bool",
+					"va_list",
 				}{
 					if strings.Count(t, s) == 0 {
 						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d.value).trace()
@@ -483,6 +589,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 					}
 				}
 				for _, s := range []string{
+					"va_arg",  "va_start", "va_end",
 				}{
 					if strings.Count(t, s) == 0 {
 						errostack(pc(ctx,d.value), 6, "no %s : %v", s, d).trace()
@@ -500,7 +607,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 				}
 			}
 			for _, s := range []string{
-				"va_arg","va_start","va_end",
+				"va_arg", "va_start", "va_end",
 			}{
 				name := fmt.Sprintf("configure.include.func.%s", s)
 				if d := l.project.def(ctx, name); d == nil {

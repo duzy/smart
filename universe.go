@@ -117,8 +117,8 @@ func (ctx *universe) trimSpecPath(c Context, spec string) string {
 }
 func (ctx *universe) do(_ctx Context, op any) (res any) {
     switch t := op.(type) {
-    case act_on_erros:
-        if ctx.panicFailureOnErrosFlushed {
+    case on_erros:
+        if ctx.panicFailureOnFlushedErrors && truly(_ctx, is_test_mode{}) {
             if 0 < t.i { panic(_failure(ctx, "got %d errors", t.i)) }
             res = true
         }
@@ -129,11 +129,12 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
         p.Filename = ctx.workdir
         return
 
-	case is_test_mode: if ctx.testMode { return true }
-    case no_exec: if ctx.noExec { return ctx.noExec }
     case get_workdir: return ctx.workdir
-    case get_project: if ctx.globe != nil { return ctx.globe.main }
     case get_scope: if ctx.scope != nil { return ctx.scope }
+    case get_project: if ctx.globe != nil { return ctx.globe.main }
+    case no_exec: if ctx.noExec { return ctx.noExec }
+	case is_test_mode: if ctx.testMode { return true }
+    case is_test_univ: return ctx.testMode
     // case get_closure_scopes:
     //     if m := ctx.globe.main; m != nil && m.scope != nil && false {
     //         return []*scope{ m.scope }
@@ -198,7 +199,7 @@ type commandline struct {
     testMode        bool `test,test-mode`
     fastMode        bool `fast,fast-mode`
     errorUncache    bool `eu,error-uncache,error-no-cache`
-    panicFailureOnErrosFlushed bool `foe,fail-on-errors`
+    panicFailureOnFlushedErrors bool `foe,fail-on-errors`
 
     traceLaunch     bool `tl,trace-launch`
     traceParsing    bool `tp,trace-parse`
@@ -219,7 +220,7 @@ func _commandline() commandline { return commandline{
     fastMode: true,
     parallel: false, // FIXME: program.traverse not working in parallel
 
-    panicFailureOnErrosFlushed: true,
+    panicFailureOnFlushedErrors: true,
     silentOptionalArrow: false,
 
     slow: 2999 * time.Millisecond,
@@ -542,13 +543,13 @@ func (l ul) parse_args(base string, a ...string) {
     for _, target := range args {
         switch t := target.(type) {
         case *pair: l.globe.pairs = append(l.globe.pairs, t)
-        case flag: l.globe.flags = append(l.globe.flags, t)
+        case  flag: l.globe.flags = append(l.globe.flags, t)
             if s := t.Value.string(l.universe); s == "clean" {
                 mode.position, mode.s = t.Position(), "clean"
             }
         case *argumented:
             l.globe.args[t.Value] = t.args
-            if f, ok := t.Value.(flag); ok {
+            if f, y := t.Value.(flag); y {
                 l.globe.flags = append(l.globe.flags, f)
             } else {
                 l.globe.goals.append(l.universe, t/*.Value*/)
@@ -580,17 +581,10 @@ func (u *universe) load(ctx Context) {
         }
     }
 
-    defer func(l *loader) { u.globe.top = l } (u.globe.top)
     u.globe.top = &loader{term:term{ctx, u.globe.scope}}
 
     l := ul{u, u.globe.top}
     l.parse_args(u.workdir, os.Args[1:]...)
-
-    if u.verbose {
-        defer func(t time.Time) {
-            prompt(ctx, "Goals %v (%s)\n", u.globe.goals, time.Now().Sub(t))
-        } (time.Now())
-    }
 
     if u.autoProfs {
         if f, e := os.Create(filepath.Join(workBaseDir, "load.cpu.auto.prof")); e != nil {
@@ -625,11 +619,7 @@ func (u *universe) load(ctx Context) {
             if p := _project(u.globe.top); p != nil { name = p.name }
             prompt(ctx, "└·%s … (%s)\n", name, d)
         } else if false && u.slow < d {
-            if m := u.globe.main; m != nil {
-                warn(ctx, "slow loading (%v)!!\n", d).debug(6)
-            } else {
-                prompt(ctx, "%s:1:warning: slow loading (%v)!!\n", u.workdir, d).debug(6)
-            }
+            warn(pc(ctx, u.workdir), "slow loading (%v)!!\n", d).debug(6)
         }
     } (time.Now())
 

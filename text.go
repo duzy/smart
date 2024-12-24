@@ -205,7 +205,7 @@ func (p *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
     }
 
     for _, recipe := range exe.recipes {
-        res.elems = append(res.elems, recipe.expand(final{ctx}))
+        res.elems = append(res.elems, recipe.expand(_final(ctx)))
     }
 
     if false && len(res.elems) == 1 {

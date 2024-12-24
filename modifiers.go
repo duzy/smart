@@ -1558,7 +1558,7 @@ func traverseMissingDep(ctx Context, dep string) (res bool) {
 func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool, tried string) {
     const promptErrors bool = false
     const promptBeforeTraverse bool = promptErrors && true
-    for _, m := range rxFatalErrorFileNotFound.FindAllSubmatch(errBytes, -1) {
+    for _, m := range rxFileNotFound.FindAllSubmatch(errBytes, -1) {
         if promptBeforeTraverse { prompt(ctx, "%s\n", m[0]).debug(6) }
         if dep := string(m[4]); dep == lastTry {
             return false, ""
@@ -1741,68 +1741,64 @@ type modifier_check struct { modifier_
     dir Value `dir`
 }
 
-func (ctx *modifier_check) x(args ...Value) (result any) {
-    var (
-        pos = _position(ctx)
-        makeResult func(bool) Value // returns results only if non-nil
-        values []Value
-        res bool
-    )
-
-    if ctx.answer { makeResult = func(v bool) Value { return _answer(pos, v) } }
-    if makeResult == nil && ( ctx.boolean ||
+func (ctx *modifier_check) x(args ...Value) (_ any) {
+    var pos = _position(ctx)
+    var makeResult func(bool) Value // returns results only if non-nil
+    if ctx.answer {
+        makeResult = func(v bool) Value { return _answer(pos, v) }
+    } else if ctx.boolean ||
         (ctx.file != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
-        (ctx.dir  != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
-        (ctx.silent)) { makeResult = func(v bool) Value { return _boolean(pos, v) } }
+        (ctx.dir  != nil && (ctx.exists || ctx.regular || ctx.isdir)) {
+        makeResult = func(v bool) Value { return _boolean(pos, v) }
+    }
 
-    var checkFile = func (val Value, dir bool) {
-        var ( s string; f *file )
-        if v, y := val.(*boolean); y {
-            if v.bool { val = auto_get(ctx, "@") } else { val = nil }
+    var res bool
+    var values []Value
+    var checkfile = func (val Value, dir bool) {
+        if val == nil {
+            erro(pc(ctx, val), "nil file value to check").trace()
+        } else if x, y := val.(*boolean); y {
+            if x.bool { val = auto_get(ctx, "@") } else { val = nil }
         }
 
-        if val == nil {
-            erro(ctx, "nil file value to check").trace()
-        } else if f, res = to_file(val); res {
+        var s string
+        var f *file
+        if f, res = to_file(val); res {
             // best case
         } else if s = val.string(ctx); filepath.IsAbs(s) {
             if f = stat(ctx, s); f != nil { res = true }
         } else if f = findfile(ctx, s); f != nil { res = true }
 
         if f != nil {
-            if !dir || ctx.regular { res = f.exists()
-                if ctx.verbose { warnstack(ctx, 3, "check regular file '%v': %v", val, res).debug() }
-            } else if dir || ctx.isdir { res = f.info != nil && f.info.Mode().IsDir()
-                if ctx.verbose { warnstack(ctx, 3, "check dir '%v': %v", val, res).debug() }
-            } else if ctx.exists { res = f.exists()
-                if ctx.verbose { warnstack(ctx, 3, "check file exists '%v': %v", val, res).debug() }
-            } else if ctx.verbose {
-                warnstack(ctx, 3, "check file '%v': %v", val, res).debug()
+            if !dir || ctx.regular {
+                res = f.exists()
+            } else if dir || ctx.isdir {
+                res = f.info != nil && f.info.Mode().IsDir()
+            } else if ctx.exists {
+                res = f.exists()
             }
-        } else if ctx.verbose {
-            warnstack(ctx, 3, "check file '%v': %v", val, res).debug()
         }
 
         if makeResult != nil {
             values = append(values, makeResult(res))
         } else if !res {
-            erro(ctx, "'%v' is not file", val).trace()
+            erro(pc(ctx, val), "'%v' is not file", val).trace()
         }
     }
 
-    if ctx.file != nil { checkFile(ctx.file, false) }
-    if ctx.dir  != nil { checkFile(ctx.dir, true) }
+    if ctx.file != nil { checkfile(ctx.file, false) }
+    if ctx.dir  != nil { checkfile(ctx.dir, true) }
 
     var program = _program(ctx)
     var value = auto_get(ctx, "-")
-ForPairs:
+
+argsloop:
     for _, arg := range args {
         var p, y = arg.(*pair)
         if !y {
             if res = arg.true(ctx); makeResult != nil {
                 values = append(values, makeResult(res))
             } else {
-                if ctx.verbose { warn(ctx, "value '%v' is false", arg).debug() }
                 erro(ctx, "value '%v' is false", arg).trace()
             }
             continue
@@ -1813,8 +1809,8 @@ ForPairs:
         case "status":
             var exeres, _ = value.(*exec_result)
             if exeres == nil {
-                erro(ctx, "value '%v' (%T) is not exec result", value, value).trace()
-            } else { /*exeres.wg.Wait()*/ }
+                errostack(ctx, 6, "not exec result: %v ", tv(value)).trace()
+            }
 
             var num = p.val.int(ctx)
             if ctx.verbose {
@@ -1826,10 +1822,11 @@ ForPairs:
             var good = exeres.Status == int(num)
             if ctx.verbose {
                 var s string
-                if good { s = "Yes" } else { s = "No" }
+                if good { s = "yes" } else { s = "no" }
                 prompt(ctx, "… %s (%d)\n", s, exeres.Status)
             }
-            if ctx.debug>0 {
+
+            if ctx.debug > 0 {
                 var tar = auto_get(ctx, "@")
                 var val = auto_get(ctx, "-")
                 warn(ctx, "%v: %v", _entry(ctx), tar)
@@ -1842,7 +1839,7 @@ ForPairs:
                 values = append(values, makeResult(good))
             } else if !good {
                 erro(ctx, "bad status (%v) (expects %v)", exeres.Status, p.val).trace()
-                break ForPairs
+                break argsloop
             }
         case "stdout", "stderr":
             var exeres, _ = value.(*exec_result)
@@ -1853,6 +1850,7 @@ ForPairs:
             if ctx.verbose {
                 prompt(ctx, "checking %s (status=%d) … ", key, exeres.Status)
             }
+
             if 0 < ctx.debug {
                 var tar = auto_get(ctx, "@")
                 var val = auto_get(ctx, "-")
@@ -1871,7 +1869,7 @@ ForPairs:
 
             if v == nil {
                 erro(ctx, "bad %s (expects %v)", key, p.val).trace()
-                break ForPairs
+                break argsloop
             }
 
             str = p.val.string(ctx)
@@ -1881,7 +1879,7 @@ ForPairs:
                 values = append(values, makeResult(res))
             } else if !res {
                 erro(ctx, "bad %s (%v) (expects %v)", key, v, p.val).trace()
-                break ForPairs
+                break argsloop
             }
         case "file", "dir": // file=xxx and dir=xxx, same as -file=xxx and -dir=xxx
             var ( f *file; res bool )
@@ -1903,13 +1901,13 @@ ForPairs:
                 values = append(values, makeResult(res))
             } else if !res {
                 erro(ctx, "`%v` is not %s", p.val, key).trace()
-                break ForPairs
+                break argsloop
             }
         case "var":
             var g, ok = p.val.(*group)
             if !ok {
                 erro(ctx, "`%v` is not a group value", p.val).trace()
-                break ForPairs
+                break argsloop
             }
             for _, elem := range g.elems {
                 switch p := elem.(type) {
@@ -1924,25 +1922,24 @@ ForPairs:
                             values = append(values, makeResult(res))
                         } else if !res {
                             erro(ctx, "`%v` != `%v`", p.key, p.val).trace()
-                            break ForPairs
+                            break argsloop
                         }
                     } else if makeResult != nil {
                         values = append(values, makeResult(false))
                     } else {
                         erro(ctx, "`%v` is not defined", k).trace()
-                        break ForPairs
+                        break argsloop
                     }
                 default:
                     erro(ctx, "`%v` unsupported checks", elem).trace()
-                    break ForPairs
+                    break argsloop
                 }
             }
         default:
-            erro(ctx, "unknown check for %v -> %v", p.key, p.val).trace()
-            break ForPairs
+            erro(ctx, "unknown check for %v → %v", p.key, p.val).trace()
+            break argsloop
         }
     }
-
     return values
 }
 

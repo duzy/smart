@@ -10,9 +10,99 @@ import (
 )
 
 const (
-	db_run_sh = false
-	db_exec_recipe = false
+	d_run_sh = false
+	d_exec_recipe = false
 )
+
+var nv = struct{}{}
+
+func sizeof_map(ctx *exec_ctx, os, sh string, sm []string) (_ map[int]map[string]struct{}) {
+	switch os {
+	case "darwin":
+		return map[int]map[string]struct{}{
+			0: map[string]struct{}{
+				"__INT64":nv, "__INT64_T":nv, "CLOCKID_T":nv, "TIMER_T":nv,
+			},
+			1: map[string]struct{}{
+				"_BOOL":nv, "BOOL":nv, "CHAR":nv, "SIGNED_CHAR":nv, "CONST_CHAR":nv,
+				"SA_FAMILY_T":nv,
+			},
+			2: map[string]struct{}{
+				"SHORT":nv, "MODE_T":nv, "NLINK_T":nv,
+			},
+			4: map[string]struct{}{
+				"INT":nv, "UINT32_T":nv, "FLOAT":nv, "BLKSIZE_T":nv, "WCHAR_T":nv,
+				"DEV_T":nv, "ATOMIC_INT":nv, "FSBLKCNT_T":nv, "FSFILCNT_T":nv, "GID_T":nv,
+				"KEY_T":nv, "PID_T":nv, "ID_T":nv, "SOCKLEN_T":nv, "SUSECONDS_T":nv,
+				"UID_T":nv, "USECONDS_T":nv,
+			},
+			8: map[string]struct{}{
+				"LONG":nv, "LONG_DOUBLE":nv, "LONG_LONG":nv, "DOUBLE":nv,
+				"UINT64_T":nv, "UINTPTR_T":nv, "INO_T":nv, "VOID_P":nv, "SIZE_T":nv,
+				"PTRDIFF_T":nv, "BLKCNT_T":nv, "CLOCK_T":nv, "ATOMIC_UINTPTR_T":nv,
+				"OFF_T":nv, "FPOS_T":nv, "PTHREAD_T":nv, "PTHREAD_KEY_T":nv, "SSIZE_T":nv,
+				"TIME_T":nv, "VA_LIST":nv,
+			},
+			16: map[string]struct{}{
+				"PTHREAD_CONDATTR_T":nv, "PTHREAD_MUTEXATTR_T":nv, "PTHREAD_ONCE_T":nv,
+			},
+			24: map[string]struct{}{
+				"PTHREAD_RWLOCKATTR_T":nv,
+			},
+			48: map[string]struct{}{
+				"PTHREAD_COND_T":nv,
+			},
+			64: map[string]struct{}{
+				"PTHREAD_ATTR_T":nv, "PTHREAD_MUTEX_T":nv,
+			},
+			104: map[string]struct{}{
+				"SIGINFO_T":nv,
+			},
+			200: map[string]struct{}{
+				"PTHREAD_RWLOCK_T":nv,
+			},
+		}
+	default:
+		prompt(ctx, "%v\n", sh)
+		errostack(ctx, 2, "%s, status=%d", sm[1], ctx.Status).trace()
+	}
+	return
+}
+
+func alignof_map(ctx *exec_ctx, os, sh string, sm []string) (_ map[int]map[string]struct{}) {
+	switch os {
+	case "darwin":
+		return map[int]map[string]struct{}{
+			0: map[string]struct{}{
+				"__INT64":nv, "__INT64_T":nv, "CLOCKID_T":nv, "TIMER_T":nv,
+			},
+			1: map[string]struct{}{
+				"_BOOL":nv, "BOOL":nv, "CHAR":nv, "SIGNED_CHAR":nv, "CONST_CHAR":nv,
+				"SA_FAMILY_T":nv,
+			},
+			2: map[string]struct{}{
+				"SHORT":nv, "MODE_T":nv, "NLINK_T":nv,
+			},
+			4: map[string]struct{}{
+				"INT":nv, "UINT32_T":nv, "FLOAT":nv, "BLKSIZE_T":nv, "WCHAR_T":nv,
+				"DEV_T":nv, "ATOMIC_INT":nv, "FSBLKCNT_T":nv, "FSFILCNT_T":nv, "GID_T":nv,
+				"KEY_T":nv, "PID_T":nv, "ID_T":nv, "SOCKLEN_T":nv, "SUSECONDS_T":nv,
+				"UID_T":nv, "USECONDS_T":nv,
+			},
+			8: map[string]struct{}{
+				"LONG":nv, "LONG_DOUBLE":nv, "LONG_LONG":nv, "DOUBLE":nv, "VOID_P":nv,
+				"UINT64_T":nv, "UINTPTR_T":nv, "INO_T":nv, "SIZE_T":nv, "SSIZE_T":nv,
+				"PTRDIFF_T":nv, "BLKCNT_T":nv, "CLOCK_T":nv, "ATOMIC_UINTPTR_T":nv,
+				"OFF_T":nv, "FPOS_T":nv, "PTHREAD_T":nv, "PTHREAD_KEY_T":nv,
+				"TIME_T":nv, "VA_LIST":nv,
+			},
+		}
+	default:
+		prompt(ctx, "%v\n", sh)
+		errostack(ctx, 2, "%s, status=%d", sm[1], ctx.Status).trace()
+	}
+	return
+}
 
 var rx_sizeof    = regexp.MustCompile(`^-sizeof-c\+*$`)
 var rx_alignof   = regexp.MustCompile(`^-alignof-c\+*$`)
@@ -41,7 +131,7 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 
 		if x, y := l.(*file); y && rx_fn_src.MatchString(x.name) { c = pc(c, x.fullname()) }
 		if x, y := t.(*file); y && rx_fn_src.MatchString(x.name) { c = pc(c, x.fullname()) }
-		if db_run_sh {
+		if d_run_sh {
 			if _, y := t.(*file); y {
 				d := _entry(c).destiny()
 				prompt(c, "%s\n", ctx.sh)
@@ -98,58 +188,7 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 						errostack(c, 2, "%s != %s", t, sm[1]).trace()
 					}
 
-					var nv = struct{}{}
-					var chk map[int]map[string]struct{}
-
-					switch os := "darwin"; os {
-					case "darwin":
-						chk = map[int]map[string]struct{}{
-							0: map[string]struct{}{
-								"__INT64":nv, "__INT64_T":nv, "CLOCKID_T":nv, "TIMER_T":nv,
-							},
-							1: map[string]struct{}{
-								"_BOOL":nv, "BOOL":nv, "CHAR":nv, "SIGNED_CHAR":nv, "CONST_CHAR":nv,
-								"SA_FAMILY_T":nv,
-							},
-							2: map[string]struct{}{
-								"SHORT":nv, "MODE_T":nv, "NLINK_T":nv,
-							},
-							4: map[string]struct{}{
-								"INT":nv, "UINT32_T":nv, "FLOAT":nv, "BLKSIZE_T":nv, "WCHAR_T":nv,
-								"DEV_T":nv, "ATOMIC_INT":nv, "FSBLKCNT_T":nv, "FSFILCNT_T":nv, "GID_T":nv,
-								"KEY_T":nv, "PID_T":nv, "ID_T":nv, "SOCKLEN_T":nv, "SUSECONDS_T":nv,
-								"UID_T":nv, "USECONDS_T":nv,
-							},
-							8: map[string]struct{}{
-								"LONG":nv, "LONG_DOUBLE":nv, "LONG_LONG":nv, "DOUBLE":nv,
-								"UINT64_T":nv, "UINTPTR_T":nv, "INO_T":nv, "VOID_P":nv, "SIZE_T":nv,
-								"PTRDIFF_T":nv, "BLKCNT_T":nv, "CLOCK_T":nv, "ATOMIC_UINTPTR_T":nv,
-								"OFF_T":nv, "FPOS_T":nv, "PTHREAD_T":nv, "PTHREAD_KEY_T":nv, "SSIZE_T":nv,
-								"TIME_T":nv, "VA_LIST":nv,
-							},
-							16: map[string]struct{}{
-								"PTHREAD_CONDATTR_T":nv, "PTHREAD_MUTEXATTR_T":nv, "PTHREAD_ONCE_T":nv,
-							},
-							24: map[string]struct{}{
-								"PTHREAD_RWLOCKATTR_T":nv,
-							},
-							48: map[string]struct{}{
-								"PTHREAD_COND_T":nv,
-							},
-							64: map[string]struct{}{
-								"PTHREAD_ATTR_T":nv, "PTHREAD_MUTEX_T":nv,
-							},
-							104: map[string]struct{}{
-								"SIGINFO_T":nv,
-							},
-							200: map[string]struct{}{
-								"PTHREAD_RWLOCK_T":nv,
-							},
-						}
-					default:
-						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s, status=%d", sm[1], ctx.Status).trace()
-					}
+					var chk = sizeof_map(ctx, "darwin", sh, sm)
 
 					if x, y := chk[ctx.Status]; !y {
 						prompt(c, "%v\n", sh)
@@ -176,40 +215,7 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 						errostack(c, 2, "%s != %s", t, sm[1]).trace()
 					}
 
-					var nv = struct{}{}
-					var chk map[int]map[string]struct{}
-
-					switch os := "darwin"; os {
-					case "darwin":
-						chk = map[int]map[string]struct{}{
-							0: map[string]struct{}{
-								"__INT64":nv, "__INT64_T":nv, "CLOCKID_T":nv, "TIMER_T":nv,
-							},
-							1: map[string]struct{}{
-								"_BOOL":nv, "BOOL":nv, "CHAR":nv, "SIGNED_CHAR":nv, "CONST_CHAR":nv,
-								"SA_FAMILY_T":nv,
-							},
-							2: map[string]struct{}{
-								"SHORT":nv, "MODE_T":nv, "NLINK_T":nv,
-							},
-							4: map[string]struct{}{
-								"INT":nv, "UINT32_T":nv, "FLOAT":nv, "BLKSIZE_T":nv, "WCHAR_T":nv,
-								"DEV_T":nv, "ATOMIC_INT":nv, "FSBLKCNT_T":nv, "FSFILCNT_T":nv, "GID_T":nv,
-								"KEY_T":nv, "PID_T":nv, "ID_T":nv, "SOCKLEN_T":nv, "SUSECONDS_T":nv,
-								"UID_T":nv, "USECONDS_T":nv,
-							},
-							8: map[string]struct{}{
-								"LONG":nv, "LONG_DOUBLE":nv, "LONG_LONG":nv, "DOUBLE":nv, "VOID_P":nv,
-								"UINT64_T":nv, "UINTPTR_T":nv, "INO_T":nv, "SIZE_T":nv, "SSIZE_T":nv,
-								"PTRDIFF_T":nv, "BLKCNT_T":nv, "CLOCK_T":nv, "ATOMIC_UINTPTR_T":nv,
-								"OFF_T":nv, "FPOS_T":nv, "PTHREAD_T":nv, "PTHREAD_KEY_T":nv,
-								"TIME_T":nv, "VA_LIST":nv,
-							},
-						}
-					default:
-						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s, status=%d", sm[1], ctx.Status).trace()
-					}
+					var chk = alignof_map(ctx, "darwin", sh, sm)
 
 					if x, y := chk[ctx.Status]; !y {
 						prompt(c, "%v\n", sh)
@@ -246,8 +252,8 @@ func (ctx *exec_ctx) exec_check(exe *execution, src *raw) {
 
 		if x, y := l.(*file); y && rx_fn_src.MatchString(x.name) { c = pc(c, x.fullname()) }
 		if x, y := t.(*file); y && rx_fn_src.MatchString(x.name) { c = pc(c, x.fullname()) }
-		if db_exec_recipe {
-			if _, y := t.(*file); y {
+		if d_exec_recipe {
+			if x, y := t.(*file); y && strings.HasSuffix(x.name, ".rev.log") {
 				d := _entry(c).destiny()
 				prompt(c, "%s\n", src)
 				notestack(c, 3, "%v", d).debug(32)

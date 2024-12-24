@@ -64,7 +64,7 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 
 	ctx := new_universe(ii...)
 	ctx.statcache = make(map[string]*filebase) // must reset the statcache
-	ctx.panicFailureOnErrosFlushed = false
+	ctx.panicFailureOnFlushedErrors = false
 	ctx.globe.main = nil
 	ctx.workdir = dir
 
@@ -107,6 +107,7 @@ func (tc *testcase) ts(string) string { return "{=test "+tc.spec+" "+ts(tc.Conte
 func (tc *testcase) String() string { return ts(tc.Context) }
 func (tc *testcase) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
+	case is_test_case: return true
 	case is_test_mode: return test_mode
 	case silent_configure: return true
 	case prompt_ab:
@@ -124,13 +125,10 @@ func (tc *testcase) do(ctx Context, op any) (_ any) {
 		_, y := tc.chks[t.string]
 		return y
 	case get_position:
-		if p := _project(ctx); p != nil {
-			return p.position
-		} else {
-			var p Position = _position(tc.Context)
-			if !p.valid() { p.Filename = _universe(tc.Context).workdir }
-			return p
-		}
+		if p := _project(ctx); p != nil { return p.position }
+		var p = _position(tc.Context)
+		if !p.valid() { p.Filename = _workdir(tc.Context) }
+		return p
 	}
 	return tc.Context.do(ctx, op)
 }

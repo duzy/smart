@@ -150,6 +150,8 @@ var builtins = map[string]reflect.Type {
     `trim-suffix`:  reflect.TypeOf((*builtin_trimsuffix)(nil)).Elem(),
     `trim-ext`:     reflect.TypeOf((*builtin_trimext)(nil)).Elem(),
 
+    `gitdir`:       reflect.TypeOf((*builtin_gitdir)(nil)).Elem(),
+
     `addprefix`:    reflect.TypeOf((*builtin_addprefix)(nil)).Elem(),
     `addsuffix`:    reflect.TypeOf((*builtin_addsuffix)(nil)).Elem(),
 
@@ -297,6 +299,8 @@ func trimLeftSpaces(s string) string {
 func trimRightSpaces(s string) string {
     return strings.TrimRightFunc(s, unicode.IsSpace)
 }
+
+func identity(s string) string { return s }
 
 func _set(ctx Context, val reflect.Value, v Value) {
     switch val.Kind() {
@@ -3106,6 +3110,50 @@ func (ctx *builtin_trimext) x() any {
     return res
 }
 
+type builtin_gitdir struct { builtin_ }
+func (ctx *builtin_gitdir) inner() Context { return &ctx.builtin_ }
+func (ctx *builtin_gitdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtin_.cast(t)
+}
+func (ctx *builtin_gitdir) a() (skip bool) {
+    for i, a := range ctx.evocation.a {
+        if a = a.expand(ctx); i == 0 {
+            skip = indeterminate(ctx, a)
+        }
+        ctx.evocation.a[i] = a
+    }
+    return
+}
+func (ctx *builtin_gitdir) x() (_ any) {
+    var vals []Value
+    for _, a := range merge(ctx.evocation.a...) {
+        var s = a.string(ctx)
+        if !strings.HasSuffix(s, "/.git") {
+            s = filepath.Join(s, ".git")
+        }
+        if i, e := os.Stat(s); e != nil {
+            a = _pathstr(ctx, s)
+        } else if m := i.Mode(); m.IsDir() {
+            a = _pathstr(ctx, s)
+        } else if m.IsRegular() {
+            if b, e := ioutil.ReadFile(s); e != nil {
+                errostack(ctx, 5, "%v", e).trace()
+            } else if !bytes.HasPrefix(b, []byte("gitdir:")) {
+                errostack(ctx, 5, "%s", b).trace()
+            } else {
+                t := string(bytes.TrimSpace(b[7:]))
+                s = filepath.Join(filepath.Dir(s), t)
+                a = _pathstr(ctx, s)
+            }
+        } else {
+            erro(pc(ctx,a), "%v", s).trace()
+        }
+        vals = append(vals, a)
+    }
+    return vals
+}
+
 type builtin_addprefix struct { builtin_ }
 func (ctx *builtin_addprefix) inner() Context { return &ctx.builtin_ }
 func (ctx *builtin_addprefix) cast(t reflect.Type) Context {
@@ -3131,12 +3179,18 @@ func (ctx *builtin_addprefix) x() (_ any) {
     var vals = merge(ctx.evocation.a[1:]...)
     for _, fix := range fixs {
         for _, val := range vals {
-            if indeterminate(ctx, val) {
-                val = condish(ctx, compose(condless{ctx}, fix, disjunction{val}))
-            } else if indeterminate(ctx, fix) {
-                val = condish(ctx, compose(condless{ctx}, fix, val))
+            var c bool
+            if indeterminate(ctx, fix) { c, fix = true, disjunction{fix} }
+            if indeterminate(ctx, val) { c, val = true, disjunction{val} }
+            if true {
+                if c {
+                    val = condish(ctx, compose(condless{ctx}, fix, val))
+                } else {
+                    val = compose(ctx, fix, val)
+                }
             } else {
-                val = compose(ctx, fix, val)
+                val = prefix_value{val, fix}
+                if c { val = condish(ctx, val) }
             }
             res = append(res, val)
         }
@@ -3169,12 +3223,18 @@ func (ctx *builtin_addsuffix) x() (_ any) {
     var vals = merge(ctx.evocation.a[1:]...)
     for _, fix := range fixs {
         for _, val := range vals {
-            if indeterminate(ctx, val) {
-                val = condish(ctx, compose(condless{ctx}, disjunction{val}, fix))
-            } else if indeterminate(ctx, fix) {
-                val = condish(ctx, compose(condless{ctx}, val, fix))
+            var c bool
+            if indeterminate(ctx, val) { c, val = true, disjunction{val} }
+            if indeterminate(ctx, fix) { c, fix = true, disjunction{fix} }
+            if true {
+                if c {
+                    val = condish(ctx, compose(condless{ctx}, val, fix))
+                } else {
+                    val = compose(ctx, val, fix)
+                }
             } else {
-                val = compose(ctx, val, fix)
+                val = value_suffix{val, fix}
+                if c { val = condish(ctx, val) }
             }
             res = append(res, val)
         }
@@ -5014,9 +5074,9 @@ func (ctx *builtin_grep) cast(t reflect.Type) Context {
     return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_grep) do(c Context, op any) (_ any) {
-    switch t := op.(type) {
-    case find_auto: if IsDigits(t.string) { return }
-    }
+    // switch t := op.(type) {
+    // case find_auto: if IsDigits(t.string) { return }
+    // }
     return ctx.builtin_.do(c, op)
 }
 func (ctx *builtin_grep) a() (skip bool) {
@@ -5027,9 +5087,9 @@ func (ctx *builtin_grep) x() (_ any) {
     var (
         args = ctx.evocation.a
         nargs = len(args)
+        result Value
         res []Value
         rxs []*regexp.Regexp // TODO: move it into builtinGrepOpts
-        result Value
     )
     if !(nargs == 2 || nargs == 3) {
         erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").trace()
@@ -5056,28 +5116,6 @@ func (ctx *builtin_grep) x() (_ any) {
     }
 
     var pos = _position(ctx)
-    var greped = func(line int, match []string) (done bool) {
-        var vals []Value
-        for i, s := range match {
-            // NOTE: don't use defAuto (it's codeblock auto)
-            if d, v := ctx.set(ctx, defVoid, fmt.Sprintf("%d",i), _strlit(pos, s)); d == nil {
-                erro(ctx, "set $%d to '%s' failed", i, s).trace()
-                return
-            } else {
-                vals = append(vals, v)
-            }
-        }
-        defer func() {
-            for i, v := range vals {
-                if d, v := ctx.set(ctx, defVoid, fmt.Sprintf("%d",i), v); d == nil {
-                    erro(ctx, "restore $%d to '%s' failed", i, v).trace()
-                }
-            }
-        } ()
-        res = append(res, result.expand(ctx))
-        return
-    }
-
     for _, a := range merge(args...) {
         var filename string
         if x, y := a.(*file); y {
@@ -5086,33 +5124,41 @@ func (ctx *builtin_grep) x() (_ any) {
             filename = a.string(ctx)
         }
 
+        var c = pc(ctx,a)
         var e error
         var f *os.File
-        if c := ctx; filename == "" {
-            var pc = _execution(ctx)
+        if filename == "" {
+            var ec = _execution(ctx)
             erro(c, "empty filename: %v", ts(a))
             erro(c, "%v %v", rvs, args)
-            errostack(c, 5, "%p %v", pc, auto_find(pc, "^")).trace()
+            errostack(c, 5, "%p %v", ec, auto_find(ec, "^")).trace()
             return
         } else if f, e = os.Open(filename); e != nil {
-            erro(c, "%v", e)
-            errostack(c, 5, "%v (%v)", a.string(ctx), typeof(a)).trace()
+            errostack(c, 5, "%s ; %s", e, ts(a)).trace()
             return
         } else {
             defer f.Close()
         }
 
         var line int // line number
-        var scanner = bufio.NewScanner(f)
-        scanner.Split(bufio.ScanLines)
+        var s = bufio.NewScanner(f)
+        s.Split(bufio.ScanLines)
 
-    outer:
-        for scanner.Scan() {
-            var text = scanner.Text()
+        for s.Scan() {
+            text := s.Text()
             line += 1 // starting from #1
             for _, rx := range rxs {
                 var sm = rx.FindStringSubmatch(text)
-                if len(sm) > 0 && greped(line, sm) { break outer }
+                if sm == nil { continue }
+                ctx.defs = make(defs_map) // ensure a clear defs map
+                for i, n := range rx.SubexpNames() {
+                    if n == "" { n = strconv.Itoa(i) }
+                    ctx.set(ctx, defVoid, n, _strlit(pos, sm[i]))
+                    if false { note(ctx, "%40v %-2v %-2v %-32v %v", rx, i, n, sm[i], ctx.defs) }
+                }
+                val := result.expand(_final(ctx))
+                if checkpoints && truly(ctx, is_test_mode{}) { ctx.check_res(rx, text, result, val) }
+                res = append(res, val)
             }
         }
     }

@@ -1,0 +1,5 @@
+foo.o
+foo-x.o
+foo-x-y.o
+foo-x-y-z.o
+foobar.o

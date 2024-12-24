@@ -9,6 +9,7 @@ package smart
 import (
     "os/exec"
     "reflect"
+    "regexp"
     "strings"
     "strconv"
     "sync"
@@ -79,7 +80,6 @@ const (
     defExpand3  // ;:=  TODO: expand as plain
     defExecute  //  !=  value to be executed
     defParam    // program parameter
-    _defAny // referred any def
 )
 
 func (o origin) String() string {
@@ -95,7 +95,6 @@ func (o origin) String() string {
     case defExpand3: return "expand_3"
     case defExecute: return "execute"
     case defParam:   return "param"
-    case _defAny:    return "any"
     default: return fmt.Sprintf("origin<%d>", o)
     }
 }
@@ -883,6 +882,7 @@ func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
 }
 
 type get_rule struct{}
+type is_rule struct{ x *regexp.Regexp }
 
 type rule_ctx struct { Context ; rule *rule ; args []Value }
 func (p *rule_ctx) Position() Position { return p.rule.Position() }
@@ -906,6 +906,11 @@ func (p *rule_ctx) do(ctx Context, op any) (_ any) {
     case  get_rule: return p.rule
     case  get_args: if p.args != nil { return p.args }
     case init_args: if p.args != nil { t.args(ctx, p.args); return }
+    case is_rule:
+        if v := t.x.MatchString(p.rule.target.String()); v {
+            if false { note(ctx, "%v %v", t.x, p.rule.target).debug() }
+            return true
+        }
     }
     return p.Context.do(ctx, op)
 }
