@@ -780,10 +780,6 @@ func (p *builtin) true(Context) bool { return p.t != nil }
 func (p *builtin) is_command() bool {
     return reflect.PointerTo(p.t).Implements(builtin_c_t)
 }
-func (p *builtin) invoke(ctx Context, o, a []Value) (res Value) {
-	res, _ = evoke(ctx, p, o, a)
-    return
-}
 func (p *builtin) refs(ctx Context, v Value) (res bool) {
     if o, y := v.(*builtin); y { res = o == p /* || p.name == o.name */ }
     return
@@ -800,11 +796,13 @@ func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
         }
     }
 }
+func (p *builtin) invoke(ctx Context, o, a []Value) (res Value) {
+	res, _ = evoke(ctx, p, o, a)
+    return
+}
 func (p *builtin) expand(Context) Value { return p }
 func (p *builtin) evoke(ctx *evocation) (res Value) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer p.evoke_check(ctx, &res)
-    }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.evoke_check(ctx, &res) }
 
     _v := reflect.New(p.t)
     _i := _v.Interface()

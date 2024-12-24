@@ -1297,12 +1297,6 @@ func (ctx *builtin_foreach) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtin_.cast(t)
 }
-func (ctx *builtin_foreach) do(c Context, op any) (_ any) {
-    // switch t := op.(type) {
-    // case find_auto: if t.string == "_" { return }
-    // }
-    return ctx.builtin_.do(c, op)
-}
 func (ctx *builtin_foreach) a() (skip bool) {
     for i, a := range ctx.evocation.a {
         if i == 0 {
@@ -1408,12 +1402,6 @@ func (ctx *builtin_auto) inner() Context { return &ctx.builtin_ }
 func (ctx *builtin_auto) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtin_.cast(t)
-}
-func (ctx *builtin_auto) do(c Context, op any) (_ any) {
-    // switch op.(type) {
-    // case find_auto: return
-    // }
-    return ctx.builtin_.do(c, op)
 }
 func (ctx *builtin_auto) a() (skip bool) {
     if len(ctx.evocation.a) == 0 {
@@ -3261,11 +3249,9 @@ func (ctx *builtin_print) x() (_ any) {
     var sb bytes.Buffer
     var x = len(ctx.evocation.a)
     for i, a := range ctx.evocation.a {
-        if a == nil {
-            continue
-        } else if 0 < i && i < x {
-            fmt.Fprintf(&sb, " ")
-        }
+        if a == nil { continue }
+        if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
+        note(ctx, "%v", tv(a))
         fmt.Fprintf(&sb, "%s", escapedString(ctx, a))
     }
     prompt(ctx, sb.String())
@@ -5065,37 +5051,26 @@ func (ctx *builtin_touchfile) x() (res any) {
     return
 }
 
-// $(grep 'status=1',$@)
-// $(grep 'status=([0-9]+)',$1,$@)
 type builtin_grep struct { builtin_ }
 func (ctx *builtin_grep) inner() Context { return &ctx.builtin_ }
 func (ctx *builtin_grep) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtin_.cast(t)
 }
-func (ctx *builtin_grep) do(c Context, op any) (_ any) {
-    // switch t := op.(type) {
-    // case find_auto: if IsDigits(t.string) { return }
-    // }
-    return ctx.builtin_.do(c, op)
-}
 func (ctx *builtin_grep) a() (skip bool) {
     ctx.evocation.a = expand(ctx, ctx.evocation.a...)
     return !truly(ctx, is_final{}) && expandable(_final(ctx), ctx.evocation.a...)
 }
 func (ctx *builtin_grep) x() (_ any) {
-    var (
-        args = ctx.evocation.a
-        nargs = len(args)
-        result Value
-        res []Value
-        rxs []*regexp.Regexp // TODO: move it into builtinGrepOpts
-    )
+    var args = ctx.evocation.a
+    var nargs = len(args)
     if !(nargs == 2 || nargs == 3) {
-        erro(ctx, "wants exactly 2 args, e.g. $(grep -1 '^example$',$(file))").trace()
+        erro(ctx, "wrong args, try $(grep {=regex '^example$'},$0,$(file))").trace()
         return
     }
 
+    var result Value
+    var rxs []*regexp.Regexp // TODO: move it into builtinGrepOpts
     var rvs = merge(args[0])
     switch nargs {
     case 2:   args = args[1:]
@@ -5115,8 +5090,9 @@ func (ctx *builtin_grep) x() (_ any) {
         }
     }
 
-    var pos = _position(ctx)
+    var res []Value
     for _, a := range merge(args...) {
+        var c = pc(ctx,a)
         var filename string
         if x, y := a.(*file); y {
             filename = x.fullname()
@@ -5124,14 +5100,10 @@ func (ctx *builtin_grep) x() (_ any) {
             filename = a.string(ctx)
         }
 
-        var c = pc(ctx,a)
         var e error
         var f *os.File
         if filename == "" {
-            var ec = _execution(ctx)
-            erro(c, "empty filename: %v", ts(a))
-            erro(c, "%v %v", rvs, args)
-            errostack(c, 5, "%p %v", ec, auto_find(ec, "^")).trace()
+            errostack(c, 5, "empty filename: %v", ts(a)).trace()
             return
         } else if f, e = os.Open(filename); e != nil {
             errostack(c, 5, "%s ; %s", e, ts(a)).trace()
@@ -5147,17 +5119,21 @@ func (ctx *builtin_grep) x() (_ any) {
         for s.Scan() {
             text := s.Text()
             line += 1 // starting from #1
+
+            cc := pc(c, filename, line)
             for _, rx := range rxs {
-                var sm = rx.FindStringSubmatch(text)
+                sm := rx.FindStringSubmatch(text)
                 if sm == nil { continue }
+
                 ctx.defs = make(defs_map) // ensure a clear defs map
                 for i, n := range rx.SubexpNames() {
                     if n == "" { n = strconv.Itoa(i) }
-                    ctx.set(ctx, defVoid, n, _strlit(pos, sm[i]))
-                    if false { note(ctx, "%40v %-2v %-2v %-32v %v", rx, i, n, sm[i], ctx.defs) }
+                    ctx.set(cc, defVoid, n, _strlit(_position(cc), sm[i]))
+                    if false { note(cc, "%40v %-2v %-2v %-32v %v", rx, i, n, sm[i], ctx.defs) }
                 }
-                val := result.expand(_final(ctx))
-                if checkpoints && truly(ctx, is_test_mode{}) { ctx.check_res(rx, text, result, val) }
+
+                val := result.expand(_final(cc))
+                if checkpoints && truly(cc, is_test_mode{}) { ctx.check_res(rx, text, result, val) }
                 res = append(res, val)
             }
         }

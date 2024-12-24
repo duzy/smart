@@ -2719,7 +2719,6 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 		var opts struct {
 			optimize Value `opt,optimize`
 		}
-
 		for _, op := range parse_opts(_final(ctx), &opts, g.values...) {
 			var val Value
 			if v, y := op.(*pair); y { op, val = v.key, v.val }
@@ -2739,7 +2738,6 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 				erro(ctx, "unsupport flag: %v (%v)", ts(v), val).trace()
 			}
 		}
-
 		return
 	}
 
@@ -2753,11 +2751,15 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	if a, y := prop0.(*argumented); y { prop0, opts = a.Value, a.args }
 
 	name := prop0.string(ctx)
-	switch name { case "-configuration", "configuration":
+	switch name {
+	case "-configuration", "configuration":
 		erro(ctx, "configuration is done at parse time", prop0).trace()
 	}
 
 	resolved := l.resolve(ctx, prop0, name)
+	if false && name == "print" {
+		defer func() { note(ctx, "%v %v", tv(resolved), g.spec[1:]).debug(2) } ()
+	}
 
 	switch x := resolved.(type) {
 	case invoker:
@@ -3986,7 +3988,7 @@ func (l ul) configure2(ctx *execution, tar, val Value) (res Value) {
 	case "bool", "boolean":
 		return _boolean(val.Position(), val.true(ctx))
 	case "value":
-		return val.expand(ctx)
+		return val.expand(_final(ctx))
 	}
 
 	var _params = make(map[string]Value)
@@ -4065,26 +4067,16 @@ func (l ul) configure1(ctx Context) {
 	nv := l.expr(ctx)
 	l.p.spaces(ctx)
 
-	var skip bool
-	var name string
-	switch x := nv.(type) {
-	case *word: name = x.s
-	case *compound:
-		for _, v := range x.elems {
-			if w, y := v.(*word); y {
-				name += w.s
-			} else {
-				errostack(pc(ctx,nv), 16, "unsupported configure: %v : %v", ts(nv), ts(v)).trace()
-			}
-		}
-	default:
-		errostack(pc(ctx,nv), 16, "unsupported configure: %v", ts(nv)).trace()
+	if nv = nv.expand(_final(ctx)); indeterminate(ctx, nv) {
+		errostack(pc(ctx,nv), 16, "indeterminate configure: %v", ts(nv)).trace()
 	}
 
+	name := nv.string(ctx)
 	if name == "" {
-		errostack(pc(ctx,nv), 16, "empty configure: %v", ts(nv)).trace()
+		errostack(pc(ctx,nv), 16, "empty configure name: %v", ts(nv)).trace()
 	}
 
+	var skip bool
 	if d := l.project.def(ctx, name); d != nil && d.o == defConfig { skip = true }
 
 	var vt Value
@@ -4178,16 +4170,6 @@ dorecipes:
 
 	if skip { return }
 
-	defer func() {
-		for _, a := range exe.defers {
-			if x, y := a.(*group); y {
-				modify(ctx, x, true)
-			} else {
-				erro(pc(ctx,a), "defer: not a modifier: %s", ts(a)).trace()
-			}
-		}
-	} ()
-
     for _, exe.prerequisite = range deps { exe.prerequisite.traverse(&exe) }
 
 	var res = auto_get(&exe, "-")
@@ -4200,6 +4182,14 @@ dorecipes:
 	var vals []Value
 	if vt != nil { res = l.configure2(&exe, vt, res) }
 	if res != nil { vals = append(vals, res) }
+
+	for _, a := range exe.defers {
+		if x, y := a.(*group); y {
+			modify(ctx, x, true)
+		} else {
+			errostack(pc(ctx,a), 8, "defer: not a modifier: %s", ts(a)).trace()
+		}
+	}
 
 	l.configure_set(ctx, name, vals...)
 }
