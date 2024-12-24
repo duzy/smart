@@ -555,10 +555,11 @@ func (ctx *builtin_grep) check_res(rx *regexp.Regexp, text string, temp, val Val
 		}
 	default:
 		switch p := _project(ctx); p.name {
+		case "llvm.Config":
 		case "testvalue":
-			erro(ctx, "%s: %v %v %v %v %v", p, rx, text, temp, val, ctx.defs).trace()
+			erro(ctx, "%s: %v; %v; %v; %v; %v", p.name, rx, text, temp, val, ctx.defs).trace()
 		default:
-			note(ctx, "%s: %v %v %v %v %v", p, rx, text, temp, val, ctx.defs).debug()
+			note(ctx, "%s: %v; %v; %v; %v; %v", p.name, rx, text, temp, val, ctx.defs).debug()
 		}
 	}
 }

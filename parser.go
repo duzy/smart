@@ -662,6 +662,17 @@ func (l ul) braced(ctx Context) (x Value) {
 
 		case WORD:
 			switch t := l.p.lit; t {
+			case "here":
+				l.p.next(ctx, true)
+				l.p.expect(ctx, RBRACE)
+				p := l.p.Position()
+				x = &compound{elements{[]Value{
+					_raw(p, p.Filename), _punct(ctx, COLON),
+					_decimal(p, int64(p.Line)), _punct(ctx, COLON),
+					_decimal(p, int64(p.Column)), _punct(ctx, COLON),
+				}}}
+				return
+
 			case "plain":
 				x = &plain{elements{l.braced_plain(ctx)}, t}
 				l.p.expect(ctx, RBRACE)
@@ -2766,7 +2777,7 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 		if b, y := x.(*builtin); y && !b.is_command() {
 			erro(ctx, "resolved builtin '%v' is not a command", prop0).trace()
 		}
-		x.invoke(ctx, opts, g.spec[1:])
+		x.invoke(ctx, opts, expand(_final(ctx), g.spec[1:]...))
 		return
 	default:
 		erro(ctx, "resolved '%v' is %s (%v)", prop0, typeof(resolved), *g).trace()

@@ -1101,10 +1101,9 @@ func (f flag) hit_check(ctx Context, c *valcache, _res **valcache, fullmatch *bo
 func (p *builtin) evoke_check(ctx *evocation, res *Value) {
 	var proj = _project(ctx)
 
-    if p.name == "print" {
-        note(ctx, "%v", ctx.a).debug(2)
-    }
-	if p.name == "grep" {
+	switch p.name {
+	case "print":
+	case "grep":
 	}
 
 	if proj.name == "configure.base" && p.name == "file" {

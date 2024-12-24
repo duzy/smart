@@ -3250,8 +3250,8 @@ func (ctx *builtin_print) x() (_ any) {
     var x = len(ctx.evocation.a)
     for i, a := range ctx.evocation.a {
         if a == nil { continue }
+        if false { notestack(ctx, 5, "%s", ts(a)).debug() }
         if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
-        note(ctx, "%v", tv(a))
         fmt.Fprintf(&sb, "%s", escapedString(ctx, a))
     }
     prompt(ctx, sb.String())
@@ -5128,7 +5128,7 @@ func (ctx *builtin_grep) x() (_ any) {
                 ctx.defs = make(defs_map) // ensure a clear defs map
                 for i, n := range rx.SubexpNames() {
                     if n == "" { n = strconv.Itoa(i) }
-                    ctx.set(cc, defVoid, n, _strlit(_position(cc), sm[i]))
+                    ctx.set(cc, defVoid, n, _raw(_position(cc), sm[i]))
                     if false { note(cc, "%40v %-2v %-2v %-32v %v", rx, i, n, sm[i], ctx.defs) }
                 }
 
