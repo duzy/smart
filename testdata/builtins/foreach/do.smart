@@ -1,6 +1,6 @@
 project testbuiltins
 
-.test.1 := x $0 $1 $2 $3 $4
+.test.1 := x $1 $2 $3 $4
 .test.1 += $(foreach $1,&(.test.h)$_)
 .test.h := -
 
@@ -28,8 +28,8 @@ project testbuiltins
 .test.5 := $(foreach do.smart,&(.test.x $_))
 .test.x := $(stat $1) # $(stat $//$1)
 
-.test.61 :=               $0 $1 $2 $3 $9
-.test.6  := $(.test.61) - $0 $1 $2 $3 $9
+.test.61 :=               $1 $2 $3 $9
+.test.6  := $(.test.61) - $1 $2 $3 $9
 
 .test.7 := $(foreach a $(foreach $1,&(.test.z)$_zz) b,x$_)
 .test.z := w

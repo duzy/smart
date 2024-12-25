@@ -510,8 +510,8 @@ func (ctx *builtin_noop) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtin_.cast(t)
 }
-func (ctx *builtin_noop) c() any { return nil }
-func (ctx *builtin_noop) x() any { return nil }
+func (ctx *builtin_noop) c() (_ any) { return }
+func (ctx *builtin_noop) x() (_ any) { return }
 
 type builtin_typeof struct { builtin_
     expand bool `expand`
@@ -523,16 +523,16 @@ func (ctx *builtin_typeof) cast(t reflect.Type) Context {
 }
 func (ctx *builtin_typeof) a() (skip bool) { return }
 func (ctx *builtin_typeof) x() (res any) {
-    var elems []Value
-    for _, arg := range ctx.evocation.a {
-        if ctx.expand { arg = arg.expand(ctx) }
+    var vals []Value
+    for _, a := range ctx.evocation.a {
+        if ctx.expand { a = a.expand(ctx) }
         // Arguments are passed in a list:
         //   $(fun abc)             args: (abc)
         //   $(fun a,b,c)           args: (a),(b),(c)
         //   $(fun a b c,1 2 3)     args: (a b c),(1 2 3)
-        elems = append(elems, _word(arg.Position(), typeof(arg)))
+        vals = append(vals, _word(a.Position(), typeof(a)))
     }
-    return elems
+    return vals
 }
 
 type builtin_origin struct { builtin_ }
@@ -542,18 +542,18 @@ func (ctx *builtin_origin) cast(t reflect.Type) Context {
     return ctx.builtin_.cast(t)
 }
 func (ctx *builtin_origin) x() (res any) {
-    var elems []Value
+    var vals []Value
     var scope = _scope(ctx)
     for _, a := range ctx.evocation.a {
         if s := a.string(ctx); s == "" {
-            elems = append(elems, _null(a.Position()))
+            vals = append(vals, _null(a.Position()))
         } else if d := scope.finddef(s); d != nil {
-            elems = append(elems, _strlit(a.Position(), d.o.String()))
+            vals = append(vals, _word(a.Position(), d.o.String()))
         } else {
-            elems = append(elems, _null(a.Position()))
+            vals = append(vals, _null(a.Position()))
         }
     }
-    return elems
+    return vals
 }
 
 type builtin_defined struct { builtin_ }

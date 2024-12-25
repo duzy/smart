@@ -703,6 +703,7 @@ func (prog *program) target(ctx *execution) (target Value) {
         }
     }
 
+    if ctx.recs == nil { ctx.recs = make(map[Value]int) }
     ctx.recs[target] += 1
     return
 }

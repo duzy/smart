@@ -617,12 +617,19 @@ func ex_check_rule_shell_forstdout(ctx Context, p, _x Value, _o, _a []Value, res
 }
 
 func expand_check_elem(ctx Context, v, w Value) {
-	if v == nil || w == nil {
-		erro(ctx, "nil : %v → %v", ts(v), ts(w)).trace()
-	} else if a, b := v.cmp(ctx, w), w.cmp(ctx, v); a != b {
-		note(ctx, "%v", ts(v))
-		note(ctx, "%v", ts(w))
-		erro(pc(ctx,v), "cmp(%s, %s) → (%v, %v)", v, w, a, b).trace()
+	if v == nil {
+		erro(ctx, "nil a").trace()
+	}
+	if w == nil {
+		erro(ctx, "nil b").trace()
+	}
+
+	a := v.cmp(ctx, w)
+	b := w.cmp(ctx, v)
+	if a != b {
+		note(ctx, "cmp.a: %v", v)
+		note(ctx, "cmp.b: %v", w)
+		erro(pc(ctx,v), "cmp(%s, %s) → (%v, %v)", typeof(v), typeof(w), a, b).trace()
 	}
 }
 

@@ -88,12 +88,8 @@ func (p *plain) expand(ctx Context) (_ Value) {
     return p
 }
 func (p *plain) cmp(ctx Context, v Value) (_ cmpres) {
-    if x, y := v.(*plain); y {
-        if p.name == x.name {
-            return compareElems(ctx, p.elems, x.elems)
-        }
-    } else if v.string(ctx) == p.string(ctx) {
-        return cmpEqual
+    if x, y := v.(*plain); y && p.name == x.name {
+        return compareElems(ctx, p.elems, x.elems)
     }
     return
 }

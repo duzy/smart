@@ -731,21 +731,21 @@ func testBuiltin_foreach(ctx *testcase) {
 		ctx.err("%v: %s", _project(ctx), s)
 	} else if test_1_value = d.value; test_1_value == nil {
 		ctx.err("%v", d)
-	} else if s := "x $0 $1 $2 $3 $4 $(foreach $1,&(.test.h)$_)"; s != d.value.String() {
+	} else if s := "x $1 $2 $3 $4 $(foreach $1,&(.test.h)$_)"; s != d.value.String() {
 		ctx.err("%v != %s", tst{d.value}, s)
 	} else if s := "x"; s != d.value.string(ctx) {
 		ctx.err("%v → %s != %s", tst{d.value}, d.value.string(ctx), s)
 	} else {
 		if v := ctx.val(d.name); v == nil {
 			ctx.err("%v", d)
-		} else if s := "x $0 $1 $2 $3 $4 $(foreach $1,&(.test.h)$_)"; s != v.String() {
+		} else if s := "x $1 $2 $3 $4 $(foreach $1,&(.test.h)$_)"; s != v.String() {
 			ctx.err("%v", tst{v})
 		} else if s := "x"; s != v.string(ctx) {
 			ctx.err("%v → %s != %s", tst{v}, s, v.string(ctx))
 		}
 		if v := ctx.val(d.name, []string{"a", "b", "c"}); v == nil {
 			ctx.err("%v", d)
-		} else if s, t := v.String(), "x $0 a b c $2 $3 $4 &(.test.h)a? &(.test.h)b? &(.test.h)c?"; s != t {
+		} else if s, t := v.String(), "x a b c $2 $3 $4 &(.test.h)a? &(.test.h)b? &(.test.h)c?"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
 		} else if s, t := v.string(ctx), "x a b c -a -b -c"; s != t {
 			ctx.err("%v → %s != %s", tst{v}, t, s)
@@ -1008,7 +1008,7 @@ func testBuiltin_foreach(ctx *testcase) {
 		ctx.err("%s: %v", s, d)
 	} else if v := ctx.val(d, "x", "y", "z"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "$0 x y z $9 - $0 x y z $9"; s != t {
+	} else if s, t := v.String(), "x y z $9 - x y z $9"; s != t {
 		ctx.err("%v != %s", tst{v}, s) // → %s
 	} else if s, t := v.string(ctx), "x y z - x y z"; s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)

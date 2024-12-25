@@ -194,8 +194,8 @@ func (p p_params) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-type is_auto_preserved struct{ string }
-type is_auto           struct{ string }
+type is_auto_preserved struct{ s string }
+type is_auto           struct{ s string }
 type is_defvalue       struct{}
 
 func (p p_auto_ctx) cast(t reflect.Type) Context { return icast(p,t) }
@@ -214,7 +214,7 @@ func (p p_defvalue_ctx) cast(t reflect.Type) Context { return icast(p,t) }
 func (p p_defvalue_ctx) inner() Context { return p.Context }
 func (p p_defvalue_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case is_auto: return IsDigits(t.string)
+	case is_auto: return t.s != "0" && IsDigits(t.s)
 	case is_defvalue: return true
 	}
 	return p.Context.do(ctx, op)
@@ -225,9 +225,9 @@ func (p p_foreach_txt) inner() Context { return p.Context }
 func (p p_foreach_txt) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
 func (p p_foreach_txt) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-    case find_auto: if t.string == "_" { return p.a }
-	case is_auto: if t.string == "_" { return true }
-	case is_auto_preserved: if t.string == "_" { return true }
+    case find_auto: if t.s == "_" { return p.a }
+	case is_auto: if t.s == "_" { return true }
+	case is_auto_preserved: if t.s == "_" { return true }
 	}
 	return p.Context.do(ctx, op)
 }
@@ -239,15 +239,15 @@ func (p *p_grep_txt) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_auto_preserved:
 		if p.a != nil {
-			if _, y := p.a[t.string]; y { return true }
+			if _, y := p.a[t.s]; y { return true }
 		}
 	case is_auto:
 		if p.a != nil {
-			if _, y := p.a[t.string]; y { return true }
+			if _, y := p.a[t.s]; y { return true }
 		}
     case find_auto:
 		if p.a != nil {
-			if x, y := p.a[t.string]; y { return x }
+			if x, y := p.a[t.s]; y { return x }
 		}
 	case regex_subexp_auto:
 		p.a = map[string]*auto{"0":&auto{knownobject{p.o, "0"}}}
@@ -267,8 +267,8 @@ func (p p_rule_ctx) ts(t string) string { return "{="+t+" "+ts(p.Context)+"}" }
 func (p p_rule_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_auto:
-		if IsDigits(t.string) { return true }
-		if _, y := rule_autos[t.string]; y { return true }
+		if IsDigits(t.s) { return true }
+		if _, y := rule_autos[t.s]; y { return true }
 	}
 	return p.Context.do(ctx, op)
 }
@@ -2053,14 +2053,14 @@ func (f foreach_text) cast(t reflect.Type) Context { return icast(f, t) }
 func (f foreach_text) do(c Context, o any) (_ any) {
     switch t := o.(type) {
     case find_auto:
-		if s := t.string; s == "_" {
+		if t.s == "_" {
 			var a *automatic
 			switch t := f.Context.(type) {
 			case *automatic: a = t
 			case *builtin_foreach: a = &t.automatic
 			}
 			if a != nil {
-				if _, y := a.defs[s]; !y {
+				if _, y := a.defs[t.s]; !y {
 					return
 				}
 			}
@@ -3995,9 +3995,9 @@ func (p p_configure) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (l ul) configure2(ctx *execution, tar, val Value) (res Value) {
+func (l ul) configure2(ctx *execution, vt, val Value) (res Value) {
 	var args []Value
-	var op = tar
+	var op = vt
 	if x, y := op.(*argumented); y {
 		if f, y := x.Value.(flag); y {
 			op = f.Value
@@ -4011,13 +4011,15 @@ func (l ul) configure2(ctx *execution, tar, val Value) (res Value) {
 	if !y {
 		errostack(pc(ctx,op), 8, "wrong configure word: %v %v", tv(op), tv(val)).trace()
 	}
-
 	switch x.s {
 	case "answer":
+		if val == nil { return _answer(op.Position(), false) }
 		return _answer(val.Position(), val.true(ctx))
 	case "bool", "boolean":
+		if val == nil { return _boolean(op.Position(), false) }
 		return _boolean(val.Position(), val.true(ctx))
 	case "value":
+		if val == nil { return _null(op.Position()) }
 		return val.expand(_final(ctx))
 	}
 
@@ -4067,7 +4069,7 @@ func (l ul) configure2(ctx *execution, tar, val Value) (res Value) {
 	if l.project.configure == nil {
 		errostack(pc(ctx,op), 8, "wrong configure: %v %v", tv(op), tv(val)).trace()
 	}
-	for _, ent := range l.project.configure._entries(ctx, tar, false) {
+	for _, ent := range l.project.configure._entries(ctx, vt, false) {
 		var params []Value
 		for _, prog := range ent.programs() {
 			for _, p := range prog.params {
@@ -4089,12 +4091,11 @@ func (l ul) configure2(ctx *execution, tar, val Value) (res Value) {
 		}
 		vals = append(vals, ent.execute(p_configure{ctx}, params...)...)
 	}
-
 	return ease(ctx, vals)
 }
 
 func (l ul) configure1(ctx Context) {
-	nv := l.expr(ctx)
+	nv := l.expr(ctx) // aka name value
 	l.p.spaces(ctx)
 
 	if nv = nv.expand(_final(ctx)); indeterminate(ctx, nv) {
@@ -4106,16 +4107,13 @@ func (l ul) configure1(ctx Context) {
 		errostack(pc(ctx,nv), 16, "empty configure name: %v", ts(nv)).trace()
 	}
 
-	var skip bool
-	if d := l.project.def(ctx, name); d != nil && d.o == defConfig { skip = true }
-
+	var noCond bool
 	var vt Value
 	if checkpoints && truly(ctx, is_test_mode{}) {
-		defer l.configure_check(ctx, name)
-		if name == "LLVM_EXTERNAL_POLLY_SOURCE_DIR" {
-			defer func() { note(ctx, "%v %v", vt, l.project.def(ctx, name)).debug(5) } ()
-		}
+		defer l.configure_check(ctx, &vt, name)
 	}
+
+minusloop:
 	for l.p.tok == MINUS {
 		t := l.expr(ctx)
 		l.p.spaces(ctx)
@@ -4125,13 +4123,21 @@ func (l ul) configure1(ctx Context) {
 			if x, y := t.Value.(flag); y {
 				switch x.Value.String() {
 				case "cond":
-					// conds = append(conds, a.args...)
-					// continue
+					for _, a := range xmerge(_final(ctx), t.args...) {
+						if !a.true(ctx) {
+							noCond = true
+							break
+						}
+						if false {
+							notestack(pc(ctx,x), 3, "%v → %v", t.args[0], a).debug()
+						}
+					}
+					continue minusloop
 				}
 			}
 		case flag:
 			if t.Value.String() == "cond" {
-				erro(pc(ctx,t.Value), "needs cond value").trace()
+				errostack(pc(ctx,t), 3, "needs cond value").trace()
 			}
 		}
 
@@ -4147,9 +4153,7 @@ func (l ul) configure1(ctx Context) {
 			vals = append(vals, l.expr(ctx))
 		}
 
-		if !skip {
-			l.configure_set(ctx, name, expand(_final(ctx), vals...)...)
-		}
+		l.configure_set(ctx, name, expand(_final(ctx), vals...)...)
 		return
 	} else if l.p.tok.is_assign() {
 		errostack(pc(ctx,l.p), 8, "%v: only '=' can assign a configure", nv).trace()
@@ -4158,10 +4162,10 @@ func (l ul) configure1(ctx Context) {
 	var deps []Value
 	var exe = execution{
 		automatic:automatic{Context:pc(ctx,nv), defs:make(defs_map)},
-		recs:make(map[Value]int), start:time.Now(), proj:l.project,
+		start:time.Now(), proj:l.project,
 	}
 
-    exe.set(ctx, defVoid, "@", nv)
+    exe.set(&exe, defVoid, "@", nv)
 
 	if l.p.tok == COLON {
 		l.p.next(ctx, true) // skips the ':' token
@@ -4169,26 +4173,24 @@ func (l ul) configure1(ctx Context) {
 		defer func() { l.p.dialect = "" } ()
 
 		for l.p.tok != EOF {
-			deps = append(deps, l.expr(ctx))
+			deps = append(deps, l.expr(&exe))
 			l.p.spaces(ctx)
-
 			switch l.p.tok {
-			case SEMICOLON, LINEND:
-				goto dorecipes
+			case SEMICOLON, LINEND: goto dorecipes
 			}
 		}
 
 		if l.p.dialect != "" {
-			note(pc(ctx,l.p), "configure %v", l.p.dialect).debug()
+			note(pc(ctx,l.p), "configure %s", l.p.dialect).debug()
 		}
-	}
 
-	exe.language = l.p.dialect
+		exe.language = l.p.dialect
+	}
 
 dorecipes:
 	if l.p.tok == SEMICOLON { // ;
 		exe.recipes = append(exe.recipes, l.recipe(&exe.automatic)...)
-	} else /*if p.tok == LINEND || p.lineComment != nil*/ {
+	} else {
 		l.p.scanner.recipes(true) // turn on recipes before LINEND.
 		if l.p.linend(ctx) { // take the new line.
 			for l.p.recipe_start() {
@@ -4198,7 +4200,15 @@ dorecipes:
 		l.p.scanner.recipes(false)
 	}
 
-	if skip { return }
+	if noCond { return }
+	if o, y := l.project.elems[name]; y { // TODO: better way to detect duplication
+		if d, y := o.(*def); y {
+			if d.o == defConfig { return }
+			errostack(pc(pc(ctx,d.value),nv), 3, "duplicated %v %v", d.o, d).trace()
+		} else {
+			errostack(pc(pc(ctx,o),nv), 3, "duplicated %v", ts(o)).trace()
+		}
+	}
 
     for _, exe.prerequisite = range deps { exe.prerequisite.traverse(&exe) }
 

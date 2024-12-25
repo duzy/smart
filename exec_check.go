@@ -154,25 +154,25 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 				t = strings.Replace(t, "*", "_P", -1)
 				if m1[1] != t {
 					prompt(c, "%v\n", sh)
-					errostack(c, 3, "%s != %s", t, m1[1]).trace()
+					errostack(c, 5, "%s != %s", t, m1[1]).trace()
 				}
 
 				if s, e := ioutil.ReadFile(sm[1]); e != nil {
 					prompt(c, "%v\n", sh)
-					errostack(c, 2, "%v", e).trace()
+					errostack(c, 5, "%v", e).trace()
 				} else if m2 := rx_conf_sizf.FindSubmatch(s); len(m2) == 2 {
 					if t := string(m2[1]); tp != t {
 						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s != %s", tp, t).trace()
+						errostack(c, 5, "%s != %s", tp, t).trace()
 					}
 				} else if m2 := rx_conf_alif.FindSubmatch(s); len(m2) == 2 {
 					if t := string(m2[1]); tp != t {
 						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s != %s", tp, t).trace()
+						errostack(c, 5, "%s != %s", tp, t).trace()
 					}
 				} else {
 					prompt(c, "%v\n", sh)
-					errostack(c, 2, "%s %s", tp, m2).trace()
+					errostack(c, 5, "%s %s", tp, m2).trace()
 				}
 			} else if rx_sizeof.MatchString(dest) {
 				sm := rx_fn_confsz.FindStringSubmatch(fn)
@@ -185,21 +185,21 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 					t  = strings.Replace(t, "*", "_P", -1)
 					if sm[1] != t {
 						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s != %s", t, sm[1]).trace()
+						errostack(c, 5, "%s != %s", t, sm[1]).trace()
 					}
 
 					var chk = sizeof_map(ctx, "darwin", sh, sm)
 
 					if x, y := chk[ctx.Status]; !y {
 						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s, status=%d", sm[1], ctx.Status).trace()
+						errostack(c, 5, "%s, status=%d", sm[1], ctx.Status).trace()
 					} else if _, y := x[sm[1]]; !y {
 						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s, status=%d", sm[1], ctx.Status).trace()
+						errostack(c, 5, "%s, status=%d", sm[1], ctx.Status).trace()
 					}
 				} else {
 					prompt(c, "%v\n", sh)
-					errostack(c, 2, "%s", tp).trace()
+					errostack(c, 5, "%s", tp).trace()
 				}
 			} else if rx_alignof.MatchString(dest) {
 				sm := rx_fn_confag.FindStringSubmatch(fn)
@@ -212,21 +212,21 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 					t  = strings.Replace(t, "*", "_P", -1)
 					if sm[1] != t {
 						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s != %s", t, sm[1]).trace()
+						errostack(c, 5, "%s != %s", t, sm[1]).trace()
 					}
 
 					var chk = alignof_map(ctx, "darwin", sh, sm)
 
 					if x, y := chk[ctx.Status]; !y {
 						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s, status=%d", sm[1], ctx.Status).trace()
+						errostack(c, 5, "%s, status=%d", sm[1], ctx.Status).trace()
 					} else if _, y := x[sm[1]]; !y {
 						prompt(c, "%v\n", sh)
-						errostack(c, 2, "%s, status=%d", sm[1], ctx.Status).trace()
+						errostack(c, 5, "%s, status=%d", sm[1], ctx.Status).trace()
 					}
 				} else {
 					prompt(c, "%v\n", sh)
-					errostack(c, 2, "%s", tp).trace()
+					errostack(c, 5, "%s", tp).trace()
 				}
 			} else if rx_status.MatchString(dest) {
 				prompt(c, "%v\n", ctx.sh)
@@ -237,8 +237,8 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 	return
 }
 
-var rx_conf_inc_log = regexp.MustCompile(`^\.configure/(type(?:/(?:size|align))?|function|symbol|struct-member|var)/([^/]+?)\.log$`)
-func (ctx *exec_ctx) exec_check(exe *execution, src *raw) {
+var rx_conf_inc_log = regexp.MustCompile(`^\.configure/(type(?:/(?:size|align))?|function|symbol|var)/([^/]+?)\.log$`)
+func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 	var c Context = ctx
 	var p = _project(c)
 	if p.name == "configure.base" {
@@ -268,18 +268,18 @@ func (ctx *exec_ctx) exec_check(exe *execution, src *raw) {
 
 				if v_name == nil {
 					prompt(c, "%v\n", src)
-					errostack(c, 2, "NAME is undefined").trace()
+					errostack(c, 5, "NAME is undefined").trace()
 				} else if name = v_name.string(c); name == "" {
 					prompt(c, "%v\n", src)
-					errostack(c, 2, "NAME is empty").trace()
+					errostack(c, 5, "NAME is empty").trace()
 				}
 
 				if v_incl == nil {
 					prompt(c, "%v\n", src)
-					errostack(c, 2, "%s: INCLUDE is undefined", name).trace()
+					errostack(c, 5, "%s: INCLUDE is undefined", name).trace()
 				} else if incl = v_incl.string(c); incl == "" {
 					prompt(c, "%v\n", src)
-					errostack(c, 2, "%s: INCLUDE is empty: %v", name, v_incl).trace()
+					errostack(c, 5, "%s: INCLUDE is empty: %v", name, v_incl).trace()
 				}
 
 				ninc := 0
@@ -289,7 +289,7 @@ func (ctx *exec_ctx) exec_check(exe *execution, src *raw) {
 				b, e := ioutil.ReadFile(x.fullname())
 				if e != nil {
 					prompt(c, "%v\n", src)
-					errostack(c, 2, "%v", e).trace()
+					errostack(c, 5, "%v", e).trace()
 				}
 				if sm := rx_conf_incl.FindAllStringSubmatch(string(b), -1); sm != nil {
 					for _, m := range sm {
@@ -297,21 +297,26 @@ func (ctx *exec_ctx) exec_check(exe *execution, src *raw) {
 							ninc += 1
 						} else {
 							prompt(c, "%v\n", src)
-							errostack(c, 2, "no %v", m[0]).trace()
+							errostack(c, 5, "no %v", m[0]).trace()
 						}
 					}
 				}
 				if ninc != len(incs) {
 					prompt(c, "%v\n", src)
-					errostack(c, 2, "%v: %v	!= %v", name, ninc, len(incs)).trace()
+					errostack(c, 5, "%v: %v	!= %v", name, ninc, len(incs)).trace()
 				}
 			}
+		} else if y && strings.HasPrefix(x.name, ".configure/struct-member/") && strings.HasSuffix(x.name, ".log") {
+			if s := ctx.Status; s != 0 {
+				prompt(ctx, "%v\n", src)
+				errostack(c, 5, "%v. status=%v, e=%v", i, s, e).debug(3)
+			}
 		} else if y && strings.HasPrefix(x.name, ".configure/library/") && strings.HasSuffix(x.name, ".log") {
-			inc := auto_get(c, "INCLUDE")
-			notestack(c, 3, "%v %v", inc, p.configure.names()).debug()
-		}
-
-		if x, y := t.(*file); y && strings.HasPrefix(x.name, ".configure/") && strings.HasSuffix(x.name, ".x") {
+			if s := ctx.Status; s != 0 {
+				prompt(ctx, "%v\n", src)
+				errostack(c, 5, "%v. status=%v, e=%v", i, s, e).debug(3)
+			}
+		} else if y && strings.HasPrefix(x.name, ".configure/") && strings.HasSuffix(x.name, ".x") {
 			if s := l.String(); strings.Contains(s, "%") {
 				errostack(c, 5, "%v %s", s, ts(l)).trace()
 			}
@@ -342,7 +347,7 @@ func (ctx *exec_buffer) check_line(line string, lnum int) {
 				rx := regexp.MustCompile(`[^:]+: error: no such file or directory: '\.configure/.*?%+\.[^ ]*'`)
 				if sm := rx.FindStringSubmatch(line); sm != nil {
 					prompt(c, "%v\n", s)
-					errostack(c, 3, "%s", sm[0]).trace()
+					errostack(c, 5, "%s", sm[0]).trace()
 				}
 			}
 			switch dest := _entry(ctx).destiny().string(ctx); dest {
@@ -353,7 +358,7 @@ func (ctx *exec_buffer) check_line(line string, lnum int) {
 					rx := regexp.MustCompile(`^bash: -.+?: invalid option`)
 					if sm := rx.FindStringSubmatch(line); sm != nil {
 						prompt(c, "%v\n", sh)
-						errostack(c, 3, "%s", sm[0]).trace()
+						errostack(c, 5, "%s", sm[0]).trace()
 					}
 				}
 			}

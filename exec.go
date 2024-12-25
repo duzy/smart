@@ -905,7 +905,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     ctx.start = time.Now()
 
     var noExec = truly(ctx, no_exec{})
-    for _, src := range srcs {
+    for i, src := range srcs {
         if src.trim("@"); src.s == "" { continue }
         if ctx.promptSrc && !ctx.prompt {
             s := src.s
@@ -914,7 +914,6 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
             prompt(ctx, "%s\n", s)
         }
 
-        if checkpoints && truly(ctx, is_test_mode{}) { ctx.exec_check(exe, src) }
         if cmd == "docker" && len(envs) > 0 { src.s = envs+" && "+src.s }
         if noExec { continue }
 
@@ -932,12 +931,15 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         ctx.sh.Stdout = &ctx.Stdout
         ctx.sh.Stderr = &ctx.Stderr
         if ctx.stdin {
-            ctx.sh.Stdin = os.Stdin
             ctx.sh.Args = append(ctx.sh.Args, "-ti")
+            ctx.sh.Stdin = os.Stdin
         }
         if   opt != "" { ctx.sh.Args = append(ctx.sh.Args, opt) }
         if src.s != "" { ctx.sh.Args = append(ctx.sh.Args, src.s) }
-        if e := ctx.run(exe); ctx.Status != 0 || e != nil { break }
+
+        var e = ctx.run(exe)
+        if checkpoints && truly(ctx, is_test_mode{}) { ctx.exec_check(i, src, e) }
+        if e != nil || ctx.Status != 0 { break }
     }
 }
 

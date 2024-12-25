@@ -783,11 +783,16 @@ func (l ul) codeblock_check(ctx *automatic, op token) {
 	}
 }
 
-func (l ul) configure_check(ctx Context, name string) {
-	if d := l.project.def(ctx, name); d == nil {
-		errostack(ctx, 8, "nil configure: %v", name).trace()
+func (l ul) configure_check(ctx Context, _vt *Value, name string) {
+	var vt = *_vt
+	var d = l.project.def(ctx, name)
+	if d == nil {
+		errostack(ctx, 8, "nil configure: %v; %v", name, vt).trace()
 	} else if d.value == nil {
-		errostack(ctx, 8, "nil configure: %v", d).trace()
+		errostack(pc(ctx,d), 8, "nil configure: %v", d).trace()
+	}
+	switch _project(ctx).name {
+	case "llvm.Config":
 	}
 }
 

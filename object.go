@@ -116,7 +116,7 @@ func (m defs_map) String() (s string) {
 func _automatic(c Context) *automatic { return cast[*automatic](c) }
 
 type ex_auto   struct {}
-type find_auto struct { string }
+type find_auto struct { s string }
 type set_auto  struct { o origin; s string; v Value }
 type res_auto  struct { d *def; v Value }
 type automatic struct {
@@ -140,9 +140,9 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
             // return
         }
     case find_auto:
-        if d, _ := ac.defs[t.string]; d != nil {
+        if d, _ := ac.defs[t.s]; d != nil {
             if checkpoints && truly(ctx, is_test_mode{}) {
-                ac.find_auto_check(ctx, d, t.string)
+                ac.find_auto_check(ctx, d, t.s)
             }
             return d
         }
@@ -367,7 +367,7 @@ func (c def_evocation) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
     case param_name: return
     case find_auto:
-        if s := t.string; IsDigits(s) {
+        if s := t.s; IsDigits(s) {
             if _, y := c.defs[s]; !y {
                 return
             }
