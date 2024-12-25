@@ -493,27 +493,25 @@ func (d *diagnostic) do(ctx Context, op any) (_ any) {
     return d.Context.do(ctx, op)
 }
 func (d *diagnostic) reset() { defer d.aquire()(); d.points = []*diagpoint{} }
-func (d *diagnostic) add(point *diagpoint) *diagpoint {
+func (d *diagnostic) add(p *diagpoint) *diagpoint {
     defer d.aquire()()
 
-    if true {
-        if i := len(d.points)+len(d.newlines); diagnostic_limit < i {
-            panic(too_many_diagnostics{i})
-        }
+    if i := len(d.points)+len(d.newlines); diagnostic_limit < i {
+        panic(too_many_diagnostics{i})
     }
 
-    if point.dt == diagPromptLine {
-        d.newlines = append(d.newlines, point)
-        return point
-    } else if strings.HasSuffix(point.message, "\n") {
-        if d.points = append(d.points, point); d.newlines != nil {
+    if p.dt == diagPromptLine {
+        d.newlines = append(d.newlines, p)
+        return p
+    } else if strings.HasSuffix(p.message, "\n") {
+        if  d.points = append(d.points, p) ; d.newlines != nil {
             d.points = append(d.points, d.newlines...)
             d.newlines = nil
         }
-        return point
+        return p
     } else {
-        d.points = append(d.points, point)
-        return point
+        d.points = append(d.points, p)
+        return p
     }
 }
 func (d *diagnostic) nest(points []*diagpoint) {

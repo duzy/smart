@@ -2753,34 +2753,53 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	}
 
 	prop0 := g.spec[0]
-
 	if isTrivial(prop0) {
-		erro(ctx, "illegal").trace()
+		erro(pc(ctx,l.p), "illegal").trace()
 	}
 
+	var name string
 	var opts []Value
 	if a, y := prop0.(*argumented); y { prop0, opts = a.Value, a.args }
+	switch t := prop0.(type) {
+	case *delegate:
+		for i, x := range merge(t.expand(_final(ctx))) {
+			switch t := x.(type) {
+			case *pair:
+				if d := l.define(ctx, ASSIGN, t.key, t.val); d == nil {
+					errostack(pc(ctx,l.p), 3, "%v → %v", t.key, t.val).debug()
+				}
+			case *word:
+				if name != "" {
+					errostack(pc(ctx,l.p), 3, "%v → %d. %v", prop0, i, x).trace()
+				} else {
+					name = t.s
+				}
+			default:
+				errostack(pc(ctx,l.p), 3, "%v → %d. %v", prop0, i, ts(x)).trace()
+			}
+		}
+		return
+	case *pair:
+		if d := l.define(ctx, ASSIGN, t.key, t.val); d == nil {
+			errostack(pc(ctx,l.p), 3, "%v → %v", t.key, t.val).debug()
+		}
+	default:
+		name = t.string(ctx)
+	}
 
-	name := prop0.string(ctx)
 	switch name {
+	case "":
+		errostack(pc(ctx,l.p), 3, "empty eval command").trace()
 	case "-configuration", "configuration":
-		erro(ctx, "configuration is done at parse time", prop0).trace()
+		errostack(pc(ctx,l.p), 3, "configuration is done at parse time").trace()
 	}
 
 	resolved := l.resolve(ctx, prop0, name)
-	if false && name == "print" {
-		defer func() { note(ctx, "%v %v", tv(resolved), g.spec[1:]).debug(2) } ()
-	}
-
 	switch x := resolved.(type) {
 	case invoker:
-		if b, y := x.(*builtin); y && !b.is_command() {
-			erro(ctx, "resolved builtin '%v' is not a command", prop0).trace()
-		}
 		x.invoke(ctx, opts, expand(_final(ctx), g.spec[1:]...))
-		return
 	default:
-		erro(ctx, "resolved '%v' is %s (%v)", prop0, typeof(resolved), *g).trace()
+		erro(pc(ctx,l.p), "resolved is %s: %v → %s", typeof(resolved), prop0, name).trace()
 	}
 
 	/* TODO: if c, y := res.(code); y { ... } */

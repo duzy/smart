@@ -3242,48 +3242,16 @@ func (ctx *builtin_print) cast(t reflect.Type) Context {
 }
 func (ctx *builtin_print) c() (_ any) { return ctx.x() }
 func (ctx *builtin_print) x() (_ any) {
-    var diag = _diagnostic(ctx)
-    if ctx.noErrs && 0 < diag.count(diagError) { return }
-    if ctx.noWarn && 0 < diag.count(diagWarn)  { return }
+    if ctx.noErrs && 0 < count_diag(ctx, diagError) { return }
+    if ctx.noWarn && 0 < count_diag(ctx, diagWarn)  { return }
 
     var sb bytes.Buffer
     var x = len(ctx.evocation.a)
     for i, a := range ctx.evocation.a {
         if a == nil { continue }
-        if false { notestack(ctx, 5, "%s", ts(a)).debug() }
         if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
         fmt.Fprintf(&sb, "%s", escapedString(ctx, a))
     }
-    prompt(ctx, sb.String())
-    return
-}
-
-type builtin_println struct{ builtin_
-    noErrs bool `noerrs,noerrors,no-errs,no-errors`
-    noWarn bool `nowarn,nowarns,no-warn,no-warns`
-}
-func (ctx *builtin_println) inner() Context { return &ctx.builtin_ }
-func (ctx *builtin_println) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtin_.cast(t)
-}
-func (ctx *builtin_println) c() (_ any) { return ctx.x() }
-func (ctx *builtin_println) x() (_ any) {
-    var dia = _diagnostic(ctx)
-    if ctx.noErrs && dia.count(diagError) > 0 { return }
-    if ctx.noWarn && dia.count(diagWarn) > 0 { return }
-
-    var x = len(ctx.evocation.a)
-    var sb bytes.Buffer
-    for i, a := range ctx.evocation.a {
-        if a == nil {
-            continue
-        } else if 0 < i && i < x {
-            fmt.Fprintf(&sb, " ")
-        }
-        fmt.Fprintf(&sb, "%s", escapedString(ctx, a))
-    }
-    fmt.Fprintf(&sb, "\n")
     prompt(ctx, sb.String())
     return
 }
