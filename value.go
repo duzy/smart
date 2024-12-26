@@ -4553,6 +4553,9 @@ func (p *strcomp) string(ctx Context) (s string) {
     } else {
         s = v.string(ctx)
     }
+    if truly(ctx, is_defname{}) {
+        s = `"`+s+`"`
+    }
     return
 }
 func (p *strcomp) float(ctx Context) (_ float64) {

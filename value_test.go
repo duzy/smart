@@ -7,6 +7,7 @@ package smart
 
 import (
 	"strconv"
+	"strings"
 )
 
 type testValueGeneralStruct struct {
@@ -354,6 +355,44 @@ func testValueGeneral(ctx testcase1) {
 		ctx.err("%v, %v", tst{d}, tv(v))
 	} else if ts(v) != "{=url {=word https} {} {} {=compound {=word ext} {=punct .} {=word pub}} {} {} {=[]Value {=pair {=word foo}={=word x+y+z}} {=pair {=word bar}={=compound {=word x} {=punct %} {=decimal 20} {=word y} {=punct %} {=decimal 20} {=word z}}}} {=word foo+bar}}" {
 		ctx.err("%v, %v", tst{d}, ts(v))
+	}
+
+	if d := ctx.def(`configure.types."atomic.h"`); d == nil {
+		ctx.err(`configure.types."atomic.h"`)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := "atomic_bool", v.string(ctx); s != t {
+		ctx.err("%s != %s; %v", s, t, v)
+	}
+
+	if d := ctx.def(`configure.types.<atomic.h>`); d == nil {
+		ctx.err(`configure.types.<atomic.h>`)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := "atomic_bool", v.string(ctx); s != t {
+		ctx.err("%s != %s; %v", s, t, v)
+	}
+
+	if d := ctx.def(`configure.types`); d == nil {
+		ctx.err(`configure.types`)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if t := v.string(ctx); t == "" {
+		ctx.err("%s; %v", t, v)
+	} else if s := `- configure.types.<atomic.h> <atomic.h> atomic.h,`; !strings.Contains(t, s) {
+		ctx.err("%s, %s; %v", s, t, v)
+	} else if s := `- configure.types."atomic.h" "atomic.h" , atomic.h`; !strings.Contains(t, s) {
+		ctx.err("%s, %s; %v", s, t, v)
+	}
+
+	if d := ctx.def("conf0"); d == nil {
+		ctx.err("conf0")
+	} else if d.o != defConfig {
+		ctx.err("%v %v", d.origin, d)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := "foo.o foo-x.o foo-x-y.o foo-x-y-z.o foobar.o", v.string(ctx); s != t {
+		ctx.err("%s != %s; %v", s, t, v)
 	}
 
 	s := "foo.o foo . o "

@@ -161,6 +161,12 @@ val8  := https://extbit.com?foo=x
 val9  := https://extbit.com?foo=x&bar=y#foobar
 val10 := https://ext.pub?foo=x+y+z&bar=x%20y%20z#foo+bar
 
+configure.types."atomic.h" ::= atomic_bool
+configure.types.<atomic.h> ::= atomic_bool
+foreach {=defs {=regex ^configure\.types\.(<(.+?)>|"(.+?)")}}
+configure.types += - $0 $1 $2, $3
+done
+
 configure conf0 = $(grep {=regex .+?\.o},$0,$//test.txt)
 configure conf1 = $(grep {=regex (.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt)
 # configure conf2 = {=grep {=regex (.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt}

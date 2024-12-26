@@ -28,6 +28,7 @@ func (cc *configurecontext) execute_check(ctx *execution, e entry, p *project, s
 
 func configure2_chk_darwin(ctx Context, sm, m []string) map[string]string {
 	return map[string]string{
+		"header <atomic.h>": "no",
 		"header <dirent.h>": "yes",
 		"header <stdarg.h>": "yes",
 		"header <stdatomic.h>": "yes",
@@ -112,7 +113,7 @@ var rx_sha256 = regexp.MustCompile(`[0-9a-f]{40}`) // 24be3fc4dbc8099b28a7afa44f
 var rx_checking_for = regexp.MustCompile(`^checking for (.+?) …$`)
 var rx_checking_std = regexp.MustCompile(`^checking for (header|type|function|symbol|(?:align|size) of) (.+?) …$`)
 var rx_checking_res = regexp.MustCompile(`^… (.+?)\n$`)
-func (l ul) configure2_check(ctx *execution, op, val, res Value, a, b *diagpoint) {
+func (l ul) configure2_check(ctx *execution, ops []entry, op, val, res Value, a, b *diagpoint) {
 	if sm := rx_checking_std.FindStringSubmatch(a.message); sm != nil {
 		m := rx_checking_res.FindStringSubmatch(b.message)
 		if m == nil {
@@ -134,7 +135,7 @@ func (l ul) configure2_check(ctx *execution, op, val, res Value, a, b *diagpoint
 	} else if sm := rx_checking_for.FindStringSubmatch(a.message); sm != nil {
 		m := rx_checking_res.FindStringSubmatch(b.message)
 		if m == nil {
-			errostack(ctx, 6, "%s: %v %v %v", sm[1], ts(op), ts(val), ts(res)).trace()
+			errostack(ctx, 6, "%s: %v, %v %v %v", sm[1], ops, ts(op), ts(val), ts(res)).trace()
 		}
 		switch sm[1] {
 		case "llvm revision":
@@ -143,7 +144,7 @@ func (l ul) configure2_check(ctx *execution, op, val, res Value, a, b *diagpoint
 			}
 		}
 	} else {
-		errostack(ctx, 5, "%s %s %s", ts(op), ts(val), ts(res)).trace()
+		errostack(ctx, 5, "%s, %s %s %s", ops, ts(op), ts(val), ts(res)).trace()
 	}
 }
 

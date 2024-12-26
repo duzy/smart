@@ -604,7 +604,7 @@ func (ctx *builtin_position) x() (res any) {
 }
 
 type builtin_date struct { builtin_
-    time bool `tm,time,now`
+    time bool `time,now`
 }
 func (ctx *builtin_date) inner() Context { return &ctx.builtin_ }
 func (ctx *builtin_date) cast(t reflect.Type) Context {

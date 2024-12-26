@@ -103,6 +103,7 @@ func (p selection) do(ctx Context, op any) (_ any) {
 }
 
 type codeblock      struct { *automatic ; token }
+type p_defname_ctx  struct { Context }
 type p_defvalue_ctx struct { Context }
 type p_braced_ctx   struct { Context }
 type p_bare_ctx     struct { Context }
@@ -196,6 +197,7 @@ func (p p_params) do(ctx Context, op any) (_ any) {
 
 type is_auto_preserved struct{ s string }
 type is_auto           struct{ s string }
+type is_defname        struct{}
 type is_defvalue       struct{}
 
 func (p p_auto_ctx) cast(t reflect.Type) Context { return icast(p,t) }
@@ -206,6 +208,15 @@ func (p p_auto_ctx) ts(t string) (_ string) {
 func (p p_auto_ctx) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case is_auto: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p p_defname_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_defname_ctx) inner() Context { return p.Context }
+func (p p_defname_ctx) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_defname: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -2954,9 +2965,9 @@ func (l ul) define(ctx Context, tok token, ident, value Value) (d *def) {
         }
 
     default: // *word, *compound, *qualword, *path, flag:
-        var name = t.string(ctx)
+        var name = t.string(p_defname_ctx{ctx})
         if _, y := builtins[name]; y {
-            erro(ctx, "`%v` is a builtin name (%v)", ident, name).trace()
+            errostack(pc(ctx,t), 3, "`%v` is a builtin name (%v)", ident, name).trace()
         }
 
         // Resolve base value to derive.
@@ -4023,6 +4034,11 @@ func (l ul) configure2(ctx *execution, vt, val Value) (res Value) {
 		return val.expand(_final(ctx))
 	}
 
+	var ops = l.project.configure._entries(ctx, vt, false)
+	if ops == nil {
+		errostack(pc(ctx,vt), 8, "no configure ops: %v", vt).trace()
+	}
+
 	var _params = make(map[string]Value)
 	for _, arg := range args {
 		switch t := arg.(type) {
@@ -4038,7 +4054,7 @@ func (l ul) configure2(ctx *execution, vt, val Value) (res Value) {
 			}
 
 			s := t.string(ctx)
-			a := prompt(pc(ctx,op), "%s …", s)
+			a := prompt(pc(ctx,op), "%s …", s).diagpoint
 			defer func(i int) {
 				if count_diag(ctx, diagInfo, diagWarn, diagError) <= i {
 					if res != nil {
@@ -4047,29 +4063,28 @@ func (l ul) configure2(ctx *execution, vt, val Value) (res Value) {
 						s = "<nil>"
 					}
 
-					b := prompt(ctx, "… %s\n", s)
-					do(ctx, prompt_ab{a.diagpoint, b.diagpoint})
+					b := prompt(ctx, "… %s\n", s).diagpoint
+					do(ctx, prompt_ab{a, b})
 					flush(ctx)
 
 					if checkpoints && truly(ctx, is_test_mode{}) {
-						l.configure2_check(ctx, op, val, res, a.diagpoint, b.diagpoint)
+						l.configure2_check(ctx, ops, op, val, res, a, b)
 					}
 				}
 			} (count_diag(ctx, diagInfo, diagWarn, diagError))
 
 		default:
 			if !isTrivial(arg) {
-				errostack(pc(ctx,arg), 8, "wrong arg: %s", tv(arg)).trace()
+				errostack(pc(ctx,arg), 8, "wrong arg: %s", ts(arg)).trace()
 			}
 		}
 	}
 
 	var vals []Value
-
 	if l.project.configure == nil {
 		errostack(pc(ctx,op), 8, "wrong configure: %v %v", tv(op), tv(val)).trace()
 	}
-	for _, ent := range l.project.configure._entries(ctx, vt, false) {
+	for _, ent := range ops {
 		var params []Value
 		for _, prog := range ent.programs() {
 			for _, p := range prog.params {
