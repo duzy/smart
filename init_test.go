@@ -25,7 +25,6 @@ type testcase struct{
 	// run func(testcase_f1)
 	srcs map[string]struct{}
 	chks map[string]struct{}
-	prompts []prompt_ab
 }
 type testcase1  struct{ *testcase ; i any }
 type test_arg   struct{ name string; val any }
@@ -85,7 +84,7 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 		ctx.paths = append(ctx.paths, testModulesPath)
 	}
 
-	res = &testcase{ctx, t, spec, nil, nil, nil}
+	res = &testcase{ctx, t, spec, nil, nil}
 	res.srcs = make(map[string]struct{})
 	res.chks = make(map[string]struct{})
 
@@ -110,19 +109,17 @@ func (tc *testcase) do(ctx Context, op any) (_ any) {
 	case is_test_case: return true
 	case is_test_mode: return test_mode
 	case silent_configure: return true
-	case prompt_ab:
-		tc.prompts = append(tc.prompts, t)
 	case loading_source:
 		tc.srcs[string(t)] = struct{}{}
 		return
 	case checked_source:
 		tc.chks[string(t)] = struct{}{}
 		return
-	case _loading_source:
-		_, y := tc.srcs[t.string]
+	case is_loading_source:
+		_, y := tc.srcs[string(t)]
 		return y
-	case _checked_source:
-		_, y := tc.chks[t.string]
+	case is_checked_source:
+		_, y := tc.chks[string(t)]
 		return y
 	case get_position:
 		if p := _project(ctx); p != nil { return p.position }
@@ -434,8 +431,8 @@ func Test(t *testing.T) {
 	run(t, "value", "value", "testvalue", testValueGeneral, test_hook_assert{testValueGeneralAssertHook, &testValueGeneralStruct{}})
 
 	// builtins_test.go
-	run(t, "builtins", "assert",      "testbuiltins", testAssert, test_hook_assert{testAssertHook, &testAssertStruct{}})
-	run(t, "builtins", "pushcontext", "testbuiltins", testPushContext)
+	run(t, "builtins", "assert",         "testassert", testAssert, test_hook_assert{testAssertHook, &testAssertStruct{}})
+	run(t, "builtins", "locals",         "testlocals", testLocals)
 
 	// value_test.go
 	run(t, "value", "value/auto",        "testvalue", testAutomatic)

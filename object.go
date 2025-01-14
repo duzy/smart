@@ -127,8 +127,10 @@ type automatic struct {
 }
 func (ac *automatic) cast(t reflect.Type) Context { return icast(ac, t) }
 func (ac *automatic) inner() Context { return ac.Context }
-func (ac *automatic) ts(t string) (_ string) {
-    return "{="+t+" "+ac.defs.String()+" "+ts(ac.Context)+"}"
+func (ac *automatic) ts(t string) string {
+    s := ac.defs.String()
+    if s != "" { s += " " }
+    return "{="+t+" "+s+ts(ac.Context)+"}"
 }
 func (ac *automatic) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
@@ -569,63 +571,47 @@ func (d *def) origin(ctx Context, o origin) (res origin) {
     return
 }
 func (d *def) val(ctx Context, value Value, vals ...Value) { d.set(ctx, d.o, value, vals...) }
-func (d *def) set(ctx Context, origin origin, value Value, app ...Value) {
+func (d *def) set(ctx Context, o origin, value Value, app ...Value) {
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer d.set_check(ctx, origin, value, app)
+        defer d.set_check(ctx, o, value, app)
         if d.o == defConfig && d.value != nil {
-            erro(ctx, "duplicated %v %v → %v %v %v", d.o, d, origin, value, app).trace()
+            errostack(pc(pc(ctx,value),d.value), 1, "duplicated %v %v → %v %v %v", d.o, d, o, value, app).trace()
         }
     }
 
-    if origin == defUndetermined { origin = defVoid }
-
+    if o == defUndetermined { o = defVoid }
     if value == d.value && len(app) == 0 {
-        if d.o == defUndetermined || (d.o == defVoid && origin != d.o) {
-            d.origin(ctx, origin)
-        }
+        if d.o == defUndetermined || (d.o == defVoid && o != d.o) { d.origin(ctx, o) }
         return
     }
 
+    var a bool
     var vals []Value
     if !isTrivial(value) { vals = append(vals, merge(value)...) }
-    if len(app ) > 0     { vals = append(vals, merge(app...)...) }
-    if len(vals) > 0 && origin != defExpand0 {
-        vals = expand(original{ctx, origin}, vals...)
-    }
-
-    if value == nil && len(app) > 0 {
+    if a = len(app)>0; a { vals = append(vals, merge(app...)...) }
+    if o != defExpand0 && len(vals) > 0 { vals = expand(original{ctx,o}, vals...) }
+    if a {
         // d.Lock()
         var v = d.value
         // d.Unlock()
-        if !isTrivial(v) { vals = append(merge(v), vals...) }
-    }
-
-    if n := len(vals); 1 == n {
-        value = vals[0]
-    } else if 1 < n {
-        value = _list(vals...)
-    } else if origin == defExecute {
-        value = nil
-    } else {
-        value = _null(d.position)
+        if !isTrivial(v) {
+            vals = append([]Value{v}, vals...)
+        }
     }
 
     // d.Lock()
-    d.value = value
-    d.origin(ctx, origin)
+    if n := len(vals); 1 == n {
+        d.value = vals[0]
+    } else if 1 < n {
+        d.value = _list(vals...)
+    } else if o == defExecute {
+        d.value = nil
+    } else {
+        d.value = _null(d.position)
+    }
+    d.origin(ctx, o)
     // d.Unlock()
     return
-}
-func (d *def) set_check(ctx Context, origin origin, value Value, app []Value) {
-    if truly(ctx, propExDef) && isNull(d.value) && (value != nil || len(app) > 0) {
-        erro(ctx, "%v ; %v %v", d, value, app).trace()
-    }
-    if origin == defExpand0 && (!isNull(value) || app != nil) && isNull(d.value) {
-        erro(ctx, "%v ; %v %v", d, value, app).trace()
-    }
-    if !d.position.valid() && d.name != ".goals" {
-        erro(ctx, "%v ; %v %v", d, value, app).trace()
-    }
 }
 func (d *def) append(ctx Context, a ...Value) { if len(a) > 0 { d.set(ctx, d.o, nil, a...) } }
 func (d *def) invoke(ctx Context, o, a []Value) (res Value) {
@@ -637,7 +623,7 @@ func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
 
     var cmd string
     if cmd = value.string(ctx); cmd == "" {
-        warn(ctx, "%v: empty command (value=%v)", d.name, value).debug()
+        notestack(pc(ctx,value), 3, "%v: empty command (value=%v)", d.name, value).debug()
         return
     }
 
@@ -651,14 +637,14 @@ func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
     } ()
 
     if e := sh.Run(); e != nil {
-        erro(ctx, "%v: execute command failed: %v", d.name, e)
-        erro(ctx, "%v: execute command: %s", d.name, cmd).trace()
+        erro(pc(ctx,value), "%v: execute command failed: %v", d.name, e)
+        errostack(pc(ctx,value), 3, "%v: execute command: %s", d.name, cmd).trace()
         return
     }
 
     var pos = value.Position()
     if !pos.IsValid() { pos = _position(ctx) }
-    res = _strlit(pos, strings.TrimSpace(stdout.String()))
+    res = _raw(pos, strings.TrimSpace(stdout.String()))
     return
 }
 func (d *def) sel(ctx Context, name string) (res any) {
@@ -668,7 +654,8 @@ func (d *def) sel(ctx Context, name string) (res any) {
         // d.Lock() ; defer d.Unlock()
         return d.value
     default:
-        erro(ctx, "def: no such operator `%s'", name).trace()
+        if v := d.value; v != nil { ctx = pc(ctx, v) }
+        errostack(ctx, 3, "def: no such operator `%s'", name).trace()
     }
     return
 }
@@ -700,6 +687,11 @@ type undetermined struct {
 func (_ *undetermined) kind() Kind { return KindObject|KindUndetermined }
 func (p *undetermined) hash(ctx Context) uint64 { return fnv1(ctx, p, p.token, p.identifier, p.value) }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
+func (p *undetermined) cond() (_ bool) {
+    if p.identifier.cond() { return true }
+    if p.value.cond() { return true }
+    return
+}
 func (p *undetermined) String() (s string) {
     s  = p.identifier.String()
     s += p.token.String()
@@ -775,11 +767,9 @@ type skip struct {}
 type builtin struct { knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
 func (p *builtin) hash(ctx Context) uint64 { return fnv1(ctx, p, p.name) }
+func (p *builtin) isx() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
 func (p *builtin) String() string { return p.name }
 func (p *builtin) true(Context) bool { return p.t != nil }
-func (p *builtin) is_command() bool {
-    return reflect.PointerTo(p.t).Implements(builtin_c_t)
-}
 func (p *builtin) refs(ctx Context, v Value) (res bool) {
     if o, y := v.(*builtin); y { res = o == p /* || p.name == o.name */ }
     return
@@ -826,28 +816,19 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
         errostack(pc(ctx,_i), 8, "cannot set field: %s.evocation", _v.Elem().Type()).trace()
     }
 
-    if ctx.o != nil {
-        if o := _opts(ctx, _v, ctx.o); o != nil {
-            errostack(pc(ctx,o), 16, "%v: unsupported opts: %v", p, o).trace()
-        }
+    if o := _opts(ctx, _v, ctx.o); o != nil {
+        errostack(pc(ctx,o), 16, "%v: unsupported opts: %v", p, o).trace()
     }
 
     var force = /* truly(ctx, is_final{}) || */ builtinFinalField(ctx, _v, _i, false)
 
-    switch t := _i.(type) {
-    case builtin_a:
-        if skip := t.a(); skip && !force { return p }
-    default:
-        ctx.a = expand(ctx, ctx.a...)
-        if !force && indeterminate(ctx, ctx.a...) { return p }
+    if x, y := _i.(builtin_a); y {
+        if x.a() && !force { return p }
+    } else if ctx.a = expand(ctx, ctx.a...); !force {
+        if indeterminate(ctx, ctx.a...) { return p }
     }
 
     switch t := _i.(type) {
-    case builtin_c:
-        if v := t.c(); v != nil {
-            erro(ctx, "discarded command result: %v", v).trace()
-        }
-        return
     case builtin_x:
         if v := t.x(); v == nil {
             return
@@ -857,7 +838,7 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
             return ease(ctx, v)
         }
     default:
-        erro(ctx, "no method: %v (%s)", p.t.Name(), ts(_v)).trace()
+        errostack(pc(ctx,p), 3, "no method: %v (%s)", p.t.Name(), ts(_v)).trace()
     }
     return
 }
@@ -957,7 +938,8 @@ type rule struct {
     arged []Value
 }
 func (_ *rule) kind() Kind { return KindObject|KindRule }
-func (p *rule) hash(ctx Context) uint64 { return fnv1(ctx, p, p.target) }
+func (p *rule) hash(c Context) uint64 { return fnv1(c, p, p.target) }
+func (p *rule) cond() (_ bool) { return p.target.cond() }
 func (p *rule) destiny() Value { return p.target }
 func (p *rule) owner() *project { return p.program[0].project }
 func (p *rule) Position() (_ Position) {

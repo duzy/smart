@@ -182,7 +182,7 @@ func original_bits(o origin) (_ property) {
 type get_origin struct{}
 
 // Original initiation of def values.
-type original struct { Context ; o origin }
+type original struct{ Context ; o origin }
 func (c original) cast(t reflect.Type) Context { return icast(c, t) }
 func (c original) inner() Context { return c.Context }
 func (c original) ts(t string) string {
@@ -198,8 +198,8 @@ func (c original) do(ctx Context, op any) any {
 }
 
 // Optimize value for final strings
-type is_final struct {}
-type final struct { Context }
+type is_final struct{}
+type final struct{ Context }
 func (c final) cast(t reflect.Type) Context { return icast(c, t) }
 func (c final) inner() Context { return c.Context }
 func (c final) ts(t string) string { return fmt.Sprintf("{=%s %v}", t, ts(c.Context)) }
@@ -208,7 +208,7 @@ func (c final) do(ctx Context, op any) any {
     case is_final, ex_delegate, ex_closure: return true
     case final: return c
     case property:
-        if t&(propExAuto|propExClosure|propExDelegate|propExPlaceholder|
+        if t&(propExAuto|propExClosure|propExDelegate|
             propExDefValue|propExDisjunction|propExPairVal) != 0 { return true }
     }
     return c.Context.do(ctx, op)
@@ -222,7 +222,7 @@ func _final(ctx Context) Context {
     }
 }
 
-type expandPathStr struct { Context }
+type expandPathStr struct{ Context }
 func (c expandPathStr) cast(t reflect.Type) Context { return icast(c, t) }
 func (c expandPathStr) inner() Context { return c.Context }
 func (c expandPathStr) do(ctx Context, op any) any {
@@ -233,7 +233,7 @@ func (c expandPathStr) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 
-type condless struct { Context }
+type condless struct{ Context }
 func (c condless) cast(t reflect.Type) Context { return icast(c, t) }
 func (c condless) inner() Context { return c.Context }
 func (c condless) do(ctx Context, op any) any {
@@ -244,7 +244,7 @@ func (c condless) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 
-type reversal struct { Context }
+type reversal struct{ Context }
 func (c reversal) cast(t reflect.Type) Context { return icast(c, t) }
 func (c reversal) inner() Context { return c.Context }
 func (c reversal) do(ctx Context, op any) any {
@@ -256,11 +256,11 @@ func (c reversal) do(ctx Context, op any) any {
 }
 
 type partialBit uint
-type partial struct { Context ; bit partialBit }
+type partial struct{ Context ; bit partialBit }
 func (c partial) cast(t reflect.Type) Context { return icast(c, t) }
 func (c partial) inner() Context { return c.Context }
 func (c partial) ts(t string) string {
-	return fmt.Sprintf("{=%s %b %v}", t, c.bit, ts(c.Context))
+    return fmt.Sprintf("{=%s %b %v}", t, c.bit, ts(c.Context))
 }
 func (c partial) do(ctx Context, op any) any {
     if x, y := op.(is_good_with) ; y {
@@ -276,11 +276,10 @@ func (c partial) do(ctx Context, op any) any {
             }
         }
     }
-    if c.Context == nil { return nil }
     return c.Context.do(ctx, op)
 }
 
-type negate struct { Context ; property }
+type negate struct{ Context ; property }
 func (c negate) cast(t reflect.Type) Context { return icast(c, t) }
 func (c negate) inner() Context { return c.Context }
 func (c negate) do(ctx Context, op any) (_ any) {
@@ -289,7 +288,7 @@ func (c negate) do(ctx Context, op any) (_ any) {
 }
 
 // A comment node represents a single #-style comment.
-type comment struct {
+type comment struct{
     pos Position // position of "#" starting the comment
     string // comment text (excluding '\n')
 }
@@ -297,10 +296,10 @@ func (c *comment) String() string { return "{"+c.string+"}" }
 
 // A commentgroup represents a sequence of comments
 // with no other tokens and no empty lines between.
-type commentgroup struct { comments []*comment }
+type commentgroup struct{ comments []*comment }
 func (g *commentgroup) Position() Position { return g.comments[0].pos }
 
-type statinfo struct {
+type statinfo struct{
     file *file
     next *statinfo
 }
@@ -330,11 +329,16 @@ func (si *statinfo) exists() (res existence) {
 var traveTargetNotDefinedFile = fmt.Errorf("target not defined as file")
 
 // TODO: use chained-context instead of 'term' for closure-scopes
-type term struct { Context ; *scope }
+type term struct{ Context ; *scope }
 func (c *term) cast(t reflect.Type) Context { return icast(c,t) }
 func (c *term) inner() Context { return c.Context }
 func (c *term) ts(string) (s string) {
     if c.scope != nil {
+        if x, y := c.Context.(*abs_ctx); false && y {
+            if s := bases(x.abs, 2, true); s == c.comment {
+                return "{=term "+s+" "+ts(x.Context)+"}"
+            }
+        }
         return "{=term "+c.comment+" "+ts(c.Context)+"}"
     } else {
         return ts(c.Context)
@@ -355,10 +359,7 @@ func (c *term) do(ctx Context, op any) (_ any) {
         }
         return res
     }
-    if c.Context != nil {
-        return c.Context.do(ctx, op)
-    }
-    return
+    return c.Context.do(ctx, op)
 }
 
 func closure_scopes(ctx Context) (s []*scope) {
@@ -426,18 +427,16 @@ func closure_set(ctx Context, name string, val Value) (prev Value, okay bool) {
 
 func closure_files(ctx Context, name string, one bool) (res []*file) {
     var a = unmap_files(ctx, name)
-    // for _, proj := range closure_projects(ctx) {
     if f := select_file(ctx, a); f != nil {
         if res = append(res, f); one { /* break */ }
     }
-    // }
     return
 }
 
 func closure_resolve(ctx Context, name string) (obj object) {
     for _, s := range closure_scopes(ctx) {
-        var ctx Context = ctx
-        if s.project == nil || s != s.project.scope {
+        var proj = s.project
+        if proj == nil || s != proj.scope {
             if _, obj = s.find(name); isNull(obj) {
                 // fallthrough
             } else if a, y := obj.(*auto); y { // assert(a.name == name)
@@ -446,20 +445,17 @@ func closure_resolve(ctx Context, name string) (obj object) {
                 return
             }
         }
-        if s.project != nil { obj = s.project.resolve(ctx, name) }
-        if isNull(obj) && false { obj = closure_resolve(inner(ctx), name) }
-        if!isNull(obj) { return }
+        if proj != nil { obj = proj.resolve(ctx, name) }
+        if !isNull(obj) { return }
     }
     return
 }
 
 func closure_entries(ctx Context, name any) (entries []entry) {
     for _, s := range closure_scopes(ctx) {
-        if s.project != nil {
-            entries = s.project._entries(ctx, name, false)
-            if false && entries == nil {
-                entries = closure_entries(inner(ctx), name)
-            }
+        var proj = s.project
+        if proj != nil {
+            entries = proj._entries(ctx, name, false)
         }
         if entries != nil { break }
     }
@@ -595,7 +591,7 @@ func (p *execution) isRecipesChanged(ctx Context, target Value) (outdated bool, 
     return
 }
 
-type waitopts struct {
+type waitopts struct{
     ReportUpdates      bool
     ExecResults        bool
     StampCurrentTarget bool
@@ -662,7 +658,7 @@ func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_r
     return
 }
 
-type as struct { Value }
+type as struct{ Value }
 func (a as) ts(string) string { return "{=as "+ts(a.Value)+"}" }
 func (a as) file(ctx Context, projs ...*project) (res *file) {
     var v = scalarize(a.Value.expand(ctx))
@@ -708,7 +704,7 @@ func (a as) fullname(ctx Context, projs ...*project) (res fullname) {
         if f := a.file(ctx, projs...); f != nil {
             res.Value = f
         } else {
-            erro(ctx, "nil file : %v : %v → %v", a.Value, ts(a.Value), a.Value.expand(ctx)).trace()
+            errostack(pc(ctx,a), 3, "nil file : %v : %v → %v", a.Value, ts(a.Value), a.Value.expand(ctx)).trace()
         }
         if checkpoints && truly(ctx, is_test_mode{}) {
             a.fullname_check(ctx, projs, a.Value, res)
@@ -743,7 +739,7 @@ func (p *posctx) inner() Context { return p.Context }
 func (p *posctx) ts(string) string {
     switch t := p.pos.(type) {
     case Position:
-        var s = filepath.Base(t.Filename)
+        var s = bases(t.Filename, 3, true)
         return fmt.Sprintf("{=pc %s %s}", s, ts(p.Context))
     default:
         return fmt.Sprintf("{=pc %s %s}", t, ts(p.Context))
@@ -807,12 +803,14 @@ type positioner interface{ Position() Position }
 type identer    interface{ ident(Context) string }
 type stringer   interface{ string(Context) string }
 
-// Value represents a value of a type.
 type Value interface {
     positioner // The position where the value appears (or NoPos).
     identer
     stringer
 
+    // doer
+
+    cond() bool
     kind() Kind
 
     // Literal representations of the value.
@@ -860,10 +858,10 @@ type Value interface {
     // Delete the file (if it is).
     delete(Context) []*file
 
+    traverse(Context)
+
     updated(Context) bool
     updatedDeps(Context, ...Value) []Value
-
-    traverse(Context)
 }
 
 func typeof(arg any) (s string) {
@@ -914,13 +912,16 @@ func cmp(ctx Context, l, r Value) (res cmpres) {
     return
 }
 
-func eq(x Context, a, b Value) bool { return a == b || a.cmp(x, b) == cmpEqual }
-func equal(ctx Context, a, b Value, s ...bool) bool {
-    if eq(ctx, a, b) { return true }
+func eq(x Context, a, b Value) bool {
+    return a == b || a.cmp(x, b) == cmpEqual
+}
+
+func equal(x Context, a, b Value, s ...bool) (_ bool) {
+    if a == b || a.cmp(x, b) == cmpEqual { return true } else { return }
 
     var y bool
     for _, y = range s { if y { break } }
-    return y && a.string(ctx) == b.string(ctx)
+    return y && a.string(x) == b.string(x)
 }
 
 func diff(ctx Context, a, b []Value) bool {
@@ -941,10 +942,6 @@ func indeterminate(ctx Context, vals ...Value) (_ bool) {
         }
     }
     return
-}
-
-func isFinalValue(ctx Context, val Value) bool {
-    return !indeterminate(ctx, val)
 }
 
 // aka. isNull(v) || isNone(v) || isUndef(v) || isEmpty(v)
@@ -1057,9 +1054,12 @@ func (vals *valvec) add2(ctx Context, val Value) (res *valvec) {
     return vals
 }
 
-type valbase struct { position Position }
-func (_ *valbase) String() (_ string) { return }
+type valbase struct{ position Position }
+func (p *valbase) Position() Position { return p.position }
+func (_ *valbase) kind() Kind { return KindUnclassified }
+func (_ *valbase) cond() bool { return false }
 func (_ *valbase) cmp(Context, Value) (_ cmpres) { return }
+func (_ *valbase) do(Context, any) (_ any) { return }
 func (_ *valbase) defs(Context, ...string) (_ []*def) { return }
 func (_ *valbase) delete(Context) (_ []*file) { return }
 func (_ *valbase) expand(Context) (_ Value) { return }
@@ -1067,7 +1067,6 @@ func (_ *valbase) expandable(Context) (_ bool) { return }
 func (_ *valbase) float(Context) (_ float64) { return }
 func (_ *valbase) ident(Context) (_ string) { return }
 func (_ *valbase) int(Context) (_ int64) { return }
-func (_ *valbase) kind() Kind { return KindUnclassified }
 func (_ *valbase) match(Context, any) (_ bool, _ any, _ []string) { return }
 func (_ *valbase) patterned(Context) (_ bool) { return }
 func (_ *valbase) refs(Context, Value) (_ bool) { return }
@@ -1075,13 +1074,13 @@ func (_ *valbase) stamp(Context) (_ []*file) { return }
 func (_ *valbase) stat(Context) (_ *statinfo) { return }
 func (_ *valbase) stencil(Context, []string) (_ Value, _ []string) { return }
 func (_ *valbase) string(Context) (_ string) { return }
-func (_ *valbase) traverse(Context) { }
+func (_ *valbase) String() (_ string) { return }
 func (_ *valbase) true(Context) (_ bool) { return }
 func (_ *valbase) updated(Context) (_ bool) { return }
 func (_ *valbase) updatedDeps(Context, ...Value) (_ []Value) { return }
-func (p *valbase) Position() Position { return p.position }
+func (_ *valbase) traverse(Context) { }
 
-type returner struct { valbase ; vals []Value }
+type returner struct{ valbase ; vals []Value }
 func (p *returner) kind() Kind { return KindReturner }
 func (p *returner) hash(ctx Context) uint64 {
     var a []any
@@ -1147,7 +1146,7 @@ func fnv1(ctx Context, t any, a ...any) (_ uint64) {
     return h.Sum64()
 }
 
-type undef struct { Value }
+type undef struct{ Value }
 func (p undef) kind() Kind { return KindUndef }
 func (p undef) hash(ctx Context) uint64 { return fnv1(ctx, p) }
 func (p undef) String() string { return "{=undef "+p.Value.String()+"}" }
@@ -1160,8 +1159,8 @@ func (p undef) prefix(_ Context, v Value) Value { return v }
 func (p undef) suffix(_ Context, v Value) Value { return v }
 func (p undef) expand(_ Context) Value { return p }
 func (p undef) cmp(ctx Context, v Value) (_ cmpres) {
-    if _, y := v.(*undef); y {
-        return cmpEqual
+    if x, y := v.(*undef); y {
+        return p.Value.cmp(ctx, x.Value)
     } else if l, y := v.(*list); y && l.len() == 1 {
         return p.cmp(ctx, l.elems[0])
     } else {
@@ -1169,7 +1168,7 @@ func (p undef) cmp(ctx Context, v Value) (_ cmpres) {
     }
 }
 
-type null struct { valbase }
+type null struct{ valbase }
 func (_ *null) kind() Kind { return KindNull }
 func (_ *null) String() string { return "{}" } // {=null}
 func (p *null) ts(t string) string { return "{="+t+"}" }
@@ -1177,24 +1176,18 @@ func (p *null) hash(ctx Context) uint64 { return fnv1(ctx, p) }
 func (p *null) prefix(_ Context, val Value) Value { return val }
 func (p *null) suffix(_ Context, val Value) Value { return val }
 func (p *null) expand(Context) Value { return p }
-func (p *null) traverse(ctx Context) {
-    erro(ctx, "null traversal").trace()
-}
+func (p *null) traverse(ctx Context) { erro(pc(ctx,p), "null traversal").trace() }
 func (p *null) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     if _, y := v.(*null); y {
-        res = cmpEqual
+        return cmpEqual
     } else if l, y := v.(*list); y && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
     }
     return
 }
 
-type none struct { valbase ; x Value }
+type none struct{ valbase ; x Value }
 func (_ *none) kind() Kind { return KindNone }
 func (p *none) hash(ctx Context) uint64 { return fnv1(ctx, p) }
 func (p *none) String() (s string) {
@@ -1210,30 +1203,26 @@ func (p *none) string(Context) (s string) { return }
 func (p *none) ts(t string) string { return fmt.Sprintf("{=%s %s}", t, ts(p.x)) }
 func (p *none) true(ctx Context) (res bool) { return }
 func (p *none) cmp(ctx Context, v Value) (res cmpres) {
-    if _, ok := v.(*none); ok {
-        res = cmpEqual
-    } else if s, ok := v.(*strlit); ok && s.s == "" {
-        res = cmpEqual
-    } else if l, ok := v.(*list); ok && len(l.elems) == 0 {
-        res = cmpEqual
-    } else if ok && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    if _, y := v.(*none); y {
+        return cmpEqual
+    } else if s, y := v.(*strlit); false && y && s.s == "" {
+        return cmpEqual
+    } else if l, y := v.(*list); y {
+        if n := len(l.elems); n == 0 {
+            return cmpEqual
+        } else if n == 1 {
+            return p.cmp(ctx, l.elems[0])
         }
     }
     return
 }
-func (p *none) prefix(_ Context, val Value) Value { return val }
-func (p *none) suffix(_ Context, val Value) Value { return val }
+func (p *none) prefix(_ Context, v Value) Value { return v }
+func (p *none) suffix(_ Context, v Value) Value { return v }
 func (p *none) expand(Context) Value { return p }
-func (p *none) traverse(ctx Context) {
-    erro(ctx, "none traversal").trace()
-}
+func (p *none) traverse(ctx Context) { erro(ctx, "none traversal").trace() }
 
-type argumented_ctx struct { Context ; val Value; args []Value }
+type argumented_ctx struct{ Context ; val Value; args []Value }
 func (ac *argumented_ctx) cast(t reflect.Type) Context { return icast(ac,t) }
 func (ac *argumented_ctx) inner() Context { return ac.Context }
 func (ac *argumented_ctx) ts(t string) (s string) {
@@ -1248,7 +1237,6 @@ func (ac *argumented_ctx) do(ctx Context, op any) (_ any) {
     case get_args: return ac.args
     case init_args:
         t.args(ctx, ac.args)
-
         if checkpoints && truly(ctx, is_test_mode{}) {
             ac.init_args_check(ctx, ac.args)
         }
@@ -1257,7 +1245,7 @@ func (ac *argumented_ctx) do(ctx Context, op any) (_ any) {
     return ac.Context.do(ctx, op)
 }
 
-type argumented struct { Value ; args []Value }
+type argumented struct{ Value ; args []Value }
 func (_ *argumented) kind() Kind { return KindArgumented }
 func (p *argumented) ts(t string) (s string) {
     return fmt.Sprintf("{=%s %s %s}", t, ts(p.Value), p.args)
@@ -1315,20 +1303,25 @@ func (p *argumented) expand(ctx Context) (res Value) {
     } else {
         res = p
     }
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        p.expand_check(ctx, res, val, args)
+    }
     return
 }
 func (p *argumented) cmp(ctx Context, v Value) (res cmpres) {
-    if a, y := v.(*argumented); y {
-        if res = p.Value.cmp(ctx, a.Value); res == cmpEqual {
-            // TODO:FIXME: check p.args against a.args?
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    if x, y := v.(*argumented); y {
+        if p.Value.cmp(ctx, x.Value) == cmpEqual {
+            if len(p.args) == len(x.args) {
+                for i, v := range p.args {
+                    if v.cmp(ctx, x.args[i]) == cmpEqual {
+                        return cmpEqual
+                    }
+                }
+            }
         }
     } else if l, y := v.(*list); y && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
     }
     return
 }
@@ -1378,21 +1371,17 @@ func (p *argumented) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
     return c.hit(ctx, p.Value)
 }
 
-type negative struct { Value }
+type negative struct{ Value }
 func (p negative) String() (s string) { return `!`+p.Value.String() }
 func (p negative) ts(t string) (s string) { return "{="+t+" "+ts(p.Value)+"}" }
 func (p negative) expand(ctx Context) Value { return negative{p.Value.expand(ctx)} }
 func (p negative) hash(ctx Context) uint64 { return fnv1(ctx, p, p.Value) }
 func (p negative) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     if x, y := v.(negative); y {
-        res = p.Value.cmp(ctx, x.Value)
+        return p.Value.cmp(ctx, x.Value)
     } else if l, y := v.(*list); y && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
     }
     return
 }
@@ -1434,7 +1423,7 @@ func stringMatch(ctx Context, p Value, i any) (full bool, s string, stems []stri
     return
 }
 
-type escaped struct { valbase; s string }
+type escaped struct{ valbase; s string }
 func (_ *escaped) kind() Kind { return KindEscaped }
 func (p *escaped) String() string { return "\\" + p.s }
 func (p *escaped) string(Context) (s string) {
@@ -1451,15 +1440,11 @@ func (p *escaped) int(Context) (_ int64) { return }
 func (p *escaped) expand(Context) Value { return p }
 func (p *escaped) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.s) }
 func (p *escaped) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     if o, y := v.(*escaped); y {
         if p.s == o.s { res = cmpEqual }
     } else if l, y := v.(*list); y && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
     }
     return
 }
@@ -1489,7 +1474,7 @@ func (p *escaped) suffix(_ Context, val Value) Value {
     return v
 }
 
-type boolean struct { valbase; bool }
+type boolean struct{ valbase; bool }
 func (_ *boolean) kind() Kind { return KindBoolean }
 func (p *boolean) String() string { return "{="+p.string_()+"}" }
 func (p *boolean) string(Context) string { return p.string_() }
@@ -1501,7 +1486,8 @@ func (p *boolean) int(Context) (v int64) { if p.bool { v = 1 }; return }
 func (p *boolean) expand(Context) Value { return p }
 func (p *boolean) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
 func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*option); ok {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    if a, y := v.(*option); y {
         if p.bool == a.bool {
             res = cmpEqual
         } else if !p.bool && a.bool {
@@ -1509,7 +1495,7 @@ func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.bool && !a.bool {
             res = cmpGreater
         }
-    } else if a, ok := v.(*answer); ok {
+    } else if a, y := v.(*answer); y {
         if p.bool == a.bool {
             res = cmpEqual
         } else if !p.bool && a.bool {
@@ -1517,7 +1503,7 @@ func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.bool && !a.bool {
             res = cmpGreater
         }
-    } else if a, ok := v.(*boolean); ok {
+    } else if a, y := v.(*boolean); y {
         if p.bool == a.bool {
             res = cmpEqual
         } else if !p.bool && a.bool {
@@ -1525,13 +1511,8 @@ func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
         } else if p.bool && !a.bool {
             res = cmpGreater
         }
-    } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
+    } else if l, y := v.(*list); y && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
     }
     return
 }
@@ -1543,9 +1524,9 @@ func (p *boolean) stencil(ctx Context, stems []string) (val Value, rest []string
     return
 }
 
-type prediction struct { boolean ; s string }
+type prediction struct{ boolean ; s string }
 
-type answer struct { boolean }
+type answer struct{ boolean }
 func (p *answer) String() string { return "{="+p.string_()+"}" }
 func (p *answer) string(Context) string { return p.string_() }
 func (p *answer) string_() string { if p.bool { return "yes" } else { return "no" } }
@@ -1553,7 +1534,7 @@ func (p *answer) ts(t string) string { return "{="+t+" "+p.string_()+"}" }
 func (p *answer) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
 func (p *answer) expand(Context) Value { return p }
 
-type option struct { boolean }
+type option struct{ boolean }
 func (p *option) String() string { return "{="+p.string_()+"}" }
 func (p *option) string(ctx Context) string { return p.string_() }
 func (p *option) string_() string { if p.bool { return "on" } else { return "off" } }
@@ -1597,13 +1578,14 @@ func makePrediction(pos Position, val bool, s string) *prediction {
     return &prediction{boolean{valbase{pos}, val}, s}
 }
 
-type integer struct { valbase; int64 }
+type integer struct{ valbase; int64 }
 func (_ *integer) kind() Kind { return KindInteger }
 func (p *integer) true(ctx Context) bool { return p.int64 != 0 }
 func (p *integer) int(ctx Context) (i int64) { return p.int64 }
 func (p *integer) float(ctx Context) (f float64) { return float64(p.int64) }
 func (p *integer) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
 func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     var o *integer
     switch t := v.(type) {
     case      *binary: o = &t.integer
@@ -1620,15 +1602,10 @@ func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
             res = cmpGreater
         }
     }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
-    }
     return
 }
 
-type binary struct { integer }
+type binary struct{ integer }
 func (p *binary) kind() Kind { return p.integer.kind()|KindBinary }
 func (p *binary) String() string { return "0b"+strconv.FormatInt(int64(p.int64),2) }
 func (p *binary) string(Context) string { return "0b"+strconv.FormatInt(int64(p.int64),2) }
@@ -1641,7 +1618,7 @@ func (p *binary) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
     return c.hit(ctx, p.string(ctx))
 }
 
-type octal struct { integer }
+type octal struct{ integer }
 func (p *octal) kind() Kind { return p.integer.kind()|KindOctal }
 func (p *octal) String() string { return "0"+strconv.FormatInt(int64(p.int64),8) }
 func (p *octal) string(Context) string { return "0"+strconv.FormatInt(int64(p.int64),8) }
@@ -1654,7 +1631,7 @@ func (p *octal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     return c.hit(ctx, p.string(ctx))
 }
 
-type decimal struct { integer }
+type decimal struct{ integer }
 func (p *decimal) kind() Kind { return p.integer.kind()|KindDecimal }
 func (p *decimal) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *decimal) string(Context) string { return strconv.FormatInt(int64(p.int64),10) }
@@ -1667,7 +1644,7 @@ func (p *decimal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) 
     return c.hit(ctx, p.string(ctx))
 }
 
-type hexadecimal struct { integer }
+type hexadecimal struct{ integer }
 func (p *hexadecimal) kind() Kind { return p.integer.kind()|KindHexadecimal }
 func (p *hexadecimal) String() string { return "0x"+strconv.FormatInt(int64(p.int64),16) }
 func (p *hexadecimal) string(Context) string { return "0x"+strconv.FormatInt(int64(p.int64),16) }
@@ -1682,7 +1659,7 @@ func (p *hexadecimal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bo
 
 const epsilon = 1e-15 /* 1e-16 */
 
-type float struct { valbase; float64 } // IEEE-754 64-bit binary floating-point
+type float struct{ valbase; float64 } // IEEE-754 64-bit binary floating-point
 func (p *float) kind() Kind { return KindFloat }
 func (p *float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
 func (p *float) string(Context) string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
@@ -1696,27 +1673,22 @@ func (p *float) prefix(ctx Context, val Value) Value { return _suffix(ctx, val, 
 func (p *float) suffix(ctx Context, val Value) Value { return _bifix(ctx, p, val) }
 func (p *float) expand(Context) Value { return p }
 func (p *float) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     if _, y := v.(*float); y {
-        var f = v.float(ctx)
-        if p.float64 == f {
-            res = cmpEqual
+        if f := v.float(ctx); p.float64 == f {
+            return cmpEqual
         } else if p.float64 < f {
-            res = cmpSmaller
+            return cmpSmaller
         } else if p.float64 > f {
-            res = cmpGreater
+            return cmpGreater
         }
     } else if x, y := v.(*list); y && len(x.elems) == 1 {
         return p.cmp(ctx, x.elems[0])
     }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
-    }
     return
 }
 
-type datetime struct { valbase ; t time.Time }
+type datetime struct{ valbase ; t time.Time }
 func (_ *datetime) kind() Kind { return KindDateTime }
 func (p *datetime) String() string { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00") }
 func (p *datetime) string(ctx Context) string { return p.String() } // time.RFC3339Nano
@@ -1728,6 +1700,7 @@ func (p *datetime) match(ctx Context, i any) (full bool, s any, stems []string) 
 func (p *datetime) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *datetime) expand(Context) Value { return p }
 func (p *datetime) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     var vt time.Time
     switch a := v.(type) {
     case *datetime: vt = a.t
@@ -1736,18 +1709,12 @@ func (p *datetime) cmp(ctx Context, v Value) (res cmpres) {
     default: return
     }
     if p.t.Equal(vt) {
-        res = cmpEqual
+        return cmpEqual
     } else if p.t.Before(vt) {
-        res = cmpSmaller
+        return cmpSmaller
     } else /*if p.t.After(vt)*/ {
-        res = cmpGreater
+        return cmpGreater
     }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
-    }
-    return
 }
 
 func ParseDateTime(pos Position, s string) *datetime {
@@ -1759,7 +1726,7 @@ func ParseDateTime(pos Position, s string) *datetime {
     }
 }
 
-type Date struct { datetime }
+type Date struct{ datetime }
 func (p *Date) kind() Kind { return p.datetime.kind()|KindDate }
 func (p *Date) String() string { return time.Time(p.t).Format("2006-01-02") }
 func (p *Date) string(ctx Context) string { return p.String() }
@@ -1769,7 +1736,7 @@ func (p *Date) match(ctx Context, i any) (full bool, s any, stems []string) { re
 func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *Date) expand(Context) Value { return p }
 
-type Time struct { datetime }
+type Time struct{ datetime }
 func (p *Time) kind() Kind { return p.datetime.kind()|KindTime }
 func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.999999999Z07:00") }
 func (p *Time) string(ctx Context) string { return p.String() }
@@ -1783,7 +1750,7 @@ func (p *Time) expand(Context) Value { return p }
 // ▶▶─<scheme>─(:)┬──────────────────────────────────────┬<path>┬───────────┬┬──────────────┬─▶◀
 //                └(//)┬──────────────┬<host>┬──────────┬┘      └(?)─<query>┘└(#)─<fragment>┘
 //                     └<userinfo>─(@)┘      └(:)─<port>┘
-type url struct {
+type url struct{
     valbase
     Scheme Value
     Username Value
@@ -1879,47 +1846,43 @@ func (p *url) int(ctx Context) (i int64) {
 }
 func (p *url) float(ctx Context) (f float64) { return float64(p.int(ctx)) }
 func (p *url) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*url); ok {
-        if p.Scheme == nil || a.Scheme == nil { return }
-        if p.Scheme.cmp(ctx, a.Scheme) != cmpEqual { return }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    if x, y := v.(*url); y {
+        if p.Scheme == nil || x.Scheme == nil { return }
+        if p.Scheme.cmp(ctx, x.Scheme) != cmpEqual { return }
         if p.Username != nil {
-            if a.Username == nil { return }
-            if p.Username.cmp(ctx, a.Username) != cmpEqual { return }
+            if x.Username == nil { return }
+            if p.Username.cmp(ctx, x.Username) != cmpEqual { return }
         }
         if p.Password != nil {
-            if a.Password == nil { return }
-            if p.Password.cmp(ctx, a.Password) != cmpEqual { return }
+            if x.Password == nil { return }
+            if p.Password.cmp(ctx, x.Password) != cmpEqual { return }
         }
         if p.Host != nil {
-            if a.Host == nil { return }
-            if p.Host.cmp(ctx, a.Host) != cmpEqual { return }
+            if x.Host == nil { return }
+            if p.Host.cmp(ctx, x.Host) != cmpEqual { return }
         }
         if p.Port != nil {
-            if a.Port == nil { return }
-            if p.Port.cmp(ctx, a.Port) != cmpEqual { return }
+            if x.Port == nil { return }
+            if p.Port.cmp(ctx, x.Port) != cmpEqual { return }
         }
         if p.Path != nil {
-            if a.Path == nil { return }
-            if p.Path.cmp(ctx, a.Path) != cmpEqual { return }
+            if x.Path == nil { return }
+            if p.Path.cmp(ctx, x.Path) != cmpEqual { return }
         }
         if p.Query != nil {
-            if len(a.Query) != len(p.Query) { return }
+            if len(x.Query) != len(p.Query) { return }
             for i, q := range p.Query {
-                if q.cmp(ctx, a.Query[i]) != cmpEqual { return }
+                if q.cmp(ctx, x.Query[i]) != cmpEqual { return }
             }
         }
         if p.Fragment != nil {
-            if a.Fragment == nil { return }
-            if p.Fragment.cmp(ctx, a.Fragment) != cmpEqual { return }
+            if x.Fragment == nil { return }
+            if p.Fragment.cmp(ctx, x.Fragment) != cmpEqual { return }
         }
         res = cmpEqual
-    } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
+    } else if x, y := v.(*list); y && len(x.elems) == 1 {
+        return p.cmp(ctx, x.elems[0])
     }
     return
 }
@@ -1959,13 +1922,14 @@ func (p *url) Validate() (res *neturl.URL) {
     return
 }
 
-type raw struct { valbase; s string }
+type raw struct{ valbase; s string }
 func (_ *raw) kind() Kind { return KindRaw }
-func (p *raw) expand(Context) Value { return p }
 func (p *raw) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
-func (p *raw) String() string { return p.s }
+func (p *raw) String() string { return /* "{=raw "+p.s+"}" */p.s }
 func (p *raw) string(Context) string { return p.s }
 func (p *raw) true(Context) bool { return p.s != "" }
+func (p *raw) change(f func(string) string) Value { return &raw{p.valbase, f(p.s)} }
+func (p *raw) expand(Context) Value { return p }
 func (p *raw) int(ctx Context) (_ int64) {
     if i, e := strconv.ParseInt(p.s, 10, 64); e != nil {
         erro(ctx, "%v", e).trace()
@@ -1993,25 +1957,47 @@ func (p *raw) stencil(ctx Context, stems []string) (Value, []string) {
     return p, stems
 }
 func (p *raw) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*raw); ok {
-        if p.s == a.s { res = cmpEqual }
-    } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    cmp := func(l, r string) cmpres {
+        if l == r {
+            return cmpEqual
+        } else if l < r {
+            if strings.HasPrefix(r, l) {
+                return cmpLprefix
+            } else {
+                return cmpSmaller
+            }
+        } else {
+            if strings.HasPrefix(l, r) {
+                return cmpRprefix
+            } else {
+                return cmpGreater
+            }
         }
+    }
+    switch x := v.(type) {
+    case *raw: return cmp(p.s, x.s)
+    case *word: return cmp(p.s, x.s)
+    case *list: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
+    case *path: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
     }
     return
 }
 
-type strlit struct { valbase; s string }
+type strlit struct{ valbase; s string }
 func (_ *strlit) kind() Kind { return KindStrLit }
 func (p *strlit) String() string { return `'`+p.s+`'` }
 func (p *strlit) string(ctx Context) string { return p.s }
 func (p *strlit) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
 func (p *strlit) true(ctx Context) bool { return p.s != "" }
+func (p *strlit) change(f func(string) string) Value { return &strlit{p.valbase, f(p.s)} }
+func (p *strlit) expand(ctx Context) Value {
+    if truly(ctx, propExPathStr) {
+        return _pathstr(ctx, p.s)
+    } else {
+        return p
+    }
+}
 func (p *strlit) int(ctx Context) (_ int64) {
     if i, e := strconv.ParseInt(p.s,10,64); e != nil {
         erro(ctx, "%v", e).trace()
@@ -2028,33 +2014,22 @@ func (p *strlit) float(ctx Context) (_ float64) {
         return f
     }
 }
-func (p *strlit) expand(ctx Context) Value {
-    if truly(ctx, propExPathStr) {
-        return _pathstr(ctx, p.s)
-    } else {
-        return p
-    }
-}
 func (p *strlit) ts(t string) string {
     return "{="+t+" "+strings.Replace(p.s, "\n", "\\n", -1)+"}"
 }
 func (p *strlit) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     switch t := v.(type) {
     case *strlit:
         if p.s == t.s {
-            res = cmpEqual
+            return cmpEqual
         } else if p.s < t.s {
-            res = cmpSmaller
+            return cmpSmaller
         } else /*if p.s > t.s*/ {
-            res = cmpGreater
+            return cmpGreater
         }
     case *list:
         if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
     }
     return
 }
@@ -2069,7 +2044,7 @@ func (p *strlit) hit(ctx Context, c *valcache) (res *valcache, full bool) {
     return c.hit(ctx, p.s)
 }
 
-type strval struct { valbase; v []Value }
+type strval struct{ valbase; v []Value }
 func (_ *strval) kind() Kind { return KindStrVal }
 func (p *strval) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
 func (p *strval) String() (s string) {
@@ -2112,7 +2087,7 @@ func (p *strval) expand(ctx Context) Value {
 }
 func (p *strval) es(ctx Context, f func(string)) {
     var v = p.expand(ctx)
-    if isFinalValue(ctx, v) { f(v.string(ctx)) }
+    if !indeterminate(ctx, v) { f(v.string(ctx)) }
 }
 func (p *strval) true(ctx Context) (res bool) {
     p.es(ctx, func(s string) { res = s != "" })
@@ -2135,8 +2110,8 @@ func (p *strval) float(ctx Context) (f float64) {
     return
 }
 func (p *strval) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     switch t := v.(type) {
-    case *group:
     case *list: if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
     case *strval:
         var n = len(t.v)
@@ -2147,17 +2122,9 @@ func (p *strval) cmp(ctx Context, v Value) (res cmpres) {
             }
         }
     }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
-    }
     return
 }
-func (p *strval) match(ctx Context, i any) (full bool, s any, stems []string) {
-    full, s, stems = stringMatch(ctx, p, i)
-    return
-}
+func (p *strval) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *strval) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *strval) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 func (p *strval) _hit(ctx Context, c *valcache) (res *valcache, full bool) {
@@ -2175,7 +2142,7 @@ func isTrueString(s string) (t bool) {
 }
 
 // punct stands for the punctuation
-type punct struct { valbase; token }
+type punct struct{ valbase; token }
 func (_ *punct) kind() Kind { return KindPunct }
 func (p *punct) String() string { return p.token.String() }
 func (p *punct) string(Context) string { return p.token.String() }
@@ -2193,9 +2160,7 @@ func (p *punct) ts(t string) (s string) {
     return "{="+t+" "+s+"}"
 }
 func (p *punct) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer p.cmp_check(ctx, v, &res)
-    }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     switch x := v.(type) {
     case *punct:
         if p.token == x.token {
@@ -2271,7 +2236,7 @@ func (p *punct) suffix(ctx Context, val Value) Value {
 }
 
 type bare string
-type word struct { valbase; s string }
+type word struct{ valbase; s string }
 func (_ *word) kind() Kind { return KindWord }
 func (p *word) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
 func (p *word) true(Context) bool { return p.s != "" }
@@ -2300,50 +2265,29 @@ func (p *word) float(ctx Context) (_ float64) {
     }
 }
 func (p *word) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer func() {
-            if res != cmpEqual && p.String() == v.String() {
-                erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    cmp := func(l, r string) cmpres {
+        if l == r {
+            return cmpEqual
+        } else if l < r {
+            if strings.HasPrefix(r, l) {
+                return cmpLprefix
+            } else {
+                return cmpSmaller
             }
-        } ()
+        } else {
+            if strings.HasPrefix(l, r) {
+                return cmpRprefix
+            } else {
+                return cmpGreater
+            }
+        }
     }
     switch x := v.(type) {
-    case *word:
-        if p.s == x.s {
-            return cmpEqual
-        } else if p.s < x.s {
-            if strings.HasPrefix(x.s, p.s) {
-                return cmpLprefix
-            } else {
-                return cmpSmaller
-            }
-        } else {
-            if strings.HasPrefix(p.s, x.s) {
-                return cmpRprefix
-            } else {
-                return cmpGreater
-            }
-        }
-    case *compound:
-        if s := x.string(ctx); p.s == s {
-            return cmpEqual
-        } else if p.s < s {
-            if strings.HasPrefix(s, p.s) {
-                return cmpLprefix
-            } else {
-                return cmpSmaller
-            }
-        } else {
-            if strings.HasPrefix(p.s, s) {
-                return cmpRprefix
-            } else {
-                return cmpGreater
-            }
-        }
-    case *list:
-        if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
-    case *path:
-        if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
+    case *raw: return cmp(p.s, x.s)
+    case *word: return cmp(p.s, x.s)
+    case *list: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
+    case *path: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
     }
     return
 }
@@ -2355,7 +2299,7 @@ func (p *word) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) { r
 func (p *word) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 func (p *word) expand(ctx Context) Value { return p }
 
-type qualword struct { valbase; words []string } // TODO: foo.bar.zar, foo.&(bar).zar ???
+type qualword struct{ valbase; words []string } // TODO: foo.bar.zar, foo.&(bar).zar ???
 func (p *qualword) String() string { return strings.Join(p.words,".") }
 func (p *qualword) string(ctx Context) string { return p.String() }
 func (p *qualword) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
@@ -2364,6 +2308,7 @@ func (p *qualword) int(ctx Context) (_ int64) { return int64(len(p.words)) }
 func (p *qualword) float(ctx Context) (_ float64) { return }
 func (p *qualword) expand(Context) Value { return p }
 func (p *qualword) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     if a, y := v.(*qualword); y {
         var n int
         var al, pl = len(a.words), len(p.words)
@@ -2383,13 +2328,8 @@ func (p *qualword) cmp(ctx Context, v Value) (res cmpres) {
             }
             break
         }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
+    } else if x, y := v.(*list); y && len(x.elems) == 1 {
+        return p.cmp(ctx, x.elems[0])
     }
     return
 }
@@ -2402,18 +2342,27 @@ func (p *qualword) stencil(ctx Context, stems []string) (val Value, rest []strin
 }
 func (p *qualword) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 
-type elements struct { elems []Value }
+type elements struct{ elems []Value }
 func (p *elements) Position() Position { return p.elems[0].Position() }
-func (p *elements) append(v ...Value)  { p.elems = append(p.elems, v...) }
-func (p *elements) at(n int) (v Value) { if 0 <= n && n < len(p.elems) { v = p.elems[n] }; return }
 func (p *elements) ident(Context) (_ string) { return } // aka name
 func (p *elements) list() *list { return &list{*p} }
 func (p *elements) path() *path { return &path{*p} }
 func (p *elements) compound() *compound { return &compound{*p} }
 func (p *elements) strcomp() *strcomp { return &strcomp{*p} }
 func (p *elements) len() int { return len(p.elems) }
+func (p *elements) append(v ...Value) { p.elems = append(p.elems, v...) }
+func (p *elements) at(n int) (v Value) {
+    if 0 <= n && n < len(p.elems) { v = p.elems[n] }
+    return
+}
 func (p *elements) any() (a []any) {
     for _, v := range p.elems { a = append(a, v) }
+    return
+}
+func (p *elements) cond() (_ bool) {
+    for _, elem := range p.elems {
+        if elem.cond() { return true }
+    }
     return
 }
 func (p *elements) slice(n int, m ...int) (a []Value) {
@@ -2469,9 +2418,9 @@ func (_ *elements) delete(Context) (_ []*file) { return }
 func (_ *elements) patterned(Context) (_ bool) { return }
 func (_ *elements) stamp(Context) (_ []*file) { return }
 func (_ *elements) stat(Context) (_ *statinfo) { return }
-func (_ *elements) traverse(Context) { }
 func (_ *elements) updated(Context) (_ bool) { return }
 func (_ *elements) updatedDeps(Context, ...Value) (_ []Value) { return }
+func (_ *elements) traverse(Context) {}
 
 func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
     if len(elemsL) != len(elemsR) {
@@ -2505,7 +2454,7 @@ func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
 func _cond(v Value) (y bool) {
     switch t := v.(type) {
     case cond: return true
-    // case flag: return _cond(t.Value)
+    case flag: return _cond(t.Value)
     case disjunction: return _cond(t.Value)
     case *compound:
         for _, e := range t.elems {
@@ -2516,69 +2465,57 @@ func _cond(v Value) (y bool) {
 }
 
 func condish(ctx Context, v Value) Value {
-    if x, y := v.(cond); truly(ctx, propExCondless) {
+    var x, y = v.(cond)
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        if _cond(x.Value) {
+            errostack(pc(ctx,v), 3, "nested cond, (y=%v): %v : %v", y, v, ts(v)).trace()
+        }
+    }
+    if truly(ctx, propExCondless) {
         if y {
-            if checkpoints {
-                if _cond(x.Value) {
-                    erro(ctx, "nested cond: %v : %v", v, ts(v)).trace()
-                }
-            }
             return x.Value // TODO: condless(x.Value)
         } else {
-            if checkpoints {
-                if _cond(v) {
-                    erro(ctx, "nested cond: %v : %v", v, ts(v)).trace()
-                }
-            }
             return v
         }
     } else if y {
-        if checkpoints {
-            if _cond(x.Value) {
-                erro(ctx, "nested cond: %v : %v", v, ts(v)).trace()
-            }
-        }
         return x
     } else {
-        if checkpoints {
-            if _cond(v) {
-                erro(ctx, "nesting cond: %v : %v", v, ts(v)).trace()
-            }
-        }
         return cond{v} // condish
     }
 }
 
-type cond struct { Value } // conditional component: compound, pair; aka optional
+type cond struct{ Value } // conditional component: compound, pair; aka optional
+func (p cond) cond() bool { return true }
 func (p cond) kind() Kind { return p.Value.kind()|KindCond }
 func (p cond) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p cond) String() string { return p.Value.String()+"?" }
 func (p cond) string(ctx Context) (s string) {
-    p.final_val(ctx, func(v Value) { s = v.string(ctx) })
+    p.final(ctx, func(v Value) { s = v.string(ctx) })
     return
 }
 func (p cond) true(ctx Context) (t bool) {
-    p.final_val(ctx, func(v Value) { t = v.true(ctx) })
+    p.final(ctx, func(v Value) { t = v.true(ctx) })
     return
 }
 func (p cond) int(ctx Context) (i int64) {
-    p.final_val(ctx, func(v Value) { i = v.int(ctx) })
+    p.final(ctx, func(v Value) { i = v.int(ctx) })
     return
 }
 func (p cond) float(ctx Context) (f float64) {
-    p.final_val(ctx, func(v Value) { f = v.float(ctx) })
+    p.final(ctx, func(v Value) { f = v.float(ctx) })
     return
 }
-func (p cond) final_val(ctx Context, f func(Value)) {
+func (p cond) final(ctx Context, f func(Value)) {
     if t := p.expand(_final(ctx)); t != nil && !equal(ctx, p, t) { f(t) }
 }
 func (p cond) expand(ctx Context) (res Value) {
     var v = p.Value.expand(condless{ctx})
+
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer func() { p.expand_check(ctx, v, res) } ()
+        defer p.expand_check(ctx, v, &res)
     }
 
-    if v == nil { // only truly(ctx, is_final{})
+    if v == nil {
         return _null(p.Position())
     } else if x, y := v.(disjunction); y {
         var vals []Value
@@ -2601,19 +2538,15 @@ func (p cond) expand(ctx Context) (res Value) {
     }
 }
 func (p cond) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer func() { p.cmp_check(ctx, v, res) } ()
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    switch x := v.(type) {
+    case cond: return p.Value.cmp(ctx, x.Value)
+    case *list: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
     }
-    if x, y := v.(cond); y {
-        return p.cmp(ctx, x.Value)
-    }
-    if x, y := v.(*list); y && x.len() == 1 {
-        return p.cmp(ctx, x.elems[0])
-    }
-    return p.Value.cmp(ctx, v)
+    return
 }
 
-type conjunction struct { *list ; sep Value }
+type conjunction struct{ *list ; sep Value }
 func (p conjunction) hash(ctx Context) uint64 {
     return fnv1(nil, p.kind(), p.sep, p.list)
 }
@@ -2629,7 +2562,7 @@ func (p conjunction) string(ctx Context) (s string) {
     var ss []string
     var elems = expand(_final(ctx), p.elems...)
     for _,  elem := range elems {
-        if isFinalValue(ctx, elem) {
+        if !indeterminate(ctx, elem) {
             ss = append(ss, elem.string(ctx))
         }
     }
@@ -2650,7 +2583,7 @@ func (p conjunction) expand(ctx Context) (res Value) {
     return p
 }
 
-type disjunction struct { Value }
+type disjunction struct{ Value }
 func (p disjunction) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p disjunction) String() string { return "{"+p.Value.String()+"}" }
 func (p disjunction) ts(t string) string { return "{="+t+" "+ts(p.Value)+"}" }
@@ -2684,29 +2617,20 @@ func (p disjunction) expand(ctx Context) (res Value) {
     }
 }
 func (p disjunction) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     if x, y := v.(disjunction); y {
         if p.Value == x.Value {
-            if checkpoints {
-                if cr := p.Value.cmp(ctx, x.Value); cr != cmpEqual {
-                    erro(ctx, "%v, %v ⇔ %v", cr, ts(p.Value), ts(x.Value)).trace()
-                }
-            }
-            res = cmpEqual
+            return cmpEqual
         } else {
-            res = p.Value.cmp(ctx, x.Value)
-        }
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            errostack(ctx, 8, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
+            return p.Value.cmp(ctx, x.Value)
         }
     }
     return
 }
 
-type wants_fullfile  struct {}
-type is_compound     struct {}
-type    compound_ctx struct { Context }
+type wants_fullfile  struct{}
+type is_compound     struct{}
+type    compound_ctx struct{ Context }
 func (c compound_ctx) cast(t reflect.Type) Context { return icast(c, t) }
 func (c compound_ctx) inner() Context { return c.Context }
 func (c compound_ctx) do(ctx Context, op any) any {
@@ -2718,7 +2642,7 @@ func (c compound_ctx) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 
-type compound struct { elements }
+type compound struct{ elements }
 func (_ *compound) kind() Kind { return KindCompound }
 func (p *compound) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
 func (p *compound) String() (s string) {
@@ -2745,7 +2669,7 @@ func (p *compound) string(ctx Context) (s string) {
     } else {
         if checkpoints && truly(ctx, is_test_mode{}) {
             if eq(ctx, p, v) {
-                erro(ctx, "%s == %s", ts(p), ts(v)).trace()
+                errostack(pc(ctx,p), 3, "%s == %s", ts(p), ts(v)).trace()
             }
         }
         return v.string(ctx)
@@ -2775,11 +2699,9 @@ func (p *compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx,
 func (p *compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *compound) expandable(ctx Context) bool { return p.elements.expandable(ctx) }
 func (p *compound) expand(ctx Context) (res Value) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer p.expand_check(ctx, &res)
-    }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.expand_check(ctx, &res) }
 
-    type record struct { v []Value ; c int }
+    type record struct{ v []Value ; c int }
 
     var f func(_, _ []Value) []record
 
@@ -2799,7 +2721,7 @@ func (p *compound) expand(ctx Context) (res Value) {
                     continue
                 }
 
-                if isFinalValue(ctx, x.Value) {
+                if !indeterminate(ctx, x.Value) {
                     var tail = elems[i+1:]
                     for _, v := range merge(x.Value) {
                         rs = append(rs, f(append(a, v), tail)...)
@@ -2844,13 +2766,11 @@ func (p *compound) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool)
         return x.valcache, x.bool
     }
 
-    erro(ctx, "miss hit : %v : %v", ts(p), ts(ctx)).trace()
+    errostack(pc(ctx,p), 3, "miss hit : %v : %v", ts(p), ts(ctx)).trace()
     return
 }
 func (p *compound) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer func() { p.cmp_check(ctx, v, res) } ()
-    }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
 
     var cmp = func(elemsL, elemsR []Value) {
         if res = compareElems(ctx, elemsL, elemsR); res != cmpEqual {
@@ -2945,17 +2865,15 @@ func (p *compound) patterned(ctx Context) (res bool) {
     return
 }
 func (p *compound) match(ctx Context, i any) (full bool, res any, stems []string) {
-    var (
-        n int
-        s string
-        elem Value
-    )
+    var n int
+    var s string
+    var elem Value
     switch t := i.(type) {
     case   Value : s = t.string(ctx)
     case   string: s = t
     case []string: if len(t) == 1 { s = t[0] } else { return }
     default:
-        erro(ctx, "%T: matching unsupported value: %T %v", p, i, i).trace()
+        errostack(pc(ctx,p), 3, "matching unsupported value: %v", tv(i)).trace()
     }
     if s == "" { return }
 
@@ -2974,10 +2892,8 @@ func (p *compound) match(ctx Context, i any) (full bool, res any, stems []string
     return
 }
 func (p *compound) stencil(ctx Context, stems []string) (val Value, rest []string) {
-    var (
-        elems []Value
-        changed int
-    )
+    var elems []Value
+    var changed int
     rest = stems
     for _, elem := range p.elems {
         var t Value
@@ -3035,7 +2951,7 @@ func (p *compound) app(vals ...Value) {
     }
 }
 
-type prefix_value struct { Value; prefix Value }
+type prefix_value struct{ Value; prefix Value }
 func (p prefix_value) expand(ctx Context) (_ Value) {
     return prefix_value{p.Value.expand(ctx), p.prefix.expand(ctx)}
 }
@@ -3046,7 +2962,7 @@ func (p prefix_value) string(ctx Context) (_ string) {
     return
 }
 
-type value_suffix struct { Value; suffix Value }
+type value_suffix struct{ Value; suffix Value }
 func (p value_suffix) expand(ctx Context) (_ Value) {
     return value_suffix{p.suffix.expand(ctx), p.Value.expand(ctx)}
 }
@@ -3057,18 +2973,19 @@ func (p value_suffix) string(ctx Context) (_ string) {
     return
 }
 
-type recipe struct { strcomp }
+type recipe struct{ strcomp }
 func (_ *recipe) kind() Kind { return KindRecipe }
 func (p *recipe) String() string { return p.src() }
 func (p *recipe) expand(ctx Context) (_ Value) {
     if x, y := p.strcomp.expand(ctx).(*strcomp); y {
         return &recipe{strcomp{x.elements}}
     } else {
-        erro(ctx, "recipe.expand: %v", tv(x)).trace()
+        errostack(pc(ctx,p), 3, "recipe.expand: %v", tv(x)).trace()
     }
     return
 }
 func (p *recipe) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     if x, y := v.(*recipe); y {
         return p.strcomp.cmp(ctx, &x.strcomp)
     } else {
@@ -3077,7 +2994,7 @@ func (p *recipe) cmp(ctx Context, v Value) (res cmpres) {
 }
 
 // barefile reduces file lookups, it works like an alias of a File.
-type barefile struct {
+type barefile struct{
     Value
     file *file
 }
@@ -3143,17 +3060,11 @@ func (p *barefile) stat(ctx Context) (_ *statinfo) {
     return
 }
 func (p *barefile) cmp(ctx Context, v Value) (res cmpres) {
-    if a, y := v.(*barefile); y {
-        res = p.Value.cmp(ctx, a.Value)
-    } else if a, y := to_file(v); y && p.file != nil {
-        res = p.file.cmp(ctx, a)
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    if x, y := v.(*barefile); y {
+        return p.Value.cmp(ctx, x.Value)
+    } else if x, y := v.(*list); y && len(x.elems) == 1 {
+        return p.cmp(ctx, x.elems[0])
     }
     return
 }
@@ -3450,21 +3361,17 @@ Pattern:
     return len(name) == 0, stems, nil
 }
 
-type globmeta struct { valbase ; token }
+type globmeta struct{ valbase ; token }
 func (p *globmeta) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.token) }
 func (p *globmeta) String() string { return p.token.String() }
 func (p *globmeta) string(ctx Context) string { return p.token.String() }
 func (p *globmeta) expand(Context) Value { return p }
 func (p *globmeta) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*globmeta); ok {
-        if p.token == a.token { res = cmpEqual }
-    } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    if x, y := v.(*globmeta); y {
+        if p.token == x.token { return cmpEqual }
+    } else if x, y := v.(*list); y && len(x.elems) == 1 {
+        return p.cmp(ctx, x.elems[0])
     }
     return
 }
@@ -3474,22 +3381,18 @@ func (p *globmeta) hit(ctx Context, fc *valcache) (_ *valcache, _ bool) {
 
 // `[a-b]`, `[abc]`, ...
 // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
-type globrange struct { Value }
+type globrange struct{ Value }
 func (p *globrange) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p *globrange) String() string { return "["+p.Value.String()+"]" }
 func (p *globrange) string(ctx Context) string { return "["+p.Value.string(ctx)+"]" }
 func (p *globrange) refs(ctx Context, v Value) bool { return p.Value.refs(ctx, v) }
 func (p *globrange) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
 func (p *globrange) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*globrange); ok {
-        res = p.Value.cmp(ctx, a.Value)
-    } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
-        }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    if x, y := v.(*globrange); y {
+        return p.Value.cmp(ctx, x.Value)
+    } else if x, y := v.(*list); y && len(x.elems) == 1 {
+        return p.cmp(ctx, x.elems[0])
     }
     return
 }
@@ -3502,7 +3405,7 @@ func (p *globrange) expand(ctx Context) Value {
     }
 }
 
-type path struct { elements }
+type path struct{ elements }
 func (_ *path) kind() Kind { return KindPath }
 func (p *path) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
 func (p *path) String() (s string) {
@@ -3610,21 +3513,19 @@ func (p *path) patterned(ctx Context) (result bool) {
     return
 }
 func (p *path) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer p.cmp_check(ctx, v, &res)
-    }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
     if x, y := v.(*path); y {
         return compareElems(ctx, p.elems, x.elems)
     } else if l, y := v.(*list); y && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
-    } else if o, y := v.(fullname); y && o.Value != nil {
-        if res = o.cmp(ctx, p); res != cmpUnknown && res != cmpEqual {
-            res = cmpres(-res)
-        }
-        return
-    } else if f, y := v.(*file); y {
-        if s := p.string(ctx); f.ident(ctx) == s { return cmpEqual }
-        return
+    // } else if o, y := v.(fullname); y && o.Value != nil {
+    //     if res = o.cmp(ctx, p); res != cmpUnknown && res != cmpEqual {
+    //         res = cmpres(-res)
+    //     }
+    //     return
+    // } else if f, y := v.(*file); y {
+    //     if s := p.string(ctx); f.ident(ctx) == s { return cmpEqual }
+    //     return
     } else if len(p.elems) == 1 {
         return p.elems[0].cmp(ctx, v)
     }
@@ -4045,7 +3946,7 @@ func splitFileName(ctx Context, val Value) (dir, name string) {
 }
 
 
-type fullfile_ctx struct { Context }
+type fullfile_ctx struct{ Context }
 func (c fullfile_ctx) cast(t reflect.Type) Context { return icast(c, t) }
 func (c fullfile_ctx) inner() Context { return c.Context }
 func (c fullfile_ctx) do(ctx Context, op any) any {
@@ -4055,7 +3956,7 @@ func (c fullfile_ctx) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 
-type fullfile struct { *file }
+type fullfile struct{ *file }
 func (o fullfile) string(Context) string { return o.fullname() }
 func (o fullfile) ts(string) string { return "{=fullfile "+o.filestub.name+"}" }
 func (o fullfile) expand(ctx Context) Value {
@@ -4071,7 +3972,7 @@ func try_fullfile(ctx Context, f *file) Value {
     return f
 }
 
-type fullname struct { Value }
+type fullname struct{ Value }
 func (o fullname) hash(ctx Context) uint64 { return fnv1(ctx, o, o.Value) }
 func (o fullname) ts(string) string { return "{=fullname "+ts(o.Value)+"}" }
 func (o fullname) expand(ctx Context) Value {
@@ -4105,9 +4006,7 @@ func (o fullname) string(ctx Context) (_ string) {
     return
 }
 func (o fullname) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer o.cmp_check(ctx, v, &res)
-    }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer o.cmp_check(ctx, v, &res) }
     switch t := v.(type) {
     case *list:
         if t.len() == 1 { return o.cmp(ctx, t.elems[0]) }
@@ -4129,7 +4028,7 @@ func (o fullname) cmp(ctx Context, v Value) (res cmpres) {
         }
     case *path:
         if x, y := o.Value.(*file); y {
-            if t.isAbs() && isFinalValue(ctx, t) {
+            if t.isAbs() && !indeterminate(ctx, t) {
                 a, b := x.fullname(), t.string(ctx)
                 if a == b {
                     return cmpEqual
@@ -4163,7 +4062,7 @@ func (c must_files_stamp) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 
-type file struct {
+type file struct{
     valbase
     *filebase
     *filestub
@@ -4301,7 +4200,7 @@ func (p *file) cmp(ctx Context, v Value) (res cmpres) {
             erro(ctx, "same files: %v != %v", ts(p), ts(v)).trace()
         }
     }
-    if checkpoints {
+    if checkpoints && truly(ctx, is_test_mode{}) {
         if res != cmpEqual && p.String() == v.String() {
             erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
@@ -4359,9 +4258,9 @@ func (p *file) suffix(ctx Context, val Value) (_ Value) {
     return &file{p.valbase,p.filebase,&stub}
 }
 
-type filecontent struct { *file ; content []byte }
+type filecontent struct{ *file ; content []byte }
 
-type flag struct { Value }
+type flag struct{ Value }
 func (p flag) kind() Kind { return KindFlag }
 func (p flag) hash(ctx Context) uint64 { return fnv1(ctx, p, p.Value) }
 func (p flag) ts(string) string { return "{=flag "+ts(p.Value)+"}" }
@@ -4480,7 +4379,7 @@ func (p flag) cmp(ctx Context, v Value) (res cmpres) {
         if b := -f.float64; a == b { res = cmpEqual } else
         if a < b { res = cmpGreater } else { res = cmpSmaller }
     }
-    if checkpoints {
+    if checkpoints && truly(ctx, is_test_mode{}) {
         if res != cmpEqual && p.String() == v.String() {
             erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
@@ -4504,7 +4403,7 @@ func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     return c.hit(&flag_hit{ctx,p}, p.Value)
 }
 
-type strcomp struct { elements } // "string compound"
+type strcomp struct{ elements } // "string compound"
 func (_ *strcomp) kind() Kind { return KindStrcomp }
 func (p *strcomp) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
 func (p *strcomp) String() (s string) { return `"` + p.src() + `"` }
@@ -4625,7 +4524,7 @@ func (p *strcomp) cmp(ctx Context, v Value) (res cmpres) {
 }
 func (p *strcomp) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 
-type list struct { elements }
+type list struct{ elements }
 func (_ *list) kind() Kind { return KindList }
 func (p *list) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()) }
 func (p *list) Position() (pos Position) {
@@ -4675,7 +4574,7 @@ func (p *list) expand(ctx Context) (res Value) {
         res = p
     }
     if checkpoints && truly(ctx, is_test_mode{}) {
-        p.expand_check(ctx, a, d, res)
+        p.expand_check(ctx, d, a, res)
     }
     return
 }
@@ -4795,10 +4694,11 @@ func (p *list) stencil(ctx Context, stems []string) (val Value, rest []string) {
     return
 }
 
-type group struct { valbase ; elements }
+type group struct{ valbase ; elements }
 func (_ *group) kind() Kind { return KindGroup }
 func (_ *group) ident(Context) (s string) { return }
 func (p *group) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()) }
+func (p *group) cond() (_ bool) { return p.elements.cond() }
 func (p *group) Position() Position { return p.valbase.Position() }
 func (p *group) String() string {
     var strs []string
@@ -4857,7 +4757,7 @@ func (p *group) cmp(ctx Context, v Value) (res cmpres) {
     } else if l, y := v.(*list); y && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
     }
-    if checkpoints {
+    if checkpoints && truly(ctx, is_test_mode{}) {
         if res != cmpEqual && p.String() == v.String() {
             erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
@@ -4898,10 +4798,15 @@ func parseGroupValue(ctx Context, g *group) (result Value) {
     return
 }
 
-type pair struct { key, val Value }
+type pair struct{ key, val Value }
 func (p *pair) kind() Kind { return KindPair }
 func (p *pair) hash(ctx Context) uint64 { return fnv1(ctx, p, p.key, p.val) }
 func (p *pair) Position() Position { return p.key.Position() }
+func (p *pair) cond() (_ bool) {
+    if p.key.cond() { return true }
+    if p.val.cond() { return true }
+    return
+}
 func (p *pair) String() string {
     return p.key.String() + `=` + p.val.String()
 }
@@ -5046,10 +4951,10 @@ func (p *pair) traverse(ctx Context) {
     errostack(ctx, -1, "pair is not traversible: %v", p).trace()
 }
 
-type skipped struct { Value }
+type skipped struct{ Value }
 func (s skipped) kind() Kind { return s.Value.kind()|KindSkipped }
 
-type expanded struct { Value }
+type expanded struct{ Value }
 func (s expanded) kind() Kind { return s.Value.kind()|KindExpanded }
 func (s expanded) hash(ctx Context) uint64 { return fnv1(ctx, s, s.Value) }
 func (s expanded) _cmp(ctx Context, v Value) (res cmpres) {
@@ -5065,23 +4970,26 @@ func (s expanded) _cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-type untraversed struct { Value }
-func (u untraversed) hash(ctx Context) uint64 { return fnv1(ctx, u, u.Value) }
-func (u untraversed) traverse(ctx Context) {}
-func (u untraversed) expand(ctx Context) Value {
-    return untraversed{u.Value.expand(ctx)}
-}
+type untraversed struct{ Value }
+func (u untraversed) hash(c Context) uint64 { return fnv1(c, u, u.Value) }
+func (u untraversed) expand(c Context) Value { return untraversed{u.Value.expand(c)} }
+func (u untraversed) traverse(Context) {}
+
+type check_ex struct{}
 
 func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value) {
-    var ( v, t, x Value ; a, o []Value ; ent, e bool )
-
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer ex_check(ctx, p, _x, _a, _o, _l, _cl, &e, &res, &t, &x, &a, &o)
+    var x, t, v Value
+    var a, o []Value
+    if s := p.String(); s == "$($_→name)" || s == "$(foreach $(foo),$($_→name))" {
+        defer func() {
+            note(pc(ctx,p), "%v %v %v %v %v", p, x, t, v, res).debug(6)
+        } ()
     }
 
-    var unex = func() Value {
+    unex := func() Value {
         if !equal(ctx, _x, x) || diff(ctx, a, _a) {
-            if d := (delegate{valbase{p.Position()}, _l, x, _o, a}); _cl {
+            d := delegate{valbase{p.Position()}, _l, x, _o, a}
+            if _cl {
                 return &closure{d}
             } else {
                 return &d
@@ -5090,12 +4998,12 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         return p
     }
 
-    var _unex = func() Value {
+    _un := func() Value {
         a = expand(ctx, _a...)
         return unex()
     }
 
-    var _exp = func() Value {
+    _ev := func() Value {
         if t, a = evoke(ctx, x, _o, _a); equal(ctx, x, t) {
             return unex()
         } else if x, y := t.(expanded); y {
@@ -5105,78 +5013,80 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         }
     }
 
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer ex_check(ctx, p, _x, _a, _o, _l, _cl, &res, &t, &x, &a, &o)
+    }
+
     x = _x.expand(ctx)
+
+    switch _x.(type) {
+    case *auto:
+        if _cl {
+            break
+        } else if _, y := x.(*def); !y && !truly(ctx, ex_auto{}) {
+            return _un()
+        } else {
+            return _ev()
+        }
+    }
 
     switch t := x.(type) {
     case disjunction:
-        erro(ctx, "TODO: %s", ts(x)).trace()
+        errostack(pc(ctx,p), 3, "TODO: %s → %s", ts(_x), ts(x)).trace()
     case *project, self:
         a = expand(ctx, _a...)
         return x
+    case *arrow:
+        return _ev()
     case *auto:
         if equal(ctx, x, _x) {
-            return _unex()
+            return _un()
         } else {
-            return _exp()
+            return _ev()
         }
     case *list:
         var va []Value
         var vb = valbase{p.Position()}
         for _, v := range t.elems {
-            if d := (delegate{vb, _l, v, _o, _a}); _cl {
-                v = ex(ctx, &closure{d}, v, _a, _o, _l, true)
-            } else {
-                v = ex(ctx, &d, v, _a, _o, _l, false)
-            }
-            va = append(va, v)
+            var t Value
+            var d = delegate{vb, _l, v, _o, _a}
+            if _cl { t = &closure{d} } else { t = &d }
+            va = append(va, ex(ctx, t, v, _a, _o, _l, _cl))
         }
         switch len(va) {
         case 0 : return _null(_x.Position())
         case 1 : return va[0]
         default: return disjunction{&list{elements{va}}}
         }
-    }
-
-    switch _l { case LBRACE, STRING, STRCOMP: ent = true } // &{xxx}  &'xxx'  &"xxx", else/ILLEGAL &(xxx)
-
-    // NOTE: `x` must be expandable in final context for x.string() as resolving name.
-
-    if _, y := _x.(*auto); y && !_cl {
-        if _, y = x.(*def); !y && !truly(ctx, ex_auto{}) {
-            return _unex()
-        } else {
-            return _exp()
+    default:
+        if /* equal(ctx, x, _x) && */ indeterminate(ctx, x) {
+            return _un()
         }
-    } else if equal(ctx, x, _x) && indeterminate(ctx, x) {
-        return _unex()
     }
 
-    var res_ent func (Context, any, ...bool) entry
-    var res_obj func (Context, string) object
-
+    var prop property
     if !_cl && truly(ctx, propExDelegate) {
         switch x.(type) {
         case *auto, *builtin, *def:
-            return _exp()
+            return _ev()
         }
-        res_ent = project_entry
-        res_obj = project_resolve
+        prop = propExDelegate
     } else if truly(ctx, propExClosure) {
-        res_ent = closure_entry
-        res_obj = closure_resolve
-    } else {
-        return _unex()
+        prop = propExClosure
     }
 
-    if indeterminate(ctx, x) {
-        return _unex()
+    if prop == 0 || indeterminate(ctx, x) {
+        return _un()
     }
 
-    if ent {
-        if v = res_ent(ctx, x); v == nil {
-            return _unex()
+    switch _l {
+    case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
+        switch prop {
+        case propExDelegate: v = project_entry(ctx, x)
+        case propExClosure:  v = closure_entry(ctx, x)
         }
-    } else {
+
+    default:
         var s string
         switch t := x.(type) {
         case   object: s = t.ident(ctx)
@@ -5184,20 +5094,29 @@ func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value
         default:
             erro(ctx, "unexable: %s", tv(x)).trace()
         }
-        if s == "" {
-            return _unex()
-        }
-        if v = res_obj(ctx, s); v == nil {
-            return _unex()
+        if s != "" {
+            switch prop {
+            case propExDelegate: v = project_resolve(ctx, s)
+            case propExClosure:  v = closure_resolve(ctx, s)
+            }
         }
     }
 
-    x = v
-    return _exp()
+    if v != nil {
+        x = v
+        return _ev()
+    }
+
+    if _, y := _x.(cond); y {
+        if false { return p }
+        return _null(p.Position())
+    }
+
+    return _un()
 }
 
-type ex_delegate struct {}
-type delegate struct {
+type ex_delegate struct{}
+type delegate struct{
     valbase
     l   token
     x   Value
@@ -5215,26 +5134,26 @@ func (p *delegate) hash(ctx Context) uint64 {
 func (p *delegate) String() string { return p.src("$") }
 func (p *delegate) string(ctx Context) (s string) {
     if x, y := p.x.(*project); y { return x.name }
-    if v := p.final_val(ctx); v != nil { s = v.string(ctx) }
+    if v := p.final(ctx); v != nil { s = v.string(ctx) }
     if checkpoints && truly(ctx, is_test_mode{}) {
         if p.String() == "$/" {
             if s == "" {
-                erro(ctx, "%v", ts(p))
-                erro(ctx, "%v", p)
-                erro(ctx, "%v", ts(ctx)).trace()
+                errostack(pc(ctx,p), 3, "%v", ts(p))
+                errostack(pc(ctx,p), 3, "%v", p)
+                errostack(pc(ctx,p), 3, "%v", ts(ctx)).trace()
             } else if !filepath.IsAbs(s) {
-                erro(ctx, "%v", p)
-                erro(ctx, "%v", ts(p))
-                erro(ctx, "→ %v", s)
-                erro(ctx, "%v", ts(ctx)).trace()
+                errostack(pc(ctx,p), 3, "%v", p)
+                errostack(pc(ctx,p), 3, "%v", ts(p))
+                errostack(pc(ctx,p), 3, "→ %v", s)
+                errostack(pc(ctx,p), 3, "%v", ts(ctx)).trace()
             }
         }
         if p.String() == "$." {
             if strings.HasPrefix(s, "./") {
-                erro(ctx, "%v", p)
-                erro(ctx, "%v", ts(p))
-                erro(ctx, "→ %v", s)
-                erro(ctx, "%v", ts(ctx)).trace()
+                errostack(pc(ctx,p), 3, "%v", p)
+                errostack(pc(ctx,p), 3, "%v", ts(p))
+                errostack(pc(ctx,p), 3, "→ %v", s)
+                errostack(pc(ctx,p), 3, "%v", ts(ctx)).trace()
             }
         }
     }
@@ -5248,15 +5167,15 @@ func (p *delegate) ts(t string) (s string) {
     return
 }
 func (p *delegate) true(ctx Context) (t bool) {
-    if v := p.final_val(ctx); v != nil { t = v.true(ctx) }
+    if v := p.final(ctx); v != nil { t = v.true(ctx) }
     return
 }
 func (p *delegate) int(ctx Context) (i int64) {
-    if v := p.final_val(ctx); v != nil { i = v.int(ctx) }
+    if v := p.final(ctx); v != nil { i = v.int(ctx) }
     return
 }
 func (p *delegate) float(ctx Context) (f float64) {
-    if v := p.final_val(ctx); v != nil { f = v.float(ctx) }
+    if v := p.final(ctx); v != nil { f = v.float(ctx) }
     return
 }
 func (p *delegate) aone(ctx Context, v Value) (res bool) {
@@ -5267,7 +5186,7 @@ func (p *delegate) aone(ctx Context, v Value) (res bool) {
     }
     return
 }
-func (p *delegate) final_val(ctx Context) (_ Value) {
+func (p *delegate) final(ctx Context) (_ Value) {
     var v = p.expand(_final(ctx))
     if v == nil || equal(ctx, p, v) || (v.expandable(ctx) && !p.aone(ctx, v)) {
         return
@@ -5296,7 +5215,7 @@ func (p *delegate) refs(ctx Context, v Value) (res bool) {
 }
 func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
     if p.x == nil {
-        erro(ctx, "delegation of nil (s=%v)", p, s).trace()
+        errostack(pc(ctx,p), 3, "delegation of nil (s=%v)", p, s).trace()
     } else if d, y := p.x.(*def); y {
         if y = len(s) == 0; !y {
             for _, a := range s { if y = d.ident(ctx) == a; y { break } }
@@ -5311,7 +5230,7 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
     return
 }
 func (p *delegate) traverse(ctx Context) {
-    if v := p.final_val(ctx); v != nil { v.traverse(ctx) }
+    if v := p.final(ctx); v != nil { v.traverse(ctx) }
 }
 func (p *delegate) ident(ctx Context) (name string) {
     const sel = true
@@ -5377,23 +5296,22 @@ func (p *delegate) prefix(ctx Context, v Value) Value { return _suffix(ctx, v, p
 func (p *delegate) suffix(ctx Context, v Value) Value { return _compound(p).suffix(ctx, v) }
 func (p *delegate) match(ctx Context, i any) (full bool, s any, stems []string) {
     if v := p.expand(ctx); v != nil {
-        if v != p { full, s, stems = v.match(ctx, i) }
-        return
+        if v != p { return v.match(ctx, i) }
     } else {
-        erro(ctx, "%v: expand to nil", p).trace()
+        errostack(pc(ctx,p), 3, "%v: nil match", p).trace()
     }
     return
 }
 func (p *delegate) stat(ctx Context) (_ *statinfo) {
-    erro(ctx, "cant stat delegate %v, must expand it first", p).trace()
+    errostack(pc(ctx,p), 3, "cant stat delegate %v, must expand it first", p).trace()
     return
 }
 func (p *delegate) stamp(ctx Context) (_ []*file) {
-    erro(ctx, "cant stamp delegate %v, must expand it first", p).trace()
+    errostack(pc(ctx,p), 3, "cant stamp delegate %v, must expand it first", p).trace()
     return
 }
 func (p *delegate) delete(ctx Context) (_ []*file) {
-    erro(ctx, "cant delete delegate %v, must expand it first", p).trace()
+    errostack(pc(ctx,p), 3, "cant delete delegate %v, must expand it first", p).trace()
     return
 }
 func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
@@ -5415,14 +5333,14 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
             cr = p.x.cmp(ctx, t.x)
         }
 
-        if checkpoints {
+        if checkpoints && truly(ctx, is_test_mode{}) {
             if cr != cmpEqual && p.x.String() == t.x.String() {
-                erro(ctx, "%v: %v %v", ts(p), ts(p.x), ts(t.x)).trace()
+                errostack(pc(ctx,p), 3, "%v: %v %v", ts(p), ts(p.x), ts(t.x)).trace()
             }
             if len(p.a) == len(t.a) {
                 for i, v := range p.a {
                     if v.cmp(ctx, t.a[i]) != cmpEqual && v.String() == t.a[i].String() {
-                        erro(ctx, "%v: %v %v", ts(p), ts(v), ts(t.a[i])).trace()
+                        errostack(pc(ctx,p), 3, "%v: %v %v", ts(p), ts(v), ts(t.a[i])).trace()
                     }
                 }
             }
@@ -5439,8 +5357,8 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-type ex_closure struct {}
-type closure struct { delegate }
+type ex_closure struct{}
+type closure struct{ delegate }
 func (p *closure) kind() Kind { return p.valbase.kind()|KindClosure }
 func (p *closure) hash(ctx Context) uint64 {
     var a = []any{ p.l, p.x }
@@ -5450,7 +5368,7 @@ func (p *closure) hash(ctx Context) uint64 {
 }
 func (p *closure) String() (s string) { return p.src("&") }
 func (p *closure) string(ctx Context) (s string) {
-    if v := p.final_val(ctx); v != nil { s = v.string(ctx) }
+    if v := p.final(ctx); v != nil { s = v.string(ctx) }
     return
 }
 func (p *closure) ts(t string) (s string) {
@@ -5461,12 +5379,12 @@ func (p *closure) ts(t string) (s string) {
     return
 }
 func (p *closure) true(ctx Context) (t bool) {
-    if v := p.final_val(ctx); v != nil { t = v.true(ctx) }
+    if v := p.final(ctx); v != nil { t = v.true(ctx) }
     return
 }
 func (p *closure) prefix(ctx Context, v Value) Value { return _suffix(ctx, v, p) }
 func (p *closure) suffix(ctx Context, v Value) Value { return _compound(p).suffix(ctx, v) }
-func (p *closure) final_val(ctx Context) (_ Value) {
+func (p *closure) final(ctx Context) (_ Value) {
     var v = p.expand(_final(ctx))
     if v == nil || equal(ctx, p, v) || (v.expandable(ctx) && !p.aone(ctx, v)) {
         return
@@ -5502,25 +5420,25 @@ func (p *closure) match(ctx Context, i any) (full bool, s any, stems []string) {
 }
 func (p *closure) refs(ctx Context, v Value) (res bool) {
     if p.x == nil {
-        erro(ctx, "closure of nil: %v (%v)", ts(p), ts(v)).trace()
+        errostack(pc(ctx,p), 3, "closure of nil: %v (%v)", ts(p), ts(v)).trace()
     }
     if p == v || p.x == v || p.x.refs(ctx, v) { return true }
     for _, a := range p.a { if a.refs(ctx, v) { return true } }
     return
 }
 func (p *closure) traverse(ctx Context) {
-    if v := p.final_val(ctx); v != nil { v.traverse(ctx) }
+    if v := p.final(ctx); v != nil { v.traverse(ctx) }
 }
 func (p *closure) stat(ctx Context) (_ *statinfo) {
-    erro(ctx, "cant stat closure %v, must expand it first", p).trace()
+    errostack(pc(ctx,p), 3, "cant stat closure %v, must expand it first", p).trace()
     return
 }
 func (p *closure) stamp(ctx Context) (_ []*file) {
-    erro(ctx, "cant stamp closure %v, must expand it first", p).trace()
+    errostack(pc(ctx,p), 3, "cant stamp closure %v, must expand it first", p).trace()
     return
 }
 func (p *closure) delete(ctx Context) (_ []*file) {
-    erro(ctx, "cant stamp closure %v, must expand it first", p).trace()
+    errostack(pc(ctx,p), 3, "cant stamp closure %v, must expand it first", p).trace()
     return
 }
 func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
@@ -5544,22 +5462,18 @@ func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
-type arrow struct {
+type arrow struct{
     valbase
     t token
     o Value // object or arrow
     s Value
 }
 func (p *arrow) hash(ctx Context) uint64 { return fnv1(ctx, p, p.t, p.o, p.s) }
-func (p *arrow) String() string {
-    return p.o.String() + p.t.String() + p.s.String()
-}
+func (p *arrow) ts(t string) string { return "{="+t+" "+ts(p.o)+p.t.String()+ts(p.s)+"}" }
+func (p *arrow) String() string { return p.o.String() + p.t.String() + p.s.String() }
 func (p *arrow) string(ctx Context) (s string) {
     p.ex(ctx, func(v Value) { s = v.string(ctx) })
     return
-}
-func (p *arrow) ts(t string) string {
-    return "{="+t+" "+ts(p.o)+p.t.String()+ts(p.s)+"}"
 }
 func (p *arrow) true(ctx Context) (t bool) {
     p.ex(ctx, func(v Value) { t = v.true(ctx) })
@@ -5573,7 +5487,7 @@ func (p *arrow) int(ctx Context) (i int64) {
         }
     })
     if e != nil {
-        erro(ctx, "%v", e).trace()
+        errostack(pc(ctx,p), 3, "%v", e).trace()
     }
     return
 }
@@ -5585,7 +5499,7 @@ func (p *arrow) float(ctx Context) (f float64) {
         }
     })
     if e != nil {
-        erro(ctx, "%v", e).trace()
+        errostack(pc(ctx,p), 3, "%v", e).trace()
     }
     return
 }
@@ -5599,40 +5513,59 @@ func (p *arrow) expandable(ctx Context) (res bool) {
     return p.o.expandable(ctx) || p.s.expandable(ctx)
 }
 func (p *arrow) expand(ctx Context) (res Value) {
-    var o, s Value
+    o := p.o.expand(ctx)
+    s := p.s.expand(ctx)
 
     if checkpoints && truly(ctx, is_test_mode{}) {
         defer p.expand_check(ctx, &o, &s, &res)
     }
 
-    o = p.o.expand(ctx)
+    if !equal(ctx, o, p.o) || !equal(ctx, s, p.s) {
+        return &arrow{p.valbase, p.t, o, s}
+    } else {
+        return p
+    }
+}
+func (p *arrow) evoke(ctx *evocation) (res Value) {
+    var o, s Value
 
-    if p.t.is_select_prog() {
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer p.evoke_check(ctx, &o, &s, &res)
+    }
+    if p.String() == "$_→name" {
+        defer func() {
+            note(ctx, "%v %v %v %v", p, o, s, res).debug(20)
+        } ()
+    }
+
+    switch x := p.o.(type) {
+    case evoker: o = x.evoke(ctx)
+    default:  o = p.o.expand(ctx)
+    }
+
+    switch x := o.(type) {
+    case *word:
+        if t := project_resolve(ctx, x.s); t != nil { o = t }
+    }
+
+    if false && p.t.is_select_prog() {
         if x, y := o.(*project); y && x != nil {
             res = x.entry(ctx, p.s, false)
         }
         return
     }
 
-    if x, y := o.(*project); false && y && x != nil {
-        ctx = closure_with(ctx, x.scope)
-    }
-
     s = p.s.expand(ctx)
 
-    if x, y := o.(interface{ sel(Context, string) any }); y && isFinalValue(ctx, s) {
-        if a := x.sel(ctx, s.string(ctx)); a != nil {
-            return ease(ctx, a)
+    if x, y := o.(interface{ sel(Context, string) any }); y {
+        if !indeterminate(ctx, s) {
+            switch v := x.sel(ctx, s.string(ctx)).(type) {
+            case evoker: return v.evoke(ctx)
+            default: return ease(ctx, v)
+            }
         }
     }
-
-    if !equal(ctx, o, p.o) || !equal(ctx, s, p.s) {
-        if _cond(p.o) && !_cond(o) { o = condish(ctx, o) }
-        if _cond(p.s) && !_cond(s) { s = condish(ctx, s) }
-        return &arrow{p.valbase, p.t, o, s}
-    } else {
-        return p
-    }
+    return _null(p.Position())
 }
 func (p *arrow) ex(ctx Context, f func(Value)) {
     if v := p.expand(ctx); v != nil && !equal(ctx, v, p) { f(v) }
@@ -5662,41 +5595,34 @@ func (p *arrow) updatedDeps(ctx Context, v ...Value) (res []Value) { // NOTE: th
     return res
 }
 func (p *arrow) cmp(ctx Context, v Value) (res cmpres) {
-    if x, y := v.(*arrow); y {
-        if p.t == x.t {
-            if  res = p.o.cmp(ctx, x.o); res == cmpEqual {
-                res = p.s.cmp(ctx, x.s)
-            }
+    if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
+    switch x := v.(type) {
+    case *arrow:
+        if p.t == x.t && p.o.cmp(ctx, x.o) == cmpEqual {
+            return p.s.cmp(ctx, x.s)
         }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    if checkpoints {
-        if res != cmpEqual && p.String() == v.String() {
-            if x, y := v.(*arrow); y {
-                note(ctx, "%v %v, %v", ts(p.o), ts(x.o), p.o.cmp(ctx, x.o))
-                note(ctx, "%v %v, %v", ts(p.s), ts(x.s), p.s.cmp(ctx, x.s))
-            }
-            erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
+    case *list:
+        if len(x.elems) == 1 {
+            return p.cmp(ctx, x.elems[0])
         }
     }
     return
 }
 func (p *arrow) stat(ctx Context) (_ *statinfo) {
-    erro(ctx, "cant stat arrow %v, must expand it first", p).trace()
+    errostack(pc(ctx,p), 3, "cant stat arrow %v, must expand it first", p).trace()
     return
 }
 func (p *arrow) stamp(ctx Context) (_ []*file) {
-    erro(ctx, "cant stamp arrow %v, must expand it first", p).trace()
+    errostack(pc(ctx,p), 3, "cant stamp arrow %v, must expand it first", p).trace()
     return
 }
 func (p *arrow) delete(ctx Context) (_ []*file) {
-    erro(ctx, "cant stamp arrow %v, must expand it first", p).trace()
+    errostack(pc(ctx,p), 3, "cant stamp arrow %v, must expand it first", p).trace()
     return
 }
 
 // percpat represents percent pattern expressions (e.g. '%.o')
-type percpat struct {
+type percpat struct{
     valbase // TODO: supporting multiple %: foo%bar%xxx
     Prefix Value
     Suffix Value
@@ -5912,7 +5838,7 @@ func (p *percpat) cmp(ctx Context, v Value) (res cmpres) {
     } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
         return p.cmp(ctx, l.elems[0])
     }
-    if checkpoints {
+    if checkpoints && truly(ctx, is_test_mode{}) {
         if res != cmpEqual && p.String() == v.String() {
             erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
         }
@@ -5920,7 +5846,7 @@ func (p *percpat) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if checkpoints {
+    if checkpoints && truly(ctx, is_test_mode{}) {
         if s := ts(p.Suffix); strings.Contains(s, "{=argumented ") {
             erro(ctx, "wrong percpat: %v : suffix=%s", p, s).trace()
         }
@@ -5989,7 +5915,7 @@ func correctPunctForMatch(seg Value) Value {
     return seg
 }
 
-type compositePattern struct { Value ; constraints []Value }
+type compositePattern struct{ Value ; constraints []Value }
 func (p compositePattern) String() (s string) {
     s += "[" + p.Value.String() + ", "
     for i, v := range p.constraints {
@@ -6048,7 +5974,7 @@ func (p compositePattern) match(ctx Context, i any) (full bool, result any, stem
 //		c       matches character c (c != '\\', '-', ']')
 //		'\\' c      matches character c
 //		lo '-' hi   matches character c for lo <= c <= hi
-type globpat struct { elements }
+type globpat struct{ elements }
 func (_ *globpat) kind() Kind { return KindGlobpat }
 func (p *globpat) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
 func (p *globpat) String() (s string) {
@@ -6181,7 +6107,7 @@ func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
     return
 }
 
-type regexpat struct { valbase ; *regexp.Regexp }
+type regexpat struct{ valbase ; *regexp.Regexp }
 func (p *regexpat) hash(ctx Context) uint64 { return fnv1(ctx, p, p.Regexp.String()) }
 func (p *regexpat) string(ctx Context) (s string) { return p.Regexp.String() }
 func (p *regexpat) String() string {
@@ -6293,12 +6219,11 @@ func baremerge(args ...Value) (elems []Value) {
 // FIXME: merge all unexpanded.value may cause deadloop.
 func merge(args ...Value) (elems []Value) {
     for _, a := range args {
-        if a == nil {
-            // continue ...
-        } else if x, y := a.(*list); y {
+        switch x := a.(type) {
+        case *list:
             elems = append(elems, merge(x.elems...)...)
-        } else {
-            elems = append(elems, a)
+        case Value:
+            elems = append(elems, x)
         }
     }
     return
@@ -6320,7 +6245,7 @@ func copyvals(vals []Value) (res []Value) {
     return
 }
 
-func detachCompoundList(values ...Value) (res []Value) {
+func decoupleCompoundList(values ...Value) (res []Value) {
     for _, v := range values {
         if x, y := v.(*compound); y {
             var l int
@@ -6340,7 +6265,7 @@ func detachCompoundList(values ...Value) (res []Value) {
                         res = append(res, &compound{elements{a}}, &compound{elements{b}})
                     } else {
                         a := append(x.elems[:i], t.elems[0])
-                        b := detachCompoundList(t.elems[1:t.len()-1]...)
+                        b := decoupleCompoundList(t.elems[1:t.len()-1]...)
                         c := append(t.elems[t.len()-1:], x.elems[i+1:]...)
                         res = append(append(res, &compound{elements{a}}), b...)
                         x = &compound{elements{c}}
@@ -6425,9 +6350,6 @@ func unique(ctx Context, values ...Value) (elems []Value) {
         if _, y := seen[n]; !y {
             elems = append(elems, v)
             seen[n] = struct{}{}
-        } else {
-            if checkpoints {
-            }
         }
     }
     return
@@ -6551,9 +6473,9 @@ func tv(i any) (s string) {
             s = fmt.Sprintf("%v", i)
         }
 
-        t := "{=" + typeof(i) + " "
+        t := "{="
         if !strings.HasPrefix(s, t) {
-            s = t + s + "}"
+            s = t + typeof(i) + " " + s + "}"
         }
         return
     }
@@ -6591,7 +6513,7 @@ func ts(i any) (s string) {
     }
 }
 
-type tst struct { i any }
+type tst struct{ i any }
 func (p tst) ts(string) string { return ts(p.i) }
 func (p tst) String() string { return ts(p.i) }
 func (p tst) Position() (_ Position) {
@@ -6778,7 +6700,7 @@ type evoke_x       struct{ name string }
 type evoke_detect_loop struct{ Value }
 type evoke_count       struct{}
 
-type evocation struct {
+type evocation struct{
     automatic
     x   Value
     a []Value
@@ -6791,7 +6713,15 @@ func (p *evocation) cast(t reflect.Type) Context {
     return p.automatic.cast(t)
 }
 func (p *evocation) ts(t string) string {
-    return "{="+t+" "+p.x.String()+" "+ts(p.Context)+"}"
+    if true {
+        var s = p.defs.String()
+        if s != "" { s += " " }
+        return "{="+t+" "+p.x.String()+" "+s+ts(p.Context)+"}"
+    } else if false {
+        return "{="+t+" "+p.x.String()+" "+ts(&p.automatic)+"}"
+    } else {
+        return "{="+t+" "+p.x.String()+" "+ts(p.Context)+"}"
+    }
 }
 func (p *evocation) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
@@ -6832,6 +6762,7 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
     return p.automatic.do(ctx, op)
 }
 
+type evoker interface{ evoke(*evocation) Value }
 func evoke(ctx Context, x Value, o, a []Value) (res Value, _ []Value) {
     if truly(ctx, evoke_detect_loop{x}) {
         switch {
@@ -6849,15 +6780,15 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value, _ []Value) {
         x, copyvals(a), copyvals(o)}
 
     switch t := x.(type) {
-    case interface{ evoke(*evocation) Value }:
+    case evoker:
         return t.evoke(&ev), ev.a
     default:
         return x.expand(&ev), ev.a
     }
 }
 
-type opt  struct { Value }
-type opts struct { vals []Value }
+type opt  struct{ Value }
+type opts struct{ vals []Value }
 
 func call(ctx Context, name string, o []Value, a ...Value) (res Value) {
     if v := _universe(ctx).lookup(name); v != nil {

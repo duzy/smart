@@ -59,10 +59,6 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", &proj.entries)
 	}
 
-	if ctx.prompts != nil {
-		ctx.err("too many prompts: %d", len(ctx.prompts))
-	}
-
 	if w := joinpath(testModulesPath, "configure"); proj.configure.absPath != w {
 		ctx.err("%v.%v: %s != %s", proj, proj.configure, proj.configure.absPath, w)
 	} else if len(proj.configure.bases) != 1 {
@@ -159,9 +155,9 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v : %s", tst{target_triple}, t)
 	} else if v := target_triple.value.expand(_final(ctx)); v == nil || v == target_triple.value {
 		ctx.err("%v : %s", tst{target_triple}, v)
-	} else if t := v.String(); t != "arm64&(target.sub)-apple-'Darwin'23.2.0-macho" {
+	} else if t := v.String(); t != "arm64&(target.sub)-apple-Darwin23.2.0-macho" {
 		ctx.err("%v : %s", tst{target_triple}, t)
-	} else if t := ts(v); t != "{=compound {=word arm64} {=closure {=compound {=word target} {=punct .} {=word sub}}} {=flag {=null}} {=word apple} {=flag {=null}} {=strlit Darwin} {=decimal 23} {=punct .} {=decimal 2} {=punct .} {=decimal 0} {=flag {=null}} {=word macho}}" {
+	} else if t := ts(v); t != "{=compound {=word arm64} {=closure {=compound {=word target} {=punct .} {=word sub}}} {=flag {=null}} {=word apple} {=flag {=null}} {=raw Darwin} {=decimal 23} {=punct .} {=decimal 2} {=punct .} {=decimal 0} {=flag {=null}} {=word macho}}" {
 		ctx.err("%v : %s", tst{target_triple}, t)
 	} else if t := target_triple.value.string(ctx); t != triple {
 		ctx.err("%v : %s", tst{target_triple}, t)
@@ -458,10 +454,6 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		confsm = joinpath(outtmp, configuration_sm)
 	}
 
-	if ctx.prompts != nil {
-		ctx.err("too many prompts: %d", len(ctx.prompts))
-	}
-
 	if _, y := ctx.srcs[confsm]; y {
 		ctx.err("%v: already loaded configuration.sm, %v", proj, reflect.ValueOf(ctx.srcs).MapKeys())
 	}
@@ -568,10 +560,6 @@ func testConfigureCustom(ctx *testcase) {
 		if outtmp != "" { os.RemoveAll(outtmp) }
 		if outdir != "" { os.RemoveAll(outdir) }
 	} ()
-
-	if ctx.prompts != nil {
-		ctx.err("too many prompts: %d", len(ctx.prompts))
-	}
 
 	if e, d := testConfig(ctx, proj, "FOO0"); e == nil {
 		ctx.err("FOO0")

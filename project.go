@@ -55,7 +55,7 @@ func (p *filemap) primePatterns(ctx Context) (pats []Value) {
 
   for _, pattern := range patts {
     // NOTE it may preserve closure patterns after this expand
-    if pat := pattern.expand(ctx); isFinalValue(ctx, pat) {
+    if pat := pattern.expand(ctx); !indeterminate(ctx, pat) {
       pats = append(pats, merge(pat)...)
     } else {
       erro(ctx, "indeterminate pattern: %v", ts(pat))
@@ -293,6 +293,7 @@ type project struct {
   opt project_opts
 }
 func (_ *project) kind() Kind { return KindObject|KindKnownObject|KindProject }
+func (_ *project) cond() (_ bool) { return }
 func (_ *project) int(Context) (_ int64) { return }
 func (_ *project) float(Context) (_ float64) { return }
 func (_ *project) updated(Context) bool { return false }
@@ -504,9 +505,7 @@ func (p *project) def(ctx Context, name string) (res *def) {
 }
 
 func (p *project) resolve(ctx Context, name string) (obj object) {
-  if _, obj = p.find(name); obj != nil {
-    return
-  }
+  if _, obj = p.find(name); obj != nil { return }
 
   if p.ext.Plugin != nil {
     if sym, e := p.ext.Lookup(name); e == nil && sym != nil {
@@ -515,12 +514,10 @@ func (p *project) resolve(ctx Context, name string) (obj object) {
   }
 
   for _, base := range p.bases {
-    if true && base.has_base(p) {
+    if base.has_base(p) {
       erro(ctx, "recursive derivation: %v ⇔ %v", ts(p), ts(base)).trace()
     }
-    if obj = base.resolve(ctx, name); obj != nil {
-      return
-    }
+    if obj = base.resolve(ctx, name); obj != nil { return }
   }
 
   if p.configure != nil && p.configure != p {
@@ -559,7 +556,7 @@ func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) 
 
 func (p *project) entry(c Context, name any, a ...bool) (_ entry) {
   var entries = p._entries(c, name, a...)
-  if n := len(entries) ; 0 < n {
+  if n := len(entries); 0 < n {
     if 1 < n { erro(c, "%v : %d entries", name, n).trace() }
     return entries[0]
   }

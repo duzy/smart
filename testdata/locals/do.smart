@@ -1,4 +1,4 @@
-project testbuiltins
+project testlocals
 
 foo := foobar
 

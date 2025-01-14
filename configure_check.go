@@ -26,9 +26,176 @@ func (cc *configurecontext) execute_check(ctx *execution, e entry, p *project, s
 	}
 }
 
-func configure2_chk_darwin(ctx Context, sm, m []string) map[string]string {
+var rx_sha256 = regexp.MustCompile(`[0-9a-f]{40}`) // 24be3fc4dbc8099b28a7afa44fd7711d62a4580b
+var rx_checking_for = regexp.MustCompile(`^checking for (.+?) …$`)
+var rx_checking_res = regexp.MustCompile(`^… (.*?)\n$`)
+func (l ul) configure_val_check(ctx *execution, name string, op Value, vals []Value, a, b *diagpoint) {
+	var c Context = ctx
+	var ss, _ = do(ctx, l_filename("?")).([]string)
+	for _, s := range ss { c = pc(c, s) }
+
+	if sm := rx_checking_for.FindStringSubmatch(a.message); sm != nil {
+		m := rx_checking_res.FindStringSubmatch(b.message)
+		if m == nil {
+			errostack(ctx, 6, "%s: %v %v, %v, %v", sm[1], op, vals, l.project.elems[name], ctx.recipes).trace()
+		}
+
+		var chk map[string]string
+
+		chk = configure_chk_darwin(ctx, sm, m)
+
+		if x, y := chk[sm[1]]; y {
+			switch {
+			case x == "?!":
+				if false {
+					notestack(c, 3, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1]).debug()
+				}
+			case x == "?SHA256!":
+				if !rx_sha256.MatchString(m[1]) {
+					errostack(c, 5, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1]).trace()
+				}
+			case x == "?OUTBIN!":
+				if d := l.project.def(ctx, "outbin"); d == nil {
+					errostack(c, 5, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1]).trace()
+				} else if s := d.string(ctx); s != m[1] {
+					errostack(c, 5, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], s).trace()
+				}
+			case x != m[1]:
+				errostack(c, 5, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], x).trace()
+			}
+		} else {
+			errostack(c, 6, "unknown configure check: %s %s", sm[1], m[1]).trace()
+		}
+	} else {
+		errostack(c, 6, "%v → %v", ts(op), ts(vals)).trace()
+	}
+}
+
+func configure_chk_darwin(ctx Context, sm, m []string) map[string]string {
 	return map[string]string{
+		"version": "?!",
+		"package": "?!",
+		"package name": "?!",
+		"package version": "?!",
+		"package vendor": "?!",
+		"package tarname": "?!",
+		"package string": "?!",
+		"package url": "?!",
+		"package bug report": "?!",
+
+		"c++abi new/delete definitions": "yes",
+		"c++abi exceptions": "yes",
+		"c++abi threads": "yes",
+
+		"libc++ ABI namespace": "_extbit",
+		"libc++ ABI version": "2",
+		"libc++ ABI defines": "// TODO: #define ...\\n",
+		"libc++ extra site defines": "// TODO: #define ...\\n",
+		"libc++ filesystem": "yes",
+		"libc++ fstream": "yes",
+		"libc++ localization support": "yes",
+		"libc++ threads support": "yes",
+		"libc++ wide characters": "yes",
+		"typeinfo comparison implementation": "1",
+		"parallel algorithms": "no",
+		"pstl cpu backend serial": "no",
+		"pstl cpu backend thread": "yes",
+		"musl libc": "no",
+
+		"llvm revision": "?SHA256!",
+		"llvm version": "20.0.0",
+		"llvm version suffix": "extbit",
+		"llvm version string": "ExtBit_20.0.0",
+		"llvm version information": "ExtBit LLVM",
+		"llvm native arch": "AArch64",
+		"llvm with polly": "yes",
+		"llvm libdir suffix": "",
+
+		"unix platform (darwin)": "yes",
+		"host arch": "arm64",
+		"host triple": "arm64-apple-Darwin24.3.0-extbit",
+		"default target triple": "arm64-apple-Darwin24.3.0-extbit",
+		"default target environment variable name": "",
+		"all build targets": "AArch64 AMDGPU ARM BPF Hexagon Lanai Mips MSP430 NVPTX PowerPC Sparc SystemZ WebAssembly X86 XCore",
+		"targets with jit support": "X86 PowerPC AArch64 ARM Mips SystemZ",
+		"targets to build": "AArch64",
+		"target to use for llvm jit": "host",
+		"experimental targets to build": "",
+		"external polly source directory": "",
+		"statically link polly into tools": "yes",
+		"link polly into tools": "yes",
+		"tools/polly directory": "no",
+		"build with polly": "yes",
+		"exceptions": "yes",
+		"DAGiSel COV": "no",
+		"curl enabled": "yes",
+		"collection of GlobalISel rule coverage": "no",
+		"embedding backtraces": "yes",
+		"embedding backtraces on crash": "yes",
+		"memory dumps on crashes": "yes",
+		"interpreter external function call with libffi": "yes",
+		"httplib enabled": "yes",
+		"DIA SDK enabled": "no",
+		"dump functions even when assertions are disabled": "yes",
+		"stats enabled": "yes",
+		"terminfo database enabled if available": "yes",
+		"threads enabled if available": "yes",
+		"libxar enabled if available": "yes",
+		"libxml2 enabled if available": "yes",
+		"libedit enabled if available": "yes",
+		"libpfm enabled for performance counters if available": "yes",
+		"zlib enabled for compression/decompression": "yes",
+		"z3 constraint solver is supported in LLVM": "no",
+		"z3 resolver install directory": "",
+		"z3 enabled": "no",
+		"forced using stats": "no",
+		"forced using old toolchain": "no",
+		"GISEL_COV enabled": "no",
+		"GISEL_COV prefix": "",
+		"c headers": "yes",
+		"c99 headers": "yes",
+		"c11 headers": "no",
+		"c99 variadic macros": "yes",
+		"gcc variadic macros": "yes",
+		"va_list": "yes",
+		"va_copy": "yes",
+		"std::atomic": "yes",
+		"std::atomic and <cstdint>": "yes",
+		"atomic primitives in <stdatomic.h>": "yes",
+		"intel atomic primitives": "yes",
+		"solaris atomic operations": "",
+		"builtin atomic": "yes",
+		"pthread in libc": "yes",
+		"perf_branch_entry.cycles in libpfm": "no",
+		"show target and host info when tools are invoked with --version": "yes",
+
+		"using libxml2": "",
+		"using JITEvents (Intel)": "",
+		"using oprofile": "",
+		"using perf": "",
+
+		"ffi library directory": "",
+		"ffi include directory": "",
+		"backtraces enabled": "yes",
+		"crash overrides enabled": "yes",
+
+		"host linker version": "",
+		"return sig type": "void",
+		"tools install directory": "?OUTBIN!",
+		"utils install directory": "?OUTBIN!",
+		"llvm plugin extension": ".extbit",
+		"shared library extension": ".dylib",
+		"abi breaking checks enabled": "no",
+		"reverse iteration enabled": "no",
+
+		"tensorflow api support": "no",
+		"tensorflow aot support": "no",
+
+		"strdup": "strdup",
+		"stricmp": "stricmp",
+
 		"header <atomic.h>": "no",
+		"header <mbarrier.h>": "no",
 		"header <dirent.h>": "yes",
 		"header <stdarg.h>": "yes",
 		"header <stdatomic.h>": "yes",
@@ -106,49 +273,17 @@ func configure2_chk_darwin(ctx Context, sm, m []string) map[string]string {
 		"symbol va_copy": "yes",
 		"symbol va_end": "yes",
 		"symbol va_start": "yes",
+		"(struct dirent)": "yes",
+		"(struct dirent).d_type": "yes",
+
+		"FOO1": "yes",
+		"FOO2": "true",
+		"FOO3": "true",
+		"FOO4": "true",
 	}
 }
 
-var rx_sha256 = regexp.MustCompile(`[0-9a-f]{40}`) // 24be3fc4dbc8099b28a7afa44fd7711d62a4580b
-var rx_checking_for = regexp.MustCompile(`^checking for (.+?) …$`)
-var rx_checking_std = regexp.MustCompile(`^checking for (header|type|function|symbol|(?:align|size) of) (.+?) …$`)
-var rx_checking_res = regexp.MustCompile(`^… (.+?)\n$`)
-func (l ul) configure2_check(ctx *execution, ops []entry, op, val, res Value, a, b *diagpoint) {
-	if sm := rx_checking_std.FindStringSubmatch(a.message); sm != nil {
-		m := rx_checking_res.FindStringSubmatch(b.message)
-		if m == nil {
-			errostack(ctx, 6, "%s %s : %v %v %v : %s", sm[1], sm[2], tv(op), tv(val), tv(res), b.message).trace()
-		}
-
-		var chk map[string]string
-
-		chk = configure2_chk_darwin(ctx, sm, m)
-
-		if x, y := chk[sm[1]+" "+sm[2]]; y {
-			if m[1] != x {
-				a := auto_get(ctx, "@")
-				errostack(ctx, 5, "%s: %s, %s, %s != %s", a, sm[1], sm[2], m[1], x).trace()
-			}
-		} else {
-			errostack(ctx, 5, "%s %s %s", sm[1], sm[2], m[1]).trace()
-		}
-	} else if sm := rx_checking_for.FindStringSubmatch(a.message); sm != nil {
-		m := rx_checking_res.FindStringSubmatch(b.message)
-		if m == nil {
-			errostack(ctx, 6, "%s: %v, %v %v %v", sm[1], ops, ts(op), ts(val), ts(res)).trace()
-		}
-		switch sm[1] {
-		case "llvm revision":
-			if len(m[1]) != 40 || !rx_sha256.MatchString(m[1]) {
-				errostack(ctx, 6, "%s: %s", sm[1], m[1]).trace()
-			}
-		}
-	} else {
-		errostack(ctx, 5, "%s, %s %s %s", ops, ts(op), ts(val), ts(res)).trace()
-	}
-}
-
-func _configure2_chk(ctx Context) {
+func _configure_chk(ctx Context) {
 	switch {
 	case truly(ctx, is_autoload{ "/app/.configure" }):
 	case truly(ctx, is_autoload{ "/app/stdarg/.configure" }):

@@ -25,11 +25,11 @@ const maxDigitAutoNum = 9
 // A bailout panic is raised to indicate early termination.
 type bailout struct{}
 
-type use_spec struct {
+type use_spec struct{
 	props []Value
 }
 
-type template struct {
+type template struct{
 	state scanstate
 	end  *scanstate
 	pos, endPos Pos // token position
@@ -40,7 +40,7 @@ type template struct {
 	params []Value
 }
 
-type parser struct {
+type parser struct{
 	scanner
 
 	// Next token
@@ -75,9 +75,9 @@ type (
 	p_no_path       struct{}
 )
 
-type   aware_token struct { token }
-type p_aware_comma struct { Context }
-type p_aware_dot   struct { Context }
+type   aware_token struct{ token }
+type p_aware_comma struct{ Context }
+type p_aware_dot   struct{ Context }
 func (p p_aware_comma) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case aware_token: return t.token == COMMA
@@ -102,26 +102,26 @@ func (p selection) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-type codeblock      struct { *automatic ; token }
-type p_defname_ctx  struct { Context }
-type p_defvalue_ctx struct { Context }
-type p_braced_ctx   struct { Context }
-type p_bare_ctx     struct { Context }
-type p_auto_ctx     struct { Context }
-type p_foreach_txt  struct { Context ; a *auto }
-type p_grep_txt     struct { Context ; o objbase ; a map[string]*auto }
-type p_group_ctx    struct { Context }
-type p_left_ctx     struct { Context }
-type p_modifier     struct { Context }
-type p_params       struct { Context }
-type p_path         struct { Context }
-type p_perc         struct { Context }
-type p_glob         struct { Context }
-type p_regex        struct { Context }
-type p_strcomp      struct { Context }
-type p_undef_ctx    struct { Context }
-type p_rule_ctx     struct { Context }
-type recipe_ctx struct {
+type codeblock      struct{ *automatic ; token }
+type p_defname_ctx  struct{ Context }
+type p_defvalue_ctx struct{ Context }
+type p_braced_ctx   struct{ Context }
+type p_bare_ctx     struct{ Context }
+type p_auto_ctx     struct{ Context }
+type p_foreach_txt  struct{ Context ; a *auto }
+type p_grep_txt     struct{ Context ; o objbase ; a map[string]*auto }
+type p_group_ctx    struct{ Context }
+type p_left_ctx     struct{ Context }
+type p_modifier     struct{ Context }
+type p_params       struct{ Context }
+type p_path         struct{ Context }
+type p_perc         struct{ Context }
+type p_glob         struct{ Context }
+type p_regex        struct{ Context }
+type p_strcomp      struct{ Context }
+type p_undef_ctx    struct{ Context }
+type p_rule_ctx     struct{ Context }
+type recipe_ctx struct{
 	Context
 	builtin bool
 	lines [][]Value
@@ -172,7 +172,7 @@ func (p p_glob) do(ctx Context, op any) (_ any) {
 }
 
 
-type p_is_strcomp struct {}
+type p_is_strcomp struct{}
 func (p p_strcomp) inner() Context { return p.Context }
 func (p p_strcomp) cast(t reflect.Type) Context { return icast(p,t) }
 func (p p_strcomp) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
@@ -1519,48 +1519,48 @@ func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
 func (l ul) closuredelegate_obj(ctx Context, tok token, name Value, isClosure bool) (str string, obj Value) {
 	if x, y := name.(*argumented); y { name = x.Value }
 	if _, y := name.(cond); !y {
-		if v := name.expand(ctx) ; v != nil {
-			name = v
-		} else {
-			erro(ctx, "%v is nil", ts(name)).trace()
+		val := name.expand(ctx)
+		if val == nil {
+			erro(pc(ctx,name), "nil: %v", ts(name)).trace()
 		}
+		name = val
 	}
 
 	switch t := name.(type) {
-	case  *def: return t.name, t
-	case entry: return t.ident(ctx), t
-	}
-
-	if indeterminate(ctx, name) {
-		return "", name
+	case  entry: return t.ident(ctx), t
+	case   *def: return t.name, t
+	case *arrow: if false { note(ctx, "%v", name).debug() }
+	default:
+		if indeterminate(ctx, name) {
+			return str, name
+		}
 	}
 
 	str = name.string(ctx)
 
 	if tok == LBRACE {
-		if t := l.project._entries(ctx, name, false); t != nil {
-			obj, _ = t[0].(object)
-			return
-		} else {
-			erro(ctx, "resolved %v is nil", ts(name)).trace()
+		entries := l.project._entries(ctx, name, false)
+		if entries == nil {
+			erro(pc(ctx,name), "resolved %v is nil", ts(name)).trace()
 		}
+		obj, _ = entries[0].(object)
+		return
 	}
 
 	if str == "" {
 		switch name.(type) {
-		case cond, *arrow: return "", name
+		case cond, *arrow: return str, name
 		default:
-			erro(ctx, "empty name: %s", ts(name)).trace()
+			erro(pc(ctx,name), "empty name: %s", ts(name)).trace()
 		}
 	}
 
-	if t := l.resolve(ctx, name, str) ; t != nil {
-		obj, _ = t.(object)
-		return
+	if o := l.resolve(ctx, name, str); o != nil {
+		return str, o
 	}
 
-	if isClosure || truly(ctx, p_is_undef{}) {
-		obj = name // recursive delegation or closure
+	if _, y := name.(cond); y || isClosure || truly(ctx, p_is_undef{}) {
+		obj = name // recursive closure or delegate
 		return
 	}
 
@@ -1630,9 +1630,8 @@ func (l ul) args(ctx Context, name string, tokLp token, isClosure bool) (args []
 	default:
 		args = append(args, l.list(ctx))
 	}
-
 	for l.p.tok == COMMA {
-		l.p.next(ctx, true) // consumes COMMA
+		l.p.next(ctx, true) // consumes comma
 		args = append(args, l.list(ctx))
 	}
 	return
@@ -1722,6 +1721,8 @@ func (l ul) abc(ctx Context, isClosure, special bool) (tok token, obj Value, arg
 		}
 
 		str, obj = l.closuredelegate_obj(ctx, tok, name, isClosure)
+		if obj.String() == "foo→name?" { note(ctx, "%v", ts(obj)).debug() }
+		if obj.String() == "name?" { note(ctx, "%v", ts(obj)).debug() }
 	}
 
 	if obj == nil && str != "" {
@@ -1746,7 +1747,9 @@ func (l ul) closuredelegate(ctx Context, isClosure, special bool) (result Value)
 
 	if isClosure {
 		return makeClosure(pos, tok, obj, opts, args...)
-	} else if x, y := obj.(*def); y && x.o == defAuto {
+	}
+
+	if x, y := obj.(*def); y && x.o == defAuto {
 		if !truly(ctx, is_auto_preserved{x.name}) {
 			return x.value
 		}
@@ -2058,7 +2061,7 @@ func (l ul) braced_for(ctx Context) (res Value) {
 	return
 }
 
-type foreach_text struct { Context }
+type foreach_text struct{ Context }
 func (f foreach_text) inner() Context { return f.Context }
 func (f foreach_text) cast(t reflect.Type) Context { return icast(f, t) }
 func (f foreach_text) do(c Context, o any) (_ any) {
@@ -2183,8 +2186,8 @@ func (l ul) braced_word(ctx Context) (res Value) {
 	return &word{valbase{pos}, s}
 }
 
-type defcapture struct { name string ; val Value }
-type defscapture struct { Value ; caps []*defcapture }
+type defcapture struct{ name string ; val Value }
+type defscapture struct{ Value ; caps []*defcapture }
 func (dc *defscapture) expand(Context) Value { return dc }
 func (dc *defscapture) String() (s string) {
 	s = "{=defscapture "+dc.Value.String()
@@ -2488,7 +2491,7 @@ func (l ul) braced_project(ctx Context) (_ *project) {
 // ----------------------------------------------------------------------------
 // Clauses & Declarations
 
-type clauseopts struct {
+type clauseopts struct{
 	general_opts
 
     keyword token // e.g. use, files, eval, etc.
@@ -2738,7 +2741,7 @@ func (l ul) local(ctx Context, _ *commentgroup, g *clauseopts, _ int) {
 func (l ul) eval(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 	if g.skip { return }
 	if g.spec == nil {
-		var opts struct {
+		var opts struct{
 			optimize Value `opt,optimize`
 		}
 		for _, op := range parse_opts(_final(ctx), &opts, g.values...) {
@@ -2900,14 +2903,14 @@ func (l ul) spec(ctx Context, keyword token, pos Pos, f parseSpecFunc) {
 	}
 }
 
-func for_ident_elems(ctx Context, elems, stems []Value, f func(elems, stems []Value)) {
+func forident_elems(ctx Context, elems, stems []Value, f func(elems, stems []Value)) {
     for i, elem := range elems {
 		if x, y := elem.(*argumented); y {
 			var prefix, suffix = elems[:i], elems[i+1:]
-			for_idents(ctx, x, func(ident Value, stems2 []Value) {
+			foridents(ctx, x, func(ident Value, stems2 []Value) {
 				var head   = append(prefix, ident)
 				var stems3 = append(stems , stems2...)
-				for_ident_elems(ctx, suffix, stems3, func(elems, stems []Value) {
+				forident_elems(ctx, suffix, stems3, func(elems, stems []Value) {
 					f(append(head, elems...), stems)
 				})
 			})
@@ -2917,11 +2920,11 @@ func for_ident_elems(ctx Context, elems, stems []Value, f func(elems, stems []Va
     f(elems, stems)
 }
 
-func for_idents(ctx Context, idents Value, f func(ident Value, stem []Value)) {
+func foridents(ctx Context, idents Value, f func(Value, []Value)) {
     switch t := idents.(type) {
     case *argumented:
         var args = xmerge(ctx, t.args...)
-		for_idents(ctx, t.Value, func(ident Value, stems []Value) {
+		foridents(ctx, t.Value, func(ident Value, stems []Value) {
 			for _, arg := range args {
 				if !isTrivial(arg) {
 					f(compose(ctx, ident, arg), append(stems, arg))
@@ -2929,7 +2932,7 @@ func for_idents(ctx Context, idents Value, f func(ident Value, stem []Value)) {
 			}
 		})
     case *compound:
-        for_ident_elems(ctx, t.elems, nil, func(elems, stems []Value) {
+        forident_elems(ctx, t.elems, nil, func(elems, stems []Value) {
             if len(stems) == 0 {
 				f(t, stems)
 			} else {
@@ -3010,8 +3013,6 @@ func (l ul) define(ctx Context, tok token, ident, value Value) (d *def) {
         erro(ctx, "def is nil: %v", ts(ident)).trace()
     }
 
-    if false { d.position = ident.Position() }
-
 	if truly(ctx, is_config_mode{}) { defer func() { d.o = defConfig } () }
 
     switch tok {
@@ -3028,14 +3029,16 @@ func (l ul) define(ctx Context, tok token, ident, value Value) (d *def) {
     case ASSIGN_SHI: // =+
 		if !isTrivial(value) { d.set(ctx, d.o, value, merge(d.value)...) }
 		return
-    case ASSIGN_SUB:
+    case ASSIGN_SUB: // -=
 		if d.value != nil {
-			if dv := merge(d.value); len(dv) > 0 { // -=
+			if dv := merge(d.value); len(dv) > 0 {
 				var vals []Value
 				var sub = merge(value)
 			outer1:
 				for _, v := range dv {
-					for _, sv := range sub { if v.cmp(ctx, sv) == cmpEqual { continue outer1 }}
+					for _, s := range sub {
+						if v.cmp(ctx, s) == cmpEqual { continue outer1 }
+					}
 					vals = append(vals, v)
 				}
 				d.value = ease(ctx, vals)
@@ -3085,31 +3088,16 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 
 	l.p.next(ctx, true) // the assign token
 
-	var value = l.defvalue(ctx, idents, tok)
+	var val = l.defvalue(ctx, idents, tok)
 
 	for _, ids := range idents {
-		var ds []*def
-		var _ids = ids.expand(_final(ctx))
-
-		for_idents(ctx, _ids, func(ident Value, stems []Value) {
-			if d := l.define(ctx, tok, ident, value); d != nil { ds = append(ds, d) }
+		foridents(ctx, ids.expand(_final(ctx)), func(id Value, _ []Value) {
+			if d := l.define(ctx, tok, id, val); d != nil { res = append(res, d) }
 		})
-
-		if checkpoints {
-			var ctx = pc(ctx, ids)
-			if len(ds) == 0 && false {
-				erro(ctx, "%v : %v %v %v", tv(ids), tv(_ids), tok, ts(value)).trace()
-			}
-			if len(ds) == 1 && ds[0].value == nil && value != nil && !isNull(value) {
-				erro(ctx, "%v : %v %v %v", tv(ids), tv(_ids), tok, ts(value)).trace()
-			}
-		}
-
-		res = append(res, ds...)
 	}
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
-		def_idents_check(ctx, idents, value, res)
+		ul_assign_check(ctx, idents, val, res)
 	}
 	return
 }
@@ -3155,11 +3143,11 @@ func (l ul) recipe(ctx Context) (recipes []Value) {
 				// does nothing
 			} else if s := l.resolve(ctx, t, t.s); isTrivial(s) {
 				erro(pc(ctx,p), "no such symbol: %v, %s → %s; dialect=%s", t.s, ts(x), ts(s), l.p.dialect).trace()
-			} else if b, y := s.(*builtin); !y {
+			} else if _, y := s.(*builtin); !y {
 				erro(pc(ctx,p), "'%s' is not a command (%s)", t.s, typeof(s)).trace()
-			} else if !b.is_command() {
-				erro(pc(ctx,p), "'%s' is not a command, use $(%s ...) instead", t.s, t.s).trace()
-			} else { x = s }
+			} else {
+				x = s
+			}
 
 			if a != nil {
 				elems, a.Value = append(elems, a), x
@@ -3623,7 +3611,7 @@ func (l ul) for_done(ctx Context) {
 		erro(ctx, "unexpected end-of-line").trace()
 	}
 
-	var opts struct {
+	var opts struct{
 		skipNil bool `skip-nil,skip-null,skipnil,skipnull,no-nil,no-null`
 	}
 
@@ -3637,12 +3625,12 @@ func (l ul) for_done(ctx Context) {
 
 	l.p.spaces(ctx)
 
-	type param struct {
+	type param struct{
 		name string
 		elems []Value
 	}
 
-	type nparam struct {
+	type nparam struct{
 		p Position
 		a []*param
 		n int
@@ -3910,8 +3898,7 @@ func (l ul) configure_save(ctx Context) {
 
 	if l.promptEnteringDirectory {
 		l.promptEnteringDirectory = false
-		t := promptLeavingDirectory(ctx, l.project.absPath)
-		do(ctx, prompt_ab{nil, t})
+		promptLeavingDirectory(ctx, l.project.absPath)
 		flush(ctx)
 	}
 
@@ -3920,38 +3907,42 @@ func (l ul) configure_save(ctx Context) {
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		if c := l.project.configuration; c != nil && c.fullname() != fn {
-			erro(ctx, "%v: %s != %s", l.project.name, c.fullname(), fn).trace()
+			errostack(pc(pc(ctx,fn),c.fullname()), 3, "%s: configuration already loaded", l.project.name).trace()
 		}
 		defer l.configure_save_check(ctx, configs, f, fn)
 	}
 
 	if e := os.MkdirAll(filepath.Dir(fn), os.FileMode(0755)); e != nil {
-		erro(ctx, "make path %s failed: %v", filepath.Dir(fn), e).trace()
+		errostack(pc(ctx,fn), 3, "make path %s failed: %v", filepath.Dir(fn), e).trace()
 	}
 
 	var fm = os.O_RDWR | os.O_CREATE | os.O_TRUNC
-
-	if o, e := os.OpenFile(fn, fm, os.FileMode(0600)); e != nil {
-		erro(ctx, "%v: %v", l.project.name, e).trace()
-	} else {
-		defer o.Close()
-
-        fmt.Fprintf(o, "# %s (%s)\n", l.project.name, l.project.spec) // configuration
-
-		for _, c := range configs {
-			fmt.Fprintf(o, "configure %s = %s\n", c.name, c.value)
-		}
-
-		fmt.Fprintf(o, "\n# %d configs, %s\n", len(configs), l.project)
-		l.project.configuration = f // saved configuration.sm
+	var o, e = os.OpenFile(fn, fm, os.FileMode(0600))
+	if e != nil {
+		errostack(pc(ctx,fn), 3, "%s: %v", l.project.name, e).trace()
 	}
+	defer func() {
+		if o.Close(); 0 < count_diag(ctx, diagError) { os.Remove(fn) }
+	} ()
+
+	fmt.Fprintf(o, "# %s (%s)\n", l.project.name, l.project.spec)
+
+	for _, c := range configs {
+		fmt.Fprintf(o, "configure %s =", c.name)
+		if c.value != nil { fmt.Fprintf(o, " %v", c.value) }
+		fmt.Fprintf(o, "\n")
+	}
+
+	fmt.Fprintf(o, "\n# %d configs, %s\n", len(configs), l.project)
+
+	l.project.configuration = f // saved configuration.sm
 }
 
 func (l ul) configure_set(ctx Context, name string, vals ...Value) {
 	if d, a := l.project.set(ctx, name, defConfig, vals...); d == nil {
-		erro(pc(ctx,l.p), "cannot configure %s (alt=%v)", name, tv(a)).trace()
+		errostack(pc(ctx,l.p), 3, "cannot configure %s (alt=%v)", name, tv(a)).trace()
 	} else if a != nil {
-		erro(pc(ctx,l.p), "conflict configure %s: %v", name, ts(a)).trace()
+		errostack(pc(ctx,l.p), 3, "conflict configure %s: %v", name, ts(a)).trace()
 	} else {
 		l.project.configs = append(l.project.configs, d)
 	}
@@ -3991,7 +3982,37 @@ func configure_ignore(ctx Context, rx *regexp.Regexp, s [][]byte) (_ bool) {
 	return
 }
 
-type prompt_ab struct{ a, b *diagpoint }
+func (l ul) configure_par(ctx Context, _op Value) (op Value, par map[string]Value) {
+	var args []Value
+
+	op, par = _op, make(map[string]Value)
+
+	if x, y := op.(*argumented); y {
+		if f, y := x.Value.(flag); y {
+			op = f.Value
+		} else {
+			errostack(pc(ctx,x.Value), 8, "wrong configure word: %v", tv(x.Value)).trace()
+		}
+		args = xmerge(_final(ctx), x.args...)
+	}
+
+	for _, arg := range args {
+		switch t := arg.(type) {
+		case *pair:
+			par[t.key.string(ctx)] = t
+
+		case *raw, *strlit, *strval, *strcomp:
+			par["INFO"] = &pair{_word(t.Position(),"INFO"), t}
+
+		default:
+			if !isTrivial(arg) {
+				errostack(pc(ctx,arg), 8, "wrong arg: %s", ts(arg)).trace()
+			}
+		}
+	}
+	return
+}
+
 type is_configure struct{}
 type is_configure_ignore struct{ rx *regexp.Regexp ; s [][]byte }
 type p_configure struct{ Context }
@@ -4006,21 +4027,10 @@ func (p p_configure) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (l ul) configure2(ctx *execution, vt, val Value) (res Value) {
-	var args []Value
-	var op = vt
-	if x, y := op.(*argumented); y {
-		if f, y := x.Value.(flag); y {
-			op = f.Value
-		} else {
-			errostack(pc(ctx,x.Value), 8, "wrong configure word: %v %v", tv(x.Value), tv(val)).trace()
-		}
-		args = xmerge(_final(ctx), x.args...)
-	}
-
+func (l ul) configure_val(ctx *execution, _op, op, val Value, par map[string]Value) (res Value) {
 	var x, y = op.(*word)
 	if !y {
-		errostack(pc(ctx,op), 8, "wrong configure word: %v %v", tv(op), tv(val)).trace()
+		errostack(pc(ctx,_op), 8, "wrong configure word: %v %v %v", tv(_op), tv(op), tv(val)).trace()
 	}
 	switch x.s {
 	case "answer":
@@ -4034,62 +4044,22 @@ func (l ul) configure2(ctx *execution, vt, val Value) (res Value) {
 		return val.expand(_final(ctx))
 	}
 
-	var ops = l.project.configure._entries(ctx, vt, false)
-	if ops == nil {
-		errostack(pc(ctx,vt), 8, "no configure ops: %v", vt).trace()
-	}
-
-	var _params = make(map[string]Value)
-	for _, arg := range args {
-		switch t := arg.(type) {
-		case *pair:
-			_params[t.key.string(ctx)] = t
-
-		case *raw, *strlit, *strval, *strcomp:
-			_params["INFO"] = &pair{_word(t.Position(),"INFO"), t}
-
-			if !l.promptEnteringDirectory {
-				l.promptEnteringDirectory = true
-				do(ctx, prompt_ab{promptEnteringDirectory(ctx, l.project.absPath), nil})
-			}
-
-			s := t.string(ctx)
-			a := prompt(pc(ctx,op), "%s …", s).diagpoint
-			defer func(i int) {
-				if count_diag(ctx, diagInfo, diagWarn, diagError) <= i {
-					if res != nil {
-						s = res.string(ctx)
-					} else {
-						s = "<nil>"
-					}
-
-					b := prompt(ctx, "… %s\n", s).diagpoint
-					do(ctx, prompt_ab{a, b})
-					flush(ctx)
-
-					if checkpoints && truly(ctx, is_test_mode{}) {
-						l.configure2_check(ctx, ops, op, val, res, a, b)
-					}
-				}
-			} (count_diag(ctx, diagInfo, diagWarn, diagError))
-
-		default:
-			if !isTrivial(arg) {
-				errostack(pc(ctx,arg), 8, "wrong arg: %s", ts(arg)).trace()
-			}
-		}
-	}
-
-	var vals []Value
 	if l.project.configure == nil {
 		errostack(pc(ctx,op), 8, "wrong configure: %v %v", tv(op), tv(val)).trace()
 	}
+
+	var ops = l.project.configure._entries(ctx, _op, false)
+	if ops == nil {
+		errostack(pc(ctx,_op), 8, "no configure ops: %v", _op).trace()
+	}
+
+	var vals []Value
 	for _, ent := range ops {
 		var params []Value
 		for _, prog := range ent.programs() {
 			for _, p := range prog.params {
 				w := _word(p.Position(), p.ident(ctx))
-				if x, y := _params[w.s]; y {
+				if x, y := par[w.s]; y {
 					params = append(params, x)
 				} else {
 					switch w.s {
@@ -4122,10 +4092,11 @@ func (l ul) configure1(ctx Context) {
 		errostack(pc(ctx,nv), 16, "empty configure name: %v", ts(nv)).trace()
 	}
 
-	var noCond bool
-	var vt Value
+	var _no_cond, _info bool
+	var _op Value
+	var vals []Value
 	if checkpoints && truly(ctx, is_test_mode{}) {
-		defer l.configure_check(ctx, &vt, name)
+		defer l.configure_check(ctx, name, &_op, &vals)
 	}
 
 minusloop:
@@ -4140,11 +4111,8 @@ minusloop:
 				case "cond":
 					for _, a := range xmerge(_final(ctx), t.args...) {
 						if !a.true(ctx) {
-							noCond = true
+							_no_cond = true
 							break
-						}
-						if false {
-							notestack(pc(ctx,x), 3, "%v → %v", t.args[0], a).debug()
 						}
 					}
 					continue minusloop
@@ -4156,25 +4124,37 @@ minusloop:
 			}
 		}
 
-		vt = t
+		if _op != nil {
+			errostack(pc(ctx,t), 3, "configure op already defined: %v", _op).trace()
+		}
+
+		_op = t
 		break
 	}
 
+	op, par := l.configure_par(ctx, _op)
+
 	if l.p.tok == ASSIGN {
 		l.p.next(ctx, true) // skips the '=' token
-
-		var vals []Value
 		if l.p.tok != LINEND && l.p.lineComment == nil {
 			vals = append(vals, l.expr(ctx))
 		}
-
-		l.configure_set(ctx, name, expand(_final(ctx), vals...)...)
+		if o, y := l.project.elems[name]; y {
+			d, y := o.(*def)
+			if !y {
+				errostack(pc(ctx,o), 3, "configure non-def: %v", d).trace()
+			}
+			notestack(pc(pc(ctx,vals[0]),d.value), 1, "%v ; %v", d, vals).debug()
+		} else {
+			vals = expand(_final(ctx), vals...)
+			l.configure_set(ctx, name, vals...)
+		}
 		return
-	} else if l.p.tok.is_assign() {
+	}
+	if l.p.tok.is_assign() {
 		errostack(pc(ctx,l.p), 8, "%v: only '=' can assign a configure", nv).trace()
 	}
 
-	var deps []Value
 	var exe = execution{
 		automatic:automatic{Context:pc(ctx,nv), defs:make(defs_map)},
 		start:time.Now(), proj:l.project,
@@ -4182,6 +4162,7 @@ minusloop:
 
     exe.set(&exe, defVoid, "@", nv)
 
+	var deps []Value
 	if l.p.tok == COLON {
 		l.p.next(ctx, true) // skips the ':' token
 
@@ -4215,10 +4196,48 @@ dorecipes:
 		l.p.scanner.recipes(false)
 	}
 
-	if noCond { return }
+	if x, y := par["INFO"]; y {
+		if !l.promptEnteringDirectory {
+			l.promptEnteringDirectory = true
+			promptEnteringDirectory(ctx, l.project.absPath)
+		}
+
+		var s string
+		if p, y := x.(*pair); y {
+			s = p.val.string(ctx)
+		} else {
+			s = x.string(ctx)
+		}
+
+		a := prompt(pc(ctx,op), "%s …", s).diagpoint
+		defer func(i int) {
+			if count_diag(ctx, diagInfo, diagWarn, diagError) <= i {
+				s = ease(ctx, vals).string(ctx)
+				s = strings.Replace(s, "\n", "\\n", -1)
+
+				b := prompt(ctx, "… %s\n", s).diagpoint
+				flush(ctx)
+
+				if checkpoints && truly(ctx, is_test_mode{}) {
+					l.configure_val_check(&exe, name, op, vals, a, b)
+				}
+			}
+		} (count_diag(ctx, diagInfo, diagWarn, diagError))
+
+		_info = true
+	}
+
+	if _no_cond {
+		l.configure_set(ctx, name, _null(nv.Position()))
+		return
+	}
+
 	if o, y := l.project.elems[name]; y { // TODO: better way to detect duplication
 		if d, y := o.(*def); y {
-			if d.o == defConfig { return }
+			if d.o == defConfig {
+				if _info { vals = append(vals, d.value) }
+				return
+			}
 			errostack(pc(pc(ctx,d.value),nv), 3, "duplicated %v %v", d.o, d).trace()
 		} else {
 			errostack(pc(pc(ctx,o),nv), 3, "duplicated %v", ts(o)).trace()
@@ -4227,16 +4246,15 @@ dorecipes:
 
     for _, exe.prerequisite = range deps { exe.prerequisite.traverse(&exe) }
 
-	var res = auto_get(&exe, "-")
-	if res == nil && exe.recipes != nil && len(exe.interpreted) == 0 {
+	var val = auto_get(&exe, "-")
+	if val == nil && exe.recipes != nil && len(exe.interpreted) == 0 {
 		if x, y := dialects[""]; y && x != nil {
-			res = exe.interpret(&exe, x, nil)
+			val = exe.interpret(&exe, x, nil)
 		}
 	}
 
-	var vals []Value
-	if vt != nil { res = l.configure2(&exe, vt, res) }
-	if res != nil { vals = append(vals, res) }
+	if op != nil { val = l.configure_val(&exe, _op, op, val, par) }
+	if val != nil { vals = append(vals, val) }
 
 	for _, a := range exe.defers {
 		if x, y := a.(*group); y {
@@ -4387,11 +4405,10 @@ func (l ul) new_declare(ctx Context, name, filename string, opts *project_opts) 
     return
 }
 
-type project_opts struct {
+type project_opts struct{
 	configure Value `conf,config,configure` // detects dot_configure if empty
 	traveUseLoop bool `break,loop` // don't recursively use this project
 	multiUseAllowed bool `multi`  // this project is used multiple times
-	final bool `final` // no bases
 }
 
 func (l ul) declare(ctx Context, ident Value, name, filename string, declOpts *project_opts) (_ bool) {
@@ -4475,9 +4492,9 @@ func (l ul) pre_project_set(ctx Context, args ...Value) {
 	}
 }
 
-type declared_project struct { *project }
+type declared_project struct{ *project }
 
-type parent struct { Context ; *project }
+type parent struct{ Context ; *project }
 func (p parent) cast(t reflect.Type) Context { return icast(p,t) }
 func (p parent) inner() Context { return p.Context }
 func (p parent) do(ctx Context, op any) (_ any) {
@@ -4533,7 +4550,7 @@ func (l ul) proj(ctx Context, filename string, isMainFile bool) (_ Value, _ stri
 
 	var opts project_opts
 	if a := parse_opts(ctx, &opts, vals...); len(a) > 0 {
-		erro(ctx, "unknown project option %v", ts(a)).trace()
+		errostack(pc(ctx,filename), 3, "unknown project option %v", ts(a)).trace()
 	}
 
 	var ident Value
@@ -4681,14 +4698,14 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	var tmp   = joinTmpPath(ctx, l.workdir, rel)
 
 	if s := l.scope(); /* p == nil || */ s == nil {
-		erro(ctx, "%v: nil scope: %v", l.project, s).trace()
+		errostack(ctx, 3, "%v: nil scope: %v", l.project, s).trace()
 	}
 
-	defer l.closescope(l.openscope(bases(2, filename, true)))
+	defer l.closescope(l.openscope(bases(filename, 2, true)))
 
 	if checkpoints {
 		if s := l.p.scanner.file.Name(); filename != s {
-			erro(ctx, "%v: %s != %s", l.project, filename, s).trace()
+			errostack(ctx, 3, "%v: %s != %s", l.project, filename, s).trace()
 		}
 		if truly(ctx, is_test_mode{}) {
 			defer l.parse_file_check_1(ctx, abs, rel, tmp)

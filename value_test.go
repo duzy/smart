@@ -1694,194 +1694,102 @@ func testOptional(ctx *testcase) {
 		ctx.err("val0")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if o, y := v.(*project); !y {
-		ctx.err("%v", tst{v})
 	} else if s, t := ts(v), "{=project foo}"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if t := v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := o.name, "foo"; s != t {
-		ctx.err("%v", tst{v})
-	} else if t := v.ident(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+		ctx.err("%v %v → %s != %s", tst{d}, v, s, t)
 	}
 
 	if d := ctx.def("val1"); d == nil {
 		ctx.err("val1")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := ts(v), "{=delegate {=cond {=word name}}}"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if t, y := v.(*delegate); !y {
-		ctx.err("%v", tst{v})
-	} else if o, y := t.x.(cond); !y {
-		ctx.err("%v", tst{t.x})
-	} else if _, y := o.Value.(*word); !y {
-		ctx.err("%v", tst{o.Value})
-	} else if s, t := v.String(), "$(name?)"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if v := ctx.val(d.name); v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "$(name?)"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := ts(v), "{=null}"; s != t {
+		ctx.err("%v %v → %s != %s", tst{d}, v, s, t)
 	}
 
 	if d := ctx.def("val2"); d == nil {
 		ctx.err("val2")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if p, y := v.(*project); !y {
-		ctx.err("%v", tst{v})
-	} else if s, t := p.String(), "{=project "+p.name+"}"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if t := v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if o := v.expand(ctx); o == nil {
-		ctx.err("%v → nil", tst{v})
-	} else if t := o.String(); s != t {
-		ctx.err("%v → %s != %s", tst{o}, t, s)
-	} else if t := v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := p.name, "foo"; s != t {
-		ctx.err("%v", tst{v})
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if t := v.ident(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if v := ctx.val(d.name); v == nil {
-		ctx.err("%v", tst{d})
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if t := v.ident(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := ts(v), "{=self foo}"; s != t {
+		ctx.err("%v %v → %s != %s", tst{d}, v, s, t)
 	}
 
 	if d := ctx.def("val3"); d == nil {
 		ctx.err("val3")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := ts(v), "{=delegate {=cond {=arrow {=project foo}→{=word baz}}}}"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if t, y := v.(*delegate); !y {
-		ctx.err("%v", tst{v})
-	} else if c, y := t.x.(cond); !y {
-		ctx.err("%v", tst{t.x})
-	} else if _, y := c.Value.(*arrow); !y {
-		ctx.err("%v", tst{c.Value})
-	} else if s, t := v.String(), "$({=project foo}→baz?)"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if v := ctx.val(d.name); v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := ts(v), "{=null}"; s != t {
+		ctx.err("%v %v → %s != %s", tst{d}, v, s, t)
 	}
 
 	if d := ctx.def("val4"); d == nil {
 		ctx.err("val4")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if t, y := v.(*delegate); !y {
-		ctx.err("%v", tst{v})
-	} else if _, y := t.x.(*arrow); !y {
-		ctx.err("%v", tst{t.x})
-	} else if s, t := v.String(), "$(fo?→bar)"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if v := ctx.val(d.name); v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "$(fo?→bar)"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := ts(v), "{=null}"; s != t {
+		ctx.err("%v %v → %s != %s", tst{d}, v, s, t)
 	}
 
 	if d := ctx.def("val5"); d == nil {
 		ctx.err("val5")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if t, y := v.(*delegate); !y {
-		ctx.err("%v", tst{v})
-	} else if c, y := t.x.(cond); !y {
-		ctx.err("%v", tst{t.x})
-	} else if _, y := c.Value.(*arrow); !y {
-		ctx.err("%v", tst{c.Value})
-	} else if s, t := v.String(), "$(fo?→bar?)"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if v := ctx.val(d.name); v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "$(fo?→bar?)"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := ts(v), "{=null}"; s != t {
+		ctx.err("%v %v → %s != %s", tst{d}, v, s, t)
 	}
 
 	if d := ctx.def("val6"); d == nil {
 		ctx.err("val6")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if p, y := v.(self); !y {
-		ctx.err("%v", tst{v})
-	} else if s, t := v.String(), "{=self "+p.name+"}"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := p.name, "foo"; s != t {
-		ctx.err("%v", tst{v})
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := ts(v), "{=self foo}"; s != t {
+		ctx.err("%v %v → %s != %s", tst{d}, v, s, t)
 	}
 
 	if d := ctx.def("val7"); d == nil {
 		ctx.err("val7")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if p, y := v.(self); !y {
-		ctx.err("%v", tst{v})
-	} else if s, t := v.String(), "{=self "+p.name+"}"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := p.name, "foo"; s != t {
-		ctx.err("%v", tst{v})
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := ts(v), "{=self foo}"; s != t {
+		ctx.err("%v → %s != %s", tst{d}, s, t)
 	}
 
 	if d := ctx.def("val8"); d == nil {
 		ctx.err("val8")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "$({=project foo}→bar)?"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := "", v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := ts(v), "{=null}"; s != t {
+		ctx.err("%v → %s != %s", tst{d}, s, t)
 	}
 
 	if d := ctx.def("val10"); d == nil {
 		ctx.err("val10")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "{=project foo}"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := v.string(ctx), "foo"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.String(), "{=yes}"; s != t {
+		ctx.err("%v → %s != %s", tst{d}, s, t)
+	} else if s, t := v.string(ctx), "yes"; s != t {
+		ctx.err("%v → %s != %s", tst{d}, s, t)
 	}
 
 	if d := ctx.def("val11"); d == nil {
 		ctx.err("val11")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "{=project foo}"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := v.string(ctx), "foo"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, s, t)
+	} else if s, t := v.String(), "{=yes}"; s != t {
+		ctx.err("%v → %s != %s", tst{d}, s, t)
+	} else if s, t := v.string(ctx), "yes"; s != t {
+		ctx.err("%v → %s != %s", tst{d}, s, t)
+	}
+
+	if d := ctx.def("val12"); d == nil {
+		ctx.err("val12")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := v.String(), "{=yes}"; s != t {
+		ctx.err("%v → %s != %s", tst{d}, s, t)
+	} else if s, t := v.string(ctx), "yes"; s != t {
+		ctx.err("%v → %s != %s", tst{d}, s, t)
 	}
 }
 

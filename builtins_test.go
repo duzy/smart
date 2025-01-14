@@ -78,7 +78,7 @@ func testAssert(ctx testcase1) {
 	}
 }
 
-func testPushContext(ctx *testcase) {
+func testLocals(ctx *testcase) {
 	s := "foo"
 	if d := ctx.def(s); d == nil {
 		ctx.err(s)
@@ -3264,6 +3264,8 @@ func testBuiltin_file(ctx *testcase) {
 		ctx.err("%v %v", tst{v}, f)
 	} else if t := o.cmp(ctx, p); t != cmpEqual {
 		ctx.err("%v, %v %v", t, tst{o}, tst{p})
+	} else if true {
+		// ...
 	} else if p.cmp(ctx, o) != cmpEqual {
 		ctx.err("%v %v", tst{p}, tst{o})
 	} else if cmp(ctx, p, o) != cmpEqual {

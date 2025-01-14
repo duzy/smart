@@ -1,4 +1,4 @@
-project testbuiltins
+project testassert
 
 foo ::= foo
 

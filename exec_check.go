@@ -242,19 +242,34 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 	var c Context = ctx
 	var p = _project(c)
 	if p.name == "configure.base" {
+		var d = _entry(c).destiny()
 		var t = auto_get(c, "@")
 		var l = auto_get(c, "<")
 		var r = auto_get(c, ">")
 		if l != r {
-			d := _entry(c).destiny()
 			errostack(c, 5, "%v %v %v %v", d, t, l, r).trace()
 		}
 
-		if x, y := l.(*file); y && rx_fn_src.MatchString(x.name) { c = pc(c, x.fullname()) }
-		if x, y := t.(*file); y && rx_fn_src.MatchString(x.name) { c = pc(c, x.fullname()) }
+		if l != nil || t != nil {
+			do(ctx, l_filename("-"))
+		}
+		if x, y := l.(*file); y && rx_fn_src.MatchString(x.name) {
+			fn := x.fullname()
+			do(ctx, l_filename(fn))
+			c = pc(c, fn)
+		}
+		if x, y := t.(*file); y && rx_fn_src.MatchString(x.name) {
+			fn := x.fullname()
+			do(ctx, l_filename(fn))
+			c = pc(c, fn)
+		}
+		if false {
+			if s := tv(auto_get(c, "TARGET")); s == "{=word HAVE_STD_ATOMIC}" {
+				notestack(c, 3, "%v %v", t, r).debug()
+			}
+		}
 		if d_exec_recipe {
 			if x, y := t.(*file); y && strings.HasSuffix(x.name, ".rev.log") {
-				d := _entry(c).destiny()
 				prompt(c, "%s\n", src)
 				notestack(c, 3, "%v", d).debug(32)
 			}
@@ -262,10 +277,8 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 
 		if x, y := t.(*file); y && rx_conf_inc_log.MatchString(x.name) {
 			if x, y := l.(*file); y && strings.HasSuffix(x.name, ".c") {
-				var name, incl string
+				var name string
 				var v_name = auto_get(c, "NAME")
-				var v_incl = auto_get(c, "INCLUDE")
-
 				if v_name == nil {
 					prompt(c, "%v\n", src)
 					errostack(c, 5, "NAME is undefined").trace()
@@ -274,17 +287,11 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 					errostack(c, 5, "NAME is empty").trace()
 				}
 
-				if v_incl == nil {
-					prompt(c, "%v\n", src)
-					errostack(c, 5, "%s: INCLUDE is undefined", name).trace()
-				} else if incl = v_incl.string(c); incl == "" {
-					prompt(c, "%v\n", src)
-					errostack(c, 5, "%s: INCLUDE is empty: %v", name, v_incl).trace()
-				}
-
 				ninc := 0
 				incs := make(map[string]struct{})
-				for _, v := range merge(v_incl) { incs[v.string(ctx)] = struct{}{} }
+				if v_incl := auto_get(c, "INCLUDE"); v_incl != nil {
+					for _, v := range merge(v_incl) { incs[v.string(ctx)] = struct{}{} }
+				}
 
 				b, e := ioutil.ReadFile(x.fullname())
 				if e != nil {

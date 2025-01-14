@@ -431,7 +431,7 @@ func (tok token) is_closure_delegate() bool { return   _closure_beg < tok && tok
 func (tok token) is_delegate() bool         { return  _delegate_beg < tok && tok <  _delegate_end }
 func (tok token) is_assign() bool           { return    _assign_beg < tok && tok <    _assign_end }
 func (tok token) is_rule_delim() bool       { return _ruledelim_beg < tok && tok < _ruledelim_end }
-func (tok token) is_select_prog() bool      { return  SELECT_PROG1 == tok || tok == SELECT_PROG2 }
+func (tok token) is_select_prog() bool      { return  SELECT_PROG1 == tok || tok == SELECT_PROG2  }
 func (tok token) is_select_prop() bool      { return  SELECT_PROP  == tok }
 func (tok token) is_list_delim() bool {
 	switch tok {

@@ -43,7 +43,6 @@ const (
     propExDisjunction
     propExPairVal
     propExPathStr
-    propExPlaceholder // $_
     propExCondless
     propReversal
     propUnmap

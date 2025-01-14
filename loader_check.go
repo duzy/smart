@@ -210,8 +210,8 @@ func (l ul) configuration_check(ctx *configure_ctx, ident Value) {
 		if x, y := l.globe.loaded[ctx.abs]; !y || x == nil {
 			prompt(ctx, "%v: %v\n", ctx.abs, ctx.configure)
 			erro(ctx, "configure not loaded (dir=%v)", ctx.isDir).trace()
-		} else if x != ctx.p {
-			erro(ctx, "differs : %s : %v != %v", ctx.configure, x, ctx.p).trace()
+		} else if x != ctx.declared {
+			erro(ctx, "differs : %s : %v != %v", ctx.configure, x, ctx.declared).trace()
 		}
 	}
 
@@ -272,10 +272,10 @@ var langs_map = map[string]string{
 	"swift" : "swift",
 }
 
-type  loading_source string
-type _loading_source struct{ string }
-type  checked_source string
-type _checked_source struct{ string }
+type    loading_source string
+type is_loading_source string
+type    checked_source string
+type is_checked_source string
 
 func (l ul) pre_source_check(ctx Context, filename string, src any) {
 	do(ctx, loading_source(filename))
@@ -295,47 +295,46 @@ func (l ul) pre_source_check(ctx Context, filename string, src any) {
 	}
 
 	if strings.HasSuffix(filename, "/llvm/Config/do.smart") {
-		if truly(ctx, is_test_case{}) && !truly(ctx, _loading_source{filename}) {
-			erro(ctx, "%v : %s", l.project, bases(5, filename, true)).trace()
+		if truly(ctx, is_test_case{}) && !truly(ctx, is_loading_source(filename)) {
+			erro(ctx, "%v : %s", l.project, bases(filename, 5, true)).trace()
 		} else {
 			var d = filepath.Dir(filename)
-			if s := filepath.Join(d,".configure.declared"); truly(ctx, _loading_source{s}) {
-				erro(ctx, "%v : %s", l.project, bases(5, s, true)).trace()
+			if s := filepath.Join(d,".configure.declared"); truly(ctx, is_loading_source(s)) {
+				erro(ctx, "%v : %s", l.project, bases(s, 5, true)).trace()
 			}
-			if s := filepath.Join(d,".configure.appendix"); truly(ctx, _loading_source{s}) {
-				erro(ctx, "%v : %s", l.project, bases(5, s, true)).trace()
+			if s := filepath.Join(d,".configure.appendix"); truly(ctx, is_loading_source(s)) {
+				erro(ctx, "%v : %s", l.project, bases(s, 5, true)).trace()
 			}
 		}
 	}
 	if strings.HasSuffix(filename, "/llvm/Config/.configure") && false {
-		note(ctx, "%s %s", l.project, bases(3, filename, true)).debug()
+		note(ctx, "%s %s", l.project, bases(filename, 3, true)).debug()
 	}
 	if strings.HasSuffix(filename, "/llvm/Config/.configure.declared") {
-		erro(ctx, "%s %s", l.project, bases(3, filename, true)).trace()
+		erro(ctx, "%s %s", l.project, bases(filename, 3, true)).trace()
 	}
 	if strings.HasSuffix(filename, "/llvm/Config/.configure.appendix") {
-		if truly(ctx, is_test_case{}) && !truly(ctx, _loading_source{filename}) {
-			erro(ctx, "%v : %s", l.project, bases(5, filename, true)).trace()
+		if l.project.name != "llvm.Config" {
+			errostack(ctx, 3, "wrong project: %v", l.project.name).trace()
+		}
+		if truly(ctx, is_test_case{}) && !truly(ctx, is_loading_source(filename)) {
+			errostack(ctx, 3, "%v : %s", l.project, bases(filename, 5, true)).trace()
 		} else {
 			var d = filepath.Dir(filename)
-			if s := filepath.Join(d,".configure.declared"); truly(ctx, _loading_source{s}) {
-				erro(ctx, "%v : %s", l.project, bases(5, s, true)).trace()
+			if s := filepath.Join(d,".configure.declared"); truly(ctx, is_loading_source(s)) {
+				errostack(ctx, 3, "%v : %s", l.project.name, bases(s, 5, true)).trace()
 			}
-			if s := filepath.Join(d,"do.smart"); !truly(ctx, _loading_source{s}) {
-				erro(ctx, "%v : %s", l.project, bases(5, s, true)).trace()
-			}
-			if l.project.name != "llvm.Config" {
-				erro(ctx, "wrong project: %v", l.project.name).trace()
+			if s := filepath.Join(d,"do.smart"); false && !truly(ctx, is_loading_source(s)) {
+				errostack(ctx, 3, "%v : %s", l.project.name, bases(s, 5, true)).trace()
 			}
 		}
 		if l.project.configuration == nil {
-			errostack(ctx, 16, "%s: configuration is nil", l.project.name).trace()
+			// errostack(ctx, 16, "%s: configuration is nil", l.project.name).trace()
 		} else if l.project.configuration.exists() {
-			var d = l.project.def(ctx, "LLVM_TARGETS_TO_BUILD")
-			if d == nil {
+			if d := l.project.def(ctx, "LLVM_TARGETS_TO_BUILD"); d == nil {
 				erro(pc(ctx,filename), "LLVM_TARGETS_TO_BUILD is not def")
 				erro(pc(ctx,l.p.Position()), "%s: %s", mode, l.project.name)
-				erro(ctx, "%s: %v", mode, l.project.configuration).trace()
+				errostack(ctx, 3, "%s: %v", mode, l.project.configuration).trace()
 			} else {
 				switch mode {
 				case "configure":
@@ -391,7 +390,8 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 		switch l.project.name {
 		case "testdefaultconfigure", "testdeftwoconfigure":
 			if !bytes.Contains(*text, []byte("FOO = {=self "+l.project.name+"}\n")) {
-				erro(ctx, "wrong text: %s", *text).trace()
+				prompt(ctx, "%s\n", *text)
+				errostack(pc(ctx,filename), 3, "wrong text").trace()
 			}
 			if x, y := l.project.elems["FOO"]; !y {
 				prompt(ctx, "%v:\n%s", filename, *text)

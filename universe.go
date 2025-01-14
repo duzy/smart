@@ -97,7 +97,7 @@ func (ctx *universe) ts(t string) string {
     var s = ts(ctx.Context)
     if  s == "{}"  {
         s, _ = filepath.Rel(workBaseDir, ctx.workdir)
-        s = bases(3, s, true)
+        s = bases(s, 3, true)
         if s == "." || s == "" { return "{="+t+"}" }
     }
     return "{="+t+" "+s+"}"

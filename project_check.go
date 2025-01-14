@@ -396,7 +396,7 @@ func (p *project) tempfile_check(ctx Context, name, d string, f *file) {
 			erro(ctx, "%s: %v : %s", p.name, d, f.dir).trace()
 		} else if s, t1 := "rel.remnant=$(trim-prefix &(rel.chop),&/)", t.String(); t1 != s {
 			erro(ctx, "%s: %v : %s != %s", p.name, d, t1, s).trace()
-		} else if s, t2 := bases(2, p.absPath), t.string(ctx); t2 != s {
+		} else if s, t2 := bases(p.absPath, 2), t.string(ctx); t2 != s {
 			erro(ctx, "%s: %v : %s != %s", p.name, d, t2, s).trace()
 		}
 	}

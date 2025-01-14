@@ -110,7 +110,6 @@ func (ctx *builtin_trimprefix) x_check(prefix, val, res Value) {
 
 func (ctx *builtin_auto) check_res(ar []Value) {
     var a = ctx.evocation.a[1]
-
     if a.String() == "$(a)" && auto_find(ctx, "a") == nil {
         if x, y := a.(*list); !y || x.len() != 1 {
             erro(ctx, "%v", ts(a)).trace()
@@ -560,6 +559,33 @@ func (ctx *builtin_grep) check_res(rx *regexp.Regexp, text string, temp, val Val
 			erro(ctx, "%s: %v; %v; %v; %v; %v", p.name, rx, text, temp, val, ctx.defs).trace()
 		default:
 			note(ctx, "%s: %v; %v; %v; %v; %v", p.name, rx, text, temp, val, ctx.defs).debug()
+		}
+	}
+}
+
+func (ctx *builtin_foreach) check_v(v Value) {
+	if len(ctx.evocation.a) == 0 { return }
+
+	var t = ctx.evocation.a[1]
+	if d, y := v.(*delegate); y && d.x.String() == "if" {
+		if len(d.a) == 2 && strings.Contains(d.a[1].String(), "$_") {
+			if l, y := t.(*list); y && l.len() == 1 {
+				if d, y := l.elems[0].(*delegate); y && d.x.String() == "if" {
+					if len(d.a) == 2 && strings.Contains(d.a[1].String(), "$_") {
+						// tv(d.a[1].expand(_final(ctx)))
+						erro(pc(ctx,t), "%s: %v %v", d.x, d.a[0], d.a[1])
+					}
+				}
+			}
+			errostack(pc(ctx,t), 3, "%s: %v %v", d.x, d.a[0], d.a[1]).debug(2)
+		}
+	}
+}
+
+func (ctx *builtin_if) a_check(i int, a, v Value, skip bool) {
+	if p := _project(ctx); i == 1 && p.name == "llvm.Config" {
+		if w := auto_get(ctx, "_"); w != nil && strings.Contains(v.String(), "$_") {
+			errostack(pc(ctx,a), 5, "%v: %v %v; %s", w, a, v, _builtincalls(ctx)).debug(32)
 		}
 	}
 }

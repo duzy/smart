@@ -171,11 +171,11 @@ func (l ul) expr_check_1(ctx Context, x Value, tok token, _res *Value) {
 				switch ts(x) {
 				case "{=word foo}":
 					switch ts(*_res) {
-					case "{=cond {=arrow {=project foo}→{=word name}}}":
-					case "{=cond {=arrow {=project foo}→{=word baz}}}":
-					case "{=cond {=arrow {=cond {=arrow {=project foo}→{=word name}}}→{=word value}}}":
-					case "{=cond {=arrow {=arrow {=project foo}→{=word name}}→{=word value}}}":
-					case "{=cond {=arrow {=def name}→{=word value}}}":
+					case "{=cond {=arrow {=project foo}→{=word name}}}",
+						"{=cond {=arrow {=project foo}→{=word baz}}}",
+						"{=cond {=arrow {=arrow {=project foo}→{=word name}}→{=word xxxx}}}",
+						"{=cond {=arrow {=arrow {=project foo}→{=word name}}→{=word item}}}",
+						"{=cond {=arrow {=cond {=arrow {=project foo}→{=word name}}}→{=word item}}}":
 					default:
 						erro(ctx, "unexpected %s", ts(*_res)).trace()
 					}
@@ -263,23 +263,61 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 		switch d.name {
 		case "val0":
 			if s, t := ts(d.value), "{=project foo}"; s != t {
-				erro(ctx, "%s != %s", s, t).trace()
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
 			}
 		case "val1":
-			if s, t := ts(d.value), "{=delegate {=cond {=word name}}}"; s != t {
-				erro(ctx, "%s != %s", s, t).trace()
+			if s, t := ts(d.value), "{=null}"; s != t {
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
 			}
 		case "val2":
-			if s, t := ts(d.value), "{=project foo}"; s != t {
-				erro(ctx, "%s != %s", s, t).trace()
+			if s, t := ts(d.value), "{=self foo}"; s != t {
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
+			}
+		case "val3":
+			if s, t := ts(d.value), "{=null}"; s != t {
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
 			}
 		case "val4":
-			if s, t := ts(d.value), "{=delegate {=arrow {=cond {=word fo}}→{=word bar}}}"; s != t {
-				erro(ctx, "%s != %s", s, t).trace()
+			if s, t := ts(d.value), "{=null}"; s != t {
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
 			}
 		case "val5":
-			if s, t := ts(d.value), "{=delegate {=cond {=arrow {=cond {=word fo}}→{=word bar}}}}"; s != t {
-				erro(ctx, "%s != %s", s, t).trace()
+			if s, t := ts(d.value), "{=null}"; s != t {
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
+			}
+		case "val6":
+			if u := auto_get(ctx, "_"); u != nil {
+				if s, t := ts(d.value), "{=self foo}"; s != t {
+					erro(pc(ctx,d), "%s != %s ; %v; %v", s, t, value, u).trace()
+				}
+			}
+		case "val7":
+			if u := auto_get(ctx, "_"); u != nil {
+				if s, t := ts(d.value), "{=self foo}"; s != t {
+					erro(pc(ctx,d), "%s != %s ; %v; %v", s, t, value, u).trace()
+				}
+			}
+		case "val8":
+			if u := auto_get(ctx, "_"); u != nil {
+				if s, t := ts(d.value), "{=null}"; s != t {
+					erro(pc(ctx,d), "%s != %s ; %v; %v", s, t, value, u).trace()
+				}
+			}
+		case "val9":
+			if s, t := ts(d.value), "{=null}"; s != t {
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
+			}
+		case "val10":
+			if s, t := ts(d.value), "{=answer yes}"; s != t {
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
+			}
+		case "val11":
+			if s, t := ts(d.value), "{=answer yes}"; s != t {
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
+			}
+		case "val12":
+			if s, t := ts(d.value), "{=answer yes}"; s != t {
+				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
 			}
 		}
 	case "testdata/configuration", "testdata/configuration/two":
@@ -301,11 +339,11 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 	}
 }
 
-func def_idents_check(ctx Context, idents []Value, value Value, defs []*def) {
+func ul_assign_check(ctx Context, idents []Value, value Value, defs []*def) {
 	switch p := _project(ctx); p.name {
 	case "variant.target":
 		if len(defs) == 0 {
-			erro(ctx, "{=%v %v} : %v", typeof(idents), idents, value).trace()
+			erro(pc(ctx,idents), "%v %v", idents, value).trace()
 		}
 		for _, id := range idents {
 			if x, y := id.(*argumented); y {
@@ -783,16 +821,11 @@ func (l ul) codeblock_check(ctx *automatic, op token) {
 	}
 }
 
-func (l ul) configure_check(ctx Context, _vt *Value, name string) {
-	var vt = *_vt
-	var d = l.project.def(ctx, name)
-	if d == nil {
-		errostack(ctx, 8, "nil configure: %v; %v", name, vt).trace()
+func (l ul) configure_check(ctx Context, name string, _op *Value, _vals *[]Value) {
+	if d := l.project.def(ctx, name); d == nil {
+		errostack(ctx, 8, "nil configure: %s; %v %v", name, *_op, *_vals).trace()
 	} else if d.value == nil {
-		errostack(pc(ctx,d), 8, "nil configure: %v", d).trace()
-	}
-	switch _project(ctx).name {
-	case "llvm.Config":
+		errostack(ctx, 8, "nil configure: %v; %v %v", d, *_op, *_vals).trace()
 	}
 }
 
@@ -805,6 +838,14 @@ func (l ul) configure_save_check(ctx Context, configs []*def, f *file, fn string
 	case "testdata/configuration":
 		if configs == nil {
 			errostack(ctx, 6, "%v %v", l.project, f).trace()
+		}
+		for _, d := range configs {
+			switch d.name {
+			case "FOO":
+				if d.value == nil || d.value.String() != "{=self testdefaultconfigure}" {
+					errostack(ctx, 6, "%v: %v", l.project.name, d).trace()
+				}
+			}
 		}
 	}
 }
