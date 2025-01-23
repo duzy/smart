@@ -99,9 +99,9 @@ func (o origin) String() string {
     }
 }
 
-type defs_map map[string]*def
-func (m defs_map) len() int { return len(m) }
-func (m defs_map) String() (s string) {
+type defmap map[string]*def
+func (m defmap) len() int { return len(m) }
+func (m defmap) String() (s string) {
     seen := make(map[string]struct{}) // NOTE: digits alias: 1 2 3...
     for _, d := range m {
         if _, y := seen[d.name]; y { continue }
@@ -122,7 +122,7 @@ type res_auto  struct { d *def; v Value }
 type automatic struct {
     Context
     sync.RWMutex
-    defs defs_map
+    defs defmap
     params map[string]*auto
 }
 func (ac *automatic) cast(t reflect.Type) Context { return icast(ac, t) }
@@ -341,8 +341,12 @@ func (a *auto) expand(ctx Context) (res Value) {
     }
     return a
 }
+func (a *auto) evoke_(ctx *evocation) (res Value) {
+    if d := auto_find(ctx, a.name); d != nil { res, _ = evoke(ctx, d, nil, nil) }
+    return
+}
 func (a *auto) invoke(ctx Context, o, v []Value) (res Value) {
-    if d := auto_find(ctx, a.name); d != nil { res = d.invoke(ctx, o, v) }
+    if d := auto_find(ctx, a.name); d != nil { res, _ = evoke(ctx, d, o, v) }
     return
 }
 func (a *auto) cmp(ctx Context, v Value) (res cmpres) {
@@ -494,7 +498,7 @@ func (d *def) expandable(ctx Context) (res bool) {
 func (d *def) expand(Context) Value { return d }
 func (d *def) evoke(ctx *evocation) (res Value) {
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer d.evoke_check(ctx, &res)
+        defer d.evoke_check(ctx, &res, time.Now())
     }
 
     var o origin
@@ -524,10 +528,12 @@ func (d *def) evoke(ctx *evocation) (res Value) {
     v = v.expand(de)
 
     if o == defExecute {
-        return scalarize(d.xexe(de, v))
-    } else {
-        return scalarize(v)
+        v = d.xexe(de, v)
     }
+    if false {
+        v = scalarize(v)
+    }
+    return v
 }
 func (d *def) cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*def); y {
@@ -585,17 +591,24 @@ func (d *def) set(ctx Context, o origin, value Value, app ...Value) {
         return
     }
 
-    var a bool
     var vals []Value
-    if !isTrivial(value) { vals = append(vals, merge(value)...) }
-    if a = len(app)>0; a { vals = append(vals, merge(app...)...) }
+    switch x := value.(type) {
+    case *null, *none:
+    case *list: vals = append(x.elems, vals...)
+    default: vals = append([]Value{value}, vals...)
+    }
+
+    var a bool
+    if a = len(app)>0; a { vals = append(vals, app...) }
     if o != defExpand0 && len(vals) > 0 { vals = expand(original{ctx,o}, vals...) }
     if a {
         // d.Lock()
         var v = d.value
         // d.Unlock()
-        if !isTrivial(v) {
-            vals = append([]Value{v}, vals...)
+        switch x := v.(type) {
+        case *null, *none:
+        case *list: vals = append(x.elems, vals...)
+        default: vals = append([]Value{v}, vals...)
         }
     }
 
@@ -614,10 +627,6 @@ func (d *def) set(ctx Context, o origin, value Value, app ...Value) {
     return
 }
 func (d *def) append(ctx Context, a ...Value) { if len(a) > 0 { d.set(ctx, d.o, nil, a...) } }
-func (d *def) invoke(ctx Context, o, a []Value) (res Value) {
-	res, _ = evoke(ctx, d, o, a)
-    return
-}
 func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
     if isTrivial(value) { return }
 
@@ -778,7 +787,7 @@ func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
     var n = time.Now()
     if d := n.Sub(t); d > 2*time.Second {
         var a = xmerge(_final(ctx), ctx.a...)
-        var m = time.Since(n)
+        var m = time.Since(n)//; %v %v
         notestack(pc(ctx,p), 16, "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a)).debug(256)
     } else if f := v.Elem().FieldByName("timing"); f.IsValid() {
         if f.Type().Kind() == reflect.Bool && f.Bool() {
@@ -804,41 +813,29 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     } else if f.CanAddr() {
         b := (*builtin_)(unsafe.Pointer(f.Addr().Pointer()))
         b.evocation = ctx
-    } else if f := _v.Elem().FieldByName("evocation"); !f.IsValid() {
+    } else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
         errostack(pc(ctx,_i), 8, "no such field: %s.evocation", _v.Elem().Type()).trace()
     } else if f.CanSet() {
-        // FIXME: can't set value for struct fields of type `*evocation`
         f.Set(reflect.ValueOf(ctx))
     } else if f.CanAddr() && f.Addr().CanSet() {
-        // FIXME: still can't set pointer for values of type `**evocation`
         f.Addr().SetPointer(unsafe.Pointer(ctx))
     } else {
         errostack(pc(ctx,_i), 8, "cannot set field: %s.evocation", _v.Elem().Type()).trace()
     }
 
-    if o := _opts(ctx, _v, ctx.o); o != nil {
-        errostack(pc(ctx,o), 16, "%v: unsupported opts: %v", p, o).trace()
+    if ctx.o != nil {
+        if o := _opts(ctx, _v, ctx.o); o != nil {
+            errostack(pc(ctx,o), 16, "%v: unsupported opts: %v", p, o).trace()
+        }
     }
 
-    var force = /* truly(ctx, is_final{}) || */ builtinFinalField(ctx, _v, _i, false)
-
-    if x, y := _i.(builtin_a); y {
-        if x.a() && !force { return p }
-    } else if ctx.a = expand(ctx, ctx.a...); !force {
-        if indeterminate(ctx, ctx.a...) { return p }
-    }
-
-    switch t := _i.(type) {
-    case builtin_x:
-        if v := t.x(); v == nil {
-            return
-        } else if _, y := v.(skip); y {
-            return p
-        } else {
+    if x, y := _i.(builtin_x); y {
+        if v := x.x(); v != nil {
+            if _, y := v.(skip); y { return p }
             return ease(ctx, v)
         }
-    default:
-        errostack(pc(ctx,p), 3, "no method: %v (%s)", p.t.Name(), ts(_v)).trace()
+    } else {
+        errostack(pc(ctx,p), 3, "no method: %v", p.t.Name()).trace()
     }
     return
 }

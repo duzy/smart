@@ -137,429 +137,507 @@ func (ctx *builtin_grep) check_res(rx *regexp.Regexp, text string, temp, val Val
 	} else if t := d.string(ctx); t != text {
 		erro(ctx, "%v: %v: %s != %s", rx, d, t, text).trace()
 	}
-	switch rx.String() {
-	case `.+?\.o`:
-	case `(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)`:
-		switch text {
-		case "foo.o":
-			if d, y := ctx.defs["1"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+	switch j := _project(ctx); j.name {
+	case "llvm.Config":
+		switch rx.String() {
+		case `^ *set\((LLVM_VERSION_(MAJOR|MINOR|PATCH)) +([0-9]+) *\)`:
+			if v := auto_get(ctx, "2"); v == nil {
+				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+			} else {
+				switch v.string(ctx) {
+				case "MAJOR":
+					if v := auto_get(ctx, "0"); v == nil {
+						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+					} else if s, t := "  set(LLVM_VERSION_MAJOR 20)", v.string(ctx); s != t {
+						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+					}
+					if v := auto_get(ctx, "3"); v == nil {
+						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+					} else if s, t := "20", v.string(ctx); s != t {
+						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+					}
+				case "MINOR":
+					if v := auto_get(ctx, "0"); v == nil {
+						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+					} else if s, t := "  set(LLVM_VERSION_MINOR 0)", v.string(ctx); s != t {
+						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+					}
+					if v := auto_get(ctx, "3"); v == nil {
+						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+					} else if s, t := "0", v.string(ctx); s != t {
+						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+					}
+				case "PATCH":
+					if v := auto_get(ctx, "0"); v == nil {
+						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+					} else if s, t := "  set(LLVM_VERSION_PATCH 0)", v.string(ctx); s != t {
+						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+					}
+					if v := auto_get(ctx, "3"); v == nil {
+						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+					} else if s, t := "0", v.string(ctx); s != t {
+						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+					}
+				default:
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
 			}
-			if d, y := ctx.defs["2"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+		default:
+			note(ctx, "%s: %v; %v; %v; %v; %v", j.name, rx, text, temp, val, ctx.defs).debug(2)
+		}
+	case "testvalue":
+		switch rx.String() {
+		case `.+?\.o`:
+			switch text {
+			case "foo.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			case "foo-x.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo-x.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			case "foo-x-y.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo-x-y.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			case "foo-x-y-z.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo-x-y-z.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			case "foobar.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foobar.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			default:
+				note(ctx, "%v; %v; %v; %v; %v", rx, text, temp, val, ctx.defs).debug(2)
 			}
-			if d, y := ctx.defs["3"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+		case `(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)`:
+			switch text {
+			case "foo.o":
+				if d, y := ctx.defs["1"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["2"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["3"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["4"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["i"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["5"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["6"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["x"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			case "foo-x.o":
+				if d, y := ctx.defs["1"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["2"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-x", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["3"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-x", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["4"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["i"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "x", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["5"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["6"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["x"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo-x.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-x", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-x", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "x", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			case "foo-x-y.o":
+				if d, y := ctx.defs["1"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["2"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-x-y", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["3"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-y", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["4"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["i"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "y", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["5"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["6"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["x"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo-x-y.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-x-y", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-y", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "y", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			case "foo-x-y-z.o":
+				if d, y := ctx.defs["1"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["2"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-x-y-z", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["3"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-z", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["4"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["i"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "z", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["5"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["6"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["x"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo-x-y-z.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foo", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-x-y-z", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "-z", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "z", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			case "foobar.o":
+				if d, y := ctx.defs["1"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foobar", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["2"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["3"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["4"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["i"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if d, y := ctx.defs["5"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if _, y := ctx.defs["6"]; y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if d, y := ctx.defs["x"]; !y {
+					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", d.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foobar.o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "foobar", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := ".", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
+				} else if s, t := "o", v.string(ctx); s != t {
+					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+				}
+			default:
+				note(ctx, "%v; %v; %v; %v; %v", rx, text, temp, val, ctx.defs).debug(2)
 			}
-			if _, y := ctx.defs["4"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["i"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["5"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if _, y := ctx.defs["6"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["x"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
+		default:
+			note(ctx, "%v; %v; %v; %v; %v", rx, text, temp, val, ctx.defs).debug(2)
+		}
+	case "lib.unwind":
+		switch rx.String() {
+		case `^#define +_LIBUNWIND_VERSION +([0-9]+)`:
 			if v := auto_get(ctx, "0"); v == nil {
 				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo.o", v.string(ctx); s != t {
+			} else if s, t := `#define _LIBUNWIND_VERSION 15000`, v.string(ctx); s != t {
 				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 			}
 			if v := auto_get(ctx, "1"); v == nil {
 				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "2"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "3"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "4"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "i"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "5"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "6"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "x"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-		case "foo-x.o":
-			if d, y := ctx.defs["1"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["2"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-x", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["3"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-x", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if _, y := ctx.defs["4"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["i"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "x", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["5"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if _, y := ctx.defs["6"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["x"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if v := auto_get(ctx, "0"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo-x.o", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "1"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "2"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-x", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "3"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-x", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "4"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "i"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "x", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "5"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "6"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "x"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-		case "foo-x-y.o":
-			if d, y := ctx.defs["1"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["2"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-x-y", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["3"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-y", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if _, y := ctx.defs["4"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["i"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "y", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["5"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if _, y := ctx.defs["6"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["x"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if v := auto_get(ctx, "0"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo-x-y.o", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "1"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "2"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-x-y", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "3"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-y", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "4"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "i"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "y", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "5"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "6"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "x"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-		case "foo-x-y-z.o":
-			if d, y := ctx.defs["1"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["2"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-x-y-z", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["3"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-z", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if _, y := ctx.defs["4"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["i"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "z", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["5"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if _, y := ctx.defs["6"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["x"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if v := auto_get(ctx, "0"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo-x-y-z.o", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "1"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foo", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "2"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-x-y-z", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "3"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "-z", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "4"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "i"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "z", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "5"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "6"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "x"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-		case "foobar.o":
-			if d, y := ctx.defs["1"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foobar", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["2"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["3"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if _, y := ctx.defs["4"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["i"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if d, y := ctx.defs["5"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if _, y := ctx.defs["6"]; y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if d, y := ctx.defs["x"]; !y {
-				erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", d.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
-			}
-			if v := auto_get(ctx, "0"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foobar.o", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "1"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "foobar", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "2"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "3"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "4"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "i"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "5"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := ".", v.string(ctx); s != t {
-				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-			}
-			if v := auto_get(ctx, "6"); v != nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			}
-			if v := auto_get(ctx, "x"); v == nil {
-				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "o", v.string(ctx); s != t {
+			} else if s, t := "15000", v.string(ctx); s != t {
 				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 			}
 		default:
-			erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-		}
-	case `^ *set\(LLVM_VERSION_MAJOR +([0-9]+) *\)`:
-		if v := auto_get(ctx, "1"); v == nil {
-			erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-		} else if s, t := "20", v.string(ctx); s != t {
-			erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-		}
-	case `^ *set\(LLVM_VERSION_MINOR +([0-9]+) *\)`:
-		if v := auto_get(ctx, "1"); v == nil {
-			erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-		} else if s, t := "0", v.string(ctx); s != t {
-			erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
-		}
-	case `^ *set\(LLVM_VERSION_PATCH +([0-9]+) *\)`:
-		if v := auto_get(ctx, "1"); v == nil {
-			erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-		} else if s, t := "0", v.string(ctx); s != t {
-			erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
+			note(ctx, "%s: %v; %v; %v; %v; %v", j.name, rx, text, temp, val, ctx.defs).debug(2)
 		}
 	default:
-		switch p := _project(ctx); p.name {
-		case "llvm.Config":
-		case "testvalue":
-			erro(ctx, "%s: %v; %v; %v; %v; %v", p.name, rx, text, temp, val, ctx.defs).trace()
-		default:
-			note(ctx, "%s: %v; %v; %v; %v; %v", p.name, rx, text, temp, val, ctx.defs).debug()
-		}
+		note(ctx, "%s: %v; %v; %v; %v; %v", j.name, rx, text, temp, val, ctx.defs).debug(2)
 	}
 }
 
@@ -582,7 +660,7 @@ func (ctx *builtin_foreach) check_v(v Value) {
 	}
 }
 
-func (ctx *builtin_if) a_check(i int, a, v Value, skip bool) {
+func (ctx *builtin_if) a_check(i int, a, v Value) {
 	if p := _project(ctx); i == 1 && p.name == "llvm.Config" {
 		if w := auto_get(ctx, "_"); w != nil && strings.Contains(v.String(), "$_") {
 			errostack(pc(ctx,a), 5, "%v: %v %v; %s", w, a, v, _builtincalls(ctx)).debug(32)

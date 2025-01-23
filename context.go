@@ -31,8 +31,6 @@ const (
     propDirtyOpts property = 1<<iota
     propErros
     propExAuto
-    propExClosure
-    propExDelegate
     propExDef  //   =, :=, ::=, ...
     propExDef0 //   =
     propExDef1 //  :=
@@ -40,10 +38,7 @@ const (
     propExDef3 // ;:= (TODO)
     propExDefValue
     propExDigital // $0, $1, ...
-    propExDisjunction
     propExPairVal
-    propExPathStr
-    propExCondless
     propReversal
     propUnmap
 )
@@ -67,8 +62,8 @@ type (
     is_test_case struct{}
     is_test_mode struct{}
     is_test_univ struct{}
+    no_position  struct{}
     invalid_position struct{}
-    no_position struct{}
 )
 
 func _param_name(ctx Context, n int) (_ string) {

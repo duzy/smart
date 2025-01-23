@@ -810,7 +810,7 @@ func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
 
 func (prog *program) execute(_ctx Context) (res Value) {
     var exe = &execution{
-        automatic:automatic{Context:_ctx, defs:make(defs_map)},
+        automatic:automatic{Context:_ctx, defs:make(defmap)},
         recs:make(map[Value]int), start:time.Now(), prog:prog,
         proj:prog.project, recipes:prog.recipes, language:prog.language,
     }

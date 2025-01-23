@@ -758,7 +758,7 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
       var ac *automatic
       if ctx.forRecipe != nil {
           a1, a2 = &strlit{}, &decimal{}
-          ac = &automatic{Context:ctx, defs:make(defs_map)}
+          ac = &automatic{Context:ctx, defs:make(defmap)}
           ac.args(ac.Context, []Value{a1, a2})
       }
 
@@ -869,7 +869,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     ctx.Stderr.forLine = ctx.forStderr
 
     if ctx.forStdout != nil || ctx.forStderr != nil {
-        ac := automatic{Context:ctx.Context, defs:make(defs_map)}
+        ac := automatic{Context:ctx.Context, defs:make(defmap)}
         ac.args(ac.Context, []Value{&ctx.line, &ctx.lino})
         if x, y := ac.defs["1"]; y {
             ac.defs["_"] = x // alias
@@ -954,9 +954,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     }
 
     if false && truly(ctx, is_test_univ{}) {
-        defer func() {
-            note(ctx, "%v %v %v", p.cmd, args, result).debug()
-        } ()
+        defer note(ctx, "%v %v %v", p.cmd, args, result).debug()
     }
 
     var cmd = p.cmd
@@ -1049,7 +1047,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             var ctx = closure_with(ctx, ec.container.scope)
             if obj := ec.container.resolve(ctx, name); obj != nil {
                 if d, _ := obj.(*def); d != nil {
-                    if v := d.invoke(ctx, nil, nil); v != nil {
+                    if v, _ := evoke(ctx, d, nil, nil); v != nil {
                         if str = v.string(ctx); str == "-" {
                             // if v, err = def.DiscloseValue(ec.container); err == nil && v != nil {
                             //   if str, err = v.string(ctx); str == "" { str = "-" }

@@ -227,7 +227,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		}
 	} else {
 		if 0 < len(a) {
-			ac := automatic{Context:c.Context, defs:make(defs_map)}
+			ac := automatic{Context:c.Context, defs:make(defmap)}
 			ac.args(ctx, a)
 			c.Context = &ac
 		}
@@ -457,6 +457,7 @@ func Test(t *testing.T) {
 
 	// builtins_test.go
 	run(t, "builtins", "builtins/wildcard",   "testbuiltins", testBuiltin_wildcard)
+	run(t, "builtins", "builtins/if",         "testbuiltins", testBuiltin_if)
 	run(t, "builtins", "builtins/foreach",    "testbuiltins", testBuiltin_foreach)
 	run(t, "builtins", "builtins/foreach/1",  "testbuiltins", testBuiltin_foreach1)
 	run(t, "builtins", "builtins/foreach/2",  "testbuiltins", testBuiltin_foreach2)

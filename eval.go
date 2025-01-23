@@ -9,7 +9,6 @@ package smart
 type invoker interface { invoke(Context, []Value, []Value) Value }
 type executer interface { execute(Context, ...Value) []Value }
 
-// eval evaluates smart statements
 type eval struct { accumulation bool ; o origin }
 func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
     var exe = _execution(ctx)

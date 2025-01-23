@@ -258,7 +258,7 @@ func (p *uselist) sel(ctx Context, name string) (result any) {
     return vals
 }
 
-func (p *uselist) invoke(ctx Context, o, a []Value) (result Value) {
+func (p *uselist) _invoke(ctx Context, o, a []Value) (result Value) {
     var targets []Value
     if p.list != nil {
         for _, usee := range p.list {

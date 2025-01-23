@@ -506,67 +506,47 @@ func (p *parser) recipe_start() (res bool) {
 func (l ul) arrow(ctx Context, lhs Value) (res Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "arrow")) }
 
+	pos := lhs.Position()//l.p.Position()
 	tok := l.p.tok // the arrow '->' or '=>'
-	pos := l.p.Position()
 
-	ctx = pc(ctx, l.p)
+	ctx = pc(ctx, pos)
 
 	l.p.step(ctx) // skip '->' or '=>'
 
 	switch t := lhs.(type) {
 	case *arrow:
-		if v := t.expand(ctx); isNull(v) {
-			erro(ctx, "nil arrow: %v", lhs).trace()
+		if o := t.expand(ctx); !isNull(o) {
+			return _arrow(pos, tok, o, l.composite(ctx))
 		} else {
-			lhs = v
+			erro(ctx, "nil arrow: %v", lhs).trace()
 		}
 	case *word:
-        switch t.s {
-        case "use", "usee", "goals", "os", "mode":
+		switch t.s {
+		case "use", "usee", "goals", "os", "mode":
 			erro(ctx, "$:%s: is obsoleted, use $(.$s) instead", t.s, t.s).trace()
-        default:
-            if o := l.resolve(ctx, t, t.s); false {
-				erro(ctx, "resolve '%v' failed", lhs)
-				note(ctx, "parser is here (tok=%s)", tok)
-				note(ctx, "parser to go here (tok=%s, lit=%s)", l.p.tok, l.p.lit).trace()
-            } else if !isNull(o) {
-				lhs = o
+		default:
+			if o := l.resolve(ctx, t, t.s); !isNull(o) {
+				return _arrow(pos, tok, o, l.composite(ctx))
 			} else if tok == SELECT_PROG2 {
-				res = _null(_position(ctx)) // ignore
-				return
+				return _null(pos) // ignore
 			} else {
 				erro(ctx, "%v: '%v' is undefined (name=%v, obj=%v)", l.project, lhs, t, o)
 				note(ctx, "%v: parser is here (name=%s, tok=%s)", l.project, t.s, tok)
 				note(ctx, "%v: parser to go here (tok=%s, lit=%s)", l.project, l.p.tok, l.p.lit).trace()
-            }
-        }
-    case *compound: // for cases like '.foo'
-		name := lhs.string(ctx)
-        if o := l.resolve(ctx, t, name); false {
-			erro(ctx, "resolve arrow object '%v' (%s) error", lhs, name).trace()
-        } else if !isNull(o) {
-			lhs = o
+			}
+		}
+	case *compound: // for cases like '.foo'
+		if o := l.resolve(ctx, t, lhs.string(ctx)); !isNull(o) {
+			return _arrow(pos, tok, o, l.composite(ctx))
 		} else if tok == SELECT_PROG2 {
-			res = _null(_position(ctx)) // ignore
-			return
+			return _null(pos) // ignore
 		} else {
 			erro(ctx, "'%v' is undefined", lhs).trace()
-        }
+		}
 	case *globpat:
 		erro(ctx, "arrow of glob: %v", lhs).trace()
 	}
-
-	var rhs = l.composite(ctx)
-
-	if checkpoints {
-		if _, y := optionalize(ctx, rhs); y {
-			erro(pc(ctx,rhs), "unexpected optional expr: %v", tv(rhs)).trace()
-		} else if isNull(rhs) {
-			erro(pc(ctx,rhs), "unexpected null expr: %v", ts(rhs)).trace()
-		}
-	}
-
-	return _arrow(pos, tok, lhs, rhs)
+	return _arrow(pos, tok, lhs, l.composite(ctx))
 }
 
 func (p *parser) bare(ctx Context) Value {
@@ -705,6 +685,11 @@ func (l ul) braced(ctx Context) (x Value) {
 				l.p.expect(ctx, RBRACE)
 				return
 
+			case "quote": // $(quote ...)
+				x = l.braced_quote(ctx)
+				l.p.expect(ctx, RBRACE)
+				return
+
 			case "word":
 				x = l.braced_word(ctx)
 				l.p.expect(ctx, RBRACE)
@@ -721,7 +706,7 @@ func (l ul) braced(ctx Context) (x Value) {
 				return
 			}
 
-			erro(pc(ctx,l.p), "unsupported braced type: %v %v", l.p.tok, l.p.lit).trace()
+			erro(ctx, "unsupported braced type: %v %v", l.p.tok, l.p.lit).trace()
 			return
 
 		default:
@@ -1573,7 +1558,7 @@ func (l ul) auto_arg0(ctx Context, tokLp token, isClosure bool) (_ Value) {
 		erro(ctx, "auto: incorrect left paren: %v", tokLp).trace()
 	}
 
-	ac := automatic{Context:ctx, defs:make(defs_map)}
+	ac := automatic{Context:ctx, defs:make(defmap)}
 	ctx = &ac
 
 	var vals []Value
@@ -2101,7 +2086,7 @@ valsloop:
 		l.p.spaces(ac)
 	}
 
-	cc := automatic{ Context:ctx, defs:make(defs_map) }
+	cc := automatic{ Context:ctx, defs:make(defmap) }
 	cc.set(ctx, defVoid, "_", nil)
 
 	var temps []Value
@@ -2151,15 +2136,21 @@ func (l ul) braced_str(ctx Context) (res Value) {
 		defer l.braced_str_check(ctx, elems, &res)
 	}
 
-	for _, v := range elems {
-		if indeterminate(ctx, v) {
-			return &strval{valbase{pos}, elems}
-		}
+	if indeterminate(ctx, elems...) {
+		return &strval{valbase{pos}, elems}
 	}
 
 	var s string
-	for _, v := range elems { s += v.string(ctx) }
+	for i, v := range elems {
+		if s != "" && 0 < i { s += " " }
+		s += v.string(ctx)
+	}
 	return &strlit{valbase{pos}, s}
+}
+
+func (l ul) braced_quote(ctx Context) (res Value) {
+	l.p.next(ctx, true) // resumes 'quote'
+    return &quoted{list{elements{l.braced_elems(ctx)}}}
 }
 
 func (l ul) braced_word(ctx Context) (res Value) {
@@ -2172,10 +2163,8 @@ func (l ul) braced_word(ctx Context) (res Value) {
 		defer l.braced_word_check(ctx, elems, &res)
 	}
 
-	for _, v := range elems {
-		if indeterminate(ctx, v) {
-			erro(pc(ctx,l.p), "indeterminate: %v : %v", v, ts(v)).trace()
-		}
+	if indeterminate(ctx, elems...) {
+		erro(pc(ctx,l.p), "indeterminate: %v", ts(elems)).trace()
 	}
 
 	var s string
@@ -2816,7 +2805,7 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 		erro(pc(ctx,l.p), "resolved is %s: %v → %s", typeof(resolved), prop0, name).trace()
 	}
 
-	/* TODO: if c, y := res.(code); y { ... } */
+	// TODO: if c, y := res.(code); y { ... }
 }
 
 func (l ul) directive(ctx Context) (props []Value) {
@@ -3576,7 +3565,7 @@ func (l ul) foreach_done(ctx Context) {
 			defer func(s Pos) { l.p.stop = s } (l.p.stop)
 			l.p.stop = t.endPos
 
-			ac := automatic{Context:ctx, defs:make(defs_map)}
+			ac := automatic{Context:ctx, defs:make(defmap)}
 			for i, val := range vals {
 				if indeterminate(ctx, val) {
 					if false {
@@ -3638,7 +3627,7 @@ func (l ul) for_done(ctx Context) {
 
 	var npars int
 	var params []*nparam
-	var ac = automatic{Context:ctx, defs:make(defs_map)}
+	var ac = automatic{Context:ctx, defs:make(defmap)}
 	for l.p.spaces(ctx); l.p.tok != EOF && !l.p.is_end_of_line(); l.p.spaces(ctx) {
 		if l.p.tok == AND && params == nil {
 			erro(pc(ctx,l.p), "unexpected 'and'").trace()
@@ -3855,7 +3844,7 @@ func (l ul) repeat(ctx Context, t *template, params []Value) {
 		l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = pos, tok, lit, state
 	} (time.Now(), l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate)
 
-	var ac = automatic{Context:ctx, defs:make(defs_map)}
+	var ac = automatic{Context:ctx, defs:make(defmap)}
 
 	for i, v := range t.params {
 		if s := v.string(ctx); s != "" {
@@ -4156,7 +4145,7 @@ minusloop:
 	}
 
 	var exe = execution{
-		automatic:automatic{Context:pc(ctx,nv), defs:make(defs_map)},
+		automatic:automatic{Context:pc(ctx,nv), defs:make(defmap)},
 		start:time.Now(), proj:l.project,
 	}
 
@@ -4595,13 +4584,18 @@ func (l ul) proj(ctx Context, filename string, isMainFile bool) (_ Value, _ stri
 
 		l.p.spaces(ctx)
 
-		if comp.len() == 0 {
-			// erro(ctx, "package name is empty (tok=%v %v)", t, p.tok).trace()
-		} else if 0 < base.len() {
-			implicitBase = base.string(ctx)
+		switch comp.len() {
+		case 0:
+			erro(pc(ctx,comp), "package name is empty (tok=%v)", l.p.tok).trace()
+		case 1:
+			ident = comp.elems[0]
+		default:
+			ident = comp
 		}
 
-		ident = comp
+		if 0 < base.len() {
+			implicitBase = base.string(ctx)
+		}
 	}
 
 	var name = ident.string(ctx)

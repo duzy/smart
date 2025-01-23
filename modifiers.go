@@ -29,14 +29,14 @@ import (
 // NOTE: all single character opt names/shortcuts should be preserved for general purposes.
 type general_opts struct {
     debug    int  `db,dbg,debug` // NOTE: compatible with 'bool'
-    stack    int  `stack,stacknum,stack-num,stack-number`
+    stack    int  `stack,stack-number`
     fail     bool `fail` // fail on errors
-    final    bool `final` // final expand - NOTE: see builtinFinalField
-    fullname bool `full,fullname,full-name,fullfile,full-file`
+    fullname bool `full,fullname,fullfile`
     silent   bool `silent` // force silent, contrast 'verbose'
     timing   bool `time,timing`
     verbose  bool `verb,verbose` // prompts more information
     warning  bool `warn,warning` // prompts more warnings
+    originalArgs bool `original`
 }
 
 type modifier_ struct { Context ; general_opts }

@@ -1,0 +1,13 @@
+project testbuiltins
+
+x1   = $(if {=yes},yes,no)
+x2   = $(if {=no},yes,no)
+x3  := $(x1)
+x4  := $(x2)
+x5  := $(if {=yes},yes,no)
+x6  := $(if {=no},yes,no)
+x7  := $(if &(none),yes,no)
+x8 ::= $(if &(none),yes,no)
+
+x9  := $(ifarg 1,yes,no)
+x10 := $(ifdef none,yes,no)

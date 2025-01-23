@@ -5,9 +5,20 @@ vals = {word foo/bar 'strlit' "strcomp" {=int 0} {=int 1}} \
     {=path foo} {=path 'foo/bar'} {=file foobar} {=glob **.c} {=regex xx} \
     {=int 1} {=float .1} {=none anything goes} {=null} \
 
-disjunction0   = x{a b c}
-disjunction1  := x{a b c}y{1 2 3}z
-disjunction2 ::= x{a b c}y{1 2 3}z
+cond0   = x?    # → x?
+cond01  = x?y   # → x?y
+cond02  = x???y # → x???y
+cond1  := x?    # → x?
+cond11 := x?y   # → xy?
+cond12 := x???y # → xy?
+
+disjunction0   = {a b c}
+disjunction00  = x{}
+disjunction01  = x{$1}
+# disjunction02  = x{&(something)}
+disjunction1   = x{a b c}
+disjunction2  := x{a b c}y{1 2 3}z
+disjunction3 ::= x{a b c}y{1 2 3}z
 
 glob1 = {=glob  *.c}
 glob2 = {=glob **.c}
