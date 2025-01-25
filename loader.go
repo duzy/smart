@@ -776,10 +776,6 @@ paramsloop:
             l.bases_check_param(ctx, implicitBase, i, elem, specVal)
         }
 
-        if indeterminate(ctx, specVal) {
-            errostack(ctx, 10, "incomplete spec: %v ⇒ %v", elem, specVal).trace()
-        }
-
         if spec = specVal.string(ctx) ; spec == "" {
             erro(ctx, "%v: empty base name: %v", l.project, ts(specVal)).trace()
         } else if strings.Contains(spec, "//") {

@@ -664,12 +664,6 @@ func (l ul) braced_str_check(ctx Context, elems []Value, res *Value) {
 	fn := l.p.scanner.file.Name()
 
 	if strings.HasSuffix(fn, "/configure/.base/.template") {
-		for _, v := range elems {
-			if indeterminate(ctx, v) {
-				erro(pc(ctx,v), "indeterminate str: %v", ts(v)).trace()
-			}
-		}
-
 		if _, y := (*res).(*strlit); !y {
 			erro(pc(ctx, *res), "%v", ts(*res)).trace()
 		}
@@ -679,11 +673,6 @@ func (l ul) braced_str_check(ctx Context, elems []Value, res *Value) {
 func (l ul) braced_word_check(ctx Context, elems []Value, res *Value) {
 	var fn = l.p.scanner.file.Name()
 	if strings.HasSuffix(fn, "/configure/.base/.template") {
-		for _, v := range elems {
-			if indeterminate(ctx, v) {
-				erro(pc(ctx,v), "indeterminate: %v", ts(v)).trace()
-			}
-		}
 		if _, y := (*res).(*word); !y {
 			erro(pc(ctx, elems[0]), "not word: %v", ts(*res)).trace()
 		}
@@ -709,17 +698,6 @@ func (l ul) braced_defs_check(ctx Context, pats []Value, res *Value) {
 }
 
 func (l ul) rule_check(ctx Context, targets []Value, res *Value) {
-	for _, target := range targets {
-		var v Value
-		switch t := target.(type) {
-		case *argumented: v = t.Value
-		default: v = target
-		}
-		if false && v != nil && indeterminate(ctx, v) {
-			erro(ctx, "indeterminate: %v %v %v", v, ts(v), tv(*res)).trace()
-		}
-	}
-
 	fn := l.p.scanner.file.Name()
 
 	if strings.HasSuffix(fn, "/configure/.base/.template") {
@@ -788,9 +766,6 @@ func (l ul) rule_check_targets(ctx Context, targets []Value) {
 }
 
 func (l ul) rule_check_target(ctx Context, target Value) {
-	if indeterminate(ctx, target) {
-		erro(ctx, "%v : %v", target, ts(target)).trace()
-	}
 }
 
 func (l ul) codeblock_check(ctx *automatic, op token) {

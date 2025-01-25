@@ -1,0 +1,16 @@
+project example (app)
+
+use (
+    lib/c++
+    zlib
+)
+
+files (
+    (**.cpp) ⇒ $//src
+    (a.out) ⇒ $(outbin)
+)
+
+-O := fast
+-D += TIP=example
+
+a.out: program($(.usee))

@@ -90,6 +90,7 @@ func (p *execution) cast(t reflect.Type) Context {
 }
 func (p *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
+    case ex_delegate, ex_closure: return true
     case get_position:
         if p.prerequisite != nil { return p.prerequisite.Position() }
         if len(p.recipes) > 0 { return p.recipes[0].Position() }

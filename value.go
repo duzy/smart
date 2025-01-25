@@ -799,22 +799,25 @@ func pc(ctx Context, a any, n ...int) Context {
     return ctx
 }
 
-type stringify_empty struct{}
-type stringify_ctx struct{
-    Context
-    empty bool
-}
+type positioner interface{ Position() Position }
+type stringer   interface{ string(Context) string }
+type identer    interface{ ident(Context) string }
+
+type stringify_ct struct{ c Context }
+type stringify_ctx struct{ Context; empty bool }
 func (sc *stringify_ctx) do(ctx Context, op any) (_ any) {
-    switch op.(type) {
+    switch t := op.(type) {
     case ex_delegate, ex_closure: return true
-    case stringify_empty: sc.empty = true; return
+    case stringify_ct: if nil == t.c||t.c == sc||t.c == sc.Context { return sc }
+    case uv: sc.empty = true//; return
     }
     return sc.Context.do(ctx, op)
 }
-
-type positioner interface{ Position() Position }
-type identer    interface{ ident(Context) string }
-type stringer   interface{ string(Context) string }
+func stringify(ctx Context) *stringify_ctx {
+    if x, y := ctx.(*stringify_ctx); y { return x }
+    if x, y := do(ctx, stringify_ct{ctx}).(*stringify_ctx); y { return x }
+    return &stringify_ctx{ctx, false}
+}
 
 type Value interface{
     positioner // The position where the value appears (or NoPos).
@@ -852,15 +855,10 @@ type Value interface{
     // Stencil this value with stems.
     stencil(Context, []string) (val Value, rest []string)
 
-    // Recursively detecting whether this value references
-    // the object (to avoid loop-delegation).
-    refs(Context, Value) bool
-
     // Returns all defs (of names if specified) used in this value.
     defs(Context, ...string) []*def
 
     // Test if this value is expandable for some bits.
-    expandable(Context) bool
     expand(Context) Value // result is nil or identical to this value if no expansions
 
     stat(Context) *statinfo
@@ -931,8 +929,16 @@ func eq(x Context, a, b Value) bool {
     return a == b || a.cmp(x, b) == cmpEqual
 }
 
-func equal(x Context, a, b Value, s ...bool) (_ bool) {
-    if a == b || a.cmp(x, b) == cmpEqual { return true } else { return }
+func equal(x Context, a, b Value, s ...bool) (res bool) {
+    if checkpoints && truly(x, is_test_mode{}) {
+        defer equal_check(x, a, b, &res)
+    }
+
+    if a == b || a.cmp(x, b) == cmpEqual {
+        return true
+    } else {
+        return false
+    }
 
     var y bool
     for _, y = range s { if y { break } }
@@ -941,22 +947,13 @@ func equal(x Context, a, b Value, s ...bool) (_ bool) {
 
 func diff(ctx Context, a, b []Value) bool {
     if len(a) == len(b) {
-        for i, v := range a { if !equal(ctx, v, b[i]) { return true } }
+        for i, v := range a {
+            if !equal(ctx, v, b[i]) { return true }
+        }
         return false
     } else {
         return true
     }
-}
-
-func indeterminate(ctx Context, vals ...Value) (_ bool) {
-    var x, y = do(ctx, final{}).(final)
-    if !y { x.Context = ctx }
-    for _, v := range vals {
-        if v.expandable(x) {
-            return true
-        }
-    }
-    return
 }
 
 // aka. isNull(v) || isNone(v) || isUndef(v) || isEmpty(v)
@@ -1079,13 +1076,11 @@ func (_ *valbase) do(Context, any) (_ any) { return }
 func (_ *valbase) defs(Context, ...string) (_ []*def) { return }
 func (_ *valbase) delete(Context) (_ []*file) { return }
 func (_ *valbase) expand(Context) (_ Value) { return }
-func (_ *valbase) expandable(Context) (_ bool) { return }
 func (_ *valbase) float(Context) (_ float64) { return }
 func (_ *valbase) ident(Context) (_ string) { return }
 func (_ *valbase) int(Context) (_ int64) { return }
 func (_ *valbase) match(Context, any) (_ bool, _ any, _ []string) { return }
 func (_ *valbase) patterned(Context) (_ bool) { return }
-func (_ *valbase) refs(Context, Value) (_ bool) { return }
 func (_ *valbase) stamp(Context) (_ []*file) { return }
 func (_ *valbase) stat(Context) (_ *statinfo) { return }
 func (_ *valbase) stencil(Context, []string) (_ Value, _ []string) { return }
@@ -1215,7 +1210,7 @@ func (p *none) String() (s string) {
     s += "}"
     return
 }
-func (p *none) string(Context) (s string) { return }
+func (p *none) string(Context) (_ string) { return }
 func (p *none) ts(t string) string { return fmt.Sprintf("{=%s %s}", t, ts(p.x)) }
 func (p *none) true(ctx Context) (res bool) { return }
 func (p *none) cmp(ctx Context, v Value) (res cmpres) {
@@ -1279,31 +1274,23 @@ func (p *argumented) String() (s string) {
     s = fmt.Sprintf("%s(%s)", p.Value.String(), s)
     return
 }
-func (p *argumented) string(ctx Context) (s string) {
-    s = p.Value.string(ctx) + "("
+func (p *argumented) string(ctx Context) (_ string) {
+    sc := stringify(ctx)
+    s := p.Value.string(sc)
+    if sc.empty { return }
+    s += "("
     for i, a := range p.args {
+        t := a.string(sc)
+        if sc.empty { return }
         if i > 0 { s += "," }
-        s += a.string(ctx)
+        s += t
     }
     s += ")"
-    return
-}
-func (p *argumented) refs(ctx Context, v Value) bool {
-    if p.Value.refs(ctx, v) { return true }
-    for _, a := range p.args { if a.refs(ctx, v) { return true } }
-    return false
+    return s
 }
 func (p *argumented) defs(ctx Context, s ...string) (res []*def) {
     res = p.Value.defs(ctx, s...)
     for _, a := range p.args { res = append(res, a.defs(ctx, s...)...) }
-    return
-}
-func (p *argumented) expandable(ctx Context) (res bool) {
-    if res = p.Value.expandable(ctx); !res {
-        for _, a := range p.args {
-            if res = a.expandable(ctx); res { break }
-        }
-    }
     return
 }
 func (p *argumented) prefix(ctx Context, val Value) Value {
@@ -1401,9 +1388,12 @@ func (p negative) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p negative) string(ctx Context) string {
+func (p negative) string(ctx Context) (_ string) {
     if true {
-        return "!"+p.Value.string(ctx)
+        sc := stringify(ctx)
+        s := p.Value.string(sc)
+        if sc.empty { return }
+        return "!"+s
     } else if p.true(ctx) {
         return "true"
     } else {
@@ -1819,36 +1809,48 @@ func (p *url) String() (s string) {
     }
     return
 }
-func (p *url) string(ctx Context) (s string) {
-    if s = p.Scheme.string(ctx) + ":"; p.Host != nil && !isNone(p.Host) {
+func (p *url) string(ctx Context) (_ string) {
+    sc := stringify(ctx)
+    s := p.Scheme.string(sc)
+    if sc.empty { return }
+
+    s += ":"
+    if p.Host != nil && !isNone(p.Host) {
         s += "//"
         if p.Username != nil && !isNone(p.Username) {
-            s += p.Username.string(ctx)
+            s += p.Username.string(sc)
+            if sc.empty { return }
             if p.Password != nil {
-                s += ":" + p.Password.string(ctx)
+                s += ":" + p.Password.string(sc)
+                if sc.empty { return }
             }
             s += "@"
         }
-        s += p.Host.string(ctx)
+        s += p.Host.string(sc)
+        if sc.empty { return }
         if p.Port != nil && !isNone(p.Port) {
-            s += ":" + p.Port.string(ctx)
+            s += ":" + p.Port.string(sc)
+            if sc.empty { return }
         }
     }
     if p.Path != nil && !isNone(p.Path) {
         //if !strings.HasPrefix(path, pathSep) { s += pathSep }
-        s += p.Path.string(ctx)
+        s += p.Path.string(sc)
+        if sc.empty { return }
     }
     if p.Query != nil {
         s += "?"
         for i, q := range p.Query {
             if 0 < i { s += "&" }
-            s += q.string(ctx)
+            s += q.string(sc)
+            if sc.empty { return }
         }
     }
     if p.Fragment != nil && !isNone(p.Fragment) {
-        s += "#" + p.Fragment.string(ctx)
+        s += "#" + p.Fragment.string(sc)
+        if sc.empty { return }
     }
-    return
+    return s
 }
 func (p *url) true(ctx Context) (t bool) {
     if p.Scheme != nil { if t = p.Scheme.true(ctx); t { return }}
@@ -2072,29 +2074,25 @@ func (p *strval) ts(t string) string {
     return fmt.Sprintf("{=%s %s}", t, s)
 }
 func (p *strval) String() (s string) {
-    if expandable(original{nil,defExpand2}, p.v...) {
-        for _, v := range p.v {
-            if s != "" { s += " " }
-            s += v.String()
-        }
-        s = `{=str `+s+`}`
-    } else {
-        for _, v := range p.v {
-            if s != "" { s += " " } // TODO: seperator?
-            s += v.String()
-        }
-        s = `'`+s+`'`
+    for _, v := range p.v {
+        if s != "" { s += " " }
+        s += v.String()
     }
+    s = `{=str `+s+`}`
     return
 }
-func (p *strval) string(ctx Context) (s string) {
+func (p *strval) string(ctx Context) (_ string) {
+    var s string
+    var sc = stringify(ctx)
     for _, v := range p.v {
-        if t := v.string(ctx); t != "" {
+        if t := v.string(sc); sc.empty {
+            return
+        } else if t != "" {
             if s != "" { s += " " } // TODO: seperator?
             s += t
         }
     }
-    return
+    return s
 }
 func (p *strval) expand(ctx Context) Value {
     if truly(ctx, ex_path_str{}) {
@@ -2106,8 +2104,7 @@ func (p *strval) expand(ctx Context) Value {
     }
 }
 func (p *strval) es(ctx Context, f func(string)) {
-    var v = p.expand(ctx)
-    if !indeterminate(ctx, v) { f(v.string(ctx)) }
+    f(p.expand(ctx).string(ctx))
 }
 func (p *strval) true(ctx Context) (res bool) {
     p.es(ctx, func(s string) { res = s != "" })
@@ -2165,8 +2162,11 @@ type quoted struct{ list }
 func (_ *quoted) kind() Kind { return KindQuoted }
 func (q *quoted) hash(ctx Context) uint64 { return fnv1(ctx, q, q.any()) }
 func (q *quoted) String() (s string) { return "{=quote "+q.list.String()+"}" }
-func (q *quoted) string(ctx Context) (s string) {
-    return strconv.Quote(q.list.string(ctx))
+func (q *quoted) string(ctx Context) (_ string) {
+    sc := stringify(ctx)
+    s := q.list.string(sc)
+    if sc.empty { return }
+    return strconv.Quote(s)
 }
 func (q *quoted) expand(ctx Context) Value {
     var a = expand(ctx, q.elems...)
@@ -2431,24 +2431,8 @@ func (p *elements) true(ctx Context) (t bool) { // (or elems...)
     }
     return
 }
-func (p *elements) refs(ctx Context, v Value) bool {
-    for _, elem := range p.elems {
-        if elem != nil && (elem == v || elem.refs(ctx, v)) {
-            return true
-        }
-    }
-    return false
-}
 func (p *elements) defs(ctx Context, s ...string) (res []*def) {
     for _, elem := range p.elems { res = append(res, elem.defs(ctx, s...)...) }
-    return
-}
-func (p *elements) expandable(ctx Context) (res bool) {
-    for i, elem := range p.elems {
-        if elem == nil {
-            erro(ctx, "nil element #%d: %v", i, p).trace()
-        } else if res = elem.expandable(ctx); res { break }
-    }
     return
 }
 func (p *elements) ts(t string) (s string) {
@@ -2552,7 +2536,8 @@ func (p cond) final(ctx Context, f func(Value)) {
     if t := p.expand(_final(ctx)); t != nil && !equal(ctx, p, t) { f(t) }
 }
 func (p cond) expand(ctx Context) (res Value) {
-    var v = p.Value.expand(condless{ctx})
+    var c = uvcap(ctx)
+    var v = p.Value.expand(condless{c})
 
     if checkpoints && truly(ctx, is_test_mode{}) {
         defer p.expand_check(ctx, v, &res)
@@ -2563,18 +2548,18 @@ func (p cond) expand(ctx Context) (res Value) {
     } else if x, y := v.(disjunction); y {
         var vals []Value
         for _, v := range merge(x.Value) {
-            if indeterminate(ctx, v) { v = condish(ctx, disjunction{v}) }
+            if c.indeterminate() { v = condish(ctx, disjunction{v}) }
             vals = append(vals, v)
         }
         return ease(ctx, vals)
     } else if x, y := v.(*list); y {
         var vals []Value
         for _, v := range merge(x.elems...) {
-            if indeterminate(ctx, v) { v = condish(ctx, v) }
+            if c.indeterminate() { v = condish(ctx, v) }
             vals = append(vals, v)
         }
         return ease(ctx, vals)
-    } else if indeterminate(ctx, v) {
+    } else if c.indeterminate() {
         return condish(ctx, v)
     } else {
         return v
@@ -2598,16 +2583,19 @@ func (p conjunction) String() string {
     if p.sep != nil { s = p.sep.String() }
     return "{{"+p.list.String()+"}"+s+"}"
 }
-func (p conjunction) string(ctx Context) (s string) {
+func (p conjunction) string(ctx Context) (_ string) {
+    var sc = stringify(ctx)
     var sep string
-    if p.sep != nil { sep = p.sep.string(ctx) }
+    if p.sep != nil {
+        sep = p.sep.string(sc)
+        if sc.empty { return }
+    }
 
     var ss []string
-    var elems = expand(_final(ctx), p.elems...)
-    for _,  elem := range elems {
-        if !indeterminate(ctx, elem) {
-            ss = append(ss, elem.string(ctx))
-        }
+    for _, elem := range p.elems {
+        s := elem.string(sc)
+        if sc.empty { return }
+        ss = append(ss, s)
     }
     return strings.Join(ss, sep)
 }
@@ -2633,7 +2621,8 @@ func (p disjunction) String() string { return "{"+p.Value.String()+"}" }
 func (p disjunction) expand(ctx Context) (res Value) {
     if checkpoints && truly(ctx, is_test_mode{}) { defer p.expand_check(ctx, &res) }
 
-    var v = p.Value.expand(ctx)
+    var c = uvcap(ctx)
+    var v = p.Value.expand(c)
 
     if x, y := v.(*list); y {
     xlist:
@@ -2646,7 +2635,7 @@ func (p disjunction) expand(ctx Context) (res Value) {
         default:
             return disjunction{x}
         }
-    } else if indeterminate(ctx, v) {
+    } else if c.indeterminate() {
         return disjunction{v} // doesn't matter equal(ctx, v, p.Value)
     } else {
         return v
@@ -2661,18 +2650,18 @@ func (p disjunction) cmp(ctx Context, v Value) (res cmpres) {
     }
 }
 
-type wants_fullfile  struct{}
-type is_compound     struct{}
-type    compound_ctx struct{ Context }
-func (c compound_ctx) cast(t reflect.Type) Context { return icast(c, t) }
-func (c compound_ctx) inner() Context { return c.Context }
-func (c compound_ctx) do(ctx Context, op any) any {
+type wants_fullfile   struct{}
+type  is_compound     struct{}
+type     compound_ctx struct{ uvc }
+func (c *compound_ctx) cast(t reflect.Type) Context { return icast(c, t) }
+func (c *compound_ctx) inner() Context { return &c.uvc }
+func (c *compound_ctx) do(ctx Context, op any) (_ any) {
     switch op.(type) {
-    case ex_condless: return true
-    case is_compound: return true
     case wants_fullfile: return false
+    case is_compound: return true
+    case ex_condless: return true
     }
-    return c.Context.do(ctx, op)
+    return c.uvc.do(ctx, op)
 }
 
 type compound struct{ elements }
@@ -2688,33 +2677,31 @@ func (p *compound) String() (s string) {
     }
     return
 }
-func (p *compound) string(ctx Context) (s string) {
-    var sc = stringify_ctx{ctx, false}
-    var v = p.expand(&sc)
-    if sc.empty {
-        return
-    } else if _cond(v) && indeterminate(ctx, v) {
-        return
-    } else if equal(ctx, p, v) {
-        if o, y := v.(*compound); y {
-            for _, elem := range o.elems {
-                if _, y := elem.(fullfile); y {
-                    errostack(pc(ctx,elem), 8, "unexpected fullfile: %v ; %v ; %v", ts(elem), ts(v), ts(p)).trace()
-                } else {
-                    s += elem.string(ctx)
-                }
-            }
-        } else {
-            errostack(pc(ctx,p), 8, "unexpected compound: %v ; %v", ts(v), ts(p)).trace()
+func (p *compound) string(ctx Context) (_ string) {
+    sc := stringify(ctx)
+    v := p.expand(sc)
+    if sc.empty { return }
+    if equal(ctx, v, p) {
+        var x, y = v.(*compound)
+        if !y {
+            errostack(pc(ctx,p), 8, "unexpected compound: %v != %v", ts(v), ts(p)).trace()
         }
-        return
+
+        var s string
+        for _, elem := range x.elems {
+            if _, y := elem.(fullfile); y {
+                errostack(pc(ctx,elem), 8, "unexpected fullfile: %v", ts(elem)).trace()
+            }
+
+            t := elem.string(sc)
+            if sc.empty { return }
+            s += t
+        }
+        return s
     } else {
-        if checkpoints && truly(ctx, is_test_mode{}) {
-            if eq(ctx, p, v) {
-                errostack(pc(ctx,p), 3, "%s == %s", ts(p), ts(v)).trace()
-            }
-        }
-        return v.string(ctx)
+        s := v.string(sc)
+        if sc.empty { return }
+        return s
     }
 }
 func (p *compound) true(ctx Context) bool { return p.elements.true(ctx) }
@@ -2737,16 +2724,14 @@ func (p *compound) int(ctx Context) (res int64) {
     return
 }
 func (p *compound) traverse(ctx Context) { do(ctx, act_traverse{p}) }
-func (p *compound) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
-func (p *compound) expandable(ctx Context) bool { return p.elements.expandable(ctx) }
 func (p *compound) expand(ctx Context) (res Value) {
     if checkpoints && truly(ctx, is_test_mode{}) { defer p.expand_check(ctx, &res) }
 
     var f func(_, _ []Value) []Value
 
     f = func(a, elems []Value) (rs []Value) {
-        var c = a != nil && indeterminate(ctx, a...)
+        var c = false //a != nil && indeterminate(ctx, a...)
         for i, val := range elems {
             if val == nil {
                 erro(ctx, "%v: nil component #%d; %v : %v", p, val, ts(val), i).trace()
@@ -2754,18 +2739,14 @@ func (p *compound) expand(ctx Context) (res Value) {
 
             if !c && _cond(val) { c = true }
 
-            var v = val.expand(compound_ctx{ctx})
+            var cc = compound_ctx{uvc{ctx, nil}}
+            var v = val.expand(&cc)
             if v == nil { continue }
 
         check_v_type:
             switch x := v.(type) {
             case disjunction:
-                if indeterminate(ctx, x.Value) {
-                    do(ctx, stringify_empty{})
-                    if x.Value.String() == "&(.test.h)a &(.test.h)b &(.test.h)c" {
-                        note(pc(ctx,x), "%v: %v %v; %v", p, a, x.Value, auto_get(ctx,"1")).debug(16)
-                    }
-                } else {
+                if cc.uv == nil {
                     var tail = elems[i+1:]
                     for _, v := range merge(x.Value) {
                         rs = append(rs, f(append(a, v), tail)...)
@@ -2806,10 +2787,6 @@ func (p *compound) expand(ctx Context) (res Value) {
     return ease(ctx, f(nil, p.elems))
 }
 func (p *compound) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if false && indeterminate(ctx, p) {
-        erro(ctx, "indeterminate : %v", tv(p)).trace()
-    }
-
     if x, y := do(ctx, hit_bare{c, p}).(valcache_bool); y {
         return x.valcache, x.bool
     }
@@ -3004,8 +2981,12 @@ func (p prefix_value) expand(ctx Context) (_ Value) {
     return prefix_value{p.Value.expand(ctx), p.prefix.expand(ctx)}
 }
 func (p prefix_value) string(ctx Context) (_ string) {
-    if s := p.Value.string(ctx); s != "" {
-        return p.prefix.string(ctx) + s
+    sc := stringify(ctx)
+    s := p.Value.string(sc)
+    if !sc.empty && s != "" {
+        t := p.prefix.string(sc)
+        if sc.empty { return }
+        return t + s
     }
     return
 }
@@ -3015,8 +2996,12 @@ func (p value_suffix) expand(ctx Context) (_ Value) {
     return value_suffix{p.suffix.expand(ctx), p.Value.expand(ctx)}
 }
 func (p value_suffix) string(ctx Context) (_ string) {
-    if s := p.Value.string(ctx); s != "" {
-        return s + p.suffix.string(ctx)
+    sc := stringify(ctx)
+    s := p.Value.string(sc)
+    if !sc.empty && s != "" {
+        t := p.suffix.string(sc)
+        if sc.empty { return }
+        return s + t
     }
     return
 }
@@ -3048,12 +3033,16 @@ type barefile struct{
 }
 func (_ *barefile) kind() Kind { return KindBarefile }
 func (p *barefile) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
-func (p *barefile) string(ctx Context) string {
+func (p *barefile) string(ctx Context) (_ string) {
+    var s string
+    var sc = stringify(ctx)
     if p.file != nil {
-        return p.file.string(ctx)
+        s = p.file.string(sc)
     } else {
-        return p.Value.string(ctx)
+        s = p.Value.string(sc)
     }
+    if sc.empty { return }
+    return s
 }
 func (p *barefile) true(ctx Context) (t bool) {
     if p.file != nil { t = p.file.true(ctx) }
@@ -3066,9 +3055,7 @@ func (p *barefile) int(ctx Context) (res int64) {
 func (p *barefile) float(ctx Context) (f float64) {
     return float64(p.int(ctx))
 }
-func (p *barefile) refs(ctx Context, v Value) bool { return p.Value.refs(ctx, v) }
 func (p *barefile) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
-func (p *barefile) expandable(ctx Context) bool { return p.Value.expandable(ctx) }
 func (p *barefile) expand(ctx Context) (res Value) {
     if truly(ctx, wants_fullfile{}) {
         var f = p.file
@@ -3148,7 +3135,7 @@ func barefilize(ctx Context, targets ...Value) []Value {
                 file.position = target.Position()
             }
         case *compound, *path:
-            if t.patterned(ctx) || t.expandable(ctx) /* || refdef(ctx, t, DefArg) */ {//, expandDef2
+            if t.patterned(ctx) /* || t.expandable(ctx) */ /* || refdef(ctx, t, DefArg) */ {//, expandDef2
                 break
             } else if file := project.file(ctx, t.string(ctx)); file != nil {
                 targets[i] = &barefile{ target, file }
@@ -3432,8 +3419,12 @@ func (p *globmeta) hit(ctx Context, fc *valcache) (_ *valcache, _ bool) {
 type globrange struct{ Value }
 func (p *globrange) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p *globrange) String() string { return "["+p.Value.String()+"]" }
-func (p *globrange) string(ctx Context) string { return "["+p.Value.string(ctx)+"]" }
-func (p *globrange) refs(ctx Context, v Value) bool { return p.Value.refs(ctx, v) }
+func (p *globrange) string(ctx Context) (_ string) {
+    sc := stringify(ctx)
+    s := p.Value.string(sc)
+    if sc.empty { return }
+    return "["+s+"]"
+}
 func (p *globrange) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
 func (p *globrange) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints && truly(ctx, is_test_mode{}) { defer p.cmp_check(ctx, v, &res) }
@@ -3444,7 +3435,6 @@ func (p *globrange) cmp(ctx Context, v Value) (res cmpres) {
     }
     return
 }
-func (p *globrange) expandable(ctx Context) bool { return p.Value.expandable(ctx) }
 func (p *globrange) expand(ctx Context) Value {
     if val := p.Value.expand(ctx); val != p.Value {
         return &globrange{val}
@@ -3473,7 +3463,9 @@ func (p *path) String() (s string) {
     if n == 0 { s = "{=path "+s+"}" }
     return
 }
-func (p *path) string(ctx Context) (s string) {
+func (p *path) string(ctx Context) (_ string) {
+    var s string
+    var sc = stringify(ctx)
     for i, seg := range p.elems {
         if seg == nil {
             erro(ctx, "`%s` nil path segment", p).trace()
@@ -3483,7 +3475,11 @@ func (p *path) string(ctx Context) (s string) {
         if isUndef(seg) {
             erro(ctx, "undef path segment (%T)", seg)
             erro(ctx, "… from this context: %s", ctx).trace()
-        } else if v = seg.string(ctx); i > 0 {
+        }
+
+        v = seg.string(sc)
+        if sc.empty { return }
+        if i > 0 {
             s += pathSep + v
         } else if v != "" {
             s += v
@@ -3491,7 +3487,7 @@ func (p *path) string(ctx Context) (s string) {
             s += pathSep
         }
     }
-    return
+    return s
 }
 func (p *path) true(ctx Context) (t bool) {
     // FIXME: return p.exists() ??
@@ -3508,9 +3504,7 @@ func (p *path) isAbs() (_ bool) {
 }
 func (p *path) float(ctx Context) (_ float64) { return }
 func (p *path) int(ctx Context) (_ int64) { return }
-func (p *path) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *path) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
-func (p *path) expandable(ctx Context) bool { return p.elements.expandable(ctx) }
 func (p *path) expand(ctx Context) Value {
     if elems := expand_path_elems(ctx, p.elems...); diff(ctx, elems, p.elems) {
         return &path{elements{elems}}
@@ -3580,10 +3574,6 @@ func (p *path) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *path) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if false && indeterminate(ctx, p) {
-        erro(ctx, "%v : indeterminate : %v", p, ts(p)).trace()
-    }
-
     if x, y := do(ctx, hit_path{c, p}).(valcache_bool); y {
         return x.valcache, x.bool
     }
@@ -3614,10 +3604,6 @@ func (p *path) match2(ctx Context, srcs ...string) (full bool, res, stems []stri
     }
 
     var segs = expand_path_elems(ctx, p.elems...)
-    if expandable(_final(ctx), segs...) {
-        if false { erro(ctx, "expandable path: %v, %v", p, segs).trace() }
-        return
-    }
 
     var (
         lenSegs = len(segs)
@@ -4049,7 +4035,10 @@ func (o fullname) string(ctx Context) (_ string) {
             }
             return x.fullname()
         }
-        return v.string(ctx)
+        sc := stringify(ctx)
+        s := v.string(sc)
+        if sc.empty { return }
+        return s
     }
     return
 }
@@ -4076,7 +4065,7 @@ func (o fullname) cmp(ctx Context, v Value) (res cmpres) {
         }
     case *path:
         if x, y := o.Value.(*file); y {
-            if t.isAbs() && !indeterminate(ctx, t) {
+            if t.isAbs() /* && !indeterminate(ctx, t) */ {
                 a, b := x.fullname(), t.string(ctx)
                 if a == b {
                     return cmpEqual
@@ -4181,9 +4170,6 @@ func (p *file) stamp(ctx Context) (res []*file) {
         do(ctx, mark_dirty{[]Value{p}})
     }
     return
-}
-func (p *file) expandable(ctx Context) bool {
-    return false//BUG: truly(ctx, fullfile{}) && !filepath.IsAbs(p.filestub.name)
 }
 func (p *file) expand(ctx Context) Value {
     if truly(ctx, wants_fullfile{}) {
@@ -4296,9 +4282,6 @@ func (p *file) suffix(ctx Context, val Value) (_ Value) {
     var stub = *p.filestub
     switch v := val.(type) {
     case *punct, *word:
-        if false && indeterminate(ctx, v) {
-            erro(ctx, "indeterminate file suffix: %v", ts(v)).trace()
-        }
         stub.name += v.string(ctx)
     default:
         erro(ctx, "wrong file suffix: %v %s", stub.name, ts(v)).trace()
@@ -4318,11 +4301,15 @@ func (p flag) String() (s string) {
     }
     return
 }
-func (p flag) string(ctx Context) (s string) {
-    if s = "-"; p.Value != nil && !isNone(p.Value) && !isNull(p.Value) {
-        s += p.Value.string(ctx)
+func (p flag) string(ctx Context) (_ string) {
+    if p.Value != nil && !isNone(p.Value) && !isNull(p.Value) {
+        sc := stringify(ctx)
+        s := p.Value.string(sc)
+        if sc.empty { return }
+        return "-" + s
+    } else {
+        return "-"
     }
-    return
 }
 func (p flag) int(ctx Context) (_ int64) { return -p.Value.int(ctx) }
 func (p flag) float(ctx Context) (_ float64) { return -p.Value.float(ctx) }
@@ -4440,10 +4427,6 @@ func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
         defer p.hit_check(ctx, c, &res, &fullmatch)
     }
 
-    if false && indeterminate(ctx, p.Value) {
-        erro(ctx, "%v : indeterminate : %v", p, ts(p.Value)).trace()
-    }
-
     if c, fullmatch = c.hit(ctx, MINUS); c == nil { return }
 
     if p.Value.kind()&(KindNull|KindNone) != 0 { return c, fullmatch }
@@ -4494,16 +4477,16 @@ func (p *strcomp) src() (s string) {
     }
     return
 }
-func (p *strcomp) string(ctx Context) (s string) {
-    if v := p.expand(_final(ctx)); equal(ctx, v, p) {
-        for _, elem := range p.elems { s += elem.string(ctx) }
-    } else {
-        s = v.string(ctx)
+func (p *strcomp) string(ctx Context) (_ string) {
+    var s string
+    var sc = stringify(ctx)
+    for _, elem := range p.elems {
+        t := elem.string(sc)
+        if sc.empty { return }
+        s += t
     }
-    if truly(ctx, is_defname{}) {
-        s = `"`+s+`"`
-    }
-    return
+    if truly(ctx, is_defname{}) { s = `"`+s+`"` }
+    return s
 }
 func (p *strcomp) float(ctx Context) (_ float64) {
     if f, e := strconv.ParseFloat(p.string(ctx), 64); e != nil {
@@ -4522,9 +4505,7 @@ func (p *strcomp) int(ctx Context) (_ int64) {
     }
 }
 func (p *strcomp) true(ctx Context) bool { return p.elements.true(ctx) }
-func (p *strcomp) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *strcomp) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
-func (p *strcomp) expandable(ctx Context) bool { return p.elements.expandable(ctx) }
 func (p *strcomp) expand(ctx Context) (res Value) {
     if truly(ctx, ex_path_str{}) {
         res = _pathstr(ctx, p.string(ctx))
@@ -4586,16 +4567,21 @@ func (p *list) String() (s string) {
     }
     return strings.Join(strs, " ")
 }
-func (p *list) string(ctx Context) (s string) {
+func (p *list) string(ctx Context) (_ string) {
+    var s string
+    var sc = stringify(ctx)
     for _, e := range p.elems {
         if e != nil {
-            if t := e.string(ctx); t != "" {
+            sc.empty = false
+            t := e.string(sc)
+            if sc.empty { continue }
+            if t != "" {
                 if s != "" && !strings.HasSuffix(s, "\n") { s += " " }
                 s += t
             }
         }
     }
-    return
+    return s
 }
 func (p *list) float(ctx Context) (f float64) { return float64(p.int(ctx)) }
 func (p *list) int(ctx Context) (i int64) {
@@ -4616,15 +4602,14 @@ func (p *list) suffix(ctx Context, val Value) (res Value) {
 func (p *list) expand(ctx Context) (res Value) {
     var a = expand(ctx, p.elems...)
     var d = diff(ctx, a, p.elems)
-    if d {
-        res = &list{elements{a}}
-    } else {
-        res = p
-    }
     if checkpoints && truly(ctx, is_test_mode{}) {
-        p.expand_check(ctx, d, a, res)
+        defer p.expand_check(ctx, d, a, &res)
     }
-    return
+    if d {
+        return &list{elements{a}}
+    } else {
+        return p
+    }
 }
 func (p *list) traverse(ctx Context) {
     for _, elem := range p.elems {
@@ -4759,14 +4744,17 @@ func (p *group) String() string {
     }
     return "(" + strings.Join(strs, " ") + ")"
 }
-func (p *group) string(ctx Context) (s string) {
-    s = "("
+func (p *group) string(ctx Context) (_ string) {
+    sc := stringify(ctx)
+    s := "("
     for i, elem := range p.elems {
+        t := elem.string(sc)
+        if sc.empty { return }
         if i > 0 { s += " " }
-        s += elem.string(ctx)
+        s += t
     }
     s += ")"
-    return
+    return s
 }
 func (p *group) true(ctx Context) (t bool) {
     if t = len(p.elems) > 0; t {
@@ -4776,7 +4764,6 @@ func (p *group) true(ctx Context) (t bool) {
     }
     return
 }
-func (p *group) refs(ctx Context, v Value) bool { return p.elements.refs(ctx, v) }
 func (p *group) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (_ *group) delete(Context) (_ []*file) { return }
 func (_ *group) patterned(Context) (_ bool) { return }
@@ -4784,7 +4771,6 @@ func (_ *group) stamp(Context) (_ []*file) { return }
 func (_ *group) stat(Context) (_ *statinfo) { return }
 func (_ *group) updated(Context) (_ bool) { return }
 func (_ *group) updatedDeps(Context, ...Value) (_ []Value) { return }
-func (p *group) expandable(ctx Context) bool { return p.elements.expandable(ctx) }
 func (p *group) expand(ctx Context) (res Value) {
     if elems := expand(ctx, p.elems...); diff(ctx, elems, p.elems) {
         res = &group{p.valbase, elements{elems}}
@@ -4858,8 +4844,11 @@ func (p *pair) cond() (_ bool) {
 func (p *pair) String() string {
     return p.key.String() + `=` + p.val.String()
 }
-func (p *pair) string(ctx Context) string {
-    return p.key.string(ctx) + "=" + p.val.string(ctx)
+func (p *pair) string(ctx Context) (_ string) {
+    sc := stringify(ctx)
+    k := p.key.string(sc); if sc.empty { return }
+    v := p.val.string(sc); if sc.empty { return }
+    return k + "=" + v
 }
 func (p *pair) ts(t string) string {
     return fmt.Sprintf("{=%s %v=%v}", t, ts(p.key), ts(p.val))
@@ -4879,7 +4868,6 @@ func (p *pair) true(ctx Context) (t bool) {
 }
 func (p *pair) int(ctx Context) (_ int64) { return p.val.int(ctx) }
 func (p *pair) float(ctx Context) (_ float64) { return p.val.float(ctx) }
-func (p *pair) refs(ctx Context, v Value) bool { return p.key.refs(ctx, v) || p.val.refs(ctx, v) }
 func (p *pair) defs(ctx Context, s ...string) []*def {
     return append(p.key.defs(ctx, s...), p.val.defs(ctx, s...)...)
 }
@@ -4891,9 +4879,6 @@ func (p *pair) patterned(Context) (_ bool) { return }
 func (p *pair) delete(Context) (_ []*file) { return }
 func (p *pair) updated(Context) (_ bool) { return }
 func (p *pair) updatedDeps(Context, ...Value) (_ []Value) { return }
-func (p *pair) expandable(ctx Context) bool {
-    return p.key.expandable(ctx) || (truly(ctx, propExPairVal) && p.val.expandable(ctx))
-}
 func (p *pair) expand(ctx Context) (res Value) {
     var k, v = p.key.expand(ctx), p.val
     if truly(ctx, propExPairVal) { v = v.expand(ctx) }
@@ -4925,7 +4910,7 @@ func (p *pair) prefix(ctx Context, val Value) (res Value) {
     case *null, *none: p.key = val
     default: p.key = compose(ctx, val, p.key)
     }
-    if indeterminate(ctx, p) {
+    if /* indeterminate(ctx, p) */false {
         return condish(ctx, p)
     } else {
         return p
@@ -4937,7 +4922,7 @@ func (p *pair) suffix(ctx Context, val Value) (res Value) {
     case *null, *none: p.val = val
     default: p.val = compose(ctx, p.val, val)
     }
-    if indeterminate(ctx, p) {
+    if /* indeterminate(ctx, p) */false {
         return condish(ctx, p)
     } else {
         return p
@@ -5025,142 +5010,6 @@ func (u untraversed) traverse(Context) {}
 
 type check_ex struct{}
 
-func ex(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool) (res Value) {
-    var x, t, v Value
-    var a, o []Value
-
-    unex := func() Value {
-        if !equal(ctx, _x, x) || diff(ctx, a, _a) {
-            d := delegate{valbase{p.Position()}, _l, x, _o, a}
-            if _cl {
-                return &closure{d}
-            } else {
-                return &d
-            }
-        }
-        return p
-    }
-
-    _un := func() Value {
-        a = expand(ctx, _a...)
-        return unex()
-    }
-
-    _ev := func() Value {
-        if t, a = evoke(ctx, x, _o, _a); equal(ctx, x, t) {
-            return unex()
-        } else if x, y := t.(expanded); y {
-            return x.Value
-        } else {
-            return t
-        }
-    }
-
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer ex_check(ctx, p, _x, _a, _o, _l, _cl, &res, &t, &x, &a, &o)
-    }
-
-    x = _x.expand(ctx)
-
-    switch _x.(type) {
-    case *auto:
-        if _cl {
-            break
-        } else if _, y := x.(*def); !y && !truly(ctx, ex_auto{}) {
-            return _un()
-        } else {
-            return _ev()
-        }
-    }
-
-    switch t := x.(type) {
-    case disjunction:
-        errostack(pc(ctx,p), 3, "TODO: %s → %s", ts(_x), ts(x)).trace()
-    case *project, self:
-        a = expand(ctx, _a...)
-        return x
-    case *arrow:
-        return _ev()
-    case *list:
-        var va []Value
-        var vb = valbase{p.Position()}
-        for _, v := range t.elems {
-            var t Value
-            var d = delegate{vb, _l, v, _o, _a}
-            if _cl { t = &closure{d} } else { t = &d }
-            va = append(va, ex(ctx, t, v, _a, _o, _l, _cl))
-        }
-        switch len(va) {
-        case 0 : return _null(_x.Position())
-        case 1 : return va[0]
-        default: return disjunction{&list{elements{va}}}
-        }
-    default:
-        if indeterminate(ctx, x) {
-            return _un()
-        }
-    }
-
-    const (
-        DELEGATE = 1
-        CLOSURE  = 2
-    )
-
-    var prop int
-    if !_cl && truly(ctx, ex_delegate{}) {
-        switch x.(type) {
-        case *auto:
-            if equal(ctx, x, _x) {
-                return _un()
-            }
-            return _ev()
-        case *builtin, *def:
-            return _ev()
-        }
-        prop = DELEGATE
-    } else if truly(ctx, ex_closure{}) {
-        prop = CLOSURE
-    }
-    if prop == 0 || indeterminate(ctx, x) {
-        return _un()
-    }
-
-    switch _l {
-    case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
-        switch prop {
-        case DELEGATE: v = project_entry(ctx, x)
-        case CLOSURE:  v = closure_entry(ctx, x)
-        }
-
-    default:
-        var s string
-        switch t := x.(type) {
-        case   object: s = t.ident(ctx)
-        case stringer: s = t.string(ctx)
-        default:
-            erro(ctx, "unexable: %s", tv(x)).trace()
-        }
-        if s != "" {
-            switch prop {
-            case DELEGATE: v = project_resolve(ctx, s)
-            case CLOSURE:  v = closure_resolve(ctx, s)
-            }
-        }
-    }
-
-    if v != nil {
-        x = v
-        return _ev()
-    }
-
-    if _, y := _x.(cond); y {
-        if false { return p }
-        return _null(p.Position())
-    }
-
-    return _un()
-}
-
 type ex_delegate struct{}
 type delegate struct{
     valbase
@@ -5180,7 +5029,13 @@ func (p *delegate) hash(ctx Context) uint64 {
 func (p *delegate) String() string { return p.src("$") }
 func (p *delegate) string(ctx Context) (s string) {
     if x, y := p.x.(*project); y { return x.name }
-    if v := p.final(ctx); v != nil { s = v.string(ctx) }
+
+    sc := stringify(ctx)
+    v := p.expand(sc)
+    if !sc.empty && v != nil && !equal(ctx, v, p) {
+        s = v.string(sc)
+    }
+
     if checkpoints && truly(ctx, is_test_mode{}) {
         if p.String() == "$/" {
             if s == "" {
@@ -5233,15 +5088,10 @@ func (p *delegate) aone(ctx Context, v Value) (res bool) {
     return
 }
 func (p *delegate) final(ctx Context) (_ Value) {
-    var v = p.expand(_final(ctx))
-    if v == nil || equal(ctx, p, v) || (v.expandable(ctx) && !p.aone(ctx, v)) {
+    var c = stringify(ctx)
+    var v = p.expand(c)
+    if v == nil || equal(ctx, v, p) || (c.empty && !p.aone(ctx, v)) {
         return
-    }
-    if v.refs(ctx, p) {
-        return
-    }
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        p.final_val_check(ctx, v, !v.refs(ctx, p))
     }
     return v
 }
@@ -5252,11 +5102,6 @@ func (p *delegate) isValidtoken() (res bool) {
     default: // for $. $/ $1 ... &. &/ &1 ... etc.
         res = p.l.is_closure_delegate()
     }
-    return
-}
-func (p *delegate) refs(ctx Context, v Value) (res bool) {
-    if p == v || p.x == v || p.x.refs(ctx, v) { return true }
-    for _, a := range p.a { if a.refs(ctx, v) { return true } }
     return
 }
 func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
@@ -5325,18 +5170,43 @@ func (p *delegate) _src() (s string) { // source representation
         }
     }
 }
-func (p *delegate) expandable(ctx Context) (res bool) {
-    if false {
-        res = true
+func (p *delegate) expand(ctx Context) (res Value) {
+    var v Value
+    var a []Value
+    var c = uvcap(ctx)
+    var x = p.x.expand(ctx)
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer p.expand_check(c, x, &a, &v, &res)
+    }
+
+    var unevoke bool
+    if c.uv == nil && truly(ctx, ex_delegate{}) {
+        if _, y := x.(evoker); !y {
+            erro(pc(ctx,p.x), "not evoker: %v", tv(x)).trace()
+        }
     } else {
-        if res = truly(ctx, ex_delegate{}) || p.x.expandable(ctx); !res {
-            for _, a := range p.a { if a.expandable(ctx) { return true }}
+        unevoke = true
+    }
+
+    if unevoke {
+        var a = expand(ctx, p.a...)
+        if !equal(ctx, x, p.x) || diff(ctx, a, p.a) {
+            t := &delegate{p.valbase, p.l, x, p.o, a}
+            do(ctx, uv{t})
+            return t
+        } else {
+            do(ctx, uv{p})
+            return p
         }
     }
-    return
-}
-func (p *delegate) expand(ctx Context) (res Value) {
-    return ex(ctx, p, p.x, p.a, p.o, p.l, false)
+
+    if v, a = evoke(c, x, p.o, p.a); c.uv == nil {
+        return v
+    } else if !equal(ctx, x, p.x) || diff(ctx, a, p.a) {
+        return &delegate{p.valbase, p.l, x, p.o, a}
+    } else {
+        return p
+    }
 }
 func (p *delegate) prefix(ctx Context, v Value) Value { return _suffix(ctx, v, p) }
 func (p *delegate) suffix(ctx Context, v Value) Value { return _compound(p).suffix(ctx, v) }
@@ -5414,7 +5284,13 @@ func (p *closure) hash(ctx Context) uint64 {
 }
 func (p *closure) String() (s string) { return p.src("&") }
 func (p *closure) string(ctx Context) (s string) {
-    if v := p.final(ctx); v != nil { s = v.string(ctx) }
+    if x, y := p.x.(*project); y { return x.name }
+
+    sc := stringify(ctx)
+    v := p.expand(sc)
+    if !sc.empty && v != nil && !equal(ctx, v, p) {
+        s = v.string(sc)
+    }
     return
 }
 func (p *closure) ts(t string) (s string) {
@@ -5430,31 +5306,71 @@ func (p *closure) true(ctx Context) (t bool) {
 }
 func (p *closure) prefix(ctx Context, v Value) Value { return _suffix(ctx, v, p) }
 func (p *closure) suffix(ctx Context, v Value) Value { return _compound(p).suffix(ctx, v) }
+func (p *closure) aone(ctx Context, v Value) (res bool) {
+    var q, y = v.(*closure)
+    if y && equal(ctx, p.x, q.x) && len(p.o) == len(q.o) && len(p.a) == len(q.a) {
+        for i, o := range p.o { if !equal(ctx, o, q.o[i]) { return true } }
+        for i, a := range p.a { if !equal(ctx, a, q.a[i]) { return true } }
+    }
+    return
+}
 func (p *closure) final(ctx Context) (_ Value) {
-    var v = p.expand(_final(ctx))
-    if v == nil || equal(ctx, p, v) || (v.expandable(ctx) && !p.aone(ctx, v)) {
+    var c = stringify(ctx)
+    var v = p.expand(c)
+    if v == nil || equal(ctx, p, v) || (c.empty && !p.aone(ctx, v)) {
         return
-    }
-    if v.refs(ctx, p) {
-        return
-    }
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        p.final_val_check(ctx, v, !v.refs(ctx, p))
     }
     return v
 }
 func (p *closure) expand(ctx Context) (res Value) {
-    return ex(ctx, p, p.x, p.a, p.o, p.l, true)
-}
-func (p *closure) expandable(ctx Context) (res bool) {
-    if false {
-        res = true
+    c := uvcap(ctx)
+    x := p.x.expand(c)
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer p.expand_check(c, x, &res)
+    }
+
+    var unevoke bool
+    if c.uv == nil && truly(ctx, ex_closure{}) {
+        switch p.l {
+        case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
+            if t := closure_entry(ctx, x); t != nil { x = t }
+        default:
+            var s string
+            switch t := x.(type) {
+            case   object: s = t.ident(ctx)
+            case stringer: s = t.string(ctx)
+            default:
+                erro(pc(ctx,p.x), "illegal closure on %v", tv(x)).trace()
+            }
+            if s == "" {
+                erro(pc(ctx,p.x), "empty ident: %v", tv(x)).trace()
+            }
+            if t := closure_resolve(ctx, s); t != nil { x = t }
+        }
+        if _, y := x.(evoker); !y { unevoke = true }
     } else {
-        if res = truly(ctx, ex_closure{}) ||  p.x.expandable(ctx); !res {
-            for _, a := range p.a { if a.expandable(ctx) { return true }}
+        unevoke = true
+    }
+
+    if unevoke {
+        var a = expand(ctx, p.a...)
+        if !equal(ctx, x, p.x) || diff(ctx, a, p.a) {
+            t := &closure{delegate{p.valbase, p.l, x, p.o, a}}
+            do(ctx, uv{t})
+            return t
+        } else {
+            do(ctx, uv{p})
+            return p
         }
     }
-    return
+
+    if v, a := evoke(c, x, p.o, p.a); c.uv == nil {
+        return v
+    } else if !equal(ctx, x, p.x) || diff(ctx, a, p.a) {
+        return &closure{delegate{p.valbase, p.l, x, p.o, a}}
+    } else {
+        return p
+    }
 }
 func (p *closure) match(ctx Context, i any) (full bool, s any, stems []string) {
     if v := p.expand(ctx); v != p {
@@ -5462,14 +5378,6 @@ func (p *closure) match(ctx Context, i any) (full bool, s any, stems []string) {
     } else if false {
         errostack(ctx, 3, "unexpand closure: %v", v).trace()
     }
-    return
-}
-func (p *closure) refs(ctx Context, v Value) (res bool) {
-    if p.x == nil {
-        errostack(pc(ctx,p), 3, "closure of nil: %v (%v)", ts(p), ts(v)).trace()
-    }
-    if p == v || p.x == v || p.x.refs(ctx, v) { return true }
-    for _, a := range p.a { if a.refs(ctx, v) { return true } }
     return
 }
 func (p *closure) traverse(ctx Context) {
@@ -5515,45 +5423,49 @@ func (p *arrow) hash(ctx Context) uint64 { return fnv1(ctx, p, p.t, p.o, p.s) }
 func (p *arrow) ts(t string) string { return "{="+t+" "+ts(p.o)+p.t.String()+ts(p.s)+"}" }
 func (p *arrow) String() string { return p.o.String() + p.t.String() + p.s.String() }
 func (p *arrow) string(ctx Context) (s string) {
-    p.ex(ctx, func(v Value) { s = v.string(ctx) })
+    sc := stringify(ctx)
+    p.ex(sc, func(v Value) {
+        if !sc.empty { s = v.string(sc) }
+    })
     return
 }
 func (p *arrow) true(ctx Context) (t bool) {
-    p.ex(ctx, func(v Value) { t = v.true(ctx) })
+    sc := stringify(ctx)
+    p.ex(sc, func(v Value) {
+        if !sc.empty { t = v.true(ctx) }
+    })
     return
 }
 func (p *arrow) int(ctx Context) (i int64) {
-    var e error
-    p.ex(ctx, func(v Value) {
-        if s := v.string(ctx); s != "" {
+    sc := stringify(ctx)
+    p.ex(sc, func(v Value) {
+        if sc.empty { return }
+        if s := v.string(sc); !sc.empty && s != "" {
+            var e error
             i, e = strconv.ParseInt(s, 10, 64)
+            if e != nil {
+                errostack(pc(ctx,p), 3, "%v", e).trace()
+            }
         }
     })
-    if e != nil {
-        errostack(pc(ctx,p), 3, "%v", e).trace()
-    }
     return
 }
 func (p *arrow) float(ctx Context) (f float64) {
-    var e error
-    p.ex(ctx, func(v Value) {
-        if s := v.string(ctx); s != "" {
+    sc := stringify(ctx)
+    p.ex(sc, func(v Value) {
+        if sc.empty { return }
+        if s := v.string(sc); !sc.empty && s != "" {
+            var e error
             f, e = strconv.ParseFloat(s, 64)
+            if e != nil {
+                errostack(pc(ctx,p), 3, "%v", e).trace()
+            }
         }
     })
-    if e != nil {
-        errostack(pc(ctx,p), 3, "%v", e).trace()
-    }
     return
 }
-func (p *arrow) refs(ctx Context, v Value) bool {
-    return p.o.refs(ctx, v) || p.s.refs(ctx, v)
-}
-func (p *arrow) defs(ctx Context, s ...string) []*def {
-    return append(p.o.defs(ctx, s...), p.s.defs(ctx, s...)...)
-}
-func (p *arrow) expandable(ctx Context) (res bool) {
-    return p.o.expandable(ctx) || p.s.expandable(ctx)
+func (p *arrow) ex(ctx Context, f func(Value)) {
+    if v := p.expand(ctx); v != nil && !equal(ctx, v, p) { f(v) }
 }
 func (p *arrow) expand(ctx Context) (res Value) {
     o := p.o.expand(ctx)
@@ -5597,7 +5509,7 @@ func (p *arrow) evoke(ctx *evocation) (res Value) {
     s = p.s.expand(ctx)
 
     if x, y := o.(interface{ sel(Context, string) any }); y {
-        if indeterminate(ctx, s) {
+        if /* indeterminate(ctx, s) */false {
             if true { note(pc(ctx,s), "%v %v", o, s).debug() }
         } else if x, y := x.sel(ctx, s.string(ctx)).(evoker); y {
             return x.evoke(ctx)
@@ -5607,8 +5519,8 @@ func (p *arrow) evoke(ctx *evocation) (res Value) {
     }
     return _null(p.Position())
 }
-func (p *arrow) ex(ctx Context, f func(Value)) {
-    if v := p.expand(ctx); v != nil && !equal(ctx, v, p) { f(v) }
+func (p *arrow) defs(ctx Context, s ...string) []*def {
+    return append(p.o.defs(ctx, s...), p.s.defs(ctx, s...)...)
 }
 func (p *arrow) traverse(ctx Context) {
     if val := p.expand(ctx); isTrivial(val) {
@@ -5674,23 +5586,27 @@ func (p *percpat) String() (s string) {
     if !isNull(p.Suffix) { s += p.Suffix.String() }
     return
 }
-func (p *percpat) string(ctx Context) (s string) {
-    if p.Prefix != nil { s += p.Prefix.string(ctx) }
+func (p *percpat) string(ctx Context) (_ string) {
+    sc := stringify(ctx)
+    var s string
+    if p.Prefix != nil {
+        t := p.Prefix.string(sc)
+        if sc.empty { return }
+        s += t
+    }
     s += "%"
-    if p.Suffix != nil { s += p.Suffix.string(ctx) }
-    return
+    if p.Suffix != nil {
+        t := p.Suffix.string(sc)
+        if sc.empty { return }
+        s += t
+    }
+    return s
 }
 func (p *percpat) ts(t string) string {
     return fmt.Sprintf("{=%s %s %s}", t, ts(p.Prefix), ts(p.Suffix))
 }
-func (p *percpat) refs(ctx Context, v Value) bool {
-    return p.Prefix.refs(ctx, v) || p.Suffix.refs(ctx, v)
-}
 func (p *percpat) defs(ctx Context, s ...string) []*def {
     return append(p.Prefix.defs(ctx, s...), p.Suffix.defs(ctx, s...)...)
-}
-func (p *percpat) expandable(ctx Context) bool {
-    return p.Prefix.expandable(ctx) || p.Suffix.expandable(ctx)
 }
 func (p *percpat) expand(ctx Context) (res Value) {
     var (
@@ -5892,10 +5808,6 @@ func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) 
         }
     }
 
-    if false && indeterminate(ctx, p) {
-        erro(ctx, "valcache %v : indeterminate element : %v", p, ts(p)).trace()
-    }
-
     var s = p.string(ctx)
     if x, y := do(&percpat_hit{ctx,p}, hit_perc{c,s}).(valcache_bool); y {
         return x.valcache, x.bool
@@ -5977,10 +5889,6 @@ func (p compositePattern) match(ctx Context, i any) (full bool, result any, stem
     return
 }
 // func (p compositePattern) expand(ctx Context) (res Value) { return p }
-// func (p compositePattern) refs(ctx Context, v Value) (res bool) {
-//     for _, val := range p.vals { if res = val.refs(ctx, v); res { break } }
-//     return
-// }
 // func (p compositePattern) defs(ctx Context, s ...string) (res []*def) {
 //     for _, val := range p.vals { res = append(res, val.defs(ctx, s...)...) }
 //     return
@@ -6026,28 +5934,22 @@ func (p *globpat) String() (s string) {
     if explicit { s = "{=glob "+s+"}" }
     return
 }
-func (p *globpat) string(ctx Context) (s string) {
-    for _, comp := range p.elems { s += comp.string(ctx) }
-    return
+func (p *globpat) string(ctx Context) (_ string) {
+    sc := stringify(ctx)
+    var s string
+    for _, comp := range p.elems {
+        t := comp.string(ctx)
+        if sc.empty { return }
+        s += t
+    }
+    return s
 }
 func (p *globpat) true(ctx Context) bool { return p.elements.true(ctx) }
 func (p *globpat) float(ctx Context) (_ float64) { return }
 func (p *globpat) int(ctx Context) (_ int64) { return }
-func (p *globpat) refs(ctx Context, v Value) (res bool) {
-    for _, comp := range p.elems {
-        if res = comp.refs(ctx, v); res { break }
-    }
-    return
-}
 func (p *globpat) defs(ctx Context, s ...string) (res []*def) {
     for _, comp := range p.elems {
         res = append(res, comp.defs(ctx, s...)...)
-    }
-    return
-}
-func (p *globpat) expandable(ctx Context) (res bool) {
-    for _, comp := range p.elems {
-        if res = comp.expandable(ctx); res { break }
     }
     return
 }
@@ -6129,10 +6031,6 @@ func (p *globpat) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
-    if false && indeterminate(ctx, p) {
-        erro(ctx, "%v : indeterminate : %v", p, ts(p)).trace()
-    }
-
     t := do(&globpat_hit{ctx, p}, hit_glob{c, p.string(ctx)})
 
     if x, y := t.(valcache_bool); y {
@@ -6143,6 +6041,134 @@ func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
     return
 }
 
+/*
+ * # Regexp Syntax (see go/src/regexp/syntax/doc.go)
+ *
+ * The regular expression syntax understood by this package when parsing with the Perl flag is as follows.
+ * Parts of the syntax can be disabled by passing alternate flags to Parse.
+ *
+ * Single characters:
+ *
+ * 	.              any character, possibly including newline (flag s=true)
+ * 	[xyz]          character class
+ * 	[^xyz]         negated character class
+ * 	\d             Perl character class
+ * 	\D             negated Perl character class
+ * 	[[:alpha:]]    ASCII character class
+ * 	[[:^alpha:]]   negated ASCII character class
+ * 	\pN            Unicode character class (one-letter name)
+ * 	\p{Greek}      Unicode character class
+ * 	\PN            negated Unicode character class (one-letter name)
+ * 	\P{Greek}      negated Unicode character class
+ *
+ * Composites:
+ *
+ * 	xy             x followed by y
+ * 	x|y            x or y (prefer x)
+ *
+ * Repetitions:
+ *
+ * 	x*             zero or more x, prefer more
+ * 	x+             one or more x, prefer more
+ * 	x?             zero or one x, prefer one
+ * 	x{n,m}         n or n+1 or ... or m x, prefer more
+ * 	x{n,}          n or more x, prefer more
+ * 	x{n}           exactly n x
+ * 	x*?            zero or more x, prefer fewer
+ * 	x+?            one or more x, prefer fewer
+ * 	x??            zero or one x, prefer zero
+ * 	x{n,m}?        n or n+1 or ... or m x, prefer fewer
+ * 	x{n,}?         n or more x, prefer fewer
+ * 	x{n}?          exactly n x
+ *
+ * Implementation restriction: The counting forms x{n,m}, x{n,}, and x{n}
+ * reject forms that create a minimum or maximum repetition count above 1000.
+ * Unlimited repetitions are not subject to this restriction.
+ *
+ * Grouping:
+ *
+ * 	(re)           numbered capturing group (submatch)
+ * 	(?P<name>re)   named & numbered capturing group (submatch)
+ * 	(?:re)         non-capturing group
+ * 	(?flags)       set flags within current group; non-capturing
+ * 	(?flags:re)    set flags during re; non-capturing
+ *
+ * 	flag syntax is xyz (set) or -xyz (clear) or xy-z (set xy, clear z). The flags are:
+ *
+ * 	i              case-insensitive (default false)
+ * 	m              multi-line mode: ^ and $ match begin/end line in addition to begin/end text (default false)
+ * 	s              let . match \n (default false)
+ * 	U              ungreedy: swap meaning of x* and x*?, x+ and x+?, etc (default false)
+ *
+ * Empty strings:
+ *
+ * 	^              at beginning of text or line (flag m=true)
+ * 	$              at end of text (like \z not \Z) or line (flag m=true)
+ * 	\A             at beginning of text
+ * 	\b             at ASCII word boundary (\w on one side and \W, \A, or \z on the other)
+ * 	\B             not at ASCII word boundary
+ * 	\z             at end of text
+ *
+ * Escape sequences:
+ *
+ * 	\a             bell (== \007)
+ * 	\f             form feed (== \014)
+ * 	\t             horizontal tab (== \011)
+ * 	\n             newline (== \012)
+ * 	\r             carriage return (== \015)
+ * 	\v             vertical tab character (== \013)
+ * 	\*             literal *, for any punctuation character *
+ * 	\123           octal character code (up to three digits)
+ * 	\x7F           hex character code (exactly two digits)
+ * 	\x{10FFFF}     hex character code
+ * 	\Q...\E        literal text ... even if ... has punctuation
+ *
+ * Character class elements:
+ *
+ * 	x              single character
+ * 	A-Z            character range (inclusive)
+ * 	\d             Perl character class
+ * 	[:foo:]        ASCII character class foo
+ * 	\p{Foo}        Unicode character class Foo
+ * 	\pF            Unicode character class F (one-letter name)
+ *
+ * Named character classes as character class elements:
+ *
+ * 	[\d]           digits (== \d)
+ * 	[^\d]          not digits (== \D)
+ * 	[\D]           not digits (== \D)
+ * 	[^\D]          not not digits (== \d)
+ * 	[[:name:]]     named ASCII class inside character class (== [:name:])
+ * 	[^[:name:]]    named ASCII class inside negated character class (== [:^name:])
+ * 	[\p{Name}]     named Unicode operator inside character class (== \p{Name})
+ * 	[^\p{Name}]    named Unicode operator inside negated character class (== \P{Name})
+ *
+ * Perl character classes (all ASCII-only):
+ *
+ * 	\d             digits (== [0-9])
+ * 	\D             not digits (== [^0-9])
+ * 	\s             whitespace (== [\t\n\f\r ])
+ * 	\S             not whitespace (== [^\t\n\f\r ])
+ * 	\w             word characters (== [0-9A-Za-z_])
+ * 	\W             not word characters (== [^0-9A-Za-z_])
+ *
+ * ASCII character classes:
+ *
+ * 	[[:alnum:]]    alphanumeric (== [0-9A-Za-z])
+ * 	[[:alpha:]]    alphabetic (== [A-Za-z])
+ * 	[[:ascii:]]    ASCII (== [\x00-\x7F])
+ * 	[[:blank:]]    blank (== [\t ])
+ * 	[[:cntrl:]]    control (== [\x00-\x1F\x7F])
+ * 	[[:digit:]]    digits (== [0-9])
+ * 	[[:graph:]]    graphical (== [!-~] == [A-Za-z0-9!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])
+ * 	[[:lower:]]    lower case (== [a-z])
+ * 	[[:print:]]    printable (== [ -~] == [ [:graph:]])
+ * 	[[:punct:]]    punctuation (== [!-/:-@[-`{-~])
+ * 	[[:space:]]    whitespace (== [\t\n\v\f\r ])
+ * 	[[:upper:]]    upper case (== [A-Z])
+ * 	[[:word:]]     word characters (== [0-9A-Za-z_])
+ * 	[[:xdigit:]]   hex digit (== [0-9A-Fa-f])
+ */
 type regexpat struct{ valbase ; *regexp.Regexp }
 func (p *regexpat) hash(ctx Context) uint64 { return fnv1(ctx, p, p.Regexp.String()) }
 func (p *regexpat) string(ctx Context) (s string) { return p.Regexp.String() }
@@ -6200,10 +6226,6 @@ func (p *regexpat) cmp(ctx Context, v Value) (res cmpres) {
 func (p *regexpat) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 func (p *regexpat) expand(Context) Value { return p }
 func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if false && indeterminate(ctx, p) {
-        erro(ctx, "valcache %v : indeterminate element : %v", p, ts(p)).trace()
-    }
-
     t := do(&regexpat_hit{ctx, p}, hit_regex{c, p.string(ctx)})
 
     if x, y := t.(valcache_bool); y {
@@ -6346,11 +6368,6 @@ func filePerm(ctx Context, v Value, i uint32) (res os.FileMode) {
     return
 }
 
-func expandable(ctx Context, values ...Value) bool {
-    for _, v := range values { if v.expandable(ctx) { return true } }
-    return false
-}
-
 func expand(ctx Context, values ...Value) (elems []Value) {
     for _, elem := range values {
         if elem != nil {
@@ -6431,7 +6448,6 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
     return
 }
 
-func refs(ctx Context, a Value, v Value) bool { return a == v || a.refs(ctx, v) }
 func ease(ctx Context, a any) (res Value) {
     if a == nil { return }
 
@@ -6810,8 +6826,11 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value, _ []Value) {
         // NOTE: making a COPY of the argument slice FIXES the bug of delegate-altered-args.
         e := evocation{automatic{Context:ctx, defs:make(defmap)}, x, copyvals(a), copyvals(o)}
         return t.evoke(&e), e.a
-    } else {
+    } else if false {
         return x.expand(ctx), a
+    } else {
+        erro(pc(ctx,x), "not an evoker: %v", tv(x)).trace()
+        return
     }
 }
 
@@ -6820,7 +6839,8 @@ type opts struct{ vals []Value }
 
 func call(ctx Context, name string, o []Value, a ...Value) (res Value) {
     if v := _universe(ctx).lookup(name); v != nil {
-        if t, _ := evoke(ctx, v, o, a); !equal(ctx, v, t) { res = t }
+        var t, _ = evoke(ctx, v, o, a)
+        if t != nil && !equal(ctx, v, t) { res = t }
     }
     return
 }

@@ -187,7 +187,7 @@ func (ctx *builtin_grep) check_res(rx *regexp.Regexp, text string, temp, val Val
 		}
 	case "testvalue":
 		switch rx.String() {
-		case `.+?\.o`:
+		case `^.+?\.o$`:
 			switch text {
 			case "foo.o":
 				if v := auto_get(ctx, "0"); v == nil {
@@ -222,7 +222,7 @@ func (ctx *builtin_grep) check_res(rx *regexp.Regexp, text string, temp, val Val
 			default:
 				note(ctx, "%v; %v; %v; %v; %v", rx, text, temp, val, ctx.defs).debug(2)
 			}
-		case `(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)`:
+		case `^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$`:
 			switch text {
 			case "foo.o":
 				if d, y := ctx.defs["1"]; !y {

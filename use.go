@@ -23,21 +23,9 @@ type use struct {
 
 func (_ *use) kind() Kind { return KindUse }
 func (p *use) hash(ctx Context) uint64 { return fnv1(ctx, p, p.project.name) }
-func (p *use) refs(ctx Context, v Value) bool {
-    for _, a := range p.params {
-        if a.refs(ctx, v) { return true }
-    }
-    return false
-}
 func (p *use) defs(ctx Context, s ...string) (res []*def) {
     for _, a := range p.params {
     res = append(res, a.defs(ctx, s...)...)
-    }
-    return
-}
-func (p *use) expandable(ctx Context) (res bool) {
-    for _, a := range p.params {
-        if res = a.expandable(ctx); res { return }
     }
     return
 }
@@ -196,21 +184,9 @@ func (p *uselist) cmp(ctx Context, v Value) (res cmpres) {
 func (p *uselist) patterned(ctx Context) bool { return false }
 func (p *uselist) match(ctx Context, i any) (full bool, s any, stems []string) { return }
 func (p *uselist) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
-func (p *uselist) refs(ctx Context, v Value) bool {
-    for _, a := range p.list {
-        if a.refs(ctx, v) { return true }
-    }
-    return false
-}
 func (p *uselist) defs(ctx Context, s ...string) (res []*def) {
     for _, a := range p.list {
         res = append(res, a.defs(ctx, s...)...)
-    }
-    return
-}
-func (p *uselist) expandable(ctx Context) (res bool) {
-    for _, a := range p.list {
-        if res = a.expandable(ctx); res { break }
     }
     return
 }

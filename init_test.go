@@ -28,9 +28,6 @@ type testcase struct{
 }
 type testcase1  struct{ *testcase ; i any }
 type test_arg   struct{ name string; val any }
-type test_def_1 struct{}
-type test_def_2 struct{}
-type test_def_3 struct{}
 type test_final struct{}
 
 const testModulesPath = "/Volumes/workspace/.smart/modules"
@@ -179,19 +176,17 @@ func (tc *testcase) str(a any, b ...any) (_ string) {
 func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	var x Value
 	var a, o []Value
+	var ori origin
 	var s = skipint{2}
+	var j = _project(tc)
 	var ctx Context = tc
-	var origin = defExpand1
-	var proj = _project(tc)
 
 	for _, i := range ii {
 		var vb = valbase{_position(tc)}
 		switch t := i.(type) {
-		case test_def_1: origin = defExpand1
-		case test_def_2: origin = defExpand2
-		case test_def_3: origin = defExpand3
 		case test_final: ctx = _final(ctx)
-		case   *project: proj, ctx = t, closure_with(ctx, t.scope)
+		case     origin: ori = t
+		case   *project: j, ctx = t, closure_with(ctx, t.scope)
 		case    skipint: s.int = t.int+1
 		case       opt : o = append(o, t.Value)
 		case       opts: o = append(o, t.vals...)
@@ -202,36 +197,38 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 
 	switch t := i0.(type) {
 	case string:
-		if x = proj.resolve(ctx, t) ; x == nil {
-			note(ctx, "%v %v", proj, reflect.ValueOf(proj.scope.elems).MapKeys())
-			erro(ctx, "%v '%s' is nil", proj, t).trace()
+		if x = j.resolve(ctx, t) ; x == nil {
+			erro(ctx, "%v '%s' is nil", j, t)
+			note(ctx, "%v", reflect.ValueOf(j.scope.elems).MapKeys()).trace()
 		}
-	case  Value:
+	case Value:
 		if x = t ; t == nil {
-			erro(ctx, "%v %s is nil", proj, ts(t)).trace()
+			erro(ctx, "%v %s is nil", j, ts(t)).trace()
 		}
 	default:
-		erro(ctx, "%v %v", proj, ts(i0)).trace()
+		erro(ctx, "%v %v", j, ts(i0)).trace()
 	}
 
-	var c = original{ctx, origin}
+	if ori != 0 { ctx = original{ctx, ori} }
 
-	if d, y := x.(*def) ; y && 0 < len(a) {
-		res, _ = evoke(c, x, o, a)
+	if true {
+		res, _ = evoke(ctx, x, o, a)
 		return
-	} else if y {
-		if d.value != nil {
-			return d.value.expand(c)
+	} else if d, y := x.(*def); y {
+		if 0 < len(a) {
+			res, _ = evoke(ctx, x, o, a)
+			return
+		} else if d.value != nil {
+			return d.value.expand(ctx)
 		} else {
 			return
 		}
+	} else if 0 < len(a) {
+		ac := automatic{Context:ctx, defs:make(defmap)}
+		ac.args(ctx, a)
+		return x.expand(&ac)
 	} else {
-		if 0 < len(a) {
-			ac := automatic{Context:c.Context, defs:make(defmap)}
-			ac.args(ctx, a)
-			c.Context = &ac
-		}
-		return x.expand(c)
+		return x.expand(ctx)
 	}
 }
 
@@ -435,7 +432,7 @@ func Test(t *testing.T) {
 	run(t, "builtins", "locals",         "testlocals", testLocals)
 
 	// value_test.go
-	run(t, "value", "value/auto",        "testvalue", testAutomatic)
+	run(t, "value", "value/auto",        "testvalue", testAuto)
 	run(t, "value", "value/closure",     "testvalue", testClosure)
 	run(t, "value", "value/placeholder", "testvalue", testPlaceholders)
 	run(t, "value", "value/optional",    "testvalue", testOptional, test_silentOptionalArrow{true})

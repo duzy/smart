@@ -9,6 +9,7 @@ package smart
 import (
 	"reflect"
 	"strings"
+	"strconv"
 	"path/filepath"
 	"time"
 	"fmt"
@@ -38,8 +39,6 @@ func ex_check(ctx Context, p, _x Value, _a, _o []Value, _l token, _cl bool, res,
 		if !_cl && (x == nil || *x == nil) {
 			errostack(pc(ctx,p), 3, "%v : %v → %v", ts(p), ts(_x), ts(*x)).trace()
 		}
-	} else if false && p != *res && equal(ctx, p, *res) {
-		errostack(pc(ctx,p), 3, "%v: %p != %p", ts(*res), *res, p).trace()
 	}
 
 	if j := _project(ctx); j != nil {
@@ -709,6 +708,27 @@ func expand_check_elem(ctx Context, v, w Value) {
 	}
 }
 
+func equal_check(x Context, a, b Value, _res *bool) {
+	switch j := _project(x); j.spec {
+	case "testdata/value/auto":
+		equal_check_value_auto(x, a, b, *_res)
+	}
+}
+func equal_check_value_auto(x Context, a, b Value, res bool) {
+	if res {
+		if ts(a) != ts(b) {
+			erro(pc(x,a), "%v != %v : %v != %v", a, b, ts(a), ts(b)).trace()
+		}
+	} else {
+		if a == nil || b == nil {
+			erro(pc(x,a), "%v ⇔ %v", a, b).trace()
+		}
+		if ts(a) == ts(b) {
+			erro(pc(x,a), "%v != %v : %v != %v", a, b, ts(a), ts(b)).trace()
+		}
+	}
+}
+
 func (p *none) cmp_check(ctx Context, v Value, _res *cmpres) {
 	if res := *_res; res != cmpEqual && p.String() == v.String() {
 		errostack(pc(ctx,p), 3, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
@@ -797,8 +817,8 @@ func (p cond) cmp_check(ctx Context, v Value, _res *cmpres) {
 }
 
 func (p disjunction) cmp_check(ctx Context, v Value, _res *cmpres) {
-	if res := *_res; res != cmpEqual && p.String() == v.String() {
-		errostack(pc(ctx,p), 3, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
+	if res := *_res; res != cmpEqual && ts(p) == ts(v) {
+		errostack(pc(ctx,p), 3, "%v, %s == %s, %s ⇔ %s", res, p, v, ts(p), ts(v)).trace()
 	} else if x, y := v.(disjunction); y {
 		if p.Value.cmp(ctx, x.Value) != res {
 			errostack(pc(ctx,p), 3, "%v, %v ⇔ %v", res, ts(p.Value), ts(x.Value)).trace()
@@ -810,11 +830,6 @@ func (p disjunction) expand_check(ctx Context, _res *Value) {
 	if j := _project(ctx); j != nil {
 		switch j.spec {
 		case "testdata/builtins/foreach":
-			if false && indeterminate(ctx, res) {
-				if s, t := res.String(), p.String(); s != t {
-					erro(pc(ctx,p), "%s != %s : %s, %s", s, t, ts(res), ts(p)).trace()
-				}
-			}
 			switch s0 := p.String(); s0 {
 			case "&(.test.h)$_":
 				if u := auto_get(ctx, "_"); u == nil {
@@ -1301,9 +1316,9 @@ func (p *arrow) expand_check_value_optional(ctx Context, proj *project, o, s, re
 }
 
 func (p *compound) cmp_check(ctx Context, v Value, _res *cmpres) {
-    if res := *_res; res != cmpEqual && p.String() == v.String() {
-        note(ctx, "%v", ts(p))
-        note(ctx, "%v", ts(v))
+    if res := *_res; res != cmpEqual && ts(p) == ts(v) {
+        note(ctx, "%s, %s", p, ts(p))
+        note(ctx, "%s, %s", v, ts(v))
         errostack(pc(ctx,v), 3, "%v, %v ; %v == %v", res, p==v, p, v).trace()
     }
 }
@@ -1331,7 +1346,7 @@ func (p *compound) expand_check(ctx Context, _res *Value) {
 			if u := auto_get(ctx, "_"); u != nil {
 				switch p.String() {
 				case "x$_":
-					if indeterminate(ctx, u) {
+					if /* indeterminate(ctx, u) */true {
 						if x, y := u.(disjunction); !y {
 							erro(pc(ctx,p), "%v %s : %s", p, ts(u), ts(res)).trace()
 						} else if s, t := res.String(), "x"+x.String(); s != t {
@@ -1349,7 +1364,7 @@ func (p *compound) expand_check(ctx Context, _res *Value) {
 		}
 	}
 
-	if p.expandable(ctx) && equal(ctx, p, res) {
+	if /* false && p.expandable(ctx) && */ equal(ctx, p, res) {
 		if s := p.String(); strings.Contains(s, "$_") {
 			if r := res.String(); res == p || r == s || strings.Contains(r, "$_") {
 				if d := auto_find(ctx, "_"); d != nil {
@@ -1513,32 +1528,62 @@ func (p *list) cmp_check(ctx Context, v Value, _res *cmpres) {
 	}
 	return
 }
-func (p *list) expand_check(ctx Context, d bool, a []Value, res Value) {
-	if s1, s2 := fmt.Sprintf("%s", p.elems), fmt.Sprintf("%s", a); d {
-		if p == res || p.String() == res.String() {
-			errostack(pc(ctx,p), 3, "%v → %v, %v → %v", p, res, p.elems, a).trace()
-		}
-		if s1 == s2 {
-			errostack(pc(ctx,p), 3, "%v → %v, %v → %v; %s == %s", p, res, p.elems, a, s1, s2).trace()
-		}
-	} else {
-		if p != res || p.String() != res.String() {
-			errostack(pc(ctx,p), 3, "%v → %v, %v → %v", p, res, p.elems, a).trace()
-		}
-		if s1 != s2 {
-			errostack(pc(ctx,p), 3, "%v → %v, %v → %v; %s != %s", p, res, p.elems, a, s1, s2).trace()
+func (p *list) expand_check(ctx Context, d bool, elems []Value, _res *Value) {
+	if j := _project(ctx); j != nil {
+		switch j.spec {
+		case "testdata/value/auto":
+			p.expand_check_value_auto(ctx, d, elems, *_res)
+		case "testdata/value/placeholder":
+			p.expand_check_value_placeholder(ctx, d, elems, *_res)
 		}
 	}
-	if s1, s2 := ts(p.elems), ts(a); d {
+
+	var res = *_res
+	var s1 = ts(p.elems)
+	var s2 = ts(elems)
+	if d {
 		if s1 == s2 {
-			errostack(pc(ctx,p), 3, "%v → %v, %v → %v; %s == %s", p, res, p.elems, a, s1, s2).trace()
+			errostack(pc(ctx,p), 3, "%s == %s", s1, s2).trace()
+		}
+		if p == res || p.String() == res.String() {
+			errostack(pc(ctx,p), 3, "%v == %v; %v", p, res, p==res).trace()
 		}
 	} else {
 		if s1 != s2 {
-			errostack(pc(ctx,p), 3, "%v → %v, %v → %v; %s != %s", p, res, p.elems, a, s1, s2).trace()
+			errostack(pc(ctx,p), 3, "%s != %s", s1, s2).trace()
+		}
+		if p != res || p.String() != res.String() {
+			errostack(pc(ctx,p), 3, "%v != %v; %v", p, res, p!=res).trace()
 		}
 	}
 	return
+}
+func (p *list) expand_check_value_auto(ctx Context, d bool, elems []Value, res Value) {
+	switch p.String() {
+	case "$1 $2 $3 $4 $5 $6 $7 $8 $9":
+		var t string
+		for i := 1; i <= 9; i += 1 {
+			if 1 < i { t += " " }
+			if a := auto_get(ctx, strconv.Itoa(i)); a != nil {
+				t += a.String()
+			} else {
+				t += fmt.Sprintf("$%d", i)
+			}
+		}
+		if s := res.String(); s != t {
+			errostack(pc(ctx,p), 3, "%s != %s : %s", s, t, ts(res)).trace()
+		}
+	}
+}
+func (p *list) expand_check_value_placeholder(ctx Context, d bool, elems []Value, res Value) {
+	switch p.String() {
+	case "$_":
+		if a := auto_get(ctx, "_"); a == nil {
+			erro(ctx, "%v %v", do(ctx, evoke_x{}), res).debug()
+		} else if s, t := res.String(), a.String(); s != t {
+			erro(ctx, "%s != %s : %s", s, t, ts(res)).debug()
+		}
+	}
 }
 
 func (p *delegate) cmp_check(ctx Context, v Value, _res *cmpres) {
@@ -1546,38 +1591,650 @@ func (p *delegate) cmp_check(ctx Context, v Value, _res *cmpres) {
         erro(ctx, "%v, %v ⇔ %v, %v ⇔ %v", res, p, v, ts(p), ts(v)).trace()
     }
 }
-func (p *delegate) final_val_check(ctx Context, v Value, nr bool) {
-    if false && p.String() == "$/" {
-        note(ctx, "%v → %v", ts(p), ts(v))
-        erro(ctx, "%v", ts(ctx)).trace()
-    }
-    if nr {
-        var u = v.expandable(ctx)
-        if v == p || (false && v.refs(ctx, p.x)) {
-            note(ctx, "%v → %v (%v)", ts(p), ts(v), (v==p))
-            erro(ctx, "%v", ts(ctx)).trace()
-        }
-        if u && v == p {
-            note(ctx, "%v → %v", ts(p), ts(v))
-            erro(ctx, "%v", ts(ctx)).trace()
-        }
-        if p.String() == v.String() {
-            if u {
-                note(ctx, "%v → %v , %v", ts(p), ts(v), p.cmp(ctx, v))
-                erro(ctx, "%v", ts(ctx)).trace()
-            } else {
-                note(ctx, "%v → %v , %v", ts(p), ts(v), v.cmp(ctx, p))
-                erro(ctx, "%v", ts(ctx)).trace()
-            }
-            return
-        }
-    }
+func (p *delegate) expand_check(ctx *uvc, x Value, a *[]Value, v, _res *Value) {
+	if j := _project(ctx); j != nil {
+		switch j.name {
+		case "configure.base":
+			p.expand_check_configure_base(ctx, *_res)
+		}
+		switch j.spec {
+		case "testdata/value":
+			p.expand_check_value(ctx, j, *a, *v, *_res)
+		case "testdata/value/auto":
+			p.expand_check_value_auto(ctx, j, *a, *v, *_res)
+		case "testdata/value/placeholder":
+			p.expand_check_value_placeholder(ctx, j, *a, *v, *_res)
+		case "testdata/value/2":
+			p.expand_check_value_2(ctx, *_res)
+		case "testdata/value/4":
+			p.expand_check_value_4(ctx, *_res)
+		case "testdata/value/closure":
+			p.expand_check_value_closure(ctx, *_res)
+		case "testdata/value/optional":
+			p.expand_check_value_optional(ctx, *_res)
+		case "testdata/value/bug_01":
+			p.expand_check_value_bug_01(ctx, *_res)
+		case "testdata/builtins/foreach":
+			p.expand_check_builtins_foreach(ctx, *_res)
+		case "testdata/rule/shell/for-stdout":
+			p.expand_check_rule_shell_forstdout(ctx, *_res)
+		}
+	}
+}
+func (p *delegate) expand_check_configure_base(ctx Context, res Value) {
+	if at := ts(auto_get(ctx, "@")); strings.HasPrefix(at, "{=file .configure/library/HAVE_LIB") {
+		switch s := p.String(); s {
+		case `$(foreach $(INCLUDE),"#include $_\n")`:
+			if v := res.String(); strings.HasPrefix(v, `$(foreach {},"#include`) {
+				note(ctx, "%v → %v ; %v %v", p, res, truly(ctx, ex_closure{}), truly(ctx, ex_delegate{}))
+				erro(pc(ctx,p), "%s : %s → %s", at, s, v).trace()
+			}
+		}
+	}
+	if ent := _entry(ctx); ent != nil {
+		switch ent.destiny().string(ctx) {
+		case "-compiles-c", "-library-c", "-symbol-c":
+			if truly(ctx, is_exec{}) {
+				switch p.String() {
+				case "$(file $(name).c)", "$(file $(name).c++)", "$(file $(name).log)":
+					if _, y := res.(*file); !y {
+						errostack(ctx, 8, "not a file: %v: %v → %v", p, ts(p), ts(res)).trace()
+					}
+				case "$<", "$>", "$(file $(s).x)", "$(file $(s).o)":
+					if _, y := res.(fullfile); !y {
+						errostack(ctx, 8, "not a fullfile: %v: %v → %v", p, ts(p), ts(res)).trace()
+					}
+				}
+			}
+			if truly(ctx, is_modify{}) {
+				p.expand_check_configure_base_library_c(ctx, res)
+			}
+		}
+	}
+}
+func (p *delegate) expand_check_configure_base_library_c(ctx Context, res Value) {
+	var kind string
+	var t = auto_find(ctx, "TARGET")
+	var d = auto_find(ctx, "FUNCTION")
+	if d != nil && !isTrivial(d.value) {
+		kind = "function"
+	} else {
+		kind = "library"
+	}
+	switch p.String() {
+	case "$(ifdef FUNCTION,function,library)":
+		if (res).String() != kind {
+			erro(ctx, "%v", res).trace()
+		}
+	case "$(file .configure/$(ifdef FUNCTION,function,library)/$(TARGET).c)":
+		if t == nil || isTrivial(t.value) {
+			erro(ctx, "%v", res).trace()
+		} else if s := t.string(ctx); s == "" {
+			erro(ctx, "%v", t.value).trace()
+		} else if x, y := (res).(*file); !y {
+			erro(ctx, "%v", res).trace()
+		} else if t := filepath.Join(".configure", kind, s+".c"); t != x.name {
+			erro(ctx, "%s != %s", x.name, t).trace()
+		}
+	case "$(file $(s).x)":
+		if t == nil || isTrivial(t.value) {
+			erro(ctx, "%v", res).trace()
+		} else if s := t.string(ctx); s == "" {
+			erro(ctx, "%v %v", t.value, s).trace()
+		} else {
+			if x, y := (res).(*file); !y {
+				erro(ctx, "%v %v", typeof(res), res).trace()
+			} else if t := filepath.Join(".configure", kind, s+".c.x"); t != x.name {
+				erro(ctx, "%s != %s", x.name, t).trace()
+			}
+		}
+	case "$(file $(s).o)":
+		if t == nil || isTrivial(t.value) {
+			erro(ctx, "%v", res).trace()
+		} else if s := t.string(ctx); s == "" {
+			erro(ctx, "%v %v", t.value, s).trace()
+		} else {
+			if x, y := (res).(*file); !y {
+				erro(ctx, "%v %v", typeof(res), res).trace()
+			} else if t := filepath.Join(".configure", kind, s+".c.o"); t != x.name {
+				erro(ctx, "%s != %s", x.name, t).trace()
+			}
+		}
+	}
+}
+func (p *delegate) expand_check_value(ctx *uvc, j *project, a []Value, v, res Value) {
+	switch p.String() {
+	case `$(quote a\,b\,c,x\,y\,z)`:
+		if s, t := res.String(), `{=quote a\,b\,c x\,y\,z}`; s != t {
+			erro(ctx, "%s != %s : %s", s, t, ts(res))
+			note(ctx, "%v", ts(p)).trace()
+		}
+	case fmt.Sprintf(`$(grep {=regex ^.+?\.o$$},$0,%s/test.txt)`, j.absPath):
+		if ctx.uv != nil {
+			erro(pc(ctx,p.x), "%v → %v : %v", p, v, tv(ctx.uv)).trace()
+		}
+		note(ctx, "%v", p)
+		note(ctx, "%v", res).debug(3)
+	}
+}
+func (p *delegate) expand_check_value_auto(ctx *uvc, j *project, a []Value, v, res Value) {
+	var ps = p.String()
+	switch ps {
+	case "$(closure foobar)":
+		if s, t := res.String(), "&(foobar)"; s != t {
+			erro(pc(ctx,p.x), "%s != %s : %s", s, t, ts(res)).trace()
+		}
+		if s, t := ts(res), "{=closure {=word foobar}}"; s != t {
+			erro(pc(ctx,p.x), "%s != %s", s, t).trace()
+		}
+	case "$(auto,$(a))":
+		if o := do(ctx, evoke_def{"val1"}); o == nil {
+			if s, t := res.String(), "$(a)"; s != t {
+				erro(pc(ctx,p.x), "%s != %s : %s", s, t, ts(res)).trace()
+			}
+			if s, t := ts(res), "{=delegate {=auto a}}"; s != t {
+				erro(pc(ctx,p.x), "%s != %s", s, t).trace()
+			}
+		} else {
+			if s, t := res.String(), "2"; s != t {
+				erro(pc(ctx,p.x), "%s != %s : %s", s, t, ts(res)).trace()
+			}
+			if s, t := ts(res), "2"; s != t {
+				erro(pc(ctx,p.x), "%s != %s", s, t).trace()
+			}
+		}
+	case "$(auto a=1,$(val1),$(a))":
+		if o := do(ctx, evoke_def{"val2"}); o == nil {
+			if s, t := res.String(), "2 2"; s != t {
+				erro(pc(ctx,p.x), "%s != %s : %s", s, t, ts(res)).trace()
+			}
+			if s, t := ts(res), "2 2"; s != t {
+				erro(pc(ctx,p.x), "%s != %s", s, t).trace()
+			}
+		} else {
+			if s, t := res.String(), "3 3"; s != t {
+				erro(pc(ctx,p.x), "%s != %s : %s", s, t, ts(res)).trace()
+			}
+			if s, t := ts(res), "3 3"; s != t {
+				erro(pc(ctx,p.x), "%s != %s", s, t).trace()
+			}
+		}
+	case "$(auto a=1,$(val2))":
+		if o := do(ctx, evoke_def{"val3"}); true {
+			if s, t := res.String(), "3 3"; s != t {
+				erro(pc(ctx,p.x), "%s != %s : %s ; %v", s, t, ts(res), o).trace()
+			}
+			if s, t := ts(res), "3 3"; s != t {
+				erro(pc(ctx,p.x), "%s != %s ; %v", s, t, o).trace()
+			}
+		}
+	case "$(val3)":
+		if o := do(ctx, evoke_def{"val4"}); o == nil {
+			if s, t := res.String(), "2 2"; s != t {
+				erro(pc(ctx,p.x), "%s != %s : %s", s, t, ts(res)).trace()
+			}
+			if s, t := ts(res), "{=list {=decimal 2} {=decimal 2}}"; s != t {
+				erro(pc(ctx,p.x), "%s != %s", s, t).trace()
+			}
+		} else {
+			erro(ctx, "%v → %v; %v", p, res, o).debug()
+		}
+	default:
+		for i := 1; i <= 9; i += 1 {
+			if s := strconv.Itoa(i); ps == "$"+s {
+				if t := auto_get(ctx, s); t != nil {
+					if res.cmp(ctx, t) != cmpEqual {
+						erro(pc(ctx,p.x), "%d, %s != %s", i, res, t).trace()
+					}
+				}
+			}
+		}
+	}
+}
+func (p *delegate) expand_check_value_placeholder(ctx *uvc, j *project, a []Value, v, res Value) {
+	var ps = p.String()
+	switch ps {
+	case "$(foreach a b c d e f,$_)":
+		if s, t := res.String(), "a b c d e f"; s != t {
+			erro(ctx, "%s != %s : %s", s, t, ts(res)).trace()
+		}
+	case "$(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_)":
+		if s, t := res.String(), "{$1} {$2} {$3} {$4} {$5} {$6} {$7} {$8} {$9}"; s != t {
+			erro(ctx, "%s != %s : %s", s, t, ts(res)).trace()
+		}
+	}
+}
+func (p *delegate) expand_check_value_2(ctx Context, res Value) {
+}
+func (p *delegate) expand_check_value_4(ctx Context, res Value) {
+}
+func (p *delegate) expand_check_value_closure(ctx Context, res Value) {
+}
+func (p *delegate) expand_check_value_optional(ctx Context, res Value) {
+	if truly(ctx, propExDef1) {
+		switch p.String() {
+		case "$(name?)":
+			if "{=null}" != ts(res) {
+				errostack(pc(ctx,p.x), 1, "p=%v, r=%v %s", ts(p), ts(res), res).trace()
+			}
+		}
+	}
+
+	switch ps := p.String(); ps {
+	case "$(foo)":
+		if s, t := ts(res), "{=project foo}"; s != t {
+			erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+		}
+	case "$(name?)":
+		if s, t := ts(res), "{=null}"; s != t {
+			erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+		}
+	case "$({=project foo}→name?)":
+		if s, t := ts(res), "{=self foo}"; s != t {
+			erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+		}
+	case "$({=project foo}→baz?)":
+		if res != nil {
+			if s, t := ts(res), "{=null}"; s != t {
+				erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+			}
+		}
+	case "$(fo?→bar)":
+		if res != nil {
+			if s, t := ts(res), "{=null}"; s != t {
+				erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+			}
+		}
+	case "$(fo?→bar?)":
+		if res != nil {
+			if s, t := ts(res), "{=null}"; s != t {
+				erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+			}
+		}
+	case "$({=project foo}→name→xxxx?)":
+		if res != nil {
+			if s, t := ts(res), "{=null}"; s != t {
+				erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+			}
+		}
+	case "$({=project foo}→name→item?)":
+		if s, t := ts(res), "{=answer yes}"; s != t {
+			erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+		}
+	case "$({=project foo}→name?→item?)":
+		if s, t := ts(res), "{=answer yes}"; s != t {
+			erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+		}
+	case "$({=project foo}?→name?→item?)":
+		if s, t := ts(res), "{=answer yes}"; s != t {
+			erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+		}
+	case "$($_→name)":
+		if false {
+			if s, v := ts(res), auto_get(ctx, "_"); v == nil {
+				if t := "{=delegate {=arrow {=delegate {=auto _}}→{=word name}}}"; s != t {
+					erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+				}
+			} else if t := "{=self foo}"; s != t {
+				erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+			}
+		}
+	case "$($_→name?)":
+		if false {
+			if s, v := ts(res), auto_get(ctx, "_"); v == nil {
+				if t := "{=delegate {=cond {=arrow {=delegate {=auto _}}→{=word name}}}}"; s != t {
+					erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+				}
+			} else if t := "{=self foo}"; s != t {
+				erro(pc(ctx,res), "%s: %s != %s", ps, s, t).trace()
+			}
+		}
+	}
+
+	switch s := p.x.String(); s {
+	case "$_→name":
+		if s, t := ts(p.x), "{=arrow {=delegate {=auto _}}→{=word name}}"; s != t {
+			erro(pc(ctx,p.x), "%s: %v != %s", p, s, t).trace()
+		} else if s, t := ts(res), "{=self foo}"; s != t {
+			erro(pc(ctx,p.x), "%s: %v != %s; %s", p, s, t, res).trace()
+		}
+	case "$_→name?":
+		if s, t := ts(p.x), "{=cond {=arrow {=delegate {=auto _}}→{=word name}}}"; s != t {
+			erro(pc(ctx,p.x), "%s: %v != %s", p, s, t).trace()
+		} else if v := auto_get(ctx, "_"); v == nil {
+			if s != t { erro(ctx, "%s: %s != %s", p, s, t).trace() }
+		}
+	case "$_→bar?":
+		if s, t := ts(p.x), "{=cond {=arrow {=delegate {=auto _}}→{=word bar}}}"; s != t {
+			erro(pc(ctx,p.x), "%s: %v != %s", p, s, t).trace()
+		} else if v := auto_get(ctx, "_"); v == nil {
+			if s != t { erro(ctx, "%s: %s != %s", p, s, t).trace() }
+		}
+	}
+}
+func (p *delegate) expand_check_value_bug_01(ctx Context, res Value) {
+	switch s := p.String() ; s {
+	case "$1":
+	case "$(foreach $1,$2.$_)":
+		var v1, v2, v3 = auto_get(ctx, "1"), auto_get(ctx, "2"), auto_get(ctx, "3")
+		var s1, s2, s3 = ts(v1), ts(v2), ts(v3)
+		var s0 string
+		if s1 == "{=list {=delegate {=auto 1}} {=delegate {=auto 2}}}" {
+			for _, s0 = range []string{"x", "y", "z"} {
+				if s2 == "{=word "+s0+"}" && s3 == "{=word "+s0+"}" {
+					if r, t := res.String(), s0+".{$1} "+s0+".{$2}"; s == r {
+						erro(ctx, "%v → %v != %v; %v, %v, %v", s, r, t, v1, v2, v3).trace()
+					} else if r != t {
+						erro(ctx, "%v → %v != %v; %v, %v, %v", s, r, t, v1, v2, v3).trace()
+					}
+					break
+				}
+			}
+		}
+		if v0 := auto_get(ctx, "_"); v0 == nil && s0 == "" {
+			if s, t := "$2.{$1}", res.String(); s != t {
+				note(ctx, "1: %v → %v", v1, s1)
+				note(ctx, "2: %v → %v", v2, s2)
+				note(ctx, "3: %v → %v", v3, s3)
+				errostack(ctx, 8, "%s != %s; %v", s, t, v0).trace()
+			}
+		}
+
+	case "$(foreach(-unique) $(foreach $1,$2.$_),$_)":
+		var v1, v2, v3 = auto_get(ctx, "1"), auto_get(ctx, "2"), auto_get(ctx, "3")
+		var s1, s2, s3 = ts(v1), ts(v2), ts(v3)
+		var s0 string
+		if s1 == "{=list {=delegate {=auto 1}} {=delegate {=auto 2}}}" {
+			for _, s0 = range []string{"x", "y", "z"} {
+				if s2 == "{=word "+s0+"}" && s3 == "{=word "+s0+"}" {
+					if r, t := res.String(), "{"+s0+".{$1}} {"+s0+".{$2}}"; s == r {
+						errostack(pc(ctx,p), 3, "%v → %v != %v", s, r, t).trace()
+					} else if r != t {
+						errostack(pc(ctx,p), 3, "%v → %v != %v", s, r, t).trace()
+					}
+					break
+				}
+			}
+		}
+		if v0 := auto_get(ctx, "_"); v0 == nil && s0 == "" {
+			if s, t := "{$2.{$1}}", res.String(); s != t {
+				erro(ctx, "%v != %v : %v, %v, %v", s, t, s1, s2, s3).trace()
+			}
+		}
+
+	case "$(foreach(-final) x y z,$(okay.2 $1 $2,$_,$_))":
+		var v1, v2 = auto_get(ctx, "1"), auto_get(ctx, "2")
+		var s1, s2 = ts(v1), ts(v2)
+		if x, y := do(ctx, evoke_def{"okay.1"}).(*def); y {
+			if s1 == "{=list {=delegate {=auto 1}}}" && s2 == "{=list {=delegate {=auto 2}}}" {
+				erro(ctx, "%v → %v : %v", s, res, do(ctx, evoke_x{})).trace()
+			} else {
+				erro(ctx, "%v → %v : %v %v", s, x, s1, s2).trace()
+			}
+		} else if s, t := res.String(), "$(okay.2 $1 $2,x,x)? $(okay.2 $1 $2,y,y)? $(okay.2 $1 $2,z,z)?"; s != t {
+			if s1 != "{}" || s2 != "{}" {
+				erro(ctx, "%v → %v : %v %v : %v", s, t, s1, s2, do(ctx, evoke_x{})).trace()
+			} else {
+				erro(ctx, "%v → %v : %v", s, t, do(ctx, evoke_x{})).trace()
+			}
+		} else if s, t := ts(res), "{=list {=condval {=delegate {=def okay.2} {=list {=delegate {=auto 1}} {=delegate {=auto 2}}} {=list {=word x}} {=list {=word x}}}} {=condval {=delegate {=def okay.2} {=list {=delegate {=auto 1}} {=delegate {=auto 2}}} {=list {=word y}} {=list {=word y}}}} {=condval {=delegate {=def okay.2} {=list {=delegate {=auto 1}} {=delegate {=auto 2}}} {=list {=word z}} {=list {=word z}}}}}"; s != t {
+			if s1 != "{}" || s2 != "{}" {
+				erro(ctx, "%v → %v : %v %v : %v", s, t, s1, s2, do(ctx, evoke_x{})).trace()
+			} else {
+				erro(ctx, "%v → %v : %v", s, t, do(ctx, evoke_x{})).trace()
+			}
+		}
+
+	case "$(okay.2 $1 $2,$_,$_)":
+		if v := auto_get(ctx, "_"); v == nil {
+			if t := res.String(); s != t {
+				erro(ctx, "%v → %v : %v", s, t, do(ctx, evoke_x{})).trace()
+			}
+		} else {
+			if s, t := res.String(), fmt.Sprintf("$(okay.2 $1 $2,%s,%s)", v, v); s != t {
+				erro(ctx, "%v → %v : %v", s, t, do(ctx, evoke_x{})).trace()
+			}
+		}
+
+	case "$(okay.1 $1,$2)":
+		if truly(ctx, ex_delegate{}) {
+			if s, t := res.String(), "{x.{$1 $2}} {y.{$1 $2}} {z.{$1 $2}}"; s != t {
+				erro(ctx, "%v != %v : %v", s, t, do(ctx, evoke_x{})).trace()
+			} else {
+				var v1, v2, v3 = auto_get(ctx, "1"), auto_get(ctx, "2"), auto_get(ctx, "3")
+				if v1 != nil || v2 != nil || v3 != nil {
+					erro(ctx, "%v : %v %v %v : %v", s, v1, v2, v2, do(ctx, evoke_x{})).trace()
+				}
+			}
+		} else if t := res.String(); s != t {
+			erro(ctx, "%v → %v : %v", s, t, do(ctx, evoke_x{})).trace()
+		}
+	}
+}
+func (p *delegate) expand_check_builtins_foreach(ctx Context, res Value) {
+}
+func (p *delegate) expand_check_rule_shell_forstdout(ctx Context, res Value) {
+	var o = try[origin](ctx, get_origin{})
+
+	switch p.String() {
+	case "${.test $1,$2}":
+		if a1, a2 := auto_get(ctx, "1"), auto_get(ctx, "2") ; a1 != nil && a2 != nil {
+			switch o {
+			case defExpand0:
+				if ts(res) != sfmt("{=delegate {=builtin debug} {=list %s %s}}", ts(a1), ts(a2)) {
+					errostack(ctx, 3, "%s %s, %s", ts(a1), ts(a2), ts(res)).trace()
+				}
+			case defExpand1:
+				if ts(res) != "{=null}" {
+					errostack(ctx, 3, "%s", ts(res)).trace()
+				}
+			}
+		} else if truly(ctx, ex_delegate{}) {
+			if ts(res) != "{=delegate {=builtin debug} {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}" {
+				errostack(ctx, 3, "%v: %s", p, ts(res)).trace()
+			}
+		} else {
+			erro(ctx, "%v: %s %s ; %s", p, ts(a1), ts(a2), ts(res)).trace()
+		}
+	case "${.test a,b}":
+		switch o {
+		case defExpand0:
+			if ts(res) != "{=delegate {=builtin debug} {=list {=word b} {=word a}}}" {
+				errostack(ctx, 3, "%v", ts(res)).trace()
+			}
+		case defExpand1:
+			if ts(res) != "{=null}" {
+				errostack(ctx, 3, "%s", ts(res)).trace()
+			}
+		}
+	case "$(.test.v3 a,b)":
+		switch o {
+		case defExpand1:
+			if ts(res) != "{=null}" {
+				errostack(ctx, 3, "%s", ts(res)).trace()
+			}
+		}
+	case "$(debug $(line) $(str))":
+		if ts(p.a) != "{=[]Value {=list {=delegate {=auto line}} {=delegate {=auto str}}}}" {
+			erro(ctx, "%v", ts(p.a)).trace()
+		}
+
+		if a := _automatic(ctx); a == nil {
+			errostack(ctx, 5, "%v", ts(res)).trace()
+		} else {
+			keys := reflect.ValueOf(a.defs).MapKeys()
+
+			if x1, y := a.defs["1"]; !y {
+				errostack(ctx, 5, "%v; %v", keys, ts(res)).trace()
+			} else if x2, y := a.defs["str"]; !y {
+				errostack(ctx, 5, "%v; %v", keys, ts(res)).trace()
+			} else if x1 != x2 {
+				errostack(ctx, 5, "%v != %v; %v", x1, x2, ts(res)).trace()
+			}
+
+			if x1, y := a.defs["2"]; !y {
+				errostack(ctx, 5, "%v; %v", keys, ts(res)).trace()
+			} else if x2, y := a.defs["line"]; !y {
+				errostack(ctx, 5, "%v; %v", keys, ts(res)).trace()
+			} else if x1 != x2 {
+				errostack(ctx, 5, "%v != %v; %v", x1, x2, ts(res)).trace()
+			}
+		}
+		if a, b := auto_get(ctx, "1"), auto_get(ctx, "str"); a != b {
+			errostack(ctx, 5, "%v != %v; %v", a, b, ts(res)).trace()
+		}
+		if a, b := auto_get(ctx, "2"), auto_get(ctx, "line"); a != b {
+			errostack(ctx, 5, "%v != %v; %v", a, b, ts(res)).trace()
+		}
+
+		switch ts(p.a) {
+		case "{=[]Value {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}":
+			switch o {
+			case defExpand0, defExpand1:
+				if ts(res) != "{=delegate {=builtin debug} {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}" {
+					errostack(ctx, 5, "%v", ts(res)).trace()
+				}
+			}
+		case "{=[]Value {=list {=word b} {=word a}}}":
+			switch o {
+			case defExpand0:
+				if ts(res) != "{=delegate {=builtin debug} {=list {=word b} {=word a}}}" {
+					errostack(ctx, 5, "%v", ts(res)).trace()
+				}
+			case defExpand1:
+				if ts(res) != "{}" {
+					errostack(ctx, 5, "%v", ts(res)).trace()
+				}
+			}
+		case "{=[]Value}":
+			var t = []Value{auto_get(ctx, "1"), auto_get(ctx, "2")}
+			if ts(t) != "{=[]Value {} {}}" {
+				errostack(ctx, 5, "%v %v", ts(p.x), ts(t)).trace()
+			}
+			if ts(res) != "{}" {
+				errostack(ctx, 5, "%v", ts(res)).trace()
+			}
+		case
+			`{=[]Value {=list {=decimal 1} {=strlit test one\n}}}`,
+			`{=[]Value {=list {=decimal 2} {=strlit test two\n}}}`,
+			`{=[]Value {=list {=decimal 3} {=strlit test thr\n}}}`:
+			if ts(res) != "{}" {
+				errostack(ctx, 5, "%v", ts(res)).trace()
+			}
+		default:
+			errostack(ctx, 5, "untested: %v, %s", o, ts(res)).trace()
+		}
+	}
+
+	switch o {
+	case defExpand0, defExpand1, 0:
+	default:
+		errostack(ctx, 5, "untested: %v %s", o, ts(res)).trace()
+	}
 }
 
 func (p *closure) cmp_check(ctx Context, v Value, _res *cmpres) {
     if res := *_res; res != cmpEqual && p.String() == v.String() {
         erro(ctx, "%v, %v ⇔ %v", res, ts(p), ts(v)).trace()
     }
+}
+func (p *closure) expand_check(ctx *uvc, x Value, _res *Value) {
+	if j := _project(ctx); j != nil {
+		switch j.name {
+		case "configure.base":
+			p.expand_check_configure_base(ctx, x, *_res)
+		}
+		switch j.spec {
+		case "testdata/value":
+			p.expand_check_value(ctx, x, *_res)
+		case "testdata/value/2":
+			p.expand_check_value_2(ctx, x, *_res)
+		case "testdata/value/4":
+			p.expand_check_value_4(ctx, x, *_res)
+		case "testdata/value/closure":
+			p.expand_check_value_closure(ctx, x, *_res)
+		case "testdata/value/optional":
+			p.expand_check_value_optional(ctx, x, *_res)
+		case "testdata/value/bug_01":
+			p.expand_check_value_bug_01(ctx, x, *_res)
+		case "testdata/builtins/foreach":
+			p.expand_check_builtins_foreach(ctx, x, *_res)
+		case "testdata/rule/shell/for-stdout":
+			p.expand_check_rule_shell_forstdout(ctx, x, *_res)
+		}
+	}
+}
+func (p *closure) expand_check_configure_base(ctx Context, x, res Value) {
+}
+func (p *closure) expand_check_value(ctx Context, x, res Value) {
+}
+func (p *closure) expand_check_value_2(ctx Context, x, res Value) {
+}
+func (p *closure) expand_check_value_4(ctx Context, x, res Value) {
+}
+func (p *closure) expand_check_value_closure(ctx Context, x, res Value) {
+	switch p.String() {
+	case "&(&(foo.tail))":
+		if _, y := x.(*closure); y {
+			if c := cast[*uvc](ctx); c != nil && !c.indeterminate() {
+				erro(pc(ctx,x), "not indeterminate : %s", ts(x)).trace()
+			}
+		}
+	}
+}
+func (p *closure) expand_check_value_optional(ctx Context, x, res Value) {
+}
+func (p *closure) expand_check_value_bug_01(ctx Context, x, res Value) {
+	switch s := p.String() ; s {
+	case "&($2.$_)":
+		if x, y := do(ctx, evoke_def{}).(*def); y {
+			var v1, v2, v3 = auto_get(ctx, "1"), auto_get(ctx, "2"), auto_get(ctx, "3")
+			var s1, s2, s3 = ts(v1), ts(v2), ts(v3)
+			switch x.name {
+			case ".flag":
+				if r, t := res.String(), "&("+v2.String()+".$_)"; r != t {
+					erro(ctx, "%s → %s != %s : %v, %v, %v", s, r, t, s1, s2, s3).trace()
+				}
+			case "bug_0.2":
+				if x.value.String() != "$(foreach(-unique) $(foreach $1,&($2.$_)),$_)" {
+					erro(ctx, "%v → %v : %v", s, res, x).trace()
+				}
+				if s2 == s3 {
+					if r, t := res.String(), "&("+v2.String()+".$_)"; r != t {
+						erro(ctx, "%s → %s != %s : %v", s, r, t, s1).trace()
+					}
+				} else {
+					if t := res.String(); s != t {
+						erro(ctx, "%s → %s : %v, %v, %v", s, t, s1, s2, s3).trace()
+					}
+				}
+			}
+		} else if _, y := do(ctx, evoke_builtin{"foreach"}).(*builtin); y && false {
+			erro(ctx, "%v → %v : %v : %v", s, res, ts(auto_get(ctx, "_")), do(ctx, evoke_def{})).trace()
+		} else if s, t := "&($2.{$1})", res.String(); s != t {
+			erro(ctx, "%v → %v : %v : %v", s, t, ts(auto_get(ctx, "_")), ts(do(ctx, evoke_x{}))).trace()
+		} else if v := auto_get(ctx, "_"); v == nil {
+			erro(ctx, "%v → %v : %v : %v", s, t, ts(auto_get(ctx, "_")), ts(do(ctx, evoke_x{}))).trace()
+		} else if s, t := "{=disjunction {=delegate {=auto 1}}}", ts(v); s != t {
+			erro(ctx, "%v → %v : %v : %v", s, t, ts(auto_get(ctx, "_")), ts(do(ctx, evoke_x{}))).trace()
+		} else if false {
+			erro(ctx, "%v : %v : %v", s, auto_get(ctx, "_"), ts(do(ctx, evoke_x{}))).trace()
+		}
+	}
+}
+func (p *closure) expand_check_builtins_foreach(ctx Context, x, res Value) {
+	switch p.String() {
+	case "&(.test.h)":
+		note(ctx, "%v %v %v", p, tv(p.x), res).debug()
+	}
+}
+func (p *closure) expand_check_rule_shell_forstdout(ctx Context, x, res Value) {
+	var o = try[origin](ctx, get_origin{})
+	switch o {
+	case defExpand0, defExpand1, 0:
+	default:
+		errostack(ctx, 5, "untested: %v %s", o, ts(res)).trace()
+	}
 }
 
 func (p *globpat) cmp_check(ctx Context, v Value, _res *cmpres) {
@@ -1917,60 +2574,94 @@ func (d *def) set_check(ctx Context, o origin, val Value, app []Value) {
 }
 
 func (d *def) evoke_check(ctx *evocation, _res *Value, t time.Time) {
-	j, ent, res := _project(ctx), _entry(ctx), *_res
+	var j, res = _project(ctx), *_res
 	if u := time.Since(t); u > 2*time.Second {
 		notestack(pc(ctx,d.value), 1, "%v: %v; %v", j.name, u, res).debug(32)
 	}
-	if ent != nil {
-		switch j.name {
-		case "configure.base":
-			switch dest := ent.destiny().string(ctx); dest {
-			case "-cc", "-cxx", "-compiles-c", "-compiles-c++", "-library-c", "-library-c++", "-symbol-c", "-symbol-c++", "-function-c", "-function-c++", "-type-c", "-type-c++", "-variable-c", "-variable-c++", "-struct-member-c", "-struct-member-c++", "-headers-c", "-headers-c++":
-				switch d.name {
-				case "name":
-					if t := auto_find(ctx, "TARGET"); t == nil {
-						erro(ctx, "TARGET is nil: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
-					}
-					if _, y := res.(*path); !y {
-						errostack(ctx, 8, "not a path: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
-					}
-				case "x", "o", "s":
-					if !truly(ctx, is_compound{}) && truly(ctx, is_exec{}) {
-						if _, y := res.(fullfile); !y {
-							errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
-						}
-					} else {
-						if _, y := res.(*file); !y {
-							errostack(ctx, 8, "not a file: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
-						}
-					}
-					if s := d.string(ctx); s == "" {
-						errostack(ctx, 8, "empty: %s, %v → %v (%T)", dest, d, s, res).trace()
-					}
-				case "@":
-					if _, y := res.(fullfile); !y {
-						errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
-					}
-					if s := d.string(ctx); s == "" {
-						errostack(ctx, 8, "empty: %s, %v → %v (%T)", dest, d, s, res).trace()
-					}
+	switch j.name {
+	case "configure.base":
+		d.evoke_check_configure_base(ctx, j, res)
+	case "testvalue":
+		switch j.spec {
+		case "testdata/value":
+			d.evoke_check_testvalue(ctx, j, res)
+		}
+	}
+}
+func (d *def) evoke_check_configure_base(ctx *evocation, j *project, res Value) {
+	switch dest := _entry(ctx).destiny().string(ctx); dest {
+	case "-cc", "-cxx", "-compiles-c", "-compiles-c++", "-library-c", "-library-c++", "-symbol-c", "-symbol-c++", "-function-c", "-function-c++", "-type-c", "-type-c++", "-variable-c", "-variable-c++", "-struct-member-c", "-struct-member-c++", "-headers-c", "-headers-c++":
+		switch d.name {
+		case "name":
+			if t := auto_find(ctx, "TARGET"); t == nil {
+				erro(ctx, "TARGET is nil: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
+			}
+			if _, y := res.(*path); !y {
+				errostack(ctx, 8, "not a path: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
+			}
+		case "x", "o", "s":
+			if !truly(ctx, is_compound{}) && truly(ctx, is_exec{}) {
+				if _, y := res.(fullfile); !y {
+					errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
 				}
-			case "-feature-c", "-feature-c++", "-sizeof-c", "-sizeof-c++", "-alignof-c", "-alignof-c++":
-				// if _, y := res.(fullfile); !y {
-				// 	note(ctx, "%v", auto_get(ctx, "@"))
-				// 	note(ctx, "%v", auto_get(ctx, "<"))
-				// 	note(ctx, "%v", auto_get(ctx, ">"))
-				// 	errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
-				// }
-			case "-program-stdout", "-program-stderr", "-program-status":
-				// if _, y := res.(fullfile); !y {
-				// 	note(ctx, "%v", auto_get(ctx, "@"))
-				// 	note(ctx, "%v", auto_get(ctx, "<"))
-				// 	note(ctx, "%v", auto_get(ctx, ">"))
-				// 	errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
-				// }
+			} else {
+				if _, y := res.(*file); !y {
+					errostack(ctx, 8, "not a file: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
+				}
+			}
+			if s := d.string(ctx); s == "" {
+				errostack(ctx, 8, "empty: %s, %v → %v (%T)", dest, d, s, res).trace()
+			}
+		case "@":
+			if _, y := res.(fullfile); !y {
+				errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
+			}
+			if s := d.string(ctx); s == "" {
+				errostack(ctx, 8, "empty: %s, %v → %v (%T)", dest, d, s, res).trace()
 			}
 		}
+	case "-feature-c", "-feature-c++", "-sizeof-c", "-sizeof-c++", "-alignof-c", "-alignof-c++":
+		// if _, y := res.(fullfile); !y {
+		// 	note(ctx, "%v", auto_get(ctx, "@"))
+		// 	note(ctx, "%v", auto_get(ctx, "<"))
+		// 	note(ctx, "%v", auto_get(ctx, ">"))
+		// 	errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
+		// }
+	case "-program-stdout", "-program-stderr", "-program-status":
+		// if _, y := res.(fullfile); !y {
+		// 	note(ctx, "%v", auto_get(ctx, "@"))
+		// 	note(ctx, "%v", auto_get(ctx, "<"))
+		// 	note(ctx, "%v", auto_get(ctx, ">"))
+		// 	errostack(ctx, 8, "not a fullfile: %s, %v → %v (%T)", dest, d, ts(res), res).trace()
+		// }
+	}
+}
+func (d *def) evoke_check_testvalue(ctx *evocation, j *project, res Value) {
+	switch d.name {
+	case "disjunction0":
+	case "disjunction00":
+	case "disjunction01":
+		if a := auto_get(ctx, "1"); a == nil {
+			erro(pc(ctx,d.value), "$1 is nil : %s", ts(res)).trace()
+		} else {
+			switch v := a.(type) {
+			case *list:
+				var t string
+				for i, e := range v.elems {
+					if 0 < i { t += " " }
+					t += "x"+e.String()
+				}
+				if s := res.String(); s != t {
+					erro(pc(ctx,d.value), "%s != %s : %s, %s", s, t, ts(a), ts(res)).trace()
+				}
+			default:
+				erro(pc(ctx,d.value), "%s, %s : %s, %s", a, res, ts(a), ts(res)).trace()
+			}
+		}
+	case "disjunction02":
+	case "disjunction1":
+	case "disjunction2":
+	case "disjunction3":
 	}
 }
 

@@ -104,7 +104,7 @@ func (p selection) do(ctx Context, op any) (_ any) {
 
 type codeblock      struct{ *automatic ; token }
 type p_defname_ctx  struct{ Context }
-type p_defvalue_ctx struct{ Context }
+type p_defval struct{ Context }
 type p_braced_ctx   struct{ Context }
 type p_bare_ctx     struct{ Context }
 type p_auto_ctx     struct{ Context }
@@ -221,9 +221,9 @@ func (p p_defname_ctx) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p p_defvalue_ctx) cast(t reflect.Type) Context { return icast(p,t) }
-func (p p_defvalue_ctx) inner() Context { return p.Context }
-func (p p_defvalue_ctx) do(ctx Context, op any) (_ any) {
+func (p p_defval) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_defval) inner() Context { return p.Context }
+func (p p_defval) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_auto: return t.s != "0" && IsDigits(t.s)
 	case is_defvalue: return true
@@ -572,18 +572,20 @@ func (l ul) braced(ctx Context) (x Value) {
 		return
 	}
 
-	if /* checkpoints && */ l.p.tok != LPAREN && !l.p.scanner.bits.isBrace() {
+	if false && l.p.tok != LPAREN && !l.p.scanner.bits.isBrace() {
 		erro(ctx, "wrong scanstate: %v, %v, %v", l.p.tok, l.p.lit, l.p.scanner.scanstate).trace()
 	}
 
-	if l.p.tok == LBRACK { // OBSOLETE: {[...]}
+	switch l.p.tok {
+	case LBRACK: // obsolete syntax: {[...]}
 		erro(ctx, "syntax error, use {(modifier)} for modification").trace()
-	} else if l.p.tok == LPAREN {
+		return
+	case LPAREN:
 		x = l.modification(ctx)
 		l.p.spaces(ctx)
 		l.p.expect(ctx, RBRACE)
 		return
-	} else if l.p.tok == ASSIGN { // =
+	case ASSIGN: // =
 		l.p.step(ctx) // skips =
 		switch l.p.tok {
 		case AND:     return l.braced_and(ctx)
@@ -711,8 +713,9 @@ func (l ul) braced(ctx Context) (x Value) {
 
 		default:
 			l.p.next(ctx, true)
+			return
 		}
-	} else { // {...}
+	default: // {...}
 		if v := l.values(ctx); len(v) == 0 {
 			x = _null(pos)
 		} else if len(v) == 1 {
@@ -724,7 +727,6 @@ func (l ul) braced(ctx Context) (x Value) {
 		l.p.expect(ctx, RBRACE)
 		return
 	}
-	return
 }
 
 func (l ul) braced_elems(ctx Context) (elems []Value) {
@@ -1502,50 +1504,49 @@ func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
 }
 
 func (l ul) closuredelegate_obj(ctx Context, tok token, name Value, isClosure bool) (str string, obj Value) {
+	var opt = isClosure
+	var c = uvcap(ctx)
 	if x, y := name.(*argumented); y { name = x.Value }
-	if _, y := name.(cond); !y {
-		val := name.expand(ctx)
+	if _, y := name.(cond); y {
+		opt = true
+	} else {
+		val := name.expand(c)
 		if val == nil {
 			erro(pc(ctx,name), "nil: %v", ts(name)).trace()
-		}
-		name = val
-	}
-
-	switch t := name.(type) {
-	case  entry: return t.ident(ctx), t
-	case   *def: return t.name, t
-	case *arrow: if false { note(ctx, "%v", name).debug() }
-	default:
-		if indeterminate(ctx, name) {
-			return str, name
+		} else if c.indeterminate() {
+			return str, val
+		} else {
+			name = val
 		}
 	}
-
-	str = name.string(ctx)
+	if x, y := name.(object); y { // *def, entry
+		return x.ident(ctx), x
+	}
 
 	if tok == LBRACE {
-		entries := l.project._entries(ctx, name, false)
-		if entries == nil {
-			erro(pc(ctx,name), "resolved %v is nil", ts(name)).trace()
+		if e := l.project.entry(ctx, name); e == nil {
+			erro(pc(ctx,name), "resolved nil: %s", tv(name)).trace()
+		} else if x, y := e.(object); y {
+			erro(pc(ctx,name), "non-object: %v: %s", name, tv(e)).trace()
+		} else {
+			return x.ident(ctx), x
 		}
-		obj, _ = entries[0].(object)
-		return
 	}
 
-	if str == "" {
+	if str = name.string(ctx); str == "" {
 		switch name.(type) {
-		case cond, *arrow: return str, name
-		default:
-			erro(pc(ctx,name), "empty name: %s", ts(name)).trace()
+		case cond, *arrow: opt = true
 		}
+		if opt {
+			return str, name
+		}
+		erro(pc(ctx,name), "empty name: %s (closure=%v, indeterminate=%v) : %s",
+			name, isClosure, c.indeterminate(), ts(name)).trace()
 	}
-
-	if o := l.resolve(ctx, name, str); o != nil {
-		return str, o
-	}
-
-	if _, y := name.(cond); y || isClosure || truly(ctx, p_is_undef{}) {
-		obj = name // recursive closure or delegate
+	if obj = l.resolve(ctx, name, str); obj != nil {
+		return
+	} else if opt || truly(ctx, p_is_undef{}) {
+		obj = name
 		return
 	}
 
@@ -1699,10 +1700,6 @@ func (l ul) abc(ctx Context, isClosure, special bool) (tok token, obj Value, arg
 		// &'xxxx' or &"xxxx"
 		if name = l.expr(ctx); name == nil {
 			erro(ctx, "parsed name is nil").trace()
-		}
-
-		if indeterminate(ctx, name) {//, /* expandClosure */final
-			erro(ctx, "name '%v' is closured", ts(name)).trace()
 		}
 
 		str, obj = l.closuredelegate_obj(ctx, tok, name, isClosure)
@@ -2110,7 +2107,7 @@ valsloop:
 	for _, val := range vals {
 		for _, elem := range merge(val.expand(_final(ctx))) {
 			if isEmpty(elem) { continue }
-			if indeterminate(ctx, elem) { elem = disjunction{elem} }
+			if /* indeterminate(ctx, elem) */true { elem = disjunction{elem} }
 
 			// NOTE: don't use defAuto, it's for codeblock auto only
 			cc.set(ctx, defVoid, "_", elem)
@@ -2136,7 +2133,7 @@ func (l ul) braced_str(ctx Context) (res Value) {
 		defer l.braced_str_check(ctx, elems, &res)
 	}
 
-	if indeterminate(ctx, elems...) {
+	if /* indeterminate(ctx, elems...) */true {
 		return &strval{valbase{pos}, elems}
 	}
 
@@ -2161,10 +2158,6 @@ func (l ul) braced_word(ctx Context) (res Value) {
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		defer l.braced_word_check(ctx, elems, &res)
-	}
-
-	if indeterminate(ctx, elems...) {
-		erro(pc(ctx,l.p), "indeterminate: %v", ts(elems)).trace()
 	}
 
 	var s string
@@ -2231,12 +2224,6 @@ func (l ul) braced_defs(ctx Context) (res Value) {
 
 	if checkpoints && truly(ctx, is_test_mode{}) {
 		defer l.braced_defs_check(ctx, pats, &res)
-	}
-
-	for _, v := range pats {
-		if indeterminate(ctx, v) {
-			erro(pc(ctx,l.p), "indeterminate: %v", ts(v)).trace()
-		}
 	}
 
 	var ac = _automatic(ctx)
@@ -2325,11 +2312,7 @@ func (l ul) braced_fullname(ctx Context) (res Value) {
 	var elems []Value
 	for _, elem := range l.braced_elems(ctx) {
 		var v = elem.expand(_final(ctx))
-		if indeterminate(ctx, v) {
-			v = fullname{v}
-		} else {
-			v = as{v}.fullname(ctx, l.project)
-		}
+		v = as{v}.fullname(ctx, l.project)
 		elems = append(elems, v)
 	}
 	return ease(ctx, elems)
@@ -3063,7 +3046,7 @@ func (l ul) define(ctx Context, tok token, ident, value Value) (d *def) {
 func (l ul) defvalue(ctx Context, idents []Value, tok token) (value Value) {
 	defer l.closescope(l.openscope(tv(idents)))
 
-	vals := l.values(p_defvalue_ctx{ctx})
+	vals := l.values(p_defval{ctx})
 	l.p.lineComment = nil
 	return ease(ctx, vals)
 }
@@ -3566,12 +3549,8 @@ func (l ul) foreach_done(ctx Context) {
 			l.p.stop = t.endPos
 
 			ac := automatic{Context:ctx, defs:make(defmap)}
-			for i, val := range vals {
-				if indeterminate(ctx, val) {
-					if false {
-						erro(ctx, "indeterminate: %d. %v → %v", i, tv(val), val.expand(_final(ctx))).trace()
-					}
-				} else if !isTrivial(val) {
+			for _, val := range vals {
+				if !isTrivial(val) {
 					if x, y := val.(*defscapture); y {
 						ac.set(&ac, defAuto, "_", x.Value)
 						for _, c := range x.caps {
@@ -3747,7 +3726,7 @@ func (l ul) for_done(ctx Context) {
 
 					for _, v := range _v.a {
 						if i < len(v.elems) {
-							if indeterminate(ctx, v.elems[i]) { continue outer }
+							// if indeterminate(ctx, v.elems[i]) { continue outer }
 							ac.set(&ac, defAuto, v.name, v.elems[i])
 						} else {
 							if opts.skipNil { continue outer }
@@ -4072,13 +4051,10 @@ func (l ul) configure1(ctx Context) {
 	nv := l.expr(ctx) // aka name value
 	l.p.spaces(ctx)
 
-	if nv = nv.expand(_final(ctx)); indeterminate(ctx, nv) {
-		errostack(pc(ctx,nv), 16, "indeterminate configure: %v", ts(nv)).trace()
-	}
-
-	name := nv.string(ctx)
-	if name == "" {
-		errostack(pc(ctx,nv), 16, "empty configure name: %v", ts(nv)).trace()
+    sc := stringify(ctx)
+	name := nv.string(sc)
+	if sc.empty || name == "" {
+		errostack(pc(ctx,nv), 16, "empty configure name: %v : %s", nv, ts(nv)).trace()
 	}
 
 	var _no_cond, _info bool
@@ -4123,33 +4099,30 @@ minusloop:
 
 	op, par := l.configure_par(ctx, _op)
 
-	if l.p.tok == ASSIGN {
-		l.p.next(ctx, true) // skips the '=' token
-		if l.p.tok != LINEND && l.p.lineComment == nil {
-			vals = append(vals, l.expr(ctx))
-		}
-		if o, y := l.project.elems[name]; y {
-			d, y := o.(*def)
-			if !y {
-				errostack(pc(ctx,o), 3, "configure non-def: %v", d).trace()
-			}
-			notestack(pc(pc(ctx,vals[0]),d.value), 1, "%v ; %v", d, vals).debug()
-		} else {
-			vals = expand(_final(ctx), vals...)
-			l.configure_set(ctx, name, vals...)
-		}
-		return
-	}
-	if l.p.tok.is_assign() {
-		errostack(pc(ctx,l.p), 8, "%v: only '=' can assign a configure", nv).trace()
-	}
-
 	var exe = execution{
 		automatic:automatic{Context:pc(ctx,nv), defs:make(defmap)},
 		start:time.Now(), proj:l.project,
 	}
 
     exe.set(&exe, defVoid, "@", nv)
+
+	if l.p.tok == ASSIGN {
+		if x, y := l.project.elems[name]; y {
+			errostack(pc(ctx,x), 3, "configure conflicts: %v", tv(x)).trace()
+		}
+
+		l.p.next(ctx, true) // skips the '=' token
+		if l.p.tok != LINEND && l.p.lineComment == nil {
+			vals = append(vals, l.expr(&exe))
+		}
+
+		vals = expand(&exe, vals...)
+		l.configure_set(ctx, name, vals...)
+		return
+	}
+	if l.p.tok.is_assign() {
+		errostack(pc(ctx,l.p), 8, "%v: only '=' can assign a configure", nv).trace()
+	}
 
 	var deps []Value
 	if l.p.tok == COLON {

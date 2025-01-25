@@ -363,7 +363,7 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 			return unmap_path(ctx, p, strings.Join(t, pathSep), t)
 		}
 	case Value:
-		if indeterminate(ctx, t) {
+		if /* indeterminate(ctx, t) */false {
 			if x, y := do(ctx, hit_value{p, t}).(valcache_bool); y { return x.valcache, x.bool }
 		} else {
 			if x, y := k.(*rule); y {

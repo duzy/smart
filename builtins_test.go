@@ -69,12 +69,28 @@ func testAssert(ctx testcase1) {
 		ctx.err("%v", tst{v.elems[0]})
 	} else if _, y := v.elems[1].(*null); !y {
 		ctx.err("%v", tst{v.elems[1]})
-	} else if i = 9;  s.vals[i].String() != "1" || !s.bools[i] {
-		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
-	} else if i = 10;  s.vals[i].String() != "0" || s.bools[i] {
-		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
-	} else if i = 11; s.vals[i].String() != "$(equal $(foo),foo)" || !s.bools[i] {
-		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
+	} else {
+		type rec struct{ string; bool }
+		for i, r := range []rec{
+			rec{"{=true}", true},
+			rec{"{=false}", false},
+			rec{"{=yes}", true},
+			rec{"{=no}", false},
+			rec{"{=none}", false},
+			rec{"{=undef x}", false},
+			rec{"{}", false},
+			rec{"{x}", true},
+			rec{"foobar{}", true},
+			rec{"1", true},
+			rec{"0", false},
+			rec{"$(equal $(foo),foo)", true},
+		}{
+			if t := s.vals[i].String(); t != r.string {
+				ctx.err("%s != %s : %s", t, r.string, tst{s.vals[i]})
+			} else if s.bools[i] != r.bool {
+				ctx.err("%v != %v : %v : %v", s.bools[i], r.bool, s.vals[i], tst{s.vals[i]})
+			}
+		}
 	}
 }
 
@@ -984,7 +1000,7 @@ func testBuiltin_foreach(ctx *testcase) {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if s, t := v.string(ctx), "do.smart"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if v := ctx.val(d, test_def_2{}); v == nil {
+	} else if v := ctx.val(d, defExpand2); v == nil {
 		ctx.err("%v", tst{d})
 	} else if f, y := v.(*file); !y {
 		ctx.err("%v : %v", v, tst{v})
@@ -1329,7 +1345,7 @@ func testBuiltin_foreach3(ctx *testcase) {
 			ctx.err("%v → %s != %s", tst{v2}, t, s)
 		} else if s, t := v2.string(ctx), "std=xxx std=yyy"; s != t {
 			ctx.err("%v → %s != %s", tst{v2}, t, s)
-		} else if v3 := ctx.val(v, nil, []string{"if.x", "if.y", "if.z"}, test_def_2{}); v3 == nil {
+		} else if v3 := ctx.val(v, defExpand2, nil, []string{"if.x", "if.y", "if.z"}); v3 == nil {
 			ctx.err("%v", tst{v})
 		} else if s, t := v3.String(), "std=$(foreach $1 $2,$_$3)? std=xxx std=yyy std=&(.test.if.z)?"; s != t {
 			ctx.err("%v → %s != %s", tst{v3}, t, s)
@@ -1643,7 +1659,7 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err("%v : %v → %s != %s", tst{z}, z, t, s)
 	} else if t := x.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{x}, t)
-	} else if x := ctx.val(z, test_def_2{}); x == nil {
+	} else if x := ctx.val(z, defExpand2); x == nil {
 		ctx.err("%v", tst{z})
 	} else if s, t := x.String(), "X{~1~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,z-$_),~1~$_)}"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
@@ -1659,7 +1675,7 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err("%v → %s != %s", tst{z}, t, s)
 	} else if t := x.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{x}, t)
-	} else if x := ctx.val(z, test_def_2{}); x == nil {
+	} else if x := ctx.val(z, defExpand2); x == nil {
 		ctx.err("%v", tst{z})
 	} else if s, t := x.String(), "X{~2~ $1 $2 $(foreach $1 $2,x-$_) $(foreach $(foreach $1 $2,z-$_),~2~$_)}"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
@@ -1675,13 +1691,13 @@ func testBuiltin_foreach4(ctx *testcase) {
 		ctx.err("%v → %s", tst{z}, t)
 	} else if t := x.string(ctx); t != "" {
 		ctx.err("%v → %s", tst{x}, t)
-	} else if x := ctx.val(z, "xx", "yy", test_def_2{}); x == nil {
+	} else if x := ctx.val(z, defExpand2, "xx", "yy"); x == nil {
 		ctx.err("%v", tst{z})
 	} else if s, t := x.String(), "X{$(foreach $(foreach $(foreach $(foreach $1 $2,~$_),~$_),~$_),~$_)}"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
 	} else if s, t := x.string(ctx), "X"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
-	} else if x = ctx.val(x, "xx", "yy", test_def_2{}); x == nil {
+	} else if x = ctx.val(x, defExpand2, "xx", "yy"); x == nil {
 		ctx.err("%v", tst{z})
 	} else if s, t := x.String(), "X~~~~xx X~~~~yy"; s != t {
 		ctx.err("%v → %s != %s", tst{x}, t, s)
@@ -1818,7 +1834,7 @@ func testBuiltin_foreach5(ctx *testcase) {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
 		} else if s, t := x.string(ctx), "a~ ~a x.o.a b~ ~b x.o.b"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)
-		} else if x := ctx.val(v, "a", "b", "c", test_def_2{}); x == nil {
+		} else if x := ctx.val(v, defExpand2, "a", "b", "c"); x == nil {
 			ctx.err("%v", tst{v})
 		} else if s, t := x.String(), "a~ $(foreach $(foreach $1 $2,$(.test.x.o.$_)),-ao$_)? ~a x.o.a b~ $(foreach $(foreach $1 $2,&(.test.x.o.$_)),-bo$_)? ~b x.o.b"; s != t {
 			ctx.err("%v → %s != %s", tst{x}, t, s)

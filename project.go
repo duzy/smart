@@ -55,12 +55,8 @@ func (p *filemap) primePatterns(ctx Context) (pats []Value) {
 
   for _, pattern := range patts {
     // NOTE it may preserve closure patterns after this expand
-    if pat := pattern.expand(ctx); !indeterminate(ctx, pat) {
-      pats = append(pats, merge(pat)...)
-    } else {
-      erro(ctx, "indeterminate pattern: %v", ts(pat))
-      erro(ctx, "%v", ts(ctx)).trace()
-    }
+    pat := pattern.expand(ctx)
+    pats = append(pats, merge(pat)...)
   }
   return
 }
@@ -299,7 +295,6 @@ func (_ *project) float(Context) (_ float64) { return }
 func (_ *project) updated(Context) bool { return false }
 func (_ *project) updatedDeps(Context, ...Value) []Value { return nil }
 func (_ *project) defs(Context, ...string) (_ []*def) { return }
-func (_ *project) refs(Context, Value) (_ bool) { return }
 func (_ *project) patterned(Context) bool { return false }
 func (_ *project) expandable(Context) bool { return false }
 func (p *project) expand(Context) Value { return p }

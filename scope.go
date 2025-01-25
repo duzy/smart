@@ -231,12 +231,7 @@ func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *de
 
 	switch t := ident.(type) {
 	case string: name = t
-	case Value:
-		if indeterminate(ctx, t) {
-			erro(ctx, "indeterminate ident: %s : %s", ident, ts(ident)).trace()
-		} else {
-			name = t.string(ctx)
-		}
+	case Value: name = t.string(ctx)
 	}
 
 	if name == "" {

@@ -185,7 +185,6 @@ func (m *modifier) cmp(ctx Context, v Value) (_ cmpres) {
     if x, y := v.(*modifier); y { return m.group.cmp(ctx, &x.group) }
     return
 }
-func (m *modifier) expandable(ctx Context) bool { return m.group.expandable(ctx) }
 func (m *modifier) expand(ctx Context) Value { return modify(ctx, &m.group, false) }
 func (m *modifier) string(ctx Context) string { return m.expand(_final(ctx)).string(ctx) }
 func (m *modifier) traverse(ctx Context) {
@@ -210,18 +209,6 @@ func (g *modification) cmp(ctx Context, v Value) (res cmpres) {
             if t := m.cmp(ctx, o.list[i]); t != cmpEqual { return t }
         }
         res = cmpEqual
-    }
-    return
-}
-func (g *modification) refs(ctx Context, v Value) (res bool) {
-    for _, m := range g.list {
-        if res = m.refs(ctx, v); res { return }
-    }
-    return
-}
-func (g *modification) expandable(ctx Context) (res bool) {
-    for _, m := range g.list {
-        if res = m.expandable(ctx); res { return }
     }
     return
 }

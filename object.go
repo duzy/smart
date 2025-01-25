@@ -24,7 +24,7 @@ type object interface {
     owner() *project
 }
 
-type objbase struct { valbase ; scope *scope }
+type objbase struct{ valbase ; scope *scope }
 func (_ *objbase) kind() Kind { return KindObject }
 func (p *objbase) owner() *project { return p.scope.project }
 func (p *objbase) ident(Context) string { panic("inquiring name of an unknown object") }
@@ -41,7 +41,7 @@ func (p *objbase) setscope(name string, s *scope) {
     }
 }
 
-type knownobject struct { // generally named objects
+type knownobject struct{ // generally named objects
     objbase
     name string // single, or group name if containing '(*)' and corresponding members
 }
@@ -115,11 +115,11 @@ func (m defmap) String() (s string) {
 
 func _automatic(c Context) *automatic { return cast[*automatic](c) }
 
-type ex_auto   struct {}
-type find_auto struct { s string }
-type set_auto  struct { o origin; s string; v Value }
-type res_auto  struct { d *def; v Value }
-type automatic struct {
+type ex_auto   struct{}
+type find_auto struct{ s string }
+type set_auto  struct{ o origin; s string; v Value }
+type res_auto  struct{ d *def; v Value }
+type automatic struct{
     Context
     sync.RWMutex
     defs defmap
@@ -195,7 +195,7 @@ func (ac *automatic) set(ctx Context, o origin, name string, val Value) (out *de
     return
 }
 func (ac *automatic) args(ctx Context, vals []Value) {
-    type arg struct { id, name string ; value Value }
+    type arg struct{ id, name string ; value Value }
 
     if vals == nil { return }
 
@@ -287,7 +287,7 @@ func hasAutoInner(ctx Context, target Value) (res bool) {
     return
 }
 
-type auto struct { knownobject }
+type auto struct{ knownobject }
 func (a *auto) kind() Kind { return a.knownobject.kind()|KindAuto }
 func (a *auto) hash(ctx Context) uint64 { return fnv1(ctx, a, a.name) }
 func (a *auto) String() string { return a.name }
@@ -297,11 +297,6 @@ func (a *auto) string(ctx Context) (res string) {
 }
 func (a *auto) sel(ctx Context, name string) (res any) {
     if name == "value" { res = auto_get(ctx, a.name) }
-    return
-}
-func (a *auto) refs(ctx Context, v Value) (res bool) {
-    if x, y := v.(*auto); y && (x == a || x.name == a.name) { return true }
-    if d := a.def(ctx); d != nil && d.value != nil { res = d.value.refs(ctx, v) }
     return
 }
 func (a *auto) defs(ctx Context, s ...string) (res []*def) {
@@ -341,8 +336,11 @@ func (a *auto) expand(ctx Context) (res Value) {
     }
     return a
 }
-func (a *auto) evoke_(ctx *evocation) (res Value) {
-    if d := auto_find(ctx, a.name); d != nil { res, _ = evoke(ctx, d, nil, nil) }
+func (a *auto) evoke(ctx *evocation) (res Value) {
+    if d := auto_find(ctx, a.name); d != nil {
+        return d.evoke(ctx)
+    }
+    do(ctx, uv{a})
     return
 }
 func (a *auto) invoke(ctx Context, o, v []Value) (res Value) {
@@ -350,10 +348,15 @@ func (a *auto) invoke(ctx Context, o, v []Value) (res Value) {
     return
 }
 func (a *auto) cmp(ctx Context, v Value) (res cmpres) {
-    if o, y := v.(*auto); y && (a == o || a.name == o.name) {
-        res = cmpEqual
-    } else if val := auto_get(ctx, a.name); val != nil {
-        res = val.cmp(ctx, v)
+    switch x := v.(type) {
+    case *auto:
+        if a == x || a.name == x.name { res = cmpEqual }
+    case *def:
+        if false {
+            if d := auto_find(ctx, a.name); d != nil { res = d.cmp(ctx, x) }
+        }
+    case *list:
+        if x.len() == 1 { res = a.cmp(ctx, x.elems[0]) }
     }
     return
 }
@@ -366,15 +369,18 @@ func (a *auto) traverse(ctx Context) {
     return
 }
 
-type def_evocation struct { *evocation }
-func (c def_evocation) inner() Context { return c.evocation }
-func (c def_evocation) cast(t reflect.Type) Context { return icast(c, t) }
-func (c def_evocation) do(ctx Context, op any) (_ any) {
+type def_evoke struct{ *evocation }
+func (c def_evoke) inner() Context { return c.evocation }
+func (c def_evoke) cast(t reflect.Type) Context { return icast(c, t) }
+func (c def_evoke) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
     case param_name: return
     case find_auto:
-        if s := t.s; IsDigits(s) {
-            if _, y := c.defs[s]; !y {
+        if IsDigits(t.s) {
+            if x, y := c.defs[t.s]; y {
+                // notestack(ctx, 1, "%v", x).debug(16)
+                return x
+            } else {
                 return
             }
         }
@@ -383,7 +389,7 @@ func (c def_evocation) do(ctx Context, op any) (_ any) {
 }
 
 // A def represents a definition, it's a caller but mustn't be a Valuer.
-type def struct {
+type def struct{
     knownobject
     value Value
     o origin
@@ -448,19 +454,6 @@ func (d *def) true(ctx Context) (res bool) {
     if val != nil { res = val.true(ctx) }
     return
 }
-func (d *def) refs(ctx Context, v Value) (res bool) {
-    if o, y := v.(*def); y { if d == o { return true } }
-
-    var val Value
-    {
-        // d.Lock()
-        val = d.value
-        // d.Unlock()
-    }
-
-    if val != nil { res = val.refs(ctx, v) }
-    return
-}
 func (d *def) defs(ctx Context, s ...string) (res []*def) {
     if len(s) == 0 {
         res = append(res, d)
@@ -483,18 +476,6 @@ func (d *def) defs(ctx Context, s ...string) (res []*def) {
     if val != nil { res = append(res, val.defs(ctx, s...)...) }
     return
 }
-func (d *def) expandable(ctx Context) (res bool) {
-    if _, y := ctx.(*evocation); y {
-        var v Value
-        {
-            // d.Lock()
-            v = d.value
-            // d.Unlock()
-        }
-        if v != nil { return v.expandable(ctx) }
-    }
-    return
-}
 func (d *def) expand(Context) Value { return d }
 func (d *def) evoke(ctx *evocation) (res Value) {
     if checkpoints && truly(ctx, is_test_mode{}) {
@@ -511,18 +492,13 @@ func (d *def) evoke(ctx *evocation) (res Value) {
 
     if ctx.a != nil { // to save the changed args
         ctx.a = expand(ctx.Context, ctx.a...)
-        if !truly(ctx, propExDefValue) {
-            if expandable(ctx, ctx.a...) {
-                return d
-            }
-        }
     }
 
     if v == nil {
         return
     }
 
-    de := def_evocation{ctx}
+    de := def_evoke{ctx}
     ctx.args(de, ctx.a)
 
     v = v.expand(de)
@@ -536,38 +512,40 @@ func (d *def) evoke(ctx *evocation) (res Value) {
     return v
 }
 func (d *def) cmp(ctx Context, v Value) (res cmpres) {
-    if a, y := v.(*def); y {
-        if d == a || (d.value == nil && a.value == nil ) {
-            res = cmpEqual
-            return
+    switch x := v.(type) {
+    case *def:
+        if d == x { return cmpEqual }
+        if d.name == d.name  {
+            var v1, v2 Value
+            {
+                // d.Lock()
+                v1 = d.value
+                // d.Unlock()
+            }
+            {
+                // a.Lock()
+                v2 = x.value
+                // a.Unlock()
+            }
+            if v1 == nil {
+                if v2 == nil { return cmpEqual }
+            } else if v2 != nil {
+                return v1.cmp(ctx, v2)
+            }
         }
-
-        var val1, val2 Value
-        {
-            // d.Lock()
-            val1 = d.value
-            // d.Unlock()
+    case *auto:
+        if false {
+            if d2 := auto_find(ctx, x.name); d2 != nil { res = d.cmp(ctx, d2) }
         }
-        {
-            // a.Lock()
-            val2 = a.value
-            // a.Unlock()
-        }
-
-        if val1 == nil {
-            if val2 == nil { res = cmpEqual }
-        } else if val2 != nil {
-            res = val1.cmp(ctx, val2)
-        }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        res = d.cmp(ctx, l.elems[0])
+    case *list:
+        if x.len() == 1 { res = d.cmp(ctx, x.elems[0]) }
     }
     return
 }
 func (d *def) origin(ctx Context, o origin) (res origin) {
     if d.o == o { return o }
 
-    if checkpoints {
+    if checkpoints /* && truly(ctx, is_test_mode{}) */ {
         if d.o != defUndetermined && (o == defVoid || o == defUndetermined) {
             erro(ctx, "%v: %v → %v", d.name, d.o, o).trace()
         }
@@ -688,7 +666,7 @@ func (d *def) stat(ctx Context) (si *statinfo) {
     return
 }
 
-type undetermined struct {
+type undetermined struct{
     token token
     identifier Value
     value Value
@@ -714,14 +692,8 @@ func (p *undetermined) float(Context) (_ float64) { return }
 func (p *undetermined) int(Context) (_ int64) { return }
 func (p *undetermined) updated(_ Context) bool { return false }
 func (p *undetermined) updatedDeps(_ Context, _ ...Value) []Value { return nil }
-func (p *undetermined) refs(ctx Context, v Value) bool {
-    return p.identifier.refs(ctx, v) || p.value.refs(ctx, v)
-}
 func (p *undetermined) defs(ctx Context, s ...string) (res []*def) {
     return append(p.identifier.defs(ctx, s...), p.value.defs(ctx, s...)...)
-}
-func (p *undetermined) expandable(ctx Context) bool {
-    return p.identifier.expandable(ctx) || p.value.expandable(ctx)
 }
 func (p *undetermined) expand(ctx Context) (res Value) {
     var i = p.identifier.expand(ctx)
@@ -770,19 +742,42 @@ func builtinFinalField(ctx Context, bv reflect.Value, bi any, force bool) bool {
     return force
 }
 
-type skip struct {}
+type skip struct{}
+type uv struct{ Value }
+type uvx struct{ c Context }
+type uvc struct{ Context; uv Value }
+func (c *uvc) cast(t reflect.Type) Context { return icast(c, t) }
+func (c *uvc) inner() Context { return c.Context }
+func (c *uvc) indeterminate() bool { return c.uv != nil }
+func (c *uvc) ts(t string) (s string) {
+    s = "{="+t+" "
+    if c.uv == nil {
+        s += "nil"
+    } else {
+        s += ts(c.uv)
+    }
+    return s+" "+ts(c.Context)+"}"
+}
+func (c *uvc) do(ctx Context, op any) any {
+    switch t := op.(type) {
+    case uvx: if nil == t.c||t.c == c||t.c == c.Context { return c }
+    case uv: c.uv = t.Value//; return
+    }
+    return c.Context.do(ctx, op)
+}
+func uvcap(ctx Context) *uvc {
+    if x, y := ctx.(*uvc); y { return x }
+    if x, y := do(ctx, uvx{ctx}).(*uvc); y { return x }
+    return &uvc{ctx, nil}
+}
 
 // A builtin represents a built-in function. builtins don't have a valid type.
-type builtin struct { knownobject ; t reflect.Type }
+type builtin struct{ knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
 func (p *builtin) hash(ctx Context) uint64 { return fnv1(ctx, p, p.name) }
 func (p *builtin) isx() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
 func (p *builtin) String() string { return p.name }
 func (p *builtin) true(Context) bool { return p.t != nil }
-func (p *builtin) refs(ctx Context, v Value) (res bool) {
-    if o, y := v.(*builtin); y { res = o == p /* || p.name == o.name */ }
-    return
-}
 func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
     var n = time.Now()
     if d := n.Sub(t); d > 2*time.Second {
@@ -860,7 +855,7 @@ func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
 type get_rule struct{}
 type is_rule struct{ x *regexp.Regexp }
 
-type rule_ctx struct { Context ; rule *rule ; args []Value }
+type rule_ctx struct{ Context ; rule *rule ; args []Value }
 func (p *rule_ctx) Position() Position { return p.rule.Position() }
 func (p *rule_ctx) cast(t reflect.Type) Context { return icast(p, t) }
 func (p *rule_ctx) inner() Context { return p.Context }
@@ -917,7 +912,7 @@ const (
     traverse_done
     traverse_next
 )
-type traverse_state struct { p any ; uint }
+type traverse_state struct{ p any ; uint }
 func (t traverse_state) String() (_ string) {
     switch t.uint {
     case traverse_noop: return "noop"
@@ -929,7 +924,7 @@ func (t traverse_state) String() (_ string) {
 }
 
 // rule represents a declared rule entry.
-type rule struct {
+type rule struct{
     target Value
     program []*program
     arged []Value
@@ -1004,21 +999,6 @@ func (p *rule) recipes() (res []Value) {
     }
     return
 }
-func (p *rule) refs(ctx Context, v Value) (_ bool) {
-    if p.target.refs(ctx, v) { return true }
-
-    return
-
-    for _, prog := range p.program {
-        for _, depend := range prog.depends {
-            if depend.refs(ctx, v) { return true }
-        }
-        for _, recipe := range prog.recipes {
-            if recipe.refs(ctx, v) { return true }
-        }
-    }
-    return
-}
 func (p *rule) defs(ctx Context, s ...string) (res []*def) {
     res = p.target.defs(ctx, s...)
     for _, prog := range p.program {
@@ -1027,20 +1007,6 @@ func (p *rule) defs(ctx Context, s ...string) (res []*def) {
         }
         for _, recipe := range prog.recipes {
             res = append(res, recipe.defs(ctx, s...)...)
-        }
-    }
-    return
-}
-func (p *rule) expandable(ctx Context) (res bool) {
-    if res = p.target.expandable(ctx); res { return }
-    if false {
-        for _, prog := range p.program {
-            for _, depend := range prog.depends {
-                if res = depend.expandable(ctx); res { return }
-            }
-            for _, recipe := range prog.recipes {
-                if res = recipe.expandable(ctx); res { return }
-            }
         }
     }
     return
@@ -1141,9 +1107,9 @@ func _stems(ctx Context) (res []string) {
     return
 }
 
-type get_stems struct {}
+type get_stems struct{}
 
-type stemmed_ctx struct { Context ; *stemmed_rule }
+type stemmed_ctx struct{ Context ; *stemmed_rule }
 func (p *stemmed_ctx) hash(ctx Context) uint64 { return fnv1(ctx, p, p.target) }
 func (p *stemmed_ctx) cast(t reflect.Type) Context { return icast(p,t) }
 func (p *stemmed_ctx) inner() Context { return p.Context }
@@ -1158,7 +1124,7 @@ func (p *stemmed_ctx) do(ctx Context, op any) (_ any) {
     return p.Context.do(ctx, op)
 }
 
-type stemmed_rule struct {
+type stemmed_rule struct{
     *rule
     target Value
     stems []string

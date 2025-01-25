@@ -800,15 +800,7 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
               a1.position, a1.s     = pos, source
               a2.position, a2.int64 = pos, int64(len(sources)+1)
               ac.Context = ctx
-              if v := ctx.forRecipe.expand(_final(ac)); false && v != nil {
-                  for i := 0; indeterminate(ac, v); i += 1 {
-                      if i < max_evoke {
-                          v = v.expand(_final(ac))
-                      } else {
-                          erro(ctx, "%v → %v", ctx.forRecipe, v).trace()
-                      }
-                  }
-              }
+              ctx.forRecipe.expand(_final(ac))
           }
 
           pos, source = Position{}, ""
