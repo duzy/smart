@@ -55,4 +55,4 @@ done
 configure conf0 = $@
 configure conf1 = $(grep {=regex ^.+?\.o$$},$0,$//test.txt)
 configure conf2 = $(grep {=regex ^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$$},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt)
-# configure conf3 = {=grep {=regex (.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt}
+# configure conf3 = {=grep {=regex ^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$$},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt}

@@ -1,11 +1,16 @@
 project testvalue
 
-foo  := $1 $2 $3 $4 $5 $6 $7 $8 $9
+foo0  = $1 $2 $3 $4 $5 $6 $7 $8 $9
+foo1 := $1 $2 $3 $4 $5 $6 $7 $8 $9
 val0 := $(closure foobar)
-val1 := $(auto,$(a))
-val2 := $(auto a=2,$(val1),$(a))
-val3 := $(auto a=3,$(val2))
+val1 := $(auto $(a))
+val2 := $(auto(a=2) $(val1),$(a))
+val3 := $(auto(a=3) $(val2))
 val4 := $(val3)
+val10 = $(auto $(a))
+val20 = $(auto(a=2) $(val10),$(a))
+val30 = $(auto(a=3) $(val20))
+val40 = $(val30)
 
 foreach {=defs {=regex ^val([1-9])$$}}
 bar$1 = $0

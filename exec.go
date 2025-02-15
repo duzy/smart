@@ -1039,7 +1039,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             var ctx = closure_with(ctx, ec.container.scope)
             if obj := ec.container.resolve(ctx, name); obj != nil {
                 if d, _ := obj.(*def); d != nil {
-                    if v, _ := evoke(ctx, d, nil, nil); v != nil {
+                    if v, _, _ := evoke(ctx, d, nil, nil); v != nil {
                         if str = v.string(ctx); str == "-" {
                             // if v, err = def.DiscloseValue(ec.container); err == nil && v != nil {
                             //   if str, err = v.string(ctx); str == "" { str = "-" }

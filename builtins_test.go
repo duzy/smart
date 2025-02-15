@@ -321,7 +321,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
 				defer wg.Done()
-				b := builtin_wildcard{}
+				b := __wildcard{}
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._directory(workdirInc, pat3); len(a) != 1 {
 					ctx.err("_wildcard(%v) (%d): %v", pat3, n, a)
@@ -337,7 +337,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
 				defer wg.Done()
-				b := builtin_wildcard{}
+				b := __wildcard{}
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._directory(workdirInc, pat4); len(a) != 2 {
 					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a)
@@ -355,7 +355,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
 				defer wg.Done()
-				b := builtin_wildcard{dir:workdirInc}
+				b := __wildcard{dir:workdirInc}
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat3); len(a) != 1 {
 					ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
@@ -371,7 +371,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
 				defer wg.Done()
-				b := builtin_wildcard{dir:workdirInc}
+				b := __wildcard{dir:workdirInc}
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat4); len(a) != 2 {
 					ctx.err("wildcard(%v) (%d): %v", pat4, n, a)
@@ -389,7 +389,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
 				defer wg.Done()
-				b := builtin_wildcard{}
+				b := __wildcard{}
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat3); len(a) != 1 {
 					ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
@@ -405,7 +405,7 @@ func testBuiltin_wildcard(ctx *testcase) {
 		for i := 0; i < N; i += 1 {
 			go func(n int) {
 				defer wg.Done()
-				b := builtin_wildcard{}
+				b := __wildcard{}
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat4); a != nil {
 					ctx.err("wildcard(%v) (%d): %v", pat4, n, a)
@@ -718,13 +718,13 @@ func testBuiltin_file0(ctx *testcase) {
 
 func testBuiltin_foreach(ctx *testcase) {
 	{
-		var c0 = builtin_foreach{}
+		var c0 = __foreach{}
 		var c1 = partial{&c0, nonePart}
-		var c2 = builtin_foreach{}
+		var c2 = __foreach{}
 		c0.evocation = &evocation{automatic{Context:ctx}, nil, nil, nil}
 		c2.evocation = &evocation{automatic{Context:c1}, nil, nil, nil}
-		if cast[*builtin_](&c0) == nil {
-			ctx.err("builtin_")
+		if cast[*builtinbase](&c0) == nil {
+			ctx.err("builtinbase")
 		}
 		if cast[partial](ctx).Context != nil {
 			ctx.err("partial")

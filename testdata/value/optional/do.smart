@@ -2,6 +2,20 @@ project testvalue
 
 use ./foo
 
+v0  = $(foo)
+v1  = $(name?)
+v2  = $(foo→name?)
+v3  = $(foo→baz?)
+v4  = $(fo?→bar)
+v5  = $(fo?→bar?)
+v6  = $(foreach $(foo),$($_→name))
+v7  = $(foreach $(foo),$($_→name?))
+v8  = $(foreach $(foo),$($_→bar?))
+v9  = $(foo→name→xxxx?)
+v10 = $(foo→name→item?)
+v11 = $(foo→name?→item?)
+v12 = $(foo?→name?→item?)
+
 val0  := $(foo)
 val1  := $(name?)
 val2  := $(foo→name?)

@@ -201,16 +201,13 @@ func (l ul) expr_check_1(ctx Context, x Value, tok token, _res *Value) {
 func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 	var d = *_d
 	if d == nil {
-		erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
+		erro(ctx, "%v: %v %v %v", d.o, ident, tok, ts(value)).trace()
 	} else if d.value == nil && !isNull(value) {
-		erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
+		erro(ctx, "%v: %v %v %v", d.o, ident, tok, ts(value)).trace()
 	}
 
 	var p = _project(ctx)
-	var flat_mode = truly(ctx, is_flat_mode{})
-	var is_config = truly(ctx, is_config_mode{})
-
-	if is_config && d.o != defConfig {
+	if truly(ctx, is_config_mode{}) && d.o != defConfig {
 		erro(ctx, "%v : %v : %v", p, d.o, d).trace()
 	}
 
@@ -260,81 +257,139 @@ func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 
 	switch p.spec {
 	case "testdata/value/optional":
-		switch d.name {
-		case "val0":
-			if s, t := ts(d.value), "{=project foo}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		case "val1":
-			if s, t := ts(d.value), "{=null}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		case "val2":
-			if s, t := ts(d.value), "{=self foo}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		case "val3":
-			if s, t := ts(d.value), "{=null}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		case "val4":
-			if s, t := ts(d.value), "{=null}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		case "val5":
-			if s, t := ts(d.value), "{=null}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		case "val6":
-			if u := auto_get(ctx, "_"); u != nil {
-				if s, t := ts(d.value), "{=self foo}"; s != t {
-					erro(pc(ctx,d), "%s != %s ; %v; %v", s, t, value, u).trace()
-				}
-			}
-		case "val7":
-			if u := auto_get(ctx, "_"); u != nil {
-				if s, t := ts(d.value), "{=self foo}"; s != t {
-					erro(pc(ctx,d), "%s != %s ; %v; %v", s, t, value, u).trace()
-				}
-			}
-		case "val8":
-			if u := auto_get(ctx, "_"); u != nil {
-				if s, t := ts(d.value), "{=null}"; s != t {
-					erro(pc(ctx,d), "%s != %s ; %v; %v", s, t, value, u).trace()
-				}
-			}
-		case "val9":
-			if s, t := ts(d.value), "{=null}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		case "val10":
-			if s, t := ts(d.value), "{=answer yes}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		case "val11":
-			if s, t := ts(d.value), "{=answer yes}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		case "val12":
-			if s, t := ts(d.value), "{=answer yes}"; s != t {
-				erro(pc(ctx,d), "%s != %s ; %v", s, t, value).trace()
-			}
-		}
+		define_check_value_optional(ctx, tok, ident, value, *_d)
 	case "testdata/configuration", "testdata/configuration/two":
-		if true || flat_mode {
-			var s = _scope(ctx)
-			if x, y := p.elems[d.name]; !y {
-				erro(ctx, "%v : %v : %v : %v", s.comment, s.names(), d, d.o).trace()
-			} else if x != d {
-				erro(ctx, "%v : %v : %v : %v", s.comment, s.names(), d, d.o).trace()
+		define_check_configuration(ctx, p, ident, value, *_d)
+	}
+}
+func define_check_value_optional(ctx Context, tok token, ident, value Value, d *def) {
+	switch d.name {
+	case "v0":
+		if s, t := ts(d.value), "{=delegate {=project foo}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v1":
+		if s, t := ts(d.value), "{=delegate {=cond {=word name}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v2":
+		if s, t := ts(d.value), "{=delegate {=valed {=self foo}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v3":
+		if s, t := ts(d.value), "{=delegate {=cond {=arrow {=project foo}→{=word baz}}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v4":
+		if s, t := ts(d.value), "{=delegate {=arrow {=cond {=word fo}}→{=word bar}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v5":
+		if s, t := ts(d.value), "{=delegate {=cond {=arrow {=cond {=word fo}}→{=word bar}}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v6":
+		if s, t := ts(d.value), "{=delegate {=builtin foreach} {=list {=delegate {=project foo}}} {=list {=delegate {=arrow {=delegate {=auto _}}→{=word name}}}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v7":
+		if s, t := ts(d.value), "{=delegate {=builtin foreach} {=list {=delegate {=project foo}}} {=list {=delegate {=cond {=arrow {=delegate {=auto _}}→{=word name}}}}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v8":
+		if s, t := ts(d.value), "{=delegate {=builtin foreach} {=list {=delegate {=project foo}}} {=list {=delegate {=cond {=arrow {=delegate {=auto _}}→{=word bar}}}}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v9":
+		if s, t := ts(d.value), "{=delegate {=cond {=arrow {=arrow {=project foo}→{=word name}}→{=word xxxx}}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v10":
+		if s, t := ts(d.value), "{=delegate {=valed {=answer yes}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v11":
+		if s, t := ts(d.value), "{=delegate {=valed {=answer yes}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "v12":
+		if s, t := ts(d.value), "{=delegate {=valed {=answer yes}}}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val0":
+		if s, t := ts(d.value), "{=project foo}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val1":
+		if s, t := ts(d.value), "{=null}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val2":
+		if s, t := ts(d.value), "{=self foo}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val3":
+		if s, t := ts(d.value), "{=null}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val4":
+		if s, t := ts(d.value), "{=null}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val5":
+		if s, t := ts(d.value), "{=null}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val6":
+		if u := auto_get(ctx, "_"); u != nil {
+			if s, t := ts(d.value), "{=self foo}"; s != t {
+				erro(pc(ctx,d.value), "%s != %s ; %v; %v", s, t, value, u).trace()
 			}
 		}
-		if d.name == "FOO" {
-			if v, s := d.value, "{=self "+p.name+"}"; v == nil || v.String() != s {
-				erro(ctx, "%v : %v != %s", d.o, d, s).trace()
-			} else if ts(d.value) != s {
-				erro(ctx, "%v : %v", d.o, ts(d.value)).trace()
+	case "val7":
+		if u := auto_get(ctx, "_"); u != nil {
+			if s, t := ts(d.value), "{=self foo}"; s != t {
+				erro(pc(ctx,d.value), "%s != %s ; %v; %v", s, t, value, u).trace()
 			}
+		}
+	case "val8":
+		if u := auto_get(ctx, "_"); u != nil {
+			if s, t := ts(d.value), "{=null}"; s != t {
+				erro(pc(ctx,d.value), "%s != %s ; %v; %v", s, t, value, u).trace()
+			}
+		}
+	case "val9":
+		if s, t := ts(d.value), "{=null}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val10":
+		if s, t := ts(d.value), "{=answer yes}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val11":
+		if s, t := ts(d.value), "{=answer yes}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	case "val12":
+		if s, t := ts(d.value), "{=answer yes}"; s != t {
+			erro(pc(ctx,d.value), "%s != %s ; %v", s, t, value).trace()
+		}
+	}
+}
+func define_check_configuration(ctx Context, p *project, ident, value Value, d *def) {
+	if true || truly(ctx, is_flat_mode{}) {
+		var s = _scope(ctx)
+		if x, y := p.elems[d.name]; !y {
+			erro(ctx, "%v : %v : %v : %v", s.comment, s.names(), d, d.o).trace()
+		} else if x != d {
+			erro(ctx, "%v : %v : %v : %v", s.comment, s.names(), d, d.o).trace()
+		}
+	}
+	if d.name == "FOO" {
+		if v, s := d.value, "{=self "+p.name+"}"; v == nil || v.String() != s {
+			erro(ctx, "%v : %v != %s", d.o, d, s).trace()
+		} else if ts(d.value) != s {
+			erro(ctx, "%v : %v", d.o, ts(d.value)).trace()
 		}
 	}
 }

@@ -161,40 +161,24 @@ func (n existence) String() (s string) {
 
 func sfmt(f string, i ...any) string { return fmt.Sprintf(f, i...) }
 
-func original_bits(o origin) (_ property) {
-    switch o {
-    case defConfig:
-    case defConfDir:
-    case defConfRef:
-    case defDecl:
-    case defExecute: //  !=
-    case defExpand0: //   =
-        return propExDef|propExDef0
-    case defExpand1: //  :=
-        return propExDef|propExDef1|propExPairVal
-    case defExpand2: // ::=
-        return propExDef|propExDef2|propExPairVal
-    case defExpand3: // ;:= (TODO)
-        return propExDef|propExDef3|propExPairVal
-    }
-    return
-}
-
 type get_origin struct{}
 
 // Original initiation of def values.
 type original struct{ Context ; o origin }
-func (c original) cast(t reflect.Type) Context { return icast(c, t) }
 func (c original) inner() Context { return c.Context }
-func (c original) ts(t string) string {
-	return fmt.Sprintf("{=%s %v %v}", t, c.o, ts(c.Context))
-}
-func (c original) do(ctx Context, op any) (_ any) {
+func (c original) cast(t reflect.Type) Context { return icast(c, t) }
+func (c original) ts(t string) string { return "{="+t+" "+c.o.String()+" "+ts(c.Context)+"}" }
+func (c original) do(ctx Context, op any) any {
     switch t := op.(type) {
     case get_origin:  return c.o
     case ex_closure:  return c.o == defExpand2
     case ex_delegate: return c.o == defExpand1
-    case property: if t&original_bits(c.o) != 0 { return true }
+    case ex_def_0:    return c.o == defExpand0
+    case ex_def_1:    return c.o == defExpand1
+    case ex_def_2:    return c.o == defExpand2
+    case ex_def_3:    return c.o == defExpand3
+    case ex_def  :    return c.o == t.origin || t.origin == 0
+    case   origin:    return c.o == t
     }
     return c.Context.do(ctx, op)
 }
@@ -209,7 +193,7 @@ func (c final) do(ctx Context, op any) any {
     case ex_delegate, ex_closure: return true
     case final: return c
     case property:
-        if t&(propExAuto|propExDefValue|propExPairVal) != 0 { return true }
+        if t&(propExDefValue|propExPairVal) != 0 { return true }
     }
     return c.Context.do(ctx, op)
 }
@@ -269,10 +253,8 @@ func (c partial) do(ctx Context, op any) any {
             case *closure : return c.do(ctx, op)
             case *delegate: return c.do(ctx, op)
             case *auto:
-                if true || x.p&(propExAuto) != 0 {
-                    if c.bit&placeholderPart != 0 && t.isPlaceholder() { return true }
-                    if c.bit&digitalPart != 0 && t.isDigit() { return true }
-                }
+                if c.bit&placeholderPart != 0 && t.isPlaceholder() { return true }
+                if c.bit&digitalPart != 0 && t.isDigit() { return true }
             }
         }
     }
@@ -802,14 +784,15 @@ func pc(ctx Context, a any, n ...int) Context {
 type positioner interface{ Position() Position }
 type stringer   interface{ string(Context) string }
 type identer    interface{ ident(Context) string }
+type seler      interface{ sel(Context, string) any }
 
 type stringify_ct struct{ c Context }
 type stringify_ctx struct{ Context; empty bool }
+func (sc *stringify_ctx) inner() Context { return sc.Context }
 func (sc *stringify_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
-    case ex_delegate, ex_closure: return true
+    case ex_closure, ex_delegate, ex_def_1, ex_def_2, ex_def_3: return true
     case stringify_ct: if nil == t.c||t.c == sc||t.c == sc.Context { return sc }
-    case uv: sc.empty = true//; return
     }
     return sc.Context.do(ctx, op)
 }
@@ -817,6 +800,30 @@ func stringify(ctx Context) *stringify_ctx {
     if x, y := ctx.(*stringify_ctx); y { return x }
     if x, y := do(ctx, stringify_ct{ctx}).(*stringify_ctx); y { return x }
     return &stringify_ctx{ctx, false}
+}
+
+const (
+    ident_nil = iota
+    ident_dis
+    ident_val
+)
+
+type resed struct{}
+
+type is_identity  struct{}
+type is_ident_dis struct{}
+type is_ident_val struct{}
+type identity_ctx struct{ Context ; i int }
+func (ic *identity_ctx) inner() Context { return ic.Context }
+func (ic *identity_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case is_identity, ex_arrow, ex_closure, ex_delegate: return true
+    case is_ident_dis: return ic.i == ident_dis
+    case is_ident_val: return ic.i == ident_val
+    case resed: ic.i = ident_val; return
+    case   dis: ic.i = ident_dis; return
+    }
+    return ic.Context.do(ctx, op)
 }
 
 type Value interface{
@@ -934,7 +941,9 @@ func equal(x Context, a, b Value, s ...bool) (res bool) {
         defer equal_check(x, a, b, &res)
     }
 
-    if a == b || a.cmp(x, b) == cmpEqual {
+    if a == nil {
+        return b == nil
+    } else if a == b || a.cmp(x, b) == cmpEqual {
         return true
     } else {
         return false
@@ -1090,6 +1099,12 @@ func (_ *valbase) true(Context) (_ bool) { return }
 func (_ *valbase) updated(Context) (_ bool) { return }
 func (_ *valbase) updatedDeps(Context, ...Value) (_ []Value) { return }
 func (_ *valbase) traverse(Context) { }
+
+type valed struct{ Value }
+func (v valed) hash(ctx Context) uint64 { return fnv1(ctx, v) }
+func (v valed) ts(t string) string { return "{="+t+" "+ts(v.Value)+"}" }
+func (v valed) evoke(*evocation) Value { return v.Value }
+func (v valed) expand(Context) Value { return v }
 
 type returner struct{ valbase ; vals []Value }
 func (p *returner) kind() Kind { return KindReturner }
@@ -2513,7 +2528,7 @@ func condish(ctx Context, v Value) Value {
 
 type cond struct{ Value } // conditional component: compound, pair; aka optional
 func (p cond) cond() bool { return true }
-func (p cond) kind() Kind { return p.Value.kind()|KindCond }
+func (p cond) kind() Kind { return KindCond|p.Value.kind() }
 func (p cond) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p cond) String() string { return p.Value.String()+"?" }
 func (p cond) string(ctx Context) (s string) {
@@ -2533,36 +2548,23 @@ func (p cond) float(ctx Context) (f float64) {
     return
 }
 func (p cond) final(ctx Context, f func(Value)) {
-    if t := p.expand(_final(ctx)); t != nil && !equal(ctx, p, t) { f(t) }
+    if t := p.expand(_final(ctx)); !isNull(t) && !equal(ctx, p, t) { f(t) }
 }
 func (p cond) expand(ctx Context) (res Value) {
-    var c = uvcap(ctx)
-    var v = p.Value.expand(condless{c})
+    var v = p.Value.expand(condless{ctx})
 
     if checkpoints && truly(ctx, is_test_mode{}) {
         defer p.expand_check(ctx, v, &res)
     }
 
-    if v == nil {
-        return _null(p.Position())
-    } else if x, y := v.(disjunction); y {
-        var vals []Value
-        for _, v := range merge(x.Value) {
-            if c.indeterminate() { v = condish(ctx, disjunction{v}) }
-            vals = append(vals, v)
-        }
-        return ease(ctx, vals)
-    } else if x, y := v.(*list); y {
-        var vals []Value
-        for _, v := range merge(x.elems...) {
-            if c.indeterminate() { v = condish(ctx, v) }
-            vals = append(vals, v)
-        }
-        return ease(ctx, vals)
-    } else if c.indeterminate() {
-        return condish(ctx, v)
-    } else {
+    if v == nil /* || truly(ctx, is_ident_dis{}) */ {
+        return nil//_null(p.Position())
+    } else if _, y := v.(valed); y || truly(ctx, is_ident_val{}) {
         return v
+    } else if equal(ctx, v, p.Value) {
+        return p
+    } else {
+        return cond{v}
     }
 }
 func (p cond) cmp(ctx Context, v Value) (res cmpres) {
@@ -2621,8 +2623,7 @@ func (p disjunction) String() string { return "{"+p.Value.String()+"}" }
 func (p disjunction) expand(ctx Context) (res Value) {
     if checkpoints && truly(ctx, is_test_mode{}) { defer p.expand_check(ctx, &res) }
 
-    var c = uvcap(ctx)
-    var v = p.Value.expand(c)
+    var v = p.Value.expand(ctx)
 
     if x, y := v.(*list); y {
     xlist:
@@ -2635,8 +2636,6 @@ func (p disjunction) expand(ctx Context) (res Value) {
         default:
             return disjunction{x}
         }
-    } else if c.indeterminate() {
-        return disjunction{v} // doesn't matter equal(ctx, v, p.Value)
     } else {
         return v
     }
@@ -2650,18 +2649,26 @@ func (p disjunction) cmp(ctx Context, v Value) (res cmpres) {
     }
 }
 
+func _disjunction(v Value) (res Value) {
+    switch v.(type) {
+    case *project, self, disjunction:
+        return v
+    }
+    return disjunction{v}
+}
+
 type wants_fullfile   struct{}
 type  is_compound     struct{}
-type     compound_ctx struct{ uvc }
+type     compound_ctx struct{ Context }
 func (c *compound_ctx) cast(t reflect.Type) Context { return icast(c, t) }
-func (c *compound_ctx) inner() Context { return &c.uvc }
+func (c *compound_ctx) inner() Context { return c.Context }
 func (c *compound_ctx) do(ctx Context, op any) (_ any) {
     switch op.(type) {
     case wants_fullfile: return false
     case is_compound: return true
     case ex_condless: return true
     }
-    return c.uvc.do(ctx, op)
+    return c.Context.do(ctx, op)
 }
 
 type compound struct{ elements }
@@ -2739,20 +2746,24 @@ func (p *compound) expand(ctx Context) (res Value) {
 
             if !c && _cond(val) { c = true }
 
-            var cc = compound_ctx{uvc{ctx, nil}}
+            var cc = compound_ctx{ctx}
             var v = val.expand(&cc)
-            if v == nil { continue }
+            if isNull(v) {
+                if _, y := val.(disjunction); y {
+                    return
+                } else {
+                    continue
+                }
+            }
 
         check_v_type:
             switch x := v.(type) {
             case disjunction:
-                if cc.uv == nil {
-                    var tail = elems[i+1:]
-                    for _, v := range merge(x.Value) {
-                        rs = append(rs, f(append(a, v), tail)...)
-                    }
-                    return
+                var tail = elems[i+1:]
+                for _, v := range merge(x.Value) {
+                    rs = append(rs, f(append(a, v), tail)...)
                 }
+                return
             case *list:
                 if n, es := x.len(), x.elems; n == 0 {
                     continue
@@ -4341,7 +4352,9 @@ func (p flag) match(ctx Context, i any) (full bool, res any, stems []string) {
     }
     return
 }
-func (p flag) expand(ctx Context) Value {
+func (p flag) expand(ctx Context) (_ Value) {
+    if p.Value == nil { erro(ctx, "nil flag").trace() }
+
     var v = p.Value.expand(ctx)
     if equal(ctx, v, p.Value) { return p }
 
@@ -4600,11 +4613,18 @@ func (p *list) suffix(ctx Context, val Value) (res Value) {
     return &list{elements{a}}
 }
 func (p *list) expand(ctx Context) (res Value) {
-    var a = expand(ctx, p.elems...)
-    var d = diff(ctx, a, p.elems)
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer p.expand_check(ctx, d, a, &res)
+    var a []Value //= expand(ctx, p.elems...)
+    var d bool //= diff(ctx, a, p.elems)
+    var n = len(p.elems)
+    for i, v := range expand(ctx, p.elems...) {
+        if !isNull(v) { a = append(a, v) }
+        if !(d || equal(ctx, v, p.elems[i])) && i < n { d = true }
     }
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer p.expand_check(ctx, d, &res)
+    }
+
     if d {
         return &list{elements{a}}
     } else {
@@ -5008,7 +5028,19 @@ func (u untraversed) hash(c Context) uint64 { return fnv1(c, u, u.Value) }
 func (u untraversed) expand(c Context) Value { return untraversed{u.Value.expand(c)} }
 func (u untraversed) traverse(Context) {}
 
-type check_ex struct{}
+func ident(ctx Context, x Value) (s string) {
+    switch t := x.(type) {
+    case     cond: s =   ident(ctx, t.Value)
+    case   object: s = t.ident(ctx)
+    case stringer: s = t.string(ctx)
+    default:
+        // erro(pc(ctx,x), "illegal value: %v : %s", x, ts(x)).trace()
+    }
+    if s == "" {
+        // erro(pc(ctx,x), "empty ident: %v : %s", x, ts(x)).trace()
+    }
+    return
+}
 
 type ex_delegate struct{}
 type delegate struct{
@@ -5171,39 +5203,49 @@ func (p *delegate) _src() (s string) { // source representation
     }
 }
 func (p *delegate) expand(ctx Context) (res Value) {
-    var v Value
-    var a []Value
-    var c = uvcap(ctx)
-    var x = p.x.expand(ctx)
+    var o, a []Value
+    var c = &identity_ctx{ctx, 0}
+    var x = p.x.expand(c)
+
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer p.expand_check(c, x, &a, &v, &res)
+        defer p.expand_check(ctx, x, &o, &a, &res)
     }
 
-    var unevoke bool
-    if c.uv == nil && truly(ctx, ex_delegate{}) {
-        if _, y := x.(evoker); !y {
-            erro(pc(ctx,p.x), "not evoker: %v", tv(x)).trace()
+    if truly(ctx, ex_delegate{}) {
+        if x != nil {
+            switch x.(type) {
+            case evoker:
+            default:
+                var t Value
+                switch p.l {
+                case LBRACE, STRING, STRCOMP: // ${xxx}  $'xxx'  $"xxx",  else/illegal: $(xxx)
+                    if t = project_entry(ctx, x); t != nil { x = t }
+                default:
+                    if t = project_resolve(ctx, ident(ctx, x)); t != nil { x = t }
+                }
+                if _, y := x.(cond); y && t == nil {
+                    return
+                }
+            }
+            if res, o, a = evoke(ctx, x, p.o, p.a); truly(ctx, is_ident_dis{}) {
+                goto ident_dis
+            }
+        }
+        if res == nil {
+            return _null(p.x.Position())
+        } else {
+            return
         }
     } else {
-        unevoke = true
+        if false { do(ctx, dis{p}) }
+        return
     }
 
-    if unevoke {
-        var a = expand(ctx, p.a...)
-        if !equal(ctx, x, p.x) || diff(ctx, a, p.a) {
-            t := &delegate{p.valbase, p.l, x, p.o, a}
-            do(ctx, uv{t})
-            return t
-        } else {
-            do(ctx, uv{p})
-            return p
-        }
-    }
-
-    if v, a = evoke(c, x, p.o, p.a); c.uv == nil {
-        return v
-    } else if !equal(ctx, x, p.x) || diff(ctx, a, p.a) {
-        return &delegate{p.valbase, p.l, x, p.o, a}
+ident_dis:
+    o = expand(ctx, p.o...)
+    a = expand(ctx, p.a...)
+    if !equal(ctx, x, p.x) || diff(ctx, o, p.o) || diff(ctx, a, p.a) {
+        return &delegate{p.valbase, p.l, x, o, a}
     } else {
         return p
     }
@@ -5323,51 +5365,34 @@ func (p *closure) final(ctx Context) (_ Value) {
     return v
 }
 func (p *closure) expand(ctx Context) (res Value) {
-    c := uvcap(ctx)
-    x := p.x.expand(c)
+    var o, a []Value
+    var c = &identity_ctx{ctx, 0}
+    var x = p.x.expand(c)
     if checkpoints && truly(ctx, is_test_mode{}) {
-        defer p.expand_check(c, x, &res)
+        defer p.expand_check(ctx, x, &o, &a, &res)
     }
 
-    var unevoke bool
-    if c.uv == nil && truly(ctx, ex_closure{}) {
+    if x == nil {
+        return
+    } else if truly(ctx, ex_closure{}) {
         switch p.l {
         case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
             if t := closure_entry(ctx, x); t != nil { x = t }
         default:
-            var s string
-            switch t := x.(type) {
-            case   object: s = t.ident(ctx)
-            case stringer: s = t.string(ctx)
-            default:
-                erro(pc(ctx,p.x), "illegal closure on %v", tv(x)).trace()
-            }
-            if s == "" {
-                erro(pc(ctx,p.x), "empty ident: %v", tv(x)).trace()
-            }
-            if t := closure_resolve(ctx, s); t != nil { x = t }
+            if t := closure_resolve(ctx, ident(ctx, x)); t != nil { x = t }
         }
-        if _, y := x.(evoker); !y { unevoke = true }
-    } else {
-        unevoke = true
-    }
-
-    if unevoke {
-        var a = expand(ctx, p.a...)
-        if !equal(ctx, x, p.x) || diff(ctx, a, p.a) {
-            t := &closure{delegate{p.valbase, p.l, x, p.o, a}}
-            do(ctx, uv{t})
-            return t
+        if _, y := x.(evoker); y {
+            res, o, a = evoke(ctx, x, p.o, p.a)
+            return
         } else {
-            do(ctx, uv{p})
-            return p
+            return
         }
     }
 
-    if v, a := evoke(c, x, p.o, p.a); c.uv == nil {
-        return v
-    } else if !equal(ctx, x, p.x) || diff(ctx, a, p.a) {
-        return &closure{delegate{p.valbase, p.l, x, p.o, a}}
+    o = expand(ctx, p.o...)
+    a = expand(ctx, p.a...)
+    if !equal(ctx, x, p.x) || diff(ctx, o, p.o) || diff(ctx, a, p.a) {
+        return &closure{delegate{p.valbase, p.l, x, o, a}}
     } else {
         return p
     }
@@ -5413,6 +5438,7 @@ func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
+type ex_arrow struct{}
 type arrow struct{
     valbase
     t token
@@ -5467,7 +5493,7 @@ func (p *arrow) float(ctx Context) (f float64) {
 func (p *arrow) ex(ctx Context, f func(Value)) {
     if v := p.expand(ctx); v != nil && !equal(ctx, v, p) { f(v) }
 }
-func (p *arrow) expand(ctx Context) (res Value) {
+func (p *arrow) _expand(ctx Context) (res Value) {
     o := p.o.expand(ctx)
     s := p.s.expand(ctx)
 
@@ -5481,7 +5507,7 @@ func (p *arrow) expand(ctx Context) (res Value) {
         return p
     }
 }
-func (p *arrow) evoke(ctx *evocation) (res Value) {
+func (p *arrow) _evoke(ctx *evocation) (res Value) {
     var o, s Value
 
     if checkpoints && truly(ctx, is_test_mode{}) {
@@ -5508,7 +5534,7 @@ func (p *arrow) evoke(ctx *evocation) (res Value) {
 
     s = p.s.expand(ctx)
 
-    if x, y := o.(interface{ sel(Context, string) any }); y {
+    if x, y := o.(seler); y {
         if /* indeterminate(ctx, s) */false {
             if true { note(pc(ctx,s), "%v %v", o, s).debug() }
         } else if x, y := x.sel(ctx, s.string(ctx)).(evoker); y {
@@ -5518,6 +5544,58 @@ func (p *arrow) evoke(ctx *evocation) (res Value) {
         }
     }
     return _null(p.Position())
+}
+func (p *arrow) expand(ctx Context) (res Value) {
+    var o, s Value
+
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer p.expand_check(ctx, &o, &s, &res)
+    }
+
+    o = p.o.expand(ctx)
+    s = p.s.expand(ctx)
+
+    if t := truly(ctx, is_ident_dis{}); t {
+        if o == nil { o = p.o }
+        if s == nil { s = p.s }
+        goto ident_dis
+    }
+
+    if truly(ctx, ex_arrow{}) {
+        var x seler
+        switch t := o.(type) {
+        case seler: x = t
+        default:
+            if p.t.is_select_prog() {
+                if t := project_entry(ctx, t); t != nil { o = t }
+            } else {
+                if t := project_resolve(ctx, ident(ctx, t)); t != nil { o = t }
+            }
+            if x, _ = o.(seler); x == nil {
+                return //_null(p.Position())
+            }
+        }
+
+        var t string
+        if t = s.string(ctx); t == "" {
+            erro(pc(ctx,s), "empty selector: %v : %s", s, ts(s)).trace()
+        }
+
+        var v = x.sel(ctx, t)
+        if _, y := v.(evoker); y {
+            res, _, _ = evoke(ctx, v.(Value), nil, nil)
+            do(ctx, resed{})
+            return
+        }
+        return ease(ctx, v)
+    }
+
+ident_dis:
+    if !equal(ctx, o, p.o) || !equal(ctx, s, p.s) {
+        return &arrow{p.valbase, p.t, o, s}
+    } else {
+        return p
+    }
 }
 func (p *arrow) defs(ctx Context, s ...string) []*def {
     return append(p.o.defs(ctx, s...), p.s.defs(ctx, s...)...)
@@ -6456,8 +6534,8 @@ func ease(ctx Context, a any) (res Value) {
     switch t := a.(type) {
     case    Value: elems = append(elems, merge(t   )...)
     case  []Value: elems = append(elems, merge(t...)...)
-    case     bare: elems = append(elems, _word(   _position(ctx),  string(t)))
-    case     bool: elems = append(elems, _boolean(_position(ctx),         t ))
+    case    bare : elems = append(elems, _word(   _position(ctx),  string(t)))
+    case    bool : elems = append(elems, _boolean(_position(ctx),         t ))
     case    int  : elems = append(elems, _decimal(_position(ctx),   int64(t)))
     case    int16: elems = append(elems, _decimal(_position(ctx),   int64(t)))
     case    int32: elems = append(elems, _decimal(_position(ctx),   int64(t)))
@@ -6742,17 +6820,17 @@ var evokeTraceDots string
 
 type prerequisite_evoke_loop struct{ Context ; Value }
 
-type evoke_builtin struct{ name string }
-type evoke_def     struct{ name string }
-type evoke_x       struct{ name string }
+type evoke_x           struct{ name string }
+type evoke_builtin     struct{ name string }
+type evoke_def         struct{ name string }
 type evoke_detect_loop struct{ Value }
 type evoke_count       struct{}
 
 type evocation struct{
     automatic
     x   Value
-    a []Value
     o []Value
+    a []Value
 }
 func (p *evocation) inner() Context { return &p.automatic }
 func (p *evocation) cast(t reflect.Type) Context {
@@ -6811,25 +6889,25 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
 }
 
 type evoker interface{ evoke(*evocation) Value }
-func evoke(ctx Context, x Value, o, a []Value) (res Value, _ []Value) {
+func evoke(ctx Context, x Value, o, a []Value) (res Value, _, _ []Value) {
     if truly(ctx, evoke_detect_loop{x}) {
         switch {
-        case truly(ctx, evoke_loop_null{}): return _null(x.Position()), a
+        case truly(ctx, evoke_loop_null{}): return _null(x.Position()), o, a
         case truly(ctx, evoke_loop_panic{}): panic(trace_evoke_loop_err{ctx, x})
         }
         if false { errostack(pc(ctx,x), 32, "evoke loop: %v", x).trace() }
         if false { note(pc(ctx,x), "evoke loop: %v", x).debug(64) }
-        return _null(_position(ctx)), a
+        return _null(/* _position(ctx) */x.Position()), o, a
     }
     if t, y := x.(evoker); y {
         // NOTE: the evo.a represents the arguments, which is a COPY of the original slice;
         // NOTE: making a COPY of the argument slice FIXES the bug of delegate-altered-args.
-        e := evocation{automatic{Context:ctx, defs:make(defmap)}, x, copyvals(a), copyvals(o)}
-        return t.evoke(&e), e.a
+        e := evocation{automatic{Context:ctx, defs:make(defmap)}, x, copyvals(o), copyvals(a)}
+        return t.evoke(&e), e.o, e.a
     } else if false {
-        return x.expand(ctx), a
+        return x, o, a
     } else {
-        erro(pc(ctx,x), "not an evoker: %v", tv(x)).trace()
+        errostack(pc(ctx,x), 3, "cannot evoke %s : %v", tv(x), ts(x)).trace()
         return
     }
 }
@@ -6839,7 +6917,7 @@ type opts struct{ vals []Value }
 
 func call(ctx Context, name string, o []Value, a ...Value) (res Value) {
     if v := _universe(ctx).lookup(name); v != nil {
-        var t, _ = evoke(ctx, v, o, a)
+        var t, _, _ = evoke(ctx, v, o, a)
         if t != nil && !equal(ctx, v, t) { res = t }
     }
     return

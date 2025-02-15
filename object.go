@@ -69,11 +69,11 @@ type origin int
 const (
     defUndetermined origin = iota
     defVoid
-    defAuto     // auto within a code block (aka def/end, for/end)
     defConfig   // configure
     defConfDir  // configuration defs
     defConfRef  // referred by config
     defDecl     // declaration names
+    defAuto     // auto within a code block (aka def/end, for/end)
     defExpand0  //   =  normal value
     defExpand1  //  :=  expand delegates (simple expand)
     defExpand2  // ::=  expand all (delegates, closures, paths)
@@ -116,6 +116,11 @@ func (m defmap) String() (s string) {
 func _automatic(c Context) *automatic { return cast[*automatic](c) }
 
 type ex_auto   struct{}
+type ex_def    struct{ origin }
+type ex_def_0  struct{}
+type ex_def_1  struct{}
+type ex_def_2  struct{}
+type ex_def_3  struct{}
 type find_auto struct{ s string }
 type set_auto  struct{ o origin; s string; v Value }
 type res_auto  struct{ d *def; v Value }
@@ -151,8 +156,6 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
     case set_auto:
         d, v := ac.set(ctx, t.o, t.s, t.v)
         return res_auto{ d, v }
-    case property:
-        if t&propExAuto != 0 { return true }
     }
     return ac.Context.do(ctx, op)
 }
@@ -322,13 +325,6 @@ func (a *auto) set(ctx Context, o origin, value Value, app ...Value) {
 }
 func (a *auto) isDigit() bool { return IsDigits(a.name) }
 func (a *auto) isPlaceholder() bool { return a.name == "_" }
-func (a *auto) expandable(ctx Context) (res bool) {
-    if truly(ctx, ex_auto{}) {
-        var d = auto_find(ctx, a.name)
-        return d != nil && d.value != nil
-    }
-    return
-}
 func (a *auto) expand(ctx Context) (res Value) {
     if truly(ctx, ex_auto{}) {
         var d = auto_find(ctx, a.name)
@@ -336,15 +332,16 @@ func (a *auto) expand(ctx Context) (res Value) {
     }
     return a
 }
-func (a *auto) evoke(ctx *evocation) (res Value) {
+func (a *auto) evoke(ctx *evocation) (_ Value) {
     if d := auto_find(ctx, a.name); d != nil {
         return d.evoke(ctx)
+    } else if truly(ctx, is_identity{}) {
+        do(ctx, dis{a})
     }
-    do(ctx, uv{a})
     return
 }
 func (a *auto) invoke(ctx Context, o, v []Value) (res Value) {
-    if d := auto_find(ctx, a.name); d != nil { res, _ = evoke(ctx, d, o, v) }
+    if d := auto_find(ctx, a.name); d != nil { res, _, _ = evoke(ctx, d, o, v) }
     return
 }
 func (a *auto) cmp(ctx Context, v Value) (res cmpres) {
@@ -577,7 +574,7 @@ func (d *def) set(ctx Context, o origin, value Value, app ...Value) {
     }
 
     var a bool
-    if a = len(app)>0; a { vals = append(vals, app...) }
+    if a = len(app) > 0; a { vals = append(vals, app...) }
     if o != defExpand0 && len(vals) > 0 { vals = expand(original{ctx,o}, vals...) }
     if a {
         // d.Lock()
@@ -591,10 +588,26 @@ func (d *def) set(ctx Context, o origin, value Value, app ...Value) {
     }
 
     // d.Lock()
-    if n := len(vals); 1 == n {
+    if n := len(vals); 1 < n {
+        if o == defExpand0 {
+            d.value = _list(vals...)
+        } else {
+            l, t := new(list), Value(nil)
+            for _, v := range vals {
+                if isNull(v) {
+                    if t == nil { t = v }
+                } else {
+                    l.elems = append(l.elems, v)
+                }
+            }
+            if l.len() == 0 && t != nil {
+                d.value = t
+            } else {
+                d.value = l
+            }
+        }
+    } else if 1 == n {
         d.value = vals[0]
-    } else if 1 < n {
-        d.value = _list(vals...)
     } else if o == defExecute {
         d.value = nil
     } else {
@@ -742,35 +755,6 @@ func builtinFinalField(ctx Context, bv reflect.Value, bi any, force bool) bool {
     return force
 }
 
-type skip struct{}
-type uv struct{ Value }
-type uvx struct{ c Context }
-type uvc struct{ Context; uv Value }
-func (c *uvc) cast(t reflect.Type) Context { return icast(c, t) }
-func (c *uvc) inner() Context { return c.Context }
-func (c *uvc) indeterminate() bool { return c.uv != nil }
-func (c *uvc) ts(t string) (s string) {
-    s = "{="+t+" "
-    if c.uv == nil {
-        s += "nil"
-    } else {
-        s += ts(c.uv)
-    }
-    return s+" "+ts(c.Context)+"}"
-}
-func (c *uvc) do(ctx Context, op any) any {
-    switch t := op.(type) {
-    case uvx: if nil == t.c||t.c == c||t.c == c.Context { return c }
-    case uv: c.uv = t.Value//; return
-    }
-    return c.Context.do(ctx, op)
-}
-func uvcap(ctx Context) *uvc {
-    if x, y := ctx.(*uvc); y { return x }
-    if x, y := do(ctx, uvx{ctx}).(*uvc); y { return x }
-    return &uvc{ctx, nil}
-}
-
 // A builtin represents a built-in function. builtins don't have a valid type.
 type builtin struct{ knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
@@ -791,7 +775,7 @@ func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
     }
 }
 func (p *builtin) invoke(ctx Context, o, a []Value) (res Value) {
-	res, _ = evoke(ctx, p, o, a)
+	res, _, _ = evoke(ctx, p, o, a)
     return
 }
 func (p *builtin) expand(Context) Value { return p }
@@ -803,10 +787,10 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
 
     defer p.benchmark(ctx, time.Now(), _v)
 
-    if f := _v.Elem().FieldByName("builtin_"); !f.IsValid() {
-        errostack(pc(ctx,_i), 8, "no such field: %s.builtin_", _v.Elem().Type()).trace()
+    if f := _v.Elem().FieldByName("builtinbase"); !f.IsValid() {
+        errostack(pc(ctx,_i), 8, "no such field: %s.builtinbase", _v.Elem().Type()).trace()
     } else if f.CanAddr() {
-        b := (*builtin_)(unsafe.Pointer(f.Addr().Pointer()))
+        b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
         b.evocation = ctx
     } else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
         errostack(pc(ctx,_i), 8, "no such field: %s.evocation", _v.Elem().Type()).trace()
@@ -818,15 +802,10 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
         errostack(pc(ctx,_i), 8, "cannot set field: %s.evocation", _v.Elem().Type()).trace()
     }
 
-    if ctx.o != nil {
-        if o := _opts(ctx, _v, ctx.o); o != nil {
-            errostack(pc(ctx,o), 16, "%v: unsupported opts: %v", p, o).trace()
-        }
-    }
+    if ctx.o != nil { ctx.o = _opts(ctx, _v, ctx.o) }
 
     if x, y := _i.(builtin_x); y {
         if v := x.x(); v != nil {
-            if _, y := v.(skip); y { return p }
             return ease(ctx, v)
         }
     } else {

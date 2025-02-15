@@ -211,18 +211,20 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 
 	if ori != 0 { ctx = original{ctx, ori} }
 
-	if true {
-		res, _ = evoke(ctx, x, o, a)
-		return
-	} else if d, y := x.(*def); y {
+	if d, y := x.(*def); y {
 		if 0 < len(a) {
-			res, _ = evoke(ctx, x, o, a)
+			res, _, _ = evoke(ctx, x, o, a)
 			return
-		} else if d.value != nil {
+		} else if ori == 0 || ori == defExpand0 {
+			return d.value
+		} else  if d.value != nil && defExpand0 < ori && ori < defExecute {
 			return d.value.expand(ctx)
 		} else {
 			return
 		}
+	} else if true {
+		res, _, _ = evoke(ctx, x, o, a)
+		return
 	} else if 0 < len(a) {
 		ac := automatic{Context:ctx, defs:make(defmap)}
 		ac.args(ctx, a)
@@ -382,7 +384,7 @@ func _evoke_(ctx Context, v Value, ii ...any) (res Value) {
         default     : a = append(a, va(ctx, i))
         }
     }
-	res, _ = evoke(ctx, v, o, a)
+	res, _, _ = evoke(ctx, v, o, a)
     return
 }
 
@@ -425,7 +427,7 @@ func Test(t *testing.T) {
 	run(t, "loader", "empty", "testloader", testLoader)
 
 	// value_test.go
-	run(t, "value", "value", "testvalue", testValueGeneral, test_hook_assert{testValueGeneralAssertHook, &testValueGeneralStruct{}})
+	run(t, "value", "value", "testvalue", testValue, test_hook_assert{testValueAssertHook, &testValueStruct{}})
 
 	// builtins_test.go
 	run(t, "builtins", "assert",         "testassert", testAssert, test_hook_assert{testAssertHook, &testAssertStruct{}})

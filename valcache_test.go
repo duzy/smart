@@ -861,7 +861,7 @@ func testValueCache(ctx *testcase) {
 	if s := "sources" ; false {} else
 	if d := ctx.def(s); d == nil {
 		ctx.err("sources is nil")
-	} else if v, _ := evoke(ctx, d, nil, nil); v == nil {
+	} else if v, _, _ := evoke(ctx, d, nil, nil); v == nil {
 		ctx.err("sources is wrong: %v %v", d, v)
 	} else if s := v.string(ctx); strings.Count(s, "foo.c") != 2 {
 		ctx.err("sources is wrong: %v", v) // NOTE: "foo.c" counts foo.c foo.c++
@@ -876,7 +876,7 @@ func testValueCache(ctx *testcase) {
 	if s := "objects" ; false {} else
 	if d := ctx.def(s); d == nil {
 		ctx.err("objects is nil")
-	} else if v, _ := evoke(ctx, d, nil, nil); v == nil {
+	} else if v, _, _ := evoke(ctx, d, nil, nil); v == nil {
 		ctx.err("objects is wrong: %v %v", d, v)
 	}
 }

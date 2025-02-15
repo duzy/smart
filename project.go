@@ -296,7 +296,6 @@ func (_ *project) updated(Context) bool { return false }
 func (_ *project) updatedDeps(Context, ...Value) []Value { return nil }
 func (_ *project) defs(Context, ...string) (_ []*def) { return }
 func (_ *project) patterned(Context) bool { return false }
-func (_ *project) expandable(Context) bool { return false }
 func (p *project) expand(Context) Value { return p }
 func (p *project) evoke(*evocation) Value { return p }
 func (p *project) hash(ctx Context) uint64 { return fnv1(ctx, p, p.name) }

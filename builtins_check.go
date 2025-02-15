@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-func (ctx *builtin_trimprefix) x_check_match(val, prefix Value, f bool, r any, m []string) {
+func (ctx *__trimprefix) check_match(val, prefix Value, f bool, r any, m []string) {
     var v = val.string(ctx)
     switch prefix.String() {
     case "%%/.smart/modules/":
@@ -38,7 +38,7 @@ func (ctx *builtin_trimprefix) x_check_match(val, prefix Value, f bool, r any, m
     }
 }
 
-func (ctx *builtin_trimprefix) x_check(prefix, val, res Value) {
+func (ctx *__trimprefix) check(prefix, val, res Value) {
     var pre, str, t = prefix.string(ctx), val.string(ctx), res.string(ctx)
 
     if strings.HasSuffix(pre, "/") && strings.HasPrefix(str, pre) && strings.HasPrefix(t, "/") {
@@ -108,8 +108,8 @@ func (ctx *builtin_trimprefix) x_check(prefix, val, res Value) {
     }
 }
 
-func (ctx *builtin_auto) check_res(ar []Value) {
-    var a = ctx.evocation.a[1]
+func (ctx *__auto) check_res(ar []Value) {
+    var a = ctx.evocation.a[0]
     if a.String() == "$(a)" && auto_find(ctx, "a") == nil {
         if x, y := a.(*list); !y || x.len() != 1 {
             erro(ctx, "%v", ts(a)).trace()
@@ -128,7 +128,7 @@ func (ctx *builtin_auto) check_res(ar []Value) {
     }
 }
 
-func (ctx *builtin_grep) check_res(rx *regexp.Regexp, text string, temp, val Value) {
+func (ctx *__grep) check_res(rx *regexp.Regexp, text string, temp, val Value) {
 	if false {
 		note(ctx, "%40v → %s", temp.expand(_final(ctx)), val.string(ctx)).debug(2)
 	}
@@ -641,7 +641,29 @@ func (ctx *builtin_grep) check_res(rx *regexp.Regexp, text string, temp, val Val
 	}
 }
 
-func (ctx *builtin_foreach) check_v(v Value) {
+func (ctx *__foreach) check(_values, _vals *[]Value) {
+	var vals = *_vals
+	switch j := _project(ctx); j.spec {
+	case "testdata/value/optional":
+		switch ctx.a[1].String() {
+		case "$($_→bar?)":
+			if truly(ctx, ex_def_1{}) {
+				if vals != nil {
+					errostack(ctx, 3, "%v ; %v", vals, auto_get(ctx, "_")).trace()
+				}
+			} else {
+				if vals == nil || vals[0] == nil {
+					errostack(ctx, 3, "nil ; %v", auto_get(ctx, "_")).trace()
+				}
+				if s, t := vals[0].String(), "$({{=project foo}}→bar?)"; s != t {
+					errostack(ctx, 3, "%s != %s ; %v", s, t, auto_get(ctx, "_")).trace()
+				}
+			}
+		}
+	}
+}
+
+func (ctx *__foreach) check_v(v Value) {
 	if len(ctx.evocation.a) == 0 { return }
 
 	var t = ctx.evocation.a[1]
@@ -650,7 +672,6 @@ func (ctx *builtin_foreach) check_v(v Value) {
 			if l, y := t.(*list); y && l.len() == 1 {
 				if d, y := l.elems[0].(*delegate); y && d.x.String() == "if" {
 					if len(d.a) == 2 && strings.Contains(d.a[1].String(), "$_") {
-						// tv(d.a[1].expand(_final(ctx)))
 						erro(pc(ctx,t), "%s: %v %v", d.x, d.a[0], d.a[1])
 					}
 				}
@@ -660,7 +681,7 @@ func (ctx *builtin_foreach) check_v(v Value) {
 	}
 }
 
-func (ctx *builtin_if) a_check(i int, a, v Value) {
+func (ctx *__if) a_check(i int, a, v Value) {
 	if p := _project(ctx); i == 1 && p.name == "llvm.Config" {
 		if w := auto_get(ctx, "_"); w != nil && strings.Contains(v.String(), "$_") {
 			errostack(pc(ctx,a), 5, "%v: %v %v; %s", w, a, v, _builtincalls(ctx)).debug(32)

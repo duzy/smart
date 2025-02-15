@@ -30,12 +30,6 @@ type property uint64
 const (
     propDirtyOpts property = 1<<iota
     propErros
-    propExAuto
-    propExDef  //   =, :=, ::=, ...
-    propExDef0 //   =
-    propExDef1 //  :=
-    propExDef2 // ::=
-    propExDef3 // ;:= (TODO)
     propExDefValue
     propExDigital // $0, $1, ...
     propExPairVal
@@ -91,8 +85,10 @@ type doer interface { do(Context, any) any }
 
 func do(c Context, o any) any { return c.do(c, o) }
 
-func truly(ctx Context, op any) (_ bool) {
-    if x, y := do(ctx, op).(bool); x && y { return x }
+func truly(ctx Context, ops ...any) (_ bool) {
+    for _, op := range ops {
+        if a, b := do(ctx, op).(bool); a && b { return true }
+    }
     return
 }
 
