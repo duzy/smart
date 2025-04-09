@@ -1,6 +1,10 @@
 project testvalue
 
-.test.z := z-$1
-.test.y := $(.test.z)
-.test.x := $(.test.y)
-.test   := $(.test.x)
+.test.z0  = z-$1
+.test.z1 := z-$1
+.test.y0  = $(.test.z0 $1)
+.test.y1 := $(.test.z1 $1)
+.test.x0  = $(.test.y0 $1)
+.test.x1 := $(.test.y1 $1)
+.test.0   = $(.test.x0 $1)
+.test.1  := $(.test.x1 $1)

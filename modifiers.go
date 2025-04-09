@@ -372,13 +372,13 @@ func (ctx *modifier_stringify) v(args ...Value) (result any) {
 
 type modifier_reveal struct { modifier_ }
 func (ctx *modifier_reveal) v(args ...Value) (result any) {
-    result = expand(original{ctx,defExpand1}, args...)
+    result = expand(original{ctx,nil,defExpand1}, args...)
     return
 }
 
 type modifier_disclose struct { modifier_ }
 func (ctx *modifier_disclose) v(args ...Value) (result any) {
-    result = expand(original{ctx,defExpand2}, args...)
+    result = expand(original{ctx,nil,defExpand2}, args...)
     return
 }
 

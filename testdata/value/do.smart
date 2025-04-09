@@ -20,8 +20,8 @@ disjunction1   = x{a b c}
 disjunction2  := x{a b c}y{1 2 3}z
 disjunction3 ::= x{a b c}y{1 2 3}z
 
-glob1 = {=glob  *.c}
-glob2 = {=glob **.c}
+glob1 = {=glob    *.c}
+glob2 = {=glob   **.c}
 glob3 = {=glob x*z?.c}
 
 regex1 ::= {=regex x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}}
@@ -33,13 +33,11 @@ regex6 ::= {=regex fo{2}(/o{2}){3}/bar\.c}
 
 modifiers := {(assert {=no}) (plain cxx)}
 
-val1 = foo.c
-val2 = foo/bar.c
-val3 = foo/oo/oo/oo/bar.c
-
-val4 :=         a\,b\,c,x\,y\,z
-val5 := $(quote a\,b\,c,x\,y\,z)
-
+val1   = foo.c
+val2   = foo/bar.c
+val3   = foo/oo/oo/oo/bar.c
+val4  :=         a\,b\,c,x\,y\,z
+val5  := $(quote a\,b\,c,x\,y\,z)
 val6  := http://extbit.io/help
 val7  := https://extbit.com
 val8  := https://extbit.com?foo=x

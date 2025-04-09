@@ -1616,7 +1616,7 @@ func (l ul) source_check(ctx Context, filename string, src any, text *[]byte, re
 			for _, c := range l.project.filemap.value {
 				switch c.Value.String() {
 				case "$(headers)", "$(src.def.in)", "$(src.h.cmake)":
-					erro(ctx, "unexpanded: %v : %v", c.Value, c.Value.expand(original{ctx,defExpand1})).trace()
+					erro(ctx, "unexpanded: %v : %v", c.Value, c.Value.expand(original{ctx,nil,defExpand1})).trace()
 				default:
 					note(ctx, "%v", c.Value).debug()
 				}

@@ -121,11 +121,12 @@ var builtins = map[string]reflect.Type {
 
     `call`:      reflect.TypeOf((*__call)(nil)).Elem(),
     `closure`:   reflect.TypeOf((*__closure)(nil)).Elem(),
+    `delegate`:  reflect.TypeOf((*__delegate)(nil)).Elem(),
     `defs`:      reflect.TypeOf((*__defs)(nil)).Elem(),
 
-    `env`:       reflect.TypeOf((*__env)(nil)).Elem(),
     `value`:     reflect.TypeOf((*__value)(nil)).Elem(),
     `list`:      reflect.TypeOf((*__list)(nil)).Elem(),
+    `env`:       reflect.TypeOf((*__env)(nil)).Elem(),
 
     `shell`:     reflect.TypeOf((*__shell)(nil)).Elem(),
     `which`:     reflect.TypeOf((*__which)(nil)).Elem(),
@@ -316,8 +317,6 @@ func trimLeftSpaces(s string) string {
 func trimRightSpaces(s string) string {
     return strings.TrimRightFunc(s, unicode.IsSpace)
 }
-
-func identity(s string) string { return s }
 
 func _set(ctx Context, val reflect.Value, v Value) {
     switch val.Kind() {
@@ -1303,7 +1302,6 @@ func (ctx *__for) x() (res any) {
     return
 }
 
-type dis struct{ Value }
 type __foreach struct { builtinbase
     empty  bool `allow-empty,empty`
     unique bool `unique`
@@ -1314,12 +1312,6 @@ func (ctx *__foreach) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__foreach) do(c Context, op any) (_ any) {
-    switch t := op.(type) {
-    case dis: note(ctx, "%v", tv(t.Value)).debug()
-    }
-    return ctx.builtinbase.do(c, op)
-}
 func (ctx *__foreach) x() (res any) {
     if len(ctx.a) == 0 { return }
 
@@ -1327,19 +1319,33 @@ func (ctx *__foreach) x() (res any) {
 
     var vals []Value
     var args = merge(ctx.a[0])
-    if checkpoints && truly(ctx, is_test_mode{}) { defer ctx.check(&args, &vals) }
     if len(args) == 0 { return }
-    if ctx.unique { args = unique(ctx, args...) }
+    if checkpoints && truly(ctx, is_test_mode{}) {
+        defer ctx.check(&args, &vals)
+    }
+
+    var um map[uint64]Value
+    if ctx.unique { um = make(map[uint64]Value) }
 
     for _, val := range args {
         if isEmpty(val) {
             if !ctx.empty { continue }
-        } else {
-            val = _disjunction(val)
         }
 
-        // NOTE: don't use defAuto (it's for codeblock auto)
-        ctx.set(ctx, defVoid, "_", val)
+        if ctx.unique {
+            t := val.hash(ctx)
+            if x, y := um[t]; y {
+                if checkpoints && !equal(ctx, x, val) {
+                    erro(ctx, "%v != %v", ts(x), ts(val)).debug()
+                }
+                continue
+            } else {
+                um[t] = val
+            }
+        }
+
+        // NOTE: don't use defStatic (it's for codeblock auto)
+        ctx.set(ctx, defVoid, "_", redis(val))
 
         for _, v := range decoupleCompoundList(xmerge(ctx, ctx.a[1:]...)...) {
             if !ctx.empty && isEmpty(v) { continue }
@@ -1408,7 +1414,7 @@ func (ctx *__auto) x() (_ any) {
                 if k := t.key.string(ctx); k == "" {
                     erro(pc(ctx,a), "empty name: %s : %s", t.key, ts(t.key)).trace()
                 } else {
-                    ctx.set(ctx, defVoid, k, t.val) // NOTE: don't use defAuto (it's codeblock auto)
+                    ctx.set(ctx, defVoid, k, t.val) // NOTE: don't use defStatic (it's codeblock auto)
                 }
             default:
                 erro(pc(ctx,a), "wrong auto def: %s : %s", a, ts(a)).trace()
@@ -1437,36 +1443,7 @@ func (ctx *__var) x() (res any) {
     return
 }
 
-// $(value <name>,...)
-type __value struct { builtinbase }
-func (ctx *__value) inner() Context { return &ctx.builtinbase }
-func (ctx *__value) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
-}
-func (ctx *__value) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
-    var vals []Value
-    var p = _project(ctx)
-    for _, a := range merge(ctx.a...) {
-        var v Value
-
-        if s := a.string(ctx); s != "" {
-            if d := p.def(ctx, s); d != nil { v = d.value }
-            if v == nil { v = auto_get(ctx, s) }
-        }
-
-        if v == nil { v = makeDelegate(_position(ctx), LPAREN, a, nil) }
-        if v != nil { vals = append(vals, v) }
-    }
-    return vals
-}
-
-// $(closure <name>,...)
-type __closure struct { builtinbase }
+type __closure struct { builtinbase ; closure bool `closure` }
 func (ctx *__closure) inner() Context { return &ctx.builtinbase }
 func (ctx *__closure) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
@@ -1476,23 +1453,48 @@ func (ctx *__closure) x() (res any) {
     if !ctx.originalArgs {
         ctx.a = expand(ctx, ctx.a...)
     }
-
     var vals []Value
-    for _, a := range merge(ctx.a...) {
-        var v Value
-
+    for _, a := range merge(ctx.a[0]) {
         if s := a.string(ctx); s != "" {
-            if d := closure_finddef(ctx, s); d != nil { v = d.value }
+            if x := closure_resolve(ctx, s); x != nil {
+                v := makeClosure(a.Position(), LPAREN, x, nil, ctx.a[1:]...)
+                vals = append(vals, v)
+                continue
+            }
         }
-
-        if v == nil { v = makeClosure(a.Position(), LPAREN, a, nil) }
-        if v != nil { vals = append(vals, v) }
+        v := makeClosure(a.Position(), LPAREN, a, nil, ctx.a[1:]...)
+        vals = append(vals, v)
     }
     return vals
 }
 
-// $(call <name>, <arg>,...)
-type __call struct { builtinbase ; _closure bool `closure` }
+type __delegate struct { builtinbase ; closure bool `closure` }
+func (ctx *__delegate) inner() Context { return &ctx.builtinbase }
+func (ctx *__delegate) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__delegate) x() (res any) {
+    if !ctx.originalArgs {
+        ctx.a = expand(ctx, ctx.a...)
+    }
+    var vals []Value
+    var p = _project(ctx)
+    for _, a := range merge(ctx.a[0]) {
+        if s := a.string(ctx); s != "" {
+            if x := p.resolve(ctx, s); x != nil {
+                v := makeDelegate(a.Position(), LPAREN, x, nil, ctx.a[1:]...)
+                vals = append(vals, v)
+                continue
+            }
+        }
+        v := makeDelegate(a.Position(), LPAREN, unresolved{a}, nil, ctx.a[1:]...)
+        vals = append(vals, v)
+    }
+    return vals
+}
+
+type __call struct { builtinbase ; closure bool `closure` }
 func (ctx *__call) inner() Context { return &ctx.builtinbase }
 func (ctx *__call) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
@@ -1502,28 +1504,57 @@ func (ctx *__call) x() (res any) {
     if !ctx.originalArgs {
         ctx.a = expand(ctx, ctx.a...)
     }
-    if 0 < len(ctx.a) {
-        var x object
-        if s := ctx.a[0].string(ctx); s == "" {
-            erro(ctx, "%v is empty for name", ts(ctx.a[0])).trace()
-        } else if ctx._closure {
+    var vals []Value
+    for _, a := range merge(ctx.a[0]) {
+        var x Value
+        var s = a.string(ctx)
+        if s == "" {
+            erro(ctx, "empty string: %v : %v", a, ts(a)).trace()
+        } else if ctx.closure {
             x = closure_resolve(ctx, s)
         } else {
             x = project_resolve(ctx, s)
         }
-        if a := ctx.a[1:]; x == nil {
-            return
-        } else {
-            if res, _, _ = evoke(ctx, x, nil, a); res == nil {
-                return
+        if x == nil { x = auto_get(ctx, s) }
+        if x != nil {
+            if v, _, _ := evoke(ctx, x, nil, ctx.a[1:]); v != nil {
+                vals = append(vals, v)
             }
-            if r, y := res.(Value); y && equal(ctx, r, x) {
-                return
-            }
-            return
         }
     }
-    return
+    return vals
+}
+
+type __value struct { builtinbase ; closure bool `closure` }
+func (ctx *__value) inner() Context { return &ctx.builtinbase }
+func (ctx *__value) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__value) x() (res any) {
+    if !ctx.originalArgs {
+        ctx.a = expand(ctx, ctx.a...)
+    }
+    var vals []Value
+    var p = _project(ctx)
+    for _, a := range merge(ctx.a...) {
+        var s = a.string(ctx)
+        if s != "" {
+            var x Value
+            if ctx.closure {
+                x = closure_resolve(ctx, s)
+            } else {
+                x = p.resolve(ctx, s)
+            }
+            if x == nil { x = auto_get(ctx, s) }
+            if x != nil {
+                if d, y := x.(*def); y {
+                    vals = append(vals, d.value)
+                }
+            }
+        }
+    }
+    return vals
 }
 
 type __defs struct { builtinbase
@@ -1724,8 +1755,8 @@ func (ctx *__servehttp) x() (res any) {
 }
 
 type __append struct { builtinbase
-    _auto    bool `auto`
-    _closure bool `closure`
+    auto    bool `auto`
+    closure bool `closure`
 }
 func (ctx *__append) inner() Context { return &ctx.builtinbase }
 func (ctx *__append) cast(t reflect.Type) Context {
@@ -1752,9 +1783,9 @@ func (ctx *__append) x() (_ any) {
         var d *def
         if s == "" {
             erro(ctx, "'%v' is empty for name", a).trace()
-        } else if ctx._auto {
+        } else if ctx.auto {
             d = auto_find(ctx, s)
-        } else if ctx._closure {
+        } else if ctx.closure {
             d = closure_finddef(ctx, s)
         } else if o := project_resolve(ctx, s); o != nil {
             d, _ = o.(*def)
@@ -2524,8 +2555,8 @@ func (ctx *__filter) x() (res any) {
             i = 2
         }
 
-        if len(ctx.a) <= i {
-            erro(ctx, "out of index: %d %v", i, ctx.a).trace()
+        if len(ctx.a) < i {
+            erro(ctx, "out of index: %d > %d, %v", i, len(ctx.a), ctx.a).trace()
         }
 
         vals = merge(ctx.a[i:]...)
@@ -3140,80 +3171,59 @@ func (ctx *__gitdir) x() (_ any) {
     return vals
 }
 
-type __addprefix struct { builtinbase }
+type __add___fix struct { builtinbase; dis Value }
+func (ctx *__add___fix) do(c Context, op any) (_ any) {
+    switch t := op.(type) {
+    case dis: ctx.dis = t.Value
+    }
+    return ctx.builtinbase.do(c, op)
+}
+func (ctx *__add___fix) x(f func(_, _ Value) Value) (_ any) {
+    if len(ctx.a) < 1 {
+        erro(ctx, "not enough args, try $(addprefix prefix, ...)").trace()
+    }
+    if !ctx.originalArgs {
+        ctx.a[0] = ctx.a[0].expand(ctx)
+    }
+
+    var res []Value
+    for _, fix := range merge(ctx.a[0]) {
+        fix = redis(fix)
+        for i, val := range ctx.a[1:] {
+            var _v = val.expand(ctx)
+            if !ctx.originalArgs { ctx.a[1+i] = _v }
+            if fix != nil && _v != nil {
+                for _, v := range merge(_v) {
+                    res = append(res, f(fix, redis(v)))
+                }
+            }
+        }
+    }
+    return res
+}
+
+type __addprefix struct { __add___fix }
 func (ctx *__addprefix) inner() Context { return &ctx.builtinbase }
 func (ctx *__addprefix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__addprefix) x() (_ any) {
-    if len(ctx.a) < 1 {
-        erro(ctx, "not enough args, try $(addprefix prefix, ...)").trace()
-    }
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
-    var res []Value
-    var fixs = merge(ctx.a[0])
-    var vals = merge(ctx.a[1:]...)
-    for _, fix := range fixs {
-        for _, val := range vals {
-            var c bool
-            if /* indeterminate(ctx, fix) */true { c, fix = true, disjunction{fix} }
-            if /* indeterminate(ctx, val) */true { c, val = true, disjunction{val} }
-            if true {
-                if c {
-                    val = condish(ctx, compose(condless{ctx}, fix, val))
-                } else {
-                    val = compose(ctx, fix, val)
-                }
-            } else {
-                val = prefix_value{val, fix}
-                if c { val = condish(ctx, val) }
-            }
-            res = append(res, val)
-        }
-    }
-    return res
+    return ctx.__add___fix.x(func(x, y Value) Value {
+        return prefix(ctx, x, y)
+    })
 }
 
-type __addsuffix struct { builtinbase }
+type __addsuffix struct { __add___fix }
 func (ctx *__addsuffix) inner() Context { return &ctx.builtinbase }
 func (ctx *__addsuffix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__addsuffix) x() (_ any) {
-    if len(ctx.a) < 1 {
-        erro(ctx, "not enough args, try $(addsuffix suffix, ...)").trace()
-    }
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
-    var res []Value
-    var fixs = merge(ctx.a[0])
-    var vals = merge(ctx.a[1:]...)
-    for _, fix := range fixs {
-        for _, val := range vals {
-            var c bool
-            if /* indeterminate(ctx, val) */true { c, val = true, disjunction{val} }
-            if /* indeterminate(ctx, fix) */true { c, fix = true, disjunction{fix} }
-            if true {
-                if c {
-                    val = condish(ctx, compose(condless{ctx}, val, fix))
-                } else {
-                    val = compose(ctx, val, fix)
-                }
-            } else {
-                val = value_suffix{val, fix}
-                if c { val = condish(ctx, val) }
-            }
-            res = append(res, val)
-        }
-    }
-    return res
+    return ctx.__add___fix.x(func(x, y Value) Value {
+        return suffix(ctx, x, y)
+    })
 }
 
 type __print struct{ builtinbase

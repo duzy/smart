@@ -1,35 +1,35 @@
 project testbuiltins
 
-.test.1 := x $1 $2 $3 $4
+.test.1  = x $1 $2 $3 $4
 .test.1 += $(foreach $1,&(.test.h)$_)
 
 .test.h := -
-.test.2 := x
+.test.2  = x
 .test.2 += $(foreach q p $(foreach $1,&(.test.h)$_),x$_)
 
-.test.21 ::= x
-.test.21  += $(foreach q p $(foreach $1,&(.test.h)$_),x$_)
+.test.21 := x
+.test.21 += $(foreach q p $(foreach $1,&(.test.h)$_),x$_)
 
 .test.22 ::= x
 .test.22  += $(foreach &(.test.h) $(foreach $1,&(.test.h)$_),x$_)
 
-.test.23 := $(foreach q p $(foreach $1,&(.test.xx)$_),x$_)
+.test.23 = $(foreach q p $(foreach $1,&(.test.xx)$_),x$_)
 
-.test.3 := x
-.test.3 += $(foreach $1,&(.test.$_)$1{}zz) y
+.test.3  = x
+.test.3 += $(foreach $1,        &(.test.$_)$1{}88) y
 .test.3 += $(foreach $1,$(closure .test.$_)$1{}99) z
 
-.test.4   := $(foreach $1 $2,&(.test.$_.$(or $4,$3)))
+.test.4    = $(foreach $1 $2,&(.test.$_.$(or $4,$3)))
 .test.x.a := xa
 .test.x.b := xb
 .test.y.a := ya
 .test.y.b := yb
 
-.test.5 := $(foreach do.smart,&(.test.x $_))
-.test.x := $(stat $1) # $(stat $//$1)
+.test.5 = $(foreach do.smart,&(.test.x $_))
+.test.x = $(stat $1) # $(stat $//$1)
 
-.test.61 :=               $1 $2 $3 $9
-.test.6  := $(.test.61) - $1 $2 $3 $9
+.test.61 =               $1 $2 $3 $9
+.test.6  = $(.test.61) - $1 $2 $3 $9
 
-.test.7 := $(foreach a $(foreach $1,&(.test.z)$_zz) b,x$_)
+.test.7  = $(foreach a $(foreach $1,&(.test.z)$_{}zz) b,x$_)
 .test.z := w

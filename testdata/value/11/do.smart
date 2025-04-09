@@ -1,5 +1,7 @@
 project testvalue
 
-.test.x := &(.test$1)
-.test   := $(.test.x)
+.test.0   = &(.test$1)
+.test.x  := &(.test$1)
+.test    := $(.test.x)
+.test.v1 := foo
 .test.v2 := foobar

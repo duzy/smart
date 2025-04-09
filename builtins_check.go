@@ -8,6 +8,7 @@ package smart
 import (
 	"regexp"
 	"strings"
+	"fmt"
 )
 
 func (ctx *__trimprefix) check_match(val, prefix Value, f bool, r any, m []string) {
@@ -642,24 +643,194 @@ func (ctx *__grep) check_res(rx *regexp.Regexp, text string, temp, val Value) {
 }
 
 func (ctx *__foreach) check(_values, _vals *[]Value) {
-	var vals = *_vals
 	switch j := _project(ctx); j.spec {
+	case "testdata/value/placeholder":
+		ctx.value_placeholder(*_values, *_vals)
 	case "testdata/value/optional":
-		switch ctx.a[1].String() {
-		case "$($_→bar?)":
-			if truly(ctx, ex_def_1{}) {
-				if vals != nil {
-					errostack(ctx, 3, "%v ; %v", vals, auto_get(ctx, "_")).trace()
-				}
+		ctx.value_optional(*_values, *_vals)
+	case "testdata/value/bug_01":
+		ctx.value_bug_01(*_values, *_vals)
+	case "testdata/builtins/foreach":
+		ctx.check__foreach(*_values, *_vals)
+	}
+}
+
+func (ctx *__foreach) value_placeholder(values, vals []Value) {
+}
+
+func (ctx *__foreach) value_optional(values, vals []Value) {
+	switch ctx.a[1].String() {
+	case "$($_→bar?)":
+		if truly(ctx, ex_def_1{}) {
+			if vals != nil {
+				errostack(ctx, 3, "%v ; %v", vals, auto_get(ctx, "_")).trace()
+			}
+		} else {
+			if vals == nil || vals[0] == nil {
+				errostack(ctx, 3, "nil ; %v", auto_get(ctx, "_")).trace()
+			}
+			if s, t := vals[0].String(), "$({{=project foo}}→bar?)"; s != t {
+				errostack(ctx, 3, "%s != %s ; %v", s, t, auto_get(ctx, "_")).trace()
+			}
+		}
+	}
+}
+
+func (ctx *__foreach) value_bug_01(values, vals []Value) {
+}
+
+func (ctx *__foreach) check__foreach(values, vals []Value) {
+	var s string
+	var d, _ = do(ctx, evoke_def{}).(*def)
+	switch fmt.Sprintf("%v", ctx.a[1:]) {
+	case "[x$_]":
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+			s += "x"
+			if d == nil {
+				s += v.String()
 			} else {
-				if vals == nil || vals[0] == nil {
-					errostack(ctx, 3, "nil ; %v", auto_get(ctx, "_")).trace()
-				}
-				if s, t := vals[0].String(), "$({{=project foo}}→bar?)"; s != t {
-					errostack(ctx, 3, "%s != %s ; %v", s, t, auto_get(ctx, "_")).trace()
+				switch d.name {
+				case ".test.1", ".test.21", ".test.22":
+					s += v.String()
+				case ".test.2", ".test.23":
+					s += redis(v).String()
+				default:
+					erro(pc(ctx,d.value), "%v %v ; %v", values, vals, d).trace()
 				}
 			}
 		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			erro(pc(ctx,vals), "%s != %s ; %v", s, t, d).trace()
+		}
+	case "[&(.test.h)$_]":
+		if d, _ := do(ctx, evoke_def{}).(*def); d == nil {
+			erro(pc(ctx,vals[0]), "%v %v", values, vals).trace()
+		} else {
+			switch args := fmt.Sprintf("%v", values); d.name {
+			case ".test.1", ".test.2":
+				switch args {
+				case "[a b c]":
+					if truly(ctx, ex_closure{}) {
+						s = "[-a -b -c]"
+					} else {
+						s = "[&(.test.h)a &(.test.h)b &(.test.h)c]"
+					}
+				default:
+					erro(pc(ctx,vals[0]), "%s: %v %v", d.name, args, vals).trace()
+				}
+			default:
+				erro(pc(ctx,vals[0]), "%s: %v %v", d.name, args, vals).trace()
+			}
+			if t := fmt.Sprintf("%v", vals); s != t {
+				erro(pc(ctx,vals[0]), "%s: %s != %s", d.name, s, t).trace()
+			}
+		}
+	case "[&(.test.xx)$_]":
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+			if !truly(ctx, ex_closure{}) {
+				s += "&(.test.xx)"
+			}
+			if d == nil {
+				s += v.String()
+			} else {
+				switch d.name {
+				case ".test.23":
+					s += redis(v).String()
+				default:
+					erro(pc(ctx,d.value), "%v %v ; %v", values, vals, d).trace()
+				}
+			}
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			erro(ctx, "%s != %s", s, t).trace()
+		}
+	case "[&(.test.$_.$(or $4,$3))]":
+		j := _project(ctx)
+		v3 := auto_get(ctx, "3")
+		v4 := auto_get(ctx, "4")
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+
+			t := ".test."+v.String()
+			if v4 != nil {
+				t += v4.String()
+			} else if v3 != nil {
+				t += v3.String()
+			}
+
+			if d := j.def(ctx, t); d == nil {
+				erro(ctx, "%v", t).trace()
+			} else if truly(ctx, ex_closure{}) {
+				s += ""
+			} else /* if truly(ctx, ex_delegate{}) */ {
+				s += "{&(.test.xx)}"
+			}
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			erro(ctx, "%s != %s", s, t).trace()
+		}
+	case "[$(closure .test.$_)$1{}99]":
+		j := _project(ctx)
+		v1 := auto_get(ctx, "1")
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+
+			t := ".test."+v.String()
+			if d := j.def(ctx, t); d == nil {
+				erro(ctx, "%v", t).trace()
+			} else if truly(ctx, ex_closure{}) {
+				s += ""
+			} else /* if truly(ctx, ex_delegate{}) */ {
+				s += "{&(.test.xx)}"
+			}
+			s += v1.String()
+			s += "99"
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			erro(ctx, "%s != %s", s, t).trace()
+		}
+	case "[&(.test.x $_)]":
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+			if truly(ctx, ex_closure{}) {
+				s += ""
+			} else /* if truly(ctx, ex_delegate{}) */ {
+				s += "{&(.test.xx)}"
+				s += v.String()
+			}
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			erro(ctx, "%s != %s", s, t).trace()
+		}
+	case "[&(.test.$_)$1{}zz]":
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+			if truly(ctx, ex_closure{}) {
+				s += ""
+			} else /* if truly(ctx, ex_delegate{}) */ {
+				s += "{&(.test.xx)}"
+				s += v.String()
+			}
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			erro(ctx, "%s != %s", s, t).trace()
+		}
+	default:
+		erro(ctx, "%d %v %v %v", len(values), values, vals, ctx.a).trace()
 	}
 }
 

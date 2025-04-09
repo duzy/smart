@@ -201,7 +201,7 @@ func (l ul) expr_check_1(ctx Context, x Value, tok token, _res *Value) {
 func define_check(ctx Context, tok token, ident, value Value, _d **def) {
 	var d = *_d
 	if d == nil {
-		erro(ctx, "%v: %v %v %v", d.o, ident, tok, ts(value)).trace()
+		erro(ctx, "%v %v %v", ident, tok, ts(value)).trace()
 	} else if d.value == nil && !isNull(value) {
 		erro(ctx, "%v: %v %v %v", d.o, ident, tok, ts(value)).trace()
 	}

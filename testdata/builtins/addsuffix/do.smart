@@ -1,4 +1,9 @@
 project testbuiltins
 
-val1 := $(addsuffix =xxx,foo)
-val2 := $(addsuffix =xxx,foo bar)
+val1 = $(addsuffix =xxx,foo)
+val2 = $(addsuffix =xxx,foo bar)
+val5 = $(addsuffix =xxx,&(.test.$1))
+
+.test.a := ax ay az
+.test.b := bx by bz
+.test.c := cx cy cz

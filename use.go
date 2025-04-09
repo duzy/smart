@@ -103,7 +103,6 @@ type uselist struct {
     scope *scope
     list []*use
 }
-func (_ *uselist) cond() bool { return false }
 func (_ *uselist) kind() Kind { return KindUse|KindArray }
 func (p *uselist) ident(_ Context) string { return p.name }
 func (p *uselist) owner() *project { return p.owner_ }

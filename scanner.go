@@ -213,7 +213,7 @@ func IsDigits(s string) bool {
 // punctuation used as non-terminator
 func IsUntermPunct(r rune) bool {
 	// Most chars accepted in URL (RFC3986)
-	return r == '-' || r == '+' || r == '@' /*|| r == '.' || r == '/'*/;
+	return r == '@' || r == '+' /* || r == '-' || r == '.' || r == '/' */;
 }
 
 func IsDatetimeTerminator(r rune) bool {
@@ -266,7 +266,7 @@ func (s *scanner) scanComment(ctx Context) (res string) {
 func (s *scanner) scanIdentifier(ctx Context) string {
 	var offs = s.offset
 	for IsIdentifier(s.ch) {
-		if s.next(ctx); s.ch == '-' { // Looking for '->'
+		if s.next(ctx); /* s.ch == '-' */false { // Looking for '->'
 			var n = s.offset + 1 // No need UTF8 decoding!
 			if n < len(s.src) && rune(s.src[n]) == '>' { break }
 		}
@@ -740,6 +740,11 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 	case s.bits.isStrcompString(): tok, lit = s.scanStrcomp(ctx, '"')
 	case s.bits.isStrcompLine()  : tok, lit = s.scanStrcomp(ctx, 0)
 	}
+	defer func() {
+		if tok == WORD && lit == "foo_ab-" {
+			note(ctx, "%v", lit).debug(3)
+		}
+	} ()
 
 	if tok != 0 {
 		switch tok {
@@ -897,40 +902,12 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 			s.push(isStrcompString)
 		}
 	case '$', '&':
-		var isDelegate = ch == '$' // assert(s.offset == s.offsetRead-1)
-		switch tok, ch = CLOSURE, rune(s.src[s.offset]); ch {
-		case '/' : tok = CLOSURE_r
-		case '.' : tok = CLOSURE_D
-		case '@' : tok = CLOSURE_A
-		case '|' : tok = CLOSURE_B
-		case '<' : tok = CLOSURE_L
-		case '>' : tok = CLOSURE_R
-		case '^' : tok = CLOSURE_U
-		case '*' : tok = CLOSURE_S
-		case '-' : tok = CLOSURE_M
-		case '+' : tok = CLOSURE_P
-		case '?' : tok = CLOSURE_Q
-		case '0' : tok = CLOSURE_0
-		case '1' : tok = CLOSURE_1
-		case '2' : tok = CLOSURE_2
-		case '3' : tok = CLOSURE_3
-		case '4' : tok = CLOSURE_4
-		case '5' : tok = CLOSURE_5
-		case '6' : tok = CLOSURE_6
-		case '7' : tok = CLOSURE_7
-		case '8' : tok = CLOSURE_8
-		case '9' : tok = CLOSURE_9
-		case '_' : tok = CLOSURE__
-		}
-		if CLOSURE < tok && tok <= CLOSURE__ {
-			lit = string(ch)
-			s.next(ctx) // eat special
-		} else if ch == '(' || ch == '{' || ch == ':' {
+		if ch == '&' { tok = CLOSURE } else { tok = DELEGATE }
+		if ch = rune(s.src[s.offset]); ch == '(' || ch == '{' {
 			s.push(isCall)
-		} else {
+		} else if false {
 			s.push(isCall /* | isCallZero */)
 		}
-		if isDelegate { tok = token(DELEGATE + (tok - CLOSURE)) }
 	case '(':
 		tok = LPAREN
 		if s.bits.isCallZero() { s.bits |= isCallParen } else { s.push(isGroup) }

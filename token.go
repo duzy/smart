@@ -87,6 +87,10 @@ const (
 	AT        // @
 	STAR      // *    Single Asterisk
 	DAST      // **   Double Asterisk
+	UNDERLINE // _
+
+	CLOSURE   // &
+	DELEGATE  // $
 
 	MINUS // unary -
 	PLUS  // unary +
@@ -99,60 +103,6 @@ const (
 	DOLON     // ::
 	SOLON     // ;:
 	_ruledelim_end
-
-	// NOTE: don't change the order of closures and delegates, scanner
-	// relys upon their order.
-	_closure_beg
-	CLOSURE      // &
-	CLOSURE_r    // &/
-	CLOSURE_D    // &.
-	CLOSURE_A    // &@
-	CLOSURE_B    // &|
-	CLOSURE_L    // &<
-	CLOSURE_R    // &>
-	CLOSURE_U    // &^
-	CLOSURE_S    // &*
-	CLOSURE_M    // &-
-	CLOSURE_P    // &+
-	CLOSURE_Q    // &?
-	CLOSURE_0    // &0
-	CLOSURE_1    // &1
-	CLOSURE_2    // &2
-	CLOSURE_3    // &3
-	CLOSURE_4    // &4
-	CLOSURE_5    // &5
-	CLOSURE_6    // &6
-	CLOSURE_7    // &7
-	CLOSURE_8    // &8
-	CLOSURE_9    // &9
-	CLOSURE__    // &_
-	_closure_end
-
-	_delegate_beg
-	DELEGATE      // $
-	DELEGATE_r    // $/
-	DELEGATE_D    // $.
-	DELEGATE_A    // $@
-	DELEGATE_B    // $|
-	DELEGATE_L    // $<
-	DELEGATE_R    // $>
-	DELEGATE_U    // $^
-	DELEGATE_S    // $*
-	DELEGATE_M    // $-
-	DELEGATE_P    // $+
-	DELEGATE_Q    // $?
-	DELEGATE_0    // $0
-	DELEGATE_1    // $1
-	DELEGATE_2    // $2
-	DELEGATE_3    // $3
-	DELEGATE_4    // $4
-	DELEGATE_5    // $5
-	DELEGATE_6    // $6
-	DELEGATE_7    // $7
-	DELEGATE_8    // $8
-	DELEGATE_9    // $9
-	DELEGATE__    // $_
-	_delegate_end
 
 	_assign_beg
 	ASSIGN     //   =       define a new symbol (don't override, neither !=)
@@ -281,54 +231,10 @@ var tokens = [...]string{
 	AT:        "@",
 	STAR:      "*",
 	DAST:      "**",
+	UNDERLINE: "_",
 
 	CLOSURE:   "&",
-	CLOSURE_r: "&/",
-	CLOSURE_D: "&.",
-	CLOSURE_A: "&@",
-	CLOSURE_B: "&|",
-	CLOSURE_L: "&<",
-	CLOSURE_R: "&>",
-	CLOSURE_U: "&^",
-	CLOSURE_S: "&*",
-	CLOSURE_M: "&-",
-	CLOSURE_P: "&+",
-	CLOSURE_Q: "&Q",
-	CLOSURE_0: "&0",
-	CLOSURE_1: "&1",
-	CLOSURE_2: "&2",
-	CLOSURE_3: "&3",
-	CLOSURE_4: "&4",
-	CLOSURE_5: "&5",
-	CLOSURE_6: "&6",
-	CLOSURE_7: "&7",
-	CLOSURE_8: "&8",
-	CLOSURE_9: "&9",
-	CLOSURE__: "&_",
-
-	DELEGATE:   "$",
-	DELEGATE_r: "$/",
-	DELEGATE_D: "$.",
-	DELEGATE_A: "$@",
-	DELEGATE_B: "$|",
-	DELEGATE_L: "$<",
-	DELEGATE_R: "$>",
-	DELEGATE_U: "$^",
-	DELEGATE_S: "$*",
-	DELEGATE_M: "$-",
-	DELEGATE_P: "$+",
-	DELEGATE_Q: "$?",
-	DELEGATE_0: "$0",
-	DELEGATE_1: "$1",
-	DELEGATE_2: "$2",
-	DELEGATE_3: "$3",
-	DELEGATE_4: "$4",
-	DELEGATE_5: "$5",
-	DELEGATE_6: "$6",
-	DELEGATE_7: "$7",
-	DELEGATE_8: "$8",
-	DELEGATE_9: "$9",
-	DELEGATE__: "$_",
+	DELEGATE:  "$",
 
 	ASSIGN:     "=",
 	ASSIGN_SHI: "=+",
@@ -408,8 +314,6 @@ func (tok token) String() (s string) {
 var keywords = make(map[string]token)
 
 func init() {
-	if  CLOSURE_r !=  CLOSURE+1 { panic( CLOSURE_r) }
-	if DELEGATE_r != DELEGATE+1 { panic(DELEGATE_r) }
 	for i := _keyword_beg + 1; i < _keyword_end; i++ {
 		if s := tokens[i]; s != "" { keywords[s] = i }
 	}
@@ -426,9 +330,9 @@ func (tok token) is_literal() bool          { return   _literal_beg < tok && tok
 func (tok token) is_operator() bool         { return  _operator_beg < tok && tok <  _operator_end }
 func (tok token) is_keyword() bool          { return   _keyword_beg < tok && tok <   _keyword_end }
 func (tok token) is_constant() bool         { return  _constant_beg < tok && tok <  _constant_end }
-func (tok token) is_closure() bool          { return   _closure_beg < tok && tok <   _closure_end }
-func (tok token) is_closure_delegate() bool { return   _closure_beg < tok && tok <  _delegate_end }
-func (tok token) is_delegate() bool         { return  _delegate_beg < tok && tok <  _delegate_end }
+func (tok token) is_closure() bool          { return  CLOSURE == tok }
+func (tok token) is_closure_delegate() bool { return  CLOSURE == tok || tok == DELEGATE }
+func (tok token) is_delegate() bool         { return  DELEGATE == tok }
 func (tok token) is_assign() bool           { return    _assign_beg < tok && tok <    _assign_end }
 func (tok token) is_rule_delim() bool       { return _ruledelim_beg < tok && tok < _ruledelim_end }
 func (tok token) is_select_prog() bool      { return  SELECT_PROG1 == tok || tok == SELECT_PROG2  }

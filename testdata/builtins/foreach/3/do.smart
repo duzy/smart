@@ -1,8 +1,8 @@
 project testbuiltins
 
-.test.a    := $(foreach $1 $2,$_$3)
-.test.x    := $(foreach $1 $2,$(addprefix std=,&(.test.$_)))
-.test.y    := $(foreach $1 $2,$(if &(.test.$_),std=&(.test.$_)))
-.test.z    := $(foreach $1 $2,$(if $(.test.$_),std=&(.test.$_)))
+.test.a = $(foreach $1 $2,$_$3)
+.test.x = $(foreach $1 $2,$(addprefix std=,&(.test.$_)))
+.test.y = $(foreach $1 $2,$(if &(.test.$_),std=&(.test.$_)))
+.test.z = $(foreach $1 $2,$(if $(.test.$_),std=&(.test.$_)))
 .test.if.x := xxx
 .test.if.y := yyy

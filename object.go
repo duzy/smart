@@ -67,13 +67,13 @@ func (p *knownobject) ident(Context) string { return p.name }
 type origin int
 
 const (
-    defUndetermined origin = iota
-    defVoid
+    defUndetermined origin = iota//0
+    defVoid //origin = 1<<(iota-1)
     defConfig   // configure
     defConfDir  // configuration defs
     defConfRef  // referred by config
     defDecl     // declaration names
-    defAuto     // auto within a code block (aka def/end, for/end)
+    defStatic   // auto-expand within a code block at parse time (aka def/end, for/end)
     defExpand0  //   =  normal value
     defExpand1  //  :=  expand delegates (simple expand)
     defExpand2  // ::=  expand all (delegates, closures, paths)
@@ -95,6 +95,7 @@ func (o origin) String() string {
     case defExpand3: return "expand_3"
     case defExecute: return "execute"
     case defParam:   return "param"
+    case defStatic:  return "static"
     default: return fmt.Sprintf("origin<%d>", o)
     }
 }
@@ -115,7 +116,6 @@ func (m defmap) String() (s string) {
 
 func _automatic(c Context) *automatic { return cast[*automatic](c) }
 
-type ex_auto   struct{}
 type ex_def    struct{ origin }
 type ex_def_0  struct{}
 type ex_def_1  struct{}
@@ -139,7 +139,6 @@ func (ac *automatic) ts(t string) string {
 }
 func (ac *automatic) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
-    case ex_auto: return true
     case init_args:
         if t.automatic == nil {
             panic("automatic.init_args")
@@ -326,18 +325,11 @@ func (a *auto) set(ctx Context, o origin, value Value, app ...Value) {
 func (a *auto) isDigit() bool { return IsDigits(a.name) }
 func (a *auto) isPlaceholder() bool { return a.name == "_" }
 func (a *auto) expand(ctx Context) (res Value) {
-    if truly(ctx, ex_auto{}) {
-        var d = auto_find(ctx, a.name)
-        if d != nil && d.value != nil { return d }
-    }
-    return a
+    if d := auto_find(ctx, a.name); d != nil { res = d }
+    return
 }
-func (a *auto) evoke(ctx *evocation) (_ Value) {
-    if d := auto_find(ctx, a.name); d != nil {
-        return d.evoke(ctx)
-    } else if truly(ctx, is_identity{}) {
-        do(ctx, dis{a})
-    }
+func (a *auto) evoke(ctx *evocation) (res Value) {
+    if d := auto_find(ctx, a.name); d != nil { res = d.evoke(ctx) }
     return
 }
 func (a *auto) invoke(ctx Context, o, v []Value) (res Value) {
@@ -351,6 +343,8 @@ func (a *auto) cmp(ctx Context, v Value) (res cmpres) {
     case *def:
         if false {
             if d := auto_find(ctx, a.name); d != nil { res = d.cmp(ctx, x) }
+        } else if x.name == a.name /* && x.o == defVoid */ {
+            return cmpEqual
         }
     case *list:
         if x.len() == 1 { res = a.cmp(ctx, x.elems[0]) }
@@ -375,7 +369,6 @@ func (c def_evoke) do(ctx Context, op any) (_ any) {
     case find_auto:
         if IsDigits(t.s) {
             if x, y := c.defs[t.s]; y {
-                // notestack(ctx, 1, "%v", x).debug(16)
                 return x
             } else {
                 return
@@ -479,29 +472,24 @@ func (d *def) evoke(ctx *evocation) (res Value) {
         defer d.evoke_check(ctx, &res, time.Now())
     }
 
-    var o origin
-    var v Value
-    {
-        // d.Lock()
-        o, v = d.o, d.value
-        // d.Unlock()
-    }
+    // d.Lock()
+    o, v := d.o, d.value
+    // d.Unlock()
 
     if ctx.a != nil { // to save the changed args
         ctx.a = expand(ctx.Context, ctx.a...)
     }
-
     if v == nil {
         return
     }
 
-    de := def_evoke{ctx}
-    ctx.args(de, ctx.a)
-
-    v = v.expand(de)
-
+    dev := def_evoke{ctx}
+    ctx.args(dev, ctx.a)
+    if v = v.expand(dev); v == nil {
+        return
+    }
     if o == defExecute {
-        v = d.xexe(de, v)
+        v = d.xexe(dev, v)
     }
     if false {
         v = scalarize(v)
@@ -533,6 +521,8 @@ func (d *def) cmp(ctx Context, v Value) (res cmpres) {
     case *auto:
         if false {
             if d2 := auto_find(ctx, x.name); d2 != nil { res = d.cmp(ctx, d2) }
+        } else if d.name == x.name /* && d.o == defVoid */ {
+            return cmpEqual
         }
     case *list:
         if x.len() == 1 { res = d.cmp(ctx, x.elems[0]) }
@@ -568,20 +558,24 @@ func (d *def) set(ctx Context, o origin, value Value, app ...Value) {
 
     var vals []Value
     switch x := value.(type) {
-    case *null, *none:
+    case *null, *none, nil:
     case *list: vals = append(x.elems, vals...)
     default: vals = append([]Value{value}, vals...)
     }
 
     var a bool
-    if a = len(app) > 0; a { vals = append(vals, app...) }
-    if o != defExpand0 && len(vals) > 0 { vals = expand(original{ctx,o}, vals...) }
+    if a = len(app) > 0; a {
+        vals = append(vals, app...)
+    }
+    if o != defExpand0 && len(vals) > 0 {
+        vals = expand(original{ctx,d,o}, vals...)
+    }
     if a {
         // d.Lock()
         var v = d.value
         // d.Unlock()
         switch x := v.(type) {
-        case *null, *none:
+        case *null, *none, nil:
         case *list: vals = append(x.elems, vals...)
         default: vals = append([]Value{v}, vals...)
         }
@@ -687,11 +681,6 @@ type undetermined struct{
 func (_ *undetermined) kind() Kind { return KindObject|KindUndetermined }
 func (p *undetermined) hash(ctx Context) uint64 { return fnv1(ctx, p, p.token, p.identifier, p.value) }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
-func (p *undetermined) cond() (_ bool) {
-    if p.identifier.cond() { return true }
-    if p.value.cond() { return true }
-    return
-}
 func (p *undetermined) String() (s string) {
     s  = p.identifier.String()
     s += p.token.String()
@@ -762,6 +751,7 @@ func (p *builtin) hash(ctx Context) uint64 { return fnv1(ctx, p, p.name) }
 func (p *builtin) isx() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
 func (p *builtin) String() string { return p.name }
 func (p *builtin) true(Context) bool { return p.t != nil }
+func (p *builtin) expand(Context) Value { return p }
 func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
     var n = time.Now()
     if d := n.Sub(t); d > 2*time.Second {
@@ -774,13 +764,13 @@ func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
         }
     }
 }
-func (p *builtin) invoke(ctx Context, o, a []Value) (res Value) {
-	res, _, _ = evoke(ctx, p, o, a)
-    return
-}
-func (p *builtin) expand(Context) Value { return p }
 func (p *builtin) evoke(ctx *evocation) (res Value) {
     if checkpoints && truly(ctx, is_test_mode{}) { defer p.evoke_check(ctx, &res) }
+    if false && p.name == "addprefix" && ctx.a != nil {
+        if a := ctx.a[0]; a.String() == "std={}" {
+            defer func() { note(pc(ctx,p), "%v", ctx.a).debug(2) } ()
+        }
+    }
 
     _v := reflect.New(p.t)
     _i := _v.Interface()
@@ -811,6 +801,10 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     } else {
         errostack(pc(ctx,p), 3, "no method: %v", p.t.Name()).trace()
     }
+    return
+}
+func (p *builtin) invoke(ctx Context, o, a []Value) (res Value) {
+    res, _, _ = evoke(ctx, p, o, a)
     return
 }
 func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
@@ -910,7 +904,6 @@ type rule struct{
 }
 func (_ *rule) kind() Kind { return KindObject|KindRule }
 func (p *rule) hash(c Context) uint64 { return fnv1(c, p, p.target) }
-func (p *rule) cond() (_ bool) { return p.target.cond() }
 func (p *rule) destiny() Value { return p.target }
 func (p *rule) owner() *project { return p.program[0].project }
 func (p *rule) Position() (_ Position) {

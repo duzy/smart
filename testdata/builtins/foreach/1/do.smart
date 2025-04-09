@@ -1,9 +1,9 @@
 project testbuiltins
 
-.test.x := &(.test.s) $(value .test~&(.test.s)) \
+.test.x = &(.test.s) $(value .test~&(.test.s)) \
     $(foreach $1 $2, $(closure .test.$_) $(closure .test~&(.test.s).$_))
 
-.test.1 := $(.test.x $1,B b)
+.test.1 = $(.test.x $1,B b)
 
 .test.s     := foo
 
@@ -12,7 +12,6 @@ project testbuiltins
 .test.B     := test-B
 .test.b     := test-b
 .test~foo   := test-foo
-
 .test~foo.A := test-foo-A
 .test~foo.a := test-foo-a
 .test~foo.B := test-foo-B

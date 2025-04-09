@@ -78,117 +78,75 @@ func testValue(ctx testcase1) {
 		ctx.err("%v", tst{l.elems[9]})
 	} else if f, y := l.elems[10].(*float); !y || f.String() != "0.1" {
 		ctx.err("%v", tst{l.elems[10]})
-	} else if n, y := l.elems[11].(*none); !y || n.String() != `{=none anything goes}` || n.string(ctx) != `` {
+	} else if n, y := l.elems[11].(*none); !y || n.String() != `` || n.string(ctx) != `` {
 		ctx.err("%v", tst{l.elems[11]})
-	} else if t, y := n.x.(*list); !y {
-		ctx.err("%v", tst{n.x})
-	} else if len(t.elems) != 2 {
-		ctx.err("%v", tst{n.x})
-	} else if t.elems[0].String() != "anything" {
-		ctx.err("%v", tst{t.elems[0]})
-	} else if t.elems[1].String() != "goes" {
-		ctx.err("%v", tst{t.elems[1]})
 	} else if n, y := l.elems[12].(*null); !y || n.String() != `{}` || n.string(ctx) != `` {
 		ctx.err("%v", tst{l.elems[12]})
-	} else if s, t := `{word foo/bar 'strlit' "strcomp" 0 1} {=yes} {=false} {=true} {=path foo} foo/bar {=file foobar} **.c {=regex xx} 1 0.1 {=none anything goes} {}`, val.String(); s != t {
-		ctx.err("%v != %s", tst{val}, s)
+	} else if s, t := `{word foo/bar 'strlit' "strcomp" 0 1} {=yes} {=false} {=true} {=path foo} foo/bar {=file foobar} **.c {=regex xx} 1 0.1 {}`, val.String(); s != t {
+		ctx.err("%s != %s ; %s", s, t, tst{val})
 	} else if s, t := `word foo/bar strlit strcomp 0 1 yes false true foo foo/bar foobar **.c xx 1 0.1`, val.string(ctx); s != t {
-		ctx.err("%v: %s != %s", tst{val}, t, s)
+		ctx.err("%s != %s ; %s", s, t, tst{val})
 	}
 
 	if d := ctx.def("disjunction0"); d == nil {
 		ctx.err("disjunction0: %v", _project(ctx).defs)
-	} else if d.value == nil {
+	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if t, y := d.value.(disjunction); !y {
-		ctx.err("%v", tst{d.value})
-	} else if t, y := t.Value.(*list); !y {
-		ctx.err("%v", tst{d.value})
-	} else if len(t.elems) != 3 {
-		ctx.err("%v", tst{d.value})
-	} else if _, y := t.elems[0].(*word); !y {
-		ctx.err("%v", tst{t.elems[0]})
-	} else if _, y := t.elems[1].(*word); !y {
-		ctx.err("%v", tst{t.elems[1]})
-	} else if _, y := t.elems[2].(*word); !y {
-		ctx.err("%v", tst{t.elems[2]})
-	} else if s, t := d.value.String(), "{a b c}"; s != t {
-		ctx.err("%v → %s != %s", tst{d.value}, s, t)
-	} else if s, t := d.value.string(ctx), "a b c"; s != t {
-		ctx.err("%v → %s != %s", tst{d.value}, s, t)
+	} else if s, t := ts(v), "{=disjunction {=list {=word a} {=word b} {=word c}}}"; s != t {
+		ctx.err("%s != %s ; %v", s, t, v)
+	} else if s, t := v.String(), "{a b c}"; s != t {
+		ctx.err("%s != %s ; %v", s, t, tst{v})
+	} else if s, t := v.string(ctx), "a b c"; s != t {
+		ctx.err("%s != %s ; %v", s, t, tst{v})
 	}
 
 	if d := ctx.def("disjunction00"); d == nil {
 		ctx.err("disjunction00: %v", _project(ctx).defs)
-	} else if d.value == nil {
+	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if t, y := d.value.(*compound); !y {
-		ctx.err("%v", tst{d.value})
-	} else if len(t.elems) != 2 {
-		ctx.err("%v", tst{d.value})
-	} else if _, y := t.elems[0].(*word); !y {
-		ctx.err("%v", tst{t.elems[0]})
-	} else if _, y := t.elems[1].(*null); !y {
-		ctx.err("%v", tst{t.elems[1]})
-	} else if s, t := d.value.String(), "x{}"; s != t {
-		ctx.err("%v → %s != %s", tst{d.value}, s, t)
-	} else if s, t := d.value.string(ctx), "x"; s != t {
-		ctx.err("%v → %s != %s", tst{d.value}, s, t)
+	} else if s, t := ts(v), "{=word x}"; s != t {
+		ctx.err("%s != %s ; %v", s, t, v)
+	} else if s, t := v.String(), "x"; s != t {
+		ctx.err("%s != %s ; %v", s, t, tst{v})
+	} else if s, t := v.string(ctx), "x"; s != t {
+		ctx.err("%s != %s ; %v", s, t, tst{v})
 	}
 
 	if d := ctx.def("disjunction01"); d == nil {
 		ctx.err("disjunction01: %v", _project(ctx).defs)
-	} else if d.value == nil {
+	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if t, y := d.value.(*compound); !y {
-		ctx.err("%v", tst{d.value})
-	} else if len(t.elems) != 2 {
-		ctx.err("%v", tst{d.value})
-	} else if _, y := t.elems[0].(*word); !y {
-		ctx.err("%v", tst{t.elems[0]})
-	} else if v, y := t.elems[1].(disjunction); !y {
-		ctx.err("%v", tst{t.elems[1]})
-	} else if s, t := v.String(), "{$1}"; s != t {
+	} else if s, t := ts(v), "{=compound {=word x} {=disjunction {=delegate {=auto 1}}}}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.Value.String(), "$1"; s != t {
-		ctx.err("%s != %s : %s", s, t, tst{v.Value})
-	} else if s, t := d.value.String(), "x{$1}"; s != t {
-		ctx.err("%s != %s : %s", s, t, tst{d.value})
-	} else if s, t := d.value.string(ctx), ""; s != t {
-		ctx.err("%s != %s : %s", s, t, tst{d.value})
-	} else if v := ctx.val(d.name, defExpand1, []string{"a","b","c"}); v == nil {
-		ctx.err("%v", tst{d.value})
+	} else if s, t := v.String(), "x{$1}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), ""; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, []string{"a","b","c"}); v == nil {
+		ctx.err("%v", tst{v})
+	} else if s, t := ts(v), "{=list {=compound {=word x} {=word a}} {=compound {=word x} {=word b}} {=compound {=word x} {=word c}}}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if s, t := v.String(), "xa xb xc"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(ctx), "xa xb xc"; s != t {
+	} else if s := v.string(ctx); s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
 	if d := ctx.def("disjunction1"); d == nil {
 		ctx.err("disjunction1: %v", _project(ctx).defs)
-	} else if d.value == nil {
+	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if t, y := d.value.(*compound); !y {
-		ctx.err("%v", tst{d.value})
-	} else if len(t.elems) != 2 {
-		ctx.err("%v", tst{d.value})
-	} else if _, y := t.elems[0].(*word); !y {
-		ctx.err("%v", tst{t.elems[0]})
-	} else if v, y := t.elems[1].(disjunction); !y {
-		ctx.err("%v", tst{t.elems[1]})
-	} else if s, t := v.String(), "{a b c}"; s != t {
+	} else if s, t := ts(v), "{=compound {=word x} {=disjunction {=list {=word a} {=word b} {=word c}}}}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.Value.String(), "a b c"; s != t {
-		ctx.err("%s != %s : %s", s, t, tst{v.Value})
-	} else if s, t := d.value.String(), "x{a b c}"; s != t {
-		ctx.err("%s != %s : %s", s, t, tst{d.value})
-	} else if s, t := d.value.string(ctx), "xa xb xc"; s != t {
-		ctx.err("%s != %s : %s", s, t, tst{d.value})
+	} else if s, t := v.String(), "x{a b c}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "xa xb xc"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
 	if d := ctx.def("disjunction2"); d == nil {
 		ctx.err("disjunction2: %v", _project(ctx).defs)
-	} else if d.value == nil {
+	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := d.value.(*list); !y {
 		ctx.err("%v", tst{d.value})
@@ -202,8 +160,8 @@ func testValue(ctx testcase1) {
 
 	if d := ctx.def("disjunction3"); d == nil {
 		ctx.err("disjunction3: %v", _project(ctx).defs)
-	} else if d.value == nil {
-		ctx.err("%v", d)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
 	} else if l, y := d.value.(*list); !y {
 		ctx.err("%v", tst{d.value})
 	} else if len(l.elems) != 9 {
@@ -380,7 +338,7 @@ func testValue(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if s, t := tv(v), "{url:http://extbit.io/help}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := ts(v), "{=url {=word http} {} {} {=compound {=word extbit} {=punct .} {=word io}} {} {=path {=punct root} {=word help}} {=[]Value} {}}"; s != t {
+	} else if s, t := ts(v), "{=url {=word http} {} {} {=compound {=word extbit} {=punct .} {=word io}} {} {=path {=punct root} {=word help}} {=[]} {}}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 
@@ -390,7 +348,7 @@ func testValue(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if s, t := tv(v), "{url:https://extbit.com}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := ts(v), "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[]Value} {}}"; s != t {
+	} else if s, t := ts(v), "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[]} {}}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 
@@ -400,7 +358,7 @@ func testValue(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if s, t := tv(v), "{url:https://extbit.com?foo=x}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := ts(v), "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[]Value {=pair {=word foo}={=word x}}} {}}"; s != t {
+	} else if s, t := ts(v), "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[] {=pair {=word foo}={=word x}}} {}}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 
@@ -410,7 +368,7 @@ func testValue(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if s, t := tv(v), "{url:https://extbit.com?foo=x&bar=y#foobar}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := ts(v), "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[]Value {=pair {=word foo}={=word x}} {=pair {=word bar}={=word y}}} {=word foobar}}"; s != t {
+	} else if s, t := ts(v), "{=url {=word https} {} {} {=compound {=word extbit} {=punct .} {=word com}} {} {} {=[] {=pair {=word foo}={=word x}} {=pair {=word bar}={=word y}}} {=word foobar}}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 
@@ -420,7 +378,7 @@ func testValue(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if s, t := tv(v), "{url:https://ext.pub?foo=x+y+z&bar=x%20y%20z#foo+bar}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := ts(v), "{=url {=word https} {} {} {=compound {=word ext} {=punct .} {=word pub}} {} {} {=[]Value {=pair {=word foo}={=word x+y+z}} {=pair {=word bar}={=compound {=word x} {=punct %} {=decimal 20} {=word y} {=punct %} {=decimal 20} {=word z}}}} {=word foo+bar}}"; s != t {
+	} else if s, t := ts(v), "{=url {=word https} {} {} {=compound {=word ext} {=punct .} {=word pub}} {} {} {=[] {=pair {=word foo}={=word x+y+z}} {=pair {=word bar}={=compound {=word x} {=punct %} {=decimal 20} {=word y} {=punct %} {=decimal 20} {=word z}}}} {=word foo+bar}}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 
@@ -646,13 +604,17 @@ func testAuto(ctx *testcase) {
 		ctx.err("val0")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "&(foobar)"; s != t {
-		ctx.err("%v → %s != %s", v, s, t)
+	} else if s, t := ts(v), "{=list {=closure {=word foobar}} {=delegate {=unresolved foobar}}}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.String(), "&(foobar) $(foobar)"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if s, t := v.string(ctx), ""; s != t {
-		ctx.err("%v → %s != %s", v, s, t)
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "&(foobar)"; s != t {
+	} else if s, t := ts(v), "{=list {=closure {=word foobar}} {=delegate {=unresolved foobar}}}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.String(), "&(foobar) $(foobar)"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if s, t := v.string(ctx), ""; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
@@ -833,6 +795,148 @@ func testAuto(ctx *testcase) {
 	} else if v.String() != "val4" {
 		ctx.err("%v", v)
 	}
+
+	s := ".test.x0"
+	d := ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "$(auto(a3=3) $(a1)-$(a2)-$(a3))"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "--3"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d.name, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
+		ctx.err("%v", d.value)
+	} else if s, t := v.String(), "x-y-3"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	}
+
+	s = ".test.x1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "{}-{}-3"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "--3"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d.name, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
+		ctx.err("%v", d.value)
+	} else if s, t := v.String(), "{}-{}-3"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "--3"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	}
+
+	s = ".test.y0"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "$(auto(a1=x a2=y a3=z) $(.test.x0)-$(a1)$(a2)$(a3))"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "x-y-3-xyz"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d.name, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
+		ctx.err("%v", d.value)
+	} else if s := v.String(); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	}
+
+	s = ".test.y1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := "x-y-3-xyz", v.String(); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	} else if v := ctx.val(d.name); v == nil {
+		ctx.err("%v", d)
+	} else if s, t := "x-y-3-xyz", v.String(); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	} else if t := v.string(ctx); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	}
+
+	s = ".test.z0"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "$(auto $(.test.x0)-$(a1)$(a2)$(a3))"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "--3-"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d.name, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
+		ctx.err("%v", d.value)
+	} else if s, t := v.String(), "x-y-3-xy{}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "x-y-3-xy"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	}
+
+	s = ".test.z1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "{}-{}-3-{}{}{}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "--3-"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d.name, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
+		ctx.err("%v", d.value)
+	} else if s, t := v.String(), "{}-{}-3-{}{}{}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "--3-"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	}
+
+	s = ".test.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := "x-y-3-xyz", v.String(); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	} else if t := v.string(ctx); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	}
+
+	s = ".test.2"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := "x-y-3-xyz", v.String(); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	} else if t := v.string(ctx); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	}
+
+	s = ".test.3"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := "x-y-3-xyz", v.String(); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	} else if t := v.string(ctx); s != t {
+		ctx.err("%v : %s != %s", v, t, s)
+	}
 }
 
 func testClosure(ctx *testcase) {
@@ -935,105 +1039,125 @@ func testClosure(ctx *testcase) {
 	}
 }
 
-func testValues_bug_01(ctx *testcase) {
-	s := "okay"
+func testDisjunction(ctx *testcase) {
+	s := "val1"
 	d := ctx.def(s)
 	if d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else {
-		var v Value
-		func () {
-			defer func () {
-				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", x.string).trace()
-				}
-			} ()
-			v = d.value.expand(_final(ctx))
-		} ()
-		if v == nil {
-			ctx.err("%v", d)
-		} else if s, t := v.String(), "{x.{$1 $2}} {y.{$1 $2}} {z.{$1 $2}}"; s != t {
-			ctx.err("%v : %s != %s", d, s, t)
-		} else if s, t := ts(v), "{=list {=disjunction {=compound {=word x} {=punct .} {=disjunction {=list {=delegate {=auto 1}} {=delegate {=auto 2}}}}}} {=disjunction {=compound {=word y} {=punct .} {=disjunction {=list {=delegate {=auto 1}} {=delegate {=auto 2}}}}}} {=disjunction {=compound {=word z} {=punct .} {=disjunction {=list {=delegate {=auto 1}} {=delegate {=auto 2}}}}}}}"; s != t {
-			ctx.err("%v : %s != %s", d, s, t)
-		}
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=pair {=word foo}={=disjunction {=closure {=compound {=punct .} {=word test} {=punct .} {=word a}}}}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "foo={&(.test.a)}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "foo=a foo=b foo=c"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1); v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=pair {=word foo}={=disjunction {=closure {=compound {=punct .} {=word test} {=punct .} {=word a}}}}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "foo={&(.test.a)}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "foo=a foo=b foo=c"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand2); v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=list {=pair {=word foo}={=word a}} {=pair {=word foo}={=word b}} {=pair {=word foo}={=word c}}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "foo=a foo=b foo=c"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
-	s = "bug_0"
+	s = "val2"
 	d = ctx.def(s)
 	if d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "$(bug_0.1 $1,$2)"; s != t {
-		ctx.err("%v : %s != %s", d, s, t)
-	} else {
-		var v Value
-		func () {
-			defer func () {
-				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", x.string).trace()
-				}
-			} ()
-			v = d.value.expand(trace_evoke_loop{_final(ctx)})
-		} ()
-		if v == nil {
-			ctx.err("%v", d)
-		} else if s, t := v.String(), "{&(x.{$1 $2})} {&(y.{$1 $2})} {&(z.{$1 $2})}"; s != t {
-			ctx.err("%v : %s != %s", d, s, t)
-		} else if s, t := ts(v), "{=list {=disjunction {=closure {=compound {=word x} {=punct .} {=disjunction {=list {=delegate {=auto 1}} {=delegate {=auto 2}}}}}}} {=disjunction {=closure {=compound {=word y} {=punct .} {=disjunction {=list {=delegate {=auto 1}} {=delegate {=auto 2}}}}}}} {=disjunction {=closure {=compound {=word z} {=punct .} {=disjunction {=list {=delegate {=auto 1}} {=delegate {=auto 2}}}}}}}}"; s != t {
-			ctx.err("%v : %s != %s", d, s, t)
-		}
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=pair {=disjunction {=closure {=compound {=punct .} {=word test} {=punct .} {=word a}}}}={=word bar}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "{&(.test.a)}=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "a=bar b=bar c=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1); v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=pair {=disjunction {=closure {=compound {=punct .} {=word test} {=punct .} {=word a}}}}={=word bar}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "{&(.test.a)}=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "a=bar b=bar c=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand2); v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=list {=pair {=word a}={=word bar}} {=pair {=word b}={=word bar}} {=pair {=word c}={=word bar}}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "a=bar b=bar c=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
-	s = "bug_1"
+	s = "val3"
 	d = ctx.def(s)
 	if d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "$(bug_1.1 $1,$2)"; s != t {
-		ctx.err("%v : %s != %s", d, s, t)
-	} else {
-		var e, v Value
-		func () {
-			defer func () {
-				if x, y := recover().(trace_evoke_loop_err); y { e = x.Value }
-			} ()
-			v = d.value.expand(trace_evoke_loop{_final(ctx)})
-		} ()
-		if s, t := ts(e), "{=def bug_1.1}"; s != t {
-			ctx.err("expecting evocation loop: %s != %s", s, t)
-		}
-		if v != nil {
-			ctx.err("%v → %v", d, v)
-		}
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=pair {=word foo}={=compound {=word bar} {=disjunction {=closure {=compound {=punct .} {=word test} {=punct .} {=word a}}}}}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "foo=bar{&(.test.a)}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "foo=bara foo=barb foo=barc"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1); v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=pair {=word foo}={=compound {=word bar} {=disjunction {=closure {=compound {=punct .} {=word test} {=punct .} {=word a}}}}}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "foo=bar{&(.test.a)}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "foo=bara foo=barb foo=barc"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand2); v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=list {=pair {=word foo}={=compound {=word bar} {=word a}}} {=pair {=word foo}={=compound {=word bar} {=word b}}} {=pair {=word foo}={=compound {=word bar} {=word c}}}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "foo=bara foo=barb foo=barc"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
-	s = "flags"
+	s = "val4"
 	d = ctx.def(s)
 	if d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s := ts(v); s != "{=delegate {=def .flags} {=list {=delegate {=auto 1}}} {=list {=delegate {=auto 2}}}}" {
-		ctx.err("%v : %v", d, s)
-	} else {
-		var e, v Value
-		func () {
-			defer func () {
-				if x, y := recover().(trace_evoke_loop_err); y { e = x.Value }
-			} ()
-			v = d.value.expand(trace_evoke_loop{_final(ctx)})
-		} ()
-		if s, t := ts(e), "{=def .flags}"; s != t {
-			ctx.err("expecting evocation loop: %s != %s", s, t)
-		}
-		if v != nil {
-			ctx.err("%v → %v", d, v)
-		}
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=pair {=compound {=word foo} {=disjunction {=closure {=compound {=punct .} {=word test} {=punct .} {=word a}}}}}={=word bar}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "foo{&(.test.a)}=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "fooa=bar foob=bar fooc=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1); v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=pair {=compound {=word foo} {=disjunction {=closure {=compound {=punct .} {=word test} {=punct .} {=word a}}}}}={=word bar}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "foo{&(.test.a)}=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "fooa=bar foob=bar fooc=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand2); v == nil {
+		ctx.err("%s : %v", s, d)
+	} else if s, t := ts(v), "{=list {=pair {=compound {=word foo} {=word a}}={=word bar}} {=pair {=compound {=word foo} {=word b}}={=word bar}} {=pair {=compound {=word foo} {=word c}}={=word bar}}}"; s != t {
+		ctx.err("%s : %s != %s", v, s, t)
+	} else if s, t := v.String(), "fooa=bar foob=bar fooc=bar"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 }
 
@@ -1054,16 +1178,16 @@ func testValues2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "foobar $1-$2", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "foobar -", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := v.String(), "foo_ab-$1-$2"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "foo_ab--"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d.name, defExpand1, "a", "b"); v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "foobar a-b", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := v.String(), "foo_ab-a-b"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
 	s = ".test.ba"
@@ -1072,42 +1196,16 @@ func testValues2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "foobaz $2-$1", v.String(); s != t {
-		ctx.err("%v", v)
-	} else if s, t := "foobaz -", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := v.String(), "foo_ba-$2-$1"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "foo_ba--"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d.name, defExpand1, "a", "b"); v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "foobaz b-a", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	}
-
-	s = ".test"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := "{=list {=word x} {=delegate {=builtin closure} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}}} {=word y} {=delegate {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}} {=list {=compound {=delegate {=auto 1}} {=delegate {=auto 1}}}} {=list {=compound {=delegate {=auto 2}} {=delegate {=auto 2}}}}} {=word z} {=delegate {=builtin call} {=[]Value {=flag {=word closure}}} {=list {=closure {=def .test.x}}} {=list {=compound {=delegate {=auto 1}} {=delegate {=auto 2}}}} {=list {=compound {=delegate {=auto 2}} {=delegate {=auto 1}}}}} {=word Z} {=delegate {=auto 3}}}", ts(v); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) z $(call(-closure) &(.test.x),$1$2,$2$1) Z $3", v.String(); s != t {
-		ctx.err("%v : %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar - z foobar - Z", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", tst{v}, t, s)
-	} else if v := ctx.val(d.name, defExpand1, "a", "b", "c"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "{=list {=word x} {=delegate {=builtin closure} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}}} {=word y} {=delegate {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}} {=list {=compound {=word a} {=word a}}} {=list {=compound {=word b} {=word b}}}} {=word z} {=delegate {=builtin call} {=[]Value {=flag {=word closure}}} {=list {=closure {=def .test.x}}} {=list {=compound {=word a} {=word b}}} {=list {=compound {=word b} {=word a}}}} {=word Z} {=word c}}", ts(v); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) z $(call(-closure) &(.test.x),ab,ba) Z c", v.String(); s != t {
-		ctx.err("%v : %s != %s", tst{v}, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb z foobar ab-ba Z c", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", tst{v}, t, s)
-	} else if l, y := v.(*list); !y {
-		ctx.err("%v", tst{v})
-	} else if l.len() != 8 {
-		ctx.err("%d, %v", l.len(), tst{l})
+	} else if s, t := v.String(), "foo_ba-b-a"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
 	s = ".test.0"
@@ -1116,16 +1214,106 @@ func testValues2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if v := ctx.val(d.name, defExpand1, "a", "b", "c"); v == nil {
+	} else if s, t := ts(v), "{=list {=decimal 1} {=delegate {=builtin closure} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}}} {=decimal 10} {=decimal 2} {=delegate {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}} {=list {=compound {=delegate {=auto 1}} {=delegate {=auto 1}}}} {=list {=compound {=delegate {=auto 2}} {=delegate {=auto 2}}}}} {=decimal 20} {=decimal 3} {=delegate {=builtin call} {=list {=closure {=def .test.x}}} {=list {=compound {=delegate {=auto 1}} {=delegate {=auto 2}}}} {=list {=compound {=delegate {=auto 2}} {=delegate {=auto 1}}}}} {=delegate {=builtin call} {=[] {=flag {=word closure}}} {=list {=closure {=def .test.x}}} {=list {=compound {=delegate {=auto 1}} {=delegate {=auto 2}}}} {=list {=compound {=delegate {=auto 2}} {=delegate {=auto 1}}}}} {=decimal 4} {=delegate {=auto 3}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 $(closure &(.test.x)) 10 2 $(&(.test.x) $1$1,$2$2) 20 3 $(call &(.test.x),$1$2,$2$1) $(call(-closure) &(.test.x),$1$2,$2$1) 4 $3"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 foo_ab-- 20 3 foo_ab-- foo_ab-- 4"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, "a", "b", "c"); v == nil {
+		ctx.err("%v", d)
+	} else if s, t := ts(v), "{=list {=decimal 1} {=closure {=def .test.ab}} {=decimal 10} {=decimal 2} {=compound {=word foo_ab} {=flag {=compound {=word a} {=word a} {=flag {=compound {=word b} {=word b}}}}}} {=decimal 20} {=decimal 3} {=compound {=word foo_ab} {=flag {=compound {=word a} {=word b} {=flag {=compound {=word b} {=word a}}}}}} {=compound {=word foo_ab} {=flag {=compound {=word a} {=word b} {=flag {=compound {=word b} {=word a}}}}}} {=decimal 4} {=word c}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ab) 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba foo_ab-ab-ba 4 c"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba foo_ab-ab-ba 4 c"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand2, "a", "b", "c"); v == nil {
+		ctx.err("%v", d)
+	} else if s, t := ts(v), "{=list {=decimal 1} {=closure {=def .test.ab}} {=decimal 10} {=decimal 2} {=compound {=word foo_ab} {=flag {=compound {=word a} {=word a} {=flag {=compound {=word b} {=word b}}}}}} {=decimal 20} {=decimal 3} {=compound {=word foo_ab} {=flag {=compound {=word a} {=word b} {=flag {=compound {=word b} {=word a}}}}}} {=compound {=word foo_ab} {=flag {=compound {=word a} {=word b} {=flag {=compound {=word b} {=word a}}}}}} {=decimal 4} {=word c}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ab) 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba foo_ab-ab-ba 4 c"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba foo_ab-ab-ba 4 c"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	}
+
+	s = ".test.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := ts(v), "{=list {=decimal 1} {=closure {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}} {=decimal 11} {=decimal 2} {=decimal 21} {=decimal 3} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 4}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(&(.test.x)) 11 2 21 3 foo_ba-{}{}-{}{} foo_ba-{}{}-{}{} 4"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 11 2 21 3 foo_ba-- foo_ba-- 4"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d.name, defExpand1, "a", "b", "c"); v == nil {
+		ctx.err("%v", d)
+	} else if s, t := ts(v), "{=list {=decimal 1} {=closure {=compound {=punct .} {=word test} {=punct .} {=word ab}}} {=decimal 11} {=decimal 2} {=decimal 21} {=decimal 3} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 4}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ab) 11 2 21 3 foo_ba-{}{}-{}{} foo_ba-{}{}-{}{} 4"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 11 2 21 3 foo_ba-- foo_ba-- 4"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	}
+
+	s = ".test.2"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := ts(v), "{=list {=decimal 1} {=decimal 12} {=decimal 2} {=decimal 22} {=decimal 3} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 4}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 12 2 22 3 foo_ba-{}{}-{}{} foo_ba-{}{}-{}{} 4"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 12 2 22 3 foo_ba-- foo_ba-- 4"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d.name, defExpand1, "a", "b", "c"); v == nil {
+		ctx.err("%v", d)
+	} else if s, t := ts(v), "{=list {=decimal 1} {=decimal 12} {=decimal 2} {=decimal 22} {=decimal 3} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 4}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 12 2 22 3 foo_ba-{}{}-{}{} foo_ba-{}{}-{}{} 4"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 12 2 22 3 foo_ba-- foo_ba-- 4"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	}
+
+	s = ".test.s0"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := v.String(), "1 11 2 21 s0"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d.name, defExpand1, "a", "b", "c"); v == nil {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s := v.String(); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
 	s = ".test.s1"
@@ -1134,20 +1322,24 @@ func testValues2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "{=strval {=list {=list {=word x} {=delegate {=builtin closure} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}}} {=word y} {=delegate {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}} {=list {=compound {=delegate {=auto 1}} {=delegate {=auto 1}}}} {=list {=compound {=delegate {=auto 2}} {=delegate {=auto 2}}}}}} {=delegate {=auto 3}}}}", ts(v); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "{=str x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3}", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=decimal 11} {=decimal 2} {=decimal 21} {=word s0}} {=word s1}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 11 2 21 s0 s1"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d.name, defExpand1, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "{=strval {=list {=list {=word x} {=delegate {=builtin closure} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}}} {=word y} {=delegate {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}} {=list {=compound {=word a} {=word a}}} {=list {=compound {=word b} {=word b}}}}} {=word c}}}", ts(v); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "{=str x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c}", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=decimal 11} {=decimal 2} {=decimal 21} {=word s0}} {=word s1}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 11 2 21 s0 s1"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
 	s = ".test.s2"
@@ -1156,20 +1348,12 @@ func testValues2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "{=list {=word x} {=delegate {=builtin closure} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}}} {=word y} {=delegate {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}} {=list {=compound {=delegate {=auto 1}} {=delegate {=auto 1}}}} {=list {=compound {=delegate {=auto 2}} {=delegate {=auto 2}}}}} {=delegate {=auto 3}}}", ts(v); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if v := ctx.val(d.name, defExpand1, "a", "b", "c"); v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := "{=list {=word x} {=delegate {=builtin closure} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}}} {=word y} {=delegate {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}} {=list {=compound {=word a} {=word a}}} {=list {=compound {=word b} {=word b}}}} {=word c}}", ts(v); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := ts(v), "{=strval {=list {=list {=decimal 1} {=decimal 11} {=decimal 2} {=decimal 21}} {=word s0}}}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.String(), "{=str 1 11 2 21 s0}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 11 2 21 s0"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
 	s = ".test.s3"
@@ -1178,178 +1362,204 @@ func testValues2(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if l, y := v.(*strlit); !y {
-		ctx.err("%v", tst{v})
-	} else if s, t := l.s, "a b c"; s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := `'a b c'`, v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := `a b c`, v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := ts(v), "{=strval {=word a} {=word b} {=word c}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "{=str a b c}"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "a b c"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
-	s = ".test.1"
+	s = ".test.t1"
 	d = ctx.def(s)
 	if d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}} {=decimal 10} {=decimal 2} {=decimal 20}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(&(.test.x)) 10 2 20"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 20"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "c"); v == nil {
 		ctx.err("%v : %v", tst{d}, d.value)
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=compound {=punct .} {=word test} {=punct .} {=word ab}}} {=decimal 10} {=decimal 2} {=decimal 20}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ab) 10 2 20"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 20"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand2, "a", "b", "c"); v == nil {
+		ctx.err("%v : %v", tst{d}, d.value)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=compound {=word foo_ab} {=flag {=compound {=null} {=flag {=null}}}}} {=decimal 10} {=decimal 2} {=decimal 20}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 foo_ab-{}- 10 2 20"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 20"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
-	s = ".test.2"
+	s = ".test.t2"
 	d = ctx.def(s)
 	if d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) $1$1,$2$2) $3", v.String(); s != t {
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=def .test.ba}} {=decimal 10} {=decimal 2} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ba) 10 2 foo_ba-{}{}-{}{} 20"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := "x foobar - y foobar -", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "1 foo_ba-- 10 2 foo_ba-- 20"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) c", v.String(); s != t {
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=def .test.ba}} {=decimal 10} {=decimal 2} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ba) 10 2 foo_ba-{}{}-{}{} 20"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := "x foobar - y foobar aa-bb c", v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "1 foo_ba-- 10 2 foo_ba-- 20"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
-	s = ".test.3"
+	s = ".test.t3"
 	d = ctx.def(s)
 	if d == nil || d.value == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "x foobaz $2-$1 y foobaz $2$2-$1$1 $3"; s != t {
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=def .test.ba}} {=decimal 10} {=decimal 2} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ba) 10 2 foo_ba-{}{}-{}{} 20"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ba-- 10 2 foo_ba-- 20"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "cc"); v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "x foobaz b-a y foobaz bb-aa cc"; s != t {
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=def .test.ba}} {=decimal 10} {=decimal 2} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ba) 10 2 foo_ba-{}{}-{}{} 20"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s := v.string(ctx); s != t {
+	} else if s, t := v.string(ctx), "1 foo_ba-- 10 2 foo_ba-- 20"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand2, "a", "b", "cc"); v == nil {
+		ctx.err("%v", d)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=compound {=word foo_ba} {=flag {=compound {=null} {=flag {=null}}}}} {=decimal 10} {=decimal 2} {=compound {=word foo_ba} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 foo_ba-{}- 10 2 foo_ba-{}{}-{}{} 20"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ba-- 10 2 foo_ba-- 20"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
-	s = ".test.4"
+	s = ".test.t4"
 	d = ctx.def(s)
 	if d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
+	} else if s, t := ts(v), "{=list {=delegate {=def .test.0}} {=punct .} {=delegate {=auto 3}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "$(.test.0) . $3"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 foo_ab-- 20 3 foo_ab-- foo_ab-- 4 ."; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "x"); v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "x $(closure &(.test.x)) y $(&(.test.x) aa,bb) z $(call(-closure) &(.test.x),ab,ba) Z x . x", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "x foobar - y foobar aa-bb z foobar ab-ba Z x . x", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=def .test.ab}} {=decimal 10} {=decimal 2} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20} {=decimal 3} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 4}} {=punct .} {=word x}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ab) 10 2 foo_ab-{}{}-{}{} 20 3 foo_ab-{}{}-{}{} foo_ab-{}{}-{}{} 4 . x"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 foo_ab-- 20 3 foo_ab-- foo_ab-- 4 . x"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
-	s = ".test.5"
+	s = ".test.t5"
 	d = ctx.def(s)
 	if d == nil {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=def .test.ab}} {=decimal 10} {=decimal 2} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20} {=decimal 3} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 4}} {=punct .}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ab) 10 2 foo_ab-{}{}-{}{} 20 3 foo_ab-{}{}-{}{} foo_ab-{}{}-{}{} 4 ."; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 foo_ab-- 20 3 foo_ab-- foo_ab-- 4 ."; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "x"); v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "x foobar a-b y foobar aa-bb z foobar ab-ba Z x . x", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=def .test.ab}} {=decimal 10} {=decimal 2} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20} {=decimal 3} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 4}} {=punct .}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ab) 10 2 foo_ab-{}{}-{}{} 20 3 foo_ab-{}{}-{}{} foo_ab-{}{}-{}{} 4 ."; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 foo_ab-- 20 3 foo_ab-- foo_ab-- 4 ."; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	}
+
+	s = ".test.t6"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=def .test.ab}} {=decimal 10} {=decimal 2} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20} {=decimal 3} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 4}} {=punct .}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ab) 10 2 foo_ab-{}{}-{}{} 20 3 foo_ab-{}{}-{}{} foo_ab-{}{}-{}{} 4 ."; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 foo_ab-- 20 3 foo_ab-- foo_ab-- 4 ."; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, "a", "b", "x"); v == nil {
+		ctx.err("%v", d)
+	} else if s, t := ts(v), "{=list {=list {=decimal 1} {=closure {=def .test.ab}} {=decimal 10} {=decimal 2} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 20} {=decimal 3} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=compound {=word foo_ab} {=flag {=compound {=null} {=null} {=flag {=compound {=null} {=null}}}}}} {=decimal 4}} {=punct .}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", v)
+	} else if s, t := v.String(), "1 &(.test.ab) 10 2 foo_ab-{}{}-{}{} 20 3 foo_ab-{}{}-{}{} foo_ab-{}{}-{}{} 4 ."; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if s, t := v.string(ctx), "1 foo_ab-- 10 2 foo_ab-- 20 3 foo_ab-- foo_ab-- 4 ."; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 }
 
 func testValues3(ctx *testcase) {
-	s := ".test.x"
-	d := ctx.def(s)
-	if d == nil {
-		ctx.err(s)
+	if d := ctx.def(".test"); d == nil {
+		ctx.err(".test")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "$(a1)-$(a2)-3", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if v := ctx.val(d.name, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
-		ctx.err("%v", d.value)
-	} else if s, t := "x-y-3", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	}
-
-	s = ".test.y"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if v := ctx.val(d.name); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	}
-
-	s = ".test.z"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if v := ctx.val(d.name); v == nil {
-		ctx.err("%v", d.value)
-	} else if s, t := "$(a1)-$(a2)-3-$(a1)$(a2)$(a3)", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "--3-", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	}
-
-	s = ".test.1"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	}
-
-	s = ".test.2"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	}
-
-	s = ".test.3"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "x-y-3-xyz", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := v.String(), "$1"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
+	} else if v := ctx.val(d.name, defExpand1, "a"); v == nil {
+		ctx.err(".test")
+	} else if s, t := v.String(), "a"; s != t {
+		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if t := v.string(ctx); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
 	}
@@ -1382,132 +1592,169 @@ func testValues4(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[3]})
 	}
 
-	s = ".test.D.c"
+	s = ".test.D.c.0"
 	d = ctx.def(s)
 	if d == nil {
 		ctx.err(s)
-	} else if d.o != defExpand1 {
+	} else if d.o != defExpand0 {
 		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "D c $(value &(.test.x)) $(.test.v) &(value .test.v) $(.test.foreach $1,&(.test.none)) ($1) &(.test.x.{$1}) ($1)"; s != t {
+	} else if s, t := ts(v), "{=list {=compound {=word c} {=punct .} {=word D}} {=delegate {=builtin value} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word x}}}}} {=delegate {=builtin value} {=list {=compound {=punct .} {=word test} {=punct .} {=word v}}}} {=closure {=builtin value} {=list {=delegate {=def .test.x}}}} {=delegate {=def .test.foreach} {=list {=delegate {=auto 1}}} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word none}}}}} {=group {=delegate {=auto 1}}} {=delegate {=builtin foreach} {=list {=delegate {=auto 1}}} {=list {=closure {=compound {=punct .} {=word test} {=punct .} {=word x} {=punct .} {=delegate {=auto _}}}}}} {=group {=delegate {=auto 1}}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.String(), "c.D $(value &(.test.x)) $(value .test.v) &(value $(.test.x)) $(.test.foreach $1,&(.test.none)) ($1) $(foreach $1,&(.test.x.$_)) ($1)"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.string(ctx), "c.D xx xx xx () () ()"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := v.string(ctx), "D c xx xx xx () () ()"; s != t {
+	} else if l, y := v.(*list); !y {
+		ctx.err("%v", tst{v})
+	} else if l.len() != 8 {
+		ctx.err("%d, %v", l.len(), tst{l})
+	}
+
+	s = ".test.D.c.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand1 {
+		ctx.err("%v", tst{d})
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := ts(v), "{=list {=compound {=word c} {=punct .} {=word D}} {=closure {=builtin value} {=list {=compound {=punct .} {=word test} {=punct .} {=word v}}}} {=group {=null}} {=group {=null}} {=group {=null}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.String(), "c.D &(value .test.v) ({}) ({}) ({})"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.string(ctx), "c.D xx () () ()"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
-	} else if l.len() != 9 {
+	} else if l.len() != 5 {
 		ctx.err("%d, %v", l.len(), tst{l})
-	} else if _, y := l.elems[0].(*word); !y || l.elems[0].String() != "D" {
-		ctx.err("%v", tst{l.elems[0]})
-	} else if _, y := l.elems[1].(*word); !y || l.elems[1].String() != "c" {
-		ctx.err("%v", tst{l.elems[1]})
-	} else if _, y := l.elems[2].(*delegate); !y || l.elems[2].String() != "$(value &(.test.x))" {
-		ctx.err("%v", tst{l.elems[2]})
-	} else if t, y := l.elems[3].(*delegate); !y || l.elems[3].String() != "$(.test.v)" {
-		ctx.err("%v", tst{l.elems[3]})
-	} else if _, y := t.x.(*compound); !y || t.x.String() != ".test.v" {
-		ctx.err("%v", tst{t.x})
-	} else if t.string(ctx) != "xx" {
-		ctx.err("%v", tst{t})
-	} else if l.elems[4].String() != "&(value .test.v)" {
-		ctx.err("%v: %v", l.elems[4], tst{l.elems[4]})
-	} else if l.elems[5].String() != "$(.test.foreach $1,&(.test.none))" {
-		ctx.err("%v: %v", l.elems[5], tst{l.elems[5]})
-	} else if l.elems[6].String() != "($1)" {
-		ctx.err("%v: %v", l.elems[6], tst{l.elems[6]})
-	} else if l.elems[7].String() != "&(.test.x.{$1})" {
-		ctx.err("%v: %v", l.elems[7], tst{l.elems[7]})
-	} else if l.elems[8].String() != "($1)" {
-		ctx.err("%v: %v", l.elems[8], tst{l.elems[8]})
-	} else if v := ctx.val(d, defExpand1, "a"); v == nil {
+	}
+
+	s = ".test.D.c++.0"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand0 {
+		ctx.err("%v", d)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "c++.D"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if t := v.string(ctx); s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	}
+
+	s = ".test.D.c++.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand1 {
+		ctx.err("%v", d)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "c++.D"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if t := v.string(ctx); s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	}
+
+	s = ".test.I.c.0"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand0 {
 		ctx.err("%v", tst{d})
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := ts(v), "{=list {=compound {=word c} {=punct .} {=word I}} {=closure {=builtin value} {=list {=closure {=def .test.x}}}} {=closure {=builtin value} {=list {=delegate {=def .test.x}}}} {=delegate {=builtin value} {=list {=closure {=def .test.x}}}} {=delegate {=builtin value} {=list {=delegate {=def .test.x}}}}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.String(), "c.I &(value &(.test.x)) &(value $(.test.x)) $(value &(.test.x)) $(value $(.test.x))"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.string(ctx), "c.I xx xx xx xx"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
-	} else if l.len() != 9 {
+	} else if l.len() != 5 {
 		ctx.err("%d, %v", l.len(), tst{l})
-	} else if s, t := v.String(), "D c $(value &(.test.x)) xx &(value .test.v) (a) (a) &(.test.x.a) (a)"; s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %-20v %v", i, v, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if s, t := v.string(ctx), "D c xx xx xx (a) (a) x (a)"; s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %-10v %v", i, v, tst{v}) } }
-		ctx.err("%v → %s != %s", tst{v}, s, t)
-	} else if v := ctx.val(d.name, defExpand2, "a"); v == nil {
+	}
+
+	s = ".test.I.c.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand1 {
 		ctx.err("%v", tst{d})
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := ts(v), "{=list {=compound {=word c} {=punct .} {=word I}} {=closure {=builtin value} {=list {=closure {=def .test.x}}}} {=closure {=builtin value} {=list {=compound {=punct .} {=word test} {=punct .} {=word v}}}} {=word xx} {=word xx}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.String(), "c.I &(value &(.test.x)) &(value .test.v) xx xx"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.string(ctx), "c.I xx xx xx xx"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if l, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
-	} else if l.len() != 9 {
+	} else if l.len() != 5 {
 		ctx.err("%d, %v", l.len(), tst{l})
-	} else if s, t := "D c xx xx xx $(.test.foreach a,&(.test.none)) (a) x (a)", v.String(); s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %v : %v", i, v, tst{v}) } }
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "D c xx xx xx (a) (a) x (a)", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v : %s != %s", v, t, s)
 	}
 
-	s = ".test.D.c++"
+
+	s = ".test.I.c++.0"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if d.o != defExpand0 {
+		ctx.err("%v", tst{d})
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := ts(v), "{=compound {=word c++} {=punct .} {=word I}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.String(), "c++.I"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.string(ctx), "c++.I"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	}
+
+	s = ".test.I.c++.1"
 	d = ctx.def(s)
 	if d == nil {
 		ctx.err(s)
 	} else if d.o != defExpand1 {
-		ctx.err("%v", d)
+		ctx.err("%v", tst{d})
 	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "D c++", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	}
-
-	s = ".test.I.c"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if d.o != defExpand1 {
-		ctx.err("%v", d)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "I c &(value &(.test.x)) &(value .test.v) $(value &(.test.x)) xx", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "I c xx xx xx xx", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if l, y := v.(*list); !y {
-		ctx.err("%v", v)
-	} else if l.len() != 6 {
-		ctx.err("%d, %v", l.len(), tst{l})
-	} else if _, y := l.elems[0].(*word); !y || l.elems[0].String() != "I" {
-		ctx.err("%-22v : %v", l.elems[0], tst{l.elems[0]})
-	} else if _, y := l.elems[1].(*word); !y || l.elems[1].String() != "c" {
-		ctx.err("%-22v : %v", l.elems[1], tst{l.elems[1]})
-	} else if _, y := l.elems[2].(*closure);  !y || l.elems[2].String() != "&(value &(.test.x))" {
-		ctx.err("%-22v : %v", l.elems[2], tst{l.elems[2]})
-	} else if _, y := l.elems[3].(*closure);  !y || l.elems[3].String() != "&(value .test.v)" {
-		ctx.err("%-22v : %v", l.elems[3], tst{l.elems[3]})
-	} else if _, y := l.elems[4].(*delegate); !y || l.elems[4].String() != "$(value &(.test.x))" {
-		ctx.err("%-22v : %v", l.elems[4], tst{l.elems[4]})
-	} else if _, y := l.elems[5].(*word); !y || l.elems[5].String() != "xx" {
-		ctx.err("%-22v : %v", l.elems[5], tst{l.elems[5]})
-	} else if s, t := "I c &(value &(.test.x)) &(value .test.v) $(value &(.test.x)) xx", v.String(); s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "I c xx xx xx xx", v.string(ctx); s != t {
-		if true { for i, v := range l.elems { note(ctx, "%d. %v", i, tst{v}) } }
-		ctx.err("%v : %s != %s", v, t, s)
-	}
-
-	s = ".test.I.c++"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if d.o != defExpand1 {
-		ctx.err("%v", d)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "I c++", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+		ctx.err("%v", tst{d})
+	} else if s, t := ts(v), "{=compound {=word c++} {=punct .} {=word I}}"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.String(), "c++.I"; s != t {
+		note(pc(ctx,v), "%s", s)
+		note(pc(ctx,v), "%s", t)
+		ctx.err("%s", d)
+	} else if s, t := v.string(ctx), "c++.I"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 
 	s = ".test.and.x.1"
@@ -1568,20 +1815,40 @@ func testValues4(ctx *testcase) {
 }
 
 func testValues5(ctx *testcase) {
-	s := ".test"
+	s := ".test.0"
 	d := ctx.def(s)
 	if d == nil {
 		ctx.err(s)
-	} else if d.value == nil {
+	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if d.value.String() != "z-$1" {
+	} else if s, t := v.String(), "$(.test.x0 $1)"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s, t := v.string(ctx), "z-"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, "a"); v == nil {
 		ctx.err("%v", d)
-	} else if v := ctx.val(d.name, defExpand1, "a"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "z-a", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := v.String(), "z-a"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	}
+
+	s = ".test.1"
+	d = ctx.def(s)
+	if d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "z-"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, "a"); v == nil {
+		ctx.err("%v", d)
+	} else if s := v.String(); s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if t := v.string(ctx); s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 }
 
@@ -1643,84 +1910,93 @@ func testValues7(ctx *testcase) {
 func testValues8(ctx *testcase) {
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
-	} else if d.value == nil {
+	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if d.value.String() != "$1" {
+	} else if s, t := v.String(), "$(.test$1)"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, ".u"); v == nil {
 		ctx.err("%v", d)
-	} else if v := ctx.val(d.name, defExpand1, "a"); v == nil {
-		ctx.err(".test")
-	} else if s, t := "a", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := v.String(), "foobar"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 }
 
 func testValues9(ctx *testcase) {
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
-	} else if d.value == nil {
+	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if d.value.String() != "$(.test$1)" {
+	} else if s, t := v.String(), "$(.test.x .$1)"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, "w"); v == nil {
 		ctx.err("%v", d)
-	}
-
-	if v := ctx.val(".test", defExpand1, ".u"); v == nil {
-		ctx.err(".test")
-	} else if v.String() != "foobar" {
-		ctx.err("%v", v)
-	} else if s := v.string(ctx); s != "foobar" {
-		ctx.err("%v → %s", v, s)
+	} else if s, t := v.String(), "foobar"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s := v.string(ctx); s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 }
 
 func testValues10(ctx *testcase) {
+}
+
+func testValues11(ctx *testcase) {
+	if d := ctx.def(".test.0"); d == nil {
+		ctx.err(".test")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "&(.test$1)"; s != t {
+		ctx.err("%v: %s != %s", v, s, t)
+	} else if s, t := v.string(ctx), ""; s != t {
+		ctx.err("%v: %s != %s", v, s, t)
+	} else if v := ctx.val(d, defExpand1, []string{".v1",".v2"}); v == nil {
+		ctx.err(".test")
+	} else if s, t := v.String(), "&(.test.v1) &(.test.v2)"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s, t := v.string(ctx), "foo foobar"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	}
 	if d := ctx.def(".test"); d == nil {
 		ctx.err(".test")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := "$(.test.y .$1)", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if v := ctx.val(d.name, defExpand1, "w"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := "foobar", v.String(); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "foobar", v.string(ctx); s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	}
-}
-
-func testValues11(ctx *testcase) {
-	if d := ctx.def(".test"); d == nil {
-		ctx.err(".test")
-	} else if d.value == nil {
-		ctx.err("%v", d)
-	} else if d.value.String() != "&(.test$1)" {
-		ctx.err("%v", d)
-	}
-
-	if v := ctx.val(".test", defExpand1, ".v2"); v == nil {
-		ctx.err(".test")
-	} else if v.String() != "&(.test.v2)" {
-		ctx.err("%v", v)
-	} else if s := v.string(ctx); s != "foobar" {
-		ctx.err("%v → %s", v, s)
+	} else if s, t := v.String(), "&(.test{})"; s != t {
+		ctx.err("%v: %s != %s", v, s, t)
+	} else if s, t := v.string(ctx), ""; s != t {
+		ctx.err("%v: %s != %s", v, s, t)
 	}
 }
 
 func testValues12(ctx *testcase) {
-	if d := ctx.def(".test"); d == nil {
+	if d := ctx.def(".test.0"); d == nil {
 		ctx.err(".test")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "$(.test.y .$1)"; s != t {
-		ctx.err("%v : %s != %s", v, t, s)
-	} else if v := ctx.val(d.name, defExpand1, "w2"); v == nil {
+	} else if s, t := v.String(), "$(.test.x $1)"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, "w"); v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "&(.test.w2)"; s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+	} else if s, t := v.String(), "&(.test.w)"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if s, t := v.string(ctx), "foobaz"; s != t {
-		ctx.err("%v : %s != %s", v, t, s)
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand2, "w"); v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "foobaz"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s, t := v.string(ctx), "foobaz"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	}
+	if d := ctx.def(".test.1"); d == nil {
+		ctx.err(".test")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "&(.test.{})"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s, t := v.string(ctx), "www"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 }
 

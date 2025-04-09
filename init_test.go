@@ -209,7 +209,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		erro(ctx, "%v %v", j, ts(i0)).trace()
 	}
 
-	if ori != 0 { ctx = original{ctx, ori} }
+	if ori != 0 { ctx = original{ctx,nil,ori} }
 
 	if d, y := x.(*def); y {
 		if 0 < len(a) {
@@ -436,6 +436,7 @@ func Test(t *testing.T) {
 	// value_test.go
 	run(t, "value", "value/auto",        "testvalue", testAuto)
 	run(t, "value", "value/closure",     "testvalue", testClosure)
+	run(t, "value", "value/disjunction", "testvalue", testDisjunction)
 	run(t, "value", "value/placeholder", "testvalue", testPlaceholders)
 	run(t, "value", "value/optional",    "testvalue", testOptional, test_silentOptionalArrow{true})
 	run(t, "value", "value/glob",        "testvalue", testGlob)
@@ -448,30 +449,29 @@ func Test(t *testing.T) {
 	run(t, "value", "value/7",           "testvalue", testValues7)
 	run(t, "value", "value/8",           "testvalue", testValues8)
 	run(t, "value", "value/9",           "testvalue", testValues9)
-	run(t, "value", "value/10",          "testvalue", testValues10)
+	run(t, "value", "value/10",          "testvalue", testValues10) // NOOP
 	run(t, "value", "value/11",          "testvalue", testValues11)
 	run(t, "value", "value/12",          "testvalue", testValues12)
 	run(t, "value", "value/13",          "testvalue", testValues13)
-	run(t, "value", "value/bug_01",      "testvalue", testValues_bug_01)
 
 	// builtins_test.go
-	run(t, "builtins", "builtins/wildcard",   "testbuiltins", testBuiltin_wildcard)
-	run(t, "builtins", "builtins/if",         "testbuiltins", testBuiltin_if)
-	run(t, "builtins", "builtins/foreach",    "testbuiltins", testBuiltin_foreach)
-	run(t, "builtins", "builtins/foreach/1",  "testbuiltins", testBuiltin_foreach1)
-	run(t, "builtins", "builtins/foreach/2",  "testbuiltins", testBuiltin_foreach2)
-	run(t, "builtins", "builtins/foreach/3",  "testbuiltins", testBuiltin_foreach3)
-	run(t, "builtins", "builtins/foreach/4",  "testbuiltins", testBuiltin_foreach4)
-	run(t, "builtins", "builtins/foreach/5",  "testbuiltins", testBuiltin_foreach5)
-	run(t, "builtins", "builtins/logic",      "testbuiltins", testBuiltin_logic)
-	run(t, "builtins", "builtins/addprefix",  "testbuiltins", testBuiltin_addprefix)
-	run(t, "builtins", "builtins/addsuffix",  "testbuiltins", testBuiltin_addsuffix)
-	run(t, "builtins", "builtins/contains",   "testbuiltins", testBuiltin_contains)
-	run(t, "builtins", "builtins/join",       "testbuiltins", testBuiltin_join)
-	run(t, "builtins", "builtins/or",         "testbuiltins", testBuiltin_or)
-	run(t, "builtins", "builtins/xor",        "testbuiltins", testBuiltin_xor)
-	run(t, "builtins", "builtins/trimprefix", "testbuiltins", testBuiltin_trimprefix)
-	run(t, "builtins", "builtins/trimsuffix", "testbuiltins", testBuiltin_trimsuffix)
+	run(t, "builtins", "builtins/addprefix",  "testbuiltins", test__addprefix)
+	run(t, "builtins", "builtins/addsuffix",  "testbuiltins", test__addsuffix)
+	run(t, "builtins", "builtins/wildcard",   "testbuiltins", test__wildcard)
+	run(t, "builtins", "builtins/if",         "testbuiltins", test__if)
+	run(t, "builtins", "builtins/foreach",    "testbuiltins", test__foreach)
+	run(t, "builtins", "builtins/foreach/1",  "testbuiltins", test__foreach1)
+	run(t, "builtins", "builtins/foreach/2",  "testbuiltins", test__foreach2)
+	run(t, "builtins", "builtins/foreach/3",  "testbuiltins", test__foreach3)
+	run(t, "builtins", "builtins/foreach/4",  "testbuiltins", test__foreach4)
+	run(t, "builtins", "builtins/foreach/5",  "testbuiltins", test__foreach5)
+	run(t, "builtins", "builtins/logic",      "testbuiltins", test__logic)
+	run(t, "builtins", "builtins/contains",   "testbuiltins", test__contains)
+	run(t, "builtins", "builtins/join",       "testbuiltins", test__join)
+	run(t, "builtins", "builtins/or",         "testbuiltins", test__or)
+	run(t, "builtins", "builtins/xor",        "testbuiltins", test__xor)
+	run(t, "builtins", "builtins/trimprefix", "testbuiltins", test__trimprefix)
+	run(t, "builtins", "builtins/trimsuffix", "testbuiltins", test__trimsuffix)
 
 	// template_test.go
 	run(t, "template", "template", "testtemplate", testTemplate)
@@ -489,8 +489,8 @@ func Test(t *testing.T) {
 	run(t, "valcache", "valcache",   "testvalcache", testValueCache)
 
 	// builtins_test.go
-	run(t, "builtins", "builtins/file/0",     "testbuiltins", testBuiltin_file0)
-	run(t, "builtins", "builtins/file",       "testbuiltins", testBuiltin_file)
+	run(t, "builtins", "builtins/file/0",     "testbuiltins", test__file0)
+	run(t, "builtins", "builtins/file",       "testbuiltins", test__file)
 
 	// template_test.go
 	run(t, "template", "template/foreach", "testtemplate", testTemplateForeach)
@@ -498,7 +498,7 @@ func Test(t *testing.T) {
 	// rules_test.go
 	run(t, "rules", "rule/0",                "testrules", testRules0)
 	run(t, "rules", "rule/1",                "testrules", testRules1)
-	run(t, "rules", "rule/contains",         "testrules", testBuiltin_contains2)
+	run(t, "rules", "rule/contains",         "testrules", test__contains2)
 	run(t, "rules", "rule/shell/for-stdout", "testrules", testShellForStdout, test_hook_debug{testShellForStdoutDebugHook, &testShellForStdoutDebugStruct{}})
 
 	// configure_test.go
@@ -508,6 +508,8 @@ func Test(t *testing.T) {
 
 	// modules_test.go
 	run(t, "modules", "modules/target/arm64-darwin",                "", testVariantTarget)
+
+	run(t, "bug", "bug/01", "testbug", testBug_01)
 
 	if true {
 		run(t, "modules", "modules/app/arm64-darwin",               "", testApp)

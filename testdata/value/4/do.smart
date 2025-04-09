@@ -5,7 +5,8 @@ project testvalue
 for flag=(D I)
  for lang=(c c++)
  .test.* += $(flag).$(lang)(-unique)
- .test.$(flag).$(lang) := $(flag) $(lang)
+ .test.$(flag).$(lang).0  = $(lang).$(flag)
+ .test.$(flag).$(lang).1 := $(lang).$(flag)
  done
 done
 
@@ -13,23 +14,32 @@ for a=(x y) and n=(1 2)
 .test.and.$(a).$(n) = $(a)$(n)
 done
 
-.test.D.c += $(value &(.test.x))
-.test.D.c += $(value   .test.v)
+.test.D.c.0 += $(value &(.test.x))
+.test.D.c.1 += $(value &(.test.x))
+.test.D.c.0 += $(value   .test.v)
+.test.D.c.1 += $(value   .test.v)
 
 .test.v := xx
 .test.x := .test.v
 
-.test.D.c += &(value $(.test.x))
+.test.D.c.0 += &(value $(.test.x))
+.test.D.c.1 += &(value $(.test.x))
 
-.test.I.c += &(value &(.test.x))
-.test.I.c += &(value $(.test.x))
-.test.I.c += $(value &(.test.x))
-.test.I.c += $(value $(.test.x))
+.test.I.c.0 += &(value &(.test.x))
+.test.I.c.1 += &(value &(.test.x))
+.test.I.c.0 += &(value $(.test.x))
+.test.I.c.1 += &(value $(.test.x))
+.test.I.c.0 += $(value &(.test.x))
+.test.I.c.1 += $(value &(.test.x))
+.test.I.c.0 += $(value $(.test.x))
+.test.I.c.1 += $(value $(.test.x))
 
 .test.foreach = ($1)
 
-.test.D.c += $(.test.foreach $1,&(.test.none)) ($1)
-.test.D.c += $(foreach $1,&(.test.x.$_)) ($1)
+.test.D.c.0 += $(.test.foreach $1,&(.test.none)) ($1)
+.test.D.c.1 += $(.test.foreach $1,&(.test.none)) ($1)
+.test.D.c.0 += $(foreach $1,&(.test.x.$_)) ($1)
+.test.D.c.1 += $(foreach $1,&(.test.x.$_)) ($1)
 
 .test.x.a := x
 .test.x.b := y

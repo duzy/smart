@@ -272,11 +272,11 @@ type project struct {
   configure *project // .configure
   configuration *file // configuration.sm if saved or loaded
 
-	absPath string
+  absPath string
   tmpPath string
-	name    string
-	rel     string // path segment relative to the workBaseDir
-	spec    string // relative to search-paths as a specification
+  name    string
+  rel     string // path segment relative to the workBaseDir
+  spec    string // relative to search-paths as a specification
 
   filemap valcache
   entries valcache
@@ -289,7 +289,6 @@ type project struct {
   opt project_opts
 }
 func (_ *project) kind() Kind { return KindObject|KindKnownObject|KindProject }
-func (_ *project) cond() (_ bool) { return }
 func (_ *project) int(Context) (_ int64) { return }
 func (_ *project) float(Context) (_ float64) { return }
 func (_ *project) updated(Context) bool { return false }

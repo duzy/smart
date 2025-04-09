@@ -960,7 +960,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
     var resKind, resType string
     var resValue Value
-    var trim = identity
+    var trim = func(s string) string { return s }
 
     if r := ec.result; r != nil {
         for {
