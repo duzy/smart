@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -224,51 +224,40 @@ func (s *scope) alias(ctx Context, o object, alias ...string) {
 	for _, a := range alias { s.elems[a] = o }
 }
 
-func (s *scope) set(ctx Context, ident any, origin origin, vals ...Value) (d *def, a object) {
-	s.mutex.Lock() ; defer s.mutex.Unlock()
-
+func (s *scope) _def(ctx Context, o origin, ident any, vals ...Value) (d *def, isNew bool) {
+	var pos Position
 	var name string
-
 	switch t := ident.(type) {
-	case string: name = t
-	case Value: name = t.string(ctx)
+	case Value : name, pos = t.string(ctx), t.Position()
+	case string: name, pos = t, _position(ctx)
 	}
-
 	if name == "" {
 		errostack(ctx, 3, "empty name: %s : %s", ident, ts(ident)).trace()
 	}
-	if checkpoints {
-		if illegal_name_prefix.MatchString(name) {
-			errostack(ctx, 3, "illegal name: %v", name).trace()
-		}
+	if checkpoints && illegal_name_prefix.MatchString(name) {
+		errostack(ctx, 3, "illegal name: %v", name).trace()
 	}
 
-	var y bool
+	s.mutex.Lock(); defer s.mutex.Unlock()
 
-	a, y = s.elems[name]
-
-	if !y || a == nil {
-		var value Value
-		if len(vals) == 1 {
-			value = vals[0]
-		} else if 1 < len(vals) {
-			value = ease(ctx, vals)
-		}
-
-		if false && origin == defUndetermined { origin = defVoid }
-		// if x, y := s.elems[name]; y && x != nil {}
-
-		d = &def{ o:origin, value:value }
-		d.position, d.name, d.scope = _position(ctx), name, s
+	if a, y := s.elems[name]; !y || a == nil {
+		d = new(def)
+		d.name, d.position, d.scope = name, pos, s
 		s.elems[name] = d
-	} else if d, y = a.(*def); y {
-		if len(vals) == 1 {
-			d.set(ctx, origin, vals[0])
-		} else if 1 < len(vals) {
-			d.set(ctx, origin, nil, vals...)
-		} else if origin != defUndetermined && (d.o == defUndetermined || d.o == defVoid) {
-			d.set(ctx, origin, nil)
+		isNew = true
+	} else if d, y = a.(*def); d != nil {
+		if !d.position.valid() && pos.valid() { d.position = pos }
+	}
+	if o != defUndetermined {
+		if d.o == defUndetermined { d.o = o } else {
+			errostack(ctx, 3, "%v: conflicts origin: %v | %v", ident, d.o, o).trace()
 		}
 	}
+	if vals != nil { d.set(ctx, ease(ctx, vals)) }
+	return
+}
+
+func (s *scope) def(ctx Context, o origin, ident any, vals ...Value) (d *def) {
+	d, _ = s._def(ctx, o, ident, vals...)
 	return
 }

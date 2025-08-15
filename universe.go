@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -97,7 +97,7 @@ func (ctx *universe) ts(t string) string {
     var s = ts(ctx.Context)
     if  s == "{}"  {
         s, _ = filepath.Rel(workBaseDir, ctx.workdir)
-        s = bases(s, 3, true)
+        s = bases(s, "testdata", 3, true)
         if s == "." || s == "" { return "{="+t+"}" }
     }
     return "{="+t+" "+s+"}"
@@ -247,9 +247,9 @@ func new_universe(ii ...any) (ctx *universe) {
 
     var bin  = ease(ctx, os.Args[0])
     var args = ease(ctx, os.Args[1:])
-    ctx.scope.set(ctx, "SMART.ARGS", defVoid, args)
-    ctx.scope.set(ctx, "SMART.BIN",  defVoid, bin)
-    ctx.scope.set(ctx, "SMART",      defVoid, bin)
+    ctx.scope.def(ctx, defVoid, "SMART.ARGS", args)
+    ctx.scope.def(ctx, defVoid, "SMART.BIN",  bin)
+    ctx.scope.def(ctx, defVoid, "SMART",      bin)
 
     for name, f := range builtins {
         if _, alt := ctx.scope.builtin(ctx, name, f); alt != nil {
@@ -275,9 +275,9 @@ func new_universe(ii ...any) (ctx *universe) {
     }
 
     // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
-    ctx.globe.os,    _ = ctx.globe.set(ctx, ".os",    defVoid, os)
-    ctx.globe.goals, _ = ctx.globe.set(ctx, ".goals", defVoid, _none(pos))
-    ctx.globe.mode,  _ = ctx.globe.set(ctx, ".mode",  defVoid, _null(pos))
+    ctx.globe.os    = ctx.globe.def(ctx, defVoid, ".os",    os)
+    ctx.globe.goals = ctx.globe.def(ctx, defVoid, ".goals", _none(pos))
+    ctx.globe.mode  = ctx.globe.def(ctx, defVoid, ".mode",  _null(pos))
     return
 }
 

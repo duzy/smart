@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -22,7 +22,6 @@ import (
 
 const (
     vertag = "dev" // dev, alpha, beta, final
-    checkpoints = vertag != "final"
 )
 
 type property uint64
@@ -30,9 +29,6 @@ type property uint64
 const (
     propDirtyOpts property = 1<<iota
     propErros
-    propExDefValue
-    propExDigital // $0, $1, ...
-    propExPairVal
     propReversal
     propUnmap
 )
@@ -681,7 +677,7 @@ func diagstack(ctx Context, n int, dt diagtype, a ...any) (point diagtracer) {
 }
 
 func _position(ctx Context) (_ Position) {
-    if x, y := do(ctx, get_position{}).(Position); y && x.Filename != "" {
+    if x, y := do(ctx, get_position{}).(Position); y /* && x.Filename != "" */ {
         return x
     } else if true {
         return

@@ -3,6 +3,7 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
+
 package smart
 
 func testBug_01(ctx *testcase) {
@@ -134,7 +135,7 @@ func testBug_01(ctx *testcase) {
 				if x, y := recover().(trace_evoke_loop_err); y { e = x.Value }
 			} ()
 			a, _ := va(ctx, []string{"a", "b", "c", "d"}).(*list)
-			v, _, _ = evoke(trace_evoke_loop{_final(ctx)}, d, nil, a.elems)
+			v = evoke(trace_evoke_loop{_final(ctx)}, d, nil, a.elems)
 		} ()
 		if s, t := ts(e), "{=def .flags}"; s != t {
 			ctx.err("expecting evocation loop: %s != %s", s, t)

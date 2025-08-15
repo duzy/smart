@@ -1,4 +1,4 @@
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -14,7 +14,7 @@ import (
     "fmt"
 )
 
-const test_hit = false && checkpoints
+const test_hit = false
 const test_val = ""
 
 type (
@@ -717,7 +717,7 @@ func (p *path_hit) unmap(ctx Context, _c *valcache, k string) (res *valcache, fu
 		for _, pat := range _c.o[0] {
 			var c = _c.globs[pat]
 
-			if checkpoints && truly(ctx, is_test_mode{}) && strings.Contains(pat, "/") {
+			if checkpoints && strings.Contains(pat, "/") {
 				erro(ctx, "%v %v %v", k, pat, c).trace()
 			}
 
@@ -834,7 +834,7 @@ func (p *project) map_files(ctx Context, patts, paths []Value) (res []filemap) {
 }
 
 func (p *project) unmap_entries(ctx Context, key any, m *map[*project]struct{}) (res []entry) {
-	if checkpoints && truly(ctx, is_test_mode{}) { defer p.unmap_entries_check(ctx, key, &res) }
+	if checkpoints { defer p.unmap_entries_check(ctx, key, &res) }
 	if m == nil { m = &map[*project]struct{}{} } else if _, y := (*m)[p]; y { return }
 	if m != nil { (*m)[p] = struct{}{} }
 	if truly(ctx, debug_y{}) { ctx = project_ctx{ctx, p} }
@@ -849,7 +849,6 @@ func (p *project) unmap_entries(ctx Context, key any, m *map[*project]struct{}) 
 }
 
 func (p *project) unmap_files(ctx Context, key any, m *map[*project]struct{}) (res []filemap_name) {
-	if checkpoints && truly(ctx, is_test_mode{}) { defer p.unmap_files_check(ctx, key, &res) }
 	if m == nil { m = &map[*project]struct{}{} } else if _, y := (*m)[p]; y { return }
 	if m != nil { (*m)[p] = struct{}{} }
 	if truly(ctx, debug_y{}) { ctx = project_ctx{ctx, p} }
@@ -864,7 +863,7 @@ func (p *project) unmap_files(ctx Context, key any, m *map[*project]struct{}) (r
 }
 
 func unmap_void(ctx *unmap, c *valcache, key any) {
-	if checkpoints && truly(ctx, is_test_mode{}) {
+	if checkpoints {
 		defer unmap_check(ctx, c, key)
 	}
 

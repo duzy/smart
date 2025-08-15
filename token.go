@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -8,6 +8,7 @@ package smart
 import (
 	gt "go/token"
 	"strconv"
+	"fmt"
 )
 
 type token int
@@ -27,8 +28,9 @@ type token int
 const (
 	// Special tokens.
 	ILLEGAL = token(iota)
-	EOF
-	SPACE
+
+	EOF      // end of file
+	SPACE    // [ ]
 	COMMENT  // #
 	HASH     // # (same char as COMMENT, but different meaning)
 
@@ -43,7 +45,7 @@ const (
 	DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
 	DATE     // 1979-05-27 (internet date format - RFC3339)
 	TIME     // 07:32:00.999999 (internet time format - RFC3339)
-	URL      // 'mailto:duzy.chan@example.com' (uniform resource identifier - RFC3986)
+	URL      // 'mailto:name@example.com' (uniform resource identifier - RFC3986)
 	RAW      // raw strings
 	STRING   // 'abc'
 	ESCAPE   // \", \\n, etc. (see value.EscapeChar)
@@ -52,7 +54,7 @@ const (
 
 	COMPOSED // the ending quote of a strcomp literal
 	RECIPE   // tab to indicate a command recipe
-	LINEND   // significant line break (LF or CRLF)
+	LINEND   // significannot line break (LF or CRLF)
 
 	PROOT    // the root of a path, aka "" before the first '/' in a path
 	PTAIL    // the tail of a path, aka "" after the last '/' in a path
@@ -104,6 +106,7 @@ const (
 	SOLON     // ;:
 	_ruledelim_end
 
+	// ⩵ ⩶
 	_assign_beg
 	ASSIGN     //   =       define a new symbol (don't override, neither !=)
 	ASSIGN_SHI //   =+      shift (insert to the front)
@@ -345,6 +348,24 @@ func (tok token) is_list_delim() bool {
 	return tok.is_rule_delim()
 }
 
+func s_line_column(a any) string {
+	if a == nil { return "0:0" }
+	switch t := a.(type) {
+	case Position:
+		return fmt.Sprintf("%d:%d", t.Line, t.Column)
+	case positioner:
+		var p = t.Position()
+		return fmt.Sprintf("%d:%d", p.Line, p.Column)
+	case Context:
+		var p = _position(t)
+		return fmt.Sprintf("%d:%d", p.Line, p.Column)
+	case []Value:
+		if len(t) == 0 { return "0:0" }
+		return s_line_column(t[0])
+	}
+	panic(failureUnreachable(fmt.Sprint(a))) // unreachable(a)
+}
+
 /*
   Struct Position:
 	Filename string  -- filename, if any
@@ -354,11 +375,15 @@ func (tok token) is_list_delim() bool {
 */
 type Position struct { gt.Position }
 func (p *Position) valid() bool { return p.Filename != "" && p.Line > 0 }
-func (p *Position) IsValid() bool { return p.valid() && p.Column > 0 && p.Offset >= 0 }
 func (p *Position) same(o *Position) bool {
 	return p == o ||
 		p.Filename == o.Filename && p.Line == o.Line &&
 		p.Column == o.Column && p.Offset == o.Offset
+}
+func (p *Position) sameLoc(o *Position) bool {
+	return p == o ||
+		p.Filename == o.Filename && p.Line == o.Line &&
+		p.Column == o.Column
 }
 func (p *Position) sameLine(o *Position) bool {
 	return p == o || (p.Filename == o.Filename && p.Line == o.Line)
@@ -373,7 +398,7 @@ func makePosition(filename string, line, column int) (pos Position) {
 
 func convPosition(filename, line, column string) (pos Position) {
 	pos.Filename  = filename
-	pos.Line, _   = strconv.Atoi(line)
+	pos.Line,   _ = strconv.Atoi(line)
 	pos.Column, _ = strconv.Atoi(column)
 	return
 }

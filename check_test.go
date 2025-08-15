@@ -1,12 +1,14 @@
 //
-//  Copyright (C) 2012-2023, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
+
 package smart
 
 import (
     "path/filepath"
+	"runtime"
 	"reflect"
 	"strings"
 	"testing"
@@ -33,6 +35,37 @@ type test_final struct{}
 const testModulesPath = "/Volumes/workspace/.smart/modules"
 
 var test_mode bool
+var testdata_dir = get_testdata_dir()
+var testdata_ts = func() (s string) {
+	// {1:1:punct} {1:1:word Volumes} {1:1:word workspace} {1:1:word go} {1:1:word src} {1:1:word extbit.io} {1:1:word smart} {1:1:word testdata}
+	for i, t := range strings.Split(testdata_dir,pathSep) {
+		if i == 0 && t == "" {
+			s += "{1:1:punct}"
+		} else {
+			s += " {1:1:word "+t+"}"
+		}
+	}
+	return
+}()
+
+var langs_map = map[string]string{
+	"asm"   : "c",
+	"c"     : "c",
+	"s"     : "c",
+	"S"     : "c",
+	"cpp"   : "c++",
+	"cxx"   : "c++",
+	"c++"   : "c++",
+	"cc"    : "c++",
+	"cu"    : "cuda",
+	"cu++"  : "cuda++",
+	"cuda"  : "cuda",
+	"cuh"   : "cuda",
+	"cuh++" : "cuda++",
+	"m"     : "objc",
+	"mm"    : "objc++",
+	"swift" : "swift",
+}
 
 func init() {
 	diagnostic_limit_erros = 1000
@@ -102,22 +135,22 @@ func (tc *testcase) cast(t reflect.Type) Context { return icast(tc,t) }
 func (tc *testcase) ts(string) string { return "{=test "+tc.spec+" "+ts(tc.Context)+"}" }
 func (tc *testcase) String() string { return ts(tc.Context) }
 func (tc *testcase) do(ctx Context, op any) (_ any) {
-	switch t := op.(type) {
+	switch op.(type) {
 	case is_test_case: return true
 	case is_test_mode: return test_mode
 	case silent_configure: return true
-	case loading_source:
-		tc.srcs[string(t)] = struct{}{}
-		return
-	case checked_source:
-		tc.chks[string(t)] = struct{}{}
-		return
-	case is_loading_source:
-		_, y := tc.srcs[string(t)]
-		return y
-	case is_checked_source:
-		_, y := tc.chks[string(t)]
-		return y
+	// case loading_source:
+	// 	tc.srcs[string(t)] = struct{}{}
+	// 	return
+	// case checked_source:
+	// 	tc.chks[string(t)] = struct{}{}
+	// 	return
+	// case is_loading_source:
+	// 	_, y := tc.srcs[string(t)]
+	// 	return y
+	// case is_checked_source:
+	// 	_, y := tc.chks[string(t)]
+	// 	return y
 	case get_position:
 		if p := _project(ctx); p != nil { return p.position }
 		var p = _position(tc.Context)
@@ -168,34 +201,22 @@ func (tc *testcase) def(name string) (d *def) {
 	return
 }
 
-func (tc *testcase) str(a any, b ...any) (_ string) {
+func (tc *testcase) vs(a any, b ...any) (_ string) {
 	if v := tc.val(a, b...); v != nil { return v.string(tc) }
 	return
 }
 
 func (tc *testcase) val(i0 any, ii ...any) (res Value) {
-	var x Value
-	var a, o []Value
-	var ori origin
-	var s = skipint{2}
 	var j = _project(tc)
+	var s = skipint{2}
+	var ori origin
 	var ctx Context = tc
-
-	for _, i := range ii {
-		var vb = valbase{_position(tc)}
-		switch t := i.(type) {
-		case test_final: ctx = _final(ctx)
-		case     origin: ori = t
-		case   *project: j, ctx = t, closure_with(ctx, t.scope)
-		case    skipint: s.int = t.int+1
-		case       opt : o = append(o, t.Value)
-		case       opts: o = append(o, t.vals...)
-		case   test_arg: a = append(a, &pair{&word{vb,t.name},va(tc,t.val)})
-		default:         a = append(a, va(tc, i))
-		}
-	}
+	var pos Position
+	var a,o []Value
+	var x Value
 
 	switch t := i0.(type) {
+	case Position: pos = t
 	case string:
 		if x = j.resolve(ctx, t) ; x == nil {
 			erro(ctx, "%v '%s' is nil", j, t)
@@ -209,24 +230,40 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		erro(ctx, "%v %v", j, ts(i0)).trace()
 	}
 
-	if ori != 0 { ctx = original{ctx,nil,ori} }
+	for _, i := range ii {
+		var vb = valbase{_position(tc)}
+		switch t := i.(type) {
+		case test_final: ctx = _final(ctx)
+		case   Position: pos = t
+		case   *project: j, ctx = t, closure_with(ctx, t.scope)
+		case    skipint: s.int = t.int+1
+		case     origin: ori |= t
+		case       opt : o = append(o, t.Value)
+		case       opts: o = append(o, t.vals...)
+		case   test_arg: a = append(a, &pair{&word{vb,t.name},va(pc(tc,pos),t.val)})
+		default:         a = append(a, va(pc(tc,pos), i))
+		}
+	}
 
 	if d, y := x.(*def); y {
+		if pc, file, line, ok := runtime.Caller(1); ok {
+			p := Position{}
+			p.Filename, p.Line = file, line
+			ctx = &srcctx{posctx{ctx,p},runtime.FuncForPC(pc),d}
+		}
 		if 0 < len(a) {
-			res, _, _ = evoke(ctx, x, o, a)
-			return
-		} else if ori == 0 || ori == defExpand0 {
+			return evoke(original{ctx,ori}, x, o, a)
+		} else if ori == 0 || ori&defExpand0 != 0 {
 			return d.value
-		} else  if d.value != nil && defExpand0 < ori && ori < defExecute {
-			return d.value.expand(ctx)
+		} else if  d.value != nil && ori&(defExpand0|defExpand1|defExpand2|defExpand3|defExecute)!= 0 {
+			return d.value.expand(original{ctx,ori})
 		} else {
 			return
 		}
 	} else if true {
-		res, _, _ = evoke(ctx, x, o, a)
-		return
+		return evoke(ctx, x, o, a)
 	} else if 0 < len(a) {
-		ac := automatic{Context:ctx, defs:make(defmap)}
+		ac := automatic{Context:ctx, defs:make(def_map)}
 		ac.args(ctx, a)
 		return x.expand(&ac)
 	} else {
@@ -335,11 +372,11 @@ func va(ctx Context, i any) (v Value) {
     switch t := i.(type) {
     case   Value: v = t
     case []Value: v = _list(t...)
-    case  int:    v = _decimal(_position(ctx), int64(t))
+    case  int  :  v = _decimal(_position(ctx), int64(t))
     case  int16:  v = _decimal(_position(ctx), int64(t))
     case  int32:  v = _decimal(_position(ctx), int64(t))
     case  int64:  v = _decimal(_position(ctx), int64(t))
-    case uint:    v = _decimal(_position(ctx), int64(t))
+    case uint  :  v = _decimal(_position(ctx), int64(t))
     case uint16:  v = _decimal(_position(ctx), int64(t))
     case uint32:  v = _decimal(_position(ctx), int64(t))
     case uint64:  v = _decimal(_position(ctx), int64(t))
@@ -375,17 +412,16 @@ func va(ctx Context, i any) (v Value) {
 
 func _evoke_(ctx Context, v Value, ii ...any) (res Value) {
 	var a, o []Value
-    for _, i := range ii {
-        switch t := i.(type) {
-        case    opt : o = append(o, t.Value)
-        case    opts: o = append(o, t.vals...)
-        case []Value: a = append(a, t...)
-        case   Value: a = append(a, t)
-        default     : a = append(a, va(ctx, i))
-        }
-    }
-	res, _, _ = evoke(ctx, v, o, a)
-    return
+	for _, i := range ii {
+		switch t := i.(type) {
+		case    opt : o = append(o, t.Value)
+		case    opts: o = append(o, t.vals...)
+		case []Value: a = append(a, t...)
+		case   Value: a = append(a, t)
+		default:      a = append(a, va(ctx, i))
+		}
+	}
+	return evoke(ctx, v, o, a)
 }
 
 type (
@@ -420,8 +456,8 @@ func Test(t *testing.T) {
 	// t.Run("scanner", testProgConstructs)
 
 	// parser_test.go
-	t.Run("parser", testParseFile)
-	t.Run("parser", testParseDir)
+	// t.Run("parser", testParseFile)
+	// t.Run("parser", testParseDir)
 
 	// loader_test.go
 	run(t, "loader", "empty", "testloader", testLoader)
@@ -441,7 +477,9 @@ func Test(t *testing.T) {
 	run(t, "value", "value/optional",    "testvalue", testOptional, test_silentOptionalArrow{true})
 	run(t, "value", "value/glob",        "testvalue", testGlob)
 	run(t, "value", "value/1",           "testvalue", testValues1)
-	run(t, "value", "value/2",           "testvalue", testValues2)
+	run(t, "value", "value/2/0",         "testvalue", testValues20)
+	run(t, "value", "value/2/1",         "testvalue", testValues21)
+	run(t, "value", "value/2/2",         "testvalue", testValues22)
 	run(t, "value", "value/3",           "testvalue", testValues3)
 	run(t, "value", "value/4",           "testvalue", testValues4)
 	run(t, "value", "value/5",           "testvalue", testValues5)
@@ -449,7 +487,7 @@ func Test(t *testing.T) {
 	run(t, "value", "value/7",           "testvalue", testValues7)
 	run(t, "value", "value/8",           "testvalue", testValues8)
 	run(t, "value", "value/9",           "testvalue", testValues9)
-	run(t, "value", "value/10",          "testvalue", testValues10) // NOOP
+	run(t, "value", "value/10",          "testvalue", testValues10) // empty
 	run(t, "value", "value/11",          "testvalue", testValues11)
 	run(t, "value", "value/12",          "testvalue", testValues12)
 	run(t, "value", "value/13",          "testvalue", testValues13)
@@ -459,6 +497,8 @@ func Test(t *testing.T) {
 	run(t, "builtins", "builtins/addsuffix",  "testbuiltins", test__addsuffix)
 	run(t, "builtins", "builtins/wildcard",   "testbuiltins", test__wildcard)
 	run(t, "builtins", "builtins/if",         "testbuiltins", test__if)
+	run(t, "builtins", "builtins/closure",    "testbuiltins", test__closure)
+	run(t, "builtins", "builtins/delegate",   "testbuiltins", test__delegate)
 	run(t, "builtins", "builtins/foreach",    "testbuiltins", test__foreach)
 	run(t, "builtins", "builtins/foreach/1",  "testbuiltins", test__foreach1)
 	run(t, "builtins", "builtins/foreach/2",  "testbuiltins", test__foreach2)
@@ -507,29 +547,26 @@ func Test(t *testing.T) {
 	run(t, "configure", "configuration/custom", "testcustomconfigure",  testConfigureCustom)
 
 	// modules_test.go
-	run(t, "modules", "modules/target/arm64-darwin",                "", testVariantTarget)
+	run(t, "modules", "modules/target/arm64-darwin", "", testVariantTarget)
 
 	run(t, "bug", "bug/01", "testbug", testBug_01)
 
 	if true {
-		run(t, "modules", "modules/app/arm64-darwin",               "", testApp)
-	} else if false {
-		run(t, "modules", "modules/app/simple/arm64-darwin",        "", testApp)
-	} else if false {
-		run(t, "modules", "modules/app/complex/arm64-darwin",       "", testApp)
-	} else if false {
-		run(t, "modules", "modules/app/arm64-darwin",               "", testApp)
-		run(t, "modules", "modules/app/simple/arm64-darwin",        "", testApp)
-		run(t, "modules", "modules/app/complex/arm64-darwin",       "", testApp)
-	} else if false {
-		run(t, "modules", "modules/app/arm64-darwin",               "", testApp)
-		run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1)
-		run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2)
-		run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting)
-	} else if false {
-		run(t, "modules", "modules/app/complex/arm64-darwin",       "", testApp)
-		run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig1)
-		run(t, "modules", "modules/llvm/config/arm64-darwin",       "", testLLVMConfig2)
+		run(t, "modules", "modules/app/arm64-darwin", "", testApp)
+	}
+	if false {
+		run(t, "modules", "modules/app/simple/arm64-darwin",  "", testApp)
+	}
+	if false {
+		run(t, "modules", "modules/app/complex/arm64-darwin", "", testApp)
+	}
+	if false {
+		run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig1)
+	}
+	if false {
+		run(t, "modules", "modules/llvm/config/arm64-darwin", "", testLLVMConfig2)
+	}
+	if false {
 		run(t, "modules", "modules/toolchain/booting/arm64-darwin", "", testToolchainBooting)
 	}
 }

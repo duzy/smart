@@ -1,0 +1,13 @@
+# -*- mode: snippet -*-
+# name: switch try[string](ctx,source{}) { ... }
+# key: switchs
+# condition: t
+# --
+switch try[string](ctx,source{}) {
+case loader_src:
+	if s, t := ts(${1:val}), ${2:""}; s != t {
+		errostack(pc(pc(ctx,d),p), 5, "%s: %v: %s != %s", d.name, p, s, t).trace()
+	}$0
+default:
+	errostack(pc(pc(ctx,d),p), 5, "%v: %v | %s", p, $1, ts($1)).trace()
+}

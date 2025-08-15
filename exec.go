@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2024, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -271,13 +271,13 @@ type std_writer struct {
 func (w *std_writer) Write(p []byte) (n int, err error) {
     w.Lock(); defer w.Unlock()
     if w.suffixDots {
-      if !bytes.HasPrefix(p, udots) {
-        w.io.Write([]byte("\n"))
-      }
-      w.suffixDots = false
+        if !bytes.HasPrefix(p, udots) {
+            w.io.Write([]byte("\n"))
+        }
+        w.suffixDots = false
     }
     if n, err = w.io.Write(p); bytes.HasSuffix(p, udots) {
-      w.suffixDots = true
+        w.suffixDots = true
     }
     return
 }
@@ -361,7 +361,7 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
 
             var line = p.line.Bytes()
 
-            if checkpoints && truly(p, is_test_mode{}) {
+            if checkpoints {
                 p.check_line(string(line), p.lnum)
             }
 
@@ -404,11 +404,11 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
 func (p *exec_buffer) startDockerDaemon(pos Position, ctx Context, container *project, sock string) (err error) {
     var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
     if err = c.Run(); err != nil {
-      if p.report {
-        erro(ctx, "dokcer daemon not running (at %s)", sock).trace()
-      }
+        if p.report {
+            erro(ctx, "dokcer daemon not running (at %s)", sock).trace()
+        }
     } else {
-      // TODO: start docker daemon
+        // TODO: start docker daemon
     }
     return
 }
@@ -449,8 +449,8 @@ func (p *exec_result) hash(ctx Context) uint64 {
 func (p *exec_result) expand(_ Context) Value { return p }
 func (p *exec_result) cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*exec_result); ok {
-      assert(ok, "value is not exec_result")
-      if p.Status == a.Status { res = cmpEqual }
+        assert(ok, "value is not exec_result")
+        if p.Status == a.Status { res = cmpEqual }
     }
     return
 }
@@ -511,7 +511,7 @@ func (p *exec_ctx) cast(t reflect.Type) Context { return icast(p,t) }
 func (p *exec_ctx) ts(t string) (s string) {
     s = "{=" + t
     if p.sh != nil {
-      s += " " + filepath.Base(p.sh.Path)
+        s += " " + filepath.Base(p.sh.Path)
     }
     s += " " + ts(p.Context) + "}"
     return
@@ -526,40 +526,40 @@ func (p *exec_ctx) do(ctx Context, op any) any {
 
 func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
     if p.container == nil {
-      erro(p.Context, "no container").trace()
+        erro(p.Context, "no container").trace()
     } else if maxRetries < p.num {
-      fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
-      return
+        fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
+        return
     }
 
     var (
-      name = p.containerToRun
-      sh = p.sh
+        name = p.containerToRun
+        sh = p.sh
     )
 
     fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
     if entries := p.container._entries(p.Context, "run", false); entries != nil {
-      for _, run := range entries {
-        run.execute(p.Context, nil)
-      }
+        for _, run := range entries {
+            run.execute(p.Context, nil)
+        }
     } else {
-      erro(p.Context, "%s⇒run undefined", p.container).trace()
+        erro(p.Context, "%s⇒run undefined", p.container).trace()
     }
 
     fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
     if false {
-      fmt.Fprintf(sh.Stderr, "\n%s:\n    %v", sh.Path, strings.Join(sh.Args, "\n    "))
-      fmt.Fprintf(sh.Stderr, "\n\naka:\n    %s", sh)
-      fmt.Fprintf(sh.Stderr, "\n----\n")
+        fmt.Fprintf(sh.Stderr, "\n%s:\n    %v", sh.Path, strings.Join(sh.Args, "\n    "))
+        fmt.Fprintf(sh.Stderr, "\n\naka:\n    %s", sh)
+        fmt.Fprintf(sh.Stderr, "\n----\n")
     } else {
-      fmt.Fprintf(sh.Stderr, "\n")
+        fmt.Fprintf(sh.Stderr, "\n")
     }
 
     p.sh = exec.Command(sh.Path, sh.Args[1:]...) // must ignore Args[0]
     p.sh.Stdout, p.sh.Stderr, p.sh.Stdin = sh.Stdout, sh.Stderr, sh.Stdin
     p.sh.Dir, p.sh.Env = sh.Dir, sh.Env
     if err = p.run(exe); err != nil {
-      fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err)
+        fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err)
     }
     return
 }
@@ -567,58 +567,58 @@ func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
 // DEPRECATED
 func (p *exec_ctx) DEPRECATED_ensureContainerRunning(containerName string) (err error) {
     var (
-      stdoutR, stdoutW = io.Pipe()
-      stderrR, stderrW = io.Pipe()
-      enviro = os.Environ()
-      cmd = exec.Command(`docker`, `ps`,
-        `--filter`, `status=running`,
-        //`--filter`, fmt.Sprintf(`ancestor=%s`, image),
-        `--filter`, fmt.Sprintf(`name=%s`, containerName),
-        `--format`, `{{.ID}}\t{{.Image}}\t{{.Names}}`,
-      )
-      foundID, foundImage string
+        stdoutR, stdoutW = io.Pipe()
+        stderrR, stderrW = io.Pipe()
+        enviro = os.Environ()
+        cmd = exec.Command(`docker`, `ps`,
+            `--filter`, `status=running`,
+            //`--filter`, fmt.Sprintf(`ancestor=%s`, image),
+            `--filter`, fmt.Sprintf(`name=%s`, containerName),
+            `--format`, `{{.ID}}\t{{.Image}}\t{{.Names}}`,
+        )
+        foundID, foundImage string
     )
     cmd.Stdout, cmd.Stderr, cmd.Env = stdoutW, stderrW, enviro
     defer stdoutW.Close()
     defer stderrW.Close()
 
     go func(r io.Reader) {
-      var buf = bufio.NewReader(r)
-      for {
-        s, e := buf.ReadString('\n')
-        if e != nil {
-          break
+        var buf = bufio.NewReader(r)
+        for {
+            s, e := buf.ReadString('\n')
+            if e != nil {
+                break
+            }
+            if fields := strings.Split(s, "\t"); len(fields) == 3 {
+                if names := strings.Split(fields[2], ","); len(names) > 0 {
+                    foundID, foundImage = fields[0], fields[1]
+                    if foundImage == "" { /* FIXME: unused */ }
+                }
+            }
         }
-        if fields := strings.Split(s, "\t"); len(fields) == 3 {
-          if names := strings.Split(fields[2], ","); len(names) > 0 {
-            foundID, foundImage = fields[0], fields[1]
-            if foundImage == "" { /* FIXME: unused */ }
-          }
-        }
-      }
     } (stdoutR)
 
     go func(r io.Reader) {
-      var buf = bufio.NewReader(r)
-      for {
-        s, e := buf.ReadString('\n')
-        if e != nil {
-          break
+        var buf = bufio.NewReader(r)
+        for {
+            s, e := buf.ReadString('\n')
+            if e != nil {
+                break
+            }
+            prompt(p.Context, "%s", s)
         }
-        prompt(p.Context, "%s", s)
-      }
     } (stderrR)
 
     if err = cmd.Run(); err == nil && foundID == "" {
-      if entries := p.container._entries(p.Context, "run", false); entries != nil {
-        for _, run := range entries {
-          run.execute(p.Context, nil)
+        if entries := p.container._entries(p.Context, "run", false); entries != nil {
+            for _, run := range entries {
+                run.execute(p.Context, nil)
+            }
+        } else {
+            erro(p.Context, "%s⇒run undefined", p.container).trace()
         }
-      } else {
-        erro(p.Context, "%s⇒run undefined", p.container).trace()
-      }
     } else if err != nil {
-      erro(p.Context, "%v", err).trace()
+        erro(p.Context, "%v", err).trace()
     }
     return
 }
@@ -631,13 +631,13 @@ func (p *exec_ctx) skips(tag string) bool {
 
 func (p *exec_ctx) run(exe *execution) (err error) {
     if p.containerToRun != "" {
-      p.retried[p.containerToRun] = true // mark it to skip next time
-      err = p.runContainerAndRetry(exe)
-      p.containerToRun = ""
-      return
+        p.retried[p.containerToRun] = true // mark it to skip next time
+        err = p.runContainerAndRetry(exe)
+        p.containerToRun = ""
+        return
     }
 
-    if checkpoints && truly(p, is_test_mode{}) { defer p.run_check(exe) }
+    if checkpoints { defer p.run_check(exe) }
 
     exe.Add(1)
     p.num += 1
@@ -753,63 +753,63 @@ func (p *exec_ctx) check() (err error) {
 }
 
 func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
-      var a1 *strlit
-      var a2 *decimal
-      var ac *automatic
-      if ctx.forRecipe != nil {
-          a1, a2 = &strlit{}, &decimal{}
-          ac = &automatic{Context:ctx, defs:make(defmap)}
-          ac.args(ac.Context, []Value{a1, a2})
-      }
+    var a1 *strlit
+    var a2 *decimal
+    var ac *automatic
+    if ctx.forRecipe != nil {
+        a1, a2 = &strlit{}, &decimal{}
+        ac = &automatic{Context:ctx, defs:make(def_map)}
+        ac.args(ac.Context, []Value{a1, a2})
+    }
 
-      var pos Position
-      var source string
-      for i, recipe := range recipes {
-          if !pos.IsValid() { pos = recipe.Position() }
+    var pos Position
+    var source string
+    for i, recipe := range recipes {
+        if !pos.IsValid() { pos = recipe.Position() }
 
-          var cc Context = _final(pc(ctx, pos))
-          var s = recipe.string(cc)
+        var cc Context = _final(pc(ctx, pos))
+        var s = recipe.string(cc)
 
-          if checkpoints && truly(ctx, is_test_mode{}) {
-              ctx.sources_check(cc, i, recipe, s)
-          }
+        if checkpoints {
+            ctx.sources_check(cc, i, recipe, s)
+        }
 
-          if s = strings.TrimRightFunc(s, unicode.IsSpace); s == "" {
-              source += "\n" // an empty line
-              continue
-          } else {
-              // Escape '$$' sequences.
-              s = strings.Replace(s, "$$", "$", -1)
+        if s = strings.TrimRightFunc(s, unicode.IsSpace); s == "" {
+            source += "\n" // an empty line
+            continue
+        } else {
+            // Escape '$$' sequences.
+            s = strings.Replace(s, "$$", "$", -1)
 
-              // Duplicate all %
-              //s = strings.Replace(s, "%", "%%", -1)
+            // Duplicate all %
+            //s = strings.Replace(s, "%", "%%", -1)
 
-              source += s
-          }
+            source += s
+        }
 
-          if strings.HasSuffix(source, "\\") {
-              source += "\n" // append the line feed
-              if i < len(recipes) { continue }
-          }
+        if strings.HasSuffix(source, "\\") {
+            source += "\n" // append the line feed
+            if i < len(recipes) { continue }
+        }
 
-          // Remove tabs in line breakings.
-          source = strings.Replace(source, "\\\n\t", "\\\n", -1)
-          sources = append(sources, &raw{valbase{pos}, source})
+        // Remove tabs in line breakings.
+        source = strings.Replace(source, "\\\n\t", "\\\n", -1)
+        sources = append(sources, &raw{valbase{pos}, source})
 
-          if ctx.forRecipe != nil {
-              a1.position, a1.s     = pos, source
-              a2.position, a2.int64 = pos, int64(len(sources)+1)
-              ac.Context = ctx
-              ctx.forRecipe.expand(_final(ac))
-          }
+        if ctx.forRecipe != nil {
+            a1.position, a1.s     = pos, source
+            a2.position, a2.int64 = pos, int64(len(sources)+1)
+            ac.Context = ctx
+            ctx.forRecipe.expand(_final(ac))
+        }
 
-          pos, source = Position{}, ""
-      }
+        pos, source = Position{}, ""
+    }
 
-      if len(sources) == 0 && 0 < len(recipes) {
-          erro(ctx, "empty recipes: %v", recipes).trace()
-      }
-      return
+    if len(sources) == 0 && 0 < len(recipes) {
+        erro(ctx, "empty recipes: %v", recipes).trace()
+    }
+    return
 }
 
 func (ctx *exec_ctx) exec(cmd, opt string) {
@@ -861,7 +861,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     ctx.Stderr.forLine = ctx.forStderr
 
     if ctx.forStdout != nil || ctx.forStderr != nil {
-        ac := automatic{Context:ctx.Context, defs:make(defmap)}
+        ac := automatic{Context:ctx.Context, defs:make(def_map)}
         ac.args(ac.Context, []Value{&ctx.line, &ctx.lino})
         if x, y := ac.defs["1"]; y {
             ac.defs["_"] = x // alias
@@ -930,7 +930,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         if src.s != "" { ctx.sh.Args = append(ctx.sh.Args, src.s) }
 
         var e = ctx.run(exe)
-        if checkpoints && truly(ctx, is_test_mode{}) { ctx.exec_check(i, src, e) }
+        if checkpoints { ctx.exec_check(i, src, e) }
         if e != nil || ctx.Status != 0 { break }
     }
 }
@@ -1039,7 +1039,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             var ctx = closure_with(ctx, ec.container.scope)
             if obj := ec.container.resolve(ctx, name); obj != nil {
                 if d, _ := obj.(*def); d != nil {
-                    if v, _, _ := evoke(ctx, d, nil, nil); v != nil {
+                    if v := evoke(ctx, d, nil, nil); v != nil {
                         if str = v.string(ctx); str == "-" {
                             // if v, err = def.DiscloseValue(ec.container); err == nil && v != nil {
                             //   if str, err = v.string(ctx); str == "" { str = "-" }
@@ -1121,33 +1121,33 @@ func correctCommandFlags(ctx Context, source string, w bool) string {
 
 fieldsloop:
     for i := 1; i < len(fields); i += 1 {
-      var field = fields[i]
+        var field = fields[i]
 
-      for rx, rxs := range execExistFlagPath {
-        if rx.MatchString(fields[0]) {
-          for _, rx := range rxs {
-            var m = rx.FindStringSubmatch(field)
-            if len(m) == 0 { continue }
+        for rx, rxs := range execExistFlagPath {
+            if rx.MatchString(fields[0]) {
+                for _, rx := range rxs {
+                    var m = rx.FindStringSubmatch(field)
+                    if len(m) == 0 { continue }
 
-            var f bool
-            var s = m[2]
-            if s == "" {
-              if i += 1; i == len(fields) { break fieldsloop }
-              s, f = fields[i], true
+                    var f bool
+                    var s = m[2]
+                    if s == "" {
+                        if i += 1; i == len(fields) { break fieldsloop }
+                        s, f = fields[i], true
+                    }
+
+                    if _, e := os.Stat(s); e != nil {
+                        if w { warn(ctx, "ignoring nonexistent path: %v", s).debug() }
+                        continue fieldsloop // skip nonexistent path flags
+                    } else if f {
+                        flags = append(flags, field)
+                        field = s
+                    }
+                }
             }
-
-            if _, e := os.Stat(s); e != nil {
-              if w { warn(ctx, "ignoring nonexistent path: %v", s).debug() }
-              continue fieldsloop // skip nonexistent path flags
-            } else if f {
-              flags = append(flags, field)
-              field = s
-            }
-          }
         }
-      }
 
-      flags = append(flags, field)
+        flags = append(flags, field)
     }
     return strings.Join(flags, " ")
 }

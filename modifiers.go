@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -36,7 +36,6 @@ type general_opts struct {
     timing   bool `time,timing`
     verbose  bool `verb,verbose` // prompts more information
     warning  bool `warn,warning` // prompts more warnings
-    originalArgs bool `original`
 }
 
 type modifier_ struct { Context ; general_opts }
@@ -372,13 +371,13 @@ func (ctx *modifier_stringify) v(args ...Value) (result any) {
 
 type modifier_reveal struct { modifier_ }
 func (ctx *modifier_reveal) v(args ...Value) (result any) {
-    result = expand(original{ctx,nil,defExpand1}, args...)
+    result = expand(original{ctx,defExpand1}, args...)
     return
 }
 
 type modifier_disclose struct { modifier_ }
 func (ctx *modifier_disclose) v(args ...Value) (result any) {
-    result = expand(original{ctx,nil,defExpand2}, args...)
+    result = expand(original{ctx,defExpand2}, args...)
     return
 }
 
@@ -415,7 +414,7 @@ func (ctx *modifier_env) x(args ...Value) (result any) {
 
 type modifier_var struct { modifier_ }
 func (ctx *modifier_var) x(args ...Value) (_ any) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
+    if checkpoints {
         if args != nil {
             erro(ctx, "%v", args).trace()
         }
@@ -2317,7 +2316,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
         erro(ctx, "update-file: empty fullname: %v", ts(target.Value)).trace()
     }
 
-    if checkpoints && truly(ctx, is_test_mode{}) {
+    if checkpoints {
         defer func() {
             ctx.x_check(target.Value, filename, content, args, result)
         } ()

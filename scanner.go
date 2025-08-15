@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -961,39 +961,36 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 			tok, lit = SPACE, string(s.src[offs:s.offset])
 		}
 	case '~':
-		if s.ch == '>' { // ~>
+		if s.ch == '>' { s.next(ctx) // concume the '>' // ~>
 			tok = SELECT_PROG2
-			s.next(ctx) // concume the '>'
 		} else {
 			tok = TILDE
 		}
 	case '.':
-		if tok = DOT; s.ch == '.' {
+		if tok = DOT; s.ch == '.' { s.next(ctx) // consume the second '.'
 			tok = DOTDOT
-			s.next(ctx)
 		} else if IsDigit(s.ch) {
 			if n := s.offset-2; n > -1 && unicode.IsSpace(rune(s.src[n])) { // skip xxx.1
 				tok, lit = s.scanNumber(ctx, true)
 			}
 		}
 	case ':':
-		if s.ch == '=' {
+		if s.ch == '=' { s.next(ctx) // consume '='
 			tok = ASSIGN_CO1
-			s.next(ctx) // consume '='
-		} else if s.ch == ':' {
-			tok = DOLON
-			s.next(ctx) // consume the second ':'
-			if s.ch == '=' {
+		} else if s.ch == ':' { s.next(ctx) // consume the second ':'
+			if s.ch == '=' { s.next(ctx) // consume '='
 				tok = ASSIGN_CO2
-				s.next(ctx) // consume '='
+			} else {
+				tok = DOLON
 			}
 		} else {
 			tok = COLON
 		}
 	case '*':
-		if tok = STAR; s.ch == '*' {
+		if s.ch == '*' { s.next(ctx) // consume the second '*'
 			tok = DAST
-			s.next(ctx) // consume the second '*'
+		} else {
+			tok = STAR
 		}
 	case '%':
 		tok = PERC

@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -90,7 +90,7 @@ func (p *execution) cast(t reflect.Type) Context {
 }
 func (p *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
-    case ex_delegate, ex_closure: return true
+    case ex_closure: return true
     case get_position:
         if p.prerequisite != nil { return p.prerequisite.Position() }
         if len(p.recipes) > 0 { return p.recipes[0].Position() }
@@ -267,7 +267,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
 
     res = i.evaluate(ctx, args...)
 
-    if checkpoints && truly(ctx, is_test_mode{}) {
+    if checkpoints {
         p.evaluate_check(ctx, i, args, res)
     }
 
@@ -811,12 +811,12 @@ func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
 
 func (prog *program) execute(_ctx Context) (res Value) {
     var exe = &execution{
-        automatic:automatic{Context:_ctx, defs:make(defmap)},
+        automatic:automatic{Context:_ctx, defs:make(def_map)},
         recs:make(map[Value]int), start:time.Now(), prog:prog,
         proj:prog.project, recipes:prog.recipes, language:prog.language,
     }
 
-    if checkpoints && truly(exe, is_test_mode{}) {
+    if checkpoints {
         defer prog.execute_check(exe, &res)
     }
 
@@ -845,7 +845,7 @@ func (prog *program) execute(_ctx Context) (res Value) {
         exe.params[param.name] = param
     }
 
-    if checkpoints && truly(exe, is_test_mode{}) {
+    if checkpoints {
         prog.execute_check_0(exe)
     }
 
@@ -862,7 +862,7 @@ func (prog *program) execute(_ctx Context) (res Value) {
     exe.prerequisites(prog.depends, false)
     exe.prerequisites(prog.ordered, true)
 
-    if checkpoints && truly(exe, is_test_mode{}) {
+    if checkpoints {
         prog.execute_check_1(exe)
     }
 

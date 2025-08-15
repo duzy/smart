@@ -1,0 +1,17 @@
+# -*- mode: snippet -*-
+# name: switch s_line_column(val) { ... }
+# key: checkv
+# condition: t
+# --
+switch s_line_column(${1:val}) {
+case "${2:0:0}":
+	$3
+	switch try[string](ctx,source{}) {
+	case loader_src:
+		$4
+	default:
+		errostack(pc(ctx,val), 5, "%v: %v | %v: %s", val, ts(val)).trace()
+	}
+default:
+	errostack(pc(ctx,val), 5, "%v: %v | %v: %s", val, ts(val)).trace()
+}

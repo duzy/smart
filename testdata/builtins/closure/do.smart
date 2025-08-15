@@ -1,0 +1,7 @@
+project testbuiltins
+
+val0   = $(closure &(.test))
+val1  := $(closure &(.test))
+val2 ::= $(closure &(.test))
+
+.test := foo

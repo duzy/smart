@@ -1,0 +1,13 @@
+# -*- mode: snippet -*-
+# name: case "1:1": ...
+# key: checkvc
+# condition: t
+# --
+case "${1:0:0}":
+	$2
+	switch try[string](ctx,source{}) {
+	case loader_src:
+		$3
+	default:
+		errostack(pc(ctx,val), 5, "%v: %v | %v: %s", val, ts(val)).trace()
+	}

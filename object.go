@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -50,59 +50,49 @@ func (p *knownobject) String() string { return fmt.Sprintf("{=object %s}", p.nam
 func (p *knownobject) string(Context) string { return fmt.Sprintf("{=object %s}", p.name) }
 func (p *knownobject) true(Context) bool { return p.name != "" }
 func (p *knownobject) ident(Context) string { return p.name }
-// func (p *knownobject) cmp(ctx Context, v Value) (_ cmpres) {
-//     switch x := v.(type) {
-//     case *knownobject:
-//         if p.scope == x.scope && p.name == x.name {
-//             return cmpEqual
-//         }
-//     case *list:
-//         if x.len() == 1 {
-//             return p.cmp(ctx, x.elems[0])
-//         }
-//     }
-//     return
-// }
 
-type origin int
+type origin uint
 
 const (
-    defUndetermined origin = iota//0
-    defVoid //origin = 1<<(iota-1)
-    defConfig   // configure
-    defConfDir  // configuration defs
-    defConfRef  // referred by config
-    defDecl     // declaration names
-    defStatic   // auto-expand within a code block at parse time (aka def/end, for/end)
-    defExpand0  //   =  normal value
-    defExpand1  //  :=  expand delegates (simple expand)
-    defExpand2  // ::=  expand all (delegates, closures, paths)
-    defExpand3  // ;:=  TODO: expand as plain
-    defExecute  //  !=  value to be executed
-    defParam    // program parameter
+    defUndetermined origin = 0
+    defVoid origin = 1<<(iota-1)
+    defConfig  // configure
+    defDecl    // declaration names
+    defStatic  // auto-expand within a code block at parse time (aka def/end, for/end)
+    defExpand0 //   =  normal value
+    defExpand1 //  :=  expand delegates (simple expand)
+    defExpand2 // ::=  expand all (delegates, closures, paths)
+    defExpand3 // ;:=  TODO: expand as plain
+    defExecute //  !=  value to be executed
+    defAssign0 // ?=
+    defAssign1 // +=
+    defAssign2 // =+
+    defAssign3 // -=
+    defAssign4 // -+=
+    defAssign5 // -=+
+    defParam   // program parameter
 )
 
-func (o origin) String() string {
-    switch o {
-    case defVoid:    return "void"
-    case defConfDir: return "confdir"
-    case defConfRef: return "confref"
-    case defConfig:  return "config"
-    case defDecl:    return "decl"
-    case defExpand0: return "expand_0"
-    case defExpand1: return "expand_1"
-    case defExpand2: return "expand_2"
-    case defExpand3: return "expand_3"
-    case defExecute: return "execute"
-    case defParam:   return "param"
-    case defStatic:  return "static"
-    default: return fmt.Sprintf("origin<%d>", o)
-    }
+var origin_names = []string{
+    "void", "config", "conf_dir", "conf_ref", "decl", "static",
+    "expand_0", "expand_1", "expand_2", "expand_3", "execute",
+    "assign_0", "assign_1", "assign_2", "assign_3", "assign_4", "assign_5",
+    "param", "test_val", "test_str",
 }
 
-type defmap map[string]*def
-func (m defmap) len() int { return len(m) }
-func (m defmap) String() (s string) {
+func (o origin) String() (s string) {
+    for i := 0; i < len(origin_names); i += 1 {
+        if o&(1<<i) != 0 {
+            if s != "" { s += "|" }
+            s += origin_names[i]
+        }
+    }
+    return
+}
+
+type def_map map[string]*def
+func (m def_map) len() int { return len(m) }
+func (m def_map) String() (s string) {
     seen := make(map[string]struct{}) // NOTE: digits alias: 1 2 3...
     for _, d := range m {
         if _, y := seen[d.name]; y { continue }
@@ -116,18 +106,13 @@ func (m defmap) String() (s string) {
 
 func _automatic(c Context) *automatic { return cast[*automatic](c) }
 
-type ex_def    struct{ origin }
-type ex_def_0  struct{}
-type ex_def_1  struct{}
-type ex_def_2  struct{}
-type ex_def_3  struct{}
 type find_auto struct{ s string }
 type set_auto  struct{ o origin; s string; v Value }
 type res_auto  struct{ d *def; v Value }
 type automatic struct{
     Context
     sync.RWMutex
-    defs defmap
+    defs def_map
     params map[string]*auto
 }
 func (ac *automatic) cast(t reflect.Type) Context { return icast(ac, t) }
@@ -142,14 +127,9 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
     case init_args:
         if t.automatic == nil {
             panic("automatic.init_args")
-            // ac.Context.do(ctx, init_args{ac})
-            // return
         }
     case find_auto:
         if d, _ := ac.defs[t.s]; d != nil {
-            if checkpoints && truly(ctx, is_test_mode{}) {
-                ac.find_auto_check(ctx, d, t.s)
-            }
             return d
         }
     case set_auto:
@@ -168,10 +148,6 @@ func (ac *automatic) amend(ctx Context, name string, val Value) (out *def, res V
 }
 func (ac *automatic) has(s string) (y bool) { _, y = ac.defs[s]; return }
 func (ac *automatic) set(ctx Context, o origin, name string, val Value) (out *def, old Value) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer ac.set_check(ctx, o, name, val, &out, &old)
-    }
-
     if name == "-" && val != nil {
         if x, y := val.(*def); y && x.o != defConfig {
             errostack(ctx, 3, "set $- to def (%v): %v", x.o, x).debug(16)
@@ -259,9 +235,6 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
 func auto_find(ctx Context, name string) (d *def) {
     d, _ = do(ctx, find_auto{name}).(*def)
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        auto_find_check(ctx, name, d)
-    }
     return
 }
 
@@ -296,6 +269,9 @@ func (a *auto) String() string { return a.name }
 func (a *auto) string(ctx Context) (res string) {
     if d := a.def(ctx); d != nil && d.value != nil { res = d.value.string(ctx) }
     return
+}
+func (a *auto) ts(ctx Context, t string) string {
+    return "{" + lp(ctx, a.position, t) + " " + a.name + "}"
 }
 func (a *auto) sel(ctx Context, name string) (res any) {
     if name == "value" { res = auto_get(ctx, a.name) }
@@ -333,10 +309,11 @@ func (a *auto) evoke(ctx *evocation) (res Value) {
     return
 }
 func (a *auto) invoke(ctx Context, o, v []Value) (res Value) {
-    if d := auto_find(ctx, a.name); d != nil { res, _, _ = evoke(ctx, d, o, v) }
+    if d := auto_find(ctx, a.name); d != nil { res = evoke(ctx, d, o, v) }
     return
 }
 func (a *auto) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints { defer check_cmp(ctx, a, v, &res) }
     switch x := v.(type) {
     case *auto:
         if a == x || a.name == x.name { res = cmpEqual }
@@ -387,14 +364,13 @@ type def struct{
 func (d *def) kind() Kind { return d.knownobject.kind()|KindDef }
 func (d *def) hash(ctx Context) uint64 { return fnv1(ctx, d, d.value) }
 func (d *def) Position() (pos Position) {
-    if  pos = d.position ; !pos.valid() && d.value != nil {
-        pos = d.value.Position()
+    if d != nil {
+        pos = d.position
+        if !pos.valid() && d.value != nil {
+            pos = d.value.Position()
+        }
     }
     return
-}
-func (d *def) ts(t string) string {
-    return fmt.Sprintf("{=%s %s}", t, d.name)
-    return fmt.Sprintf("{=%s %s⇒%v}", t, d.name, ts(d.value))
 }
 func (d *def) streq() (s string) {
     switch d.o {
@@ -406,6 +382,9 @@ func (d *def) streq() (s string) {
     default:         s =   "⇒"
     }
     return
+}
+func (d *def) ts(ctx Context, t string) string {
+    return "{" + lp(ctx, d.position, t) + " " + d.name + "}"
 }
 func (d *def) String() (s string) {
     var value Value
@@ -440,7 +419,6 @@ func (d *def) true(ctx Context) (res bool) {
         val = d.value
         // d.Unlock()
     }
-
     if val != nil { res = val.true(ctx) }
     return
 }
@@ -468,35 +446,29 @@ func (d *def) defs(ctx Context, s ...string) (res []*def) {
 }
 func (d *def) expand(Context) Value { return d }
 func (d *def) evoke(ctx *evocation) (res Value) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer d.evoke_check(ctx, &res, time.Now())
-    }
-
     // d.Lock()
     o, v := d.o, d.value
     // d.Unlock()
 
-    if ctx.a != nil { // to save the changed args
-        ctx.a = expand(ctx.Context, ctx.a...)
-    }
+    if ctx.a != nil { ctx.a = expand(ctx.Context, ctx.a...) }
     if v == nil {
         return
     }
 
     dev := def_evoke{ctx}
     ctx.args(dev, ctx.a)
+
     if v = v.expand(dev); v == nil {
         return
     }
     if o == defExecute {
         v = d.xexe(dev, v)
     }
-    if false {
-        v = scalarize(v)
-    }
+    if false { v = scalarize(v) }
     return v
 }
 func (d *def) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints { defer check_cmp(ctx, d, v, &res) }
     switch x := v.(type) {
     case *def:
         if d == x { return cmpEqual }
@@ -532,58 +504,47 @@ func (d *def) cmp(ctx Context, v Value) (res cmpres) {
 func (d *def) origin(ctx Context, o origin) (res origin) {
     if d.o == o { return o }
 
-    if checkpoints /* && truly(ctx, is_test_mode{}) */ {
+    if checkpoints {
         if d.o != defUndetermined && (o == defVoid || o == defUndetermined) {
-            erro(ctx, "%v: %v → %v", d.name, d.o, o).trace()
+            erro(pc(ctx,d), "%v: %v → %v", d.name, d.o, o).trace()
         }
     }
 
     res, d.o = d.o, o
     return
 }
-func (d *def) val(ctx Context, value Value, vals ...Value) { d.set(ctx, d.o, value, vals...) }
-func (d *def) set(ctx Context, o origin, value Value, app ...Value) {
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer d.set_check(ctx, o, value, app)
-        if d.o == defConfig && d.value != nil {
-            errostack(pc(pc(ctx,value),d.value), 1, "duplicated %v %v → %v %v %v", d.o, d, o, value, app).trace()
-        }
+func (d *def) val(ctx Context, vals []Value) {
+    var val Value
+    if n := len(vals); n == 1 {
+        val = vals[0]
+    } else if 1 < n {
+        val = _list(vals...)
     }
-
-    if o == defUndetermined { o = defVoid }
+    d.set(ctx, val)
+}
+func (d *def) set(ctx Context, value Value, app ...Value) {
+    if checkpoints && d.o == defConfig && d.value != nil {
+        errostack(pc(pc(ctx,value),d.value), 1, "duplicated %v %v → %v %v", d.o, d, value, app).trace()
+    }
     if value == d.value && len(app) == 0 {
-        if d.o == defUndetermined || (d.o == defVoid && o != d.o) { d.origin(ctx, o) }
         return
     }
 
     var vals []Value
-    switch x := value.(type) {
-    case *null, *none, nil:
-    case *list: vals = append(x.elems, vals...)
-    default: vals = append([]Value{value}, vals...)
-    }
+    if value != nil { vals = merge(value) }
 
     var a bool
-    if a = len(app) > 0; a {
-        vals = append(vals, app...)
-    }
-    if o != defExpand0 && len(vals) > 0 {
-        vals = expand(original{ctx,d,o}, vals...)
-    }
-    if a {
+    if a = len(app) > 0; a { vals = append(vals, app...) }
+    if a && d.value != nil {
         // d.Lock()
         var v = d.value
         // d.Unlock()
-        switch x := v.(type) {
-        case *null, *none, nil:
-        case *list: vals = append(x.elems, vals...)
-        default: vals = append([]Value{v}, vals...)
-        }
+        vals = append(merge(v), vals...)
     }
 
     // d.Lock()
     if n := len(vals); 1 < n {
-        if o == defExpand0 {
+        if true || d.o == defExpand0 {
             d.value = _list(vals...)
         } else {
             l, t := new(list), Value(nil)
@@ -602,16 +563,17 @@ func (d *def) set(ctx Context, o origin, value Value, app ...Value) {
         }
     } else if 1 == n {
         d.value = vals[0]
-    } else if o == defExecute {
+    } else if d.o == defExecute {
         d.value = nil
-    } else {
+    } else if d.position.valid() {
         d.value = _null(d.position)
+    } else {
+        d.value = _null(_position(ctx))
     }
-    d.origin(ctx, o)
     // d.Unlock()
     return
 }
-func (d *def) append(ctx Context, a ...Value) { if len(a) > 0 { d.set(ctx, d.o, nil, a...) } }
+func (d *def) append(ctx Context, a ...Value) { if len(a) > 0 { d.set(ctx, nil, a...) } }
 func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
     if isTrivial(value) { return }
 
@@ -642,14 +604,8 @@ func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
     return
 }
 func (d *def) sel(ctx Context, name string) (res any) {
-    switch name {
-    case "name" : return d.name
-    case "value":
-        // d.Lock() ; defer d.Unlock()
-        return d.value
-    default:
-        if v := d.value; v != nil { ctx = pc(ctx, v) }
-        errostack(ctx, 3, "def: no such operator `%s'", name).trace()
+    if x, _ := d.value.(seler); x != nil {
+        return x.sel(ctx, name)
     }
     return
 }
@@ -715,7 +671,8 @@ func (p *undetermined) delete(ctx Context) (files []*file) { return }
 func (p *undetermined) patterned(ctx Context) bool { return false }
 func (p *undetermined) match(ctx Context, i any) (_ bool, _ any, _ []string) { return }
 func (p *undetermined) stencil(ctx Context, ss []string) (Value, []string) { return p, ss }
-func (p *undetermined) cmp(ctx Context, v Value) (_ cmpres) {
+func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints { defer check_cmp(ctx, p, v, &res) }
     switch x := v.(type) {
     case *undetermined:
         if p.identifier.cmp(ctx, x.identifier) == cmpEqual {
@@ -765,13 +722,6 @@ func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
     }
 }
 func (p *builtin) evoke(ctx *evocation) (res Value) {
-    if checkpoints && truly(ctx, is_test_mode{}) { defer p.evoke_check(ctx, &res) }
-    if false && p.name == "addprefix" && ctx.a != nil {
-        if a := ctx.a[0]; a.String() == "std={}" {
-            defer func() { note(pc(ctx,p), "%v", ctx.a).debug(2) } ()
-        }
-    }
-
     _v := reflect.New(p.t)
     _i := _v.Interface()
 
@@ -803,11 +753,9 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     }
     return
 }
-func (p *builtin) invoke(ctx Context, o, a []Value) (res Value) {
-    res, _, _ = evoke(ctx, p, o, a)
-    return
-}
+func (p *builtin) invoke(c Context, o, a []Value) Value { return evoke(c, p, o, a) }
 func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints { defer check_cmp(ctx, p, v, &res) }
     switch t := v.(type) {
     case *builtin:
         if p.t == t.t /* || p.name == a.name */ { res = cmpEqual }
@@ -934,11 +882,13 @@ func (p *rule) ident(ctx Context) (name string) {
 func (p *rule) true(ctx Context) bool { return p.target.true(ctx) }
 func (p *rule) float(Context) (_ float64) { return }
 func (p *rule) int(Context) (_ int64) { return }
-func (p *rule) ts(string) string { return "{=rule "+ts(p.target)+"}" }
 func (p *rule) string(ctx Context) string { return p.target.string(ctx) }
 func (p *rule) String() string {
     if p.target == nil { return "<nil entry>" }
     return p.target.String()
+}
+func (p *rule) ts(ctx Context, t string) string {
+    return "{=" + t + " " + ts(p.target,ctx) + "}"
 }
 func (p *rule) updated(ctx Context) (res bool) {
     if res = p.target.updated(ctx); res {
@@ -1054,6 +1004,7 @@ func (p *rule) hit(ctx Context, c *valcache) (*valcache, bool) {
 // FIXME: p.target maybe not the real target
 func (p *rule) stat(ctx Context) *statinfo { return p.target.stat(ctx) }
 func (p *rule) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints { defer check_cmp(ctx, p, v, &res) }
     if a, y := v.(*rule); y {
         if p.target.cmp(ctx, a.target) == cmpEqual {
             if p.owner() == a.owner() { res = cmpEqual }
@@ -1103,7 +1054,6 @@ type stemmed_rule struct{
 }
 func (p *stemmed_rule) kind() Kind { return p.rule.kind()|KindStemmedRule }
 func (p *stemmed_rule) destiny() Value { return p.target/* versus p.rule.target */ }
-func (p *stemmed_rule) ts(string) string { return "{=stemmed_rule "+ts(p.target)+"}" }
 func (p *stemmed_rule) String() (s string) {
     for i, stem := range p.stems { if i > 0 { s += "," }; s += stem }
     return fmt.Sprintf("%s:%s", p.target, s) // "<%s:%s>"
@@ -1116,7 +1066,8 @@ func (p *stemmed_rule) expand(ctx Context) (res Value) {
     }
     return
 }
-func (p *stemmed_rule) cmp(ctx Context, v Value) (_ cmpres) {
+func (p *stemmed_rule) cmp(ctx Context, v Value) (res cmpres) {
+    if checkpoints { defer check_cmp(ctx, p, v, &res) }
     if x, y := v.(*stemmed_rule); y {
         if len(p.stems) != len(p.stems) { return }
         for i, stem := range p.stems {

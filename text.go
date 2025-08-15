@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -210,7 +210,7 @@ func (p *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
         }
     }
 
-    if checkpoints && truly(ctx, is_test_mode{}) {
+    if checkpoints {
         p.evaluate_check(ctx, args, exe.recipes, res)
     }
     return res

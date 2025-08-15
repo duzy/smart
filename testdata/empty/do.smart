@@ -2,4 +2,4 @@ project testloader
 
 # eval print {=here} 'here…'
 
-d = {=here}
+d = {=here}xxx

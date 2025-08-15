@@ -1,6 +1,5 @@
 project testvalue
 
-#TEST: compound compares with flag
 .test.foo := -
 assert $(equal $(.test.foo)foobar,-foobar)
 assert $(equal -foobar,$(.test.foo)foobar)

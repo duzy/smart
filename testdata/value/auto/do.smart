@@ -3,26 +3,26 @@ project testvalue
 foo0  = $1 $2 $3 $4 $5 $6 $7 $8 $9
 foo1 := $1 $2 $3 $4 $5 $6 $7 $8 $9
 val0 := $(closure foobar) $(delegate foobar)
-val1 := $(auto $(a))
+val1 := $(auto              $(a))
 val2 := $(auto(a=2) $(val1),$(a))
 val3 := $(auto(a=3) $(val2))
-val4 := $(val3)
-val10 = $(auto $(a))
-val20 = $(auto(a=2) $(val10),$(a))
-val30 = $(auto(a=3) $(val20))
-val40 = $(val30)
+val4 :=             $(val3)
+val01 = $(auto               $(a))
+val02 = $(auto(a=2) $(val01),$(a))
+val03 = $(auto(a=3) $(val02))
+val04 =             $(val03)
 
 foreach {=defs {=regex ^val([1-9])$$}}
 bar$1 = $0
 done
 
-.test.x0  = $(auto(          a3=3) $(a1)-$(a2)-$(a3))
-.test.x1 := $(auto(          a3=3) $(a1)-$(a2)-$(a3))
+.test.x0  = $(auto(          a3=3)           $(a1)-$(a2)-$(a3))
+.test.x1 := $(auto(          a3=3)           $(a1)-$(a2)-$(a3))
 .test.y0  = $(auto(a1=x a2=y a3=z) $(.test.x0)-$(a1)$(a2)$(a3))
 .test.y1 := $(auto(a1=x a2=y a3=z) $(.test.x0)-$(a1)$(a2)$(a3))
 .test.z0  = $(auto                 $(.test.x0)-$(a1)$(a2)$(a3))
 .test.z1 := $(auto                 $(.test.x0)-$(a1)$(a2)$(a3))
 
+.test.0 :=                        $(.test.y0)
 .test.1 := $(auto(a1=a a2=b a3=c) $(.test.y0))
-.test.2 := $(auto(a1=x a2=y a3=z) $(.test.z0))
-.test.3 := $(.test.y0)
+.test.2 := $(auto(a1=a a2=b a3=c) $(.test.z0))

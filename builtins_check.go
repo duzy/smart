@@ -1,8 +1,10 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
+//go:build checkpoints
+
 package smart
 
 import (
@@ -66,8 +68,8 @@ func (ctx *__trimprefix) check(prefix, val, res Value) {
 				}
 
 				var cp = closure_projects(ctx)
-				var r1 = cp[0].def(ctx, "/").value
-				var r2 =  proj.def(ctx, "/").value
+				var r1 = cp[0].resolveDef(ctx, "/").value
+				var r2 =  proj.resolveDef(ctx, "/").value
 				if false { note(ctx, "%-22v: %-50v; %-20v, %v, %v", proj, a, res, r1, r2) }
 
 				if ts(a) != ts(r1) {
@@ -109,30 +111,180 @@ func (ctx *__trimprefix) check(prefix, val, res Value) {
     }
 }
 
-func (ctx *__auto) check_res(ar []Value) {
-    var a = ctx.evocation.a[0]
-    if a.String() == "$(a)" && auto_find(ctx, "a") == nil {
-        if x, y := a.(*list); !y || x.len() != 1 {
-            erro(ctx, "%v", ts(a)).trace()
-        } else if z, y := x.elems[0].(*delegate); !y {
-            erro(ctx, "%v", ts(x.elems[0])).trace()
-        } else if x, y := z.x.(*auto); !y {
-            erro(ctx, "%v", ts(z.x)).trace()
-        } else if x.name != "a" {
-            erro(ctx, "%v", ts(x)).trace()
-        }
-        if len(ar) == 1 {
-            if x, y := ar[0].(*list); y && x.len() == 0 {
-                erro(ctx, "%v → %v", ts(a), ts(x)).trace()
-            }
-        }
-    }
+func (ctx *__auto) check(res []Value) {
+	switch j := _project(ctx); j.spec {
+	case "testdata/value/auto":
+		ctx.check_value_auto(res)
+	default:
+		erro(ctx, "%v: %v", j.spec, res).trace()
+	}
+}
+func (ctx *__auto) check_value_auto(res []Value) {
+ 	switch d, o := try[*def](ctx, origin_def{}), try[origin](ctx, get_origin{}); s_line_column(ctx) {
+	case "6:11":
+		if s, t := ts(res), `[{=list {6:29:null}}]`; s != t {
+			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+		}
+	case "7:11":
+		if s, t := ts(res), `[{=list {7:21 {6:9 {6:29:null}}}} {=list {7:29 {7:18:decimal 2}}}]`; s != t {
+			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+		}
+	case "8:11":
+		if s, t := ts(res), `[{=list {=list {8:21 {7:9 {7:21 {6:9 {6:29:null}}}}} {8:21 {7:9 {7:29 {7:18:decimal 2}}}}}}]`; s != t {
+			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+		}
+	case "10:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:643":
+			if s, t := ts(res), `[{=list {10:30:null}}]`; s != t {
+				errostack(ctx, 5, "%v | %v: %s != %s", d, res, s, t).trace()
+			}
+		case "value_test.go:645":
+			if s, t := ts(res), `[{=list {10:30 {1:9:word x}}}]`; s != t {
+				errostack(ctx, 5, "%v | %v: %s != %s", d, res, s, t).trace()
+			}
+		case "value_test.go:668", "value_test.go:687", "value_test.go:706":
+			if s, t := ts(res), `[{=list {10:30 {11:18:decimal 2}}}]`; s != t {
+				errostack(ctx, 5, "%v | %v: %s != %s", d, res, s, t).trace()
+			}
+		default:
+			errostack(ctx, 10, "%v | %s", res, ts(res)).trace()
+		}
+	case "11:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:668", "value_test.go:687", "value_test.go:706":
+			if s, t := ts(res), `[{=list {11:21 {10:9 {10:30 {11:18:decimal 2}}}}} {=list {11:30 {11:18:decimal 2}}}]`; s != t {
+				errostack(ctx, 5, "%v | %v: %s != %s", d, res, s, t).trace()
+			}
+		default:
+			errostack(ctx, 5, "%v | %s", res, ts(res)).trace()
+		}
+	case "12:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:668", "value_test.go:687", "value_test.go:706":
+			if s, t := ts(res), `[{=list {=list {12:21 {11:9 {11:21 {10:9 {10:30 {11:18:decimal 2}}}}}} {12:21 {11:9 {11:30 {11:18:decimal 2}}}}}}]`; s != t {
+				errostack(ctx, 5, "%v | %v: %s != %s", d, res, s, t).trace()
+			}
+		default:
+			errostack(ctx, 5, "%v | %s", res, ts(res)).trace()
+		}
+	case "19:15":
+		switch s_line_column(d) {
+		case "19:11":
+			switch try[string](ctx,source{}) {
+			case "value_test.go:750":
+				if s, t := ts(res), `[{=list {=compound {19:46:null} {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					errostack(pc(ctx,d), 5, "%s: %v: %s != %s", d.name, res, s, t).trace()
+				}
+			case "value_test.go:752":
+				if s, t := ts(res), `[{=list {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					errostack(pc(ctx,d), 5, "%s: %v: %s != %s", d.name, res, s, t).trace()
+				}
+			default:
+				errostack(pc(ctx,d), 5, "%v: %s", res, ts(res)).trace()
+			}
+		case "21:11":
+			switch try[string](ctx,source{}) {
+			case "value_test.go:786", "value_test.go:788":
+				if s, t := ts(res), `[{=list {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					errostack(pc(ctx,d), 5, "%s: %v: %s != %s", d.name, res, s, t).trace()
+				}
+			default:
+				errostack(pc(ctx,d), 5, "%v: %s", res, ts(res)).trace()
+			}
+		case "22:10":
+			switch try[string](ctx,source{}) {
+			case "value_test.go:820", loader_src:
+				if s, t := ts(res), `[{=list {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					errostack(pc(ctx,d), 5, "%s: %v: %s != %s", d.name, res, s, t).trace()
+				}
+			default:
+				errostack(pc(ctx,d), 5, "%v: %s", res, ts(res)).trace()
+			}
+		case "23:11":
+			switch try[string](ctx,source{}) {
+			case "value_test.go:818":
+				if s, t := ts(res), `[{=list {=compound {19:46:null} {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					errostack(pc(ctx,d), 5, "%s: %v: %s != %s", d.name, res, s, t).trace()
+				}
+			case "value_test.go:820", "value_test.go:824":
+				if s, t := ts(res), `[{=list {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					errostack(pc(ctx,d), 5, "%s: %v: %s != %s", d.name, res, s, t).trace()
+				}
+			default:
+				errostack(pc(ctx,d), 5, "%v: %s", res, ts(res)).trace()
+			}
+		case "24:10":
+			if s, t := ts(res), `[{=list {=compound {19:46:null} {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+				errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+			}
+		case "26:9":
+			if s, t := ts(res), `[{=list {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+				errostack(ctx, 3, "%s: %v | %s != %s", s_line_column(d), res, s, t).trace()
+			}
+		case "27:9":
+			if s, t := ts(res), `[{=list {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+				errostack(ctx, 3, "%s: %v | %s != %s", s_line_column(d), res, s, t).trace()
+			}
+		case "28:9":
+			if s, t := ts(res), `[{=list {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+				errostack(ctx, 5, "%s: %v | %s != %s", s_line_column(d), res, s, t).trace()
+			}
+		default:
+			errostack(pc(ctx,d), 3, "%v | %s", res, ts(res)).trace()
+		}
+	case "20:15":
+		if s, t := ts(res), `[{=list {=compound {20:46:null} {=flag {=compound {20:52:null} {=flag {20:58 {20:33:decimal 3}}}}}}}]`; s != t {
+			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+		}
+	case "21:15":
+		if s, t := ts(res), `[{=list {=compound {21:36 {19:13 {19:46 {21:23:word x}}}} {21:36 {19:13 {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}]`; s != t {
+			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+		}
+	case "22:15":
+		if s, t := ts(res), `[{=list {=compound {22:36 {19:13 {19:46 {22:23:word x}}}} {22:36 {19:13 {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {22:48 {22:23:word x}} {22:53 {22:28:word y}} {22:58 {22:33:word z}}}}}}]`; s != t {
+			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+		}
+	case "23:15":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:818":
+			if s, t := ts(res), "[{=list {=compound {23:36 {19:13 {19:46:null}}} {23:36 {19:13 {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {23:48:null} {23:53:null} {23:58:null}}}}}]"; s != t {
+				errostack(ctx, 5, "%v: %s != %s", o, s, t).trace()
+			}
+		case "value_test.go:820", "value_test.go:824":
+			if s, t := ts(res), "[{=list {=compound {23:36 {19:13 {19:46 {1:9:word x}}}} {23:36 {19:13 {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {23:48 {1:9:word x}} {23:53 {1:9:word y}} {23:58:null}}}}}]"; s != t {
+				errostack(ctx, 5, "%v: %s != %s", o, s, t).trace()
+			}
+		case loader_src:
+			switch s_line_column(d) {
+			case "28:9":
+				if s, t := ts(res), `[{=list {=compound {23:36 {19:13 {19:46 {28:22:word a}}}} {23:36 {19:13 {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {23:48 {28:22:word a}} {23:53 {28:27:word b}} {23:58 {28:32:word c}}}}}}]`; s != t {
+					errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+				}
+			default:
+				errostack(ctx, 3, "%v | %v: %s", d, res, ts(res)).trace()
+			}
+		default:
+			errostack(ctx, 5, "%v: %v: %s", d, res, ts(res)).trace()
+		}
+	case "24:15":
+		if s, t := ts(res), `[{=list {=compound {24:36 {19:13 {19:46:null}}} {24:36 {19:13 {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {24:48:null} {24:53:null} {24:58:null}}}}}]`; s != t {
+			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+		}
+	case "27:14":
+		if s, t := ts(res), `[{=list {27:35 {21:13 {=compound {21:36 {19:13 {19:46 {21:23:word x}}}} {21:36 {19:13 {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}}}]`; s != t {
+			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+		}
+	case "28:14":
+		if s, t := ts(res), `[{=list {28:35 {23:13 {=compound {23:36 {19:13 {19:46 {28:22:word a}}}} {23:36 {19:13 {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {23:48 {28:22:word a}} {23:53 {28:27:word b}} {23:58 {28:32:word c}}}}}}}}]`; s != t {
+			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
+		}
+	default:
+		errostack(ctx, 3, "%v: %v | %s", o, res, ts(res)).trace()
+	}
 }
 
-func (ctx *__grep) check_res(rx *regexp.Regexp, text string, temp, val Value) {
-	if false {
-		note(ctx, "%40v → %s", temp.expand(_final(ctx)), val.string(ctx)).debug(2)
-	}
+func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 	if d, y := ctx.defs["0"]; !y {
 		erro(ctx, "%v %v %v %v", rx, text, temp, val).trace()
 	} else if t := d.string(ctx); t != text {
@@ -656,6 +808,50 @@ func (ctx *__foreach) check(_values, _vals *[]Value) {
 }
 
 func (ctx *__foreach) value_placeholder(values, vals []Value) {
+	switch o := try[origin](ctx, get_origin{}); s_line_column(ctx) {
+	case "4:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:1911":
+			if s, t := ts(vals), `[{4:31 {4:19:word a}} {4:31 {4:21:word b}} {4:31 {4:23:word c}} {4:31 {4:25:word d}} {4:31 {4:27:word e}} {4:31 {4:29:word f}}]`; s != t {
+				errostack(ctx, 5, "%v | %s != %s", values, s, t).trace()
+			}
+		default:
+			errostack(ctx, 5, "%v: %v | %v: %s", o, values, vals, ts(vals)).trace()
+		}
+	case "5:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:1917":
+			if s, t := ts(vals), `[]`; s != t {
+				errostack(ctx, 5, "%v: %v | %s != %s", o, values, s, t).trace()
+			}
+		case "value_test.go:1903":
+			if s, t := ts(vals), `[{5:46 {5:19 {1:9:word 1}}} {5:46 {5:22 {1:9:word 2}}} {5:46 {5:25 {1:9:word 3}}} {5:46 {5:28 {1:9:word 4}}} {5:46 {5:31 {1:9:word 5}}} {5:46 {5:34 {1:9:word 6}}} {5:46 {5:37 {1:9:word 7}}} {5:46 {5:40 {1:9:word 8}}} {5:46 {5:43 {1:9:word 9}}}]`; s != t {
+				errostack(ctx, 5, "%v: %v | %s != %s", o, values, s, t).trace()
+			}
+		default:
+			errostack(ctx, 5, "%v: %v | %v: %s", o, values, vals, ts(vals)).trace()
+		}
+	case "6:11":
+		switch try[string](ctx,source{}) {
+		case loader_src:
+			if s, t := ts(vals), `[{6:31 {6:19:word a}} {6:31 {6:21:word b}} {6:31 {6:23:word c}} {6:31 {6:25:word d}} {6:31 {6:27:word e}} {6:31 {6:29:word f}}]`; s != t {
+				errostack(ctx, 5, "%v: %v | %s != %s", o, values, s, t).trace()
+			}
+		default:
+			errostack(ctx, 5, "%v: %v | %v: %s", o, values, vals, ts(vals)).trace()
+		}
+	case "7:11":
+		switch try[string](ctx,source{}) {
+		case loader_src:
+			if s, t := ts(vals), `[]`; s != t {
+				errostack(ctx, 5, "%v: %v | %s != %s", o, values, s, t).trace()
+			}
+		default:
+			errostack(ctx, 5, "%v: %v | %v: %s", o, values, vals, ts(vals)).trace()
+		}
+	default:
+		errostack(pc(ctx,values[0]), 5, "%v: %v | %v: %s", o, values, vals, ts(vals)).trace()
+	}
 }
 
 func (ctx *__foreach) value_optional(values, vals []Value) {
@@ -765,7 +961,7 @@ func (ctx *__foreach) check__foreach(values, vals []Value) {
 				t += v3.String()
 			}
 
-			if d := j.def(ctx, t); d == nil {
+			if d := j.resolveDef(ctx, t); d == nil {
 				erro(ctx, "%v", t).trace()
 			} else if truly(ctx, ex_closure{}) {
 				s += ""
@@ -785,7 +981,7 @@ func (ctx *__foreach) check__foreach(values, vals []Value) {
 			if i > 0 { s += " " }
 
 			t := ".test."+v.String()
-			if d := j.def(ctx, t); d == nil {
+			if d := j.resolveDef(ctx, t); d == nil {
 				erro(ctx, "%v", t).trace()
 			} else if truly(ctx, ex_closure{}) {
 				s += ""

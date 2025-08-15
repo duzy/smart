@@ -1,8 +1,8 @@
 project testvalue
 
-val1 = foo={&(.test.a)}
-val2 = {&(.test.a)}=bar
-val3 = foo=bar{&(.test.a)}
-val4 = foo{&(.test.a)}=bar
+val1 = foo={&(.test)}
+val2 = {&(.test)}=bar
+val3 = foo=bar{&(.test)}
+val4 = foo{&(.test)}=bar
 
-.test.a := a b c
+.test := a b c

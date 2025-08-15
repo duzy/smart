@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -45,7 +45,7 @@ func (p *use) stat(ctx Context) (_ *statinfo) {
     return
 }
 func (p *use) traverse(ctx Context) {
-    erro(ctx, "cant traverse 'use' %v", p.project).trace()
+    erro(ctx, "cannot traverse 'use' %v", p.project).trace()
     return
 }
 func (p *use) stamp(ctx Context) (_ []*file) {
@@ -204,7 +204,7 @@ func (p *uselist) expand(ctx Context) (res Value) {
     return
 }
 func (p *uselist) traverse(ctx Context) {
-    erro(ctx, "cant traverse 'uselist'").trace()
+    erro(ctx, "cannot traverse 'uselist'").trace()
     return
 }
 func (p *uselist) append(ctx Context, proj *project, params []Value, opts useopts) {

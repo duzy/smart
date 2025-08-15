@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2024, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -15,6 +15,7 @@ import (
     "reflect"
     "strings"
     "strconv"
+	"unicode/utf8"
     "unicode"
     "unsafe"
     "regexp"
@@ -250,8 +251,6 @@ var builtins = map[string]reflect.Type {
     `read-file`:    reflect.TypeOf((*__readfile)(nil)).Elem(), // io/ioutil/ioutil.go
 
     `grep`:         reflect.TypeOf((*__grep)(nil)).Elem(),
-
-    `untraversed`:  reflect.TypeOf((*__untraversed)(nil)).Elem(),
 
     // commands ------------------------------------------------------------------
     `print`:        reflect.TypeOf((*__print)(nil)).Elem(),
@@ -532,10 +531,6 @@ func (ctx *__typeof) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__typeof) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var vals []Value
     for _, a := range ctx.a {
         // Arguments are passed in a list:
@@ -554,10 +549,6 @@ func (ctx *__origin) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__origin) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var vals []Value
     var scope = _scope(ctx)
     for _, a := range ctx.a {
@@ -579,10 +570,6 @@ func (ctx *__defined) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__defined) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var scope = _scope(ctx)
     for _, arg := range ctx.a {
         if d := scope.finddef(arg.string(ctx)); d != nil && !isTrivial(d.value) {
@@ -606,10 +593,6 @@ func (ctx *__position) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__position) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var vals []Value
     var pos = _position(ctx)
     if ctx.filename {
@@ -636,10 +619,6 @@ func (ctx *__date) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__date) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     if t := time.Now(); len(ctx.a) > 0 {
         var vals []Value
         for _, a := range ctx.a {
@@ -670,10 +649,6 @@ func (ctx *__debug) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__debug) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var s bytes.Buffer
     for i, a := range ctx.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
@@ -694,10 +669,6 @@ func (ctx *__error) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__error) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var s bytes.Buffer
     for i, a := range ctx.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
@@ -715,10 +686,6 @@ func (ctx *__warning) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__warning) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var s bytes.Buffer
     for i, a := range ctx.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
@@ -740,9 +707,6 @@ func (ctx *__assert) x() (res any) {
     var t = diagError ; if ctx.warning { t = diagWarn }
     var hook = _universe(ctx).hooks.assert
 
-    if false && !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if ctx.a == nil && hook != nil && !hook(ctx, nil, false) {
         prompt(ctx, "assert: %v\n", ctx.a)
         diagstack(ctx, s, t).debug(d)
@@ -754,21 +718,13 @@ func (ctx *__assert) x() (res any) {
             continue
         }
 
-        var ctx = pc(ctx, a)
-        var yes = a.true(ctx)
-        if hook != nil && hook(ctx, a, yes) || yes {
+        var c = pc(ctx, a)
+        var y = a.true(c)
+        if hook != nil && hook(c, a, y) || y {
             continue
         }
 
-        if false {
-            var v = a.expand(_final(ctx))
-            prompt(ctx, "assert: %v ⇒ %v: %v\n", ts(a), ts(v))
-            diagstack(ctx, s, t, "%v → %v ⇒ '%s'", ts(a), ts(v), v.string(ctx)).debug(d)
-        } else if true {
-            diagstack(ctx, s, t, "%v ⇒ '%s'", ts(a), a.string(ctx)).debug(d)
-        } else {
-            diagstack(ctx, s, t, "%v", ts(a)).debug(d)
-        }
+        diagstack(c, s, t, "%v ⇒ '%s'", ts(a), a.string(c)).debug(d)
     }
 
     if ctx.fail { panic(_failure(ctx)) }
@@ -782,9 +738,6 @@ func (ctx *__sure) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__sure) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     for _, a := range ctx.a {
         if !a.true(ctx) {
             erro(ctx, "assert: %v", ts(a)).trace()
@@ -801,9 +754,6 @@ func (ctx *__defor) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__defor) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     for _, a := range merge(ctx.a...) {
         erro(ctx, "TODO: %v", ts(a)).trace()
 
@@ -825,9 +775,6 @@ func (ctx *__or) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__or) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     for _, a := range merge(ctx.a...) {
         if a.true(ctx) { return a }
     }
@@ -841,9 +788,6 @@ func (ctx *__and) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__and) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     for _, a := range merge(ctx.a...) {
         if a.true(ctx) { res = a } else { return nil }
     }
@@ -859,9 +803,6 @@ func (ctx *__not) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__not) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var t bool
     for _, a := range ctx.a { if t = a.true(ctx); t { break } }
     return !t
@@ -874,9 +815,6 @@ func (ctx *__xor) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__xor) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if vals := merge(ctx.a...); len(vals) > 1 {
         var t = vals[0].true(ctx)
         for _, a := range vals[1:] {
@@ -895,9 +833,6 @@ func (ctx *__unequal) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__unequal) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if len(ctx.a) != 2 {
         erro(ctx, "unequal: wrong number of arguments: %v", ctx.a)
         erro(ctx, "try: $(unequal <value-list>,<value-list>)").trace()
@@ -936,17 +871,14 @@ func (ctx *__equal) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__equal) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if len(ctx.a) != 2 {
         erro(ctx, "wrong number of arguments: %v", ctx.a)
         note(ctx, "try: $(equal <value-list>,<value-list>)").trace()
     }
 
-    a, b := ctx.a[0], ctx.a[1]
+    ctx.a = expand(ctx, ctx.a...)
 
-    if ctx.str {
+    if a, b := ctx.a[0], ctx.a[1]; ctx.str {
         if a.string(ctx) == b.string(ctx) { return true }
     } else {
         if a.cmp(ctx, b) == cmpEqual { return true }
@@ -961,17 +893,14 @@ func (ctx *__greater) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__greater) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if len(ctx.a) != 2 {
         erro(ctx, "wrong number of arguments: %v", ctx.a)
         note(ctx, "try: $(greater <value-list>,<value-list>)").trace()
     }
 
-    a, b := ctx.a[0], ctx.a[1]
+    ctx.a = expand(ctx, ctx.a...)
 
-    if ctx.str {
+    if a, b := ctx.a[0], ctx.a[1]; ctx.str {
         if a.string(ctx) > b.string(ctx) { return true }
     } else {
         if a.cmp(ctx, b) == cmpGreater { return true }
@@ -986,17 +915,14 @@ func (ctx *__less) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__less) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if len(ctx.a) != 2 {
         erro(ctx, "wrong number of arguments: %v", ctx.a)
         note(ctx, "try: $(greater <value-list>,<value-list>)").trace()
     }
 
-    a, b := ctx.a[0], ctx.a[1]
+    ctx.a = expand(ctx, ctx.a...)
 
-    if ctx.str {
+    if a, b := ctx.a[0], ctx.a[1]; ctx.str {
         if a.string(ctx) < b.string(ctx) { return true }
     } else {
         if a.cmp(ctx, b) == cmpSmaller { return true }
@@ -1017,9 +943,6 @@ func (ctx *__match) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__match) x() (result any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if n := len(ctx.a); n < 2 {
         erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list-1>,...)").trace()
     }
@@ -1134,10 +1057,6 @@ func (ctx *__case) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__case) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var val Value
     var args = merge(ctx.a...)
     if len(args) == 0 {
@@ -1320,9 +1239,7 @@ func (ctx *__foreach) x() (res any) {
     var vals []Value
     var args = merge(ctx.a[0])
     if len(args) == 0 { return }
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer ctx.check(&args, &vals)
-    }
+    if false && checkpoints { defer ctx.check(&args, &vals) }
 
     var um map[uint64]Value
     if ctx.unique { um = make(map[uint64]Value) }
@@ -1363,10 +1280,6 @@ func (ctx *__count) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__count) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var num int64
     var vals = valvec(ctx.vals)
     for _, a := range ctx.a {
@@ -1382,10 +1295,6 @@ func (ctx *__env) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__env) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var vals []Value
     for _, a := range ctx.a {
         if val := a.expand(ctx); isTrivial(val) {
@@ -1404,30 +1313,26 @@ func (ctx *__auto) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__auto) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.o = expand(ctx, ctx.o...)
-    }
     if 0 < len(ctx.a) {
         for _, a := range merge(ctx.o...) {
             switch t := a.(type) {
             case *pair:
                 if k := t.key.string(ctx); k == "" {
-                    erro(pc(ctx,a), "empty name: %s : %s", t.key, ts(t.key)).trace()
+                    erro(pc(ctx,a), "empty name: %v : %s", t.key, ts(t.key)).trace()
                 } else {
-                    ctx.set(ctx, defVoid, k, t.val) // NOTE: don't use defStatic (it's codeblock auto)
+                    ctx.set(ctx, defVoid, k, t.val)
                 }
             default:
                 erro(pc(ctx,a), "wrong auto def: %s : %s", a, ts(a)).trace()
             }
         }
 
-        var vals = expand(ctx, ctx.a...)
-        if !ctx.originalArgs { ctx.a = vals }
-        if checkpoints && truly(ctx, is_test_mode{}) { ctx.check_res(vals) }
+        vals := expand(ctx, ctx.a...)
+        if false && checkpoints { ctx.check(vals) }
+        ctx.a = vals
         return vals
-    } else {
-        return
     }
+    return
 }
 
 type __var struct { builtinbase }
@@ -1437,9 +1342,6 @@ func (ctx *__var) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__var) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     return
 }
 
@@ -1450,20 +1352,10 @@ func (ctx *__closure) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__closure) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var vals []Value
+    var pos = _position(ctx)
     for _, a := range merge(ctx.a[0]) {
-        if s := a.string(ctx); s != "" {
-            if x := closure_resolve(ctx, s); x != nil {
-                v := makeClosure(a.Position(), LPAREN, x, nil, ctx.a[1:]...)
-                vals = append(vals, v)
-                continue
-            }
-        }
-        v := makeClosure(a.Position(), LPAREN, a, nil, ctx.a[1:]...)
-        vals = append(vals, v)
+        vals = append(vals, makeClosure(pos, LPAREN, a, nil, ctx.a[1:]...))
     }
     return vals
 }
@@ -1475,21 +1367,10 @@ func (ctx *__delegate) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__delegate) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var vals []Value
-    var p = _project(ctx)
+    var pos = _position(ctx)
     for _, a := range merge(ctx.a[0]) {
-        if s := a.string(ctx); s != "" {
-            if x := p.resolve(ctx, s); x != nil {
-                v := makeDelegate(a.Position(), LPAREN, x, nil, ctx.a[1:]...)
-                vals = append(vals, v)
-                continue
-            }
-        }
-        v := makeDelegate(a.Position(), LPAREN, unresolved{a}, nil, ctx.a[1:]...)
-        vals = append(vals, v)
+        vals = append(vals, makeDelegate(pos, LPAREN, a, nil, ctx.a[1:]...))
     }
     return vals
 }
@@ -1500,10 +1381,7 @@ func (ctx *__call) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__call) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
+func (ctx *__call) _x() (res any) {
     var vals []Value
     for _, a := range merge(ctx.a[0]) {
         var x Value
@@ -1517,12 +1395,18 @@ func (ctx *__call) x() (res any) {
         }
         if x == nil { x = auto_get(ctx, s) }
         if x != nil {
-            if v, _, _ := evoke(ctx, x, nil, ctx.a[1:]); v != nil {
+            if v := evoke(ctx, x, nil, ctx.a[1:]); v != nil {
                 vals = append(vals, v)
             }
         }
     }
     return vals
+}
+func (ctx *__call) x() (_ any) {
+    var s = ctx.a[0].String()
+    for _, v := range ctx.a[1:] { s += " " + v.String() }
+    erro(ctx, "deprecated $(call %s), use $(%s)", s, s).trace()
+    return
 }
 
 type __value struct { builtinbase ; closure bool `closure` }
@@ -1532,9 +1416,6 @@ func (ctx *__value) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__value) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var vals []Value
     var p = _project(ctx)
     for _, a := range merge(ctx.a...) {
@@ -1567,10 +1448,6 @@ func (ctx *__defs) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__defs) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var names []bare
     var pats []Value
     for _, val := range merge(ctx.a...) {
@@ -1607,9 +1484,6 @@ func (ctx *__list) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__list) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     return ctx.a
 }
 
@@ -1622,10 +1496,6 @@ func (ctx *__plain) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__plain) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var scope = _scope(ctx)
     for _, a := range ctx.a {
         var ( o object ; s = a.string(ctx) )
@@ -1648,10 +1518,6 @@ func (ctx *__shell) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__shell) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var err error
     var vals []Value
     var pos = _position(ctx)
@@ -1682,10 +1548,6 @@ func (ctx *__which) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__which) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var vals []Value
     for _, a := range ctx.a {
         if s, err := exec.LookPath(a.string(ctx)); err != nil {
@@ -1708,10 +1570,6 @@ func (ctx *__servehttp) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__servehttp) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     if ctx.port == 0 { ctx.port = 80 }
     if ctx.ssl {
         erro(ctx, "'serve-http(-ssl)' is unimplemented yet").trace()
@@ -1764,9 +1622,6 @@ func (ctx *__append) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__append) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if len(ctx.a) < 2 {
         erro(ctx, "insufficient number of arguments: %v", ctx.a).trace()
     }
@@ -1815,10 +1670,6 @@ func (ctx *__plus) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__plus) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     if ctx.int {
         var num int64
         for n, a := range ctx.a {
@@ -1845,10 +1696,6 @@ func (ctx *__minus) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__minus) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     if ctx.int {
         var num int64
         for n, a := range ctx.a {
@@ -1875,10 +1722,6 @@ func (ctx *__multiply) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__multiply) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     if ctx.int {
         var num int64
         for n, a := range ctx.a {
@@ -1905,10 +1748,6 @@ func (ctx *__divide) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__divide) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     if ctx.int {
         var num int64
         for n, a := range ctx.a {
@@ -1937,10 +1776,6 @@ func (ctx *__unique) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__unique) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var args = ctx.a
     var t1, t2 time.Time
 
@@ -2009,9 +1844,6 @@ func (ctx *__join) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__join) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if l := len(ctx.a); 0 < l {
         var t = &compound{}
         if l < 2 {
@@ -2038,9 +1870,6 @@ func (ctx *__compose) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__compose) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if l := len(ctx.a); 0 < l {
         var con conjunction
         if l < 2 {
@@ -2061,10 +1890,7 @@ func (ctx *__quote) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__quote) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-    return &quoted{list{elements{ctx.a}}}
+    return &quote{list{elements{ctx.a}}}
 }
 
 type __quotejoin struct { builtinbase }
@@ -2074,10 +1900,6 @@ func (ctx *__quotejoin) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__quotejoin) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var sep string
     var args = merge(ctx.a...)
     if l := len(args); l > 1 {
@@ -2106,9 +1928,6 @@ func (ctx *__splitstring) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__splitstring) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if 0 < len(ctx.a) {
         var fields []Value
         var sep = ctx.sep
@@ -2220,9 +2039,6 @@ func (ctx *__field) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__field) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if l := len(ctx.a); l >= 2 {
         var fields []string
         var s string = ctx.a[1].string(ctx)
@@ -2247,9 +2063,6 @@ func (ctx *__fields) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__fields) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     // TODO: ...
     return
 }
@@ -2309,9 +2122,6 @@ func (ctx *__path) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__path) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var res []Value
     for _, a := range ctx.a {
         if x, y := a.(*path); y {
@@ -2332,10 +2142,6 @@ func (ctx *__bare) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__bare) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var vals []Value
     for _, a := range ctx.a {
         switch p := a.Position(); t := a.(type) {
@@ -2362,9 +2168,6 @@ func (ctx *__word) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__word) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var vals []Value
     for _, a := range ctx.a {
         if _, y := a.(*word); !y {
@@ -2385,9 +2188,6 @@ func (ctx *__resolve) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__resolve) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if 0 < len(ctx.a) {
         var resolve func(Context, string) object
         if ctx.closure {
@@ -2427,9 +2227,6 @@ func (ctx *__string) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__string) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if 0 < len(ctx.a)+len(ctx.closure)+len(ctx.def) {
         var vals []Value
         for _, name := range ctx.closure {
@@ -2540,9 +2337,6 @@ func (ctx *__filter) _x(pats []Value, values... Value) (result []Value) {
     return
 }
 func (ctx *__filter) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if len(ctx.a) > 1 {
         var i int
         var vals []Value
@@ -2584,9 +2378,6 @@ func (ctx *__substring) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__substring) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var res []Value
     if n := len(ctx.a); n > 1 {
         var v1, v2 = ctx.a[0], ctx.a[1]
@@ -2616,9 +2407,6 @@ func (ctx *__subst) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__subst) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var res []Value
     if len(ctx.a) > 2 {
         var s1 = ctx.a[0].string(ctx)
@@ -2649,9 +2437,6 @@ func (ctx *__patsubst) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__patsubst) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if len(ctx.a) < 3 {
         erro(ctx, "not enough arguments").trace()
     }
@@ -2820,9 +2605,6 @@ func (ctx *__title) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__title) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var res []Value
     for _, a := range ctx.a {
         switch t := a.(type) {
@@ -2842,9 +2624,6 @@ func (ctx *__uppercase) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__uppercase) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var res []Value
     for _, a := range ctx.a {
         switch t := a.(type) {
@@ -2865,9 +2644,6 @@ func (ctx *__lowercase) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__lowercase) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var res []Value
     for _, a := range ctx.a {
         switch t := a.(type) {
@@ -2914,10 +2690,6 @@ func (ctx *__trim) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__trim) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var res []Value
     var cutset string
     var f func(string) string
@@ -2979,10 +2751,6 @@ func (ctx *__trimright) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__trimright) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var res []Value
     var cutset string
     var f func(string) string
@@ -3013,14 +2781,11 @@ func (ctx *__trimprefix) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__trimprefix) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     return ctx.trim(func(val, prefix Value, _s string) (res Value, s string) {
         var t string
         if prefix.patterned(ctx) {
             var f, r, m = prefix.match(ctx, val)
-            if checkpoints && truly(ctx, is_test_mode{}) { ctx.check_match(val, prefix, f, r, m) }
+            if checkpoints { ctx.check_match(val, prefix, f, r, m) }
             if f { return } // trim all for prefix
             t = _joinpath(ctx, r)
         } else {
@@ -3042,7 +2807,7 @@ func (ctx *__trimprefix) x() (_ any) {
         default: res = _strlit(val.Position(), _s)
         }
 
-        if checkpoints && truly(ctx, is_test_mode{}) { ctx.check(prefix, val, res) }
+        if checkpoints { ctx.check(prefix, val, res) }
         return
     })
 }
@@ -3054,9 +2819,6 @@ func (ctx *__trimsuffix) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__trimsuffix) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     return ctx.trim(func(val, suffix Value, _s string) (res Value, s string) {
         var t string
         if suffix.patterned(ctx) {
@@ -3108,10 +2870,6 @@ func (ctx *__trimext) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__trimext) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var ext string
     var res []Value
     for i, a := range ctx.a {
@@ -3139,10 +2897,6 @@ func (ctx *__gitdir) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__gitdir) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var vals []Value
     for _, a := range merge(ctx.a...) {
         var s = a.string(ctx)
@@ -3172,30 +2926,18 @@ func (ctx *__gitdir) x() (_ any) {
 }
 
 type __add___fix struct { builtinbase; dis Value }
-func (ctx *__add___fix) do(c Context, op any) (_ any) {
-    switch t := op.(type) {
-    case dis: ctx.dis = t.Value
-    }
-    return ctx.builtinbase.do(c, op)
-}
-func (ctx *__add___fix) x(f func(_, _ Value) Value) (_ any) {
+func (ctx *__add___fix) x(f func(_ Context, _, _ Value) Value) (_ any) {
     if len(ctx.a) < 1 {
         erro(ctx, "not enough args, try $(addprefix prefix, ...)").trace()
     }
-    if !ctx.originalArgs {
-        ctx.a[0] = ctx.a[0].expand(ctx)
-    }
 
     var res []Value
-    for _, fix := range merge(ctx.a[0]) {
-        fix = redis(fix)
-        for i, val := range ctx.a[1:] {
-            var _v = val.expand(ctx)
-            if !ctx.originalArgs { ctx.a[1+i] = _v }
-            if fix != nil && _v != nil {
-                for _, v := range merge(_v) {
-                    res = append(res, f(fix, redis(v)))
-                }
+
+    for _, fix := range xmerge(ctx,ctx.a[0]) {
+        if !isTrivial(fix) {
+            fix = redis(fix)
+            for _, v := range xmerge(ctx,ctx.a[1:]...) {
+                if !isTrivial(v) { res = append(res, f(ctx, fix, redis(v))) }
             }
         }
     }
@@ -3208,11 +2950,7 @@ func (ctx *__addprefix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__addprefix) x() (_ any) {
-    return ctx.__add___fix.x(func(x, y Value) Value {
-        return prefix(ctx, x, y)
-    })
-}
+func (ctx *__addprefix) x() (_ any) { return ctx.__add___fix.x(prefix) }
 
 type __addsuffix struct { __add___fix }
 func (ctx *__addsuffix) inner() Context { return &ctx.builtinbase }
@@ -3220,11 +2958,7 @@ func (ctx *__addsuffix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__addsuffix) x() (_ any) {
-    return ctx.__add___fix.x(func(x, y Value) Value {
-        return suffix(ctx, x, y)
-    })
-}
+func (ctx *__addsuffix) x() (_ any) { return ctx.__add___fix.x(suffix) }
 
 type __print struct{ builtinbase
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
@@ -3239,9 +2973,6 @@ func (ctx *__print) cast(t reflect.Type) Context {
 func (ctx *__print) x() (_ any) {
     if ctx.noErrs && 0 < count_diag(ctx, diagError) { return }
     if ctx.noWarn && 0 < count_diag(ctx, diagWarn)  { return }
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
 
     var sb bytes.Buffer
     var x = len(ctx.a)
@@ -3263,9 +2994,6 @@ func (ctx *__printf) cast(t reflect.Type) Context {
 func (ctx *__printf) x() (_ any) {
     if len(ctx.a) < 1 {
         erro(ctx, "not enough args, try $(printf 'format', ...)").trace()
-    }
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
     }
 
     var vals = merge(ctx.a[0])
@@ -3374,9 +3102,6 @@ func (ctx *__contains) x() (_ any) {
     if len(ctx.a) < 2 {
         erro(ctx, "unexpected number of arguments, try $(contains a b c1 c2, v1 v2 …)").trace()
     }
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
 
     var n int
     var vals = merge(ctx.a[0])
@@ -3472,9 +3197,6 @@ func (ctx *__encodebase64) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__encodebase64) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if 0 < len(ctx.a) {
         pos := _position(ctx)
         buf := new(bytes.Buffer)
@@ -3493,9 +3215,6 @@ func (ctx *__decodebase64) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__decodebase64) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if 0 < len(ctx.a) {
         var res []Value
         for _, a := range ctx.a {
@@ -3518,9 +3237,6 @@ func (ctx *__ext) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__ext) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var res []Value
     for _, a := range merge(ctx.a...) {
         res = append(res, _strlit(a.Position(), filepath.Ext(a.string(ctx))))
@@ -3529,20 +3245,40 @@ func (ctx *__ext) x() (_ any) {
     return
 }
 
-func bases(s string, n int, t ...bool) (res string) {
-    _, res = _bases(s, n, t...)
+func _bases(s string, a ...any) (d, b string) {
+    if d, b = filepath.Dir(s), filepath.Base(s); a != nil && d != "" && d != "." {
+        var k = 1
+        for _, a := range a {
+            switch t := a.(type) {
+            case bool:
+                if filepath.IsAbs(d) {
+                    b = filepath.Join(d, b)
+                } else if t {
+                    b = filepath.Join("…", b)
+                }
+            case int:
+                for i := t-k; 0 < i; i -= 1 {
+                    b = filepath.Join(filepath.Base(d), b)
+                    d = filepath.Dir(d)
+                }
+            case string:
+                for d != "/" && d != "." && d != "" && len(d)+len(b)<len(s) {
+                    if true { k += 1 }
+                    if s := filepath.Base(d); s == t {
+                        d = filepath.Dir(d)
+                        break
+                    } else {
+                        b = filepath.Join(s, b)
+                        d = filepath.Dir(d)
+                    }
+                }
+            }
+        }
+    }
     return
 }
-func _bases(s string, n int, t ...bool) (d, b string) {
-    d = filepath.Dir(s)
-    b = filepath.Base(s)
-    for i := n-1; 0 < i; i -= 1 {
-        b = filepath.Join(filepath.Base(d), b)
-        d = filepath.Dir(d)
-    }
-    if t != nil && t[0] && d != "" && d != "." {
-        b = filepath.Join("…", b)
-    }
+func bases(s string, a ...any) (b string) {
+    _, b = _bases(s, a...)
     return
 }
 
@@ -3553,9 +3289,6 @@ func (ctx *__bases) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__bases) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var l []Value
     for _, a := range ctx.a {
         var s string
@@ -3650,10 +3383,6 @@ func (ctx *__dir) cast(t reflect.Type) Context {
     return ctx.__dirs.cast(t)
 }
 func (ctx *__dir) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var sub string
     if ctx.sub != nil {
         sub = ctx.sub.string(ctx)
@@ -3698,10 +3427,6 @@ func (ctx *__dirs) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__dirs) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var l []Value
     for _, a := range merge(ctx.a...) {
         var s string
@@ -3808,10 +3533,6 @@ func (ctx *__undirs) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__undirs) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var l []Value
     for _, a := range ctx.a {
         var s string
@@ -3912,10 +3633,6 @@ func (ctx *__chopdir) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__chopdir) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var l []Value
     var n = 0
     if x := len(ctx.a); x > 0 {
@@ -3954,10 +3671,6 @@ func (ctx *__reldir) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__reldir) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var err error
     var l []Value
     var t string
@@ -3982,9 +3695,6 @@ func (ctx *__mkdir) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__mkdir) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     for i, nargs := 0, len(ctx.a); i < nargs; i += 1 {
         var (
             a = ctx.a[i]
@@ -4036,9 +3746,6 @@ func (ctx *__chdir) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__chdir) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if len(ctx.a) == 1 {
         var str = ctx.a[0].string(ctx)
         if err := lockCD(str, 0); err != nil {
@@ -4057,9 +3764,6 @@ func (ctx *__rename) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__rename) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     for i, nargs := 0, len(ctx.a); i < nargs; i += 1 {
         var (
             a = ctx.a[i]
@@ -4111,10 +3815,6 @@ func (ctx *__remove) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__remove) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var opts = ctx
     var remove func(Context, Value)
     var removeFile = func(ctx Context, f *file) {
@@ -4197,9 +3897,6 @@ func (ctx *__truncate) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__truncate) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     for i, nargs := 0, len(ctx.a); i < nargs; i += 1 {
         var (
             a = ctx.a[i]
@@ -4251,9 +3948,6 @@ func (ctx *__link) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__link) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     for i, nargs := 0, len(ctx.a); i < nargs; i += 1 {
         var (
             oldname, newname string
@@ -4348,9 +4042,6 @@ func (ctx *__symlink) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__symlink) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
 outer:
     for i, na := 0, len(ctx.a); i < na; i += 1 {
         var (
@@ -4481,9 +4172,6 @@ func (ctx *__stat) cast(t reflect.Type) Context {
 }
 func (ctx *__stat) x() (res any) {
     if len(ctx.a) == 0 { return }
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
 
     var proj = _project(ctx)
     if proj == nil {
@@ -4535,9 +4223,6 @@ func (ctx *__file) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__file) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     var res []Value
     for _, a := range merge(ctx.a...) {
         if x, y := to_file(a); y {
@@ -4572,10 +4257,6 @@ func (ctx *__glob) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__glob) x() (_ any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var cwd string // TODO: get current work directory
     var proj *project
     if proj = _project(ctx); proj == nil {
@@ -4891,9 +4572,6 @@ func (ctx *__wildcard) _do(pats ...Value) []*file {
     }
 }
 func (ctx *__wildcard) x() any {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     if len(ctx.exclude) > 0 {
         ctx.exclude = xmerge(_final(ctx.Context), ctx.exclude...)
     }
@@ -4916,10 +4594,6 @@ func (ctx *__readdir) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__readdir) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var l []Value
     for _, a := range ctx.a {
         if fis, err := ioutil.ReadDir(a.string(ctx)); err == nil {
@@ -4946,10 +4620,6 @@ func (ctx *__readfile) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__readfile) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     var l []Value
     var closured = closure_projects(ctx)
     for _, v := range ctx.a {
@@ -4976,10 +4646,6 @@ func (ctx *__writefile) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__writefile) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-
     // $(write-file filename,content)
     // $(write-file -p filename,content)
 outer:
@@ -5088,9 +4754,6 @@ func (ctx *__touchfile) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__touchfile) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     // $(touch-file filename)
     // $(touch-file -p filename)
     for i := 0; i < len(ctx.a); i += 1 {
@@ -5109,13 +4772,6 @@ func (ctx *__grep) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__grep) x() (_ any) {
-    if !ctx.originalArgs {
-        for i, a := range ctx.a {
-            if i == 1 { continue }
-            ctx.a[i] = a.expand(ctx)
-        }
-    }
-
     var args = ctx.a
     var nargs = len(args)
     if !(nargs == 2 || nargs == 3) {
@@ -5145,58 +4801,60 @@ func (ctx *__grep) x() (_ any) {
         }
     }
 
+    var p Position
     var res []Value
     for _, a := range merge(args...) {
         var c = pc(ctx, a)
-        var filename string
         if x, y := a.(*file); y {
-            filename = x.fullname()
+            p.Filename = x.fullname()
         } else {
-            filename = a.string(ctx)
+            p.Filename = a.string(ctx)
         }
 
         var e error
         var f *os.File
-        if filename == "" {
+        if p.Filename == "" {
             errostack(c, 5, "empty filename: %v", ts(a)).trace()
             return
-        } else if f, e = os.Open(filename); e != nil {
+        } else if f, e = os.Open(p.Filename); e != nil {
             errostack(c, 5, "%s ; %s", e, ts(a)).trace()
             return
         } else {
             defer f.Close()
         }
 
-        var line int // line number
-        var s = bufio.NewScanner(f)
+        s := bufio.NewScanner(f)
         s.Split(bufio.ScanLines)
-
+        p.Line, p.Column = 0, 0
         for s.Scan() {
             text := s.Text()
-            line += 1 // starting from #1
+            p.Line += 1
 
-            cc := pc(c, filename, line)
             for _, rx := range rxs {
-                sm := rx.FindStringSubmatch(text)
-                if sm == nil { continue }
-
-                ctx.defs = make(defmap) // ensure a clear defs map
-                for i, n := range rx.SubexpNames() {
-                    if n == "" { n = strconv.Itoa(i) }
-                    ctx.set(cc, defVoid, n, _raw(_position(cc), sm[i]))
-                    if false { note(cc, "%40v %-2v %-2v %-32v %v", rx, i, n, sm[i], ctx.defs) }
-                }
+                // := rx.FindStringSubmatch(text)
+                si := rx.FindStringSubmatchIndex(text)
+                if si == nil { continue }
 
                 var val Value
-                if result == nil {
-                    val = _raw(_position(cc), sm[0])
-                } else {
-                    val = result.expand(_final(cc))
+
+                ctx.defs = make(def_map) // ensure a clear defs map
+                for i, n := range rx.SubexpNames() {
+                    if n == "" { n = strconv.Itoa(i) }
+
+                    var t string
+                    var a, b = si[2*i], si[2*i+1]
+                    if 0 <= a && 0 < b { p.Column, t = 1+a, text[a:b] }
+
+                    var v = _raw(p, t)
+                    ctx.set(pc(c,p), defVoid, n, v)
+
+                    if i == 0 && result == nil { val = v } else
+                    if 0 < i && a < 0 { p.Column += utf8.RuneCountInString(t) }
                 }
-                if checkpoints && truly(cc, is_test_mode{}) {
-                    ctx.check_res(rx, text, result, val)
-                }
+                if result != nil { val = result.expand(_final(c)) }
                 res = append(res, val)
+
+                if checkpoints { ctx.check(rx, text, result, val) }
             }
         }
     }
@@ -5235,13 +4893,13 @@ func (p *project) strExpandConfig(ctx Context, s string) (result string, err err
 
         var d *def
         var val Value
-        if d = p.def(ctx, name); d == nil {
+        if d = p.resolveDef(ctx, name); d == nil {
             if true {
                 prompt(ctx, "%v: %v undefined\n", pos, name)
                 warnstack(ctx, 10, "in %v", p).debug(6)
             }
             continue
-        } else if val, _, _ = evoke(ctx, d, nil, nil); isNull(val) {
+        } else if val = evoke(ctx, d, nil, nil); isNull(val) {
             if f := p.configuration_sm(ctx); f == nil {
                 erro(ctx, "%v: configuration file not defined", name, f).trace()
                 return
@@ -5305,8 +4963,8 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
             name = str[ii[4]:ii[5]]
             hasv = ii[6] > ii[0] && ii[7] > ii[6]
         )
-        if d = p.def(ctx, name); d != nil {
-            if v, _, _ := evoke(ctx, d, nil, nil); v == nil {
+        if d = p.resolveDef(ctx, name); d != nil {
+            if v := evoke(ctx, d, nil, nil); v == nil {
                 // noop, TODO: or #undef?
             } else if _, t := v.(*undef); t {
                 _, e := out.WriteString(fmt.Sprintf("#undef /* %s */", name))
@@ -5387,19 +5045,6 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
     return
 }
 
-type __untraversed struct { builtinbase }
-func (ctx *__untraversed) inner() Context { return &ctx.builtinbase }
-func (ctx *__untraversed) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
-}
-func (ctx *__untraversed) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
-    return untraversed{ease(ctx, ctx.a)}
-}
-
 type __return struct { builtinbase }
 func (ctx *__return) inner() Context { return &ctx.builtinbase }
 func (ctx *__return) cast(t reflect.Type) Context {
@@ -5407,8 +5052,5 @@ func (ctx *__return) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__return) x() (res any) {
-    if !ctx.originalArgs {
-        ctx.a = expand(ctx, ctx.a...)
-    }
     return &returner{valbase{_position(ctx)}, ctx.a}
 }

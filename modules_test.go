@@ -1,17 +1,16 @@
 //
-//  Copyright (C) 2012-2023, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
+
 package smart
 
 import (
 	"regexp"
-	// "context"
 	"strings"
     "io/ioutil"
 	"path/filepath"
-	// "time"
 	"fmt"
 	"os"
 )
@@ -208,7 +207,7 @@ func testVariantTargetVars1(ctx *testcase) {
 	var p = _project(ctx)
 	var workspace, modules string
 
-	if d := p.def(ctx, "workspace"); d == nil {
+	if d := p.resolveDef(ctx, "workspace"); d == nil {
 		ctx.err("%v: workspace is nil", p)
 	} else if workspace = d.string(ctx); workspace == "" {
 		ctx.err("%v: %v", p, d)
@@ -525,8 +524,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str1 = t.String()
 		for _, s := range []string{
-			"&(-v.{$1})? "+ctx.str("-v.c"),
-			"-std=&(-std.{$1})? -std=&(std.{$1})? -std=&(-std.c)? -std="+ctx.str("std.c"),
+			"&(-v.{$1})? "+ctx.vs("-v.c"),
+			"-std=&(-std.{$1})? -std=&(std.{$1})? -std=&(-std.c)? -std="+ctx.vs("std.c"),
 		}{
 			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
 		}
@@ -560,8 +559,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str3 = v.expand(_final(ctx)).String()
 		for _, s := range []string{
-			"&(-v.z)? "+ctx.str("-v.c"),
-			"-std=&(-std.z)? -std=&(std.z)? -std=&(-std.c)? -std="+ctx.str("std.c"),
+			"&(-v.z)? "+ctx.vs("-v.c"),
+			"-std=&(-std.z)? -std=&(std.z)? -std=&(-std.c)? -std="+ctx.vs("std.c"),
 		}{
 			if strings.Count(str3, s) != 1 { ctx.err("%s : %s", s, str3) }
 		}
@@ -587,8 +586,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str1 = t.String()
 		for _, s := range []string{
-			"&(-v.{$1})? "+ctx.str("-v.c++"),
-			"-std=&(-std.{$1})? -std=&(std.{$1})? -std=&(-std.c++)? -std="+ctx.str("std.c++"),
+			"&(-v.{$1})? "+ctx.vs("-v.c++"),
+			"-std=&(-std.{$1})? -std=&(std.{$1})? -std=&(-std.c++)? -std="+ctx.vs("std.c++"),
 		}{
 			if strings.Count(str1, s) != 1 { ctx.err("%s : %s", s, str1) }
 		}
@@ -622,8 +621,8 @@ func testVariantTarget(ctx *testcase) {
 
 		var str3 = v.expand(_final(ctx)).String()
 		for _, s := range []string{
-			"&(-v.z++)? "+ctx.str("-v.c++"),
-			"-std=&(-std.z++)? -std=&(std.z++)? -std=&(-std.c++)? -std="+ctx.str("std.c++"),
+			"&(-v.z++)? "+ctx.vs("-v.c++"),
+			"-std=&(-std.z++)? -std=&(std.z++)? -std=&(-std.c++)? -std="+ctx.vs("std.c++"),
 		}{
 			if strings.Count(str3, s) != 1 { ctx.err("%s : %s", s, str3) }
 		}
@@ -2300,9 +2299,9 @@ func testLLVMConfig1(ctx *testcase) {
 	}
 
 	s = "rel.remnant"
-	if d := proj.def(cc1, s); d == nil {
+	if d := proj.resolveDef(cc1, s); d == nil {
 		ctx.err("%v: %s", proj, s)
-	} else if c := base.def(cc1, s); c != d {
+	} else if c := base.resolveDef(cc1, s); c != d {
 		ctx.err("%v : %v", tst{d}, tst{c})
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})

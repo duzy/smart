@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2024, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //
 package main
 

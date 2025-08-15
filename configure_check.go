@@ -1,8 +1,9 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
+//go:build checkpoints
 
 package smart
 
@@ -55,7 +56,7 @@ func (l ul) configure_val_check(ctx *execution, name string, op Value, vals []Va
 					errostack(c, 5, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1]).trace()
 				}
 			case x == "?OUTBIN!":
-				if d := l.project.def(ctx, "outbin"); d == nil {
+				if d := l.project.resolveDef(ctx, "outbin"); d == nil {
 					errostack(c, 5, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1]).trace()
 				} else if s := d.string(ctx); s != m[1] {
 					errostack(c, 5, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], s).trace()
@@ -253,7 +254,7 @@ func configure_chk_darwin(ctx Context, sm, m []string) map[string]string {
 		"function xar_extract": "yes",
 		"function xar_list": "no",
 		"function xar_open": "yes",
-		"symbol EX_CANTCREAT": "yes",
+		"symbol EX_CANNOTCREAT": "yes",
 		"symbol EX_CONFIG": "yes",
 		"symbol EX_DATAERR": "yes",
 		"symbol EX_IOERR": "yes",

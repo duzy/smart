@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2022, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Copyright (C) 2012-2025, Duzy Chan <code@extbit.io>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
@@ -27,6 +27,7 @@ const (
     dot_container = ".container"
 
     mainFileName = "do.smart"
+    altrFileName = "work.smart"
     deprFileName = "build.smart"
 
     optSortErrors = false
@@ -97,7 +98,7 @@ type abs_ctx struct{ Context ; abs string }
 func (p *abs_ctx) cast(t reflect.Type) Context { return icast(p,t) }
 func (p *abs_ctx) inner() Context { return p.Context }
 func (p *abs_ctx) ts(string) string {
-    return "{=abs "+bases(p.abs, 2, true)+" "+ts(p.Context)+"}"
+    return "{=abs "+bases(p.abs, "testdata", 2, true)+" "+ts(p.Context)+"}"
 }
 func (p *abs_ctx) do(ctx Context, op any) (_ any) {
     switch op.(type) {
@@ -237,14 +238,7 @@ func (l ul) usevars(ctx Context, user, usee *project) {
 
         // 1. use.XXX += $(use.XXX)
         {
-            var d, a = user.set(ctx, useDef.ident(ctx), defVoid)
-            var isNewDef = d != nil && a == nil
-            if d == nil && a != nil { d, _ = a.(*def) }
-            if d == nil { return }
-            if d.value != nil && d.value.String() == "unique" {
-                note(ctx, "%v (%v, %v, %v)", d, user, isNewDef, a)
-                note(ctx, "%v", useDef).debug(10)
-            }
+            d, isNewDef := user._def(ctx, defVoid, useDef.ident(ctx))
             if isNewDef || isTrivial(d.value) {
                 dd = append(dd, nonTrivialDefsFromBase(ctx, user, useDef.ident(ctx))...)
             }
@@ -255,10 +249,7 @@ func (l ul) usevars(ctx Context, user, usee *project) {
 
         // 2. XXX += $(use.XXX)
         {
-            var d, a = user.set(ctx, name, defVoid)
-            var isNewDef = d != nil && a == nil
-            if d == nil && a != nil { d, _ = a.(*def) }
-            if d == nil { return }
+            d, isNewDef := user._def(ctx, defVoid, name)
             if isNewDef && false {
                 if dd == nil { dd = append(dd, nonTrivialDefsFromBase(ctx, user, useDef.ident(ctx))...) }
                 dd = append(dd, nonTrivialDefsFromBase(ctx, user, name)...)
@@ -772,9 +763,6 @@ paramsloop:
         var spec string
         var specVal Value
         if specVal = elem.expand(_final(ctx)); specVal == nil { specVal = elem }
-        if checkpoints && truly(ctx, is_test_mode{}) {
-            l.bases_check_param(ctx, implicitBase, i, elem, specVal)
-        }
 
         if spec = specVal.string(ctx) ; spec == "" {
             erro(ctx, "%v: empty base name: %v", l.project, ts(specVal)).trace()
@@ -811,14 +799,6 @@ paramsloop:
         } else {
             l.file(cc, spec, abs, nil)
         }
-
-        if checkpoints && truly(ctx, is_test_mode{}) {
-            l.bases_check_i(ctx, i, implicitIndex, implicitBase, abs, isDir, elem)
-        }
-    }
-
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        l.bases_check(ctx, implicitIndex, implicitBase)
     }
 
     usefor(ctx, l.project, func(op usevar, _, _ Value, name string) {
@@ -828,9 +808,7 @@ paramsloop:
         }
 
         var us = prefix+"use."+name
-        var d, a = l.project.set(ctx, us, defVoid)
-        if d == nil && a != nil { d, _ = a.(*def) }
-        if d == nil { return }
+        d := l.project.def(ctx, defVoid, us)
         op.apply(closure_with(ctx, l.project.scope), d, nonTrivialDefsFromBase(ctx, l.project, us)...)
     })
     return
@@ -910,7 +888,7 @@ func (a *p_autoload) do(ctx Context, op any) (_ any) {
 
 func (l ul) autoload(ctx Context, tag string) {
     if !is_configure_project(l.project) {
-        if d := l.project.def(ctx, ".autoload."+tag); d != nil && d.value != nil {
+        if d := l.project.resolveDef(ctx, ".autoload."+tag); d != nil && d.value != nil {
             for _, v := range merge(d.value.expand(_final(ctx))) {
                 if isTrivial(v) {
                     continue
@@ -955,14 +933,9 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
     if false { defer un(l_tracef(l_traverse, "configuration(%v)", ident)) }
     if l.project.name == dot_configure { return }
 
-    var cc = configure_ctx{Context:ctx}
-
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        defer l.configuration_check(&cc, ident)
-    }
-
     const cs = "configure"
 
+    var cc = configure_ctx{Context:ctx}
     var f *file
 
     if v := l.project.opt.configure; v != nil {
@@ -1123,15 +1096,10 @@ func load_source_bytes(ctx Context, opts *include_opts, filename string, source 
     }
 }
 
-func (l ul) source(ctx Context, filename string, src any) (res Value) {
+func (l ul) source(ctx Context, filename string, a_src any) (res Value) {
     if l.traceLaunch { defer un(l_trace(l_launch, "ul.source")) }
 
     var text []byte
-
-    if checkpoints && truly(ctx, is_test_mode{}) {
-        l.pre_source_check(ctx, filename, src)
-        defer l.source_check(ctx, filename, src, &text, &res)
-    }
 
     defer func(p *parser) {
         if l.p == nil { errostack(ctx, 3, "nil parser").trace() }
@@ -1139,7 +1107,7 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
     } (l.p)
 
     var opts, _ = do(ctx, get_include_opts{}).(*include_opts)
-    if text = load_source_bytes(ctx, opts, filename, src); text == nil { return }
+    if text = load_source_bytes(ctx, opts, filename, a_src); text == nil { return }
 
     l.p = &parser{}
     l.p.scanner.init(ctx, l.fset.AddFile(filename, -1, len(text)), text, 0)
@@ -1149,7 +1117,7 @@ func (l ul) source(ctx Context, filename string, src any) (res Value) {
         return ease(ctx, l.values(ctx))
     }
 
-    l.parse(ctx, filename)
+    l.parse(src(ctx,nil), filename)
 
     if truly(ctx, is_flat_mode{}) {
         return
@@ -1205,11 +1173,8 @@ func (l ul) config_dir(ctx Context, pathname, linked string) (err error) {
             if 0 < flush(ctx) { return } else { continue }
         }
 
-        d, a := scope.set(ctx, name, defConfDir)
-
-        if a != nil && a != d {
-            erro(ctx, "declare project: %v", name).trace()
-        } else if d == nil {
+        d := scope.def(ctx, defConfig, name)
+        if d == nil {
             erro(ctx, "%v", name).trace()
         }
 
@@ -1223,7 +1188,7 @@ func (l ul) config_dir(ctx Context, pathname, linked string) (err error) {
             erro(ctx, "%s: invalid UTF8 content", fullname)
         }
 
-        d.set(ctx, defConfDir, _strlit(_position(ctx), s))
+        d.set(ctx, _strlit(l.p.Position(), s))
     }
     return
 }
@@ -1266,7 +1231,6 @@ func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (so
         var linked,_ = _readlink(ctx, filename, d)
 
         if false && (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
-            // hasConfDir = true // TODO: remove ConfigDir feature
             if l.config_dir(ctx, filepath.Dir(filename), linked) != nil { return }
             continue
         }
@@ -1322,7 +1286,7 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
         if loaded == nil { return }
         if l.globe.main == nil { l.globe.main = loaded }
         if proj != nil {
-            if d := proj.def(ctx, loaded.name); d != nil {
+            if d := proj.resolveDef(ctx, loaded.name); d != nil {
                 c := pc(ctx, d.value)
                 note(c, "conflicts project name %v", ts(d))
                 note(c, "conflicts project name %v", loaded)
@@ -1339,10 +1303,6 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
             }
         }
     } (time.Now(), l.project)
-
-	if checkpoints && truly(ctx, is_test_mode{}) {
-        defer l.directory_check(ctx, spec, absDir)
-    }
 
     // Check previously loaded project.
     if loaded, okay = l.globe.loaded[absDir]; okay && loaded != nil {

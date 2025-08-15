@@ -4,4 +4,4 @@ project testvalue
 .test.x  := &(.test$1)
 .test    := $(.test.x)
 .test.v1 := foo
-.test.v2 := foobar
+.test.v2 := bar
