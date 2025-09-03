@@ -3,315 +3,68 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
+//go:build checkpoints
 
 package smart
 
-func testValues22(ctx *testcase) {
-	s := ".test.ab"
-	d := ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "foo_ab-$1-$2"; s != t {
-		ctx.err("%s != %s ; %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
-		ctx.err("%s != %s ; %s", s, t, tst{v})
-	} else if v := ctx.val(d.name, defExpand1, "a", "b"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "foo_ab-a-b"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo_ab-a-b"; s != t {
-		ctx.err("%s != %s ; %s", s, t, tst{v})
-	} else if v := ctx.val(d.name, defExpand2, "a", "b"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "foo_ab-a-b"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo_ab-a-b"; s != t {
-		ctx.err("%s != %s ; %s", s, t, tst{v})
-	}
+var checkpoints_value_22 = map[string]map[string]any{
+	"loader.go": map[string]any{
+		`6:9:.test $1 {6:15:delegate {3:20:auto 1}}`:`{} {} {6:15:null}`,
+		`6:9:.test $2 {6:17:delegate {3:23:auto 2}}`:`{} {} {6:17:null}`,
+		`6:9:.test $3 {6:19:delegate {6:20:auto 3}}`:`{} {} {6:19:null}`,
+		`7:10:.test.1 $(.test a,b,c) {7:13:delegate {6:9:def .test} {=list {7:21:word a}} {=list {7:23:word b}} {=list {7:25:word c}}}`:`{6:9:def .test} 1 {}{}{} 10 {=list {7:13 {6:13:decimal 1}} {7:13 {=compound {6:15:null} {6:17:null} {6:19:null}}} {7:13 {6:22:decimal 10}}}`,
+		`8:9:.test.2 $(.test a,b,c) {8:13:delegate {6:9:def .test} {=list {8:21:word a}} {=list {8:23:word b}} {=list {8:25:word c}}}`:`{6:9:def .test} 1 {}{}{} 10 {=list {8:13 {6:13:decimal 1}} {8:13 {=compound {6:15:null} {6:17:null} {6:19:null}}} {8:13 {6:22:decimal 10}}}`,
+		`6:9:.test &(.test.x) {10:17:closure {=compound {10:19:punct .} {10:20:word test} {10:24:punct .} {10:25:word x}}}`:`{=compound {10:19:punct .} {10:20:word test} {10:24:punct .} {10:25:word x}} {} {10:17:null}`,
+		`6:9:.test $(&(.test.x) $1$1,$2$2) {10:15:delegate {10:17:closure {=compound {10:19:punct .} {10:20:word test} {10:24:punct .} {10:25:word x}}} {=list {=compound {10:28:delegate {3:20:auto 1}} {10:30:delegate {3:20:auto 1}}}} {=list {=compound {10:33:delegate {3:23:auto 2}} {10:35:delegate {3:23:auto 2}}}}}`:`{10:17:null} {} {10:15:null}`,
+		`11:10:.test.3 $(.test a,b,c) {11:13:delegate {6:9:def .test} {=list {11:21:word a}} {=list {11:23:word b}} {=list {11:25:word c}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 {=list {11:13 {6:13:decimal 1}} {11:13 {=compound {6:15:null} {6:17:null} {6:19:null}}} {11:13 {6:22:decimal 10}} {11:13 {10:13:decimal 2}} {11:13 {10:15:null}} {11:13 {10:39:decimal 20}}}`,
+		`12:9:.test.4 $(.test a,b,c) {12:13:delegate {6:9:def .test} {=list {12:21:word a}} {=list {12:23:word b}} {=list {12:25:word c}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 {=list {12:13 {6:13:decimal 1}} {12:13 {=compound {6:15:null} {6:17:null} {6:19:null}}} {12:13 {6:22:decimal 10}} {12:13 {10:13:decimal 2}} {12:13 {10:15:null}} {12:13 {10:39:decimal 20}}}`,
+		`14:11:.test.t1 $(.test x,y) {14:14:delegate {6:9:def .test} {=list {14:22:word x}} {=list {14:24:word y}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 {=list {14:14 {6:13:decimal 1}} {14:14 {=compound {6:15:null} {6:17:null} {6:19:null}}} {14:14 {6:22:decimal 10}} {14:14 {10:13:decimal 2}} {14:14 {10:15:null}} {14:14 {10:39:decimal 20}}}`,
+		`14:11:.test.t1 $3 {14:27:delegate {6:20:auto 3}}`:`{} {} {14:27:null}`,
+		`16:11:.test.t2 $(.test x,y) {16:14:delegate {6:9:def .test} {=list {16:22:word x}} {=list {16:24:word y}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 {=list {16:14 {6:13:decimal 1}} {16:14 {=compound {6:15:null} {6:17:null} {6:19:null}}} {16:14 {6:22:decimal 10}} {16:14 {10:13:decimal 2}} {16:14 {10:15:null}} {16:14 {10:39:decimal 20}}}`,
+		`16:11:.test.t2 $3 {16:27:delegate {6:20:auto 3}}`:`{} {} {16:27:null}`,
+		`17:10:.test.t3 $(.test x,y) {17:14:delegate {6:9:def .test} {=list {17:22:word x}} {=list {17:24:word y}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 {=list {17:14 {6:13:decimal 1}} {17:14 {=compound {6:15:null} {6:17:null} {6:19:null}}} {17:14 {6:22:decimal 10}} {17:14 {10:13:decimal 2}} {17:14 {10:15:null}} {17:14 {10:39:decimal 20}}}`,
+		`17:10:.test.t3 $3 {17:27:delegate {6:20:auto 3}}`:`{} {} {17:27:null}`,
+		`6:9:.test &(.test.x) {19:17:closure {15:11:def .test.x}}`:`{15:11:def .test.x} .test.ba {19:17 {=compound {15:16:punct .} {15:17:word test} {15:21:punct .} {15:22:word ba}}}`,
+		`6:9:.test $1 {19:28:delegate {3:20:auto 1}}`:`{} {} {19:28:null}`,
+		`6:9:.test $2 {19:30:delegate {3:23:auto 2}}`:`{} {} {19:30:null}`,
+		`6:9:.test $2 {19:33:delegate {3:23:auto 2}}`:`{} {} {19:33:null}`,
+		`6:9:.test $1 {19:35:delegate {3:20:auto 1}}`:`{} {} {19:35:null}`,
+		`6:9:.test $2 {4:19:delegate {3:23:auto 2}}`:`{4:10:def 2} {}{} {4:19 {=compound {19:33:null} {19:35:null}}}`,
+		`6:9:.test $1 {4:22:delegate {3:20:auto 1}}`:`{4:10:def 1} {}{} {4:22 {=compound {19:28:null} {19:30:null}}}`,
+		`6:9:.test &(.test.ba $1$2,$2$1) {19:15:closure {4:10:def .test.ba} {=list {=compound {19:28:delegate {3:20:auto 1}} {19:30:delegate {3:23:auto 2}}}} {=list {=compound {19:33:delegate {3:23:auto 2}} {19:35:delegate {3:20:auto 1}}}}}`:`{4:10:def .test.ba} foo_ba-{}{}-{}{} {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {19:33:null}} {4:19 {19:35:null}} {=flag {4:22 {=compound {19:28:null} {19:30:null}}}}}}}}`,
+		`20:10:.test.5 $(.test a,b,c) {20:13:delegate {6:9:def .test} {=list {20:21:word a}} {=list {20:23:word b}} {=list {20:25:word c}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 3 foo_ba-{}{}-{}{} 30 {=list {20:13 {6:13:decimal 1}} {20:13 {=compound {6:15:null} {6:17:null} {6:19:null}}} {20:13 {6:22:decimal 10}} {20:13 {10:13:decimal 2}} {20:13 {10:15:null}} {20:13 {10:39:decimal 20}} {20:13 {19:13:decimal 3}} {20:13 {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {19:33:null}} {4:19 {19:35:null}} {=flag {4:22 {=compound {19:28:null} {19:30:null}}}}}}}}} {20:13 {19:39:decimal 30}}}`,
+		`21:9:.test.6 $(.test a,b,c) {21:13:delegate {6:9:def .test} {=list {21:21:word a}} {=list {21:23:word b}} {=list {21:25:word c}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 3 foo_ba-{}{}-{}{} 30 {=list {21:13 {6:13:decimal 1}} {21:13 {=compound {6:15:null} {6:17:null} {6:19:null}}} {21:13 {6:22:decimal 10}} {21:13 {10:13:decimal 2}} {21:13 {10:15:null}} {21:13 {10:39:decimal 20}} {21:13 {19:13:decimal 3}} {21:13 {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {19:33:null}} {4:19 {19:35:null}} {=flag {4:22 {=compound {19:28:null} {19:30:null}}}}}}}}} {21:13 {19:39:decimal 30}}}`,
+		`6:9:.test $3 {23:15:delegate {6:20:auto 3}}`:`{} {} {23:15:null}`,
+		`27:11:.test.t5 $(.test x,y) {27:14:delegate {6:9:def .test} {=list {27:22:word x}} {=list {27:24:word y}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 3 foo_ba-{}{}-{}{} 30 4 {} 40 {=list {27:14 {6:13:decimal 1}} {27:14 {=compound {6:15:null} {6:17:null} {6:19:null}}} {27:14 {6:22:decimal 10}} {27:14 {10:13:decimal 2}} {27:14 {10:15:null}} {27:14 {10:39:decimal 20}} {27:14 {19:13:decimal 3}} {27:14 {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {19:33:null}} {4:19 {19:35:null}} {=flag {4:22 {=compound {19:28:null} {19:30:null}}}}}}}}} {27:14 {19:39:decimal 30}} {27:14 {23:13:decimal 4}} {27:14 {23:15:null}} {27:14 {23:18:decimal 40}}}`,
+		`27:11:.test.t5 $3 {27:29:delegate {6:20:auto 3}}`:`{} {} {27:29:null}`,
+		`28:10:.test.t6 $(.test x,y) {28:14:delegate {6:9:def .test} {=list {28:22:word x}} {=list {28:24:word y}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 3 foo_ba-{}{}-{}{} 30 4 {} 40 {=list {28:14 {6:13:decimal 1}} {28:14 {=compound {6:15:null} {6:17:null} {6:19:null}}} {28:14 {6:22:decimal 10}} {28:14 {10:13:decimal 2}} {28:14 {10:15:null}} {28:14 {10:39:decimal 20}} {28:14 {19:13:decimal 3}} {28:14 {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {19:33:null}} {4:19 {19:35:null}} {=flag {4:22 {=compound {19:28:null} {19:30:null}}}}}}}}} {28:14 {19:39:decimal 30}} {28:14 {23:13:decimal 4}} {28:14 {23:15:null}} {28:14 {23:18:decimal 40}}}`,
+		`28:10:.test.t6 $3 {28:29:delegate {6:20:auto 3}}`:`{} {} {28:29:null}`,
+	},
+	"check-value-22_test.go": map[string]any{
+		`18 3:10:.test.ab $1 {3:19:delegate {3:20:auto 1}}`:`{} {} {3:19:null}`,
+		`18 3:10:.test.ab $2 {3:22:delegate {3:23:auto 2}}`:`{} {} {3:22:null}`,
+		`20 3:10:.test.ab $1 {3:19:delegate {3:20:auto 1}}`:`{3:10:def 1} a {3:19 {1:9:word a}}`,
+		`20 3:10:.test.ab $2 {3:22:delegate {3:23:auto 2}}`:`{3:10:def 2} b {3:22 {1:9:word b}}`,
+		`26 3:10:.test.ab $1 {3:19:delegate {3:20:auto 1}}`:`{3:10:def 1} a {3:19 {1:9:word a}}`,
+		`26 3:10:.test.ab $2 {3:22:delegate {3:23:auto 2}}`:`{3:10:def 2} b {3:22 {1:9:word b}}`,
+		`42 4:10:.test.ba $2 {4:19:delegate {3:23:auto 2}}`:`{} {} {4:19:null}`,
+		`42 4:10:.test.ba $1 {4:22:delegate {3:20:auto 1}}`:`{} {} {4:22:null}`,
+		`44 4:10:.test.ba $2 {4:19:delegate {3:23:auto 2}}`:`{4:10:def 2} b {4:19 {1:9:word b}}`,
+		`44 4:10:.test.ba $1 {4:22:delegate {3:20:auto 1}}`:`{4:10:def 1} a {4:22 {1:9:word a}}`,
+		`50 4:10:.test.ba $2 {4:19:delegate {3:23:auto 2}}`:`{4:10:def 2} b {4:19 {1:9:word b}}`,
+		`50 4:10:.test.ba $1 {4:22:delegate {3:20:auto 1}}`:`{4:10:def 1} a {4:22 {1:9:word a}}`,
+		`230 26:12:.test.t4 $(.test x,y) {26:14:delegate {6:9:def .test} {=list {26:22:word x}} {=list {26:24:word y}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 3 foo_ba-{}{}-{}{} 30 4 {} 40 {=list {26:14 {6:13:decimal 1}} {26:14 {=compound {6:15:null} {6:17:null} {6:19:null}}} {26:14 {6:22:decimal 10}} {26:14 {10:13:decimal 2}} {26:14 {10:15:null}} {26:14 {10:39:decimal 20}} {26:14 {19:13:decimal 3}} {26:14 {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {19:33:null}} {4:19 {19:35:null}} {=flag {4:22 {=compound {19:28:null} {19:30:null}}}}}}}}} {26:14 {19:39:decimal 30}} {26:14 {23:13:decimal 4}} {26:14 {23:15:null}} {26:14 {23:18:decimal 40}}}`,
+		`230 26:12:.test.t4 $3 {26:29:delegate {6:20:auto 3}}`:`{} {} {26:29:null}`,
+		`232 26:12:.test.t4 $(.test x,y) {26:14:delegate {6:9:def .test} {=list {26:22:word x}} {=list {26:24:word y}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 3 foo_ba-{}{}-{}{} 30 4 {} 40 {=list {26:14 {6:13:decimal 1}} {26:14 {=compound {6:15:null} {6:17:null} {6:19:null}}} {26:14 {6:22:decimal 10}} {26:14 {10:13:decimal 2}} {26:14 {10:15:null}} {26:14 {10:39:decimal 20}} {26:14 {19:13:decimal 3}} {26:14 {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {19:33:null}} {4:19 {19:35:null}} {=flag {4:22 {=compound {19:28:null} {19:30:null}}}}}}}}} {26:14 {19:39:decimal 30}} {26:14 {23:13:decimal 4}} {26:14 {23:15:null}} {26:14 {23:18:decimal 40}}}`,
+		`232 26:12:.test.t4 $3 {26:29:delegate {6:20:auto 3}}`:`{26:12:def 3} x {26:29 {1:9:word x}}`,
+		`238 26:12:.test.t4 $(.test x,y) {26:14:delegate {6:9:def .test} {=list {26:22:word x}} {=list {26:24:word y}}}`:`{6:9:def .test} 1 {}{}{} 10 2 {} 20 3 foo_ba-{}{}-{}{} 30 4 {} 40 {=list {26:14 {6:13:decimal 1}} {26:14 {=compound {6:15:null} {6:17:null} {6:19:null}}} {26:14 {6:22:decimal 10}} {26:14 {10:13:decimal 2}} {26:14 {10:15:null}} {26:14 {10:39:decimal 20}} {26:14 {19:13:decimal 3}} {26:14 {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {19:33:null}} {4:19 {19:35:null}} {=flag {4:22 {=compound {19:28:null} {19:30:null}}}}}}}}} {26:14 {19:39:decimal 30}} {26:14 {23:13:decimal 4}} {26:14 {23:15:null}} {26:14 {23:18:decimal 40}}}`,
+		`238 26:12:.test.t4 $3 {26:29:delegate {6:20:auto 3}}`:`{26:12:def 3} x {26:29 {1:9:word x}}`,
+	},
+}
 
-	s = ".test.ba"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "foo_ba-$2-$1"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d.name, defExpand1, "a", "b"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "foo_ba-b-a"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo_ba-b-a"; s != t {
-		ctx.err("%s != %s ; %s", s, t, tst{v})
-	} else if v := ctx.val(d.name, defExpand2, "a", "b"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "foo_ba-b-a"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo_ba-b-a"; s != t {
-		ctx.err("%s != %s ; %s", s, t, tst{v})
-	}
-
-	s = ".test"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 $1$2$3 10 2 $(&(.test.x) $1$1,$2$2) 20 3 &(&(.test.x) $1$2,$2$1) 30 4 $3 40"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 10 2 20 3 30 4 40"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if v := ctx.val(d.name, defExpand1, "a", "b", "c"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30 4 c 40"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 10 2 20 3 30 4 40"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if v := ctx.val(d.name, defExpand2, "a", "b", "c"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 abc 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba 30 4 c 40"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 10 2 20 3 30 4 40"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	}
-
-	s = ".test.1"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 abc 10"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	}
-
-	s = ".test.2"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 abc 10"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	}
-
-	s = ".test.3"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 abc 10 2 $(&(.test.x) aa,bb) 20"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 abc 10 2 foo_ab-aa-bb 20"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	}
-
-	s = ".test.4"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 abc 10 2 {} 20"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 abc 10 2 20"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	}
-
-	s = ".test.5"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 abc 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba 30"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	}
-
-	s = ".test.6"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 abc 10 2 foo_ba-bb-aa 20 3 foo_ba-ba-ab 30"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 abc 10 2 foo_ba-bb-aa 20 3 foo_ba-ba-ab 30"; s != t {
-		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	}
-
-	s = ".test.s0"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 xy{} 11 2 {} 21 {} s0"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 11 2 21 s0"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	}
-
-	s = ".test.s1"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 xy{} 11 2 {} 21 {} s0 s1"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 11 2 21 s0 s1"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	}
-
-	s = ".test.t1"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand1, "a", "b", "c"); v == nil {
-		ctx.err("%v : %v", tst{d}, d.value)
-	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand2, "a", "b", "c"); v == nil {
-		ctx.err("%v : %v", tst{d}, d.value)
-	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	}
-
-	s = ".test.t2"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand1, "a", "b", "c"); v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand2, "a", "b", "c"); v == nil {
-		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	}
-
-	s = ".test.t3"
-	d = ctx.def(s)
-	if d == nil || d.value == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 foo_ba-yy-xx 20 {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ba-yy-xx 20"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand1, "a", "b", "cc"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 foo_ba-yy-xx 20 {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ba-yy-xx 20"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand2, "a", "b", "cc"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 foo_ba-yy-xx 20 {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ba-yy-xx 20"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	}
-
-	s = ".test.t4"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "$(.test.0 x,y) . $3"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand1, "a", "b", "x"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 . x"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 . x"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand2, "a", "b", "x"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . x"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 . x"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	}
-
-	s = ".test.t5"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 . {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand1, "a", "b", "x"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 . {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand2, "a", "b", "x"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	}
-
-	s = ".test.t6"
-	d = ctx.def(s)
-	if d == nil {
-		ctx.err(s)
-	} else if v := d.value; v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand1, "a", "b", "x"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if v := ctx.val(d, defExpand2, "a", "b", "x"); v == nil {
-		ctx.err("%v", d)
-	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . {}"; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
-		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	}
+var checkstrs_value_22 = map[string]map[string]any{
+	"check-value-22_test.go": map[string]any{
+		`230 26:12:.test.t4 $(.test x,y) {26:14:delegate {6:9:def .test} {=list {26:22:word x}} {=list {26:24:word y}}}`:`{=list {26:14 {6:13:decimal 1}} {26:14 {=compound {6:15:null} {6:17:null} {6:19:null}}} {26:14 {6:22:decimal 10}} {26:14 {10:13:decimal 2}} {26:14 {10:15:null}} {26:14 {10:39:decimal 20}} {26:14 {19:13:decimal 3}} {26:14 {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {19:33:null}} {4:19 {19:35:null}} {=flag {4:22 {=compound {19:28:null} {19:30:null}}}}}}}}} {26:14 {19:39:decimal 30}} {26:14 {23:13:decimal 4}} {26:14 {23:15:null}} {26:14 {23:18:decimal 40}}} 1 10 2 20 3 foo_ba-- 30 4 40`,
+		`230 26:12:.test.t4 $3 {26:29:delegate {6:20:auto 3}}`:`{26:29:null} `,
+	},
 }

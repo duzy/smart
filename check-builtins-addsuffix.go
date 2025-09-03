@@ -10,6 +10,9 @@ package smart
 var checkpoints__addsuffix = map[string]map[string]any{
 }
 
+var checkstrs__addsuffix = map[string]map[string]any{
+}
+
 var suffix__addprefix = map[string]map[string]string{
 	"check-builtins-addprefix_test.go": map[string]string{
 		`134 {8:28:null} {8:20:word foo}`: `foo {8:20:word foo}`,

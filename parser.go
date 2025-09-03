@@ -69,7 +69,7 @@ type parser struct{
 type (
 	left_hand_side  struct{}
 	p_is_params     struct{}
-	p_is_undef      struct{}
+	is_undef      struct{}
 	p_is_glob       struct{}
 	p_no_argumented struct{}
 	p_no_path       struct{}
@@ -107,15 +107,14 @@ func (p selection) do(ctx Context, op any) (_ any) {
 
 type is_braced struct{}
 type codeblock      struct{ *automatic ; token }
-type p_def_val      struct{ original ; d *def}
-type p_def_name     struct{ Context }
-type p_braced   struct{ Context }
-type p_bare_ctx     struct{ Context }
+type def_val        struct{ original ; d *def}
+type def_name       struct{ Context }
+type braced         struct{ Context }
 type p_auto_ctx     struct{ Context }
 type p_foreach_txt  struct{ Context ; a *auto }
 type p_grep_txt     struct{ Context ; o objbase ; a map[string]*auto }
 type p_group_ctx    struct{ Context }
-type p_left_ctx     struct{ Context }
+type left_side      struct{ Context }
 type p_modifier     struct{ Context }
 type p_params       struct{ Context }
 type p_path         struct{ Context }
@@ -123,7 +122,7 @@ type p_perc         struct{ Context }
 type p_glob         struct{ Context }
 type p_regex        struct{ Context }
 type p_strcomp      struct{ Context }
-type p_undef    struct{ Context }
+type p_undef        struct{ Context }
 type p_rule_ctx     struct{ Context }
 type p_recipe struct{
 	Context
@@ -148,7 +147,7 @@ func (p p_undef) ts(t string) (_ string) {
 }
 func (p p_undef) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
-	case p_is_undef: return true
+	case is_undef: return true
 	}
 	return p.Context.do(ctx, op)
 }
@@ -215,18 +214,18 @@ func (p p_auto_ctx) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p p_def_name) cast(t reflect.Type) Context { return icast(p,t) }
-func (p p_def_name) inner() Context { return p.Context }
-func (p p_def_name) do(ctx Context, op any) (_ any) {
+func (p def_name) cast(t reflect.Type) Context { return icast(p,t) }
+func (p def_name) inner() Context { return p.Context }
+func (p def_name) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case is_defname: return true
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p p_def_val) inner() Context { return p.Context }
-func (p p_def_val) cast(t reflect.Type) Context { return icast(p,t) }
-func (p p_def_val) do(ctx Context, op any) (_ any) {
+func (p def_val) inner() Context { return p.Context }
+func (p def_val) cast(t reflect.Type) Context { return icast(p,t) }
+func (p def_val) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_auto: return t.s != "0" && IsDigits(t.s)
     case origin_def:
@@ -235,7 +234,7 @@ func (p p_def_val) do(ctx Context, op any) (_ any) {
 	return p.original.do(ctx, op)
 }
 
-func (p p_braced) do(ctx Context, op any) (_ any) {
+func (p braced) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case is_braced: return true
 	}
@@ -315,10 +314,10 @@ func (p *p_recipe) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p p_left_ctx) cast(t reflect.Type) Context { return icast(p,t) }
-func (p p_left_ctx) inner() Context { return p.Context }
-func (p p_left_ctx) ts(t string) string { return fmt.Sprintf("{="+t+" %s}", ts(p.Context)) }
-func (p p_left_ctx) do(ctx Context, op any) (_ any) {
+func (p left_side) cast(t reflect.Type) Context { return icast(p,t) }
+func (p left_side) inner() Context { return p.Context }
+func (p left_side) ts(t string) string { return fmt.Sprintf("{="+t+" %s}", ts(p.Context)) }
+func (p left_side) do(ctx Context, op any) (_ any) {
 	switch op.(type) {
 	case left_hand_side: return true
 	}
@@ -557,7 +556,7 @@ func (l ul) braced(ctx Context) (x Value) {
 	pos := l.p.Position()
 	l.p.expect(ctx, LBRACE)
 
-	ctx = p_braced{ctx}
+	ctx = braced{ctx}
 
 	if l.p.tok == RBRACE {
 		x = &null{l.p.valbase(ctx)}
@@ -1465,57 +1464,67 @@ func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
     return
 }
 
+type optional struct{}
+type optional_ctx struct{ Context }
+func (c optional_ctx) inner() Context { return c.Context }
+func (c optional_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+	case optional: return true
+    }
+    return c.Context.do(ctx, op)
+}
+
 func (l ul) identity(ctx Context, closure bool, tok token, name Value) (obj Value, str string, opts []Value) {
 	if name == nil {
 		erro(ctx, "nil name").trace()
 	}
 
-	var opt bool
-	var val = name
-
-	if x, y := val.(object); y {
-		return x, x.ident(ctx), opts
-	}
-	if x, y := val.(cond); y {
-		val, opt = x.Value, true
-	}
-	if x, y := val.(*argumented); y {
-		val, opts = x.Value, merge(x.args...)
-	}
-
-	if x, y := val.(identityer); y {
-		if str = x.identity(ctx); str == "" {
-			return name, str, opts
-		}
-	} else {
-		return name, str, opts
-	}
-
-	switch tok {
-	case LBRACE:
-		if e := l.project.entry(ctx, val); e == nil {
-			erro(pc(ctx,name), "resolved nil: %s", tv(name)).trace()
-		} else if x, y := e.(object); y {
-			erro(pc(ctx,name), "not an object: %v: %s", name, tv(e)).trace()
-		} else {
-			return x, x.ident(ctx), opts
-		}
-	case LPAREN:
-		if obj = l.resolve(ctx, val, str); obj != nil {
-			return
-		} else if opt || closure || truly(ctx, p_is_undef{}) {
+	switch x := name.(type) {
+	case cond:
+		obj, str, opts = l.identity(optional_ctx{ctx}, closure, tok, x.Value)
+		obj = cond{ obj }
+		return
+	case object:
+		obj, str = x, x.ident(ctx)
+		return
+	case *argumented:
+		obj, str, opts = l.identity(ctx, closure, tok, x.Value)
+		opts = append(opts, merge(x.args...)...)
+		return
+	case identer:
+		if str = x.ident(ctx); str == "" {
 			obj = name
 			return
 		}
-	}
 
-	errostack(pc(ctx,name), 32, "undefined %s : %s : %s", str, tv(name), ts(name)).trace()
-	return
+		switch tok {
+		case LPAREN:
+			if obj = l.resolve(ctx, name, str); obj != nil {
+				return
+			} else if closure || truly(ctx, optional{}) || truly(ctx, is_undef{}) {
+				obj = name
+				return
+			}
+		case LBRACE:
+			if e := l.project.entry(ctx, name); e == nil {
+				erro(pc(ctx,name), "resolved nil: %s", tv(name)).trace()
+			} else if _, y := e.(object); y {
+				erro(pc(ctx,name), "not an object: %v: %s", name, tv(e)).trace()
+			} else {
+				obj = name
+				return
+			}
+		}
+
+		errostack(pc(ctx,name), 32, "undefined %v ; %v → %v : %s", x, name, str, ts(name)).trace()
+		return
+	default:
+		obj = name
+		return
+	}
 }
 
 func (l ul) calling(ctx Context) (result Value) {
-	if l_traverse.enabled {	defer un(l_trace(l_traverse, "calling")) }
-
 	var tok token
 	var str string
 	var name, obj Value
@@ -2809,7 +2818,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			}
 
 		default: // *word, *compound, *qualword, *path, flag:
-			name := t.string(p_def_name{ctx})
+			name := t.string(def_name{ctx})
 			if _, y := builtins[name]; y {
 				errostack(pc(ctx,t), 3, "`%v` is a builtin name (%v)", ident, name).trace()
 			}
@@ -2838,7 +2847,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 
 		l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = _pos, _tok, _lit, _ss
 
-		_ctx := p_def_val{original{ctx,0},d}
+		_ctx := def_val{original{ctx,0},d}
 
 		if !d.position.valid() { d.position = l.p.Position() }
 
@@ -3329,9 +3338,7 @@ func (l ul) def_end(ctx Context) {
 
 	var args []Value
 	var name = l.expr(ctx)
-	if a, y := name.(*argumented); y {
-		name, args = a.Value, a.args
-	}
+	if a, y := name.(*argumented); y { name, args = a.Value, a.args }
 
 	t := &template{
 		pos: p.pos, tok: p.tok, lit: p.lit,
@@ -3982,7 +3989,7 @@ minusloop:
 			d, _ = l.configure_set(ctx, id.string(ctx)) // aka. l.project.set
 			d.position = id.Position()
 
-			cc := p_def_val{original{&exe,defExpand1},d}
+			cc := def_val{original{&exe,defExpand1},d}
 			l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = pos, tok, lit, sst
 			l.p.dialect = ""
 
@@ -4001,7 +4008,7 @@ minusloop:
 			d, _ = l.configure_set(ctx, id.string(ctx)) // aka. l.project.set
 			d.position = id.Position()
 
-			cc := p_def_val{original{&exe,defConfig|defExpand1},d}
+			cc := def_val{original{&exe,defConfig|defExpand1},d}
 			l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = pos, tok, lit, sst
 			l.p.dialect = ""
 
@@ -4126,7 +4133,7 @@ func (l ul) clause(ctx Context) {
 	var vals []Value
 
 	for l.p.tok != LINEND && l.p.tok != EOF {
-		var x = l.expr(p_left_ctx{ctx})
+		var x = l.expr(left_side{ctx})
 
 		l.p.spaces(ctx)
 

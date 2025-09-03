@@ -9,7 +9,7 @@ package smart
 
 var checkpoints_value_placeholder = map[string]map[string]any{
 	"loader.go": map[string]any{
-		`1120 6:6:val4 $_ {6:31:delegate {4:32:auto _}}`:[]string{
+		`6:6:val4 $_ {6:31:delegate {4:32:auto _}}`:[]string{
 			`{6:11:def _} a {6:31 {6:19:word a}}`,
 			`{6:11:def _} b {6:31 {6:21:word b}}`,
 			`{6:11:def _} c {6:31 {6:23:word c}}`,
@@ -17,17 +17,17 @@ var checkpoints_value_placeholder = map[string]map[string]any{
 			`{6:11:def _} e {6:31 {6:27:word e}}`,
 			`{6:11:def _} f {6:31 {6:29:word f}}`,
 		},
-		`1120 6:6:val4 $(foreach a b c d e f,$_) {6:9:delegate {6:11:builtin foreach} {=list {6:19:word a} {6:21:word b} {6:23:word c} {6:25:word d} {6:27:word e} {6:29:word f}} {=list {6:31:delegate {4:32:auto _}}}}`:`{6:11:builtin foreach} a b c d e f {=list {6:9 {6:31 {6:19:word a}}} {6:9 {6:31 {6:21:word b}}} {6:9 {6:31 {6:23:word c}}} {6:9 {6:31 {6:25:word d}}} {6:9 {6:31 {6:27:word e}}} {6:9 {6:31 {6:29:word f}}}}`,
-		`1120 7:6:val5 $1 {7:19:delegate {3:10:auto 1}}`:`{} {} {7:19:null}`,
-		`1120 7:6:val5 $2 {7:22:delegate {3:13:auto 2}}`:`{} {} {7:22:null}`,
-		`1120 7:6:val5 $3 {7:25:delegate {3:16:auto 3}}`:`{} {} {7:25:null}`,
-		`1120 7:6:val5 $4 {7:28:delegate {3:19:auto 4}}`:`{} {} {7:28:null}`,
-		`1120 7:6:val5 $5 {7:31:delegate {3:22:auto 5}}`:`{} {} {7:31:null}`,
-		`1120 7:6:val5 $6 {7:34:delegate {3:25:auto 6}}`:`{} {} {7:34:null}`,
-		`1120 7:6:val5 $7 {7:37:delegate {3:28:auto 7}}`:`{} {} {7:37:null}`,
-		`1120 7:6:val5 $8 {7:40:delegate {3:31:auto 8}}`:`{} {} {7:40:null}`,
-		`1120 7:6:val5 $9 {7:43:delegate {3:34:auto 9}}`:`{} {} {7:43:null}`,
-		`1120 7:6:val5 $(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_) {7:9:delegate {7:11:builtin foreach} {=list {7:19:delegate {3:10:auto 1}} {7:22:delegate {3:13:auto 2}} {7:25:delegate {3:16:auto 3}} {7:28:delegate {3:19:auto 4}} {7:31:delegate {3:22:auto 5}} {7:34:delegate {3:25:auto 6}} {7:37:delegate {3:28:auto 7}} {7:40:delegate {3:31:auto 8}} {7:43:delegate {3:34:auto 9}}} {=list {7:46:delegate {4:32:auto _}}}}`:`{7:11:builtin foreach} {} {7:9 {7:11:null}}`,
+		`6:6:val4 $(foreach a b c d e f,$_) {6:9:delegate {6:11:builtin foreach} {=list {6:19:word a} {6:21:word b} {6:23:word c} {6:25:word d} {6:27:word e} {6:29:word f}} {=list {6:31:delegate {4:32:auto _}}}}`:`{6:11:builtin foreach} a b c d e f {=list {6:9 {6:31 {6:19:word a}}} {6:9 {6:31 {6:21:word b}}} {6:9 {6:31 {6:23:word c}}} {6:9 {6:31 {6:25:word d}}} {6:9 {6:31 {6:27:word e}}} {6:9 {6:31 {6:29:word f}}}}`,
+		`7:6:val5 $1 {7:19:delegate {3:10:auto 1}}`:`{} {} {7:19:null}`,
+		`7:6:val5 $2 {7:22:delegate {3:13:auto 2}}`:`{} {} {7:22:null}`,
+		`7:6:val5 $3 {7:25:delegate {3:16:auto 3}}`:`{} {} {7:25:null}`,
+		`7:6:val5 $4 {7:28:delegate {3:19:auto 4}}`:`{} {} {7:28:null}`,
+		`7:6:val5 $5 {7:31:delegate {3:22:auto 5}}`:`{} {} {7:31:null}`,
+		`7:6:val5 $6 {7:34:delegate {3:25:auto 6}}`:`{} {} {7:34:null}`,
+		`7:6:val5 $7 {7:37:delegate {3:28:auto 7}}`:`{} {} {7:37:null}`,
+		`7:6:val5 $8 {7:40:delegate {3:31:auto 8}}`:`{} {} {7:40:null}`,
+		`7:6:val5 $9 {7:43:delegate {3:34:auto 9}}`:`{} {} {7:43:null}`,
+		`7:6:val5 $(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_) {7:9:delegate {7:11:builtin foreach} {=list {7:19:delegate {3:10:auto 1}} {7:22:delegate {3:13:auto 2}} {7:25:delegate {3:16:auto 3}} {7:28:delegate {3:19:auto 4}} {7:31:delegate {3:22:auto 5}} {7:34:delegate {3:25:auto 6}} {7:37:delegate {3:28:auto 7}} {7:40:delegate {3:31:auto 8}} {7:43:delegate {3:34:auto 9}}} {=list {7:46:delegate {4:32:auto _}}}}`:`{7:11:builtin foreach} {} {7:9 {7:11:null}}`,
 	},
 	"check-value-placeholder_test.go": map[string]any{
 		`16 3:7:val1 $1 {3:9:delegate {3:10:auto 1}}`:`{3:7:def 1} 1 {3:9 {1:9:word 1}}`,
@@ -70,4 +70,7 @@ var checkpoints_value_placeholder = map[string]map[string]any{
 			`{5:11:def _} 9 {5:46 {5:43 {1:9:word 9}}}`,
 		},
 	},
+}
+
+var checkstrs_value_placeholder = map[string]map[string]any{
 }

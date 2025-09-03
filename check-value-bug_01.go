@@ -9,3 +9,6 @@ package smart
 
 var checkpoints_value_bug_01 = map[string]map[string]any{
 }
+
+var checkstrs_value_bug_01 = map[string]map[string]any{
+}

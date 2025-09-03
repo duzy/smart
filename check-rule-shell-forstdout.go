@@ -9,3 +9,6 @@ package smart
 
 var checkpoints_rule_shell_forstdout = map[string]map[string]any{
 }
+
+var checkstrs_rule_shell_forstdout = map[string]map[string]any{
+}

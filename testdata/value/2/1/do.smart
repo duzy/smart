@@ -11,9 +11,6 @@ project testvalue
 .test.3  := $(.test a,b,c)
 .test.4 ::= $(.test a,b,c)
 
-.test.s0 ::= $(.test x,y) $3 s0
-.test.s1 ::= $(.test.s0) s1
-
 .test.t1  := $(.test x,y) $3
 .test.x   :=   .test.ba
 .test.t2  := $(.test x,y) $3

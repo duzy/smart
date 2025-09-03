@@ -25,3 +25,6 @@ var checkpoints_value_7 = map[string]map[string]any{
 		`16 3:10:.test $1 {3:19:delegate {3:20:auto 1}}`:`{3:10:def 1} .u {3:19 {1:9:word .u}}`,
 	},
 }
+
+var checkstrs_value_7 = map[string]map[string]any{
+}

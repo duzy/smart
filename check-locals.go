@@ -9,8 +9,11 @@ package smart
 
 var checkpoints__locals = map[string]map[string]any{
 	"loader.go": map[string]any{
-		`1120 7:6:foo1 $(foo) {7:9:delegate {3:5:def foo}}`:`{3:5:def foo} foobar {7:9 {3:8:word foobar}}`,
-		`1120 9:6:foo2 $(foo) {9:9:delegate {3:5:def foo}}`:`{3:5:def foo} x {9:9 {8:9:word x}}`,
-		`1120 13:6:foo3 $(foo) {13:9:delegate {3:5:def foo}}`:`{3:5:def foo} foobar {13:9 {3:8:word foobar}}`,
+		`7:6:foo1 $(foo) {7:9:delegate {3:5:def foo}}`:`{3:5:def foo} foobar {7:9 {3:8:word foobar}}`,
+		`9:6:foo2 $(foo) {9:9:delegate {3:5:def foo}}`:`{3:5:def foo} x {9:9 {8:9:word x}}`,
+		`13:6:foo3 $(foo) {13:9:delegate {3:5:def foo}}`:`{3:5:def foo} foobar {13:9 {3:8:word foobar}}`,
 	},
+}
+
+var checkstrs__locals = map[string]map[string]any{
 }

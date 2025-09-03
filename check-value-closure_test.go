@@ -25,9 +25,9 @@ func testClosure(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%s : %v", s, d)
-	} else if s, t := "&(foo.pos)", v.String(); s != t {
+	} else if s, t := v.String(), "&(foo.pos)"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := "foo", v.string(src(ctx,d)); s != t {
+	} else if s, t := v.string(src(ctx,d)), "foo"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 

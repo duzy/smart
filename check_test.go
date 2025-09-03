@@ -35,10 +35,9 @@ type test_final struct{}
 const testModulesPath = "/Volumes/workspace/.smart/modules"
 
 var test_mode bool
-var testdata_dir = get_testdata_dir()
-var testdata_ts = func() (s string) {
-	// {1:1:punct} {1:1:word Volumes} {1:1:word workspace} {1:1:word go} {1:1:word src} {1:1:word extbit.io} {1:1:word smart} {1:1:word testdata}
-	for i, t := range strings.Split(testdata_dir,pathSep) {
+var testdata_s = get_testdata_dir()
+var testdata_t = func() (s string) {
+	for i, t := range strings.Split(testdata_s,pathSep) {
 		if i == 0 && t == "" {
 			s += "{1:1:punct}"
 		} else {

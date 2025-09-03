@@ -604,9 +604,7 @@ func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
     return
 }
 func (d *def) sel(ctx Context, name string) (res any) {
-    if x, _ := d.value.(seler); x != nil {
-        return x.sel(ctx, name)
-    }
+    if x, y := d.value.(seler); y { res = x.sel(ctx, name) }
     return
 }
 func (d *def) traverse(ctx Context) {
@@ -705,7 +703,7 @@ func builtinFinalField(ctx Context, bv reflect.Value, bi any, force bool) bool {
 type builtin struct{ knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
 func (p *builtin) hash(ctx Context) uint64 { return fnv1(ctx, p, p.name) }
-func (p *builtin) isx() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
+func (p *builtin) is_x() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
 func (p *builtin) String() string { return p.name }
 func (p *builtin) true(Context) bool { return p.t != nil }
 func (p *builtin) expand(Context) Value { return p }

@@ -9,3 +9,6 @@ package smart
 
 var checkpoints__if = map[string]map[string]any{
 }
+
+var checkstrs__if = map[string]map[string]any{
+}

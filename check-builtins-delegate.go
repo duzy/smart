@@ -9,3 +9,6 @@ package smart
 
 var checkpoints__delegate = map[string]map[string]any{
 }
+
+var checkstrs__delegate = map[string]map[string]any{
+}

@@ -9,3 +9,6 @@ package smart
 
 var checkpoints__closure = map[string]map[string]any{
 }
+
+var checkstrs__closure = map[string]map[string]any{
+}

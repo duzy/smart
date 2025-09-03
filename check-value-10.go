@@ -9,3 +9,6 @@ package smart
 
 var checkpoints_value_10 = map[string]map[string]any{
 }
+
+var checkstrs_value_10 = map[string]map[string]any{
+}

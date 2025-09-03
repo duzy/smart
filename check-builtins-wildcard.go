@@ -9,3 +9,6 @@ package smart
 
 var checkpoints__wildcard = map[string]map[string]any{
 }
+
+var checkstrs__wildcard = map[string]map[string]any{
+}

@@ -27,3 +27,6 @@ var checkpoints_value_disjunction = map[string]map[string]any{
 		`98 6:6:val4 &(.test) {6:12:closure {=compound {6:14:punct .} {6:15:word test}}}`:`{=compound {6:14:punct .} {6:15:word test}} a b c {=list {6:12 {8:10:word a}} {6:12 {8:12:word b}} {6:12 {8:14:word c}}}`,
 	},
 }
+
+var checkstrs_value_disjunction = map[string]map[string]any{
+}

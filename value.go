@@ -199,15 +199,14 @@ func (c final) ts(t string) string { return fmt.Sprintf("{=%s %v}", t, ts(c.Cont
 func (c final) do(ctx Context, op any) any {
     switch op.(type) {
     case ex_closure: return true
+    case final: return c
     }
     return c.Context.do(ctx, op)
 }
 func _final(ctx Context) Context {
-    if x, y := ctx.(final); y {
-        return x
-    } else {
-        return final{ctx}
-    }
+    c, y := do(ctx, final{}).(final)
+    if !y { c.Context = ctx }
+    return c
 }
 
 type ex_path_str struct{}
@@ -702,16 +701,25 @@ func joinraws(sep string, vals ...*raw) string {
     return strings.Join(strs, sep)
 }
 
+func posstr(s string) string {
+    s = bases(s, 3, true)
+    for _, x := range []string{"/testdata/","/smart/"} {
+        if i := strings.Index(s, x); i > 0 { s = "…/"+s[i+len(x):]; break }
+    }
+    return s
+}
+
 type posctx struct{ Context ; pos any }
 func (p *posctx) cast(t reflect.Type) Context { return icast(p,t) }
 func (p *posctx) inner() Context { return p.Context }
 func (p *posctx) ts(string) string {
     switch t := p.pos.(type) {
     case Position:
-        var s = bases(t.Filename, "testdata", 3, true)
-        return fmt.Sprintf("{=pc %s %s}", s, ts(p.Context))
+        var s = posstr(t.Filename)
+        if t.Column == 0 { return fmt.Sprintf("{%s:%d %s}", s, t.Line, ts(p.Context)) }
+        return fmt.Sprintf("{%s:%d:%d %s}", s, t.Line, t.Column, ts(p.Context))
     default:
-        return fmt.Sprintf("{=pc %v %s}", t, ts(p.Context))
+        return fmt.Sprintf("{%v %s}", t, ts(p.Context))
     }
 }
 func (p *posctx) do(ctx Context, op any) (_ any) {
@@ -795,6 +803,9 @@ func (p *srcctx) do(ctx Context, op any) any {
     return p.posctx.do(ctx, op)
 }
 
+var loader_pos Position
+var loader_src string
+
 func src(ctx Context, a any) Context {
     if pc, file, line, ok := runtime.Caller(1); ok {
         p := Position{}
@@ -808,14 +819,12 @@ func src(ctx Context, a any) Context {
 }
 
 func srctag(p Position) string {
-    if p.Column == 0 {
-        return fmt.Sprintf("%s:%d", filepath.Base(p.Filename), p.Line)
+    if s := filepath.Base(p.Filename); p.Column == 0 {
+        return fmt.Sprintf("%s:%d", s, p.Line)
+    } else {
+        return fmt.Sprintf("%s:%d:%d", s, p.Line, p.Column)
     }
-    return fmt.Sprintf("%s:%d:%d", filepath.Base(p.Filename), p.Line, p.Column)
 }
-
-var loader_pos Position
-var loader_src string
 
 type positioner interface{ Position() Position }
 type stringer   interface{ string(Context) string }
@@ -828,7 +837,9 @@ func (c *stringify_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
     case stringify_ctx: switch t.Context { case nil, c, c.Context: return c }
     case ex_closure, ex_def_1, ex_def_2, ex_def_3: return true
-    case compound_nil: c.nil = true; return true
+    case arrow_nil, closure_nil, delegate_nil:
+        c.nil = true
+        return true
     }
     return c.Context.do(ctx, op)
 }
@@ -898,6 +909,12 @@ func cmp(ctx Context, l, r Value) (res cmpres) {
         if res != cmpUnknown && res != cmpEqual {
             res = cmpres(-res)
         }
+    }
+    return
+}
+func _cmp(ctx Context, _l, _r Value) (res cmpres) {
+    switch l := _l.(type) {
+    case *loc: return _cmp(ctxx, l.Value, _r)
     }
     return
 }
@@ -988,12 +1005,12 @@ func isNull(v Value) (t bool) { // aka is(v, &null{})
 type i_prefix interface{ prefix(Context, Value) Value }
 type i_suffix interface{ suffix(Context, Value) Value }
 func prefix(ctx Context, x, y Value) (res Value) { // x⇒prefix
-    defer pre_suf_check(ctx, "pre", x, y, &res)
+    defer pre_suf_check(ctx, "p", x, y, &res)
     switch _x := x.(type) { case i_prefix: return _x.prefix(ctx, y) }
     return _compound(x).prefix(ctx, y)
 }
 func suffix(ctx Context, x, y Value) (res Value) { // x⇒suffix
-    defer pre_suf_check(ctx, "suf", x, y, &res)
+    defer pre_suf_check(ctx, "s", x, y, &res)
     switch _x := x.(type) { case i_suffix: return _x.suffix(ctx, y) }
     return _compound(x).suffix(ctx, y)
 }
@@ -1098,6 +1115,14 @@ func (p *loc) ts(c Context, t string) string { return "{"+lp(c,p.pos,"",p.Value)
 func (p *loc) prefix(ctx Context, v Value) Value { return &loc{prefix(ctx,p.Value,v),p.pos} }
 func (p *loc) suffix(ctx Context, v Value) Value { return &loc{suffix(ctx,p.Value,v),p.pos} }
 func (p *loc) expand(ctx Context) Value { return &loc{p.Value.expand(ctx),p.pos} }
+func (p *loc) ident(ctx Context) (s string) {
+    if x, y := p.Value.(identer); y { s = x.ident(ctx) }
+    return
+}
+func (p *loc) sel(ctx Context, name string) (res any) {
+    if x, y := p.Value.(seler); y { res = x.sel(ctx, name) }
+    return
+}
 func (p *loc) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints { defer check_cmp(ctx, p, v, &res) }
     switch t := v.(type) {
@@ -1615,6 +1640,7 @@ func (p *binary) stencil(ctx Context, stems []string) (val Value, rest []string)
 func (p *binary) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
 func (p *binary) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
 func (p *binary) expand(Context) Value { return p }
+func (p *binary) ident(ctx Context) string { return p.string(ctx) }
 func (p *binary) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
     return c.hit(ctx, p.string(ctx))
 }
@@ -1628,6 +1654,7 @@ func (p *octal) stencil(ctx Context, stems []string) (val Value, rest []string) 
 func (p *octal) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
 func (p *octal) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
 func (p *octal) expand(Context) Value { return p }
+func (p *octal) ident(ctx Context) string { return p.string(ctx) }
 func (p *octal) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     return c.hit(ctx, p.string(ctx))
 }
@@ -1641,6 +1668,7 @@ func (p *decimal) stencil(ctx Context, stems []string) (val Value, rest []string
 func (p *decimal) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
 func (p *decimal) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
 func (p *decimal) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit(ctx, p.string(ctx)) }
+func (p *decimal) ident(ctx Context) string { return p.string(ctx) }
 func (p *decimal) expand(Context) Value { return p }
 
 type hexadecimal struct{ integer }
@@ -1652,6 +1680,7 @@ func (p *hexadecimal) stencil(ctx Context, stems []string) (val Value, rest []st
 func (p *hexadecimal) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
 func (p *hexadecimal) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
 func (p *hexadecimal) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit(ctx, p.string(ctx)) }
+func (p *hexadecimal) ident(ctx Context) string { return p.string(ctx) }
 func (p *hexadecimal) expand(Context) Value { return p }
 
 const epsilon = 1e-15 /* 1e-16 */
@@ -1668,6 +1697,7 @@ func (p *float) match(ctx Context, i any) (full bool, s any, stems []string) { r
 func (p *float) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *float) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
 func (p *float) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
+func (p *float) ident(ctx Context) string { return p.string(ctx) }
 func (p *float) expand(Context) Value { return p }
 func (p *float) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints { defer check_cmp(ctx, p, v, &res) }
@@ -1698,6 +1728,7 @@ func (p *datetime) float(ctx Context) (f float64) { return float64(p.t.Unix()) }
 func (p *datetime) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
 func (p *datetime) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *datetime) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
+func (p *datetime) ident(ctx Context) string { return p.string(ctx) }
 func (p *datetime) expand(Context) Value { return p }
 func (p *datetime) cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints { defer check_cmp(ctx, p, v, &res) }
@@ -1734,6 +1765,7 @@ func (p *Date) int(ctx Context) (i int64) { return p.t.Unix() }
 func (p *Date) float(ctx Context) (f float64) { return float64(p.t.Unix()) }
 func (p *Date) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Date) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
+func (p *Date) ident(ctx Context) string { return p.string(ctx) }
 func (p *Date) expand(Context) Value { return p }
 
 type Time struct{ datetime }
@@ -1744,6 +1776,7 @@ func (p *Time) int(ctx Context) (i int64) { return p.t.Unix() }
 func (p *Time) float(ctx Context) (f float64) { return float64(p.t.Unix()) }
 func (p *Time) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *Time) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
+func (p *Time) ident(ctx Context) string { return p.string(ctx) }
 func (p *Time) expand(Context) Value { return p }
 
 // ie. https://en.wikipedia.org/wiki/URL
@@ -2214,9 +2247,10 @@ func (q *quote) cmp(ctx Context, v Value) (res cmpres) {
 // punct stands for the punctuation
 type punct struct{ valbase; token }
 func (_ *punct) kind() Kind { return KindPunct }
+func (p *punct) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
 func (p *punct) String() string { return p.token.String() }
 func (p *punct) string(Context) string { return p.token.String() }
-func (p *punct) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
+func (p *punct) ident(Context) string { return p.token.String() }
 func (p *punct) true(Context) (_ bool) { return }
 func (p *punct) int(Context) (_ int64) { return }
 func (p *punct) float(Context) (_ float64) { return }
@@ -2291,8 +2325,7 @@ type bare string
 type word struct{ valbase; s string }
 func (_ *word) kind() Kind { return KindWord }
 func (p *word) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
-func (p *word) true(Context) bool { return p.s != "" }
-func (p *word) identity(Context) string { return p.s }
+func (p *word) ident(Context) string { return p.s }
 func (p *word) string(Context) string { return p.s }
 func (p *word) String() string {
     if strings.Contains(p.s, " ") {
@@ -2301,6 +2334,7 @@ func (p *word) String() string {
         return p.s
     }
 }
+func (p *word) true(Context) bool { return p.s != "" }
 func (p *word) int(ctx Context) (_ int64) {
     if i, e := strconv.ParseInt(p.s, 10, 64); e != nil {
         erro(ctx, "%v", e).trace()
@@ -2498,10 +2532,11 @@ type cond struct{ Value } // conditional component: compound, pair; aka optional
 func (p cond) kind() Kind { return KindCond|p.Value.kind() }
 func (p cond) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p cond) ts(ctx Context, t string) string { return "{="+t+" "+ts(p.Value,ctx)+"}" }
+func (p cond) ident(ctx Context) string { return ident(ctx, p.Value) }
 func (p cond) String() string { return p.Value.String()+"?" }
 func (p cond) string(ctx Context) (_ string) {
     if sc := stringify(ctx); !sc.nil {
-        if v := p.Value.expand(sc); !sc.nil && v.true(ctx) {
+        if v := p.Value.expand(sc); !sc.nil && v != nil && v.true(ctx) {
             return v.string(sc)
         }
     }
@@ -2647,7 +2682,6 @@ func _disjunction(v Value) (res Value) {
 
 type wants_fullfile   struct{}
 type  is_compound     struct{}
-type     compound_nil struct{}
 type     compound_ctx struct{ Context; dis, nil bool }
 func (c *compound_ctx) cast(t reflect.Type) Context { return icast(c, t) }
 func (c *compound_ctx) inner() Context { return c.Context }
@@ -2659,8 +2693,6 @@ func (c *compound_ctx) do(ctx Context, op any) (_ any) {
     }
     return c.Context.do(ctx, op)
 }
-
-type identityer interface{ identity(Context) string }
 
 func com_flag(a, b Value) (res Value, ok bool) {
     switch x := a.(type) {
@@ -2718,12 +2750,12 @@ func comap(a []Value, v Value) (res []Value) {
 type compound struct{ elements }
 func (_ *compound) kind() Kind { return KindCompound }
 func (p *compound) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
-func (p *compound) identity(ctx Context) (s string) {
+func (p *compound) ident(ctx Context) (s string) {
     for _, elem := range p.elems {
-        switch t := elem.(type) {
-        case *word : s += t.s
-        case *punct: s += t.string(ctx)
-        default: return ""
+        if x, y := elem.(identer); y {
+            s += x.ident(ctx)
+        } else {
+            return ""
         }
     }
     return
@@ -2740,32 +2772,23 @@ func (p *compound) String() (s string) {
 }
 func (p *compound) string(ctx Context) (s string) {
     if sc := stringify(ctx); !sc.nil {
-        if v := p.expand(sc); !sc.nil {
-        comp_val:
-            for _, v := range merge(v) {
-                if x, y := v.(*compound); y { // avoid goroutine stack 1000000000-byte limit (aka p == t)
-                    var _s string
+        if vals := p.expand(sc); !sc.nil { // a{x y z}b → axb ayb azb
+            if p.String() == "x{$1}" { note(pc(ctx,p), "%v %v", sc.nil, vals).debug(5) }
+        comp_vals:
+            for _, v := range merge(vals) {
+                var _s string
+                switch x := v.(type) {
+                case *compound: // avoid goroutine stack 1000000000-byte limit (aka p == t)
                     for _, e := range x.elems {
-                        if e == nil {
-                            continue comp_val
-                        } else if t := e.string(sc); !sc.nil {
-                            _s += t
-                        } else {
-                            return
-                        }
+                        if false && e == nil { continue comp_vals }
+                        if _s += e.string(sc); sc.nil { return }
                     }
-                    if s != "" { s += " " }
-                    s += _s
-                } else {
-                    if t := v.string(sc); !sc.nil {
-                        if s != "" { s += " " }
-                        s += t
-                    } else {
-                        return
-                    }
+                default:
+                    if _s = v.string(sc); sc.nil { return }
                 }
+                if s != "" { s += " " }
+                s += _s
             }
-            return
         }
     }
     return
@@ -4532,7 +4555,6 @@ func (p *list) expand(ctx Context) (res Value) {
             d = d || !equal(ctx, v, elem)
         }
     }
-
     if d {
         return &list{elements{a}}
     } else {
@@ -4873,8 +4895,7 @@ func (p skipped) ts(ctx Context, t string) string { return "{="+t+" "+ts(p.Value
 func ident(ctx Context, x Value) (s string) {
     switch t := x.(type) {
     case *closure, *delegate:
-    case     cond: s =   ident(ctx, t.Value)
-    case   object: s = t.ident(ctx)
+    case  identer: s = t.ident(ctx)
     case stringer: s = t.string(ctx)
     }
     return
@@ -4892,6 +4913,7 @@ func (c *closure_delegate_x) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 
+type delegate_nil struct{}
 type delegate struct{
     valbase
     l   token
@@ -4914,10 +4936,20 @@ func (p *delegate) ts(ctx Context, t string) (s string) {
     s += "}"
     return
 }
+func (p *delegate) _ident(ctx Context) (name string) {
+    const sel = true
+    switch x := p.x.(type) {
+    case interface{ ident(Context) string }: name = x.ident(ctx)
+    case *arrow: if sel { name = x.string(ctx) }
+    }
+    return
+}
 func (p *delegate) String() string { return p.src("$") }
-func (p *delegate) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
-        if v := p.expand(sc); !sc.nil && v != nil {
+func (p *delegate) string(ctx Context) (res string) {
+    var v Value
+    var sc = stringify(ctx); defer check_string(ctx, sc, p, &v, &res)
+    if !sc.nil {
+        if v = p.expand(sc); /* !sc.nil && */ v != nil {
             return v.string(sc)
         }
     }
@@ -4981,14 +5013,6 @@ func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
 func (p *delegate) traverse(ctx Context) {
     if v := p.final(ctx); v != nil { v.traverse(ctx) }
 }
-func (p *delegate) ident(ctx Context) (name string) {
-    const sel = true
-    switch x := p.x.(type) {
-    case interface{ ident(Context) string }: name = x.ident(ctx)
-    case *arrow: if sel { name = x.string(ctx) }
-    }
-    return
-}
 func (p *delegate) src(l string) (s string) {
     if s = p._src(); !p.l.is_closure_delegate() { s = l + s }
     return
@@ -5028,26 +5052,32 @@ func (p *delegate) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, 
 func (p *delegate) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
 func (p *delegate) redis() (Value, bool) { return disjunction{p}, true }
 func (p *delegate) resolve(ctx Context, x Value) (res Value) {
-    if v, y := try_evoke(ctx, x, p.o, p.a); y {
-        return v
+    var y bool
+    if res, y = try_evoke(ctx, x, p.o, p.a); y {
+        return
     }
-    switch p.l {
-    case LBRACE, STRING, STRCOMP: // ${xxx}  $'xxx'  $"xxx",  else/illegal: $(xxx)
-        x = project_entry(ctx, x)
-    default:
-        x = project_resolve(ctx, ident(ctx, x))
+    if x != nil && x.kind()&KindBuiltin == 0 {
+        switch p.l {
+        case LBRACE, STRING, STRCOMP: // ${xxx}  $'xxx'  $"xxx",  else/illegal: $(xxx)
+            x = project_entry(ctx, x)
+        default:
+            x = project_resolve(ctx, ident(ctx, x))
+        }
     }
     if x == nil {
-        do(ctx, compound_nil{})
-    } else {
-        res = evoke(ctx, x, p.o, p.a)
+        if truly(ctx, delegate_nil{}) {/* return */}
+        return _null(p.position)
     }
-    if res == nil { res = _null(p.position) }
+    if res, y = try_evoke(ctx, x, p.o, p.a); !y {
+        errostack(pc(ctx,p), 8, "not evoker: %v", ts(x)).trace()
+    } else if res == nil {
+        errostack(pc(ctx,p), 8, "nil result: %v", ts(x)).trace()
+    }
     return
 }
 func (p *delegate) expand(ctx Context) (res Value) {
     var c = closure_delegate_x{ctx,0,0}
-    var x = p.x.expand(&c);    defer check(ctx, p, x, &res)
+    var x = p.x.expand(&c); if checkpoints { defer check(ctx, p, x, &res) }
     var vals []Value
     if c.closure == 0 {
         for _, x := range merge(x) {
@@ -5055,12 +5085,12 @@ func (p *delegate) expand(ctx Context) (res Value) {
         }
         return ease(pc(ctx,p.position), vals)
     } else {
-        if x != nil {
+        if x != nil && x.kind()&KindBuiltin == 0 {
             switch p.l {
-            case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
-                x = closure_entry(ctx, x)
+            case LBRACE, STRING, STRCOMP: // ${xxx}  $'xxx'  $"xxx",  else/illegal: $(xxx)
+                x = project_entry(ctx, x)
             default:
-                x = closure_resolve(ctx, ident(ctx, x))
+                x = project_resolve(ctx, ident(ctx, x))
             }
         }
         if x == nil { x = p.x }
@@ -5112,6 +5142,7 @@ func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
+type closure_nil struct{}
 type closure struct{ delegate }
 func (p *closure) kind() Kind { return p.valbase.kind()|KindClosure }
 func (p *closure) hash(ctx Context) uint64 {
@@ -5120,10 +5151,28 @@ func (p *closure) hash(ctx Context) uint64 {
     for _, v := range p.a { a = append(a, v) }
     return fnv1(ctx, p, a...)
 }
+func (p *closure) ident(ctx Context) (_ string) {
+    if truly(ctx, ex_closure{}) {
+        if v := p.expand(ctx); v != nil {
+            return v.ident(ctx)
+        }
+    }
+    return
+}
 func (p *closure) String() (s string) { return p.src("&") }
-func (p *closure) string(ctx Context) (_ string) {
-    if sc := stringify(ctx); !sc.nil {
-        if v := p.expand(sc); !sc.nil && v != nil {
+func (p *closure) string(ctx Context) (res string) {
+    var v Value
+    var sc = stringify(ctx); if checkpoints { defer check_string(ctx, sc, p, &v, &res) }
+    if !sc.nil {
+        v = p.expand(sc)
+        if p.String() == "&(something)" {
+            note(ctx, "%v %v", p, v).debug()
+        }
+        if v == nil || isNull(v) {
+            do(ctx, closure_nil{})
+            return
+        }
+        if !sc.nil && v != nil {
             return v.string(sc)
         }
     }
@@ -5155,26 +5204,32 @@ func (p *closure) final(ctx Context) (_ Value) {
 }
 func (p *closure) redis() (Value, bool) { return disjunction{p}, true }
 func (p *closure) resolve(ctx Context, x Value) (res Value) {
-    if v, y := try_evoke(ctx, x, p.o, p.a); y {
-        return v
+    var y bool
+    if res, y = try_evoke(ctx, x, p.o, p.a); y {
+        return
     }
-    switch p.l {
-    case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
-        x = closure_entry(ctx, x)
-    default:
-        x = closure_resolve(ctx, ident(ctx, x))
+    if x != nil && x.kind()&KindBuiltin == 0 {
+        switch p.l {
+        case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
+            x = closure_entry(ctx, x)
+        default:
+            x = closure_resolve(ctx, ident(ctx, x))
+        }
     }
     if x == nil {
-        do(ctx, compound_nil{})
-    } else {
-        res = evoke(ctx, x, p.o, p.a)
+        if truly(ctx, closure_nil{}) {/* return */}
+        return _null(p.position)
     }
-    if res == nil { res = _null(p.position) }
+    if res, y = try_evoke(ctx, x, p.o, p.a); !y {
+        errostack(pc(ctx,p), 8, "not evoker: %v", ts(x)).trace()
+    } else if res == nil {
+        errostack(pc(ctx,p), 8, "nil result: %v", ts(x)).trace()
+    }
     return
 }
 func (p *closure) expand(ctx Context) (res Value) {
     var c = closure_delegate_x{ctx,0,0}
-    var x = p.x.expand(&c);    defer check(ctx, p, x, &res)
+    var x = p.x.expand(&c); if checkpoints { defer check(ctx, p, x, &res) }
     var vals []Value
     if truly(ctx, ex_closure{}) {
         for _, x := range merge(x) {
@@ -5182,7 +5237,7 @@ func (p *closure) expand(ctx Context) (res Value) {
         }
         return ease(pc(ctx,p.position), vals)
     } else {
-        if x != nil {
+        if x != nil && x.kind()&KindBuiltin == 0 {
             switch p.l {
             case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
                 x = closure_entry(ctx, x)
@@ -5242,6 +5297,7 @@ func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
     return
 }
 
+type arrow_nil struct{}
 type arrow struct{
     valbase
     t token
@@ -5300,17 +5356,15 @@ func (p *arrow) ex(ctx Context, f func(Value)) {
 }
 func (p *arrow) expand(ctx Context) (res Value) {
     var x seler
-
-    if o := p.o.expand(ctx); isTrivial(o) {
-        return
-    } else if x, _ = o.(seler); x == nil {
+    var o = p.o.expand(ctx)
+    if x, _ = o.(seler); x == nil {
         if p.t.is_select_prog() {
             if t := project_entry(ctx, o); t != nil { o = t }
         } else {
             if t := project_resolve(ctx, ident(ctx, o)); t != nil { o = t }
         }
         if x, _ = o.(seler); x == nil {
-            if truly(ctx, compound_nil{}) {
+            if truly(ctx, arrow_nil{}) {
                 return
             } else {
                 return _null(p.position)
@@ -5318,12 +5372,10 @@ func (p *arrow) expand(ctx Context) (res Value) {
         }
     }
 
-    if sc := stringify(ctx); sc.nil {
-        return
-    } else if s := p.s.string(sc); s == "" {
+    if s := p.s.string(ctx); s == "" {
         return
     } else if t := x.sel(ctx, s); t == nil {
-        if truly(ctx, compound_nil{}) {
+        if truly(ctx, arrow_nil{}) {
             return
         } else {
             return _null(p.position)
@@ -6642,6 +6694,14 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
     return
 }
 
+func _evoker(ctx Context, x Value) evoker {
+    switch t := x.(type) {
+    case *loc: return _evoker(ctx, t.Value)
+    case evoker: return t
+    default: return nil
+    }
+}
+
 func try_evoke(ctx Context, x Value, o, a []Value) (res Value, ok bool) {
     if t := _evoker(ctx, x); t != nil {
         if truly(ctx, evoke_detect_loop{x}) {
@@ -6655,18 +6715,9 @@ func try_evoke(ctx Context, x Value, o, a []Value) (res Value, ok bool) {
         }
         // NOTE: the evo.a represents the arguments, which is a COPY of the original slice;
         // NOTE: making a COPY of the argument slice FIXES the bug of delegate-altered-args.
-        e := evocation{automatic{Context:ctx, defs:make(def_map)}, x, dup(o), dup(a)}
-        return t.evoke(&e), true
+        return t.evoke(&evocation{automatic{Context:ctx, defs:make(def_map)}, x, dup(o), dup(a)}), true
     }
     return
-}
-
-func _evoker(ctx Context, x Value) evoker {
-    switch t := x.(type) {
-    case *loc: return _evoker(ctx, t.Value)
-    case evoker: return t
-    default: return nil
-    }
 }
 
 type opt  struct{ Value }

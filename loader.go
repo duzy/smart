@@ -98,7 +98,11 @@ type abs_ctx struct{ Context ; abs string }
 func (p *abs_ctx) cast(t reflect.Type) Context { return icast(p,t) }
 func (p *abs_ctx) inner() Context { return p.Context }
 func (p *abs_ctx) ts(string) string {
-    return "{=abs "+bases(p.abs, "testdata", 2, true)+" "+ts(p.Context)+"}"
+    if true {
+        return "{"+posstr(p.abs)+" "+ts(p.Context)+"}"
+    } else {
+        return "{=abs "+posstr(p.abs)+" "+ts(p.Context)+"}"
+    }
 }
 func (p *abs_ctx) do(ctx Context, op any) (_ any) {
     switch op.(type) {

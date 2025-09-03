@@ -9,3 +9,6 @@ package smart
 
 var checkpoints__foreach = map[string]map[string]any{
 }
+
+var checkstrs__foreach = map[string]map[string]any{
+}

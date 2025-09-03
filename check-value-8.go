@@ -13,3 +13,6 @@ var checkpoints_value_8 = map[string]map[string]any{
 		`16 3:10:.test $(.test$1) {3:12:delegate {=compound {3:14:punct .} {3:15:word test} {3:19:delegate {3:20:auto 1}}}}`:`{=compound {3:14:punct .} {3:15:word test} {3:19 {1:9:word .u}}} foobar {3:12 {4:12:word foobar}}`,
 	},
 }
+
+var checkstrs_value_8 = map[string]map[string]any{
+}
