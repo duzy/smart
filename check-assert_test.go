@@ -50,7 +50,7 @@ func testAssert(ctx testcase1) {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
 	} else if i = 6; s.vals[i].String() != "{}" || s.bools[i] { // {=null}
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
-	} else if i = 7; s.vals[i].String() != "{x}" || !s.bools[i] {
+	} else if i = 7; s.vals[i].String() != "x" || !s.bools[i] {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
 	} else if i = 7; s.vals[i].string(ctx) != "x" || !s.bools[i] {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
@@ -68,11 +68,11 @@ func testAssert(ctx testcase1) {
 			rec{"", false},
 			rec{"{=undef x}", false},
 			rec{"{}", false},
-			rec{"{x}", true},
+			rec{"x", true},
 			rec{"foobar", true},
 			rec{"1", true},
 			rec{"0", false},
-			rec{"$(equal $(foo),foo)", true},
+			rec{"{=true}", true}, // $(equal $(foo),foo)
 		}{
 			if t := s.vals[i].String(); t != r.string {
 				ctx.err("%s != %s : %s", t, r.string, tst{s.vals[i]})

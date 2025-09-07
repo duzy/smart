@@ -447,13 +447,6 @@ func (p *exec_result) hash(ctx Context) uint64 {
     return fnv1(ctx, p, a...)
 }
 func (p *exec_result) expand(_ Context) Value { return p }
-func (p *exec_result) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*exec_result); ok {
-        assert(ok, "value is not exec_result")
-        if p.Status == a.Status { res = cmpEqual }
-    }
-    return
-}
 func (p *exec_result) true(ctx Context) (res bool) {
     res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
     return

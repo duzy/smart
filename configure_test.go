@@ -349,7 +349,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 	s = "FOO"
 	if d := ctx.def(s); d == nil || d.value == nil {
 		ctx.err("%s", s)
-	} else if d.value.ident(ctx) != ".self" {
+	} else if ident(ctx, d.value) != ".self" {
 		ctx.err("%v", tst{d.value})
 	} else if d.value.String() != "{=self testdefaultconfigure}" {
 		ctx.err("%v", tst{d.value})

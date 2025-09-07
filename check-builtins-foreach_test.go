@@ -136,7 +136,7 @@ func test__foreach(ctx *testcase) {
 	} else if v := ctx.val(d); v == nil {
 		ctx.err("%v", d)
 	} else if !equal(ctx, v, d.value) {
-		ctx.err("%v → %v (%v)", tst{v}, d, v.cmp(ctx, d.value))
+		ctx.err("%v → %v (%v)", tst{v}, d, cmp(ctx, v, d.value))
 	} else if s, t := v.String(), "x xq xp"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if s, t := v.string(ctx), "x xq xp"; s != t {

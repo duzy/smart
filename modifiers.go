@@ -180,8 +180,8 @@ func modify(ctx Context, g *group, hyphen bool) (res Value) {
 type modifier struct { group }
 func (m *modifier) kind() Kind { return m.group.kind()|KindModifier }
 func (m *modifier) hash(ctx Context) uint64 { return fnv1(ctx, m, m.any()...) }
-func (m *modifier) cmp(ctx Context, v Value) (_ cmpres) {
-    if x, y := v.(*modifier); y { return m.group.cmp(ctx, &x.group) }
+func (m *modifier) _cmp(ctx Context, v Value) (_ cmpres) {
+    if x, y := v.(*modifier); y { return cmp(ctx, &m.group, &x.group) }
     return
 }
 func (m *modifier) expand(ctx Context) Value { return modify(ctx, &m.group, false) }
@@ -202,10 +202,10 @@ func (g *modification) hash(ctx Context) uint64 {
     for _, m := range g.list { a = append(a, m) }
     return fnv1(ctx, g, a...)
 }
-func (g *modification) cmp(ctx Context, v Value) (res cmpres) {
+func (g *modification) _cmp(ctx Context, v Value) (res cmpres) {
     if o, y := v.(*modification); y && len(g.list) == len(o.list) {
         for i, m := range g.list {
-            if t := m.cmp(ctx, o.list[i]); t != cmpEqual { return t }
+            if t := cmp(ctx, m, o.list[i]); t != cmpEqual { return t }
         }
         res = cmpEqual
     }

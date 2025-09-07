@@ -91,6 +91,7 @@ var builtins = map[string]reflect.Type {
     `warning`:   reflect.TypeOf((*__warning)(nil)).Elem(),
     `assert`:    reflect.TypeOf((*__assert)(nil)).Elem(),
     `sure`:      reflect.TypeOf((*__sure)(nil)).Elem(),
+    `trace`:     reflect.TypeOf((*__trace)(nil)).Elem(),
 
     `defor`:     reflect.TypeOf((*__defor)(nil)).Elem(), // $(defor $(x),$(y),$(z))  <=>  $(ifdef x,$(y),$(z))
     `or`:        reflect.TypeOf((*__or)(nil)).Elem(),
@@ -712,7 +713,7 @@ func (ctx *__assert) x() (res any) {
         diagstack(ctx, s, t).debug(d)
     }
 
-    for _, a := range ctx.a {
+    for _, a := range expand(ctx, ctx.a...) {
         if a == nil {
             erro(ctx, "nil argument").trace()
             continue
@@ -744,6 +745,19 @@ func (ctx *__sure) x() (res any) {
         }
     }
     return ctx.a
+}
+
+type __trace struct { builtinbase }
+func (ctx *__trace) inner() Context { return &ctx.builtinbase }
+func (ctx *__trace) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__trace) x() (res any) {
+    for _, a := range ctx.a {
+        note(ctx, "%v", ts(a)).trace()
+    }
+    return
 }
 
 // $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
@@ -840,7 +854,7 @@ func (ctx *__unequal) x() (_ any) {
 
     var a = ctx.a[0].expand(_final(ctx))
     var b = ctx.a[1].expand(_final(ctx))
-    var t = a.cmp(ctx, b) != cmpEqual
+    var t = cmp(ctx, a, b) != cmpEqual
 
     if t {
         return _boolean(_position(ctx), true)
@@ -876,14 +890,13 @@ func (ctx *__equal) x() (_ any) {
         note(ctx, "try: $(equal <value-list>,<value-list>)").trace()
     }
 
-    ctx.a = expand(ctx, ctx.a...)
+    args := expand(ctx, ctx.a...)
 
-    if a, b := ctx.a[0], ctx.a[1]; ctx.str {
-        if a.string(ctx) == b.string(ctx) { return true }
+    if a, b := args[0], args[1]; ctx.str {
+        return a.string(ctx) == b.string(ctx)
     } else {
-        if a.cmp(ctx, b) == cmpEqual { return true }
+        return cmp(ctx, a, b) == cmpEqual
     }
-    return
 }
 
 type __greater struct { builtinbase; str bool `str,string` }
@@ -898,12 +911,12 @@ func (ctx *__greater) x() (res any) {
         note(ctx, "try: $(greater <value-list>,<value-list>)").trace()
     }
 
-    ctx.a = expand(ctx, ctx.a...)
+    args := expand(ctx, ctx.a...)
 
-    if a, b := ctx.a[0], ctx.a[1]; ctx.str {
+    if a, b := args[0], args[1]; ctx.str {
         if a.string(ctx) > b.string(ctx) { return true }
     } else {
-        if a.cmp(ctx, b) == cmpGreater { return true }
+        if cmp(ctx, a, b) == cmpGreater { return true }
     }
     return
 }
@@ -920,12 +933,12 @@ func (ctx *__less) x() (res any) {
         note(ctx, "try: $(greater <value-list>,<value-list>)").trace()
     }
 
-    ctx.a = expand(ctx, ctx.a...)
+    args := expand(ctx, ctx.a...)
 
-    if a, b := ctx.a[0], ctx.a[1]; ctx.str {
+    if a, b := args[0], args[1]; ctx.str {
         if a.string(ctx) < b.string(ctx) { return true }
     } else {
-        if a.cmp(ctx, b) == cmpSmaller { return true }
+        if cmp(ctx, a, b) == cmpSmaller { return true }
     }
     return
 }
@@ -1086,7 +1099,7 @@ func (ctx *__case) x() (res any) {
             } else if f, y := v.(flag); y && isNull(f.Value) {
                 collect = true
             }
-        } else if val != nil && val.cmp(ctx, v) == cmpEqual {
+        } else if val != nil && cmp(ctx, val, v) == cmpEqual {
             collect = true
         }
         if !collect { continue }
@@ -1326,11 +1339,7 @@ func (ctx *__auto) x() (_ any) {
                 erro(pc(ctx,a), "wrong auto def: %s : %s", a, ts(a)).trace()
             }
         }
-
-        vals := expand(ctx, ctx.a...)
-        if false && checkpoints { ctx.check(vals) }
-        ctx.a = vals
-        return vals
+        return expand(ctx, ctx.a...)
     }
     return
 }
@@ -1788,7 +1797,7 @@ func (ctx *__unique) x() (_ any) {
             for _, a := range args { a.string(ctx) }
             t4 := time.Now()
             d3 := t4.Sub(t3)
-            for i, a := range args { if i > 0 { a.cmp(ctx, args[i-1]) } }
+            for i, a := range args { if i > 0 { cmp(ctx, a, args[i-1]) } }
             t5 := time.Now()
             d4 := t5.Sub(t4)
             // for i, a := range args { if i > 0 { eq(ctx, a, args[i-1]) } }
@@ -2286,8 +2295,7 @@ func (ctx *__finalize) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__finalize) x() any {
-    ctx.a = expand(_final(ctx), ctx.a...)
-    return ctx.a
+    return expand(_final(ctx), ctx.a...)
 }
 
 type __filter struct { builtinbase
@@ -2928,7 +2936,7 @@ func (ctx *__gitdir) x() (_ any) {
 type __add___fix struct { builtinbase; dis Value }
 func (ctx *__add___fix) x(f func(_ Context, _, _ Value) Value) (_ any) {
     if len(ctx.a) < 1 {
-        erro(ctx, "not enough args, try $(addprefix prefix, ...)").trace()
+        erro(ctx, "wrong args, try $(addprefix fix,...)").trace()
     }
 
     var res []Value
@@ -2936,29 +2944,30 @@ func (ctx *__add___fix) x(f func(_ Context, _, _ Value) Value) (_ any) {
     for _, fix := range xmerge(ctx,ctx.a[0]) {
         if !isTrivial(fix) {
             fix = redis(fix)
-            for _, v := range xmerge(ctx,ctx.a[1:]...) {
+            for _, v := range xmerge(ctx, ctx.a[1:]...) {
                 if !isTrivial(v) { res = append(res, f(ctx, fix, redis(v))) }
             }
         }
     }
+    if res != nil { do(ctx, reset_stringify{}) }
     return res
 }
 
 type __addprefix struct { __add___fix }
 func (ctx *__addprefix) inner() Context { return &ctx.builtinbase }
+func (ctx *__addprefix) x() (_ any) { return ctx.__add___fix.x(prefix) }
 func (ctx *__addprefix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__addprefix) x() (_ any) { return ctx.__add___fix.x(prefix) }
 
 type __addsuffix struct { __add___fix }
 func (ctx *__addsuffix) inner() Context { return &ctx.builtinbase }
+func (ctx *__addsuffix) x() (_ any) { return ctx.__add___fix.x(suffix) }
 func (ctx *__addsuffix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__addsuffix) x() (_ any) { return ctx.__add___fix.x(suffix) }
 
 type __print struct{ builtinbase
     noErrs bool `noerrs,noerrors,no-errs,no-errors`
@@ -3122,7 +3131,7 @@ outer:
             } else if ctx.string {
                 t = elem.string(ctx) == s
             } else {
-                t = val.cmp(ctx, elem) == cmpEqual
+                t = cmp(ctx, val, elem) == cmpEqual
             }
             if t { n += 1; continue outer }
         }
@@ -4513,7 +4522,7 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
         for _, loc := range fm.paths {
             if dir := loc.string(ctx); lPat && rPat {
                 var pat Value
-                if lVal.cmp(ctx, rVal) == cmpEqual {
+                if cmp(ctx, lVal, rVal) == cmpEqual {
                     pat = lVal
                 } else {
                     pat = compositePattern{lVal, []Value{rVal}}

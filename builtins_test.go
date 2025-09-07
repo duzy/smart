@@ -552,22 +552,14 @@ func test__file(ctx *testcase) {
 		ctx.err("%v", tst{o.Value})
 	} else if f.fullname() != fullFooTxt {
 		ctx.err("%v %v", tst{v}, f.fullname())
-	} else if o.cmp(ctx, f) != cmpEqual {
-		ctx.err("%v %v", tst{v}, f)
-	} else if f.cmp(ctx, o) != cmpEqual {
-		ctx.err("%v %v", tst{v}, f)
 	} else if cmp(ctx, o, f) != cmpEqual {
 		ctx.err("%v %v", tst{v}, f)
 	} else if cmp(ctx, f, o) != cmpEqual {
 		ctx.err("%v %v", tst{v}, f)
 	} else if p := _pathstr(ctx, f.fullname()); p == nil {
 		ctx.err("%v %v", tst{v}, f)
-	} else if t := o.cmp(ctx, p); t != cmpEqual {
-		ctx.err("%v, %v %v", t, tst{o}, tst{p})
 	} else if true {
 		// hold line ...
-	} else if p.cmp(ctx, o) != cmpEqual {
-		ctx.err("%v %v", tst{p}, tst{o})
 	} else if cmp(ctx, p, o) != cmpEqual {
 		ctx.err("%v %v", tst{p}, tst{o})
 	} else if cmp(ctx, o, p) != cmpEqual {

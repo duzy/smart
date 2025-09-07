@@ -13,13 +13,13 @@ func testValues3(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$1 &(.test) &(.test.5) &(.test.5 x) &(.test.5 x,y) &(.test.5 x,y,z) &(.test aa)"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := v.string(src(ctx,d)), "v----- v-x---- v-x-y--- v-x-y-z-- v----- a v-x---- a v-x-y--- a v-x-y-z-- a aa v----- v-x---- v-x-y--- v-x-y-z--"; s != t {
 		ctx.err("%v : %s != %s", v, t, s)
 	} else if v := ctx.val(d.name, defExpand1, "a"); v == nil {
 		ctx.err(".test")
 	} else if s, t := v.String(), "a &(.test) &(.test.5) &(.test.5 x) &(.test.5 x,y) &(.test.5 x,y,z) &(.test aa)"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "a"; s != t {
+	} else if s, t := v.string(src(ctx,d)), "a v----- v-x---- v-x-y--- v-x-y-z-- v----- a v-x---- a v-x-y--- a v-x-y-z-- a aa v----- v-x---- v-x-y--- v-x-y-z--"; s != t {
 		ctx.err("%v : %s != %s", v, t, s)
 	}
 }

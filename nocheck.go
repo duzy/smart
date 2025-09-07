@@ -10,6 +10,6 @@ package smart
 // NOTE: cannot decalre `checkpoints` as `const` because it's compile-time evaled.
 var checkpoints = false
 
-func pre_suf_check(_ Context, _ string, _, _ Value, _ *Value) {}
+func check_pre_suf(_ Context, _ string, _, _ Value, _ *Value) {}
 func check_cmp(_ Context, _, _ Value, _ *cmpres) {}
 func check(_ Context, _, _ Value, _ *Value) {}

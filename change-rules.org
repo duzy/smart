@@ -1,0 +1,7 @@
+#+title: Change Rules
+
+* Define the goal/purpose of the current change plan in a sentence
+
+* Stash or amend every small modification onto the top commit
+
+* Made the commit comment an brief explanation of the goal/purpose

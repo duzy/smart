@@ -457,8 +457,92 @@ func closure_with(ctx Context, a ...any) Context {
     return ctx
 }
 
+func defs(ctx Context, val any, s ...string) (res []*def) {
+    switch p := val.(type) {
+    case []Value:
+        for _, v := range p { res = append(res, defs(ctx, v, s...)...) }
+    case *loc:
+        res = append(res, defs(ctx, p.Value, s...)...)
+    case *barefile:
+        res = append(res, defs(ctx, p.Value, s...)...)
+    case *globrange:
+        res = append(res, defs(ctx, p.Value, s...)...)
+    case *percpat:
+        res = append(res, defs(ctx, p.Prefix, s...)...)
+        res = append(res, defs(ctx, p.Suffix, s...)...)
+    case *globpat:
+        res = append(res, defs(ctx, p.elems, s...)...)
+    case *strcomp:
+        res = append(res, defs(ctx, p.elems, s...)...)
+    case *path:
+        res = append(res, defs(ctx, p.elems, s...)...)
+    case *group:
+        res = append(res, defs(ctx, p.elems, s...)...)
+    case *list:
+        res = append(res, defs(ctx, p.elems, s...)...)
+    case *compound:
+        res = append(res, defs(ctx, p.elems, s...)...)
+    case *argumented:
+        res = append(res, defs(ctx, p.Value, s...)...)
+        res = append(res, defs(ctx, p.args, s...)...)
+    case *pair:
+        res = append(res, defs(ctx, p.key, s...)...)
+        res = append(res, defs(ctx, p.val, s...)...)
+    case *arrow:
+        res = append(res, defs(ctx, p.o, s...)...)
+        res = append(res, defs(ctx, p.s, s...)...)
+    case *closure:
+        res = append(res, defs(ctx, p.x, s...)...)
+        res = append(res, defs(ctx, p.o, s...)...)
+        res = append(res, defs(ctx, p.a, s...)...)
+    case *delegate:
+        res = append(res, defs(ctx, p.x, s...)...)
+        res = append(res, defs(ctx, p.o, s...)...)
+        res = append(res, defs(ctx, p.a, s...)...)
+    case *undetermined:
+        res = append(res, defs(ctx, p.identifier, s...)...)
+        res = append(res, defs(ctx, p.value, s...)...)
+    case *use:
+        res = append(res, defs(ctx, p.params, s...)...)
+    case *uselist:
+        res = append(res, defs(ctx, p.list, s...)...)
+    case *auto:
+        if d := p.def(ctx); d != nil { res = append(res, defs(ctx, d, s...)...) }
+    case *url:
+        if v := p.Scheme;   v != nil { res = append(res, defs(ctx, v, s...)...) }
+        if v := p.Username; v != nil { res = append(res, defs(ctx, v, s...)...) }
+        if v := p.Password; v != nil { res = append(res, defs(ctx, v, s...)...) }
+        if v := p.Host;     v != nil { res = append(res, defs(ctx, v, s...)...) }
+        if v := p.Port;     v != nil { res = append(res, defs(ctx, v, s...)...) }
+        if v := p.Path;     v != nil { res = append(res, defs(ctx, v, s...)...) }
+        if v := p.Query;    v != nil { res = append(res, defs(ctx, v, s...)...) }
+        if v := p.Fragment; v != nil { res = append(res, defs(ctx, v, s...)...) }
+    case *rule:
+        res = append(res, defs(ctx, p.target, s...)...)
+        for _, p := range p.program {
+            res = append(res, defs(ctx, p.depends, s...)...)
+            res = append(res, defs(ctx, p.recipes, s...)...)
+        }
+    case *def:
+        if len(s) == 0 {
+            res = append(res, p)
+        } else {
+            for _, s := range s {
+                if s == p.name {
+                    res = append(res, p)
+                    break
+                }
+            }
+        }
+        res = append(res, defs(ctx, p.value, s...)...)
+    default:
+        erro(pc(ctx,p), "defs: %v : %v", p, ts(p)).trace()
+    }
+    return
+}
+
 func refdef(ctx Context, val Value, origin origin) (res bool) {
-    for _, def := range val.defs(ctx) {
+    for _, def := range defs(ctx, val) {
         if def.o == origin { return true }
         if true && def.value != nil && refdef(ctx, def.value, origin) { return true }
     }
@@ -827,30 +911,113 @@ func srctag(p Position) string {
 }
 
 type positioner interface{ Position() Position }
-type stringer   interface{ string(Context) string }
 type identer    interface{ ident(Context) string }
+type stringer   interface{ string(Context) string }
 type seler      interface{ sel(Context,string) any }
 
+type reset_stringify struct{}
 type stringify_ctx struct{ Context ; nil bool }
 func (c *stringify_ctx) inner() Context { return c.Context }
 func (c *stringify_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
     case stringify_ctx: switch t.Context { case nil, c, c.Context: return c }
     case ex_closure, ex_def_1, ex_def_2, ex_def_3: return true
+    case reset_stringify: c.nil = false; return
     case arrow_nil, closure_nil, delegate_nil:
         c.nil = true
         return true
     }
     return c.Context.do(ctx, op)
 }
-func stringify(ctx Context, a ...any) *stringify_ctx {
-    if x, y := do(ctx, stringify_ctx{}).(*stringify_ctx); y { return x }
-    return &stringify_ctx{ctx, false}
+func stringify(ctx Context, a ...any) (*stringify_ctx, Context) {
+    if x, _ := do(ctx, stringify_ctx{}).(*stringify_ctx); x != nil {
+        return x, ctx
+    } else {
+        x = &stringify_ctx{ctx, false}
+        return x, x
+    }
+}
+
+type set_opt_ident  struct{}
+type closure_ident  struct{}
+type delegate_ident struct{}
+type ident_ctx struct{ Context ; nil int }
+func (c *ident_ctx) inner() Context { return c.Context }
+func (c *ident_ctx) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case ident_ctx: switch t.Context { case nil, c, c.Context: return c }
+    case delegate_ident: c.nil = 1; return
+    case closure_ident: c.nil = 2; return
+    case set_opt_ident: c.nil = 3; return
+    case opt_ident: if c.nil > 0 { return true }
+    }
+    return c.Context.do(ctx, op)
+}
+func identity(ctx Context) (*ident_ctx, Context) {
+    x, _ := do(ctx, ident_ctx{}).(*ident_ctx)
+    return x, ctx
+}
+func identity_ctx(ctx Context) (ic *ident_ctx, rc Context) {
+    if ic, rc = identity(ctx); ic == nil {
+        ic = &ident_ctx{ctx, 0}
+        rc = ic
+    }
+    return
+}
+func ident(ctx Context, x Value) (s string) {
+    if checkpoints { defer check_ident(ctx, x, &s) }
+    switch t := x.(type) {
+    case *loc: return ident(ctx, t.Value)
+    case *closure: return ident_opt(ctx, "&", x, closure_ident{})
+    case *delegate: return ident_opt(ctx, "$", x, delegate_ident{})
+    case identer: return t.ident(ctx)
+    default:
+        errostack(pc(ctx,x), 8, "no ident: %v", ts(x)).trace()
+        return
+    }
+}
+
+func ident_opt(ctx Context, pre string, x Value, op any) (_ string) {
+    if truly(ctx, ex_closure{}) {
+        var ic *ident_ctx
+        if ic, ctx = identity(ctx); ic.nil == 0 {
+            if v := x.expand(ctx); ic.nil == 0 {
+                do(ctx, set_opt_ident{})
+                return ident(ctx, v)
+            }
+        }
+    }
+    if op != nil { do(ctx, op) }
+    return x.(interface{ id(Context,string) string }).id(ctx, pre)
+}
+
+type opt_ident struct{}
+type opt_ident_ctx struct{ Context }
+func (c *opt_ident_ctx) inner() Context { return c.Context }
+func (c *opt_ident_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case opt_ident_ctx: return c
+	case opt_ident: return true
+    }
+    return c.Context.do(ctx, op)
+}
+func optional_ident(ctx Context) Context {
+    if do(ctx, opt_ident_ctx{}) == nil { ctx = &opt_ident_ctx{ctx} }
+    return ctx
+}
+func optional(v Value) (_ bool) {
+    switch t := v.(type) {
+    case cond: return true
+    case *loc: return optional(t.Value)
+    case *arrow: return optional(t.o) || optional(t.s)
+    case *list: for _, e := range t.elems { if optional(e) { return true } }
+    case *compound: for _, e := range t.elems { if optional(e) { return true } }
+    }
+    return
 }
 
 type Value interface{
     positioner // The position where the value appears (or NoPos).
-    identer
     stringer
 
     String() string
@@ -862,10 +1029,7 @@ type Value interface{
     int(Context) int64
     float(Context) float64
 
-    cmp(Context, Value) cmpres
-
     patterned(Context) bool
-    defs(Context, ...string) []*def
 
     match(Context, any) (bool, any, []string)
     stencil(Context, []string) (Value, []string)
@@ -903,30 +1067,235 @@ func is(v Value, a any) bool {
     return reflect.TypeOf(v) == reflect.TypeOf(a)
 }
 
+func cmp_br(v Value, f func(any,int) cmpres) cmpres {
+    switch t := v.(type) {
+    case *loc: return cmp_br(t.Value, f)
+    case cond: return cmp_br(t.Value, f)
+    case self: return cmp_br(t.project, f)
+    case flag: return cmp_br(t.Value, func(a any, base int) cmpres {
+        switch t := a.(type) {
+        case string: return f("-"+t,0)
+        case int64: return f(-t,base)
+        case float64: return f(-t,0)
+        default: return f(a, base)
+        }
+    })
+    case *boolean: return f(t.bool,0)
+    case *word: return f(t.s,0)
+    case *raw: return f(t.s,0)
+    case *binary: return f(t.int64,2)
+    case *octal: return f(t.int64,8)
+    case *decimal: return f(t.int64,10)
+    case *hexadecimal: return f(t.int64,16)
+    case *float: return f(t.float64,0)
+    case *datetime: return f(t.t,0)
+    case *Date: return f(t.t,1)
+    case *Time: return f(t.t,2)
+    default: return f(v,0)
+    }
+    panic(fmt.Sprintf("cmp branch: %v", ts(v)))
+}
 func cmp(ctx Context, l, r Value) (res cmpres) {
-    if  res = l.cmp(ctx, r); res == cmpUnknown {
-        res = r.cmp(ctx, l)
-        if res != cmpUnknown && res != cmpEqual {
-            res = cmpres(-res)
+    if checkpoints { defer check_cmp(ctx, l, r, &res) }
+    return cmp_br(l, func(lv any, lb int) cmpres {
+        return cmp_br(r, func(rv any, rb int) cmpres {
+            switch x := lv.(type) {
+            case string:
+                switch y := rv.(type) {
+                case string: return cmp_string(x, y)
+                case *punct: return cmp_string(x, y.String())
+                case int64:
+                    if i, e := strconv.ParseInt(x, lb, 64); e == nil {
+                        return cmp_int(i, y)
+                    }
+                case float64:
+                    if i, e := strconv.ParseFloat(x, 64); e == nil {
+                        return cmp_float(i, y)
+                    }
+                case time.Time:
+                    switch rb {
+                    case 0: if t, e := parseDateTime(x); e == nil { return cmp_time(t, y) }
+                    case 1: if t, e := parseDate(x); e == nil { return cmp_time(t, y) }
+                    case 2: if t, e := parseTime(x); e == nil { return cmp_time(t, y) }
+                    default:
+                        erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                        note(ctx, "into: %v <=> %v", ts(lv), ts(rv)).trace()
+                    }
+                default:
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %v <=> %v", ts(lv), ts(rv)).trace()
+                }
+            case int64:
+                switch y := rv.(type) {
+                case string:
+                    if i, e := strconv.ParseInt(y, rb, 64); e == nil {
+                        return cmp_int(x, i)
+                    }
+                case int64: return cmp_int(x, y)
+                case float64: return cmp_int(x, int64(y))
+                default:
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %v <=> %v", ts(lv), ts(rv)).trace()
+                }
+            case float64:
+                switch y := rv.(type) {
+                case string:
+                    if f, e := strconv.ParseFloat(y, 64); e == nil {
+                        return cmp_float(x, f)
+                    }
+                case int64: return cmp_float(x, float64(y))
+                case float64: return cmp_float(x, y)
+                default:
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %v <=> %v", ts(lv), ts(rv)).trace()
+                }
+            case time.Time:
+                switch y := rv.(type) {
+                case time.Time: return cmp_time(x, y)
+                case string:
+                    switch lb {
+                    case 0: if t, e := parseDateTime(y); e == nil { return cmp_time(x, t) }
+                    case 1: if t, e := parseDate(y); e == nil { return cmp_time(x, t) }
+                    case 2: if t, e := parseTime(y); e == nil { return cmp_time(x, t) }
+                    default:
+                        erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                        note(ctx, "into: %v <=> %v", ts(lv), ts(rv)).trace()
+                    }
+                default:
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %v <=> %v", ts(lv), ts(rv)).trace()
+                }
+            case *punct:
+                switch y := rv.(type) {
+                case *punct:
+                    if x.token == y.token {
+                        return cmpEqual
+                    } else if s1, s2 := x.String(), y.String(); s1 < s2 {
+                        return cmpSmaller
+                    } else {
+                        return cmpGreater
+                    }
+                case string: return cmp_string(x.String(), y)
+                default:
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %v <=> %v", ts(lv), ts(rv)).trace()
+                }
+            case *list:
+                switch y := rv.(type) {
+                case *list:
+                    var ( i int; x_elem Value )
+                    for i, x_elem = range x.elems {
+                        if i < y.len() {
+                            if cr := cmp(ctx, x_elem, y.elems[i]); cr != cmpEqual {
+                                return cr
+                            }
+                        } else {
+                            return cmpGreater
+                        }
+                    }
+                    if i == x.len()-1 {
+                        return cmpEqual
+                    } else {
+                        erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                        note(ctx, "into: %v <=> %v", ts(x), ts(y)).trace()
+                    }
+                case *compound:
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %v <=> %v", ts(x), ts(y)).trace()
+                default:
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %v <=> %v", ts(x), ts(y)).trace()
+                }
+            case *compound:
+                switch y := rv.(type) {
+                case *compound:
+                    var ( i int; x_elem Value )
+                    for i, x_elem = range x.elems {
+                        if i < y.len() {
+                            if cr := cmp(ctx, x_elem, y.elems[i]); cr != cmpEqual {
+                                return cr
+                            }
+                        } else {
+                            return cmpGreater
+                        }
+                    }
+                    if i == x.len()-1 {
+                        return cmpEqual
+                    } else {
+                        erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                        note(ctx, "into: %v <=> %v", ts(x), ts(y)).trace()
+                    }
+                case *list:
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %v <=> %v", ts(x), ts(y)).trace()
+                default:
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %v <=> %v", ts(x), ts(y)).trace()
+                }
+            default:
+                if ctx = pc(pc(ctx,r),l); true {
+                    erro(ctx, "cmp: %v <=> %v", ts(l), ts(r))
+                    note(ctx, "into: %s ⇔ %s | %v <=> %v", typeof(lv), typeof(rv), ts(lv), ts(rv)).trace()
+                } else if true {
+                    note(ctx, "cmp: %s ⇔ %s | %v <=> %v", typeof(lv), typeof(rv), ts(lv), ts(rv))
+                }
+            }
+            return cmpUnknown
+        })
+    })
+}
+func cmp_string(l, r string) cmpres {
+    if l == r {
+        return cmpEqual
+    } else if l < r {
+        if strings.HasPrefix(r, l) {
+            return cmpLprefix
+        } else {
+            return cmpSmaller
+        }
+    } else {
+        if strings.HasPrefix(l, r) {
+            return cmpRprefix
+        } else {
+            return cmpGreater
         }
     }
-    return
 }
-func _cmp(ctx Context, _l, _r Value) (res cmpres) {
-    switch l := _l.(type) {
-    case *loc: return _cmp(ctxx, l.Value, _r)
+func cmp_int(l, r int64) cmpres {
+    switch {
+    case l == r: return cmpEqual
+    case l < r: return cmpSmaller
+    case l > r: return cmpGreater
     }
-    return
+    return cmpUnknown
+}
+func cmp_float(l, r float64) cmpres {
+    switch {
+    case l == r: return cmpEqual
+    case l < r: return cmpSmaller
+    case l > r: return cmpGreater
+    }
+    return cmpUnknown
+}
+func cmp_time(l, r time.Time) cmpres {
+    switch {
+    case l.Equal(r): return cmpEqual
+    case l.Before(r): return cmpSmaller
+    case l.After(r): return cmpGreater
+    }
+    return cmpUnknown
 }
 
 func eq(x Context, a, b Value) bool {
-    return a == b || a.cmp(x, b) == cmpEqual
+    return a == b || cmp(x, a, b) == cmpEqual
 }
 
 func equal(x Context, a, b Value, s ...bool) (res bool) {
     if a == nil {
         return b == nil
-    } else if a == b || a.cmp(x, b) == cmpEqual {
+    } else if a == b {
+        return true
+    } else if cmp(x, a, b) == cmpEqual {
         return true
     } else {
         return false
@@ -1002,15 +1371,22 @@ func isNull(v Value) (t bool) { // aka is(v, &null{})
     return
 }
 
+func compose(ctx Context, x, prefix, suffix Value) (res Value) { // prefix⇒x⇒suffix
+    switch t := x.(type) {
+    case *loc: return _loc(compose(ctx, t.Value, prefix, suffix), t.pos)
+    }
+    return _compound(prefix, x, suffix)
+}
+
 type i_prefix interface{ prefix(Context, Value) Value }
 type i_suffix interface{ suffix(Context, Value) Value }
-func prefix(ctx Context, x, y Value) (res Value) { // x⇒prefix
-    defer pre_suf_check(ctx, "p", x, y, &res)
+func prefix(ctx Context, x, y Value) (res Value) { // prefix⇒x
+    defer check_pre_suf(ctx, "p", x, y, &res)
     switch _x := x.(type) { case i_prefix: return _x.prefix(ctx, y) }
     return _compound(x).prefix(ctx, y)
 }
 func suffix(ctx Context, x, y Value) (res Value) { // x⇒suffix
-    defer pre_suf_check(ctx, "s", x, y, &res)
+    defer check_pre_suf(ctx, "s", x, y, &res)
     switch _x := x.(type) { case i_suffix: return _x.suffix(ctx, y) }
     return _compound(x).suffix(ctx, y)
 }
@@ -1021,7 +1397,7 @@ func (c valfix_ctx) do(ctx Context, op any) any {
     switch op.(type) { case valfix: return true }
     return c.Context.do(ctx, op)
 }
-func prefix_r(ctx Context, x, y Value) (res Value) { // x⇒prefix
+func prefix_r(ctx Context, x, y Value) (res Value) { // prefix⇒x
     switch t := y.(type) {
     case i_suffix:
         if !truly(ctx, valfix{}) {
@@ -1076,13 +1452,10 @@ func (vals *valvec) add2(ctx Context, val Value) (res *valvec) {
 type valbase struct{ position Position }
 func (p *valbase) Position() Position { return p.position }
 func (_ *valbase) kind() Kind { return KindUnclassified }
-func (_ *valbase) cmp(Context, Value) (_ cmpres) { return }
 func (_ *valbase) do(Context, any) (_ any) { return }
-func (_ *valbase) defs(Context, ...string) (_ []*def) { return }
 func (_ *valbase) delete(Context) (_ []*file) { return }
 func (_ *valbase) expand(Context) (_ Value) { return }
 func (_ *valbase) float(Context) (_ float64) { return }
-func (_ *valbase) ident(Context) (_ string) { return }
 func (_ *valbase) int(Context) (_ int64) { return }
 func (_ *valbase) match(Context, any) (_ bool, _ any, _ []string) { return }
 func (_ *valbase) patterned(Context) (_ bool) { return }
@@ -1115,20 +1488,9 @@ func (p *loc) ts(c Context, t string) string { return "{"+lp(c,p.pos,"",p.Value)
 func (p *loc) prefix(ctx Context, v Value) Value { return &loc{prefix(ctx,p.Value,v),p.pos} }
 func (p *loc) suffix(ctx Context, v Value) Value { return &loc{suffix(ctx,p.Value,v),p.pos} }
 func (p *loc) expand(ctx Context) Value { return &loc{p.Value.expand(ctx),p.pos} }
-func (p *loc) ident(ctx Context) (s string) {
-    if x, y := p.Value.(identer); y { s = x.ident(ctx) }
-    return
-}
 func (p *loc) sel(ctx Context, name string) (res any) {
     if x, y := p.Value.(seler); y { res = x.sel(ctx, name) }
     return
-}
-func (p *loc) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch t := v.(type) {
-    case *loc: return p.Value.cmp(ctx, t.Value)
-    default:   return p.Value.cmp(ctx, v)
-    }
 }
 
 func _loc(v Value, p Position) Value {
@@ -1217,35 +1579,17 @@ func (p undef) true(Context) (_ bool) { return }
 func (p undef) prefix(_ Context, v Value) Value { return &loc{v,p.Value.Position()} }
 func (p undef) suffix(_ Context, v Value) Value { return v }
 func (p undef) expand(_ Context) Value { return p }
-func (p undef) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*undef); y {
-        return p.Value.cmp(ctx, x.Value)
-    } else if l, y := v.(*list); y && l.len() == 1 {
-        return p.cmp(ctx, l.elems[0])
-    } else {
-        return
-    }
-}
 
 type null struct{ valbase }
 func (_ *null) kind() Kind { return KindNull }
 func (_ *null) String() string { return "{}" } // {=null}
+func (_ *null) ident(Context) (_ string) { return }
 func (p *null) hash(ctx Context) uint64 { return fnv1(ctx, p) }
 func (p *null) prefix(_ Context, v Value) Value { return &loc{v,p.position} }
 func (p *null) suffix(_ Context, v Value) Value { return v }
 func (p *null) expand(Context) Value { return p }
 func (p *null) traverse(ctx Context) { erro(pc(ctx,p), "null traversal").trace() }
 func (p *null) ts(ctx Context, t string) string { return "{"+lp(ctx, p.position, t)+"}" }
-func (p *null) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if _, y := v.(*null); y {
-        return cmpEqual
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    return
-}
 
 type none struct{ valbase }
 func (_ *none) kind() Kind { return KindNone }
@@ -1257,21 +1601,6 @@ func (p *none) prefix(_ Context, v Value) Value { return &loc{v,p.position} }
 func (p *none) suffix(_ Context, v Value) Value { return v }
 func (p *none) expand(Context) Value { return p }
 func (p *none) traverse(ctx Context) { erro(ctx, "none traversal").trace() }
-func (p *none) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if _, y := v.(*none); y {
-        return cmpEqual
-    } else if s, y := v.(*strlit); false && y && s.s == "" {
-        return cmpEqual
-    } else if l, y := v.(*list); y {
-        if n := len(l.elems); n == 0 {
-            return cmpEqual
-        } else if n == 1 {
-            return p.cmp(ctx, l.elems[0])
-        }
-    }
-    return
-}
 
 type argumented_ctx struct{ Context ; val Value; args []Value }
 func (ac *argumented_ctx) cast(t reflect.Type) Context { return icast(ac,t) }
@@ -1312,11 +1641,12 @@ func (p *argumented) String() (s string) {
     return
 }
 func (p *argumented) string(ctx Context) (_ string) {
-    if sc := stringify(ctx); !sc.nil {
-        if s := p.Value.string(sc); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if s := p.Value.string(ctx); !sc.nil {
             s += "("
             for i, a := range p.args {
-                if t := a.string(sc); sc.nil {
+                if t := a.string(ctx); sc.nil {
                     return
                 } else {
                     if i > 0 { s += "," }
@@ -1327,11 +1657,6 @@ func (p *argumented) string(ctx Context) (_ string) {
             return s
         }
     }
-    return
-}
-func (p *argumented) defs(ctx Context, s ...string) (res []*def) {
-    res = p.Value.defs(ctx, s...)
-    for _, a := range p.args { res = append(res, a.defs(ctx, s...)...) }
     return
 }
 func (p *argumented) prefix(ctx Context, v Value) Value {
@@ -1347,23 +1672,6 @@ func (p *argumented) expand(ctx Context) Value {
     } else {
         return p
     }
-}
-func (p *argumented) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*argumented); y {
-        if p.Value.cmp(ctx, x.Value) == cmpEqual {
-            if len(p.args) == len(x.args) {
-                for i, v := range p.args {
-                    if v.cmp(ctx, x.args[i]) == cmpEqual {
-                        return cmpEqual
-                    }
-                }
-            }
-        }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    return
 }
 func (p *argumented) ctx(ctx Context) *argumented_ctx {
     if checkpoints {
@@ -1408,22 +1716,16 @@ func (p *argumented) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
 }
 
 type negative struct{ Value }
-func (p negative) String() (s string) { return `!`+p.Value.String() }
-func (p negative) expand(ctx Context) Value { return negative{p.Value.expand(ctx)} }
 func (p negative) hash(ctx Context) uint64 { return fnv1(ctx, p, p.Value) }
 func (p negative) ts(ctx Context, t string) string { return "{="+t+" "+ts(p.Value,ctx)+"}" }
-func (p negative) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(negative); y {
-        return p.Value.cmp(ctx, x.Value)
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    return
-}
+func (p negative) traverse(ctx Context) { if p.Value != nil { p.Value.traverse(ctx) } }
+func (p negative) expand(ctx Context) Value { return negative{p.Value.expand(ctx)} }
+func (p negative) ident(ctx Context) string { return `!`+ident(ctx, p.Value) }
+func (p negative) String() string { return `!`+p.Value.String() }
 func (p negative) string(ctx Context) (_ string) {
-    if sc := stringify(ctx); !sc.nil {
-        if s := p.Value.string(sc); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if s := p.Value.string(ctx); !sc.nil {
             return "!"+s
         }
     }
@@ -1441,7 +1743,6 @@ func (p negative) int(ctx Context) (res int64) {
     if !p.Value.true(ctx) { res = 1 }
     return
 }
-func (p negative) traverse(ctx Context) { if p.Value != nil { p.Value.traverse(ctx) } }
 
 func stringMatch(ctx Context, p Value, i any) (full bool, s string, stems []string) {
     var v = p.string(ctx)
@@ -1478,15 +1779,6 @@ func (p *escaped) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v
 func (p *escaped) stencil(ctx Context, stems []string) (Value, []string) { return p, stems }
 func (p *escaped) match(ctx Context, i any) (bool, any, []string) { return stringMatch(ctx, p, i) }
 func (p *escaped) expand(Context) Value { return p }
-func (p *escaped) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if o, y := v.(*escaped); y {
-        if p.s == o.s { res = cmpEqual }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    return
-}
 
 type boolean struct{ valbase; bool }
 func (_ *boolean) kind() Kind { return KindBoolean }
@@ -1502,37 +1794,6 @@ func (p *boolean) ts(ctx Context, t string) string {
     var s string
     if p.bool { s = "true" } else { s = "false" }
     return fmt.Sprintf("{%s}", lp(ctx, p.position, s))
-}
-func (p *boolean) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if a, y := v.(*option); y {
-        if p.bool == a.bool {
-            res = cmpEqual
-        } else if !p.bool && a.bool {
-            res = cmpSmaller
-        } else if p.bool && !a.bool {
-            res = cmpGreater
-        }
-    } else if a, y := v.(*answer); y {
-        if p.bool == a.bool {
-            res = cmpEqual
-        } else if !p.bool && a.bool {
-            res = cmpSmaller
-        } else if p.bool && !a.bool {
-            res = cmpGreater
-        }
-    } else if a, y := v.(*boolean); y {
-        if p.bool == a.bool {
-            res = cmpEqual
-        } else if !p.bool && a.bool {
-            res = cmpSmaller
-        } else if p.bool && !a.bool {
-            res = cmpGreater
-        }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    return
 }
 func (p *boolean) match(ctx Context, i any) (full bool, s any, stems []string) {
     return stringMatch(ctx, p, i)
@@ -1610,26 +1871,6 @@ func (p *integer) true(ctx Context) bool { return p.int64 != 0 }
 func (p *integer) int(ctx Context) (i int64) { return p.int64 }
 func (p *integer) float(ctx Context) (f float64) { return float64(p.int64) }
 func (p *integer) hash(ctx Context) uint64 { return fnv1(ctx, nil, p) }
-func (p *integer) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    var o *integer
-    switch t := v.(type) {
-    case      *binary: o = &t.integer
-    case     *decimal: o = &t.integer
-    case *hexadecimal: o = &t.integer
-    case       *octal: o = &t.integer
-    }
-    if o != nil {
-        if p == o || p.int64 == o.int64 {
-            return cmpEqual
-        } else if p.int64 < o.int64 {
-            return cmpSmaller
-        } else if p.int64 > o.int64 {
-            return cmpGreater
-        }
-    }
-    return
-}
 
 type binary struct{ integer }
 func (p *binary) kind() Kind { return p.integer.kind()|KindBinary }
@@ -1699,24 +1940,6 @@ func (p *float) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) 
 func (p *float) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
 func (p *float) ident(ctx Context) string { return p.string(ctx) }
 func (p *float) expand(Context) Value { return p }
-func (p *float) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch x := v.(type) {
-    case *float:
-        if f := v.float(ctx); p.float64 == f {
-            return cmpEqual
-        } else if p.float64 < f {
-            return cmpSmaller
-        } else if p.float64 > f {
-            return cmpGreater
-        }
-    case *list:
-        if len(x.elems) == 1 {
-            return p.cmp(ctx, x.elems[0])
-        }
-    }
-    return
-}
 
 type datetime struct{ valbase ; t time.Time }
 func (_ *datetime) kind() Kind { return KindDateTime }
@@ -1730,32 +1953,6 @@ func (p *datetime) match(ctx Context, i any) (full bool, s any, stems []string) 
 func (p *datetime) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *datetime) ident(ctx Context) string { return p.string(ctx) }
 func (p *datetime) expand(Context) Value { return p }
-func (p *datetime) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    var vt time.Time
-    switch a := v.(type) {
-    case *datetime: vt = a.t
-    case *Date:     vt = a.t
-    case *Time:     vt = a.t
-    default: return
-    }
-    if p.t.Equal(vt) {
-        return cmpEqual
-    } else if p.t.Before(vt) {
-        return cmpSmaller
-    } else /*if p.t.After(vt)*/ {
-        return cmpGreater
-    }
-}
-
-func ParseDateTime(pos Position, s string) *datetime {
-    // time.RFC3339Nano
-    if t, e := time.Parse("2006-01-02T15:04:05.999999999Z07:00", s); e == nil {
-        return &datetime{valbase{pos},t}
-    } else {
-        panic(e)
-    }
-}
 
 type Date struct{ datetime }
 func (p *Date) kind() Kind { return p.datetime.kind()|KindDate }
@@ -1800,6 +1997,33 @@ func (p *url) ts(ctx Context, t string) (s string) {
     return "{"+lp(ctx, p.Position(), t, p.Scheme, p.Username, p.Password,
         p.Host, p.Port, p.Path, p.Query, p.Fragment)+"}"
 }
+func (p *url) ident(ctx Context) (s string) {
+    s = ident(ctx, p.Scheme) + ":"
+    if p.Host != nil {
+        s += "//"
+        if p.Username != nil {
+            s += ident(ctx, p.Username) + "@"
+        }
+        s += ident(ctx, p.Host)
+        if p.Port != nil {
+            s += ":" + ident(ctx, p.Port)
+        }
+    }
+    if p.Path != nil {
+        s += ident(ctx, p.Path)
+    }
+    if p.Query != nil {
+        s += "?"
+        for i, q := range p.Query {
+            if 0 < i { s += "&" }
+            s += ident(ctx, q)
+        }
+    }
+    if p.Fragment != nil {
+        s += "#" + ident(ctx, p.Fragment)
+    }
+    return
+}
 func (p *url) String() (s string) {
     s = p.Scheme.String() + ":"
     if p.Host != nil {
@@ -1828,46 +2052,47 @@ func (p *url) String() (s string) {
     return
 }
 func (p *url) string(ctx Context) (_ string) {
-    sc := stringify(ctx)
+    var sc *stringify_ctx
+    sc, ctx = stringify(ctx)
     if sc.nil { return }
 
-    s := p.Scheme.string(sc)
+    s := p.Scheme.string(ctx)
     if sc.nil { return }
 
     s += ":"
     if p.Host != nil && !isNone(p.Host) {
         s += "//"
         if p.Username != nil && !isNone(p.Username) {
-            s += p.Username.string(sc)
+            s += p.Username.string(ctx)
             if sc.nil { return }
             if p.Password != nil {
-                s += ":" + p.Password.string(sc)
+                s += ":" + p.Password.string(ctx)
                 if sc.nil { return }
             }
             s += "@"
         }
-        s += p.Host.string(sc)
+        s += p.Host.string(ctx)
         if sc.nil { return }
         if p.Port != nil && !isNone(p.Port) {
-            s += ":" + p.Port.string(sc)
+            s += ":" + p.Port.string(ctx)
             if sc.nil { return }
         }
     }
     if p.Path != nil && !isNone(p.Path) {
         //if !strings.HasPrefix(path, pathSep) { s += pathSep }
-        s += p.Path.string(sc)
+        s += p.Path.string(ctx)
         if sc.nil { return }
     }
     if p.Query != nil {
         s += "?"
         for i, q := range p.Query {
             if 0 < i { s += "&" }
-            s += q.string(sc)
+            s += q.string(ctx)
             if sc.nil { return }
         }
     }
     if p.Fragment != nil && !isNone(p.Fragment) {
-        s += "#" + p.Fragment.string(sc)
+        s += "#" + p.Fragment.string(ctx)
         if sc.nil { return }
     }
     return s
@@ -1883,18 +2108,6 @@ func (p *url) int(ctx Context) (i int64) {
     return
 }
 func (p *url) float(ctx Context) (f float64) { return float64(p.int(ctx)) }
-func (p *url) ident(Context) (_ string) { return }
-func (p *url) defs(ctx Context, names ...string) (res []*def) {
-    if v := p.Scheme;   v != nil { res = append(res, v.defs(ctx, names...)...) }
-    if v := p.Username; v != nil { res = append(res, v.defs(ctx, names...)...) }
-    if v := p.Password; v != nil { res = append(res, v.defs(ctx, names...)...) }
-    if v := p.Host;     v != nil { res = append(res, v.defs(ctx, names...)...) }
-    if v := p.Port;     v != nil { res = append(res, v.defs(ctx, names...)...) }
-    if v := p.Path;     v != nil { res = append(res, v.defs(ctx, names...)...) }
-    for _, v := range p.Query    { res = append(res, v.defs(ctx, names...)...) }
-    if v := p.Fragment; v != nil { res = append(res, v.defs(ctx, names...)...) }
-    return
-}
 func (p *url) delete(ctx Context) (_ []*file) {
     erro(pc(ctx,p), "url.delete: %v", p).trace()
     return
@@ -1919,48 +2132,7 @@ func (p *url) updatedDeps(ctx Context, vals ...Value) (_ []Value) {
     erro(pc(ctx,p), "url.updatedDeps: %v", p).trace()
     return
 }
-func (p *url) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*url); y {
-        if p.Scheme == nil || x.Scheme == nil { return }
-        if p.Scheme.cmp(ctx, x.Scheme) != cmpEqual { return }
-        if p.Username != nil {
-            if x.Username == nil { return }
-            if p.Username.cmp(ctx, x.Username) != cmpEqual { return }
-        }
-        if p.Password != nil {
-            if x.Password == nil { return }
-            if p.Password.cmp(ctx, x.Password) != cmpEqual { return }
-        }
-        if p.Host != nil {
-            if x.Host == nil { return }
-            if p.Host.cmp(ctx, x.Host) != cmpEqual { return }
-        }
-        if p.Port != nil {
-            if x.Port == nil { return }
-            if p.Port.cmp(ctx, x.Port) != cmpEqual { return }
-        }
-        if p.Path != nil {
-            if x.Path == nil { return }
-            if p.Path.cmp(ctx, x.Path) != cmpEqual { return }
-        }
-        if p.Query != nil {
-            if len(x.Query) != len(p.Query) { return }
-            for i, q := range p.Query {
-                if q.cmp(ctx, x.Query[i]) != cmpEqual { return }
-            }
-        }
-        if p.Fragment != nil {
-            if x.Fragment == nil { return }
-            if p.Fragment.cmp(ctx, x.Fragment) != cmpEqual { return }
-        }
-        res = cmpEqual
-    } else if x, y := v.(*list); y && len(x.elems) == 1 {
-        return p.cmp(ctx, x.elems[0])
-    }
-    return
-}
-func (p *url) expand(ctx Context) (res Value) {
+func (p *url) expand(ctx Context) Value {
     var o = new(url)
     if nil != p.Scheme   { o.Scheme   = p.Scheme.expand(ctx) }
     if nil != p.Username { o.Username = p.Username.expand(ctx) }
@@ -1970,19 +2142,7 @@ func (p *url) expand(ctx Context) (res Value) {
     if nil != p.Path     { o.Path     = p.Path.expand(ctx) }
     if nil != p.Query    { o.Query    = expand(ctx, p.Query...) }
     if nil != p.Fragment { o.Fragment = p.Fragment.expand(ctx) }
-    if  o.Scheme != p.Scheme ||
-        o.Username != p.Username ||
-        o.Password != p.Password ||
-        o.Host != p.Host ||
-        o.Port != p.Port ||
-        o.Path != p.Path ||
-        // o.Query != p.Query ||
-        o.Fragment != p.Fragment {
-        res = o
-    } else {
-        res = p
-    }
-    return
+    return o
 }
 func (p *url) patterned(ctx Context) (_ bool) {
     if v := p.Scheme;   v != nil { if v.patterned(ctx) { return true } }
@@ -2041,33 +2201,6 @@ func (p *raw) match(ctx Context, i any) (bool, any, []string) {
 func (p *raw) stencil(ctx Context, stems []string) (Value, []string) {
     return p, stems
 }
-func (p *raw) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    cmp := func(l, r string) cmpres {
-        if l == r {
-            return cmpEqual
-        } else if l < r {
-            if strings.HasPrefix(r, l) {
-                return cmpLprefix
-            } else {
-                return cmpSmaller
-            }
-        } else {
-            if strings.HasPrefix(l, r) {
-                return cmpRprefix
-            } else {
-                return cmpGreater
-            }
-        }
-    }
-    switch x := v.(type) {
-    case *raw: return cmp(p.s, x.s)
-    case *word: return cmp(p.s, x.s)
-    case *list: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
-    case *path: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
-    }
-    return
-}
 
 type strlit struct{ valbase; s string }
 func (_ *strlit) kind() Kind { return KindStrLit }
@@ -2099,22 +2232,6 @@ func (p *strlit) float(ctx Context) (_ float64) {
         return f
     }
 }
-func (p *strlit) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch t := v.(type) {
-    case *strlit:
-        if p.s == t.s {
-            return cmpEqual
-        } else if p.s < t.s {
-            return cmpSmaller
-        } else /*if p.s > t.s*/ {
-            return cmpGreater
-        }
-    case *list:
-        if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
-    }
-    return
-}
 func (p *strlit) match(ctx Context, i any) (full bool, s any, stems []string) {
     full, s, stems = stringMatch(ctx, p, i)
     return
@@ -2142,9 +2259,10 @@ func (p *strval) String() (s string) {
     return
 }
 func (p *strval) string(ctx Context) (s string) {
-    var sc = stringify(ctx)
+    var sc *stringify_ctx
+    sc, ctx = stringify(ctx)
     for _, v := range p.v {
-        if t := v.string(sc); sc.nil {
+        if t := v.string(ctx); sc.nil {
             return
         } else if t != "" {
             if s != "" { s += " " } // TODO: seperator?
@@ -2185,21 +2303,6 @@ func (p *strval) float(ctx Context) (f float64) {
     }
     return
 }
-func (p *strval) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch t := v.(type) {
-    case *list: if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
-    case *strval:
-        var n = len(t.v)
-        for i, v := range p.v {
-            if n <= i { break }
-            if res = v.cmp(ctx, t.v[i]); res != cmpEqual{
-                break
-            }
-        }
-    }
-    return
-}
 func (p *strval) match(ctx Context, i any) (full bool, s any, stems []string) { return stringMatch(ctx, p, i) }
 func (p *strval) stencil(ctx Context, stems []string) (val Value, rest []string) { return p, stems }
 func (p *strval) traverse(ctx Context) { do(ctx, act_traverse{p}) }
@@ -2222,8 +2325,9 @@ func (_ *quote) kind() Kind { return KindQuote }
 func (q *quote) hash(ctx Context) uint64 { return fnv1(ctx, q, q.any()) }
 func (q *quote) String() (s string) { return "{=quote "+q.list.String()+"}" }
 func (q *quote) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
-        if s = q.list.string(sc); sc.nil { return }
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if s = q.list.string(ctx); sc.nil { return }
     }
     return strconv.Quote(s)
 }
@@ -2234,14 +2338,6 @@ func (q *quote) expand(ctx Context) Value {
     } else {
         return q
     }
-}
-func (q *quote) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, q, v, &res) }
-    switch t := v.(type) {
-    case *loc: return q.cmp(ctx, t.Value)
-    case *quote: return compareElems(ctx, q.elems, t.elems)
-    }
-    return
 }
 
 // punct stands for the punctuation
@@ -2275,24 +2371,6 @@ func (p *punct) match(ctx Context, i any) (full bool, res any, stems []string) {
     }
     return
 }
-func (p *punct) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch x := v.(type) {
-    case *punct:
-        if p.token == x.token {
-            res = cmpEqual
-        } else if p.token > x.token {
-            res = cmpSmaller
-        } else if p.token < x.token {
-            res = cmpGreater
-        }
-    case *list:
-        if x.len() == 1 {
-            return p.cmp(ctx, x.elems[0])
-        }
-    }
-    return
-}
 func (p *punct) ts_(t string) (s string) {
     l, r := p.position.Line, p.position.Column
     switch p.token {
@@ -2301,24 +2379,6 @@ func (p *punct) ts_(t string) (s string) {
     default:    s = p.token.String()
     }
     return fmt.Sprintf("{%d:%d:%s %s}", l, r, t, s)
-}
-
-func cmp_words(l, r string) cmpres {
-    if l == r {
-        return cmpEqual
-    } else if l < r {
-        if strings.HasPrefix(r, l) {
-            return cmpLprefix
-        } else {
-            return cmpSmaller
-        }
-    } else {
-        if strings.HasPrefix(l, r) {
-            return cmpRprefix
-        } else {
-            return cmpGreater
-        }
-    }
 }
 
 type bare string
@@ -2351,17 +2411,6 @@ func (p *word) float(ctx Context) (_ float64) {
         return f
     }
 }
-func (p *word) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch x := v.(type) {
-    case *raw: return cmp_words(p.s, x.s)
-    case *word: return cmp_words(p.s, x.s)
-    case *loc: return p.cmp(ctx, x.Value)
-    case *list: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
-    case *path: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
-    }
-    return
-}
 func (p *word) expand(ctx Context) Value { return p }
 func (p *word) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
 func (p *word) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
@@ -2380,32 +2429,6 @@ func (p *qualword) float(ctx Context) (_ float64) { return }
 func (p *qualword) expand(Context) Value { return p }
 func (p *qualword) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
 func (p *qualword) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
-func (p *qualword) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if a, y := v.(*qualword); y {
-        var n int
-        var al, pl = len(a.words), len(p.words)
-        for i, w := range p.words {
-            if al <= i {
-                break
-            } else if w == a.words[n] {
-                if n += 1; n == al && al == pl {
-                    res = cmpEqual
-                } else {
-                    continue
-                }
-            } else if w > a.words[n] {
-                res = cmpSmaller // cmpGreater??
-            } else {
-                res = cmpGreater // cmpSmaller??
-            }
-            break
-        }
-    } else if x, y := v.(*list); y && len(x.elems) == 1 {
-        return p.cmp(ctx, x.elems[0])
-    }
-    return
-}
 func (p *qualword) match(ctx Context, i any) (full bool, s any, stems []string) {
     full, s, stems = stringMatch(ctx, p, i)
     return
@@ -2416,7 +2439,6 @@ func (p *qualword) stencil(ctx Context, stems []string) (val Value, rest []strin
 func (p *qualword) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 
 type elements struct{ elems []Value }
-func (p *elements) ident(Context) (_ string) { return } // aka name
 func (p *elements) list() *list { return &list{*p} }
 func (p *elements) path() *path { return &path{*p} }
 func (p *elements) compound() *compound { return &compound{*p} }
@@ -2432,9 +2454,7 @@ func (_ *elements) traverse(Context) {}
 func (p *elements) append(v ...Value) { p.elems = append(p.elems, v...) }
 func (p *elements) Position() (_ Position) {
     for _, e := range p.elems {
-        if e != nil {
-            if t := e.Position(); t.valid() { return t }
-        }
+        if e != nil { if t := e.Position(); t.valid() { return t } }
     }
     return
 }
@@ -2469,42 +2489,9 @@ func (p *elements) true(ctx Context) (t bool) { // (or elems...)
     }
     return
 }
-func (p *elements) defs(ctx Context, s ...string) (res []*def) {
-    for _, elem := range p.elems { res = append(res, elem.defs(ctx, s...)...) }
-    return
-}
 func (p *elements) ts(ctx Context, t string) (s string) {
     for _, a := range p.elems { s += " " + ts(a, ctx) }
     return "{="+t+s+"}"
-}
-
-func compareElems(ctx Context, elemsL, elemsR []Value) (res cmpres) {
-    if len(elemsL) != len(elemsR) {
-        elemsL = merge(elemsL...)
-        elemsR = merge(elemsR...)
-    }
-    if len(elemsL) == len(elemsR) {
-        for i,  elemL := range elemsL {
-            var elemR = elemsR[i]
-            var l,  r = elemL == nil, elemR == nil
-            if l && r { continue }
-            if l || r { return }
-            if res = elemL.cmp(ctx, elemR); res != cmpEqual { return }
-        }
-        if res == 0 { res = cmpEqual }
-    } else {
-        var notEmptyL, notEmptyR bool
-        for _, elem := range elemsL {
-            if notEmptyL = !(isNone(elem) || isNull(elem)); notEmptyL { break }
-        }
-        for _, elem := range elemsR {
-            if notEmptyR = !(isNone(elem) || isNull(elem)); notEmptyR { break }
-        }
-        if !notEmptyL && !notEmptyR { return cmpEqual }
-
-        // TODO: list.cmp: cmpSmaller, cmpGreater
-    }
-    return
 }
 
 func is_cond(v Value) (_ bool) {
@@ -2532,49 +2519,45 @@ type cond struct{ Value } // conditional component: compound, pair; aka optional
 func (p cond) kind() Kind { return KindCond|p.Value.kind() }
 func (p cond) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p cond) ts(ctx Context, t string) string { return "{="+t+" "+ts(p.Value,ctx)+"}" }
-func (p cond) ident(ctx Context) string { return ident(ctx, p.Value) }
+func (p cond) ident(ctx Context) string { return ident(ctx, p.Value)+"?" }
 func (p cond) String() string { return p.Value.String()+"?" }
 func (p cond) string(ctx Context) (_ string) {
-    if sc := stringify(ctx); !sc.nil {
-        if v := p.Value.expand(sc); !sc.nil && v != nil && v.true(ctx) {
-            return v.string(sc)
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if v := p.Value.expand(ctx); !sc.nil && v != nil && v.true(ctx) {
+            return v.string(ctx)
         }
     }
     return
 }
 func (p cond) true(ctx Context) (t bool) {
-    if sc := stringify(ctx); !sc.nil {
-        if v := p.expand(sc); !sc.nil {
-            return v.true(sc)
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if v := p.expand(ctx); !sc.nil {
+            return v.true(ctx)
         }
     }
     return
 }
 func (p cond) int(ctx Context) (i int64) {
-    if sc := stringify(ctx); !sc.nil {
-        if v := p.expand(sc); !sc.nil && v.true(ctx) {
-            return v.int(sc)
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if v := p.expand(ctx); !sc.nil && v.true(ctx) {
+            return v.int(ctx)
         }
     }
     return
 }
 func (p cond) float(ctx Context) (f float64) {
-    if sc := stringify(ctx); !sc.nil {
-        if v := p.expand(sc); !sc.nil && v.true(ctx) {
-            return v.float(sc)
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if v := p.expand(ctx); !sc.nil && v.true(ctx) {
+            return v.float(ctx)
         }
     }
     return
 }
 func (p cond) expand(ctx Context) (res Value) { return p.Value.expand(ctx) }
-func (p cond) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch x := v.(type) {
-    case cond: return p.Value.cmp(ctx, x.Value)
-    case *list: if x.len() == 1 { return p.cmp(ctx, x.elems[0]) }
-    }
-    return
-}
 
 type conjunction struct{ *list ; sep Value }
 func (p conjunction) hash(ctx Context) uint64 {
@@ -2589,15 +2572,17 @@ func (p conjunction) String() string {
     return "{{"+p.list.String()+"}"+s+"}"
 }
 func (p conjunction) string(ctx Context) (_ string) {
-    var sc = stringify(ctx)
+    var sc *stringify_ctx
+    sc, ctx = stringify(ctx)
+
     var sep string
     if p.sep != nil {
-        if sep = p.sep.string(sc); sc.nil { return }
+        if sep = p.sep.string(ctx); sc.nil { return }
     }
 
     var ss []string
     for _, elem := range p.elems {
-        if s := elem.string(sc); sc.nil {
+        if s := elem.string(ctx); sc.nil {
             return
         } else {
             ss = append(ss, s)
@@ -2648,26 +2633,19 @@ type ex_disjunction struct{}
 type    disjunction struct{ Value }
 func (p disjunction) kind() Kind { return KindDisjunction|p.Value.kind() }
 func (p disjunction) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
+func (p disjunction) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
+func (p disjunction) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
+func (p disjunction) expand(ctx Context) Value { return p.Value.expand(disjunction_ctx{ctx}) }
 func (p disjunction) ts(ctx Context, t string) string { return "{="+t+" "+ts(p.Value,ctx)+"}" }
 func (p disjunction) String() string { return "{"+p.Value.String()+"}" }
 func (p disjunction) string(ctx Context) (_ string) {
-    if sc := stringify(ctx); !sc.nil {
-        if s := p.Value.string(sc); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if s := p.Value.string(ctx); !sc.nil {
             return s
         }
     }
     return
-}
-func (p disjunction) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
-func (p disjunction) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
-func (p disjunction) expand(ctx Context) (res Value) { return p.Value.expand(disjunction_ctx{ctx}) }
-func (p disjunction) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(disjunction); y {
-        return p.Value.cmp(ctx, x.Value)
-    } else {
-        return
-    }
 }
 
 func _disjunction(v Value) (res Value) {
@@ -2746,18 +2724,78 @@ func comap(a []Value, v Value) (res []Value) {
     }
     return append(a, v)
 }
+func com(ctx *compound_ctx, a, elems []Value) (res []Value) {
+    var c bool // a != nil && indeterminate(ctx, a...)
+    if strings.Contains(fmt.Sprintf("%v", elems), "[fo -{&(.test.") {
+        defer func() { note(pc(ctx,elems), "%v %v → %v %v", a, elems, res, ts(res)).debug(3) } ()
+    }
+    for i, val := range elems {
+        if val == nil { continue }
+
+        ctx.nil = false
+        _, ctx.dis = val.(disjunction)
+        v := val.expand(ctx)
+
+        if ctx.dis {
+            if ctx.nil /* && v == nil */ {
+                return nil
+            }
+
+            var tail = elems[i+1:]
+            for _, v := range merge(v) {
+                res = append(res, com(ctx, comap(dup(a), redis(v)), tail)...)
+            }
+            return
+        }
+
+        if !c { if _, t := _redis(v); t { c = is_cond(val) }}
+
+    switch_v_type:
+        switch x := v.(type) {
+        case *list:
+            if n, xs := x.len(), x.elems; n == 0 {
+                continue
+            } else if truly(ctx, c_d_x{}) {
+                var tail = elems[i+1:]
+                for _, e := range x.elems {
+                    res = append(res, com(ctx, comap(dup(a), e), tail)...)
+                }
+                return
+            } else { /// xxa|b|cyy ⇒ xxa b cyy
+                if a == nil {
+                    res = append(res, xs[:n-1]...)
+                } else {
+                    var t Value = &compound{elements{comap(a, xs[0])}}
+                    if c { t = condish(ctx, t) }
+                    if res = append(res, t); n == 1 { return }
+                    if 1 < n { res = append(res, xs[1:n-1]...) }
+                    a = nil
+                }
+
+                v = xs[n-1]
+                goto switch_v_type
+            }
+        }
+
+        a = comap(a, v)
+    }
+
+    switch len(a) {
+    case 0: return
+    case 1: return append(res, a[0])
+    }
+
+    // NOTE: dup avoids yielding constant records
+    var t Value = &compound{elements{dup(a)}}
+    if c { t = condish(ctx, t) }
+    return append(res, t)
+}
 
 type compound struct{ elements }
 func (_ *compound) kind() Kind { return KindCompound }
 func (p *compound) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
 func (p *compound) ident(ctx Context) (s string) {
-    for _, elem := range p.elems {
-        if x, y := elem.(identer); y {
-            s += x.ident(ctx)
-        } else {
-            return ""
-        }
-    }
+    for _, elem := range p.elems { s += ident(ctx, elem) }
     return
 }
 func (p *compound) String() (s string) {
@@ -2771,9 +2809,9 @@ func (p *compound) String() (s string) {
     return
 }
 func (p *compound) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
-        if vals := p.expand(sc); !sc.nil { // a{x y z}b → axb ayb azb
-            if p.String() == "x{$1}" { note(pc(ctx,p), "%v %v", sc.nil, vals).debug(5) }
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if vals := p.expand(ctx); !sc.nil { // a{x y z}b → axb ayb azb
         comp_vals:
             for _, v := range merge(vals) {
                 var _s string
@@ -2781,10 +2819,10 @@ func (p *compound) string(ctx Context) (s string) {
                 case *compound: // avoid goroutine stack 1000000000-byte limit (aka p == t)
                     for _, e := range x.elems {
                         if false && e == nil { continue comp_vals }
-                        if _s += e.string(sc); sc.nil { return }
+                        if _s += e.string(ctx); sc.nil { return }
                     }
                 default:
-                    if _s = v.string(sc); sc.nil { return }
+                    if _s = v.string(ctx); sc.nil { return }
                 }
                 if s != "" { s += " " }
                 s += _s
@@ -2813,7 +2851,6 @@ func (p *compound) int(ctx Context) (res int64) {
     return
 }
 func (p *compound) traverse(ctx Context) { do(ctx, act_traverse{p}) }
-func (p *compound) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *compound) redis() (Value, bool) {
     var d bool
     var vs []Value
@@ -2828,72 +2865,8 @@ func (p *compound) redis() (Value, bool) {
         return p, false
     }
 }
-func (p *compound) exp(ctx Context, a, elems []Value) (rs []Value) {
-    var c bool //a != nil && indeterminate(ctx, a...)
-    var cc = &compound_ctx{ctx, false, false}
-    for i, val := range elems {
-        if val == nil { continue }
-
-        cc.nil = false
-        _, cc.dis = val.(disjunction)
-        v := val.expand(cc)
-
-        if cc.dis {
-            if cc.nil /* && v == nil */ {
-                return nil
-            }
-
-            var tail = elems[i+1:]
-            for _, v := range merge(v) {
-                rs = append(rs, p.exp(ctx, comap(dup(a), redis(v)), tail)...)
-            }
-            return
-        }
-
-        if !c { if _, t := _redis(v); t { c = is_cond(val) }}
-
-    switch_v_type:
-        switch x := v.(type) {
-        case *list:
-            if n, xs := x.len(), x.elems; n == 0 {
-                continue
-            } else if truly(ctx, c_d_x{}) {
-                var tail = elems[i+1:]
-                for _, e := range x.elems {
-                    rs = append(rs, p.exp(ctx, comap(dup(a), e), tail)...)
-                }
-                return
-            } else { /// xxa|b|cyy ⇒ xxa b cyy
-                if a == nil {
-                    rs = append(rs, xs[:n-1]...)
-                } else {
-                    var t Value = &compound{elements{comap(a, xs[0])}}
-                    if c { t = condish(ctx, t) }
-                    if rs = append(rs, t); n == 1 { return }
-                    if 1 < n { rs = append(rs, xs[1:n-1]...) }
-                    a = nil
-                }
-
-                v = xs[n-1]
-                goto switch_v_type
-            }
-        }
-
-        a = comap(a, v)
-    }
-
-    switch len(a) {
-    case 0: return
-    case 1: return append(rs, a[0])
-    }
-
-    // NOTE: dup avoids yielding constant records
-    var t Value = &compound{elements{dup(a)}}
-    if c { t = condish(ctx, t) }
-    return append(rs, t)
-}
 func (p *compound) expand(ctx Context) (res Value) {
-    return ease(pc(ctx,p), p.exp(ctx, nil, p.elems))
+    return ease(pc(ctx,p), com(&compound_ctx{ctx, false, false}, nil, p.elems))
 }
 func (p *compound) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if x, y := do(ctx, hit_bare{c, p}).(valcache_bool); y {
@@ -2902,25 +2875,6 @@ func (p *compound) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool)
         errostack(pc(ctx,p), 3, "miss hit : %v : %v", ts(p), ts(ctx)).trace()
         return
     }
-}
-func (p *compound) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch x := v.(type) {
-    case *compound:
-        if p.len() == x.len() {
-            for i, a := range p.elems {
-                if t := a.cmp(ctx, x.elems[i]); t != cmpEqual {
-                    return t
-                }
-            }
-            return cmpEqual
-        }
-    case *list:
-        if len(x.elems) == 1 {
-            return p.cmp(ctx, x.elems[0])
-        }
-    }
-    return
 }
 func (p *compound) patterned(ctx Context) (res bool) {
     for _, elem := range p.elems {
@@ -2973,35 +2927,47 @@ func (p *compound) stencil(ctx Context, stems []string) (val Value, rest []strin
     }
     return
 }
-func (p *compound) prefix(ctx Context, v Value) (_ Value) {
+func (p *compound) prefix(ctx Context, v Value) (res Value) {
     switch x := v.(type) {
     case *globpat:
-        t := &globpat{p.elements}
+        t := new(globpat)
         t.elems = append(p.elems, x.elems...)
         return t
     case *compound:
-        t := &compound{p.elements}
+        t := new(compound)
         t.elems = append(p.elems, x.elems...)
         return t
     default:
-        t := &compound{p.elements}
-        t.elems = append(p.elems, v)
+        t, n := new(compound), len(p.elems)-1
+        if x, y := p.elems[n].(flag); y && (isNull(x.Value) || isNone(x.Value)) {
+            if false {
+                t.elems = append(p.elems[:n], flag{v}) // BUG: is this a golang bug?
+                if checkpoints { if a, b := ts(p), ts(t); a == b { panic("BUG: self recursion") }}
+            } else if true {
+                t.elems = append(dup(p.elems[:n]), flag{v})
+            } else {
+                for _, v := range p.elems[:n] { t.elems = append(t.elems, v) }
+                t.elems = append(t.elems, flag{v})
+            }
+        } else {
+            t.elems = append(p.elems, v)
+        }
         return t
     }
 }
 func (p *compound) suffix(ctx Context, v Value) (_ Value) {
     switch x := v.(type) {
     case *globpat:
-        t := &globpat{p.elements}
+        t := new(globpat)
         t.elems = append(x.elems, p.elems...)
         return t
     case *compound:
-        t := &compound{p.elements}
+        t := new(compound)
         t.elems = append(x.elems, p.elems...)
         return t
     default:
-        t := &compound{p.elements}
-        t.elems = append([]Value{v}, p.elems...)
+        t := new(compound)
+        t.elems = append([]Value{x}, p.elems...)
         return t
     }
 }
@@ -3026,14 +2992,6 @@ func (p *recipe) expand(ctx Context) (_ Value) {
     }
     return
 }
-func (p *recipe) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*recipe); y {
-        return p.strcomp.cmp(ctx, &x.strcomp)
-    } else {
-        return p.strcomp.cmp(ctx, v)
-    }
-}
 
 // barefile reduces file lookups, it works like an alias of a File.
 type barefile struct{
@@ -3043,11 +3001,12 @@ type barefile struct{
 func (_ *barefile) kind() Kind { return KindBarefile }
 func (p *barefile) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p *barefile) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
         if p.file != nil {
-            s = p.file.string(sc)
+            s = p.file.string(ctx)
         } else {
-            s = p.Value.string(sc)
+            s = p.Value.string(ctx)
         }
         if sc.nil { s = "" }
     }
@@ -3064,7 +3023,6 @@ func (p *barefile) int(ctx Context) (res int64) {
 func (p *barefile) float(ctx Context) (f float64) {
     return float64(p.int(ctx))
 }
-func (p *barefile) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
 func (p *barefile) expand(ctx Context) (res Value) {
     if truly(ctx, wants_fullfile{}) {
         var f = p.file
@@ -3101,15 +3059,6 @@ func (p *barefile) stamp(ctx Context) (_ []*file) {
 }
 func (p *barefile) stat(ctx Context) (_ *statinfo) {
     if p.file != nil { return p.file.stat(ctx) }
-    return
-}
-func (p *barefile) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*barefile); y {
-        return p.Value.cmp(ctx, x.Value)
-    } else if x, y := v.(*list); y && len(x.elems) == 1 {
-        return p.cmp(ctx, x.elems[0])
-    }
     return
 }
 func (p *barefile) patterned(ctx Context) bool { return p.Value.patterned(ctx) }
@@ -3414,23 +3363,15 @@ func (p *globmeta) hit(ctx Context, c *valcache) (_ *valcache, _ bool) { return 
 func (p *globmeta) ts(ctx Context, t string) string {
     return "{"+lp(ctx,p.position,"meta")+" "+p.token.String()+"}"
 }
-func (p *globmeta) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*globmeta); y {
-        if p.token == x.token { return cmpEqual }
-    } else if x, y := v.(*list); y && len(x.elems) == 1 {
-        return p.cmp(ctx, x.elems[0])
-    }
-    return
-}
 // `[a-b]`, `[abc]`, ...
 // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
 type globrange struct{ Value }
 func (p *globrange) hash(ctx Context) uint64 { return fnv1(ctx, nil, p.kind(), p.Value) }
 func (p *globrange) String() string { return "["+p.Value.String()+"]" }
 func (p *globrange) string(ctx Context) (_ string) {
-    if sc := stringify(ctx); !sc.nil {
-        if s := p.Value.string(sc); sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if s := p.Value.string(ctx); sc.nil {
             return
         } else {
             return "["+s+"]"
@@ -3440,16 +3381,6 @@ func (p *globrange) string(ctx Context) (_ string) {
 }
 func (p *globrange) ts(ctx Context, t string) string {
     return "{"+lp(ctx,p.Position(),"range")+" "+p.Value.String()+"}"
-}
-func (p *globrange) defs(ctx Context, s ...string) []*def { return p.Value.defs(ctx, s...) }
-func (p *globrange) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*globrange); y {
-        return p.Value.cmp(ctx, x.Value)
-    } else if x, y := v.(*list); y && len(x.elems) == 1 {
-        return p.cmp(ctx, x.elems[0])
-    }
-    return
 }
 func (p *globrange) expand(ctx Context) Value {
     if val := p.Value.expand(ctx); val != p.Value {
@@ -3480,7 +3411,8 @@ func (p *path) String() (s string) {
     return
 }
 func (p *path) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
         for i, seg := range p.elems {
             if seg == nil {
                 erro(ctx, "`%s` nil path segment", p).trace()
@@ -3491,7 +3423,7 @@ func (p *path) string(ctx Context) (s string) {
             }
 
             var v string
-            if v = seg.string(sc); sc.nil {
+            if v = seg.string(ctx); sc.nil {
                 return
             } else if i > 0 {
                 s += pathSep + v
@@ -3519,13 +3451,8 @@ func (p *path) isAbs() (_ bool) {
 }
 func (p *path) float(ctx Context) (_ float64) { return }
 func (p *path) int(ctx Context) (_ int64) { return }
-func (p *path) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *path) expand(ctx Context) Value {
-    if elems := expand_path_elems(ctx, p.elems...); diff(ctx, elems, p.elems) {
-        return &path{elements{elems}}
-    } else {
-        return p
-    }
+    return &path{elements{expand_path_elems(ctx, p.elems...)}}
 }
 func (p *path) delete(ctx Context) (_ []*file) {
     var si = p.stat(ctx)
@@ -3566,17 +3493,6 @@ func (p *path) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 func (p *path) patterned(ctx Context) (result bool) {
     for _, seg := range p.elems {
         if result = seg.patterned(ctx); result { break }
-    }
-    return
-}
-func (p *path) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*path); y {
-        return compareElems(ctx, p.elems, x.elems)
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    } else if len(p.elems) == 1 {
-        return p.elems[0].cmp(ctx, v)
     }
     return
 }
@@ -3823,7 +3739,7 @@ func (p *path) match(ctx Context, i any) (full bool, res any, stems []string) {
             return
         }
     case *file:
-        if full, result, stems = p.match1(ctx, t.ident(ctx)); full || len(result) > 0 {
+        if full, result, stems = p.match1(ctx, ident(ctx, t)); full || len(result) > 0 {
             return // NOTE: done if path fully or partially matched
         } else if t.dir != "" || t.sub != "" {
             full, result, stems = p.match1(ctx, t.fullname()) // NOTE: matching the fullname form
@@ -3912,7 +3828,7 @@ func to_file(v Value) (x *file, y bool) {
 
 func splitFileName(ctx Context, val Value) (dir, name string) {
     if f, _ := to_file(val); f != nil {
-        dir, name = filepath.Join(f.dir, f.sub), f.ident(ctx)
+        dir, name = filepath.Join(f.dir, f.sub), ident(ctx, f)
     } else {
         name = val.string(ctx)
         dir = filepath.Dir(name)
@@ -3976,55 +3892,12 @@ func (o fullname) string(ctx Context) (_ string) {
             }
             return x.fullname()
         }
-        if sc := stringify(ctx); !sc.nil {
-            if s := v.string(sc); !sc.nil {
+        var sc *stringify_ctx
+        if sc, ctx = stringify(ctx); !sc.nil {
+            if s := v.string(ctx); !sc.nil {
                 return s
             }
         }
-    }
-    return
-}
-func (o fullname) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, o, v, &res) }
-    switch t := v.(type) {
-    case *list:
-        if t.len() == 1 { return o.cmp(ctx, t.elems[0]) }
-    case *file:
-        if x, y := o.Value.(*file); y {
-            if res = x.cmp(ctx, t); res == cmpUnknown {
-                a, b := x.fullname(), t.fullname()
-                if a == b {
-                    return cmpEqual
-                } else if a < b {
-                    return cmpSmaller
-                } else if a > b {
-                    return cmpGreater
-                }
-            }
-            return
-        } else {
-            return o.Value.cmp(ctx, t)
-        }
-    case *path:
-        if x, y := o.Value.(*file); y {
-            if t.isAbs() /* && !indeterminate(ctx, t) */ {
-                a, b := x.fullname(), t.string(ctx)
-                if a == b {
-                    return cmpEqual
-                } else if a < b {
-                    return cmpSmaller
-                } else if a > b {
-                    return cmpGreater
-                }
-            }
-            return
-        } else {
-            return o.Value.cmp(ctx, t)
-        }
-    case fullname:
-        return o.Value.cmp(ctx, t.Value)
-    default:
-        return o.Value.cmp(ctx, v)
     }
     return
 }
@@ -4161,24 +4034,6 @@ func (p *file) traverse(ctx Context) {
     }
 }
 
-func (p *file) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch t := v.(type) {
-    case *list: if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
-    case *barefile: if t.file != nil { return p.cmp(ctx, t.file) }
-    case *compound, *word, *path:
-        if s := v.string(ctx); s == p.filestub.name { res = cmpEqual }
-    default:
-        if x, y := to_file(v); !y {
-            res = cmpUnknown
-        } else if p.filebase == x.filebase {
-            res = cmpEqual
-        } else if checkpoints && p.fullname() == x.fullname() {
-            erro(ctx, "same files: %v != %v", ts(p), ts(v)).trace()
-        }
-    }
-    return
-}
 
 func (p *file) patterned(Context) bool { return false }
 func (p *file) stencil(Context, []string) (Value, []string) { return p, nil }
@@ -4230,17 +4085,22 @@ func (p *file) suffix(ctx Context, val Value) (_ Value) {
 type filecontent struct{ *file ; content []byte }
 
 type flag struct{ Value }
-func (p flag) kind() Kind { return KindFlag }
+func (p flag) kind() Kind { return p.kind()|KindFlag }
 func (p flag) hash(ctx Context) uint64 { return fnv1(ctx, p, p.Value) }
 func (p flag) ts(ctx Context, t string) string { return "{="+t+" "+ts(p.Value,ctx)+"}" }
+func (p flag) ident(ctx Context) (s string) {
+    if s = "-"; p.Value != nil { s += ident(ctx, p.Value) }
+    return
+}
 func (p flag) String() (s string) {
     if s = "-"; p.Value != nil { s += p.Value.String() }
     return
 }
 func (p flag) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
         if s = "-"; p.Value != nil {
-            if t := p.Value.string(sc); !sc.nil { s += t }
+            if t := p.Value.string(ctx); !sc.nil { s += t }
         }
     }
     return
@@ -4252,10 +4112,16 @@ func (p flag) Position() (pos Position) {
     pos.Column -= 1
     return
 }
-func (p flag) prefix(ctx Context, v Value) Value { return flag{prefix(ctx, p.Value, v)} }
 func (p flag) suffix(ctx Context, v Value) Value { return _compound(p).suffix(ctx, v) }
+func (p flag) prefix(ctx Context, v Value) Value {
+    switch v.(type) {
+    case negative: return prefix_r(ctx, p, v)
+    }
+    return flag{prefix(ctx, p.Value, v)}
+}
 func (p flag) match(ctx Context, i any) (full bool, res any, stems []string) {
     switch t := i.(type) {
+    case *none, *null:
     case flag:
         full, res, stems = p.Value.match(ctx, t.Value)
         if s, y := res.(string); y { res = "-" + s }
@@ -4269,22 +4135,17 @@ func (p flag) match(ctx Context, i any) (full bool, res any, stems []string) {
             full, res, stems = p.Value.match(ctx, t[1:])
             if s, y := res.(string); y { res = "-" + s }
         }
-    case *none, *null:
     default:
         erro(ctx, "%v → %v", p, ts(i)).trace()
     }
     return
 }
 func (p flag) expand(ctx Context) (_ Value) {
-    if p.Value == nil { erro(ctx, "nil flag").trace() }
-
     var vals []Value
-    var v = p.Value.expand(ctx)
-    if equal(ctx, v, p.Value) {
-        return p
-    }
-    for _, v := range merge(v) {
-        vals = append(vals, flag{v})
+    if p.Value != nil {
+        for _, v := range merge(p.Value.expand(ctx)) {
+            vals = append(vals, flag{v})
+        }
     }
     return ease(ctx, vals)
 }
@@ -4305,65 +4166,6 @@ func (p flag) opt(ctx Context, name string) (res string, match bool) {
         res, match = f.opt(ctx, name)
     } else if s := p.Value.string(ctx); s == name {
         res, match = name, true
-    }
-    return
-}
-func (p flag) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch x := v.(type) {
-    case flag:
-        return p.Value.cmp(ctx, x.Value)
-    case *loc:
-        return p.cmp(ctx, x.Value)
-    case *list:
-        if len(x.elems) == 1 {
-            return p.cmp(ctx, x.elems[0])
-        }
-    case *decimal:
-        if x.int64 < 0 {
-            if a, b := p.Value.int(ctx), -x.int64; a == b {
-                return cmpEqual
-            } else if a < b {
-                return cmpGreater
-            } else {
-                return cmpSmaller
-            }
-        }
-    case *float:
-        if x.float64 < 0 {
-            if a, b := p.Value.float(ctx), -x.float64; a == b {
-                return cmpEqual
-            } else if a < b {
-                return cmpGreater
-            } else {
-                return cmpSmaller
-            }
-        }
-    case *compound:
-        var elems []Value // right hand side compound elements
-        for _, elem := range x.elems {
-            if !isTrivial(elem) { elems = append(elems, elem) }
-        }
-        if len(elems) == 2 { if fR, y := elems[0].(flag); y {
-            if isTrivial(fR.Value) {
-                res = p.Value.cmp(ctx, elems[1])
-            } else if m, r, t := fR.Value.match(ctx, p.Value); m {
-                if isTrivial(elems[1]) { res = cmpEqual }
-            } else if r != nil { // matched prefix
-                var s, _ = r.(string)
-                var sL = p.Value.string(ctx)
-                var sR = s + elems[1].string(ctx)
-                if sL == sR {
-                    return cmpEqual
-                } else if s < sR {
-                    return cmpSmaller
-                } else {
-                    return cmpGreater
-                }
-            } else if t != nil {
-                unreachable(p, v)
-            }
-        }}
     }
     return
 }
@@ -4418,9 +4220,10 @@ func (p *strcomp) src() (s string) {
     return
 }
 func (p *strcomp) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
         for _, elem := range p.elems {
-            if t := elem.string(sc); sc.nil {
+            if t := elem.string(ctx); sc.nil {
                 return
             } else {
                 s += t
@@ -4447,7 +4250,6 @@ func (p *strcomp) int(ctx Context) (_ int64) {
     }
 }
 func (p *strcomp) true(ctx Context) bool { return p.elements.true(ctx) }
-func (p *strcomp) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (p *strcomp) expand(ctx Context) (res Value) {
     if truly(ctx, ex_path_str{}) {
         res = _pathstr(ctx, p.string(ctx))
@@ -4463,33 +4265,6 @@ func (p *strcomp) match(ctx Context, i any) (bool, any, []string) {
 }
 func (p *strcomp) stencil(ctx Context, stems []string) (Value, []string) {
     return p, stems
-}
-func (p *strcomp) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch x := v.(type) {
-    case *strcomp:
-        if p.len() == x.len() {
-            for i, elem := range p.elems {
-                if t := elem.cmp(ctx, x.elems[i]); t != cmpEqual {
-                    return t
-                }
-            }
-            return cmpEqual
-        } else if s, t := p.String(), x.String(); s == t {
-            return cmpEqual
-        } else if s < t {
-            return cmpSmaller
-        } else {
-            return cmpGreater
-        }
-    case *list:
-        if n := x.len(); n == 1 {
-            return p.cmp(ctx, x.elems[0])
-        } else if n == 0 && 0 == p.len() {
-            return cmpEqual
-        }
-    }
-    return
 }
 func (p *strcomp) traverse(ctx Context) { do(ctx, act_traverse{p}) }
 
@@ -4508,10 +4283,15 @@ func (p *list) String() (s string) {
     return strings.Join(strs, " ")
 }
 func (p *list) string(ctx Context) (s string) {
-    var sc = stringify(ctx)
+    var sc *stringify_ctx
+    sc, ctx = stringify(ctx)
+    sc.nil = false
     for _, e := range p.elems {
-        if sc.nil = false; e != nil {
-            if t := e.string(sc); sc.nil || t == "" { continue } else {
+        if e != nil {
+            if t := e.string(ctx); sc.nil || t == "" {
+                sc.nil = false
+                continue
+            } else {
                 if s != "" && !strings.HasSuffix(s, "\n") { s += " " }
                 s += t
             }
@@ -4544,22 +4324,12 @@ func (p *list) suffix(ctx Context, val Value) (res Value) {
         return &list{elements{a}}
     }
 }
-func (p *list) expand(ctx Context) (res Value) {
-    var a []Value
-    var d bool
+func (p *list) expand(ctx Context) Value {
+    var res = new(list)
     for _, elem := range p.elems {
-        if v := elem.expand(ctx); v == nil {
-            d = true
-        } else {
-            /* if !isTrivial(v) */ { a = append(a, v) }
-            d = d || !equal(ctx, v, elem)
-        }
+        res.elems = append(res.elems, elem.expand(ctx))
     }
-    if d {
-        return &list{elements{a}}
-    } else {
-        return p
-    }
+    return res
 }
 func (p *list) sel(ctx Context, name string) (res any) {
     var vals []Value
@@ -4617,15 +4387,6 @@ func (p *list) stamp(ctx Context) (files []*file) {
     }
     return
 }
-func (p *list) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*list); y {
-        return compareElems(ctx, p.elems, x.elems)
-    } else if 1 == p.len() {
-        return p.elems[0].cmp(ctx, v)
-    }
-    return
-}
 func (p *list) patterned(ctx Context) (res bool) {
     if len(p.elems) == 1 {
         res = p.elems[0].patterned(ctx)
@@ -4676,9 +4437,17 @@ func (p *list) stencil(ctx Context, stems []string) (val Value, rest []string) {
 
 type group struct{ valbase ; elements }
 func (_ *group) kind() Kind { return KindGroup }
-func (_ *group) ident(Context) (s string) { return }
 func (p *group) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()) }
 func (p *group) Position() Position { return p.valbase.Position() }
+func (p *group) ident(ctx Context) string {
+    var strs []string
+    for _, elem := range p.elems {
+        if elem != nil {
+            strs = append(strs, ident(ctx, elem))
+        }
+    }
+    return "(" + strings.Join(strs, " ") + ")"
+}
 func (p *group) String() string {
     var strs []string
     for _, elem := range p.elems {
@@ -4691,10 +4460,11 @@ func (p *group) String() string {
     return "(" + strings.Join(strs, " ") + ")"
 }
 func (p *group) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
         s = "("
         for i, elem := range p.elems {
-            if t := elem.string(sc); sc.nil {
+            if t := elem.string(ctx); sc.nil {
                 return ""
             } else {
                 if i > 0 { s += " " }
@@ -4713,7 +4483,6 @@ func (p *group) true(ctx Context) (t bool) {
     }
     return
 }
-func (p *group) defs(ctx Context, s ...string) []*def { return p.elements.defs(ctx, s...) }
 func (_ *group) delete(Context) (_ []*file) { return }
 func (_ *group) patterned(Context) (_ bool) { return }
 func (_ *group) stamp(Context) (_ []*file) { return }
@@ -4721,27 +4490,10 @@ func (_ *group) stat(Context) (_ *statinfo) { return }
 func (_ *group) updated(Context) (_ bool) { return }
 func (_ *group) updatedDeps(Context, ...Value) (_ []Value) { return }
 func (p *group) expand(ctx Context) (res Value) {
-    if elems := expand(ctx, p.elems...); diff(ctx, elems, p.elems) {
-        res = &group{p.valbase, elements{elems}}
-    } else {
-        res = p
-    }
-    return
+    return &group{p.valbase, elements{expand(ctx, p.elems...)}}
 }
 func (p *group) traverse(ctx Context) {
     errostack(ctx, 3, "traversing group: %v", p).trace()
-}
-func (p *group) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if a, y := v.(*group); y {
-        if l1, l2 := len(p.elems), len(a.elems); l1 == 0 && l2 == 0 {
-           return cmpEqual
-        }
-        res = compareElems(ctx, p.elems, a.elems)
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    return
 }
 func (p *group) match(ctx Context, i any) (full bool, s any, stems []string) {
     // TODO: for _, elem := range { elem.match(ctx, i) }
@@ -4781,15 +4533,21 @@ type pair struct{ key, val Value }
 func (p *pair) kind() Kind { return KindPair }
 func (p *pair) hash(ctx Context) uint64 { return fnv1(ctx, p, p.key, p.val) }
 func (p *pair) Position() Position { return p.key.Position() }
+func (p *pair) ident(ctx Context) (s string) {
+    if k := p.key; k != nil { s = ident(ctx, k) }; s += "="
+    if v := p.val; v != nil { s += ident(ctx, v) }
+    return
+}
 func (p *pair) String() (s string) {
     if k := p.key; k != nil { s = k.String() }; s += "="
     if v := p.val; v != nil { s += v.String() }
     return
 }
 func (p *pair) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
-        if _k := p.key.expand(sc); !sc.nil {
-            if _v := p.val.expand(sc); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if _k := p.key.expand(ctx); !sc.nil {
+            if _v := p.val.expand(ctx); !sc.nil {
                 vs := merge(_v)
                 for _, k := range merge(_k) {
                     if !isNull(k) {
@@ -4815,7 +4573,6 @@ func (p *pair) true(ctx Context) (t bool) {
 }
 func (p *pair) int(ctx Context) int64 { return p.val.int(ctx) }
 func (p *pair) float(ctx Context) float64 { return p.val.float(ctx) }
-func (p *pair) ident(Context) (_ string) { return }
 func (p *pair) stamp(Context) (_ []*file) { return }
 func (p *pair) stat(Context) (_ *statinfo) { return }
 func (p *pair) match(Context, any) (_ bool, _ any, _ []string) { return }
@@ -4823,9 +4580,6 @@ func (p *pair) patterned(Context) (_ bool) { return }
 func (p *pair) delete(Context) (_ []*file) { return }
 func (p *pair) updated(Context) (_ bool) { return }
 func (p *pair) updatedDeps(Context, ...Value) (_ []Value) { return }
-func (p *pair) defs(ctx Context, s ...string) []*def {
-    return append(p.key.defs(ctx, s...), p.val.defs(ctx, s...)...)
-}
 func (p *pair) prefix(ctx Context, v Value) Value { return &pair{p.key,prefix(ctx,p.val,v)} }
 func (p *pair) suffix(ctx Context, v Value) Value { return &pair{suffix(ctx,p.key,v),p.val} }
 func (p *pair) expand(ctx Context) (res Value) {
@@ -4864,25 +4618,6 @@ func (p *pair) redis() (Value, bool) {
         return p, false
     }
 }
-func (p *pair) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(cond); y {
-        return p.cmp(ctx, x.Value)
-    }
-    if x, y := v.(*list); y && len(x.elems) == 1 {
-        return p.cmp(ctx, x.elems[0])
-    }
-    if x, y := v.(*pair); y {
-        if p == x {
-            res = cmpEqual
-        } else {
-            if  res = p.key.cmp(ctx, x.key); res == cmpEqual {
-                res = p.val.cmp(ctx, x.val)
-            }
-        }
-    }
-    return
-}
 func (p *pair) traverse(ctx Context) {
     erro(ctx, "traversing pair '%v' is undefined", p)
     errostack(ctx, -1, "pair is not traversible: %v", p).trace()
@@ -4892,22 +4627,13 @@ type skipped struct{ Value }
 func (p skipped) kind() Kind { return p.Value.kind()|KindSkipped }
 func (p skipped) ts(ctx Context, t string) string { return "{="+t+" "+ts(p.Value, ctx)+"}" }
 
-func ident(ctx Context, x Value) (s string) {
-    switch t := x.(type) {
-    case *closure, *delegate:
-    case  identer: s = t.ident(ctx)
-    case stringer: s = t.string(ctx)
-    }
-    return
-}
-
 type c_d_x struct{}
 type closure_delegate_x struct{ Context ; closure, delegate int }
 func (c *closure_delegate_x) inner() Context { return c.Context }
 func (c *closure_delegate_x) do(ctx Context, op any) any {
     switch op.(type) {
     case c_d_x: return true
-    case *closure : c.closure  += 1
+    case *closure: c.closure += 1
     case *delegate: c.delegate += 1
     }
     return c.Context.do(ctx, op)
@@ -4936,82 +4662,16 @@ func (p *delegate) ts(ctx Context, t string) (s string) {
     s += "}"
     return
 }
-func (p *delegate) _ident(ctx Context) (name string) {
-    const sel = true
-    switch x := p.x.(type) {
-    case interface{ ident(Context) string }: name = x.ident(ctx)
-    case *arrow: if sel { name = x.string(ctx) }
-    }
-    return
-}
 func (p *delegate) String() string { return p.src("$") }
 func (p *delegate) string(ctx Context) (res string) {
-    var v Value
-    var sc = stringify(ctx); defer check_string(ctx, sc, p, &v, &res)
+    var ( v Value; sc *stringify_ctx )
+    if sc, ctx = stringify(ctx); checkpoints { defer check_string(ctx, sc, p, &v, &res) }
     if !sc.nil {
-        if v = p.expand(sc); /* !sc.nil && */ v != nil {
-            return v.string(sc)
+        if v = p.expand(ctx); !sc.nil && v != nil {
+            return v.string(ctx)
         }
     }
     return
-}
-func (p *delegate) true(ctx Context) (t bool) {
-    if v := p.final(ctx); v != nil { t = v.true(ctx) }
-    return
-}
-func (p *delegate) int(ctx Context) (i int64) {
-    if v := p.final(ctx); v != nil { i = v.int(ctx) }
-    return
-}
-func (p *delegate) float(ctx Context) (f float64) {
-    if v := p.final(ctx); v != nil { f = v.float(ctx) }
-    return
-}
-func (p *delegate) aone(ctx Context, v Value) (res bool) {
-    var q, y = v.(*delegate)
-    if y && equal(ctx, p.x, q.x) && len(p.o) == len(q.o) && len(p.a) == len(q.a) {
-        for i, o := range p.o { if !equal(ctx, o, q.o[i]) { return true } }
-        for i, a := range p.a { if !equal(ctx, a, q.a[i]) { return true } }
-    }
-    return
-}
-func (p *delegate) final(ctx Context) (_ Value) {
-    if sc := stringify(ctx); !sc.nil {
-        var v = p.expand(sc)
-        if v == nil || equal(ctx, v, p) || (sc.nil && !p.aone(ctx, v)) {
-            return
-        }
-        return v
-    }
-    return
-}
-func (p *delegate) isValidtoken() (res bool) {
-    switch p.l {
-    case LPAREN, LBRACE, STRING, STRCOMP, ILLEGAL:
-        res = true
-    default: // for $. $/ $1 ... &. &/ &1 ... etc.
-        res = p.l.is_closure_delegate()
-    }
-    return
-}
-func (p *delegate) defs(ctx Context, s ...string) (res []*def) {
-    if p.x == nil {
-        errostack(pc(ctx,p), 3, "delegation of nil (s=%v)", p, s).trace()
-    } else if d, y := p.x.(*def); y {
-        if y = len(s) == 0; !y {
-            for _, a := range s { if y = d.ident(ctx) == a; y { break } }
-        }
-        if y { res = append(res, d) }
-    } else {
-        res = p.x.defs(ctx, s...)
-    }
-    for _, a := range p.a {
-        res = append(res, a.defs(ctx, s...)...)
-    }
-    return
-}
-func (p *delegate) traverse(ctx Context) {
-    if v := p.final(ctx); v != nil { v.traverse(ctx) }
 }
 func (p *delegate) src(l string) (s string) {
     if s = p._src(); !p.l.is_closure_delegate() { s = l + s }
@@ -5038,22 +4698,48 @@ func (p *delegate) _src() (s string) { // source representation
         s += a.String()
     }
 
+    return p.wraps(s)
+}
+func (p *delegate) id(ctx Context, s string) string {
+    s += ident(ctx, p.x)
+
+    if p.o != nil { // options
+        s += "("
+        for i, v := range p.o {
+            if 0 < i { s += " " }
+            s += ident(ctx, v)
+        }
+        s += ")"
+    }
+
+    for i, a := range p.a {
+        if 0 == i { s += " " } else { s += "," }
+        s += ident(ctx, a)
+    }
+
+    return p.wraps(s)
+}
+func (p *delegate) wraps(s string) string {
     switch p.l {
     case STRCOMP: return `"`+s+`"`
     case  STRING: return `'`+s+`'`
     case  LPAREN: return "("+s+")"
     case  LBRACE: return "{"+s+"}"
     case ILLEGAL: return "["+s+"]"
-    case INTEGER: return // $1, $2, $3, ...
+    case INTEGER: return s // $1, $2, $3, ...
     default: return p.l.String() // $@, $<, ...
     }
 }
+func (p *delegate) traverse(ctx Context) { panic("traverse delegate") }
 func (p *delegate) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
 func (p *delegate) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
 func (p *delegate) redis() (Value, bool) { return disjunction{p}, true }
 func (p *delegate) resolve(ctx Context, x Value) (res Value) {
     var y bool
     if res, y = try_evoke(ctx, x, p.o, p.a); y {
+        if res == nil {
+            errostack(pc(ctx,p), 8, "nil result: %v : %v %v", p, ts(x), ts(p.a)).trace()
+        }
         return
     }
     if x != nil && x.kind()&KindBuiltin == 0 {
@@ -5069,40 +4755,40 @@ func (p *delegate) resolve(ctx Context, x Value) (res Value) {
         return _null(p.position)
     }
     if res, y = try_evoke(ctx, x, p.o, p.a); !y {
-        errostack(pc(ctx,p), 8, "not evoker: %v", ts(x)).trace()
+        errostack(pc(ctx,p), 8, "not evoker: %v : %v", p, ts(x)).trace()
     } else if res == nil {
-        errostack(pc(ctx,p), 8, "nil result: %v", ts(x)).trace()
+        errostack(pc(ctx,p), 8, "nil result: %v : %v %v", p, ts(x), ts(p.a)).trace()
     }
     return
 }
 func (p *delegate) expand(ctx Context) (res Value) {
-    var c = closure_delegate_x{ctx,0,0}
-    var x = p.x.expand(&c); if checkpoints { defer check(ctx, p, x, &res) }
     var vals []Value
-    if c.closure == 0 {
+    var c = closure_delegate_x{ctx,0,0}
+    var x = p.x.expand(&c)
+    if checkpoints { defer check(ctx, p, x, &res) }
+    if c.closure == 0 && c.delegate == 0 {
         for _, x := range merge(x) {
             vals = append(vals, _loc(p.resolve(ctx,x), p.position))
         }
         return ease(pc(ctx,p.position), vals)
-    } else {
+    }
+
+    var o = expand(ctx, p.o...)
+    var a = expand(ctx, p.a...)
+    for _, x := range merge(x) {
         if x != nil && x.kind()&KindBuiltin == 0 {
             switch p.l {
             case LBRACE, STRING, STRCOMP: // ${xxx}  $'xxx'  $"xxx",  else/illegal: $(xxx)
-                x = project_entry(ctx, x)
+                if t := project_entry(ctx, x); t != nil { x = t }
             default:
-                x = project_resolve(ctx, ident(ctx, x))
+                if t := project_resolve(ctx, ident(ctx, x)); t != nil { x = t }
             }
         }
-        if x == nil { x = p.x }
-        var o = expand(ctx, p.o...)
-        var a = expand(ctx, p.a...)
-        for _, x := range merge(x) {
-            t := &delegate{p.valbase, p.l, x, o, a}
-            vals = append(vals, t)
-            do(ctx, t)
-        }
-        return ease(pc(ctx,p.position), vals)
+        t := &delegate{p.valbase, p.l, x, o, a}
+        vals = append(vals, t)
+        do(ctx, t)
     }
+    return ease(pc(ctx,p.position), vals)
 }
 func (p *delegate) match(ctx Context, i any) (full bool, s any, stems []string) {
     if v := p.expand(ctx); v != nil {
@@ -5124,23 +4810,6 @@ func (p *delegate) delete(ctx Context) (_ []*file) {
     errostack(pc(ctx,p), 3, "cannot delete delegate %v, must expand it first", p).trace()
     return
 }
-func (p *delegate) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch t := v.(type) {
-    case *list: if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
-    case *delegate:
-        if p == t { return cmpEqual }
-        if p.x.cmp(ctx, t.x) == cmpEqual {
-            if len(p.a) == len(t.a) {
-                for i, a := range p.a {
-                    if a.cmp(ctx, t.a[i]) != cmpEqual { return }
-                }
-                return cmpEqual
-            }
-        }
-    }
-    return
-}
 
 type closure_nil struct{}
 type closure struct{ delegate }
@@ -5151,61 +4820,26 @@ func (p *closure) hash(ctx Context) uint64 {
     for _, v := range p.a { a = append(a, v) }
     return fnv1(ctx, p, a...)
 }
-func (p *closure) ident(ctx Context) (_ string) {
-    if truly(ctx, ex_closure{}) {
-        if v := p.expand(ctx); v != nil {
-            return v.ident(ctx)
-        }
-    }
-    return
-}
 func (p *closure) String() (s string) { return p.src("&") }
 func (p *closure) string(ctx Context) (res string) {
-    var v Value
-    var sc = stringify(ctx); if checkpoints { defer check_string(ctx, sc, p, &v, &res) }
+    var ( v Value; sc *stringify_ctx )
+    if sc, ctx = stringify(ctx); checkpoints { defer check_string(ctx, sc, p, &v, &res) }
     if !sc.nil {
-        v = p.expand(sc)
-        if p.String() == "&(something)" {
-            note(ctx, "%v %v", p, v).debug()
-        }
-        if v == nil || isNull(v) {
-            do(ctx, closure_nil{})
-            return
-        }
-        if !sc.nil && v != nil {
-            return v.string(sc)
+        if v = p.expand(ctx); !sc.nil && v != nil {
+            return v.string(ctx)
         }
     }
-    return
-}
-func (p *closure) true(ctx Context) (t bool) {
-    if v := p.final(ctx); v != nil { t = v.true(ctx) }
     return
 }
 func (p *closure) prefix(ctx Context, v Value) Value { return prefix_r(ctx, p, v) }
 func (p *closure) suffix(ctx Context, v Value) Value { return suffix_r(ctx, p, v) }
-func (p *closure) aone(ctx Context, v Value) (res bool) {
-    var q, y = v.(*closure)
-    if y && equal(ctx, p.x, q.x) && len(p.o) == len(q.o) && len(p.a) == len(q.a) {
-        for i, o := range p.o { if !equal(ctx, o, q.o[i]) { return true } }
-        for i, a := range p.a { if !equal(ctx, a, q.a[i]) { return true } }
-    }
-    return
-}
-func (p *closure) final(ctx Context) (_ Value) {
-    if sc := stringify(ctx); !sc.nil {
-        var v = p.expand(sc)
-        if v == nil || equal(ctx, p, v) || (sc.nil && !p.aone(ctx, v)) {
-            return
-        }
-        return v
-    }
-    return
-}
 func (p *closure) redis() (Value, bool) { return disjunction{p}, true }
 func (p *closure) resolve(ctx Context, x Value) (res Value) {
     var y bool
     if res, y = try_evoke(ctx, x, p.o, p.a); y {
+        if res == nil {
+            errostack(pc(ctx,p), 8, "nil result: %v : %v %v", p, ts(x), ts(p.a)).trace()
+        }
         return
     }
     if x != nil && x.kind()&KindBuiltin == 0 {
@@ -5221,40 +4855,40 @@ func (p *closure) resolve(ctx Context, x Value) (res Value) {
         return _null(p.position)
     }
     if res, y = try_evoke(ctx, x, p.o, p.a); !y {
-        errostack(pc(ctx,p), 8, "not evoker: %v", ts(x)).trace()
+        errostack(pc(ctx,p), 8, "not evoker: %v : %v", p, ts(x)).trace()
     } else if res == nil {
-        errostack(pc(ctx,p), 8, "nil result: %v", ts(x)).trace()
+        errostack(pc(ctx,p), 8, "nil result: %v : %v %v", p, ts(x), ts(p.a)).trace()
     }
     return
 }
 func (p *closure) expand(ctx Context) (res Value) {
-    var c = closure_delegate_x{ctx,0,0}
-    var x = p.x.expand(&c); if checkpoints { defer check(ctx, p, x, &res) }
     var vals []Value
-    if truly(ctx, ex_closure{}) {
+    var c = closure_delegate_x{ctx,0,0}
+    var x = p.x.expand(&c)
+    if checkpoints { defer check(ctx, p, x, &res) }
+    if c.closure == 0 && c.delegate == 0 && truly(ctx, ex_closure{}) {
         for _, x := range merge(x) {
             vals = append(vals, _loc(p.resolve(ctx,x), p.position))
         }
         return ease(pc(ctx,p.position), vals)
-    } else {
+    }
+
+    var o = expand(ctx, p.o...)
+    var a = expand(ctx, p.a...)
+    for _, x := range merge(x) {
         if x != nil && x.kind()&KindBuiltin == 0 {
             switch p.l {
             case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
-                x = closure_entry(ctx, x)
+                if t := closure_entry(ctx, x); t != nil { x = t }
             default:
-                x = closure_resolve(ctx, ident(ctx, x))
+                if t := closure_resolve(ctx, ident(ctx, x)); t != nil { x = t }
             }
         }
-        if x == nil { x = p.x }
-        var o = expand(ctx, p.o...)
-        var a = expand(ctx, p.a...)
-        for _, x := range merge(x) {
-            t := &closure{delegate{p.valbase, p.l, x, o, a}}
-            vals = append(vals, t)
-            do(ctx, t)
-        }
-        return ease(pc(ctx,p.position), vals)
+        t := &closure{delegate{p.valbase, p.l, x, o, a}}
+        vals = append(vals, t)
+        do(ctx, t)
     }
+    return ease(pc(ctx,p.position), vals)
 }
 func (p *closure) match(ctx Context, i any) (full bool, s any, stems []string) {
     if v := p.expand(ctx); v != p {
@@ -5264,9 +4898,7 @@ func (p *closure) match(ctx Context, i any) (full bool, s any, stems []string) {
     }
     return
 }
-func (p *closure) traverse(ctx Context) {
-    if v := p.final(ctx); v != nil { v.traverse(ctx) }
-}
+func (p *closure) traverse(ctx Context) { panic("traverse closure") }
 func (p *closure) stat(ctx Context) (_ *statinfo) {
     errostack(pc(ctx,p), 3, "cannot stat closure %v, must expand it first", p).trace()
     return
@@ -5279,23 +4911,6 @@ func (p *closure) delete(ctx Context) (_ []*file) {
     errostack(pc(ctx,p), 3, "cannot stamp closure %v, must expand it first", p).trace()
     return
 }
-func (p *closure) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch t := v.(type) {
-    case *list: if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
-    case *closure:
-        if p == t { return cmpEqual }
-        if p.x.cmp(ctx, t.x) == cmpEqual {
-            if len(p.a) == len(t.a) {
-                for i, a := range p.a {
-                    if a.cmp(ctx, t.a[i]) != cmpEqual { return }
-                }
-                return cmpEqual
-            }
-        }
-    }
-    return
-}
 
 type arrow_nil struct{}
 type arrow struct{
@@ -5305,54 +4920,58 @@ type arrow struct{
     s Value
 }
 func (p *arrow) hash(ctx Context) uint64 { return fnv1(ctx, p, p.t, p.o, p.s) }
-func (p *arrow) String() string { return p.o.String() + p.t.String() + p.s.String() }
-func (p *arrow) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
-        p.ex(sc, func(v Value) { if !sc.nil { s = v.string(sc) }})
-    }
-    return
-}
 func (p *arrow) ts(ctx Context, t string) string {
     return "{="+t+" "+ts(p.o,ctx)+p.t.String()+ts(p.s,ctx)+"}"
 }
+func (p *arrow) ident(ctx Context) (s string) {
+    return ident(ctx, p.o) + p.t.String() + ident(ctx, p.s)
+}
+func (p *arrow) String() string {
+    return p.o.String() + p.t.String() + p.s.String()
+}
+func (p *arrow) string(ctx Context) (s string) {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if v := p.expand(ctx); !sc.nil { return v.string(ctx) }
+    }
+    return
+}
 func (p *arrow) true(ctx Context) (t bool) {
-    if sc := stringify(ctx); !sc.nil {
-        p.ex(sc, func(v Value) { if !sc.nil { t = v.true(ctx) }})
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if v := p.expand(ctx); !sc.nil { return v.true(ctx) }
     }
     return
 }
 func (p *arrow) int(ctx Context) (i int64) {
-    if sc := stringify(ctx); !sc.nil {
-        p.ex(sc, func(v Value) {
-            if sc.nil { return }
-            if s := v.string(sc); !sc.nil && s != "" {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if v := p.expand(ctx); !sc.nil {
+            if s := v.string(ctx); !sc.nil && s != "" {
                 var e error
                 i, e = strconv.ParseInt(s, 10, 64)
                 if e != nil {
                     errostack(pc(ctx,p), 3, "%v", e).trace()
                 }
             }
-        })
+        }
     }
     return
 }
 func (p *arrow) float(ctx Context) (f float64) {
-    if sc := stringify(ctx); !sc.nil {
-        p.ex(sc, func(v Value) {
-            if sc.nil { return }
-            if s := v.string(sc); !sc.nil && s != "" {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
+        if v := p.expand(ctx); !sc.nil {
+            if s := v.string(ctx); !sc.nil && s != "" {
                 var e error
                 f, e = strconv.ParseFloat(s, 64)
                 if e != nil {
                     errostack(pc(ctx,p), 3, "%v", e).trace()
                 }
             }
-        })
+        }
     }
     return
-}
-func (p *arrow) ex(ctx Context, f func(Value)) {
-    if v := p.expand(ctx); v != nil && !equal(ctx, v, p) { f(v) }
 }
 func (p *arrow) expand(ctx Context) (res Value) {
     var x seler
@@ -5386,9 +5005,6 @@ func (p *arrow) expand(ctx Context) (res Value) {
         return ease(ctx, t)
     }
 }
-func (p *arrow) defs(ctx Context, s ...string) []*def {
-    return append(p.o.defs(ctx, s...), p.s.defs(ctx, s...)...)
-}
 func (p *arrow) traverse(ctx Context) {
     if val := p.expand(ctx); isTrivial(val) {
         warn(ctx, "selected trivial value '%v' (%v, %v) ", p, ts(p.o), ts(p.s)).debug(10)
@@ -5412,20 +5028,6 @@ func (p *arrow) updatedDeps(ctx Context, v ...Value) (res []Value) { // NOTE: th
         res = val.updatedDeps(ctx, v...)
     }
     return res
-}
-func (p *arrow) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch x := v.(type) {
-    case *arrow:
-        if p.t == x.t && p.o.cmp(ctx, x.o) == cmpEqual {
-            return p.s.cmp(ctx, x.s)
-        }
-    case *list:
-        if len(x.elems) == 1 {
-            return p.cmp(ctx, x.elems[0])
-        }
-    }
-    return
 }
 func (p *arrow) stat(ctx Context) (_ *statinfo) {
     errostack(pc(ctx,p), 3, "cannot stat arrow %v, must expand it first", p).trace()
@@ -5454,9 +5056,10 @@ func (p *percpat) String() (s string) {
     return
 }
 func (p *percpat) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
         if p.Prefix != nil {
-            if t := p.Prefix.string(sc); sc.nil {
+            if t := p.Prefix.string(ctx); sc.nil {
                 return ""
             } else {
                 s += t
@@ -5464,7 +5067,7 @@ func (p *percpat) string(ctx Context) (s string) {
         }
         s += "%"
         if p.Suffix != nil {
-            if t := p.Suffix.string(sc); sc.nil {
+            if t := p.Suffix.string(ctx); sc.nil {
                 return ""
             } else {
                 s += t
@@ -5475,9 +5078,6 @@ func (p *percpat) string(ctx Context) (s string) {
 }
 func (p *percpat) ts(ctx Context, t string) string {
     return fmt.Sprintf("{=%s %s %s}", t, ts(p.Prefix, ctx), ts(p.Suffix, ctx))
-}
-func (p *percpat) defs(ctx Context, s ...string) []*def {
-    return append(p.Prefix.defs(ctx, s...), p.Suffix.defs(ctx, s...)...)
 }
 func (p *percpat) expand(ctx Context) (res Value) {
     var (
@@ -5580,7 +5180,7 @@ func (p *percpat) match(ctx Context, i any) (full bool, result any, stems []stri
             return p.match1(ctx, filepath.Join(t.dir, t.sub, t.name))  // NOTE: matching the fullname form
         }
     case *file:
-        if full, result, stems = p.match1(ctx, t.ident(ctx)); full || result != "" {
+        if full, result, stems = p.match1(ctx, ident(ctx, t)); full || result != "" {
             return // NOTE: done if path fully or partially matched
         } else if t.dir != "" || t.sub != "" {
             return p.match1(ctx, t.fullname()) // NOTE: matching the fullname form
@@ -5655,19 +5255,6 @@ DoneVals:
     return
 }
 func (p *percpat) traverse(ctx Context) { do(ctx, act_traverse{p}) }
-func (p *percpat) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if a, ok := v.(*percpat); ok {
-        if p.Prefix.cmp(ctx, a.Prefix) == cmpEqual {
-            if p.Suffix.cmp(ctx, a.Suffix) == cmpEqual {
-                res = cmpEqual
-            }
-        }
-    } else if l, ok := v.(*list); ok && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
-    }
-    return
-}
 func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
     if checkpoints {
         if s := ts(p.Suffix); strings.Contains(s, "{=argumented ") {
@@ -5756,10 +5343,6 @@ func (p compositePattern) match(ctx Context, i any) (full bool, result any, stem
     return
 }
 // func (p compositePattern) expand(ctx Context) (res Value) { return p }
-// func (p compositePattern) defs(ctx Context, s ...string) (res []*def) {
-//     for _, val := range p.vals { res = append(res, val.defs(ctx, s...)...) }
-//     return
-// }
 // func (p compositePattern) patterned(ctx Context) (res bool) {
 //     for _, val := range p.vals { if res = val.patterned(ctx); res { break } }
 //     return
@@ -5803,7 +5386,8 @@ func (p *globpat) String() (s string) {
     return
 }
 func (p *globpat) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil {
+    var sc *stringify_ctx
+    if sc, ctx = stringify(ctx); !sc.nil {
         for _, elem := range p.elems {
             if t := elem.string(ctx); sc.nil {
                 return ""
@@ -5817,12 +5401,6 @@ func (p *globpat) string(ctx Context) (s string) {
 func (p *globpat) true(ctx Context) bool { return p.elements.true(ctx) }
 func (p *globpat) float(ctx Context) (_ float64) { return }
 func (p *globpat) int(ctx Context) (_ int64) { return }
-func (p *globpat) defs(ctx Context, s ...string) (res []*def) {
-    for _, elem := range p.elems {
-        res = append(res, elem.defs(ctx, s...)...)
-    }
-    return
-}
 func (p *globpat) expand(ctx Context) (res Value) {
     if elems := expand(ctx, p.elems...); diff(ctx, elems, p.elems) {
         res = &globpat{elements{elems}}
@@ -5837,7 +5415,7 @@ func (p *globpat) match(ctx Context, i any) (full bool, result any, stems []stri
     switch t := i.(type) {
     case      bare: s = string(t)
     case *filestub: s = t.name
-    case     *file: s = t.ident(ctx)
+    case     *file: s = ident(ctx, t)
     case     Value: s = t.string(ctx)
     case    string: s = t
     case  []string:
@@ -5884,22 +5462,6 @@ func (p *globpat) suffix(ctx Context, val Value) (res Value) {
     }
 }
 func (p *globpat) traverse(ctx Context) { do(ctx, act_traverse{p}) }
-func (p *globpat) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if a, y := v.(*globpat); y {
-        if len(p.elems) == len(a.elems) {
-            for i, c := range p.elems {
-                if c.cmp(ctx, a.elems[i]) != cmpEqual {
-                    return
-                }
-            }
-            return cmpEqual
-        }
-    } else if x, y := v.(*list); y && len(x.elems) == 1 {
-        return p.cmp(ctx, x.elems[0])
-    }
-    return
-}
 func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
     t := do(&globpat_hit{ctx, p}, hit_glob{c, p.string(ctx)})
 
@@ -6056,7 +5618,7 @@ func (p *regexpat) match(ctx Context, i any) (full bool, result any, stems []str
         var str string
         switch t := i.(type) {
         case *filestub: str = t.name
-        case     *file: str = t.ident(ctx)
+        case     *file: str = ident(ctx, t)
         case     Value: str = t.string(ctx)
         case    string: str = t
         case  []string: if len(t) == 1 { str = t[0] } else { return }
@@ -6075,23 +5637,6 @@ func (p *regexpat) stencil(ctx Context, stems []string) (val Value, rest []strin
         erro(ctx, "regexp stencil unsupported: %v %v", p, stems)
     } else {
         rest = stems
-    }
-    return
-}
-func (p *regexpat) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if a, y := v.(*regexpat); y {
-        if a != nil {
-            if s1, s2 := p.String(), a.String(); s1 == s2 {
-                res = cmpEqual
-            } else if s1 < s2 {
-                res = cmpSmaller
-            } else /*if s1 > s2*/ {
-                res = cmpGreater
-            }
-        }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        return p.cmp(ctx, l.elems[0])
     }
     return
 }
@@ -6163,6 +5708,8 @@ func dup(vals []Value) (res []Value) {
     if n := len(vals); 0 < n {
         if false {
             res = append([]Value{}, vals...)
+        } else if false {
+            for _, v := range vals { res = append(res, v) }
         } else {
             res = make([]Value, n)
             copy(res, vals)
@@ -6590,8 +6137,21 @@ func parseFloat(pos Position, s string) *float {
     }
 }
 
+// time.RFC3339Nano
+func parseDateTime(s string) (time.Time, error) { return time.Parse("2006-01-02T15:04:05.999999999Z07:00", s) }
+func parseDate(s string) (time.Time, error) { return time.Parse("2006-01-02", s) }
+func parseTime(s string) (time.Time, error) { return time.Parse("15:04:05.999999999Z07:00", s) }
+
+func ParseDateTime(pos Position, s string) Value {
+    if t, e := parseDateTime(s); e == nil {
+        return &datetime{valbase{pos},t}
+    } else {
+        panic(e)
+    }
+}
+
 func ParseDate(pos Position, s string) *Date {
-    if t, e := time.Parse("2006-01-02", s); e == nil {
+    if t, e := parseDate(s); e == nil {
         return makeDate(pos,t)
     } else {
         panic(e)
@@ -6599,7 +6159,7 @@ func ParseDate(pos Position, s string) *Date {
 }
 
 func ParseTime(pos Position, s string) *Time {
-    if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
+    if t, e := parseTime(s); e == nil {
         return makeTime(pos,t)
     } else {
         panic(e)
@@ -6658,7 +6218,7 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
             return x
         }
     case evoke_x:
-        if p.x != nil && (t.name == "" || t.name == p.x.ident(ctx)) {
+        if p.x != nil && (t.name == "" || t.name == ident(ctx, p.x)) {
             return p.x
         }
 
@@ -6687,12 +6247,6 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
 }
 
 type evoker interface{ evoke(*evocation) Value }
-func evoke(ctx Context, x Value, o, a []Value) (res Value) {
-    if t, y := try_evoke(ctx, x, o, a); y { res = t } else {
-        errostack(pc(ctx,x), 3, "cannot evoke %s : %v", tv(x), ts(x)).trace()
-    }
-    return
-}
 
 func _evoker(ctx Context, x Value) evoker {
     switch t := x.(type) {
@@ -6716,6 +6270,13 @@ func try_evoke(ctx Context, x Value, o, a []Value) (res Value, ok bool) {
         // NOTE: the evo.a represents the arguments, which is a COPY of the original slice;
         // NOTE: making a COPY of the argument slice FIXES the bug of delegate-altered-args.
         return t.evoke(&evocation{automatic{Context:ctx, defs:make(def_map)}, x, dup(o), dup(a)}), true
+    }
+    return
+}
+
+func evoke(ctx Context, x Value, o, a []Value) (res Value) {
+    if t, y := try_evoke(ctx, x, o, a); y { res = t } else {
+        errostack(pc(ctx,x), 3, "cannot evoke %s : %v", tv(x), ts(x)).trace()
     }
     return
 }

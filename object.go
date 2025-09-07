@@ -27,7 +27,6 @@ type object interface {
 type objbase struct{ valbase ; scope *scope }
 func (_ *objbase) kind() Kind { return KindObject }
 func (p *objbase) owner() *project { return p.scope.project }
-func (p *objbase) ident(Context) string { panic("inquiring name of an unknown object") }
 func (p *objbase) String() string { return fmt.Sprintf("{=obj %p}", p) }
 func (p *objbase) string(Context) string { return fmt.Sprintf("{=obj %p}", p) }
 func (p *objbase) exists() existence { return existenceMatterless }
@@ -277,10 +276,6 @@ func (a *auto) sel(ctx Context, name string) (res any) {
     if name == "value" { res = auto_get(ctx, a.name) }
     return
 }
-func (a *auto) defs(ctx Context, s ...string) (res []*def) {
-    if d := a.def(ctx); d != nil { res = append(res, d) }
-    return
-}
 func (a *auto) def(ctx Context) *def { return auto_find(ctx, a.name) }
 func (a *auto) set(ctx Context, o origin, value Value, app ...Value) {
     if value == nil && app != nil {
@@ -312,22 +307,6 @@ func (a *auto) invoke(ctx Context, o, v []Value) (res Value) {
     if d := auto_find(ctx, a.name); d != nil { res = evoke(ctx, d, o, v) }
     return
 }
-func (a *auto) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, a, v, &res) }
-    switch x := v.(type) {
-    case *auto:
-        if a == x || a.name == x.name { res = cmpEqual }
-    case *def:
-        if false {
-            if d := auto_find(ctx, a.name); d != nil { res = d.cmp(ctx, x) }
-        } else if x.name == a.name /* && x.o == defVoid */ {
-            return cmpEqual
-        }
-    case *list:
-        if x.len() == 1 { res = a.cmp(ctx, x.elems[0]) }
-    }
-    return
-}
 func (a *auto) stat(ctx Context) (si *statinfo) {
     if val := auto_get(ctx, a.name); val != nil { si = val.stat(ctx) }
     return
@@ -342,7 +321,8 @@ func (c def_evoke) inner() Context { return c.evocation }
 func (c def_evoke) cast(t reflect.Type) Context { return icast(c, t) }
 func (c def_evoke) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
-    case param_name: return
+    case arrow_nil, closure_nil, delegate_nil: return // avoids stringify_ctx
+    case param_name: return // avoids program execution
     case find_auto:
         if IsDigits(t.s) {
             if x, y := c.defs[t.s]; y {
@@ -422,84 +402,20 @@ func (d *def) true(ctx Context) (res bool) {
     if val != nil { res = val.true(ctx) }
     return
 }
-func (d *def) defs(ctx Context, s ...string) (res []*def) {
-    if len(s) == 0 {
-        res = append(res, d)
-    } else {
-        for _, a := range s {
-            if d.name == a {
-                res = append(res, d)
-                break
-            }
-        }
-    }
-
-    var val Value
-    {
-        // d.Lock()
-        val = d.value
-        // d.Unlock()
-    }
-
-    if val != nil { res = append(res, val.defs(ctx, s...)...) }
-    return
-}
 func (d *def) expand(Context) Value { return d }
 func (d *def) evoke(ctx *evocation) (res Value) {
     // d.Lock()
     o, v := d.o, d.value
     // d.Unlock()
 
-    if ctx.a != nil { ctx.a = expand(ctx.Context, ctx.a...) }
-    if v == nil {
-        return
-    }
+    if v == nil { return }
 
     dev := def_evoke{ctx}
-    ctx.args(dev, ctx.a)
 
-    if v = v.expand(dev); v == nil {
-        return
-    }
-    if o == defExecute {
-        v = d.xexe(dev, v)
-    }
+    if ctx.a != nil { ctx.args(dev, expand(ctx.Context, ctx.a...)) }
+    if v = v.expand(dev); v != nil { if defExecute == o { v = d.xexe(dev, v) }}
     if false { v = scalarize(v) }
     return v
-}
-func (d *def) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, d, v, &res) }
-    switch x := v.(type) {
-    case *def:
-        if d == x { return cmpEqual }
-        if d.name == d.name  {
-            var v1, v2 Value
-            {
-                // d.Lock()
-                v1 = d.value
-                // d.Unlock()
-            }
-            {
-                // a.Lock()
-                v2 = x.value
-                // a.Unlock()
-            }
-            if v1 == nil {
-                if v2 == nil { return cmpEqual }
-            } else if v2 != nil {
-                return v1.cmp(ctx, v2)
-            }
-        }
-    case *auto:
-        if false {
-            if d2 := auto_find(ctx, x.name); d2 != nil { res = d.cmp(ctx, d2) }
-        } else if d.name == x.name /* && d.o == defVoid */ {
-            return cmpEqual
-        }
-    case *list:
-        if x.len() == 1 { res = d.cmp(ctx, x.elems[0]) }
-    }
-    return
 }
 func (d *def) origin(ctx Context, o origin) (res origin) {
     if d.o == o { return o }
@@ -648,9 +564,6 @@ func (p *undetermined) float(Context) (_ float64) { return }
 func (p *undetermined) int(Context) (_ int64) { return }
 func (p *undetermined) updated(_ Context) bool { return false }
 func (p *undetermined) updatedDeps(_ Context, _ ...Value) []Value { return nil }
-func (p *undetermined) defs(ctx Context, s ...string) (res []*def) {
-    return append(p.identifier.defs(ctx, s...), p.value.defs(ctx, s...)...)
-}
 func (p *undetermined) expand(ctx Context) (res Value) {
     var i = p.identifier.expand(ctx)
     var v = p.value.expand(ctx)
@@ -669,18 +582,6 @@ func (p *undetermined) delete(ctx Context) (files []*file) { return }
 func (p *undetermined) patterned(ctx Context) bool { return false }
 func (p *undetermined) match(ctx Context, i any) (_ bool, _ any, _ []string) { return }
 func (p *undetermined) stencil(ctx Context, ss []string) (Value, []string) { return p, ss }
-func (p *undetermined) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch x := v.(type) {
-    case *undetermined:
-        if p.identifier.cmp(ctx, x.identifier) == cmpEqual {
-            if p.value.cmp(ctx, x.value) == cmpEqual { return cmpEqual }
-        }
-    case *list:
-        if len(x.elems) == 1 { return p.cmp(ctx, x.elems[0]) }
-    }
-    return
-}
 
 const max_expand = 32
 
@@ -752,24 +653,6 @@ func (p *builtin) evoke(ctx *evocation) (res Value) {
     return
 }
 func (p *builtin) invoke(c Context, o, a []Value) Value { return evoke(c, p, o, a) }
-func (p *builtin) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    switch t := v.(type) {
-    case *builtin:
-        if p.t == t.t /* || p.name == a.name */ { res = cmpEqual }
-        if res != cmpEqual {
-            if p.t == t.t {
-                erro(ctx, "%v", ts(v)).trace()
-            }
-            if p.name == t.name {
-                erro(ctx, "%v", ts(v)).trace()
-            }
-        }
-    case *list:
-        if t.len() == 1 { res = p.cmp(ctx, t.elems[0]) }
-    }
-    return
-}
 
 type get_rule struct{}
 type is_rule struct{ x *regexp.Regexp }
@@ -867,19 +750,10 @@ func (p *rule) programs(a ...*program) []*program {
     if 0 < len(a) { p.program = a }
     return p.program
 }
-func (p *rule) ident(ctx Context) (name string) {
-    if p == nil {
-        erro(ctx, "nil entry").trace()
-    } else if p.target == nil {
-        erro(ctx, "entry target is nil").trace()
-    } else {
-        name = p.target.string(ctx)
-    }
-    return
-}
 func (p *rule) true(ctx Context) bool { return p.target.true(ctx) }
 func (p *rule) float(Context) (_ float64) { return }
 func (p *rule) int(Context) (_ int64) { return }
+func (p *rule) ident(ctx Context) string { return ident(ctx, p.target) }
 func (p *rule) string(ctx Context) string { return p.target.string(ctx) }
 func (p *rule) String() string {
     if p.target == nil { return "<nil entry>" }
@@ -915,18 +789,6 @@ func (p *rule) recipes() (res []Value) {
     for _, prog := range p.program {
         for _, recipe := range prog.recipes {
             res = append(res, recipe)
-        }
-    }
-    return
-}
-func (p *rule) defs(ctx Context, s ...string) (res []*def) {
-    res = p.target.defs(ctx, s...)
-    for _, prog := range p.program {
-        for _, depend := range prog.depends {
-            res = append(res, depend.defs(ctx, s...)...)
-        }
-        for _, recipe := range prog.recipes {
-            res = append(res, recipe.defs(ctx, s...)...)
         }
     }
     return
@@ -1001,17 +863,6 @@ func (p *rule) hit(ctx Context, c *valcache) (*valcache, bool) {
 }
 // FIXME: p.target maybe not the real target
 func (p *rule) stat(ctx Context) *statinfo { return p.target.stat(ctx) }
-func (p *rule) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if a, y := v.(*rule); y {
-        if p.target.cmp(ctx, a.target) == cmpEqual {
-            if p.owner() == a.owner() { res = cmpEqual }
-        }
-    } else if l, y := v.(*list); y && len(l.elems) == 1 {
-        res = p.cmp(ctx, l.elems[0])
-    }
-    return
-}
 func (p *rule) patterned(ctx Context) bool { return p.target.patterned(ctx) }
 func (p *rule) match(ctx Context, i any) (full bool, s any, stems []string) {
     full, s, stems = p.target.match(ctx, i)
@@ -1061,19 +912,6 @@ func (p *stemmed_rule) expand(ctx Context) (res Value) {
         res = &stemmed_rule{v.(*rule), p.target, p.stems}
     } else {
         res = p
-    }
-    return
-}
-func (p *stemmed_rule) cmp(ctx Context, v Value) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, p, v, &res) }
-    if x, y := v.(*stemmed_rule); y {
-        if len(p.stems) != len(p.stems) { return }
-        for i, stem := range p.stems {
-            if stem != x.stems[i] { return }
-        }
-        return p.rule.cmp(ctx, x.rule)
-    } else if x, y := v.(*list); y && len(x.elems) == 1 {
-        return p.cmp(ctx, x.elems[0])
     }
     return
 }

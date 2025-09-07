@@ -44,7 +44,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("cond0"); d == nil {
-		ctx.err("cond0: %v", _project(ctx).defs)
+		ctx.err("cond0: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "x?"; s != t {
@@ -54,7 +54,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("cond01"); d == nil {
-		ctx.err("cond01: %v", _project(ctx).defs)
+		ctx.err("cond01: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "x?y"; s != t {
@@ -64,7 +64,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("cond02"); d == nil {
-		ctx.err("cond02: %v", _project(ctx).defs)
+		ctx.err("cond02: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "x???y"; s != t {
@@ -74,7 +74,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("cond03"); d == nil {
-		ctx.err("cond03: %v", _project(ctx).defs)
+		ctx.err("cond03: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "x&(something)?y"; s != t {
@@ -85,7 +85,7 @@ func testValue(ctx testcase1) {
 
 
 	if d := ctx.def("cond11"); d == nil {
-		ctx.err("cond11: %v", _project(ctx).defs)
+		ctx.err("cond11: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "xy"; s != t {
@@ -95,7 +95,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("cond12"); d == nil {
-		ctx.err("cond12: %v", _project(ctx).defs)
+		ctx.err("cond12: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "xy"; s != t {
@@ -105,7 +105,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("cond13"); d == nil {
-		ctx.err("cond13: %v", _project(ctx).defs)
+		ctx.err("cond13: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "x&(something)y?"; s != t {
@@ -115,7 +115,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("disjunction0"); d == nil {
-		ctx.err("disjunction0: %v", _project(ctx).defs)
+		ctx.err("disjunction0: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "{a b c}"; s != t {
@@ -125,7 +125,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("disjunction00"); d == nil {
-		ctx.err("disjunction00: %v", _project(ctx).defs)
+		ctx.err("disjunction00: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "x"; s != t {
@@ -135,7 +135,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("disjunction01"); d == nil {
-		ctx.err("disjunction01: %v", _project(ctx).defs)
+		ctx.err("disjunction01: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "x{$1}"; s != t {
@@ -151,7 +151,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("disjunction02"); d == nil {
-		ctx.err("disjunction02: %v", _project(ctx).defs)
+		ctx.err("disjunction02: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "x{&(something)}"; s != t {
@@ -161,7 +161,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("disjunction03"); d == nil {
-		ctx.err("disjunction03: %v", _project(ctx).defs)
+		ctx.err("disjunction03: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "x{a b c}"; s != t {
@@ -171,7 +171,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("disjunction1"); d == nil {
-		ctx.err("disjunction1: %v", _project(ctx).defs)
+		ctx.err("disjunction1: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := d.value.(*list); !y {
@@ -185,7 +185,7 @@ func testValue(ctx testcase1) {
 	}
 
 	if d := ctx.def("disjunction2"); d == nil {
-		ctx.err("disjunction2: %v", _project(ctx).defs)
+		ctx.err("disjunction2: %v", _project(ctx).elems)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if l, y := d.value.(*list); !y {

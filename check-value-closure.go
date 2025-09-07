@@ -19,6 +19,7 @@ var checkpoints_value_closure = map[string]map[string]any{
 		`12:12:foo_nest_2 &(&(foo.tail)) {12:16:closure {12:18:closure {11:13:def foo.tail}}}`:`{12:18 {=compound {11:20:word foo} {11:23:punct .} {11:24:word xxxx}}} {} {12:16:null}`,
 		`14:12:foo_nest_3 &(foo.tail) {14:18:closure {11:13:def foo.tail}}`:`{11:13:def foo.tail} foo.xxxx {14:18 {=compound {11:20:word foo} {11:23:punct .} {11:24:word xxxx}}}`,
 		`14:12:foo_nest_3 &(foo.xxxx) {14:16:closure {13:13:def foo.xxxx}}`:`{13:13:def foo.xxxx} foo {14:16 {13:20:word foo}}`,
+		`14:12:foo_nest_3 &(&(foo.tail)) {14:16:closure {14:18:closure {11:13:def foo.tail}}}`:`{14:18 {=compound {11:20:word foo} {11:23:punct .} {11:24:word xxxx}}} foo {14:16 {13:20:word foo}}`,
 	},
 	"check-value-closure_test.go": map[string]any{
 		`18 4:9:foo_pre &(foo.pre) {4:12:closure {3:9:def foo.pre}}`:`{3:9:def foo.pre} foo {4:12 {3:12:word foo}}`,

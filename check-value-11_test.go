@@ -26,7 +26,7 @@ func testValues11(ctx *testcase) {
 		ctx.err(".test")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "&(.test{})"; s != t {
+	} else if s, t := v.String(), "&(.test)"; s != t {
 		ctx.err("%v: %s != %s", v, s, t)
 	} else if s, t := v.string(src(ctx,d)), ""; s != t {
 		ctx.err("%v: %s != %s", v, s, t)

@@ -111,8 +111,8 @@ type def_val        struct{ original ; d *def}
 type def_name       struct{ Context }
 type braced         struct{ Context }
 type p_auto_ctx     struct{ Context }
-type p_foreach_txt  struct{ Context ; a *auto }
-type p_grep_txt     struct{ Context ; o objbase ; a map[string]*auto }
+type foreach_txt    struct{ Context ; a *auto }
+type grep_txt       struct{ Context ; o objbase ; a map[string]*auto }
 type p_group_ctx    struct{ Context }
 type left_side      struct{ Context }
 type p_modifier     struct{ Context }
@@ -241,10 +241,10 @@ func (p braced) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p p_foreach_txt) inner() Context { return p.Context }
-func (p p_foreach_txt) cast(t reflect.Type) Context { return icast(p,t) }
-func (p p_foreach_txt) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
-func (p p_foreach_txt) do(ctx Context, op any) (_ any) {
+func (p *foreach_txt) inner() Context { return p.Context }
+func (p *foreach_txt) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *foreach_txt) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
+func (p *foreach_txt) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
     case find_auto: if t.s == "_" { return p.a }
 	case is_auto: if t.s == "_" { return true }
@@ -253,10 +253,10 @@ func (p p_foreach_txt) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p *p_grep_txt) inner() Context { return p.Context }
-func (p *p_grep_txt) cast(t reflect.Type) Context { return icast(p,t) }
-func (p *p_grep_txt) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
-func (p *p_grep_txt) do(ctx Context, op any) (_ any) {
+func (p *grep_txt) inner() Context { return p.Context }
+func (p *grep_txt) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *grep_txt) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
+func (p *grep_txt) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case is_auto_preserved:
 		if p.a != nil {
@@ -1464,44 +1464,44 @@ func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
     return
 }
 
-type optional struct{}
-type optional_ctx struct{ Context }
-func (c optional_ctx) inner() Context { return c.Context }
-func (c optional_ctx) do(ctx Context, op any) (_ any) {
-    switch op.(type) {
-	case optional: return true
-    }
-    return c.Context.do(ctx, op)
-}
-
-func (l ul) identity(ctx Context, closure bool, tok token, name Value) (obj Value, str string, opts []Value) {
+func (l ul) identity(ctx Context, tok token, name Value) (obj Value, str string, opts []Value) {
 	if name == nil {
 		erro(ctx, "nil name").trace()
 	}
 
+	var ic *ident_ctx
+	ic, ctx = identity_ctx(ctx)
+
 	switch x := name.(type) {
 	case cond:
-		obj, str, opts = l.identity(optional_ctx{ctx}, closure, tok, x.Value)
+		obj, str, opts = l.identity(optional_ident(ctx), tok, x.Value)
 		obj = cond{ obj }
 		return
 	case object:
-		obj, str = x, x.ident(ctx)
+		obj, str = x, ident(ctx, x)
 		return
 	case *argumented:
-		obj, str, opts = l.identity(ctx, closure, tok, x.Value)
+		obj, str, opts = l.identity(ctx, tok, x.Value)
 		opts = append(opts, merge(x.args...)...)
 		return
-	case identer:
-		if str = x.ident(ctx); str == "" {
+	default:
+		if str = ident(ctx, x); ic.nil > 0 {
 			obj = name
 			return
+		} else if str == "" {
+			if truly(ctx, opt_ident{}) {
+				obj = name
+				return
+			}
+
+			errostack(pc(ctx,name), 32, "empty ident: %v (nil=%d) : %s", name, ic.nil, ts(name)).trace()
 		}
 
 		switch tok {
 		case LPAREN:
 			if obj = l.resolve(ctx, name, str); obj != nil {
 				return
-			} else if closure || truly(ctx, optional{}) || truly(ctx, is_undef{}) {
+			} else if truly(ctx, opt_ident{}) {
 				obj = name
 				return
 			}
@@ -1516,10 +1516,7 @@ func (l ul) identity(ctx Context, closure bool, tok token, name Value) (obj Valu
 			}
 		}
 
-		errostack(pc(ctx,name), 32, "undefined %v ; %v → %v : %s", x, name, str, ts(name)).trace()
-		return
-	default:
-		obj = name
+		errostack(pc(ctx,name), 32, "undefined %v → %v : %s", name, str, ts(name)).trace()
 		return
 	}
 }
@@ -1542,7 +1539,11 @@ func (l ul) calling(ctx Context) (result Value) {
 		if l.p.tok == SPACE { erro(ctx, "unexpected spaces").trace() }
 
 		name = l.expr(selection{ctx})
-		obj, str, opts = l.identity(ctx, closure, tok, name)
+		if closure || optional(name) {
+			obj, str, opts = l.identity(optional_ident(ctx), tok, name)
+		} else {
+			obj, str, opts = l.identity(ctx, tok, name)
+		}
 
 		if (tok == LPAREN && l.p.tok != RPAREN) || (tok == LBRACE && l.p.tok != RBRACE) {
 			var cc Context = aware(ctx, COMMA)
@@ -1554,18 +1555,17 @@ func (l ul) calling(ctx Context) (result Value) {
 				if !closure { cc = p_auto_ctx{cc} }
 				args = append(args, _list(l.values(cc)...))
 			case "and", "or":
-				cc = p_undef{cc}
+				cc = optional_ident(cc)
 				args = append(args, _list(l.values(cc)...))
 			case "case":
 				args = append(args, _list(l.values(cc)...))
-				cc = p_undef{cc}
+				cc = optional_ident(cc)
 			case "foreach":
-				o := objbase{l.p.valbase(ctx), l.scope()}
+				a := &auto{knownobject{objbase{l.p.valbase(ctx),l.scope()},"_"}}
 				args = append(args, _list(l.values(cc)...))
-				cc = p_foreach_txt{cc, &auto{knownobject{o,"_"}}}
+				cc = &foreach_txt{cc, a}
 			case "grep":
-				o := objbase{l.p.valbase(ctx), l.scope()}
-				cc = &p_grep_txt{cc, o, nil}
+				cc = &grep_txt{cc, objbase{l.p.valbase(ctx), l.scope()}, nil}
 				args = append(args, _list(l.values(cc)...))
 			default:
 				args = append(args, _list(l.values(cc)...))
@@ -1590,12 +1590,12 @@ func (l ul) calling(ctx Context) (result Value) {
 	case STRING:
 		tok = l.p.tok
 		name = l.literal(ctx) // $'xxxx'
-		obj, str, opts = l.identity(ctx, closure, tok, name)
+		obj, str, opts = l.identity(ctx, tok, name)
 
 	case STRCOMP:
 		tok = l.p.tok
 		name = l.strcomp(ctx) // $"xxxx"
-		obj, str, opts = l.identity(ctx, closure, tok, name)
+		obj, str, opts = l.identity(ctx, tok, name)
 
 	case WORD:
 		switch l.p.lit {
@@ -2072,10 +2072,10 @@ func (dc *defscapture) ts(ctx Context, t string) (s string) {
 	s += "}"
 	return
 }
-func (dc *defscapture) cmp(ctx Context, v Value) (res cmpres) {
+func (dc *defscapture) _cmp(ctx Context, v Value) (res cmpres) {
 	switch t := v.(type) {
 	case *defscapture:
-		if res = dc.Value.cmp(ctx, t.Value); res == cmpEqual {}
+		if res = cmp(ctx, dc.Value, t.Value); res == cmpEqual {}
 	}
 	return
 }
@@ -2914,7 +2914,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 				outer1:
 					for _, v := range dv {
 						for _, s := range vals {
-							if v.cmp(ctx, s) == cmpEqual { continue outer1 }
+							if cmp(ctx, v, s) == cmpEqual { continue outer1 }
 						}
 						_vals = append(_vals, v)
 					}
@@ -2942,7 +2942,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 				outer2:
 					for _, v := range dv {
 						for _, sv := range vals {
-							if v.cmp(ctx, sv) == cmpEqual { continue outer2 }
+							if cmp(ctx, v, sv) == cmpEqual { continue outer2 }
 						}
 						_vals = append(_vals, v)
 					}
@@ -3890,7 +3890,7 @@ func (l ul) configure_val(ctx *execution, _op, op, val Value, par map[string]Val
 		var params []Value
 		for _, prog := range ent.programs() {
 			for _, p := range prog.params {
-				w := _word(p.Position(), p.ident(ctx))
+				w := _word(p.Position(), ident(ctx, p))
 				if x, y := par[w.s]; y {
 					params = append(params, x)
 				} else {

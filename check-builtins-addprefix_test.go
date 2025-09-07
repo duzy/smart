@@ -60,7 +60,7 @@ func test__addprefix(ctx *testcase) {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if v = ctx.val(d, defExpand2); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "-foo=bar -foo={}"; s != t {
+	} else if s, t := v.String(), "-foo=bar"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if s, t := v.string(src(ctx,d)), "-foo=bar"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
@@ -118,7 +118,7 @@ func test__addprefix(ctx *testcase) {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand2); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "foobar foo"; s != t {
+	} else if s, t := v.String(), "foobar"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if s := v.string(src(ctx,d)); s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
@@ -152,7 +152,7 @@ func test__addprefix(ctx *testcase) {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "foo=xxx {&(.test.{})}=xxx"; s != t {
+	} else if s, t := v.String(), "foo=xxx {&(.test.)}=xxx"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if s, t := v.string(src(ctx,d)), "foo=xxx test=xxx null=xxx"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
@@ -181,7 +181,7 @@ func test__addprefix(ctx *testcase) {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1); v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "foo={&(.test.{})} {&(.test.{})}={&(.test.{})}"; s != t {
+	} else if s, t := v.String(), "foo={&(.test.)} {&(.test.)}={&(.test.)}"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if s, t := v.string(src(ctx,d)), "foo=test foo=null test=test test=null null=test null=null"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
@@ -219,7 +219,8 @@ func test__addprefix(ctx *testcase) {
 	} else if s, t := v.String(), "fo-{&(.test.a.x.1.y.0.z)} fo-{&(.test.a.x.2.y.0.z)} fo-{&(.test.a.x.3.y.0.z)} fo-{&(.test.b.x.1.y.0.z)} fo-{&(.test.b.x.2.y.0.z)} fo-{&(.test.b.x.3.y.0.z)} fo-{&(.test.c.x.1.y.0.z)} fo-{&(.test.c.x.2.y.0.z)} fo-{&(.test.c.x.3.y.0.z)}"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if s, t := v.string(src(ctx,d)), "fo-ax fo-ay fo-az fo-bx fo-by fo-bz fo-cx fo-cy fo-cz fo-dx fo-dy fo-dz fo-ex fo-ey fo-ez fo-fx fo-fy fo-fz"; s != t {
-		ctx.err("%s != %s ; %s", s, t, tst{v})
+		note(pc(ctx,v), "%s", ts(v))
+		ctx.err("%s != %s", s, t)
 	} else if v := ctx.val(d, defExpand2, []string{"a","b","c"}, []string{"1","2","3"}, "0"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "fo-ax fo-ay fo-az fo-bx fo-by fo-bz fo-cx fo-cy fo-cz fo-dx fo-dy fo-dz fo-ex fo-ey fo-ez fo-fx fo-fy fo-fz"; s != t {

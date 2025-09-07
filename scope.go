@@ -113,12 +113,21 @@ func (s *scope) resolve(name string) (obj object) {
 // if not already set, and returns nil.
 func (s *scope) insert(ctx Context, obj object) object {
 	s.mutex.Lock(); defer s.mutex.Unlock()
-	var name = obj.ident(ctx)
-	if alt := s.elems[name]; alt != nil {
-		return alt
+
+    var ic *ident_ctx
+    if ic, ctx = identity(ctx); ic.nil > 0 {
+		erro(pc(ctx,obj), "no ident: %v", obj).trace()
 	}
-	s.replace(ctx, name, obj)
-	return nil
+
+	if name := ident(ctx, obj); name == "" {
+		erro(pc(ctx,obj), "no ident: %v", obj).trace()
+		return nil
+	} else if alt := s.elems[name]; alt != nil {
+		return alt
+	} else {
+		s.replace(ctx, name, obj)
+		return nil
+	}
 }
 
 func (s *scope) replace(ctx Context, name string, obj object) {

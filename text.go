@@ -87,12 +87,6 @@ func (p *plain) expand(ctx Context) (_ Value) {
     }
     return p
 }
-func (p *plain) cmp(ctx Context, v Value) (_ cmpres) {
-    if x, y := v.(*plain); y && p.name == x.name {
-        return compareElems(ctx, p.elems, x.elems)
-    }
-    return
-}
 
 type is_plainline struct {}
 type plainline_ctx struct { Context }
@@ -178,16 +172,6 @@ func (p *plainline) expand(ctx Context) (_ Value) {
     }
     return p
 }
-func (p *plainline) cmp(ctx Context, v Value) (_ cmpres) {
-    if x, y := v.(*plainline); y {
-        return compareElems(ctx, p.elems, x.elems)
-    } else if false {
-        if v.string(ctx) == p.string(ctx) {
-            return cmpEqual
-        }
-    }
-    return
-}
 
 type plainint struct{}
 func (p *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
@@ -230,10 +214,10 @@ func multiline(ctx Context, recipes... Value) (res string) {
 
 type XML struct { Value }
 func (p *XML) String() string { return "(xml " + p.Value.String() + ")" }
-func (p *XML) cmp(ctx Context, v Value) (res cmpres) {
+func (p *XML) _cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*XML); ok {
         assert(ok, "value is not XML")
-        res = p.Value.cmp(ctx, a.Value)
+        res = cmp(ctx, p.Value, a.Value)
     }
     return
 }
@@ -356,10 +340,10 @@ func (p *xml) evaluate(ctx Context, args ...Value) (result Value) {
 
 type JSON struct { Value }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
-func (p *JSON) cmp(ctx Context, v Value) (res cmpres) {
+func (p *JSON) _cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*JSON); ok {
         assert(ok, "value is not JSON")
-        res = p.Value.cmp(ctx, a.Value)
+        res = cmp(ctx, p.Value, a.Value)
     }
     return
 }
@@ -545,13 +529,6 @@ func (_ *json) evaluate(ctx Context, args ...Value) (result Value) {
 
 type YAML struct { Value }
 func (p *YAML) String() string { return "(yaml " + p.Value.String() + ")" }
-func (p *YAML) cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*YAML); ok {
-        assert(ok, "value is not YAML")
-        res = p.Value.cmp(ctx, a.Value)
-    }
-    return
-}
 
 /*
    TODO: implement the yaml format:

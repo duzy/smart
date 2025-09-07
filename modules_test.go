@@ -2320,7 +2320,7 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%s", s)
 	} else if c := base.configuration_sm(ctx); c == nil {
 		ctx.err("%v", base)
-	} else if s, t := v.ident(ctx), c.ident(ctx); s != t {
+	} else if s, t := ident(ctx, v), ident(ctx, c); s != t {
 		ctx.err("%v: %s != %s", v, s, t)
 	} else if v.string(ctx) == c.fullname() {
 		ctx.err("%v: %v", proj, base)
@@ -2335,7 +2335,7 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%s", s)
 	} else if c := base.configuration_sm(ctx); c == nil {
 		ctx.err("%v", base)
-	} else if s, t := v.ident(ctx), c.ident(ctx); s != t {
+	} else if s, t := ident(ctx, v), ident(ctx, c); s != t {
 		ctx.err("%v: %s != %s", v, s, t)
 	} else if f, y := v.(*file); !y {
 		ctx.err("%v", tst{v})
@@ -2409,7 +2409,7 @@ func testLLVMConfig1(ctx *testcase) {
 
 	if f := proj.file(closure_with(ctx.Context, proj), configuration_sm); f == nil {
 		ctx.err("%v: nil %s", proj, configuration_sm)
-	} else if f.ident(ctx) != configuration_sm {
+	} else if ident(ctx, f) != configuration_sm {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(f.fullname()) {
 		ctx.err("%v: %v", f, base)
@@ -2432,7 +2432,7 @@ func testLLVMConfig1(ctx *testcase) {
 
 	if f := base.file(closure_with(ctx.Context, proj), configuration_sm); f == nil {
 		ctx.err("%v: nil %s", proj, configuration_sm)
-	} else if f.ident(ctx) != configuration_sm {
+	} else if ident(ctx, f) != configuration_sm {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(f.fullname()) {
 		ctx.err("%v: %v", f, base)
@@ -2454,7 +2454,7 @@ func testLLVMConfig1(ctx *testcase) {
 
 	if f := proj.tempfile(closure_with(ctx.Context, proj), configuration_sm); f == nil {
 		ctx.err("%v: nil %s", proj, configuration_sm)
-	} else if f.ident(ctx) != configuration_sm {
+	} else if ident(ctx, f) != configuration_sm {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(f.fullname()) {
 		ctx.err("%v: %v", f, base)
@@ -2476,7 +2476,7 @@ func testLLVMConfig1(ctx *testcase) {
 
 	if f := base.tempfile(closure_with(ctx.Context, proj), configuration_sm); f == nil {
 		ctx.err("%v: nil %s", proj, configuration_sm)
-	} else if f.ident(ctx) != configuration_sm {
+	} else if ident(ctx, f) != configuration_sm {
 		ctx.err("%v: %v", f, base)
 	} else if !filepath.IsAbs(f.fullname()) {
 		ctx.err("%v: %v", f, base)
@@ -2498,7 +2498,7 @@ func testLLVMConfig1(ctx *testcase) {
 
 	if f := base.configuration_sm(closure_with(ctx.Context, base.configure)); f == nil {
 		ctx.err("%v: %v: nil configuration", proj, base)
-	} else if f.ident(ctx) != configuration_sm {
+	} else if ident(ctx, f) != configuration_sm {
 		ctx.err("%v: %v", f.name, base)
 	} else if !filepath.IsAbs(f.fullname()) {
 		ctx.err("%v: %v", f.name, base)

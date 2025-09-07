@@ -293,7 +293,6 @@ func (_ *project) int(Context) (_ int64) { return }
 func (_ *project) float(Context) (_ float64) { return }
 func (_ *project) updated(Context) bool { return false }
 func (_ *project) updatedDeps(Context, ...Value) []Value { return nil }
-func (_ *project) defs(Context, ...string) (_ []*def) { return }
 func (_ *project) patterned(Context) bool { return false }
 func (p *project) expand(Context) Value { return p }
 func (p *project) evoke(*evocation) Value { return p }
@@ -301,13 +300,13 @@ func (p *project) hash(ctx Context) uint64 { return fnv1(ctx, p, p.name) }
 func (p *project) stencil(_ Context, stems []string) (Value, []string) { return p, stems }
 func (p *project) match(ctx Context, i any) (bool, any, []string) { return stringMatch(ctx, p, i) }
 func (p *project) Position() Position { return p.position }
-func (p *project) String() string { return "{=project "+p.name+"}" }
 func (p *project) ident(Context) string { return p.name }
+func (p *project) String() string { return "{=project "+p.name+"}" }
 func (p *project) true(Context) bool { return p.name != "" }
 func (p *project) owner() *project { return p.scope.project }
 func (p *project) sel(ctx Context, s string) any { return p.resolve(ctx, s) }
 func (p *project) string(ctx Context) (s string) {
-    if sc := stringify(ctx); !sc.nil { s = p.name }
+    if sc, _ := stringify(ctx); !sc.nil { s = p.name }
     return
 }
 func (p *project) ts(ctx Context, t string) string {
@@ -331,37 +330,22 @@ func (p *project) delete(ctx Context) (_ []*file) {
     if t := p.defaultEntry; t != nil { return t.delete(ctx) }
     return
 }
-func (p *project) cmp(ctx Context, v Value) (res cmpres) {
+func (p *project) _cmp(ctx Context, v Value) (res cmpres) {
     if checkpoints { defer check_cmp(ctx, p, v, &res) }
     switch t := v.(type) {
-    case *list: if t.len() == 1 { return p.cmp(ctx, t.elems[0]) }
+    case *list: if t.len() == 1 { return cmp(ctx, p, t.elems[0]) }
     case *project: if t == p { return cmpEqual }
-    case cond: return p.cmp(ctx, t.Value)
+    case cond: return cmp(ctx, p, t.Value)
     }
     return
 }
 
 type self struct { *project }
-func (_ self) ident(Context) string { return ".self" }
+func (p self) ident(Context) string { return ".self" }
 func (p self) String() string { return "{=self "+p.name+"}" }
 func (p self) kind() Kind { return p.project.kind()|KindSelf }
 func (p self) expand(Context) Value { return p }
 func (p self) evoke(*evocation) Value { return p }
-func (p self) cmp(ctx Context, v Value) (res cmpres) {
-    switch t := v.(type) {
-    case *list: if t.len() == 1 { res = p.cmp(ctx, t.elems[0]) }
-    case *project: if p.project == t { res = cmpEqual }
-    case self: if p.project == t.project { res = cmpEqual }
-    case cond : res = p.cmp(ctx, t.Value)
-    }
-    if checkpoints {
-        switch v.(type) { case *project, *word, *compound: return }
-        if res != cmpEqual && p.String() == v.String() {
-            erro(ctx, "%v != %v, %v", ts(p), ts(v), res).trace()
-        }
-    }
-    return
-}
 
 func findfile(ctx Context, s string, ps ...*project) (_ *file) {
     if len(ps) == 0 { ps = append(ps, _project(ctx)) }

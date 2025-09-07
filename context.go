@@ -663,7 +663,7 @@ func diagstack(ctx Context, n int, dt diagtype, a ...any) (point diagtracer) {
 
         if e := _entry(c); e != nil {
             if t, _, _ := entryIndicator(c, e); t == "" {
-                s += ": " + e.ident(ctx)
+                s += ": " + ident(ctx, e)
             } else {
                 s += ": " + t
             }

@@ -23,12 +23,6 @@ type use struct {
 
 func (_ *use) kind() Kind { return KindUse }
 func (p *use) hash(ctx Context) uint64 { return fnv1(ctx, p, p.project.name) }
-func (p *use) defs(ctx Context, s ...string) (res []*def) {
-    for _, a := range p.params {
-    res = append(res, a.defs(ctx, s...)...)
-    }
-    return
-}
 func (p *use) expand(ctx Context) (res Value) {
     if params := expand(ctx, p.params...); diff(ctx, params, p.params) {
         res = &use{p.valbase,p.project,params,p.opts}
@@ -60,7 +54,7 @@ func (p *use) delete(ctx Context) (_ []*file) {
     }
     return
 }
-func (p *use) cmp(ctx Context, v Value) (res cmpres) {
+func (p *use) _cmp(ctx Context, v Value) (res cmpres) {
     if a, ok := v.(*use); ok {
         assert(ok, "value is not use")
         if p.project == a.project {
@@ -174,7 +168,7 @@ func (p *uselist) delete(ctx Context) (files []*file) {
     }
     return
 }
-func (p *uselist) cmp(ctx Context, v Value) (res cmpres) {
+func (p *uselist) _cmp(ctx Context, v Value) (res cmpres) {
     if a, y := v.(*uselist); y { assert(y, "value is not uselist")
         if p.name == a.name && p.owner_ == a.owner_ { res = cmpEqual }
     }
@@ -183,12 +177,6 @@ func (p *uselist) cmp(ctx Context, v Value) (res cmpres) {
 func (p *uselist) patterned(ctx Context) bool { return false }
 func (p *uselist) match(ctx Context, i any) (full bool, s any, stems []string) { return }
 func (p *uselist) stencil(ctx Context, stems []string) (val Value, rest []string) { return }
-func (p *uselist) defs(ctx Context, s ...string) (res []*def) {
-    for _, a := range p.list {
-        res = append(res, a.defs(ctx, s...)...)
-    }
-    return
-}
 func (p *uselist) expand(ctx Context) (res Value) {
     var ( list []*use; num int )
     for _, elem := range p.list {

@@ -14,26 +14,30 @@ import (
 // NOTE: cannot decalre `checkpoints` as `const` because it's compile-time evaled.
 var checkpoints = true // vertag != "final"
 
-var pre_suf_checkspecs = map[string]map[string]map[string]string{
+var check_pre_sufspecs = map[string]map[string]map[string]string{
+	"p:testdata/value/13": prefix_value_13,
 	"p:testdata/builtins/addprefix": prefix__addprefix,
 	"p:testdata/builtins/addsuffix": prefix__addsuffix,
+	"s:testdata/value/13": suffix_value_13,
 	"s:testdata/builtins/addprefix": suffix__addprefix,
 	"s:testdata/builtins/addsuffix": suffix__addsuffix,
 }
-func pre_suf_check(ctx Context, tag string, x, y Value, res *Value) {
+func check_pre_suf(ctx Context, tag string, x, y Value, res *Value) {
 	if j := _project(ctx); j == nil {
 		if false {
 			var s = try[string](ctx, source{})
 			errostack(pc(pc(ctx,y),x), 8, "nil project | %s %v %v %v", s, ts(x), ts(y), ts(*res)).trace()
 		}
-	} else if spec, ok := pre_suf_checkspecs[tag+":"+j.spec]; ok {
+	} else if spec, ok := check_pre_sufspecs[tag+":"+j.spec]; ok {
 		var (
 			src = strings.Split(try[string](ctx,source{}),":")
-			xy = src[1]+" "+ts(x)+" "+ts(y)
+			xy = func() (s string) {
+				if src[0] != "loader.go" { s = src[1] + " " }
+				return s+ts(x)+" "+ts(y)
+			} ()
 			vs = spec[src[0]][xy]
 		)
 		if rs := (*res).String()+" "+ts(*res); vs == "" {
-			if false { note(ctx, "%v", prefix__addprefix[src[0]][xy]) }
 			errostack(pc(pc(ctx,y),x), 8, "%s `%v`:`%s`,", src[0], xy, rs).trace()
 		} else if rs != vs {
 			erro(pc(pc(ctx,y),x), "`%v`", xy)
@@ -166,8 +170,18 @@ func check_string(ctx Context, sc *stringify_ctx, p Value, _v *Value, res *strin
 func check_cmp(ctx Context, l, r Value, _r *cmpres) {
 	switch *_r {
 	case cmpEqual:
-		if l.String() == r.String() {
-			errostack(pc(pc(ctx,r),l), 3, "%v ⇔ %v | %v ⇔ %v → %v", l, r, ts(l), ts(r), *_r).trace()
+		if l.String() != r.String() {
+			errostack(pc(pc(ctx,r),l), 3, "%v ⇔ %v → %v | %v ⇔ %v", l, r, *_r, ts(l), ts(r)).trace()
 		}
+	}
+}
+
+func check_ident(ctx Context, x Value, _s *string) {
+	var ic, _ = identity(ctx)
+	if false && ic == nil {
+		errostack(pc(ctx,x), 8, "not ident ctx; %s", ts(x)).trace()
+	}
+	if ic != nil && ic.nil == 0 && (*_s) == "" {
+		errostack(pc(ctx,x), 8, "empty ident: %s", ts(x)).trace()
 	}
 }
