@@ -188,7 +188,7 @@ func (p *execution) env(ctx Context) (env []string, osi int) {
     env = os.Environ()
     osi = len(env)
     for _, p := range p._env {
-        var k, v = p.key.string(ctx), p.val.string(ctx)
+        var k, v = __string(ctx, p.key), __string(ctx, p.val)
         env = append(env, fmt.Sprintf("%s=%s", k, v)) // strconv.Quote(v)
     }
     return
@@ -217,15 +217,15 @@ func (p *execution) dirty_mark(vals ...Value) {
                     dup = true; continue ForVals
                 }
                 for _, pat := range opts.pats {
-                    if mat, _, _ = pat.match(p, val); mat {
-                        if perUpdatedDep { t.updatedDeps(p, val) }
+                    if mat, _, _ = match(p, pat, val); mat {
+                        if perUpdatedDep { updatedDeps(p, t, val) }
                         break ForVals
                     }
                 }
             }
-            if !perUpdatedDep && mat { t.updatedDeps(p, vals...) }
+            if !perUpdatedDep && mat { updatedDeps(p, t, vals...) }
             if !dup { // vals = append(vals, merge(targets)...)
-                vals = append(t.updatedDeps(p), vals...)
+                vals = append(updatedDeps(p, t), vals...)
                 vals = append(merge(t), vals...)
             }
         }
@@ -295,16 +295,16 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
         erro(ctx, "nil dirtyopts : %v", ts(ctx)).trace()
         return
     }
-    if len(target.updatedDeps(ctx)) > 0 { return true }
+    if len(updatedDeps(ctx, target)) > 0 { return true }
     if v := auto_get(ctx, "^"); v != nil { a = append(a, v) }
     for _, dep := range xmerge(ctx, a...) {
         var mat bool = len(opts.pats) == 0
         if !mat {
             for _, pat := range opts.pats {
-                if mat, _, _ = pat.match(ctx, dep); mat { break }
+                if mat, _, _ = match(ctx, pat, dep); mat { break }
             }
         }
-        if mat && (dep.updated(ctx) || dep.stat(ctx).mod().After(target.stat(ctx).mod())) {
+        if mat && (updated(ctx, dep) || statFile(ctx, dep).mod().After(statFile(ctx, target).mod())) {
             return true
         }
     }
@@ -312,8 +312,8 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
 }
 
 func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
-    for _, dep := range target.updatedDeps(ctx) {
-        if ds := dep.stat(ctx); ds != nil {
+    for _, dep := range updatedDeps(ctx, target) {
+        if ds := statFile(ctx, dep); ds != nil {
             res = ds.mod().After(t) || isDirtyAfter(ctx, dep, t)
             if res { break }
         }
@@ -337,7 +337,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     var opts, args = _opts_[dirtyOpts](ctx, aa...)
 
     if targetFile, targetFull, y = target.file_fullname(ctx); !y {
-        targetFull = target.string(ctx)
+        targetFull = __string(ctx, target)
     } else if n := targetFile._traved; n > 1 {
         if false { warnstack(ctx, 5, "%v, %v, %d", targetFile, targetFull, n).debug(10) }
         return
@@ -346,7 +346,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     var verb = opts.debug>0 || opts.verbose
     var ts = trimPromptString(targetFull)
 
-    if s := target.stat(ctx); s == nil || s.exists() != existenceConfirmed {
+    if s := statFile(ctx, target); s == nil || s.exists() != existenceConfirmed {
         outdated, reason = true, "not exists" //fmt.Sprintf("not exists: %s %v", typeof(target), target)
     } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, s.mod()) {
         outdated, reason = true, "prerequisites updated"
@@ -387,12 +387,6 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
             if targetFile._traved > 1 {
                 s += fmt.Sprintf(", traved %d", targetFile._traved)
             }
-            if true && targetFile._travin < 2 && targetFile._traved < 2 {
-                if targetFile.ident(ctx) == "libllvm.Demangle.a" {
-                    warn(ctx, "%p: %d, %d, %d, %v, %v, %s", targetFile, targetFile._travin, targetFile._traved, targetFile._dirty, targetFile._updated, targetFile._updatedDeps, targetFile.fullname())
-                    warnstack(ctx, 64, "with %v: %v %v", target.Value, with(ctx, target.Value), with(ctx, targetFile)).debug(64)
-                }
-            }
             targetFile._dirty += 1
         }
 
@@ -430,7 +424,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
         } else if f, y := to_file(prereqValue); y {
             prereqFile = f
         } else if _, y := prereqValue.(*path); y {
-            if f := stat(ctx, prereqFinal); f != nil { prereqFile, prereqValue = f, f }
+            if f := _stat(ctx, prereqFinal); f != nil { prereqFile, prereqValue = f, f }
         }
     }
 
@@ -445,8 +439,8 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
     if _, y := prereqValue.(object); y { return }
 
-    if !prereqValue.patterned(ctx) {
-        prereqFinal = prereqValue.string(ctx)
+    if !patterned(ctx,prereqValue) {
+        prereqFinal = __string(ctx, prereqValue)
 
         if prereqFinal == "" { // just reject empty final
             errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, _stems(ctx)).trace()
@@ -469,14 +463,14 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
     var rest []string
     prereqPattern = prereqValue
-    prereqValue, rest = prereqPattern.stencil(ctx, stems)
+    prereqValue, rest = stencil(ctx, prereqPattern, stems)
     if isTrivial(prereqValue) {
         errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems).trace()
     } else if len(rest) > 0 {
         errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest).trace()
     }
 
-    if prereqFinal == "" { prereqFinal = prereqValue.string(ctx); }
+    if prereqFinal == "" { prereqFinal = __string(ctx, prereqValue); }
     if prereqFinal == "" {
         errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems).trace()
     }
@@ -496,10 +490,10 @@ func (p *execution) traved(ctx Context, targetValue, prereqValue, prereqPattern 
     }
 
     if !isTrivial(av) && !isTrivial(bv) {
-        var a = av.stat(ctx).mod()
-        var b = bv.stat(ctx).mod()
-        if (!a.IsZero() && b.After(a)) || bv.updated(ctx) || bv.updatedDeps(ctx) != nil {
-            av.updatedDeps(ctx, bv)
+        var a = statFile(ctx, av).mod()
+        var b = statFile(ctx, bv).mod()
+        if (!a.IsZero() && b.After(a)) || updated(ctx, bv) || updatedDeps(ctx, bv) != nil {
+            updatedDeps(ctx, av, bv)
         }
     }
 }
@@ -586,7 +580,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
             if w, k := targetValue.(*word); k && w.s == prereqFinal {
                 continue // target resolve to itself, does nothing
             }
-            entry.traverse(ctx)
+            traverse(ctx, entry)
         }
     }
 
@@ -605,14 +599,14 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     t2 := time.Now()
 
     for _, proj := range projs {
-        for _, p := range proj.patterns { assert(p.target.patterned(ctx), "not pattern") }
+        for _, p := range proj.patterns { assert(patterned(ctx,p.target), "not pattern") }
 
         var patterns = proj.resolvePatterns(ctx, prereqValue, prereqFinal)
         if len(patterns) == 0 { continue }
 
         stemmedList = append(stemmedList, patterns...)
 
-        for _, entry := range patterns { entry.traverse(ctx) }
+        for _, entry := range patterns { traverse(ctx, entry) }
     }
 
     if d := time.Now().Sub(t2); 60*time.Second < d {
@@ -627,7 +621,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 func (p *execution) prerequisites(va []Value, ordered bool) {
     defer p.Wait()
     p._ordered = ordered
-    for _, p.prerequisite = range va { p.prerequisite.traverse(p) }
+    for _, p.prerequisite = range va { traverse(p, p.prerequisite) }
     p.prerequisite = nil
     return
 }
@@ -651,7 +645,7 @@ func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
     for _, d := range prog.depends {
         if g, y := d.(*modification); y {
             for _, m := range g.list {
-                if m.elems[0].string(ctx) == name { ms = append(ms, m) }
+                if __string(ctx, m.elems[0]) == name { ms = append(ms, m) }
             }
         }
     }
@@ -671,10 +665,10 @@ func (prog *program) workdir(ctx Context) (workdir string) {
                 erro(ctx, "both $(CWD) and $/ are trivial").trace()
             }
         }
-        if v := o.expand(_final(ctx)); v == nil {
+        if v := expand(_final(ctx),o); v == nil {
             erro(ctx, "trivial %v", ts(o)).trace()
         } else {
-            workdir = v.string(ctx)
+            workdir = __string(ctx, v)
         }
     } else if filepath.IsAbs(p.changedWD) {
         workdir = p.changedWD

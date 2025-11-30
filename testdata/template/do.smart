@@ -6,18 +6,18 @@ foreach $(xyz)
 var.$_ = test-$_
 done
 
-vars := $(defs(-capture=1)  {=regex ^var\.([xyz]+)})
-var2 := $(defs(-capture=1) !{=regex ^var\.([xy]+)})
+vars := $(defs(-capture=1 -sort)  {=regex ^var\.([xyz]+)})
+var2 := $(defs(-capture=1 -sort) !{=regex ^var\.([xy]+)})
 
 foreach 1 2 3 4 5 6 7 8 9 10
 .test.$_ :=
 done
 
-for type=$(xyz)
+for type=($(xyz))
 .test.1 += $(type)
 done
 
-foreach $(defs(-capture=1) {=regex ^var\.([xyz]+)})
+foreach $(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)})
 .test.2 += $_
 done
 
@@ -25,11 +25,11 @@ def foo(x)
 .test.3 += $(x)
 end
 
-for type=$(xyz)
+for type=($(xyz))
 .test.1 += $(type)
 done
 
-foreach $(defs(-capture=1) {=regex ^var\.([xyz]+)})
+foreach $(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)})
 .test.2 += $_
 done
 

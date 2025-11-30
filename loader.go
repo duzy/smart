@@ -208,7 +208,7 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
                     val = x.Value
                     op.remainder = parse_opts(_final(ctx), &op, x.args...)
                 }
-                if name := val.string(ctx); name == "" {
+                if name := __string(ctx, val); name == "" {
                     if c := user.configure; c != nil {
                         note(ctx, "%v", ts(c.resolve(ctx, "use.*")))
                     }
@@ -339,7 +339,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
     var isDir, traveUseLoop bool
     if x, y := specVal.(*project); y {
         loaded = x
-    } else if spec = specVal.string(ctx); spec == "" {
+    } else if spec = __string(ctx, specVal); spec == "" {
         erro(pc(ctx,specVal), "empty spec: %v", ts(specVal)).trace()
     } else if absPath, isDir = l.search(ctx, spec); absPath == "" {
         erro(pc(ctx,specVal), "missing `%s` (in %v)", spec, l.paths).trace()
@@ -495,16 +495,16 @@ func (l ul) loadPlugin(ctx Context) (err error) {
         erro(ctx, "current project is nil").trace()
     }
 
-    var g = stat(ctx, "smart.go", l.project)
+    var g = _stat(ctx, "smart.go", l.project)
     if g == nil { return /* smart.go was not presented */ }
 
-    var src = g.string(ctx)
+    var src = __string(ctx, g)
     s := strings.Replace(l.project.rel, "..", "_", -1)
     s = filepath.Join(filepath.Dir(joinTmpPath(ctx, "", "")), "plugins", s)
 
     var build = true
 
-    so := stat(ctx, /*l.project.name*/"plugin", stat_dir{s}, stat_nonexist{true})
+    so := _stat(ctx, /*l.project.name*/"plugin", stat_dir{s}, stat_nonexist{true})
     if s = so.fullname(); s == "" {
         erro(ctx, "file '%v' has empty fullname", so)
     } else if so.exists() && !l.buildPlugins {
@@ -575,21 +575,21 @@ func (l ul) spec_file(ctx Context, specVal Value) (res *file, spec, fullname str
     switch t := specVal.(type) {
     case *file:
         if !t.exists() { _ = t.stat(ctx) }
-        return t, t.ident(ctx), t.fullname()
+        return t, ident(ctx,t), t.fullname()
     default:
-        if spec = specVal.string(ctx) ; spec == "" {
+        if spec = __string(ctx, specVal) ; spec == "" {
             erro(ctx, "empty string: %v", tv(specVal)).trace()
         }
 
         var f = l.project.file(ctx, specVal)
         if f == nil {
             if filepath.IsAbs(spec) {
-                f = stat(ctx, spec)
+                f = _stat(ctx, spec)
             } else {
                 var d string
                 var ll = _loader(l.loader.Context)
                 if ll != nil { d = ll.project.absPath } else { d = l.project.absPath }
-                f = stat(ctx, spec, stat_dir{d})
+                f = _stat(ctx, spec, stat_dir{d})
             }
         } else if !f.exists() {
             _ = f.stat(ctx)
@@ -642,7 +642,7 @@ func (l ul) include(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 		erro(ctx, "expect include file: %v", g.spec).trace()
 	}
 
-	var val = g.spec[0].expand(_final(ctx))
+	var val = expand(_final(ctx), g.spec[0])
 
 	if l.p.spaces(ctx); l.p.tok == COLON {
 		switch val.(type) {
@@ -720,7 +720,7 @@ func (l ul) bases(ctx Context, implicitBase string, params ...Value) {
 
     var implicitBases []Value
 
-    if f := stat(ctx, dot_base, l.project) ; f != nil {
+    if f := _stat(ctx, dot_base, l.project) ; f != nil {
         if !f.info.IsDir() && (l.project.spec == dot_base /*|| l.project.spec == dot_configure*/) {
             // skip the regular file .base to avoid self loading recursively
         } else {
@@ -749,7 +749,7 @@ func (l ul) bases(ctx Context, implicitBase string, params ...Value) {
     var implicitIndex int
     if  implicitBase != ""  {
         implicitIndex = len(implicitBases)
-        implicitBases = append(implicitBases, _pathstr(ctx, implicitBase))
+        implicitBases = append(implicitBases, _pathStr(ctx, implicitBase))
     }
 
 paramsloop:
@@ -766,9 +766,9 @@ paramsloop:
 
         var spec string
         var specVal Value
-        if specVal = elem.expand(_final(ctx)); specVal == nil { specVal = elem }
+        if specVal = expand(_final(ctx), elem); specVal == nil { specVal = elem }
 
-        if spec = specVal.string(ctx) ; spec == "" {
+        if spec = __string(ctx, specVal) ; spec == "" {
             erro(ctx, "%v: empty base name: %v", l.project, ts(specVal)).trace()
         } else if strings.Contains(spec, "//") {
             note(ctx, "%v: invalid spec: %v → %v", l.project, elem, specVal)
@@ -876,7 +876,7 @@ func (a *p_autoload) do(ctx Context, op any) (_ any) {
     case is_flat_mode: return true
     case is_autoload:
         if t.string == "" { return true }
-        return strings.HasSuffix(a.v.string(ctx), t.string)
+        return strings.HasSuffix(__string(ctx, a.v), t.string)
     case l_filename:
         if t == "" || t == "?" {
             // noop
@@ -893,7 +893,7 @@ func (a *p_autoload) do(ctx Context, op any) (_ any) {
 func (l ul) autoload(ctx Context, tag string) {
     if !is_configure_project(l.project) {
         if d := l.project.resolveDef(ctx, ".autoload."+tag); d != nil && d.value != nil {
-            for _, v := range merge(d.value.expand(_final(ctx))) {
+            for _, v := range merge(expand(_final(ctx),d.value)) {
                 if isTrivial(v) {
                     continue
                 } else if f, s, t := l.spec_file(ctx, v); f == nil || !f.exists() {
@@ -947,22 +947,22 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
             if !x.bool { return }
             cc.configure = cs // use the default 'configure' module
         } else {
-            cc.configure = v.string(ctx)
+            cc.configure = __string(ctx, v)
             if cc.configure == "" {
                 errostack(ctx, 3, "empty configure spec: %v", ts(v)).trace()
             } else if cc.configure == "." {
                 cc.configure, cc.local = cs, true
             }
         }
-    } else if f = stat(ctx, cs, l.project); f != nil {
+    } else if f = _stat(ctx, cs, l.project); f != nil {
         cc.configure, cc.local = cs, true
     }
 
     if f == nil && cc.configure != "" {
         if filepath.IsAbs(cc.configure) {
-            f = stat(ctx, cc.configure)
+            f = _stat(ctx, cc.configure)
         } else {
-            f = stat(ctx, cc.configure, l.project)
+            f = _stat(ctx, cc.configure, l.project)
         }
     }
 
@@ -1043,7 +1043,7 @@ func (l ul) container(ctx Context, ident Value, identStr string) {
         }
 
         // Looking for project specific .container module
-        if f := stat(ctx, dot_container, l.project); f != nil && f.exists() {
+        if f := _stat(ctx, dot_container, l.project); f != nil && f.exists() {
             l.dot_container(ctx, ident, identStr, f)
             return
         }
@@ -1051,7 +1051,7 @@ func (l ul) container(ctx Context, ident Value, identStr string) {
         // Looking for .smart/.container
         walkSmartBaseDirs(ctx, l.project.absPath, func(s string) bool {
             d := stat_dir{filepath.Join(s, ".smart")}
-            f := stat(ctx, dot_container, d)
+            f := _stat(ctx, dot_container, d)
             if f != nil && f.exists() {
                 l.dot_container(ctx, ident, identStr, f)
             }

@@ -6,7 +6,7 @@
 package smart
 
 import (
-	gt "go/token"
+	g "go/token"
 	"strconv"
 	"fmt"
 )
@@ -64,13 +64,22 @@ const (
 	LBRACE    // {    left curly
 	LBRACK    // [
 	LPAREN    // (
-
+	Lchevron    // ⟨ ⟪⟫ ｟｠ 〝〞
+	Ltop_corner // ⌜
+	Lbot_corner // ⌞
+	Lsing_guil  // ‹
+	Lguillemet  // «
+	Rguillemet  // »
+	Rsing_guil  // ›
+	Rbot_corner // ⌟
+	Rtop_corner // ⌝
+	Rchevron    // ⟩
 	RPAREN    // )
 	RBRACK    // ]
 	RBRACE    // }    right curly
 	RANGLE    // >
 
-	CARET     // ^
+	CARET     // ^ ˆ‸
 	COMMA     // ,
 	DOT       // .    period
 	DOTDOT    // ..
@@ -87,8 +96,9 @@ const (
 	QUE       // ?
 
 	AT        // @
-	STAR      // *    Single Asterisk
+	SAST      // *    Single Asterisk
 	DAST      // **   Double Asterisk
+	ASTQ      // *?   Asterisk Que
 	UNDERLINE // _
 
 	CLOSURE   // &
@@ -205,7 +215,16 @@ var tokens = [...]string{
 	LBRACE: "{",
 	LBRACK: "[",
 	LPAREN: "(",
-
+	Lchevron: "⟨",
+	Ltop_corner: "⌜",
+	Lbot_corner: "⌞",
+	Lsing_guil: "‹",
+	Lguillemet: "«",
+	Rguillemet: "»",
+	Rsing_guil: "›",
+	Rbot_corner: "⌟",
+	Rtop_corner: "⌝",
+	Rchevron: "⟩",
 	RPAREN: ")",
 	RBRACK: "]",
 	RBRACE: "}",
@@ -232,8 +251,9 @@ var tokens = [...]string{
 	SOLON:     ";:",
 
 	AT:        "@",
-	STAR:      "*",
+	SAST:      "*",
 	DAST:      "**",
+	ASTQ:      "*?",
 	UNDERLINE: "_",
 
 	CLOSURE:   "&",
@@ -338,17 +358,16 @@ func (tok token) is_closure_delegate() bool { return  CLOSURE == tok || tok == D
 func (tok token) is_delegate() bool         { return  DELEGATE == tok }
 func (tok token) is_assign() bool           { return    _assign_beg < tok && tok <    _assign_end }
 func (tok token) is_rule_delim() bool       { return _ruledelim_beg < tok && tok < _ruledelim_end }
-func (tok token) is_select_prog() bool      { return  SELECT_PROG1 == tok || tok == SELECT_PROG2  }
-func (tok token) is_select_prop() bool      { return  SELECT_PROP  == tok }
 func (tok token) is_list_delim() bool {
 	switch tok {
-	case RPAREN, RBRACK, RBRACE, SEMICOLON, COMMA, LINEND, EOF:
+	case RPAREN, RBRACK, RBRACE, Rbot_corner, Rtop_corner, Rsing_guil, Rguillemet, Rchevron, SEMICOLON, COMMA, LINEND, EOF:
 		return true
 	}
 	return tok.is_rule_delim()
 }
 
-func s_line_column(a any) string {
+type line_column_s string
+func line_column(a any) string {
 	if a == nil { return "0:0" }
 	switch t := a.(type) {
 	case Position:
@@ -361,7 +380,7 @@ func s_line_column(a any) string {
 		return fmt.Sprintf("%d:%d", p.Line, p.Column)
 	case []Value:
 		if len(t) == 0 { return "0:0" }
-		return s_line_column(t[0])
+		return line_column(t[0])
 	}
 	panic(failureUnreachable(fmt.Sprint(a))) // unreachable(a)
 }
@@ -373,7 +392,7 @@ func s_line_column(a any) string {
 	Line     int     -- line number, starting at 1
 	Column   int     -- column number, starting at 1 (byte count)
 */
-type Position struct { gt.Position }
+type Position struct { g.Position }
 func (p *Position) valid() bool { return p.Filename != "" && p.Line > 0 }
 func (p *Position) same(o *Position) bool {
 	return p == o ||
@@ -389,20 +408,6 @@ func (p *Position) sameLine(o *Position) bool {
 	return p == o || (p.Filename == o.Filename && p.Line == o.Line)
 }
 
-func makePosition(filename string, line, column int) (pos Position) {
-	pos.Filename = filename
-	pos.Line     = line
-	pos.Column   = column
-	return
-}
-
-func convPosition(filename, line, column string) (pos Position) {
-	pos.Filename  = filename
-	pos.Line,   _ = strconv.Atoi(line)
-	pos.Column, _ = strconv.Atoi(column)
-	return
-}
-
 func atoi(a any) (res int) {
 	switch t := a.(type) {
 	case string: res, _ = strconv.Atoi(t)
@@ -411,49 +416,23 @@ func atoi(a any) (res int) {
 	return
 }
 
-const NoPos Pos = Pos(gt.NoPos)
+const NoPos Pos = Pos(g.NoPos)
 
-type Pos gt.Pos
+type Pos g.Pos
+func (p Pos) IsValid() bool { return g.Pos(p).IsValid() }
 
-func (p Pos) IsValid() bool {
-	return gt.Pos(p).IsValid()
-}
+type tokfile struct { *g.File }
+func (f *tokfile) string() string { return f.Name() }
+func (f *tokfile) Offset(p Pos) int { return f.File.Offset(g.Pos(p)) }
+func (f *tokfile) Line(p Pos) int { return f.File.Line(g.Pos(p)) }
+func (f *tokfile) Pos(offset int) Pos { return Pos(f.File.Pos(offset)) }
+func (f *tokfile) Position(p Pos) Position { return Position{f.File.PositionFor(g.Pos(p), true)} }
 
-type tokfile struct { *gt.File }
-
-func (f *tokfile) string() string {
-	return f.Name() //fmt.Sprintf("{%s}", f.Name())
-}
-
-func (f *tokfile) Offset(p Pos) int {
-	return f.File.Offset(gt.Pos(p))
-}
-
-func (f *tokfile) Line(p Pos) int {
-	return f.File.Line(gt.Pos(p))
-}
-
-func (f *tokfile) Pos(offset int) Pos {
-	return Pos(f.File.Pos(offset))
-}
-
-func (f *tokfile) PositionFor(p Pos, adjusted bool) (pos Position) {
-	return Position{ f.File.PositionFor(gt.Pos(p), adjusted) }
-}
-
-func (f *tokfile) Position(p Pos) (pos Position) {
-	return Position{ f.File.Position(gt.Pos(p)) }
-}
-
-type fileset struct { *gt.FileSet }
-
-// _fileset creates a new file set.
-func _fileset() *fileset { return &fileset{ gt.NewFileSet() } }
-
+type fileset struct { *g.FileSet }
+func _fileset() *fileset { return &fileset{ g.NewFileSet() } }
 func (s *fileset) AddFile(filename string, base, size int) *tokfile {
 	return &tokfile{ s.FileSet.AddFile(filename, base, size) }
 }
-
 func (s *fileset) Iterate(f func(*tokfile) bool) {
-	s.FileSet.Iterate(func(a *gt.File) bool { return f(&tokfile{a}) })
+	s.FileSet.Iterate(func(a *g.File) bool { return f(&tokfile{a}) })
 }

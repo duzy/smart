@@ -17,13 +17,13 @@ func testValues12(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "&(.test.w)"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foobaz"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foobaz"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand2, "w"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "foobaz"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foobaz"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foobaz"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 	if d := ctx.def(".test.1"); d == nil {
@@ -32,7 +32,7 @@ func testValues12(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "&(.test.{})"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "www"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "www"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 }

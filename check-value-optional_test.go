@@ -85,7 +85,7 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "{=yes}"; s != t {
 		ctx.err("%v → %s != %s", tst{d}, s, t)
-	} else if s, t := v.string(src(ctx,d)), "yes"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "yes"; s != t {
 		ctx.err("%v → %s != %s", tst{d}, s, t)
 	}
 
@@ -95,7 +95,7 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "{=yes}"; s != t {
 		ctx.err("%v → %s != %s", tst{d}, s, t)
-	} else if s, t := v.string(src(ctx,d)), "yes"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "yes"; s != t {
 		ctx.err("%v → %s != %s", tst{d}, s, t)
 	}
 
@@ -105,7 +105,7 @@ func testOptional(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "{=yes}"; s != t {
 		ctx.err("%v → %s != %s", tst{d}, s, t)
-	} else if s, t := v.string(src(ctx,d)), "yes"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "yes"; s != t {
 		ctx.err("%v → %s != %s", tst{d}, s, t)
 	}
 }

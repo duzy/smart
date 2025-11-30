@@ -18,10 +18,10 @@ func testBug_01(ctx *testcase) {
 		func () {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", x.string).trace()
+					erro(ctx, "%s", __string(ctx, x.Value)).trace()
 				}
 			} ()
-			v = d.value.expand(_final(ctx))
+			v = expand(_final(ctx), d.value)
 		} ()
 		if v == nil {
 			ctx.err("%v", d)
@@ -30,7 +30,7 @@ func testBug_01(ctx *testcase) {
 		func () {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", x.string).trace()
+					erro(ctx, "%s", __string(ctx, x.Value)).trace()
 				}
 			} ()
 			v = ctx.val(d, defExpand1, "a", "b", "c", "d")
@@ -57,10 +57,10 @@ func testBug_01(ctx *testcase) {
 		func () {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", x.string).trace()
+					erro(ctx, "%s", __string(ctx, x.Value)).trace()
 				}
 			} ()
-			v = d.value.expand(trace_evoke_loop{_final(ctx)})
+			v = expand(trace_evoke_loop{_final(ctx)},d.value)
 		} ()
 		if v == nil {
 			ctx.err("%v", d)
@@ -69,7 +69,7 @@ func testBug_01(ctx *testcase) {
 		func () {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", x.string).trace()
+					erro(ctx, "%s", __string(ctx, x.Value)).trace()
 				}
 			} ()
 			v = ctx.val(d, defExpand1, "a", "b", "c", "d")
@@ -97,7 +97,7 @@ func testBug_01(ctx *testcase) {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y { e = x.Value }
 			} ()
-			v = d.value.expand(trace_evoke_loop{_final(ctx)})
+			v = expand(trace_evoke_loop{_final(ctx)},d.value)
 		} ()
 		if s, t := ts(e), "{=def bug_1.1}"; s != t {
 			ctx.err("expecting evocation loop: %s != %s", s, t)
@@ -121,7 +121,7 @@ func testBug_01(ctx *testcase) {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y { e = x.Value }
 			} ()
-			v = d.value.expand(trace_evoke_loop{_final(ctx)})
+			v = expand(trace_evoke_loop{_final(ctx)},d.value)
 		} ()
 		if s, t := ts(e), "{=def .flags}"; s != t {
 			ctx.err("expecting evocation loop: %s != %s", s, t)

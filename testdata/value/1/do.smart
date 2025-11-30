@@ -1,9 +1,9 @@
 project testvalue
 
 .test.foo := -
-assert $(equal $(.test.foo)foobar,-foobar)
-assert $(equal -foobar,$(.test.foo)foobar)
+.test.1 := $(equal $(.test.foo)foobar,-foobar) $(equal(-str) $(.test.foo)foobar,-foobar)
+.test.2 := $(equal -foobar,$(.test.foo)foobar) $(equal(-str) -foobar,$(.test.foo)foobar)
 
 .test.foo := -foo
-assert $(equal $(.test.foo)bar,-foobar)
-assert $(equal -foobar,$(.test.foo)bar)
+.test.3 := $(equal $(.test.foo)bar,-foobar) $(equal(-str) $(.test.foo)bar,-foobar)
+.test.4 := $(equal -foobar,$(.test.foo)bar) $(equal(-str) -foobar,$(.test.foo)bar)

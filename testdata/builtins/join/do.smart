@@ -3,9 +3,9 @@ project testbuiltins
 val1 := $(join foo bar xx yy zz,-)
 val2  = $(join foo bar xx yy zz,-)
 val3 := $(join &(target.arch) &(target.vendor) &(target.os) &(target.abi),-)
-val4 := $(compose &(target.arch) &(XXX) &(target.vendor) &(target.os) &(target.abi),-)
+val4 := $(conjunct &(target.arch) &(XXX) &(target.vendor) &(target.os) &(target.abi),-)
 
 target.arch   := foo
 target.vendor := bar
-target.os     := a
+# target.os
 target.abi    := 0

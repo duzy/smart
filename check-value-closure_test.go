@@ -15,7 +15,7 @@ func testClosure(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "&(foo.pre)"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -27,7 +27,7 @@ func testClosure(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "&(foo.pos)"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -39,7 +39,7 @@ func testClosure(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "$(&(foo.tail))"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -51,7 +51,7 @@ func testClosure(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "$(&(foo.tail))"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -61,9 +61,9 @@ func testClosure(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%s : %v", s, d)
-	} else if s, t := "{}", v.String(); s != t {
+	} else if s, t := v.String(), "{}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := "", v.string(src(ctx,d)); s != t {
+	} else if s, t := __string(src(ctx,d),v), ""; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -75,7 +75,7 @@ func testClosure(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "{}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), ""; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -87,7 +87,7 @@ func testClosure(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "foo"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 }

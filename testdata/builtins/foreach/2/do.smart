@@ -3,7 +3,7 @@ project testbuiltins
 .test.foreach.a = $(foreach $1 $(foreach $2,a$_),b$_)
 .test.foreach.b = $(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2)
 .test.foreach.c = $(.test.foreach.b) \
-    $(foreach &(.test.foreach.x) $(foreach $1 $2,$(closure .test.foreach.x.$_)),-x$_)
+    $(foreach &(.test.foreach.x) $(foreach $1 $2,&(.test.foreach.x.$_)),-x$_)
 
 
 .test.1 = $(.test.foreach.b)

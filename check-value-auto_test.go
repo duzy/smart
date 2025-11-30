@@ -27,7 +27,7 @@ func testAuto(ctx *testcase) {
 			ctx.err("%v", d)
 		} else if s := d.value.String(); s != "'a' 'b' 'c'" {
 			ctx.err("%v → %s", tst{d.value}, s)
-		} else if s := d.value.string(src(ctx,d)); s != "a b c" {
+		} else if s := __string(src(ctx,d),d.value); s != "a b c" {
 			ctx.err("%v → %s", tst{d.value}, s)
 		} else if d, _ := ac.do(ctx, find_auto{"1"}).(*def); d == nil {
 			ctx.err("%v", ac.defs)
@@ -35,7 +35,7 @@ func testAuto(ctx *testcase) {
 			ctx.err("%v", ac.defs)
 		} else if v := auto_get(&ac, "1"); v == nil {
 			ctx.err("%v", ac.defs)
-		} else if s := v.string(src(ctx,d)); s != "a b c" {
+		} else if s := __string(src(ctx,d),v); s != "a b c" {
 			ctx.err("%v → %s", tst{v}, s)
 		} else if d, v := ac.amend(ctx, "1", ease(ctx, "a")); d == nil {
 			ctx.err("%v", ac.defs)
@@ -97,14 +97,14 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", l.elems)
 	} else if s, t := d.value.String(), "$1 $2 $3 $4 $5 $6 $7 $8 $9"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{d.value})
-	} else if s, t := d.value.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),d.value), ""; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{d.value})
 	} else {
 		if v := ctx.val(d.name); v == nil {
 			ctx.err("%v", d)
 		} else if s, t := v.String(), "$1 $2 $3 $4 $5 $6 $7 $8 $9"; s != t {
 			ctx.err("%s != %s : %s", s, t, tst{v})
-		} else if s, t := v.string(src(ctx,d)), ""; s != t {
+		} else if s, t := __string(src(ctx,d),v), ""; s != t {
 			ctx.err("%s != %s : %s", s, t, tst{v})
 		}
 
@@ -112,7 +112,7 @@ func testAuto(ctx *testcase) {
 			ctx.err("%v", d)
 		} else if s, t := v.String(), "a {} {} {} {} {} {} {} {}"; s != t {
 			ctx.err("%s != %s : %s", s, t, tst{v})
-		} else if s, t := v.string(src(ctx,d)), "a"; s != t {
+		} else if s, t := __string(src(ctx,d),v), "a"; s != t {
 			ctx.err("%s != %s : %s", s, t, tst{v})
 		}
 
@@ -120,7 +120,7 @@ func testAuto(ctx *testcase) {
 			ctx.err("%v", d)
 		} else if s, t := v.String(), "1 {} {} {} {} {} {} {} {}"; s != t {
 			ctx.err("%s != %s : %s", s, t, tst{v})
-		} else if s, t := v.string(src(ctx,d)), "1"; s != t {
+		} else if s, t := __string(src(ctx,d),v), "1"; s != t {
 			ctx.err("%s != %s : %s", s, t, tst{v})
 		}
 
@@ -128,7 +128,7 @@ func testAuto(ctx *testcase) {
 			ctx.err("%v", d)
 		} else if s, t := v.String(), "1 2 3 {} {} {} {} {} {}"; s != t {
 			ctx.err("%s != %s : %s", s, t, tst{v})
-		} else if s, t := v.string(src(ctx,d)), "1 2 3"; s != t {
+		} else if s, t := __string(src(ctx,d),v), "1 2 3"; s != t {
 			ctx.err("%s != %s : %s", s, t, tst{v})
 		}
 	}
@@ -139,7 +139,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := d.value.String(), "{} {} {} {} {} {} {} {} {}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{d.value})
-	} else if s, t := d.value.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),d.value), ""; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{d.value})
 	}
 
@@ -147,15 +147,15 @@ func testAuto(ctx *testcase) {
 		ctx.err("val0")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "&(foobar) $(foobar)"; s != t {
+	} else if s, t := v.String(), "&(foobar) {}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), ""; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d.name); v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "&(foobar) $(foobar)"; s != t {
+	} else if s, t := v.String(), "&(foobar) {}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), ""; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -165,7 +165,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "{}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), ""; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -175,13 +175,13 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "$(auto $(a))"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), ""; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if a := ctx.val(d, defExpand1, test_arg{"a", "x"}); a == nil {
 		ctx.err("%v", tst{v})
 	} else if s, t := a.String(), "x"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := a.string(src(ctx,d)), "x"; s != t {
+	} else if s, t := __string(src(ctx,d),a), "x"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -191,7 +191,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "{} 2"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "2"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "2"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 	if d := ctx.def("val02"); d == nil {
@@ -200,7 +200,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "$(auto(a=2) $(val01),$(a))"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "2 2"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "2 2"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -210,7 +210,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "{} 2"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "2"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "2"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 	if d := ctx.def("val03"); d == nil {
@@ -219,7 +219,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$(auto(a=3) $(val02))"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "2 2"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "2 2"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -229,7 +229,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "{} 2"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "2"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "2"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 	if d := ctx.def("val04"); d == nil {
@@ -238,7 +238,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$(val03)"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "2 2"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "2 2"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -282,13 +282,13 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$(auto(a3=3) $(a1)-$(a2)-$(a3))"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), "--3"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
 		ctx.err("%v", d.value)
 	} else if s, t := v.String(), "x-y-3"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -300,13 +300,13 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "{}-{}-3"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "--3"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "--3"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
 		ctx.err("%v", d.value)
 	} else if s, t := v.String(), "{}-{}-3"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "--3"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "--3"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -318,13 +318,13 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$(auto(a1=x a2=y a3=z) $(.test.x0)-$(a1)$(a2)$(a3))"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "x-y-3-xyz"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "x-y-3-xyz"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, test_arg{"a1", "X"}, test_arg{"a2", "Y"}); v == nil {
 		ctx.err("%v", d.value)
 	} else if s := v.String(); s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -340,7 +340,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "x-y-3-xyz"; s != t {
 		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(src(ctx,d)); s != t {
+	} else if t := __string(src(ctx,d),v); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
 	}
 
@@ -352,13 +352,13 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$(auto $(.test.x0)-$(a1)$(a2)$(a3))"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), "--3-"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
 		ctx.err("%v", d.value)
 	} else if s, t := v.String(), "x-y-3-xy{}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "x-y-3-xy"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "x-y-3-xy"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -370,13 +370,13 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "{}-{}-3-{}{}{}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "--3-"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "--3-"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, test_arg{"a1", "x"}, test_arg{"a2", "y"}); v == nil {
 		ctx.err("%v", d.value)
 	} else if s, t := v.String(), "{}-{}-3-{}{}{}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "--3-"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "--3-"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -388,7 +388,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := "x-y-3-xyz", v.String(); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(src(ctx,d)); s != t {
+	} else if t := __string(src(ctx,d),v); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
 	}
 
@@ -400,7 +400,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s := v.String(); s != t {
 		ctx.err("%v : %s != %s", v, s, t)
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%v : %s != %s", v, s, t)
 	}
 
@@ -412,7 +412,7 @@ func testAuto(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s := v.String(); s != t {
 		ctx.err("%v : %s != %s", v, s, t)
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%v : %s != %s", v, s, t)
 	}
 }

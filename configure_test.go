@@ -60,7 +60,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", &proj.entries)
 	}
 
-	if w := joinpath(testModulesPath, "configure"); proj.configure.absPath != w {
+	if w := joinpath(modules_dir, "configure"); proj.configure.absPath != w {
 		ctx.err("%v.%v: %s != %s", proj, proj.configure, proj.configure.absPath, w)
 	} else if len(proj.configure.bases) != 1 {
 		ctx.err("%v", proj.configure.bases)
@@ -114,7 +114,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{rel_remnant})
 	} else if t := rel_remnant.value.String(); t != "$(trim-prefix &(rel.chop),&/)" {
 		ctx.err("%v != %v : %s", tst{rel_remnant}, ws, t)
-	} else if t := rel_remnant.value.string(ctx); t != "testdata/configuration" {
+	} else if t := __string(ctx, rel_remnant.value); t != "testdata/configuration" {
 		ctx.err("%v != %v : %s", tst{rel_remnant}, ws, t)
 	}
 
@@ -122,7 +122,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{variant})
 	} else if t := ts(variant.value); t != "{=path {=word darwin} {=word arm64} {=word bootstrap}}" {
 		ctx.err("%v : %s", tst{variant}, t)
-	} else if t := variant.value.string(ctx); t != "darwin/arm64/bootstrap" {
+	} else if t := __string(ctx, variant.value); t != "darwin/arm64/bootstrap" {
 		ctx.err("%v : %s", tst{variant}, t)
 	}
 
@@ -130,7 +130,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{variant_tag})
 	} else if t := ts(variant_tag.value); t != "{=word bootstrap}" {
 		ctx.err("%v : %s", tst{variant_tag}, t)
-	} else if t := variant_tag.value.string(ctx); t != "bootstrap" {
+	} else if t := __string(ctx, variant_tag.value); t != "bootstrap" {
 		ctx.err("%v : %s", tst{variant_tag}, t)
 	}
 
@@ -138,7 +138,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{target_arch})
 	} else if t := ts(target_arch.value); t != "{=word arm64}" {
 		ctx.err("%v : %s", tst{target_arch}, t)
-	} else if t := target_arch.value.string(ctx); t != "arm64" {
+	} else if t := __string(ctx, target_arch.value); t != "arm64" {
 		ctx.err("%v : %s", tst{target_arch}, t)
 	}
 
@@ -146,7 +146,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{target_os})
 	} else if t := ts(target_os.value); t != "{=word darwin}" {
 		ctx.err("%v : %s", tst{target_os}, t)
-	} else if t := target_os.value.string(ctx); t != "darwin" {
+	} else if t := __string(ctx, target_os.value); t != "darwin" {
 		ctx.err("%v : %s", tst{target_os}, t)
 	}
 
@@ -154,23 +154,23 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{target_triple})
 	} else if t := ts(target_triple.value); t != "{=delegate {=builtin join} {=list {=compound {=closure {=def target.arch}} {=closure {=compound {=word target} {=punct .} {=word sub}}}} {=closure {=def target.vendor}} {=closure {=def target.sys}} {=closure {=def target.abi}}} {=list {=flag {=null}}}}" {
 		ctx.err("%v : %s", tst{target_triple}, t)
-	} else if v := target_triple.value.expand(_final(ctx)); v == nil || v == target_triple.value {
+	} else if v := expand(_final(ctx),target_triple.value); v == nil || v == target_triple.value {
 		ctx.err("%v : %s", tst{target_triple}, v)
 	} else if t := v.String(); t != "arm64&(target.sub)-apple-Darwin23.2.0-macho" {
 		ctx.err("%v : %s", tst{target_triple}, t)
 	} else if t := ts(v); t != "{=compound {=word arm64} {=closure {=compound {=word target} {=punct .} {=word sub}}} {=flag {=null}} {=word apple} {=flag {=null}} {=raw Darwin} {=decimal 23} {=punct .} {=decimal 2} {=punct .} {=decimal 0} {=flag {=null}} {=word macho}}" {
 		ctx.err("%v : %s", tst{target_triple}, t)
-	} else if t := target_triple.value.string(ctx); t != triple {
+	} else if t := __string(ctx, target_triple.value); t != triple {
 		ctx.err("%v : %s", tst{target_triple}, t)
-	} else if t := v.string(ctx); t != triple {
+	} else if t := __string(ctx, v); t != triple {
 		ctx.err("%v : %s", tst{target_triple}, t)
 	}
 
 	if target_out := proj.configure.resolveDef(ctx, "target.out"); target_out == nil || target_out.value == nil {
 		ctx.err("%v", tst{target_out})
-	} else if t := target_out.value.String(); t != workout.string(ctx)+"/&(target.triple)/&(variant.tag)" {
+	} else if t := target_out.value.String(); t != __string(ctx, workout)+"/&(target.triple)/&(variant.tag)" {
 		ctx.err("%v : %s", tst{target_out}, t)
-	} else if t := target_out.string(ctx); t != workout.string(ctx)+"/"+triple+"/bootstrap" {
+	} else if t := __string(ctx, target_out); t != __string(ctx, workout)+"/"+triple+"/bootstrap" {
 		ctx.err("%v : %s", tst{target_out}, t)
 	} else {
 		outdir = t
@@ -180,7 +180,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{target_tmp})
 	} else if t := target_tmp.value.String(); t != "&(target.out)/tmp" {
 		ctx.err("%v : %s", tst{target_tmp}, t)
-	} else if t := target_tmp.value.string(ctx); t != workout.string(ctx)+"/"+triple+"/bootstrap/tmp" {
+	} else if t := __string(ctx, target_tmp.value); t != __string(ctx, workout)+"/"+triple+"/bootstrap/tmp" {
 		ctx.err("%v : %s", tst{target_tmp}, t)
 	}
 
@@ -188,7 +188,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{d})
 	} else if t := d.value.String(); t != "&(cc)" {
 		ctx.err("%v → %s", tst{d}, t)
-	} else if t := d.value.string(ctx); t == "" {
+	} else if t := __string(ctx, d.value); t == "" {
 		ctx.err("%v → %s", tst{d}, t)
 	}
 
@@ -203,14 +203,14 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{x})
 	} else if s, t := "&(target.tmp)/&(rel.remnant)", v.String(); s != t {
 		ctx.err("%v: %s != %s", tst{x}, s, t)
-	} else if s := x.string(ctx); s == "" {
+	} else if s := __string(ctx, x); s == "" {
 		ctx.err("%v: %s", tst{x}, s)
-	} else if t := x.string(closure_with(ctx, proj.configure)); t == "" {
+	} else if t := __string(closure_with(ctx, proj.configure), x); t == "" {
 		ctx.err("%v: %s", tst{x}, t)
 	} else if s == t {
 		ctx.err("%v : %s == %s", x, s, t)
 	} else {
-		outtmp = x.string(ctx)
+		outtmp = __string(ctx, x)
 
 		if d, t := proj.tempdir(ctx); t != outtmp {
 			ctx.err("tempdir: %s != %s (%v)", t, outtmp, d)
@@ -398,8 +398,8 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 			c.err("%v", d)
 		} else if v.String() != "{=self "+p.name+"}" {
 			c.err("%v : %v", d, tst{v})
-		} else if v.string(c) != name {
-			c.err("%v : %v → %s", d, tst{v}, v.string(c))
+		} else if __string(c, v) != name {
+			c.err("%v : %v → %s", d, tst{v}, __string(c, v))
 		} else if _, y := v.(self); !y {
 			c.err("%v : %v", typeof(v), v)
 		}
@@ -411,8 +411,8 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 			c.err("%v", d)
 		} else if v.String() != "{=self "+p.name+"}" {
 			c.err("%v : %v", d, tst{v})
-		} else if v.string(c) != name {
-			c.err("%v : %v → %s", d, tst{v}, v.string(c))
+		} else if __string(c, v) != name {
+			c.err("%v : %v → %s", d, tst{v}, __string(c, v))
 		} else if _, y := v.(self); ! y {
 			c.err("%v : %v", typeof(v), v)
 		}
@@ -436,22 +436,22 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 
 	if x := proj.resolveDef(ctx, "outtmp"); x == nil { // $//tmp
 		ctx.err("%v", proj)
-	} else if s, t := x.value.string(ctx), joinpath(proj.absPath, "tmp"); s != t { // $//tmp
+	} else if s, t := __string(ctx, x.value), joinpath(proj.absPath, "tmp"); s != t { // $//tmp
 		ctx.err("%v : {=%v %v} : %s != %s", proj, typeof(x.value), x.value, s, t)
 	} else if t := joinpath(_workdir(ctx), "tmp"); s != t { // $//tmp
 		ctx.err("%v : {=%v %v} : %s != %s", proj, typeof(x.value), x.value, s, t)
 	} else if p, y := x.value.(*path); !y {
 		ctx.err("%v : {=%v %v}", proj, typeof(x.value), x.value)
-	} else if !strings.HasSuffix(p.string(ctx), joinpath("", spec, "tmp")) { // $//tmp
+	} else if !strings.HasSuffix(__string(ctx, p), joinpath("", spec, "tmp")) { // $//tmp
 		ctx.err("%v : %v (%s)", proj, p, joinpath("", spec, "tmp"))
-	} else if x.value.string(ctx) != x.value.string(closure_with(ctx, proj.configure)) {
+	} else if __string(ctx, x.value) != __string(closure_with(ctx, proj.configure), x.value) {
 		ctx.err("%v : %v", proj, x.value)
 	} else if o := proj.configure.resolveDef(ctx, "outtmp"); o == nil || o.value == nil { // &(target.tmp)/&(rel.remnant)
 		ctx.err("%v : %v", proj, proj.configure)
-	} else if o.string(ctx) == x.string(ctx) { // diverged (different outtmp)
+	} else if __string(ctx, o) == __string(ctx, x) { // diverged (different outtmp)
 		ctx.err("%v: %v == %v", proj, o, x)
 	} else {
-		outtmp = x.string(ctx) // //tmp
+		outtmp = __string(ctx, x) // //tmp
 		confsm = joinpath(outtmp, configuration_sm)
 	}
 
@@ -486,7 +486,7 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		}
 	}
 
-	if joinpath(testModulesPath, "configure") != proj.configure.absPath {
+	if joinpath(modules_dir, "configure") != proj.configure.absPath {
 		ctx.err("%v", proj)
 	} else if o := proj.configure.resolve(ctx, "configure.cc"); o == nil {
 		ctx.err("%v", proj.configure)
@@ -494,13 +494,13 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		ctx.err("%v", tst{o})
 	} else if d.value.String() != "&(cc)" {
 		ctx.err("%v", tst{d.value})
-	} else if d.value.string(ctx) == "" {
-		ctx.err("%v → %s", d.value, d.value.string(ctx))
+	} else if __string(ctx, d.value) == "" {
+		ctx.err("%v → %s", d.value, __string(ctx, d.value))
 	} else if d := closure_finddef(ctx, "/"); d == nil {
 		ctx.err("%v: &/", proj)
 	} else if d.value == nil {
 		ctx.err("%v: %v", proj, d)
-	} else if d.value.string(ctx) != proj.absPath {
+	} else if __string(ctx, d.value) != proj.absPath {
 		ctx.err("%v: %v", proj, d.value)
 	} else if x := proj.resolveDef(ctx, "rel.chop"); x == nil {
 		ctx.err("%v", proj)
@@ -510,7 +510,7 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		ctx.err("%v", proj)
 	} else if x.value.String() != "$(trim-prefix &(rel.chop),&/)" {
 		ctx.err("%v: %v : %s", proj, x, ts(x.value))
-	} else if t := x.string(ctx); t == "" {
+	} else if t := __string(ctx, x); t == "" {
 		ctx.err("%v: %v → %s", proj, x, t)
 	} else if filepath.IsAbs(t) {
 		ctx.err("%v: %v → %s", proj, x, t)
@@ -540,8 +540,8 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		erro(ctx, "%v", d).trace()
 	} else if d.value.String() != "{=self "+proj.name+"}" {
 		ctx.err("%v", d)
-	} else if d.string(ctx) != proj.name {
-		ctx.err("%v ⇒ %s", d, d.string(ctx))
+	} else if __string(ctx, d) != proj.name {
+		ctx.err("%v ⇒ %s", d, __string(ctx, d))
 	} else if ts(d.value) != "{=self "+proj.name+"}" {
 		ctx.err("%v", tst{d.value})
 	}

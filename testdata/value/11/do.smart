@@ -3,5 +3,8 @@ project testvalue
 .test.0   = &(.test$1)
 .test.x  := &(.test$1)
 .test    := $(.test.x)
-.test.v1 := foo
-.test.v2 := bar
+.test.s1 := foo
+.test.s2 := bar
+
+.test.1 = &(.test{$1})
+.test⌜.s1 .s2⌟ := foobar

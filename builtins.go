@@ -23,6 +23,7 @@ import (
     "bufio"
     "time"
     "sync"
+	"slices"
     "fmt"
     "os"
     "io"
@@ -72,7 +73,7 @@ func (c *builtinbase) ts(string) string {
     }
 }
 func (c *builtinbase) _a(force bool) (skip bool) {
-    c.evocation.a = expand(c, c.evocation.a...)
+    c.evocation.a = expands(c, c.evocation.a...)
     return
 }
 
@@ -122,8 +123,6 @@ var builtins = map[string]reflect.Type {
     `var`:       reflect.TypeOf((*__var)(nil)).Elem(),
 
     `call`:      reflect.TypeOf((*__call)(nil)).Elem(),
-    `closure`:   reflect.TypeOf((*__closure)(nil)).Elem(),
-    `delegate`:  reflect.TypeOf((*__delegate)(nil)).Elem(),
     `defs`:      reflect.TypeOf((*__defs)(nil)).Elem(),
 
     `value`:     reflect.TypeOf((*__value)(nil)).Elem(),
@@ -141,7 +140,7 @@ var builtins = map[string]reflect.Type {
     `div`:       reflect.TypeOf((*__divide)(nil)).Elem(),
 
     `join`:       reflect.TypeOf((*__join)(nil)).Elem(),
-    `compose`:    reflect.TypeOf((*__compose)(nil)).Elem(), // concat
+    `conjunct`:    reflect.TypeOf((*__conjunct)(nil)).Elem(), // concat
     `quote`:      reflect.TypeOf((*__quote)(nil)).Elem(),
     `unique`:     reflect.TypeOf((*__unique)(nil)).Elem(),
 
@@ -280,9 +279,9 @@ var builtins = map[string]reflect.Type {
 
 func escapedString(ctx Context, v Value) (s string) {
     if p, ok := v.(*strlit); ok {
-        s = strings.Replace(p.string(ctx), "\\'", "'", -1)
+        s = strings.Replace(__string(ctx, p), "\\'", "'", -1)
     } else {
-        s = v.string(ctx)
+        s = __string(ctx, v)
     }
     return
 }
@@ -321,15 +320,15 @@ func trimRightSpaces(s string) string {
 func _set(ctx Context, val reflect.Value, v Value) {
     switch val.Kind() {
     case reflect.Bool:
-        val.SetBool(v.true(ctx))
+        val.SetBool(__true(ctx, v))
     case reflect.Float32, reflect.Float64:
-        val.SetFloat(v.float(ctx))
+        val.SetFloat(__float(ctx, v))
     case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-        val.SetInt(v.int(ctx))
+        val.SetInt(__int(ctx, v))
     case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-        val.SetUint(uint64(v.int(ctx)))
+        val.SetUint(uint64(__int(ctx, v)))
     case reflect.String:
-        val.SetString(v.string(ctx))
+        val.SetString(__string(ctx, v))
     case reflect.Slice:
         if p := reflect.New(val.Type().Elem()); p.Kind() == reflect.Ptr {
             var t = p.Elem()
@@ -350,16 +349,16 @@ func _set(ctx Context, val reflect.Value, v Value) {
                 val.Set(reflect.ValueOf(&t))
             } else {
                 note(ctx, "%v → %v", v, (as{v}.file(ctx)))
-                errostack(pc(ctx,v), 16, "not a file: %v → %s", ts(v), ts(v.expand(ctx))).trace()
+                errostack(pc(ctx,v), 16, "not a file: %v → %s", ts(v), ts(expand(ctx, v))).trace()
             }
         case "smart.file":
             if t := (as{v}.file(ctx)); t != nil {
                 val.Set(reflect.ValueOf(t))
             } else {
-                errostack(pc(ctx,v), 16, "not a file: %v → %s", ts(v), ts(v.expand(ctx))).trace()
+                errostack(pc(ctx,v), 16, "not a file: %v → %s", ts(v), ts(expand(ctx, v))).trace()
             }
         case "regexp.Regexp":
-            if rx, e := regexp.Compile(v.string(ctx)); e == nil {
+            if rx, e := regexp.Compile(__string(ctx, v)); e == nil {
                 val.Set(reflect.ValueOf(rx))
             } else {
                 errostack(pc(ctx,v), 16, "wrong regexp: %v: %v", ts(v), e).trace()
@@ -370,7 +369,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
     default:
         switch val.Type().String() {
         case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
-            var t = v.int(ctx)
+            var t = __int(ctx, v)
             if t == 0 { warn(pc(ctx,v), "zero file mode").debug() }
             val.SetUint(uint64(t))
         case "regexp.Regexp": // aka. reflect.Ptr
@@ -403,11 +402,10 @@ outer:
         var y bool
         var f flag
         var value Value
-        var a = arg
 
         // skip parsing patterns, e.g. -I%
-        if !a.patterned(ctx) {
-            switch t := a.(type) {
+        if !patterned(ctx, arg) {
+            switch t := arg.(type) {
             case        flag: f, value = t, _boolean(t.Position(), true)
             case       *pair: if f, y = t.key.(flag);   y { value = t.val }
             case *argumented: if f, y = t.Value.(flag); y { value = ease(ctx, t.args) }
@@ -429,8 +427,9 @@ outer:
         rest = append(rest, arg)
     }
 
-    switch val.Type().String() { // os.FileMode(0640)
-    case "fs.FileMode", "os.FileMode": if val.Uint() == 0 { val.SetUint(0640) }
+    switch val.Type().String() {
+    case "fs.FileMode", "os.FileMode":
+		if val.Uint() == 0 { val.SetUint(0640) }
     }
     return
 }
@@ -453,10 +452,8 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
         if ft.Tag == "..." {
             dots = fv
         } else if t := fv.Type(); fv.Kind() != reflect.Struct {
-            if ft.Anonymous && ft.Name == "Context" {
-                if t.String() == "smart.Context" {
-                    continue
-                }
+            if ft.Anonymous && ft.Name == "Context" && t.String() == "smart.Context" {
+				continue
             }
             rest = _opt(ctx, ft.Tag, fv, rest...)
         } else if !ft.Anonymous {
@@ -480,8 +477,8 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
     }
     return
 }
-func parse_opts(ctx Context, store any, args ...Value) (rest []Value) {
-    return _opts(ctx, reflect.ValueOf(store), args)
+func parse_opts(ctx Context, store any, vals ...Value) []Value {
+    return _opts(ctx, reflect.ValueOf(store), vals)
 }
 
 // see https://go.dev/doc/tutorial/generics
@@ -553,7 +550,7 @@ func (ctx *__origin) x() (res any) {
     var vals []Value
     var scope = _scope(ctx)
     for _, a := range ctx.a {
-        if s := a.string(ctx); s == "" {
+        if s := __string(ctx, a); s == "" {
             vals = append(vals, _null(a.Position()))
         } else if d := scope.finddef(s); d != nil {
             vals = append(vals, _word(a.Position(), d.o.String()))
@@ -573,7 +570,7 @@ func (ctx *__defined) cast(t reflect.Type) Context {
 func (ctx *__defined) x() (_ any) {
     var scope = _scope(ctx)
     for _, arg := range ctx.a {
-        if d := scope.finddef(arg.string(ctx)); d != nil && !isTrivial(d.value) {
+        if d := scope.finddef(__string(ctx, arg)); d != nil && !isTrivial(d.value) {
             return true
         }
     }
@@ -624,7 +621,7 @@ func (ctx *__date) x() (res any) {
         var vals []Value
         for _, a := range ctx.a {
             var s string
-            if s = a.string(ctx); s == "" {
+            if s = __string(ctx, a); s == "" {
                 s = t.String()
             } else if s = t.Format(s); s == "" {
                 s = fmt.Sprintf("%v", t)
@@ -653,7 +650,7 @@ func (ctx *__debug) x() (res any) {
     var s bytes.Buffer
     for i, a := range ctx.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
-        fmt.Fprintf(&s, "%s", a.string(ctx))
+        fmt.Fprintf(&s, "%s", __string(ctx, a))
     }
     if hook := _universe(ctx).hooks.debug; hook != nil {
         hook(ctx, s.String(), ctx.a)
@@ -673,7 +670,7 @@ func (ctx *__error) x() (res any) {
     var s bytes.Buffer
     for i, a := range ctx.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
-        fmt.Fprintf(&s, "%s", a.string(ctx))
+        fmt.Fprintf(&s, "%s", __string(ctx, a))
     }
 
     errostack(ctx, 5, "%s", s.String()).trace()
@@ -690,7 +687,7 @@ func (ctx *__warning) x() (res any) {
     var s bytes.Buffer
     for i, a := range ctx.a {
         if i > 0 { fmt.Fprintf(&s, " ") }
-        fmt.Fprintf(&s, "%s", a.string(ctx))
+        fmt.Fprintf(&s, "%s", __string(ctx, a))
     }
     warn(ctx, "%s", s).debug()
     return
@@ -713,19 +710,19 @@ func (ctx *__assert) x() (res any) {
         diagstack(ctx, s, t).debug(d)
     }
 
-    for _, a := range expand(ctx, ctx.a...) {
+    for _, a := range expands(ctx, ctx.a...) {
         if a == nil {
             erro(ctx, "nil argument").trace()
             continue
         }
 
         var c = pc(ctx, a)
-        var y = a.true(c)
+        var y = __true(c, a)
         if hook != nil && hook(c, a, y) || y {
             continue
         }
 
-        diagstack(c, s, t, "%v ⇒ '%s'", ts(a), a.string(c)).debug(d)
+        diagstack(c, s, t, "%v ⇒ '%s'", ts(a), __string(c, a)).debug(d)
     }
 
     if ctx.fail { panic(_failure(ctx)) }
@@ -740,7 +737,7 @@ func (ctx *__sure) cast(t reflect.Type) Context {
 }
 func (ctx *__sure) x() (res any) {
     for _, a := range ctx.a {
-        if !a.true(ctx) {
+        if !__true(ctx, a) {
             erro(ctx, "assert: %v", ts(a)).trace()
         }
     }
@@ -789,10 +786,10 @@ func (ctx *__or) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__or) x() (res any) {
-    for _, a := range merge(ctx.a...) {
-        if a.true(ctx) { return a }
-    }
-    return
+	for _, a := range merge(ctx.a...) {
+		if a = expand(ctx, a); __true(ctx, a) { return a }
+	}
+	return
 }
 
 type __and struct { builtinbase }
@@ -803,7 +800,7 @@ func (ctx *__and) cast(t reflect.Type) Context {
 }
 func (ctx *__and) x() (res any) {
     for _, a := range merge(ctx.a...) {
-        if a.true(ctx) { res = a } else { return nil }
+        if a = expand(ctx, a); __true(ctx, a) { res = a } else { return nil }
     }
     return
 }
@@ -818,7 +815,7 @@ func (ctx *__not) cast(t reflect.Type) Context {
 }
 func (ctx *__not) x() (res any) {
     var t bool
-    for _, a := range ctx.a { if t = a.true(ctx); t { break } }
+    for _, a := range ctx.a { if t = __true(ctx, a); t { break } }
     return !t
 }
 
@@ -830,9 +827,9 @@ func (ctx *__xor) cast(t reflect.Type) Context {
 }
 func (ctx *__xor) x() (res any) {
     if vals := merge(ctx.a...); len(vals) > 1 {
-        var t = vals[0].true(ctx)
+        var t = __true(ctx, vals[0])
         for _, a := range vals[1:] {
-            if a.true(ctx) != t {
+            if __true(ctx, a) != t {
                 return _boolean(a.Position(), true)
             }
         }
@@ -852,8 +849,8 @@ func (ctx *__unequal) x() (_ any) {
         erro(ctx, "try: $(unequal <value-list>,<value-list>)").trace()
     }
 
-    var a = ctx.a[0].expand(_final(ctx))
-    var b = ctx.a[1].expand(_final(ctx))
+    var a = expand(_final(ctx), ctx.a[0])
+    var b = expand(_final(ctx), ctx.a[1])
     var t = cmp(ctx, a, b) != cmpEqual
 
     if t {
@@ -890,10 +887,10 @@ func (ctx *__equal) x() (_ any) {
         note(ctx, "try: $(equal <value-list>,<value-list>)").trace()
     }
 
-    args := expand(ctx, ctx.a...)
+    args := expands(ctx, ctx.a...)
 
     if a, b := args[0], args[1]; ctx.str {
-        return a.string(ctx) == b.string(ctx)
+        return __string(ctx, a) == __string(ctx, b)
     } else {
         return cmp(ctx, a, b) == cmpEqual
     }
@@ -911,10 +908,10 @@ func (ctx *__greater) x() (res any) {
         note(ctx, "try: $(greater <value-list>,<value-list>)").trace()
     }
 
-    args := expand(ctx, ctx.a...)
+    args := expands(ctx, ctx.a...)
 
     if a, b := args[0], args[1]; ctx.str {
-        if a.string(ctx) > b.string(ctx) { return true }
+        if __string(ctx, a) > __string(ctx, b) { return true }
     } else {
         if cmp(ctx, a, b) == cmpGreater { return true }
     }
@@ -933,10 +930,10 @@ func (ctx *__less) x() (res any) {
         note(ctx, "try: $(greater <value-list>,<value-list>)").trace()
     }
 
-    args := expand(ctx, ctx.a...)
+    args := expands(ctx, ctx.a...)
 
     if a, b := args[0], args[1]; ctx.str {
-        if a.string(ctx) < b.string(ctx) { return true }
+        if __string(ctx, a) < __string(ctx, b) { return true }
     } else {
         if cmp(ctx, a, b) == cmpSmaller { return true }
     }
@@ -983,10 +980,10 @@ func (ctx *__match) x() (result any) {
     for _, left := range leftList {
         for _, right := range rightList {
             var matched bool
-            if !left.patterned(ctx) && right.patterned(ctx) {
-                matched, _, _ = right.match(ctx, left)
+            if !patterned(ctx, left) && patterned(ctx, right) {
+                matched, _, _ = match(ctx, right, left)
             } else {
-                matched, _, _ = left.match(ctx, right)
+                matched, _, _ = match(ctx, left, right)
             }
             if matched {
                 if res == nil { res = _boolean(_position(ctx), true) }
@@ -1023,7 +1020,7 @@ ForValList:
     for _, val := range valList {
         if isTrivial(val) { continue ForValList }
 
-        var str = val.string(ctx)
+        var str = __string(ctx, val)
         for _, rx := range ctx.regexps {
             var matched = rx.MatchString(str);
             if ctx.negated { matched = !matched }
@@ -1038,7 +1035,7 @@ ForValList:
             }
         }
         for _, pat := range patList {
-            var matched, _, _ = pat.match(ctx, str)
+            var matched, _, _ = match(ctx, pat, str)
             if ctx.negated { matched = !matched }
             if matched {
                 if ctx.all {
@@ -1076,7 +1073,7 @@ func (ctx *__case) x() (res any) {
         return
     }
     if _, y := args[0].(*group); !y {
-        val = args[0].expand(ctx)
+        val = expand(ctx, args[0])
         args = args[1:]
     }
 
@@ -1090,8 +1087,8 @@ func (ctx *__case) x() (res any) {
         }
 
         var collect bool
-        var v = g.elems[0].expand(ctx)
-        if val == nil && v != nil && v.true(ctx) {
+        var v = expand(ctx, g.elems[0])
+        if val == nil && v != nil && __true(ctx, v) {
             collect = true
         } else if val != nil && isTrivial(val) {
             if isTrivial(v) {
@@ -1135,16 +1132,15 @@ func (ctx *__if) ts(string) string {
         return "{=if "+ts(ctx.Context)+"}"
     }
 }
-func (ctx *__if) x() (_ any) {
-    if 1 < len(ctx.a) {
-        ctx.a[0] = ctx.a[0].expand(ctx)
-        if ctx.a[0].true(ctx) {
-            return ctx.a[1].expand(ctx)
-        } else {
-            return expand(ctx, ctx.a[2:]...)
-        }
-    }
-    return
+func (ctx *__if) x() (res any) {
+	if 1 < len(ctx.a) {
+		if __true(ctx, ctx.a[0]) {
+			return expand(ctx, ctx.a[1])
+		} else {
+			return expands(ctx, ctx.a[2:]...)
+		}
+	}
+	return
 }
 
 type __ifarg struct { builtinbase }
@@ -1155,12 +1151,10 @@ func (ctx *__ifarg) cast(t reflect.Type) Context {
 }
 func (ctx *__ifarg) x() (_ any) {
     if 1 < len(ctx.a) {
-        ctx.a[0] = ctx.a[0].expand(ctx)
-        var s = ctx.a[0].string(ctx)
-        if d := auto_find(ctx, s); d != nil && !isTrivial(d.value) {
-            return ctx.a[1].expand(ctx)
+        if d := auto_find(ctx, __string(ctx, ctx.a[0])); d != nil && !isTrivial(d.value) {
+            return ctx.a[1]
         } else {
-            return expand(ctx, ctx.a[2:]...)
+            return ease(ctx, ctx.a[2:])
         }
     }
     return
@@ -1174,12 +1168,10 @@ func (ctx *__ifdef) cast(t reflect.Type) Context {
 }
 func (ctx *__ifdef) x() (_ any) {
     if 1 < len(ctx.a) {
-        ctx.a[0] = ctx.a[0].expand(ctx)
-        var s = ctx.a[0].string(ctx)
-        if d := _scope(ctx).finddef(s); d != nil && !isTrivial(d.value) {
-            return ctx.a[1].expand(ctx)
+        if d := _scope(ctx).finddef(__string(ctx, ctx.a[0])); d != nil && !isTrivial(d.value) {
+            return ctx.a[1]
         } else {
-            return expand(ctx, ctx.a[2:]...)
+            return ease(ctx, ctx.a[2:])
         }
     }
     return
@@ -1193,12 +1185,10 @@ func (ctx *__ifeq) cast(t reflect.Type) Context {
 }
 func (ctx *__ifeq) x() (_ any) {
     if 2 < len(ctx.a) {
-        ctx.a[0] = ctx.a[0].expand(ctx)
-        ctx.a[1] = ctx.a[1].expand(ctx)
-        if a, b := ctx.a[0], ctx.a[1]; equal(ctx, a, b) {
-            return ctx.a[2].expand(ctx)
+        if equal(ctx, ctx.a[0], ctx.a[1]) {
+            return ctx.a[2]
         } else {
-            return expand(ctx, ctx.a[3:]...)
+            return ease(ctx, ctx.a[3:])
         }
     }
     return
@@ -1212,12 +1202,10 @@ func (ctx *__ifne) cast(t reflect.Type) Context {
 }
 func (ctx *__ifne) x() (_ any) {
     if 2 < len(ctx.a) {
-        ctx.a[0] = ctx.a[0].expand(ctx)
-        ctx.a[1] = ctx.a[1].expand(ctx)
-        if a, b := ctx.a[0], ctx.a[1]; !equal(ctx, a, b) {
-            return ctx.a[2].expand(ctx)
+        if !equal(ctx, ctx.a[0], ctx.a[1]) {
+            return ctx.a[2]
         } else {
-            return expand(ctx, ctx.a[3:]...)
+            return ease(ctx, ctx.a[3:])
         }
     }
     return
@@ -1247,41 +1235,31 @@ func (ctx *__foreach) cast(t reflect.Type) Context {
 func (ctx *__foreach) x() (res any) {
     if len(ctx.a) == 0 { return }
 
-    ctx.a[0] = ctx.a[0].expand(ctx)
-
     var vals []Value
-    var args = merge(ctx.a[0])
-    if len(args) == 0 { return }
-    if false && checkpoints { defer ctx.check(&args, &vals) }
-
     var um map[uint64]Value
     if ctx.unique { um = make(map[uint64]Value) }
 
-    for _, val := range args {
-        if isEmpty(val) {
-            if !ctx.empty { continue }
-        }
-
-        if ctx.unique {
-            t := val.hash(ctx)
-            if x, y := um[t]; y {
-                if checkpoints && !equal(ctx, x, val) {
-                    erro(ctx, "%v != %v", ts(x), ts(val)).debug()
-                }
-                continue
-            } else {
-                um[t] = val
-            }
-        }
+    for _, val := range merge(expand(ctx, ctx.a[0])) {
+        if !ctx.empty && isEmpty(val) {
+			continue
+		} else if ctx.unique {
+			var t = hash(ctx, val)
+			if x, y := um[t]; y {
+				if checkpoints && !equal(ctx, x, val) {
+					erro(ctx, "%v != %v", ts(x), ts(val)).trace()
+				}
+				continue
+			} else { um[t] = val }
+		}
 
         // NOTE: don't use defStatic (it's for codeblock auto)
         ctx.set(ctx, defVoid, "_", redis(val))
 
-        for _, v := range decoupleCompoundList(xmerge(ctx, ctx.a[1:]...)...) {
-            if !ctx.empty && isEmpty(v) { continue }
-            if v == nil { v = _null(v.Position()) }
-            vals = append(vals, v)
-        }
+		for _, v := range merge(expands(ctx, ctx.a[1:]...)...) {
+			if !ctx.empty && isEmpty(v) { continue }
+			if v == nil { v = _null(v.Position()) }
+			vals = append(vals, v)
+		}
     }
     return vals
 }
@@ -1296,7 +1274,7 @@ func (ctx *__count) x() (res any) {
     var num int64
     var vals = valvec(ctx.vals)
     for _, a := range ctx.a {
-        if a.true(ctx) || vals.has2(ctx, a) { num += 1 }
+        if __true(ctx, a) || vals.has2(ctx, a) { num += 1 }
     }
     return num
 }
@@ -1310,9 +1288,9 @@ func (ctx *__env) cast(t reflect.Type) Context {
 func (ctx *__env) x() (res any) {
     var vals []Value
     for _, a := range ctx.a {
-        if val := a.expand(ctx); isTrivial(val) {
+        if val := expand(ctx, a); isTrivial(val) {
             continue
-        } else if s := strings.TrimSpace(val.string(ctx)); s != "" {
+        } else if s := strings.TrimSpace(__string(ctx, val)); s != "" {
             vals = append(vals, _strlit(a.Position(), os.Getenv(s)))
         }
     }
@@ -1330,7 +1308,7 @@ func (ctx *__auto) x() (_ any) {
         for _, a := range merge(ctx.o...) {
             switch t := a.(type) {
             case *pair:
-                if k := t.key.string(ctx); k == "" {
+                if k := __string(ctx, t.key); k == "" {
                     erro(pc(ctx,a), "empty name: %v : %s", t.key, ts(t.key)).trace()
                 } else {
                     ctx.set(ctx, defVoid, k, t.val)
@@ -1339,7 +1317,7 @@ func (ctx *__auto) x() (_ any) {
                 erro(pc(ctx,a), "wrong auto def: %s : %s", a, ts(a)).trace()
             }
         }
-        return expand(ctx, ctx.a...)
+        return expands(ctx, ctx.a...)
     }
     return
 }
@@ -1394,7 +1372,7 @@ func (ctx *__call) _x() (res any) {
     var vals []Value
     for _, a := range merge(ctx.a[0]) {
         var x Value
-        var s = a.string(ctx)
+        var s = __string(ctx, a)
         if s == "" {
             erro(ctx, "empty string: %v : %v", a, ts(a)).trace()
         } else if ctx.closure {
@@ -1428,7 +1406,7 @@ func (ctx *__value) x() (res any) {
     var vals []Value
     var p = _project(ctx)
     for _, a := range merge(ctx.a...) {
-        var s = a.string(ctx)
+        var s = __string(ctx, a)
         if s != "" {
             var x Value
             if ctx.closure {
@@ -1450,6 +1428,7 @@ func (ctx *__value) x() (res any) {
 type __defs struct { builtinbase
     n int `num,number`
     r int `capture`
+	sort bool `sort`
 }
 func (ctx *__defs) inner() Context { return &ctx.builtinbase }
 func (ctx *__defs) cast(t reflect.Type) Context {
@@ -1469,7 +1448,7 @@ defsloop:
             var neg bool
             if x, y := pat.(negative); y { pat, neg = x.Value, y }
 
-            var a, _, c = pat.match(ctx, name)
+            var a, _, c = match(ctx, pat, name)
             if a && neg { continue defsloop }
             if a || neg {
                 if ctx.r <= 0 || 0 == len(c) {
@@ -1483,6 +1462,7 @@ defsloop:
             names = append(names, bare(str))
         }
     }
+	if ctx.sort { slices.Sort(names) }
     return names
 }
 
@@ -1507,14 +1487,14 @@ func (ctx *__plain) cast(t reflect.Type) Context {
 func (ctx *__plain) x() (res any) {
     var scope = _scope(ctx)
     for _, a := range ctx.a {
-        var ( o object ; s = a.string(ctx) )
+        var ( o object ; s = __string(ctx, a) )
         if ctx.scope_ { _, o = scope.find(s) } else { o = project_resolve(ctx, s) }
         if o == nil {
             erro(ctx, "no such symbol: %s", s).trace()
         } else if d, y := o.(*def); !y {
             erro(ctx, "not a def: %s: %v", s, typeof(o)).trace()
         } else if d.value != nil {
-            d.value = d.value.expand(ctx/* , plain */)
+            d.value = expand(ctx, d.value)
         }
     }
     return
@@ -1532,13 +1512,13 @@ func (ctx *__shell) x() (res any) {
     var pos = _position(ctx)
     for _, a := range ctx.a {
         var bufout, buferr bytes.Buffer
-        var s = a.string(ctx)
+        var s = __string(ctx, a)
         sh := exec.Command("sh", "-c", s)
         sh.Stdout, sh.Stderr = &bufout, &buferr
         if err = sh.Run(); err != nil {
             s = strings.TrimSpace(buferr.String())
             if !strings.HasPrefix(s, ":") { s = ":\n" + s }
-            prompt(ctx, "%s%s\n", a.string(ctx), s)
+            prompt(ctx, "%s%s\n", __string(ctx, a), s)
             errostack(ctx, 3, "%s", err).trace()
             return
         }
@@ -1559,7 +1539,7 @@ func (ctx *__which) cast(t reflect.Type) Context {
 func (ctx *__which) x() (res any) {
     var vals []Value
     for _, a := range ctx.a {
-        if s, err := exec.LookPath(a.string(ctx)); err != nil {
+        if s, err := exec.LookPath(__string(ctx, a)); err != nil {
             erro(ctx, "%v", err).trace()
         } else if s != "" {
             vals = append(vals, _strlit(_position(ctx), s))
@@ -1606,7 +1586,7 @@ func (ctx *__servehttp) x() (res any) {
         http.Handle("/", http.FileServer(http.Dir(_workdir(ctx))))
     } else {
         for _, a := range ctx.a {
-            var s = a.string(ctx)
+            var s = __string(ctx, a)
             info(ctx, "serving files %v ...", s)
             http.Handle("/", http.FileServer(http.Dir(s)))
         }
@@ -1643,7 +1623,7 @@ func (ctx *__append) x() (_ any) {
 
     var vals []Value
     for _, a := range names {
-        var s = a.string(ctx)
+        var s = __string(ctx, a)
         var d *def
         if s == "" {
             erro(ctx, "'%v' is empty for name", a).trace()
@@ -1682,14 +1662,14 @@ func (ctx *__plus) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.a {
-            var i = a.int(ctx)
+            var i = __int(ctx, a)
             if n == 0 { num = i } else { num += i }
         }
         return _decimal(_position(ctx), num)
     } else {
         var num float64
         for n, a := range ctx.a {
-            var f = a.float(ctx)
+            var f = __float(ctx, a)
             if n == 0 { num = f } else { num += f }
         }
         return _float(_position(ctx), num)
@@ -1708,14 +1688,14 @@ func (ctx *__minus) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.a {
-            var i = a.int(ctx)
+            var i = __int(ctx, a)
             if n == 0 { num = i } else { num -= i }
         }
         return _decimal(_position(ctx), num)
     } else {
         var num float64
         for n, a := range ctx.a {
-            var f = a.float(ctx)
+            var f = __float(ctx, a)
             if n == 0 { num = f } else { num -= f }
         }
         return _float(_position(ctx), num)
@@ -1734,14 +1714,14 @@ func (ctx *__multiply) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.a {
-            var i = a.int(ctx)
+            var i = __int(ctx, a)
             if n == 0 { num = i } else { num *= i }
         }
         return num
     } else {
         var num float64
         for n, a := range ctx.a {
-            var f = a.float(ctx)
+            var f = __float(ctx, a)
             if n == 0 { num = f } else { num *= f }
         }
         return num
@@ -1760,14 +1740,14 @@ func (ctx *__divide) x() (res any) {
     if ctx.int {
         var num int64
         for n, a := range ctx.a {
-            var i = a.int(ctx)
+            var i = __int(ctx, a)
             if n == 0 { num = i } else { num /= i } // FIXME: NaN
         }
         return num
     } else {
         var num float64
         for n, a := range ctx.a {
-            var f = a.float(ctx)
+            var f = __float(ctx, a)
             if n == 0 { num = f } else { num /= f } // FIXME: NaN
         }
         return num
@@ -1794,7 +1774,7 @@ func (ctx *__unique) x() (_ any) {
         d1 := t2.Sub(t1)
         d2 := t3.Sub(t2)
         if d0 > 1*time.Second {
-            for _, a := range args { a.string(ctx) }
+            for _, a := range args { __string(ctx, a) }
             t4 := time.Now()
             d3 := t4.Sub(t3)
             for i, a := range args { if i > 0 { cmp(ctx, a, args[i-1]) } }
@@ -1807,7 +1787,7 @@ func (ctx *__unique) x() (_ any) {
             var args2 []Value
             var seen = make(map[uint64]struct{})
             for _, a := range args {
-                c := a.hash(ctx)
+                c := hash(ctx, a)
                 if _, y := seen[c]; y {
                     note(ctx, "%v")
                 } else {
@@ -1872,24 +1852,24 @@ func (ctx *__join) x() (_ any) {
     return
 }
 
-type __compose struct { builtinbase }
-func (ctx *__compose) inner() Context { return &ctx.builtinbase }
-func (ctx *__compose) cast(t reflect.Type) Context {
+type __conjunct struct { builtinbase }
+func (ctx *__conjunct) inner() Context { return &ctx.builtinbase }
+func (ctx *__conjunct) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__compose) x() (res any) {
-    if l := len(ctx.a); 0 < l {
-        var con conjunction
-        if l < 2 {
-            con.list = _list(merge(ctx.a...)...)
-        } else {
-            con.list = _list(merge(ctx.a[:l-1]...)...)
-            con.sep  = ctx.a[l-1]
-        }
-        return con
-    }
-    return
+func (ctx *__conjunct) x() (_ any) {
+	if l := len(ctx.a); 0 < l {
+		var con conjunction
+		if l < 2 {
+			con.list = _list(merge(ctx.a...)...)
+		} else {
+			con.list = _list(merge(ctx.a[:l-1]...)...)
+			con.sep  = ctx.a[l-1]
+		}
+		return con
+	}
+	return
 }
 
 type __quote struct { builtinbase }
@@ -1912,13 +1892,13 @@ func (ctx *__quotejoin) x() (res any) {
     var sep string
     var args = merge(ctx.a...)
     if l := len(args); l > 1 {
-        sep = args[l-1].string(ctx)
+        sep = __string(ctx, args[l-1])
         args = args[:l-1]
     }
     if l := len(args); l > 0 {
         var fields []string
         for _, a := range args[1:] {
-            if v := a.string(ctx); v != "" { fields = append(fields, v) }
+            if v := __string(ctx, a); v != "" { fields = append(fields, v) }
         }
         res = _strlit(_position(ctx), strconv.Quote(strings.Join(fields, sep)))
     } else {
@@ -1940,9 +1920,9 @@ func (ctx *__splitstring) x() (res any) {
     if 0 < len(ctx.a) {
         var fields []Value
         var sep = ctx.sep
-        if sep == "" { sep = ctx.a[0].string(ctx) }
+        if sep == "" { sep = __string(ctx, ctx.a[0]) }
         for _, a := range ctx.a[1:] {
-            for _, s := range strings.Split(a.string(ctx), sep) {
+            for _, s := range strings.Split(__string(ctx, a), sep) {
                 fields = append(fields, _strlit(a.Position(), s))
             }
         }
@@ -1972,7 +1952,7 @@ ValueType:
         for _, elem := range v.elems {
             var ( v Value; s string )
             if v, err = joinstrings(ctx, elem, sep); err != nil { break ValueType }
-            if s = v.string(ctx); s != "" { strs = append(strs, s) }
+            if s = __string(ctx, v); s != "" { strs = append(strs, s) }
         }
         res = _strlit(value.Position(), strings.Join(strs, sep))
     }
@@ -2005,7 +1985,7 @@ func (ctx *__splitquotejoin) x() (res any) {
         var err error
         var sep string
         if l := len(ctx.a); l > 1 {
-            sep = ctx.a[l-1].string(ctx)
+            sep = __string(ctx, ctx.a[l-1])
             ctx.a = ctx.a[:l-1]
         }
         if res, err = joinstrings(ctx, val, sep); err != nil {
@@ -2027,7 +2007,7 @@ func (ctx *__splitjoinquote) x() (res any) {
         var err error
         var sep string
         if l := len(ctx.a); l > 1 {
-            sep = ctx.a[l-1].string(ctx)
+            sep = __string(ctx, ctx.a[l-1])
             ctx.a = ctx.a[:l-1]
         }
 
@@ -2035,7 +2015,7 @@ func (ctx *__splitjoinquote) x() (res any) {
         if v, err = joinstrings(ctx, val, sep); err != nil {
             erro(ctx, "%v", err).trace()
         } else {
-            res = _strlit(_position(ctx), strconv.Quote(v.string(ctx)))
+            res = _strlit(_position(ctx), strconv.Quote(__string(ctx, v)))
         }
     }
     return
@@ -2050,10 +2030,10 @@ func (ctx *__field) cast(t reflect.Type) Context {
 func (ctx *__field) x() (res any) {
     if l := len(ctx.a); l >= 2 {
         var fields []string
-        var s string = ctx.a[1].string(ctx)
-        var i int64 = ctx.a[0].int(ctx)
+        var s string = __string(ctx, ctx.a[1])
+        var i int64 = __int(ctx, ctx.a[0])
         if l > 2 {
-            fields = strings.Split(s, ctx.a[2].string(ctx))
+            fields = strings.Split(s, __string(ctx, ctx.a[2]))
         } else {
             fields = strings.Fields(s)
         }
@@ -2090,7 +2070,7 @@ func (ctx *__usee) x() (res any) {
 
     var vals []Value
     for _, a := range ctx.a {
-        v := proj.use.sel(ctx, a.string(ctx))
+        v := sel(ctx, proj.use, __string(ctx, a))
         if v != nil { vals = append(vals, v.(Value)) }
     }
     if vals == nil { res = vals }
@@ -2113,7 +2093,7 @@ func (ctx *__uses) x() (res any) {
 
 outer:
     for _, a := range ctx.a {
-        var s = a.string(ctx)
+        var s = __string(ctx, a)
         for _, u := range proj.use.list {
             found = u.project.name == s
             if found { break outer }
@@ -2136,7 +2116,7 @@ func (ctx *__path) x() any {
         if x, y := a.(*path); y {
             res = append(res, x)
         } else {
-            res = append(res, _pathstr(ctx, a.string(ctx)))
+            res = append(res, _pathStr(ctx, __string(ctx, a)))
         }
     }
     return res
@@ -2155,14 +2135,14 @@ func (ctx *__bare) x() (res any) {
     for _, a := range ctx.a {
         switch p := a.Position(); t := a.(type) {
         case *strlit, *strcomp:
-            a = _word(p, a.string(ctx))
+            a = _word(p, __string(ctx, a))
         case *file:
-            a = _word(p, t.ident(ctx))
+            a = _word(p, ident(ctx,t))
         case fullfile:
             if ctx.name {
-                a = _word(p, t.ident(ctx))
+                a = _word(p, ident(ctx,t))
             } else {
-                a = _word(p, t.string(ctx))
+                a = _word(p, __string(ctx,t))
             }
         }
         vals = append(vals, a)
@@ -2180,7 +2160,7 @@ func (ctx *__word) x() (res any) {
     var vals []Value
     for _, a := range ctx.a {
         if _, y := a.(*word); !y {
-            a = _word(a.Position(), a.string(ctx))
+            a = _word(a.Position(), __string(ctx, a))
         }
         vals = append(vals, a)
     }
@@ -2207,7 +2187,7 @@ func (ctx *__resolve) x() (res any) {
 
         var vals []Value
         for _, a := range merge(ctx.a...) {
-            var name = a.string(ctx)
+            var name = __string(ctx, a)
             if o := resolve(ctx, name); o == nil {
                 erro(ctx, "%v is nil : %v", a, ts(a)).trace()
             } else if x, y := o.(*def); !y {
@@ -2221,7 +2201,7 @@ func (ctx *__resolve) x() (res any) {
     return
 }
 
-type __string struct { builtinbase
+type __string_bin struct { builtinbase
     expand bool `expand`
     name   bool `name,file-name,non-full`
     con  bool `conjunct,conjunction`
@@ -2230,12 +2210,12 @@ type __string struct { builtinbase
     def  []string `def,var`
     join []string `join`
 }
-func (ctx *__string) inner() Context { return &ctx.builtinbase }
-func (ctx *__string) cast(t reflect.Type) Context {
+func (ctx *__string_bin) inner() Context { return &ctx.builtinbase }
+func (ctx *__string_bin) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__string) x() (res any) {
+func (ctx *__string_bin) x() (res any) {
     if 0 < len(ctx.a)+len(ctx.closure)+len(ctx.def) {
         var vals []Value
         for _, name := range ctx.closure {
@@ -2260,7 +2240,7 @@ func (ctx *__string) x() (res any) {
         } else if 0 < len(ctx.join) {
             var s bytes.Buffer
             for i, v := range vals {
-                if t := v.string(ctx); t != "" {
+                if t := __string(ctx, v); t != "" {
                     if 0 < i { s.WriteString(ctx.join[i % len(ctx.join)]) }
                     s.WriteString(t)
                 }
@@ -2269,7 +2249,7 @@ func (ctx *__string) x() (res any) {
         } else if ctx.con || !ctx.dis { // conjunction (default)
             var s bytes.Buffer
             for i, v := range vals {
-                if t := v.string(ctx); t != "" {
+                if t := __string(ctx, v); t != "" {
                     if 0 < i { s.WriteString(" ") }
                     s.WriteString(t)
                 }
@@ -2278,7 +2258,7 @@ func (ctx *__string) x() (res any) {
         } else { // disjunction
             var a []Value
             for _, v := range vals {
-                if t := v.string(ctx); t != "" {
+                if t := __string(ctx, v); t != "" {
                     a = append(a, &strlit{valbase{v.Position()},t})
                 }
             }
@@ -2295,7 +2275,7 @@ func (ctx *__finalize) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__finalize) x() any {
-    return expand(_final(ctx), ctx.a...)
+    return expands(_final(ctx), ctx.a...)
 }
 
 type __filter struct { builtinbase
@@ -2319,13 +2299,13 @@ func (ctx *__filter) _x(pats []Value, values... Value) (result []Value) {
 
     var f = func(v Value) Value {
         for _, pat := range pats {
-            if full, res, stems := pat.match(ctx, v); full {
+            if full, res, stems := match(ctx, pat, v); full {
                 if ctx.neg {
                     v = nil
                 } else if ctx.stem {
                     v = ease(ctx, stems)
                 } else if false {
-                    if t, r := pat.stencil(ctx, stems); t != nil && len(r) == 0 {
+                    if t, r := stencil(ctx, pat, stems); t != nil && len(r) == 0 {
                         v = t
                     } else {
                         v = ease(ctx, res)
@@ -2398,7 +2378,7 @@ func (ctx *__substring) x() (_ any) {
         if a == -1 { return }
 
         for _, arg := range ctx.a {
-            var s = arg.string(ctx)
+            var s = __string(ctx, arg)
             if i := len(s); i <= a { s = "" } else
             if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
             res = append(res, _strlit(arg.Position(), s))
@@ -2417,10 +2397,10 @@ func (ctx *__subst) cast(t reflect.Type) Context {
 func (ctx *__subst) x() (_ any) {
     var res []Value
     if len(ctx.a) > 2 {
-        var s1 = ctx.a[0].string(ctx)
-        var s2 = ctx.a[1].string(ctx)
+        var s1 = __string(ctx, ctx.a[0])
+        var s2 = __string(ctx, ctx.a[1])
         for _, arg := range merge(ctx.a[2:]...) {
-            s := strings.Replace(arg.string(ctx), s1, s2, -1)
+            s := strings.Replace(__string(ctx, arg), s1, s2, -1)
             res = append(res, _strlit(arg.Position(), s))
         }
     }
@@ -2496,7 +2476,7 @@ ForSources:
         if srcFile, ok = to_file(src); ok {
             source = srcFile
         } else if ctx.findFiles {
-            var s = src.string(ctx)
+            var s = __string(ctx, src)
             if srcFile = proj.file(ctx, s); srcFile != nil {
                 source = srcFile
             } else {
@@ -2505,7 +2485,7 @@ ForSources:
         } else if !ctx.fullname {
             source = src
         } else if o := (as{src}.fullname(ctx, closured...)); o.Value != nil {
-            source = o.string(ctx)
+            source = __string(ctx, o)
         } else {
             erro(ctx, "fullname '%v' failed", src)
             erro(ctx, "called from here", src).trace()
@@ -2515,7 +2495,7 @@ ForSources:
         if !full { _, full = src.(fullfile) }
 
         for _, srcPat = range srcPats {
-            if ok, _, stems = srcPat.match(ctx, source); ok {
+            if ok, _, stems = match(ctx, srcPat, source); ok {
                 goto stencilTargetPats
             }
         }
@@ -2527,7 +2507,7 @@ ForSources:
         // Compose the matched results with stem value.
     stencilTargetPats:
         for _, dstPat := range dstPats {
-            var nameVal, ramnant = dstPat.stencil(ctx, stems)
+            var nameVal, ramnant = stencil(ctx, dstPat, stems)
             if isNull(nameVal) {
                 erro(ctx, "nil stencil: %T %v (stems=%v, ramnant=%v)", dstPat, dstPat, stems, ramnant).trace()
             } else if ctx.debug>0 {
@@ -2536,7 +2516,7 @@ ForSources:
             }
 
             var nameStr string
-            if nameStr = nameVal.string(ctx); nameStr == "" {
+            if nameStr = __string(ctx, nameVal); nameStr == "" {
                 continue stencilTargetPats
             } else if ctx.cleanPath {
                 nameStr = filepath.Clean(nameStr)
@@ -2557,7 +2537,7 @@ ForSources:
                         warn(ctx, "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
                         warnstack(ctx, 16, a...).debug(5)
                     }
-                    dstFile = stat(ctx, nameStr, stat_sub{srcFile.sub}, stat_dir{srcFile.dir}, stat_nonexist{true})
+                    dstFile = _stat(ctx, nameStr, stat_sub{srcFile.sub}, stat_dir{srcFile.dir}, stat_nonexist{true})
                 }
                 if dstFile.position = srcPat.Position(); full {
                     res = append(res, fullfile{dstFile})
@@ -2574,18 +2554,18 @@ ForSources:
                 res = append(res, _strlit(pos, nameStr))
                 continue stencilTargetPats
             case *path:
-                res = append(res, _pathstr(ctx, nameStr))
+                res = append(res, _pathStr(ctx, nameStr))
                 continue stencilTargetPats
             case *word, *compound:
                 if strings.Contains(nameStr, pathSep) {
-                    res = append(res, _pathstr(ctx, nameStr))
+                    res = append(res, _pathStr(ctx, nameStr))
                 } else {
                     res = append(res, _word(pos, nameStr))
                 }
                 continue stencilTargetPats
             default:
                 if strings.Contains(nameStr, pathSep) {
-                    res = append(res, _pathstr(ctx, nameStr))
+                    res = append(res, _pathStr(ctx, nameStr))
                 } else if true {
                     res = append(res, _word(pos, nameStr))
                 } else {
@@ -2619,7 +2599,7 @@ func (ctx *__title) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(strings.Title)
         default:
-            a = _raw(a.Position(), strings.Title(a.string(ctx)))
+            a = _raw(a.Position(), strings.Title(__string(ctx, a)))
         }
     }
     return res
@@ -2638,7 +2618,7 @@ func (ctx *__uppercase) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(strings.ToUpper)
         default:
-            a = _raw(a.Position(), strings.ToUpper(a.string(ctx)))
+            a = _raw(a.Position(), strings.ToUpper(__string(ctx, a)))
         }
         res = append(res, a)
     }
@@ -2658,33 +2638,9 @@ func (ctx *__lowercase) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(strings.ToLower)
         default:
-            a = _raw(a.Position(), strings.ToLower(a.string(ctx)))
+            a = _raw(a.Position(), strings.ToLower(__string(ctx, a)))
         }
         res = append(res, a)
-    }
-    return res
-}
-
-func (ctx *builtinbase) trim(f func(_, _ Value, _ string) (Value, string), ss ...string) (_ any) {
-    if len(ctx.a) < 1 {
-        var s = strings.Join(ss, "")
-        erro(ctx, "try $(trim%s <...%s>, <...value>)", s, s).trace()
-    }
-
-    var prefix = merge(ctx.a[0])
-    var values = merge(ctx.a[1:]...)
-
-    if len(values) == 0 { return }
-    if false && len(prefix) == 0 { return ease(ctx, values) }
-
-    var res []Value
-    for _, val := range values {
-        var v Value
-        var s string
-        for _, pre := range prefix {
-            if v, s = f(val, pre, s); v != nil { break }
-        }
-        if v != nil { res = append(res, v) }
     }
     return res
 }
@@ -2711,7 +2667,7 @@ func (ctx *__trim) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(f)
         default:
-            a = _raw(a.Position(), f(a.string(ctx)))
+            a = _raw(a.Position(), f(__string(ctx, a)))
         }
         res = append(res, a)
     }
@@ -2745,7 +2701,7 @@ func (ctx *__trimleft) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(f)
         default:
-            a = _raw(a.Position(), f(a.string(ctx)))
+            a = _raw(a.Position(), f(__string(ctx, a)))
         }
         res = append(res, a)
     }
@@ -2772,7 +2728,7 @@ func (ctx *__trimright) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(f)
         default:
-            a = _raw(a.Position(), f(a.string(ctx)))
+            a = _raw(a.Position(), f(__string(ctx, a)))
         }
         res = append(res, a)
     }
@@ -2788,36 +2744,29 @@ func (ctx *__trimprefix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__trimprefix) x() (_ any) {
-    return ctx.trim(func(val, prefix Value, _s string) (res Value, s string) {
-        var t string
-        if prefix.patterned(ctx) {
-            var f, r, m = prefix.match(ctx, val)
-            if checkpoints { ctx.check_match(val, prefix, f, r, m) }
-            if f { return } // trim all for prefix
-            t = _joinpath(ctx, r)
-        } else {
-            t = prefix.string(ctx)
-        }
-
-        if s = _s ; s == "" { s = val.string(ctx) }
-
-        if strings.HasPrefix(s, t) {
-            _s = strings.TrimPrefix(s, t)
-        } else if true {
-            _s = strings.TrimLeftFunc(s, unicode.IsSpace)
-        } else {
-            _s = s
-        }
-
-        switch val.(type) {
-        case *path: res = _pathstr(ctx, _s)
-        default: res = _strlit(val.Position(), _s)
-        }
-
-        if checkpoints { ctx.check(prefix, val, res) }
-        return
-    })
+func (ctx *__trimprefix) x() any {
+	var res []Value
+	var prefix = merge(expand(ctx, ctx.a[0]))
+	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
+		var s = __string(ctx, val)
+		for _, prefix := range prefix {
+			full, r, _ := match(ctx, prefix, s)
+			if full { s = "" ; break } // trim all for full prefix
+			if t, _ := _joinpath(ctx, r); strings.HasPrefix(s, t) {
+				s = strings.TrimPrefix(s, t)
+			} else {
+				s = strings.TrimLeftFunc(s, unicode.IsSpace)
+			}
+		}
+		if s == "" {
+			res = append(res, _null(val.Position()))
+		} else if strings.Contains(s, pathSep) {
+			res = append(res, _pathStr(ctx, s))
+		} else {
+			res = append(res, _word(val.Position(), s))
+		}
+	}
+	return res
 }
 
 type __trimsuffix struct { builtinbase }
@@ -2826,46 +2775,29 @@ func (ctx *__trimsuffix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__trimsuffix) x() (_ any) {
-    return ctx.trim(func(val, suffix Value, _s string) (res Value, s string) {
-        var t string
-        if suffix.patterned(ctx) {
-            var f, r, _s = suffix.match(reversal{ctx}, val)
-            if checkpoints {
-                if suffix.String() == "/testdata/**" {
-                    if f != false {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
-                    }
-                    if x, y := r.([]string); !y || joinpath(x...) != "/testdata/builtins/trimsuffix" {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
-                    }
-                    if len(_s) != 1 {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
-                    } else if _s[0] != "builtins/trimsuffix" {
-                        erro(ctx, "%v : %v %v %v", tv(suffix), f, r, _s).trace()
-                    }
-                }
-            }
-            if f { return }
-
-            t = _joinpath(ctx, r)
-        } else {
-            t = suffix.string(ctx)
-        }
-
-        if s = _s; s == "" { s = val.string(ctx) }
-        if strings.HasSuffix(s, t) {
-            _s = strings.TrimSuffix(s, t)
-        } else if false {
-            _s = strings.TrimRightFunc(s, unicode.IsSpace)
-        }
-
-        switch val.(type) {
-        case *path: res = _pathstr(ctx, _s)
-        default: res = _strlit(val.Position(), _s)
-        }
-        return
-    })
+func (ctx *__trimsuffix) x() any {
+	var res []Value
+	var prefix = merge(expand(ctx, ctx.a[0]))
+	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
+		var s = __string(ctx, val)
+		for _, prefix := range prefix {
+			full, r, _ := match(reversal{ctx}, prefix, s)
+			if full { s = "" ; break } // trim all for full prefix
+			if t, _ := _joinpath(ctx, r); strings.HasSuffix(s, t) {
+				s = strings.TrimSuffix(s, t)
+			} else {
+				s = strings.TrimRightFunc(s, unicode.IsSpace)
+			}
+		}
+		if s == "" {
+			res = append(res, _null(val.Position()))
+		} else if strings.Contains(s, pathSep) {
+			res = append(res, _pathStr(ctx, s))
+		} else {
+			res = append(res, _word(val.Position(), s))
+		}
+	}
+	return res
 }
 
 type __trimext struct { __trim
@@ -2881,7 +2813,7 @@ func (ctx *__trimext) x() any {
     var ext string
     var res []Value
     for i, a := range ctx.a {
-        if s := a.string(ctx); s != "" {
+        if s := __string(ctx, a); s != "" {
             if i == 0 && len(ctx.a) > 1 {
                 ext = s
             } else if ext == "" {
@@ -2889,9 +2821,9 @@ func (ctx *__trimext) x() any {
                     s = strings.TrimSuffix(s, ext)
                     if ctx.all { ext = filepath.Ext(s) } else { break }
                 }
-                res = append(res, _strlit(a.Position(), s))
+                res = append(res, _word(a.Position(), s))
             } else if ext == filepath.Ext(s) {
-                res = append(res, _strlit(a.Position(), strings.TrimRight(s, ext)))
+                res = append(res, _word(a.Position(), strings.TrimRight(s, ext)))
             }
         }
     }
@@ -2907,14 +2839,14 @@ func (ctx *__gitdir) cast(t reflect.Type) Context {
 func (ctx *__gitdir) x() (_ any) {
     var vals []Value
     for _, a := range merge(ctx.a...) {
-        var s = a.string(ctx)
+        var s = __string(ctx, a)
         if !strings.HasSuffix(s, "/.git") {
             s = filepath.Join(s, ".git")
         }
         if i, e := os.Stat(s); e != nil {
-            a = _pathstr(ctx, s)
+            a = _pathStr(ctx, s)
         } else if m := i.Mode(); m.IsDir() {
-            a = _pathstr(ctx, s)
+            a = _pathStr(ctx, s)
         } else if m.IsRegular() {
             if b, e := ioutil.ReadFile(s); e != nil {
                 errostack(ctx, 5, "%v", e).trace()
@@ -2923,7 +2855,7 @@ func (ctx *__gitdir) x() (_ any) {
             } else {
                 t := string(bytes.TrimSpace(b[7:]))
                 s = filepath.Join(filepath.Dir(s), t)
-                a = _pathstr(ctx, s)
+                a = _pathStr(ctx, s)
             }
         } else {
             erro(pc(ctx,a), "%v", s).trace()
@@ -2949,24 +2881,27 @@ func (ctx *__add___fix) x(f func(_ Context, _, _ Value) Value) (_ any) {
             }
         }
     }
-    if res != nil { do(ctx, reset_stringify{}) }
     return res
 }
 
 type __addprefix struct { __add___fix }
 func (ctx *__addprefix) inner() Context { return &ctx.builtinbase }
-func (ctx *__addprefix) x() (_ any) { return ctx.__add___fix.x(prefix) }
 func (ctx *__addprefix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
+func (ctx *__addprefix) x() (_ any) {
+    return ctx.__add___fix.x(prefix)
+}
 
 type __addsuffix struct { __add___fix }
 func (ctx *__addsuffix) inner() Context { return &ctx.builtinbase }
-func (ctx *__addsuffix) x() (_ any) { return ctx.__add___fix.x(suffix) }
 func (ctx *__addsuffix) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
+}
+func (ctx *__addsuffix) x() (_ any) {
+    return ctx.__add___fix.x(func (c Context, x, y Value) Value { return prefix(c, y, x) })
 }
 
 type __print struct{ builtinbase
@@ -3012,7 +2947,7 @@ func (ctx *__printf) x() (_ any) {
 
     var i int
     var a []any
-    var f = vals[0].string(ctx)
+    var f = __string(ctx, vals[0])
 
 outer:
     for _, v := range merge(ctx.a[1:]...) {
@@ -3025,21 +2960,21 @@ outer:
                 case '+', '-', '#', ' ', '.', '0', '1', '2', '3',
                     '4', '5', '6', '7', '8', '9': continue
                 case 'c', 'd', 'o', 'O', 'q', 'U':
-                    a = append(a, v.int(ctx))
+                    a = append(a, __int(ctx, v))
                     continue outer
                 case 'e', 'E', 'f', 'F', 'g', 'G':
-                    a = append(a, v.float(ctx))
+                    a = append(a, __float(ctx, v))
                     continue outer
                 case 'b', 'x', 'X':
                     switch k := v.kind(); {
                     case k&KindInteger != 0:
-                        a = append(a, v.int(ctx))
+                        a = append(a, __int(ctx, v))
                         continue outer
                     case k&KindFloat != 0:
-                        a = append(a, v.float(ctx))
+                        a = append(a, __float(ctx, v))
                         continue outer
                     default:
-                        if t, e := strconv.Atoi(v.string(ctx)) ; e == nil { a = append(a, t) } else {
+                        if t, e := strconv.Atoi(__string(ctx, v)) ; e == nil { a = append(a, t) } else {
                             erro(ctx, "%v: %v", v, e).trace()
                         }
                         continue outer
@@ -3075,7 +3010,7 @@ func (ctx *__indent) x() (res any) {
     }
     for _, a := range ctx.a {
         var lines []string
-        for _, line := range strings.Split(a.string(ctx), "\n") {
+        for _, line := range strings.Split(__string(ctx, a), "\n") {
             lines = append(lines, s + line)
         }
         l = append(l, _strlit(a.Position(), strings.Join(lines, "\n")))
@@ -3122,14 +3057,14 @@ func (ctx *__contains) x() (_ any) {
 outer:
     for _, val := range vals {
         var s string
-        if ctx.string { s = val.string(ctx) }
+        if ctx.string { s = __string(ctx, val) }
 
         for _, elem := range list {
             var t bool
-            if ctx.match || val.patterned(ctx) {
-                t, _, _ = val.match(ctx, elem)
+            if ctx.match || patterned(ctx,val) {
+                t, _, _ = match(ctx, val, elem)
             } else if ctx.string {
-                t = elem.string(ctx) == s
+                t = __string(ctx, elem) == s
             } else {
                 t = cmp(ctx, val, elem) == cmpEqual
             }
@@ -3210,7 +3145,7 @@ func (ctx *__encodebase64) x() (res any) {
         pos := _position(ctx)
         buf := new(bytes.Buffer)
         enc := base64.NewEncoder(base64.StdEncoding, buf)
-        for _, a := range ctx.a { enc.Write([]byte(a.string(ctx))) }
+        for _, a := range ctx.a { enc.Write([]byte(__string(ctx, a))) }
         enc.Close()
         res = _strlit(pos, buf.String())
     }
@@ -3227,7 +3162,7 @@ func (ctx *__decodebase64) x() (_ any) {
     if 0 < len(ctx.a) {
         var res []Value
         for _, a := range ctx.a {
-            var s = a.string(ctx)
+            var s = __string(ctx, a)
             if dat, err := base64.StdEncoding.DecodeString(s); err != nil {
                 erro(ctx, "decode '%s' failed: %v", s, err).trace()
             } else {
@@ -3248,7 +3183,7 @@ func (ctx *__ext) cast(t reflect.Type) Context {
 func (ctx *__ext) x() (_ any) {
     var res []Value
     for _, a := range merge(ctx.a...) {
-        res = append(res, _strlit(a.Position(), filepath.Ext(a.string(ctx))))
+        res = append(res, _strlit(a.Position(), filepath.Ext(__string(ctx, a))))
     }
     if 0 < len(res) { return res }
     return
@@ -3294,30 +3229,40 @@ func bases(s string, a ...any) (b string) {
 type __bases struct { builtinbase ; n int `num,size,count` }
 func (ctx *__bases) inner() Context { return &ctx.builtinbase }
 func (ctx *__bases) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
 }
-func (ctx *__bases) x() (res any) {
-    var l []Value
-    for _, a := range ctx.a {
-        var s string
-        if ctx.fullname {
-            s, _ = as{a}.fullname_string(ctx)
-        } else {
-            s = a.string(ctx)
-        }
-
-        _, s = _bases(s, ctx.n)
-        l = append(l, _strlit(a.Position(), s))
-    }
-    return l
+func (ctx *__bases) x() any {
+	var vals []Value
+	for _, a := range ctx.a {
+		var s string
+		if ctx.fullname {
+			s, _ = as{a}.fullname_string(ctx)
+		} else {
+			s = __string(ctx, a)
+		}
+		if s != "" {
+			_, s = _bases(s, ctx.n)
+			switch t := strings.Split(s, pathSep); len(t) {
+			case 0:
+			case 1: vals = append(vals, _word(a.Position(), s))
+			default:
+				var p = new(path)
+				for _, t := range t {
+					p.elems = append(p.elems, _word(a.Position(), t))
+				}
+				vals = append(vals, p)
+			}
+		}
+	}
+	return vals
 }
 
 type __base1 struct { __bases }
 func (ctx *__base1) inner() Context { return &ctx.__bases }
 func (ctx *__base1) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.__bases.cast(t)
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.__bases.cast(t)
 }
 func (ctx *__base1) x() any { ctx.n = 1; return ctx.__bases.x() }
 
@@ -3394,7 +3339,7 @@ func (ctx *__dir) cast(t reflect.Type) Context {
 func (ctx *__dir) x() (_ any) {
     var sub string
     if ctx.sub != nil {
-        sub = ctx.sub.string(ctx)
+        sub = __string(ctx, ctx.sub)
     }
     if sub == "" {
         ctx.n = 1
@@ -3407,13 +3352,13 @@ func (ctx *__dir) x() (_ any) {
         if ctx.fullname {
             s, _ = as{a}.fullname_string(ctx)
         } else {
-            s = a.string(ctx)
+            s = __string(ctx, a)
         }
         for {
             var d = filepath.Dir(s)
             if d == "" || d == s { break } else { s = d }
             if _, e := os.Stat(filepath.Join(d,sub)); e == nil {
-                l = append(l, _pathstr(ctx, d))
+                l = append(l, _pathStr(ctx, d))
                 break
             }
         }
@@ -3442,20 +3387,20 @@ func (ctx *__dirs) x() any {
         if ctx.fullname {
             s, _ = as{a}.fullname_string(ctx)
         } else {
-            s = a.string(ctx)
+            s = __string(ctx, a)
         }
 
         s = dirs(ctx.n, s)
 
         if f, y := a.(*file); y {
             if ctx.fullname {
-                f = stat(ctx, s, stat_nonexist{true})
+                f = _stat(ctx, s, stat_nonexist{true})
             } else {
-                f = stat(ctx, s, stat_nonexist{true}, stat_sub{f.sub}, stat_dir{f.dir})
+                f = _stat(ctx, s, stat_nonexist{true}, stat_sub{f.sub}, stat_dir{f.dir})
             }
             l = append(l, f)
         } else if s != "" {
-            l = append(l, _pathstr(ctx, s))
+            l = append(l, _pathStr(ctx, s))
         } else {
             continue
         }
@@ -3548,7 +3493,7 @@ func (ctx *__undirs) x() any {
         if ctx.fullname {
             s, _ = as{a}.fullname_string(ctx)
         } else {
-            s = a.string(ctx)
+            s = __string(ctx, a)
         }
         var v = strings.Split(s, pathSep)
         if i := len(v); i == 0 {
@@ -3558,7 +3503,7 @@ func (ctx *__undirs) x() any {
         } else {
             v = v[i-1:] // empty
         }
-        l = append(l, _pathstr(ctx, filepath.Join(v...)))
+        l = append(l, _pathStr(ctx, filepath.Join(v...)))
     }
     return l
 }
@@ -3656,7 +3601,7 @@ func (ctx *__chopdir) x() (res any) {
         }
     }
     for _, a := range ctx.a {
-        var v = strings.Split(a.string(ctx), pathSep)
+        var v = strings.Split(__string(ctx, a), pathSep)
         if i := len(v); 0 < i {
             if n < 0 { n = i + n }
             if 0 <= n && n+1 < i {
@@ -3684,7 +3629,7 @@ func (ctx *__reldir) x() (res any) {
     var l []Value
     var t string
     for i, a := range ctx.a {
-        if s := a.string(ctx); i == 0 {
+        if s := __string(ctx, a); i == 0 {
             t = s
         } else if s, err = filepath.Rel(t, s); err == nil {
             l = append(l, _strlit(a.Position(), s))
@@ -3712,24 +3657,24 @@ func (ctx *__mkdir) x() (res any) {
         )
         switch t := a.(type) {
         case *pair: // mkdir name ⇒ perm name ⇒ perm
-            name = t.key.string(ctx)
+            name = __string(ctx, t.key)
             perm = filePerm(ctx, t.val, uint32(perm))
         case *group: // mkdir (name perm) (name perm)
             if t.len() == 2 {
-                name = t.at(0).string(ctx)
+                name = __string(ctx, t.at(0))
                 perm = filePerm(ctx, t.at(1), uint32(perm))
             } else {
                 erro(ctx, "Wrong size of list `%v'", t).trace()
             }
         case *list: // mkdir name perm, name perm, ...
             if t.len() == 2 {
-                name = t.at(0).string(ctx)
+                name = __string(ctx, t.at(0))
                 perm = filePerm(ctx, t.at(1), uint32(perm))
             } else {
                 erro(ctx, "Wrong size of list `%v'", t).trace()
             }
         default: // mkdir name perm, name perm, ...
-            name = ctx.a[i].string(ctx)
+            name = __string(ctx, ctx.a[i])
             if i+1 < nargs {
                 perm = filePerm(ctx, ctx.a[i+1], uint32(perm))
                 i += 1
@@ -3756,7 +3701,7 @@ func (ctx *__chdir) cast(t reflect.Type) Context {
 }
 func (ctx *__chdir) x() (res any) {
     if len(ctx.a) == 1 {
-        var str = ctx.a[0].string(ctx)
+        var str = __string(ctx, ctx.a[0])
         if err := lockCD(str, 0); err != nil {
             erro(ctx, "%v", err).trace()
         }
@@ -3780,26 +3725,26 @@ func (ctx *__rename) x() (res any) {
         )
         switch t := a.(type) {
         case *pair: // rename oldname=newname
-            oldname = t.key.string(ctx)
-            newname = t.val.string(ctx)
+            oldname = __string(ctx, t.key)
+            newname = __string(ctx, t.val)
         case *group: // rename (oldname newname) (old new)
             if t.len() == 2 {
-                oldname = t.at(0).string(ctx)
-                newname = t.at(1).string(ctx)
+                oldname = __string(ctx, t.at(0))
+                newname = __string(ctx, t.at(1))
             } else {
                 erro(ctx, "wrong size of group `%v'", t).trace()
             }
         case *list: // rename oldname newname, old new, ...
             if t.len() == 2 {
-                oldname = t.at(0).string(ctx)
-                newname = t.at(1).string(ctx)
+                oldname = __string(ctx, t.at(0))
+                newname = __string(ctx, t.at(1))
             } else {
                 erro(ctx, "wrong size of list `%v'", t).trace()
             }
         default: // rename newname oldname  newname oldname ...
             if i+1 < nargs {
-                oldname = ctx.a[i+0].string(ctx)
-                newname = ctx.a[i+1].string(ctx)
+                oldname = __string(ctx, ctx.a[i+0])
+                newname = __string(ctx, ctx.a[i+1])
                 i += 1
             } else {
                 erro(ctx, "Wrong arguments `%v'", ctx.a).trace()
@@ -3831,7 +3776,7 @@ func (ctx *__remove) x() (res any) {
         var s = f.fullname()
         if opts.skip != "" {
             if strings.HasPrefix(s, opts.skip) { return } else
-            if strings.HasPrefix(f.ident(ctx), opts.skip) { return }
+            if strings.HasPrefix(ident(ctx,f), opts.skip) { return }
         }
         if opts.all { err = os.RemoveAll(s) } else { err = os.Remove(s) }
         if err != nil {
@@ -3844,7 +3789,7 @@ func (ctx *__remove) x() (res any) {
     }
     var removePath = func(ctx Context, p *path) {
         var err error
-        var s = p.string(ctx)
+        var s = __string(ctx, p)
         if opts.skip != "" {
             if strings.HasPrefix(s, opts.skip) { return }
         }
@@ -3875,11 +3820,11 @@ func (ctx *__remove) x() (res any) {
             for _, v := range l.elems { remove(ctx, v) }
         } else if d, y := v.(*delegate); y {
             notestack(ctx, 5, "delegate: %v (%T, %v, %v)", d.x, d.x, d.o, d.a).debug(6)
-        } else if v.patterned(ctx) {
+        } else if patterned(ctx,v) {
             removePat(ctx, v)
         } else if f, y := v.(*file); y {
             removeFile(ctx, f)
-        } else if f = findfile(ctx, v.string(ctx)); f != nil {
+        } else if f = findfile(ctx, __string(ctx, v)); f != nil {
             removeFile(ctx, f)
         } else if p, y := v.(*path); y {
             removePath(ctx, p)
@@ -3889,7 +3834,7 @@ func (ctx *__remove) x() (res any) {
     }
     for _, a := range ctx.a {
         ctx := ctx.Context
-        remove(ctx, a.expand(ctx))
+        remove(ctx, expand(ctx, a))
     }
 
     if opts.debug > 0 { warn(ctx, "%v", ctx.a).debug() }
@@ -3914,28 +3859,28 @@ func (ctx *__truncate) x() (res any) {
         )
         switch t := a.(type) {
         case *pair: // truncate name ⇒ size old ⇒ new
-            name = t.key.string(ctx)
-            size = t.val.int(ctx)
+            name = __string(ctx, t.key)
+            size = __int(ctx, t.val)
         case *group: // truncate (name size) (old new)
             if t.len() == 2 {
-                name = t.at(0).string(ctx)
-                size = t.at(1).int(ctx)
+                name = __string(ctx, t.at(0))
+                size = __int(ctx, t.at(1))
             } else {
                 erro(ctx, "Wrong size of group `%v'", t).trace()
                 break
             }
         case *list: // truncate name size, old new, ...
             if t.len() == 2 {
-                name = t.at(0).string(ctx)
-                size = t.at(1).int(ctx)
+                name = __string(ctx, t.at(0))
+                size = __int(ctx, t.at(1))
             } else {
                 erro(ctx, "Wrong size of list `%v'", t).trace()
                 break
             }
         default: // truncate name size  name size ...
             if i+1 < nargs {
-                name = ctx.a[i+0].string(ctx)
-                size = ctx.a[i+1].int(ctx)
+                name = __string(ctx, ctx.a[i+0])
+                size = __int(ctx, ctx.a[i+1])
                 i += 1
             } else {
                 erro(ctx, "Wrong arguments `%v'", ctx.a).trace()
@@ -3958,34 +3903,34 @@ func (ctx *__link) cast(t reflect.Type) Context {
 }
 func (ctx *__link) x() (res any) {
     for i, nargs := 0, len(ctx.a); i < nargs; i += 1 {
-        var (
-            oldname, newname string
-            a = ctx.a[i]
-        )
+		var (
+			a = ctx.a[i]
+			oldname, newname string
+		)
         switch t := a.(type) {
         case *pair: // link oldname ⇒ newname old ⇒ new
-            oldname = t.key.string(ctx)
-            newname = t.val.string(ctx)
+            oldname = __string(ctx, t.key)
+            newname = __string(ctx, t.val)
         case *group: // link (oldname newname) (old new)
             if t.len() == 2 {
-                oldname = t.at(0).string(ctx)
-                newname = t.at(1).string(ctx)
+                oldname = __string(ctx, t.at(0))
+                newname = __string(ctx, t.at(1))
             } else {
                 erro(ctx, "Wrong size of group `%v'", t).trace()
                 break
             }
         case *list: // link oldname newname, old new, ...
             if t.len() == 2 {
-                oldname = t.at(0).string(ctx)
-                newname = t.at(1).string(ctx)
+                oldname = __string(ctx, t.at(0))
+                newname = __string(ctx, t.at(1))
             } else {
                 erro(ctx, "Wrong size of list `%v'", t).trace()
                 break
             }
         default: // link oldname newname  oldname newname ...
             if i+1 < nargs {
-                oldname = ctx.a[i+0].string(ctx)
-                newname = ctx.a[i+1].string(ctx)
+                oldname = __string(ctx, ctx.a[i+0])
+                newname = __string(ctx, ctx.a[i+1])
                 i += 1
             } else {
                 erro(ctx, "Wrong arguments `%v'", ctx.a).trace()
@@ -4202,10 +4147,10 @@ func (ctx *__stat) x() (res any) {
     var checkstat = func(a Value) {
         var f *file
         var s string
-        if s = a.string(ctx); filepath.IsAbs(s) {
-            f = stat(ctx, s)
+        if s = __string(ctx, a); filepath.IsAbs(s) {
+            f = _stat(ctx, s)
         } else {
-            f = stat(ctx, s, proj) // aka stat_dir{proj.absPath}
+            f = _stat(ctx, s, proj) // aka stat_dir{proj.absPath}
         }
         if f == nil { f = proj.file(ctx, s) }
         if f != nil { check(f) }
@@ -4275,7 +4220,7 @@ func (ctx *__glob) x() (_ any) {
     var res []Value
     for _, a := range ctx.a {
         var ( str string; names []string )
-        if str = a.string(ctx); !filepath.IsAbs(str) {
+        if str = __string(ctx, a); !filepath.IsAbs(str) {
             str = filepath.Join(cwd, str)
         }
 
@@ -4285,7 +4230,7 @@ func (ctx *__glob) x() (_ any) {
         }
         for _, name := range names {
             // TODO: ctx.dir, ctx.file, ctx.symbol
-            res = append(res, _pathstr(ctx, name))
+            res = append(res, _pathStr(ctx, name))
         }
     }
     return res
@@ -4358,7 +4303,7 @@ func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) 
     }
     var collect = func(name string) {
         var ne = ctx.includeMissing && !ctx.ignoreMissing
-        var f = stat(ctx, name, stat_dir{topDir}, stat_nonexist{ne})
+        var f = _stat(ctx, name, stat_dir{topDir}, stat_nonexist{ne})
         if true { assert(f != nil, "stat %s %s", name, topDir) }
 
         top.Lock()
@@ -4386,7 +4331,7 @@ func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) 
             // fallthrough
         } else if nElems := len(p.elems); nElems == 0 {
             errostack(ctx, 3, "empty path: %v", pat).trace()
-        } else if y, _, _ = p.elems[0].match(ctx, sub.n); y && nElems == 1 {
+        } else if y, _, _ = match(ctx, p.elems[0], sub.n); y && nElems == 1 {
             errostack(ctx, 3, "%v %v: invalid path: %v, %v, %v", topDir, sub.dn, pat, sub.n, nElems).trace()
         } else if y && sub.isDir && nElems > 1 {
             val := p.elems[1]
@@ -4409,13 +4354,13 @@ func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) 
         } else if m, y := gp.elems[0].(*globmeta); !y {
             // fallthrough
         } else if m.token == DAST { // aka **
-            y, _, _ = gp.match(ctx, sub.dn)
+            y, _, _ = match(ctx, gp, sub.dn)
             if sub.isDir { subed(sub, pat) }
             if y { top.Add(1) ; go collect(sub.dn) ; return }
             return
         }
 
-        y, _, _ := pat.match(ctx, sub.n)
+        y, _, _ := match(ctx, pat, sub.n)
         if y { top.Add(1) ; go collect(sub.dn) ; return }
         return
     }
@@ -4425,7 +4370,7 @@ func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) 
         var sub = &subr{ d:subdir, n:name, dn:filepath.Join(subdir,name) }
 
         for _, x := range ctx.exclude {
-            if y, _, _ := x.match(ctx, sub.dn); y { return }
+            if y, _, _ := match(ctx, x, sub.dn); y { return }
         }
 
         if fi, err := os.Stat(filepath.Join(topDir, sub.dn)); err == nil {
@@ -4464,7 +4409,7 @@ func (ctx *__wildcard) _project_0(p *project, pats ...Value) (files []*file) {
     for _, pat := range pats {
         for _, a := range p.unmap_files(ctx, pat, nil) {
             for _, loc := range a.paths {
-                var dir = loc.string(ctx)
+                var dir = __string(ctx, loc)
                 note(ctx, "%v %v %v %v", pat, a.pattern, loc, dir).debug()
             }
         }
@@ -4508,7 +4453,7 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
 
     var ne = ctx.includeMissing && !ctx.ignoreMissing
     var st = func(dir string, val Value) {
-        if f := stat(ctx, val.string(ctx), stat_dir{dir}, stat_nonexist{ne}); f != nil {
+        if f := _stat(ctx, __string(ctx, val), stat_dir{dir}, stat_nonexist{ne}); f != nil {
             g.Add(1) ; go collect(f)
         } else if false {
             erro(ctx, "nil: %v : %s", ts(val), dir).trace()
@@ -4517,10 +4462,10 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
 
     var dofilemap = func(lVal, rVal Value, fm filemap) {
         defer g.Done()
-        var lPat = lVal.patterned(ctx)
-        var rPat = rVal.patterned(ctx)
+        var lPat = patterned(ctx,lVal)
+        var rPat = patterned(ctx,rVal)
         for _, loc := range fm.paths {
-            if dir := loc.string(ctx); lPat && rPat {
+            if dir := __string(ctx, loc); lPat && rPat {
                 var pat Value
                 if cmp(ctx, lVal, rVal) == cmpEqual {
                     pat = lVal
@@ -4540,9 +4485,9 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
 
     var f1 = func(lVal, rVal Value, fm filemap) {
         defer g.Done()
-        if y, _, _ := lVal.match(ctx, rVal); y { // e.g. **.am <-> foo/bar/*.am
+        if y, _, _ := match(ctx, lVal, rVal); y { // e.g. **.am <-> foo/bar/*.am
             g.Add(1) ; go dofilemap(lVal, rVal, fm)
-        } else if y, _, _ = rVal.match(ctx, lVal); y {
+        } else if y, _, _ = match(ctx, rVal, lVal); y {
             if g.Add(1) ; true {
                 go dofilemap(lVal, rVal, fm)
             } else {
@@ -4605,7 +4550,7 @@ func (ctx *__readdir) cast(t reflect.Type) Context {
 func (ctx *__readdir) x() (res any) {
     var l []Value
     for _, a := range ctx.a {
-        if fis, err := ioutil.ReadDir(a.string(ctx)); err == nil {
+        if fis, err := ioutil.ReadDir(__string(ctx, a)); err == nil {
             v := new(list)
             for _, fi := range fis {
                 v.append(_strlit(a.Position(), fi.Name()))
@@ -4634,7 +4579,7 @@ func (ctx *__readfile) x() (res any) {
     for _, v := range ctx.a {
         if o := (as{v}.fullname(ctx, closured...)); o.Value == nil {
             errostack(ctx, 5, "%v is not a file", v).trace()
-        } else if s, e := ioutil.ReadFile(o.string(ctx)); e != nil {
+        } else if s, e := ioutil.ReadFile(__string(ctx,o)); e != nil {
             errostack(ctx, 5, "read file failed: %v", e).trace()
         } else {
             if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
@@ -4666,28 +4611,28 @@ outer:
         )
         switch t := a.(type) {
         case *pair: // write-file name=text name=text
-            name = t.key.string(ctx)
-            data = t.val.string(ctx)
+            name = __string(ctx, t.key)
+            data = __string(ctx, t.val)
         case *group: // write-file (name text) (name text 0660)
             if n := t.len(); n < 4 && n > 0 {
-                name = t.at(0).string(ctx)
-                if n > 1 { data = t.at(1).string(ctx) }
+                name = __string(ctx, t.at(0))
+                if n > 1 { data = __string(ctx, t.at(1)) }
                 if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
             } else {
                 erro(ctx, "Wrong size of group `%v'", t).trace()
             }
         case *list: // write-file name text, name text 0660, ...
             if n := t.len(); n < 4 && n > 0 {
-                name = t.at(0).string(ctx)
-                if n > 1 { data = t.at(1).string(ctx) }
+                name = __string(ctx, t.at(0))
+                if n > 1 { data = __string(ctx, t.at(1)) }
                 if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
             } else {
                 erro(ctx, "Wrong size of list `%v'", t).trace()
             }
         default: // write-file name text 0660  name text 0660 ...
-            name = ctx.a[i].string(ctx)
+            name = __string(ctx, ctx.a[i])
             if i+1 < len(ctx.a) {
-                data = ctx.a[i+1].string(ctx)
+                data = __string(ctx, ctx.a[i+1])
                 i += 1
             }
             if i+1 < len(ctx.a) {
@@ -4799,7 +4744,7 @@ func (ctx *__grep) x() (_ any) {
     for _, a := range rvs {
         if x, y := a.(*regexpat); y {
             rxs = append(rxs, x.Regexp)
-        } else if s := a.string(ctx); s == "" {
+        } else if s := __string(ctx, a); s == "" {
             erro(ctx, "empty regexp").trace()
             return
         } else if r, e := regexp.Compile(s); e != nil {
@@ -4817,7 +4762,7 @@ func (ctx *__grep) x() (_ any) {
         if x, y := a.(*file); y {
             p.Filename = x.fullname()
         } else {
-            p.Filename = a.string(ctx)
+            p.Filename = __string(ctx, a)
         }
 
         var e error
@@ -4860,7 +4805,7 @@ func (ctx *__grep) x() (_ any) {
                     if i == 0 && result == nil { val = v } else
                     if 0 < i && a < 0 { p.Column += utf8.RuneCountInString(t) }
                 }
-                if result != nil { val = result.expand(_final(c)) }
+                if result != nil { val = expand(_final(c), result) }
                 res = append(res, val)
 
                 if checkpoints { ctx.check(rx, text, result, val) }
@@ -4923,13 +4868,13 @@ func (p *project) strExpandConfig(ctx Context, s string) (result string, err err
         switch t := val.(type) {
         case *undef, undef: // FIXME: fmt.Fprintf(res, "#undef")
         case *answer, *boolean:
-            fmt.Fprintf(res, "%d", t.int(ctx))
+            fmt.Fprintf(res, "%d", __int(ctx, t))
         case *group:
-            fmt.Fprintf(res, "%s", parseGroupValue(ctx, t).string(ctx))
+            fmt.Fprintf(res, "%s", __string(ctx, parseGroupValue(ctx, t)))
         case *plain:
             fmt.Fprintf(res, "%s", t.String())
         default:
-            fmt.Fprintf(res, "%s", val.string(ctx))
+            fmt.Fprintf(res, "%s", __string(ctx, val))
         }
     }
     if index < len(s) { fmt.Fprint(res, s[index:]) }
@@ -4983,7 +4928,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
                     continue
                 }
             } else {
-                t = v.true(ctx)
+                t = __true(ctx, v)
             }
         }
 
@@ -4996,15 +4941,14 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
                 s = fmt.Sprintf("#define %s", name)
             }
         case "undef":
-            var va []Value
             if d == nil {
                 s = fmt.Sprintf("#undef %s", name)
             } else if isNull(d.value) || isNone(d.value) {
                 s = fmt.Sprintf("#undef %s /* %v */", name, d.value)
-            } else if va = expand(ctx, d.value); len(va) == 1 {
-                switch v := va[0].(type) {
+            } else if va := expand(ctx, d.value); va != nil {
+                switch v := va.(type) {
                 case *answer, *boolean:
-                    if b := v.true(ctx); b {
+                    if b := __true(ctx, v); b {
                         s = fmt.Sprintf("#define %s 1 /* %s %v */", name, typeof(v), v)
                     } else {
                         s = fmt.Sprintf("#undef %s /* %s %v */", name, typeof(v), v)

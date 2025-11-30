@@ -1,7 +1,7 @@
 project testbuiltins
 
 .test.x = &(.test.s) $(value .test~&(.test.s)) \
-    $(foreach $1 $2, $(closure .test.$_) $(closure .test~&(.test.s).$_))
+    $(foreach $1 $2,&(.test.$_) &(.test~&(.test.s).$_))
 
 .test.1 = $(.test.x $1,B b)
 

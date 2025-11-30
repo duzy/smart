@@ -13,13 +13,40 @@ func testValues11(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "&(.test$1)"; s != t {
 		ctx.err("%v: %s != %s", v, s, t)
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), ""; s != t {
 		ctx.err("%v: %s != %s", v, s, t)
-	} else if v := ctx.val(d, defExpand1, []string{".v1",".v2"}); v == nil {
+	} else if v := ctx.val(d, defExpand1, ".s1"); v == nil {
 		ctx.err(".test")
-	} else if s, t := v.String(), "&(.test.v1) &(.test.v2)"; s != t {
+	} else if s, t := v.String(), "&(.test.s1)"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo bar"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, ".s2"); v == nil {
+		ctx.err(".test")
+	} else if s, t := v.String(), "&(.test.s2)"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s, t := __string(src(ctx,d),v), "bar"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if v := ctx.val(d, defExpand1, []string{".s1",".s2"}); v == nil {
+		ctx.err(".test")
+	} else if s, t := v.String(), "&(.test⌜.s1 .s2⌟)"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s, t := __string(src(ctx,d),v), "foobar"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	}
+	if d := ctx.def(".test.1"); d == nil {
+		ctx.err(".test.1")
+	} else if v := d.value; v == nil {
+		ctx.err("%v", d)
+	} else if s, t := v.String(), "&(.test{$1})"; s != t {
+		ctx.err("%v: %s != %s", v, s, t)
+	} else if s, t := __string(src(ctx,d),v), ""; s != t {
+		ctx.err("%v: %s != %s", v, s, t)
+	} else if v := ctx.val(d, defExpand1, []string{".s1",".s2"}); v == nil {
+		ctx.err(".test")
+	} else if s, t := v.String(), "&(.test.s1) &(.test.s2)"; s != t {
+		ctx.err("%s != %s : %v", s, t, tst{v})
+	} else if s, t := __string(src(ctx,d),v), "foo bar"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 	if d := ctx.def(".test"); d == nil {
@@ -28,7 +55,7 @@ func testValues11(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "&(.test)"; s != t {
 		ctx.err("%v: %s != %s", v, s, t)
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), ""; s != t {
 		ctx.err("%v: %s != %s", v, s, t)
 	}
 }

@@ -16,8 +16,8 @@ project testbuiltins
 .test.23 = $(foreach q p $(foreach $1,&(.test.xx)$_),x$_)
 
 .test.3  = x
-.test.3 += $(foreach $1,        &(.test.$_)$1{}88) y
-.test.3 += $(foreach $1,$(closure .test.$_)$1{}99) z
+.test.3 += $(foreach $1,&(.test.$_)$1{}88) y
+.test.3 += $(foreach $1,&(.test.$_)$1{}99) z
 
 .test.4    = $(foreach $1 $2,&(.test.$_.$(or $4,$3)))
 .test.x.a := xa

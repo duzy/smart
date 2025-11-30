@@ -26,7 +26,7 @@ func testAssert(ctx testcase1) {
 		ctx.err("%v != %v", v, d.value)
 	} else if v.String() != "foo" {
 		ctx.err("%v", tst{v})
-	} else if v.string(ctx) != "foo" {
+	} else if __string(ctx, v) != "foo" {
 		ctx.err("%v", tst{v})
 	}
 
@@ -52,12 +52,10 @@ func testAssert(ctx testcase1) {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
 	} else if i = 7; s.vals[i].String() != "x" || !s.bools[i] {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
-	} else if i = 7; s.vals[i].string(ctx) != "x" || !s.bools[i] {
+	} else if i = 7; s.vals[i].String() != "x" || !s.bools[i] {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
-	} else if i = 8; s.vals[i].String() != "foobar" || !s.bools[i] {
+	} else if i = 8; s.vals[i].String() != "foobar{}" || !s.bools[i] {
 		ctx.err("%v %v %v", tst{s.vals[i]}, s.vals[i], s.bools[i])
-	} else if _, y := s.vals[i].(*word); !y {
-		ctx.err("%v %v", tst{s.vals[i]}, s.vals[i])
 	} else {
 		type rec struct{ string; bool }
 		for i, r := range []rec{
@@ -69,15 +67,15 @@ func testAssert(ctx testcase1) {
 			rec{"{=undef x}", false},
 			rec{"{}", false},
 			rec{"x", true},
-			rec{"foobar", true},
+			rec{"foobar{}", true},
 			rec{"1", true},
 			rec{"0", false},
 			rec{"{=true}", true}, // $(equal $(foo),foo)
 		}{
 			if t := s.vals[i].String(); t != r.string {
-				ctx.err("%s != %s : %s", t, r.string, tst{s.vals[i]})
+				ctx.err("%s != %s : %s", t, r.string, ts(s.vals[i]))
 			} else if s.bools[i] != r.bool {
-				ctx.err("%v != %v : %v : %v", s.bools[i], r.bool, s.vals[i], tst{s.vals[i]})
+				ctx.err("%v != %v : %v , %v , %v", s.bools[i], r.bool, s.vals[i], ts(s.vals[i]), __true(ctx, s.vals[i]))
 			}
 		}
 	}

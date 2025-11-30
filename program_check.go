@@ -26,7 +26,7 @@ func (*plainint) evaluate_check(ctx Context, args, recipes []Value, p *plain) {
 									if t := ts(x.a[1]); s != t {
 										erro(pc(ctx,x), "%v: %s != %s", x.a[1], t, s).trace()
 									} else {
-										note(pc(ctx,x), "%s %s %s", x, x.expand(ctx), ts(x))
+										note(pc(ctx,x), "%s %s %s", x, expand(ctx,x), ts(x))
 										note(pc(ctx,x), "%s %s", auto_find(ctx, "_"), ts(ctx))
 										note(pc(ctx,x), "%s : %v → %v", t, x.a[1], d.a[1]).debug(3)
 									}
@@ -44,7 +44,7 @@ func (*plainint) evaluate_check(ctx Context, args, recipes []Value, p *plain) {
 func (ctx *exec_ctx) sources_check(cc Context, i int, rv Value, s string) {
 	var exe = _execution(ctx)
 	if exe.proj != nil && exe.proj.name == "configure.base" {
-		switch dest := _entry(ctx).destiny().string(ctx); dest {
+		switch dest := __string(ctx, _entry(ctx).destiny()); dest {
 		case "-header-c", "-header-c++":
 		case "-library-c", "-library-c++":
 			if strings.HasSuffix(ctx.targetName, ".log") {}
@@ -55,30 +55,30 @@ func (ctx *exec_ctx) sources_check(cc Context, i int, rv Value, s string) {
 				for i, e := range r.elems {
 					switch ts(e) {
 					case "{=delegate {=def x}}":
-						if v := e.expand(cc); v == nil || ts(v) == "{=null}" || ts(e) == ts(v) {
-							var s1, s2 = e.string(cc), e.string(ctx)
+						if v := expand(cc,e); v == nil || ts(v) == "{=null}" || ts(e) == ts(v) {
+							var s1, s2 = __string(cc, e), __string(ctx, e)
 							erro(pc(ctx,e), "%d. %s → %s → %s (%s)", i, ts(e), ts(v), s1, s2)
-							note(pc(ctx,rv), "%v,", ts(e.expand(ctx)))
-							note(pc(ctx,rv), "%v,", ts(e.expand(fullfile_ctx{ctx})))
-							note(pc(ctx,rv), "%v.", ts(e.expand(_final(ctx))))
+							note(pc(ctx,rv), "%v,", ts(expand(ctx,e)))
+							note(pc(ctx,rv), "%v,", ts(expand(fullfile_ctx{ctx},e)))
+							note(pc(ctx,rv), "%v.", ts(expand(_final(ctx),e)))
 							note(pc(ctx,rv), "%v", ts(rv)).trace()
 						}
-						if v := e.expand(_final(ctx)); v == nil || ts(v) == "{=null}" || ts(e) == ts(v) {
-							var s1, s2 = e.string(cc), e.string(ctx)
+						if v := expand(_final(ctx),e); v == nil || ts(v) == "{=null}" || ts(e) == ts(v) {
+							var s1, s2 = __string(cc, e), __string(ctx, e)
 							erro(pc(ctx,e), "%d. %s → %s → %s (%s)", i, ts(e), ts(v), s1, s2)
-							note(pc(ctx,rv), "%v,", ts(e.expand(ctx)))
-							note(pc(ctx,rv), "%v,", ts(e.expand(fullfile_ctx{ctx})))
-							note(pc(ctx,rv), "%v;", ts(e.expand(_final(ctx))))
-							note(pc(ctx,rv), "%v,", ts(e.expand(cc)))
-							note(pc(ctx,rv), "%v,", ts(e.expand(fullfile_ctx{cc})))
-							note(pc(ctx,rv), "%v.", ts(e.expand(_final(cc))))
+							note(pc(ctx,rv), "%v,", ts(expand(ctx,e)))
+							note(pc(ctx,rv), "%v,", ts(expand(fullfile_ctx{ctx},e)))
+							note(pc(ctx,rv), "%v;", ts(expand(_final(ctx),e)))
+							note(pc(ctx,rv), "%v,", ts(expand(cc,e)))
+							note(pc(ctx,rv), "%v,", ts(expand(fullfile_ctx{cc},e)))
+							note(pc(ctx,rv), "%v.", ts(expand(_final(cc),e)))
 							note(pc(ctx,rv), "%v", ts(rv)).trace()
 						}
 					}
 				}
 			}
 
-			var v = rv.expand(cc)
+			var v = expand(cc,rv)
 			if r, y := v.(*recipe); !y || r.len() == 0 {
 				erro(pc(ctx,rv), "%v. %v", i, v).trace()
 			} else {
@@ -106,7 +106,7 @@ func (exe *execution) evaluate_check(ctx Context, i interpreter, args []Value, r
 				// $(foreach $(INCLUDE),"#include $_\n") → $(foreach {},"#include xxx\n")
 				if x, y := x.elems[0].(*plainline); y && 0 < x.len() {
 					if false && (x.String() == "{=plainline {}}" || ts(x) == "{=plainline {=null}}") {
-						erro(pc(ctx,x), "%s %v %s", typeof(i), x, ts(x)).debug(2)
+						erro(pc(ctx,x), "%s %v %s", typeof(i), x, ts(x)).trace()
 					}
 					if x, y := x.elems[0].(*delegate); y && ts(x.x) == "{=builtin foreach}" && len(x.a) == 2 {
 						if s, t := "{=list {=null}}", ts(x.a[0]); s == t {
@@ -147,10 +147,10 @@ func (prog *program) execute_check(ctx *execution, result *Value) {
 	case "configure.base":
 		if x1, y := ctx.defs["TYPE"]; y {
 			if x2, y := ctx.defs["TARGET"]; y {
-				s := strings.ToUpper(x1.string(ctx))
+				s := strings.ToUpper(__string(ctx, x1))
 				s  = strings.Replace(s, " ", "_",  -1)
 				s  = strings.Replace(s, "*", "_P", -1)
-				if t := x2.string(ctx); "SIZEOF_"+s != t && "ALIGNOF_"+s != t {
+				if t := __string(ctx, x2); "SIZEOF_"+s != t && "ALIGNOF_"+s != t {
 					erro(ctx, "%v : %s != %s", ctx.prerequisite, s, t).trace()
 				}
 				if a, y := ctx.prerequisite.(*argumented); false && y && a != nil {
@@ -263,7 +263,7 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
 
     var args = try[[]Value](ctx, get_args{})
 
-    switch ent.destiny().string(ctx) {
+    switch __string(ctx, ent.destiny()) {
     case "rule0":
         if len(args) != 3 {
             erro(ctx, "%v: %d %v", ent, len(args), ts(args)).trace()
@@ -337,7 +337,7 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
 			} else if s := ts(x.elems[0]); s != "{=plainline {=word xxyzz}}" {
 				erro(ctx, "%v: %v", ent, s).trace()
 			}
-			if s, t := (*result).string(ctx), "xxyzz\n"; s != t {
+			if s, t := __string(ctx, *result), "xxyzz\n"; s != t {
 				erro(ctx, "%v: %v: %s != %s", ent, ts((*result)), s, t).trace()
 			}
 		} else if t := "{=list {=word rule0} {=word xyz}}"; s == t {
@@ -365,11 +365,11 @@ func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
 			} else if s := ts(x.elems[1]); s != "{=word xyz}" {
 				erro(ctx, "%v: %v", ent, tv(x.elems[0])).trace()
 			}
-			if s, t := (*result).string(ctx), "rule0 xyz\n"; s != t {
+			if s, t := __string(ctx, *result), "rule0 xyz\n"; s != t {
 				erro(ctx, "%v: %v: %s != %s", ent, ts((*result)), s, t).trace()
 			}
 		} else {
-			erro(ctx, "%v : %s != %s ; %s", v, s, t, v.string(ctx)).trace()
+			erro(ctx, "%v : %s != %s ; %s", v, s, t, __string(ctx, v)).trace()
 		}
     }
 }
@@ -391,7 +391,7 @@ func (prog *program) execute_check_shell_for_stdout(ctx Context, result *Value) 
     var args = try[[]Value](ctx, get_args{})
 	var o = try[origin](ctx, get_origin{})
 
-    switch ent.destiny().string(ctx) {
+    switch __string(ctx, ent.destiny()) {
     case ".test.0":
 		if len(_execution(ctx).interpreted) == 0 {
             erro(ctx, "%v: not interpreted", ent).trace()

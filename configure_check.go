@@ -58,7 +58,7 @@ func (l ul) configure_val_check(ctx *execution, name string, op Value, vals []Va
 			case x == "?OUTBIN!":
 				if d := l.project.resolveDef(ctx, "outbin"); d == nil {
 					errostack(c, 5, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1]).trace()
-				} else if s := d.string(ctx); s != m[1] {
+				} else if s := __string(ctx, d); s != m[1] {
 					errostack(c, 5, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], s).trace()
 				}
 			case x != m[1]:

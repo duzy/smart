@@ -17,7 +17,7 @@ func testValues13(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := "&(-g!foobar)", v.String(); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
-	} else if s, t := "not-foobar", v.string(src(ctx,d)); s != t {
+	} else if s, t := "not-foobar", __string(src(ctx,d),v); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
 	}
 }

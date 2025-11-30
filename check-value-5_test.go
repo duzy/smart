@@ -15,13 +15,13 @@ func testValues5(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$(.test.x0 $1)"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), "z-"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "z-a"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if t := v.string(src(ctx,d)); s != t {
+	} else if t := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 
@@ -33,13 +33,13 @@ func testValues5(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "z-{}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "z-"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "z-"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "z-{}"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "z-"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "z-"; s != t {
 		ctx.err("%s != %s : %v", s, t, tst{v})
 	}
 }

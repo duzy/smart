@@ -11,7 +11,7 @@ func testValues1(ctx *testcase) {
 		ctx.err(".test.foo")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s := v.string(src(ctx,d)); s != "-foo" {
+	} else if s := __string(src(ctx,d),v); s != "-foo" {
 		ctx.err("%v → %s", v, s)
 	} else if s = v.String(); s != "-foo" {
 		ctx.err("%v → %s", v, s)

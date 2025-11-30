@@ -115,16 +115,16 @@ var (
 
     commonerrors = map[*regexp.Regexp]func(Context, []byte, [][]byte){
         rxExitStatus: func(c Context, line []byte, sm [][]byte) {
-            if string(sm[1]) != "0" { errostack(c, 5, "%s", sm[0]).debug() }
+            if string(sm[1]) != "0" { errostack(c, 5, "%s", sm[0]).trace() }
         },
         rxShellNoSuchFileDir: func(c Context, line []byte, sm [][]byte) {
-            errostack(c, 5, "no such command '%s'", sm[2]).debug()
+            errostack(c, 5, "no such command '%s'", sm[2]).trace()
         },
         regexp.MustCompile(`(.+?): (.+?):( command)? not found`): func(c Context, line []byte, sm [][]byte) {
-            erro(c, "%s: command not found", sm[2]).debug()
+            erro(c, "%s: command not found", sm[2]).trace()
         },
         regexp.MustCompile(`the input device is not a TTY`): func(c Context, line []byte, sm [][]byte) {
-            errostack(c, 5, "%s", sm[0]).debug()
+            errostack(c, 5, "%s", sm[0]).trace()
         },
     }
 
@@ -138,7 +138,7 @@ var (
                 case "warning":
                     warnstack(c, 5, "%s", s).debug(3)
                 default:
-                    errostack(c, 5, "%s", s).debug() // "error", "fatal error"
+                    errostack(c, 5, "%s", s).trace() // "error", "fatal error"
                 }
                 if m := rxFileNotFound.FindStringSubmatch(s); m != nil {
                     do(c, missing_file{m[1]})
@@ -369,7 +369,7 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
                 c := p.exec_ctx
                 c.line.s = string(line)
                 c.lino.int64 = int64(p.lnum)
-                v := p.forLine.expand(_final(p.Context))
+                v := expand(_final(p.Context), p.forLine)
                 if !isNull(v) && is_notice_line(c.line.s) {
                     note(p, "%v : %d. %s → %v", p.forLine, line, c.line.s, ts(v)).debug()
                 }
@@ -416,8 +416,11 @@ func (p *exec_buffer) filepath(s string) string {
     if p._workdir != "" && !filepath.IsAbs(s) { s = filepath.Join(p._workdir, s) }
     return s
 }
-func (p *exec_buffer) covpos(s1, s2, s3 string) Position {
-    return convPosition(p.filepath(s1), s2, s3)
+func (p *exec_buffer) covpos(s1, s2, s3 string) (pos Position) {
+    pos.Filename  = p.filepath(s1)
+    pos.Line,   _ = strconv.Atoi(s2)
+    pos.Column, _ = strconv.Atoi(s3)
+    return
 }
 func (p *exec_buffer) lpos(column int) Position {
     var pos = p.position
@@ -440,23 +443,6 @@ type exec_result struct {
     Stdout exec_buffer
     Stderr exec_buffer
     Status int // aka. exit code
-}
-func (p *exec_result) hash(ctx Context) uint64 {
-    var a []any
-    for _, v := range p.values { a = append(a, v) }
-    return fnv1(ctx, p, a...)
-}
-func (p *exec_result) expand(_ Context) Value { return p }
-func (p *exec_result) true(ctx Context) (res bool) {
-    res = p.Status == 0 && p.Stderr.Buf != nil && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */
-    return
-}
-func (p *exec_result) int(ctx Context) (i int64) { return int64(p.Status) }
-func (p *exec_result) float(ctx Context) (f float64) { return float64(p.Status) }
-func (p *exec_result) string(ctx Context) (s string) {
-    if p.Stdout.Buf != nil { return p.Stdout.Buf.String() }
-    if p.Stderr.Buf != nil { return p.Stderr.Buf.String() }
-    return strconv.Itoa(p.Status)
 }
 func (p *exec_result) String() string {
     var s bytes.Buffer
@@ -761,7 +747,7 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
         if !pos.IsValid() { pos = recipe.Position() }
 
         var cc Context = _final(pc(ctx, pos))
-        var s = recipe.string(cc)
+        var s = __string(cc, recipe)
 
         if checkpoints {
             ctx.sources_check(cc, i, recipe, s)
@@ -793,7 +779,7 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
             a1.position, a1.s     = pos, source
             a2.position, a2.int64 = pos, int64(len(sources)+1)
             ac.Context = ctx
-            ctx.forRecipe.expand(_final(ac))
+            expand(_final(ac), ctx.forRecipe)
         }
 
         pos, source = Position{}, ""
@@ -833,7 +819,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         ctx.sh = nil
 
         if !ctx.silent && !is_configurecontext(ctx) && ctx.target.Value != nil {
-            var files = ctx.target.stamp(must_files_stamp{ctx})
+            var files = stampFile(must_files_stamp{ctx}, ctx.target)
             if !ctx.prompt && ctx.report { reportFileUpdates(ctx, files) }
         }
 
@@ -869,7 +855,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     if ctx.stdoutTie { ctx.Stdout.Tie = stdout }
     if ctx.stderrTie { ctx.Stderr.Tie = stderr }
     if ctx.logname != nil {
-        ctx.log = &exec_log{ filename: ctx.logname.string(ctx) }
+        ctx.log = &exec_log{ filename: __string(ctx, ctx.logname) }
     }
 
     var srcs = ctx.sources(exe.recipes)
@@ -963,7 +949,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
                 erro(pc(ctx,x), "wrong result spec: %v", x).trace()
             }
 
-            switch s := x.Value.string(ctx); s {
+            switch s := __string(ctx, x.Value); s {
             case "trim": trim = strings.TrimSpace
             default: resType = s
             }
@@ -976,10 +962,10 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             }
         }
         if x, y := r.(*pair); y {
-            resKind = x.key.string(ctx)
+            resKind = __string(ctx, x.key)
             resValue = x.val
         } else {
-            resKind = r.string(ctx)
+            resKind = __string(ctx, r)
         }
         switch resKind {
         case "stdout": ec.stdoutBuf = true
@@ -995,7 +981,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
         ec.stderrTie = true
     }
 
-    if t := auto_target_value(ctx); t.patterned(ctx) {
+    if t := auto_target_value(ctx); patterned(ctx,t) {
         errostack(ctx, 5, "target is pattern: %v", ec.target).trace()
     } else {
         ec.target.Value = t
@@ -1007,8 +993,8 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     for i, v := range args {
         var s string
         if i == 0 && p.contained {
-            if s = v.string(ctx); s == "shell" { cmd = defaultShell }
-        } else if s = strings.TrimSpace(v.string(ctx)); s != "" {
+            if s = __string(ctx, v); s == "shell" { cmd = defaultShell }
+        } else if s = strings.TrimSpace(__string(ctx, v)); s != "" {
             ec.args = append(ec.args, s)
         }
     }
@@ -1033,9 +1019,9 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             if obj := ec.container.resolve(ctx, name); obj != nil {
                 if d, _ := obj.(*def); d != nil {
                     if v := evoke(ctx, d, nil, nil); v != nil {
-                        if str = v.string(ctx); str == "-" {
+                        if str = __string(ctx, v); str == "-" {
                             // if v, err = def.DiscloseValue(ec.container); err == nil && v != nil {
-                            //   if str, err = v.string(ctx); str == "" { str = "-" }
+                            //   if str, err = __string(ctx, v); str == "" { str = "-" }
                             //   prompt(ctx, "%v: %v (%v)\n", name, str, def)
                             // }
                         }
@@ -1084,7 +1070,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             case "stderr": s = trim(ec.Stderr.Buf.String())
             case "status": s = fmt.Sprintf("%v", ec.Status)
             }
-            switch v := resValue.string(ctx) == s ; resType {
+            switch v := __string(ctx, resValue) == s ; resType {
             case "answer": return _answer(_position(ctx), v)
             case "option": return _option(_position(ctx), v)
             default:       return _boolean(_position(ctx), v)

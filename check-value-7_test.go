@@ -38,7 +38,7 @@ func testValues7(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := "z-yxa-yxb", v.String(); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
-	} else if t := v.string(src(ctx,d)); s != t {
+	} else if t := __string(src(ctx,d),v); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
 	}
 }

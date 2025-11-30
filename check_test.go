@@ -24,7 +24,6 @@ type testcase struct{
 	Context
 	*testing.T
 	spec string
-	// run func(testcase_f1)
 	srcs map[string]struct{}
 	chks map[string]struct{}
 }
@@ -32,20 +31,12 @@ type testcase1  struct{ *testcase ; i any }
 type test_arg   struct{ name string; val any }
 type test_final struct{}
 
-const testModulesPath = "/Volumes/workspace/.smart/modules"
+const modules_dir = "/Volumes/workspace/.smart/modules"
 
 var test_mode bool
-var testdata_s = get_testdata_dir()
-var testdata_t = func() (s string) {
-	for i, t := range strings.Split(testdata_s,pathSep) {
-		if i == 0 && t == "" {
-			s += "{1:1:punct}"
-		} else {
-			s += " {1:1:word "+t+"}"
-		}
-	}
-	return
-}()
+var testdata_s = testdata_dir()
+var testdata_a = strings.Join(strings.Split(testdata_s, pathSep), " ")
+var testdata_t = testdata_dir_t("1:1")
 
 var langs_map = map[string]string{
 	"asm"   : "c",
@@ -77,7 +68,70 @@ func init() {
 }
 
 func testHasModule(name string) (res bool) {
-	if i, e := os.Stat(filepath.Join(testModulesPath, name)); e == nil { res = i.IsDir() }
+	if i, e := os.Stat(filepath.Join(modules_dir, name)); e == nil { res = i.IsDir() }
+	return
+}
+
+type (
+	trim_fmt struct{ int ; string }
+	trim_prefix trim_fmt
+	trim_suffix trim_fmt
+)
+func testdata_fmt(f string, _a ...any) string {
+	var a []any
+	var tr_pre, tr_suf []trim_fmt
+	var lc = "1:1"
+	for _, _t := range _a {
+		switch t := _t.(type) {
+		case line_column_s: lc = string(t)
+		case trim_prefix: tr_pre = append(tr_pre, trim_fmt(t))
+		case trim_suffix: tr_suf = append(tr_suf, trim_fmt(t))
+		default: a = append(a, t)
+		}
+	}
+	var ss = []string{testdata_s, testdata_a, testdata_dir_t(lc)}
+	for _, tr := range tr_pre {
+		if i := tr.int-1; -1 < i && tr.string != "" {
+			ss[i] = strings.TrimPrefix(ss[i], tr.string)
+		}
+	}
+	for _, tr := range tr_suf {
+		if i := tr.int-1; -1 < i && tr.string != "" {
+			ss[i] = strings.TrimSuffix(ss[i], tr.string)
+		}
+	}
+	return sfmt(f, append([]any{ss[0], ss[1], ss[2]}, a...)...)
+}
+
+func testdata_fmts(_a ...any) []string {
+	var f []string
+	var lc = "1:1"
+	for _, _t := range _a {
+		switch t := _t.(type) {
+		case line_column_s: lc = string(t)
+		case string: f = append(f, t)
+		default: panic(t)
+		}
+	}
+	return ssfmt(f, testdata_s, testdata_a, testdata_dir_t(lc))
+}
+
+func testdata_dir() string {
+    return filepath.Join(filepath.Dir(get_filename(1)), "testdata")
+}
+
+func testdata_dir_t(lc string) (s string) {
+	var ss = strings.Split(testdata_s, pathSep)
+	for i, t := range ss {
+		if t == "" {
+			switch i {
+			case         0: s += "{"+lc+":punct ROOT}"
+			case len(ss)-1: s += "{"+lc+":punct TAIL}"
+			}
+		} else {
+			s += " {"+lc+":word "+t+"}"
+		}
+	}
 	return
 }
 
@@ -96,21 +150,21 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	ctx.globe.main = nil
 	ctx.workdir = dir
 
-	defer func() {
+	if true { defer func() {
 		if ctx.flush(ctx); ctx.erros > 0 || count_diag(ctx, diagError) > 0 {
 			var s = name
 			if s == "" { s = spec }
 			if s == "" { s = dir }
 			panic(loaderros{s, ctx.erros + count_diag(ctx, diagError)})
 		}
-	} ()
+	}()}
 
 	if !test_mode {
 		erro(ctx, "not test mode").trace()
 	}
 
-	if testHasModule("configure") && !ctx.paths.has(testModulesPath) {
-		ctx.paths = append(ctx.paths, testModulesPath)
+	if testHasModule("configure") && !ctx.paths.has(modules_dir) {
+		ctx.paths = append(ctx.paths, modules_dir)
 	}
 
 	res = &testcase{ctx, t, spec, nil, nil}
@@ -138,18 +192,6 @@ func (tc *testcase) do(ctx Context, op any) (_ any) {
 	case is_test_case: return true
 	case is_test_mode: return test_mode
 	case silent_configure: return true
-	// case loading_source:
-	// 	tc.srcs[string(t)] = struct{}{}
-	// 	return
-	// case checked_source:
-	// 	tc.chks[string(t)] = struct{}{}
-	// 	return
-	// case is_loading_source:
-	// 	_, y := tc.srcs[string(t)]
-	// 	return y
-	// case is_checked_source:
-	// 	_, y := tc.chks[string(t)]
-	// 	return y
 	case get_position:
 		if p := _project(ctx); p != nil { return p.position }
 		var p = _position(tc.Context)
@@ -200,10 +242,7 @@ func (tc *testcase) def(name string) (d *def) {
 	return
 }
 
-func (tc *testcase) vs(a any, b ...any) (_ string) {
-	if v := tc.val(a, b...); v != nil { return v.string(tc) }
-	return
-}
+func (tc *testcase) vs(a any, b ...any) (_ string) { return __string(tc, tc.val(a, b...)) }
 
 func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	var j = _project(tc)
@@ -255,7 +294,7 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		} else if ori == 0 || ori&defExpand0 != 0 {
 			return d.value
 		} else if  d.value != nil && ori&(defExpand0|defExpand1|defExpand2|defExpand3|defExecute)!= 0 {
-			return d.value.expand(original{ctx,ori})
+			return expand(original{ctx,ori},d.value)
 		} else {
 			return
 		}
@@ -264,9 +303,9 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 	} else if 0 < len(a) {
 		ac := automatic{Context:ctx, defs:make(def_map)}
 		ac.args(ctx, a)
-		return x.expand(&ac)
+		return expand(&ac,x)
 	} else {
-		return x.expand(ctx)
+		return expand(ctx,x)
 	}
 }
 
@@ -409,7 +448,7 @@ func va(ctx Context, i any) (v Value) {
     return
 }
 
-func _evoke_(ctx Context, v Value, ii ...any) (res Value) {
+func test_evoke(ctx Context, v Value, ii ...any) (res Value) {
 	var a, o []Value
 	for _, i := range ii {
 		switch t := i.(type) {

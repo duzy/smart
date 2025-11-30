@@ -40,7 +40,9 @@ type scanstate struct {
 	bits    scanbits // scan bits
 }
 
-func (s scanstate) String() string {
+func (s *scanstate) ch_bytes() int { return s.offsetRead - s.offset }
+
+func (s *scanstate) String() string {
 	var t string
 	switch s.ch {
 	case '\n': t = "\\n"
@@ -126,14 +128,12 @@ type scanner struct { // immutable state
 	scanstate
 }
 
-// Read the next Unicode char into s.ch.
-// s.ch < 0 means end-of-file.
+// Read the next Unicode char into s.ch, s.ch < 0 means end-of-file.
 func (s *scanner) next(ctx Context) {
 	var newline = s.ch == '\n'
 
 	if s.offsetRead < len(s.src) {
-		s.offset = s.offsetRead
-		if s.ch == '\n' {
+		if s.offset = s.offsetRead; s.ch == '\n' {
 			s.offsetLine = s.offset
 			s.file.AddLine(s.offset)
 		}
@@ -141,8 +141,7 @@ func (s *scanner) next(ctx Context) {
 		s.ch, w = s.pick(ctx, s.offsetRead)
 		s.offsetRead += w
 	} else {
-		s.offset = len(s.src)
-		if s.ch == '\n' {
+		if s.offset = len(s.src); s.ch == '\n' {
 			s.offsetLine = s.offset
 			s.file.AddLine(s.offset)
 		}
@@ -168,8 +167,7 @@ func (s *scanner) pick(ctx Context, offset int) (ch rune, w int) {
 	case ch == 0:
 		erro(pc(ctx,s.pos(offset)), "illegal character NUL").trace()
 	case ch >= 0x80: // Non ASCII
-		ch, w = utf8.DecodeRune(s.src[offset:])
-		if ch == utf8.RuneError && w == 1 {
+		if ch, w = utf8.DecodeRune(s.src[offset:]); ch == utf8.RuneError && w == 1 {
 			erro(pc(ctx,s.pos(offset)), "illegal UTF-8 encoding").trace()
 		} else if ch == bom && offset > 0 {
 			erro(pc(ctx,s.pos(offset)), "illegal byte order mark").trace()
@@ -987,10 +985,15 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 			tok = COLON
 		}
 	case '*':
-		if s.ch == '*' { s.next(ctx) // consume the second '*'
+		switch s.ch {
+		case '*':
+			s.next(ctx) // consume the second '*'
 			tok = DAST
-		} else {
-			tok = STAR
+		case '?':
+			s.next(ctx) // consume the '?'
+			tok = ASTQ
+		default:
+			tok = SAST
 		}
 	case '%':
 		tok = PERC
@@ -1021,14 +1024,34 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		}
 	case '^':
 		tok = CARET
-	case '<':
-		tok = LANGLE
-	case '>':
-		tok = RANGLE
 	case '[':
 		tok = LBRACK
 	case ']':
 		tok = RBRACK
+	case '<':
+		tok = LANGLE
+	case '>':
+		tok = RANGLE
+	case '⟨':
+		tok = Lchevron
+	case '⟩':
+		tok = Rchevron
+	case '⌜':
+		tok = Ltop_corner
+	case '⌝':
+		tok = Rtop_corner
+	case '⌞':
+		tok = Lbot_corner
+	case '⌟':
+		tok = Rbot_corner
+	case '‹':
+		tok = Lsing_guil
+	case '›':
+		tok = Rsing_guil
+	case '«':
+		tok = Lguillemet
+	case '»':
+		tok = Rguillemet
 	case '\n': // ASCII 10, 13⇒\r
 		tok = LINEND
 		if s.pop(isStrcompLine); s.ch != '\t' { s.bits &^= isRecipes }

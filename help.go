@@ -90,7 +90,7 @@ func print_options(ctx Context) {
     for _, opt := range opts {
         prompt(ctx, "    %v:\n", opt.entry)
         for _, info := range opt.infos {
-            prompt(ctx, "        %s\n", info.string(ctx))
+            prompt(ctx, "        %s\n", __string(ctx, info))
         }
     }
 }
@@ -125,16 +125,16 @@ func ruleOptionInfos(ctx Context, e entry) (infos []Value) {
             g, ok := depend.(*modification)
             if!ok { continue }
             for _, m := range g.list {
-                if m.elems[0].string(ctx) != "configure" { continue }
+                if __string(ctx, m.elems[0]) != "configure" { continue }
                 for _, arg := range m.elems[1:] {
                     a, ok := arg.(*argumented)
                     if!ok { continue }
                     f, ok := a.Value.(flag)
                     if!ok { continue }
-                    if f.Value.string(ctx) != "option" { continue }
+                    if __string(ctx, f.Value) != "option" { continue }
                     for _, v := range a.args {
                         if p, ok := v.(*pair); ok {
-                            if p.key.string(ctx) != "info" { continue }
+                            if __string(ctx, p.key) != "info" { continue }
                             v = p.val
                         }
                         infos = append(infos, v)

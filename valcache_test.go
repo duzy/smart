@@ -126,7 +126,7 @@ func testValueCache1(ctx *testcase) {
 
 	if v, pat := ctx.val("p1"), "*.c"; v == nil {
 		ctx.err("%v", _project(ctx))
-	} else if s := v.string(ctx); s != pat {
+	} else if s := __string(ctx,v); s != pat {
 		ctx.err("%v : %s != %s", tst{v}, s, pat)
 	} else if m := unmap_files(ctx, v); m == nil {
 		ctx.err("unmap_files: %v", tst{v})
@@ -140,7 +140,7 @@ func testValueCache1(ctx *testcase) {
 
 	if v, pat := ctx.val("p2"), "**.c"; v == nil {
 		ctx.err("%v", _project(ctx))
-	} else if s := v.string(ctx); s != pat {
+	} else if s := __string(ctx,v); s != pat {
 		ctx.err("%v : %s != %s", tst{v}, s, pat)
 	} else if m := unmap_files(ctx, v); m == nil {
 		ctx.err("unmap_files: %v", tst{v})
@@ -158,7 +158,7 @@ func testValueCache1(ctx *testcase) {
 
 	if v, pat := ctx.val("p3"), "**.c++"; v == nil {
 		ctx.err("%v", _project(ctx))
-	} else if s := v.string(ctx); s != pat {
+	} else if s := __string(ctx,v); s != pat {
 		ctx.err("%v : %s != %s", tst{v}, s, pat)
 	} else if m := unmap_files(ctx, v); m == nil {
 		ctx.err("unmap_files: %v", tst{v})
@@ -336,7 +336,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s : %v", s, m)
 	} else if m[0].String() != "{filemap=*.c++ name=a.c++}" {
 		ctx.err("%s : %v", s, m[0].pattern)
-	} else if m[0].pattern.string(ctx) != "*.c++" {
+	} else if __string(ctx,m[0].pattern) != "*.c++" {
 		ctx.err("%s : %v", s, m[0].pattern)
 	} else {
 		_fm = m[0]._filemap
@@ -385,7 +385,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].String() != "{filemap=*.c++ name=aaa.c++}" {
 		ctx.err("%s : %v", s, m[0].pattern)
-	} else if m[0].pattern.string(ctx) != "*.c++" {
+	} else if __string(ctx,m[0].pattern) != "*.c++" {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0]._filemap != _fm {
 		ctx.err("%s : %v", s, m[0])
@@ -415,7 +415,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].String() != "{filemap=foo/*.c++ name=foo/aaa.c++}" {
 		ctx.err("%s : %v", s, m[0])
-	} else if m[0].pattern.string(ctx) != "foo/*.c++" {
+	} else if __string(ctx,m[0].pattern) != "foo/*.c++" {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0]._filemap != _fm {
 		ctx.err("%s : %v", s, m[0])
@@ -483,7 +483,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].String() != "{filemap=foo/{=glob ??}/{=glob ???.c++} name=foo/ab/xyz.c++}" {
 		ctx.err("%s : %v", s, m[0])
-	} else if m[0].pattern.string(ctx) != "foo/??/???.c++" {
+	} else if __string(ctx,m[0].pattern) != "foo/??/???.c++" {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0]._filemap != _fm {
 		ctx.err("%s : %v", s, m[0])
@@ -503,7 +503,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].String() != "{filemap=foo/{=glob ??}/{=glob ???.c++} name=foo/12/xyz.c++}" {
 		ctx.err("%s : %v", s, m[0])
-	} else if m[0].pattern.string(ctx) != "foo/??/???.c++" {
+	} else if __string(ctx,m[0].pattern) != "foo/??/???.c++" {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0]._filemap != _fm {
 		ctx.err("%s : %v", s, m[0])
@@ -533,7 +533,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].String() != "{filemap={=glob ???} name=abc}" {
 		ctx.err("%s : %v", s, m[0])
-	} else if m[0].pattern.string(ctx) != "???" {
+	} else if __string(ctx,m[0].pattern) != "???" {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0]._filemap != _fm {
 		ctx.err("%s : %v ; %v %v", s, m[0], m[0]._filemap, _fm)
@@ -553,7 +553,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].String() != "{filemap={=glob ???} name=c++}" {
 		ctx.err("%s : %v", s, m[0])
-	} else if m[0].pattern.string(ctx) != "???" {
+	} else if __string(ctx,m[0].pattern) != "???" {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0]._filemap != _fm {
 		ctx.err("%s : %v ; %v %v", s, m[0], m[0]._filemap, _fm)
@@ -577,7 +577,7 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%s : %v", s, m[0]) ; break
 			} else if m[0].String() != "{filemap="+pat+" name=foo/xxxzzz}" {
 				ctx.err("%s : %v : %v : %v (%d)", s, m[0], m[0].pattern, pat, i) ; break
-			} else if m[0].pattern.string(ctx) != pat {
+			} else if __string(ctx,m[0].pattern) != pat {
 				ctx.err("%s : %v : %v : %v (%d)", s, m[0], m[0].pattern, pat, i) ; break
 			} else if m[0]._filemap != _fm {
 				ctx.err("%s : %v", s, m[0]) ; break
@@ -600,7 +600,7 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%s : %v", s, m[0]) ; break
 			} else if m[0].String() != "{filemap="+pat+" name=foo/xx/yyz}" {
 				ctx.err("%s : %v : %v : %v (%d)", s, m[0], m[0].pattern, pat, i) ; break
-			} else if m[0].pattern.string(ctx) != pat {
+			} else if __string(ctx,m[0].pattern) != pat {
 				ctx.err("%s : %v : %v : %v (%d)", s, m[0], m[0].pattern, pat, i) ; break
 			} else if m[0]._filemap != _fm {
 				ctx.err("%s : %v", s, m[0]) ; break
@@ -623,7 +623,7 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%s : %v", s, m[0]) ; break
 			} else if m[0].String() != "{filemap="+pat+" name=foo/xx/yy/zzzz}" {
 				ctx.err("%s : %v : %v : %v (%d)", s, m[0], m[0].pattern, pat, i) ; break
-			} else if m[0].pattern.string(ctx) != pat {
+			} else if __string(ctx,m[0].pattern) != pat {
 				ctx.err("%s : %v : %v : %v (%d)", s, m[0], m[0].pattern, pat, i) ; break
 			} else if m[0]._filemap != _fm {
 				ctx.err("%s : %v", s, m[0]) ; break
@@ -696,7 +696,7 @@ func testValueCache(ctx *testcase) {
 		ctx.err("%v", tst{(x5.a[0])})
 	} else if t.pattern.String() != ".deps/{=glob ??}/{=glob ??}/{=glob ??????????}" {
 		ctx.err("%v", tst{(x5.a[0])})
-	} else if t.pattern.string(ctx) != ".deps/??/??/??????????" {
+	} else if __string(ctx,t.pattern) != ".deps/??/??/??????????" {
 		ctx.err("%v", tst{(x5.a[0])})
 	}
 
@@ -740,12 +740,12 @@ func testValueCache(ctx *testcase) {
 		} else if len(t) == 1 && t[0] == "**.c" {
 			if len(a) != 2 {
 				ctx.err("miss cache for %d. %s %v", i, t[0], tst{a})
-			} else if a[0].pattern.string(ctx) != "foo.c" {
+			} else if __string(ctx,a[0].pattern) != "foo.c" {
 				ctx.err("miss cache for %d. %s %v", i, t[0], tst{a[0]})
-			} else if a[1].pattern.string(ctx) != "foo/bar.c" {
+			} else if __string(ctx,a[1].pattern) != "foo/bar.c" {
 				ctx.err("miss cache for %d. %s %v", i, t[0], tst{a[1]})
 			}
-		} else if a[0].pattern.string(ctx) != t[1] {
+		} else if __string(ctx,a[0].pattern) != t[1] {
 			ctx.err("miss cache for %d. %s %v", i, t[0], tst{a[0]})
 		}
 	}
@@ -755,15 +755,15 @@ func testValueCache(ctx *testcase) {
 		ctx.err(s)
 	} else if v.String() != "**.c" {
 		ctx.err("%v", v)
-	} else if v.string(ctx) != "**.c" {
+	} else if __string(ctx,v) != "**.c" {
 		ctx.err("%v", v)
 	} else if a := p.unmap_files(ctx, v, nil); len(a) < 1 {
 		ctx.err("%v: miss cache : %s %v", v, tst{v}, a)
 	} else if len(a) != 2 {
 		ctx.err("%v: miss cache : %s %v", v, tst{v}, tst{a})
-	} else if a[0].pattern.string(ctx) != "foo.c" {
+	} else if __string(ctx,a[0].pattern) != "foo.c" {
 		ctx.err("%v: miss cache : %s %v", v, tst{v}, tst{a[0]})
-	} else if a[1].pattern.string(ctx) != "foo/bar.c" {
+	} else if __string(ctx,a[1].pattern) != "foo/bar.c" {
 		ctx.err("%v: miss cache : %s %v", v, tst{v}, tst{a[1]})
 	} else if t := unmap_files(ctx, v); len(t) != 2 {
 		ctx.err("%v %v", v, t)
@@ -778,13 +778,13 @@ func testValueCache(ctx *testcase) {
 		ctx.err(s)
 	} else if v.String() != "**.c++" {
 		ctx.err("%v", v)
-	} else if v.string(ctx) != "**.c++" {
+	} else if __string(ctx,v) != "**.c++" {
 		ctx.err("%v", v)
 	} else if a := p.unmap_files(ctx, v, nil); len(a) != 2 {
 		ctx.err("%v: miss cache : %s %v", v, tst{v}, a)
-	} else if a[0].pattern.string(ctx) != "foo.c++" {
+	} else if __string(ctx,a[0].pattern) != "foo.c++" {
 		ctx.err("%v: miss cache : %s %v", v, tst{v}, tst{a[0]})
-	} else if a[1].pattern.string(ctx) != "foo/bar.c++" {
+	} else if __string(ctx,a[1].pattern) != "foo/bar.c++" {
 		ctx.err("%v: miss cache : %s %v", v, tst{v}, tst{a[1]})
 	} else if t := unmap_files(ctx, v); len(t) != 2 {
 		ctx.err("%v %v", v, t)
@@ -797,32 +797,32 @@ func testValueCache(ctx *testcase) {
 	if s := "val2" ; false {} else
 	if v := ctx.val(s); v == nil {
 		ctx.err(s)
-	} else if v.string(ctx) != "foo.c++" {
+	} else if __string(ctx,v) != "foo.c++" {
 		ctx.err("%v", v)
 	} else if a := p.unmap_files(ctx, v, nil); len(a) != 1 {
 		ctx.err("%v: miss cache : %s %v", v, tst{v}, a)
-	} else if a[0].pattern.string(ctx) != "foo.c++" {
+	} else if __string(ctx,a[0].pattern) != "foo.c++" {
 		ctx.err("%v: miss cache : %s %v", v, tst{v}, tst{a[0]})
 	} else if t := unmap_files(ctx, v); len(t) != 1 {
 		ctx.err("%v %v", v, t)
 	} else if t[0].name != "foo.c++" {
 		ctx.err("%v %v", v, t[0])
-	} else if t[0].pattern.string(ctx) != "foo.c++" {
+	} else if __string(ctx,t[0].pattern) != "foo.c++" {
 		ctx.err("%v %v", v, t[0])
 	} else if f := p.file(ctx, v); f == nil {
 		ctx.err("%v %v", v, tst{v})
-	} else if f.ident(ctx) != "foo.c++" {
+	} else if ident(ctx,f) != "foo.c++" {
 		ctx.err("%v %v", v, f)
 	}
 
 	if s := "val3" ; false {} else
 	if v := ctx.val(s); v == nil {
 		ctx.err(s)
-	} else if v.string(ctx) != "foo.o" {
+	} else if __string(ctx,v) != "foo.o" {
 		ctx.err("%v %v", v, tst{v})
 	} else if a := p.unmap_files(ctx, v, nil); len(a) != 1 {
 		ctx.err("%v: miss cache : %v %v", v, tst{v}, a)
-	} else if a[0].pattern.string(ctx) != "**.o" {
+	} else if __string(ctx,a[0].pattern) != "**.o" {
 		ctx.err("%v: miss cache : %v %v", v, tst{v}, tst{a[0].pattern})
 	} else if t := unmap_files(ctx, v); len(t) != 1 {
 		ctx.err("%v %v ; %v", v, tst{v}, t)
@@ -844,7 +844,7 @@ func testValueCache(ctx *testcase) {
 		ctx.err("%v %v", v, t[0])
 	} else if f := p.file(ctx, v); f == nil {
 		ctx.err("%v ; %v", tst{v}, t)
-	} else if f.ident(ctx) != "foo.o" {
+	} else if ident(ctx,f) != "foo.o" {
 		ctx.err("%v %v", v, f)
 	}
 
@@ -853,7 +853,7 @@ func testValueCache(ctx *testcase) {
 		ctx.err(s)
 	} else if v.String() != p {
 		ctx.err("%v %v", v, tst{v})
-	} else if v.string(ctx) != p {
+	} else if __string(ctx,v) != p {
 		ctx.err("%v %v", v, tst{v})
 	} else if t := unmap_files(ctx, v); len(t) != 1 {
 		ctx.err("%v %v %v", v, tst{v}, t)
@@ -864,7 +864,7 @@ func testValueCache(ctx *testcase) {
 		ctx.err("sources is nil")
 	} else if v := evoke(ctx, d, nil, nil); v == nil {
 		ctx.err("sources is wrong: %v %v", d, v)
-	} else if s := v.string(ctx); strings.Count(s, "foo.c") != 2 {
+	} else if s := __string(ctx,v); strings.Count(s, "foo.c") != 2 {
 		ctx.err("sources is wrong: %v", v) // NOTE: "foo.c" counts foo.c foo.c++
 	} else if strings.Count(s, "foo.c++") != 1 {
 		ctx.err("sources is wrong: %v", v)

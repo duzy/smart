@@ -20,7 +20,7 @@ func (ctx *modifier_updatefile) x_check(target Value, filename, content string, 
 		}
 		if strings.HasPrefix(s, "{=file .configure/") {
 			if _, e := os.Stat(fn); e != nil {
-				errostack(pc(ctx,fn), 2, "%s", s).debug(3)
+				errostack(pc(ctx,fn), 2, "%s", s).trace()
 			} else if false {
 				notestack(pc(ctx,fn), 2, "%s", s).debug(3)
 			}
@@ -28,7 +28,7 @@ func (ctx *modifier_updatefile) x_check(target Value, filename, content string, 
 				rx := regexp.MustCompile(`\.configure/.*?/%\..*$`)
 				sm := rx.FindStringSubmatch(content)
 				if sm != nil {
-					errostack(pc(ctx,fn), 2, "%v", sm).debug(3)
+					errostack(pc(ctx,fn), 2, "%v", sm).trace()
 				}
 			}
 		}

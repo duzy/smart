@@ -33,7 +33,6 @@ func (p plain_ctx) do(ctx Context, op any) (_ any) {
 // Value returned by (plain) modifier.
 type plain struct { elements ; name string }
 func (_ *plain) kind() Kind { return KindPlain }
-func (p *plain) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
 func (p *plain) ts(t string) (s string) {
     s = "{="+t
     if t := p.name; t != "" { s += "("+t+")" }
@@ -47,45 +46,6 @@ func (p *plain) String() (s string) {
     for _, v := range p.elems { s += " " + v.String() }
     s += "}"
     return
-}
-func (p *plain) string(ctx Context) string {
-    var w = new(bytes.Buffer)
-    var cc = plain_ctx{ctx,len(p.elems)==1}
-    for i, v := range p.elems {
-        if x, y := v.(*plainline); y {
-            w.WriteString(x.string(cc))
-        } else {
-            if 0 < i { w.WriteString(" ") }
-            w.WriteString(v.string(cc))
-        }
-    }
-    return w.String()
-}
-func (p *plain) float(ctx Context) (_ float64) {
-    if p.len() > 0 { return p.elems[0].float(ctx) }
-    return
-}
-func (p *plain) int(ctx Context) (_ int64) {
-    if p.len() > 0 { return p.elems[0].int(ctx) }
-    return
-}
-func (p *plain) true(ctx Context) (_ bool) {
-    for _, v := range p.elems {
-        if v.true(ctx) { return true }
-    }
-    return
-}
-func (p *plain) match(ctx Context, i any) (bool, any, []string) {
-    return stringMatch(ctx, p, i)
-}
-func (p *plain) stencil(ctx Context, stems []string) (Value, []string) {
-    return p, stems
-}
-func (p *plain) expand(ctx Context) (_ Value) {
-    if elems := expand(ctx, p.elems...); diff(ctx, elems, p.elems) {
-        return &plain{elements{elems}, p.name}
-    }
-    return p
 }
 
 type is_plainline struct {}
@@ -101,7 +61,6 @@ func (p plainline_ctx) do(ctx Context, op any) (_ any) {
 
 type plainline struct { elements }
 func (_ *plainline) kind() Kind { return KindPlainLine }
-func (p *plainline) hash(ctx Context) uint64 { return fnv1(ctx, p, p.any()...) }
 func (p *plainline) ts(t string) (s string) {
     s = "{="+t
     for _, v := range p.elems { s += " " + ts(v) }
@@ -117,60 +76,13 @@ func (p *plainline) String() (s string) {
     s += "}"
     return
 }
-func (p *plainline) string(ctx Context) (s string) {
-    if len(p.elems) == 1 {
-        if d, y := p.elems[0].(*delegate); y {
-            if b, y := d.x.(*builtin); y && b.name == "foreach" {
-                return d.string(plainline_ctx{ctx})
-            }
-        }
-    }
-
-    for _, v := range p.elems { s += v.string(ctx) }
-
-    if i := len(p.elems); 0 < i {
-        var v = p.elems[i-1]
-        if _, y := v.(*null); y {
-            return
-        }
-        if x, y := v.(*list); y {
-            if i := x.len(); 0 < i {
-                v = x.elems[i-1]
-            }
-        }
-        if _, y := v.(*plainline); y {
-            return
-        }
-    }
-
-    s += "\n"
-    return
-}
 func (p *plainline) float(ctx Context) (_ float64) {
-    if p.len() > 0 { return p.elems[0].float(ctx) }
+    if p.len() > 0 { return __float(ctx, p.elems[0]) }
     return
 }
 func (p *plainline) int(ctx Context) (_ int64) {
-    if p.len() > 0 { return p.elems[0].int(ctx) }
+    if p.len() > 0 { return __int(ctx, p.elems[0]) }
     return
-}
-func (p *plainline) true(ctx Context) (_ bool) {
-    for _, v := range p.elems {
-        if v.true(ctx) { return true }
-    }
-    return
-}
-func (p *plainline) match(ctx Context, i any) (bool, any, []string) {
-    return stringMatch(ctx, p, i)
-}
-func (p *plainline) stencil(ctx Context, stems []string) (Value, []string) {
-    return p, stems
-}
-func (p *plainline) expand(ctx Context) (_ Value) {
-    if elems := expand(ctx, p.elems...); diff(ctx, elems, p.elems) {
-        return &plainline{elements{elems}}
-    }
-    return p
 }
 
 type plainint struct{}
@@ -180,12 +92,12 @@ func (p *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
     var opts struct { general_opts }
 
     if args = parse_opts(ctx, &opts, args...) ; len(args) > 0 {
-        res.name = args[0].string(ctx)
+        res.name = __string(ctx, args[0])
         exe.language = res.name
     }
 
     for _, recipe := range exe.recipes {
-        res.elems = append(res.elems, recipe.expand(_final(ctx)))
+        res.elems = append(res.elems, expand(_final(ctx), recipe))
     }
 
     if false && len(res.elems) == 1 {
@@ -206,7 +118,7 @@ func multiline(ctx Context, recipes... Value) (res string) {
         w = new(bytes.Buffer)
     )
     for n, recipe := range recipes {
-        if fmt.Fprint(w, recipe.string(ctx)); n < x { fmt.Fprint(w, "\n") }
+        if fmt.Fprint(w, __string(ctx, recipe)); n < x { fmt.Fprint(w, "\n") }
     }
     res = w.String()
     return
@@ -413,7 +325,7 @@ LoopJSON:
                     err = errorIllJson; break LoopJSON
                 }
                 if k := stack[x-1].at(0); k == nil {
-                    if s = k.string(ctx); s != JsonObject {
+                    if s = __string(ctx, k); s != JsonObject {
                         err = errorIllJson; break LoopJSON
                     }
                 }
@@ -424,7 +336,7 @@ LoopJSON:
                     err = errorIllJson; break LoopJSON
                 }
                 if k := stack[x-1].at(0); k == nil {
-                    if s = k.string(ctx); s != JsonArray {
+                    if s = __string(ctx, k); s != JsonArray {
                         err = errorIllJson; break LoopJSON
                     }
                 }
@@ -443,7 +355,7 @@ LoopJSON:
             node = stack[x-1]
             if k := node.at(0); k != nil {
                 var kind string
-                if kind = k.string(ctx); kind == JsonArray {
+                if kind = __string(ctx, k); kind == JsonArray {
                     node.append(sv); continue
                 } else if kind != JsonObject {
                     err = errorIllJson; break LoopJSON
@@ -494,7 +406,7 @@ LoopJSON:
         }
         if node != nil && value != nil {
             if k := node.at(0); k != nil {
-                if s = k.string(ctx); s != JsonArray {
+                if s = __string(ctx, k); s != JsonArray {
                     err = errorIllJson; break LoopJSON
                 }
             }

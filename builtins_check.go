@@ -14,10 +14,10 @@ import (
 )
 
 func (ctx *__trimprefix) check_match(val, prefix Value, f bool, r any, m []string) {
-    var v = val.string(ctx)
+    var v = __string(ctx, val)
     switch prefix.String() {
     case "%%/.smart/modules/":
-        if s := val.string(ctx); strings.Contains(s, "/.smart/modules/") {
+        if s := __string(ctx, val); strings.Contains(s, "/.smart/modules/") {
             if a, y := r.([]string); !y {
                 erro(ctx, "%v %v, %v %v %v", prefix, val, f, r, m).trace()
             } else if len(a) < 4 || a[len(a)-1] != "" {
@@ -42,7 +42,7 @@ func (ctx *__trimprefix) check_match(val, prefix Value, f bool, r any, m []strin
 }
 
 func (ctx *__trimprefix) check(prefix, val, res Value) {
-    var pre, str, t = prefix.string(ctx), val.string(ctx), res.string(ctx)
+    var pre, str, t = __string(ctx, prefix), __string(ctx, val), __string(ctx, res)
 
     if strings.HasSuffix(pre, "/") && strings.HasPrefix(str, pre) && strings.HasPrefix(t, "/") {
         erro(ctx, "{=%s %v} {=%s %v} {=%s %v}", typeof(prefix), prefix, typeof(val), val, typeof(res), res).trace()
@@ -51,7 +51,7 @@ func (ctx *__trimprefix) check(prefix, val, res Value) {
 	var proj = _project(ctx)
 
     if p := "/.smart/modules/"; pre == "%%"+p {
-        var s = val.string(ctx)
+        var s = __string(ctx, val)
         if i := strings.Index(s, p); 0 < i && s[i+len(p):] != t {
             erro(ctx, "%v %s, %s != %s", prefix, s, t, s[i+len(p):]).trace()
         }
@@ -120,7 +120,7 @@ func (ctx *__auto) check(res []Value) {
 	}
 }
 func (ctx *__auto) check_value_auto(res []Value) {
- 	switch d, o := try[*def](ctx, origin_def{}), try[origin](ctx, get_origin{}); s_line_column(ctx) {
+ 	switch d, o := try[*def](ctx, origin_def{}), try[origin](ctx, get_origin{}); line_column(ctx) {
 	case "6:11":
 		if s, t := ts(res), `[{=list {6:29:null}}]`; s != t {
 			errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
@@ -169,7 +169,7 @@ func (ctx *__auto) check_value_auto(res []Value) {
 			errostack(ctx, 5, "%v | %s", res, ts(res)).trace()
 		}
 	case "19:15":
-		switch s_line_column(d) {
+		switch line_column(d) {
 		case "19:11":
 			switch try[string](ctx,source{}) {
 			case "value_test.go:750":
@@ -220,15 +220,15 @@ func (ctx *__auto) check_value_auto(res []Value) {
 			}
 		case "26:9":
 			if s, t := ts(res), `[{=list {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
-				errostack(ctx, 3, "%s: %v | %s != %s", s_line_column(d), res, s, t).trace()
+				errostack(ctx, 3, "%s: %v | %s != %s", line_column(d), res, s, t).trace()
 			}
 		case "27:9":
 			if s, t := ts(res), `[{=list {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
-				errostack(ctx, 3, "%s: %v | %s != %s", s_line_column(d), res, s, t).trace()
+				errostack(ctx, 3, "%s: %v | %s != %s", line_column(d), res, s, t).trace()
 			}
 		case "28:9":
 			if s, t := ts(res), `[{=list {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
-				errostack(ctx, 5, "%s: %v | %s != %s", s_line_column(d), res, s, t).trace()
+				errostack(ctx, 5, "%s: %v | %s != %s", line_column(d), res, s, t).trace()
 			}
 		default:
 			errostack(pc(ctx,d), 3, "%v | %s", res, ts(res)).trace()
@@ -256,7 +256,7 @@ func (ctx *__auto) check_value_auto(res []Value) {
 				errostack(ctx, 5, "%v: %s != %s", o, s, t).trace()
 			}
 		case loader_src:
-			switch s_line_column(d) {
+			switch line_column(d) {
 			case "28:9":
 				if s, t := ts(res), `[{=list {=compound {23:36 {19:13 {19:46 {28:22:word a}}}} {23:36 {19:13 {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {23:48 {28:22:word a}} {23:53 {28:27:word b}} {23:58 {28:32:word c}}}}}}]`; s != t {
 					errostack(ctx, 3, "%v | %s != %s", res, s, t).trace()
@@ -287,7 +287,7 @@ func (ctx *__auto) check_value_auto(res []Value) {
 func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 	if d, y := ctx.defs["0"]; !y {
 		erro(ctx, "%v %v %v %v", rx, text, temp, val).trace()
-	} else if t := d.string(ctx); t != text {
+	} else if t := __string(ctx, d); t != text {
 		erro(ctx, "%v: %v: %s != %s", rx, d, t, text).trace()
 	}
 	switch j := _project(ctx); j.name {
@@ -297,38 +297,38 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 			if v := auto_get(ctx, "2"); v == nil {
 				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
 			} else {
-				switch v.string(ctx) {
+				switch __string(ctx,v) {
 				case "MAJOR":
 					if v := auto_get(ctx, "0"); v == nil {
 						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-					} else if s, t := "  set(LLVM_VERSION_MAJOR 20)", v.string(ctx); s != t {
+					} else if s, t := "  set(LLVM_VERSION_MAJOR 20)", __string(ctx,v); s != t {
 						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 					}
 					if v := auto_get(ctx, "3"); v == nil {
 						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-					} else if s, t := "20", v.string(ctx); s != t {
+					} else if s, t := "20", __string(ctx,v); s != t {
 						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 					}
 				case "MINOR":
 					if v := auto_get(ctx, "0"); v == nil {
 						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-					} else if s, t := "  set(LLVM_VERSION_MINOR 0)", v.string(ctx); s != t {
+					} else if s, t := "  set(LLVM_VERSION_MINOR 0)", __string(ctx,v); s != t {
 						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 					}
 					if v := auto_get(ctx, "3"); v == nil {
 						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-					} else if s, t := "0", v.string(ctx); s != t {
+					} else if s, t := "0", __string(ctx,v); s != t {
 						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 					}
 				case "PATCH":
 					if v := auto_get(ctx, "0"); v == nil {
 						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-					} else if s, t := "  set(LLVM_VERSION_PATCH 0)", v.string(ctx); s != t {
+					} else if s, t := "  set(LLVM_VERSION_PATCH 0)", __string(ctx,v); s != t {
 						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 					}
 					if v := auto_get(ctx, "3"); v == nil {
 						erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-					} else if s, t := "0", v.string(ctx); s != t {
+					} else if s, t := "0", __string(ctx,v); s != t {
 						erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 					}
 				default:
@@ -345,31 +345,31 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 			case "foo.o":
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo.o", v.string(ctx); s != t {
+				} else if s, t := "foo.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			case "foo-x.o":
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo-x.o", v.string(ctx); s != t {
+				} else if s, t := "foo-x.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			case "foo-x-y.o":
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo-x-y.o", v.string(ctx); s != t {
+				} else if s, t := "foo-x-y.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			case "foo-x-y-z.o":
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo-x-y-z.o", v.string(ctx); s != t {
+				} else if s, t := "foo-x-y-z.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			case "foobar.o":
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foobar.o", v.string(ctx); s != t {
+				} else if s, t := "foobar.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			default:
@@ -380,17 +380,17 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 			case "foo.o":
 				if d, y := ctx.defs["1"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo", d.string(ctx); s != t {
+				} else if s, t := "foo", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["2"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", d.string(ctx); s != t {
+				} else if s, t := "", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["3"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", d.string(ctx); s != t {
+				} else if s, t := "", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["4"]; y {
@@ -398,12 +398,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["i"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", d.string(ctx); s != t {
+				} else if s, t := "", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["5"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", d.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["6"]; y {
@@ -411,27 +411,27 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["x"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", d.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo.o", v.string(ctx); s != t {
+				} else if s, t := "foo.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "1"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo", v.string(ctx); s != t {
+				} else if s, t := "foo", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "2"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", v.string(ctx); s != t {
+				} else if s, t := "", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "3"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", v.string(ctx); s != t {
+				} else if s, t := "", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "4"); v != nil {
@@ -439,12 +439,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "i"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", v.string(ctx); s != t {
+				} else if s, t := "", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "5"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", v.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "6"); v != nil {
@@ -452,23 +452,23 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "x"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", v.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			case "foo-x.o":
 				if d, y := ctx.defs["1"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo", d.string(ctx); s != t {
+				} else if s, t := "foo", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["2"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-x", d.string(ctx); s != t {
+				} else if s, t := "-x", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["3"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-x", d.string(ctx); s != t {
+				} else if s, t := "-x", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["4"]; y {
@@ -476,12 +476,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["i"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "x", d.string(ctx); s != t {
+				} else if s, t := "x", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["5"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", d.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["6"]; y {
@@ -489,27 +489,27 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["x"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", d.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo-x.o", v.string(ctx); s != t {
+				} else if s, t := "foo-x.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "1"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo", v.string(ctx); s != t {
+				} else if s, t := "foo", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "2"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-x", v.string(ctx); s != t {
+				} else if s, t := "-x", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "3"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-x", v.string(ctx); s != t {
+				} else if s, t := "-x", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "4"); v != nil {
@@ -517,12 +517,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "i"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "x", v.string(ctx); s != t {
+				} else if s, t := "x", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "5"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", v.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "6"); v != nil {
@@ -530,23 +530,23 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "x"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", v.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			case "foo-x-y.o":
 				if d, y := ctx.defs["1"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo", d.string(ctx); s != t {
+				} else if s, t := "foo", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["2"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-x-y", d.string(ctx); s != t {
+				} else if s, t := "-x-y", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["3"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-y", d.string(ctx); s != t {
+				} else if s, t := "-y", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["4"]; y {
@@ -554,12 +554,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["i"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "y", d.string(ctx); s != t {
+				} else if s, t := "y", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["5"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", d.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["6"]; y {
@@ -567,27 +567,27 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["x"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", d.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo-x-y.o", v.string(ctx); s != t {
+				} else if s, t := "foo-x-y.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "1"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo", v.string(ctx); s != t {
+				} else if s, t := "foo", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "2"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-x-y", v.string(ctx); s != t {
+				} else if s, t := "-x-y", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "3"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-y", v.string(ctx); s != t {
+				} else if s, t := "-y", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "4"); v != nil {
@@ -595,12 +595,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "i"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "y", v.string(ctx); s != t {
+				} else if s, t := "y", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "5"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", v.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "6"); v != nil {
@@ -608,23 +608,23 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "x"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", v.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			case "foo-x-y-z.o":
 				if d, y := ctx.defs["1"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo", d.string(ctx); s != t {
+				} else if s, t := "foo", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["2"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-x-y-z", d.string(ctx); s != t {
+				} else if s, t := "-x-y-z", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["3"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-z", d.string(ctx); s != t {
+				} else if s, t := "-z", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["4"]; y {
@@ -632,12 +632,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["i"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "z", d.string(ctx); s != t {
+				} else if s, t := "z", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["5"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", d.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["6"]; y {
@@ -645,27 +645,27 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["x"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", d.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo-x-y-z.o", v.string(ctx); s != t {
+				} else if s, t := "foo-x-y-z.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "1"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foo", v.string(ctx); s != t {
+				} else if s, t := "foo", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "2"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-x-y-z", v.string(ctx); s != t {
+				} else if s, t := "-x-y-z", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "3"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "-z", v.string(ctx); s != t {
+				} else if s, t := "-z", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "4"); v != nil {
@@ -673,12 +673,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "i"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "z", v.string(ctx); s != t {
+				} else if s, t := "z", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "5"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", v.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "6"); v != nil {
@@ -686,23 +686,23 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "x"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", v.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			case "foobar.o":
 				if d, y := ctx.defs["1"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foobar", d.string(ctx); s != t {
+				} else if s, t := "foobar", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["2"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", d.string(ctx); s != t {
+				} else if s, t := "", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["3"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", d.string(ctx); s != t {
+				} else if s, t := "", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["4"]; y {
@@ -710,12 +710,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["i"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", d.string(ctx); s != t {
+				} else if s, t := "", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if d, y := ctx.defs["5"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", d.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if _, y := ctx.defs["6"]; y {
@@ -723,27 +723,27 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if d, y := ctx.defs["x"]; !y {
 					erro(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", d.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx, d); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, d, t, s).trace()
 				}
 				if v := auto_get(ctx, "0"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foobar.o", v.string(ctx); s != t {
+				} else if s, t := "foobar.o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "1"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "foobar", v.string(ctx); s != t {
+				} else if s, t := "foobar", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "2"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", v.string(ctx); s != t {
+				} else if s, t := "", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "3"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", v.string(ctx); s != t {
+				} else if s, t := "", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "4"); v != nil {
@@ -751,12 +751,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "i"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "", v.string(ctx); s != t {
+				} else if s, t := "", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "5"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := ".", v.string(ctx); s != t {
+				} else if s, t := ".", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 				if v := auto_get(ctx, "6"); v != nil {
@@ -764,7 +764,7 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 				}
 				if v := auto_get(ctx, "x"); v == nil {
 					erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-				} else if s, t := "o", v.string(ctx); s != t {
+				} else if s, t := "o", __string(ctx,v); s != t {
 					erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 				}
 			default:
@@ -778,12 +778,12 @@ func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
 		case `^#define +_LIBUNWIND_VERSION +([0-9]+)`:
 			if v := auto_get(ctx, "0"); v == nil {
 				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := `#define _LIBUNWIND_VERSION 15000`, v.string(ctx); s != t {
+			} else if s, t := `#define _LIBUNWIND_VERSION 15000`, __string(ctx,v); s != t {
 				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 			}
 			if v := auto_get(ctx, "1"); v == nil {
 				erro(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs).trace()
-			} else if s, t := "15000", v.string(ctx); s != t {
+			} else if s, t := "15000", __string(ctx,v); s != t {
 				erro(ctx, "%v: %v: %s != %s", rx, v, t, s).trace()
 			}
 		default:
@@ -808,7 +808,7 @@ func (ctx *__foreach) check(_values, _vals *[]Value) {
 }
 
 func (ctx *__foreach) value_placeholder(values, vals []Value) {
-	switch o := try[origin](ctx, get_origin{}); s_line_column(ctx) {
+	switch o := try[origin](ctx, get_origin{}); line_column(ctx) {
 	case "4:11":
 		switch try[string](ctx,source{}) {
 		case "value_test.go:1911":
@@ -1043,7 +1043,7 @@ func (ctx *__foreach) check_v(v Value) {
 					}
 				}
 			}
-			errostack(pc(ctx,t), 3, "%s: %v %v", d.x, d.a[0], d.a[1]).debug(2)
+			errostack(pc(ctx,t), 3, "%s: %v %v", d.x, d.a[0], d.a[1]).trace()
 		}
 	}
 }
@@ -1051,7 +1051,7 @@ func (ctx *__foreach) check_v(v Value) {
 func (ctx *__if) a_check(i int, a, v Value) {
 	if p := _project(ctx); i == 1 && p.name == "llvm.Config" {
 		if w := auto_get(ctx, "_"); w != nil && strings.Contains(v.String(), "$_") {
-			errostack(pc(ctx,a), 5, "%v: %v %v; %s", w, a, v, _builtincalls(ctx)).debug(32)
+			errostack(pc(ctx,a), 5, "%v: %v %v; %s", w, a, v, _builtincalls(ctx)).trace()
 		}
 	}
 }

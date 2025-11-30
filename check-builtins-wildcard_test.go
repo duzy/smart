@@ -76,7 +76,7 @@ func test__wildcard(ctx *testcase) {
 
 	if g, y := pat1.(*globpat); !y || g == nil {
 		ctx.err("%v %v", pat1, tst{pat1})
-	} else if s := pat1.string(ctx); s != "*.h" {
+	} else if s := __string(ctx,pat1); s != "*.h" {
 		ctx.err("%v %v %s", pat1, tst{pat1}, s)
 	} else if cs := m.unmap_files(ctx, pat1, nil); len(cs) != 1 {
 		ctx.err("%v %v %v %v", pat1, tst{pat1}, cs, &m.filemap)
@@ -84,14 +84,14 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v %v", g, tst{cs[0].pattern}, &m.filemap)
 	} else if m := cs[0].filemap; m.pattern == nil {
 		ctx.err("%v", tst{cs[0].filemap})
-	} else if m.pattern.string(ctx) != "**.h" {
+	} else if __string(ctx,m.pattern) != "**.h" {
 		ctx.err("%v → %v", tst{cs[0].filemap}, tst{m.pattern})
-	} else if g.string(ctx) != "**.h" {
+	} else if __string(ctx, g) != "**.h" {
 		ctx.err("%v → %v", tst{pat1}, tst{cs[0].pattern})
 	}
 	if g, y := pat2.(*globpat); !y || g == nil {
 		ctx.err("%v %v", pat2, tst{pat2})
-	} else if s := pat2.string(ctx); s != "**.h" {
+	} else if s := __string(ctx,pat2); s != "**.h" {
 		ctx.err("%v %v %s", pat2, tst{pat2}, s)
 	} else if cs := m.unmap_files(ctx, pat2, nil); len(cs) != 1 {
 		ctx.err("%v %v %v", pat2, tst{pat2}, cs)
@@ -99,14 +99,14 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v", tst{cs[0].pattern})
 	} else if m := cs[0].filemap; m.pattern == nil {
 		ctx.err("%v", tst{cs[0].filemap})
-	} else if m.pattern.string(ctx) != "**.h" {
+	} else if __string(ctx,m.pattern) != "**.h" {
 		ctx.err("%v → %v", tst{cs[0].filemap}, tst{m.pattern})
-	} else if g.string(ctx) != "**.h" {
+	} else if __string(ctx,g) != "**.h" {
 		ctx.err("%v → %v", tst{pat2}, tst{cs[0].pattern})
 	}
 	if p, y := pat3.(*path); !y || p == nil {
 		ctx.err("%v %v", pat3, tst{pat3})
-	} else if s := pat3.string(ctx); s != "foobar/config/*.def.am" {
+	} else if s := __string(ctx,pat3); s != "foobar/config/*.def.am" {
 		ctx.err("%v %v %s", pat3, tst{pat3}, s)
 	} else if false {
 		if t := m.unmap_files(ctx, pat3, nil); t != nil {
@@ -116,20 +116,20 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v %v", pat3, tst{pat3}, cs)
 	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
 		ctx.err("%v %v", cs[0].pattern, tst{cs[0].pattern})
-	} else if g.string(ctx) != "**.def.am" {
-		ctx.err("%v %v → %v", pat3, tst{pat3}, g.string(ctx))
+	} else if __string(ctx,g) != "**.def.am" {
+		ctx.err("%v %v → %v", pat3, tst{pat3}, __string(ctx,g))
 	} else if g.String() != "**.def.am" {
 		ctx.err("%v %v → %v", pat3, tst{pat3}, g)
 	} else if m := cs[0].filemap; m.pattern == nil {
 		ctx.err("%v %v", cs[0].pattern, tst{cs[0].filemap})
-	} else if m.pattern.string(ctx) != "**.def.am" {
+	} else if __string(ctx,m.pattern) != "**.def.am" {
 		ctx.err("%v %v → %v", m.pattern, tst{m.pattern}, tst{cs[0].filemap})
 	} else if m.pattern.String() != "**.def.am" {
 		ctx.err("%v %v → %v", m.pattern, tst{m.pattern}, tst{cs[0].filemap})
 	}
 	if p, y := pat4.(*path); !y || p == nil {
 		ctx.err("%v %v", pat4, tst{pat4})
-	} else if s := pat4.string(ctx); s != "foobar/config/*.def.in" {
+	} else if s := __string(ctx,pat4); s != "foobar/config/*.def.in" {
 		ctx.err("v %v %s", pat4, tst{pat4}, s)
 	} else if cs := m.unmap_files(ctx, pat4, nil); len(cs) != 0 {
 		// NOTE: because the files spec only defined "**.def.am", no "**.def.in"
@@ -138,7 +138,7 @@ func test__wildcard(ctx *testcase) {
 
 	if g, y := pat5.(*globpat); !y || g == nil {
 		ctx.err("%v", tst{pat5})
-	} else if s := pat5.string(ctx); s != "*.def.am" {
+	} else if s := __string(ctx,pat5); s != "*.def.am" {
 		ctx.err("%v %s", tst{pat5}, s)
 	} else if cs := m.unmap_files(ctx, pat5, nil); len(cs) != 1 {
 		ctx.err("%v %v : %v", pat5, tst{pat5}, cs)
@@ -146,16 +146,16 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v", tst{t})
 	} else if _, y := t.pattern.(*globpat); !y {
 		ctx.err("%v", tst{t.pattern})
-	} else if t.pattern.string(ctx) != "**.def.am" {
+	} else if __string(ctx,t.pattern) != "**.def.am" {
 		ctx.err("%v → %v", tst{pat5}, t.pattern)
-	} else if y, r, s := pat5.match(ctx, pat3); y {
+	} else if y, r, s := match(ctx, pat5, pat3); y {
 		ctx.err("%v %v ; %v %v", tst{pat5}, pat3, r, s)
-	} else if y, r, s := pat5.match(ctx, pat4); y {
+	} else if y, r, s := match(ctx, pat5, pat4); y {
 		ctx.err("%v %v ; %v %v", tst{pat5}, pat4, r, s)
 	}
 	if g, y := pat6.(*globpat); !y || g == nil {
 		ctx.err("%v", tst{pat6})
-	} else if s := pat6.string(ctx); s != "**.def.am" {
+	} else if s := __string(ctx,pat6); s != "**.def.am" {
 		ctx.err("%v %s", tst{pat6}, s)
 	} else if cs := m.unmap_files(ctx, pat6, nil); len(cs) != 1 {
 		ctx.err("%v %v : %v", pat6, tst{pat6}, cs)
@@ -163,9 +163,9 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v", tst{cs[0].pattern})
 	} else if m := cs[0].filemap; m.pattern == nil {
 		ctx.err("%v", tst{cs[0].filemap})
-	} else if m.pattern.string(ctx) != "**.def.am" {
+	} else if __string(ctx,m.pattern) != "**.def.am" {
 		ctx.err("%v → %v", tst{cs[0].filemap}, tst{m.pattern})
-	} else if y, r, s := pat6.match(ctx, pat3); !y {
+	} else if y, r, s := match(ctx, pat6, pat3); !y {
 		ctx.err("%v, %v ; %v %v", tst{pat6}, pat3, r, s)
 	} else if r == nil {
 		ctx.err("%v, %v ; %v", tst{pat6}, pat3, tst{r})
@@ -177,7 +177,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v, %v ; %v", tst{pat6}, pat3, s)
 	} else if s[0] != "foobar/config/*" {
 		ctx.err("%v, %v ; %v", tst{pat6}, pat3, s)
-	} else if y, r, s := pat6.match(ctx, pat4); y {
+	} else if y, r, s := match(ctx, pat6, pat4); y {
 		ctx.err("%v, %v ; %v %v", tst{pat6}, pat4, r, s)
 	}
 
@@ -213,7 +213,7 @@ func test__wildcard(ctx *testcase) {
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._directory(workdirInc, pat3); len(a) != 1 {
 					ctx.err("_wildcard(%v) (%d): %v", pat3, n, a)
-				} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
+				} else if ident(ctx,a[0]) != "foobar/config/a.def.am" {
 					ctx.err("_wildcard(%v) (%d): %v", pat3, n, a[0])
 				}
 			} (i)
@@ -229,9 +229,9 @@ func test__wildcard(ctx *testcase) {
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._directory(workdirInc, pat4); len(a) != 2 {
 					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a)
-				} else if invalid(a[0].ident(ctx)) {
+				} else if invalid(ident(ctx,a[0])) {
 					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a[0])
-				} else if invalid(a[1].ident(ctx)) {
+				} else if invalid(ident(ctx,a[1])) {
 					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a[1])
 				}
 			} (i)
@@ -247,7 +247,7 @@ func test__wildcard(ctx *testcase) {
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat3); len(a) != 1 {
 					ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
-				} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
+				} else if ident(ctx,a[0]) != "foobar/config/a.def.am" {
 					ctx.err("wildcard(%v) (%d): %v", pat3, n, a[0])
 				}
 			} (i)
@@ -263,9 +263,9 @@ func test__wildcard(ctx *testcase) {
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat4); len(a) != 2 {
 					ctx.err("wildcard(%v) (%d): %v", pat4, n, a)
-				} else if invalid(a[0].ident(ctx)) {
+				} else if invalid(ident(ctx,a[0])) {
 					ctx.err("wildcard(%v) (%d): %v", pat4, n, a[0])
-				} else if invalid(a[1].ident(ctx)) {
+				} else if invalid(ident(ctx,a[1])) {
 					ctx.err("wildcard(%v) (%d): %v", pat4, n, a[1])
 				}
 			} (i)
@@ -281,7 +281,7 @@ func test__wildcard(ctx *testcase) {
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
 				if a := b._do(pat3); len(a) != 1 {
 					ctx.err("wildcard(%v) (%d): %v", pat3, n, a)
-				} else if a[0].ident(ctx) != "foobar/config/a.def.am" {
+				} else if ident(ctx,a[0]) != "foobar/config/a.def.am" {
 					ctx.err("wildcard(%v) (%d): %v", pat3, n, a[0])
 				}
 			} (i)
@@ -310,7 +310,7 @@ func test__wildcard(ctx *testcase) {
 		val4 = ctx.val("val4")
 		val5 = ctx.val("val5")
 	)
-	if s := val1.string(ctx); s == "" {
+	if s := __string(ctx,val1); s == "" {
 		ctx.err("%v %v", val1, tst{val1})
 	} else if strings.Count(s, "inc/bar.h") != 1 {
 		ctx.err("%v %v", val1, tst{val1})
@@ -328,7 +328,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v", val1, tst{val1})
 	}
 
-	if s := val2.string(ctx); s == "" {
+	if s := __string(ctx,val2); s == "" {
 		ctx.err("%v %v", val2, tst{val2})
 	} else if strings.Count(s, "inc/bar.h") != 1 {
 		ctx.err("%v %v", val2, tst{val2})
@@ -346,7 +346,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v", val2, tst{val2})
 	}
 
-	if s := val3.string(ctx); s == "" {
+	if s := __string(ctx,val3); s == "" {
 		ctx.err("%v %v", val3, tst{val3})
 	} else if strings.Count(s, "bar.h") != 1 {
 		ctx.err("%v %v", val3, tst{val3})
@@ -364,7 +364,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v", val3, tst{val3})
 	}
 
-	if s := val4.string(ctx); s == "" {
+	if s := __string(ctx,val4); s == "" {
 		ctx.err("%v %v", val4, tst{val4})
 	} else if strings.Count(s, "bar.h") != 1 {
 		ctx.err("%v %v", val4, tst{val4})
@@ -382,7 +382,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v", val4, tst{val4})
 	}
 
-	if s := val5.string(ctx); s == "" {
+	if s := __string(ctx,val5); s == "" {
 		ctx.err("%v %v", val5, tst{val5})
 	} else if strings.Count(s, "bar.h") != 1 {
 		ctx.err("%v %v", val5, tst{val5})
@@ -406,21 +406,21 @@ func test__wildcard(ctx *testcase) {
 		fix3 = ctx.val("fix3")
 		fix4 = ctx.val("fix4")
 	)
-	if s := fix1.string(ctx); s == "" {
+	if s := __string(ctx,fix1); s == "" {
 		ctx.err("fix1: %v", fix1)
 	} else if strings.Count(s, "foobar/config/a.def.am") != 1 {
 		ctx.err("fix1: %v", fix1)
 	}
-	if s := fix2.string(ctx); s != "" {
+	if s := __string(ctx,fix2); s != "" {
 		// NOTE: because the files spec defines only "**.def.am", no "**.def.in"
 		ctx.err("fix2: %v", fix2)
 	}
-	if s := fix3.string(ctx); s == "" {
+	if s := __string(ctx,fix3); s == "" {
 		ctx.err("fix3: %v", fix3)
 	} else if strings.Count(s, "foobar/config/a.def.am") != 1 {
 		ctx.err("fix3: %v", fix3)
 	}
-	if s := fix4.string(ctx); s == "" {
+	if s := __string(ctx,fix4); s == "" {
 		ctx.err("fix4: %v", fix4)
 	} else if strings.Count(s, "foobar/config/a.def.in") != 1 {
 		ctx.err("fix4: %v", fix4)

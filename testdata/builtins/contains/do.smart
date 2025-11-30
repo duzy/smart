@@ -1,6 +1,6 @@
 project testbuiltins # also rule/contains/do.smart
 
-val := a b c $1
+val = a b c $1
 
 .test.1 := $(contains a,$(val))
 .test.2 := $(contains x b c,$(val))

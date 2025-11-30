@@ -9,8 +9,9 @@ package smart
 
 var checkpoints__assert = map[string]map[string]any{
 	"loader.go": map[string]any{
-		`0:0: $(foo) {16:16:delegate {3:5:def foo}}`:`{3:5:def foo} foo {16:16 {3:9:word foo}}`,
-		`0:0: $(equal $(foo),foo) {16:8:delegate {16:10:builtin equal} {=list {16:16:delegate {3:5:def foo}}} {=list {16:23:word foo}}}`:`{16:10:builtin equal} {=true} {16:8 {16:10:true}}`,
+		`$(foo) {16:16:delegate {3:5:def foo}}`:`{3:5:def foo} foo {16:16 {3:9:word foo}}`,
+		`$(equal $(foo),foo) {16:8:delegate {16:10:builtin equal} {=list {16:16:delegate {3:5:def foo}}} {=list {16:23:word foo}}}`:`{16:10:builtin equal} {=true} {16:8 {16:10:true}}`,
+		`foobar{} {=compound {13:8:word foobar} {13:15:null}}`:`foobar{} {=compound {13:8:word foobar} {13:15:null}}`,
 	},
 }
 

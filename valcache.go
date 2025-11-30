@@ -191,19 +191,14 @@ func (p filemap_name) String() string {
 
 type filemap_slot struct { filemap }
 func (p filemap_slot) String() string { return p.filemap.String() }
-func (p filemap_slot) match(ctx Context, a any) (bool, any, []string) {
-    x, y, z := p.filemap.match(ctx, a)
-    return x, y, []string{z}
-}
 
 func _valcache_bool(x *valcache, y bool) valcache_bool { return valcache_bool{x,y} }
 
-type valcacheable interface { match(Context, any) (bool, any, []string) }
-type valcache_hit interface { hit(Context, *valcache) (*valcache, bool) }
-type valcache_bool   struct { *valcache ; bool }
-type valcache_value  struct { *valcache ; Value }
-type valcache struct {
-	a []valcacheable
+type valcache_hit interface{ hit(Context, *valcache) (*valcache, bool) }
+type valcache_bool   struct{ *valcache ; bool }
+type valcache_value  struct{ *valcache ; Value }
+type valcache struct{
+	a []any
 	o [][]string // priority of globs/percs/reges
 
     // NOTE: using `map[any]*valcache` is easier but lose some performance
@@ -217,9 +212,7 @@ type valcache struct {
 }
 
 func (v valcache_value) String() string { return v.valcache.String() }
-func (v valcache_value) ts(t string) string {
-	return "{="+t+" "+v.valcache.String()+" "+ts(v.Value)+"}"
-}
+func (v valcache_value) ts(t string) string { return "{="+t+" "+v.valcache.String()+" "+ts(v.Value)+"}" }
 func (p *valcache) keys() (ss map[string]struct{}) {
 	ss = make(map[string]struct{})
 	for _, v := range reflect.ValueOf(p.puncs).MapKeys() {
@@ -307,28 +300,30 @@ func (p *valcache) perc_o(s string) { p._o(s, 1) }
 func (p *valcache) rege_o(s string) { p._o(s, 2) }
 
 func (p *valcache) do_filemap_name(ctx Context, f filemap, a any) {
-	do(ctx, filemap_name{f, _joinpath(ctx, a)})
+	s, _ := _joinpath(ctx, a)
+	do(ctx, filemap_name{f, s})
 	return
 }
 
 func (p *valcache) do_rule_name(ctx Context, r *rule, a any) {
-	do(ctx, rule_name{r, _joinpath(ctx, a)})
+	s, _ := _joinpath(ctx, a)
+	do(ctx, rule_name{r, s})
 	return
 }
 
 func (p *valcache) fullmatch(ctx Context, k any) (res bool) {
-    for _, a := range p.a {
-        if res, _, _ = a.match(ctx, k); res {
+	for _, a := range p.a {
+		if res, _, _ = match(ctx, a, k); res {
 			switch t := a.(type) {
 			case filemap_slot:
 				p.do_filemap_name(ctx, t.filemap, k)
 			case *rule:
 				p.do_rule_name(ctx, t, k)
 			}
-            return
-        }
-    }
-    return
+			return
+		}
+	}
+	return
 }
 
 func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
@@ -368,7 +363,7 @@ func (p *valcache) hit(ctx Context, k any) (res *valcache, fullmatch bool) {
 		} else {
 			if x, y := k.(*rule); y {
 				a, ay := do(ctx, hit_value{p, x.target}).(valcache_bool)
-				b, by := do(ctx, hit_word{p, x.target.string(ctx)}).(valcache_bool)
+				b, by := do(ctx, hit_word{p, __string(ctx, x.target)}).(valcache_bool)
 				note(ctx, "%v : %v %v, %v %v", x.target, a.bool, ay, b.bool, by).debug()
 			}
 			if x, y := k.(positioner); y {
@@ -573,7 +568,7 @@ func (u *unmap) word(ctx Context, c *valcache, s string) (res *valcache, fullmat
 }
 func (*unmap) bare_hit(ctx Context, c *valcache, p *compound) (res *valcache, fullmatch bool) {
 	if true {
-		if s := p.string(ctx); strings.Contains(s, pathSep) {
+		if s := __string(ctx, p); strings.Contains(s, pathSep) {
 			return unmap_path(ctx, c, s, strings.Split(s, pathSep))
 		} else {
 			_, res, fullmatch = unmap_word(ctx, c, s, cast[*path_hit](ctx) == nil)
@@ -590,7 +585,7 @@ func (*unmap) bare_hit(ctx Context, c *valcache, p *compound) (res *valcache, fu
 	return
 }
 func (*unmap) path_hit(ctx Context, c *valcache, p *path) (_ *valcache, _ bool) {
-	s := p.string(ctx); return unmap_path(ctx, c, s, strings.Split(s, pathSep))
+	s := __string(ctx, p); return unmap_path(ctx, c, s, strings.Split(s, pathSep))
 }
 func (*unmap) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmatch bool) {
 	if test_hit && (do(ctx, full_kval{}) == test_val || s == test_val) {
@@ -626,7 +621,7 @@ func (*unmap) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmat
 				continue
 			}
 			for _, a := range c.a {
-				if x, y, z := a.match(ctx, s); x {
+				if x, y, z := match(ctx, a, s); x {
 					return c, c.fullmatch(ctx, s)
 				} else if false {
 					erro(ctx, "TODO: %v %v, %v %v %v, %v", s, pat, x, y, z, ts(a.(*rule).target)).trace()
@@ -642,7 +637,7 @@ func (*unmap) unmap(ctx Context, _c *valcache, s string) (res *valcache, fullmat
 				continue
 			}
 			for _, a := range c.a {
-				if x, y, z := a.match(ctx, s); x {
+				if x, y, z := match(ctx, a, s); x {
 					return c, c.fullmatch(ctx, s)
 				} else if false {
 					erro(ctx, "TODO: %v %v, %v %v %v, %v", s, pat, x, y, z, ts(a.(*rule).target)).trace()
@@ -751,7 +746,7 @@ func (gc *globpat_hit) unmap(ctx Context, _c *valcache, s string) (res *valcache
 	g = func(c *valcache) {
 		for _, a := range c.a {
 			if x, y := a.(filemap_slot) ; y {
-				var p = x.pattern.string(ctx)
+				var p = __string(ctx, x.pattern)
 				if f, _, _ := globMatch(ctx, s, p) ; f {
 					c.do_filemap_name(ctx, x.filemap, p)
 					res, fullmatch = c, true

@@ -188,7 +188,7 @@ func _project(ctx Context) (p *project) {
 func auto_target_value(ctx Context) (res Value) {
     if val := auto_get(ctx, "@"); val == nil {
         if false { erro(ctx, "target is nil") }
-    } else if v := val.expand(ctx); v == nil {
+    } else if v := expand(ctx, val); v == nil {
         erro(ctx, "multiple targets: %v → %v", val, v)
     } else {
         res = scalarize(v)
@@ -688,7 +688,7 @@ func _position(ctx Context) (_ Position) {
 
 func walkSmartBaseDirs(ctx Context, cwd string, vis func(string) bool) (s string) {
     for s = cwd ; s != "" ; {
-        var f = stat(ctx, ".smart", stat_dir{s})
+        var f = _stat(ctx, ".smart", stat_dir{s})
         if f != nil && f.info.IsDir() && !vis(s) { break }
         if up := filepath.Dir(s); up == s { break } else { s = up }
     }
@@ -873,7 +873,7 @@ func Main() {
         for i, v := range result {
             if s := ""; v == nil {
                 s = "<nil>"
-            } else if s = strings.TrimSpace(v.string(ctx)); s == "" {
+            } else if s = strings.TrimSpace(__string(ctx, v)); s == "" {
                 continue
             } else if i == 0 {
                 fmt.Fprintf(stderr, "%s", s)

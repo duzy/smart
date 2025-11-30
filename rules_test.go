@@ -27,7 +27,7 @@ func testRules0(ctx *testcase) {
 		ctx.err("%v: %s != %s", d.value, s, t)
 	} else if s, t := "{=plainline foo $1	} bar", d.value.String(); s != t {
 		ctx.err("%v: %s != %s", d.value, s, t)
-	} else if s, t := "foo 	\nbar", d.value.string(ctx); s != t {
+	} else if s, t := "foo 	\nbar", __string(ctx,d.value); s != t {
 		t = strings.ReplaceAll(t, "\n", `\n`)
 		s = strings.ReplaceAll(s, "\n", `\n`)
 		ctx.err("%v: %s != %s", d.value, t, s)
@@ -39,7 +39,7 @@ func testRules0(ctx *testcase) {
 		ctx.err("%v: %s != %s ; %s", d.value, s, t, ts(d.value))
 	} else if s, t := "{=plainline line-foo} {=plainline line-bar}", d.value.String(); s != t {
 		ctx.err("%v: %s != %s ; %s", d.value, s, t, ts(d.value))
-	} else if s, t := "line-foo\nline-bar\n", d.value.string(ctx); s != t {
+	} else if s, t := "line-foo\nline-bar\n", __string(ctx,d.value); s != t {
 		ctx.err("%v: %s != %s ; %s", d.value, s, t, ts(d.value))
 	}
 
@@ -97,7 +97,7 @@ func testRules0(ctx *testcase) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
-	} else if v := _evoke_(ctx, r[0], "x", "y", "z"); v == nil {
+	} else if v := test_evoke(ctx, r[0], "x", "y", "z"); v == nil {
 		ctx.err("%v", tst{r})
 	} else if x, y := v.(*list); !y {
 		ctx.err("%v", tst{v})
@@ -148,7 +148,7 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v %v", v, tst{v})
 		}
 
-		if s := v.string(ctx); s != "rule1 rule1 - xyz" {
+		if s := __string(ctx,v); s != "rule1 rule1 - xyz" {
 			ctx.err("%v : %s", tst{v}, s)
 		}
 	}
@@ -159,7 +159,7 @@ func testRules0(ctx *testcase) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", r)
-	} else if v := _evoke_(ctx, r[0], bare("xxyzz")); v == nil {
+	} else if v := test_evoke(ctx, r[0], bare("xxyzz")); v == nil {
 		ctx.err("%v", r[0])
 	} else if s, t := "{=plain(text) {=plainline xxyzz}}", v.String(); s != t {
 		ctx.err("%v : %s != %s", v, t, s)
@@ -176,19 +176,19 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v", r)
 		} else if recipes := r[0].programs()[0].recipes; len(recipes) != 1 {
 			ctx.err("%v", recipes)
-		} else if s, t := "", recipes[0].string(ctx); s != t {
+		} else if s, t := "", __string(ctx,recipes[0]); s != t {
 			ctx.err("%v : %s != %s", recipes[0], t, s)
 		} else if s, t := "{=plainline $(foreach $(ARGS),arg-$_)}", recipes[0].String(); s != t {
 			ctx.err("%v : %s != %s", recipes[0], t, s)
 		} else if s, t := "{=plainline {=delegate {=builtin foreach} {=list {=delegate {=auto ARGS}}} {=list {=compound {=word arg-} {=delegate {=auto _}}}}}}", ts(recipes[0]); s != t {
 			ctx.err("%v : %s != %s", recipes[0], t, s)
-		} else if v := _evoke_(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
+		} else if v := test_evoke(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
 			ctx.err("%v", r[0])
 		} else if s, t := "{=plain(text) {=plainline arg-aa arg-bb arg-cc}}", v.String(); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
 		} else if s, t := "{=plain(text) {=plainline {=list {=compound {=word arg-} {=word aa}} {=compound {=word arg-} {=word bb}} {=compound {=word arg-} {=word cc}}}}}", ts(v); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
-		} else if s, t := "arg-aa arg-bb arg-cc\n", v.string(ctx); s != t {
+		} else if s, t := "arg-aa arg-bb arg-cc\n", __string(ctx,v); s != t {
 			// t = strings.ReplaceAll(t, "\n", `\n`)
 			// s = strings.ReplaceAll(s, "\n", `\n`)
 			ctx.err("%v : %s != %s", v, t, s)
@@ -208,13 +208,13 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v : %s != %s", recipes[0], t, s)
 		} else if s, t := "{=plainline {=delegate {=builtin foreach} {=list {=delegate {=auto ARGS}}} {=list {=plainline {=raw arg-} {=delegate {=auto _}}}}}}", ts(recipes[0]); s != t {
 			ctx.err("%v : %s != %s", recipes[0], t, s)
-		} else if v := _evoke_(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
+		} else if v := test_evoke(ctx, r[0], []string{"aa","bb","cc"}); v == nil {
 			ctx.err("%v", r[0])
 		} else if s, t := "{=plain(text) {=plainline {=plainline arg-aa} {=plainline arg-bb} {=plainline arg-cc}}}", v.String(); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
 		} else if s, t := "{=plain(text) {=plainline {=list {=plainline {=raw arg-} {=word aa}} {=plainline {=raw arg-} {=word bb}} {=plainline {=raw arg-} {=word cc}}}}}", ts(v); s != t {
 			ctx.err("%v : %s != %s", v, t, s)
-		} else if s, t := "arg-aa\narg-bb\narg-cc\n", v.string(ctx); s != t {
+		} else if s, t := "arg-aa\narg-bb\narg-cc\n", __string(ctx,v); s != t {
 			t = strings.ReplaceAll(t, "\n", `\n`)
 			s = strings.ReplaceAll(s, "\n", `\n`)
 			ctx.err("%v : %s != %s", v, t, s)
@@ -236,9 +236,9 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v : %s != %s", recipes[1], t, s)
 		} else if s, t := "{=plainline {=compound {=word arg-} {=word c}}}", ts(recipes[2]); s != t {
 			ctx.err("%v : %s != %s", recipes[2], t, s)
-		} else if v := _evoke_(ctx, r[0], bare("aa"), bare("bb"), bare("cc")); v == nil {
+		} else if v := test_evoke(ctx, r[0], bare("aa"), bare("bb"), bare("cc")); v == nil {
 			ctx.err("%v", r[0])
-		} else if s, t := "arg-a\narg-b\narg-c\n", v.string(ctx); s != t {
+		} else if s, t := "arg-a\narg-b\narg-c\n", __string(ctx,v); s != t {
 			t = strings.ReplaceAll(t, "\n", `\n`)
 			s = strings.ReplaceAll(s, "\n", `\n`)
 			ctx.err("%v : %s != %s", v, t, s)
@@ -301,7 +301,7 @@ func testRules1(ctx *testcase) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
-	} else if v := _evoke_(ctx, r[0]); v == nil {
+	} else if v := test_evoke(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
 	} else if ts(v) != "{=closure {=word foo} {=list {=word fxxbar}}}" {
 		ctx.err("%v", tst{v})
@@ -312,7 +312,7 @@ func testRules1(ctx *testcase) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
-	} else if v := _evoke_(ctx, r[0]); v == nil {
+	} else if v := test_evoke(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
 	} else if ts(v) != "{=closure {=word foo} {=list {=compound {=punct .} {=word test} {=punct .} {=word fxx}}}}" {
 		ctx.err("%v", tst{v})
@@ -323,7 +323,7 @@ func testRules1(ctx *testcase) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
-	} else if v := _evoke_(ctx, r[0]); v == nil {
+	} else if v := test_evoke(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
 	} else if ts(v) != "{=closure {=word foo} {=list {=compound {=punct .} {=word test} {=punct .} {=word fxx}}}}" {
 		ctx.err("%v", tst{v})
@@ -334,7 +334,7 @@ func testRules1(ctx *testcase) {
 		ctx.err(s)
 	} else if ts(v) != "{=closure {=word foo} {=list {=word fxxbar}}}" {
 		ctx.err("%v", tst{v})
-	} else if s := v.string(ctx); s != "fxxbar" {
+	} else if s := __string(ctx,v); s != "fxxbar" {
 		ctx.err("%v -> %s", tst{v}, s)
 	}
 
@@ -343,7 +343,7 @@ func testRules1(ctx *testcase) {
 		ctx.err(s)
 	} else if ts(v) != "{=closure {=word foo} {=list {=compound {=punct .} {=word test} {=punct .} {=word fxx}}}}" {
 		ctx.err("%v", tst{v})
-	} else if s := v.string(ctx); s != ".test.fxx" {
+	} else if s := __string(ctx,v); s != ".test.fxx" {
 		ctx.err("%v -> %s", tst{v}, s)
 	}
 
@@ -352,7 +352,7 @@ func testRules1(ctx *testcase) {
 		ctx.err(s)
 	} else if ts(v) != "{=closure {=word foo} {=list {=compound {=punct .} {=word test} {=punct .} {=word fxx}}}}" {
 		ctx.err("%v", tst{v})
-	} else if s := v.string(ctx); s != ".test.fxx" {
+	} else if s := __string(ctx,v); s != ".test.fxx" {
 		ctx.err("%v -> %s", tst{v}, s)
 	}
 
@@ -370,13 +370,13 @@ func testRules1(ctx *testcase) {
 		ctx.err(s)
 	} else if v.String() != "'.test.foo'" {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if s := v.string(ctx); s != ".test.foo" {
+	} else if s := __string(ctx,v); s != ".test.foo" {
 		ctx.err("%v{%v} -> %s", typeof(v), v, s)
 	} else if _, y := v.(*strlit); !y {
 		ctx.err("%v{%v}", typeof(v), v)
 	} else if r := p._entries(ctx.Context, v, false); r == nil {
 		ctx.err("%v{%v}", typeof(v), v)
-	} else if r := p._entries(ctx.Context, v.string(ctx), false); r != nil {
+	} else if r := p._entries(ctx.Context, __string(ctx,v), false); r != nil {
 		ctx.err("%v{%v}", typeof(v), v)
 	}
 }
@@ -410,7 +410,7 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if ts(v) != "{=null}" {
 		ctx.err("%v", tst{v})
-	} else if v.string(ctx) != "" {
+	} else if __string(ctx,v) != "" {
 		ctx.err("%v", tst{v})
 	}
 	if t.s != "" {
@@ -429,7 +429,7 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if ts(v) != "{=delegate {=rule {=compound {=punct .} {=word test} {=punct .} {=decimal 0}}} {=list {=word a}} {=list {=word b}}}" {
 		ctx.err("%v", tst{v})
-	} else if v.string(ctx) != "" {
+	} else if __string(ctx,v) != "" {
 		ctx.err("%v", tst{v})
 	}
 	if t.s != "b a" {
@@ -448,7 +448,7 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%v", tst{d})
 	} else if ts(v) != "{=null}" {
 		ctx.err("%v", tst{v})
-	} else if v.string(ctx) != "" {
+	} else if __string(ctx,v) != "" {
 		ctx.err("%v", tst{v})
 	}
 	if t.s != "" {
@@ -465,11 +465,11 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
-	} else if v := _evoke_(ctx, r[0], bare("a"), bare("b")); v == nil {
+	} else if v := test_evoke(ctx, r[0], bare("a"), bare("b")); v == nil {
 		ctx.err("%v", r)
 	} else if ts(v) != "{=delegate {=builtin debug} {=list {=word b} {=word a}}}" {
 		ctx.err("%v", tst{v})
-	} else if v := _evoke_(_final(ctx), r[0], "a", "b"); v == nil {
+	} else if v := test_evoke(_final(ctx), r[0], "a", "b"); v == nil {
 		ctx.err("%v", r)
 	} else if ts(v) != "{=null}" {
 		ctx.err("%v", tst{v})
@@ -490,7 +490,7 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%v", d)
 	} else if ts(v) != "{=delegate {=rule {=compound {=punct .} {=word test}}} {=list {=word a}} {=list {=word b}}}" {
 		ctx.err("%v", tst{v})
-	} else if v.string(ctx) != "" {
+	} else if __string(ctx,v) != "" {
 		ctx.err("%v", tst{v})
 	}
 	if s := "b a"; t.s != s {
@@ -509,7 +509,7 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err("%v", d)
 	} else if ts(v) != "{=delegate {=rule {=compound {=punct .} {=word test}}} {=list {=delegate {=auto 1}}} {=list {=delegate {=auto 2}}}}" {
 		ctx.err("%v", tst{v})
-	} else if v.string(ctx) != "" {
+	} else if __string(ctx,v) != "" {
 		ctx.err("%v", tst{v})
 	} else if t := ctx.val(v, bare("a"), bare("b")); t == nil {
 		ctx.err("%v", tst{v})
@@ -547,11 +547,11 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
-	} else if v := _evoke_(ctx, r[0]); v == nil {
+	} else if v := test_evoke(ctx, r[0]); v == nil {
 		ctx.err("%v", tst{r[0]})
 	} else if v.String() != "{=exec {=status 0}}" {
 		ctx.err("%v", v)
-	} else if v.string(ctx) != "0" {
+	} else if __string(ctx,v) != "0" {
 		ctx.err("%v", v)
 	} else if t, y := v.(*exec_result); !y {
 		ctx.err("%v", ts(v))
@@ -572,11 +572,11 @@ func testShellForStdout(ctx testcase1) {
 		ctx.err(s)
 	} else if len(r) != 1 {
 		ctx.err("%v", tst{r})
-	} else if v := _evoke_(ctx, r[0]); v == nil {
+	} else if v := test_evoke(ctx, r[0]); v == nil {
 		ctx.err("%v", r)
 	} else if v.String() != "{=exec {=status 0}}" {
 		ctx.err("%v", v)
-	} else if v.string(ctx) != "0" {
+	} else if __string(ctx,v) != "0" {
 		ctx.err("%v", v)
 	} else if t, y := v.(*exec_result); !y {
 		ctx.err("%v", ts(v))

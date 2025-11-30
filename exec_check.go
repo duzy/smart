@@ -142,8 +142,8 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 		}
 
 		if f, y := t.(*file); y && t1 != nil {
-			var dest = _entry(c).destiny().string(c)
-			var tp = t1.string(c)
+			var dest = __string(c, _entry(c).destiny())
+			var tp = __string(c, t1)
 			var sh = ctx.sh.String()
 			var fn = f.fullname()
 			if  m1 := rx_fn_conftp.FindStringSubmatch(dest); len(m1) == 2 {
@@ -284,7 +284,7 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 				if v_name == nil {
 					prompt(c, "%v\n", src)
 					errostack(c, 5, "NAME is undefined").trace()
-				} else if name = v_name.string(c); name == "" {
+				} else if name = __string(c, v_name); name == "" {
 					prompt(c, "%v\n", src)
 					errostack(c, 5, "NAME is empty").trace()
 				}
@@ -292,7 +292,7 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 				ninc := 0
 				incs := make(map[string]struct{})
 				if v_incl := auto_get(c, "INCLUDE"); v_incl != nil {
-					for _, v := range merge(v_incl) { incs[v.string(ctx)] = struct{}{} }
+					for _, v := range merge(v_incl) { incs[__string(ctx, v)] = struct{}{} }
 				}
 
 				b, e := ioutil.ReadFile(x.fullname())
@@ -318,12 +318,12 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 		} else if y && strings.HasPrefix(x.name, ".configure/struct-member/") && strings.HasSuffix(x.name, ".log") {
 			if s := ctx.Status; s != 0 {
 				prompt(ctx, "%v\n", src)
-				errostack(c, 5, "%v. status=%v, e=%v", i, s, e).debug(3)
+				errostack(c, 5, "%v. status=%v, e=%v", i, s, e).trace()
 			}
 		} else if y && strings.HasPrefix(x.name, ".configure/library/") && strings.HasSuffix(x.name, ".log") {
 			if s := ctx.Status; s != 0 {
 				prompt(ctx, "%v\n", src)
-				errostack(c, 5, "%v. status=%v, e=%v", i, s, e).debug(3)
+				errostack(c, 5, "%v. status=%v, e=%v", i, s, e).trace()
 			}
 		} else if y && strings.HasPrefix(x.name, ".configure/") && strings.HasSuffix(x.name, ".x") {
 			if s := l.String(); strings.Contains(s, "%") {
@@ -359,7 +359,7 @@ func (ctx *exec_buffer) check_line(line string, lnum int) {
 					errostack(c, 5, "%s", sm[0]).trace()
 				}
 			}
-			switch dest := _entry(ctx).destiny().string(ctx); dest {
+			switch dest := __string(ctx, _entry(ctx).destiny()); dest {
 			case "-sizeof-c", "-sizeof-c++", "-alignof-c", "-alignof-c++", "-program-status", "-command-status":
 				var sh = ctx.sh.String()
 				if regexp.MustCompile(`^/.+?/bash .+ -c .+`).MatchString(sh) {

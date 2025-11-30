@@ -20,7 +20,7 @@ func test__trimsuffix(ctx *testcase) {
 	} else if pv = p.value; pv == nil {
 		ctx.err("%v", tst{p})
 		return
-	} else if ps = pv.string(ctx); ps == "" {
+	} else if ps = __string(ctx,pv); ps == "" {
 		ctx.err("%v", tst{pv})
 		return
 	} else if pa = strings.Split(ps, pathSep); len(pa) < 3 {
@@ -45,13 +45,13 @@ func test__trimsuffix(ctx *testcase) {
 	} else if _, y := p.elems[1].(*globpat); !y {
 		ctx.err("%v", tst{p.elems[1]})
 	} else if s, t := p.String(), "testdata/**"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := p.string(ctx), "testdata/**"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := v.match(ctx, pv); a {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if b != nil || c != nil {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if s, t := __string(ctx, p), "testdata/**"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if a, b, c := match(reversal{ctx}, v, pv); a {
+		ctx.err("%v → %v %v | %v", pv, b, c, tst{v})
+	} else if s, t := sfmt("%v %v", b, c), "[testdata builtins trimsuffix] [builtins/trimsuffix]"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{p})
 	}
 
 	s = "pat1"
@@ -68,13 +68,13 @@ func test__trimsuffix(ctx *testcase) {
 	} else if _, y := p.elems[1].(*percpat); !y {
 		ctx.err("%v", tst{p.elems[1]})
 	} else if s, t := p.String(), "testdata/%%"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := p.string(ctx), "testdata/%%"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := v.match(ctx, pv); a {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if b != nil || c != nil {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if s, t := __string(ctx, p), "testdata/%%"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if a, b, c := match(reversal{ctx}, v, pv); a {
+		ctx.err("%v → %v %v | %v", pv, b, c, tst{v})
+	} else if s, t := sfmt("%v %v", b, c), "[testdata builtins trimsuffix] [builtins/trimsuffix]"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{p})
 	}
 
 	s = "pat2"
@@ -99,13 +99,13 @@ func test__trimsuffix(ctx *testcase) {
 	} else if x.String() != "" {
 		ctx.err("%v ; %v", tst{x}, x.token)
 	} else if s, t := p.String(), "testdata/**/"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := p.string(ctx), "testdata/**/"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := v.match(ctx, pv); a { // partially matched
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if s, t := __string(ctx, p), "testdata/**/"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if a, b, c := match(reversal{ctx}, v, pv); a { // partially matched
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
 	} else if b != nil || c != nil {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
+		ctx.err("%v → %v %v | %v", pv, b, c, tst{v})
 	}
 
 	s = "pat3"
@@ -128,19 +128,19 @@ func test__trimsuffix(ctx *testcase) {
 	} else if t.String() != "" {
 		ctx.err("%v ; %v", tst{t}, t.token)
 	} else if s, t := p.String(), "testdata/%%/"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := p.string(ctx), "testdata/%%/"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := v.match(ctx, pv); a {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if s, t := __string(ctx, p), "testdata/%%/"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if a, b, c := match(reversal{ctx}, v, pv); a {
+		ctx.err("%v → %v %v | %v", pv, b, c, tst{v})
 	} else if b != nil || c != nil {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
+		ctx.err("%v → %v %v | %v", pv, b, c, tst{v})
 	}
 
 	var ds string
 	if v := ctx.val("d"); v == nil {
 		ctx.err("d")
-	} else if x, y := v.(*path); !y {
+	} else if x, y := unbox(v).(*path); !y {
 		ctx.err("%v", tst{v})
 	} else if x.len() < 2 {
 		ctx.err("%v", tst{x})
@@ -148,16 +148,10 @@ func test__trimsuffix(ctx *testcase) {
 		ctx.err("%v", tst{x.elems[0]})
 	} else if PROOT != t.token {
 		ctx.err("%v ; %v", tst{t}, x)
-		// hold line
-		// hold line
-		// hold line
-		// hold line
-	} else if ds = v.string(ctx); ds == "" {
+	} else if ds = __string(ctx,v); ds == "" {
 		ctx.err("%v", tst{v})
 	} else if !strings.HasPrefix(ds, "/") {
 		ctx.err("%v %s", tst{v}, ds)
-		// hold line
-		// hold line
 	}
 
 	s = "val1"
@@ -165,12 +159,10 @@ func test__trimsuffix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-		// hold line
-		// hold line
 	} else if s, t := v.String(), ds+"/"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s := __string(ctx,v); s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val2"
@@ -178,12 +170,10 @@ func test__trimsuffix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-		// hold line
-		// hold line
 	} else if s, t := v.String(), ds+"/"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s := __string(ctx,v); s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val3"
@@ -191,12 +181,10 @@ func test__trimsuffix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-		// hold line
-		// hold line
 	} else if s, t := v.String(), ds+"/"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s := __string(ctx,v); s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val4"
@@ -204,12 +192,10 @@ func test__trimsuffix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-		// hold line
-		// hold line
 	} else if s, t := v.String(), ds; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s := __string(ctx,v); s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val5"
@@ -217,12 +203,10 @@ func test__trimsuffix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-		// hold line
-		// hold line
 	} else if s, t := v.String(), ds; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s := __string(ctx,v); s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val6"
@@ -230,11 +214,9 @@ func test__trimsuffix(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-		// hold line
-		// hold line
 	} else if s, t := v.String(), ds; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if t := v.string(ctx); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s := __string(ctx,v); s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 }

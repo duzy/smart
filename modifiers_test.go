@@ -29,7 +29,7 @@ func testValueModifier(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if v.String() != "foobar" {
 		ctx.err("%v", tst{v})
-	} else if s := v.string(ctx); s != "foobar" {
+	} else if s := __string(ctx, v); s != "foobar" {
 		ctx.err("%v → %s", tst{v}, s)
 	}
 
@@ -48,7 +48,7 @@ func testValueModifier(ctx *testcase) {
 		ctx.err("%v", tst{l.elems[1]})
 	} else if s, t := "$(val) test_mod_1", v.String(); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foobar test_mod_1", v.string(ctx); s != t {
+	} else if s, t := "foobar test_mod_1", __string(ctx, v); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 
@@ -63,7 +63,7 @@ func testValueModifier(ctx *testcase) {
 		ctx.err("%v ; %v", tst{v}, len(l.list))
 	} else if s, t := "{(test-mod-1 $(val))}", v.String(); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foobar test_mod_1", v.string(ctx); s != t {
+	} else if s, t := "foobar test_mod_1", __string(ctx, v); s != t {
 		ctx.err("%v → %s != %s", tst{v}, t, s)
 	}
 

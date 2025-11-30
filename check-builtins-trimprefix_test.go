@@ -20,7 +20,7 @@ func test__trimprefix(ctx *testcase) {
 	} else if pv = p.value; pv == nil {
 		ctx.err("%v", tst{p})
 		return
-	} else if ps = pv.string(ctx); ps == "" {
+	} else if ps = __string(ctx,pv); ps == "" {
 		ctx.err("%v", tst{pv})
 		return
 	} else if pa = strings.Split(ps, pathSep); len(pa) < 3 {
@@ -46,9 +46,9 @@ func test__trimprefix(ctx *testcase) {
 		ctx.err("%v", tst{p.elems[1]})
 	} else if s, t := p.String(), "**/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := p.string(ctx), "**/testdata"; s != t {
+	} else if s, t := __string(ctx, p), "**/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := v.match(ctx, pv); a {
+	} else if a, b, c := match(ctx, v, pv); a {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
 	} else if x, y := b.([]string); !y {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
@@ -73,9 +73,9 @@ func test__trimprefix(ctx *testcase) {
 		ctx.err("%v", tst{p.elems[1]})
 	} else if s, t := p.String(), "%%/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := p.string(ctx), "%%/testdata"; s != t {
+	} else if s, t := __string(ctx, p), "%%/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := v.match(ctx, pv); a {
+	} else if a, b, c := match(ctx, v, pv); a {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
 	} else if x, y := b.([]string); !y {
 		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
@@ -109,10 +109,10 @@ func test__trimprefix(ctx *testcase) {
 	} else if _, y := p.elems[2].(*word); !y {
 		ctx.err("%v", tst{p.elems[2]})
 	} else if s, t := p.String(), "/**/testdata"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := p.string(ctx), "/**/testdata"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := v.match(ctx, pv); a { // partially matched
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if s, t := __string(ctx, p), "/**/testdata"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if a, b, c := match(ctx, v, pv); a { // partially matched
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
 	} else if x, y := b.([]string); !y {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
@@ -150,11 +150,11 @@ func test__trimprefix(ctx *testcase) {
 	} else if _, y := p.elems[2].(*word); !y {
 		ctx.err("%v", tst{p.elems[2]})
 	} else if s, t := p.String(), "/%%/testdata"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if s, t := p.string(ctx), "/%%/testdata"; s != t {
-		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := v.match(ctx, pv); a {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if s, t := __string(ctx, p), "/%%/testdata"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{p})
+	} else if a, b, c := match(ctx, v, pv); a {
+		ctx.err("%s != %s | %v", s, t, tst{p})
 	} else if x, y := b.([]string); !y {
 		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
 	} else if len(x) < 0 || x[0] != "" {
@@ -177,9 +177,9 @@ func test__trimprefix(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := v.string(ctx), "/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s, t := __string(ctx,v), "/trimprefix"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val2"
@@ -188,9 +188,9 @@ func test__trimprefix(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s, t := __string(ctx,v), "builtins/trimprefix"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val3"
@@ -199,9 +199,9 @@ func test__trimprefix(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s, t := __string(ctx,v), "builtins/trimprefix"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val4"
@@ -210,9 +210,9 @@ func test__trimprefix(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s, t := __string(ctx,v), "builtins/trimprefix"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val5"
@@ -221,9 +221,9 @@ func test__trimprefix(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s, t := __string(ctx,v), "builtins/trimprefix"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	s = "val6"
@@ -232,8 +232,19 @@ func test__trimprefix(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := v.string(ctx), "builtins/trimprefix"; s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s, t := __string(ctx,v), "builtins/trimprefix"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	}
+
+	s = "val7"
+    if d := ctx.def(s); d == nil {
+		ctx.err(s)
+	} else if v := d.value; v == nil {
+		ctx.err("%v", tst{d})
+	} else if s, t := v.String(), "builtins/trimprefix"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s, t := __string(ctx,v), "builtins/trimprefix"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 }

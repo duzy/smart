@@ -15,19 +15,19 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "foo_ab-$1-$2"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo_ab--"; s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if v := ctx.val(d.name, defExpand1, "a", "b"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "foo_ab-a-b"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if v := ctx.val(d.name, defExpand2, "a", "b"); v == nil {
 		ctx.err("%v", d)
 	} else if s := v.String(); s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	}
 
@@ -39,19 +39,19 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "foo_ba-$2-$1"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), ""; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo_ba--"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d.name, defExpand1, "a", "b"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "foo_ba-b-a"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	} else if v := ctx.val(d.name, defExpand2, "a", "b"); v == nil {
 		ctx.err("%v", d)
 	} else if s := v.String(); s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s ; %s", s, t, tst{v})
 	}
 
@@ -63,19 +63,19 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "1 $1$2$3 10 2 $(&(.test.x) $1$1,$2$2) 20 3 &(&(.test.x) $1$2,$2$1) 30 4 $3 40"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 10 2 20 3 30 4 40"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 10 2 foo_ab-- 20 3 foo_ab-- 30 4 40"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
 	} else if v := ctx.val(d.name, defExpand1, "a", "b", "c"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30 4 c 40"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 abc 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba 30 4 c 40"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 abc 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba 30 4 c 40"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
 	} else if v := ctx.val(d.name, defExpand2, "a", "b", "c"); v == nil {
 		ctx.err("%v", d)
 	} else if s := v.String(); s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
 	}
 
@@ -107,7 +107,7 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "1 abc 10 2 $(&(.test.x) aa,bb) 20"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 abc 10 2 foo_ab-aa-bb 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 abc 10 2 foo_ab-aa-bb 20"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
 	}
 
@@ -119,7 +119,7 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "1 abc 10 2 {} 20"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 abc 10 2 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 abc 10 2 20"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
 	}
 
@@ -131,7 +131,7 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 abc 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba 30"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 abc 10 2 foo_ab-aa-bb 20 3 foo_ab-ab-ba 30"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
 	}
 
@@ -143,7 +143,7 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "1 abc 10 2 foo_ba-bb-aa 20 3 foo_ba-ba-ab 30"; s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s: %s != %s %s", d.name, s, t, tst{v})
 	}
 
@@ -155,7 +155,7 @@ func testValues20(ctx *testcase) {
 	// 	ctx.err("%v", tst{d})
 	// } else if s, t := v.String(), "1 xy{} 10 2 {} 20 {} s0"; s != t {
 	// 	ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	// } else if s, t := v.string(src(ctx,d)), "1 xy 10 2 20 s0"; s != t {
+	// } else if s, t := __string(src(ctx,d),v), "1 xy 10 2 20 s0"; s != t {
 	// 	ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	// }
 	//
@@ -167,7 +167,7 @@ func testValues20(ctx *testcase) {
 	// 	ctx.err("%v", tst{d})
 	// } else if s, t := v.String(), "1 xy{} 10 2 {} 20 {} s0 s1"; s != t {
 	// 	ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	// } else if s, t := v.string(src(ctx,d)), "1 xy 10 2 20 s0 s1"; s != t {
+	// } else if s, t := __string(src(ctx,d),v), "1 xy 10 2 20 s0 s1"; s != t {
 	// 	ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	// }
 
@@ -179,19 +179,19 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "c"); v == nil {
 		ctx.err("%v : %v", tst{d}, d.value)
 	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand2, "a", "b", "c"); v == nil {
 		ctx.err("%v : %v", tst{d}, d.value)
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	}
 
@@ -203,19 +203,19 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand2, "a", "b", "c"); v == nil {
 		ctx.err("%v", tst{d})
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	}
 
@@ -227,19 +227,19 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ba-yy-xx 20 {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ba-yy-xx 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ba-yy-xx 20"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "cc"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ba-yy-xx 20 {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ba-yy-xx 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ba-yy-xx 20"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand2, "a", "b", "cc"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ba-yy-xx 20 {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ba-yy-xx 20"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ba-yy-xx 20"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	}
 
@@ -251,19 +251,19 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$(.test x,y) . $3"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "x"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 . x"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 . x"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 . x"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand2, "a", "b", "x"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . x"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 . x"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 . x"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	}
 
@@ -275,19 +275,19 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 . {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "x"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 . {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand2, "a", "b", "x"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	}
 
@@ -299,19 +299,19 @@ func testValues20(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand1, "a", "b", "x"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	} else if v := ctx.val(d, defExpand2, "a", "b", "x"); v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 . {}"; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
+	} else if s, t := __string(src(ctx,d),v), "1 xy 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 40 ."; s != t {
 		ctx.err("%s != %s | %v | %s", s, t, v, tst{v})
 	}
 }

@@ -16,3 +16,5 @@ x10  = $(ifarg 1,yes,no)
 x11 := $(ifarg 1,yes,no)
 
 x12 := $(ifdef none,yes,no)
+
+x81 ::= $(if &(some),yes,no)

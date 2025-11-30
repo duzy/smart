@@ -63,7 +63,7 @@ func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
 
         default:
             if p.o != 0 {
-                vals = expand(ctx, vals...)
+                vals = expands(ctx, vals...)
             }
             if p.accumulation {
                 list = append(list, vals...)

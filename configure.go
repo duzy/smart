@@ -97,7 +97,7 @@ func (cc *configurecontext) execute(ctx *execution, e entry) {
 
     e.execute(ctx)
 
-    s = e.destiny().string(ctx)
+    s = __string(ctx, e.destiny())
     if _, y := cc.defs[s]; y { return }
 
     if d = cc.current.finddef(s); d == nil {
@@ -136,8 +136,8 @@ func walkFileInfos(ctx Context, root string, pats []Value, fn filepath.WalkFunc)
     ForPats:
         for _, p := range pats {
             var matched bool
-            if matched, _, _ = p.match(ctx, path); !matched {
-                matched, _, _ = p.match(ctx, filepath.Base(path))
+            if matched, _, _ = match(ctx, p, path); !matched {
+                matched, _, _ = match(ctx, p, filepath.Base(path))
             }
             if matched {
                 if err = fn(path, info, err); err != nil {
@@ -156,7 +156,7 @@ func walkFiles(ctx Context, root string, pats []Value, fn filewalkFunc) error {
         if rel, err = filepath.Rel(root, path); err != nil {
             return err
         }
-        return fn(stat(ctx, rel, stat_dir{root}, stat_fileinfo{info}), err)
+        return fn(_stat(ctx, rel, stat_dir{root}, stat_fileinfo{info}), err)
     })
 }
 
@@ -190,7 +190,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
         if depend := auto_get(ctx,">"); !isTrivial(depend) {
             panic(traveTargetNotDefinedFile)
         } else if true {
-            prompt(ctx, "%v: not defined as file\n", target.string(ctx))
+            prompt(ctx, "%v: not defined as file\n", __string(ctx, target))
             erro(ctx, "%v", ts(target.Value))
             errostack(ctx, 8).trace()
         }
@@ -203,7 +203,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
         info(ctx, "configure-file: %s->%s (%v -> %v)", f, filename, ts(prev), ts(f)).debug(opts.debug)
     }
 
-    if f.info == nil { if f := stat(ctx, filename); f != nil { f.info = f.info }}
+    if f.info == nil { if f := _stat(ctx, filename); f != nil { f.info = f.info }}
     if f != nil && 0 < opts.debug {
         info(ctx, "configure-file: %v: %v (%s) (%v)", auto_get(ctx,"@"), f.fullname(), closured).debug(opts.debug)
     }
@@ -237,7 +237,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
     if dealArgs != nil { args = dealArgs(args, &data) }
     if dealData != nil {
         for _, arg := range args {
-            if str := arg.string(ctx); str == "" {
+            if str := __string(ctx, arg); str == "" {
                 continue
             } else {
                 dealData(str, &data)
@@ -320,7 +320,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result any) {
 
         var configs = make(map[string]*def)
         for _, a := range args {
-            var name = a.string(ctx)
+            var name = __string(ctx, a)
             if _, ok := configs[name]; ok {
                 continue
             } else if obj := p.resolve(ctx, name); obj == nil {
@@ -394,7 +394,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
         erro(ctx, " target '@' is undefined").trace()
         return
     } else {
-        outFile = target.string(ctx)
+        outFile = __string(ctx, target)
     }
 
     if ctx.makePath {
@@ -425,16 +425,16 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
                 sources = append(sources, a...)
             }
         case *path:
-            var s = d.string(ctx)
+            var s = __string(ctx, d)
             err = walkFiles(ctx, s, pats, func(file *file, err error) error {
                 if err == nil { sources = append(sources, file) }
                 return err
             })
         default:
-            var s = d.string(ctx)
+            var s = __string(ctx, d)
             var dir = filepath.Dir(s)
             var name = filepath.Base(s)
-            var f = stat(ctx, name, stat_dir{dir})
+            var f = _stat(ctx, name, stat_dir{dir})
             if f == nil {
                 erro(ctx, " extract-configuration: `%s` file not found", name).trace()
                 return
@@ -456,7 +456,7 @@ sourceloop:
         var s string
         switch t := source.(type) {
         case *file: s = t.fullname()
-        default:    s = t.string(ctx)
+        default:    s = __string(ctx, t)
         }
 
         var f *os.File

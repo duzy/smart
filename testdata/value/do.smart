@@ -9,10 +9,10 @@ cond0   = x?
 cond01  = x?y
 cond02  = x???y
 cond03  = x&(something)?y
-cond1  := x?    # → x
-cond11 := x?y   # → xy
-cond12 := x???y # → xy
-cond13 := x&(something)?y # → x&(something)y?
+cond1  := x?
+cond11 := x?y
+cond12 := x???y
+cond13 := x&(something)?y
 
 disjunction0   = {a b c}
 disjunction00  = x{}

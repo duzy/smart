@@ -312,7 +312,7 @@ type stat_sub struct { string }
 type stat_nonexist struct { bool }
 type stat_fileinfo struct{ os.FileInfo }
 
-func stat(ctx Context, name string, aa ...any) (_ *file) {
+func _stat(ctx Context, name string, aa ...any) (_ *file) {
     var sub, dir string
     var nonexist bool
     var fileInfo os.FileInfo
@@ -525,11 +525,11 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
 func (l ul) parse_args(base string, a ...string) {
     var args []Value
 
-    if s := strings.Join(a, " "); s != "" {
-        if v := l.text(l.universe, base, s); v != nil {
-            args = parse_opts(l.universe, &l.commandline, merge(v)...)
-        }
-    }
+	if s := strings.Join(a, " "); s != "" {
+		if v := l.text(l.universe, base, s); v != nil {
+			args = parse_opts(l.universe, &l.commandline, merge(v)...)
+		}
+	}
 
     if v := l.fastMode; v { // Turn off many things for fast mode:
         //l.noImportFiles = v
@@ -544,7 +544,7 @@ func (l ul) parse_args(base string, a ...string) {
         switch t := target.(type) {
         case *pair: l.globe.pairs = append(l.globe.pairs, t)
         case  flag: l.globe.flags = append(l.globe.flags, t)
-            if s := t.Value.string(l.universe); s == "clean" {
+            if s := __string(l.universe, t.Value); s == "clean" {
                 mode.position, mode.s = t.Position(), "clean"
             }
         case *argumented:
@@ -659,7 +659,7 @@ func (u *universe) run() (result []Value) {
     for _, flag := range u.globe.flags {
         if u.verboseExecFlags { info(ctx, "%v", flag) }
 
-        var s = flag.Value.string(ctx)
+        var s = __string(ctx, flag.Value)
         var args, _ = u.globe.args[flag]
         var entries, _ = u.globe.flagEntries[s]
         for _, entry := range entries {
@@ -700,7 +700,7 @@ func (u *universe) run() (result []Value) {
                     }
                 }
             case *delegate:
-                var s = t.string(ctx)
+                var s = __string(ctx, t)
                 if entries := proj._entries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
                     return false
@@ -710,14 +710,12 @@ func (u *universe) run() (result []Value) {
                     }
                 }
             case flag:
-                var s = t.string(ctx)
+                var s = __string(ctx, t)
                 if entries := proj._entries(ctx, s, true); entries == nil {
                     erro(ctx, "no such entry `%s` (via `%v`)", s, t).trace()
                     return false
                 } else {
-                    for _, entry := range entries {
-                        goals = append(goals, entry)
-                    }
+                    for _, entry := range entries { goals = append(goals, entry) }
                 }
             case *argumented:
                 {
@@ -726,7 +724,7 @@ func (u *universe) run() (result []Value) {
                     //     project/spec(-clean)
                     //     xxxx()
                     var (
-                        s = t.Value.string(ctx)
+                        s = __string(ctx, t.Value)
                         args = merge(t.args...)
                         found int
                     )

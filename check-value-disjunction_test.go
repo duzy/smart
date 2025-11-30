@@ -15,19 +15,19 @@ func testDisjunction(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "foo={&(.test)}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo=a foo=b foo=c"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo=a foo=b foo=c"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1); v == nil {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "foo={&(.test)}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo=a foo=b foo=c"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo=a foo=b foo=c"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand2); v == nil {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "foo=a foo=b foo=c"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -39,19 +39,19 @@ func testDisjunction(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "{&(.test)}=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "a=bar b=bar c=bar"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "a=bar b=bar c=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1); v == nil {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "{&(.test)}=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "a=bar b=bar c=bar"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "a=bar b=bar c=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand2); v == nil {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "a=bar b=bar c=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -63,19 +63,19 @@ func testDisjunction(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "foo=bar{&(.test)}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo=bara foo=barb foo=barc"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo=bara foo=barb foo=barc"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1); v == nil {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "foo=bar{&(.test)}"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "foo=bara foo=barb foo=barc"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "foo=bara foo=barb foo=barc"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand2); v == nil {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "foo=bara foo=barb foo=barc"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 
@@ -87,19 +87,19 @@ func testDisjunction(ctx *testcase) {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "foo{&(.test)}=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "fooa=bar foob=bar fooc=bar"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "fooa=bar foob=bar fooc=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand1); v == nil {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "foo{&(.test)}=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s, t := v.string(src(ctx,d)), "fooa=bar foob=bar fooc=bar"; s != t {
+	} else if s, t := __string(src(ctx,d),v), "fooa=bar foob=bar fooc=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	} else if v := ctx.val(d, defExpand2); v == nil {
 		ctx.err("%s : %v", s, d)
 	} else if s, t := v.String(), "fooa=bar foob=bar fooc=bar"; s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
-	} else if s := v.string(src(ctx,d)); s != t {
+	} else if s := __string(src(ctx,d),v); s != t {
 		ctx.err("%s != %s : %s", s, t, tst{v})
 	}
 }

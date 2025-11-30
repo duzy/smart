@@ -233,15 +233,15 @@ func (s *scope) alias(ctx Context, o object, alias ...string) {
 	for _, a := range alias { s.elems[a] = o }
 }
 
-func (s *scope) _def(ctx Context, o origin, ident any, vals ...Value) (d *def, isNew bool) {
+func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNew bool) {
 	var pos Position
 	var name string
-	switch t := ident.(type) {
-	case Value : name, pos = t.string(ctx), t.Position()
+	switch t := id.(type) {
+	case Value : name, pos = ident(ctx, t), t.Position()
 	case string: name, pos = t, _position(ctx)
 	}
 	if name == "" {
-		errostack(ctx, 3, "empty name: %s : %s", ident, ts(ident)).trace()
+		errostack(ctx, 3, "empty name: %s : %s", id, ts(id)).trace()
 	}
 	if checkpoints && illegal_name_prefix.MatchString(name) {
 		errostack(ctx, 3, "illegal name: %v", name).trace()
@@ -257,8 +257,8 @@ func (s *scope) _def(ctx Context, o origin, ident any, vals ...Value) (d *def, i
 	} else if d, y = a.(*def); d != nil {
 		if !d.position.valid() && pos.valid() { d.position = pos }
 	}
-	if o != defUndetermined {
-		if d.o == defUndetermined { d.o = o } else {
+	if o != defInvalid {
+		if d.o == defInvalid { d.o = o } else {
 			errostack(ctx, 3, "%v: conflicts origin: %v | %v", ident, d.o, o).trace()
 		}
 	}

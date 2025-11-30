@@ -13,7 +13,7 @@ func testDefs0(ctx *testcase) {
 		ctx.err("%v %v", d, d.o)
 	} else if val := d.value; val == nil {
 		ctx.err("%v", d)
-	} else if s := val.string(ctx); s != "a b c" {
+	} else if s := __string(ctx, val); s != "a b c" {
 		ctx.err("%v", val)
 	} else if _, y := val.(*list); !y {
 		ctx.err("%v", val)
@@ -25,7 +25,7 @@ func testDefs0(ctx *testcase) {
 		ctx.err("%v %v", d, d.o)
 	} else if val := d.value; val == nil {
 		ctx.err("%v", d)
-	} else if s := val.string(ctx); s != "x a b" {
+	} else if s := __string(ctx, val); s != "x a b" {
 		ctx.err("%v", val)
 	} else if _, y := val.(*list); !y {
 		ctx.err("%v", val)
@@ -37,7 +37,7 @@ func testDefs0(ctx *testcase) {
 		ctx.err("%v %v", d, d.o)
 	} else if val := d.value; val == nil {
 		ctx.err("%v", d)
-	} else if s := val.string(ctx); s != "x a b" {
+	} else if s := __string(ctx, val); s != "x a b" {
 		ctx.err("%v", val)
 	} else if _, y := val.(*list); !y {
 		ctx.err("%v", val)
@@ -49,7 +49,7 @@ func testDefs0(ctx *testcase) {
 		ctx.err("%v %v", d, d.o)
 	} else if val := d.value; val == nil {
 		ctx.err("%v", d)
-	} else if s := val.string(ctx); s != "a b c" {
+	} else if s := __string(ctx, val); s != "a b c" {
 		ctx.err("%v", val)
 	} else if _, y := val.(*list); !y {
 		ctx.err("%v", val)
