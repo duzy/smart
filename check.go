@@ -99,6 +99,11 @@ var checkspecs = map[string]map[string]map[string]any{
 	"testdata/value/bug_01":         checkpoints_value_bug_01,
 	"testdata/rule/shell/for-stdout":checkpoints_rule_shell_forstdout,
 	"testdata/template":             checkpoints_template,
+	"testdata/modifier":             checkpoints_modifiers,
+	"testdata/valcache":             checkpoints_valcache,
+	"testdata/valcache/1":           checkpoints_valcache1,
+	"testdata/valcache/2":           checkpoints_valcache2,
+	"testdata/valcache/3":           checkpoints_valcache3,
 }
 func check(ctx Context, res Value, p Value, x ...Value) {
 	var src = strings.Split(try[string](ctx,source{}), ":")
@@ -208,6 +213,11 @@ var checkstrs = map[string]map[string]map[string]any{
 	"testdata/value/bug_01":         checkstrs_value_bug_01,
 	"testdata/rule/shell/for-stdout":checkstrs_rule_shell_forstdout,
 	"testdata/template":             checkstrs_template,
+	"testdata/modifier":             checkstrs_modifiers,
+	"testdata/valcache":             checkstrs_valcache,
+	"testdata/valcache/1":           checkstrs_valcache1,
+	"testdata/valcache/2":           checkstrs_valcache2,
+	"testdata/valcache/3":           checkstrs_valcache3,
 }
 func check_string(ctx Context, p Value, v Value, res string) {
 	var (
@@ -241,16 +251,6 @@ func check_cmp(ctx Context, l, r any, _r *cmpres) {
 		errostack(pc(pc(ctx,r),l), 3, "%v: %v ⇔ %v | %v ⇔ %v", *_r, l, r, ts(l), ts(r)).trace()
 	case _eq_ && cmpEqual != *_r:
 		errostack(pc(pc(ctx,r),l), 3, "%v: %v ⇔ %v | %v ⇔ %v", *_r, l, r, ts(l), ts(r)).trace()
-	}
-}
-
-func check_ident(ctx Context, x Value, _s *string) {
-	var ic, _ = identity(ctx)
-	if false && ic == nil {
-		errostack(pc(ctx,x), 8, "not ident ctx; %s", ts(x)).trace()
-	}
-	if false && ic != nil && ic.nil == 0 && (*_s) == "" {
-		errostack(pc(ctx,x), 8, "empty ident: %s", ts(x)).trace()
 	}
 }
 
@@ -515,12 +515,11 @@ var checkpoints__string_com = map[string]any{
 	`&(.test.bar)⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
 	`&(.test.foo)⌜foo bar⌟{}88`:`{}⌜foo bar⌟{}88`,
 	`&(.test.foo)⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
-	`&(.test.h)a`:`-a`,
-	`&(.test.h)b`:`-b`,
-	`&(.test.h)c`:`-c`,
+	`&(.test.h)a`:`-a`, `&(.test.h)b`:`-b`, `&(.test.h)c`:`-c`,
 	`&(target.arch)-&(target.vendor)-&(target.os)-&(target.abi)`:`foo-bar-{}-0`,
 	`,`:`,`, // {=compound {52:29 {51:24:raw}} {52:30:punct ,}}
-	`-foobar`:`-foobar`, `-a`:`-a`, `-b`:`-b`, `-c`:`-c`,
+	`-a`:`-a`, `-b`:`-b`, `-c`:`-c`,
+	`-foobar`:`-foobar`,
 	`.`:`.`, // {=compound {52:33 {51:24:raw}} {52:34:punct .}}
 	`.test.v`:`.test.v`,
 	`.test`:`.test`,
@@ -529,36 +528,27 @@ var checkpoints__string_com = map[string]any{
 	`D.c`:`D.c`, `D.c++`:`D.c++`,
 	`I.c`:`I.c`, `I.c++`:`I.c++`,
 	`V{}{}`:`V{}{}`,
-	`Xxa`:`Xxa`,
-	`Xxb`:`Xxb`,
+	`Xxa`:`Xxa`, `Xxb`:`Xxb`,
 	`X{&(.test.xa)}`:`X~1~`,
 	`X{&(.test.xb)}`:`X~2~`,
-	`X~1~`:`X~1~`,
-	`X~2~`:`X~2~`,
+	`X~1~`:`X~1~`, `X~2~`:`X~2~`,
 	`YX{&(.test.xa)}`:`YX~1~`,
 	`YX{&(.test.xb)}`:`YX~2~`,
-	`YX~1~`:`YX~1~`,
-	`YX~2~`:`YX~2~`,
+	`YX~1~`:`YX~1~`, `YX~2~`:`YX~2~`,
 	`a-b-3-abc`:`a-b-3-abc`,
 	`a-b-3`:`a-b-3`,
 	`a-b`:`a-b`,
 	`a.h`:`a.h`, // {=compound {31:18:word a} {31:19:punct .} {31:20:word h}}
 	`a\,b\,c,x\,y\,z`:`a\,b\,c,x\,y\,z`,
 	`a\,b\,c`:`a\,b\,c`,
-	`aa-bb`:`aa-bb`,
-	`aa`:`aa`,
-	`ab-ba`:`ab-ba`,
-	`ab`:`ab`,
-	`abc`:`abc`,
-	`acc`:`acc`,
-	`aox.o.a`:`aox.o.a`,
-	`aox.o.b`:`aox.o.b`,
-	`aox.o.c`:`aox.o.c`,
+	`aa-bb`:`aa-bb`, `ab-ba`:`ab-ba`,
+	`aa`:`aa`, `ab`:`ab`,
+	`abc`:`abc`, `acc`:`acc`,
+	`aox.o.a`:`aox.o.a`, `aox.o.b`:`aox.o.b`, `aox.o.c`:`aox.o.c`,
 	`atomic.h,`:`atomic.h,`, // {=compound {52:29 {51:24:raw atomic.h}} {52:30:punct ,}}
 	`atomic.h.`:`atomic.h.`, // {=compound {52:33 {51:24:raw atomic.h}} {52:34:punct .}}
 	`ax`:`ax`,
-	`axx{}`:`axx{}`,
-	`ayy{}`:`ayy{}`,
+	`axx{}`:`axx{}`, `ayy{}`:`ayy{}`,
 	`a{}`:`a{}`,
 	`a~`:`a~`,
 	`b-3`:`b-3`,
@@ -605,8 +595,8 @@ var checkpoints__string_com = map[string]any{
 	`foo-B`:`foo-B`,
 	`foo-a`:`foo-a`,
 	`foo-b`:`foo-b`,
-	`foo.c`:`foo.c`, `fooa`:`fooa`, `foob`:`foob`, `fooc`:`fooc`,
 	`foo-bar-xx-yy-zz`:`foo-bar-xx-yy-zz`,
+	`foo.c`:`foo.c`,
 	`foo_ab-$1-$2`:`foo_ab-{}-{}`,
 	`foo_ab-a-b`:`foo_ab-a-b`,
 	`foo_ab-aa-bb`:`foo_ab-aa-bb`,
@@ -620,7 +610,9 @@ var checkpoints__string_com = map[string]any{
 	`foo_ba-bb-aa`:`foo_ba-bb-aa`,
 	`foo_ba-yy-xx`:`foo_ba-yy-xx`,
 	`foo_ba-{}{}-{}{}`:`foo_ba-{}{}-{}{}`,
+	`fooa`:`fooa`, `foob`:`foob`, `fooc`:`fooc`,
 	`foobar`:`foobar`, `not-foobar`:`not-foobar`,
+	`mod-1`:`mod-1`,
 	`skip-nil`:`skip-nil`,
 	`test-B`:`test-B`,
 	`test-a`:`test-a`,
@@ -629,6 +621,7 @@ var checkpoints__string_com = map[string]any{
 	`test-foo-a`:`test-foo-a`,
 	`test-foo-b`:`test-foo-b`,
 	`test-foo`:`test-foo`,
+	`test-mod-1`:`test-mod-1`,
 	`test.paniconexit0`:`test.paniconexit0`,
 	`test.timeout`:`test.timeout`,
 	`test.txt`:`test.txt`,
@@ -649,6 +642,7 @@ var checkpoints__string_com = map[string]any{
 	`x.o.b`:`x.o.b`,
 	`x.o.c`:`x.o.c`,
 	`x\,y\,z`:`x\,y\,z`,
+	`xa`:`xa`, `xb`:`xb`, `xc`:`xc`,
 	`xay1z`:`xay1z`, `xay2z`:`xay2z`, `xay3z`:`xay3z`,
 	`xby1z`:`xby1z`, `xby2z`:`xby2z`, `xby3z`:`xby3z`,
 	`xcy1z`:`xcy1z`, `xcy2z`:`xcy2z`, `xcy3z`:`xcy3z`,
@@ -675,7 +669,7 @@ var checkpoints__string_com = map[string]any{
 	`x{&(.test.z)}y2{}zz`:`xwy2{}zz`,
 	`x{&(.test.z)}y3{}zz`:`xwy3{}zz`,
 	`x{a b c}`:[]string{`xa`, `xb`, `xc`},
-	`x{}`:`x{}`, `xa`:`xa`, `xb`:`xb`, `xc`:`xc`,
+	`x{}`:`x{}`,
 	`x{}aa`:`x{}aa`, `x{}bb`:`x{}bb`, `x{}cc`:`x{}cc`,
 	`y-3`:`y-3`, // {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}
 	`y-x-a`:`y-x-a`,

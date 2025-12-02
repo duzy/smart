@@ -47,9 +47,9 @@ const (
 	TIME     // 07:32:00.999999 (internet time format - RFC3339)
 	URL      // 'mailto:name@example.com' (uniform resource identifier - RFC3986)
 	RAW      // raw strings
-	STRING   // 'abc'
 	ESCAPE   // \", \\n, etc. (see value.EscapeChar)
-	STRCOMP // "abc $(foo) 123"
+	STRING   // 'abc'
+	STRCOMP  // "abc $(foo) 123"
 	_literal_end
 
 	COMPOSED // the ending quote of a strcomp literal

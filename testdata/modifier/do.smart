@@ -1,7 +1,7 @@
 project testmodifier
 
 val  := foobar
-val1 := {(test-mod-1 $(val))}
-val2  = {(test-mod-1 $(val))}
+val1  = {(test-mod-1 $(val))}
+val2 := {(test-mod-1 $(val))}
 val3 := #TODO: {(plain text) this is a 'string' of plain  `text`.}
 val4 := #TODO: {(plain c++) int main() { return 0; }}

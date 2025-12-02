@@ -117,7 +117,6 @@ type foreach_txt    struct{ Context ; a *auto }
 type grep_txt       struct{ Context ; o objbase ; a map[string]*auto }
 type p_group_ctx    struct{ Context }
 type left_side      struct{ Context }
-type p_modifier     struct{ Context }
 type p_params       struct{ Context }
 type p_path         struct{ Context }
 type p_perc         struct{ Context }
@@ -2482,7 +2481,7 @@ func (l ul) files(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 		}
 	}
 
-	l.project.map_files(ctx, patts, paths)
+	map_files(ctx, l.project, patts, paths)
 }
 
 func (p *parser) assert(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
@@ -3086,42 +3085,27 @@ func (l ul) define_configs(ctx Context) {
 func (l ul) modifier(ctx Context) (res *modifier) {
 	l.p.spaces(ctx)
 
-	ctx = p_modifier{ctx}
-
+	pos := l.p.Position()
 	l.p.expect(ctx, LPAREN)
 	l.p.spaces(ctx)
 
-	var name string
 	var elems []Value
 	var val = l.expr(ctx)
-	switch n := val.(type) {
-	case *word: name = n.s
-	case *delegate, *closure:
-		var v = xmerge(_final(ctx), val)
-		if len(v) == 0 {
-			erro(pc(ctx,val), "empty modifier name: %v", n).trace()
-		}
-
-		name, elems = __string(ctx, v[0]), v[1:]
-
-	default:
-		erro(pc(ctx,val), "unsupported modifier: %v", ts(n)).trace()
-	}
-
-	if _, y := dialects[name]; y {
-		if l.p.dialect == "" {
-			l.p.dialect = name
-		} else {
+	var name = __string(ctx, val)
+	if name == "" {
+		erro(pc(ctx,val), "unsupported modifier: %s", ts(name)).trace()
+	} else if _, y := dialects[name]; y {
+		if l.p.dialect == "" { l.p.dialect = name } else {
 			erro(pc(ctx,l.p), "multi-dialects unsupported, already defined '%s'", l.p.dialect).trace()
 		}
 	} else if _, y = modifiers[name]; !y {
-		errostack(pc(ctx,l.p), 24, "no such dialect or modifier: %s", name).trace()
+		erro(pc(ctx,l.p), "no such dialect or modifier: %s", name).trace()
 	}
 
 	for l.p.tok != RPAREN && l.p.tok != EOF {
 		l.p.spaces(ctx)
 
-		t := l.p.pos
+		pos := l.p.pos
 
 		if va := l.values(ctx); name == "var" {
 			l.p.var_modifier(ctx, va...)
@@ -3134,7 +3118,7 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 		}
 
 		if l.p.tok == COMMA { l.p.next(ctx, true) }
-		if l.p.pos == t {
+		if l.p.pos == pos {
 			erro(pc(ctx,l.p), "unsupported modifier arg: %v '%v'", l.p.tok, l.p.lit).trace()
 		}
 	}
@@ -3143,11 +3127,11 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 
 	if val == nil && len(elems) == 0 {
 		erro(pc(ctx,l.p), "empty modifier").trace()
-	} else {
-		res = new(modifier)
-		res.position = _position(ctx)
-		res.elems = append([]Value{val}, elems...)
 	}
+
+	res = new(modifier)
+	res.position = pos
+	res.elems = append([]Value{val}, elems...)
 	return
 }
 
@@ -3212,7 +3196,7 @@ var rule_autos = map[string]struct{}{
 	//"<-":struct{}{}, "->":struct{}{},
 }
 
-func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
+func (l ul) rule(ctx Context, targets []Value) (result Value) {
 	if l_traverse.enabled || debugSyntax(ctx, "rule") { defer un(l_trace(l_traverse, "rule")) }
 
 	ctx = p_rule_ctx{ctx}
@@ -3271,7 +3255,7 @@ func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
 		recipes:   recipes,
 	}
 
-	if res := l.entries(ctx, &prog, targets, optvals); 1 == len(res) {
+	if res := l.entries(ctx, &prog, targets); 1 == len(res) {
 		return res[0]
 	} else if 1 < len(res) {
 		return list_t[entry](res...)
@@ -3280,14 +3264,11 @@ func (l ul) rule(ctx Context, optvals, targets []Value) (result Value) {
 	}
 }
 
-func (l ul) entries(ctx Context, prog *program, targets, options []Value) (res []entry) {
+func (l ul) entries(ctx Context, prog *program, targets []Value) (res []entry) {
 	for _, target := range targets {
-        if isTrivial(target) {
-            if true { continue }
-			erro(ctx, "trivial target; %v", targets).trace()
-        }
+        if isTrivial(target) { continue }
 
-        var entry = prog.project.new_entry(ctx, options, target, prog)
+        var entry = map_entry(ctx, prog.project, target, prog)
         if entry == nil {
             erro(ctx, "creating entry failed for %v", target).trace()
         }
@@ -4096,7 +4077,7 @@ func (l ul) clause(ctx Context) {
 		}
 
 		if l.p.tok.is_rule_delim() {
-			l.rule(ctx, nil, vals)
+			l.rule(ctx, vals)
 			return
 		}
 	}

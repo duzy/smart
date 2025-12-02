@@ -144,15 +144,14 @@ var builtins = map[string]reflect.Type {
     `quote`:      reflect.TypeOf((*__quote)(nil)).Elem(),
     `unique`:     reflect.TypeOf((*__unique)(nil)).Elem(),
 
-    `split`:            reflect.TypeOf((*__splitstring)(nil)).Elem(),
-    `split-string`:     reflect.TypeOf((*__splitstring)(nil)).Elem(), // TODO: remove it?
+    `split`:            reflect.TypeOf((*__split)(nil)).Elem(),
     `split-quote`:      reflect.TypeOf((*__splitquote)(nil)).Elem(),
     `split-quote-join`: reflect.TypeOf((*__splitquotejoin)(nil)).Elem(),
     `split-join-quote`: reflect.TypeOf((*__splitjoinquote)(nil)).Elem(),
 
-    `field`:        reflect.TypeOf((*__field)(nil)).Elem(),
     `fields`:       reflect.TypeOf((*__fields)(nil)).Elem(),
 
+    // `usee`:         reflect.TypeOf((*__usee)(nil)).Elem(),
     `uses`:         reflect.TypeOf((*__uses)(nil)).Elem(),
 
     `bare`:         reflect.TypeOf((*__bare)(nil)).Elem(),
@@ -160,9 +159,8 @@ var builtins = map[string]reflect.Type {
     `word`:         reflect.TypeOf((*__word)(nil)).Elem(),
     `finalize`:     reflect.TypeOf((*__finalize)(nil)).Elem(),
     `resolve`:      reflect.TypeOf((*__resolve)(nil)).Elem(),
-    `strip`:        reflect.TypeOf((*__strip)(nil)).Elem(),
+    `strip`:        reflect.TypeOf((*__trim)(nil)).Elem(),
     `trim`:         reflect.TypeOf((*__trim)(nil)).Elem(),
-    // `trim-space`:   reflect.TypeOf((*__trimspace)(nil)).Elem(),
     `trim-left`:    reflect.TypeOf((*__trimleft)(nil)).Elem(),
     `trim-right`:   reflect.TypeOf((*__trimright)(nil)).Elem(),
     `trim-prefix`:  reflect.TypeOf((*__trimprefix)(nil)).Elem(),
@@ -259,6 +257,7 @@ var builtins = map[string]reflect.Type {
     `plain`:        reflect.TypeOf((*__plain)(nil)).Elem(),
 
     `append`:       reflect.TypeOf((*__append)(nil)).Elem(),
+    // `unshift`:      reflect.TypeOf((*__unshift)(nil)).Elem(),
     // `pop`:          reflect.TypeOf((*__pop)(nil)).Elem(),
 
     `write-file`:   reflect.TypeOf((*__writefile)(nil)).Elem(), // io/ioutil/ioutil.go
@@ -268,13 +267,12 @@ var builtins = map[string]reflect.Type {
     `chdir`:        reflect.TypeOf((*__chdir)(nil)).Elem(),     // os/file.go
     `rename`:       reflect.TypeOf((*__rename)(nil)).Elem(),    // os/file.go
     `remove`:       reflect.TypeOf((*__remove)(nil)).Elem(),    // os/file_*.go
-    `truncate`:     reflect.TypeOf((*__truncate)(nil)).Elem(),  // os/file_*.go
     `link`:         reflect.TypeOf((*__link)(nil)).Elem(),      // os/file_*.go
     `symlink`:      reflect.TypeOf((*__symlink)(nil)).Elem(),   // os/file_*.go
-
-    `serve-http`:   reflect.TypeOf((*__servehttp)(nil)).Elem(),
+    `truncate`:     reflect.TypeOf((*__truncate)(nil)).Elem(),  // os/file_*.go
 
     `return`:       reflect.TypeOf((*__return)(nil)).Elem(),
+    `serve-http`:   reflect.TypeOf((*__servehttp)(nil)).Elem(),
 }
 
 func escapedString(ctx Context, v Value) (s string) {
@@ -1650,9 +1648,7 @@ func (ctx *__append) x() (_ any) {
     return
 }
 
-type __plus struct { builtinbase
-    int bool `int,integer`
-}
+type __plus struct { builtinbase ; int bool `int,integer` }
 func (ctx *__plus) inner() Context { return &ctx.builtinbase }
 func (ctx *__plus) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
@@ -1676,9 +1672,7 @@ func (ctx *__plus) x() (res any) {
     }
 }
 
-type __minus struct { builtinbase
-    int bool `int,integer`
-}
+type __minus struct { builtinbase ; int bool `int,integer` }
 func (ctx *__minus) inner() Context { return &ctx.builtinbase }
 func (ctx *__minus) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
@@ -1702,9 +1696,7 @@ func (ctx *__minus) x() (res any) {
     }
 }
 
-type __multiply struct { builtinbase
-    int bool `int,integer`
-}
+type __multiply struct { builtinbase ; int bool `int,integer` }
 func (ctx *__multiply) inner() Context { return &ctx.builtinbase }
 func (ctx *__multiply) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
@@ -1728,9 +1720,7 @@ func (ctx *__multiply) x() (res any) {
     }
 }
 
-type __divide  struct { builtinbase
-    int bool `int,integer`
-}
+type __divide  struct { builtinbase ; int bool `int,integer` }
 func (ctx *__divide) inner() Context { return &ctx.builtinbase }
 func (ctx *__divide) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
@@ -1907,16 +1897,16 @@ func (ctx *__quotejoin) x() (res any) {
     return
 }
 
-// $(split-string .,1.2.3)
-type __splitstring struct { builtinbase
+// $(split .,1.2.3)
+type __split struct { builtinbase
     sep string `sep,separator`
 }
-func (ctx *__splitstring) inner() Context { return &ctx.builtinbase }
-func (ctx *__splitstring) cast(t reflect.Type) Context {
+func (ctx *__split) inner() Context { return &ctx.builtinbase }
+func (ctx *__split) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__splitstring) x() (res any) {
+func (ctx *__split) x() (res any) {
     if 0 < len(ctx.a) {
         var fields []Value
         var sep = ctx.sep
@@ -1959,28 +1949,28 @@ ValueType:
     return
 }
 
-// TODO: deprecate this and add -quote to __splitstring
-type __splitquote struct { __splitstring }
+// TODO: deprecate this and add -quote to __split
+type __splitquote struct { __split }
 func (ctx *__splitquote) inner() Context { return &ctx.builtinbase }
 func (ctx *__splitquote) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__splitquote) x() (res any) {
-    res = ctx.__splitstring.x()
+    res = ctx.__split.x()
     if v, y := res.(Value); y && v != nil { quotestrings(v) }
     return
 }
 
-// TODO: deprecate this and add -quote to __splitstring
-type __splitquotejoin struct { __splitstring }
+// TODO: deprecate this and add -quote to __split
+type __splitquotejoin struct { __split }
 func (ctx *__splitquotejoin) inner() Context { return &ctx.builtinbase }
 func (ctx *__splitquotejoin) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__splitquotejoin) x() (res any) {
-    res = ctx.__splitstring.x()
+    res = ctx.__split.x()
     if val, y := res.(Value); y && val != nil {
         var err error
         var sep string
@@ -1995,14 +1985,14 @@ func (ctx *__splitquotejoin) x() (res any) {
     return
 }
 
-type __splitjoinquote struct { __splitstring }
+type __splitjoinquote struct { __split }
 func (ctx *__splitjoinquote) inner() Context { return &ctx.builtinbase }
 func (ctx *__splitjoinquote) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__splitjoinquote) x() (res any) {
-    res = ctx.__splitstring.x()
+    res = ctx.__split.x()
     if val, y := res.(Value); y && val != nil {
         var err error
         var sep string
@@ -2021,13 +2011,13 @@ func (ctx *__splitjoinquote) x() (res any) {
     return
 }
 
-type __field struct { builtinbase }
-func (ctx *__field) inner() Context { return &ctx.builtinbase }
-func (ctx *__field) cast(t reflect.Type) Context {
+type __fields struct { builtinbase }
+func (ctx *__fields) inner() Context { return &ctx.builtinbase }
+func (ctx *__fields) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__field) x() (res any) {
+func (ctx *__fields) x() (res any) {
     if l := len(ctx.a); l >= 2 {
         var fields []string
         var s string = __string(ctx, ctx.a[1])
@@ -2042,17 +2032,6 @@ func (ctx *__field) x() (res any) {
         }
         return fields
     }
-    return
-}
-
-type __fields struct { builtinbase }
-func (ctx *__fields) inner() Context { return &ctx.builtinbase }
-func (ctx *__fields) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
-}
-func (ctx *__fields) x() (res any) {
-    // TODO: ...
     return
 }
 
@@ -2530,7 +2509,7 @@ ForSources:
                         "%v: %v (%v): unmapped destination, aka files (...)",
                         proj, nameStr, dstPat,
                     }
-                    if t := unmap_files(ctx, nameVal); ctx.erroDstNomap {
+                    if t := unmap_files(ctx, proj, nameVal, nil); ctx.erroDstNomap {
                         erro(ctx, "%v: patsubst: %v (%v) ⇒ %v (%v) ⇒ %v", proj, srcFile, srcPat, nameVal, dstPat, t)
                         errostack(ctx, 16, a...).trace()
                     } else if ctx.warnDstNomap {
@@ -2645,8 +2624,6 @@ func (ctx *__lowercase) x() any {
     return res
 }
 
-type __strip struct { __trimspace }
-
 type __trim struct { builtinbase }
 func (ctx *__trim) inner() Context { return &ctx.builtinbase }
 func (ctx *__trim) cast(t reflect.Type) Context {
@@ -2672,13 +2649,6 @@ func (ctx *__trim) x() any {
         res = append(res, a)
     }
     return res
-}
-
-type __trimspace struct { __trim }
-func (ctx *__trimspace) inner() Context { return &ctx.builtinbase }
-func (ctx *__trimspace) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
 }
 
 type __trimleft struct { builtinbase }
@@ -4187,7 +4157,8 @@ func (ctx *__file) x() any {
             }
             continue
         }
-        for _, f := range select_files(ctx, unmap_files(ctx, a)) {
+		var proj = _project(ctx)
+        for _, f := range select_files(ctx, unmap_files(ctx, proj, a, nil)) {
             if !ctx.exists || f.exists() {
                 res = append(res, try_fullfile(ctx, f))
             } else if ctx.ignore {
@@ -4407,7 +4378,7 @@ func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) 
 }
 func (ctx *__wildcard) _project_0(p *project, pats ...Value) (files []*file) {
     for _, pat := range pats {
-        for _, a := range p.unmap_files(ctx, pat, nil) {
+        for _, a := range unmap_files(ctx, p, pat, nil) {
             for _, loc := range a.paths {
                 var dir = __string(ctx, loc)
                 note(ctx, "%v %v %v %v", pat, a.pattern, loc, dir).debug()
@@ -4422,7 +4393,7 @@ func (ctx *__wildcard) _project_1(p *project, pats ...Value) (files []*file) {
         g.Add(1)
         func() {
             defer g.Done()
-            for _, a := range p.unmap_files(ctx, pat, nil) {
+            for _, a := range unmap_files(ctx, p, pat, nil) {
                 note(ctx, "%v %v %v", pat, a.filemap.pattern, a.filemap.paths).debug()
             }
         } ()
@@ -4507,7 +4478,7 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
 
     var f3 = func(pat Value) {
         defer g.Done()
-        for _, a := range p.unmap_files(ctx, pat, nil) {
+        for _, a := range unmap_files(ctx, p, pat, nil) {
             g.Add(1) ; go f2(pat, a.filemap)
         }
     }

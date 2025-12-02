@@ -79,7 +79,7 @@ func (p *uselist) _invoke(ctx Context, o, a []Value) (result Value) {
     var targets []Value
     if p.list != nil {
         for _, usee := range p.list {
-            if entry := usee.project.defaultEntry; entry != nil {
+            if entry := usee.project.main; entry != nil {
                 if usee.project.opt.traveUseLoop {
                     // FIXME: break use loop
                 } else if false {

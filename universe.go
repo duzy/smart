@@ -680,7 +680,7 @@ func (u *universe) run() (result []Value) {
     var collect func(proj *project, vals []Value) bool
     collect = func(proj *project, vals []Value) bool {
         if len(vals) == 0 {
-            if entry := proj.defaultEntry; entry != nil {
+            if entry := proj.main; entry != nil {
                 goals = append(goals, entry)
             } else {
                 // NOTE: ignored project
@@ -748,7 +748,7 @@ func (u *universe) run() (result []Value) {
 
     if collect(main, merge(u.globe.goals.value)) {
         if len(goals) == 0 {
-            if entry := main.defaultEntry; entry != nil {
+            if entry := main.main; entry != nil {
                 goals = append(goals, entry)
             }
         }

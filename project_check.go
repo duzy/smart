@@ -288,7 +288,7 @@ func (p *project) unmap_entries_check(ctx Context, _k any, _res *[]entry) {
 	}
 }
 
-func (p *project) tempdir_check(ctx Context, d *def, s string) {
+func tempdir_check(ctx Context, p *project, d *def, s string) {
 	switch p.name {
 	case "testdefaultconfigure":
 		if d.name != "outtmp" {
@@ -323,7 +323,7 @@ func (p *project) tempdir_check(ctx Context, d *def, s string) {
 	}
 }
 
-func (p *project) tempfile_check(ctx Context, name, d string, f *file) {
+func tempfile_check(ctx Context, p *project, name, d string, f *file) {
 	if f.dir != d {
 		erro(ctx, "%v: %s != %s", p, f.dir, d).trace()
 	}
@@ -404,7 +404,7 @@ func (p *project) tempfile_check(ctx Context, name, d string, f *file) {
 	}
 }
 
-func unmap_check(ctx *unmap, c *valcache, key any) {
+func unmap_check(ctx *uncache, c *valcache, key any) {
 	switch p := _project(ctx); p.name {
 	case "configure.base":
 		switch x := key.(type) {

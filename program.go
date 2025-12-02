@@ -405,7 +405,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 
 func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *file) {
     var mapPrereqFile = func(name any) {
-        var ms = unmap_files(unmap_uncheck_ctx{ctx}, name)
+        var ms = unmap_files(unmap_uncheck_ctx{ctx}, _project(ctx), name, nil)
         if ms != nil {
             defer func() {
                 if prereqFile != nil { return }

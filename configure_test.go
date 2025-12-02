@@ -47,16 +47,16 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		if outdir != "" { os.RemoveAll(outdir) }
 	} ()
 
-	if t := proj.unmap_entries(ctx, "FOO", nil); t != nil {
+	if t := unmap_entries(ctx, proj, "FOO", nil); t != nil {
 		ctx.err("%v", &proj.entries)
 	}
-	if t := proj.unmap_entries(ctx, "foo", nil); t == nil {
+	if t := unmap_entries(ctx, proj, "foo", nil); t == nil {
 		ctx.err("%v", &proj.entries)
 	}
-	if t := proj.unmap_entries(ctx, "stamp", nil); t == nil && false {
+	if t := unmap_entries(ctx, proj, "stamp", nil); t == nil && false {
 		ctx.err("%v", &proj.entries)
 	}
-	if t := proj.unmap_entries(ctx, "touch", nil); t == nil && false {
+	if t := unmap_entries(ctx, proj, "touch", nil); t == nil && false {
 		ctx.err("%v", &proj.entries)
 	}
 

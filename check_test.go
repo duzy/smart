@@ -326,7 +326,6 @@ func testRemoveConfigureDir(ctx *testcase, p *project) {
 
 func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	ctx := loadcase(t, "testdata/"+spec, spec, name, ii...)
-	// ctx.run = func(f2 testcase_f1) { runcase(t, name, spec, f2) }
 
 	defer func() {
 		if e := recover(); e != nil {
@@ -561,10 +560,10 @@ func Test(t *testing.T) {
 	run(t, "defs", "defs", "testdefs", testDefs0)
 
 	// valcache_test.go
+	run(t, "valcache", "valcache",   "testvalcache", testValueCache)
 	run(t, "valcache", "valcache/1", "testvalcache", testValueCache1)
 	run(t, "valcache", "valcache/2", "testvalcache", testValueCache2)
 	run(t, "valcache", "valcache/3", "testvalcache", testValueCache3)
-	run(t, "valcache", "valcache",   "testvalcache", testValueCache)
 
 	// builtins_test.go
 	run(t, "builtins", "builtins/file/0",     "testbuiltins", test__file0)

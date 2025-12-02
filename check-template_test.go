@@ -267,10 +267,11 @@ func testTemplate(ctx *testcase) {
 
 func testTemplateForeach(ctx *testcase) {
 	var s string
+	var proj = _project(ctx)
 
 	s = ".test.a"
-	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	if t := unmap_entries(ctx, proj, s, nil); t == nil {
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if len(t) != 1 {
 		ctx.err("%s %v", s, t)
 	} else if x, y := t[0].(rule_name); !y {
@@ -302,10 +303,10 @@ func testTemplateForeach(ctx *testcase) {
 	}
 
 	s = ".test.b"
-	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	if t := unmap_entries(ctx, proj, s, nil); t == nil {
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if _, y := t.target.(*compound); !y {
@@ -329,10 +330,10 @@ func testTemplateForeach(ctx *testcase) {
 	}
 
 	s = ".test.c"
-	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	if t := unmap_entries(ctx, proj, s, nil); t == nil {
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if _, y := t.target.(*compound); !y {
@@ -356,10 +357,10 @@ func testTemplateForeach(ctx *testcase) {
 	}
 
 	s = ".test.a.aaa"
-	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	if t := unmap_entries(ctx, proj, s, nil); t == nil {
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if len(t.program) != 1 {
@@ -371,10 +372,10 @@ func testTemplateForeach(ctx *testcase) {
 	}
 
 	s = ".test.b.bbb"
-	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	if t := unmap_entries(ctx, proj, s, nil); t == nil {
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if len(t.program) != 1 {
@@ -386,10 +387,10 @@ func testTemplateForeach(ctx *testcase) {
 	}
 
 	s = ".test.c.ccc"
-	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	if t := unmap_entries(ctx, proj, s, nil); t == nil {
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if len(t.program) != 1 {
@@ -401,10 +402,10 @@ func testTemplateForeach(ctx *testcase) {
 	}
 
 	s = ".test.o.bar"
-	if t := unmap_entries(ctx, s); t == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+	if t := unmap_entries(ctx, proj, s, nil); t == nil {
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
-		ctx.err("%s %v", s, _project(ctx).entries.ks())
+		ctx.err("%s %v", s, proj.entries.ks())
 	} else if t, y := r[0].(rule_name); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if len(t.program) != 1 {

@@ -25,9 +25,6 @@ type _filemap struct {
     patts []Value
     paths []Value
 }
-
-type filemap struct { *_filemap ; pattern Value }
-
 func (p *_filemap) String() (_ string) {
     if n := len(p.patts); n == 1 {
         return p.patts[0].String()
@@ -37,9 +34,8 @@ func (p *_filemap) String() (_ string) {
     return
 }
 
-func (p *filemap) ts(t string) string {
-    return fmt.Sprintf("{=%s %v}", t, ts(p.pattern))
-}
+type filemap struct { *_filemap ; pattern Value }
+func (p *filemap) ts(t string) string { return fmt.Sprintf("{=%s %v}", t, ts(p.pattern)) }
 func (p *filemap) String() (s string) {
     if p.pattern == nil {
         s = p._filemap.String()
@@ -152,7 +148,7 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
 
         if s := filepath.Clean(sub); sub != s { sub = s }
 
-        if filepath.IsAbs(sub) {    // 'sub' is abs
+        if filepath.IsAbs(sub) {      // 'sub' is abs
             if filepath.IsAbs(name) { // 'name' is abs too
                 if s := sub+pathSep; strings.HasPrefix(name, s) { // 'name' should have 'sub' prefix
                     name = strings.TrimPrefix(name, s)
@@ -268,7 +264,7 @@ type project struct {
 
     use *uselist
 
-    configure *project // .configure
+    configure *project // .configure project
     configuration *file // configuration.sm if saved or loaded
 
     absPath string
@@ -280,9 +276,9 @@ type project struct {
     filemap valcache
     entries valcache
 
-    patterns   []*rule // order is important
-    configs    []*def // configure entries
-    defaultEntry entry
+    patterns []*rule // order is important
+    configs  []*def // configure entries
+    main entry
 
     ext project_ext
     opt project_opts
@@ -350,8 +346,8 @@ func select_files(ctx Context, m []filemap_name) (res []*file) {
     return
 }
 
-func select_file(ctx Context, v []filemap_name) (res *file) {
-    if a := select_files(ctx, v); 0 < len(a) {
+func select_file(ctx Context, m []filemap_name) (res *file) {
+    if a := select_files(ctx, m); 0 < len(a) {
         if res = a[0] ; !res.exists() {
             for _, f := range a { if f.exists() { return f } }
         }
@@ -360,7 +356,7 @@ func select_file(ctx Context, v []filemap_name) (res *file) {
 }
 
 func (p *project) file(ctx Context, a any) *file {
-    return select_file(ctx, p.unmap_files(ctx, a, nil))
+    return select_file(ctx, unmap_files(ctx, p, a, nil))
 }
 
 func (p *project) tempdir(ctx Context) (d *def, s string) {
@@ -374,7 +370,7 @@ func (p *project) tempdir(ctx Context) (d *def, s string) {
 
     s = filepath.Clean(__string(/*closure_with(ctx,p)*/ctx, d))
 
-    if checkpoints { p.tempdir_check(ctx, d, s) }
+    if checkpoints { tempdir_check(ctx, p, d, s) }
     return
 }
 
@@ -396,9 +392,7 @@ func (p *project) tempfile(ctx Context, name string) (f *file) {
         erro(ctx, "%v: not a file: %v : %v", p, name, d).trace()
     }
 
-    if checkpoints {
-        p.tempfile_check(ctx, name, d, f)
-    }
+    if checkpoints { tempfile_check(ctx, p, name, d, f) }
     return
 }
 
@@ -443,7 +437,7 @@ func (p *project) resolve(ctx Context, name string) (obj object) {
 }
 
 func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) {
-    entries = p.unmap_entries(ctx, name, nil)
+    entries = unmap_entries(ctx, p, name, nil)
 
     if false && p.configure != nil && is_configurecontext(ctx) {
         entries = append(entries, p.configure._entries(ctx, name, true)...)
@@ -585,58 +579,6 @@ func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
         var a, _, _ = use.project.resolvePatterns123(ctx, val, s)
         res = append(res, a...)
     }
-    return
-}
-
-func (p *project) new_entry(ctx Context, options []Value, target Value, prog *program) (entry entry) {
-    var patterned = patterned(ctx,target)
-    if !patterned {
-        // NOTE: it should work too if not checking against files
-        switch target.(type) {
-        case *file, *path, *barefile, *percpat, *globpat, *regexpat:
-        default:
-            if f := p.file(unmap_uncheck_ctx{ctx}, target); f != nil {
-                f.position = target.Position()
-                target = f
-            }
-        }
-    }
-
-    defer func() {
-        if entry != nil {
-            entry.programs(append(entry.programs(), prog)...)
-        }
-    } ()
-
-    var arged []Value // e.g. for pattern filtering
-    switch t := target.(type) {
-    case *group:
-        erro(ctx, "group target not supported: %v", t).trace()
-    case *argumented:
-        target, arged = t.Value, merge(t.args...)
-    }
-
-    var c, _ = p.entries.hit(cache{ctx}, target)
-    if c == nil {
-        erro(ctx, "no cache for target: %v", target).trace()
-    }
-
-    if len(c.a) == 0 {
-        var rule = &rule{ target:target, arged:arged }
-
-        if patterned {
-            p.patterns = append(p.patterns, rule)
-        }
-
-        entry = rule
-        c.a = append(c.a, rule)
-    } else if p, y := c.a[0].(*rule); y {
-        entry = p
-    } else {
-        errostack(ctx, 3, "wrong cache: %v", c).trace()
-    }
-
-    if entry != nil && p.defaultEntry == nil { p.defaultEntry = entry }
     return
 }
 

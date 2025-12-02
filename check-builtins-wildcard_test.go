@@ -78,7 +78,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v", pat1, tst{pat1})
 	} else if s := __string(ctx,pat1); s != "*.h" {
 		ctx.err("%v %v %s", pat1, tst{pat1}, s)
-	} else if cs := m.unmap_files(ctx, pat1, nil); len(cs) != 1 {
+	} else if cs := unmap_files(ctx, m, pat1, nil); len(cs) != 1 {
 		ctx.err("%v %v %v %v", pat1, tst{pat1}, cs, &m.filemap)
 	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
 		ctx.err("%v %v %v", g, tst{cs[0].pattern}, &m.filemap)
@@ -93,7 +93,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v", pat2, tst{pat2})
 	} else if s := __string(ctx,pat2); s != "**.h" {
 		ctx.err("%v %v %s", pat2, tst{pat2}, s)
-	} else if cs := m.unmap_files(ctx, pat2, nil); len(cs) != 1 {
+	} else if cs := unmap_files(ctx, m, pat2, nil); len(cs) != 1 {
 		ctx.err("%v %v %v", pat2, tst{pat2}, cs)
 	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
 		ctx.err("%v", tst{cs[0].pattern})
@@ -109,10 +109,10 @@ func test__wildcard(ctx *testcase) {
 	} else if s := __string(ctx,pat3); s != "foobar/config/*.def.am" {
 		ctx.err("%v %v %s", pat3, tst{pat3}, s)
 	} else if false {
-		if t := m.unmap_files(ctx, pat3, nil); t != nil {
+		if t := unmap_files(ctx, m, pat3, nil); t != nil {
 			ctx.err("%v %v %v", pat3, tst{pat3}, t)
 		}
-	} else if cs := m.unmap_files(ctx, pat3, nil); len(cs) != 1 {
+	} else if cs := unmap_files(ctx, m, pat3, nil); len(cs) != 1 {
 		ctx.err("%v %v %v", pat3, tst{pat3}, cs)
 	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
 		ctx.err("%v %v", cs[0].pattern, tst{cs[0].pattern})
@@ -131,7 +131,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v", pat4, tst{pat4})
 	} else if s := __string(ctx,pat4); s != "foobar/config/*.def.in" {
 		ctx.err("v %v %s", pat4, tst{pat4}, s)
-	} else if cs := m.unmap_files(ctx, pat4, nil); len(cs) != 0 {
+	} else if cs := unmap_files(ctx, m, pat4, nil); len(cs) != 0 {
 		// NOTE: because the files spec only defined "**.def.am", no "**.def.in"
 		ctx.err("%v %v %v", pat4, tst{pat4}, cs)
 	}
@@ -140,7 +140,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v", tst{pat5})
 	} else if s := __string(ctx,pat5); s != "*.def.am" {
 		ctx.err("%v %s", tst{pat5}, s)
-	} else if cs := m.unmap_files(ctx, pat5, nil); len(cs) != 1 {
+	} else if cs := unmap_files(ctx, m, pat5, nil); len(cs) != 1 {
 		ctx.err("%v %v : %v", pat5, tst{pat5}, cs)
 	} else if t := cs[0].filemap; t.pattern == nil {
 		ctx.err("%v", tst{t})
@@ -157,7 +157,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v", tst{pat6})
 	} else if s := __string(ctx,pat6); s != "**.def.am" {
 		ctx.err("%v %s", tst{pat6}, s)
-	} else if cs := m.unmap_files(ctx, pat6, nil); len(cs) != 1 {
+	} else if cs := unmap_files(ctx, m, pat6, nil); len(cs) != 1 {
 		ctx.err("%v %v : %v", pat6, tst{pat6}, cs)
 	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
 		ctx.err("%v", tst{cs[0].pattern})

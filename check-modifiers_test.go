@@ -29,7 +29,7 @@ func testValueModifier(ctx *testcase) {
 		ctx.err("%v", tst{d})
 	} else if v.String() != "foobar" {
 		ctx.err("%v", tst{v})
-	} else if s := __string(ctx, v); s != "foobar" {
+	} else if s := __string(src(ctx,d), v); s != "foobar" {
 		ctx.err("%v → %s", tst{v}, s)
 	}
 
@@ -38,18 +38,10 @@ func testValueModifier(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if l, y := v.(*list); !y {
-		ctx.err("%v", tst{v})
-	} else if l.len() != 2 {
-		ctx.err("%v ; %v", tst{v}, l.len())
-	} else if _, y := l.elems[0].(*delegate); !y {
-		ctx.err("%v", tst{l.elems[0]})
-	} else if _, y := l.elems[1].(*word); !y {
-		ctx.err("%v", tst{l.elems[1]})
-	} else if s, t := "$(val) test_mod_1", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foobar test_mod_1", __string(ctx, v); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "{(test-mod-1 $(val))}"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s, t := __string(src(ctx,d), v), "foobar test_mod_1"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	if s := "val2"; false {
@@ -57,14 +49,10 @@ func testValueModifier(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if l, y := v.(*modification); !y {
-		ctx.err("%v", tst{v})
-	} else if len(l.list) != 1 {
-		ctx.err("%v ; %v", tst{v}, len(l.list))
-	} else if s, t := "{(test-mod-1 $(val))}", v.String(); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
-	} else if s, t := "foobar test_mod_1", __string(ctx, v); s != t {
-		ctx.err("%v → %s != %s", tst{v}, t, s)
+	} else if s, t := v.String(), "$(val) test_mod_1"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
+	} else if s, t := __string(src(ctx,d), v), "foobar test_mod_1"; s != t {
+		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
 	if s := "val3"; true {

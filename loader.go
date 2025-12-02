@@ -649,7 +649,7 @@ func (l ul) include(ctx Context, doc *commentgroup, g *clauseopts, _ int) {
 		case *file, *strlit, *strcomp: // escape from file searching
 		default: if f := l.project.file(ctx, val); f != nil { val = f }
 		}
-		val = l.rule(ctx, nil, []Value{val}) // this should return a Rule
+		val = l.rule(ctx, []Value{val}) // this should return a Rule
 	}
 
     if g.skip { return }

@@ -643,7 +643,6 @@ func (p *rule) expand(ctx Context) (_ Value) {
     if equal(ctx, target, p.target) { return p }
     return &rule{ target, p.program, p.arged }
 }
-func (p *rule) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit(ctx, p.target) }
 // FIXME: p.target maybe not the real target
 
 func _stemmed(ctx Context) *stemmed_ctx { return cast[*stemmed_ctx](ctx) }

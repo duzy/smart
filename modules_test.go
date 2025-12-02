@@ -1874,6 +1874,7 @@ SIZEOF___INT64_T_CODE =
 func testLLVMConfig1(ctx *testcase) {
 	testVariantTargetVars(ctx)
 
+	var p = _project(ctx)
 	var names = []string{
 		".configure", "configuration.sm", "stamp", "foo.log",
 		".deps/11/22/333333333333333333333333333333333333333333333333333333333333",
@@ -1908,9 +1909,8 @@ func testLLVMConfig1(ctx *testcase) {
 		".configure/std/x.float.words.bigendian.c++",
 	}
 
-	var p = _project(ctx)
 	for _, name := range names {
-		if f := p.unmap_files(ctx, name, nil); f == nil {
+		if f := unmap_files(ctx, p, name, nil); f == nil {
 			ctx.err("unmap %s", name)
 		}
 	}

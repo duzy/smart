@@ -402,7 +402,7 @@ func closure_set(ctx Context, name string, val Value) (prev Value, okay bool) {
 }
 
 func closure_files(ctx Context, name string, one bool) (res []*file) {
-    var a = unmap_files(ctx, name)
+    var a = unmap_files(ctx, _project(ctx), name, nil)
     if f := select_file(ctx, a); f != nil {
         if res = append(res, f); one { /* break */ }
     }
@@ -946,7 +946,6 @@ func identity_ctx(ctx Context) (ic *ident_ctx, rc Context) {
     return
 }
 func ident(ctx Context, x Value) (s string) {
-    if checkpoints { defer check_ident(ctx, x, &s) }
     switch t := x.(type) {
     case *loc: return ident(ctx,t.Value)
     case *closure: return ident_opt(ctx, "&", x, closure_ident{})
@@ -1724,7 +1723,7 @@ func (p *argumented) ctx(ctx Context) *argumented_ctx {
         if a = expand(_final(ctx),a); patterned(ctx,a) {
             if stems := _stems(ctx); len(stems) > 0 {
                 if v, rest := stencil(ctx, a, stems); len(rest) > 0 {
-                    erro(ctx, "partial stencil: %v, %v, %v, %v", a, v, rest, stems).trace()
+                    erro(pc(ctx,p), "partial stencil: %v, %v, %v, %v", a, v, rest, stems).trace()
                 } else if f := (as{a}).file(ctx, proj); f != nil {
                     a = f
                 } else {
@@ -1736,9 +1735,6 @@ func (p *argumented) ctx(ctx Context) *argumented_ctx {
     }
 
     return &argumented_ctx{ctx, p.Value, args}
-}
-func (p *argumented) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
-    return c.hit(ctx, p.Value)
 }
 
 type negative struct{ Value }
@@ -1793,22 +1789,18 @@ func (_ *integer) kind() Kind { return KindInteger }
 type binary struct{ integer }
 func (p *binary) kind() Kind { return p.integer.kind()|KindBinary }
 func (p *binary) String() string { return "0b"+strconv.FormatInt(int64(p.int64),2) }
-func (p *binary) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit(ctx, p.String()) }
 
 type octal struct{ integer }
 func (p *octal) kind() Kind { return p.integer.kind()|KindOctal }
 func (p *octal) String() string { return "0"+strconv.FormatInt(int64(p.int64),8) }
-func (p *octal) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit(ctx, p.String()) }
 
 type decimal struct{ integer }
 func (p *decimal) kind() Kind { return p.integer.kind()|KindDecimal }
 func (p *decimal) String() string { return strconv.FormatInt(int64(p.int64),10) }
-func (p *decimal) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit(ctx, p.String()) }
 
 type hexadecimal struct{ integer }
 func (p *hexadecimal) kind() Kind { return p.integer.kind()|KindHexadecimal }
 func (p *hexadecimal) String() string { return "0x"+strconv.FormatInt(int64(p.int64),16) }
-func (p *hexadecimal) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit(ctx, p.String()) }
 
 const epsilon = 1e-15 /* 1e-16 */
 
@@ -1890,10 +1882,6 @@ func (p *raw) trim(pre string) {
 type strlit struct{ valbase; s string }
 func (_ *strlit) kind() Kind { return KindStrLit }
 func (p *strlit) String() string { return `'`+p.s+`'` }
-func (p *strlit) hit(ctx Context, c *valcache) (res *valcache, full bool) {
-	if c, full = c.hit(ctx, STRING); c == nil { return }
-	return c.hit(ctx, p.s)
-}
 
 type strval struct{ valbase; v []Value }
 func (_ *strval) kind() Kind { return KindStrVal }
@@ -1908,10 +1896,6 @@ func (p *strval) String() (s string) {
     }
     s = `{=str `+s+`}`
     return
-}
-func (p *strval) _hit(ctx Context, c *valcache) (res *valcache, full bool) {
-    if c, full = c.hit(ctx, STRING); c == nil { return }
-    return c.hit(ctx, __string(ctx, p))
 }
 
 func isTrueString(s string) (t bool) {
@@ -1931,7 +1915,6 @@ func (q *quote) String() (s string) { return "{=quote "+q.list.String()+"}" }
 type punct struct{ valbase; token }
 func (_ *punct) kind() Kind { return KindPunct }
 func (p *punct) String() string { return p.token.String() }
-func (p *punct) hit(ctx Context, c *valcache) (_ *valcache, _ bool) { return c.hit(ctx, p.token) }
 func (p *punct) ts(ctx Context, t string) (s string) {
     switch p.token {
     case PROOT: s = "ROOT"
@@ -1951,7 +1934,6 @@ func (p *word) String() string {
         return p.s
     }
 }
-func (p *word) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit(ctx, p.s) }
 
 type qualword struct{ valbase; words []string } // TODO: foo.bar.zar, foo.&(bar).zar ???
 func (p *qualword) String() string { return strings.Join(p.words,".") }
@@ -2148,13 +2130,6 @@ func (p *compound) String() (s string) {
     }
     return
 }
-func (p *compound) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if x, y := do(ctx, hit_bare{c, p}).(valcache_bool); y {
-        return x.valcache, x.bool
-    }
-	errostack(pc(ctx,p), 3, "miss hit : %v : %v", ts(p), ts(ctx)).trace()
-	return
-}
 func (p *compound) app(vals ...Value) {
     for _, v := range vals {
         if x, y := v.(*compound); y {
@@ -2199,9 +2174,10 @@ func barefilize(ctx Context, targets ...Value) []Value {
 }
 func exp_barefilize(ctx Context, targets ...Value) (res []Value) {
     var maps []filemap_name
+	var proj = _project(ctx)
     for _, target := range targets {
         if !patterned(ctx,target) {
-            maps = append(maps, unmap_files(ctx, target)...)
+            maps = append(maps, unmap_files(ctx, proj, target, nil)...)
         }
     }
     for _, f := range select_files(ctx, maps) { res = append(res, f) }
@@ -2447,7 +2423,6 @@ Pattern:
 
 type globmeta struct{ valbase ; token }
 func (p *globmeta) String() string { return p.token.String() }
-func (p *globmeta) hit(ctx Context, c *valcache) (*valcache, bool) { return c.hit(ctx, p.token) }
 func (p *globmeta) ts(ctx Context, t string) string { return "{"+lp(ctx,p.position,"meta")+" "+p.token.String()+"}" }
 
 // `[a-b]`, `[abc]`, ...
@@ -2480,14 +2455,6 @@ func (p *path) isAbs() (_ bool) {
         return true
     }
     return
-}
-func (p *path) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
-    if x, y := do(ctx, hit_path{c, p}).(valcache_bool); y {
-        return x.valcache, x.bool
-    } else {
-		erro(ctx, "miss hit: %v : %v", ts(p), ts(ctx)).trace()
-		return
-	}
 }
 func (p *path) _match1(ctx Context, str string) (full bool, result []string, stems []string) {
 	if vals := strings.Split(str, pathSep); 0 < len(vals) {
@@ -2926,15 +2893,6 @@ func (p *file) basename() (s string) {
     if p.info != nil { return p.info.Name() }
     return filepath.Base(p.filestub.name)
 }
-func (p *file) hit(ctx Context, c *valcache) (_ *valcache, _ bool) {
-    if ss := strings.Split(p.name, pathSep) ; true {
-        return c.hit(ctx, ss)
-    } else if len(ss) == 1 {
-        return c.hit(ctx, p.name)
-    } else {
-        return unmap_path(ctx, c, p.name, ss)
-    }
-}
 func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
     if p.filemap != nil {
         // FIXME: file should keep both 'match' and 'pre', or just remove searchInMatchedPaths
@@ -3026,9 +2984,6 @@ func (p *file) change(dir, sub, name string) (okay bool) {
     return
 }
 
-
-type filecontent struct{ *file ; content []byte }
-
 type flag struct{ Value }
 func (p flag) kind() Kind { return KindFlag }
 func (p flag) Position() (pos Position) {
@@ -3046,17 +3001,12 @@ func (p flag) String() (s string) {
 func (p flag) opt(ctx Context, name string) (res string, match bool) {
 	if val := p.Value; isTrivial(val) {
 		if false { erro(ctx, "flag name is trivial").trace() }
-	} else if f, y := val.(flag); y {
-		res, match = f.opt(ctx, name)
+	} else if x, y := val.(flag); y {
+		res, match = x.opt(ctx, name)
 	} else if s := __string(ctx, val); s == name {
 		res, match = name, true
 	}
 	return
-}
-func (p flag) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if c, fullmatch = c.hit(ctx, MINUS); c == nil { return }
-    if p.Value.kind()&(KindNull|KindNone) != 0 { return c, fullmatch }
-    return c.hit(&flag_hit{ctx,p}, p.Value)
 }
 
 type strcomp struct{ elements } // "string compound"
@@ -3424,21 +3374,6 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
     }
     return
 }
-func (p *percpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    if checkpoints {
-        if s := ts(p.Suffix); strings.Contains(s, "{=argumented ") {
-            erro(ctx, "wrong percpat: %v : suffix=%s", p, s).trace()
-        }
-    }
-
-    var s = __string(ctx, p)
-    if x, y := do(&percpat_hit{ctx,p}, hit_perc{c,s}).(valcache_bool); y {
-        return x.valcache, x.bool
-    }
-
-    erro(ctx, "unhit: %v : %v", ts(p), ts(ctx)).trace()
-    return
-}
 
 type multia_result int
 const (
@@ -3527,16 +3462,6 @@ func (_ *globpat) kind() Kind { return KindGlobPat }
 func (p *globpat) ts(ctx Context, _ string) string { return p.elements.ts(ctx, "glob") }
 func (p *globpat) String() (s string) {
     for _, elem := range p.elems { s += elem.String() }
-    return
-}
-func (p *globpat) hit(ctx Context, c *valcache) (res *valcache, doneFull bool) {
-    t := do(&globpat_hit{ctx, p}, hit_glob{c, __string(ctx, p)})
-
-    if x, y := t.(valcache_bool); y {
-        return x.valcache, x.bool
-    }
-
-    erro(ctx, "miss hit: %v : %v", ts(p), ts(ctx)).trace()
     return
 }
 
@@ -3681,16 +3606,6 @@ func (p *regexpat) String() string {
 func (p *regexpat) ts(ctx Context, t string) string {
     return "{"+lp(ctx,p.position,"regex")+" "+p.Regexp.String()+"}"
 }
-func (p *regexpat) hit(ctx Context, c *valcache) (res *valcache, fullmatch bool) {
-    t := do(&regexpat_hit{ctx, p}, hit_regex{c, __string(ctx, p)})
-
-    if x, y := t.(valcache_bool); y {
-        return x.valcache, x.bool
-    }
-
-    erro(ctx, "unhit: %v : %v", ts(p), ts(ctx)).trace()
-    return
-}
 
 func values(args ...any) (elems []Value) {
     for _, a := range args {
@@ -3701,7 +3616,7 @@ func values(args ...any) (elems []Value) {
                 elems = append(elems, values(v.Index(n).Interface())...)
             }
         } else {
-            //erro(ctx, "'%v' is not value type (%T)", a, a).trace()
+            // erro(ctx, "'%v' is not value type (%T)", a, a).trace()
         }
     }
     return
@@ -3790,8 +3705,8 @@ func deleteFile(ctx Context, val Value) (res []*file) {
     switch t := val.(type) {
     case *barefile: if t.file != nil { return deleteFile(ctx, t.file) }
     case *rule: return deleteFile(ctx, t.target)
-    case *project: if e := t.defaultEntry; e != nil { return deleteFile(ctx, e) }
-    case *use: if e := t.project.defaultEntry; e != nil { return deleteFile(ctx, e) }
+    case *project: if e := t.main; e != nil { return deleteFile(ctx, e) }
+    case *use: if e := t.project.main; e != nil { return deleteFile(ctx, e) }
     case *uselist: for _, e := range t.list { res = append(res, deleteFile(ctx, e)...) }
     case *list:
         for _, e := range t.elems { res = append(res, deleteFile(ctx, e)...) }
@@ -3809,8 +3724,8 @@ func stampFile(ctx Context, val Value) (res []*file) {
     switch t := val.(type) {
     case *barefile: if t.file != nil { return stampFile(ctx, t.file) }
     case *rule: return stampFile(ctx, t.target)
-    case *project: if e := t.defaultEntry; e != nil { return stampFile(ctx, e) }
-    case *use: if e := t.project.defaultEntry; e != nil { return stampFile(ctx, e) }
+    case *project: if e := t.main; e != nil { return stampFile(ctx, e) }
+    case *use: if e := t.project.main; e != nil { return stampFile(ctx, e) }
     case *uselist: for _, e := range t.list { res = append(res, stampFile(ctx, e)...) }
     case *list:
         for _, e := range t.elems { res = append(res, stampFile(ctx, e)...) }
@@ -3828,8 +3743,8 @@ func statFile(ctx Context, val Value) (res *statinfo) {
     switch t := val.(type) {
     case *barefile: if t.file != nil { return statFile(ctx, t.file) }
     case *rule: return statFile(ctx, t.target)
-    case *project: if e := t.defaultEntry; e != nil { return statFile(ctx, e) }
-    case *use: if e := t.project.defaultEntry; e != nil { return statFile(ctx, e) }
+    case *project: if e := t.main; e != nil { return statFile(ctx, e) }
+    case *use: if e := t.project.main; e != nil { return statFile(ctx, e) }
     case *uselist:
         for _, e := range t.list {
             if si := statFile(ctx, e); si != nil {
@@ -3870,7 +3785,7 @@ func updated(ctx Context, val Value) (res bool) {
     case *barefile: if t.file != nil { return updated(ctx, t.file) }
     case *rule: if res = updated(ctx, t.target); res { do(ctx, mark_dirty{[]Value{ t.target }}) }
     case *list: for _, e := range t.elems { if res = updated(ctx, e); res { break } }
-    case *use: if e := t.project.defaultEntry; e != nil { return updated(ctx, e) }
+    case *use: if e := t.project.main; e != nil { return updated(ctx, e) }
     case *uselist: for _, e := range t.list { res = res || updated(ctx, e) }
     }
     return
@@ -3881,7 +3796,7 @@ func updatedDeps(ctx Context, val Value, deps ...Value) (res []Value) {
     case *barefile: if t.file != nil { return updatedDeps(ctx, t.file, deps...) }
     case *rule: return updatedDeps(ctx, t.target, deps...)
     case *list: for _, e := range t.elems { res = append(res, updatedDeps(ctx, e, deps...)...) }
-    case *use: if e := t.project.defaultEntry; e != nil { return updatedDeps(ctx, e, deps...) }
+    case *use: if e := t.project.main; e != nil { return updatedDeps(ctx, e, deps...) }
     case *uselist: for _, e := range t.list { res = append(res, updatedDeps(ctx, e, deps...)...) }
     }
     return
@@ -4850,9 +4765,9 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 			}
 		}
 		return full, res, stems
-	case filemap_slot:
+	case filemap:
 		var s string
-		full, res, s = p.filemap.match(ctx, val)
+		full, res, s = p.match(ctx, val)
 		stems = []string{ s }
 		return
     }
@@ -5074,7 +4989,7 @@ func traverse(ctx Context, val Value) {
     case *def: if v := p.value; v != nil { traverse(ctx, v) }
     case negative: if v := p.Value; v != nil { traverse(ctx, v) }
     case *project:
-        if t := p.defaultEntry; t != nil {
+        if t := p.main; t != nil {
             switch t.destiny().(type) { case flag: return }
             traverse(ctx, t)
         }
