@@ -255,18 +255,18 @@ func (p *project) configuration_sm_check(ctx Context, f *file) {
 	}
 }
 
-func (p *project) unmap_entries_check(ctx Context, _k any, _res *[]entry) {
+func check_unmap_entries(ctx Context, p *project, _k any, _res *[]entry) {
 	switch res := *_res; p.name {
 	case "configure.base":
 		switch x := _k.(type) {
 		case *word:
 		case flag:
-			var c, y = p.entries.puncs[MINUS]
+			var c, y = p.entries.v[MINUS.String()]
 			if !y {
 				erro(ctx, "%v %v", p.name, _k).trace()
 			}
 
-			var ss = c.keys()
+			var ss = c._keys()
 			if len(ss) == 0 {
 				erro(ctx, "%v %v", p.name, _k).trace()
 			}
@@ -286,6 +286,9 @@ func (p *project) unmap_entries_check(ctx Context, _k any, _res *[]entry) {
 			// note(ctx, "%v: %v %v", p.name, ts(x), res).debug()
 		}
 	}
+}
+
+func check_unmap_files(ctx Context, p *project, _k any, _res *[]filemap_name) {
 }
 
 func tempdir_check(ctx Context, p *project, d *def, s string) {
@@ -405,17 +408,17 @@ func tempfile_check(ctx Context, p *project, name, d string, f *file) {
 }
 
 func unmap_check(ctx *uncache, c *valcache, key any) {
-	switch p := _project(ctx); p.name {
+	switch _project(ctx).name {
 	case "configure.base":
 		switch x := key.(type) {
 		case flag:
-			var cc, y = c.puncs[MINUS]
+			var cc, y = c.v[MINUS.String()]
 			if !y {
 				if truly(ctx, unmap_uncheck_y{}) { break }
-				errostack(ctx, 16, "%v %v %v", cacheMapping(ctx), x, c.ks(true)).trace()
+				errostack(ctx, 16, "%v %v %v", do(ctx, propUncache), x, c.ks(true)).trace()
 			}
 
-			var ss = cc.keys()
+			var ss = cc._keys()
 			if len(ss) == 0 { erro(ctx, "%v", x).trace() }
 
 			var v = x.Value
@@ -423,14 +426,9 @@ func unmap_check(ctx *uncache, c *valcache, key any) {
 			if _, y = ss[k]; !y { erro(ctx, "%v", v).trace() }
 		}
 	}
-
-	spec, _ := do(ctx, get_include_spec{}).(string)
-
-	switch spec {
+	switch do(ctx, get_include_spec{}) {
 	case "configure/.base/.template":
-		if false {
-			note(pc(ctx,key), "%v %v", tv(key), c)
-			note(pc(ctx,key), "%v", ts(ctx)).debug()
-		}
+		note(pc(ctx,key), "%v %v", tv(key), c)
+		note(pc(ctx,key), "%v", ts(ctx)).debug()
 	}
 }

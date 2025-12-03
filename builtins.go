@@ -2722,7 +2722,7 @@ func (ctx *__trimprefix) x() any {
 		for _, prefix := range prefix {
 			full, r, _ := match(ctx, prefix, s)
 			if full { s = "" ; break } // trim all for full prefix
-			if t, _ := _joinpath(ctx, r); strings.HasPrefix(s, t) {
+			if t := joinp(ctx, r); strings.HasPrefix(s, t) {
 				s = strings.TrimPrefix(s, t)
 			} else {
 				s = strings.TrimLeftFunc(s, unicode.IsSpace)
@@ -2753,7 +2753,7 @@ func (ctx *__trimsuffix) x() any {
 		for _, prefix := range prefix {
 			full, r, _ := match(reversal{ctx}, prefix, s)
 			if full { s = "" ; break } // trim all for full prefix
-			if t, _ := _joinpath(ctx, r); strings.HasSuffix(s, t) {
+			if t := joinp(ctx, r); strings.HasSuffix(s, t) {
 				s = strings.TrimSuffix(s, t)
 			} else {
 				s = strings.TrimRightFunc(s, unicode.IsSpace)
@@ -4234,7 +4234,8 @@ type __wildcard struct { builtinbase
     errorMissing bool `err,error,errormissing,error-missing,no-missing`
     exclude []Value `exclude,except,no,not`
     filetype string `type` // dir, file, etc.
-    dir string `dir,directory`
+	dir string `dir,directory`
+	sort bool `sort`
 }
 func (ctx *__wildcard) inner() Context { return &ctx.builtinbase }
 func (ctx *__wildcard) cast(t reflect.Type) Context {
@@ -4415,54 +4416,67 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
 
     var m sync.Mutex
     var g sync.WaitGroup
-    var collect = func(t ...*file) {
-        m.Lock()
-        files = append(files, t...)
-        m.Unlock()
-        g.Done()
-    }
+	var collect = func(t ...*file) {
+		m.Lock()
+		files = append(files, t...)
+		m.Unlock()
+		g.Done()
+	}
 
     var ne = ctx.includeMissing && !ctx.ignoreMissing
     var st = func(dir string, val Value) {
         if f := _stat(ctx, __string(ctx, val), stat_dir{dir}, stat_nonexist{ne}); f != nil {
-            g.Add(1) ; go collect(f)
-        } else if false {
-            erro(ctx, "nil: %v : %s", ts(val), dir).trace()
+            g.Add(1)
+			go collect(f)
         }
     }
 
-    var dofilemap = func(lVal, rVal Value, fm filemap) {
-        defer g.Done()
-        var lPat = patterned(ctx,lVal)
-        var rPat = patterned(ctx,rVal)
-        for _, loc := range fm.paths {
-            if dir := __string(ctx, loc); lPat && rPat {
-                var pat Value
-                if cmp(ctx, lVal, rVal) == cmpEqual {
-                    pat = lVal
-                } else {
-                    pat = compositePattern{lVal, []Value{rVal}}
-                }
-                g.Add(1) ; go collect(ctx._directory(dir, pat)...)
-            } else if lPat && !rPat {
-                st(dir, rVal)
-            } else if !lPat && rPat {
-                st(dir, lVal)
-            } else {
-                note(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, dir).debug()
-            }
-        }
-    }
+	var do_filemap = func(lVal, rVal Value, fm filemap) {
+		defer g.Done()
+		var lPat = patterned(ctx,lVal)
+		var rPat = patterned(ctx,rVal)
+		for _, p := range fm.paths {
+			if dir := __string(ctx, p); lPat && rPat {
+				var pat Value
+				if equal(ctx, lVal, rVal) {
+					pat = lVal
+				} else {
+					pat = compositePattern{lVal, []Value{rVal}}
+				}
+
+				var fs = ctx._directory(dir, pat)
+				if ctx.sort {
+					slices.SortFunc(fs, func(a, b *file) int {
+						switch {
+						case a.name < b.name : return -1
+						case a.name > b.name : return 1
+						}
+						return 0
+					})
+				}
+
+				g.Add(1)
+				go collect(fs...)
+			} else if lPat && !rPat {
+				st(dir, rVal)
+			} else if !lPat && rPat {
+				st(dir, lVal)
+			} else {
+				note(ctx, "TODO: wildcard: 3. %v %v %s", lVal, rVal, dir).debug()
+			}
+		}
+	}
 
     var f1 = func(lVal, rVal Value, fm filemap) {
         defer g.Done()
         if y, _, _ := match(ctx, lVal, rVal); y { // e.g. **.am <-> foo/bar/*.am
-            g.Add(1) ; go dofilemap(lVal, rVal, fm)
+            g.Add(1)
+			go do_filemap(lVal, rVal, fm)
         } else if y, _, _ = match(ctx, rVal, lVal); y {
             if g.Add(1) ; true {
-                go dofilemap(lVal, rVal, fm)
+                go do_filemap(lVal, rVal, fm)
             } else {
-                go dofilemap(rVal, lVal, fm)
+                go do_filemap(rVal, lVal, fm)
             }
         } else {
             erro(ctx, "TODO: wildcard: %v %v", rVal, lVal).trace()
@@ -4472,19 +4486,22 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
     var f2 = func(pat Value, a filemap) {
         defer g.Done()
         for _, val := range a.primePatterns(ctx) {
-            g.Add(1) ; go f1(pat, val, a)
+            g.Add(1)
+			go f1(pat, val, a)
         }
     }
 
     var f3 = func(pat Value) {
         defer g.Done()
         for _, a := range unmap_files(ctx, p, pat, nil) {
-            g.Add(1) ; go f2(pat, a.filemap)
+            g.Add(1)
+			go f2(pat, a.filemap)
         }
     }
 
     for _, pat := range pats {
-        g.Add(1) ; go f3(pat)
+        g.Add(1)
+		go f3(pat)
     }
     g.Wait()
     return

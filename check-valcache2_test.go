@@ -13,12 +13,12 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("nil universe")
 	} else if c := &p.filemap; c.a != nil {
 		ctx.err("%v", c)
-	} else if len(c.globs) != 3 {
-		ctx.err("%v", c.globs)
+	} else if len(c.v) != 3 {
+		ctx.err("%v", c.v)
 	} else {
-		if x, y := c.globs["*.c++"]; !y {
-			ctx.err("%v", c.globs)
-		} else if x.words != nil {
+		if x, y := c.v["*.c++"]; !y {
+			ctx.err("%v", c.v)
+		} else if x.v != nil {
 			ctx.err("%v", x)
 		} else if len(x.a) != 1 {
 			ctx.err("%v", x.a)
@@ -28,9 +28,9 @@ func testValueCache2(ctx *testcase) {
 			ctx.err("%v", tst{x.a[0]})
 		}
 
-		if x, y := c.globs["**.c"]; !y {
-			ctx.err("%v", c.globs)
-		} else if x.words != nil {
+		if x, y := c.v["**.c"]; !y {
+			ctx.err("%v", c.v)
+		} else if x.v != nil {
 			ctx.err("%v", x)
 		} else if len(x.a) != 1 {
 			ctx.err("%v", x.a)
@@ -40,9 +40,9 @@ func testValueCache2(ctx *testcase) {
 			ctx.err("%v", tst{x.a[0]})
 		}
 
-		if x, y := c.globs["???"]; !y {
-			ctx.err("%v", c.globs)
-		} else if x.words != nil {
+		if x, y := c.v["???"]; !y {
+			ctx.err("%v", c.v)
+		} else if x.v != nil {
 			ctx.err("%v", x)
 		} else if len(x.a) != 1 {
 			ctx.err("%v", x.a)
@@ -52,16 +52,16 @@ func testValueCache2(ctx *testcase) {
 			ctx.err("%v", tst{x.a[0]})
 		}
 
-		if x, y := c.words["foo"]; !y {
-			ctx.err("%v", c.words)
-		} else if x.words != nil {
-			ctx.err("%v", x.words)
-		} else if len(x.globs) != 6 {
-			ctx.err("%v", x.globs)
+		if x, y := c.v["foo"]; !y {
+			ctx.err("%v", c.v)
+		} else if x.v != nil {
+			ctx.err("%v", x.v)
+		} else if len(x.v) != 6 {
+			ctx.err("%v", x.v)
 		} else {
-			if c, y := x.globs["*.c++"]; !y {
-				ctx.err("%v", x.globs)
-			} else if c.words != nil {
+			if c, y := x.v["*.c++"]; !y {
+				ctx.err("%v", x.v)
+			} else if c.v != nil {
 				ctx.err("%v", c)
 			} else if len(c.a) != 1 {
 				ctx.err("%v", c.a)
@@ -71,9 +71,9 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%v", tst{c.a[0]})
 			}
 
-			if c, y := x.globs["*.xx"]; !y {
-				ctx.err("%v", x.globs)
-			} else if c.words != nil {
+			if c, y := x.v["*.xx"]; !y {
+				ctx.err("%v", x.v)
+			} else if c.v != nil {
 				ctx.err("%v", c)
 			} else if len(c.a) != 1 {
 				ctx.err("%v", c.a)
@@ -83,9 +83,9 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%v", tst{c.a[0]})
 			}
 
-			if c, y := x.globs["*.yy"]; !y {
-				ctx.err("%v", x.globs)
-			} else if c.words != nil {
+			if c, y := x.v["*.yy"]; !y {
+				ctx.err("%v", x.v)
+			} else if c.v != nil {
 				ctx.err("%v", c)
 			} else if len(c.a) != 1 {
 				ctx.err("%v", c.a)
@@ -95,9 +95,9 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%v", tst{c.a[0]})
 			}
 
-			if c, y := x.globs["*zzz"]; !y {
-				ctx.err("%v", x.globs)
-			} else if c.words != nil {
+			if c, y := x.v["*zzz"]; !y {
+				ctx.err("%v", x.v)
+			} else if c.v != nil {
 				ctx.err("%v", c)
 			} else if len(c.a) != 1 {
 				ctx.err("%v", c.a)
@@ -107,9 +107,9 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%v", tst{c.a[0]})
 			}
 
-			if c, y := x.globs["**z"]; !y {
-				ctx.err("%v", x.globs)
-			} else if c.words != nil || c.globs != nil {
+			if c, y := x.v["**z"]; !y {
+				ctx.err("%v", x.v)
+			} else if c.v != nil {
 				ctx.err("%v", c)
 			} else if len(c.a) != 1 {
 				ctx.err("%v", c.a)
@@ -119,24 +119,22 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%v", tst{c.a[0]})
 			}
 
-			if c, y := x.globs["??"]; !y {
-				ctx.err("%v", x.globs)
+			if c, y := x.v["??"]; !y {
+				ctx.err("%v", x.v)
 			} else if c.a != nil {
 				ctx.err("%v", c.a)
-			} else if len(c.globs) != 1 {
-				ctx.err("%v", c.globs)
-			} else {
-				if x, y := c.globs["???.c++"]; !y {
-					ctx.err("%v", x.globs)
-				} else if x.words != nil {
-					ctx.err("%v", x)
-				} else if len(x.a) != 1 {
-					ctx.err("%v", c.a)
-				} else if slot, y := x.a[0].(filemap); !y {
-					ctx.err("%v", tst{x.a[0]})
-				} else if slot.String() != "foo/{=glob ??}/{=glob ???.c++}" {
-					ctx.err("%v", tst{x.a[0]})
-				}
+			} else if len(c.v) != 1 {
+				ctx.err("%v", c.v)
+			} else if x, y := c.v["???.c++"]; !y {
+					ctx.err("%v", x.v)
+			} else if x.v != nil {
+				ctx.err("%v", x)
+			} else if len(x.a) != 1 {
+				ctx.err("%v", c.a)
+			} else if slot, y := x.a[0].(filemap); !y {
+				ctx.err("%v", tst{x.a[0]})
+			} else if slot.String() != "foo/{=glob ??}/{=glob ???.c++}" {
+				ctx.err("%v", tst{x.a[0]})
 			}
 		}
 	}
@@ -161,7 +159,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s ; %v", s, x)
 	} else if len(m) != 1 {
 		ctx.err("%s : %v", s, m)
-	} else if m[0].name != s {
+	} else if m[0].string != s {
 		ctx.err("%s : %v", s, m)
 	} else if m[0].pattern == nil {
 		ctx.err("%s : %v", s, m)
@@ -210,7 +208,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s ; %v", s, x)
 	} else if len(m) != 1 {
 		ctx.err("%s : %v", s, m)
-	} else if m[0].name != s {
+	} else if m[0].string != s {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].pattern == nil {
 		ctx.err("%s : %v", s, m[0])
@@ -240,7 +238,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s", s)
 	} else if len(m) != 1 {
 		ctx.err("%s : %v", s, m)
-	} else if m[0].name != s {
+	} else if m[0].string != s {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].pattern == nil {
 		ctx.err("%s : %v", s, m[0])
@@ -308,7 +306,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s", s)
 	} else if len(m) != 1 {
 		ctx.err("%s : %v", s, m)
-	} else if m[0].name != s {
+	} else if m[0].string != s {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].pattern == nil {
 		ctx.err("%s : %v", s, m[0])
@@ -328,7 +326,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s", s)
 	} else if len(m) != 1 {
 		ctx.err("%s : %v", s, m)
-	} else if m[0].name != s {
+	} else if m[0].string != s {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].pattern == nil {
 		ctx.err("%s : %v", s, m[0])
@@ -358,7 +356,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s", s)
 	} else if len(m) != 1 {
 		ctx.err("%s : %v", s, m)
-	} else if m[0].name != s {
+	} else if m[0].string != s {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].pattern == nil {
 		ctx.err("%s : %v", s, m[0])
@@ -378,7 +376,7 @@ func testValueCache2(ctx *testcase) {
 		ctx.err("%s", s)
 	} else if len(m) != 1 {
 		ctx.err("%s : %v", s, m)
-	} else if m[0].name != s {
+	} else if m[0].string != s {
 		ctx.err("%s : %v", s, m[0])
 	} else if m[0].pattern == nil {
 		ctx.err("%s : %v", s, m[0])
@@ -402,7 +400,7 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%s ; %v", s, ts(ctx)) ; break
 			} else if len(m) != 1 {
 				ctx.err("%s : %v", s, m) ; break
-			} else if m[0].name != s {
+			} else if m[0].string != s {
 				ctx.err("%s : %v", s, m[0]) ; break
 			} else if m[0].pattern == nil {
 				ctx.err("%s : %v", s, m[0]) ; break
@@ -425,7 +423,7 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%s ; %v", s, ts(ctx)) ; break
 			} else if len(m) != 1 {
 				ctx.err("%s : %v", s, m) ; break
-			} else if m[0].name != s {
+			} else if m[0].string != s {
 				ctx.err("%s : %v", s, m[0]) ; break
 			} else if m[0].pattern == nil {
 				ctx.err("%s : %v", s, m[0]) ; break
@@ -448,7 +446,7 @@ func testValueCache2(ctx *testcase) {
 				ctx.err("%s ; %v", s, ts(ctx)) ; break
 			} else if len(m) != 1 {
 				ctx.err("%s : %v", s, m) ; break
-			} else if m[0].name != s {
+			} else if m[0].string != s {
 				ctx.err("%s : %v", s, m[0]) ; break
 			} else if m[0].pattern == nil {
 				ctx.err("%s : %v", s, m[0]) ; break

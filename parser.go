@@ -2029,7 +2029,6 @@ func (l ul) braced_word(ctx Context) (res Value) {
 
 type defcapture struct{ name string ; value Value }
 type defcaps struct{ Value ; caps []*defcapture }
-func (dc *defcaps) expand(Context) Value { return dc }
 func (dc *defcaps) String() (s string) {
 	s = "{=defcapture "+dc.Value.String()
 	for _, cap := range dc.caps {
@@ -2044,13 +2043,6 @@ func (dc *defcaps) ts(ctx Context, t string) (s string) {
 		s += " {"+cap.name+":"+ts(cap.value,ctx)+"}"
 	}
 	s += "}"
-	return
-}
-func (dc *defcaps) _cmp(ctx Context, v Value) (res cmpres) {
-	switch t := v.(type) {
-	case *defcaps:
-		if res = cmp(ctx, dc.Value, t.Value); res == cmpEqual {}
-	}
 	return
 }
 

@@ -17,16 +17,16 @@ func test__file0(ctx *testcase) {
 		ctx.err("unmap_files %s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
-	} else if m := t[0]; m.name != str {
-		ctx.err("%s: %v", str, m.name)
+	} else if m := t[0]; m.string != str {
+		ctx.err("%s: %v", str, m.string)
 	} else if __string(ctx, m.pattern) != pat {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if t := unmap_files(ctx, proj, str, nil); t == nil {
 		ctx.err(str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
-	} else if m := t[0]; m.name != str {
-		ctx.err("%s: %v", str, m.name)
+	} else if m := t[0]; m.string != str {
+		ctx.err("%s: %v", str, m.string)
 	} else if __string(ctx, m.pattern) != pat {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if   s := "val1.1" ; false {
@@ -62,8 +62,8 @@ func test__file0(ctx *testcase) {
 		ctx.err("unmap_files %s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
-	} else if m := t[0]; m.name != str {
-		ctx.err("%s: %v", str, m.name)
+	} else if m := t[0]; m.string != str {
+		ctx.err("%s: %v", str, m.string)
 	} else if __string(ctx, m.pattern) != pat {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if   s := "val2.1" ; false {
@@ -95,8 +95,8 @@ func test__file0(ctx *testcase) {
 		ctx.err("unmap_files %s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
-	} else if m := t[0]; m.name != str {
-		ctx.err("%s: %v", str, m.name)
+	} else if m := t[0]; m.string != str {
+		ctx.err("%s: %v", str, m.string)
 	} else if __string(ctx, m.pattern) != pat {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if   s := "val3" ; false {
@@ -117,8 +117,8 @@ func test__file0(ctx *testcase) {
 		ctx.err("unmap_files %s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
-	} else if m := t[0]; m.name != str {
-		ctx.err("%s: %v", str, m.name)
+	} else if m := t[0]; m.string != str {
+		ctx.err("%s: %v", str, m.string)
 	} else if __string(ctx, m.pattern) != pat {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if   s := "val4" ; false {
@@ -150,8 +150,8 @@ func test__file0(ctx *testcase) {
 		ctx.err("%s", str)
 	} else if len(t) != 1 {
 		ctx.err("%s: %v", str, t)
-	} else if m := t[0]; m.name != str {
-		ctx.err("%s: %v", str, m.name)
+	} else if m := t[0]; m.string != str {
+		ctx.err("%s: %v", str, m.string)
 	} else if __string(ctx, m.pattern) != pat {
 		ctx.err("%s: %v", str, m.pattern)
 	} else if s := "p1" ; false {
@@ -165,8 +165,8 @@ func test__file0(ctx *testcase) {
 		ctx.err("%v %v", v, tst{v})
 	} else if len(t) != 1 {
 		ctx.err("%v %v %v", v, tst{v}, t)
-	} else if m := t[0]; m.name != str {
-		ctx.err("%v: %v", tst{v}, m.name)
+	} else if m := t[0]; m.string != str {
+		ctx.err("%v: %v", tst{v}, m.string)
 	} else if __string(ctx, m.pattern) != pat {
 		ctx.err("%v: %v", tst{v}, m.pattern)
 	}

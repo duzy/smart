@@ -30,7 +30,8 @@ const (
     propDirtyOpts property = 1<<iota
     propErros
     propReversal
-    propUnmap
+    propCache
+    propUncache
 )
 
 type (
@@ -80,12 +81,14 @@ type caster interface { cast(reflect.Type) Context }
 type doer interface { do(Context, any) any }
 
 func do(c Context, o any) any { return c.do(c, o) }
-
 func truly(ctx Context, ops ...any) (_ bool) {
-    for _, op := range ops {
-        if a, b := do(ctx, op).(bool); a && b { return true }
-    }
-    return
+	for _, op := range ops {
+		switch t := do(ctx, op).(type) {
+		case hit_result: return t.bool
+		case bool: return t
+		}
+	}
+	return
 }
 
 func try[T any](ctx Context, op any) (_ T) {

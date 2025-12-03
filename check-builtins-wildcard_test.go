@@ -14,43 +14,9 @@ import (
 
 func test__wildcard(ctx *testcase) {
 	var m = _project(ctx)
-	if len(m.filemap.globs) != 2 {
+	if x, y := m.filemap.v["**"]; !y {
 		ctx.err("%v", &m.filemap)
-	} else if x, y := m.filemap.globs["**.h"]; !y {
-		ctx.err("%v", &m.filemap)
-	} else if len(x.a) != 1 {
-		ctx.err("%v", x)
-	} else if x.o != nil {
-		ctx.err("%v", x)
-	} else if x.puncs != nil {
-		ctx.err("%v", x)
-	} else if x.words != nil {
-		ctx.err("%v", x)
-	} else if x.globs != nil {
-		ctx.err("%v", x)
-	} else if x.percs != nil {
-		ctx.err("%v", x)
-	} else if x.reges != nil {
-		ctx.err("%v", x)
-	} else if x.value != nil {
-		ctx.err("%v", x)
-	} else if x, y := m.filemap.globs["**.def.am"]; !y {
-		ctx.err("%v", &m.filemap)
-	} else if len(x.a) != 1 {
-		ctx.err("%v", x)
-	} else if x.o != nil {
-		ctx.err("%v", x)
-	} else if x.puncs != nil {
-		ctx.err("%v", x)
-	} else if x.words != nil {
-		ctx.err("%v", x)
-	} else if x.globs != nil {
-		ctx.err("%v", x)
-	} else if x.percs != nil {
-		ctx.err("%v", x)
-	} else if x.reges != nil {
-		ctx.err("%v", x)
-	} else if x.value != nil {
+	} else if x, y := x.v["."]; !y {
 		ctx.err("%v", x)
 	}
 

@@ -58,23 +58,21 @@ func testValueCache1(ctx *testcase) {
 
 	if c := &p.filemap; c.a != nil {
 		ctx.err("%v", c)
-	} else if len(c.words) != 1 {
-		ctx.err("%v ; %v", c.words, c)
-	} else if x, y := c.words["foo"]; !y {
-		ctx.err("%v ; %v", c.words, c)
-	} else if len(x.puncs) != 1 {
-		ctx.err("%v ; %v", x.puncs, x)
-	} else if len(x.words) != 1 {
-		ctx.err("%v ; %v", x.words, x)
+	} else if len(c.v) != 1 {
+		ctx.err("%v ; %v", c.v, c)
+	} else if x, y := c.v["foo"]; !y {
+		ctx.err("%v ; %v", c.v, c)
+	} else if len(x.v) != 1 {
+		ctx.err("%v ; %v", x.v, x)
 	} else {
-		if z, y := x.puncs[DOT]; !y {
+		if z, y := x.v["."]; !y {
 			ctx.err("%v", x)
-		} else if len(z.words) != 2 {
+		} else if len(z.v) != 2 {
 			ctx.err("%v", z)
 		} else {
-			if t, y := z.words["c"]; !y {
+			if t, y := z.v["c"]; !y {
 				ctx.err("%v", z)
-			} else if len(t.a) != 1 || t.words != nil {
+			} else if len(t.a) != 1 || t.v != nil {
 				ctx.err("%v", t)
 			} else if slot, y := t.a[0].(filemap); !y {
 				ctx.err("%v", tst{t.a[0]})
@@ -82,9 +80,9 @@ func testValueCache1(ctx *testcase) {
 				ctx.err("%v", tst{t.a[0]})
 			}
 
-			if t, y := z.words["c++"]; !y {
+			if t, y := z.v["c++"]; !y {
 				ctx.err("%v", z)
-			} else if len(t.a) != 1 || t.words != nil {
+			} else if len(t.a) != 1 || t.v != nil {
 				ctx.err("%v", t)
 			} else if slot, y := t.a[0].(filemap); !y {
 				ctx.err("%v", tst{t.a[0]})
@@ -93,25 +91,25 @@ func testValueCache1(ctx *testcase) {
 			}
 		}
 
-		if z0, y := x.words["bar"]; !y {
+		if z0, y := x.v["bar"]; !y {
 			ctx.err("%v", x)
-		} else if len(z0.puncs) != 1 {
+		} else if len(z0.v) != 1 {
 			ctx.err("%v", z0)
-		} else if z, y := z0.puncs[DOT]; !y {
+		} else if z, y := z0.v["."]; !y {
 			ctx.err("%v", z0)
-		} else if len(z.words) != 2 {
-			ctx.err("%v", z.words)
-		} else if t, y := z.words["c"]; !y {
+		} else if len(z.v) != 2 {
+			ctx.err("%v", z.v)
+		} else if t, y := z.v["c"]; !y {
 			ctx.err("%v", z)
-		} else if len(t.a) != 1 || t.words != nil {
+		} else if len(t.a) != 1 || t.v != nil {
 			ctx.err("%v", t)
 		} else if slot, y := t.a[0].(filemap); !y {
 			ctx.err("%v", tst{t.a[0]})
 		} else if slot.String() != "foo/bar.c" {
 			ctx.err("%v", tst{t.a[0]})
-		} else if t, y := z.words["c++"]; !y {
+		} else if t, y := z.v["c++"]; !y {
 			ctx.err("%v", z)
-		} else if len(t.a) != 1 || t.words != nil {
+		} else if len(t.a) != 1 || t.v != nil {
 			ctx.err("%v", t)
 		} else if slot, y := t.a[0].(filemap); !y {
 			ctx.err("%v", tst{t.a[0]})
@@ -128,7 +126,7 @@ func testValueCache1(ctx *testcase) {
 		ctx.err("unmap_files: %v", tst{v})
 	} else if len(m) != 1 {
 		ctx.err("%v : %v", v, m)
-	} else if m[0].name != "foo.c" {
+	} else if m[0].string != "foo.c" {
 		ctx.err("%v : %v", v, m[0])
 	} else if s := ts(m[0].pattern); s != "{=compound {=word foo} {=punct .} {=word c}}" {
 		ctx.err("%v : %v : %v", v, m[0].pattern, s)
@@ -142,11 +140,11 @@ func testValueCache1(ctx *testcase) {
 		ctx.err("unmap_files: %v", tst{v})
 	} else if len(m) != 2 {
 		ctx.err("%v : %v", v, m)
-	} else if i := 0; m[i].name != "foo.c" {
+	} else if i := 0; m[i].string != "foo.c" {
 		ctx.err("%v : %v", v, m[i])
 	} else if s := ts(m[i].pattern); s != "{=compound {=word foo} {=punct .} {=word c}}" {
 		ctx.err("%v : %v : %v", v, m[i].pattern, s)
-	} else if i := 1; m[i].name != "foo/bar.c" {
+	} else if i := 1; m[i].string != "foo/bar.c" {
 		ctx.err("%v : %v", v, m[i])
 	} else if s := ts(m[i].pattern); s != "{=path {=word foo} {=compound {=word bar} {=punct .} {=word c}}}" {
 		ctx.err("%v : %v : %v", v, m[i].pattern, s)
@@ -160,11 +158,11 @@ func testValueCache1(ctx *testcase) {
 		ctx.err("unmap_files: %v", tst{v})
 	} else if len(m) != 2 {
 		ctx.err("%v : %v", v, m)
-	} else if i := 0; m[i].name != "foo.c++" {
+	} else if i := 0; m[i].string != "foo.c++" {
 		ctx.err("%v : %v", v, m[i])
 	} else if s := ts(m[i].pattern); s != "{=compound {=word foo} {=punct .} {=word c++}}" {
 		ctx.err("%v : %v : %v", v, m[i].pattern, s)
-	} else if i := 1; m[i].name != "foo/bar.c++" {
+	} else if i := 1; m[i].string != "foo/bar.c++" {
 		ctx.err("%v : %v", v, m[i])
 	} else if s := ts(m[i].pattern); s != "{=path {=word foo} {=compound {=word bar} {=punct .} {=word c++}}}" {
 		ctx.err("%v : %v : %v", v, m[i].pattern, s)

@@ -781,6 +781,7 @@ func splitpath(ctx Context, a any) (ss []string) {
 
 // joinpath is different from filepath.Join, which trims and discards empty segments
 func joinpath(segs ...string) string { return strings.Join(segs, pathSep) }
+func joinp(ctx Context, a any) string { s, _ := _joinpath(ctx, a); return s }
 func _joinpath(ctx Context, a any) (s string, ss []string) {
 	ss = splitpath(ctx, a)
 	s = strings.Join(ss, pathSep)
@@ -1189,6 +1190,7 @@ func unbox(a any) any {
     case self: return t.project
     case *loc: return unbox(t.Value)
     case *list: if len(t.elems) == 1 { return unbox(t.elems[0]) }
+	// case *pair: return &pair{unbox(t.key).(Value), unbox(t.val).(Value)}
     case flag: return flag{unbox(t.Value).(Value)}
     }
     return a
@@ -1199,6 +1201,7 @@ func unbox2(a any, b int) (any, int) {
     case self: return t.project, 0
     case *loc: return unbox2(t.Value, b)
     case *list: if t.len() == 1 { return unbox2(t.elems[0], b) }
+	// case *pair: return &pair{unbox(t.key).(Value), unbox(t.val).(Value)}, 0
     case *boolean: return t.bool, 0
     case *word: return t.s, 0
     case *raw: return t.s, 0
@@ -1396,6 +1399,11 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 				}
 			}
 		}
+	case *defcaps:
+		switch y := rv.(type) {
+		case *defcaps:
+			if res = cmp(ctx, x.Value, y.Value); res == cmpEqual {}
+		}
     case *loc:
 		switch y := rv.(type) {
 		case *loc: return cmp(ctx, x.Value, y.Value)
@@ -1405,14 +1413,12 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 		switch y := rv.(type) {
 		case *loc: return cmp(ctx, x, y.Value)
 		}
-		if true {
-			// ...
+		if false {
+			note(pc(pc(ctx,r),l), "%s ⇔ %s | %v ⇔ %v", typeof(lv), typeof(rv), ts(lv), ts(rv)).debug()
 		} else if false {
 			ctx = pc(pc(ctx,r),l)
 			erro(ctx, "%v ⇔ %v | %v ⇔ %v", ts(unbox(l)), ts(unbox(r)), ts(l), ts(r))
 			note(ctx, "into: cmp(%s ⇔ %s) | %v ⇔ %v", typeof(lv), typeof(rv), ts(lv), ts(rv)).trace()
-		} else if false {
-			note(pc(pc(ctx,r),l), "%s ⇔ %s | %v ⇔ %v", typeof(lv), typeof(rv), ts(lv), ts(rv))
 		}
     }
     return cmpUnknown
@@ -1443,38 +1449,30 @@ func cmp_float(l, r float64) cmpres {
 }
 func cmp_time(l, r time.Time) cmpres {
     switch {
-    case l.Equal(r): return cmpEqual
+    case l.Equal(r) : return cmpEqual
     case l.Before(r): return cmpSmaller
-    case l.After(r): return cmpGreater
+    case l.After(r) : return cmpGreater
     }
     return cmpUnknown
 }
 
-func eq(x Context, a, b Value) bool { return cmp(x, a, b) == cmpEqual }
-func equal(x Context, a, b Value, yes ...bool) (res bool) {
+func eq(x Context, a, b any) bool { return cmp(x, a, b) == cmpEqual }
+func equal(x Context, a, b any, yes ...bool) (res bool) {
 	if checkpoints {
 		defer func() {
-			if !res && a.String() == b.String() {
-				erro(pc(x,a), "%v: eq(%v, %v)", res, a, b).trace()
+			if !res && sfmt("%v", a) == sfmt("%v", b) {
+				erro(pc(x,a), "%v: equal(%v, %v)", res, a, b).trace()
 			}
-			if res && a.String() != b.String() {
-				erro(pc(x,a), "%v: eq(%v, %v)", res, a, b).trace()
+			if res && sfmt("%v", a) != sfmt("%v", b) {
+				erro(pc(x,a), "%v: equal(%v, %v)", res, a, b).trace()
 			}
 		} ()
 	}
-
-	if a == nil {
-		return b == nil
-	} else if a == b {
-		return true
-	} else if cmp(x, a, b) == cmpEqual {
-		return true
+	if __t(yes...) {
+		return __string(x, a) == __string(x, b)
 	} else {
-		return false
+		return cmp(x, a, b) == cmpEqual
 	}
-
-    for _, y := range yes { if y && __string(x,a) == __string(x,b) { break } }
-    return
 }
 
 func diff(ctx Context, a, b []Value) bool {
@@ -2421,16 +2419,6 @@ Pattern:
     return len(name) == 0, stems, nil
 }
 
-type globmeta struct{ valbase ; token }
-func (p *globmeta) String() string { return p.token.String() }
-func (p *globmeta) ts(ctx Context, t string) string { return "{"+lp(ctx,p.position,"meta")+" "+p.token.String()+"}" }
-
-// `[a-b]`, `[abc]`, ...
-// `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
-type globrange struct{ Value }
-func (p *globrange) String() string { return "["+p.Value.String()+"]" }
-func (p *globrange) ts(ctx Context, t string) string { return "{"+lp(ctx,p.Position(),"range")+" "+p.Value.String()+"}" }
-
 type path struct{ elements }
 func (_ *path) kind() Kind { return KindPath }
 func (p *path) String() (s string) {
@@ -2450,29 +2438,13 @@ func (p *path) String() (s string) {
     if n == 0 { s = "{=path "+s+"}" }
     return
 }
-func (p *path) isAbs() (_ bool) {
-    if x, y := p.elems[0].(*punct); y && x.token == PROOT {
-        return true
-    }
-    return
-}
-func (p *path) _match1(ctx Context, str string) (full bool, result []string, stems []string) {
-	if vals := strings.Split(str, pathSep); 0 < len(vals) {
-		var pats []any
-		for _, t := range p.elems { pats = append(pats, t) }
-		if truly(ctx, propReversal) {
-			return path_match3(ctx, pats, vals...)
-		} else {
-			return path_match2(ctx, pats, vals...)
-		}
-	}
-	return
-}
+func (p *path) isAbs() bool { x, y := p.elems[0].(*punct); return y && x.token == PROOT }
+
 func path_match2(ctx Context, pats []any, vals ...string) (full bool, res, stems []string) {
 	var iPats, iVals = 0, 0
 	var lPats, lVals = len(pats), len(vals)
 	for ; iPats < lPats && iVals < lVals ; iPats, iVals = iPats+1, iVals+1 {
-		var pat = unbox(pats[iPats])//.(Value)
+		var pat = unbox(pats[iPats])
 		var mr, pre, suf = multia(ctx, pat) // %%  **  *?
 		if val := vals[iVals]; mr != multia_no {
 			var prefix = __string(ctx, pre)
@@ -2493,7 +2465,7 @@ func path_match2(ctx Context, pats []any, vals ...string) (full bool, res, stems
 						switch t := unbox(pats[n]).(type) {
 						case flag, *word, string:
 							for j := lVals-1; iVals < j; j -= 1 {
-								if vals[j] == __string(ctx, t) {
+								if equal(ctx, t, vals[j]) {
 									res = append(res, vals[iVals:j+1]...)
 									stem = append(stem, vals[iVals:j]...)
 									iPats, iVals, full = n, j, true
@@ -2557,7 +2529,7 @@ func path_match2(ctx Context, pats []any, vals ...string) (full bool, res, stems
 						switch t := unbox(pats[n]).(type) {
 						case flag, *word, string:
 							for j := iVals+1; j < lVals; j += 1 {
-								if vals[j] == __string(ctx, t) {
+								if equal(ctx, t, vals[j]) {
 									res = append(res, vals[iVals:j+1]...)
 									stem = append(stem, vals[iVals:j]...)
 									iPats, iVals, full = n, j, true
@@ -2639,11 +2611,12 @@ func path_match2(ctx Context, pats []any, vals ...string) (full bool, res, stems
 	full = full && iPats == lPats && iVals == lVals
 	return
 }
+
 func path_match3(ctx Context, pats []any, vals ...string) (full bool, res, stems []string) {
 	var lPats, lVals = len(pats), len(vals)
 	var iPats, iVals = lPats-1, lVals-1
 	for ; 0 <= iPats && 0 <= iVals; iPats, iVals = iPats-1, iVals-1 {
-		var pat = unbox(pats[iPats])//.(Value)
+		var pat = unbox(pats[iPats])
 		var mr, pre, suf = multia(ctx, pat) // %%  **  *?
 		if val := vals[iVals]; mr != multia_no {
 			var suffix = __string(ctx, suf)
@@ -2664,7 +2637,7 @@ func path_match3(ctx Context, pats []any, vals ...string) (full bool, res, stems
 						switch t := unbox(pats[n]).(type) {
 						case flag, *word, string:
 							for i = 0; i < iVals; i += 1 {
-								if vals[i] == __string(ctx, t) {
+								if equal(ctx, t, vals[i]) {
 									res = append(vals[i:iVals+1], res...)
 									stem = append(vals[i+1:iVals], append([]string{val}, stem...)...)
 									iPats, iVals, full = n, i, true
@@ -2728,7 +2701,7 @@ func path_match3(ctx Context, pats []any, vals ...string) (full bool, res, stems
 						switch t := unbox(pats[n]).(type) {
 						case flag, *word, string:
 							for i = iVals-1; 0 <= i; i -= 1 {
-								if vals[i] == __string(ctx, t) {
+								if equal(ctx, t, vals[i]) {
 									res = append(vals[i:iVals+1], res...)
 									stem = append(vals[i+1:iVals], append([]string{val}, stem...)...)
 									iPats, iVals, full = n, i, true
@@ -2886,9 +2859,7 @@ type file struct{
 }
 func (p *file) ts(string) string { return "{=file "+p.filestub.name+"}" }
 func (p *file) String() string { return "{=file "+p.filestub.name+"}" }
-func (p *file) fullname() string {
-    return filepath.Join(p.dir, p.sub, p.filestub.name)
-}
+func (p *file) fullname() string { return filepath.Join(p.dir, p.sub, p.filestub.name) }
 func (p *file) basename() (s string) {
     if p.info != nil { return p.info.Name() }
     return filepath.Base(p.filestub.name)
@@ -3394,7 +3365,6 @@ func multia(ctx Context, p any) (result multia_result, prefix, suffix Value) {
         }
     case *globpat:
         var glob, n = false, -1
-        if len(t.elems) == 0 { break }
         for i, comp := range t.elems { if m, y := comp.(*globmeta); y {
             if n == -1 && (m.token == DAST || m.token == ASTQ) {
                 var t = t.elems[:i]
@@ -3415,7 +3385,7 @@ func multia(ctx Context, p any) (result multia_result, prefix, suffix Value) {
             }
         }}
         if result != multia_no && n < len(t.elems) {
-            t, glob := t.elems[n+1:], false
+            var t, glob = t.elems[n+1:], false
             for _, comp := range t { if _, y := comp.(*globmeta); y { glob = true ; break } }
             if glob {
                 suffix = _globpat(t...)
@@ -3459,15 +3429,21 @@ func (p compositePattern) String() (s string) {
 //		lo '-' hi   matches character c for lo <= c <= hi
 type globpat struct{ elements }
 func (_ *globpat) kind() Kind { return KindGlobPat }
+func (p *globpat) String() (s string) { for _, e := range p.elems { s += e.String() }; return }
 func (p *globpat) ts(ctx Context, _ string) string { return p.elements.ts(ctx, "glob") }
-func (p *globpat) String() (s string) {
-    for _, elem := range p.elems { s += elem.String() }
-    return
-}
 
 type globbrace struct{ globpat }
-func (p *globbrace) ts(c Context, t string) string { return p.globpat.ts(c, t) }
 func (p *globbrace) String() string { return "{=glob "+p.globpat.String()+"}" }
+func (p *globbrace) ts(c Context, t string) string { return p.globpat.ts(c, t) }
+
+type globmeta struct{ valbase ; token }
+func (p *globmeta) String() string { return p.token.String() }
+func (p *globmeta) ts(ctx Context, _ string) string { return "{"+lp(ctx,p.position,"meta")+" "+p.token.String()+"}" }
+
+// `[a-b]`, `[abc]`, `[a$(var)c]`, `[a$(spaces)c]`
+type globrange struct{ Value }
+func (p *globrange) String() string { return "["+p.Value.String()+"]" }
+func (p *globrange) ts(ctx Context, _ string) string { return "{"+lp(ctx,p.Position(),"range")+" "+p.Value.String()+"}" }
 
 /*
  * # Regexp Syntax (see go/src/regexp/syntax/doc.go)
@@ -3802,6 +3778,8 @@ func updatedDeps(ctx Context, val Value, deps ...Value) (res []Value) {
     return
 }
 
+func __t(a ...bool) (_ bool) { for _, a := range a { if a { return true } }; return }
+func __string_any(s ...string) (a []any) { for _, s := range s { a = append(a, s) }; return }
 type __string_ctx struct{ Context /* ; i int */ }
 func (c *__string_ctx) inner() Context { return c.Context }
 func (c *__string_ctx) do(ctx Context, op any) any {
@@ -3816,6 +3794,7 @@ func __string(ctx Context, v any) (res string) {
     if _, ok := do(ctx, __string_ctx{}).(*__string_ctx); !ok { ctx = &__string_ctx{ctx} }
 	switch t := v.(type) {
 	case string: return t
+	case rune: return string(t)
 	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *qualword, *globmeta, *punct:
 		return t.(Value).String()
 	case *valbase, *null, *none, nil: return
@@ -4348,6 +4327,12 @@ func expand(ctx Context, v Value) (res Value) {
             if f != nil { return fullfile{f} }
         }
         return &barefile{expand(ctx, t.Value), f}
+	case *rule:
+		if v := expand(ctx, t.target); !equal(ctx, v, t.target) { t = &rule{v, t.arged, t.program} }
+		return t
+	case *stemmed_rule:
+		if v := expand(ctx, t.rule).(*rule); v != t.rule { t = &stemmed_rule{v, t.target, t.stems} }
+		return t
     case fullfile: if truly(ctx,is_compound{}) { return t.file  } else { return t }
     case fullname: if truly(ctx,is_compound{}) { return t.Value } else { return fullname{expand(ctx,t.Value)} }
     case *loc: return &loc{expand(ctx, t.Value), t.pos}
@@ -4543,13 +4528,9 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 	return
 }
 
-func __string_any(s ...string) (res []any) {
-	for _, s := range s { res = append(res, s) }
-	return
-}
-
 func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 	var vals []string
+
 	switch t := unbox(val).(type) {
 	case *filestub:
 		if full, res, stems = match(ctx, pat, t.name); full || res != nil {
@@ -4563,7 +4544,9 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 	case    Value: vals = strings.Split(__string(ctx, t), pathSep)
 	case   string: vals = strings.Split(t, pathSep)
 	case []string: vals = t
+	case nil: return
 	}
+	
 	switch p := unbox(pat).(type) {
 	case []any:
 		var result []string
@@ -4631,7 +4614,7 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 		case   string: s = t
 		case []string: if len(t) == 1 { s = t[0] } else { return }
 		default:
-			errostack(pc(ctx,p), 3, "unsupported match: %v", tv(val)).trace()
+			erro(pc(ctx,p), "unsupported match: %v", ts(val)).trace()
 		}
 
 		if s == "" { return }
@@ -4640,7 +4623,7 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 		for n, elem = range p.elems {
 			if _, r, ss := match(ctx, elem, s); r == nil {
 				break
-			} else if t, _ := _joinpath(ctx, r); t == "" {
+			} else if t := joinp(ctx, r); t == "" {
 				break
 			} else {
 				stems = append(stems, ss...)
@@ -4719,15 +4702,13 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 				return
             }
         default:
-            errostack(ctx, 3, "%v : unsupported match type: %v", p, ts(val)).trace()
+            erro(ctx, "%v : unsupported match type: %v %v", p, val, ts(val)).trace()
         }
 
         var err error
         var pattern = __string(ctx, p)
         if full, stems, err = globMatch(ctx, pattern, s); full { res = s }
-        if err != nil {
-            errostack(ctx, 3, "%v : glob error: %v", p, err).trace()
-        }
+        if err != nil { erro(ctx, "%v : glob error: %v", p, err).trace() }
         if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
 		return
     case *regexpat:
@@ -4740,7 +4721,7 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
             case    string: str = t
             case  []string: if len(t) == 1 { str = t[0] } else { return }
             default:
-                errostack(ctx, 3, "%v :matching unsupported value: %s", p, ts(val)).trace()
+                erro(ctx, "%v :matching unsupported value: %s", p, ts(val)).trace()
             }
 
             if sm := p.Regexp.FindStringSubmatch(str); sm != nil && sm[0] == str {
@@ -4755,7 +4736,7 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 		} else if t2 := expand(ctx, t1); t2 != nil {
 			if !equal(ctx, t2, t1) { return match(ctx, t2, val) }
 		} else {
-			errostack(pc(ctx,p), 3, "%v: nil match", t1).trace()
+			erro(pc(ctx,p), "%v: nil match", t1).trace()
 		}
 		return
     case compositePattern:
@@ -4770,8 +4751,10 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 		full, res, s = p.match(ctx, val)
 		stems = []string{ s }
 		return
+	case nil: return
     }
-	errostack(ctx, 3, "TODO: match(%v, %v) | %v | %v, %v", pat, val, vals, ts(pat), ts(val)).trace()
+
+	erro(ctx, "TODO: match(%v, %v) | %v | %v, %v", pat, val, vals, ts(pat), ts(val)).trace()
 	return
 }
 
@@ -5250,6 +5233,7 @@ func ts(i any, o ...any) (s string) {
     switch x := i.(type) {
     case interface{ ts(Context,string) string }: return x.ts(c,t)
     case interface{ ts(string) string }: return x.ts(t)
+	case  filemap: return "{=filemap "+x.String()+"}"
     case  Context: return "{="+t+" "+ts(inner(x),o...)+"}"
     case *valbase: return "{"+lp(c, x.position, "")+"}"
     case Value:

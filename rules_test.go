@@ -43,11 +43,11 @@ func testRules0(ctx *testcase) {
 		ctx.err("%v: %s != %s ; %s", d.value, s, t, ts(d.value))
 	}
 
-	if p.entries.puncs == nil {
+	if p.entries.v == nil {
 		ctx.err("%v", ts(&p.entries))
 	} else {
-		if x, y := p.entries.puncs[MINUS]; !y {
-			ctx.err("%v", p.entries.puncs)
+		if x, y := p.entries.v["-"]; !y {
+			ctx.err("%v", p.entries.v)
 		} else if len(x.a) != 1 {
 			ctx.err("%v", ts(x))
 		} else if z, y := x.a[0].(*rule); !y {
@@ -57,11 +57,11 @@ func testRules0(ctx *testcase) {
 		}
 	}
 
-	if p.entries.words == nil {
+	if p.entries.v == nil {
 		ctx.err("%v", ts(&p.entries))
 	} else {
-		if x, y := p.entries.words["rule0"]; !y {
-			ctx.err("%v", p.entries.words)
+		if x, y := p.entries.v["rule0"]; !y {
+			ctx.err("%v", p.entries.v)
 		} else if len(x.a) != 1 {
 			ctx.err("%v", ts(x))
 		} else if z, y := x.a[0].(*rule); !y {
@@ -69,8 +69,8 @@ func testRules0(ctx *testcase) {
 		} else if len(z.program) != 1 {
 			ctx.err("%v", ts(z.program))
 		}
-		if x, y := p.entries.words["rule1"]; !y {
-			ctx.err("%v", p.entries.words)
+		if x, y := p.entries.v["rule1"]; !y {
+			ctx.err("%v", p.entries.v)
 		} else if len(x.a) != 1 {
 			ctx.err("%v", ts(x))
 		} else if z, y := x.a[0].(*rule); !y {
@@ -79,8 +79,8 @@ func testRules0(ctx *testcase) {
 			ctx.err("%v", ts(z.program))
 		}
 		for _, tag := range []string{"x","y","z","xx","yy","zz","xxx","yyy","zzz"} {
-			if x, y := p.entries.words["rule-"+tag]; !y {
-				ctx.err("%v", p.entries.words)
+			if x, y := p.entries.v["rule-"+tag]; !y {
+				ctx.err("%v", p.entries.v)
 			} else if len(x.a) != 1 {
 				ctx.err("%v", ts(x))
 			} else if z, y := x.a[0].(*rule); !y {
@@ -253,12 +253,12 @@ func testRules0(ctx *testcase) {
 func testRules1(ctx *testcase) {
 	var p = _project(ctx)
 
-	if p.entries.puncs == nil {
+	if p.entries.v == nil {
 		ctx.err("%v", ts(&p.entries))
 	} else {
-		if x, y := p.entries.puncs[STRING]; !y {
-			ctx.err("%v", p.entries.puncs)
-		} else if z, y := x.words[".test.foo"]; !y {
+		if x, y := p.entries.v[STRING.String()]; !y {
+			ctx.err("%v", p.entries.v)
+		} else if z, y := x.v[".test.foo"]; !y {
 			ctx.err("%v", x)
 		} else if len(z.a) != 1 {
 			ctx.err("%v", ts(z))
@@ -268,29 +268,29 @@ func testRules1(ctx *testcase) {
 			ctx.err("%v", ts(x.program))
 		}
 
-		if x, y := p.entries.puncs[DOT]; !y {
-			ctx.err("%v", p.entries.puncs)
-		} else if z, y := x.words["test"]; !y {
+		if x, y := p.entries.v["."]; !y {
+			ctx.err("%v", p.entries.v)
+		} else if z, y := x.v["test"]; !y {
 			ctx.err("%v", ts(x))
-		} else if x, y := z.puncs[DOT]; !y {
-			ctx.err("%v", z.puncs)
+		} else if x, y := z.v["."]; !y {
+			ctx.err("%v", z.v)
 		} else {
-			if _, y := x.words["foobax"]; !y {
+			if _, y := x.v["foobax"]; !y {
 				ctx.err("%v", ts(x))
 			}
-			if _, y := x.words["foobaz"]; !y {
+			if _, y := x.v["foobaz"]; !y {
 				ctx.err("%v", ts(x))
 			}
-			if _, y := x.words["foobay"]; !y {
+			if _, y := x.v["foobay"]; !y {
 				ctx.err("%v", ts(x))
 			}
-			if _, y := x.words["fxx"]; !y {
+			if _, y := x.v["fxx"]; !y {
 				ctx.err("%v", ts(x))
 			}
 		}
 	}
 
-	if p.entries.words != nil {
+	if p.entries.v != nil {
 		ctx.err("%v", ts(&p.entries))
 	}
 

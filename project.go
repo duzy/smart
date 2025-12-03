@@ -20,18 +20,12 @@ const configuration_sm = "configuration.sm"
 const pathSepByte = filepath.Separator
 const pathSep = string(pathSepByte)
 
-type _filemap struct {
-    project *project
-    patts []Value
-    paths []Value
-}
-func (p *_filemap) String() (_ string) {
-    if n := len(p.patts); n == 1 {
-        return p.patts[0].String()
-    } else if n > 1 {
-        return fmt.Sprintf("%s", p.patts)
-    }
-    return
+type _filemap struct { project *project ; patts, paths []Value }
+func (p *_filemap) String() string { return fmt.Sprintf("%s", p.patts) }
+
+func filemap_str(t *[]filemap) (s string) {
+	for i, t := range *t { if 0 < i { s += " " }; s += t.String() }
+	return "["+s+"]"
 }
 
 type filemap struct { *_filemap ; pattern Value }
@@ -310,7 +304,7 @@ func select_file_1(ctx Context, m filemap_name) (res *file) {
             return
         } else {
             var s = _project(ctx).absPath
-            return _stat(ctx, m.name, stat_dir{s}, stat_nonexist{true})
+            return _stat(ctx, m.string, stat_dir{s}, stat_nonexist{true})
         }
     }
 
@@ -319,16 +313,16 @@ func select_file_1(ctx Context, m filemap_name) (res *file) {
     for _, v := range m.paths {
         if t := expand(_final(ctx),v); t != nil {
             if s := __string(ctx, t); s != "" {
-                if f := _stat(ctx, m.name, stat_dir{s}, stat_nonexist{true}); f != nil {
+                if f := _stat(ctx, m.string, stat_dir{s}, stat_nonexist{true}); f != nil {
                     fs = append(fs, f)
                 } else {
-                    erro(ctx, "%s ⇒ %v → %v → ''", m.name, v, t).trace()
+                    erro(ctx, "%s ⇒ %v → %v → ''", m.string, v, t).trace()
                 }
             } else if false {
-                erro(ctx, "%s ⇒ %v → %v → ''", m.name, v, t).trace()
+                erro(ctx, "%s ⇒ %v → %v → ''", m.string, v, t).trace()
             }
         } else {
-            erro(ctx, "%s ⇒ %v", m.name, v).trace()
+            erro(ctx, "%s ⇒ %v", m.string, v).trace()
         }
     }
 
@@ -493,7 +487,7 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
                 var pt = pat.target
                 var pa = pat.arged
                 var full, r, stems = match(ctx, pt, s)
-                var m, _ = _joinpath(ctx, r)
+                var m = joinp(ctx, r)
                 prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
             }
             warnstack(ctx, 3).debug(6)
@@ -530,7 +524,7 @@ func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
 ForPatterns:
     for _, pat := range p.patterns {
         if full, r, stems := match(ctx, pat.target, s); full {
-            var m, _ = _joinpath(ctx, r)
+            var m = joinp(ctx, r)
 
             if true {
                 for sc := _stemmed(ctx); sc != nil; { // pattern loop detection

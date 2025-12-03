@@ -11,7 +11,7 @@ func testValueCache3(ctx *testcase) {
 		ctx.err("nil universe")
 	} else if c := &p.filemap; c.a != nil {
 		ctx.err("universe valcache : %v", c)
-	} else if len(c.words) != 1 {
+	} else if len(c.v) != 1 {
 		ctx.err("universe valcache : %v", c)
 	}
 }

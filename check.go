@@ -303,9 +303,12 @@ var checkpoints_match = map[string]any{
 	`**.c foo/bar.c`:`true foo/bar.c [foo/bar]`,
 	`**.c foo/oo/oo/oo/bar.c`:`true foo/oo/oo/oo/bar.c [foo/oo/oo/oo/bar]`,
 	`**.def.am foobar/config/*.def.am`:`true foobar/config/*.def.am [foobar/config/*]`,
+	`**.h *.h`:`true *.h [*]`,
 	`**.h **.h`:`true **.h [**]`,
 	`**.h bar.h`:`true bar.h [bar]`,
+	`**.h foobar.h`:`true foobar.h [foobar]`,
 	`**.h foo.h`:`true foo.h [foo]`,
+	`**.h foo/a/b/c/bar.h`:`true foo/a/b/c/bar.h [foo/a/b/c/bar]`,
 	`**.h foo/bar/v1.h`:`true foo/bar/v1.h [foo/bar/v1]`,
 	`**.h foo/bar/v2.h`:`true foo/bar/v2.h [foo/bar/v2]`,
 	`**.h foo/bar/zz/x.h`:`true foo/bar/zz/x.h [foo/bar/zz/x]`,
@@ -318,11 +321,18 @@ var checkpoints_match = map[string]any{
 	`**.h inc/foo/bar/zz/x.h`:`true inc/foo/bar/zz/x.h [inc/foo/bar/zz/x]`,
 	`**.h inc/foo/v1.h`:`true inc/foo/v1.h [inc/foo/v1]`,
 	`**.h inc/foo/v2.h`:`true inc/foo/v2.h [inc/foo/v2]`,
+	`**.o **.o`:`true **.o [**]`,
+	`**.def.am *.def.am`:`true *.def.am [*]`,
+	`**.def.am **.def.am`:`true **.def.am [**]`,
+	`**.def.am foobar.def.am`:`true foobar.def.am [foobar]`,
+	`**.def.am foo/1/2/3/bar.def.am`:`true foo/1/2/3/bar.def.am [foo/1/2/3/bar]`,
 	`*data testdata`:`true testdata [test]`,
 	`*.c foo.c`:`true foo.c [foo]`,
 	`*.def.am a.def.am`:`true a.def.am [a]`,
 	`*.def.in a.def.in`:`true a.def.in [a]`,
 	`*.def.in b.def.in`:`true b.def.in [b]`,
+	`*.log *.log`:`true *.log [*]`,
+	`*.log foobar.log`:`true foobar.log [foobar]`,
 	`*.h **.h`:`true **.h [**]`,
 	`*.h a.h`:`true a.h [a]`,
 	`*.h b.h`:`true b.h [b]`,
@@ -476,8 +486,7 @@ var checkpoints_match = map[string]any{
 	testdata_fmt(`builtins/trimsuffix %[1]s`,trim_suffix{1,"testdata"}):`false [] []`,
 }
 func check_match(ctx Context, _p, _v any, full bool, res any, stems []string) {
-	var pat, _ = _joinpath(ctx, _p)
-	var val, _ = _joinpath(ctx, _v)
+	var pat, val = joinp(ctx, _p), joinp(ctx, _v)
 	var k = sfmt("%v %v", pat, val)
 	var t = sfmt("%v %v %v", full, res, stems)
 	if fmt_slot.MatchString(k) { k = sfmt(k, testdata_s, strings.Split(testdata_s, pathSep)) }
@@ -508,6 +517,45 @@ func check_match(ctx Context, _p, _v any, full bool, res any, stems []string) {
 	}
 }
 
+func check_filemap(ctx Context, vc *valcache, patt Value, val any, _s_ string) {
+	var uc = &uncache{ctx, nil}
+	var x, y = hit(uc, vc, val)
+	if s := sfmt("%v %v", y, x); s != _s_ {
+		erro(pc(ctx,patt), "%v %v | %v %v != %s | %v", patt, val, y, x, _s_, vc).trace()
+	}
+}
+func check_map_files(ctx Context, p *project, patts, paths []Value, _res *[]filemap) {
+	if s, t := sfmt("%v", patts), filemap_str(_res); s != t {
+		erro(pc(ctx,patts), "%s != %s", s, t).trace()
+	}
+
+	var vc = &p.filemap
+
+	for _, patt := range patts {
+		var s = patt.String()
+		switch check_filemap(ctx, vc, patt, s, sfmt("true {0:%s}", s)); s {
+		case "**.h":
+			check_filemap(ctx, vc, patt, "foobar.h", "true {0:**.h}")
+			check_filemap(ctx, vc, patt, "foo/a/b/c/bar.h", "true {0:**.h}")
+			check_filemap(ctx, vc, patt, strings.Split("foo/a/b/c/bar.h",pathSep), "true {0:**.h}")
+		case "**.def.am":
+			check_filemap(ctx, vc, patt, "foobar.def.am", "true {0:**.def.am}")
+			check_filemap(ctx, vc, patt, "foo/1/2/3/bar.def.am", "true {0:**.def.am}")
+			check_filemap(ctx, vc, patt, strings.Split("foo/1/2/3/bar.def.am",pathSep), "true {0:**.def.am}")
+		case "*.log":
+			check_filemap(ctx, vc, patt, "foobar.log", "true {0:*.log}")
+			check_filemap(ctx, vc, patt, "foo/bar.log", "false {0:*.log}")
+			check_filemap(ctx, vc, patt, []string{"foo","bar.log"}, "false {0:*.log}")
+		case "**.o":
+			check_filemap(ctx, vc, patt, "foo/123/bar.o", "true {0:**.o}")
+		case ".deps/??/??/??????????":
+			check_filemap(ctx, vc, patt, ".deps/11/ab/xxxyyyzzz0", "")
+		case "&(gen)":
+			note(ctx, "%v %v", patt, vc).debug()
+		}
+	}
+}
+
 var checkpoints__string_com = map[string]any{
 	`$1$2$3`:`{}{}{}`,
 	`&(.test.$_)⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
@@ -517,10 +565,11 @@ var checkpoints__string_com = map[string]any{
 	`&(.test.foo)⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
 	`&(.test.h)a`:`-a`, `&(.test.h)b`:`-b`, `&(.test.h)c`:`-c`,
 	`&(target.arch)-&(target.vendor)-&(target.os)-&(target.abi)`:`foo-bar-{}-0`,
-	`,`:`,`, // {=compound {52:29 {51:24:raw}} {52:30:punct ,}}
+	`,`:`,`,
 	`-a`:`-a`, `-b`:`-b`, `-c`:`-c`,
 	`-foobar`:`-foobar`,
-	`.`:`.`, // {=compound {52:33 {51:24:raw}} {52:34:punct .}}
+	`.`:`.`,
+	`.deps`:`.deps`,
 	`.test.v`:`.test.v`,
 	`.test`:`.test`,
 	`.test~&(.test.s)`:`.test~foo`,

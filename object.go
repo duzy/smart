@@ -19,11 +19,7 @@ import (
     "fmt"
 )
 
-type object interface {
-    Value
-    owner() *project
-}
-
+type object interface{ Value ; owner() *project }
 type objbase struct{ valbase ; scope *scope }
 func (_ *objbase) kind() Kind { return KindObject }
 func (p *objbase) owner() *project { return p.scope.project }
@@ -32,9 +28,7 @@ func (p *objbase) exists() existence { return existenceMatterless }
 func (p *objbase) declscope() *scope { return p.scope }
 func (p *objbase) setscope(name string, s *scope) {
     if p.scope != s {
-        if p.scope != nil {
-            delete(p.scope.elems, name)
-        }
+        if p.scope != nil { delete(p.scope.elems, name) }
         p.scope = s
     }
 }
@@ -588,8 +582,8 @@ func (t traverse_state) String() (_ string) {
 // rule represents a declared rule entry.
 type rule struct{
     target Value
-    program []*program
     arged []Value
+    program []*program
 }
 func (_ *rule) kind() Kind { return KindObject|KindRule }
 func (p *rule) destiny() Value { return p.target }
@@ -638,11 +632,7 @@ func (p *rule) recipes() (res []Value) {
     }
     return
 }
-func (p *rule) expand(ctx Context) (_ Value) {
-    var target = expand(ctx,p.target)
-    if equal(ctx, target, p.target) { return p }
-    return &rule{ target, p.program, p.arged }
-}
+
 // FIXME: p.target maybe not the real target
 
 func _stemmed(ctx Context) *stemmed_ctx { return cast[*stemmed_ctx](ctx) }
@@ -677,12 +667,4 @@ func (p *stemmed_rule) destiny() Value { return p.target/* versus p.rule.target 
 func (p *stemmed_rule) String() (s string) {
     for i, stem := range p.stems { if i > 0 { s += "," }; s += stem }
     return fmt.Sprintf("%s:%s", p.target, s) // "<%s:%s>"
-}
-func (p *stemmed_rule) expand(ctx Context) (res Value) {
-    if v := p.rule.expand(ctx); v != p.rule {
-        res = &stemmed_rule{v.(*rule), p.target, p.stems}
-    } else {
-        res = p
-    }
-    return
 }

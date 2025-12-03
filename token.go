@@ -49,6 +49,7 @@ const (
 	RAW      // raw strings
 	ESCAPE   // \", \\n, etc. (see value.EscapeChar)
 	STRING   // 'abc'
+	STRVAL   // {abc}
 	STRCOMP  // "abc $(foo) 123"
 	_literal_end
 
@@ -202,6 +203,7 @@ var tokens = [...]string{
 	URL:      "URL",
 	RAW:      "RAW",
 	STRING:   "STRING",
+	STRVAL:   "STRVAL",
 	STRCOMP:  "STRCOMP",
 
 	COMPOSED: "COMPOSED",
