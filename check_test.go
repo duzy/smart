@@ -77,7 +77,7 @@ type (
 	trim_prefix trim_fmt
 	trim_suffix trim_fmt
 )
-func testdata_fmt(f string, _a ...any) string {
+func testdata_f(f string, _a ...any) string {
 	var a []any
 	var tr_pre, tr_suf []trim_fmt
 	var lc = "1:1"
@@ -100,10 +100,10 @@ func testdata_fmt(f string, _a ...any) string {
 			ss[i] = strings.TrimSuffix(ss[i], tr.string)
 		}
 	}
-	return sfmt(f, append([]any{ss[0], ss[1], ss[2]}, a...)...)
+	return sf(f, append([]any{ss[0], ss[1], ss[2]}, a...)...)
 }
 
-func testdata_fmts(_a ...any) []string {
+func testdata_fs(_a ...any) []string {
 	var f []string
 	var lc = "1:1"
 	for _, _t := range _a {
@@ -113,7 +113,7 @@ func testdata_fmts(_a ...any) []string {
 		default: panic(t)
 		}
 	}
-	return ssfmt(f, testdata_s, testdata_a, testdata_dir_t(lc))
+	return ssf(f, testdata_s, testdata_a, testdata_dir_t(lc))
 }
 
 func testdata_dir() string {
@@ -135,9 +135,9 @@ func testdata_dir_t(lc string) (s string) {
 	return
 }
 
-type loaderros struct{ string; int }
-func (t loaderros) String() string {
-	return fmt.Sprintf("%s: %d errors", t.string, t.int)
+type testcase_erros struct{ string; int }
+func (t *testcase_erros) Error() string {
+	return fmt.Sprintf("%d errors in test case `%s`", t.int, t.string)
 }
 
 func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
@@ -150,17 +150,17 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	ctx.globe.main = nil
 	ctx.workdir = dir
 
-	if true { defer func() {
-		if ctx.flush(ctx); ctx.erros > 0 || count_diag(ctx, diagError) > 0 {
+	if false { defer func() {
+		if ctx.flush(ctx); ctx.erros > 0 || diagCount(ctx, diagError) > 0 {
 			var s = name
 			if s == "" { s = spec }
 			if s == "" { s = dir }
-			panic(loaderros{s, ctx.erros + count_diag(ctx, diagError)})
+			panic(&testcase_erros{s, ctx.erros + diagCount(ctx, diagError)})
 		}
 	}()}
 
 	if !test_mode {
-		erro(ctx, "not test mode").trace()
+		debug(ctx, "not test mode", trace{})
 	}
 
 	if testHasModule("configure") && !ctx.paths.has(modules_dir) {
@@ -174,9 +174,9 @@ func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
 	ctx.load(res)
 
 	if m := ctx.globe.main; m == nil {
-		erro(ctx, "%s", dir).trace()
+		debug(ctx, "%s", dir, trace{})
 	} else if name != "" && m.name != name {
-		erro(ctx, "project %v != %v", m.name, name).trace()
+		debug(ctx, "project %v != %v", m.name, name, trace{})
 	} else {
 		res.Context = closure_with(ctx, m)
 	}
@@ -214,17 +214,8 @@ argsloop:
 			break argsloop
 		}
 	}
-	erro(ctx, f, i...).debug(1, skipint{2})
+	debug(ctx, f, append(i, callstack{num:1, skip:2})...)
 	if false { flush(ctx) }
-}
-
-func (tc *testcase) flush() {
-	if n := count_diag(tc.Context, diagError); n > 0 {
-		var pos Position
-		if p := _project(tc); p != nil { pos = p.position } else { pos = _position(tc) }
-		note(tc.Context, "%v: %v errors", _project(tc), n).debug(1, skipint{2})
-		tc.Errorf("%d errors in %s", flush(tc.Context), pos.Filename)
-	}
 }
 
 func (tc *testcase) rule(name string) (r []entry) {
@@ -245,27 +236,27 @@ func (tc *testcase) def(name string) (d *def) {
 func (tc *testcase) vs(a any, b ...any) (_ string) { return __string(tc, tc.val(a, b...)) }
 
 func (tc *testcase) val(i0 any, ii ...any) (res Value) {
-	var j = _project(tc)
-	var s = skipint{2}
+	var proj, skip = _project(tc), 2
 	var ori origin
 	var ctx Context = tc
 	var pos Position
-	var a,o []Value
+	var a, o []Value
 	var x Value
 
 	switch t := i0.(type) {
 	case Position: pos = t
 	case string:
-		if x = j.resolve(ctx, t) ; x == nil {
-			erro(ctx, "%v '%s' is nil", j, t)
-			note(ctx, "%v", reflect.ValueOf(j.scope.elems).MapKeys()).trace()
+		if x = proj.resolve(ctx, t) ; x == nil {
+			debug(ctx, _f("%v '%s' is nil", proj, t),
+				_f("%v", reflect.ValueOf(proj.scope.elems).MapKeys()),
+				trace{})
 		}
 	case Value:
 		if x = t ; t == nil {
-			erro(ctx, "%v %s is nil", j, ts(t)).trace()
+			debug(ctx, "%v %s is nil", proj, ts(t), trace{})
 		}
 	default:
-		erro(ctx, "%v %v", j, ts(i0)).trace()
+		debug(ctx, "%v %v", proj, ts(i0), trace{})
 	}
 
 	for _, i := range ii {
@@ -273,8 +264,8 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		switch t := i.(type) {
 		case test_final: ctx = _final(ctx)
 		case   Position: pos = t
-		case   *project: j, ctx = t, closure_with(ctx, t.scope)
-		case    skipint: s.int = t.int+1
+		case   *project: proj, ctx = t, closure_with(ctx, t.scope)
+		case    skipint: skip = int(t)+1
 		case     origin: ori |= t
 		case       opt : o = append(o, t.Value)
 		case       opts: o = append(o, t.vals...)
@@ -283,11 +274,12 @@ func (tc *testcase) val(i0 any, ii ...any) (res Value) {
 		}
 	}
 
+	if false && 0 < skip { debug(ctx, "TODO: skip %d", skip) }
 	if d, y := x.(*def); y {
 		if pc, file, line, ok := runtime.Caller(1); ok {
 			p := Position{}
 			p.Filename, p.Line = file, line
-			ctx = &srcctx{posctx{ctx,p},runtime.FuncForPC(pc),d}
+			ctx = &srcctx{posctx{ctx,p}, runtime.FuncForPC(pc), d}
 		}
 		if 0 < len(a) {
 			return evoke(original{ctx,ori}, x, o, a)
@@ -327,18 +319,18 @@ func testRemoveConfigureDir(ctx *testcase, p *project) {
 func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 	ctx := loadcase(t, "testdata/"+spec, spec, name, ii...)
 
-	defer func() {
+	if false { defer func() {
 		if e := recover(); e != nil {
 			switch e := e.(type) {
 			case prerequisite_evoke_loop:
-				errostack(pc(ctx,e.Value), 16, "%v", e.Value).trace()
+				errostack(pc(ctx,e.Value), 16, "%v", e.Value, trace{})
 			case trace_evoke_loop_err:
-				errostack(pc(ctx,e.Value), 16, "evoke loop: %v", e.Value).trace()
+				errostack(pc(ctx,e.Value), 16, "evoke loop: %v", e.Value, trace{})
 			case traverse_state:
 				switch e.uint {
 				case traverse_done:
 				default:
-					errostack(pc(ctx,e.p), 16, "%v", tv(e)).trace()
+					errostack(pc(ctx,e.p), 16, "%v", tv(e), trace{})
 				}
 			default:
 				flush(ctx)
@@ -349,12 +341,12 @@ func runcase(t *testing.T, name, spec string, f testcase_f1, ii ...any) {
 		d := _diagnostic(ctx)
 		d.flush(ctx)
 
-		if d.erros > 0 || count_diag(d, diagError) > 0 {
+		if d.erros > 0 || diagCount(d, diagError) > 0 {
 			var s = name
 			if s == "" { s = spec }
-			panic(loaderros{s, d.erros + count_diag(d, diagError)})
+			panic(&testcase_erros{s, d.erros + diagCount(d, diagError)})
 		}
-	} ()
+	}()}
 
 	f(ctx)
 }
@@ -442,7 +434,7 @@ func va(ctx Context, i any) (v Value) {
     case nil:
         v = _null(_position(ctx))
     default:
-        erro(ctx, "%v", ts(i)).trace()
+        debug(ctx, "%v", ts(i), trace{})
     }
     return
 }
@@ -533,6 +525,9 @@ func Test(t *testing.T) {
 	run(t, "builtins", "builtins/addprefix",  "testbuiltins", test__addprefix)
 	run(t, "builtins", "builtins/addsuffix",  "testbuiltins", test__addsuffix)
 	run(t, "builtins", "builtins/wildcard",   "testbuiltins", test__wildcard)
+	run(t, "builtins", "builtins/wildcard/1", "testbuiltins", test__wildcard1)
+	run(t, "builtins", "builtins/wildcard/2", "testbuiltins", test__wildcard2)
+	run(t, "builtins", "builtins/wildcard/3", "testbuiltins", test__wildcard3)
 	run(t, "builtins", "builtins/if",         "testbuiltins", test__if)
 	run(t, "builtins", "builtins/closure",    "testbuiltins", test__closure)
 	run(t, "builtins", "builtins/delegate",   "testbuiltins", test__delegate)

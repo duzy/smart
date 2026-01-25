@@ -104,7 +104,7 @@ var (
     }
 
     rxZeroStatusErrors = map[*regexp.Regexp]struct{}{
-        rxShellNoSuchFileDir:nv,
+        rxShellNoSuchFileDir:struct{}{},
     }
 
     matchcontexts = map[*regexp.Regexp]func(*exec_buffer, []byte, [][]byte)Context{
@@ -115,16 +115,16 @@ var (
 
     commonerrors = map[*regexp.Regexp]func(Context, []byte, [][]byte){
         rxExitStatus: func(c Context, line []byte, sm [][]byte) {
-            if string(sm[1]) != "0" { errostack(c, 5, "%s", sm[0]).trace() }
+            if string(sm[1]) != "0" { debug(c, "%s", sm[0], trace{}) }
         },
         rxShellNoSuchFileDir: func(c Context, line []byte, sm [][]byte) {
-            errostack(c, 5, "no such command '%s'", sm[2]).trace()
+            debug(c, "no such command '%s'", sm[2], trace{})
         },
         regexp.MustCompile(`(.+?): (.+?):( command)? not found`): func(c Context, line []byte, sm [][]byte) {
-            erro(c, "%s: command not found", sm[2]).trace()
+            erro(c, "%s: command not found", sm[2], trace{})
         },
         regexp.MustCompile(`the input device is not a TTY`): func(c Context, line []byte, sm [][]byte) {
-            errostack(c, 5, "%s", sm[0]).trace()
+            debug(c, "%s", sm[0], trace{})
         },
     }
 
@@ -136,9 +136,9 @@ var (
                 s := string(sm[5])
                 switch t {
                 case "warning":
-                    warnstack(c, 5, "%s", s).debug(3)
+                    debug(c, "%s", s)
                 default:
-                    errostack(c, 5, "%s", s).trace() // "error", "fatal error"
+                    debug(c, "%s", s, trace{}) // "error", "fatal error"
                 }
                 if m := rxFileNotFound.FindStringSubmatch(s); m != nil {
                     do(c, missing_file{m[1]})
@@ -146,85 +146,85 @@ var (
             },
 
             rxIgnoringDirectory: func(c Context, line []byte, sm [][]byte) {
-                notestack(pc(c,sm[2]), 5, "%s", sm[1]).debug()
+                debug(pc(c,sm[2]), 5, "%s", sm[1])
             },
 
             rxLdManyMinVersions: func(c Context, line []byte, sm [][]byte) {
-                notestack(c, 5, "%s", sm[1]).debug()
+                debug(c, 5, "%s", sm[1])
             },
 
             regexp.MustCompile(`  +"([^"]+?)", referenced from:`): func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             regexp.MustCompile(`undef: *(.+)`): func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
 
             regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (error|warning): *(.+)`): func(c Context, line []byte, sm [][]byte) {
                 if truly(c, is_configure{}) && string(sm[2]) == "warning" { return }
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`): func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): library not found for (.+)`): func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
 
             regexp.MustCompile(`(.+?): Too many positional arguments specified!`): func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
         },
         regexp.MustCompile(`^(?:.*/)?ar`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
             rxArNoSuchFileDir: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "'%s' file not found", filepath.Base(string(sm[1]))).debug()
+                debug(c, "'%s' file not found", filepath.Base(string(sm[1])))
             },
             rxArNoMembers: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
         },
         regexp.MustCompile(`^(?:.*?bash -c|.*?)git`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
             rxGitNotRepo: func(c Context, line []byte, sm [][]byte) {
-                errostack(pc(c,sm[2]), 5, "%s", sm[1]).debug()
+                debug(pc(c,sm[2]), "%s", sm[1])
             },
         },
         regexp.MustCompile(`^(?:.*/)?python`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
             rxIncludedFrom: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             rxPyFileLineIn: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             rxPyFileNotFound: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             rxPyModuleNotFound: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
         },
         regexp.MustCompile(`^(?:.*/)?docker`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
             rxDockerCannotConnect: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             rxDockerConNotRunning: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             rxDockerNoSuchContainer: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             rxDockerNetworkNotFound: func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
         },
         regexp.MustCompile(`^(?:.*/)?protoc`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
             regexp.MustCompile(`^(.+?\.proto): File not found\.`): func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`): func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
             regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`): func(c Context, line []byte, sm [][]byte) {
-                errostack(c, 5, "%s", sm[0]).debug()
+                debug(c, "%s", sm[0])
             },
         },
         regexp.MustCompile(`^(?:.*/)?echo`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
@@ -346,7 +346,7 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
 
     if !scanLine { return }
     if false && truly(p, is_rule{rxConfigRuleHeaders}) {
-        note(p, "%s %s", do(p, execution_lang{}), p.sh).debug()
+        note(p, "%s %s", do(p, execution_lang{}), p.sh)
     }
 
     for slice := b[:]; len(slice) > 0; {
@@ -371,7 +371,7 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
                 c.lino.int64 = int64(p.lnum)
                 v := expand(_final(p.Context), p.forLine)
                 if !isNull(v) && is_notice_line(c.line.s) {
-                    note(p, "%v : %d. %s → %v", p.forLine, line, c.line.s, ts(v)).debug()
+                    note(p, "%v : %d. %s → %v", p.forLine, line, c.line.s, ts(v))
                 }
             }
 
@@ -405,7 +405,7 @@ func (p *exec_buffer) startDockerDaemon(pos Position, ctx Context, container *pr
     var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
     if err = c.Run(); err != nil {
         if p.report {
-            erro(ctx, "dokcer daemon not running (at %s)", sock).trace()
+            debug(ctx, "dokcer daemon not running (at %s)", sock, trace{})
         }
     } else {
         // TODO: start docker daemon
@@ -505,7 +505,7 @@ func (p *exec_ctx) do(ctx Context, op any) any {
 
 func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
     if p.container == nil {
-        erro(p.Context, "no container").trace()
+        erro(p.Context, "no container", trace{})
     } else if maxRetries < p.num {
         fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
         return
@@ -522,7 +522,7 @@ func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
             run.execute(p.Context, nil)
         }
     } else {
-        erro(p.Context, "%s⇒run undefined", p.container).trace()
+        erro(p.Context, "%s⇒run undefined", p.container, trace{})
     }
 
     fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
@@ -594,10 +594,10 @@ func (p *exec_ctx) DEPRECATED_ensureContainerRunning(containerName string) (err 
                 run.execute(p.Context, nil)
             }
         } else {
-            erro(p.Context, "%s⇒run undefined", p.container).trace()
+            erro(p.Context, "%s⇒run undefined", p.container, trace{})
         }
     } else if err != nil {
-        erro(p.Context, "%v", err).trace()
+        erro(p.Context, "%v", err, trace{})
     }
     return
 }
@@ -632,7 +632,7 @@ func (p *exec_ctx) run(exe *execution) (err error) {
             if p.Status = x.ExitCode(); p.Status == 0 { err = p.check() } // success!
             if p.resetStatusZero { p.Status = 0 }
         } else {
-            erro(p.Context, "exec failed: %v", err).trace()
+            erro(p.Context, "exec failed: %v", err, trace{})
             return
         }
     }
@@ -641,7 +641,7 @@ func (p *exec_ctx) run(exe *execution) (err error) {
     if p.note {
         prompt(p, "%s\n", p.sh)
         if buf := p.Stdout.Buf; buf != nil { prompt(p, "%s", buf) }
-        notestack(pc(p,auto_get(p,"@")), 3, "status=%v", p.Status).debug(32)
+        debug(pc(p,auto_get(p,"@")), "status=%v", p.Status)
     }
     return
 }
@@ -674,15 +674,15 @@ func (p *exec_ctx) check() (err error) {
         //     if !p.scanInfos && rec.dt == diagInfo { continue }
         //     if !p.logPos.IsValid() { p.logPos = rec.position }
         //     if i == 0 && !rec.position.same(&rec.position) {
-        //         diag(ctx, rec.dt, rec.msg)//.debug()
+        //         diag(ctx, rec.dt, rec.msg)//
         //     }
         //     if rec.num > 1 {
-        //         diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num)//.debug()
+        //         diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num)//
         //     } else {
-        //         diag(ctx, rec.dt, rec.msg)//.debug()
+        //         diag(ctx, rec.dt, rec.msg)//
         //     }
         //     if n := (en+wn+in)-(i+1); i == 8 && 0 < n {
-        //         diag(ctx, rec.dt, "%d more...", n)//.debug()
+        //         diag(ctx, rec.dt, "%d more...", n)//
         //         break
         //     }
         // }
@@ -700,22 +700,22 @@ func (p *exec_ctx) check() (err error) {
         if (/* !p.retStatus && */ p.Status != 0) || en > 0 {
             if p.removeOnFail {
                 if e := os.RemoveAll(p.targetName); e != nil {
-                    warn(ctx, "remove: %v", e).debug()
+                    warn(ctx, "remove: %v", e)
                 }
             }
 
-            if diffLogPos && en > 0 { erro(ctx, "%v: %d known errors", str, en) }
-            erro(p, "%v: exit status %d", str, p.Status).trace()
+            if diffLogPos && en > 0 { debug(ctx, "%v: %d known errors", str, en) }
+            erro(p, "%v: exit status %d", str, p.Status, trace{})
         } else if wn > 0 {
             if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn) }
             warn(p, "%v: exit status %d", str, p.Status)
             warn(ctx, "%v: %d known warnings", str, wn)
-            warnstack(ctx, 3).debug()
+            warnstack(ctx, 3)
         } else if in > 0 && p.scanInfos {
             if diffLogPos { info(ctx, "%v: %d known messages", str, in) }
             info(p, "%v: exit status %d", str, p.Status)
             info(ctx, "%v: %d known messages", str, in)
-            infostack(ctx, 8).debug()
+            infostack(ctx, 8)
         }
 
         // if p.retStatus {
@@ -786,7 +786,7 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
     }
 
     if len(sources) == 0 && 0 < len(recipes) {
-        erro(ctx, "empty recipes: %v", recipes).trace()
+        debug(ctx, "empty recipes: %v", recipes, trace{})
     }
     return
 }
@@ -845,7 +845,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         if x, y := ac.defs["1"]; y {
             ac.defs["_"] = x // alias
         } else {
-            erro(ctx, "wrong args: %v", ac.defs).trace()
+            debug(ctx, "wrong args: %v", ac.defs, trace{})
         }
         ctx.Context = &ac
     }
@@ -863,9 +863,9 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     if ctx.log == nil || ctx.log.filename == "" {
         // no log required
     } else if err := os.MkdirAll(filepath.Dir(ctx.log.filename), os.FileMode(0755)); err != nil {
-        erro(ctx, "%v", err).trace()
+        debug(ctx, "%v", err, trace{})
     } else if logFile, err = os.Create(ctx.log.filename); err != nil {
-        erro(ctx, "%v", err).trace()
+        debug(ctx, "%v", err, trace{})
     } else {
         cmdline := joinraws("\n", srcs...)
         ctx.log.createWriter(logFile, ctx._workdir, cmdline)
@@ -893,7 +893,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
             if rx.MatchString(src.s) { ctx.known = m }
         }
         if ctx.known == nil {
-            note(ctx, "unknown: %s", src).debug()
+            note(ctx, "unknown: %s", src)
         }
 
         ctx.sh = exec.Command(cmd, ctx.args...)
@@ -921,11 +921,11 @@ type executor struct {
 func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     var prog = _program(ctx)
     if prog == nil {
-        erro(ctx, "needs program context to exec: %v", ctx).trace()
+        debug(ctx, "needs program context to exec: %v", ctx, trace{})
     }
 
     if false && truly(ctx, is_test_univ{}) {
-        defer note(ctx, "%v %v %v", p.cmd, args, result).debug()
+        defer note(ctx, "%v %v %v", p.cmd, args, result)
     }
 
     var cmd = p.cmd
@@ -946,7 +946,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             var x, y = r.(*argumented)
             if !y { break }
             if len(x.args) != 1 {
-                erro(pc(ctx,x), "wrong result spec: %v", x).trace()
+                erro(pc(ctx,x), "wrong result spec: %v", x, trace{})
             }
 
             switch s := __string(ctx, x.Value); s {
@@ -956,7 +956,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
             if l, y := x.args[0].(*list); y {
                 if l.len() != 1 {
-                    erro(pc(ctx,x), "wrong result spec: %v", x).trace()
+                    erro(pc(ctx,x), "wrong result spec: %v", x, trace{})
                 }
                 r = l.elems[0]
             }
@@ -982,7 +982,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     }
 
     if t := auto_target_value(ctx); patterned(ctx,t) {
-        errostack(ctx, 5, "target is pattern: %v", ec.target).trace()
+        debug(ctx, "target is pattern: %v", ec.target, trace{})
     } else {
         ec.target.Value = t
         if _, y := t.(flag); !y {
@@ -1002,7 +1002,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     if p.contained {
         var proj = _project(ctx)
         if proj == nil {
-            erro(ctx, "nil project").trace()
+            debug(ctx, "nil project", trace{})
         }
 
         if proj.name == dot_container {
@@ -1011,7 +1011,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             ec.container = sym.(*project)
         }
         if ec.container == nil {
-            erro(ctx, "%s: nil container", proj.name).trace()
+            debug(ctx, "%s: nil container", proj.name, trace{})
         }
 
         var stringify = func(name string) (str string) {
@@ -1033,12 +1033,12 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
         var containerName = stringify("container")
         if containerName == "" {
-            erro(ctx, ".container.name undefined").trace()
+            debug(ctx, ".container.name undefined", trace{})
         }
 
         var containerImage = stringify("image")
         if containerImage == "" {
-            erro(ctx, ".container.image undefined").trace()
+            debug(ctx, ".container.image undefined", trace{})
         }
 
         ec.args = append(ec.args, "exec", containerName, cmd)
@@ -1048,14 +1048,14 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     if ec._workdir == "" {
         ec._workdir = prog.workdir(ctx)
         if ec._workdir == "" {
-            erro(ctx, "workdir is empty").trace()
+            debug(ctx, "workdir is empty", trace{})
         }
     }
 
     if ec.path {
         if s := filepath.Dir(ec.targetName); s != "" && s != "." && s != "/" {
             if e := os.MkdirAll(s, os.FileMode(0755)); e != nil {
-                erro(ctx, "make path '%s' for target failed: %v", s, e).trace()
+                debug(ctx, "make path '%s' for target failed: %v", s, e, trace{})
             }
         }
     }
@@ -1116,7 +1116,7 @@ fieldsloop:
                     }
 
                     if _, e := os.Stat(s); e != nil {
-                        if w { warn(ctx, "ignoring nonexistent path: %v", s).debug() }
+                        if w { debug(ctx, "ignoring nonexistent path: %v", s) }
                         continue fieldsloop // skip nonexistent path flags
                     } else if f {
                         flags = append(flags, field)

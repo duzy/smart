@@ -28,7 +28,7 @@ func check_prefix(ctx Context, tag string, x, y Value, res *Value) {
 	if j := _project(ctx); j == nil {
 		if false {
 			var s = try[string](ctx, source{})
-			errostack(pc(pc(ctx,y),x), 8, "nil project | %s %v %v %v", s, ts(x), ts(y), ts(*res)).trace()
+			debug(pc(pc(ctx,y),x), "nil project | %s %v %v %v", s, ts(x), ts(y), ts(*res), trace{})
 		}
 	} else if spec, ok := check_prefix_specs[tag+":"+j.spec]; ok {
 		var (
@@ -40,11 +40,9 @@ func check_prefix(ctx Context, tag string, x, y Value, res *Value) {
 			vs = spec[src[0]][xy]
 		)
 		if rs := (*res).String()+" "+ts(*res); vs == "" {
-			errostack(pc(pc(ctx,y),x), 8, "`%v`:`%s`,", xy, rs).trace()
+			debug(pc(pc(ctx,y),x), "`%v`:`%s`,", xy, rs, trace{})
 		} else if rs != vs {
-			erro(pc(pc(ctx,y),x), "`%v`", xy)
-			note(pc(pc(ctx,y),x), `got: %s`, rs)
-			notestack(pc(pc(ctx,y),x), 8, `!= : %s`, vs).trace()
+			debug(pc(pc(ctx,y),x), _f("`%v`", xy), _f(`got: %s`, rs), _f(`!= : %s`, vs), trace{})
 		}
 	}
 }
@@ -66,6 +64,8 @@ var checkspecs = map[string]map[string]map[string]any{
 	"testdata/builtins/foreach/4":   checkpoints__foreach4,
 	"testdata/builtins/foreach/5":   checkpoints__foreach5,
 	"testdata/builtins/wildcard":    checkpoints__wildcard,
+	"testdata/builtins/wildcard/1":  checkpoints__wildcard1,
+	"testdata/builtins/wildcard/2":  checkpoints__wildcard2,
 	"testdata/builtins/closure":     checkpoints__closure,
 	"testdata/builtins/delegate":    checkpoints__delegate,
 	"testdata/builtins/logic":       checkpoints__logic,
@@ -97,13 +97,13 @@ var checkspecs = map[string]map[string]map[string]any{
 	"testdata/value/12":             checkpoints_value_12,
 	"testdata/value/13":             checkpoints_value_13,
 	"testdata/value/bug_01":         checkpoints_value_bug_01,
-	"testdata/rule/shell/for-stdout":checkpoints_rule_shell_forstdout,
-	"testdata/template":             checkpoints_template,
-	"testdata/modifier":             checkpoints_modifiers,
 	"testdata/valcache":             checkpoints_valcache,
 	"testdata/valcache/1":           checkpoints_valcache1,
 	"testdata/valcache/2":           checkpoints_valcache2,
 	"testdata/valcache/3":           checkpoints_valcache3,
+	"testdata/rule/shell/for-stdout":checkpoints_rule_shell_forstdout,
+	"testdata/template":             checkpoints_template,
+	"testdata/modifier":             checkpoints_modifiers,
 }
 func check(ctx Context, res Value, p Value, x ...Value) {
 	var src = strings.Split(try[string](ctx,source{}), ":")
@@ -111,9 +111,9 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 		if true {
 			switch p.String() {
 			case "test.paniconexit0", "test.timeout": // TODO: fix these strange value
-				if false { erro(pc(ctx,p), "TODO: check(%v %v %v)", p, res, x).trace() }
+				if false { debug(pc(ctx,p), "TODO: check(%v %v %v)", p, res, x, trace{}) }
 			default:
-				if false { note(pc(ctx,p), "check(%v %v %v)", p, res, x).debug(10) }
+				if false { debug(pc(ctx,p), "check(%v %v %v)", p, res, x) }
 			}
 		}
 		return
@@ -135,7 +135,6 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 			return checkspecs[spec][src[0]][ks]
 		} ()
 		vs = func() (s string) {
-			if n := len(x); n == 1 { s = ts(x[0],ctx)+" " } else if n > 1 { s = ts(x,ctx)+" " }
 			switch t := tr.(type) {
 			case sorted_strings:
 				if l, ok := res.(*list); ok {
@@ -154,15 +153,13 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 	case []string: for _, s := range v { if s == vs { /* delete(checkspecs[spec][src[0]],ks); */ return } }
 	case nil:
 		if src == nil {
-			errostack(pc(ctx,p), 8, "`%v`:`%s`,", ks, vs).trace()
+			debug(pc(ctx,p), _f("`%v`:`%s`,", ks, vs), trace{})
 		} else {
-			erro(pc(ctx,p), "src=%s p=%v", src, p)
-			notestack(pc(ctx,p), 8, "`%v`:`%s`,", ks, vs).trace()
+			debug(pc(ctx,p), _f("src=%s p=%v", src, p), _f("`%v`:`%s`,", ks, vs), trace{})
 		}
+		return
 	}
-	erro(pc(ctx,p), "`%v`", ks)
-	note(pc(ctx,p), `got: %s`, vs)
-	notestack(pc(ctx,p), 8, `!= : %v`, tr).trace()
+	debug(pc(ctx,p), _f("`%v`", ks), _f(`got: %s`, vs), _f(`!= : %v`, tr), trace{})
 }
 
 var checkstrs = map[string]map[string]map[string]any{
@@ -180,6 +177,8 @@ var checkstrs = map[string]map[string]map[string]any{
 	"testdata/builtins/foreach/4":   checkstrs__foreach4,
 	"testdata/builtins/foreach/5":   checkstrs__foreach5,
 	"testdata/builtins/wildcard":    checkstrs__wildcard,
+	"testdata/builtins/wildcard/1":  checkstrs__wildcard1,
+	"testdata/builtins/wildcard/2":  checkstrs__wildcard2,
 	"testdata/builtins/closure":     checkstrs__closure,
 	"testdata/builtins/delegate":    checkstrs__delegate,
 	"testdata/builtins/logic":       checkstrs__logic,
@@ -235,22 +234,23 @@ func check_string(ctx Context, p Value, v Value, res string) {
 	switch v := ta.(type) {
 	case []string: for _, s := range v { if s == vs { return } }
 	case   string:                       if v == vs { return }
-	case nil: errostack(pc(ctx,p), 8, "`%v`:`%s`,", ks, vs).trace()
+	case nil: debug(pc(ctx,p), "`%v`:`%s`,", ks, vs, trace{})
 	}
-	erro(pc(ctx,p), "`%v`", ks)
-	note(pc(ctx,p), `got: %s`, vs)
-	note(pc(ctx,p), `!= : %s`, ta)
-	note(pc(ctx,p), `val: %v`, v)
-	notestack(pc(ctx,p), 8, `res: %v`, res).trace()
+	debug(pc(ctx,p), _f("`%v`", ks),
+		_f(`got: %s`, vs),
+		_f(`!= : %v`, ta),
+		_f(`val: %v`, v),
+		_f(`res: %v`, res),
+		trace{})
 }
 
 func check_cmp(ctx Context, l, r any, _r *cmpres) {
-	var _eq_ = sfmt("%v",l) == sfmt("%v",r)
+	var _eq_ = sf("%v",l) == sf("%v",r)
 	switch {
 	case !_eq_ && cmpEqual == *_r:
-		errostack(pc(pc(ctx,r),l), 3, "%v: %v ⇔ %v | %v ⇔ %v", *_r, l, r, ts(l), ts(r)).trace()
+		debug(pc(pc(ctx,r),l), "%v: %v ⇔ %v | %v ⇔ %v", *_r, l, r, ts(l), ts(r), trace{})
 	case _eq_ && cmpEqual != *_r:
-		errostack(pc(pc(ctx,r),l), 3, "%v: %v ⇔ %v | %v ⇔ %v", *_r, l, r, ts(l), ts(r)).trace()
+		debug(pc(pc(ctx,r),l), "%v: %v ⇔ %v | %v ⇔ %v", *_r, l, r, ts(l), ts(r), trace{})
 	}
 }
 
@@ -266,8 +266,8 @@ var checkpoints_com = map[string]map[string]any{
 func check_com(ctx *comctx, a, elems []Value, res *[]Value) {
 	var (
 		f = dirs(1, bases(_position(ctx).Filename, 2))
-		k = sfmt("%v %v", ts(a), ts(elems))
-		r = sfmt("%v %v", *res, ts(*res))
+		k = sf("%v %v", ts(a), ts(elems))
+		r = sf("%v %v", *res, ts(*res))
 		t = checkpoints_com[f][k]
 	)
 	switch v := t.(type) {
@@ -275,13 +275,24 @@ func check_com(ctx *comctx, a, elems []Value, res *[]Value) {
 	case []string: for _, v := range v { if r == v { return } }
 	default: if false { note(pc(ctx,elems), "%s: %v, %v => %v", f, k, t, r) }
 	}
-	if false { erro(pc(ctx,a), `"%v %v":"%v %v",`, a, elems, *res).trace() }
+	if false { debug(pc(ctx,a), `"%v %v":"%v %v",`, a, elems, *res, trace{}) }
 }
 
 var fmt_slot = regexp.MustCompile(`%\[([0-9_a-z]+)\]s`)
 var checkpoints_match = map[string]any{
 	` builtins`:`false  []`,
 	` trimsuffix`:`false  []`,
+	`%.c foo.c++`:`false  []`,
+	`%.c foo.c`:`true foo.c [foo]`,
+	`%.c foo/bar.c++`:`false  []`,
+	`%.c foo/bar.c`:`true foo/bar.c [foo/bar]`,
+	`%.c foo/z.c`:`true foo/z.c [foo/z]`,
+	`%.c x.c++`:`false  []`,
+	`%.c y.c++`:`false  []`,
+	`%.c++ foo.c++`:`true foo.c++ [foo]`,
+	`%.c++ foo/bar.c++`:`true foo/bar.c++ [foo/bar]`,
+	`%.c++ x.c++`:`true x.c++ [x]`,
+	`%.c++ y.c++`:`true y.c++ [y]`,
 	`* a.h`:`true a.h [a.h]`,
 	`* a`:`true a [a]`,
 	`* b.h`:`true b.h [b.h]`,
@@ -294,26 +305,49 @@ var checkpoints_match = map[string]any{
 	`* foobar`:`true foobar [foobar]`,
 	`* v1.h`:`true v1.h [v1.h]`,
 	`* v2.h`:`true v2.h [v2.h]`,
+	`* v?.h`:`true v?.h [v?.h]`,
+	`* x.h`:`true x.h [x.h]`,
+	`* xv1y.h`:`true xv1y.h [xv1y.h]`,
+	`* xv22y.h`:`true xv22y.h [xv22y.h]`,
+	`* xv333y.h`:`true xv333y.h [xv333y.h]`,
+	`* zz`:`true zz [zz]`,
 	`** `:`true  []`,
-	`**y abcy`:`true abcy [abc]`,
-	`**y dy`:`true dy [d]`,
-	`**z xyz`:`true xyz [xy]`,
 	`**.auto .test/a/b/c.auto`:`true .test/a/b/c.auto [.test/a/b/c]`,
 	`**.c foo.c`:`true foo.c [foo]`,
 	`**.c foo/bar.c`:`true foo/bar.c [foo/bar]`,
 	`**.c foo/oo/oo/oo/bar.c`:`true foo/oo/oo/oo/bar.c [foo/oo/oo/oo/bar]`,
+	`**.c foo/z.c`:`true foo/z.c [foo/z]`,
+	`**.c++ foo.c++`:`true foo.c++ [foo]`,
+	`**.c++ foo/bar.c++`:`true foo/bar.c++ [foo/bar]`,
+	`**.c++ x.c++`:`true x.c++ [x]`,
+	`**.c++ y.c++`:`true y.c++ [y]`,
+	`**.def.am **.def.am`:`true **.def.am [**]`,
+	`**.def.am *.def.am`:`true *.def.am [*]`,
+	`**.def.am foo/1/2/3/bar.def.am`:`true foo/1/2/3/bar.def.am [foo/1/2/3/bar]`,
+	`**.def.am foobar.def.am`:`true foobar.def.am [foobar]`,
 	`**.def.am foobar/config/*.def.am`:`true foobar/config/*.def.am [foobar/config/*]`,
-	`**.h *.h`:`true *.h [*]`,
+	`**.gen a.gen`:`true a.gen [a]`,
+	`**.gen b.gen`:`true b.gen [b]`,
+	`**.gen foo/c.gen`:`true foo/c.gen [foo/c]`,
 	`**.h **.h`:`true **.h [**]`,
+	`**.h *.h`:`true *.h [*]`,
 	`**.h bar.h`:`true bar.h [bar]`,
-	`**.h foobar.h`:`true foobar.h [foobar]`,
 	`**.h foo.h`:`true foo.h [foo]`,
+	`**.h foo/*.h`:`true foo/*.h [foo/*]`,
 	`**.h foo/a/b/c/bar.h`:`true foo/a/b/c/bar.h [foo/a/b/c/bar]`,
 	`**.h foo/bar/v1.h`:`true foo/bar/v1.h [foo/bar/v1]`,
 	`**.h foo/bar/v2.h`:`true foo/bar/v2.h [foo/bar/v2]`,
+	`**.h foo/bar/v?.h`:`true foo/bar/v?.h [foo/bar/v?]`,
 	`**.h foo/bar/zz/x.h`:`true foo/bar/zz/x.h [foo/bar/zz/x]`,
 	`**.h foo/v1.h`:`true foo/v1.h [foo/v1]`,
 	`**.h foo/v2.h`:`true foo/v2.h [foo/v2]`,
+	`**.h foo/xv1y.h`:`true foo/xv1y.h [foo/xv1y]`,
+	`**.h foo/xv22y.h`:`true foo/xv22y.h [foo/xv22y]`,
+	`**.h foo/xv333y.h`:`true foo/xv333y.h [foo/xv333y]`,
+	`**.h foo???/x.h`:`true foo???/x.h [foo???/x]`,
+	`**.h foobar.h`:`true foobar.h [foobar]`,
+	`**.h foobar/config/x.h`:`true foobar/config/x.h [foobar/config/x]`,
+	`**.h foobar/x.h`:`true foobar/x.h [foobar/x]`,
 	`**.h inc/bar.h`:`true inc/bar.h [inc/bar]`,
 	`**.h inc/foo.h`:`true inc/foo.h [inc/foo]`,
 	`**.h inc/foo/bar/v1.h`:`true inc/foo/bar/v1.h [inc/foo/bar/v1]`,
@@ -321,19 +355,25 @@ var checkpoints_match = map[string]any{
 	`**.h inc/foo/bar/zz/x.h`:`true inc/foo/bar/zz/x.h [inc/foo/bar/zz/x]`,
 	`**.h inc/foo/v1.h`:`true inc/foo/v1.h [inc/foo/v1]`,
 	`**.h inc/foo/v2.h`:`true inc/foo/v2.h [inc/foo/v2]`,
+	`**.h inc/foo/xv1y.h`:`true inc/foo/xv1y.h [inc/foo/xv1y]`,
+	`**.h inc/foo/xv22y.h`:`true inc/foo/xv22y.h [inc/foo/xv22y]`,
+	`**.h inc/foo/xv333y.h`:`true inc/foo/xv333y.h [inc/foo/xv333y]`,
+	`**.h inc/foobar/config/x.h`:`true inc/foobar/config/x.h [inc/foobar/config/x]`,
+	`**.h inc/foobar/x.h`:`true inc/foobar/x.h [inc/foobar/x]`,
 	`**.o **.o`:`true **.o [**]`,
-	`**.def.am *.def.am`:`true *.def.am [*]`,
-	`**.def.am **.def.am`:`true **.def.am [**]`,
-	`**.def.am foobar.def.am`:`true foobar.def.am [foobar]`,
-	`**.def.am foo/1/2/3/bar.def.am`:`true foo/1/2/3/bar.def.am [foo/1/2/3/bar]`,
-	`*data testdata`:`true testdata [test]`,
+	`**.o foo.o`:`true foo.o [foo]`,
+	`**y abcy`:`true abcy [abc]`,
+	`**y dy`:`true dy [d]`,
+	`**z xyz`:`true xyz [xy]`,
 	`*.c foo.c`:`true foo.c [foo]`,
+	`*.def.am **.def.am`:`true **.def.am [**]`,
 	`*.def.am a.def.am`:`true a.def.am [a]`,
 	`*.def.in a.def.in`:`true a.def.in [a]`,
 	`*.def.in b.def.in`:`true b.def.in [b]`,
-	`*.log *.log`:`true *.log [*]`,
-	`*.log foobar.log`:`true foobar.log [foobar]`,
+	`*.gen x.gen`:`true x.gen [x]`,
+	`*.gen y.gen`:`true y.gen [y]`,
 	`*.h **.h`:`true **.h [**]`,
+	`*.h *.h`:`true *.h [*]`,
 	`*.h a.h`:`true a.h [a]`,
 	`*.h b.h`:`true b.h [b]`,
 	`*.h bar.h`:`true bar.h [bar]`,
@@ -341,13 +381,29 @@ var checkpoints_match = map[string]any{
 	`*.h foo.h`:`true foo.h [foo]`,
 	`*.h v1.h`:`true v1.h [v1]`,
 	`*.h v2.h`:`true v2.h [v2]`,
+	`*.h v?.h`:`true v?.h [v?]`,
+	`*.h x.h`:`true x.h [x]`,
+	`*.h xv1y.h`:`true xv1y.h [xv1y]`,
+	`*.h xv22y.h`:`true xv22y.h [xv22y]`,
+	`*.h xv333y.h`:`true xv333y.h [xv333y]`,
+	`*.hh v3.hh`:`true v3.hh [v3]`,
+	`*.log *.log`:`true *.log [*]`,
+	`*.log foobar.log`:`true foobar.log [foobar]`,
 	`*/*.h bar.h`:`false [bar.h] [bar.h]`,
 	`*/*.h foo.h`:`false [foo.h] [foo.h]`,
 	`*/*.h v1.h`:`false [v1.h] [v1.h]`,
 	`*/*.h v2.h`:`false [v2.h] [v2.h]`,
+	`*/*.h x.h`:`false [x.h] [x.h]`,
+	`*/*.h xv1y.h`:`false [xv1y.h] [xv1y.h]`,
+	`*/*.h xv22y.h`:`false [xv22y.h] [xv22y.h]`,
+	`*/*.h xv333y.h`:`false [xv333y.h] [xv333y.h]`,
 	`*/*/*.h bar.h`:`false [bar.h] [bar.h]`,
 	`*/*/*.h foo.h`:`false [foo.h] [foo.h]`,
+	`*data testdata`:`true testdata [test]`,
+	`. .h`:`false . []`,
+	`. .o`:`false . []`,
 	`. .test`:`false . []`,
+	`. .txt`:`false . []`,
 	`.test/**/**z .test/a/b/c/xyz`:`true [.test a b c xyz] [a/b/c xy]`,
 	`.test/**y/**y .test/a/b/cy/a/b/c/y`:`false [.test a b cy a b c y] [a/b/cy/a/b/c/]`,
 	`.test/**y/**y/z .test/a/b/cy/a/b/c/y/z`:`false [.test a b cy a b c y z] [a/b/cy/a/b/c/ z]`,
@@ -363,6 +419,8 @@ var checkpoints_match = map[string]any{
 	`.test/*/*/*.h .test/a/b/c/d.h`:`false [.test a b] [a b]`,
 	`.test/*/*/*.h .test/a/b/c/d/e.h`:`false [.test a b] [a b]`,
 	`.test/*?y/**y .test/a/b/cy/a/b/c/y`:`true [.test a b cy a b c y] [a/b/c a/b/c/]`,
+	`.test/a/**.c .test/a/b/c.auto`:`false [.test a b c.auto] [b/c.auto]`,
+	`.test/a/**.c .test/a/b/c.none`:`false [.test a b c.none] [b/c.none]`,
 	`.test/x**/**y .test/xa/b/c/dy`:`true [.test xa b c dy] [a/b/c d]`,
 	`.test/x**/**y .test/xabc/abcy`:`true [.test xabc abcy] [abc abc]`,
 	`.test/x**y .test/x/xx-yy/y`:`true [.test x xx-yy y] [/xx-yy/]`,
@@ -383,22 +441,11 @@ var checkpoints_match = map[string]any{
 	`.test/x*?y/x*?y .test/xaa/bb/ccy/xaa/bb/ccy`:`true [.test xaa bb ccy xaa bb ccy] [aa/bb/cc aa/bb/cc]`,
 	`.test/x*?y/x*?y .test/xaaay/x/aaa/y`:`true [.test xaaay x aaa y] [aaa /aaa/]`,
 	`/builtins /builtins/trimprefix`:`false [ builtins] []`,
-	`builtins builtins/trimprefix`:`false builtins []`,
-	`foobar/config/*.def.am **.def.am`:`false [] []`,
-	`test* testdata`:`true testdata [data]`,
-	`t*a testdata`:`true testdata [estdat]`,
-	`^configure\.types\.(<(.+?)>|"(.+?)") configure.types."atomic.h"`:`true configure.types."atomic.h" ["atomic.h"  atomic.h]`,
-	`^configure\.types\.(<(.+?)>|"(.+?)") configure.types.<atomic.h>`:`true configure.types.<atomic.h> [<atomic.h> atomic.h ]`,
-	`^val([1-9])$ val1`:`true val1 [1]`,
-	`^val([1-9])$ val2`:`true val2 [2]`,
-	`^val([1-9])$ val3`:`true val3 [3]`,
-	`^val([1-9])$ val4`:`true val4 [4]`,
-	`^val([1-9])$ val5`:`true val5 [5]`,
-	`^var\.([xyz]+) var.xxx`:`true var.xxx [xxx]`,
-	`^var\.([xyz]+) var.yyy`:`true var.yyy [yyy]`,
-	`^var\.([xyz]+) var.zzz`:`true var.zzz [zzz]`,
-	`^var\.([xy]+) var.xxx`:`true var.xxx [xxx]`,
-	`^var\.([xy]+) var.yyy`:`true var.yyy [yyy]`,
+	`?.h x.h`:`true x.h [x]`,
+	`^\.test\.([0-9]+)$ .test.10`:`true .test.10 [10]`,
+	`^\.test\.([0-9]+)$ .test.11`:`true .test.11 [11]`,
+	`^\.test\.([0-9]+)$ .test.12`:`true .test.12 [12]`,
+	`^\.test\.([0-9]+)$ .test.13`:`true .test.13 [13]`,
 	`^\.test\.([0-9]+)$ .test.1`:`true .test.1 [1]`,
 	`^\.test\.([0-9]+)$ .test.2`:`true .test.2 [2]`,
 	`^\.test\.([0-9]+)$ .test.3`:`true .test.3 [3]`,
@@ -408,151 +455,196 @@ var checkpoints_match = map[string]any{
 	`^\.test\.([0-9]+)$ .test.7`:`true .test.7 [7]`,
 	`^\.test\.([0-9]+)$ .test.8`:`true .test.8 [8]`,
 	`^\.test\.([0-9]+)$ .test.9`:`true .test.9 [9]`,
-	`^\.test\.([0-9]+)$ .test.10`:`true .test.10 [10]`,
-	`^\.test\.([0-9]+)$ .test.11`:`true .test.11 [11]`,
-	`^\.test\.([0-9]+)$ .test.12`:`true .test.12 [12]`,
-	`^\.test\.([0-9]+)$ .test.13`:`true .test.13 [13]`,
+	`^configure\.types\.(<(.+?)>|"(.+?)") configure.types."atomic.h"`:`true configure.types."atomic.h" ["atomic.h"  atomic.h]`,
+	`^configure\.types\.(<(.+?)>|"(.+?)") configure.types.<atomic.h>`:`true configure.types.<atomic.h> [<atomic.h> atomic.h ]`,
+	`^val([1-9])$ val1`:`true val1 [1]`,
+	`^val([1-9])$ val2`:`true val2 [2]`,
+	`^val([1-9])$ val3`:`true val3 [3]`,
+	`^val([1-9])$ val4`:`true val4 [4]`,
+	`^val([1-9])$ val5`:`true val5 [5]`,
+	`^var\.([xy]+) var.xxx`:`true var.xxx [xxx]`,
+	`^var\.([xy]+) var.yyy`:`true var.yyy [yyy]`,
+	`^var\.([xyz]+) var.xxx`:`true var.xxx [xxx]`,
+	`^var\.([xyz]+) var.yyy`:`true var.yyy [yyy]`,
+	`^var\.([xyz]+) var.zzz`:`true var.zzz [zzz]`,
+	`bar/*.hh v1.h`:`false [] []`,
+	`bar/*.hh v2.h`:`false [] []`,
+	`bar/*.hh xv1y.h`:`false [] []`,
+	`bar/*.hh xv22y.h`:`false [] []`,
+	`bar/*.hh xv333y.h`:`false [] []`,
+	`bar/v?.h v1.h`:`false [] []`,
+	`bar/v?.h v2.h`:`false [] []`,
+	`bar/v?.h xv1y.h`:`false [] []`,
+	`bar/v?.h xv22y.h`:`false [] []`,
+	`bar/v?.h xv333y.h`:`false [] []`,
+	`builtins builtins/trimprefix`:`false builtins []`,
+	`config/*.def.am x.h`:`false [] []`,
+	`config/*.def.in x.h`:`false [] []`,
+	`fo? foo`:`true foo [o]`,
+	`fo?/**/x.h f*?/x.h`:`false [] []`,
+	`fo?/**/x.h foo/b*/v*.h`:`false [foo b* v*.h] [o b*/v*.h]`,
+	`fo?/**/x.h foo/x*y.h`:`false [foo x*y.h] [o x*y.h]`,
+	`foo foo.h`:`false foo []`,
+	`foo foo.o`:`false foo []`,
+	`foo foo.txt`:`false foo []`,
+	`foo foobar`:`false foo []`,
+	`foo foo???`:`false foo []`,
+	`foo/**.hh foo/bar/*.hh`:`true [foo bar *.hh] [bar/*]`,
+	`foo/**/x.h foo/b*/v*.h`:`false [foo b* v*.h] [b*/v*.h]`,
+	`foo/**/x.h foo/x*y.h`:`false [foo x*y.h] [x*y.h]`,
+	`foo/*.h **.h`:`false [] []`,
+	`foo/*.h foo???/x.h`:`false [] []`,
+	`foo/*.h foo/**.hh`:`false [foo] []`,
+	`foo/*.h foo/*.h`:`true [foo *.h] [*]`,
+	`foo/*.h foo/bar/v?.h`:`false [foo] []`,
+	`foo/*.h foo/bar/zz/x.h`:`false [foo] []`,
+	`foo/bar/*.h foo/**.hh`:`false [foo] []`,
+	`foo/bar/*.h foo/*.h`:`false [foo] []`,
+	`foo/bar/*.h foo/bar/v?.h`:`true [foo bar v?.h] [v?]`,
+	`foo/bar/*.h foo/bar/zz/x.h`:`false [foo bar] []`,
+	`foo/bar/*.hh foo/**.hh`:`false [foo] []`,
+	`foo/bar/*/*.h foo/**.hh`:`false [foo] []`,
+	`foo/bar/*/*.h foo/*.h`:`false [foo] []`,
+	`foo/bar/*/*.h foo/bar/v?.h`:`false [foo bar v?.h] [v?.h]`,
+	`foo/bar/*/*.h foo/bar/zz/x.h`:`true [foo bar zz x.h] [zz x]`,
+	`foo/bar/v?.h **.h`:`false [] []`,
+	`foo/bar/v?.h foo/bar/*.h`:`false [foo bar] []`,
+	`foo/bar/v?.h foo/bar/v1.h`:`true [foo bar v1.h] [1]`,
+	`foo/bar/v?.h foo/bar/v2.h`:`true [foo bar v2.h] [2]`,
+	`foo/bar/v?.h foo/bar/z?/?.h`:`false [foo bar] []`,
+	`foo/bar/z?/?.h foo/bar/zz/x.h`:`true [foo bar zz x.h] [z x]`,
+	`foo/bar/zz/?.h foo/bar/zz/x.h`:`true [foo bar zz x.h] [x]`,
+	`foo/bar/zz/x.h **.h`:`false [] []`,
+	`foo/bar/zz/x.h foo/bar/z?/?.h`:`false [foo bar] []`,
+	`foo/xv*y.h foo/b*/v*.h`:`false [foo] []`,
+	`foo/xv*y.h foo/x*y.h`:`false [foo] []`,
+	`foo/z.c foo.o`:`false [] []`,
+	`foo/z.c foo/bar.o`:`false [foo] []`,
+	`foo/z.c foo/z.o`:`false [foo] []`,
+	`foo/z.c x.o`:`false [] []`,
+	`foo/z.c y.o`:`false [] []`,
+	`foo/z.gen **.gen`:`true foo/z [foo z]`,
+	`foo/z.gen *.gen`:`false [] []`,
+	`foo??? foo.h`:`false <nil> [. h]`,
+	`foo??? foobar`:`true foobar [b a r]`,
+	`foo???/x.h **.h`:`false [] []`,
+	`foobar/config/*.def.am **.def.am`:`false [] []`,
+	`foobar/config/*.def.am **.h`:`false [] []`,
+	`foobar/config/*.def.am foo/bar/zz/x.h`:`false [] []`,
+	`foobar/config/*.def.in **.def.am`:`false [] []`,
+	`foobar/config/*.def.in **.h`:`false [] []`,
+	`foobar/config/*.def.in foo/bar/zz/x.h`:`false [] []`,
 	`fo{2}(/o{2}){3}/bar\.c foo/oo/oo/oo/bar.c`:`true foo/oo/oo/oo/bar.c [/oo]`,
 	`fo{2}/bar\.c foo/bar.c`:`true foo/bar.c []`,
 	`fo{2}\.c foo.c`:`true foo.c []`,
-	testdata_fmt(`%[1]s builtins/trimprefix`                  ):`false [] []`,
-	testdata_fmt(`%%%%/testdata %[1]s/builtins/trimprefix`    ):testdata_fmt(`false [%[2]s] [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`%%%%/testdata/ %[1]s/builtins/trimprefix`   ):testdata_fmt(`false [%[2]s ] [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`**/testdata %[1]s/builtins/trimprefix`      ):testdata_fmt(`false [%[2]s] [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`**/testdata/ %[1]s/builtins/trimprefix`     ):testdata_fmt(`false [%[2]s ] [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`**/testdata/** %[1]s/builtins/trimprefix`   ):testdata_fmt(`true [%[2]s builtins trimprefix] [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`**/testdata/** %[1]s/builtins/trimsuffix`   ):testdata_fmt(`true [%[2]s builtins trimsuffix] [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`**/testdata/**/ %[1]s/builtins/trimprefix/` ):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`**/testdata/**/ %[1]s/builtins/trimsuffix/` ):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`*?/testdata %[1]s/builtins/trimprefix`      ):testdata_fmt(`false [%[2]s] [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`*?/testdata %[1]s`                          ):testdata_fmt(`true [%[2]s] [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`*?/testdata/ %[1]s/`                        ):testdata_fmt(`true [%[2]s ] [%[1]s]`,trim_suffix{1,"testdata"}),
-	testdata_fmt(`*?/testdata/ %[1]s/builtins/trimprefix`     ):testdata_fmt(`false [%[2]s ] [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`*?/testdata/*? %[1]s/builtins/trimprefix`   ):testdata_fmt(`true [%[2]s builtins trimprefix] [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`*?/testdata/*?/ %[1]s/builtins/trimprefix/` ):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`*?/testdata/*? %[1]s/builtins/trimsuffix`   ):testdata_fmt(`true [%[2]s builtins trimsuffix] [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`*?/testdata/*?/ %[1]s/builtins/trimsuffix/` ):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/%%%%/testdata %[1]s/builtins/trimprefix`   ):testdata_fmt(`false [%[2]s] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/%%%%/testdata/ %[1]s/builtins/trimprefix`  ):testdata_fmt(`false [%[2]s ] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/**/ %[1]s/builtins/trimprefix/`            ):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s/builtins/trimprefix]`,trim_prefix{1,"/"}),
-	testdata_fmt(`/**/ %[1]s/builtins/trimsuffix/`            ):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s/builtins/trimsuffix]`,trim_prefix{1,"/"}),
-	testdata_fmt(`/**/ %[1]s/builtins/trimprefix`             ):testdata_fmt(`false [%[2]s builtins ] [%[1]s/builtins/]`,trim_prefix{1,"/"}),
-	testdata_fmt(`/**/ %[1]s/builtins/trimsuffix`             ):testdata_fmt(`false [%[2]s builtins ] [%[1]s/builtins/]`,trim_prefix{1,"/"}),
-	testdata_fmt(`/*?/ %[1]s/builtins/trimprefix/`            ):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s/builtins/trimprefix]`,trim_prefix{1,"/"}),
-	testdata_fmt(`/*?/ %[1]s/builtins/trimsuffix/`            ):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s/builtins/trimsuffix]`,trim_prefix{1,"/"}),
-	testdata_fmt(`/*?/ %[1]s/builtins/trimprefix`             ):testdata_fmt(`false [%[2]s builtins ] [%[1]s/builtins/]`,trim_prefix{1,"/"}),
-	testdata_fmt(`/*?/ %[1]s/builtins/trimsuffix`             ):testdata_fmt(`false [%[2]s builtins ] [%[1]s/builtins/]`,trim_prefix{1,"/"}),
-	testdata_fmt(`/**/testdata %[1]s/builtins/trimprefix`     ):testdata_fmt(`false [%[2]s] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/**/testdata/ %[1]s/builtins/trimprefix`    ):testdata_fmt(`false [%[2]s ] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/**/testdata/** %[1]s/builtins/trimprefix`  ):testdata_fmt(`true [%[2]s builtins trimprefix] [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/**/testdata/** %[1]s/builtins/trimsuffix`  ):testdata_fmt(`true [%[2]s builtins trimsuffix] [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/**/testdata/**/ %[1]s/builtins/trimprefix/`):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/**/testdata/**/ %[1]s/builtins/trimsuffix/`):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/testdata %[1]s/builtins/trimprefix`     ):testdata_fmt(`false [%[2]s] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/testdata %[1]s`                         ):testdata_fmt(`true [%[2]s] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/testdata/ %[1]s/`                       ):testdata_fmt(`true [%[2]s ] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/testdata/ %[1]s/builtins/trimprefix`    ):testdata_fmt(`false [%[2]s ] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/testdata/*? %[1]s/builtins/trimprefix`  ):testdata_fmt(`true [%[2]s builtins trimprefix] [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/testdata/*? %[1]s/builtins/trimsuffix`  ):testdata_fmt(`true [%[2]s builtins trimsuffix] [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/testdata/*?/ %[1]s/builtins/trimprefix/`):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/testdata/*?/ %[1]s/builtins/trimsuffix/`):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/test*/*?/ %[1]s/builtins/trimprefix/`   ):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s data builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/test*/**/ %[1]s/builtins/trimprefix/`   ):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s data builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/test*/*?/ %[1]s/builtins/trimsuffix/`   ):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s data builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/test*/**/ %[1]s/builtins/trimsuffix/`   ):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s data builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/*data/*?/ %[1]s/builtins/trimprefix/`   ):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s test builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/**/*data/*?/ %[1]s/builtins/trimprefix/`   ):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s test builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/*data/*?/ %[1]s/builtins/trimsuffix/`   ):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s test builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/**/*data/*?/ %[1]s/builtins/trimsuffix/`   ):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s test builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/t*a/*?/ %[1]s/builtins/trimprefix/`     ):testdata_fmt(`true [%[2]s builtins trimprefix ] [%[1]s estdat builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/*?/t*a/*?/ %[1]s/builtins/trimsuffix/`     ):testdata_fmt(`true [%[2]s builtins trimsuffix ] [%[1]s estdat builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_fmt(`/builtins %[1]s/builtins/trimprefix`        ):`false [] []`,
-	testdata_fmt(`/testdata/%%%% %[1]s/builtins/trimsuffix`   ):`false [ testdata builtins trimsuffix] [builtins/trimsuffix]`,
-	testdata_fmt(`/testdata/%%%% %[1]s/builtins/trimsuffix/`  ):`false [ testdata builtins trimsuffix ] [builtins/trimsuffix]`,
-	testdata_fmt(`/testdata/%%%%/ %[1]s/builtins/trimsuffix/` ):`false [ testdata builtins trimsuffix ] [builtins/trimsuffix]`,
-	testdata_fmt(`/testdata/** %[1]s/builtins/trimsuffix`     ):`false [ testdata builtins trimsuffix] [builtins/trimsuffix]`,
-	testdata_fmt(`/testdata/** %[1]s/builtins/trimsuffix/`    ):`false [ testdata builtins trimsuffix ] [builtins/trimsuffix]`,
-	testdata_fmt(`/testdata/**/ %[1]s/builtins/trimsuffix`    ):`false [] []`,
-	testdata_fmt(`/testdata/**/ %[1]s/builtins/trimsuffix/`   ):`false [ testdata builtins trimsuffix ] [builtins/trimsuffix]`,
-	testdata_fmt(`testdata/** %[1]s/builtins/trimsuffix`      ):`false [testdata builtins trimsuffix] [builtins/trimsuffix]`,
-	testdata_fmt(`testdata/** %[1]s/builtins/trimsuffix/`     ):`false [testdata builtins trimsuffix ] [builtins/trimsuffix]`,
-	testdata_fmt(`testdata/**/ %[1]s/builtins/trimsuffix`     ):`false [] []`,
-	testdata_fmt(`testdata/**/ %[1]s/builtins/trimsuffix/`    ):`false [testdata builtins trimsuffix ] [builtins/trimsuffix]`,
-	testdata_fmt(`testdata/%%%% %[1]s/builtins/trimsuffix`    ):`false [testdata builtins trimsuffix] [builtins/trimsuffix]`,
-	testdata_fmt(`testdata/%%%% %[1]s/builtins/trimsuffix/`   ):`false [testdata builtins trimsuffix ] [builtins/trimsuffix]`,
-	testdata_fmt(`testdata/%%%%/ %[1]s/builtins/trimsuffix`   ):`false [] []`,
-	testdata_fmt(`testdata/%%%%/ %[1]s/builtins/trimsuffix/`  ):`false [testdata builtins trimsuffix ] [builtins/trimsuffix]`,
-	testdata_fmt(`testdata/builtins/trimsuffix %[1]s/builtins/trimsuffix`):`false [testdata builtins trimsuffix] []`,
-	testdata_fmt(`builtins/trimsuffix %[1]s`,trim_suffix{1,"testdata"}):`false [] []`,
+	`t*a testdata`:`true testdata [estdat]`,
+	`test* testdata`:`true testdata [data]`,
+	`v?.h v1.h`:`true v1.h [1]`,
+	`v?.h v2.h`:`true v2.h [2]`,
+	`v?.h v3.hh`:`false <nil> [3]`,
+	`x x.h`:`false x []`,
+	`x x.o`:`false x []`,
+	`x.c++ x.o`:`false x. []`,
+	`y y.o`:`false y []`,
+	`y.c++ y.o`:`false y. []`,
+	`z z.o`:`false z []`,
+	`z.c z.o`:`false z. []`,
+	`z? zz`:`true zz [z]`,
+	testdata_f(`%[1]s builtins/trimprefix`                  ):`false [] []`,
+	testdata_f(`%%%%/testdata %[1]s/builtins/trimprefix`    ):testdata_f(`false [%[2]s] [%[1]s]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`%%%%/testdata/ %[1]s/builtins/trimprefix`   ):testdata_f(`false [%[2]s ] [%[1]s]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata %[1]s/builtins/trimprefix`      ):testdata_f(`false [%[2]s] [%[1]s]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/ %[1]s/builtins/trimprefix`     ):testdata_f(`false [%[2]s ] [%[1]s]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/** %[1]s/builtins/trimprefix`   ):testdata_f(`true [%[2]s builtins trimprefix] [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/** %[1]s/builtins/trimsuffix`   ):testdata_f(`true [%[2]s builtins trimsuffix] [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/**/ %[1]s/builtins/trimprefix/` ):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/**/ %[1]s/builtins/trimsuffix/` ):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata %[1]s/builtins/trimprefix`      ):testdata_f(`false [%[2]s] [%[1]s]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata %[1]s`                          ):testdata_f(`true [%[2]s] [%[1]s]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata/ %[1]s/`                        ):testdata_f(`true [%[2]s ] [%[1]s]`,trim_suffix{1,"testdata"}),
+	testdata_f(`*?/testdata/ %[1]s/builtins/trimprefix`     ):testdata_f(`false [%[2]s ] [%[1]s]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata/*? %[1]s/builtins/trimprefix`   ):testdata_f(`true [%[2]s builtins trimprefix] [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata/*?/ %[1]s/builtins/trimprefix/` ):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata/*? %[1]s/builtins/trimsuffix`   ):testdata_f(`true [%[2]s builtins trimsuffix] [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata/*?/ %[1]s/builtins/trimsuffix/` ):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
+	testdata_f(`/%%%%/testdata %[1]s/builtins/trimprefix`   ):testdata_f(`false [%[2]s] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/%%%%/testdata/ %[1]s/builtins/trimprefix`  ):testdata_f(`false [%[2]s ] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/ %[1]s/builtins/trimprefix/`            ):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s/builtins/trimprefix]`,trim_prefix{1,"/"}),
+	testdata_f(`/**/ %[1]s/builtins/trimsuffix/`            ):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s/builtins/trimsuffix]`,trim_prefix{1,"/"}),
+	testdata_f(`/**/ %[1]s/builtins/trimprefix`             ):testdata_f(`false [%[2]s builtins ] [%[1]s/builtins/]`,trim_prefix{1,"/"}),
+	testdata_f(`/**/ %[1]s/builtins/trimsuffix`             ):testdata_f(`false [%[2]s builtins ] [%[1]s/builtins/]`,trim_prefix{1,"/"}),
+	testdata_f(`/*?/ %[1]s/builtins/trimprefix/`            ):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s/builtins/trimprefix]`,trim_prefix{1,"/"}),
+	testdata_f(`/*?/ %[1]s/builtins/trimsuffix/`            ):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s/builtins/trimsuffix]`,trim_prefix{1,"/"}),
+	testdata_f(`/*?/ %[1]s/builtins/trimprefix`             ):testdata_f(`false [%[2]s builtins ] [%[1]s/builtins/]`,trim_prefix{1,"/"}),
+	testdata_f(`/*?/ %[1]s/builtins/trimsuffix`             ):testdata_f(`false [%[2]s builtins ] [%[1]s/builtins/]`,trim_prefix{1,"/"}),
+	testdata_f(`/**/testdata %[1]s/builtins/trimprefix`     ):testdata_f(`false [%[2]s] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/ %[1]s/builtins/trimprefix`    ):testdata_f(`false [%[2]s ] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/** %[1]s/builtins/trimprefix`  ):testdata_f(`true [%[2]s builtins trimprefix] [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/** %[1]s/builtins/trimsuffix`  ):testdata_f(`true [%[2]s builtins trimsuffix] [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/**/ %[1]s/builtins/trimprefix/`):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/**/ %[1]s/builtins/trimsuffix/`):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata %[1]s/builtins/trimprefix`     ):testdata_f(`false [%[2]s] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata %[1]s`                         ):testdata_f(`true [%[2]s] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/ %[1]s/`                       ):testdata_f(`true [%[2]s ] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/ %[1]s/builtins/trimprefix`    ):testdata_f(`false [%[2]s ] [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/*? %[1]s/builtins/trimprefix`  ):testdata_f(`true [%[2]s builtins trimprefix] [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/*? %[1]s/builtins/trimsuffix`  ):testdata_f(`true [%[2]s builtins trimsuffix] [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/*?/ %[1]s/builtins/trimprefix/`):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/*?/ %[1]s/builtins/trimsuffix/`):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/test*/*?/ %[1]s/builtins/trimprefix/`   ):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s data builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/test*/**/ %[1]s/builtins/trimprefix/`   ):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s data builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/test*/*?/ %[1]s/builtins/trimsuffix/`   ):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s data builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/test*/**/ %[1]s/builtins/trimsuffix/`   ):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s data builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/*data/*?/ %[1]s/builtins/trimprefix/`   ):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s test builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/*data/*?/ %[1]s/builtins/trimprefix/`   ):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s test builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/*data/*?/ %[1]s/builtins/trimsuffix/`   ):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s test builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/*data/*?/ %[1]s/builtins/trimsuffix/`   ):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s test builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/t*a/*?/ %[1]s/builtins/trimprefix/`     ):testdata_f(`true [%[2]s builtins trimprefix ] [%[1]s estdat builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/t*a/*?/ %[1]s/builtins/trimsuffix/`     ):testdata_f(`true [%[2]s builtins trimsuffix ] [%[1]s estdat builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
+	testdata_f(`/builtins %[1]s/builtins/trimprefix`        ):`false [] []`,
+	testdata_f(`/testdata/%%%% %[1]s/builtins/trimsuffix`   ):`false [ testdata builtins trimsuffix] [builtins/trimsuffix]`,
+	testdata_f(`/testdata/%%%% %[1]s/builtins/trimsuffix/`  ):`false [ testdata builtins trimsuffix ] [builtins/trimsuffix]`,
+	testdata_f(`/testdata/%%%%/ %[1]s/builtins/trimsuffix/` ):`false [ testdata builtins trimsuffix ] [builtins/trimsuffix]`,
+	testdata_f(`/testdata/** %[1]s/builtins/trimsuffix`     ):`false [ testdata builtins trimsuffix] [builtins/trimsuffix]`,
+	testdata_f(`/testdata/** %[1]s/builtins/trimsuffix/`    ):`false [ testdata builtins trimsuffix ] [builtins/trimsuffix]`,
+	testdata_f(`/testdata/**/ %[1]s/builtins/trimsuffix`    ):`false [] []`,
+	testdata_f(`/testdata/**/ %[1]s/builtins/trimsuffix/`   ):`false [ testdata builtins trimsuffix ] [builtins/trimsuffix]`,
+	testdata_f(`testdata/** %[1]s/builtins/trimsuffix`      ):`false [testdata builtins trimsuffix] [builtins/trimsuffix]`,
+	testdata_f(`testdata/** %[1]s/builtins/trimsuffix/`     ):`false [testdata builtins trimsuffix ] [builtins/trimsuffix]`,
+	testdata_f(`testdata/**/ %[1]s/builtins/trimsuffix`     ):`false [] []`,
+	testdata_f(`testdata/**/ %[1]s/builtins/trimsuffix/`    ):`false [testdata builtins trimsuffix ] [builtins/trimsuffix]`,
+	testdata_f(`testdata/%%%% %[1]s/builtins/trimsuffix`    ):`false [testdata builtins trimsuffix] [builtins/trimsuffix]`,
+	testdata_f(`testdata/%%%% %[1]s/builtins/trimsuffix/`   ):`false [testdata builtins trimsuffix ] [builtins/trimsuffix]`,
+	testdata_f(`testdata/%%%%/ %[1]s/builtins/trimsuffix`   ):`false [] []`,
+	testdata_f(`testdata/%%%%/ %[1]s/builtins/trimsuffix/`  ):`false [testdata builtins trimsuffix ] [builtins/trimsuffix]`,
+	testdata_f(`testdata/builtins/trimsuffix %[1]s/builtins/trimsuffix`):`false [testdata builtins trimsuffix] []`,
+	testdata_f(`builtins/trimsuffix %[1]s`,trim_suffix{1,"testdata"}):`false [] []`,
 }
 func check_match(ctx Context, _p, _v any, full bool, res any, stems []string) {
 	var pat, val = joinp(ctx, _p), joinp(ctx, _v)
-	var k = sfmt("%v %v", pat, val)
-	var t = sfmt("%v %v %v", full, res, stems)
-	if fmt_slot.MatchString(k) { k = sfmt(k, testdata_s, strings.Split(testdata_s, pathSep)) }
+	var k = sf("%v %v", pat, val)
+	var t = sf("%v %v %v", full, res, stems)
+	if fmt_slot.MatchString(k) { k = sf(k, testdata_s, strings.Split(testdata_s, pathSep)) }
 	if v := checkpoints_match[k]; v == nil {
 		switch t {
 		case `false <nil> []`:
 			return
 		default:
-			switch s1, s2 := sfmt("%v", pat), sfmt("%v", val); {
+			switch s1, s2 := sf("%v", pat), sf("%v", val); {
 			case s1 == "$/" && strings.HasPrefix(s2, "/"): return
 			case s2 == "$/" && strings.HasPrefix(s1, "/"): return
-			case s1 == s2 && sfmt("true %s []", s1) == t : return
+			case s1 == s2 && sf("true %s []", s1) == t : return
 			case strings.HasPrefix(s1, testdata_s):
-				if ss1 := strings.Split(s1,pathSep); s1 == s2 {
-					if sfmt("true %v []", ss1) == t { return }
+				if ss1 := strings.Split(s1, pathSep); s1 == s2 {
+					if sf("true %v []", ss1) == t { return }
 				} else {
-					if sfmt("false %v []", ss1) == t { return }
+					if sf("false %v []", ss1) == t { return }
 				}
 			}
 		}
-		erro(ctx, "`%v`:`%v`,", k, t)
-		note(ctx, "pat: %v", ts(pat))
-		note(ctx, "val: %v", ts(val)).trace()
+		debug(ctx, _f("`%v`:`%v`,", k, t), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)), trace{})
 	} else if v != t {
-		erro(ctx, `%s`, k)
-		note(ctx, "got: %s", t)
-		note(ctx, "!= : %s", v).trace()
-	}
-}
-
-func check_filemap(ctx Context, vc *valcache, patt Value, val any, _s_ string) {
-	var uc = &uncache{ctx, nil}
-	var x, y = hit(uc, vc, val)
-	if s := sfmt("%v %v", y, x); s != _s_ {
-		erro(pc(ctx,patt), "%v %v | %v %v != %s | %v", patt, val, y, x, _s_, vc).trace()
-	}
-}
-func check_map_files(ctx Context, p *project, patts, paths []Value, _res *[]filemap) {
-	if s, t := sfmt("%v", patts), filemap_str(_res); s != t {
-		erro(pc(ctx,patts), "%s != %s", s, t).trace()
-	}
-
-	var vc = &p.filemap
-
-	for _, patt := range patts {
-		var s = patt.String()
-		switch check_filemap(ctx, vc, patt, s, sfmt("true {0:%s}", s)); s {
-		case "**.h":
-			check_filemap(ctx, vc, patt, "foobar.h", "true {0:**.h}")
-			check_filemap(ctx, vc, patt, "foo/a/b/c/bar.h", "true {0:**.h}")
-			check_filemap(ctx, vc, patt, strings.Split("foo/a/b/c/bar.h",pathSep), "true {0:**.h}")
-		case "**.def.am":
-			check_filemap(ctx, vc, patt, "foobar.def.am", "true {0:**.def.am}")
-			check_filemap(ctx, vc, patt, "foo/1/2/3/bar.def.am", "true {0:**.def.am}")
-			check_filemap(ctx, vc, patt, strings.Split("foo/1/2/3/bar.def.am",pathSep), "true {0:**.def.am}")
-		case "*.log":
-			check_filemap(ctx, vc, patt, "foobar.log", "true {0:*.log}")
-			check_filemap(ctx, vc, patt, "foo/bar.log", "false {0:*.log}")
-			check_filemap(ctx, vc, patt, []string{"foo","bar.log"}, "false {0:*.log}")
-		case "**.o":
-			check_filemap(ctx, vc, patt, "foo/123/bar.o", "true {0:**.o}")
-		case ".deps/??/??/??????????":
-			check_filemap(ctx, vc, patt, ".deps/11/ab/xxxyyyzzz0", "")
-		case "&(gen)":
-			note(ctx, "%v %v", patt, vc).debug()
-		}
+		debug(ctx, _f(`%s`, k), _f("got: %s", t), _f("!= : %s", v), trace{})
 	}
 }
 
@@ -569,10 +661,14 @@ var checkpoints__string_com = map[string]any{
 	`-a`:`-a`, `-b`:`-b`, `-c`:`-c`,
 	`-foobar`:`-foobar`,
 	`.`:`.`,
+	`.c`:`.c`,
+	`.c++`:`.c++`,
 	`.deps`:`.deps`,
+	`.hh`:`.hh`,
 	`.test.v`:`.test.v`,
 	`.test`:`.test`,
 	`.test~&(.test.s)`:`.test~foo`,
+	`.tmp`:`.tmp`,
 	`1x`:`1x`, `2x`:`2x`, `3x`:`3x`,
 	`D.c`:`D.c`, `D.c++`:`D.c++`,
 	`I.c`:`I.c`, `I.c++`:`I.c++`,
@@ -588,6 +684,7 @@ var checkpoints__string_com = map[string]any{
 	`a-b-3`:`a-b-3`,
 	`a-b`:`a-b`,
 	`a.h`:`a.h`, // {=compound {31:18:word a} {31:19:punct .} {31:20:word h}}
+	`a.gen`:`a.gen`, `b.gen`:`b.gen`, `c.gen`:`c.gen`,
 	`a\,b\,c,x\,y\,z`:`a\,b\,c,x\,y\,z`,
 	`a\,b\,c`:`a\,b\,c`,
 	`aa-bb`:`aa-bb`, `ab-ba`:`ab-ba`,
@@ -607,6 +704,7 @@ var checkpoints__string_com = map[string]any{
 	`ba`:`ba`,
 	`bar,`:`bar,`,
 	`bar.c`:`bar.c`,
+	`bar.c++`:`bar.c++`,
 	`bara`:`bara`, `barb`:`barb`, `barc`:`barc`,
 	`baxx{}`:`baxx{}`,
 	`bayy{}`:`bayy{}`,
@@ -625,8 +723,11 @@ var checkpoints__string_com = map[string]any{
 	`c.D`:`c.D`, `c++.D`:`c++.D`, `c.I`:`c.I`, `c++.I`:`c++.I`,
 	`c.auto`:`c.auto`, `c.test`:`c.test`,
 	`c.h`:`c.h`, `d.h`:`d.h`, `e.h`:`e.h`,
+	`c.none`:`c.none`,
 	`conf3,`:`conf3,`,
 	`do.smart`:`do.smart`,
+	`dst-nomap`:`dst-nomap`,
+	`err-dst-nomap`:`err-dst-nomap`,
 	`fo-a1`:`fo-a1`, `fo-b2`:`fo-b2`, `fo-c3`:`fo-c3`,
 	`fo-ax`:`fo-ax`, `fo-ay`:`fo-ay`, `fo-az`:`fo-az`,
 	`fo-bx`:`fo-bx`, `fo-by`:`fo-by`, `fo-bz`:`fo-bz`,
@@ -645,7 +746,12 @@ var checkpoints__string_com = map[string]any{
 	`foo-a`:`foo-a`,
 	`foo-b`:`foo-b`,
 	`foo-bar-xx-yy-zz`:`foo-bar-xx-yy-zz`,
+	`foo.o`:`foo.o`,
 	`foo.c`:`foo.c`,
+	`foo.c++`:`foo.c++`,
+	`foo.txt`:`foo.txt`,
+	`foo/z.o`:`foo/z.o`,
+	`foo/bar.o`:`foo/bar.o`,
 	`foo_ab-$1-$2`:`foo_ab-{}-{}`,
 	`foo_ab-a-b`:`foo_ab-a-b`,
 	`foo_ab-aa-bb`:`foo_ab-aa-bb`,
@@ -661,6 +767,7 @@ var checkpoints__string_com = map[string]any{
 	`foo_ba-{}{}-{}{}`:`foo_ba-{}{}-{}{}`,
 	`fooa`:`fooa`, `foob`:`foob`, `fooc`:`fooc`,
 	`foobar`:`foobar`, `not-foobar`:`not-foobar`,
+	`f*?`:`f*?`,
 	`mod-1`:`mod-1`,
 	`skip-nil`:`skip-nil`,
 	`test-B`:`test-B`,
@@ -674,6 +781,7 @@ var checkpoints__string_com = map[string]any{
 	`test.paniconexit0`:`test.paniconexit0`,
 	`test.timeout`:`test.timeout`,
 	`test.txt`:`test.txt`,
+	`v1.h`:`v1.h`, `v2.h`:`v2.h`,
 	`v-x-y-z-{}-{}`:`v-x-y-z-{}-{}`,
 	`v-x-y-{}-{}-{}`:`v-x-y-{}-{}-{}`,
 	`v-x-{}-{}-{}-{}`:`v-x-{}-{}-{}-{}`,
@@ -687,15 +795,17 @@ var checkpoints__string_com = map[string]any{
 	`x-y-z-{}-{}`:`x-y-z-{}-{}`,
 	`x-y-{}-{}-{}`:`x-y-{}-{}-{}`,
 	`x-{}-{}-{}-{}`:`x-{}-{}-{}-{}`,
-	`x.o.a`:`x.o.a`,
-	`x.o.b`:`x.o.b`,
-	`x.o.c`:`x.o.c`,
+	`x.h`:`x.h`, `x.o`:`x.o`, `y.o`:`y.o`,
+	`x.c++`:`x.c++`, `y.c++`:`y.c++`,
+	`x.gen`:`x.gen`, `y.gen`:`y.gen`, `z.gen`:`z.gen`,
+	`x.o.a`:`x.o.a`, `x.o.b`:`x.o.b`, `x.o.c`:`x.o.c`,
 	`x\,y\,z`:`x\,y\,z`,
 	`xa`:`xa`, `xb`:`xb`, `xc`:`xc`,
 	`xay1z`:`xay1z`, `xay2z`:`xay2z`, `xay3z`:`xay3z`,
 	`xby1z`:`xby1z`, `xby2z`:`xby2z`, `xby3z`:`xby3z`,
 	`xcy1z`:`xcy1z`, `xcy2z`:`xcy2z`, `xcy3z`:`xcy3z`,
 	`xq`:`xq`, `xp`:`xp`, `xx`:`xx`, `xy`:`xy`, `yx`:`yx`, `yy`:`yy`, `yy-xx`:`yy-xx`,
+	`xv1y.h`:`xv1y.h`,
 	`xvw`:`xvw`, `xW{}{}`:`xW{}{}`, `W{}{}`:`W{}{}`,
 	`xwy1{}zz`:`xwy1{}zz`, `xwy2{}zz`:`xwy2{}zz`, `xwy3{}zz`:`xwy3{}zz`,
 	`xx-yy`:`xx-yy`, // {=compound {10:20:word xx} {=flag {10:23:word yy}}}
@@ -728,6 +838,7 @@ var checkpoints__string_com = map[string]any{
 	`yxa`:`yxa`, `yxb`:`yxb`, `yxa-yxb`:`yxa-yxb`,
 	`yy{}`:`yy{}`,
 	`y{}`:`y{}`,
+	`z.c`:`z.c`,
 	`z-a`:`z-a`,
 	`z-y-x-a`:`z-y-x-a`,
 	`z-yxa-yxb`:`z-yxa-yxb`,
@@ -750,22 +861,26 @@ var checkpoints__string_com = map[string]any{
 }
 func check__string_com(ctx Context, _c *compound, _v Value) {
 	var (
-		k = sfmt("%v", _c)
-		t = sfmt("%v", _v)
+		k = sf("%v", _c)
+		t = sf("%v", _v)
 		v = checkpoints__string_com[k]
 	)
 	if v == nil {
-		note(pc(ctx,_c), "%v", ts(_c))
-		note(pc(ctx,_c), "%v", ts(_v))
-		erro(pc(ctx,_c), "`%v`:`%v`,", _c, _v).trace()
+		debug(pc(ctx,_c),
+			_f("%v", ts(_c)),
+			_f("%v", ts(_v)),
+			_f("`%v`:`%v`,", _c, _v),
+			trace{})
 	} else {
 		switch w := v.(type) {
 		case []string: for _, v := range w { if t == v { return } }
 		case   string:                       if t == w { return }
 		}
-		note(pc(ctx,_c), "%v", ts(_c))
-		note(pc(ctx,_c), "%v", ts(_v))
-		erro(pc(ctx,_c), `%v → %v != %v ; %v`, _c, t, v, _c.elems).trace()
+		debug(pc(ctx,_c),
+			_f("%v", ts(_c)),
+			_f("%v", ts(_v)),
+			_f(`%v → %v != %v ; %v`, _c, t, v, _c.elems),
+			trace{})
 	}
 	return
 }

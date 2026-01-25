@@ -1,6 +1,5 @@
 project testvalcache
 
 files (
-    (*.c++ **.c ??? foo/*.c++ foo/*.xx foo/*.yy \
-     foo/??/???.c++ foo/*zzz foo/**z) ⇒ src
+    (*.c++ **.c ??? foo/*.c++ foo/*.xx foo/*.yy foo/??/???.c++ foo/*zzz foo/**z foo/?????.o) ⇒ src
 )

@@ -18,7 +18,7 @@ func testBug_01(ctx *testcase) {
 		func () {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", __string(ctx, x.Value)).trace()
+					debug(ctx, "%s", __string(ctx, x.Value), trace{})
 				}
 			} ()
 			v = expand(_final(ctx), d.value)
@@ -30,7 +30,7 @@ func testBug_01(ctx *testcase) {
 		func () {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", __string(ctx, x.Value)).trace()
+					debug(ctx, "%s", __string(ctx, x.Value), trace{})
 				}
 			} ()
 			v = ctx.val(d, defExpand1, "a", "b", "c", "d")
@@ -57,7 +57,7 @@ func testBug_01(ctx *testcase) {
 		func () {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", __string(ctx, x.Value)).trace()
+					debug(ctx, "%s", __string(ctx, x.Value), trace{})
 				}
 			} ()
 			v = expand(trace_evoke_loop{_final(ctx)},d.value)
@@ -69,7 +69,7 @@ func testBug_01(ctx *testcase) {
 		func () {
 			defer func () {
 				if x, y := recover().(trace_evoke_loop_err); y {
-					erro(ctx, "%s", __string(ctx, x.Value)).trace()
+					debug(ctx, "%s", __string(ctx, x.Value), trace{})
 				}
 			} ()
 			v = ctx.val(d, defExpand1, "a", "b", "c", "d")

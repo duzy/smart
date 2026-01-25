@@ -50,7 +50,7 @@ func test__trimsuffix(ctx *testcase) {
 		ctx.err("%s != %s | %v", s, t, tst{p})
 	} else if a, b, c := match(reversal{ctx}, v, pv); a {
 		ctx.err("%v → %v %v | %v", pv, b, c, tst{v})
-	} else if s, t := sfmt("%v %v", b, c), "[testdata builtins trimsuffix] [builtins/trimsuffix]"; s != t {
+	} else if s, t := sf("%v %v", b, c), "[testdata builtins trimsuffix] [builtins/trimsuffix]"; s != t {
 		ctx.err("%s != %s | %v", s, t, tst{p})
 	}
 
@@ -73,7 +73,7 @@ func test__trimsuffix(ctx *testcase) {
 		ctx.err("%s != %s | %v", s, t, tst{p})
 	} else if a, b, c := match(reversal{ctx}, v, pv); a {
 		ctx.err("%v → %v %v | %v", pv, b, c, tst{v})
-	} else if s, t := sfmt("%v %v", b, c), "[testdata builtins trimsuffix] [builtins/trimsuffix]"; s != t {
+	} else if s, t := sf("%v %v", b, c), "[testdata builtins trimsuffix] [builtins/trimsuffix]"; s != t {
 		ctx.err("%s != %s | %v", s, t, tst{p})
 	}
 

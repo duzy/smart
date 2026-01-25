@@ -1,0 +1,11 @@
+project testbuiltins
+
+files (
+    (foo/b*/v*.h foo/x*y.h f*?/x.h) ⇒ $(dir $/)/inc
+)
+
+val1 ::= $(wildcard(-sort) foo/xv1y.h foo/bar/v2.h foo/bar/v1.h)
+val2 ::= $(wildcard(-sort) foo/b?r/v?.h)
+val3 ::= $(wildcard(-sort) foo/xv*y.h)
+val4 ::= $(wildcard(-sort) foo/**/x.h)
+val4 ::= $(wildcard(-sort) fo?/**/x.h)

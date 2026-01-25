@@ -16,19 +16,19 @@ func (ctx *modifier_updatefile) x_check(target Value, filename, content string, 
 	if p.name == "configure.base" {
 		var s, fn = target.String(), filename
 		if strings.HasPrefix(s, ".c}") {
-			note(ctx, "%s %s", s, fn).debug()
+			debug(ctx, "%s %s", s, fn)
 		}
 		if strings.HasPrefix(s, "{=file .configure/") {
 			if _, e := os.Stat(fn); e != nil {
-				errostack(pc(ctx,fn), 2, "%s", s).trace()
+				debug(pc(ctx,fn), "%s", s, trace{})
 			} else if false {
-				notestack(pc(ctx,fn), 2, "%s", s).debug(3)
+				debug(pc(ctx,fn), "%s", s)
 			}
 			if strings.HasPrefix(s, ".x}") {
 				rx := regexp.MustCompile(`\.configure/.*?/%\..*$`)
 				sm := rx.FindStringSubmatch(content)
 				if sm != nil {
-					errostack(pc(ctx,fn), 2, "%v", sm).trace()
+					debug(pc(ctx,fn), "%v", sm, trace{})
 				}
 			}
 		}

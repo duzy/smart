@@ -15,12 +15,12 @@ func (cc *configurecontext) execute_check(ctx *execution, e entry, p *project, s
 	switch p.name {
 	case "testdefaultconfigure":
 		if d := *_d; d == nil {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		} else {
 			switch d.name {
 			case "FOO":
 				if d.value.String() != "{=self testdefaultconfigure}" {
-					erro(ctx, "%v", d.value).trace()
+					debug(ctx, "%v", d.value, trace{})
 				}
 			}
 		}
@@ -38,7 +38,7 @@ func (l ul) configure_val_check(ctx *execution, name string, op Value, vals []Va
 	if sm := rx_checking_for.FindStringSubmatch(a.message); sm != nil {
 		m := rx_checking_res.FindStringSubmatch(b.message)
 		if m == nil {
-			errostack(ctx, 6, "%s: %v %v, %v, %v", sm[1], op, vals, l.project.elems[name], ctx.recipes).trace()
+			errostack(ctx, 6, "%s: %v %v, %v, %v", sm[1], op, vals, l.project.elems[name], ctx.recipes, trace{})
 		}
 
 		var chk map[string]string
@@ -49,26 +49,26 @@ func (l ul) configure_val_check(ctx *execution, name string, op Value, vals []Va
 			switch {
 			case x == "?!":
 				if false {
-					notestack(c, 3, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1]).debug()
+					debug(c, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1])
 				}
 			case x == "?SHA256!":
 				if !rx_sha256.MatchString(m[1]) {
-					errostack(c, 5, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1]).trace()
+					debug(c, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1], trace{})
 				}
 			case x == "?OUTBIN!":
 				if d := l.project.resolveDef(ctx, "outbin"); d == nil {
-					errostack(c, 5, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1]).trace()
+					debug(c, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1], trace{})
 				} else if s := __string(ctx, d); s != m[1] {
-					errostack(c, 5, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], s).trace()
+					debug(c, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], s, trace{})
 				}
 			case x != m[1]:
-				errostack(c, 5, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], x).trace()
+				debug(c, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], x, trace{})
 			}
 		} else {
-			errostack(c, 6, "unknown configure check: %s %s", sm[1], m[1]).trace()
+			debug(c, "unknown configure check: %s %s", sm[1], m[1], trace{})
 		}
 	} else {
-		errostack(c, 6, "%v → %v", ts(op), ts(vals)).trace()
+		debug(c, "%v → %v", ts(op), ts(vals), trace{})
 	}
 }
 

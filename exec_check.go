@@ -66,7 +66,7 @@ func sizeof_map(ctx *exec_ctx, os, sh string, sm []string) (_ map[int]map[string
 		}
 	default:
 		prompt(ctx, "%v\n", sh)
-		errostack(ctx, 2, "%s, status=%d", sm[1], ctx.Status).trace()
+		debug(ctx, "%s, status=%d", sm[1], ctx.Status, trace{})
 	}
 	return
 }
@@ -101,7 +101,7 @@ func alignof_map(ctx *exec_ctx, os, sh string, sm []string) (_ map[int]map[strin
 		}
 	default:
 		prompt(ctx, "%v\n", sh)
-		errostack(ctx, 2, "%s, status=%d", sm[1], ctx.Status).trace()
+		debug(ctx, "%s, status=%d", sm[1], ctx.Status, trace{})
 	}
 	return
 }
@@ -128,7 +128,7 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 		var r = auto_get(c, ">")
 		if l != r {
 			d := _entry(c).destiny()
-			errostack(c, 5, "%v %v %v %v", d, t, l, r).trace()
+			debug(c, "%v %v %v %v", d, t, l, r, trace{})
 		}
 
 		if x, y := l.(*file); y && rx_fn_src.MatchString(x.name) { c = pc(c, x.fullname()) }
@@ -137,7 +137,7 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 			if _, y := t.(*file); y {
 				d := _entry(c).destiny()
 				prompt(c, "%s\n", ctx.sh)
-				notestack(c, 3, "%v", d).debug(32)
+				debug(c, "%v", d)
 			}
 		}
 
@@ -156,25 +156,25 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 				t = strings.Replace(t, "*", "_P", -1)
 				if m1[1] != t {
 					prompt(c, "%v\n", sh)
-					errostack(c, 5, "%s != %s", t, m1[1]).trace()
+					debug(c, "%s != %s", t, m1[1], trace{})
 				}
 
 				if s, e := ioutil.ReadFile(sm[1]); e != nil {
 					prompt(c, "%v\n", sh)
-					errostack(c, 5, "%v", e).trace()
+					debug(c, "%v", e, trace{})
 				} else if m2 := rx_conf_sizf.FindSubmatch(s); len(m2) == 2 {
 					if t := string(m2[1]); tp != t {
 						prompt(c, "%v\n", sh)
-						errostack(c, 5, "%s != %s", tp, t).trace()
+						debug(c, "%s != %s", tp, t, trace{})
 					}
 				} else if m2 := rx_conf_alif.FindSubmatch(s); len(m2) == 2 {
 					if t := string(m2[1]); tp != t {
 						prompt(c, "%v\n", sh)
-						errostack(c, 5, "%s != %s", tp, t).trace()
+						debug(c, "%s != %s", tp, t, trace{})
 					}
 				} else {
 					prompt(c, "%v\n", sh)
-					errostack(c, 5, "%s %s", tp, m2).trace()
+					debug(c, "%s %s", tp, m2, trace{})
 				}
 			} else if rx_sizeof.MatchString(dest) {
 				sm := rx_fn_confsz.FindStringSubmatch(fn)
@@ -187,21 +187,21 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 					t  = strings.Replace(t, "*", "_P", -1)
 					if sm[1] != t {
 						prompt(c, "%v\n", sh)
-						errostack(c, 5, "%s != %s", t, sm[1]).trace()
+						debug(c, "%s != %s", t, sm[1], trace{})
 					}
 
 					var chk = sizeof_map(ctx, "darwin", sh, sm)
 
 					if x, y := chk[ctx.Status]; !y {
 						prompt(c, "%v\n", sh)
-						errostack(c, 5, "%s, status=%d", sm[1], ctx.Status).trace()
+						debug(c, "%s, status=%d", sm[1], ctx.Status, trace{})
 					} else if _, y := x[sm[1]]; !y {
 						prompt(c, "%v\n", sh)
-						errostack(c, 5, "%s, status=%d", sm[1], ctx.Status).trace()
+						debug(c, "%s, status=%d", sm[1], ctx.Status, trace{})
 					}
 				} else {
 					prompt(c, "%v\n", sh)
-					errostack(c, 5, "%s", tp).trace()
+					debug(c, "%s", tp, trace{})
 				}
 			} else if rx_alignof.MatchString(dest) {
 				sm := rx_fn_confag.FindStringSubmatch(fn)
@@ -214,25 +214,25 @@ func (ctx *exec_ctx) run_check(exe *execution) (err error) {
 					t  = strings.Replace(t, "*", "_P", -1)
 					if sm[1] != t {
 						prompt(c, "%v\n", sh)
-						errostack(c, 5, "%s != %s", t, sm[1]).trace()
+						debug(c, "%s != %s", t, sm[1], trace{})
 					}
 
 					var chk = alignof_map(ctx, "darwin", sh, sm)
 
 					if x, y := chk[ctx.Status]; !y {
 						prompt(c, "%v\n", sh)
-						errostack(c, 5, "%s, status=%d", sm[1], ctx.Status).trace()
+						debug(c, "%s, status=%d", sm[1], ctx.Status, trace{})
 					} else if _, y := x[sm[1]]; !y {
 						prompt(c, "%v\n", sh)
-						errostack(c, 5, "%s, status=%d", sm[1], ctx.Status).trace()
+						debug(c, "%s, status=%d", sm[1], ctx.Status, trace{})
 					}
 				} else {
 					prompt(c, "%v\n", sh)
-					errostack(c, 5, "%s", tp).trace()
+					debug(c, "%s", tp, trace{})
 				}
 			} else if rx_status.MatchString(dest) {
 				prompt(c, "%v\n", ctx.sh)
-				notestack(c, 2, "%v, status=%v", tp, ctx.Status).debug(2)
+				debug(c, "%v, status=%v", tp, ctx.Status)
 			}
 		}
 	}
@@ -249,7 +249,7 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 		var l = auto_get(c, "<")
 		var r = auto_get(c, ">")
 		if l != r {
-			errostack(c, 5, "%v %v %v %v", d, t, l, r).trace()
+			debug(c, "%v %v %v %v", d, t, l, r, trace{})
 		}
 
 		if l != nil || t != nil {
@@ -267,13 +267,13 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 		}
 		if false {
 			if s := tv(auto_get(c, "TARGET")); s == "{=word HAVE_STD_ATOMIC}" {
-				notestack(c, 3, "%v %v", t, r).debug()
+				debug(c, "%v %v", t, r)
 			}
 		}
 		if d_exec_recipe {
 			if x, y := t.(*file); y && strings.HasSuffix(x.name, ".rev.log") {
 				prompt(c, "%s\n", src)
-				notestack(c, 3, "%v", d).debug(32)
+				debug(c, "%v", d)
 			}
 		}
 
@@ -283,10 +283,10 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 				var v_name = auto_get(c, "NAME")
 				if v_name == nil {
 					prompt(c, "%v\n", src)
-					errostack(c, 5, "NAME is undefined").trace()
+					debug(c, "NAME is undefined", trace{})
 				} else if name = __string(c, v_name); name == "" {
 					prompt(c, "%v\n", src)
-					errostack(c, 5, "NAME is empty").trace()
+					debug(c, "NAME is empty", trace{})
 				}
 
 				ninc := 0
@@ -298,7 +298,7 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 				b, e := ioutil.ReadFile(x.fullname())
 				if e != nil {
 					prompt(c, "%v\n", src)
-					errostack(c, 5, "%v", e).trace()
+					debug(c, "%v", e, trace{})
 				}
 				if sm := rx_conf_incl.FindAllStringSubmatch(string(b), -1); sm != nil {
 					for _, m := range sm {
@@ -306,31 +306,31 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 							ninc += 1
 						} else {
 							prompt(c, "%v\n", src)
-							errostack(c, 5, "no %v", m[0]).trace()
+							debug(c, "no %v", m[0], trace{})
 						}
 					}
 				}
 				if ninc != len(incs) {
 					prompt(c, "%v\n", src)
-					errostack(c, 5, "%v: %v	!= %v", name, ninc, len(incs)).trace()
+					debug(c, "%v: %v	!= %v", name, ninc, len(incs), trace{})
 				}
 			}
 		} else if y && strings.HasPrefix(x.name, ".configure/struct-member/") && strings.HasSuffix(x.name, ".log") {
 			if s := ctx.Status; s != 0 {
 				prompt(ctx, "%v\n", src)
-				errostack(c, 5, "%v. status=%v, e=%v", i, s, e).trace()
+				debug(c, "%v. status=%v, e=%v", i, s, e, trace{})
 			}
 		} else if y && strings.HasPrefix(x.name, ".configure/library/") && strings.HasSuffix(x.name, ".log") {
 			if s := ctx.Status; s != 0 {
 				prompt(ctx, "%v\n", src)
-				errostack(c, 5, "%v. status=%v, e=%v", i, s, e).trace()
+				debug(c, "%v. status=%v, e=%v", i, s, e, trace{})
 			}
 		} else if y && strings.HasPrefix(x.name, ".configure/") && strings.HasSuffix(x.name, ".x") {
 			if s := l.String(); strings.Contains(s, "%") {
-				errostack(c, 5, "%v %s", s, ts(l)).trace()
+				debug(c, "%v %s", s, ts(l), trace{})
 			}
 			if s := r.String(); strings.Contains(s, "%") {
-				errostack(c, 5, "%v %s", s, ts(r)).trace()
+				debug(c, "%v %s", s, ts(r), trace{})
 			}
 
 			e := false
@@ -339,7 +339,7 @@ func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
 				for _, s := range sm { note(c, "%s", s[0]) }; e = true
 			}
 			if e {
-				errostack(c, 5, "%v", x.name).trace()
+				debug(c, "%v", x.name, trace{})
 			}
 		}
 	}
@@ -356,7 +356,7 @@ func (ctx *exec_buffer) check_line(line string, lnum int) {
 				rx := regexp.MustCompile(`[^:]+: error: no such file or directory: '\.configure/.*?%+\.[^ ]*'`)
 				if sm := rx.FindStringSubmatch(line); sm != nil {
 					prompt(c, "%v\n", s)
-					errostack(c, 5, "%s", sm[0]).trace()
+					debug(c, "%s", sm[0], trace{})
 				}
 			}
 			switch dest := __string(ctx, _entry(ctx).destiny()); dest {
@@ -367,7 +367,7 @@ func (ctx *exec_buffer) check_line(line string, lnum int) {
 					rx := regexp.MustCompile(`^bash: -.+?: invalid option`)
 					if sm := rx.FindStringSubmatch(line); sm != nil {
 						prompt(c, "%v\n", sh)
-						errostack(c, 5, "%s", sm[0]).trace()
+						debug(c, "%s", sm[0], trace{})
 					}
 				}
 			}

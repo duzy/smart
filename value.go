@@ -8,7 +8,7 @@ package smart
 
 import (
     "bytes"
-    binenc "encoding/binary"
+    encbin "encoding/binary"
     "crypto/sha256"
     "errors"
     "fmt"
@@ -16,18 +16,18 @@ import (
     "io/fs"
     "math"
     neturl "net/url"
-    "os"
     "path/filepath"
     "reflect"
     "regexp"
     "runtime"
-    "runtime/debug" // debug.PrintStack()
+    rt_debug "runtime/debug"
     "strconv"
     "strings"
 	"sort"
     "time"
     "unsafe"
     "unicode/utf8"
+    "os"
 )
 
 type hashbytes [sha256.Size]byte
@@ -162,8 +162,8 @@ func (n existence) String() (s string) {
 }
 
 func sortstrs(s []string) []string { sort.Strings(s) ; return s }
-func sfmt(f string, i ...any) string { return fmt.Sprintf(f, i...) }
-func ssfmt(ss []string, a ...any) (res []string) {
+func sf(f string, i ...any) string { return fmt.Sprintf(f, i...) }
+func ssf(ss []string, a ...any) (res []string) {
     for _, s := range ss { res = append(res, fmt.Sprintf(s, a...)) }
     return
 }
@@ -441,7 +441,7 @@ func closure_entries(ctx Context, name any) (entries []entry) {
 func closure_entry(ctx Context, name any, _ ...bool) (_ entry) {
     var entries = closure_entries(ctx, name)
     if n := len(entries) ; 0 < n {
-        if 1 < n { erro(ctx, "%d entries: %s", n, name).trace() }
+        if 1 < n { debug(ctx, "%d entries: %s", n, name, trace{}) }
         return entries[0]
     }
     return
@@ -538,7 +538,7 @@ func defs(ctx Context, val any, s ...string) (res []*def) {
         }
         res = append(res, defs(ctx, p.value, s...)...)
     default:
-        erro(pc(ctx,p), "defs: %v : %v", p, ts(p)).trace()
+        debug(pc(ctx,p), "defs: %v : %v", p, ts(p), trace{})
     }
     return
 }
@@ -602,7 +602,7 @@ func (p *execution) getRecipesHash(ctx Context, target Value, values ...Value) (
 
 func (p *execution) updateRecipesHash(ctx Context, target Value) (k, v hashbytes, err error) {
     if k, v, err = p.getRecipesHash(ctx, target, p.recipes...); err != nil {
-        erro(ctx, "hashing recipes failed: %v", err).trace()
+        debug(ctx, "hashing recipes failed: %v", err, trace{})
     }
 
     var dir = getHashDir(ctx, k[:])
@@ -632,7 +632,7 @@ func (p *execution) updateRecipesHash(ctx Context, target Value) (k, v hashbytes
 func (p *execution) isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
     var k, v hashbytes
     if k, v, err = p.getRecipesHash(ctx, target, p.recipes...); err != nil {
-        erro(ctx, "compute recipes hash failed: %v", err).trace()
+        debug(ctx, "compute recipes hash failed: %v", err, trace{})
         return
     }
 
@@ -667,18 +667,17 @@ func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_r
     }
 
     if target = auto_target_value(ctx); target == nil {
-        errostack(ctx, 8, "target is nil").trace()
+        debug(ctx, "target is nil", trace{})
     }
 
     if isTrivial(target) {
-        erro(ctx, "trivial target : %s", ts(target))
-        errostack(ctx, 8).trace()
+        debug(ctx, "trivial target : %s", ts(target), trace{})
     }
 
     if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
         var numRealErrs = 0
         for _, err := range calleeErrs {
-            erro(ctx, "%v: %v", target, err).trace()
+            debug(ctx, "%v: %v", target, err, trace{})
             numRealErrs += 1
         }
         if numRealErrs == 0 { return } // simply return if no real errors
@@ -688,14 +687,16 @@ func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_r
         if l, ok := v.(*list); ok && l.len() == 1 { v = l.elems[0] }
         if targetPos.IsValid() && !targetPos.same(&ctxPos) {
             if f, y := to_file(v); y && f != nil && f.filemap != nil {
-                erro(ctx, "waiting for '%v'", target)
-                erro(ctx, "via pattern '%v' (of %v)", v, f.filemap.project).trace()
+                debug(ctx,
+					_f("waiting for '%v'", target),
+					_f("via pattern '%v' (of %v)", v, f.filemap.project),
+					trace{})
             } else {
-                erro(ctx, "waiting for '%v'", target).trace()
+                debug(ctx, "waiting for '%v'", target, trace{})
             }
         }
         if def, ok := v.(*def); ok && target != v && target != def.value { // trace source Def in diagnostics
-            erro(ctx, "waiting for def '%v': %v", def.name, def.value).trace()
+            debug(ctx, "waiting for def '%v': %v", def.name, def.value, trace{})
         }
         return
     }
@@ -740,20 +741,19 @@ func (a as) file(ctx Context, projs ...*project) (res *file) {
         }
     default: // *strlit, *strval, *strcomp:
         // NOTE: not parsing 'string' and "strcomp" values to file to optimize.
-        // erro(pc(ctx,a), "cannot convert to file: %v", tv(a.Value)).trace()
+        // erro(pc(ctx,a), "cannot convert to file: %v", tv(a.Value), trace{})
     }
     return
 }
-func (a as) file_fullname(ctx Context, projs ...*project) (f *file, s string, y bool) {
+func (a as) fullname_file(ctx Context, projs ...*project) (f *file, s string, y bool) {
     if f = a.file(ctx, projs...); f != nil {
-        if s = f.fullname(); filepath.IsAbs(s) {
-            y = true
-        }
+        s = f.fullname()
+		y = filepath.IsAbs(s)
     }
     return
 }
 func (a as) fullname_string(ctx Context, projs ...*project) (s string, y bool) {
-    if _, s, y = a.file_fullname(ctx, projs...); !y { s = __string(ctx, a) }
+    if _, s, y = a.fullname_file(ctx, projs...); !y { s = __string(ctx, a) }
     return
 }
 func (a as) fullname(ctx Context, projs ...*project) (res fullname) {
@@ -761,7 +761,7 @@ func (a as) fullname(ctx Context, projs ...*project) (res fullname) {
         if f := a.file(ctx, projs...); f != nil {
             res.Value = f
         } else {
-            errostack(pc(ctx,a), 3, "nil file : %v : %v → %v", a.Value, ts(a.Value), expand(ctx,a.Value)).trace()
+            erro(pc(ctx,a), "nil file : %v : %v → %v", a.Value, ts(a.Value), expand(ctx,a.Value), trace{})
         }
     }
     return
@@ -774,7 +774,7 @@ func splitpath(ctx Context, a any) (ss []string) {
 	case   string: ss = strings.Split(t, pathSep)
 	case    Value: ss = strings.Split(__string(ctx, t), pathSep)
 	case      nil: break
-	default: erro(ctx, "%v | %v", a, ts(a)).trace()
+	default: debug(ctx, "%v | %v", a, ts(a), trace{})
 	}
 	return
 }
@@ -1008,7 +1008,7 @@ func ident(ctx Context, x Value) (s string) {
         if t.Fragment != nil { s += "#" + ident(ctx, t.Fragment) }
         return
     default:
-        erro(pc(ctx,x), "todo: ident for %s", ts(x)).trace()
+        erro(pc(ctx,x), "todo: ident for %s", ts(x), trace{})
         return
     }
 }
@@ -1029,7 +1029,7 @@ func ident_opt(ctx Context, pre string, x Value, op any) (_ string) {
 
 func fnv1(ctx Context, t any, a ...any) (_ uint64) {
     var h = fnv.New64()
-    var o = binenc.LittleEndian
+    var o = encbin.LittleEndian
     if t != nil {
         var b []byte
         switch x := t.(type) {
@@ -1076,7 +1076,7 @@ func fnv1(ctx Context, t any, a ...any) (_ uint64) {
                 }
             }
         default:
-            erro(ctx, "fnv1: unsupported type : %s", ts(v)).trace()
+            debug(ctx, "fnv1: unsupported type : %s", ts(v), trace{})
         }
         h.Write(b)
     }
@@ -1314,13 +1314,13 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 								case sx > t.s: return cmpGreater
 								}
 							default:
-								erro(pc(ctx,l), "%v %v", ts(l), ts(r)).trace()
+								erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
 							}
 						default:
-							erro(pc(ctx,l), "%v %v", ts(l), ts(r)).trace()
+							erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
 						}
 					default:
-						erro(pc(ctx,l), "%v %v", ts(l), ts(r)).trace()
+						erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
 					}
 				}
 			}
@@ -1345,13 +1345,13 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 								case t.s > sy: return cmpGreater
 								}
 							default:
-								erro(pc(ctx,l), "%v %v", ts(l), ts(r)).trace()
+								erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
 							}
 						default:
-							erro(pc(ctx,l), "%v %v", ts(l), ts(r)).trace()
+							erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
 						}
 					default:
-						erro(pc(ctx,l), "%v %v", ts(l), ts(r)).trace()
+						erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
 					}
 				}
 			}
@@ -1414,11 +1414,13 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 		case *loc: return cmp(ctx, x, y.Value)
 		}
 		if false {
-			note(pc(pc(ctx,r),l), "%s ⇔ %s | %v ⇔ %v", typeof(lv), typeof(rv), ts(lv), ts(rv)).debug()
+			debug(pc(pc(ctx,r),l), "%s ⇔ %s | %v ⇔ %v", typeof(lv), typeof(rv), ts(lv), ts(rv))
 		} else if false {
 			ctx = pc(pc(ctx,r),l)
-			erro(ctx, "%v ⇔ %v | %v ⇔ %v", ts(unbox(l)), ts(unbox(r)), ts(l), ts(r))
-			note(ctx, "into: cmp(%s ⇔ %s) | %v ⇔ %v", typeof(lv), typeof(rv), ts(lv), ts(rv)).trace()
+			debug(ctx,
+				_f("%v ⇔ %v | %v ⇔ %v", ts(unbox(l)), ts(unbox(r)), ts(l), ts(r)),
+				_f("into: cmp(%s ⇔ %s) | %v ⇔ %v", typeof(lv), typeof(rv), ts(lv), ts(rv)),
+				trace{})
 		}
     }
     return cmpUnknown
@@ -1460,11 +1462,11 @@ func eq(x Context, a, b any) bool { return cmp(x, a, b) == cmpEqual }
 func equal(x Context, a, b any, yes ...bool) (res bool) {
 	if checkpoints {
 		defer func() {
-			if !res && sfmt("%v", a) == sfmt("%v", b) {
-				erro(pc(x,a), "%v: equal(%v, %v)", res, a, b).trace()
+			if !res && sf("%v", a) == sf("%v", b) {
+				erro(pc(x,a), "%v: equal(%v, %v)", res, a, b, trace{})
 			}
-			if res && sfmt("%v", a) != sfmt("%v", b) {
-				erro(pc(x,a), "%v: equal(%v, %v)", res, a, b).trace()
+			if res && sf("%v", a) != sf("%v", b) {
+				erro(pc(x,a), "%v: equal(%v, %v)", res, a, b, trace{})
 			}
 		} ()
 	}
@@ -1507,6 +1509,7 @@ func isEmpty(v any) (t bool) {
 	case *compound: return isEmpty(a.elems)
 	case *list: return isEmpty(a.elems)
     case *def: return isEmpty(a.value)
+	case *valcache: return len(a.a) == 0 && len(a.o) == 0 && len(a.v) == 0
 	case []Value:
 		for _, v := range a { if !isEmpty(v) { return } }
 		return true
@@ -1558,16 +1561,21 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 	case *pair:
 		switch tx.val.(type) {
 		case *valbase, *null, *none, nil: return &pair{tx.key, y}
+		default: return &pair{tx.key, prefix(ctx, tx.val, y)}
 		}
-		return &pair{tx.key, prefix(ctx, tx.val, y)}
 	case *path:
 		return &path{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
+	case *globpat:
+		switch ty := y.(type) {
+		case *compound: return &globpat{elements{append(tx.elems, ty.elems...)}}
+		case *globpat: return &globpat{elements{append(tx.elems, ty.elems...)}}
+		default: return &globpat{elements{append(tx.elems, y)}}
+		}
 	case *compound:
 		switch ty := y.(type) {
-		case *path:
-			return &path{elements{append([]Value{prefix(ctx, tx, ty.elems[0])}, ty.elems[1:]...)}}
-		case *compound:
-			return &compound{elements{append(tx.elems, ty.elems...)}}
+		case *path: return &path{elements{append([]Value{prefix(ctx, tx, ty.elems[0])}, ty.elems[1:]...)}}
+		case *compound: return &compound{elements{append(tx.elems, ty.elems...)}}
+		case *globpat: return &globpat{elements{append(tx.elems, ty.elems...)}}
 		}
 		if i := len(tx.elems)-1; 0 <= i {
 			switch t := tx.elems[i].(type) {
@@ -1586,9 +1594,15 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		case *valbase, *null, *none, nil: return &pair{x, ty.val}
 		default: return &pair{prefix(ctx, x, ty.key), ty.val}
 		}
+	case *globpat:
+		switch x.(type) {
+		case *valbase, *null, *none, nil: return &globpat{elements{dup(ty.elems)}}
+		default: return &globpat{elements{append([]Value{x}, ty.elems...)}}
+		}
 	case *compound:
 		switch ty.elems[0].(type) {
-		case *pair: erro(ctx, "%v", ty.elems).trace()
+		case *pair: debug(ctx, "%v", ty.elems, trace{})
+		case *valbase, *null, *none, nil: return &compound{elements{dup(ty.elems)}}
 		default: return &compound{elements{append([]Value{x}, ty.elems...)}}
 		}
 	}
@@ -1721,7 +1735,7 @@ func (p *argumented) ctx(ctx Context) *argumented_ctx {
         if a = expand(_final(ctx),a); patterned(ctx,a) {
             if stems := _stems(ctx); len(stems) > 0 {
                 if v, rest := stencil(ctx, a, stems); len(rest) > 0 {
-                    erro(pc(ctx,p), "partial stencil: %v, %v, %v, %v", a, v, rest, stems).trace()
+                    erro(pc(ctx,p), "partial stencil: %v, %v, %v, %v", a, v, rest, stems, trace{})
                 } else if f := (as{a}).file(ctx, proj); f != nil {
                     a = f
                 } else {
@@ -2054,8 +2068,8 @@ func (c *comctx) do(ctx Context, op any) (_ any) {
 	case wants_fullfile: return false
 	case is_compound: return true
 	case *closure, *delegate: c.i += 1
-		if false && sfmt("%v",op) == "&(.test.xx)" {
-			note(pc(ctx,op), "%v %d", op, c.i).debug(5)
+		if false && sf("%v",op) == "&(.test.xx)" {
+			debug(pc(ctx,op), "%v %d", op, c.i)
 		}
 	}
 	return c.Context.do(ctx, op)
@@ -2171,7 +2185,7 @@ func barefilize(ctx Context, targets ...Value) []Value {
     return targets
 }
 func exp_barefilize(ctx Context, targets ...Value) (res []Value) {
-    var maps []filemap_name
+    var maps []matched_filemap
 	var proj = _project(ctx)
     for _, target := range targets {
         if !patterned(ctx,target) {
@@ -2584,7 +2598,7 @@ func path_match2(ctx Context, pats []any, vals ...string) (full bool, res, stems
 					}
 				}
 			default:
-				erro(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr).trace()
+				erro(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr, trace{})
 			}
 			if stem != nil { stems = append(stems, joinpath(stem...)) }
 		} else if x, y := pat.(*punct); y && x.token == PTAIL {
@@ -2596,15 +2610,15 @@ func path_match2(ctx Context, pats []any, vals ...string) (full bool, res, stems
 		}
 	}
 	if checkpoints {
-		if false && sfmt("%v",pats) == "/*?/test*/*?/" {
-			note(pc(ctx,pats), "%v %d/%d %d/%d %v %v", full, iPats, lPats, iVals, lVals, res, stems).debug()
+		if false && sf("%v",pats) == "/*?/test*/*?/" {
+			debug(pc(ctx,pats), "%v %d/%d %d/%d %v %v", full, iPats, lPats, iVals, lVals, res, stems)
 		}
 		if false && iPats == lPats && iVals == lVals {
-			if s1, s2 := sfmt("%v", vals), sfmt("%v", res); (s1 == s2) != full {
+			if s1, s2 := sf("%v", vals), sf("%v", res); (s1 == s2) != full {
 				erro(pc(ctx,pats), "%v full=%v", pats, full)
 				note(pc(ctx,pats), "%v", vals)
 				note(pc(ctx,pats), "%v", res)
-				note(pc(ctx,pats), "%v", stems).trace()
+				debug(pc(ctx,pats), "%v", stems, trace{})
 			}
 		}
 	}
@@ -2754,7 +2768,7 @@ func path_match3(ctx Context, pats []any, vals ...string) (full bool, res, stems
 					}
 				}
 			default:
-				erro(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr).trace()
+				erro(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr, trace{})
 			}
 			if stem != nil { stems = append([]string{joinpath(stem...)}, stems...) }
 		} else if x, y := pat.(*punct); y && x.token == PROOT {
@@ -2766,8 +2780,8 @@ func path_match3(ctx Context, pats []any, vals ...string) (full bool, res, stems
 		}
 	}
 	if checkpoints {
-		if false && sfmt("%v",pats) == "**/testdata/**" {
-			note(pc(ctx,pats), "%v %d/%d %d/%d %v %v", full, iPats, lPats, iVals, lVals, res, stems).debug()
+		if false && sf("%v",pats) == "**/testdata/**" {
+			debug(pc(ctx,pats), "%v %d/%d %d/%d %v %v", full, iPats, lPats, iVals, lVals, res, stems)
 		}
 	}
 	full = full && iPats == -1 && iVals == -1
@@ -2786,6 +2800,7 @@ func to_file(v Value) (x *file, y bool) {
     if x, y = v.(*file); !y {
         switch t := v.(type) {
         case       as: x, y = to_file(t.Value)
+		case     *loc: x, y = to_file(t.Value)
         case fullname: x, y = to_file(t.Value)
         case fullfile: x, y = t.file, true
         case *list: if t.len() == 1 { x, y = to_file(t.elems[0]) }
@@ -2875,7 +2890,7 @@ func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
 func (p *file) stamp(ctx Context) (res []*file) {
     var fn = p.fullname()
     if fn == "" {
-        erro(ctx, "file `%s` has no fullname", p).trace()
+        debug(ctx, "file `%s` has no fullname", p, trace{})
     }
 
     var e error
@@ -2884,16 +2899,16 @@ func (p *file) stamp(ctx Context) (res []*file) {
         if truly(ctx, must_file_stamp{p}) {
             ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
             if _, y := e.(*fs.PathError); y {
-                errostack(ctx, 8, "no such file: %s", p.name).trace()
+                errostack(ctx, 8, "no such file: %s", p.name, trace{})
             } else {
-                errostack(ctx, 8, "%v", e).trace()
+                errostack(ctx, 8, "%v", e, trace{})
             }
         }
         return
     } else if p.info == nil {
         if truly(ctx, must_file_stamp{p}) {
             ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
-            errostack(ctx, 8, "no such file: %s", p.name).trace()
+            errostack(ctx, 8, "no such file: %s", p.name, trace{})
         }
         return
     }
@@ -2919,11 +2934,11 @@ func (p *file) stat(ctx Context) (si *statinfo) {
         // good
     } else if x, y := e.(*fs.PathError); y {
         if false {
-            erro(ctx, "%v: %v", trimPromptString(x.Path), x.Err).trace()
+            debug(ctx, "%v: %v", trimPromptString(x.Path), x.Err, trace{})
         }
         return
     } else {
-        erro(ctx, "file.stat: %v", e).trace()
+        debug(ctx, "file.stat: %v", e, trace{})
     }
     return &statinfo{ file: p }
 }
@@ -2971,7 +2986,7 @@ func (p flag) String() (s string) {
 }
 func (p flag) opt(ctx Context, name string) (res string, match bool) {
 	if val := p.Value; isTrivial(val) {
-		if false { erro(ctx, "flag name is trivial").trace() }
+		if false { debug(ctx, "flag name is trivial", trace{}) }
 	} else if x, y := val.(flag); y {
 		res, match = x.opt(ctx, name)
 	} else if s := __string(ctx, val); s == name {
@@ -2997,8 +3012,7 @@ func (p *strcomp) src() (s string) {
     // Escape string chars
     for i := strings.IndexAny(s, escapedChars); i != -1; {
         if _, err = buf.WriteString(s[:i]); err != nil {
-            // erro(ctx, "%v", err).trace()
-            panic(err)
+            panic(err) // debug(ctx, "%v", err, trace{})
             return
         }
 
@@ -3009,8 +3023,7 @@ func (p *strcomp) src() (s string) {
         case '\n': esc = `\n`
         }
         if _, err = buf.WriteString(esc); err != nil {
-            // erro(ctx, "%v", err).trace()
-            panic(err)
+            panic(err) // debug(ctx, "%v", err, trace{})
             return
         }
 
@@ -3063,7 +3076,7 @@ func parseGroupValue(ctx Context, g *group) (result Value) {
             if len(kind.elems) > 0 {
                 var ( name = kind.elems[0]; y bool )
                 if w, y = name.(*word); !y {
-                    erro(ctx, "unsupported name type: %T %v", name, name).trace()
+                    debug(ctx, "unsupported name type: %T %v", name, name, trace{})
                 }
             }
         }
@@ -3107,8 +3120,8 @@ const (
     not_evoker int = 1<<iota
 )
 
-type closure_delegate_evoke struct{ Context ; state int }
-func (c *closure_delegate_evoke) do(ctx Context, op any) (_ any) {
+type expand_closure_delegate struct{ Context ; state int }
+func (c *expand_closure_delegate) do(ctx Context, op any) (_ any) {
     switch op.(type) {
     case _not_evoker: c.state = not_evoker; return
     }
@@ -3321,7 +3334,7 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
         }
     } else if a < b && patterned(ctx,p.Suffix) {
         if false {
-            warn(ctx, "mixing % pattern might have performance impact: %v", p).debug()
+            debug(ctx, "mixing % pattern might have performance impact: %v", p)
         }
         for n := b-1; a < n; n -= 1 {
             if f, r, ss := match(ctx, p.Suffix, rep[n:]); f && r != nil {
@@ -3396,16 +3409,6 @@ func multia(ctx Context, p any) (result multia_result, prefix, suffix Value) {
             }
         }
     }
-    return
-}
-
-type compositePattern struct{ Value ; constraints []Value }
-func (p compositePattern) String() (s string) {
-    s += "[" + p.Value.String() + ", "
-    for i, v := range p.constraints {
-        if i > 0 { s += " " } ; s += v.String()
-    }
-    s += "]"
     return
 }
 
@@ -3592,7 +3595,7 @@ func values(args ...any) (elems []Value) {
                 elems = append(elems, values(v.Index(n).Interface())...)
             }
         } else {
-            // erro(ctx, "'%v' is not value type (%T)", a, a).trace()
+            // debug(ctx, "'%v' is not value type (%T)", a, a, trace{})
         }
     }
     return
@@ -3688,7 +3691,7 @@ func deleteFile(ctx Context, val Value) (res []*file) {
         for _, e := range t.elems { res = append(res, deleteFile(ctx, e)...) }
     case *path:
         if si := statFile(ctx, val); si == nil || si.file == nil {
-            erro(ctx, "no path name for `%s`", val).trace()
+            debug(ctx, "no path name for `%s`", val, trace{})
         } else {
             return deleteFile(ctx, si.file)
         }
@@ -3707,7 +3710,7 @@ func stampFile(ctx Context, val Value) (res []*file) {
         for _, e := range t.elems { res = append(res, stampFile(ctx, e)...) }
     case *path:
         if si := statFile(ctx, val); si == nil || si.file == nil {
-            erro(ctx, "no path name for `%s`", val).trace()
+            debug(ctx, "no path name for `%s`", val, trace{})
         } else {
             return stampFile(ctx, si.file)
         }
@@ -3737,7 +3740,7 @@ func statFile(ctx Context, val Value) (res *statinfo) {
         var s string
         if patterned(ctx, t) {
             if v, rest := stencil(ctx, t, _stems(ctx)); len(rest) > 0 {
-                erro(ctx, "partial match: %v", rest)
+                debug(ctx, "partial match: %v", rest)
             } else {
                 s = __string(ctx, v)
             }
@@ -3868,9 +3871,9 @@ func __string(ctx Context, v any) (res string) {
 		if v := t.Value; v != nil {
 			if x, y := v.(*file); y {
 				if x == nil {
-					erro(ctx, "nil file").trace()
+					debug(ctx, "nil file", trace{})
 				} else if x.filestub == nil {
-					erro(ctx, "nil file stub").trace()
+					debug(ctx, "nil file stub", trace{})
 				}
 				return x.fullname()
 			}
@@ -4025,7 +4028,7 @@ func __true(ctx Context, v Value) (res bool) {
 		if v = expand(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
-					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t)).trace()
+					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
 				}
 			}
 			return __true(ctx, v)
@@ -4062,31 +4065,31 @@ func __int(ctx Context, v Value) (res int64) {
 		if i, e := strconv.ParseInt(t.s, 10, 64); e == nil {
 			return i
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *word:
 		if i, e := strconv.ParseInt(t.s, 10, 64); e == nil {
 			return i
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *strlit:
 		if i, e := strconv.ParseInt(t.s, 10, 64); e == nil {
 			return i
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *strcomp:
 		if i, e := strconv.ParseInt(__string(ctx, t), 10, 64); e == nil {
 			return i
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *strval:
 		if i, e := strconv.ParseInt(__string(ctx, t), 10, 64); e == nil {
 			return i
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *compound:
 		if n := len(t.elems); n > 0 {
@@ -4107,7 +4110,7 @@ func __int(ctx Context, v Value) (res int64) {
 		if v = expand(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
-					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t)).trace()
+					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
 				}
 			}
 			return __int(ctx, v)
@@ -4121,13 +4124,13 @@ func __float(ctx Context, v Value) (_ float64) {
 	case *answer: if t.bool { return 1. }
 	case *option: if t.bool { return 1. }
 	case *boolean: if t.bool { return 1. }
+	case *exec_result: return float64(t.Status)
 	case *binary: return float64(t.int64)
 	case *octal: return float64(t.int64)
 	case *decimal: return float64(t.int64)
 	case *datetime: return float64(t.t.Unix())
 	case *Date: return float64(t.t.Unix())
 	case *Time: return float64(t.t.Unix())
-	case *exec_result: return float64(t.Status)
 	case *pair: return __float(ctx, t.val)
 	case *auto: return __float(ctx, t.def(ctx))
 	case *def: return __float(ctx, t.value)
@@ -4142,37 +4145,37 @@ func __float(ctx Context, v Value) (_ float64) {
 		if f, e := strconv.ParseFloat(t.s, 64); e == nil {
 			return f
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *word:
 		if f, e := strconv.ParseFloat(t.s, 64); e == nil {
 			return f
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *strlit:
 		if f, e := strconv.ParseFloat(t.s, 64); e == nil {
 			return f
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *strcomp:
 		if f, e := strconv.ParseFloat(__string(ctx, t), 64); e == nil {
 			return f
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *strval:
 		if f, e := strconv.ParseFloat(__string(ctx, t), 64); e == nil {
 			return f
 		} else {
-			erro(ctx, "%v", e).trace()
+			debug(ctx, "%v", e, trace{})
 		}
 	case *arrow, *closure, *delegate:
 		if v = expand(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
-					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t)).trace()
+					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
 				}
 			}
 			return __float(ctx, v)
@@ -4188,7 +4191,7 @@ func expand(ctx Context, v Value) (res Value) {
         if x := t.resolve(ctx, expand(&c, t.x)); c.closure_delegate == 0 {
 			var vals []Value
             for _, x := range x {
-                cc := closure_delegate_evoke{ctx, 0}
+                cc := expand_closure_delegate{ctx, 0}
                 if v := evoke(&cc, x, t.o, t.a); cc.state == not_evoker || v == nil {
                     vals = append(vals, _null(t.position))
                 } else {
@@ -4212,7 +4215,7 @@ func expand(ctx Context, v Value) (res Value) {
 		if x := t.resolve(ctx, expand(&c, t.x)); c.closure_delegate == 0 && truly(ctx, ex_closure{}) {
 			var vals []Value
 			for _, x := range x {
-				var cc = closure_delegate_evoke{ctx, 0}
+				var cc = expand_closure_delegate{ctx, 0}
 				if v := evoke(&cc, x, t.o, t.a); cc.state == not_evoker || v == nil {
 					vals = append(vals, _null(t.position))
 				} else {
@@ -4248,7 +4251,7 @@ func expand(ctx Context, v Value) (res Value) {
                     case SELECT_PROP:
                         if v := closure_resolve(ctx, str); v != nil { o = v }
                     default:
-                        erro(pc(ctx,t), "%v %v %v", o, t.t, ss).trace()
+                        erro(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
                     }
                 case truly(ctx, delegate_t{}):
                     switch t.t {
@@ -4257,10 +4260,10 @@ func expand(ctx Context, v Value) (res Value) {
                     case SELECT_PROP:
                         if v := project_resolve(ctx, str); v != nil { o = v }
                     default:
-                        erro(pc(ctx,t), "%v %v %v", o, t.t, ss).trace()
+                        erro(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
                     }
                 default:
-                    erro(pc(ctx,t), "%v %v", o, ss).trace()
+                    erro(pc(ctx,t), "%v %v", o, ss, trace{})
                 }
             }
             for _, s := range ss {
@@ -4367,11 +4370,11 @@ func expand(ctx Context, v Value) (res Value) {
 		return ease(ctx, va)
     case *undetermined:
 		return &undetermined{t.token, expand(ctx, t.identifier), expand(ctx, t.value)}
-    case *valbase, *answer, *boolean, *binary, *auto, *builtin, *def, *none, *null, *punct, *qualword, *word, *globmeta, *octal, *decimal, *hexadecimal, *escaped, *raw, *regexpat, *defcaps, *project, self, undef, nil:
-        if false && v == nil { note(pc(ctx,v), "%v", v).debug() } //, *modification
+    case *valbase, *answer, *boolean, *binary, *auto, *builtin, *def, *none, *null, *punct, *qualword, *word, *globmeta, *octal, *decimal, *hexadecimal, *escaped, *raw, *regexpat, *defcaps, *project, *file, self, undef, nil:
+        if false && v == nil { debug(pc(ctx,v), "%v", v) } //, *modification
         return v
     default:
-        if checkpoints { erro(pc(ctx,v), "%v", ts(v)).trace() }
+        if checkpoints { debug(pc(ctx,v), "%v", ts(v), trace{}) }
         return v
     }
 }
@@ -4404,7 +4407,7 @@ func can_sel(ctx Context, v Value) (res bool) {
     case *loc: return can_sel(ctx, t.Value)
     case *def, *project, self, *use, *uselist: return true
     case *list: for _, v := range t.elems { if can_sel(ctx, v) { return true } }
-    default: if false { notestack(pc(ctx,v), 8, "%v", ts(v)).debug(10) }
+    default: if false { debug(pc(ctx,v), "%v", ts(v)) }
     }
     return
 }
@@ -4456,7 +4459,7 @@ func sel(ctx Context, v any, s string) (res Value) {
         }
         return ease(ctx, vals)
     default:
-        errostack(pc(ctx,v), 8, "cannot sel: %v %v", ts(t), s).trace()
+        erro(pc(ctx,v), "cannot sel: %v %v", ts(t), s, trace{})
     }
 	if g != nil {}
     return
@@ -4501,18 +4504,18 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		defer t.benchmark(ctx, time.Now(), _v)
 
 		if f := _v.Elem().FieldByName("builtinbase"); !f.IsValid() {
-			errostack(pc(ctx,_i), 8, "no such field: %s.builtinbase", _v.Elem().Type()).trace()
+			erro(pc(ctx,_i), "no such field: %s.builtinbase", _v.Elem().Type(), trace{})
 		} else if f.CanAddr() {
 			b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
 			b.evocation = ctx
 		} else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
-			errostack(pc(ctx,_i), 8, "no such field: %s.evocation", _v.Elem().Type()).trace()
+			erro(pc(ctx,_i), "no such field: %s.evocation", _v.Elem().Type(), trace{})
 		} else if f.CanSet() {
 			f.Set(reflect.ValueOf(ctx))
 		} else if f.CanAddr() && f.Addr().CanSet() {
 			f.Addr().SetPointer(unsafe.Pointer(ctx))
 		} else {
-			errostack(pc(ctx,_i), 8, "cannot set field: %s.evocation", _v.Elem().Type()).trace()
+			erro(pc(ctx,_i), "cannot set field: %s.evocation", _v.Elem().Type(), trace{})
 		}
 
 		if o != nil { ctx.o = _opts(ctx, _v, o) }
@@ -4520,7 +4523,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		if x, y := _i.(builtin_x); y {
 			res = ease(ctx, x.x())
 		} else {
-			errostack(pc(ctx,x), 3, "no method: %v", t.t.Name()).trace()
+			erro(pc(ctx,x), "no method: %v", t.t.Name(), trace{})
 		}
     default:
         do(ctx, _not_evoker{})
@@ -4532,6 +4535,11 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 	var vals []string
 
 	switch t := unbox(val).(type) {
+	case *file:
+		if full, res, stems = match(ctx, pat, t.filestub.name); full || res != nil {
+			if checkpoints { check_match(pc(ctx,pat), pat, val, full, res, stems) }
+		}
+		return
 	case *filestub:
 		if full, res, stems = match(ctx, pat, t.name); full || res != nil {
 			if checkpoints { check_match(pc(ctx,pat), pat, val, full, res, stems) }
@@ -4540,7 +4548,6 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 			if checkpoints { check_match(pc(ctx,pat), pat, val, full, res, stems) }
 		}
 		return
-	case *file: return match(ctx, pat, &t.filestub)
 	case    Value: vals = strings.Split(__string(ctx, t), pathSep)
 	case   string: vals = strings.Split(t, pathSep)
 	case []string: vals = t
@@ -4614,7 +4621,7 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 		case   string: s = t
 		case []string: if len(t) == 1 { s = t[0] } else { return }
 		default:
-			erro(pc(ctx,p), "unsupported match: %v", ts(val)).trace()
+			erro(pc(ctx,p), "unsupported match: %v", ts(val), trace{})
 		}
 
 		if s == "" { return }
@@ -4655,7 +4662,7 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
                 if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
             }
         default:
-            erro(ctx, "%v → %v", p, ts(val)).trace()
+            debug(ctx, "%v → %v", p, ts(val), trace{})
         }
 		return
     case *percpat:
@@ -4681,7 +4688,7 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
             full, res, stems = p.match1(ctx, __string(ctx, t))
             if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
         default:
-            unreachable(fmt.Sprintf("match: %s", ts(val)))
+            debug(ctx, "%v → %v", p, ts(val), trace{})
         }
 		return
     case *globbrace: return match(ctx, &p.globpat, val)
@@ -4702,13 +4709,13 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 				return
             }
         default:
-            erro(ctx, "%v : unsupported match type: %v %v", p, val, ts(val)).trace()
+            debug(ctx, "%v : unsupported match type: %v %v", p, val, ts(val), trace{})
         }
 
         var err error
         var pattern = __string(ctx, p)
         if full, stems, err = globMatch(ctx, pattern, s); full { res = s }
-        if err != nil { erro(ctx, "%v : glob error: %v", p, err).trace() }
+        if err != nil { debug(ctx, "%v : glob error: %v", p, err, trace{}) }
         if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
 		return
     case *regexpat:
@@ -4721,7 +4728,7 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
             case    string: str = t
             case  []string: if len(t) == 1 { str = t[0] } else { return }
             default:
-                erro(ctx, "%v :matching unsupported value: %s", p, ts(val)).trace()
+                debug(ctx, "%v :matching unsupported value: %s", p, ts(val), trace{})
             }
 
             if sm := p.Regexp.FindStringSubmatch(str); sm != nil && sm[0] == str {
@@ -4732,20 +4739,20 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 		return
     case *delegate, *closure:
 		if t1, ok := p.(Value); !ok {
-			erro(ctx, "incompatible value: %s", ts(p)).trace()
+			debug(ctx, "incompatible value: %s", ts(p), trace{})
 		} else if t2 := expand(ctx, t1); t2 != nil {
 			if !equal(ctx, t2, t1) { return match(ctx, t2, val) }
 		} else {
-			erro(pc(ctx,p), "%v: nil match", t1).trace()
+			erro(pc(ctx,p), "%v: nil match", t1, trace{})
 		}
 		return
-    case compositePattern:
-		if full, res, stems = match(ctx, p.Value, val); full {
-			for _, con := range p.constraints {
-				if a, b, c := match(ctx, con, val); !a { return a, b, c }
-			}
-		}
-		return full, res, stems
+    // case compositePattern:
+	// 	if full, res, stems = match(ctx, p.Value, val); full {
+	// 		for _, con := range p.constraints {
+	// 			if a, b, c := match(ctx, con, val); !a { return a, b, c }
+	// 		}
+	// 	}
+	// 	return full, res, stems
 	case filemap:
 		var s string
 		full, res, s = p.match(ctx, val)
@@ -4754,7 +4761,7 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
 	case nil: return
     }
 
-	erro(ctx, "TODO: match(%v, %v) | %v | %v, %v", pat, val, vals, ts(pat), ts(val)).trace()
+	debug(ctx, "TODO: match(%v, %v) | %v | %v, %v", pat, val, vals, ts(pat), ts(val), trace{})
 	return
 }
 
@@ -4804,7 +4811,7 @@ func stencil(ctx Context, pat any, stems []string) (res Value, rest []string) {
         if isTrivial(p.Prefix) {
             // does nothing
         } else if patterned(ctx,p.Prefix) {
-            erro(ctx, "patterned prefix: %T %v", p.Prefix, p.Prefix).trace()
+            debug(ctx, "patterned prefix: %T %v", p.Prefix, p.Prefix, trace{})
         } else {
             vals = append(vals, p.Prefix)
         }
@@ -4870,7 +4877,8 @@ func stencil(ctx Context, pat any, stems []string) (res Value, rest []string) {
     case Value:
         return p, stems
     }
-    erro(pc(ctx,pat), "stencil: %v %v", ts(pat), stems).trace()
+
+    erro(pc(ctx,pat), "stencil: %v %v", ts(pat), stems, trace{})
     return
 }
 
@@ -4934,7 +4942,7 @@ func stamp(ctx Context, a any) (res []*file) {
     case *plainline: return stamp(ctx, t.elems)
     case *returner: return stamp(ctx, t.vals)
     default:
-        erro(pc(ctx,a), "%v", ts(a)).trace()
+        erro(pc(ctx,a), "%v", ts(a), trace{})
         return
     }
 }
@@ -4958,7 +4966,7 @@ func stat(ctx Context, a any) (res []*statinfo) {
     case fullname: return stat(ctx, t.Value)
     case negative: return stat(ctx, t.Value)
     default:
-        erro(pc(ctx,a), "%v", ts(a)).trace()
+        erro(pc(ctx,a), "%v", ts(a), trace{})
         return
     }
 }
@@ -4987,7 +4995,7 @@ func traverse(ctx Context, val Value) {
         var target = auto_get(ctx, "@")
 
         if target == nil {
-            erro(ctx, "$@ is not defined").trace()
+            debug(ctx, "$@ is not defined", trace{})
         }
 
         if _entry(ctx) == p {
@@ -5011,7 +5019,7 @@ func traverse(ctx Context, val Value) {
             }
 
             prompt(ctx, "%v: %v: %v\n", proj, p, target)
-            warnstack(ctx, 8, "%v: %v: %v", proj, p, target).debug(16)
+            debug(ctx, "%v: %v: %v", proj, p, target)
         } else {
             ctx = &rule_ctx{ctx, p, nil}
         }
@@ -5040,7 +5048,7 @@ func traverse(ctx Context, val Value) {
             updated(ctx, val) // NOTE: ensure that updated flag is correct (see rule.updated)
             traverse(ctx, val)
         } else {
-            warn(ctx, "selected trivial value '%v' (%v, %v) ", p, ts(p.o), ts(p.s)).debug(10)
+            debug(ctx, "selected trivial value '%v' (%v, %v) ", p, ts(p.o), ts(p.s))
         }
     case *barefile:
         if p.file != nil { traverse(ctx, p.file) } else
@@ -5053,7 +5061,7 @@ func traverse(ctx Context, val Value) {
         }
     case *modifier:
         if name := __string(ctx, p.elems[0]); name == "" {
-            erro(ctx, "empty name: %v", p.elems[0]).trace()
+            debug(ctx, "empty name: %v", p.elems[0], trace{})
         } else if truly(ctx, interpret{name, p.elems[1:]}) {
             modify(ctx, &p.group, true)
         }
@@ -5063,7 +5071,7 @@ func traverse(ctx Context, val Value) {
     case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
         do(ctx, act_traverse{p})
     default:
-        erro(pc(ctx,p), "unsupported traversal: %v", ts(val)).trace()
+        erro(pc(ctx,p), "unsupported traversal: %v", ts(val), trace{})
     }
 }
 
@@ -5111,7 +5119,7 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
             } else if false {
                 v = makePunct(pos, PCON)
             } else {
-                warn(ctx, "%s: %v[%d]: empty path seg", str, a, i).debug()
+                debug(ctx, "%s: %v[%d]: empty path seg", str, a, i)
                 continue
             }
         } else {
@@ -5145,7 +5153,7 @@ func ease(ctx Context, a any) (res Value) {
     case   string: elems = append(elems, _strlit( _position(ctx),         t ))
     case []string: for _, s := range t { elems = append(elems, _strlit(_position(ctx),        s )) }
     case   []bare: for _, s := range t { elems = append(elems, _word(  _position(ctx), string(s))) }
-    default: erro(ctx, "unsupported value: %v", ts(t)).trace()
+    default: debug(ctx, "unsupported value: %v", ts(t), trace{})
     }
 
     switch len(elems) {
@@ -5432,9 +5440,9 @@ const (
     max_evoke = 999
 )
 
-// NOTE: evokeTraceDots is for debugging call trace, if this finally goes into a formal
+// NOTE: evokeTraceots is for debugging call trace, if this finally goes into a formal
 //       feature, it should need a sync-lock protection.
-var evokeTraceDots string
+var evokeTraceots string
 
 type prerequisite_evoke_loop struct{ Context ; Value }
 
@@ -5487,7 +5495,7 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
             }
         }
         if u, y := do(ctx, evoke_count{}).(uint); y && u > 255 {
-            errostack(pc(ctx,p.x), 16, "%s : %s", p.x, ts(p.x)).trace()
+            debug(pc(ctx,p.x), "%s : %s", p.x, ts(p.x), trace{})
         }
 
     case get_position:
@@ -5512,7 +5520,7 @@ func call(ctx Context, name string, o []Value, a ...Value) (res Value) {
 func get_filename(n int) string {
     var num int
     var filename string
-    var lines = strings.Split(string(debug.Stack()), "\n")
+    var lines = strings.Split(string(rt_debug.Stack()), "\n")
     for _, line := range lines {
         if !strings.HasPrefix(line, "\t") { continue }
         if i := strings.Index(line, ":"); num == n && i > 0 {
