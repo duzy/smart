@@ -274,13 +274,13 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%s %v", s, proj.entries.ks())
 	} else if len(t) != 1 {
 		ctx.err("%s %v", s, t)
-	} else if x, y := t[0].(rule_name); !y {
+	} else if x, y := t[0].(matched_rule); !y {
 		ctx.err("%v", tst{t[0]})
 	} else if x.String() != s {
 		ctx.err("%v", tst{x.rule})
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err(s)
-	} else if t, y := r[0].(rule_name); !y {
+	} else if t, y := r[0].(matched_rule); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if _, y := t.target.(*compound); !y {
 		ctx.err("%v", tst{t.target})
@@ -307,7 +307,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err("%s %v", s, proj.entries.ks())
-	} else if t, y := r[0].(rule_name); !y {
+	} else if t, y := r[0].(matched_rule); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if _, y := t.target.(*compound); !y {
 		ctx.err("%v", tst{t.target})
@@ -334,7 +334,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err("%s %v", s, proj.entries.ks())
-	} else if t, y := r[0].(rule_name); !y {
+	} else if t, y := r[0].(matched_rule); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if _, y := t.target.(*compound); !y {
 		ctx.err("%v", tst{t.target})
@@ -361,7 +361,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err("%s %v", s, proj.entries.ks())
-	} else if t, y := r[0].(rule_name); !y {
+	} else if t, y := r[0].(matched_rule); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if len(t.program) != 1 {
 		ctx.err("%v: %v", t.target, t.program)
@@ -376,7 +376,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err("%s %v", s, proj.entries.ks())
-	} else if t, y := r[0].(rule_name); !y {
+	} else if t, y := r[0].(matched_rule); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if len(t.program) != 1 {
 		ctx.err("%v: %v", t.target, t.program)
@@ -391,7 +391,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err("%s %v", s, proj.entries.ks())
-	} else if t, y := r[0].(rule_name); !y {
+	} else if t, y := r[0].(matched_rule); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if len(t.program) != 1 {
 		ctx.err("%v: %v", t.target, t.program)
@@ -406,7 +406,7 @@ func testTemplateForeach(ctx *testcase) {
 		ctx.err("%s %v", s, proj.entries.ks())
 	} else if r := ctx.rule(s); r == nil {
 		ctx.err("%s %v", s, proj.entries.ks())
-	} else if t, y := r[0].(rule_name); !y {
+	} else if t, y := r[0].(matched_rule); !y {
 		ctx.err("%v", tst{r[0]})
 	} else if len(t.program) != 1 {
 		ctx.err("%v: %v", t.target, t.program)

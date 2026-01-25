@@ -7,7 +7,7 @@ package smart
 
 import (
     "path/filepath"
-    "runtime/debug"
+    rt_debug "runtime/debug"
     "runtime"
     "strings"
     "reflect"
@@ -41,50 +41,47 @@ type (
     act_traversed  struct{ v Value }
     act_traverse   struct{ v Value }
     init_args      struct{ *automatic }
+    get_closure_scopes struct{}
     get_args       struct{}
     get_workdir    struct{}
     get_position   struct{}
     get_project    struct{}
     get_scope      struct{}
-    on_erros       struct{ i int }
+    no_position    struct{}
+    on_errors      struct{ i int }
     param_name     struct{ i int }
-    get_closure_scopes struct{}
-    is_good_with struct{ p property ; a []any }
-    is_test_case struct{}
-    is_test_mode struct{}
-    is_test_univ struct{}
-    no_position  struct{}
-    invalid_position struct{}
+    is_good_with   struct{ p property ; a []any }
+    is_test_case   struct{}
+    is_test_mode   struct{}
+    is_test_univ   struct{}
 )
 
-func _param_name(ctx Context, n int) (_ string) {
-    if x, y := do(ctx, param_name{n}).(string); y { return x }
+func _workdir(ctx Context) (s string) {
+	s, _ = do(ctx, get_workdir{}).(string)
+	return
+}
+
+func paramName(ctx Context, n int) (s string) {
+	s, _ = do(ctx, param_name{n}).(string)
     return
 }
 
-func _workdir(ctx Context) (_ string) {
-    if x, y := do(ctx, get_workdir{}).(string); y {
-        return x
-    } else {
-        erro(ctx, "no workdir").trace()
-        return
-    }
-}
-
-func count_diag(ctx Context, t ...diagtype) (i int) {
+func diagCount(ctx Context, t ...diagtype) (i int) {
     i, _ = do(ctx, act_count_dia{t}).(int)
     return
 }
 
-type Context interface { caster ; doer }
-type caster interface { cast(reflect.Type) Context }
-type doer interface { do(Context, any) any }
+type Context interface {
+	cast(reflect.Type) Context
+	do(Context, any) any
+}
 
 func do(c Context, o any) any { return c.do(c, o) }
+
 func truly(ctx Context, ops ...any) (_ bool) {
 	for _, op := range ops {
 		switch t := do(ctx, op).(type) {
-		case hit_result: return t.bool
+		case []*valcache: return len(t) > 0
 		case bool: return t
 		}
 	}
@@ -93,8 +90,10 @@ func truly(ctx Context, ops ...any) (_ bool) {
 
 func try[T any](ctx Context, op any) (_ T) {
     if ctx != nil {
-        if x, y := do(ctx, op).(T); y { return x }
-    }
+		if x, y := do(ctx, op).(T); y {
+			return x
+		}
+	}
     return
 }
 
@@ -117,63 +116,63 @@ func icast(ctx Context, t reflect.Type) (res Context) {
 }
 
 func _inner(v reflect.Value) (i Context) {
-    if x, y := v.Interface().(interface{ inner() Context }); y {
-        return x.inner()
-    } else if t := v.Type(); t.Kind() == reflect.Struct {
-        for n := 0; false && n < v.NumField(); n++ {
-          if ft := t.Field(n); ft.Anonymous {
-              var fv = v.FieldByIndex(ft.Index)
-              if fv.CanInterface() {
-                  if f := fv.Interface(); ft.Name == "Context" {
-                      i, _ = f.(Context)
-                      return
-                  } else if i, y = f.(Context); y {
-                      return
-                  }
-              }
-              if fv.Type().Kind() == reflect.Struct && fv.CanAddr() {
-                  if fv = fv.Addr(); fv.CanInterface() {
-                      if i, y = fv.Interface().(Context) ; y {
-                        return
-                      }
-                  }
-              }
-          }
-        }
-        if x, y := t.FieldByName("Context"); y && x.Anonymous {
-          if v = v.FieldByIndex(x.Index); v.IsValid() {
-              if i, y = v.Interface().(Context) ; y {
-                  return
-              }
-              if false && v.Type().Kind() == reflect.Struct && v.CanAddr() {
-                  if i, y = v.Addr().Interface().(Context) ; y {
-                      return
-                  }
-              }
-          }
-        } else if false {
-          for n := 0; n < v.NumField(); n++ {
-              if f := t.Field(n); f.Anonymous {
-                  var fv = v.FieldByIndex(f.Index)
-                  if fv.CanInterface() {
-                      if i, y = fv.Interface().(Context); y {
-                        return
-                      }
-                  }
-                  if fv.Type().Kind() == reflect.Struct && fv.CanAddr() {
-                      if fv = fv.Addr(); fv.CanInterface() {
-                        if i, y = fv.Interface().(Context) ; y {
-                          return
-                        }
-                      }
-                  }
-              }
-          }
-        }
-    } else if t.Kind() == reflect.Pointer {
-        i = _inner(v.Elem())
-    }
-    return
+	if x, y := v.Interface().(interface{ inner() Context }); y {
+		return x.inner()
+	} else if t := v.Type(); t.Kind() == reflect.Struct {
+		for n := 0; false && n < v.NumField(); n++ {
+			if ft := t.Field(n); ft.Anonymous {
+				var fv = v.FieldByIndex(ft.Index)
+				if fv.CanInterface() {
+					if f := fv.Interface(); ft.Name == "Context" {
+						i, _ = f.(Context)
+						return
+					} else if i, y = f.(Context); y {
+						return
+					}
+				}
+				if fv.Type().Kind() == reflect.Struct && fv.CanAddr() {
+					if fv = fv.Addr(); fv.CanInterface() {
+						if i, y = fv.Interface().(Context) ; y {
+							return
+						}
+					}
+				}
+			}
+		}
+		if x, y := t.FieldByName("Context"); y && x.Anonymous {
+			if v = v.FieldByIndex(x.Index); v.IsValid() {
+				if i, y = v.Interface().(Context) ; y {
+					return
+				}
+				if false && v.Type().Kind() == reflect.Struct && v.CanAddr() {
+					if i, y = v.Addr().Interface().(Context) ; y {
+						return
+					}
+				}
+			}
+		} else if false {
+			for n := 0; n < v.NumField(); n++ {
+				if f := t.Field(n); f.Anonymous {
+					var fv = v.FieldByIndex(f.Index)
+					if fv.CanInterface() {
+						if i, y = fv.Interface().(Context); y {
+							return
+						}
+					}
+					if fv.Type().Kind() == reflect.Struct && fv.CanAddr() {
+						if fv = fv.Addr(); fv.CanInterface() {
+							if i, y = fv.Interface().(Context) ; y {
+								return
+							}
+						}
+					}
+				}
+			}
+		}
+	} else if t.Kind() == reflect.Pointer {
+		i = _inner(v.Elem())
+	}
+	return
 }
 
 func inner(c Context) Context { return _inner(reflect.ValueOf(c)) }
@@ -208,86 +207,78 @@ func auto_target_valstr(ctx Context) (val Value, str string) {
     return
 }
 
-type callstack []byte
-type frames  struct{ int }
-type skipint struct{ int }
+type stopframe string
+type skipint int
+type frames int
+type callstack struct{
+	num, frames, skip int
+	stop string
+}
 
 var (
-    callstackSkips = regexp.MustCompile(`^(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_bits)?|(?:recover_)?tr(?:ace|uly|y)|erro|(?:diagtracer|\(\*diagnostic\))\.trace)\(.+\)$`)
-    callstackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?(.+)(\(.*\))$`)
+    callstackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?((?:smart\.\(.+?\)\.)?.+?)(\(.*\))$`)
     callstackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
+    callstackPanic = regexp.MustCompile(`^panic(\(.+\))$`)
+    callstackSkips = regexp.MustCompile(`^(?:(?:testing\.tRunner`+
+		`|created by testing\.(\*T)\.Run in goroutine [0-9]+`+ // skips: |erro|recovered
+		`|(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_hit)?|tr(?:ace|uly|y)|(?:\*diagnostic|diagtracer)\.trace)`+
+		`|runtime\.Goexit)\(.+\)|exit status [0-9]+)$`)
 )
-func cstack(i, j int, a ...any) callstack { return _callstack("", i+1, j, a...) }
-func _callstack(s string, i, j int, args ...any) (res callstack) {
+func _callstack(s string, i, j int, args ...any) (res []byte) {
     i += 1 // skips this func
 
     var nums []int
-    for _, a := range args {
-        if t, y := a.(bool); y {
-            if !t { return /* d */ }
-        } else if t, y := a.(int); y {
-            nums = append(nums, t)
-        } else if t, y := a.(skipint); y {
-            i += t.int
-        } else if t, y := a.(frames); y {
-            j += t.int
-        }
-    }
-    if n := len(nums); n == 0 {
-        j += 1
-    } else if n == 1 {
-        j += nums[0]
-    } else if n == 2 {
-        i += nums[0]
-        j += nums[1]
-    } else {
-        panic("too many stack nums")
-    }
+	var stop string
+    var v = bytes.Split(rt_debug.Stack(), []byte{'\n'})
 
-    var gotPanic bool
-    var v = bytes.Split(debug.Stack(), []byte{'\n'})
-    for ; 0 < j && i+1 < len(v); i = i+1 {
-        // skip diagnostic.trace lines
-        if callstackSkips.Match(v[i]) { continue }
+	for _, a := range args {
+		switch t := a.(type) {
+		case bool: if !t { return /* d */ }
+		case int: nums = append(nums, t)
+		case stopframe: stop, j = string(t), len(v) / 2
+		case skipint: i += int(t)
+		case frames: if 0 < t { j += int(t) } else { j += len(v) / 2 }
+		}
+	}
 
-        var (
-            sm1 = callstackLine1.FindSubmatch(v[i+0]) // versus FindAllSubmatch(v[i+0], 1)
-            sm2 = callstackLine2.FindSubmatch(v[i+1]) // versus FindAllSubmatch(v[i+1], 1)
-            isPanic = len(sm1) > 1 && bytes.Equal(sm1[1], []byte("panic"))
-        )
-        if sm1 != nil && sm2 != nil && !isPanic {
-            var e string
-            if 0 < j-1 && i < len(v) {
-                if gotPanic { e = "		<---- panic" }
-            } else {
-                e = fmt.Sprintf("  (%d more)", len(v)-i)
-            }
+	switch len(nums) {
+	case 0: j += 1
+	case 1: j += nums[0]
+	case 2: i += nums[0]; j += nums[1]
+	default: panic("too many stack nums")
+	}
+
+    var wasPanic bool
+    for 0 < j && i+1 < len(v) {
+        if callstackSkips.Match(v[i]) { i += 2; continue }
+
+		sm1 := callstackLine1.FindSubmatch(v[i+0]) //extbit.io/smart.recovered(...)
+		sm2 := callstackLine2.FindSubmatch(v[i+1]) //	/.../src/context.go:123 +0x456
+
+		if sm1 != nil && sm2 != nil { n := i
+			switch string(sm1[1]) {
+			case stop: i, j = len(v), 0
+			case "panic":
+				if false { fmt.Printf("%s: %s `%s`\n", sm2[1], v[i+0], v[i+1]) }
+				i, wasPanic = i+2, true
+				continue
+			}
+
+			var e string
+			if i, j = i+1, j-1; 0 < j && i < len(v) {
+				if wasPanic { wasPanic, e = false, "	<---- panic" }
+			} else {
+				e = fmt.Sprintf("  (%d more)", (len(v)-n)/2)
+			}
 
             res = append(res, sm2[1]...)
             res = append(res, []byte(":"+s+" ")...)
             res = append(res, sm1[1]...)
             res = append(res, sm1[2]...)
-
-            if false {
-                // collapse duplicated lines
-                var dups int
-                for n := i+2; n+1 < len(v); n += 1 {
-                    if bytes.Equal(v[i+0], v[n+0]) /* && bytes.Equal(v[i+1], v[n+1]) */ {
-                        dups += 1
-                    } else {
-                        break
-                    }
-                }
-                if 0 < dups {
-                    res = append(res, []byte(fmt.Sprintf("  (%d)", dups))...)
-                }
-            }
-
             res = append(res, []byte(e+"\n")...)
-            j -= 1
-        }
-
-        gotPanic = isPanic
+        } else {
+			i += 1
+		}
     }
     return
 }
@@ -306,57 +297,30 @@ func db(ctx Context, ss ...string) (res bool) {
     return
 }
 
+type diagtype int
 const (
     diagInfo diagtype = iota
     diagWarn
     diagError
     diagPrompt
-    diagPromptLine
 )
 
-type diagtype int
 type diagpoint struct {
-    dt diagtype
+    t diagtype
     position Position
     message string
-    stack []byte // see also debug.Stack()
-}
-func (d *diagpoint) tag() (s string) {
-    switch d.dt {
-    case diagPrompt: if /* !options.debugPrompt */false { return } else { s = "note:" }
-    case diagInfo  : if /* !options.debugInfos  */false { return } else { s = "info:" }
-    case diagWarn  : if /* !options.debugWarns  */false { return } else { s = "info:" }
-    case diagError : if /* !options.debugErrors */false { return } else { s = "info:" }
-    }
-    return
-}
-func (d *diagpoint) debug(args ...any) *diagpoint {
-    switch vertag {
-    case "dev", "debug": // only print debug diags for dev and debug versions
-    default: return d
-    }
-
-    // skips the standard stack lines, which are not informative
-    // number of frames to dump
-    d.stack = _callstack(d.tag(), 5, 0, args...)
-    return d
+    stack []byte // see also rt_debug.Stack()
 }
 
-type diagtracer struct { *diagpoint ; c Context }
-func (d diagtracer) trace(a ...any) { trace(d.c, a...) }
-func (d diagtracer) flush() { flush(d.c) }
-
-type act_traced           struct{}
-type too_many_diagnostics struct{ int }
-type too_many_errors      struct{ int }
+type too_many_diags       struct{ int }
+type too_many_erros       struct{ int }
 type trace_errors         struct{ Context ; int }
 type trace_evoke_loop_err struct{ Context ; Value }
 type trace_evoke_loop     struct{ Context }
+type trace                struct{}
 type evoke_loop_null      struct{}
 type evoke_loop_panic     struct{}
 
-func (x trace_evoke_loop) inner() Context { return x.Context }
-func (x trace_evoke_loop) cast(t reflect.Type) Context { return icast(x,t) }
 func (x trace_evoke_loop) do(ctx Context, op any) (_ any) {
     switch op.(type) {
     case evoke_loop_panic: return true
@@ -372,172 +336,189 @@ func (t trace_errors) String() string {
     return fmt.Sprintf("trace %d errors, %v", t.int, ts(t.Context))
 }
 
-func (t too_many_diagnostics) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.int) }
-func (t too_many_errors) String() string { return fmt.Sprintf("too many errors (%d)", t.int) }
+func (t too_many_diags) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.int) }
+func (t too_many_erros) String() string { return fmt.Sprintf("too many errors (%d)", t.int) }
 
-// NOTE: never recover test_fail in recover_trace, it will break the test runner
-type test_fail struct{ Context; int; i int }
-func (t test_fail) String() (s string) {
-    if t.int == 1 {
-        s = fmt.Sprintf("test fail, %v", ts(t.Context))
-    } else {
-        s = fmt.Sprintf("test fail, %d errors, %v", t.int, ts(t.Context))
-    }
-    return
-}
+// NOTE: never recover test_fail in recovered, it will break the test runner
+type test_fail struct{ Context; i int }
+type test_failed struct{}
 
-func recover_trace(ctx Context) {
-    var te trace_errors
-    var recovered int
+func (t test_fail) Error() string { return typeof(t.Context)+": test fail" }
+func (_ test_failed) Error() string { return "test failed" }
 
-    for e := recover(); e != nil; e = recover() {
-        switch recovered += 1 ; t := e.(type) {
-        case              bailout:
-        case         trace_errors: te = t
-        case              failure: erro(t.Context, t.Error())
-        case                Value: erro(ctx, "trace: %s", ts(t))
-        case               string: erro(ctx, "trace: %s", t)
-        case        runtime.Error: erro(ctx, "trace: %s", t.Error())
-        case too_many_diagnostics: erro(ctx, "too many diagnostics (%v)", t.int)
-        case too_many_errors     : erro(ctx, "too many errors (%v)", t.int)
-        case trace_evoke_loop_err: erro(pc(ctx,t.Value), "evocation loop (%s)", t.Value)
-        case test_fail:
-            if t.i += 1; t.i == 1 {
-                note(ctx, "%s (%d panics)", t, recovered).debug(1024)
-            }
-            flush(ctx)
-            panic(t)
-        default:
-            panic(e) //erro(ctx, "trace: %s", ts(e))
-        }
-    }
+func recovered(ctx Context) {
+    var ( n int ; te trace_errors )
 
-    if recovered > 0 {
-        note(ctx, "%s (%d panics)", ts(te.Context), recovered).debug(512)
-        if true { flush(ctx) }
+	for e := recover(); e != nil; e = recover() {
+		switch n += 1 ; t := e.(type) {
+		case              bailout:
+		case              failure: erro(t.Context, t.Error())
+		case                Value: erro(ctx, "trace: %s", ts(t))
+		case               string: erro(ctx, "trace: %s", t)
+		case        runtime.Error: erro(ctx, "trace: %s", t.Error())
+		case       too_many_diags: erro(ctx, "too many diagnostics (%v)", t.int)
+		case       too_many_erros: erro(ctx, "too many errors (%v)", t.int)
+		case trace_evoke_loop_err: erro(pc(ctx,t.Value), "evoke loop (%s)", ts(t.Value))
+		case trace_errors: te = t
+		case test_fail:
+			if t.i += 1; t.i == 1 {
+				debug(ctx, "%s: failed (%d panics)", typeof(t.Context), n, callstack{frames:-1})
+			}
+			if flush(ctx); true { runtime.Goexit() } else if false { panic(test_failed{}) } else { return }
+		default:
+			if true { panic(e) } else { note(ctx, "%s: %v", typeof(e), e) }
+		}
+	}
+
+    if 0 < n {
+        debug(ctx, "%s (%d panics)", typeof(te.Context), n, callstack{frames:-1})
+        flush(ctx)
     }
 
     if false && truly(ctx, is_test_mode{}) {
         if te.Context != nil && 0 < te.int {
-            panic(test_fail{te.Context, te.int, 0}) // rethrow to break the test runner
+            panic(test_fail{te.Context, 0}) // rethrow to break the test runner
         }
     }
 }
 
-type no_recover struct{}
+var _debug_m sync.Mutex
+func debug(ctx Context, f any, a ...any) {
+	_debug_m.Lock(); defer _debug_m.Unlock()
 
-func trace(ctx Context, args ...any) {
-    var loop trace_evoke_loop_err
-    var recov = true
-    for _, a := range args {
-        switch t := a.(type) {
-        case no_recover: recov = false
-        case trace_evoke_loop_err: loop = t
-        }
-    }
-    if recov { defer recover_trace(ctx) }
-    if x, y := do(ctx, act_traced{}).(int); y && x > 0 {
-        if truly(ctx, is_test_mode{}) {
-            panic(test_fail{ctx, x, 0})
-        } else if loop.Value == nil {
-            panic(trace_errors{ctx, x})
-        } else {
-            panic(loop)
-        }
-    }
-    return
+	var tr = false
+	var dias []*diag_point
+	var args, cs_args []any
+	for _, a := range a {
+		switch t := a.(type) {
+		case trace: tr = true
+		case callstack:
+			if 0 < t.num     { cs_args = append(cs_args, t.num) }
+			if 0 < t.skip    { cs_args = append(cs_args, skipint(t.skip)) }
+			if 0 != t.frames { cs_args = append(cs_args, frames(t.frames)) }
+			if "" != t.stop  { cs_args = append(cs_args, stopframe(t.stop)) }
+		case *diag_point:
+			dias = append(dias, t)
+		default:
+			args = append(args, t)
+		}
+	}
+
+	var p *diagpoint
+	var s = _position(ctx).String()+": "
+	switch t := f.(type) {
+	case *diag_point:
+		if t.f != "" {
+			p, _ = do(ctx, diag_point{diagPrompt, s+t.f+"\n", t.a}).(*diagpoint)
+		}
+	case []*diag_point:
+		for _, t := range t {
+			p, _ = do(ctx, diag_point{diagPrompt, s+t.f+"\n", t.a}).(*diagpoint)
+		}
+	case string:
+		for _, t := range strings.Split(t, "\n") { if t == "" { continue }
+			p, _ = do(ctx, diag_point{diagPrompt, s+t+"\n", args}).(*diagpoint)
+		}
+	default:
+		p, _ = do(ctx, diag_point{diagPrompt, s+typeof(t)+": %v\n", args}).(*diagpoint)
+	}
+	for _, d := range dias {
+		p, _ = do(ctx, diag_point{diagPrompt, s+d.f+"\n", d.a}).(*diagpoint)
+	}
+	if p == nil { return }
+	if p.stack = _callstack("info:", 5, 0, cs_args...); true { flush(ctx) }
+	if tr {
+		if truly(ctx, is_test_mode{}) {
+			panic(test_fail{ctx, 0})
+		} else {
+			panic(trace_errors{ctx, diagCount(ctx, diagError)})
+		}
+	}
 }
 
-type flush_diags struct{}
+var _trace_m sync.Mutex
+func trace_err(ctx Context, a ...any) {
+	_trace_m.Lock()
+	defer _trace_m.Unlock()
+	defer recovered(ctx)
+	if a = append(a, frames(-1)); truly(ctx, is_test_mode{}) {
+		note(ctx, "%s: failed", typeof(ctx))
+	} else {
+		note(ctx, "%d errors", diagCount(ctx, diagError))
+	}
+	_callstack("", 5, 0, a...)
+	flush(ctx)
+	runtime.Goexit()
+}
 
 const diagnostic_limit = 10_000
 var   diagnostic_limit_erros = 520
 var   diagnostic_limit_bytes = 1_000_000
 
 func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
+func _f(f string, a ...any) *diag_point { return &diag_point{0, f, a} }
 
-type add_diag struct { dt diagtype; fmt string; a []any }
-type diagnostic struct {
+type diag_struct struct{ t diagtype; f string; a []any }
+type diag_trace diag_struct
+type diag_point diag_struct
+type diag_flush struct{}
+type diagnostic struct{
     Context
     sync.Mutex
-    newlines []*diagpoint
-    points   []*diagpoint
-    nested [][]*diagpoint // TODO: this shall perish
-    erros   int // number of flushed erros
+    points []*diagpoint
+    erros int // number of flushed erros
     flushed int // in bytes
-    traced  int
 }
-func (d *diagnostic) aquire() (unlock func()) { d.Lock(); return func(){ d.Unlock() }}
-func (d *diagnostic) cast(t reflect.Type) Context { return icast(d,t) }
+func (d *diagnostic) aquire() func() { d.Lock(); return d.Unlock }
+func (d *diagnostic) cast(t reflect.Type) Context { return icast(d, t) }
 func (d *diagnostic) inner() Context { return d.Context }
 func (d *diagnostic) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
     case property: if t&propErros != 0 { return d.erros }
-    case flush_diags:  return d.flush(ctx)
+    case diag_flush   : return d.flush(ctx)
+	case diag_point   : return d.point(ctx, t.t, t.f, t.a...)
     case act_count_dia: return d.count(t.t...)
-    case act_traced : if i := d.count(diagError); i > 0 { d.traced += 1 ; return i }
-    case add_diag: return diagtracer{ d.point(ctx, t.dt, t.fmt, t.a...), ctx }
     }
     if d.Context == nil { return }
     return d.Context.do(ctx, op)
 }
-func (d *diagnostic) reset() { defer d.aquire()(); d.points = []*diagpoint{} }
 func (d *diagnostic) add(p *diagpoint) *diagpoint {
     defer d.aquire()()
-
-    if i := len(d.points)+len(d.newlines); diagnostic_limit < i {
-        panic(too_many_diagnostics{i})
+    if i := len(d.points); diagnostic_limit < i {
+        panic(too_many_diags{i})
     }
-
-    if p.dt == diagPromptLine {
-        d.newlines = append(d.newlines, p)
-        return p
-    } else if strings.HasSuffix(p.message, "\n") {
-        if  d.points = append(d.points, p) ; d.newlines != nil {
-            d.points = append(d.points, d.newlines...)
-            d.newlines = nil
-        }
-        return p
-    } else {
-        d.points = append(d.points, p)
-        return p
-    }
-}
-func (d *diagnostic) nest(points []*diagpoint) {
-    defer d.aquire()()
-    d.nested = append(d.nested, points)
+	d.points = append(d.points, p)
+	return p
 }
 func (d *diagnostic) point(ctx Context, dt diagtype, f string, args ...any) *diagpoint {
-    if dt != diagPrompt { f = strings.TrimSpace(f) }
-    return d.add(&diagpoint{dt, _position(ctx), fmt.Sprintf(f, args...), nil})
+	if dt != diagPrompt { f = strings.TrimSpace(f) }
+	return d.add(&diagpoint{dt, _position(ctx), fmt.Sprintf(f, args...), nil})
 }
 func (d *diagnostic) count(dt ...diagtype) (errs int) {
-    defer d.aquire()()
-    for _, d := range d.points {
-        for _, t := range dt {
-            if d.dt == t { errs += 1 ; break }
-        }
-    }
-    return
+	defer d.aquire()()
+	for _, d := range d.points {
+		for _, t := range dt {
+			if d.t == t { errs += 1 ; break }
+		}
+	}
+	return
 }
 func (d *diagnostic) flush(ctx Context) (errs int) {
-    defer func() { if d.erros += errs ; errs > 0 { do(ctx, on_erros{errs}) }} ()
-
-    var restrict_diagnostics = func() {
-        if x, y := diagnostic_limit_erros, d.erros; 0 < x && x < y {
-            if false { d.erros = 0 } // reset to avoid causing next panics
-            panic(too_many_errors{y})
-        }
-        if x, y := diagnostic_limit_bytes, d.flushed; false && 0 < x && x < y {
-            if false { d.flushed = 0 } // reset to avoid causing next panics
-            panic(too_many_diagnostics{y})
-        }
-    }
-
     const count_bytes = false
 
-    var flush_point = func(p *diagpoint, pend bool) (_ bool) {
-        defer restrict_diagnostics()
+	defer func() { if d.erros += errs ; errs > 0 { do(ctx, on_errors{errs}) }} ()
+
+	print := func(p *diagpoint, pend bool) (_ bool) {
+		defer func() {
+			if x, y := diagnostic_limit_erros, d.erros; 0 < x && x < y {
+				if false { d.erros = 0 } // reset to avoid causing next panics
+				panic(too_many_erros{y})
+			}
+			if x, y := diagnostic_limit_bytes, d.flushed; 0 < x && x < y && false {
+				if false { d.flushed = 0 } // reset to avoid causing next panics
+				panic(too_many_diags{y})
+			}
+		} ()
 
         pos, msg := p.position.String(), p.message
 
@@ -547,11 +528,9 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
             d.flushed += 1
         }
 
-        switch p.dt {
+        switch p.t {
         case diagInfo: fmt.Fprintf(stderr, "%v:info: %s\n", pos, msg)
         case diagWarn: fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
-        case diagPromptLine:
-            if msg != "" { fmt.Fprintf(stderr, "%s\n", msg) }
         case diagPrompt:
             if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
             if pend && !strings.HasSuffix(msg, "\n") { return true }
@@ -574,55 +553,37 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
         return
     }
 
-    for {
-        var point *diagpoint
-
-        d.Lock()
-        if len(d.points) > 0 {
-            point = d.points[0]
-            d.points = d.points[1:]
-        }
-        d.Unlock()
-
-        if point == nil || flush_point(point, true) { break }
-        if errs > 16 {
-            fmt.Fprintf(stderr, "%v: too many errors (%d)\n", _position(ctx), errs)
-            break
-        }
-    }
-
-    d.Lock()
-    for i := 0; len(d.nested) > 0; d.nested = d.nested[1:] {
-        i += 1
-        fmt.Fprintf(stderr, "\n#%d:\n", i)
-        for _, d := range d.nested[0] { flush_point(d, false) }
-        fmt.Fprintf(stderr, "#%d;\n\n", i)
-    }
-    d.Unlock()
+	d.Lock(); defer d.Unlock()
+	for 0 < len(d.points) {
+		var point = d.points[0]
+		d.points = d.points[1:]
+		if print(point, true); 16 < errs {
+			fmt.Fprintf(stderr, "%v: too many errors (%d)\n", _position(ctx), errs)
+		}
+	}
     return
 }
 
-func flush(ctx Context) (i int) { i, _ = do(ctx, flush_diags{}).(int); return }
+func flush(ctx Context) (i int) { i, _ = do(ctx, diag_flush{}).(int); return }
 
-func diag(ctx Context, dt diagtype, f string, a ...any) (res diagtracer) {
-    res, _ = do(ctx, add_diag{dt, f, a}).(diagtracer)
+func diag(ctx Context, dt diagtype, f string, a ...any) (res *diagpoint) {
+    res, _ = do(ctx, diag_point{dt, f, a}).(*diagpoint)
     return
 }
 
-func info(ctx Context, f string, a ...any) diagtracer { return diag(ctx, diagInfo,   f, a...) }
-func warn(ctx Context, f string, a ...any) diagtracer { return diag(ctx, diagWarn,   f, a...) }
-func erro(ctx Context, f string, a ...any) diagtracer { return diag(ctx, diagError,  f, a...) }
-func prompt(c Context, f string, a ...any) diagtracer { return diag(c,   diagPrompt, f, a...) }
-func note(ctx Context, f string, a ...any) diagtracer {
+func prompt(c Context, f string, a ...any) *diagpoint { return diag(c,   diagPrompt, f, a...) }
+func info(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagInfo,   f, a...) }
+func warn(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagWarn,   f, a...) }
+func erro(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagError,  f, a...) }
+func note(ctx Context, f string, a ...any) *diagpoint {
     if !strings.HasSuffix(f, "\n") { f += "\n" }
     return prompt(ctx, _position(ctx).String()+": "+f, a...)
 }
 
-func infostack(ctx Context, n int, a ...any) diagtracer { return diagstack(ctx, n, diagInfo  , a...) }
-func warnstack(ctx Context, n int, a ...any) diagtracer { return diagstack(ctx, n, diagWarn  , a...) }
-func errostack(ctx Context, n int, a ...any) diagtracer { return diagstack(ctx, n, diagError , a...) }
-func promstack(ctx Context, n int, a ...any) diagtracer { return diagstack(ctx, n, diagPrompt, a...) }
-func notestack(ctx Context, n int, a ...any) diagtracer {
+func infostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagInfo  , a...) }
+func warnstack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagWarn  , a...) }
+func errostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagError , a...) }
+func notestack(ctx Context, n int, a ...any) *diagpoint {
     if true {
         var f string
         if len(a) > 0 {
@@ -634,7 +595,7 @@ func notestack(ctx Context, n int, a ...any) diagtracer {
     }
     return diagstack(ctx, n, diagPrompt, a...)
 }
-func diagstack(ctx Context, n int, dt diagtype, a ...any) (point diagtracer) {
+func diagstack(ctx Context, n int, dt diagtype, a ...any) (point *diagpoint) {
     var s string
 
     if 0 < len(a) {
@@ -796,44 +757,6 @@ func loadSeachPaths(ctx *universe, s string) (paths []string) {
 
     if err != nil {
         fmt.Fprintf(stderr, "%v: %v", f, err)
-    }
-    return
-}
-
-func assured(ctx Context, dontCheckErrors ...bool) (recovered, errs int) {
-    var te trace_errors
-    var f *failure
-    for e := recover(); e != nil; e = recover() {
-        switch recovered += 1; t := e.(type) {
-        case bailout: continue
-        case trace_errors: t.Context = nil ; continue
-        case failure:
-            erro(t.Context, t.Error()) ; t.Context = nil
-            if f == nil { f = &t }
-        case         Value: erro(ctx, "assured: %s", ts(t))
-        case        string: erro(ctx, "assured: %s", t)
-        case runtime.Error: erro(ctx, "assured: %s", t.Error())
-        default:            erro(ctx, "assured: %s", ts(e))
-        }
-    }
-
-    if 0 < recovered {
-        // if defer assured from top stack, this will dump the full stack of panics
-        promstack(ctx, 5, "%v: %s (%d panics)", _position(ctx), ts(te.Context), recovered).debug(128)
-    }
-
-    te.Context = nil
-
-    var dia = _diagnostic(ctx) ; dia.flush(ctx)
-    if len(dontCheckErrors) > 0 && dontCheckErrors[0] { return }
-
-    if errs = dia.count(diagError); 0 < errs && recovered == 0 {
-        note(ctx, "got %d errors (flushed %d, recovered %d)", errs, dia.erros, recovered).debug(10)
-        if f != nil && (len(dontCheckErrors) == 0 || !dontCheckErrors[0]) {
-            panic(_failure(ctx, "fail [assured]"))
-        } else {
-            dia.flush(ctx)
-        }
     }
     return
 }

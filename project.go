@@ -39,7 +39,7 @@ func (p *filemap) String() (s string) {
     return
 }
 
-func (p *filemap) primePatterns(ctx Context) (pats []Value) {
+func (p *filemap) patterns(ctx Context) (pats []Value) {
     var patts = []Value{ p.pattern }
     if patts[0] == nil { patts = p.patts }
 
@@ -54,7 +54,7 @@ func (p *filemap) primePatterns(ctx Context) (pats []Value) {
 // match split filename into list and match each part with the pattern correspondingly.
 func (p *filemap) match(ctx Context, val any) (_ bool, _ Value, _ string) {
     // TODO: escape file matching for 'String' and "strcomp" values
-    for _, pat := range p.primePatterns(ctx) {
+    for _, pat := range p.patterns(ctx) {
         if matched, name := p._match(ctx, pat, val); matched {
             return matched, pat, name
         }
@@ -96,7 +96,7 @@ func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name st
     } else if a, y := res.([]string); y {
         name = joinpath(a...)
     } else {
-        erro(ctx, "unexpected result: %v", ts(res)).trace()
+        debug(ctx, "unexpected result: %v", ts(res), trace{})
     }
     return // NOTE: also `globMatchFile(ctx, pat, str, true)`
 }
@@ -104,7 +104,7 @@ func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name st
 func (p *filemap) stat(ctx Context, name string) (res *file) {
     var patts = p.patts
     if len(patts) == 0 {
-        erro(ctx, "no map patterns: %v", p).trace()
+        debug(ctx, "no map patterns: %v", p, trace{})
     }
 
     if len(p.paths) == 0 {
@@ -118,16 +118,14 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
                 info(ctx, "pattern %d. %v", i, ts(pat))
             }
         }
-        errostack(ctx, 5, "%s → %v", name, p.patts).trace()
+        debug(ctx, "%s → %v", name, p.patts, trace{})
     }
 
     for _, path := range p.paths {
         if isNull(path) {
-            erro(ctx, "nil path: name=%s",  name)
-            erro(ctx, "nil path: %v", p).trace()
+            debug(ctx, _f("nil path: name=%s",  name), _f("nil path: %v", p), trace{})
         } else if isNone(path) {
-            warn(ctx, "nil path: name=%s",  name)
-            warn(ctx, "nil path: %v", p).debug(32)
+            debug(ctx, _f("nil path: name=%s",  name), _f("nil path: %v", p))
             continue
         }
 
@@ -135,7 +133,7 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
 
         if sub = __string(ctx, path); sub == "" {
             if false {
-                erro(ctx, "empty filemap path: %v, patterns=%v", path, patts).trace()
+                debug(ctx, "empty filemap path: %v, patterns=%v", path, patts, trace{})
             }
             return
         }
@@ -296,7 +294,7 @@ func findfile(ctx Context, s string, ps ...*project) (_ *file) {
     return
 }
 
-func select_file_1(ctx Context, m filemap_name) (res *file) {
+func select_file_1(ctx Context, m matched_filemap) (res *file) {
     defer func() { if res != nil { res.filemap = &m.filemap } } ()
 
     if m.paths == nil {
@@ -316,13 +314,13 @@ func select_file_1(ctx Context, m filemap_name) (res *file) {
                 if f := _stat(ctx, m.string, stat_dir{s}, stat_nonexist{true}); f != nil {
                     fs = append(fs, f)
                 } else {
-                    erro(ctx, "%s ⇒ %v → %v → ''", m.string, v, t).trace()
+                    debug(ctx, "%s ⇒ %v → %v → ''", m.string, v, t, trace{})
                 }
             } else if false {
-                erro(ctx, "%s ⇒ %v → %v → ''", m.string, v, t).trace()
+                debug(ctx, "%s ⇒ %v → %v → ''", m.string, v, t, trace{})
             }
         } else {
-            erro(ctx, "%s ⇒ %v", m.string, v).trace()
+            debug(ctx, "%s ⇒ %v", m.string, v, trace{})
         }
     }
 
@@ -331,7 +329,7 @@ func select_file_1(ctx Context, m filemap_name) (res *file) {
     return
 }
 
-func select_files(ctx Context, m []filemap_name) (res []*file) {
+func select_files(ctx Context, m []matched_filemap) (res []*file) {
     for _, m := range m {
         if f := select_file_1(ctx, m); f != nil {
             res = append(res, f)
@@ -340,7 +338,7 @@ func select_files(ctx Context, m []filemap_name) (res []*file) {
     return
 }
 
-func select_file(ctx Context, m []filemap_name) (res *file) {
+func select_file(ctx Context, m []matched_filemap) (res *file) {
     if a := select_files(ctx, m); 0 < len(a) {
         if res = a[0] ; !res.exists() {
             for _, f := range a { if f.exists() { return f } }
@@ -359,7 +357,7 @@ func (p *project) tempdir(ctx Context) (d *def, s string) {
     }
 
     if d == nil {
-        erro(ctx, "%v: tmp is not defined", p).trace()
+        debug(ctx, "%v: tmp is not defined", p, trace{})
     }
 
     s = filepath.Clean(__string(/*closure_with(ctx,p)*/ctx, d))
@@ -372,18 +370,18 @@ func (p *project) tempfile(ctx Context, name string) (f *file) {
     var t, d = p.tempdir(ctx)
     switch d {
     case "", "/":
-        erro(ctx, "%v: %s: tempdir is illegal: %v → '%s', %s", p.name, name, t, __string(ctx, t), d)
+        debug(ctx, "%v: %s: tempdir is illegal: %v → '%s', %s", p.name, name, t, __string(ctx, t), d)
         note(ctx, "%v", p.resolveDef(ctx, "outtmp"))
         note(ctx, "%v", p.resolveDef(ctx, "target.tmp"))
         note(ctx, "%v", p.resolveDef(ctx, "target.out"))
         note(ctx, "%v", p.resolveDef(ctx, "target.triple"))
         note(ctx, "%v", p.resolveDef(ctx, "rel.remnant"))
         note(ctx, "%v", p.resolveDef(ctx, "rel.chop"))
-        note(ctx, "%v", p.resolveDef(ctx, "variant.tag")).trace()
+        note(ctx, "%v", p.resolveDef(ctx, "variant.tag"), trace{})
     }
 
     if f = _stat(ctx, name, stat_dir{d}, stat_nonexist{true}); f == nil {
-        erro(ctx, "%v: not a file: %v : %v", p, name, d).trace()
+        debug(ctx, "%v: not a file: %v : %v", p, name, d, trace{})
     }
 
     if checkpoints { tempfile_check(ctx, p, name, d, f) }
@@ -392,7 +390,7 @@ func (p *project) tempfile(ctx Context, name string) (f *file) {
 
 func (p *project) configuration_sm(ctx Context) (f *file) {
     if f = p.tempfile(ctx, configuration_sm); f == nil {
-        erro(ctx, "%v: no file %s", p, configuration_sm).trace()
+        debug(ctx, "%v: no file %s", p, configuration_sm, trace{})
     }
     if checkpoints {
         p.configuration_sm_check(ctx, f)
@@ -413,13 +411,13 @@ func (p *project) resolve(ctx Context, name string) (obj object) {
 
     if p.ext.Plugin != nil {
         if sym, e := p.ext.Lookup(name); e == nil && sym != nil {
-            erro(ctx, "TODO: convert ext symbol: %v: %s", name, typeof(sym)).trace()
+            debug(ctx, "TODO: convert ext symbol: %v: %s", name, typeof(sym), trace{})
         }
     }
 
     for _, base := range p.bases {
         if base.has_base(p) {
-            erro(ctx, "recursive derivation: %v ⇔ %v", ts(p), ts(base)).trace()
+            debug(ctx, "recursive derivation: %v ⇔ %v", ts(p), ts(base), trace{})
         }
         if obj = base.resolve(ctx, name); obj != nil { return }
     }
@@ -461,7 +459,7 @@ func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) 
 func (p *project) entry(c Context, name any, a ...bool) (_ entry) {
     var entries = p._entries(c, name, a...)
     if n := len(entries); 0 < n {
-        if 1 < n { erro(c, "%v : %d entries", name, n).trace() }
+        if 1 < n { erro(c, "%v : %d entries", name, n, trace{}) }
         return entries[0]
     }
     return
@@ -481,7 +479,7 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
 
             var pos = _position(ctx)
             prompt(ctx, "%v: slow: %v: %v, %v %v %v", pos, p, d, d1, d2, d3)
-            prompt(ctx, "%v: slow: %v: %v: %v %v, %d nests", pos, p, a, v, p.patterns, n).debug(4)
+            prompt(ctx, "%v: slow: %v: %v: %v %v, %d nests", pos, p, a, v, p.patterns, n)
 
             for _, pat := range p.patterns {
                 var pt = pat.target
@@ -490,7 +488,7 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
                 var m = joinp(ctx, r)
                 prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
             }
-            warnstack(ctx, 3).debug(6)
+            debug(ctx, "slow")
         }
     } (time.Now())
 
@@ -517,7 +515,7 @@ func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*ste
 func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed_rule) {
     defer func(t0 time.Time) {
         if d := time.Now().Sub(t0); d > 1*time.Second {
-            prompt(ctx, "%v: slow: %v %v", _position(ctx), val, d).debug()
+            debug(ctx, "%v: slow: %v %v", _position(ctx), val, d)
         }
     } (time.Now())
 
@@ -544,7 +542,7 @@ ForPatterns:
                 if d := t3.Sub(t1); d > 1*time.Second {
                     var ( d2 = t2.Sub(t1) ; d3 = t3.Sub(t2) )
                     var ( p = _position(ctx) ; pt = pat.target )
-                    prompt(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3).debug()
+                    debug(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3)
                 }
 
                 if !y { continue ForPatterns }
@@ -615,12 +613,12 @@ func (p *project) has_loaded(ctx Context, proj *project, traveUseLoop bool) (rp 
 func (p *project) has_loaded_recur(ctx Context, top, proj *project, depth int, traveUseLoop bool) (rp *project, res, isb bool, err error) {
     if depth > 1 && top == p && true {
         err = fmt.Errorf("loop '%v' (depth=%d)", p.loop_load_path(), depth)
-        erro(ctx, "%v: %v", p, err).trace()
+        debug(ctx, "%v: %v", p, err, trace{})
     } else if depth > 128 {
         err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
-        erro(ctx, "%v: %v", p, err)
-        erro(ctx, "start: %v", top)
-        erro(ctx, "target: %v", proj).trace()
+        debug(ctx, "%v: %v", p, err)
+        debug(ctx, "start: %v", top)
+        debug(ctx, "target: %v", proj, trace{})
     }
     for _, base := range p.bases {
         if isb = base == proj; isb { return }
@@ -633,9 +631,9 @@ func (p *project) has_loaded_recur(ctx Context, top, proj *project, depth int, t
         if imp == top && !traveUseLoop {
             s := top.loop_load_path()
             err = fmt.Errorf("loop `%v`", s)
-            erro(ctx, "start: %v", top)
-            erro(ctx, "stop: %v", proj)
-            erro(ctx, "%v: %v", p, err).trace()
+            debug(ctx, "start: %v", top)
+            debug(ctx, "stop: %v", proj)
+            debug(ctx, "%v: %v", p, err, trace{})
         }
         if res = imp == proj; res { rp = imp; return }
         if rp, res, res, err = imp.has_loaded_recur(ctx, top, proj, depth+1, traveUseLoop); err != nil {

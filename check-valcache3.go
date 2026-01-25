@@ -9,6 +9,7 @@ package smart
 
 var checkpoints_valcache3 = map[string]map[string]any{
 	"loader.go": map[string]any{
+		`&(gen) {4:16:closure {4:18:word gen}}`:`&(gen) {4:16:closure {4:18:word gen}}`,
 	},
 	"check-valcache3_test.go": map[string]any{
 	},

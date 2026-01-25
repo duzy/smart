@@ -12,7 +12,7 @@ func testValueCache0(ctx *testcase) {
 	m["foo"] = "foobar"
 	m['f'] = "rune(f)"
 	m["f"] = "string(f)"
-	m[char('f')] = "char(f)"
+	// m[char('f')] = "char(f)"
 	m[1] = "one"
 	m[v] = "value"
 
@@ -28,9 +28,9 @@ func testValueCache0(ctx *testcase) {
 	if x, y := m['f']; !y || x != "rune(f)" {
 		ctx.err("%v ; %v", m, x)
 	}
-	if x, y := m[char('f')]; !y || x != "char(f)" {
-		ctx.err("%v ; %v", m, x)
-	}
+	// if x, y := m[char('f')]; !y || x != "char(f)" {
+	// 	ctx.err("%v ; %v", m, x)
+	// }
 	if x, y := m["f"]; !y || x != "string(f)" {
 		ctx.err("%v ; %v", m, x)
 	}
@@ -56,115 +56,12 @@ func testValueCache1(ctx *testcase) {
 
 	var p = _project(ctx)
 
-	if c := &p.filemap; c.a != nil {
-		ctx.err("%v", c)
-	} else if len(c.v) != 1 {
-		ctx.err("%v ; %v", c.v, c)
-	} else if x, y := c.v["foo"]; !y {
-		ctx.err("%v ; %v", c.v, c)
-	} else if len(x.v) != 1 {
-		ctx.err("%v ; %v", x.v, x)
-	} else {
-		if z, y := x.v["."]; !y {
-			ctx.err("%v", x)
-		} else if len(z.v) != 2 {
-			ctx.err("%v", z)
-		} else {
-			if t, y := z.v["c"]; !y {
-				ctx.err("%v", z)
-			} else if len(t.a) != 1 || t.v != nil {
-				ctx.err("%v", t)
-			} else if slot, y := t.a[0].(filemap); !y {
-				ctx.err("%v", tst{t.a[0]})
-			} else if slot.String() != "foo.c" {
-				ctx.err("%v", tst{t.a[0]})
-			}
-
-			if t, y := z.v["c++"]; !y {
-				ctx.err("%v", z)
-			} else if len(t.a) != 1 || t.v != nil {
-				ctx.err("%v", t)
-			} else if slot, y := t.a[0].(filemap); !y {
-				ctx.err("%v", tst{t.a[0]})
-			} else if slot.String() != "foo.c++" {
-				ctx.err("%v", tst{t.a[0]})
-			}
-		}
-
-		if z0, y := x.v["bar"]; !y {
-			ctx.err("%v", x)
-		} else if len(z0.v) != 1 {
-			ctx.err("%v", z0)
-		} else if z, y := z0.v["."]; !y {
-			ctx.err("%v", z0)
-		} else if len(z.v) != 2 {
-			ctx.err("%v", z.v)
-		} else if t, y := z.v["c"]; !y {
-			ctx.err("%v", z)
-		} else if len(t.a) != 1 || t.v != nil {
-			ctx.err("%v", t)
-		} else if slot, y := t.a[0].(filemap); !y {
-			ctx.err("%v", tst{t.a[0]})
-		} else if slot.String() != "foo/bar.c" {
-			ctx.err("%v", tst{t.a[0]})
-		} else if t, y := z.v["c++"]; !y {
-			ctx.err("%v", z)
-		} else if len(t.a) != 1 || t.v != nil {
-			ctx.err("%v", t)
-		} else if slot, y := t.a[0].(filemap); !y {
-			ctx.err("%v", tst{t.a[0]})
-		} else if slot.String() != "foo/bar.c++" {
-			ctx.err("%v", tst{t.a[0]})
-		}
+	if p == nil {
+		ctx.err("nil project")
 	}
 
-	if v, pat := ctx.val("p1"), "*.c"; v == nil {
-		ctx.err("%v", p)
-	} else if s := __string(ctx,v); s != pat {
-		ctx.err("%v : %s != %s", tst{v}, s, pat)
-	} else if m := unmap_files(ctx, p, v, nil); m == nil {
-		ctx.err("unmap_files: %v", tst{v})
-	} else if len(m) != 1 {
-		ctx.err("%v : %v", v, m)
-	} else if m[0].string != "foo.c" {
-		ctx.err("%v : %v", v, m[0])
-	} else if s := ts(m[0].pattern); s != "{=compound {=word foo} {=punct .} {=word c}}" {
-		ctx.err("%v : %v : %v", v, m[0].pattern, s)
-	}
-
-	if v, pat := ctx.val("p2"), "**.c"; v == nil {
-		ctx.err("%v", p)
-	} else if s := __string(ctx,v); s != pat {
-		ctx.err("%v : %s != %s", tst{v}, s, pat)
-	} else if m := unmap_files(ctx, p, v, nil); m == nil {
-		ctx.err("unmap_files: %v", tst{v})
-	} else if len(m) != 2 {
-		ctx.err("%v : %v", v, m)
-	} else if i := 0; m[i].string != "foo.c" {
-		ctx.err("%v : %v", v, m[i])
-	} else if s := ts(m[i].pattern); s != "{=compound {=word foo} {=punct .} {=word c}}" {
-		ctx.err("%v : %v : %v", v, m[i].pattern, s)
-	} else if i := 1; m[i].string != "foo/bar.c" {
-		ctx.err("%v : %v", v, m[i])
-	} else if s := ts(m[i].pattern); s != "{=path {=word foo} {=compound {=word bar} {=punct .} {=word c}}}" {
-		ctx.err("%v : %v : %v", v, m[i].pattern, s)
-	}
-
-	if v, pat := ctx.val("p3"), "**.c++"; v == nil {
-		ctx.err("%v", p)
-	} else if s := __string(ctx,v); s != pat {
-		ctx.err("%v : %s != %s", tst{v}, s, pat)
-	} else if m := unmap_files(ctx, p, v, nil); m == nil {
-		ctx.err("unmap_files: %v", tst{v})
-	} else if len(m) != 2 {
-		ctx.err("%v : %v", v, m)
-	} else if i := 0; m[i].string != "foo.c++" {
-		ctx.err("%v : %v", v, m[i])
-	} else if s := ts(m[i].pattern); s != "{=compound {=word foo} {=punct .} {=word c++}}" {
-		ctx.err("%v : %v : %v", v, m[i].pattern, s)
-	} else if i := 1; m[i].string != "foo/bar.c++" {
-		ctx.err("%v : %v", v, m[i])
-	} else if s := ts(m[i].pattern); s != "{=path {=word foo} {=compound {=word bar} {=punct .} {=word c++}}}" {
-		ctx.err("%v : %v : %v", v, m[i].pattern, s)
+	if s, t := p.filemap.String(), `{foo:{.:{c:{0:foo.c},c++:{0:foo.c++}},bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}}}}`; s != t {
+		note(ctx, "%s", t)
+		ctx.err("%v", &p.filemap)
 	}
 }

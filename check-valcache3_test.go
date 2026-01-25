@@ -7,11 +7,14 @@
 package smart
 
 func testValueCache3(ctx *testcase) {
-	if p := _project(ctx); p == nil {
-		ctx.err("nil universe")
-	} else if c := &p.filemap; c.a != nil {
-		ctx.err("universe valcache : %v", c)
-	} else if len(c.v) != 1 {
-		ctx.err("universe valcache : %v", c)
+	var p = _project(ctx)
+
+	if p == nil {
+		ctx.err("nil project")
+	}
+
+	if s, t := p.filemap.String(), `{foo:{*:{bar:{0:foo/*/bar}}},&:{0:&(gen)}}`; s != t {
+		note(ctx, "%s", t)
+		ctx.err("%v", &p.filemap)
 	}
 }

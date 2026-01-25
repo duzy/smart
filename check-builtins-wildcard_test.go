@@ -16,7 +16,9 @@ func test__wildcard(ctx *testcase) {
 	var m = _project(ctx)
 	if x, y := m.filemap.v["**"]; !y {
 		ctx.err("%v", &m.filemap)
-	} else if x, y := x.v["."]; !y {
+	} else if _, y := x.v["h"]; !y {
+		ctx.err("%v", x)
+	} else if _, y := x.v["m"]; !y {
 		ctx.err("%v", x)
 	}
 
@@ -59,16 +61,24 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v %v", pat2, tst{pat2})
 	} else if s := __string(ctx,pat2); s != "**.h" {
 		ctx.err("%v %v %s", pat2, tst{pat2}, s)
-	} else if cs := unmap_files(ctx, m, pat2, nil); len(cs) != 1 {
+	} else if cs := unmap_files(ctx, m, pat2, nil); len(cs) != 2 {
 		ctx.err("%v %v %v", pat2, tst{pat2}, cs)
-	} else if g, y := cs[0].pattern.(*globpat); !y || g == nil {
+	} else if g, y := cs[0].pattern.(*path); !y || g == nil {
 		ctx.err("%v", tst{cs[0].pattern})
 	} else if m := cs[0].filemap; m.pattern == nil {
 		ctx.err("%v", tst{cs[0].filemap})
-	} else if __string(ctx,m.pattern) != "**.h" {
+	} else if __string(ctx,m.pattern) != "foo/bar/zz/x.h" {
 		ctx.err("%v → %v", tst{cs[0].filemap}, tst{m.pattern})
-	} else if __string(ctx,g) != "**.h" {
+	} else if __string(ctx,g) != "foo/bar/zz/x.h" {
 		ctx.err("%v → %v", tst{pat2}, tst{cs[0].pattern})
+	} else if g, y := cs[1].pattern.(*globpat); !y || g == nil {
+		ctx.err("%v", tst{cs[1].pattern})
+	} else if m := cs[1].filemap; m.pattern == nil {
+		ctx.err("%v", tst{cs[1].filemap})
+	} else if __string(ctx,m.pattern) != "**.h" {
+		ctx.err("%v → %v", tst{cs[1].filemap}, tst{m.pattern})
+	} else if __string(ctx,g) != "**.h" {
+		ctx.err("%v → %v", tst{pat2}, tst{cs[1].pattern})
 	}
 	if p, y := pat3.(*path); !y || p == nil {
 		ctx.err("%v %v", pat3, tst{pat3})
@@ -392,5 +402,32 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("fix4: %v", fix4)
 	} else if strings.Count(s, "foobar/config/b.def.in") != 1 {
 		ctx.err("fix4: %v", fix4)
+	}
+}
+
+func test__wildcard1(ctx *testcase) {
+	var p = _project(ctx)
+	if x, y := p.filemap.v["**"]; y {
+		ctx.err("%v %v", &p.filemap, x)
+	} else if s, t := p.filemap.String(), `{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{h:{.:{0:foo/*.h}}},**:{h:{h:{.:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}}`; s != t {
+		ctx.err("%s != %s", s, t)
+	}
+}
+
+func test__wildcard2(ctx *testcase) {
+	var p = _project(ctx)
+	if x, y := p.filemap.v["**"]; y {
+		ctx.err("%v %v", &p.filemap, x)
+	} else if s, t := p.filemap.String(), ``; s != t {
+		ctx.err("%s != %s", s, t)
+	}
+}
+
+func test__wildcard3(ctx *testcase) {
+	var p = _project(ctx)
+	if x, y := p.filemap.v["**"]; y {
+		ctx.err("%v %v", &p.filemap, x)
+	} else if s, t := p.filemap.String(), ``; s != t {
+		ctx.err("%s != %s", s, t)
 	}
 }

@@ -140,7 +140,7 @@ func (ac *automatic) has(s string) (y bool) { _, y = ac.defs[s]; return }
 func (ac *automatic) set(ctx Context, o origin, name string, val Value) (out *def, old Value) {
     if name == "-" && val != nil {
         if x, y := val.(*def); y && x.o != defConfig {
-            errostack(ctx, 3, "set $- to def (%v): %v", x.o, x).trace()
+            debug(ctx, "set $- to def (%v): %v", x.o, x, trace{})
         }
     }
 
@@ -175,14 +175,14 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
         if p, y := val.(*pair); y {
             if a.name = __string(ctx, p.key); a.name == "" {
-                erro(pc(ctx,a), "empty name: %v", p.key).trace()
+                erro(pc(ctx,a), "empty name: %v", p.key, trace{})
                 return
             }
 
             if ac.params != nil {
                 if _, y = ac.params[a.name]; !y {
                     var keys = reflect.ValueOf(ac.params).MapKeys()
-                    errostack(pc(ctx,a), 16, "unknown arg#%d: %v ; known: %v", i, p, keys).trace()
+                    errostack(pc(ctx,a), 16, "unknown arg#%d: %v ; known: %v", i, p, keys, trace{})
                     return
                 }
             }
@@ -198,7 +198,7 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
             a.value = p.val
         } else {
-            a.name, a.value = _param_name(ctx, argn), scalarize(val)
+            a.name, a.value = paramName(ctx, argn), scalarize(val)
             if a.name == "" { a.name = a.id }
         }
 
@@ -207,12 +207,12 @@ func (ac *automatic) args(ctx Context, vals []Value) {
         argn += 1
 
         if d, _ := ac.set(ctx, defParam, a.name, a.value); d == nil {
-            erro(ac, "arg '%s' not set", a.name).trace()
+            erro(ac, "arg '%s' not set", a.name, trace{})
             return
         }
 
         if d, y := ac.defs[a.name]; !y || d == nil {
-            erro(ac, "arg '%s' not set", a.name).trace()
+            erro(ac, "arg '%s' not set", a.name, trace{})
             return
         } else if a.id != "" && a.id != a.name {
             ac.Lock()
@@ -236,8 +236,7 @@ func auto_get(ctx Context, name string) (_ Value) {
 func auto_set(ctx Context, o origin, name string, val Value) (_ *def, _ Value) {
     t, _ := do(ctx, set_auto{o, name, val}).(res_auto)
     if t.d != nil && name == "TYPE" && _project(ctx).name == "configure.base" {
-        note(ctx, "%v %v", t.d, t.v)
-        note(ctx, "%v", ts(ctx)).debug()
+        debug(ctx, "%v %v", t.d, t.v)
     }
     return t.d, t.v
 }
@@ -272,7 +271,7 @@ func (a *auto) set(ctx Context, o origin, value Value, app ...Value) {
     if d != nil {
         if false { d.position = a.position }
     } else {
-        errostack(ctx, 3, "set auto failed: %v: %v %v", a.name, value, app).trace()
+        debug(ctx, "set auto failed: %v: %v %v", a.name, value, app, trace{})
     }
 }
 func (a *auto) isDigit() bool { return IsDigits(a.name) }
@@ -350,7 +349,7 @@ func (d *def) origin(ctx Context, o origin) (res origin) {
 
     if checkpoints {
         if d.o != defInvalid && (o == defVoid || o == defInvalid) {
-            erro(pc(ctx,d), "%v: %v → %v", d.name, d.o, o).trace()
+            erro(pc(ctx,d), "%v: %v → %v", d.name, d.o, o, trace{})
         }
     }
 
@@ -368,7 +367,7 @@ func (d *def) val(ctx Context, vals []Value) {
 }
 func (d *def) set(ctx Context, value Value, app ...Value) {
     if checkpoints && d.o == defConfig && d.value != nil {
-        errostack(pc(pc(ctx,value),d.value), 1, "duplicated %v %v → %v %v", d.o, d, value, app).trace()
+        errostack(pc(pc(ctx,value),d.value), 1, "duplicated %v %v → %v %v", d.o, d, value, app, trace{})
     }
     if value == d.value && len(app) == 0 {
         return
@@ -423,7 +422,7 @@ func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
 
     var cmd string
     if cmd = __string(ctx, value); cmd == "" {
-        notestack(pc(ctx,value), 3, "%v: empty command (value=%v)", d.name, value).debug()
+        debug(pc(ctx,value), "%v: empty command (value=%v)", d.name, value)
         return
     }
 
@@ -437,8 +436,7 @@ func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
     } ()
 
     if e := sh.Run(); e != nil {
-        erro(pc(ctx,value), "%v: execute command failed: %v", d.name, e)
-        errostack(pc(ctx,value), 3, "%v: execute command: %s", d.name, cmd).trace()
+        debug(pc(ctx,value), "%v: execute command failed: %v", d.name, e, trace{})
         return
     }
 
@@ -496,16 +494,16 @@ func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
 func (p *builtin) is_x() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
 func (p *builtin) String() string { return p.name }
 func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
-    var n = time.Now()
-    if d := n.Sub(t); d > 2*time.Second {
-        var a = xmerge(_final(ctx), ctx.a...)
-        var m = time.Since(n)//; %v %v
-        notestack(pc(ctx,p), 16, "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a)).debug(256)
-    } else if f := v.Elem().FieldByName("timing"); f.IsValid() {
-        if f.Type().Kind() == reflect.Bool && f.Bool() {
-            notestack(pc(ctx,p), 16, "%v: %v", p, d).debug(256)
-        }
-    }
+	var n = time.Now()
+	if d := n.Sub(t); 2*time.Second < d {
+		var a = xmerge(_final(ctx), ctx.a...)
+		var m = time.Since(n)//; %v %v
+		debug(pc(ctx,p), "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a), callstack{frames:-1})
+	} else if f := v.Elem().FieldByName("timing"); f.IsValid() {
+		if f.Type().Kind() == reflect.Bool && f.Bool() {
+			debug(pc(ctx,p), "%v: %v", p, d, callstack{frames:-1})
+		}
+	}
 }
 
 type get_rule struct{}
@@ -535,7 +533,7 @@ func (p *rule_ctx) do(ctx Context, op any) (_ any) {
     case init_args: if p.args != nil { t.args(ctx, p.args); return }
     case is_rule:
         if v := t.x.MatchString(p.rule.target.String()); v {
-            if false { note(ctx, "%v %v", t.x, p.rule.target).debug() }
+            if false { debug(ctx, "%v %v", t.x, p.rule.target) }
             return true
         }
     }
@@ -612,7 +610,7 @@ func (p *rule) ts(ctx Context, t string) string {
 }
 func (p *rule) execute(ctx Context, a ...Value) (res []Value) {
     if patterned(ctx, p.target) {
-        erro(ctx, "execute pattern entry: %v", p.target).trace()
+        erro(ctx, "execute pattern entry: %v", p.target, trace{})
     }
 
     ctx = &rule_ctx{ctx, p, a}

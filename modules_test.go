@@ -148,7 +148,7 @@ func validFlags(ctx *testcase, v Value, s string) (res bool) {
 			if !rx.MatchString(s) {
 				ctx.err("wrong flag: %s %s, %v ; %v{%v}", flag, s, rx, typeof(v), v)
 			} else {
-				if false { note(ctx, "%v: %v ; %v", flag, s, rx).debug() }
+				if false { debug(ctx, "%v: %v ; %v", flag, s, rx) }
 				i += n
 				break
 			}
@@ -166,32 +166,32 @@ func testValidateExecRecipe(tc *testcase, ctx Context, source string, recipe Val
 
 	if m := testValidateClang.FindStringSubmatch(source); m != nil {
 		if !validFlags(tc, recipe, source[len(m[0]):]) {
-			note(ctx, "validate: %v; %v", m, source).debug()
+			debug(ctx, "validate: %v; %v", m, source)
 		}
 	} else if m := testValidateOther.FindStringSubmatch(source); m != nil {
 		// okay
 	} else {
-		note(ctx, "TODO: validate: %v", source).debug()
+		debug(ctx, "TODO: validate: %v", source)
 	}
 }
 
 func testValidateExecOutput(tc *testcase, ctx Context, line string, l int) {
 	if s := _position(ctx).Filename; !testValidateOutFilename.MatchString(s) {
-		errostack(ctx, 16, "bad out-file: %v", s).trace()
+		debug(ctx, "bad out-file: %v", s, trace{})
 	}
 	for _, rx := range testWrongExecOutput {
 		if m := rx.FindStringSubmatch(line); len(m) > 0 {
 			if len(m) < 2 {
-				errostack(ctx, 16, "%v", m[0]).trace()
+				debug(ctx, "%v", m[0], trace{})
 			} else {
-				errostack(ctx, 16, "%v", m[1]).trace()
+				debug(ctx, "%v", m[1], trace{})
 			}
 		}
 	}
 	for _, t := range testSuspiciousExecOutput {
 		if m := t.rx.FindStringSubmatch(line); len(m) > 0 {
 			if _, y := t.ignore[m[t.k]]; !y {
-				errostack(ctx, 16, "%v", m[t.i]).trace()
+				debug(ctx, "%v", m[t.i], trace{})
 			}
 		}
 	}
@@ -2610,7 +2610,7 @@ func testLLVMConfig1(ctx *testcase) {
 	} else if !strings.Contains(s, "FOO1 = {=yes}")  {
 		ctx.err("%s", b)
 	} else if true {
-		note(ctx, "%v\n%s", f.fullname(), b).debug()
+		debug(ctx, "%v\n%s", f.fullname(), b)
 	}
 
 	if o := base.configure.resolve(ctx, "outtmp"); o == nil {
@@ -2641,7 +2641,7 @@ func testLLVMConfig1(ctx *testcase) {
 		} else if strings.Count(s, "LLVM_ASM_PRINTER") != 1 {
 			ctx.err("%v", v)
 		} else if true {
-			note(pc(ctx,v), "%v", v).debug()
+			debug(pc(ctx,v), "%v", v)
 		}
 	}
 }
@@ -2659,7 +2659,7 @@ func testLLVMConfig2(ctx *testcase) {
 		} else if strings.Count(s, "LLVM_ASM_PRINTER") != 1 {
 			ctx.err("%v", v)
 		} else if true {
-			note(pc(ctx,v), "%v", v).debug()
+			debug(pc(ctx,v), "%v", v)
 		}
 	}
 }

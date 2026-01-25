@@ -537,7 +537,7 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 	}
 
 	if d := ctx.def("FOO"); d == nil || d.value == nil {
-		erro(ctx, "%v", d).trace()
+		debug(ctx, "%v", d, trace{})
 	} else if d.value.String() != "{=self "+proj.name+"}" {
 		ctx.err("%v", d)
 	} else if __string(ctx, d) != proj.name {

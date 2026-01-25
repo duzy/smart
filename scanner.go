@@ -165,12 +165,12 @@ func (s *scanner) pickNext(ctx Context) (ch rune, w int) {
 func (s *scanner) pick(ctx Context, offset int) (ch rune, w int) {
 	switch ch, w = rune(s.src[offset]), 1; {
 	case ch == 0:
-		erro(pc(ctx,s.pos(offset)), "illegal character NUL").trace()
+		debug(pc(ctx,s.pos(offset)), "illegal character NUL", trace{})
 	case ch >= 0x80: // Non ASCII
 		if ch, w = utf8.DecodeRune(s.src[offset:]); ch == utf8.RuneError && w == 1 {
-			erro(pc(ctx,s.pos(offset)), "illegal UTF-8 encoding").trace()
+			debug(pc(ctx,s.pos(offset)), "illegal UTF-8 encoding", trace{})
 		} else if ch == bom && offset > 0 {
-			erro(pc(ctx,s.pos(offset)), "illegal byte order mark").trace()
+			debug(pc(ctx,s.pos(offset)), "illegal byte order mark", trace{})
 		}
 	}
 	return
@@ -292,7 +292,7 @@ func (s *scanner) scanMantissa(ctx Context, base int) {
 			for s.ch == '_' || digitVal(s.ch) < base {
 				if s.ch == '_' {
 					if s.next(ctx); s.ch == '_' {
-						erro(pc(ctx,s), "invalid digit group").trace()
+						debug(pc(ctx,s), "invalid digit group", trace{})
 						break
 					}
 				} else {
@@ -337,18 +337,18 @@ checkDate:
 
 	// month range is 01-12
 	if ch = s.src[o+5]; ch != '0' && ch != '1' {
-		erro(pc(ctx,s.pos(o+5)), "bad month").trace(); goto exit
+		debug(pc(ctx,s.pos(o+5)), "bad month", trace{}); goto exit
 	}
 	if ch = s.src[o+6]; ch < '0' || '9' < ch {
-		erro(pc(ctx,s.pos(o+6)), "bad month").trace(); goto exit
+		debug(pc(ctx,s.pos(o+6)), "bad month", trace{}); goto exit
 	}
 
 	// month-day range is 01-28, 01-29, 01-30, 01-31 based on month/year
 	if ch = s.src[o+8]; ch < '0' && '3' < ch {
-		erro(pc(ctx,s.pos(o+8)), "bad month day").trace(); goto exit
+		debug(pc(ctx,s.pos(o+8)), "bad month day", trace{}); goto exit
 	}
 	if ch = s.src[o+9]; ch < '0' || '9' < ch {
-		erro(pc(ctx,s.pos(o+9)), "bad month day").trace(); goto exit
+		debug(pc(ctx,s.pos(o+9)), "bad month day", trace{}); goto exit
 	}
 
 	if o += 10; o == l {
@@ -361,36 +361,36 @@ checkDate:
 		o += 1 // consume 'T'
 		hasTime = true
 	} else {
-		erro(pc(ctx,s.pos(o)), "bad time").trace(); goto exit
+		debug(pc(ctx,s.pos(o)), "bad time", trace{}); goto exit
 	}
 
 	if l-o < 9 || s.src[o+2] != ':' || s.src[o+5] != ':' {
-		erro(pc(ctx,s.pos(o)), "illegal time").trace(); goto exit
+		debug(pc(ctx,s.pos(o)), "illegal time", trace{}); goto exit
 	}
 
 checkTime:
 	// hour range is 00-23
 	if ch = s.src[o+0]; ch < '0' || '2' < ch {
-		erro(pc(ctx,s.pos(o+0)), "bad hour").trace(); goto exit
+		debug(pc(ctx,s.pos(o+0)), "bad hour", trace{}); goto exit
 	}
 	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
-		erro(pc(ctx,s.pos(o+1)), "bad hour").trace(); goto exit
+		debug(pc(ctx,s.pos(o+1)), "bad hour", trace{}); goto exit
 	}
 
 	// minute range is 00-59
 	if ch = s.src[o+3]; ch < '0' || '5' < ch {
-		erro(pc(ctx,s.pos(o+3)), "bad minute").trace(); goto exit
+		debug(pc(ctx,s.pos(o+3)), "bad minute", trace{}); goto exit
 	}
 	if ch = s.src[o+4]; ch < '0' || '9' < ch {
-		erro(pc(ctx,s.pos(o+4)), "bad minute").trace(); goto exit
+		debug(pc(ctx,s.pos(o+4)), "bad minute", trace{}); goto exit
 	}
 
 	// second ranges are 00-59 00-58, 00-59, 00-60 based on leap second rules
 	if ch = s.src[o+6]; ch < '0' || '5' < ch {
-		erro(pc(ctx,s.pos(o+6)), "bad second").trace(); goto exit
+		debug(pc(ctx,s.pos(o+6)), "bad second", trace{}); goto exit
 	}
 	if ch = s.src[o+7]; ch < '0' || '9' < ch {
-		erro(pc(ctx,s.pos(o+7)), "bad second").trace(); goto exit
+		debug(pc(ctx,s.pos(o+7)), "bad second", trace{}); goto exit
 	}
 
 	if ch = s.src[o+8]; IsDatetimeTerminator(rune(ch)) {
@@ -406,34 +406,34 @@ checkTime:
 			} else if ch == '+' || ch == '-' {
 				o += 1; goto checkNumOffset // consume '+' or '-'
 			} else if ch < '0' || '9' < ch {
-				erro(pc(ctx,s.pos(o)), "bad secfrac").trace(); goto exit
+				debug(pc(ctx,s.pos(o)), "bad secfrac", trace{}); goto exit
 			}
 		}
 	} else if ch == '+' || ch == '-' {
 		o += 9; goto checkNumOffset // consume 00:00:00+
 	} else {
-		erro(pc(ctx,s.pos(o)), "bad time").trace(); goto exit
+		debug(pc(ctx,s.pos(o)), "bad time", trace{}); goto exit
 	}
 
 checkNumOffset:
 	if ch = s.src[o+2]; ch != ':' {
-		erro(pc(ctx,s.pos(o+2)), "bad offset").trace(); goto exit
+		debug(pc(ctx,s.pos(o+2)), "bad offset", trace{}); goto exit
 	}
 
 	// hour range is 00-23
 	if ch = s.src[o+0]; ch < '0' || '2' < ch {
-		erro(pc(ctx,s.pos(o+0)), "bad hour").trace(); goto exit
+		debug(pc(ctx,s.pos(o+0)), "bad hour", trace{}); goto exit
 	}
 	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
-		erro(pc(ctx,s.pos(o+1)), "bad hour").trace(); goto exit
+		debug(pc(ctx,s.pos(o+1)), "bad hour", trace{}); goto exit
 	}
 
 	// minute range is 00-59
 	if ch = s.src[o+3]; ch < '0' || '5' < ch {
-		erro(pc(ctx,s.pos(o+3)), "bad minute").trace(); goto exit
+		debug(pc(ctx,s.pos(o+3)), "bad minute", trace{}); goto exit
 	}
 	if ch = s.src[o+4]; ch < '0' || '9' < ch {
-		erro(pc(ctx,s.pos(o+4)), "bad minute").trace(); goto exit
+		debug(pc(ctx,s.pos(o+4)), "bad minute", trace{}); goto exit
 	}
 
 	o += 5 // consume 00:00
@@ -478,7 +478,7 @@ func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string)
 			tok = BINARY
 			if s.offset-offs <= 2 {
 				// only scanned "0b" or "0B"
-				erro(pc(ctx,offs), "illegal binary number").trace()
+				debug(pc(ctx,offs), "illegal binary number", trace{})
 			}
 		} else if s.ch == 'x' || s.ch == 'X' {
 			// hexadecimal int
@@ -487,7 +487,7 @@ func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string)
 			tok = HEXADECIMAL
 			if s.offset-offs <= 2 {
 				// only scanned "0x" or "0X"
-				erro(pc(ctx,offs), "illegal hexadecimal number").trace()
+				debug(pc(ctx,offs), "illegal hexadecimal number", trace{})
 			}
 		} else {
 			// octal int or float
@@ -503,7 +503,7 @@ func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string)
 			}
 			// octal int
 			if seenDecimalDigit {
-				erro(pc(ctx,offs), "illegal octal number").trace()
+				debug(pc(ctx,offs), "illegal octal number", trace{})
 			}
 			if s.offset-offs > 1 {
 				tok = OCTAL
@@ -575,7 +575,7 @@ func (s *scanner) scanEscape(ctx Context, quote rune) bool {
 	default:
 		var msg = "unknown escape sequence"
 		if s.ch < 0 { msg = "escape sequence not terminated" }
-		erro(pc(ctx,offs), msg).trace()
+		debug(pc(ctx,offs), msg, trace{})
 		return false
 	}
 
@@ -585,7 +585,7 @@ func (s *scanner) scanEscape(ctx Context, quote rune) bool {
 		if d >= base {
 			var msg = fmt.Sprintf("illegal character %#U in escape sequence", s.ch)
 			if s.ch < 0 { msg = "escape sequence not terminated" }
-			erro(pc(ctx,offs), msg).trace()
+			debug(pc(ctx,offs), msg, trace{})
 			return false
 		}
 		x = x*base + d
@@ -594,7 +594,7 @@ func (s *scanner) scanEscape(ctx Context, quote rune) bool {
 	}
 
 	if x > max || 0xD800 <= x && x < 0xE000 {
-		erro(pc(ctx,offs), "escape sequence is invalid Unicode code point").trace()
+		debug(pc(ctx,offs), "escape sequence is invalid Unicode code point", trace{})
 		return false
 	}
 
@@ -609,7 +609,7 @@ func (s *scanner) scanStrliting(ctx Context, ml bool) string {
 	for s.offsetRead < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 { // if ch < 0 {
-			erro(pc(ctx,offs), "raw string literal not terminated").trace()
+			debug(pc(ctx,offs), "raw string literal not terminated", trace{})
 			break
 		}
 		if ch == '\\' { s.next(ctx) } // escapes
@@ -636,7 +636,7 @@ func (s *scanner) scanString(ctx Context, ml bool) string {
 	for s.offsetRead < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 {
-			erro(pc(ctx,offs), "string literal not terminated").trace()
+			debug(pc(ctx,offs), "string literal not terminated", trace{})
 			break
 		}
 		s.next(ctx)
@@ -700,7 +700,7 @@ func (s *scanner) scanStrcomp(ctx Context, q rune) (tok token, lit string) {
 			tok, lit = ESCAPE, string(s.src[offs+1:s.offset])
 		} else {
 			tok, lit = ILLEGAL, string(s.src[offs:s.offset])
-			erro(pc(ctx,offs), "illegal strcomp escape %#U", s.ch).trace()
+			debug(pc(ctx,offs), "illegal strcomp escape %#U", s.ch, trace{})
 			s.next(ctx) // discard
 		}
 		return
@@ -740,7 +740,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 	}
 	defer func() {
 		if tok == WORD && lit == "foo_ab-" {
-			note(ctx, "%v", lit).debug(3)
+			debug(ctx, "%v", lit)
 		}
 	} ()
 
@@ -752,7 +752,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		switch s.ch {
 		case '$', '&', '{':
 		default:
-			erro(pc(ctx,s), "unexpected '%s'", string(s.src[s.offset:])).trace()
+			debug(pc(ctx,s), "unexpected '%s'", string(s.src[s.offset:]), trace{})
 		}
 	}
 
@@ -765,7 +765,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		lit = s.scanIdentifier(ctx)
 		if len(lit) > 1 && s.ch != '/' && s.ch != '.' && s.ch != '~' {
 			if tok = lookup_keyword(lit) ; !tok.is_keyword() && tok != WORD {
-				erro(pc(ctx,s), "unexpected token '%s' %s", tok, lit).trace()
+				debug(pc(ctx,s), "unexpected token '%s' %s", tok, lit, trace{})
 			}
 		} else {
 			tok = WORD
@@ -785,14 +785,14 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 				s.next(ctx)
 				return pos, RAW, string(ch)
 			} else if false {
-				note(pc(ctx,s.pos(offs)), "%s %s", string(ch), string(s.ch)).debug()
+				debug(pc(ctx,s.pos(offs)), "%s %s", string(ch), string(s.ch))
 			}
 		case '&':
 			if s.ch == '&' {
 				s.next(ctx)
 				return pos, RAW, string(ch)
 			} else if false {
-				note(pc(ctx,s.pos(offs)), "%s %s", string(ch), string(s.ch)).debug()
+				debug(pc(ctx,s.pos(offs)), "%s %s", string(ch), string(s.ch))
 			}
 		case '\\':
 			if tok = ESCAPE; IsDigit(s.ch) {
@@ -894,7 +894,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		}
 	case '"':
 		if s.bits.isStrcompString() {
-			erro(pc(ctx,s.pos(offs)), "composed").trace()
+			debug(pc(ctx,s.pos(offs)), "composed", trace{})
 		} else {
 			tok = STRCOMP
 			s.push(isStrcompString)
@@ -920,7 +920,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 					goto poprparen
 				}
 			}
-			erro(pc(ctx,s.pos(offs)), "unexpected right-paren, %016b %016b", s.bits, s.bitss).trace()
+			debug(pc(ctx,s.pos(offs)), "unexpected right-paren, %016b %016b", s.bits, s.bitss, trace{})
 		}
 		poprparen: s.pop(t)
 	case '{':
@@ -937,7 +937,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 					goto poprbrace
 				}
 			}
-			erro(pc(ctx,s.pos(offs)), "unexpected right-brace, %016b %016b", s.bits, s.bitss).trace()
+			debug(pc(ctx,s.pos(offs)), "unexpected right-brace, %016b %016b", s.bits, s.bitss, trace{})
 		}
 		poprbrace: s.pop(t)
 	case '=':
@@ -1058,7 +1058,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 	default:
 		// next reports unexpected BOMs - don't repeat
 		if ch != bom {
-			erro(pc(ctx,s.pos(s.file.Offset(pos))), "illegal %#U", ch).trace()
+			debug(pc(ctx,s.pos(s.file.Offset(pos))), "illegal %#U", ch, trace{})
 		} else {
 			tok = ILLEGAL
 			lit = string(ch)

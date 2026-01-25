@@ -235,7 +235,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value) {
         result = nodes[0]
     }
     if err != io.EOF {
-        erro(ctx, "%v", err).trace()
+        debug(ctx, "%v", err, trace{})
     }
     return
 }
@@ -423,7 +423,7 @@ LoopJSON:
         result = g
     }
     if err != io.EOF {
-        erro(ctx, "%v", err).trace()
+        debug(ctx, "%v", err, trace{})
     }
     return
 }
@@ -452,7 +452,7 @@ func (p *YAML) String() string { return "(yaml " + p.Value.String() + ")" }
    )}
  */
 func DecodeYAML(ctx Context, source string, ws bool) (result Value) {
-    erro(ctx, "TODO: implement DecodeYAML").trace()
+    debug(ctx, "TODO: implement DecodeYAML", trace{})
     return
 }
 

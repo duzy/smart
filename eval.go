@@ -13,7 +13,7 @@ type eval struct { accumulation bool ; o origin }
 func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
     var exe = _execution(ctx)
     if exe == nil {
-        erro(ctx, "wrong eval context: %v", ts(ctx)).trace()
+        debug(ctx, "wrong eval context: %v", ts(ctx), trace{})
     }
 
     var list []Value

@@ -116,11 +116,11 @@ func (s *scope) insert(ctx Context, obj object) object {
 
     var ic *ident_ctx
     if ic, ctx = identity(ctx); ic.nil > 0 {
-		erro(pc(ctx,obj), "no ident: %v", obj).trace()
+		debug(pc(ctx,obj), "no ident: %v", obj)
 	}
 
 	if name := ident(ctx, obj); name == "" {
-		erro(pc(ctx,obj), "no ident: %v", obj).trace()
+		debug(pc(ctx,obj), "no ident: %v", obj)
 		return nil
 	} else if alt := s.elems[name]; alt != nil {
 		return alt
@@ -223,7 +223,7 @@ func (s *scope) auto(ctx Context, name string) (a *auto) {
 	var o object
 	if a, o = s._auto(ctx, name); o != nil {
 		if a, y = o.(*auto); !y {
-			erro(ctx, "name already taken (%s)", typeof(o)).trace()
+			debug(ctx, "name already taken (%s)", typeof(o))
 		}
 	}
 	return
@@ -241,10 +241,10 @@ func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNe
 	case string: name, pos = t, _position(ctx)
 	}
 	if name == "" {
-		errostack(ctx, 3, "empty name: %s : %s", id, ts(id)).trace()
+		debug(ctx, "empty name: %s : %s", id, ts(id), trace{})
 	}
 	if checkpoints && illegal_name_prefix.MatchString(name) {
-		errostack(ctx, 3, "illegal name: %v", name).trace()
+		debug(ctx, "illegal name: %v", name, trace{})
 	}
 
 	s.mutex.Lock(); defer s.mutex.Unlock()
@@ -259,7 +259,7 @@ func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNe
 	}
 	if o != defInvalid {
 		if d.o == defInvalid { d.o = o } else {
-			errostack(ctx, 3, "%v: conflicts origin: %v | %v", ident, d.o, o).trace()
+			debug(ctx, "%v: conflicts origin: %v | %v", ident, d.o, o, trace{})
 		}
 	}
 	if vals != nil { d.set(ctx, ease(ctx, vals)) }

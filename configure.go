@@ -44,14 +44,14 @@ func (cc *configurecontext) do(ctx Context, op any) (_ any) {
 }
 func (cc *configurecontext) open_configuration_sm(ctx Context, p *project) (res *os.File) {
     if f := p.configuration_sm(ctx); f == nil {
-        erro(ctx, "%p: nil configuration file", p).trace()
+        debug(ctx, "%p: nil configuration file", p, trace{})
     } else if s := f.fullname(); s == "" {
-        erro(ctx, "empty configuration file name: %v", f).trace()
+        debug(ctx, "empty configuration file name: %v", f, trace{})
     } else if e := os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); e != nil {
-        erro(ctx, "make path %s failed: %v", filepath.Dir(s), e).trace()
+        debug(ctx, "make path %s failed: %v", filepath.Dir(s), e, trace{})
     } else {
         res, e = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600))
-        if e != nil { erro(ctx, "%v", e).trace() }
+        if e != nil { debug(ctx, "%v", e, trace{}) }
     }
     return
 }
@@ -72,12 +72,12 @@ func (cc *configurecontext) execute(ctx *execution, e entry) {
         if f != nil {
             if cc.writer != nil {
                 if e := cc.writer.Flush(); e != nil {
-                    erro(ctx, "%v", e).trace()
+                    debug(ctx, "%v", e, trace{})
                 }
             }
             if cc.file != nil {
                 if e := cc.file.Close(); e != nil {
-                    erro(ctx, "%v", e).trace()
+                    debug(ctx, "%v", e, trace{})
                 }
             }
         }
@@ -101,7 +101,7 @@ func (cc *configurecontext) execute(ctx *execution, e entry) {
     if _, y := cc.defs[s]; y { return }
 
     if d = cc.current.finddef(s); d == nil {
-        erro(ctx, "%v: `%s` not configured", cc.current, s).trace()
+        debug(ctx, "%v: `%s` not configured", cc.current, s, trace{})
         return
     }
 
@@ -185,27 +185,26 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
     args = parse_opts(ctx, opts, args...)
 
     if target.Value = auto_get(ctx, "@"); isTrivial(target.Value) {
-        erro(ctx, "'@' is not defined").trace()
-    } else if f, filename, _ = target.file_fullname(ctx, closured...); f == nil {
+        debug(ctx, "'@' is not defined", trace{})
+    } else if f, filename, _ = target.fullname_file(ctx, closured...); f == nil {
         if depend := auto_get(ctx,">"); !isTrivial(depend) {
             panic(traveTargetNotDefinedFile)
         } else if true {
             prompt(ctx, "%v: not defined as file\n", __string(ctx, target))
-            erro(ctx, "%v", ts(target.Value))
-            errostack(ctx, 8).trace()
+            debug(ctx, "%v", ts(target.Value), trace{})
         }
         return
     } else if filename == "" {
-        errostack(ctx, 3, "%v: empty fullname", target.Value).trace()
+        debug(ctx, "%v: empty fullname", target.Value, trace{})
     }
 
     if _, prev := auto_set(ctx, defVoid, "@", f); opts.debug>0 {
-        info(ctx, "configure-file: %s->%s (%v -> %v)", f, filename, ts(prev), ts(f)).debug(opts.debug)
+        debug(ctx, "configure-file: %s->%s (%v -> %v)", f, filename, ts(prev), ts(f))
     }
 
     if f.info == nil { if f := _stat(ctx, filename); f != nil { f.info = f.info }}
     if f != nil && 0 < opts.debug {
-        info(ctx, "configure-file: %v: %v (%s) (%v)", auto_get(ctx,"@"), f.fullname(), closured).debug(opts.debug)
+        debug(ctx, "configure-file: %v: %v (%s) (%v)", auto_get(ctx,"@"), f.fullname(), closured)
     }
 
     if len(ctx.proj.configs) == 0 {
@@ -214,9 +213,9 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
         prompt(ctx, "%v\n", filename)
         if opts.mustConf {
             var d = opts.debug ; if d == 0 { d = 1 }
-            errostack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, ctx.proj).trace()
+            debug(ctx, "no configuration (%v), try -conf first, in %v", f, ctx.proj, trace{})
         } else if true {
-            warnstack(ctx, opts.stack, "no configuration (%v), try -conf first, in %v", f, ctx.proj).debug(opts.debug)
+            debug(ctx, "no configuration (%v), try -conf first, in %v", f, ctx.proj)
         }
     }
 
@@ -247,10 +246,10 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 
     if data.Len() == 0 {
         prompt(ctx, "%v: %v %v\n", filename, auto_get(ctx,"@"), auto_get(ctx,">"))
-        errostack(ctx, 5, "empty configuration data").trace()
+        debug(ctx, "empty configuration data", trace{})
     } else if f := ctx.proj.configuration_sm(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
-        prompt(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,"@"), strings.TrimSpace(data.String())).debug()
+        debug(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,"@"), strings.TrimSpace(data.String()))
     }
 
     var (
@@ -267,12 +266,12 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 
         var d = time.Now().Sub(st)
         prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(filename), status, d)
-        if d := opts.debug; d>0 { infostack(ctx, opts.stack, "%v (%v)", auto_get(ctx, "@"), d).debug(d) }
+        if d := opts.debug; d>0 { debug(ctx, "%v (%v)", auto_get(ctx, "@"), d) }
     }(time.Now())}
 
     if f.info != nil {
         if same, e = crc64CheckFileModeContent(ctx, filename, data.Bytes(), opts.mode); e != nil {
-            erro(ctx, " crc64 checksum failed: %v", e).trace()
+            debug(ctx, " crc64 checksum failed: %v", e, trace{})
             return
         }
         if same {
@@ -286,17 +285,17 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
         }
     } else if dir := filepath.Dir(filename); opts.makePath && dir != "." && dir != pathSep {
         if e = os.MkdirAll(dir, os.FileMode(0755)); e != nil {
-            erro(ctx, " %v", e).trace()
+            debug(ctx, " %v", e, trace{})
         }
     }
 
     if e = ioutil.WriteFile(filename, data.Bytes(), opts.mode); e != nil {
-        erro(ctx, " %v", e).trace()
+        debug(ctx, " %v", e, trace{})
     }
 
     if f.info == nil {
         if f.info, e = os.Stat(filename) ; e == nil {
-            erro(ctx, " %v", e).trace()
+            debug(ctx, " %v", e, trace{})
         }
     }
 
@@ -324,7 +323,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result any) {
             if _, ok := configs[name]; ok {
                 continue
             } else if obj := p.resolve(ctx, name); obj == nil {
-                erro(ctx, "undefined %v", name).trace()
+                debug(ctx, "undefined %v", name, trace{})
                 return nil
             } else if def, ok := obj.(*def); ok {
                 configs[name] = def
@@ -378,12 +377,12 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
     }
 
     if len(pats) == 0 {
-        erro(ctx, "extract-configuration: missing file names (patterns)").trace()
+        debug(ctx, "extract-configuration: missing file names (patterns)", trace{})
         return
     }
 
     if len(ctx.rxs) == 0 {
-        erro(ctx, "extract-configuration: missing -rx=... flags").trace()
+        debug(ctx, "extract-configuration: missing -rx=... flags", trace{})
         return
     }
 
@@ -391,7 +390,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
 
     var outFile string
     if target := auto_get(ctx,"@"); isNull(target) {
-        erro(ctx, " target '@' is undefined").trace()
+        debug(ctx, " target '@' is undefined", trace{})
         return
     } else {
         outFile = __string(ctx, target)
@@ -399,14 +398,14 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
 
     if ctx.makePath {
         if err := os.MkdirAll(filepath.Dir(outFile), os.FileMode(0755)); err != nil {
-            erro(ctx, " make path failed: %v", err).trace()
+            debug(ctx, " make path failed: %v", err, trace{})
             return
         }
     }
 
     var fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, ctx.mode)
     if err != nil {
-        erro(ctx, " open file failed: %v", err).trace()
+        debug(ctx, " open file failed: %v", err, trace{})
         return
     }
 
@@ -436,7 +435,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
             var name = filepath.Base(s)
             var f = _stat(ctx, name, stat_dir{dir})
             if f == nil {
-                erro(ctx, " extract-configuration: `%s` file not found", name).trace()
+                debug(ctx, " extract-configuration: `%s` file not found", name, trace{})
                 return
             } else if f.info.IsDir() {
                 err = walkFiles(ctx, s, pats, func(f *file, err error) error {

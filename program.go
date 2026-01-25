@@ -256,7 +256,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
         if x, y := target.(*file); y && strings.HasSuffix(x.name, ".log") {
             defer func() {
                 var cc = pc(pc(ctx,auto_get(ctx,">")),x.fullname())
-                notestack(cc, 3, "%v %v %v", p.language, args, res).debug(12)
+                debug(cc, "%v %v %v", p.language, args, res)
             } ()
         }
     }
@@ -275,7 +275,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
         if d, prev := auto_set(ctx, defVoid, "-", res); d == nil {
             _, ent, _ := entryIndicator(ctx, _entry(ctx))
             prompt(ctx, "%v: %s\n", ent, intername(i))
-            errostack(ctx, 5, "set buffer value failed: %v → %v", prev, res).trace()
+            debug(ctx, "set buffer value failed: %v → %v", prev, res, trace{})
         }
     }
 
@@ -284,7 +284,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
     if _, _, e := p.updateRecipesHash(ctx, target); e != nil {
         _, ent, _ := entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
-        errostack(ctx, 5, "update recipes hash failed: %v", e).trace()
+        debug(ctx, "update recipes hash failed: %v", e, trace{})
     }
     return
 }
@@ -292,7 +292,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
 func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
     var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
     if !y {
-        erro(ctx, "nil dirtyopts : %v", ts(ctx)).trace()
+        debug(ctx, "nil dirtyopts : %v", ts(ctx), trace{})
         return
     }
     if len(updatedDeps(ctx, target)) > 0 { return true }
@@ -336,10 +336,10 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     var targetFull string
     var opts, args = _opts_[dirtyOpts](ctx, aa...)
 
-    if targetFile, targetFull, y = target.file_fullname(ctx); !y {
+    if targetFile, targetFull, y = target.fullname_file(ctx); !y {
         targetFull = __string(ctx, target)
     } else if n := targetFile._traved; n > 1 {
-        if false { warnstack(ctx, 5, "%v, %v, %d", targetFile, targetFull, n).debug(10) }
+        if false { debug(ctx, 5, "%v, %v, %d", targetFile, targetFull, n) }
         return
     }
 
@@ -355,14 +355,14 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     if outdated {
         assert(reason != "", "needs outdated reason")
     } else if y, e := p.isRecipesChanged(ctx, target); e != nil {
-        erro(ctx, "recipes changed: %v", e).trace()
+        debug(ctx, "recipes changed: %v", e, trace{})
         return
     } else if y {
         outdated, reason = true, "recipes changed"
     } else if !opts.checksum {
         // does nothing
     } else {
-        erro(ctx, "FIXME: check prerequisites against the saved checksums").trace()
+        debug(ctx, "FIXME: check prerequisites against the saved checksums", trace{})
         return
     }
 
@@ -373,7 +373,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     if verb {
         var d = time.Now().Sub(p.start)
         if false && d > 10*time.Second {
-            warnstack(ctx, 10, "%v: %v", target.Value, d).debug(64)
+            debug(ctx, "%v: %v", target.Value, d)
         }
 
         var m string
@@ -392,9 +392,10 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 
         var n = p.countFiles + len(p.grepped)
         if db := opts.debug>0; db && !opts.verbose {
-            warn(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFull, m, n, s, opts.debug).debug(opts.debug * 2)
+            debug(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFull, m, n, s, opts.debug)
         } else {
-            prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s).debug(db, 6)
+            prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s)
+			debug(ctx, "%d %d", db, 6)
         }
     }
 
@@ -410,7 +411,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
             defer func() {
                 if prereqFile != nil { return }
                 for _, m := range ms { warn(ctx, "%v, skipped %v", name, m) }
-                warnstack(ctx, 3, "skipped %d, projects %v", len(ms), projects).debug(8)
+                debug(ctx, "skipped %d, projects %v", len(ms), projects)
             }()
         }
 
@@ -430,7 +431,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
     if prereqValue = val; prereqValue == nil {
         if prereqFinal == "" {
-            errostack(ctx, 3, "prerequisite is nothing").trace()
+            debug(ctx, "prerequisite is nothing", trace{})
         }
 
         mapPrereqFile(prereqFinal)
@@ -443,7 +444,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
         prereqFinal = __string(ctx, prereqValue)
 
         if prereqFinal == "" { // just reject empty final
-            errostack(ctx, 3, "%v: %v: empty prerequisite, stems=%v", prereqValue, _stems(ctx)).trace()
+            debug(ctx, "%v: %v: empty prerequisite, stems=%v", prereqValue, _stems(ctx), trace{})
         }
 
         switch prereqValue.(type) {
@@ -457,7 +458,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
     var stems = _stems(ctx)
     if len(stems) == 0 {
-        if false { errostack(ctx, 3, "%v: no stems, %v", prereqValue, ctx).trace() }
+        if false { debug(ctx, "%v: no stems, %v", prereqValue, ctx, trace{}) }
         return
     }
 
@@ -465,14 +466,14 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
     prereqPattern = prereqValue
     prereqValue, rest = stencil(ctx, prereqPattern, stems)
     if isTrivial(prereqValue) {
-        errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems).trace()
+        errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems, trace{})
     } else if len(rest) > 0 {
-        errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest).trace()
+        errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest, trace{})
     }
 
     if prereqFinal == "" { prereqFinal = __string(ctx, prereqValue); }
     if prereqFinal == "" {
-        errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems).trace()
+        errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems, trace{})
     }
 
     mapPrereqFile(prereqValue)
@@ -521,16 +522,16 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     )
 
     if targetValue = auto_target_value(ctx); targetValue == nil {
-        erro(ctx, "%s: target is nil\n", prereqFinal).trace()
+        erro(ctx, "%s: target is nil\n", prereqFinal, trace{})
     } else if isTrivial(targetValue) {
-        erro(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue).trace()
+        erro(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue, trace{})
     }
 
     var projs = []*project{ p.proj }
 
     if len(projs) == 0 {
         note(ctx, "%v", closure_projects(ctx))
-        erro(ctx, "%v: %v → %v: no projects", p.proj, targetValue, prereqValue).trace()
+        erro(ctx, "%v: %v → %v: no projects", p.proj, targetValue, prereqValue, trace{})
     }
 
     prereqValue, prereqPattern, prereqFinal, prereqFile = probPrereqValue(ctx, projs, prereqValue)
@@ -545,8 +546,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
             prompt(ctx, "%v: %v: self dependency, consider using [(once)] to avoid\n", targetValue, prereqValue)
             warn(ctx, "recursion: %T %v", prereqValue, prereqValue)
             warn(ctx, "recursion: %T %v", targetValue, targetValue)
-            warn(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs)
-            errostack(ctx, 16).trace()
+            debug(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs, trace{})
         }
         for c := p; c != nil; c = c.caller() {
             if val := auto_get(c, "@"); val != nil && eq(c, val, prereqValue) {
@@ -555,8 +555,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
                     prompt(ctx, "%v: %v: recursion detected, consider using [(once)] to avoid\n", targetValue, prereqValue)
                     warn(ctx, "recursion: %T %v", prereqValue, prereqValue)//.of(prereqValue)
                     warn(ctx, "recursion: %T %v", targetValue, targetValue)//.of(targetValue)
-                    warn(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs)
-                    warnstack(ctx, 3, "").debug(16)
+                    debug(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs)
                 }
                 return
             }
@@ -588,7 +587,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
         for _, concrete := range concreteList {
             prompt(ctx, "%v: slow: %v %v\n", concrete.Position(), concrete, targetValue)
         }
-        prompt(ctx, "%v: slow: %v: %v %v (%d concretes)\n", _position(ctx), targetValue, prereqValue, d, len(concreteList)).debug()
+        debug(ctx, "%v: slow: %v: %v %v (%d concretes)\n", _position(ctx), targetValue, prereqValue, d, len(concreteList))
     }
 
     if prereqFile != nil && prereqFile.exists() {
@@ -611,7 +610,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 
     if d := time.Now().Sub(t2); 60*time.Second < d {
         for _, stemmed  := range stemmedList { prompt(ctx, "%v: slow: %v\n", stemmed.Position(), stemmed) }
-        prompt(ctx, "%v: slow: %v: %v %v (%d stemmed)\n", _position(ctx), targetValue, prereqValue, d, len(stemmedList)).debug()
+        debug(ctx, "%v: slow: %v: %v %v (%d stemmed)\n", _position(ctx), targetValue, prereqValue, d, len(stemmedList))
     }
 
     p.traved(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
@@ -662,11 +661,11 @@ func (prog *program) workdir(ctx Context) (workdir string) {
         var o object
         if o = proj.resolve(ctx, "CWD"); isTrivial(o) {
             if o = proj.resolve(ctx, "/"); isTrivial(o) {
-                erro(ctx, "both $(CWD) and $/ are trivial").trace()
+                erro(ctx, "both $(CWD) and $/ are trivial", trace{})
             }
         }
         if v := expand(_final(ctx),o); v == nil {
-            erro(ctx, "trivial %v", ts(o)).trace()
+            erro(ctx, "trivial %v", ts(o), trace{})
         } else {
             workdir = __string(ctx, v)
         }
@@ -680,7 +679,7 @@ func (prog *program) workdir(ctx Context) (workdir string) {
 
 func (prog *program) target(ctx *execution) (target Value) {
     if target = _entry(ctx).destiny(); target == nil {
-        erro(ctx, "%v: nil entry target", target).trace()
+        erro(ctx, "%v: nil entry target", target, trace{})
     }
 
     switch a := target.(type) {
@@ -726,7 +725,7 @@ callerloop:
         var t = auto_get(cc, "@")
         if o != nil {
             if v != nil && eq(cc, v, t) {
-                if true { warnstack(ctx, 3, "skip closure loop: %v %v", o, t).debug() }
+                if true { debug(ctx, "skip closure loop: %v %v", o, t) }
                 // FIXES: skip execution as it's closure, for example:
                 //
                 //   %.h($(headers)): $(srcinc)/%.h update-file
@@ -743,7 +742,7 @@ callerloop:
 
         prompt(ctx, "%v: %v: %v, %v\n", a[0], v, cc, o)
         for i, t := range a { erro(ctx, "loop: %v: %v", i, t) }
-        errostack(ctx, 128, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a).trace()
+        debug(ctx, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a, trace{})
     }
 
     if depth < maxCallRecursion {
@@ -754,7 +753,7 @@ callerloop:
         var tt = as{auto_get(c, "@")}
         var s, _ = tt.fullname_string(ctx)
         prompt(ctx, "%v: max recursion call (%d)\n", s, depth)
-        warn(ctx, "max recursion call (%d)\n", depth).debug()
+        debug(ctx, "max recursion call (%d)\n", depth)
 
         const collapse = false
 
@@ -786,7 +785,7 @@ callerloop:
             flush(ctx) // dump immediately
         }
 
-        errostack(ctx, depth, "#>", _entry(ctx)).trace()
+        debug(ctx, depth, "#>", _entry(ctx), trace{})
     }
 }
 
@@ -798,7 +797,7 @@ func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
         if x, y := dialects[""]; y && x != nil {
             return ctx.interpret(ctx, x, nil)
         }
-        erro(ctx, "no default dialect").trace()
+        debug(ctx, "no default dialect", trace{})
     }
     return
 }
@@ -821,7 +820,7 @@ func (prog *program) execute(_ctx Context) (res Value) {
             if x, y := a.(*group); y {
                 modify(exe, x, true)
             } else {
-                erro(exe, "defer: not a modifier: %s", ts(a)).trace()
+                debug(exe, "defer: not a modifier: %s", ts(a), trace{})
             }
         }
 

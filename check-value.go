@@ -16,7 +16,7 @@ var checkpoints_value = map[string]map[string]any{
 		`13:8:cond11 x?y {=compound {=cond {13:11:word x}} {13:13:word y}}`:`xy? {=cond {=compound {13:11:word x} {13:13:word y}}}`,
 		`14:8:cond12 x???y {=compound {=cond {=cond {=cond {14:11:word x}}}} {14:15:word y}}`:`xy??? {=cond {=cond {=cond {=compound {14:11:word x} {14:15:word y}}}}}`,
 
-		`15:8:cond13 &(something) {15:12:closure {15:14:word something}}`:`{15:14:word something} &(something) {15:12:closure {15:14:word something}}`,
+		`15:8:cond13 &(something) {15:12:closure {15:14:word something}}`:`&(something) {15:12:closure {15:14:word something}}`,
 		`15:8:cond13 x&(something) {=compound {15:11:word x} {15:12:closure {15:14:word something}}}`:`x&(something) {=compound {15:11:word x} {15:12:closure {15:14:word something}}}`,
 		`15:8:cond13 x&(something)?y {=compound {=cond {=compound {15:11:word x} {15:12:closure {15:14:word something}}}} {15:25:word y}}`:`x&(something)y? {=cond {=compound {15:11:word x} {15:12:closure {15:14:word something}} {15:25:word y}}}`,
 
@@ -24,7 +24,7 @@ var checkpoints_value = map[string]map[string]any{
 		`23:14:disjunction2 x{a b c}y{1 2 3}z {=compound {23:18:word x} {23:19:disjunction {=list {23:20:word a} {23:22:word b} {23:24:word c}}} {23:26:word y} {23:27:disjunction {=list {23:28:decimal 1} {23:30:decimal 2} {23:32:decimal 3}}} {23:34:word z}}`:`xay1z xay2z xay3z xby1z xby2z xby3z xcy1z xcy2z xcy3z {=list {=compound {23:18:word x} {23:20:word a} {23:26:word y} {23:28:decimal 1} {23:34:word z}} {=compound {23:18:word x} {23:20:word a} {23:26:word y} {23:30:decimal 2} {23:34:word z}} {=compound {23:18:word x} {23:20:word a} {23:26:word y} {23:32:decimal 3} {23:34:word z}} {=compound {23:18:word x} {23:22:word b} {23:26:word y} {23:28:decimal 1} {23:34:word z}} {=compound {23:18:word x} {23:22:word b} {23:26:word y} {23:30:decimal 2} {23:34:word z}} {=compound {23:18:word x} {23:22:word b} {23:26:word y} {23:32:decimal 3} {23:34:word z}} {=compound {23:18:word x} {23:24:word c} {23:26:word y} {23:28:decimal 1} {23:34:word z}} {=compound {23:18:word x} {23:24:word c} {23:26:word y} {23:30:decimal 2} {23:34:word z}} {=compound {23:18:word x} {23:24:word c} {23:26:word y} {23:32:decimal 3} {23:34:word z}}}`,
 
 		`41:7:val4 a\,b\,c,x\,y\,z {=compound {41:18:word a} {41:19:escaped \,} {41:21:word b} {41:22:escaped \,} {41:24:word c} {41:25:punct ,} {41:26:word x} {41:27:escaped \,} {41:29:word y} {41:30:escaped \,} {41:32:word z}}`:`a\,b\,c,x\,y\,z {=compound {41:18:word a} {41:19:escaped \,} {41:21:word b} {41:22:escaped \,} {41:24:word c} {41:25:punct ,} {41:26:word x} {41:27:escaped \,} {41:29:word y} {41:30:escaped \,} {41:32:word z}}`,
-		`42:7:val5 $(quote a\,b\,c,x\,y\,z) {42:10:delegate {42:12:builtin quote} {=list {=compound {42:18:word a} {42:19:escaped \,} {42:21:word b} {42:22:escaped \,} {42:24:word c}}} {=list {=compound {42:26:word x} {42:27:escaped \,} {42:29:word y} {42:30:escaped \,} {42:32:word z}}}}`:`{42:12:builtin quote} {=quote a\,b\,c x\,y\,z} {42:10 {=quote {=list {=compound {42:18:word a} {42:19:escaped \,} {42:21:word b} {42:22:escaped \,} {42:24:word c}}} {=list {=compound {42:26:word x} {42:27:escaped \,} {42:29:word y} {42:30:escaped \,} {42:32:word z}}}}}`,
+		`42:7:val5 $(quote a\,b\,c,x\,y\,z) {42:10:delegate {42:12:builtin quote} {=list {=compound {42:18:word a} {42:19:escaped \,} {42:21:word b} {42:22:escaped \,} {42:24:word c}}} {=list {=compound {42:26:word x} {42:27:escaped \,} {42:29:word y} {42:30:escaped \,} {42:32:word z}}}}`:`{=quote a\,b\,c x\,y\,z} {42:10 {=quote {=list {=compound {42:18:word a} {42:19:escaped \,} {42:21:word b} {42:22:escaped \,} {42:24:word c}}} {=list {=compound {42:26:word x} {42:27:escaped \,} {42:29:word y} {42:30:escaped \,} {42:32:word z}}}}}`,
 
 		`43:7:val6 extbit.io {=compound {43:17:word extbit} {43:23:punct .} {43:24:word io}}`:`extbit.io {=compound {43:17:word extbit} {43:23:punct .} {43:24:word io}}`,
 		`44:7:val7 extbit.com {=compound {44:18:word extbit} {44:24:punct .} {44:25:word com}}`:`extbit.com {=compound {44:18:word extbit} {44:24:punct .} {44:25:word com}}`,
@@ -37,28 +37,26 @@ var checkpoints_value = map[string]map[string]any{
 		`56:11:conf1 test.txt {=compound {56:51:word test} {56:55:punct .} {56:56:word txt}}`:`test.txt {=compound {56:51:word test} {56:55:punct .} {56:56:word txt}}`,
 		`57:11:conf2 test.txt {=compound {57:100:word test} {57:104:punct .} {57:105:word txt}}`:`test.txt {=compound {57:100:word test} {57:104:punct .} {57:105:word txt}}`,
 
-		`55:11:conf0 $@ {55:19:delegate {55:11:def @}}`:`{55:11:def @} conf0 {55:19 {55:11:word conf0}}`,
+		`55:11:conf0 $@ {55:19:delegate {55:11:def @}}`:`conf0 {55:19 {55:11:word conf0}}`,
 
-		`56:11:conf1 $/ {56:48:delegate {1:1:def /}}`:testdata_fmt(`{1:1:def /} %[1]s/value {56:48 {=path %[3]s {1:1:word value}}}`),
-		`57:11:conf2 $/ {57:97:delegate {1:1:def /}}`:testdata_fmt(`{1:1:def /} %[1]s/value {57:97 {=path %[3]s {1:1:word value}}}`),
+		`56:11:conf1 $/ {56:48:delegate {1:1:def /}}`:testdata_f(`%[1]s/value {56:48 {=path %[3]s {1:1:word value}}}`),
+		`57:11:conf2 $/ {57:97:delegate {1:1:def /}}`:testdata_f(`%[1]s/value {57:97 {=path %[3]s {1:1:word value}}}`),
 
-		`56:11:conf1 $0 {56:45:delegate {56:46:auto 0}}`:testdata_fmts(
-			`{56:46:auto 0} foo.o {56:45 {%[1]s/value/test.txt:1:1:raw foo.o}}`,
-			`{56:46:auto 0} foo-x.o {56:45 {%[1]s/value/test.txt:2:1:raw foo-x.o}}`,
-			`{56:46:auto 0} foo-x-y.o {56:45 {%[1]s/value/test.txt:3:1:raw foo-x-y.o}}`,
-			`{56:46:auto 0} foo-x-y-z.o {56:45 {%[1]s/value/test.txt:4:1:raw foo-x-y-z.o}}`,
-			`{56:46:auto 0} foobar.o {56:45 {%[1]s/value/test.txt:5:1:raw foobar.o}}`,
+		`56:11:conf1 $0 {56:45:delegate {56:46:auto 0}}`:testdata_fs(
+			`foo.o {56:45 {%[1]s/value/test.txt:1:1:raw foo.o}}`,
+			`foo-x.o {56:45 {%[1]s/value/test.txt:2:1:raw foo-x.o}}`,
+			`foo-x-y.o {56:45 {%[1]s/value/test.txt:3:1:raw foo-x-y.o}}`,
+			`foo-x-y-z.o {56:45 {%[1]s/value/test.txt:4:1:raw foo-x-y-z.o}}`,
+			`foobar.o {56:45 {%[1]s/value/test.txt:5:1:raw foobar.o}}`,
 		),
 
-		`56:11:conf1 $(grep {=regex ^.+?\.o$$},$0,$//test.txt) {56:19:delegate {56:21:builtin grep} {=list {56:34:regex ^.+?\.o$}} {=list {56:45:delegate {56:46:auto 0}}} {=list {=path {56:48:delegate {1:1:def /}} {=compound {56:51:word test} {56:55:punct .} {56:56:word txt}}}}}`:`{56:21:builtin grep}`+
-			testdata_fmt(` foo.o foo-x.o foo-x-y.o foo-x-y-z.o foobar.o {=list `+
+		`56:11:conf1 $(grep {=regex ^.+?\.o$$},$0,$//test.txt) {56:19:delegate {56:21:builtin grep} {=list {56:34:regex ^.+?\.o$}} {=list {56:45:delegate {56:46:auto 0}}} {=list {=path {56:48:delegate {1:1:def /}} {=compound {56:51:word test} {56:55:punct .} {56:56:word txt}}}}}`:testdata_f(`foo.o foo-x.o foo-x-y.o foo-x-y-z.o foobar.o {=list `+
 				`{56:19 {56:45 {%[1]s/value/test.txt:1:1:raw foo.o}}} `+
 				`{56:19 {56:45 {%[1]s/value/test.txt:2:1:raw foo-x.o}}} `+
 				`{56:19 {56:45 {%[1]s/value/test.txt:3:1:raw foo-x-y.o}}} `+
 				`{56:19 {56:45 {%[1]s/value/test.txt:4:1:raw foo-x-y-z.o}}} `+
 				`{56:19 {56:45 {%[1]s/value/test.txt:5:1:raw foobar.o}}}}`),
-		`57:11:conf2 $(grep {=regex ^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$$},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt) {57:19:delegate {57:21:builtin grep} {=list {57:34:regex ^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$}} {=list {57:72:delegate {56:46:auto 0}} {57:75:delegate {19:21:auto 1}} {57:78:delegate {57:79:auto 2}} {57:81:delegate {57:82:auto 3}} {57:84:delegate {57:86:auto i}} {57:89:delegate {57:90:auto 5}} {57:92:delegate {57:94:auto x}}} {=list {=path {57:97:delegate {1:1:def /}} {=compound {57:100:word test} {57:104:punct .} {57:105:word txt}}}}}`:`{57:21:builtin grep}`+
-			testdata_fmt(` foo.o foo . o foo-x.o foo -x -x x . o foo-x-y.o foo -x-y -y y . o foo-x-y-z.o foo -x-y-z -z z . o foobar.o foobar . o {=list `+
+		`57:11:conf2 $(grep {=regex ^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$$},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt) {57:19:delegate {57:21:builtin grep} {=list {57:34:regex ^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$}} {=list {57:72:delegate {56:46:auto 0}} {57:75:delegate {19:21:auto 1}} {57:78:delegate {57:79:auto 2}} {57:81:delegate {57:82:auto 3}} {57:84:delegate {57:86:auto i}} {57:89:delegate {57:90:auto 5}} {57:92:delegate {57:94:auto x}}} {=list {=path {57:97:delegate {1:1:def /}} {=compound {57:100:word test} {57:104:punct .} {57:105:word txt}}}}}`:testdata_f(`foo.o foo . o foo-x.o foo -x -x x . o foo-x-y.o foo -x-y -y y . o foo-x-y-z.o foo -x-y-z -z z . o foobar.o foobar . o {=list `+
 				`{57:19 {57:72 {%[1]s/value/test.txt:1:1:raw foo.o}}} `+
 				`{57:19 {57:75 {%[1]s/value/test.txt:1:1:raw foo}}} `+
 				`{57:19 {57:78 {%[1]s/value/test.txt:1:4:raw}}} `+
@@ -95,62 +93,62 @@ var checkpoints_value = map[string]map[string]any{
 				`{57:19 {57:89 {%[1]s/value/test.txt:5:7:raw .}}} `+
 				`{57:19 {57:92 {%[1]s/value/test.txt:5:8:raw o}}}}`),
 
-		`57:11:conf2 $0 {57:72:delegate {56:46:auto 0}}`:testdata_fmts(
-			`{56:46:auto 0} foo.o {57:72 {%[1]s/value/test.txt:1:1:raw foo.o}}`,
-			`{56:46:auto 0} foo-x.o {57:72 {%[1]s/value/test.txt:2:1:raw foo-x.o}}`,
-			`{56:46:auto 0} foo-x-y.o {57:72 {%[1]s/value/test.txt:3:1:raw foo-x-y.o}}`,
-			`{56:46:auto 0} foo-x-y-z.o {57:72 {%[1]s/value/test.txt:4:1:raw foo-x-y-z.o}}`,
-			`{56:46:auto 0} foobar.o {57:72 {%[1]s/value/test.txt:5:1:raw foobar.o}}`,
+		`57:11:conf2 $0 {57:72:delegate {56:46:auto 0}}`:testdata_fs(
+			`foo.o {57:72 {%[1]s/value/test.txt:1:1:raw foo.o}}`,
+			`foo-x.o {57:72 {%[1]s/value/test.txt:2:1:raw foo-x.o}}`,
+			`foo-x-y.o {57:72 {%[1]s/value/test.txt:3:1:raw foo-x-y.o}}`,
+			`foo-x-y-z.o {57:72 {%[1]s/value/test.txt:4:1:raw foo-x-y-z.o}}`,
+			`foobar.o {57:72 {%[1]s/value/test.txt:5:1:raw foobar.o}}`,
 		),
-		`57:11:conf2 $1 {57:75:delegate {19:21:auto 1}}`:testdata_fmts(
-			`{19:21:auto 1} foo {57:75 {%[1]s/value/test.txt:1:1:raw foo}}`,
-			`{19:21:auto 1} foo {57:75 {%[1]s/value/test.txt:2:1:raw foo}}`,
-			`{19:21:auto 1} foo {57:75 {%[1]s/value/test.txt:3:1:raw foo}}`,
-			`{19:21:auto 1} foo {57:75 {%[1]s/value/test.txt:4:1:raw foo}}`,
-			`{19:21:auto 1} foobar {57:75 {%[1]s/value/test.txt:5:1:raw foobar}}`,
+		`57:11:conf2 $1 {57:75:delegate {19:21:auto 1}}`:testdata_fs(
+			`foo {57:75 {%[1]s/value/test.txt:1:1:raw foo}}`,
+			`foo {57:75 {%[1]s/value/test.txt:2:1:raw foo}}`,
+			`foo {57:75 {%[1]s/value/test.txt:3:1:raw foo}}`,
+			`foo {57:75 {%[1]s/value/test.txt:4:1:raw foo}}`,
+			`foobar {57:75 {%[1]s/value/test.txt:5:1:raw foobar}}`,
 		),
-		`57:11:conf2 $2 {57:78:delegate {57:79:auto 2}}`:testdata_fmts(
-			`{57:79:auto 2}  {57:78 {%[1]s/value/test.txt:1:4:raw}}`,
-			`{57:79:auto 2} -x {57:78 {%[1]s/value/test.txt:2:4:raw -x}}`,
-			`{57:79:auto 2} -x-y {57:78 {%[1]s/value/test.txt:3:4:raw -x-y}}`,
-			`{57:79:auto 2} -x-y-z {57:78 {%[1]s/value/test.txt:4:4:raw -x-y-z}}`,
-			`{57:79:auto 2}  {57:78 {%[1]s/value/test.txt:5:7:raw}}`,
+		`57:11:conf2 $2 {57:78:delegate {57:79:auto 2}}`:testdata_fs(
+			` {57:78 {%[1]s/value/test.txt:1:4:raw}}`,
+			` {57:78 {%[1]s/value/test.txt:5:7:raw}}`,
+			`-x {57:78 {%[1]s/value/test.txt:2:4:raw -x}}`,
+			`-x-y {57:78 {%[1]s/value/test.txt:3:4:raw -x-y}}`,
+			`-x-y-z {57:78 {%[1]s/value/test.txt:4:4:raw -x-y-z}}`,
 		),
-		`57:11:conf2 $3 {57:81:delegate {57:82:auto 3}}`:testdata_fmts(
-			`{57:82:auto 3}  {57:81 {%[1]s/value/test.txt:1:4:raw}}`,
-			`{57:82:auto 3} -x {57:81 {%[1]s/value/test.txt:2:4:raw -x}}`,
-			`{57:82:auto 3} -y {57:81 {%[1]s/value/test.txt:3:6:raw -y}}`,
-			`{57:82:auto 3} -z {57:81 {%[1]s/value/test.txt:4:8:raw -z}}`,
-			`{57:82:auto 3}  {57:81 {%[1]s/value/test.txt:5:7:raw}}`,
+		`57:11:conf2 $3 {57:81:delegate {57:82:auto 3}}`:testdata_fs(
+			` {57:81 {%[1]s/value/test.txt:1:4:raw}}`,
+			` {57:81 {%[1]s/value/test.txt:5:7:raw}}`,
+			`-x {57:81 {%[1]s/value/test.txt:2:4:raw -x}}`,
+			`-y {57:81 {%[1]s/value/test.txt:3:6:raw -y}}`,
+			`-z {57:81 {%[1]s/value/test.txt:4:8:raw -z}}`,
 		),
-		`57:11:conf2 $(i) {57:84:delegate {57:86:auto i}}`:testdata_fmts(
-			`{57:86:auto i}  {57:84 {%[1]s/value/test.txt:1:4:raw}}`,
-			`{57:86:auto i} x {57:84 {%[1]s/value/test.txt:2:5:raw x}}`,
-			`{57:86:auto i} y {57:84 {%[1]s/value/test.txt:3:7:raw y}}`,
-			`{57:86:auto i} z {57:84 {%[1]s/value/test.txt:4:9:raw z}}`,
-			`{57:86:auto i}  {57:84 {%[1]s/value/test.txt:5:7:raw}}`,
+		`57:11:conf2 $(i) {57:84:delegate {57:86:auto i}}`:testdata_fs(
+			` {57:84 {%[1]s/value/test.txt:1:4:raw}}`,
+			` {57:84 {%[1]s/value/test.txt:5:7:raw}}`,
+			`x {57:84 {%[1]s/value/test.txt:2:5:raw x}}`,
+			`y {57:84 {%[1]s/value/test.txt:3:7:raw y}}`,
+			`z {57:84 {%[1]s/value/test.txt:4:9:raw z}}`,
 		),
-		`57:11:conf2 $5 {57:89:delegate {57:90:auto 5}}`:testdata_fmts(
-			`{57:90:auto 5} . {57:89 {%[1]s/value/test.txt:1:4:raw .}}`,
-			`{57:90:auto 5} . {57:89 {%[1]s/value/test.txt:2:6:raw .}}`,
-			`{57:90:auto 5} . {57:89 {%[1]s/value/test.txt:3:8:raw .}}`,
-			`{57:90:auto 5} . {57:89 {%[1]s/value/test.txt:4:10:raw .}}`,
-			`{57:90:auto 5} . {57:89 {%[1]s/value/test.txt:5:7:raw .}}`,
+		`57:11:conf2 $5 {57:89:delegate {57:90:auto 5}}`:testdata_fs(
+			`. {57:89 {%[1]s/value/test.txt:1:4:raw .}}`,
+			`. {57:89 {%[1]s/value/test.txt:2:6:raw .}}`,
+			`. {57:89 {%[1]s/value/test.txt:3:8:raw .}}`,
+			`. {57:89 {%[1]s/value/test.txt:4:10:raw .}}`,
+			`. {57:89 {%[1]s/value/test.txt:5:7:raw .}}`,
 		),
-		`57:11:conf2 $(x) {57:92:delegate {57:94:auto x}}`:testdata_fmts(
-			`{57:94:auto x} o {57:92 {%[1]s/value/test.txt:1:5:raw o}}`,
-			`{57:94:auto x} o {57:92 {%[1]s/value/test.txt:2:7:raw o}}`,
-			`{57:94:auto x} o {57:92 {%[1]s/value/test.txt:3:9:raw o}}`,
-			`{57:94:auto x} o {57:92 {%[1]s/value/test.txt:4:11:raw o}}`,
-			`{57:94:auto x} o {57:92 {%[1]s/value/test.txt:5:8:raw o}}`,
+		`57:11:conf2 $(x) {57:92:delegate {57:94:auto x}}`:testdata_fs(
+			`o {57:92 {%[1]s/value/test.txt:1:5:raw o}}`,
+			`o {57:92 {%[1]s/value/test.txt:2:7:raw o}}`,
+			`o {57:92 {%[1]s/value/test.txt:3:9:raw o}}`,
+			`o {57:92 {%[1]s/value/test.txt:4:11:raw o}}`,
+			`o {57:92 {%[1]s/value/test.txt:5:8:raw o}}`,
 		),
 
 		`59:11:conf3 $@, {=compound {59:29:delegate {59:11:def @}} {59:31:punct ,}}`:`conf3, {=compound {59:29 {59:11:word conf3}} {59:31:punct ,}}`,
 		`59:11:conf3 $>, {=compound {59:36:delegate {1:1:def >}} {59:38:punct ,}}`:`bar, {=compound {59:36 {59:23:word bar}} {59:38:punct ,}}`,
-		`59:11:conf3 $@ {59:29:delegate {59:11:def @}}`:`{59:11:def @} conf3 {59:29 {59:11:word conf3}}`,
-		`59:11:conf3 $< {59:33:delegate {1:1:def <}}`:`{1:1:def <} foo {59:33 {59:19:word foo}}`,
-		`59:11:conf3 $> {59:36:delegate {1:1:def >}}`:`{1:1:def >} bar {59:36 {59:23:word bar}}`,
-		`59:11:conf3 $^ {59:40:delegate {1:1:def ^}}`:`{1:1:def ^} foo bar {=list {59:40 {59:19:word foo}} {59:40 {59:23:word bar}}}`,
+		`59:11:conf3 $@ {59:29:delegate {59:11:def @}}`:`conf3 {59:29 {59:11:word conf3}}`,
+		`59:11:conf3 $< {59:33:delegate {1:1:def <}}`:`foo {59:33 {59:19:word foo}}`,
+		`59:11:conf3 $> {59:36:delegate {1:1:def >}}`:`bar {59:36 {59:23:word bar}}`,
+		`59:11:conf3 $^ {59:40:delegate {1:1:def ^}}`:`foo bar {=list {59:40 {59:19:word foo}} {59:40 {59:23:word bar}}}`,
 	},
 	"check-value_test.go": map[string]any{
 		`62 9:9:cond01 x?y {=compound {=cond {9:11:word x}} {9:13:word y}}`:`xy? {=cond {=compound {9:11:word x} {9:13:word y}}}`,
@@ -159,7 +157,7 @@ var checkpoints_value = map[string]map[string]any{
 		`72 10:9:cond02 x???y {=compound {=cond {=cond {=cond {10:11:word x}}}} {10:15:word y}}`:`xy??? {=cond {=cond {=cond {=compound {10:11:word x} {10:15:word y}}}}}`,
 		`72 10:9:cond02 xy {=compound {10:11:word x} {10:15:word y}}`:`xy {=compound {10:11:word x} {10:15:word y}}`,
 
-		`82 11:9:cond03 &(something) {11:12:closure {11:14:word something}}`:[]string{`{11:14:word something} {} {11:12:null}`,`{11:14:word something} &(something) {11:12:closure {11:14:word something}}`},
+		`82 11:9:cond03 &(something) {11:12:closure {11:14:word something}}`:[]string{`{} {11:12:null}`,`&(something) {11:12:closure {11:14:word something}}`},
 		`82 11:9:cond03 x&(something) {=compound {11:11:word x} {11:12:closure {11:14:word something}}}`:`x&(something) {=compound {11:11:word x} {11:12:closure {11:14:word something}}}`,
 		`82 11:9:cond03 x&(something)?y {=compound {=cond {=compound {11:11:word x} {11:12:closure {11:14:word something}}}} {11:25:word y}}`:`x{}y? {=cond {=compound {11:11:word x} {11:12:null} {11:25:word y}}}`,
 		`82 11:9:cond03 x&(something)y {=compound {11:11:word x} {11:12:closure {11:14:word something}} {11:25:word y}}`:`x{}y {=compound {11:11:word x} {11:12:null} {11:25:word y}}`,
@@ -168,23 +166,23 @@ var checkpoints_value = map[string]map[string]any{
 		`93 13:8:cond11 xy {=compound {13:11:word x} {13:13:word y}}`:`xy {=compound {13:11:word x} {13:13:word y}}`,
 		`103 14:8:cond12 xy {=compound {14:11:word x} {14:15:word y}}`:`xy {=compound {14:11:word x} {14:15:word y}}`,
 
-		`113 15:8:cond13 &(something) {15:12:closure {15:14:word something}}`:[]string{`{15:14:word something} {} {15:12:null}`,`{15:14:word something} &(something) {15:12:closure {15:14:word something}}`},
+		`113 15:8:cond13 &(something) {15:12:closure {15:14:word something}}`:[]string{`{} {15:12:null}`,`{15:14:word something} &(something) {15:12:closure {15:14:word something}}`},
 		`113 15:8:cond13 x&(something)y {=compound {15:11:word x} {15:12:closure {15:14:word something}} {15:25:word y}}`:`x{}y {=compound {15:11:word x} {15:12:null} {15:25:word y}}`,
 		`113 15:8:cond13 x&(something) {=compound {15:11:word x} {15:12:closure {15:14:word something}}}`:`x{} {=compound {15:11:word x} {15:12:null}}`,
 		`113 15:8:cond13 x{}y {=compound {15:11:word x} {15:12:null} {15:25:word y}}`:`x{}y {=compound {15:11:word x} {15:12:null} {15:25:word y}}`,
 
 		`133 18:16:disjunction00 x{} {=compound {18:18:word x} {18:20:null}}`:`x{} {=compound {18:18:word x} {18:20:null}}`,
 
-		`143 19:16:disjunction01 $1 {19:20:delegate {19:21:auto 1}}`:`{19:21:auto 1} {} {19:20 {19:21:null}}`,
+		`143 19:16:disjunction01 $1 {19:20:delegate {19:21:auto 1}}`:`{} {19:20 {19:21:null}}`,
 
-		`145 19:16:disjunction01 $1 {19:20:delegate {19:21:auto 1}}`:`{19:21:auto 1} a b c {=list {19:20 {19:18:word a}} {19:20 {19:18:word b}} {19:20 {19:18:word c}}}`,
+		`145 19:16:disjunction01 $1 {19:20:delegate {19:21:auto 1}}`:`a b c {=list {19:20 {19:18:word a}} {19:20 {19:18:word b}} {19:20 {19:18:word c}}}`,
 		`145 19:16:disjunction01 x{$1} {=compound {19:18:word x} {19:19:disjunction {19:20:delegate {19:21:auto 1}}}}`:`xa xb xc {=list {=compound {19:18:word x} {19:20 {19:18:word a}}} {=compound {19:18:word x} {19:20 {19:18:word b}}} {=compound {19:18:word x} {19:20 {19:18:word c}}}}`,
 
 		`149 19:16:disjunction01 xa {=compound {19:18:word x} {19:20 {19:18:word a}}}`:`xa {=compound {19:18:word x} {19:20 {19:18:word a}}}`,
 		`149 19:16:disjunction01 xb {=compound {19:18:word x} {19:20 {19:18:word b}}}`:`xb {=compound {19:18:word x} {19:20 {19:18:word b}}}`,
 		`149 19:16:disjunction01 xc {=compound {19:18:word x} {19:20 {19:18:word c}}}`:`xc {=compound {19:18:word x} {19:20 {19:18:word c}}}`,
 
-		`159 20:16:disjunction02 &(something) {20:20:closure {20:22:word something}}`:[]string{`{20:22:word something} {} {20:20:null}`,`{20:22:word something} &(something) {20:20:closure {20:22:word something}}`},
+		`159 20:16:disjunction02 &(something) {20:20:closure {20:22:word something}}`:[]string{`{} {20:20:null}`,`{20:22:word something} &(something) {20:20:closure {20:22:word something}}`},
 
 		`183 22:15:disjunction1 xay1z {=compound {22:18:word x} {22:20:word a} {22:26:word y} {22:28:decimal 1} {22:34:word z}}`:`xay1z {=compound {22:18:word x} {22:20:word a} {22:26:word y} {22:28:decimal 1} {22:34:word z}}`,
 		`183 22:15:disjunction1 xay2z {=compound {22:18:word x} {22:20:word a} {22:26:word y} {22:30:decimal 2} {22:34:word z}}`:`xay2z {=compound {22:18:word x} {22:20:word a} {22:26:word y} {22:30:decimal 2} {22:34:word z}}`,
@@ -237,8 +235,8 @@ var checkpoints_value = map[string]map[string]any{
 
 var checkstrs_value = map[string]map[string]any{
 	"loader.go": map[string]any{
-		`56:11:conf1 $/ {56:48:delegate {1:1:def /}}`:testdata_fmt(`{56:48 {=path %[3]s {1:1:word value}}} %[1]s/value`),
-		`57:11:conf2 $/ {57:97:delegate {1:1:def /}}`:testdata_fmt(`{57:97 {=path %[3]s {1:1:word value}}} %[1]s/value`),
+		`56:11:conf1 $/ {56:48:delegate {1:1:def /}}`:testdata_f(`{56:48 {=path %[3]s {1:1:word value}}} %[1]s/value`),
+		`57:11:conf2 $/ {57:97:delegate {1:1:def /}}`:testdata_f(`{57:97 {=path %[3]s {1:1:word value}}} %[1]s/value`),
 	},
 	"check-value_test.go": map[string]any{
 		`82 11:9:cond03 &(something) {11:12:closure {11:14:word something}}`:`{11:12:null} `,

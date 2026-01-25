@@ -12,13 +12,13 @@ var checkpoints_value_13 = map[string]map[string]any{
 		`g!foobar {=compound {5:2:word g} {=negative {5:4:word foobar}}}`:`g!foobar {=compound {5:2:word g} {=negative {5:4:word foobar}}}`,
 
 		`3:5:foo g!foobar {=compound {3:11:word g} {=negative {3:13:word foobar}}}`:`g!foobar {=compound {3:11:word g} {=negative {3:13:word foobar}}}`,
-		`3:5:foo &(-g!foobar) {3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`:`{=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}} &(-g!foobar) {3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`,
+		`3:5:foo &(-g!foobar) {3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`:`&(-g!foobar) {3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`,
 
 		`5:11:-g!foobar not-foobar {=compound {5:14:word not} {=flag {5:18:word foobar}}}`:`not-foobar {=compound {5:14:word not} {=flag {5:18:word foobar}}}`,
 	},
 	"check-value-13_test.go": map[string]any{
 		`20 3:5:foo g!foobar {=compound {3:11:word g} {=negative {3:13:word foobar}}}`:`g!foobar {=compound {3:11:word g} {=negative {3:13:word foobar}}}`,
-		`20 3:5:foo &(-g!foobar) {3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`:`{5:11:def -g!foobar} not-foobar {3:8 {=compound {5:14:word not} {=flag {5:18:word foobar}}}}`,
+		`20 3:5:foo &(-g!foobar) {3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`:`not-foobar {3:8 {=compound {5:14:word not} {=flag {5:18:word foobar}}}}`,
 		`20 3:5:foo not-foobar {=compound {5:14:word not} {=flag {5:18:word foobar}}}`:`not-foobar {=compound {5:14:word not} {=flag {5:18:word foobar}}}`,
 	},
 }

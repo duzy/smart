@@ -1,0 +1,8 @@
+project testbuiltins
+
+files (
+    (foo/ba*/v?.h foo/ba?/xyz*.txt) ⇒ $(dir $/)/inc
+)
+
+val1 ::= $(wildcard(-sort) foo/bar/v2.h foo/bar/v1.h)
+val2 ::= $(wildcard(-sort) foo/bar/xyz???.h)
