@@ -225,18 +225,17 @@ var (
 		`|runtime\.Goexit)\(.+\)|exit status [0-9]+)$`)
 )
 func _callstack(s string, i, j int, args ...any) (res []byte) {
-    i += 1 // skips this func
-
     var nums []int
 	var stop string
     var v = bytes.Split(rt_debug.Stack(), []byte{'\n'})
 
+    i += 2 // skips this func
 	for _, a := range args {
 		switch t := a.(type) {
 		case bool: if !t { return /* d */ }
 		case int: nums = append(nums, t)
 		case stopframe: stop, j = string(t), len(v) / 2
-		case skipint: i += int(t)
+		case skipint: i += int(t) * 2
 		case frames: if 0 < t { j += int(t) } else { j += len(v) / 2 }
 		}
 	}
@@ -244,7 +243,7 @@ func _callstack(s string, i, j int, args ...any) (res []byte) {
 	switch len(nums) {
 	case 0: j += 1
 	case 1: j += nums[0]
-	case 2: i += nums[0]; j += nums[1]
+	case 2: j += nums[1]; i += nums[0]*2
 	default: panic("too many stack nums")
 	}
 
@@ -383,20 +382,21 @@ func recovered(ctx Context) {
 }
 
 var _debug_m sync.Mutex
-func debug(ctx Context, f any, a ...any) {
+func debug(ctx Context, f any, a ...any) { (callstack{skip:1}).debug(ctx, f, a...) }
+func (cs callstack) debug(ctx Context, f any, a ...any) {
 	_debug_m.Lock(); defer _debug_m.Unlock()
 
 	var tr = false
 	var dias []*diag_point
-	var args, cs_args []any
+	var args []any
 	for _, a := range a {
 		switch t := a.(type) {
 		case trace: tr = true
 		case callstack:
-			if 0 < t.num     { cs_args = append(cs_args, t.num) }
-			if 0 < t.skip    { cs_args = append(cs_args, skipint(t.skip)) }
-			if 0 != t.frames { cs_args = append(cs_args, frames(t.frames)) }
-			if "" != t.stop  { cs_args = append(cs_args, stopframe(t.stop)) }
+			if 0 < t.num     { cs.num = t.num }
+			if 0 < t.skip    { cs.skip = t.skip }
+			if 0 != t.frames { cs.frames = t.frames }
+			if "" != t.stop  { cs.stop = t.stop }
 		case *diag_point:
 			dias = append(dias, t)
 		default:
@@ -425,8 +425,13 @@ func debug(ctx Context, f any, a ...any) {
 	for _, d := range dias {
 		p, _ = do(ctx, diag_point{diagPrompt, s+d.f+"\n", d.a}).(*diagpoint)
 	}
-	if p == nil { return }
-	if p.stack = _callstack("info:", 5, 0, cs_args...); true { flush(ctx) }
+
+	if args = []any{}; p == nil { return }
+	if 0 < cs.num     { args = append(args, cs.num) }
+	if 0 < cs.skip    { args = append(args, skipint(cs.skip)) }
+	if 0 != cs.frames { args = append(args, frames(cs.frames)) }
+	if "" != cs.stop  { args = append(args, stopframe(cs.stop)) }
+	if p.stack = _callstack("info:", 5, 0, args...); true { flush(ctx) }
 	if tr {
 		if truly(ctx, is_test_mode{}) {
 			panic(test_fail{ctx, 0})
