@@ -2126,7 +2126,7 @@ func (l ul) braced_file(ctx Context) (res Value) {
 	var elems []Value
 
 	for _, elem := range l.braced_elems(ctx) {
-		if f := l.project.file(ctx, elem); f != nil {
+		if f := l.project.file(pc(ctx,elem), elem); f != nil {
 			elems = append(elems, f)
 			continue
 		} else {
@@ -3261,7 +3261,7 @@ func (l ul) entries(ctx Context, prog *program, targets []Value) (res []entry) {
 	for _, target := range targets {
         if isTrivial(target) { continue }
 
-        var entry = map_entry(ctx, prog.project, target, prog)
+        var entry = map_entry(pc(ctx,target), prog.project, target, prog)
         if entry == nil {
             debug(ctx, "creating entry failed for %v", target, trace{})
         }

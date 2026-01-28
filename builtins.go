@@ -4399,7 +4399,7 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
 				switch {
 				case ok1 && ok2:
 					if t1, t2 := cmp(ctx, lVal, rVal), cmp(ctx, rVal, lVal); t1 != t2 || t1 != cmpEqual || t2 != cmpEqual {
-						debug(ctx, "%v %v, %v %v, %v %v", lVal, rVal, ok1, ok2, t1, t2)
+						debug(ctx, "%v %v, %v %v, %v %v", lVal, rVal, ok1, ok2, t1, t2, callstack{frames:-1})
 					}
 					g.Add(1); go do_paths(true, lVal, paths)
 				case ok1 && !ok2:

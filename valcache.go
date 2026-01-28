@@ -15,8 +15,6 @@ const test_hit = false
 const test_val = ""
 
 type hit_s struct{ *valcache ; s [][]string }
-type fullmatch *valcache
-type pattmatch *valcache
 type valcache struct{
 	a []any
 	o []string
@@ -48,268 +46,202 @@ func (c cache_t) do(ctx Context, op any) any {
 	return c.Context.do(ctx, op)
 }
 
-func uncache(ctx Context, _c *valcache, ss [][]string) (r []*valcache) {
-	var f0     func(*valcache, [][]string, int) (*valcache, bool)
-	var f1     func(*valcache,   []string, int) (*valcache, bool)
-	var f2, F2 func(*valcache,   []string, int) (*valcache, bool) // patterns: ** *?
-	var f3, F3 func(*valcache,     string, int) (*valcache, bool)
-	var ff     func(*valcache)
-	var dd = false && sf("%v %v", _c, do(ctx, ctxany{})) == "{foo:{b:{*:{v:{*:{h:{.:{0:foo/b*/v*.h}}}}}},x:{*:{h:{.:{y:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/bar/v1.h"
-	if false && dd { debug(ctx, "%v %v", ss, _c) }
-
-	f0 = func(c *valcache, ss [][]string, i int) (_ *valcache, _ bool) {
-		if dd { defer debug(ctx, "%v %v %v", ss, i, c, callstack{stop:"smart._hit"}) }
-		if i == len(ss) {
-			if c != nil && truly(ctx, fullmatch(c)) { r = append(r, c)
-				return c, true
-			} else {
-				return c, false
-			}
+func uncache_match(ctx Context, pat, val any) (f bool, s string) {
+	var t any
+	if patterned(ctx, pat) {
+		if  f, t, _ = match(ctx, pat, val); !f && patterned(ctx, val) {
+			f, t, _ = match(ctx, val, pat)
 		}
-		var nc = c
-		if x, y := f1(c, ss[i], 0); x != nil { nc = x; if y { return x, y }}
-		if x, y := c.v["**"]; y && x != nil {
-			for c, n := x, len(ss)-1; i <= n; n -= 1 {
-				if x, y = f2(c, ss[n], 0); x != nil { c = x; if y { return x, y }}
-			}
-		}
-		if x, y := c.v["*?"]; y && x != nil {
-			for c, n := x, i; n < len(ss); n += 1 {
-				if x, y = f2(c, ss[n], 0); x != nil { c = x; if y { return x, y }}
-			}
-		}
-		if x, y := c.v["&"]; y && x != nil {
-			if truly(ctx, fullmatch(x)) { r = append(r, x); return x, true }
-		}
-		return f0(nc, ss, i+1)
-	}
-
-	f1 = func(c *valcache, s []string, j int) (_ *valcache, _ bool) {
-		if dd { defer debug(ctx, "%v %v %v", s, j, c, callstack{stop:"smart._hit"}) }
-		if j == len(s) {
-			if c != nil && truly(ctx, fullmatch(c)) { r = append(r, c)
-				return c, true
-			} else {
-				return c, false
-			}
-		}
-		var t = s[j]
-		switch t {
-		case "*", "**":
-			ff(c)
-			return c, true
-		}
-		if x, y := c.v[t]; y {
-			if x, y = f1(x, s, j+1); y && x != nil {
-				return x, true
-			} else if false {
-				return x, false
-			}
-		}
-		for _, o := range c.o {
-			var i, lo = 0, len(o)
-			for n := j; n < len(s); n += 1 {
-				if t := s[n]; t == "?" {
-					i += 1
-				} else if i < lo && strings.HasPrefix(o[i:], t) {
-					i += len(t)
-				} else if lo < len(t) && strings.HasPrefix(t, o) {
-					if x, y := c.v[o]; y {
-						if x, y = F3(x, t, lo); x != nil {
-							if o == "b" && sf("%v",ss) == `[[foo] [bar] [v1 . h]]` {
-								debug(ctx, "%v %v", s, x, callstack{frames:-1})
-							}
-							if !y { x, y = f1(x, s, n+1) }
-							if y && x != nil { return x, true }
-							if false && x != nil { return x, false }
-						}
-					}
-					break
-				} else {
-					break
-				}
-			}
-			if i == lo {
-				if x, y := c.v[o]; y {
-					if x, y = f1(x, s, j+1); y && x != nil {
-						return x, true
-					} else if true && x != nil {
-						return x, false
-					}
-				}
-			}
-		}
-		if x, y := c.v["*"] ; y && x != nil {
-			return f1(x, s, j)
-		} else {
-			return c, false
-		}
-	}
-
-	f2 = func(c *valcache, s []string, j int) (_ *valcache, _ bool) {
-		if dd { defer debug(ctx, "%v %v %v", s, j, c, callstack{stop:"smart._hit"}) }
-		if j == len(s) { return F2(c, s, j-2) }
-		if x, y := f3(c, s[j], len(s[j])-1); y {
-			return x, true
-		} else if x != nil {
-			return f2(x, s, j+1)
-		} else {
-			return c, false
-		}
-	}
-	F2 = func(c *valcache, s []string, j int) (_ *valcache, _ bool) {
-		if dd { defer debug(ctx, "%v %v %v", s, j, c, callstack{stop:"smart._hit"}) }
-		if j < 0 {
-			if c != nil && truly(ctx, fullmatch(c)) { r = append(r, c)
-				return c, true
-			} else {
-				return c, false
-			}
-		}
-		if x, y := f3(c, s[j], len(s[j])-1); y {
-			return x, true
-		} else if x != nil {
-			return F2(x, s, j-1)
-		} else {
-			return c, false
-		}
-	}
-	f3 = func(c *valcache, s string, k int) (_ *valcache, _ bool) {
-		if dd { defer debug(ctx, "%v %v %v", s, k, c, callstack{stop:"smart._hit"}) }
-		if k == -1 { return F3(c, s, 1) }
-		var x, y = c.v[string(s[k])]
-		if !y || x == nil { x, y = c.v["?"] }
-		// if !y || x == nil { x, y = c.v["*"]
-		// 	if y && x != nil { return f3(x, s, -1) }
-		// }
-		if y && x != nil { return f3(x, s, k-1) }
-		return c, false
-	}
-	F3 = func(c *valcache, s string, k int) (_ *valcache, _ bool) {
-		if dd { defer debug(ctx, "%v %v %v", s, k, c, callstack{stop:"smart._hit"}) }
-		if k == len(s) {
-			if c != nil && truly(ctx, fullmatch(c)) { r = append(r, c)
-				return c, true
-			} else {
-				return c, false
-			}
-		}
-		var x, y = c.v[string(s[k])]
-		if !y || x == nil { x, y = c.v["?"] }
-		if !y || x == nil { x, y = c.v["*"] ;
-			if false && y && x != nil { return F3(x, s, len(s)) } else { k = len(s)-1 }
-		}
-		if y && x != nil { return F3(x, s, k+1) }
-		return c, false
-	}
-
-	ff = func(c *valcache) {
-		for _, k := range c.o { v := c.v[k]
-			if truly(ctx, pattmatch(v)) { r = append(r, v) }
-			ff(v)
-		}
-	}
-
-	x, y := f0(_c, ss, 0)
-	if y {
-		if false && checkpoints {
-			if r == nil || x == nil {
-				debug(ctx, "%v %v → %v", ss, _c, x) // FIXME
-			}
-		}
-		if false { debug(ctx, "%v %v %v", ss, x, r, callstack{stop:"smart._hit"}) }
-		if false && checkpoints {
-			switch len(r) {
-			case 0: debug(ctx, "%v", x, trace{})
-			case 1: if x != r[0] { debug(ctx, "%v != %v", x, r[0], trace{}) }
-			default:
-				if true { var t bool
-					for _, r := range r { if t = x == r; t { break }}
-					if !t { debug(ctx, "%v != %v", x, r, trace{}) }
-				}
-			}
-		}
-	}
-	if checkpoints {
-		switch sf("%v %v %v", ss, x, y) {
-		case "[[foo] [bar] [v1 . h]]":
-			debug(ctx, "%v → %v %v → %v", ss, x, y, r, callstack{frames:-1})
-		}
-	}
-	return
-}
-
-func uncache_match(ctx Context, pat, val any) (ok bool, s string) {
-	var ( f bool ; t any )
-	if !patterned(ctx, pat) && patterned(ctx, val) {
+	} else if patterned(ctx, val) {
 		f, t, _ = match(ctx, val, pat)
 	} else {
-		f, t, _ = match(ctx, pat, val)
+		f, t, _ = match(ctx, pat, val)	
 	}
+	if checkpoints && true { switch s := sf("%v %v → %v", pat, val, f); s {
+	case "foo/bar/zz/x.h foo/bar/z?/?.h → false":
+		debug(ctx, "matched incorrect: %v", t, callstack{stop:"smart.hit"})
+	default:
+		if strings.Contains(s, "foo/bar/z?/?.h") {
+			info(ctx, "%v %v %v", pat, val, f)
+		}
+	}}
 	if f {
 		switch t := t.(type) {
 		case   string: s = t
 		case []string: s = strings.Join(t, pathSep)
 		default: debug(ctx, "%v %v: %v", pat, val, ts(t), trace{})
 		}
-		ok = true
+		if false {
+			debug(ctx, "%v %v", pat, val, callstack{stop:"smart.uncache"})
+		}
 	}
 	return
 } 
+
+func uncache(ctx Context, _c *valcache, ss [][]string) (r []*valcache) {
+	var f0 func(*valcache, [][]string, int, int, int) bool
+	var f2 func(*valcache, []string, int, ...string) bool // **
+	var f3 func(*valcache, []string, int, ...string) bool // **
+	var ff func(*valcache)
+	var left, right func(any) (bool, string)
+	if a := do(ctx, ctxany{}); a != nil {
+		left  = func(b any) (bool, string) { return uncache_match(ctx, b, a) }
+		right = func(b any) (bool, string) { return uncache_match(ctx, a, b) }
+	} else {
+		debug(ctx, "no full value: %v %v", ss, _c, trace{})
+	}
+
+	fullmatch := func(c *valcache, match func(any) (bool, string)) (ok bool) {
+		for _, a := range c.a {
+			switch a := a.(type) {
+			case filemap:
+				var _a = filemap{a._filemap, expand(_final(ctx), a.pattern)}
+				for _, v := range merge(_a.pattern) {
+					if f, s := match(v); f {
+						if 0 < do(ctx, matched_filemap{_a, s}).(int) {
+							r, ok = append(r, c), true
+						} else {
+							debug(ctx, "%v %v", ts(a), s, trace{})
+						}
+					}
+				}
+			case *rule:
+				var _a = &rule{expand(_final(ctx), a.target), a.arged, a.program}
+				for _, v := range merge(_a.target) {
+					if f, s := match(v); f {
+						if 0 < do(ctx, matched_rule{_a, s}).(int) {
+							r, ok = append(r, c), true
+						} else {
+							debug(ctx, "%v %v", ts(a), s, trace{})
+						}
+					}
+				}
+			default:
+				debug(ctx, "%v", ts(a), trace{})
+			}
+		}
+		return
+	}
+
+	f0 = func(c *valcache, ss [][]string, i, j, k int) (_ bool) {
+		if c == nil {
+			return
+		} else if i == len(ss) {
+			if j == len(ss[i-1]) {
+				if k == len(ss[i-1][j-1]) {
+					return fullmatch(c, left)
+				}
+			}
+			return
+		} else if j == len(ss[i]) {
+			return f0(c, ss, i+1, 0, 0)
+		} else if k == len(ss[i][j]) {
+			return f0(c, ss, i, j+1, 0)
+		}
+
+		var nc = c
+		var s = ss[i][j]
+		switch s {
+		case "*":
+			if t := i+1; t < len(ss) {
+				if f2(c, ss[t], 0) { return true }
+				if false { debug(ctx, "%v %v %v", ss, ss[t], c) }
+				return f0(c, ss, t+1, 0, 0)
+			} else {
+				ff(c)
+				return true
+			}
+		case "**":
+			if t := len(ss)-1; i < t {
+				if f2(c, ss[t], 0) { return true }
+				if false { debug(ctx, "%v %v %v", ss, ss[t], c) }
+				return f0(c, ss, t+1, 0, 0)
+			} else {
+				ff(c)
+				return true
+			}
+		}
+
+		if x, y := c.v[s[:k+1]]; y {
+			if false { debug(ctx, "%v %v", s[:k+1], x) }
+			if f0(x, ss, i, j, k+1) { return true }
+		}
+
+		if x, y := c.v["**"]; y {
+			if f3(x, ss[len(ss)-1], 0) {
+				if false { debug(ctx, "%v %v → %v |%v", ss[len(ss)-1], x, r[len(r)-1], s[:k+1]) }
+				return true
+			}
+		}
+
+		if x, y := c.v["*?"]; y {
+			if f3(x, ss[i], 0) {
+				if false { debug(ctx, "%v %v → %v |%v", ss[i], x, r[len(r)-1], s[:k+1]) }
+				return true
+			}
+		}
+
+		if checkpoints && (c.a != nil || c.o != nil || c.v != nil) &&
+			strings.Contains(c.String(),sf("%v",do(ctx,ctxany{}))) {
+			var cs = callstack{}
+			if line_column(ctx) == "1:1" { cs.frames = -1 }
+			cs.debug(ctx, _f("%v (%d.%d.%d) %s %v", ss, i, j, k, s[:k+1], c))
+		}
+		return f0(nc, ss, i, j, k+1)
+	}
+
+	f2 = func(c *valcache, s []string, j int, k ...string) (res bool) {
+		if l := len(s); j == l {
+			return fullmatch(c, left)
+		} else if x, y := c.v[s[j]]; y {
+			if f2(x, s, j+1, append(k,s[j])...) { return true }
+		} else if j == 0 && k != nil && s[0] == k[len(k)-1] {
+			var j = 1 // reversed-counting tail, example: [h .] [foo bar zz x . h]
+			for n := len(k)-1; j < l && j <= n && s[j] == k[n-j] ; j += 1 {}
+			if j == l { return fullmatch(c, left) }
+		}
+		for _, o := range c.o {
+			if f2(c.v[o], s, j, append(k,o)...) { res = true; if false { break }}
+		}
+		return
+	}
+
+	f3 = func(c *valcache, s []string, j int, k ...string) (res bool) {
+		if l := len(s); j == l {
+			return fullmatch(c, left)
+		} else if x, y := c.v[s[j]]; y {
+			return f3(x, s, j+1, append(k,s[j])...)
+		} else if j == 0 && k != nil && s[0] == k[len(k)-1] {
+			var j = 1 // reversed-counting tail, example: [h .] [foo bar zz x . h]
+			for n := len(k)-1; j < l && j <= n && s[j] == k[n-j] ; j += 1 {}
+			if j == l { return fullmatch(c, left) }
+		}
+		return
+	}
+
+	ff = func(c *valcache) {
+		for _, k := range c.o { _c := c.v[k]
+			fullmatch(_c, right)
+			ff(_c)
+		}
+	}
+
+	if f0(_c, ss, 0, 0, 0) {
+		if checkpoints {}
+	} else {
+		if checkpoints {}
+	}
+	return
+}
 
 type uncache_t struct{ Context ; a []any }
 func (u *uncache_t) do(ctx Context, op any) (res any) {
 	switch t := op.(type) {
 	case property: if t&(propUncache) != 0 { return true }
 	case hit_s: return uncache(ctx, t.valcache, t.s)
-	case fullmatch:
-		var ( ca = do(ctx, ctxany{}); ok bool )
-		for _, a := range t.a {
-			switch a := a.(type) {
-			case filemap:
-				var _a = filemap{a._filemap, expand(_final(ctx), a.pattern)}
-				for _, v := range merge(_a.pattern) {
-					if f, s := uncache_match(ctx, v, ca); f {
-						u.a, ok = append(u.a, matched_filemap{_a, s}), true
-					}
-				}
-			case *rule:
-				var _a = &rule{expand(_final(ctx), a.target), a.arged, a.program}
-				for _, v := range merge(_a.target) {
-					if f, s := uncache_match(ctx, v, ca); f {
-						u.a, ok = append(u.a, matched_rule{_a, s}), true
-					}
-				}
-			default:
-				debug(ctx, "%v", ts(a), trace{})
-			}
-			if ok { break }
-		}
-		return ok
-	case pattmatch:
-		var ( ca = do(ctx, ctxany{}); ok bool )
-		for _, a := range t.a {
-			switch a := a.(type) {
-			case filemap:
-				var _a = filemap{a._filemap, expand(_final(ctx), a.pattern)}
-				for _, v := range merge(_a.pattern) {
-					if f, s := uncache_match(ctx, ca, v); f {
-						u.a, ok = append(u.a, matched_filemap{_a, s}), true
-					}
-				}
-			case *rule:
-				var _a = &rule{expand(_final(ctx), a.target), a.arged, a.program}
-				for _, v := range merge(_a.target) {
-					if f, s := uncache_match(ctx, ca, v); f {
-						u.a, ok = append(u.a, matched_rule{_a, s}), true
-					}
-				}
-			default:
-				debug(ctx, "%v", ts(a), trace{})
-			}
-			if ok { break }
-		}
-		return ok
+	case matched_filemap, matched_rule:
+		u.a = append(u.a, t)
+		return len(u.a)
 	}
 	return u.Context.do(ctx, op)
 }
@@ -555,7 +487,7 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 	for _, a := range u.a {
 		switch t := a.(type) {
 		case T : res = append(res, t)
-		default: debug(ctx, "%v: %v", ts(key), ts(a), trace{})
+		default: debug(ctx, "%v %v", ts(key), ts(a), trace{})
 		}
 	}
 	if checkpoints { check_unmap(u, key, c, x) }
