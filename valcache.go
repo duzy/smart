@@ -320,19 +320,19 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	f0 = func(c *valcache, ss [][]string, i, j, k int) (_ bool) {
 		if c == nil { return }
 
-		// End of File Path
+		// FIX: Correct Termination Check
+		// If i == len(ss), we have successfully consumed all segments.
+		// The "End of Segment" check below guarantees strict boundaries.
 		if i == len(ss) {
-			if j == len(ss[i-1]) && k == len(ss[i-1][j-1]) {
-				return fullmatch(c)
-			}
-			return
+			return fullmatch(c)
 		}
-		// End of Segment
+
+		// End of Segment Boundary
 		if j == len(ss[i]) {
 			return f0(c, ss, i+1, 0, 0)
 		}
 
-		var s = ss[i][j] // Current input token (e.g. "foo", "v", "1")
+		var s = ss[i][j] 
 
 		// 1. Literal / Prefix Match
 		if k < len(s) {
@@ -343,7 +343,6 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 			}
 
 			// B. Match Character Set [a-z]
-			// We must iterate 'o' because we can't lookup "[a-z]" by key "a"
 			for _, entry := range c.o {
 				key := entry.k
 				if len(key) > 2 && key[0] == '[' {
@@ -355,10 +354,9 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		} 
 		
 		// C. Match Whole Token (Hybrid Optimization)
-		// e.g., Input is "foo", Trie has node "foo".
+		// e.g., Input "foo", Trie has "foo". Consumes entire token.
 		if k == 0 {
 			if x, y := c.get(s); y {
-				// Consumed whole token in one hop
 				if f0(x, ss, i, j+1, 0) { return true }
 			}
 		}
@@ -374,6 +372,8 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		}
 
 		// 4. Recursive Wildcards "**" and "*?"
+		// NOTE: Logic order matters. If input is literal "**", Step C handles it.
+		// If Step C fails (or we want to traverse deeper), this handles the logic operator.
 		if x, y := c.get("**"); y {
 			if f_wild(x, ss, i, true) { return true }
 		}
@@ -384,20 +384,19 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		return
 	}
 
-	// f_wild: Handles greedy vs non-greedy recursion
 	f_wild = func(node *valcache, ss [][]string, idx int, greedy bool) bool {
 		if idx >= len(ss) {
 			return f0(node, ss, idx, 0, 0)
 		}
-
+		
 		matchHere := f0(node, ss, idx, 0, 0)
 
 		if greedy {
-			// Greedy (**): Consumes more
+			// Greedy (**): Try to consume more first
 			if f_wild(node, ss, idx+1, greedy) { return true }
 			if matchHere { return true }
 		} else {
-			// Non-Greedy (*?): Matches asap
+			// Non-Greedy (*?): Try match here first
 			if canStartMatch(node, ss[idx]) { return matchHere }
 			return f_wild(node, ss, idx+1, greedy)
 		}
