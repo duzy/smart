@@ -1,0 +1,24 @@
+project testbuiltins
+
+# Extend Glob:
+#   ?   - match a single character, foo???: foobar (OK), foo123 (OK), foo12 (NO), foo1234 (NO)
+#   *   - match a string of characters (except /), foo/*/bar: foo/abc/bar (OK), foo/a/b/c/bar (NO)
+#   *?  - match a shortest path (separated by /), foo/*?/bar: foo/a/b/c/bar (OK), foo/a/b/c/bar/bar (NO)
+#   **  - match a longest path (seperated by /), foo/**/bar: foo/a/b/c/bar (OK), 
+#
+# filemap ⇒ {foo:{bar:{
+#     h:{.:{v1:{0:foo/bar/v1.h},v2:{0:foo/bar/v2.h}}},
+#     txt:{.:{xyz000:{0:foo/bar/xyz000.txt}}},
+# }}}
+files -lock=files.txt (
+    (foo/ba*/v?.h foo/ba?/xyz*.txt) ⇒ $(dir $/)/inc
+)
+
+# locked files.txt:
+#   foo/bar/v1.h
+#   foo/bar/v2.h
+#   foo/bar/xxx000.txt
+val ::= $(read-file files.txt)
+
+val1 ::= $(wildcard(-sort) foo/bar/v2.h foo/bar/v1.h)
+val2 ::= $(wildcard(-sort) foo/bar/xyz???.h)

@@ -5253,6 +5253,14 @@ func ts(i any, o ...any) (s string) {
     }
 }
 
+func (p *valcache) km() (ss map[string]struct{}) {
+	ss = make(map[string]struct{})
+	for _, v := range reflect.ValueOf(p.v).MapKeys() {
+		ss[fmt.Sprintf("%s", v.Interface())] = struct{}{}
+	}
+	return
+}
+
 type tst struct{ i any }
 func (p tst) ts(ctx Context, _ string) string { return ts(p.i, ctx) }
 func (p tst) String() string { return ts(p.i) }
@@ -5304,15 +5312,16 @@ func _word(pos Position, w string) *word { return &word{valbase{pos},w} }
 func _compound(elems ...Value) *compound { return &compound{elements{elems}} }
 func _strcomp(elems ...Value) *strcomp { return &strcomp{elements{elems}} }
 func _list(elems ...Value) *list { return &list{elements{elems}} }
+func _group(pos Position, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
+func _globmeta(pos Position, tok token) *globmeta { return &globmeta{valbase{pos},tok} }
+func _globrange(val Value) *globrange { return &globrange{val} }
+func _globpat(elems ...Value) *globpat { return &globpat{elements{elems}} }
+
 func list_t[T Value](ii ...T) *list {
     var elems []Value
     for _, i := range ii { elems = append(elems, i) }
     return &list{elements{elems}}
 }
-func _group(pos Position, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
-func _globmeta(pos Position, tok token) *globmeta { return &globmeta{valbase{pos},tok} }
-func _globrange(val Value) *globrange { return &globrange{val} }
-func _globpat(elems ...Value) *globpat { return &globpat{elements{elems}} }
 
 func makePair(k, v Value) (p *pair) { return &pair{k, v} }
 func makePath(segments ...Value) *path { return &path{elements{segments}} }
@@ -5436,10 +5445,6 @@ func ParseURL(pos Position, s string) *url {
     }
 }
 
-const (
-    max_evoke = 999
-)
-
 // NOTE: evokeTraceots is for debugging call trace, if this finally goes into a formal
 //       feature, it should need a sync-lock protection.
 var evokeTraceots string
@@ -5451,7 +5456,6 @@ type evoke_builtin     struct{ name string }
 type evoke_def         struct{ name string }
 type evoke_detect_loop struct{ Value }
 type evoke_count       struct{}
-
 type evocation struct{
     automatic
     x   Value

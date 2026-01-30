@@ -39,3 +39,4 @@ _/
 /.emacs.desktop.lock
 /*.auto.prof
 /testdata/configuration/tmp/
+.DS_Store

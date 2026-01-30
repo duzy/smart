@@ -6,47 +6,479 @@
 package smart
 
 import (
-    "reflect"
     "strings"
+	"sync"
     "fmt"
 )
 
-const test_hit = false
-const test_val = ""
+// =============================================================================
+// 1. Core Data Structures & Interning
+// =============================================================================
 
-type hit_s struct{ *valcache ; s [][]string }
-type valcache struct{
-	a []any
-	o []string
-	v map[string]*valcache
+const mapThreshold = 16
+
+var (
+	// Global Wildcard Constants (Already "interned" by being constants)
+	WildcardOne   = "*"
+	WildcardAny   = "**"
+	WildcardShort = "*?"
+	WildcardChar  = "?"
+
+	// Intern Cache: Maps string content to the canonical string header
+	internPool = make(map[string]string)
+	internM sync.RWMutex
+)
+
+func intern(s string) string {
+	// Optimization: Return constants for wildcards
+	switch s {
+	case "*" : return WildcardOne
+	case "**": return WildcardAny
+	case "*?": return WildcardShort
+	case "?" : return WildcardChar
+	}
+	
+	internM.RLock()
+	interned, ok := internPool[s]
+	internM.RUnlock()
+
+	if ok { return interned }
+
+	internM.Lock()
+	internPool[s] = s
+	internM.Unlock()
+	return s
 }
 
-type cache_t struct{ Context }
-func (c cache_t) do(ctx Context, op any) any {
-	switch t := op.(type) {
-	case property: if t&(propCache) != 0 { return true }
-	case hit_s:
-		var c = t.valcache
-		for i := 0; i < len(t.s); i += 1 {
-			for j := 0; j < len(t.s[i]); j += 1 {
-				var s = t.s[i][j]
-				if c.v == nil { c.v = map[string]*valcache{} }
-				if x, y := c.v[s]; !y || x == nil {
-					v := new(valcache)
-					c.o = append(c.o, s)
-					c.v[s] = v
-					c = v
-				} else {
-					c = x
+// nodeEntry preserves order
+type nodeEntry struct {
+	k string
+	v *valcache
+}
+
+// valcache is the Hybrid Trie Node
+type valcache struct {
+	a []any                // Payload: Rules, Filemaps
+	o []nodeEntry          // Primary Storage: Compact & Ordered
+	v map[string]*valcache // Acceleration Index: Created only when len(o) >= mapThreshold
+}
+
+// =============================================================================
+// 2. Valcache Methods
+// =============================================================================
+
+func (p *valcache) String() (s string) { // NOTE: for debug
+	for i, a := range p.a {
+		var t string
+		switch v := a.(type) {
+		case filemap: t = v.String()
+		case *rule: t = v.target.String()
+		}
+		s += fmt.Sprintf("%d:%s,", i, t)
+	}
+	for _, n := range p.o {
+		c, _ := p.get(n.k)
+		s += fmt.Sprintf("%v:%v,", n.k, c)
+	}
+	if s != "" { s = s[:len(s)-1] } // aka. TrimSuffix(s, ",")
+	return "{"+s+"}"
+}
+
+func (c *valcache) get(key string) (*valcache, bool) {
+	if c.v != nil {
+		n, ok := c.v[key]
+		return n, ok
+	}
+	for i := range c.o {
+		if c.o[i].k == key {
+			return c.o[i].v, true
+		}
+	}
+	return nil, false
+}
+
+func (c *valcache) add(rawKey string) *valcache {
+	// Intern the key to deduplicate memory
+	key := intern(rawKey)
+
+	if n, ok := c.get(key); ok {
+		return n
+	}
+
+	child := new(valcache)
+	c.o = append(c.o, nodeEntry{k: key, v: child})
+
+	if len(c.o) == mapThreshold {
+		c.v = make(map[string]*valcache, len(c.o))
+		for _, entry := range c.o {
+			c.v[entry.k] = entry.v
+		}
+	} else if len(c.o) > mapThreshold {
+		c.v[key] = child
+	}
+
+	return child
+}
+
+// =============================================================================
+// 3. Path Processing
+// =============================================================================
+
+// tokenizePaths parse a path pattern (Extended Glob) into tokens
+func tokenizePaths(path string) (results [][][]string) {
+	// 1. Expand braces for concrete paths, foo/{a,b}/c ⇒ foo/a/c, foo/b/c
+	// 2. Tokenize the concrete paths, fo?/*/ba[a-z] ⇒ [[fo ?] [*] [ba "[a-z]"]]
+	for _, p := range expandBraces(path) {
+		results = append(results, tokenizePath(p))
+	}
+	return
+}
+
+// tokenizePath convert a path into tokens
+func tokenizePath(path string) [][]string {
+	return tokenizeSegments(strings.Split(path, "/"))
+}
+
+func tokenizeSegments(parts []string) [][]string {
+	ss := make([][]string, len(parts))
+
+	for i, part := range parts {
+		if !strings.ContainsAny(part, "*?.[") {
+			ss[i] = []string{intern(part)} // Intern whole directory
+			continue
+		}
+
+		var tokens []string
+		start := 0
+		
+		for j := 0; j < len(part); {
+			c := part[j]
+			if c == '*' || c == '?' || c == '.' || c == '[' {
+				if j > start {
+					tokens = append(tokens, intern(part[start:j]))
 				}
+
+				if c == '*' {
+					if j+1 < len(part) {
+						if part[j+1] == '*' {
+							tokens = append(tokens, WildcardAny)
+							j += 2; start = j; continue
+						} else if part[j+1] == '?' {
+							tokens = append(tokens, WildcardShort)
+							j += 2; start = j; continue
+						}
+					}
+					tokens = append(tokens, WildcardOne)
+					j++
+				} else if c == '[' {
+					end := strings.IndexByte(part[j:], ']')
+					if end != -1 {
+						// Intern the whole set "[a-z]"
+						tokens = append(tokens, intern(part[j:j+end+1]))
+						j += end + 1
+					} else {
+						tokens = append(tokens, "[")
+						j++
+					}
+				} else {
+					// Dots and Qmarks
+					tokens = append(tokens, intern(string(c)))
+					j++
+				}
+				start = j
+			} else {
+				j++
 			}
 		}
-		return []*valcache{c}
+		if start < len(part) {
+			tokens = append(tokens, intern(part[start:]))
+		}
+		ss[i] = tokens
 	}
-	return c.Context.do(ctx, op)
+	return ss
 }
 
-func uncache_match(ctx Context, pat, val any) (f bool, s string) {
+// expandBraces is the user-facing wrapper
+func expandBraces(text string) []string {
+	res, _ := expandBracesAt(text, 0)
+	return res
+}
+
+// expandBracesAt is the recursive core
+// It returns the list of expanded strings found at this level, and the index where it stopped.
+func expandBracesAt(s string, idx int) ([]string, int) {
+	var parts []string // The comma-separated options at this level
+
+	// We need to track the "current working string" for the current comma-option.
+	// However, because we might encounter a nested brace {a,b} inside an option,
+	// we actually need a list of "current prefixes" that we are building.
+	// Let's simplify: 
+	// The standard way to do this recursively is to parse the *structure* first, 
+	// then generate the combinations. 
+	// But to do it in one pass as you asked:
+
+	// Actually, the logic "prefix + middles[n] + suffix" is slightly complex 
+	// to do purely linearly because 'suffix' hasn't been parsed yet.
+	
+	// Better approach for "One Pass":
+	// 1. Scan until '{', ',', or '}'.
+	// 2. If '{': Recurse. Get [m1, m2]. Cartesian product with current prefixes.
+	// 3. If ',': Finish current set of strings, start new set.
+	// 4. If '}': Return.
+
+	currentSet := []string{""} // Start with one empty prefix
+
+	i := idx
+	for i < len(s) {
+		char := s[i]
+
+		if char == '{' {
+			// Recursion: parse the content inside {...}
+			middles, newIdx := expandBracesAt(s, i+1)
+			i = newIdx // Advance to after the matching '}'
+
+			// Cartesian Product: append each middle to each current prefix
+			var nextSet []string
+			for _, prefix := range currentSet {
+				for _, mid := range middles {
+					nextSet = append(nextSet, prefix+mid)
+				}
+			}
+			currentSet = nextSet
+
+		} else if char == '}' {
+			// Found closing brace for THIS level.
+			// We are done with this specific brace block.
+			// Return our results and the current index (to let caller continue)
+			return combine(parts, currentSet), i
+			
+		} else if char == ',' {
+			// Found a comma at THIS level.
+			// 1. Commit currentSet to parts.
+			parts = combine(parts, currentSet)
+			// 2. Reset currentSet for the next option
+			currentSet = []string{""}
+			
+		} else {
+			// Literal character
+			// Append char to all strings in currentSet
+			for k := range currentSet {
+				currentSet[k] += string(char)
+			}
+		}
+		i++
+	}
+
+	// End of string reached (implicit closing brace)
+	return combine(parts, currentSet), i
+}
+
+// Helper to merge the final set into the results
+func combine(existing []string, current []string) []string {
+	if len(current) == 0 {
+		return existing
+	}
+	return append(existing, current...)
+}
+
+// =============================================================================
+// 4. Cache & Uncache Logic (Same as before)
+// =============================================================================
+
+func cache(ctx Context, c *valcache, ss [][]string) *valcache {
+	for _, segment := range ss {
+		for _, token := range segment {
+			c = c.add(token)
+		}
+	}
+	return c
+}
+
+// =============================================================================
+// 5. Uncache / Matcher (Read Logic)
+// =============================================================================
+
+func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
+	var f0 func(*valcache, [][]string, int, int, int) bool
+	var f_wild func(*valcache, [][]string, int, bool) bool
+
+	if l1, l2 := len(root.o), len(root.v); l1 != 0 || l2 != 0 { defer func() {
+		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num:2})
+	}()}
+
+	fullvalue := do(ctx, fullvalue{})
+	fullmatch := func(c *valcache) (ok bool) {
+		if c.matchPayload(ctx, fullvalue) { r, ok = append(r, c), true }
+		return
+	}
+
+	f0 = func(c *valcache, ss [][]string, i, j, k int) (_ bool) {
+		if c == nil { return }
+
+		// End of File Path
+		if i == len(ss) {
+			if j == len(ss[i-1]) && k == len(ss[i-1][j-1]) {
+				return fullmatch(c)
+			}
+			return
+		}
+		// End of Segment
+		if j == len(ss[i]) {
+			return f0(c, ss, i+1, 0, 0)
+		}
+
+		var s = ss[i][j] // Current input token (e.g. "foo", "v", "1")
+
+		// 1. Literal / Prefix Match
+		if k < len(s) {
+			// A. Match specific character (Granular)
+			charStr := s[k : k+1]
+			if x, y := c.get(charStr); y {
+				if f0(x, ss, i, j, k+1) { return true }
+			}
+
+			// B. Match Character Set [a-z]
+			// We must iterate 'o' because we can't lookup "[a-z]" by key "a"
+			for _, entry := range c.o {
+				key := entry.k
+				if len(key) > 2 && key[0] == '[' {
+					if matchCharSet(key, s[k]) {
+						if f0(entry.v, ss, i, j, k+1) { return true }
+					}
+				}
+			}
+		} 
+		
+		// C. Match Whole Token (Hybrid Optimization)
+		// e.g., Input is "foo", Trie has node "foo".
+		if k == 0 {
+			if x, y := c.get(s); y {
+				// Consumed whole token in one hop
+				if f0(x, ss, i, j+1, 0) { return true }
+			}
+		}
+
+		// 2. Wildcard "?" (Single Char)
+		if x, y := c.get("?"); y {
+			if f0(x, ss, i, j, k+1) { return true }
+		}
+
+		// 3. Segment Wildcard "*"
+		if x, y := c.get("*"); y {
+			if f0(x, ss, i+1, 0, 0) { return true }
+		}
+
+		// 4. Recursive Wildcards "**" and "*?"
+		if x, y := c.get("**"); y {
+			if f_wild(x, ss, i, true) { return true }
+		}
+		if x, y := c.get("*?"); y {
+			if f_wild(x, ss, i, false) { return true }
+		}
+
+		return
+	}
+
+	// f_wild: Handles greedy vs non-greedy recursion
+	f_wild = func(node *valcache, ss [][]string, idx int, greedy bool) bool {
+		if idx >= len(ss) {
+			return f0(node, ss, idx, 0, 0)
+		}
+
+		matchHere := f0(node, ss, idx, 0, 0)
+
+		if greedy {
+			// Greedy (**): Consumes more
+			if f_wild(node, ss, idx+1, greedy) { return true }
+			if matchHere { return true }
+		} else {
+			// Non-Greedy (*?): Matches asap
+			if canStartMatch(node, ss[idx]) { return matchHere }
+			return f_wild(node, ss, idx+1, greedy)
+		}
+		return false
+	}
+
+	f0(root, ss, 0, 0, 0)
+	return
+}
+
+func matchCharSet(pattern string, char byte) bool {
+	// Simplified parser for [a-z0-9]
+	inner := pattern[1 : len(pattern)-1]
+	for i := 0; i < len(inner); i++ {
+		if i+2 < len(inner) && inner[i+1] == '-' {
+			start, end := inner[i], inner[i+2]
+			if char >= start && char <= end { return true }
+			i += 2
+		} else if inner[i] == char {
+			return true
+		}
+	}
+	return false
+}
+
+func canStartMatch(c *valcache, segment []string) bool {
+	if len(segment) == 0 { return false }
+	firstChar := segment[0]
+	
+	// Check exact match (literal or whole token)
+	if _, ok := c.get(firstChar); ok { return true }
+	if len(firstChar) > 0 {
+		if _, ok := c.get(firstChar[:1]); ok { return true }
+	}
+	
+	// Check wildcard/meta match
+	if _, ok := c.get("?"); ok { return true }
+	if _, ok := c.get("*"); ok { return true }
+	
+	for _, entry := range c.o {
+		if entry.k[0] == '[' && matchCharSet(entry.k, firstChar[0]) {
+			return true
+		}
+	}
+	return false
+}
+
+// =============================================================================
+
+type matched_filemap struct{ filemap ; string }
+type matched_rule struct{ *rule ; string }
+func (t matched_filemap) String() string { return "{"+t.filemap.String()+" name="+t.string+"}" }
+func (t matched_rule) String() string { return "{"+t.rule.String()+" name="+t.string+"}" }
+func (p *valcache) matchPayload(ctx Context, fullval any) (ok bool) {
+	for _, a := range p.a {
+		switch a := a.(type) {
+		case filemap:
+			var _a = filemap{a._filemap, expand(_final(ctx), a.pattern)}
+			for _, v := range merge(_a.pattern) {
+				if f, s := matchUnca(ctx, v, fullval); f {
+					if 0 < do(ctx, matched_filemap{_a, s}).(int) {
+						ok = true
+					} else {
+						debug(ctx, "%v %v", ts(a), s, trace{})
+					}
+				}
+			}
+		case *rule:
+			var _a = &rule{expand(_final(ctx), a.target), a.arged, a.program}
+			for _, v := range merge(_a.target) {
+				if f, s := matchUnca(ctx, v, fullval); f {
+					if 0 < do(ctx, matched_rule{_a, s}).(int) {
+						ok = true
+					} else {
+						debug(ctx, "%v %v", ts(a), s, trace{})
+					}
+				}
+			}
+		default:
+			debug(ctx, "%v", ts(a), trace{})
+		}
+	}
+	return
+}
+
+func matchUnca(ctx Context, pat, val any) (f bool, s string) {
 	var t any
 	if patterned(ctx, pat) {
 		if  f, t, _ = match(ctx, pat, val); !f && patterned(ctx, val) {
@@ -78,349 +510,114 @@ func uncache_match(ctx Context, pat, val any) (f bool, s string) {
 	return
 } 
 
-func uncache(ctx Context, _c *valcache, ss [][]string) (r []*valcache) {
-	var f0 func(*valcache, [][]string, int, int, int) bool
-	var f2 func(*valcache, []string, int, ...string) bool // **
-	var f3 func(*valcache, []string, int, ...string) bool // **
-	var ff func(*valcache)
-	var left, right func(any) (bool, string)
-	if a := do(ctx, ctxany{}); a != nil {
-		left  = func(b any) (bool, string) { return uncache_match(ctx, b, a) }
-		right = func(b any) (bool, string) { return uncache_match(ctx, a, b) }
-	} else {
-		debug(ctx, "no full value: %v %v", ss, _c, trace{})
-	}
-
-	fullmatch := func(c *valcache, match func(any) (bool, string)) (ok bool) {
-		for _, a := range c.a {
-			switch a := a.(type) {
-			case filemap:
-				var _a = filemap{a._filemap, expand(_final(ctx), a.pattern)}
-				for _, v := range merge(_a.pattern) {
-					if f, s := match(v); f {
-						if 0 < do(ctx, matched_filemap{_a, s}).(int) {
-							r, ok = append(r, c), true
-						} else {
-							debug(ctx, "%v %v", ts(a), s, trace{})
-						}
-					}
-				}
-			case *rule:
-				var _a = &rule{expand(_final(ctx), a.target), a.arged, a.program}
-				for _, v := range merge(_a.target) {
-					if f, s := match(v); f {
-						if 0 < do(ctx, matched_rule{_a, s}).(int) {
-							r, ok = append(r, c), true
-						} else {
-							debug(ctx, "%v %v", ts(a), s, trace{})
-						}
-					}
-				}
-			default:
-				debug(ctx, "%v", ts(a), trace{})
-			}
-		}
-		return
-	}
-
-	f0 = func(c *valcache, ss [][]string, i, j, k int) (_ bool) {
-		if c == nil {
-			return
-		} else if i == len(ss) {
-			if j == len(ss[i-1]) {
-				if k == len(ss[i-1][j-1]) {
-					return fullmatch(c, left)
-				}
-			}
-			return
-		} else if j == len(ss[i]) {
-			return f0(c, ss, i+1, 0, 0)
-		} else if k == len(ss[i][j]) {
-			return f0(c, ss, i, j+1, 0)
-		}
-
-		var nc = c
-		var s = ss[i][j]
-		switch s {
-		case "*":
-			if t := i+1; t < len(ss) {
-				if f2(c, ss[t], 0) { return true }
-				if false { debug(ctx, "%v %v %v", ss, ss[t], c) }
-				return f0(c, ss, t+1, 0, 0)
-			} else {
-				ff(c)
-				return true
-			}
-		case "**":
-			if t := len(ss)-1; i < t {
-				if f2(c, ss[t], 0) { return true }
-				if false { debug(ctx, "%v %v %v", ss, ss[t], c) }
-				return f0(c, ss, t+1, 0, 0)
-			} else {
-				ff(c)
-				return true
-			}
-		}
-
-		if x, y := c.v[s[:k+1]]; y {
-			if false { debug(ctx, "%v %v", s[:k+1], x) }
-			if f0(x, ss, i, j, k+1) { return true }
-		}
-
-		if x, y := c.v["**"]; y {
-			if f3(x, ss[len(ss)-1], 0) {
-				if false { debug(ctx, "%v %v → %v |%v", ss[len(ss)-1], x, r[len(r)-1], s[:k+1]) }
-				return true
-			}
-		}
-
-		if x, y := c.v["*?"]; y {
-			if f3(x, ss[i], 0) {
-				if false { debug(ctx, "%v %v → %v |%v", ss[i], x, r[len(r)-1], s[:k+1]) }
-				return true
-			}
-		}
-
-		if checkpoints && (c.a != nil || c.o != nil || c.v != nil) &&
-			strings.Contains(c.String(),sf("%v",do(ctx,ctxany{}))) {
-			var cs = callstack{}
-			if line_column(ctx) == "1:1" { cs.frames = -1 }
-			cs.debug(ctx, _f("%v (%d.%d.%d) %s %v", ss, i, j, k, s[:k+1], c))
-		}
-		return f0(nc, ss, i, j, k+1)
-	}
-
-	f2 = func(c *valcache, s []string, j int, k ...string) (res bool) {
-		if l := len(s); j == l {
-			return fullmatch(c, left)
-		} else if x, y := c.v[s[j]]; y {
-			if f2(x, s, j+1, append(k,s[j])...) { return true }
-		} else if j == 0 && k != nil && s[0] == k[len(k)-1] {
-			var j = 1 // reversed-counting tail, example: [h .] [foo bar zz x . h]
-			for n := len(k)-1; j < l && j <= n && s[j] == k[n-j] ; j += 1 {}
-			if j == l { return fullmatch(c, left) }
-		}
-		for _, o := range c.o {
-			if f2(c.v[o], s, j, append(k,o)...) { res = true; if false { break }}
-		}
-		return
-	}
-
-	f3 = func(c *valcache, s []string, j int, k ...string) (res bool) {
-		if l := len(s); j == l {
-			return fullmatch(c, left)
-		} else if x, y := c.v[s[j]]; y {
-			return f3(x, s, j+1, append(k,s[j])...)
-		} else if j == 0 && k != nil && s[0] == k[len(k)-1] {
-			var j = 1 // reversed-counting tail, example: [h .] [foo bar zz x . h]
-			for n := len(k)-1; j < l && j <= n && s[j] == k[n-j] ; j += 1 {}
-			if j == l { return fullmatch(c, left) }
-		}
-		return
-	}
-
-	ff = func(c *valcache) {
-		for _, k := range c.o { _c := c.v[k]
-			fullmatch(_c, right)
-			ff(_c)
-		}
-	}
-
-	if f0(_c, ss, 0, 0, 0) {
-		if checkpoints {}
-	} else {
-		if checkpoints {}
-	}
-	return
+func (p *valcache) ks() string {
+	var ks []string
+	for _, n := range p.o { ks = append(ks, n.k) }
+	return "[" + strings.Join(ks, " ") + "]"
 }
-
-type uncache_t struct{ Context ; a []any }
-func (u *uncache_t) do(ctx Context, op any) (res any) {
-	switch t := op.(type) {
-	case property: if t&(propUncache) != 0 { return true }
-	case hit_s: return uncache(ctx, t.valcache, t.s)
-	case matched_filemap, matched_rule:
-		u.a = append(u.a, t)
-		return len(u.a)
-	}
-	return u.Context.do(ctx, op)
-}
-
-type ctxany struct{}
-type hit_ctx struct{ Context ; any }
-func (p *hit_ctx) do(ctx Context, op any) any {
-	switch op.(type) {
-	case ctxany: return p.any
-	}
-	return p.Context.do(ctx, op)
-}
-
-func seperate(s, sep string) (ss []string) {
-	for i, s := range strings.Split(s, ".") {
-		if 0 == i && s == "" { continue }
-		if 0 < i { ss = append(ss, ".") }
-		ss = append(ss, s)
-	}
-	return
-}
-
-func vcs(a any) string {
-	switch t := a.(type) {
-	case filemap: return t.String()
-	}
-	return fmt.Sprintf("%v", a)
-}
-
-func c_in(k string, s ...string) bool {
-	for _, s := range s { if strings.Contains(s,k) { return true } }
-	return false
-}
-
-type matched_filemap struct{ filemap ; string }
-type matched_rule struct{ *rule ; string }
-func (p matched_filemap) String() string { return "{"+p.filemap.String()+" name="+p.string+"}" }
-func (p matched_rule) String() string { return "{"+p.rule.String()+" name="+p.string+"}" }
-
-func (p *valcache) km() (ss map[string]struct{}) {
-	ss = make(map[string]struct{})
-	for _, v := range reflect.ValueOf(p.v).MapKeys() {
-		ss[fmt.Sprintf("%s", v.Interface())] = struct{}{}
-	}
-	return
-}
-func (p *valcache) keys() []string { return p.o }
-func (p *valcache) ks() string { return "["+strings.Join(p.o," ")+"]" }
-func (p *valcache) String() (s string) { // NOTE: for debug
-	// switch len(p.a) {
-	// case 1 : BUG: s += fmt.Sprintf("%v", vcs(p.a[0]))
-	// default: for i, v := range p.a { s += fmt.Sprintf("%v:%v,", i, vcs(v)) }
-	// }
-	for i, v := range p.a { s += fmt.Sprintf("%v:%v,", i, vcs(v)) }
-	for _, k := range p.o { s += fmt.Sprintf("%v:%v,", k, p.v[k]) }
-	if s != "" { s = s[:len(s)-1] } // strings.TrimSuffix(s, ",")
-	return "{"+s+"}"
-}
-func (p *valcache) k(s []string, j int) (_ string, _ bool) {
+func (p *valcache) k(s []string, j int) (string, bool) {
 	for _, o := range p.o {
-		var i, l = 0, len(o)
+		var i, l = 0, len(o.k)
 		for n := j; n < len(s); n += 1 {
 			if t := s[n]; t == "?" {
 				i += 1
-			} else if i < l && strings.HasPrefix(o[i:], t) {
+			} else if i < l && strings.HasPrefix(o.k[i:], t) {
 				i += len(t)
 			} else {
 				break
 			}
 		}
-		if i == l { return o, true }
+		if i == l { return o.k, true }
 	}
-	return
+	return "", false
 }
-func (p *valcache) u(s []string, j int) (_ *valcache, _ bool) {
-	if x, y := p.v[s[j]]; y && x != nil { return x, y }
-	if k, y := p.k(s,j); y { x, y := p.v[k]; return x, y }
-	return
+
+type hit_segs struct{ *valcache ; s [][]string }
+type fullvalue struct{}
+type fullctx struct{ Context ; any }
+func (p *fullctx) do(ctx Context, op any) any {
+	switch op.(type) {
+	case fullvalue: return p.any
+	}
+	return p.Context.do(ctx, op)
+}
+func toks(ctx Context, c *valcache, segs ...string) hit_segs {
+	return hit_segs{c, tokenizeSegments(segs)}
+}
+func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
+	var s []string
+	if checkpoints { defer func() {
+		var _g = __string(ctx, g)
+		if t := tokenizePath(_g); sf("[%s]",s) != sf("%s",t) {
+			debug(ctx, "%s ⇒ [%s] != %v | %v", _g, s, t, c, trace{})
+		}
+	}()}
+	for _, e := range g.elems { s = append(s, __string(ctx, e)) }
+	return hit_segs{c, [][]string{s}}
+}
+func tokp(ctx Context, c *valcache, p *path) hit_segs {
+	var ss [][]string
+	if checkpoints { defer func() {
+		var s = __string(ctx, p)
+		if t := tokenizePath(s); sf("%s",ss) != sf("%s",t) {
+			debug(ctx, "%v: %v != %v", s, ss, t, trace{})
+		}
+	}()}
+	for _, e := range p.elems {
+		switch t := unbox(e).(type) {
+		case *globpat: ss = append(ss, tokg(ctx, c, t).s...)
+		default: ss = append(ss, toks(ctx, c, __string(ctx, t)).s...)
+		}
+	}
+	return hit_segs{c, ss}
+}
+func _hit(ctx Context, c *valcache, k any) (r []*valcache) {
+	if checkpoints { defer func(s string) {
+		if  truly(ctx, propCache  ) { check_cache(ctx, k, s, c, r) }
+		if  truly(ctx, propUncache) { check_uncache(ctx, k, s, c, r) }
+		if !truly(ctx, propCache|propUncache) { debug(ctx, "%v %v", k, c, trace{}) }
+	}(c.String())}
+	switch t := k.(type) {
+	case   string : return do_hit(&fullctx{ctx,t}, toks(ctx, c, strings.Split(t, pathSep)...))
+	case []string : return do_hit(&fullctx{ctx,t}, toks(ctx, c, t...))
+	case *closure : return do_hit(&fullctx{ctx,t}, toks(ctx, c, "&"))
+	case *percpat : return do_hit(&fullctx{ctx,t}, toks(ctx, c))
+	case *regexpat: return do_hit(&fullctx{ctx,t}, toks(ctx, c))
+	case *globpat : return do_hit(&fullctx{ctx,t}, tokg(ctx, c, t))
+	case *path    : return do_hit(&fullctx{ctx,t}, tokp(ctx, c, t))
+	case *strval  : return do_hit(&fullctx{ctx,t}, toks(ctx, c, `{`+__string(ctx,t)+`}`))
+	case *strlit  : return do_hit(&fullctx{ctx,t}, toks(ctx, c, `'`+__string(ctx,t.s)+`'`))
+	case *strcomp : return do_hit(&fullctx{ctx,t}, toks(ctx, c, `"`+__string(ctx,t)+`"`))
+	case *argumented: return _hit(ctx, c, t.Value)
+	case *loc : return _hit(ctx, c, t.Value)
+	case *file: return _hit(ctx, c, t.name)
+	case *rule: return _hit(ctx, c, t.target)
+	default: return _hit(ctx, c, __string(ctx, k))
+	}
 }
 
 func do_hit(c Context, a any) (r []*valcache) { r, _ = do(c,a).([]*valcache); return }
 func hit(ctx Context, c *valcache, k any) []*valcache { return _hit(ctx, c, k) }
-func hits(c *valcache, _s ...string) hit_s {
-	var ss [][]string
-	for _, s := range _s { ss = append(ss, seperate(s, ".")) }
-	return hit_s{c, ss}
+
+type   cache_t struct{ Context }
+type uncache_t struct{ Context ; a []any }
+
+func (c cache_t) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case property: if t&propCache != 0 { return true }
+	case hit_segs: return []*valcache{cache(ctx, t.valcache, t.s)}
+	}
+	return c.Context.do(ctx, op)
 }
-func hitg(ctx Context, c *valcache, g *globpat) hit_s {
-	var ( s []string ; ss [][]string )
-elems_loop:
-	for i, e := range g.elems {
-		switch t := e.(type) {
-		case *globrange:
-			debug(pc(ctx,e), "TODO: %v", t, trace{})
-		case *globmeta:
-			switch t.token {
-			case ASTQ: // *?
-				for n := i+1; n < len(g.elems); n += 1 {
-					var t = __string(ctx, g.elems[n])
-					for m := 0; m < len(t); m += 1 { s = append(s, string(t[m])) }
-				}
-				ss = append(ss, []string{"*?"}, s)
-				break elems_loop
-			case DAST: // **
-				for n := len(g.elems)-1; i < n; n -= 1 {
-					var t = __string(ctx, g.elems[n])
-					for m := len(t)-1; 0 <= m; m -= 1 { s = append(s, string(t[m])) }
-				}
-				ss = append(ss, []string{"**"}, s)
-				break elems_loop
-			case SAST: // *
-				for n := len(g.elems)-1; i < n; n -= 1 {
-					var t = __string(ctx, g.elems[n])
-					for m := len(t)-1; 0 <= m; m -= 1 { s = append(s, string(t[m])) }
-				}
-				ss = append(ss, []string{"*"}, s)
-				break elems_loop
-			case QUE: // ?    s = append(s, "?")
-				if i := len(ss)-1; i == -1 {
-					ss = append(ss, []string{"?"})
-				} else {
-					ss[i] = append(ss[i], "?")
-				}
-			default:
-				debug(pc(ctx,e), "TODO: %v %v", t.token, c, trace{})
-			}
-		default:
-			if t := __string(ctx, t); i == 0 {
-				ss = append(ss, append(s, t))
-			} else {
-				for _, r := range t { s = append(s, string(r)) }
-				ss = append(ss, s)
-			}
-			s = nil
-		}
+
+func (u *uncache_t) do(ctx Context, op any) (res any) {
+	switch t := op.(type) {
+	case property: if t&propUncache != 0 { return true }
+	case hit_segs: return uncache(ctx, t.valcache, t.s)
+	case matched_filemap, matched_rule:
+		u.a = append(u.a, t); return len(u.a)
 	}
-	return hit_s{c, ss}
-}
-func hitp(ctx Context, c *valcache, p *path) hit_s {
-	var ss [][]string
-	for _, e := range p.elems {
-		switch t := unbox(e).(type) {
-		case *globpat: ss = append(ss, hitg(ctx, c, t).s...)
-		default: ss = append(ss, hits(c, __string(ctx, t)).s...)
-		}
-	}
-	return hit_s{c, ss}
-}
-func _hit(ctx Context, c *valcache, k any) (r []*valcache) {
-	if checkpoints { defer func(s string) {
-		switch {
-		case truly(ctx, propCache): check_cache(ctx, k, s, c, r)
-		case truly(ctx, propUncache): check_uncache(ctx, k, s, c, r)
-		default: debug(ctx, "%v %v", k, c, trace{})
-		}
-	}(c.String())}
-	switch t := k.(type) {
-	case  nil : return
-	case *loc : return _hit(ctx, c, t.Value)
-	case *file: return _hit(ctx, c, t.name)
-	case *rule: return _hit(ctx, c, t.target)
-	case *argumented: return _hit(ctx, c, t.Value)
-	case   string : return do_hit(&hit_ctx{ctx,t}, hits(c, strings.Split(t, pathSep)...))
-	case []string : return do_hit(&hit_ctx{ctx,t}, hits(c, t...))
-	case *closure : return do_hit(&hit_ctx{ctx,t}, hits(c, "&"))
-	case *percpat : return do_hit(&hit_ctx{ctx,t}, hits(c))
-	case *regexpat: return do_hit(&hit_ctx{ctx,t}, hits(c))
-	case *globpat : return do_hit(&hit_ctx{ctx,t}, hitg(ctx,c,t))
-	case *path    : return do_hit(&hit_ctx{ctx,t}, hitp(ctx,c,t))
-	case *strval  : return do_hit(ctx, hits(c, `{`+__string(ctx,t)+`}`))
-	case *strlit  : return do_hit(ctx, hits(c, `'`+__string(ctx,t.s)+`'`))
-	case *strcomp : return do_hit(ctx, hits(c, `"`+__string(ctx,t)+`"`))
-	}
-	if true {
-		return _hit(ctx, c, __string(ctx, k))
-	} else {
-		var t = __string(ctx, k)
-		return do_hit(&hit_ctx{ctx,t}, hits(c, strings.Split(t, pathSep)...))
-	}
+	return u.Context.do(ctx, op)
 }
 
 func map_files(ctx Context, p *project, patts, paths []Value) (res []filemap) {
