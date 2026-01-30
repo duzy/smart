@@ -30,21 +30,27 @@ var (
 )
 
 func intern(s string) string {
-	// Optimization: Return constants for wildcards
+	// 1. Optimization: Return constants for wildcards immediately
 	switch s {
-	case "*" : return WildcardOne
+	case "*":  return WildcardOne
 	case "**": return WildcardAny
 	case "*?": return WildcardShort
-	case "?" : return WildcardChar
+	case "?":  return WildcardChar
 	}
-	
+
+	// 2. Fast Path: Read Lock
 	internM.RLock()
 	interned, ok := internPool[s]
 	internM.RUnlock()
-
 	if ok { return interned }
 
+	// 3. Slow Path: Write Lock
 	internM.Lock()
+	// Double check to prevent race conditions
+	if interned, ok = internPool[s]; ok {
+		internM.Unlock()
+		return interned
+	}
 	internPool[s] = s
 	internM.Unlock()
 	return s
@@ -56,16 +62,12 @@ type nodeEntry struct {
 	v *valcache
 }
 
-// valcache is the Hybrid Trie Node
+// valcache: Hybrid Trie Node (Slice 'o' for order/compactness, Map 'v' for speed)
 type valcache struct {
 	a []any                // Payload: Rules, Filemaps
 	o []nodeEntry          // Primary Storage: Compact & Ordered
 	v map[string]*valcache // Acceleration Index: Created only when len(o) >= mapThreshold
 }
-
-// =============================================================================
-// 2. Valcache Methods
-// =============================================================================
 
 func (p *valcache) String() (s string) { // NOTE: for debug
 	for i, a := range p.a {
@@ -83,6 +85,10 @@ func (p *valcache) String() (s string) { // NOTE: for debug
 	if s != "" { s = s[:len(s)-1] } // aka. TrimSuffix(s, ",")
 	return "{"+s+"}"
 }
+
+// =============================================================================
+// 2. Valcache Methods
+// =============================================================================
 
 func (c *valcache) get(key string) (*valcache, bool) {
 	if c.v != nil {
@@ -126,8 +132,7 @@ func (c *valcache) add(rawKey string) *valcache {
 
 // tokenizePaths parse a path pattern (Extended Glob) into tokens
 func tokenizePaths(path string) (results [][][]string) {
-	// 1. Expand braces for concrete paths, foo/{a,b}/c ⇒ foo/a/c, foo/b/c
-	// 2. Tokenize the concrete paths, fo?/*/ba[a-z] ⇒ [[fo ?] [*] [ba "[a-z]"]]
+	// Expand braces first: foo/{a,b} -> [foo/a, foo/b]
 	for _, p := range expandBraces(path) {
 		results = append(results, tokenizePath(p))
 	}
@@ -143,8 +148,9 @@ func tokenizeSegments(parts []string) [][]string {
 	ss := make([][]string, len(parts))
 
 	for i, part := range parts {
+		// Optimization: If no meta-chars, intern the whole segment
 		if !strings.ContainsAny(part, "*?.[") {
-			ss[i] = []string{intern(part)} // Intern whole directory
+			ss[i] = []string{intern(part)}
 			continue
 		}
 
@@ -154,11 +160,13 @@ func tokenizeSegments(parts []string) [][]string {
 		for j := 0; j < len(part); {
 			c := part[j]
 			if c == '*' || c == '?' || c == '.' || c == '[' {
+				// Flush preceding literal
 				if j > start {
 					tokens = append(tokens, intern(part[start:j]))
 				}
 
 				if c == '*' {
+					// Check for ** or *?
 					if j+1 < len(part) {
 						if part[j+1] == '*' {
 							tokens = append(tokens, WildcardAny)
@@ -171,6 +179,7 @@ func tokenizeSegments(parts []string) [][]string {
 					tokens = append(tokens, WildcardOne)
 					j++
 				} else if c == '[' {
+					// Capture [a-z] as one token
 					end := strings.IndexByte(part[j:], ']')
 					if end != -1 {
 						// Intern the whole set "[a-z]"
@@ -181,7 +190,7 @@ func tokenizeSegments(parts []string) [][]string {
 						j++
 					}
 				} else {
-					// Dots and Qmarks
+					// Capture . and ? -- Dots and Qmarks
 					tokens = append(tokens, intern(string(c)))
 					j++
 				}
@@ -190,6 +199,7 @@ func tokenizeSegments(parts []string) [][]string {
 				j++
 			}
 		}
+		// Flush trailing literal
 		if start < len(part) {
 			tokens = append(tokens, intern(part[start:]))
 		}
@@ -198,7 +208,7 @@ func tokenizeSegments(parts []string) [][]string {
 	return ss
 }
 
-// expandBraces is the user-facing wrapper
+// expandBraces Recursive Brace Expander (One-pass)
 func expandBraces(text string) []string {
 	res, _ := expandBracesAt(text, 0)
 	return res
@@ -275,14 +285,12 @@ func expandBracesAt(s string, idx int) ([]string, int) {
 
 // Helper to merge the final set into the results
 func combine(existing []string, current []string) []string {
-	if len(current) == 0 {
-		return existing
-	}
+	if len(current) == 0 { return existing }
 	return append(existing, current...)
 }
 
 // =============================================================================
-// 4. Cache & Uncache Logic (Same as before)
+// 4. Cache & Uncache Logic
 // =============================================================================
 
 func cache(ctx Context, c *valcache, ss [][]string) *valcache {
@@ -294,10 +302,6 @@ func cache(ctx Context, c *valcache, ss [][]string) *valcache {
 	return c
 }
 
-// =============================================================================
-// 5. Uncache / Matcher (Read Logic)
-// =============================================================================
-
 func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	var f0 func(*valcache, [][]string, int, int, int) bool
 	var f_wild func(*valcache, [][]string, int, bool) bool
@@ -306,6 +310,7 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num:2})
 	}()}
 
+	// Stubbed payload matching
 	fullvalue := do(ctx, fullvalue{})
 	fullmatch := func(c *valcache) (ok bool) {
 		if c.matchPayload(ctx, fullvalue) { r, ok = append(r, c), true }
