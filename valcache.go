@@ -309,11 +309,26 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num:2})
 	}()}
 
-	// Stubbed payload matching
+	// Payload Matcher & Deduplicator
+	// We use a map 'seen' to track added nodes (pointer equality) to ensure uniqueness.
+	seen := make(map[*valcache]struct{}) // Deduplication set
 	fullvalue := do(ctx, fullvalue{})
-	fullmatch := func(c *valcache) (ok bool) {
-		if c.matchPayload(ctx, fullvalue) { r, ok = append(r, c), true }
-		return
+	fullmatch := func(c *valcache) bool {
+		// 1. Check Payload Logic
+		if !c.matchPayload(ctx, fullvalue) {
+			return false
+		}
+		
+		// 2. Check Deduplication
+		// If we've already added this node to 'r', skip it.
+		if _, exists := seen[c]; exists {
+			return true // Return true to indicate "path finished", but don't re-add
+		}
+		
+		// 3. Add to Result
+		seen[c] = struct{}{}
+		r = append(r, c)
+		return true
 	}
 
 	f0 = func(c *valcache, ss [][]string, i, j, k int) (found bool) {
@@ -332,35 +347,26 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// ---------------------------------------------------------------------
 		
 		if s == WildcardAny { // "**"
-			// Option B (First): Consume Concrete Children
+			// Option B (Order 1): Consume Concrete Children (Exhaustive)
+			// We DO NOT skip metas here. We let "**" traverse into "*", "**", etc.
+			// Duplicate paths are filtered at the end by 'fullmatch'.
 			for _, entry := range c.o {
-				// SKIP ALL WILDCARD METAS (*, **, *?)
-				if !isWildcardMeta(entry.k) && f0(entry.v, ss, i, j, 0) { found = true }
+				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
-			// Option A (Second): Skip Input (Zero-match) -> Falls through to Trie Logic
+			// Option A (Order 2): Skip Input (Zero-match)
 			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
 		}
 
 		if s == WildcardOne { // "*"
-			// Option B (First): Consume Concrete Children
+			// Option B (Order 1): Consume Concrete Children
 			for _, entry := range c.o {
-				// SKIP ALL WILDCARD METAS
-				if !isWildcardMeta(entry.k) && f0(entry.v, ss, i, j, 0) { found = true }
+				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
-			// Option A (Second): Empty/Skip Match -> Falls through to Trie Logic
+			// Option A (Order 2): Skip Input (Empty match)
 			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
 		}
-		
-		// NOTE: When we implement "*?" later, use the same pattern:
-		// if s == WildcardShort {
-		//     for _, entry := range c.o {
-		//         if !isWildcardMeta(entry.k) && f0(entry.v, ss, i, j, 0) { found = true }
-		//     }
-		//     if f0(c, ss, i, j+1, 0) { found = true }
-		//     return found
-		// }
 
 		// ---------------------------------------------------------------------
 		// 4. TRIE WILDCARD LOGIC
@@ -393,13 +399,11 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		if x, y := c.get("?"); y {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
-		// Trie *
 		if x, y := c.get("*"); y {
 			if f0(x, ss, i+1, 0, 0) { found = true }
 		}
-		// Trie **
 		if x, y := c.get("**"); y {
-			if f0(x, ss, i, j, k) { found = true }      // Transition
+			if f0(x, ss, i, j, k) { found = true }       // Transition
 			if j == 0 && k == 0 {
 				if f0(c, ss, i+1, 0, 0) { found = true } // Consume
 			}
