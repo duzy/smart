@@ -320,66 +320,58 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		if c == nil { return false }
 
 		// 1. Success Condition
-		if i == len(ss) {
-			return fullmatch(c)
-		}
+		if i == len(ss) { return fullmatch(c) }
 
 		// 2. Segment Boundary
-		if j == len(ss[i]) {
-			return f0(c, ss, i+1, 0, 0)
-		}
+		if j == len(ss[i]) { return f0(c, ss, i+1, 0, 0) }
 
 		s := ss[i][j]
 
-		// =====================================================================
-		// 3. INPUT WILDCARD LOGIC (Exhaustive)
-		// =====================================================================
-
-		// Handle "**" in Input
-		if s == WildcardAny { 
-			// Option A: Skip "**" (Match remainder against current node)
-			if f0(c, ss, i, j+1, 0) { found = true }
-
-			// Option B: Consume Trie Children (Recurse)
-			// WE MUST NOT RETURN EARLY here. We need to check ALL children.
+		// ---------------------------------------------------------------------
+		// 3. INPUT WILDCARD LOGIC
+		// ---------------------------------------------------------------------
+		
+		if s == WildcardAny { // "**"
+			// Option B (First): Consume Concrete Children
 			for _, entry := range c.o {
-				// Recurse with "**" still active (i, j unchanged)
-				if f0(entry.v, ss, i, j, 0) { found = true }
+				// SKIP ALL WILDCARD METAS (*, **, *?)
+				if !isWildcardMeta(entry.k) && f0(entry.v, ss, i, j, 0) { found = true }
 			}
+			// Option A (Second): Skip Input (Zero-match) -> Falls through to Trie Logic
+			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
 		}
 
-		// Handle "*" in Input
-		if s == WildcardOne {
-			// Option A: Empty match (match remainder)
-			if f0(c, ss, i, j+1, 0) { found = true }
-
-			// Option B: Consume Child
+		if s == WildcardOne { // "*"
+			// Option B (First): Consume Concrete Children
 			for _, entry := range c.o {
-				// Consume child, keep "*" active (if matching across chars in hybrid)
-				// OR consume child, advance input (if atomic). 
-				// For atomic path segments, we usually consume child & input:
-				// if f0(entry.v, ss, i, j+1, 0) { found = true }
-				
-				// But to match "f*o" against "foo" (granular), we keep state:
-				if f0(entry.v, ss, i, j, 0) { found = true }
+				// SKIP ALL WILDCARD METAS
+				if !isWildcardMeta(entry.k) && f0(entry.v, ss, i, j, 0) { found = true }
 			}
+			// Option A (Second): Empty/Skip Match -> Falls through to Trie Logic
+			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
 		}
+		
+		// NOTE: When we implement "*?" later, use the same pattern:
+		// if s == WildcardShort {
+		//     for _, entry := range c.o {
+		//         if !isWildcardMeta(entry.k) && f0(entry.v, ss, i, j, 0) { found = true }
+		//     }
+		//     if f0(c, ss, i, j+1, 0) { found = true }
+		//     return found
+		// }
 
-		// =====================================================================
-		// 4. TRIE WILDCARD LOGIC (Exhaustive)
-		// =====================================================================
+		// ---------------------------------------------------------------------
+		// 4. TRIE WILDCARD LOGIC
+		// ---------------------------------------------------------------------
 
-		// Standard Literal / Prefix Match
+		// Literal / Prefix Match
 		if k < len(s) {
-			// A. Granular Char Match
 			charStr := s[k : k+1]
 			if x, y := c.get(charStr); y {
 				if f0(x, ss, i, j, k+1) { found = true }
 			}
-			
-			// B. Char Set Match [a-z]
 			for _, entry := range c.o {
 				key := entry.k
 				if len(key) > 2 && key[0] == '[' {
@@ -390,32 +382,38 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 			}
 		} 
 		
-		// C. Hybrid Token Match
+		// Hybrid Token Match
 		if k == 0 {
 			if x, y := c.get(s); y {
 				if f0(x, ss, i, j+1, 0) { found = true }
 			}
 		}
 
-		// D. Trie Wildcards
-		// Note: Use 'found = ... || found' to accumulate matches from all branches
+		// Trie Wildcards
 		if x, y := c.get("?"); y {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
+		// Trie *
 		if x, y := c.get("*"); y {
 			if f0(x, ss, i+1, 0, 0) { found = true }
 		}
+		// Trie **
 		if x, y := c.get("**"); y {
-			// For Trie-side **, we can usually just consume. 
-			// If strict greedy needed, restore f_wild. 
-			// For basic matching, this suffices:
-			if f0(x, ss, i+1, 0, 0) { found = true }
+			if f0(x, ss, i, j, k) { found = true }      // Transition
+			if j == 0 && k == 0 {
+				if f0(c, ss, i+1, 0, 0) { found = true } // Consume
+			}
 		}
 
 		return found
 	}
 
 	f0(root, ss, 0, 0, 0)
+	return
+}
+
+func isWildcardMeta(k string) (res bool) {
+	switch k { case WildcardAny, WildcardOne, WildcardShort: res = true }
 	return
 }
 
