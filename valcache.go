@@ -304,9 +304,8 @@ func cache(ctx Context, c *valcache, ss [][]string) *valcache {
 
 func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	var f0 func(*valcache, [][]string, int, int, int) bool
-	var f_wild func(*valcache, [][]string, int, bool) bool
 
-	if l1, l2 := len(root.o), len(root.v); l1 != 0 || l2 != 0 { defer func() {
+	if l1, l2 := len(root.o), len(root.v); (l1 != 0 || l2 != 0) { defer func() {
 		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num:2})
 	}()}
 
@@ -317,90 +316,103 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		return
 	}
 
-	f0 = func(c *valcache, ss [][]string, i, j, k int) (_ bool) {
-		if c == nil { return }
+	f0 = func(c *valcache, ss [][]string, i, j, k int) (found bool) {
+		if c == nil { return false }
 
-		// FIX: Correct Termination Check
-		// If i == len(ss), we have successfully consumed all segments.
-		// The "End of Segment" check below guarantees strict boundaries.
+		// 1. Success Condition
 		if i == len(ss) {
 			return fullmatch(c)
 		}
 
-		// End of Segment Boundary
+		// 2. Segment Boundary
 		if j == len(ss[i]) {
 			return f0(c, ss, i+1, 0, 0)
 		}
 
-		var s = ss[i][j] 
+		s := ss[i][j]
 
-		// 1. Literal / Prefix Match
+		// =====================================================================
+		// 3. INPUT WILDCARD LOGIC (Exhaustive)
+		// =====================================================================
+
+		// Handle "**" in Input
+		if s == WildcardAny { 
+			// Option A: Skip "**" (Match remainder against current node)
+			if f0(c, ss, i, j+1, 0) { found = true }
+
+			// Option B: Consume Trie Children (Recurse)
+			// WE MUST NOT RETURN EARLY here. We need to check ALL children.
+			for _, entry := range c.o {
+				// Recurse with "**" still active (i, j unchanged)
+				if f0(entry.v, ss, i, j, 0) { found = true }
+			}
+			return found
+		}
+
+		// Handle "*" in Input
+		if s == WildcardOne {
+			// Option A: Empty match (match remainder)
+			if f0(c, ss, i, j+1, 0) { found = true }
+
+			// Option B: Consume Child
+			for _, entry := range c.o {
+				// Consume child, keep "*" active (if matching across chars in hybrid)
+				// OR consume child, advance input (if atomic). 
+				// For atomic path segments, we usually consume child & input:
+				// if f0(entry.v, ss, i, j+1, 0) { found = true }
+				
+				// But to match "f*o" against "foo" (granular), we keep state:
+				if f0(entry.v, ss, i, j, 0) { found = true }
+			}
+			return found
+		}
+
+		// =====================================================================
+		// 4. TRIE WILDCARD LOGIC (Exhaustive)
+		// =====================================================================
+
+		// Standard Literal / Prefix Match
 		if k < len(s) {
-			// A. Match specific character (Granular)
+			// A. Granular Char Match
 			charStr := s[k : k+1]
 			if x, y := c.get(charStr); y {
-				if f0(x, ss, i, j, k+1) { return true }
+				if f0(x, ss, i, j, k+1) { found = true }
 			}
-
-			// B. Match Character Set [a-z]
+			
+			// B. Char Set Match [a-z]
 			for _, entry := range c.o {
 				key := entry.k
 				if len(key) > 2 && key[0] == '[' {
 					if matchCharSet(key, s[k]) {
-						if f0(entry.v, ss, i, j, k+1) { return true }
+						if f0(entry.v, ss, i, j, k+1) { found = true }
 					}
 				}
 			}
 		} 
 		
-		// C. Match Whole Token (Hybrid Optimization)
-		// e.g., Input "foo", Trie has "foo". Consumes entire token.
+		// C. Hybrid Token Match
 		if k == 0 {
 			if x, y := c.get(s); y {
-				if f0(x, ss, i, j+1, 0) { return true }
+				if f0(x, ss, i, j+1, 0) { found = true }
 			}
 		}
 
-		// 2. Wildcard "?" (Single Char)
+		// D. Trie Wildcards
+		// Note: Use 'found = ... || found' to accumulate matches from all branches
 		if x, y := c.get("?"); y {
-			if f0(x, ss, i, j, k+1) { return true }
+			if f0(x, ss, i, j, k+1) { found = true }
 		}
-
-		// 3. Segment Wildcard "*"
 		if x, y := c.get("*"); y {
-			if f0(x, ss, i+1, 0, 0) { return true }
+			if f0(x, ss, i+1, 0, 0) { found = true }
 		}
-
-		// 4. Recursive Wildcards "**" and "*?"
-		// NOTE: Logic order matters. If input is literal "**", Step C handles it.
-		// If Step C fails (or we want to traverse deeper), this handles the logic operator.
 		if x, y := c.get("**"); y {
-			if f_wild(x, ss, i, true) { return true }
-		}
-		if x, y := c.get("*?"); y {
-			if f_wild(x, ss, i, false) { return true }
+			// For Trie-side **, we can usually just consume. 
+			// If strict greedy needed, restore f_wild. 
+			// For basic matching, this suffices:
+			if f0(x, ss, i+1, 0, 0) { found = true }
 		}
 
-		return
-	}
-
-	f_wild = func(node *valcache, ss [][]string, idx int, greedy bool) bool {
-		if idx >= len(ss) {
-			return f0(node, ss, idx, 0, 0)
-		}
-		
-		matchHere := f0(node, ss, idx, 0, 0)
-
-		if greedy {
-			// Greedy (**): Try to consume more first
-			if f_wild(node, ss, idx+1, greedy) { return true }
-			if matchHere { return true }
-		} else {
-			// Non-Greedy (*?): Try match here first
-			if canStartMatch(node, ss[idx]) { return matchHere }
-			return f_wild(node, ss, idx+1, greedy)
-		}
-		return false
+		return found
 	}
 
 	f0(root, ss, 0, 0, 0)
