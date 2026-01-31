@@ -306,10 +306,11 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	var f0 func(*valcache, [][]string, int, int, int) bool
 
 	if l1, l2 := len(root.o), len(root.v); (l1 != 0 || l2 != 0) { defer func() {
-		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num:2})
+		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num: 2})
 	}()}
 
-	// Result Deduplication (Vital for overlapping matches)
+	// Result Deduplication
+	// [User Preference] Check 'seen' first to avoid redundant payload matching
 	seen := make(map[*valcache]struct{})
 	fullvalue := do(ctx, fullvalue{})
 	fullmatch := func(c *valcache) bool {
@@ -398,29 +399,37 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		}
 		
 		// [FIX] "*" and "*?" Consumption Logic
-		// They must act as "Local Wildcards": consume chars/tokens but STOP at segment end.
 		if x, y := c.get("*"); y {
-			if f0(x, ss, i, j, k) { found = true } // 1. Transition (Match Empty)
+			// 1. Transition (Match Empty)
+			if f0(x, ss, i, j, k) { found = true }
 			
 			// 2. Consume (Recursive check)
-			// Manually check bounds to prevent crossing Segment Boundary (i+1)
 			nextJ, nextK := j, k+1
-			if nextK > len(ss[i][nextJ]) { // Overflow token?
+			if nextK == len(ss[i][nextJ]) { // [FIX] Exact match, not >
 				nextJ++; nextK = 0
 			}
-			if nextJ < len(ss[i]) { // STAY in current segment
+			
+			if nextJ == len(ss[i]) {
+				// [FIX] Reached End of Segment via consumption. 
+				// We MUST transition to child 'x' because 'c' cannot match past this segment.
+				if f0(x, ss, i, nextJ, nextK) { found = true }
+			} else {
+				// Still inside segment. Recurse on 'c' (Parent).
 				if f0(c, ss, i, nextJ, nextK) { found = true }
 			}
 		}
 		if x, y := c.get("*?"); y {
-			if f0(x, ss, i, j, k) { found = true } // 1. Transition
+			// Same logic as "*"
+			if f0(x, ss, i, j, k) { found = true }
 			
-			// 2. Consume (Same as *)
 			nextJ, nextK := j, k+1
-			if nextK > len(ss[i][nextJ]) {
+			if nextK == len(ss[i][nextJ]) {
 				nextJ++; nextK = 0
 			}
-			if nextJ < len(ss[i]) {
+			
+			if nextJ == len(ss[i]) {
+				if f0(x, ss, i, nextJ, nextK) { found = true }
+			} else {
 				if f0(c, ss, i, nextJ, nextK) { found = true }
 			}
 		}
@@ -428,7 +437,7 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		if x, y := c.get("**"); y {
 			if f0(x, ss, i, j, k) { found = true }       // Transition
 			if j == 0 && k == 0 {
-				if f0(c, ss, i+1, 0, 0) { found = true } // Consume Segment (Aggressive)
+				if f0(c, ss, i+1, 0, 0) { found = true } // Consume Segment
 			}
 		}
 

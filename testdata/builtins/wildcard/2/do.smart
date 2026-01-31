@@ -7,5 +7,5 @@ files (
 val1 ::= $(wildcard(-sort) foo/xv1y.h foo/bar/v2.h foo/bar/v1.h)
 val2 ::= $(wildcard(-sort) foo/b?r/v?.h)
 val3 ::= $(wildcard(-sort) foo/xv*y.h)
-val4 ::= $(wildcard(-sort) foo/**/x.h)
-val5 ::= $(wildcard(-sort) fo?/**/x.h)
+val4 ::= $(wildcard(-sort) foo/**/x.h) # ⇒ f*?/x.h
+val5 ::= $(wildcard(-sort) fo?/**/x.h) # ⇒ f*?/x.h
