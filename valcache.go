@@ -537,13 +537,9 @@ func matchUnca(ctx Context, pat, val any) (f bool, s string) {
 	} else {
 		f, t, _ = match(ctx, pat, val)	
 	}
-	if checkpoints && true { switch s := sf("%v %v → %v", pat, val, f); s {
-	case "foo/bar/zz/x.h foo/bar/z?/?.h → false":
+	if false && checkpoints { switch s := sf("%v %v → %v", pat, val, f); s {
+	case "foo/bar/v1.h foo/bar/v?.h → false", "foo/bar/v2.h foo/bar/v?.h → false":
 		debug(ctx, "matched incorrect: %v", t, callstack{stop:"smart.hit"})
-	default:
-		if strings.Contains(s, "foo/bar/z?/?.h") {
-			info(ctx, "%v %v %v", pat, val, f)
-		}
 	}}
 	if f {
 		switch t := t.(type) {
