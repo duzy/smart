@@ -15,5 +15,5 @@ func check_prefix(_ Context, _ string, _, _ Value, _ *Value) {}
 func check_string(_ Context, _ Value, _ Value, _ string) {}
 func check_cmp(_ Context, _, _ Value, _ *cmpres) {}
 func check_com(_ *comctx, _, _ []Value, _ *[]Value) {}
-func check_match(_ Context, _, _ any, _ bool, _ any, _ []string) {}
+func check_match(_ Context, _, _ any, _ *bool, _ *any, _ *[]string) {}
 func check(_ Context, _, _ Value, _ *Value) {}

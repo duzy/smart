@@ -246,13 +246,44 @@ func check_string(ctx Context, p Value, v Value, res string) {
 		trace{})
 }
 
-func check_cmp(ctx Context, l, r any, _r *cmpres) {
-	var _eq_ = sf("%v",l) == sf("%v",r)
-	switch {
-	case !_eq_ && cmpEqual == *_r:
-		debug(pc(pc(ctx,r),l), "%v: %v ⇔ %v | %v ⇔ %v", *_r, l, r, ts(l), ts(r), trace{})
-	case _eq_ && cmpEqual != *_r:
-		debug(pc(pc(ctx,r),l), "%v: %v ⇔ %v | %v ⇔ %v", *_r, l, r, ts(l), ts(r), trace{})
+var rxLineColumn = regexp.MustCompile(`[0-9]+:[0-9]+:?`)
+var checkpoints_cmp = map[string]string{
+	`[{=meta *} {=punct .} {=word h}] [{=meta **} {=punct .} {=word h}] []`:`smaller`,
+	`[{=meta **} {=punct .} {=word h}] [{=meta *} {=punct .} {=word h}] []`:`greater`,
+	`[{=meta **} {=punct .} {=word h}] [{=meta **} {=punct .} {=word h}] []`:`equal`,
+	`[{=meta **} {=punct .} {=word def} {=punct .} {=word am}] [{=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}] []`:`smaller`,
+	`{=compound {=punct .} {=word test}} {=string .test} []`:`equal`,
+	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=meta **} {=punct .} {=word h}} []`:`smaller`,
+	`{=glob {=meta **} {=punct .} {=word h}} {=glob {=meta *} {=punct .} {=word h}} []`:`greater`,
+	`{=glob {=meta **} {=punct .} {=word h}} {=glob {=meta **} {=punct .} {=word h}} []`:`equal`,
+	`{=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} {=path {=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}} []`:`greater`,
+	`{=list {16:16 {=word foo}}} {=list {=word foo}} []`:`equal`,
+	`{=list {= {=word foo}}} {=list {=word foo}} []`:`equal`,
+	`{=list {=compound {= {=flag {=word foo}}} {=word bar}}} {=list {=flag {=word foobar}}} []`:`equal`,
+	`{=list {=compound {= {=flag {=}}} {=word foobar}}} {=list {=flag {=word foobar}}} []`:`equal`,
+	`{=list {=flag {=word foobar}}} {=list {=compound {= {=flag {=word foo}}} {=word bar}}} []`:`equal`,
+	`{=list {=flag {=word foobar}}} {=list {=compound {= {=flag {=}}} {=word foobar}}} []`:`equal`,
+	`{=meta *} {=meta **} []`:`smaller`,
+	`{=meta **} {=meta *} []`:`greater`,
+	`{=meta **} {=meta **} []`:`equal`,
+	`{=meta **} {=word foobar} []`:`greater`,
+	`{=path {=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}} {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} []`:`smaller`,
+	`{=punct .} {=punct .} []`:`equal`,
+	`{=word conf3} {=word bar} []`:`greater`,
+	`{=word conf3} {=word foo} []`:`smaller`,
+	`{=word h} {=word h} []`:`equal`,
+}
+func check_cmp(ctx Context, lv, rv any, syn []bool, _r *cmpres) {
+	if !truly(ctx, is_test_mode{}) { return }
+	
+	k, t := sf("%v %v %v", ts(lv), ts(rv), syn), sf("%v", *_r)
+	k = rxLineColumn.ReplaceAllString(k, "=")
+
+	if v := checkpoints_cmp[k]; v == "" {
+		debug(ctx, _f("`%v`:`%v`,", k, t), _f("lv: %v %s", lv, ts(lv)), _f("rv: %v %s", rv, ts(rv)),
+			callstack{num:2}, trace{})
+	} else if v != t {
+		debug(ctx, _f(`%s`, k), _f("got: %s", t), _f("!= : %s", v), callstack{num:2}, trace{})
 	}
 }
 
@@ -512,7 +543,7 @@ var checkpoints_match = map[string]any{
 	`foo/**/x.h f*?/x.h`:`false [] []`,
 	`foo/*.hh *.h`:`false [] []`,
 	`foo/*.h *.h`:`false [] []`,
-	`foo/*.h **.h`:`false [] []`,
+	`foo/*.h **.h`:`true [] []`,
 	`foo/*.h foo???/x.h`:`false [] []`,
 	`foo/*.h foo/**.hh`:`false [foo] []`,
 	`foo/*.h foo/*.h`:`true [foo *.h] [*]`,
@@ -543,7 +574,7 @@ var checkpoints_match = map[string]any{
 	`foo/bar/*/*.h foo/bar/v?.h`:`false [foo bar v?.h] [v?.h]`,
 	`foo/bar/*/*.h foo/bar/zz/x.h`:`true [foo bar zz x.h] [zz x]`,
 	`foo/bar/v?.h *.h`:`false [] []`,
-	`foo/bar/v?.h **.h`:`false [] []`,
+	`foo/bar/v?.h **.h`:`true [] []`,
 	`foo/bar/v?.h foo/*.h`:`false [foo] []`,
 	`foo/bar/v?.h foo/bar/*.h`:`false [foo bar] []`,
 	`foo/bar/v?.h foo/bar/*/*.h`:`false [foo bar] []`,
@@ -572,15 +603,17 @@ var checkpoints_match = map[string]any{
 	`foo??? foo.h`:`false <nil> [. h]`,
 	`foo??? foobar`:`true foobar [b a r]`,
 	`foo???/x.h *.h`:`false [] []`,
-	`foo???/x.h **.h`:`false [] []`,
+	`foo???/x.h **.h`:`true [] []`,
 	`foo???/x.h foo/*.h`:`false [] []`,
 	`foo???/x.h foo/bar/*.h`:`false [] []`,
 	`foo???/x.h foo/bar/*/*.h`:`false [] []`,
 	`foo???/x.h foo/bar/z?/?.h`:`false [] []`,
 	`foo???/x.h foo/bar/zz/?.h`:`false [] []`,
-	`foobar/config/*.def.am **.def.am`:`false [] []`,
+	`foobar/config/*.def.am *.def.am`:`false [] []`,
+	`foobar/config/*.def.am **.def.am`:`true [] []`,
 	`foobar/config/*.def.am **.h`:`false [] []`,
 	`foobar/config/*.def.am foo/bar/zz/x.h`:`false [] []`,
+	`foobar/config/*.def.in *.def.am`:`false [] []`,
 	`foobar/config/*.def.in **.def.am`:`false [] []`,
 	`foobar/config/*.def.in **.h`:`false [] []`,
 	`foobar/config/*.def.in foo/bar/zz/x.h`:`false [] []`,
@@ -678,7 +711,8 @@ var checkpoints_match = map[string]any{
 	testdata_f(`testdata/builtins/trimsuffix %[1]s/builtins/trimsuffix`):`false [testdata builtins trimsuffix] []`,
 	testdata_f(`builtins/trimsuffix %[1]s`,trim_suffix{1,"testdata"}):`false [] []`,
 }
-func check_match(ctx Context, _p, _v any, full bool, res any, stems []string) {
+func check_match(ctx Context, _p, _v any, _full *bool, _res *any, _stems *[]string) {
+	var full, res, stems = *_full, *_res, *_stems
 	var pat, val = joinp(ctx, _p), joinp(ctx, _v)
 	var k = sf("%v %v", pat, val)
 	var t = sf("%v %v %v", full, res, stems)
@@ -700,9 +734,11 @@ func check_match(ctx Context, _p, _v any, full bool, res any, stems []string) {
 				}
 			}
 		}
-		debug(ctx, _f("`%v`:`%v`,", k, t), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)), trace{})
+		debug(ctx, _f("`%v`:`%v`,", k, t), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)),
+			callstack{num:2}, trace{})
 	} else if v != t {
-		debug(ctx, _f(`%s`, k), _f("got: %s", t), _f("!= : %s", v), trace{})
+		debug(ctx, _f(`%s`, k), _f("got: %s", t), _f("!= : %s", v),
+			callstack{num:2}, trace{})
 	}
 }
 

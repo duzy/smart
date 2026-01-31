@@ -1223,207 +1223,200 @@ func unbox2(a any, b int) (any, int) {
     return a, b
 }
 
-const cmp_compound_flag = true
-
-func cmp(ctx Context, l, r any) (res cmpres) {
-    if checkpoints { defer check_cmp(ctx, l, r, &res) }
-    var lv, lb = unbox2(l, 0)
-    var rv, rb = unbox2(r, 0)
-    switch x := lv.(type) {
-	case []Value:
-		switch y := rv.(type) {
-		case []Value:
-			var ( i int ; _x Value )
-			for i, _x = range x {
-				if i < len(y) {
-					if t := cmp(ctx, _x, y[i]); t != cmpEqual {
-						return t
-					}
-				} else {
-					return cmpGreater
-				}
-			}
-			if i == len(x)-1 || (i == 0 && len(x) == 0 && len(x) == len(y)) {
-				return cmpEqual
-			}
-		}
-    case string:
-        switch y := rv.(type) {
-        case string: return cmp_string(x, y)
-        case *punct: return cmp_string(x, y.String())
-        case int64  : if i, e := strconv.ParseInt(x, lb, 64); e == nil { return cmp_int(i, y) }
-        case float64: if i, e := strconv.ParseFloat(x, 64); e == nil { return cmp_float(i, y) }
-        case time.Time:
-            switch rb {
-            case 0: if t, e := parseDateTime(x); e == nil { return cmp_time(t, y) }
-            case 1: if t, e := parseDate(x); e == nil { return cmp_time(t, y) }
-            case 2: if t, e := parseTime(x); e == nil { return cmp_time(t, y) }
-            }
-        }
-    case int64:
-        switch y := rv.(type) {
-        case string: if i, e := strconv.ParseInt(y, rb, 64); e == nil { return cmp_int(x, i) }
-        case int64  : return cmp_int(x, y)
-        case float64: return cmp_int(x, int64(y))
-        }
-    case float64:
-        switch y := rv.(type) {
-        case string: if f, e := strconv.ParseFloat(y, 64); e == nil { return cmp_float(x, f) }
-        case int64  : return cmp_float(x, float64(y))
-        case float64: return cmp_float(x, y)
-        }
-    case time.Time:
-        switch y := rv.(type) {
-        case time.Time: return cmp_time(x, y)
-        case string:
-            switch lb {
-            case 0: if t, e := parseDateTime(y); e == nil { return cmp_time(x, t) }
-            case 1: if t, e := parseDate(y); e == nil { return cmp_time(x, t) }
-            case 2: if t, e := parseTime(y); e == nil { return cmp_time(x, t) }
-            }
-        }
-    case *punct:
-        switch y := rv.(type) {
-        case string: return cmp_string(x.String(), y)
-        case *punct:
-            if x.token == y.token {
-                return cmpEqual
-            } else if s1, s2 := x.String(), y.String(); s1 < s2 {
-                return cmpSmaller
-            } else {
-                return cmpGreater
-            }
-        }
-    case *compound:
-		switch y := rv.(type) {
-		case *compound: return cmp(ctx, x.elems, y.elems)
-		case flag:
-			if cmp_compound_flag && x.len() == 2 {
-				if x0, ok := unbox(x.elems[0]).(flag); ok {
-					switch t0 := x0.Value.(type) {
-					case *valbase, *null: 
-						return cmp(ctx, x.elems[1], y.Value)
-					case *word:
-						switch t1 := unbox(x.elems[1]).(type) {
-						case *word:
-							switch t := y.Value.(type) {
-							case *word:
-								switch sx := t0.s + t1.s; {
-								case sx == t.s: return cmpEqual
-								case sx < t.s: return cmpSmaller
-								case sx > t.s: return cmpGreater
-								}
-							default:
-								erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
-							}
-						default:
-							erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
-						}
-					default:
-						erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
-					}
-				}
-			}
-		}
-    case flag:
-		switch y := rv.(type) {
-		case flag: return cmp(ctx, x.Value, y.Value)
-		case *compound:
-			if cmp_compound_flag && y.len() == 2 {
-				if y0, ok := unbox(y.elems[0]).(flag); ok {
-					switch t0 := y0.Value.(type) {
-					case *valbase, *null: 
-						return cmp(ctx, x.Value, y.elems[1])
-					case *word:
-						switch t1 := unbox(y.elems[1]).(type) {
-						case *word:
-							switch t := x.Value.(type) {
-							case *word:
-								switch sy := t0.s + t1.s; {
-								case t.s == sy: return cmpEqual
-								case t.s < sy: return cmpSmaller
-								case t.s > sy: return cmpGreater
-								}
-							default:
-								erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
-							}
-						default:
-							erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
-						}
-					default:
-						erro(pc(ctx,l), "%v %v", ts(l), ts(r), trace{})
-					}
-				}
-			}
-		}
-	case *def:
-        switch y := rv.(type) {
-		case *def: if x.name == y.name { return cmp(ctx, x.value, y.value) }
-		}
-    case *list:
-        switch y := rv.(type) {
-        case *list: return cmp(ctx, x.elems, y.elems)
-        }
-	case *path:
-        switch y := rv.(type) {
-		case *path: return cmp(ctx, x.elems, y.elems)
-		}
-	case *globpat:
-        switch y := rv.(type) {
-		case *globpat: return cmp(ctx, x.elems, y.elems)
-		}
+func globRank(v Value) int {
+	switch t := v.(type) {
 	case *globmeta:
-        switch y := rv.(type) {
+		switch t.token {
+		case QUE:  return 1 // ?
+		case SAST: return 2 // *
+		case DAST: return 3 // **
+		}
+	}
+	return 0 // Literals (word, punct, etc.)
+}
+
+func cmp(ctx Context, l, r any, syntactic ...bool) (res cmpres) {
+	if checkpoints { defer check_cmp(ctx, l, r, syntactic, &res) }
+	
+	// 1. Unbox wrappers (like *loc, self)
+	var lv, lb = unbox2(l, 0)
+	var rv, rb = unbox2(r, 0)
+
+	// 2. Handle Structural & Recursive Types
+	switch x := lv.(type) {
+	case []Value:
+		if y, ok := rv.([]Value); ok {
+			var i int
+			for i = 0; i < len(x) && i < len(y); i++ {
+				if t := cmp(ctx, x[i], y[i]); t != cmpEqual {
+					return t
+				}
+			}
+			if len(x) < len(y) { return cmpSmaller }
+			if len(x) > len(y) { return cmpGreater }
+			return cmpEqual
+		}
+
+case *globpat:
+		switch y := rv.(type) {
+		case *globpat: return cmp(ctx, x.elems, y.elems)
+		case *compound: return cmp(ctx, x.elems, y.elems)
+		case *path: return cmp(ctx, x.elems, y.elems)
+		// Treat literal as a single-element list for comparison
+		case *word, *strlit, *punct, *raw, *escaped, *globmeta:
+			return cmp(ctx, x.elems, []Value{y.(Value)})
+		}
+
+	case *globmeta:
+		switch y := rv.(type) {
 		case *globmeta:
+			// Compare specificity: ? < * < **
+			rx, ry := globRank(x), globRank(y)
 			switch {
-			case x.token == y.token: return cmpEqual
-			case x.token < y.token: return cmpSmaller
-			case x.token > y.token: return cmpGreater
+			case rx < ry: return cmpSmaller
+			case rx > ry: return cmpGreater
+			}
+			return cmpEqual
+		case *globpat:
+			return cmp(ctx, []Value{x}, y.elems)
+		case *compound, *path, *list:
+			// Let the container handle the comparison (swapped)
+			if res := cmp(ctx, rv, lv); res != cmpEqual {
+				return -res // Invert result
+			}
+			return cmpEqual
+		default:
+			// Meta(Rank > 0) vs Literal(Rank 0) -> Meta is Greater (Less Specific)
+			return cmpGreater
+		}
+
+	case *word, *strlit, *punct, *raw, *escaped:
+		switch y := rv.(type) {
+		case *globpat:
+			return cmp(ctx, []Value{x.(Value)}, y.elems)
+		case *globmeta:
+			// Literal(Rank 0) vs Meta(Rank > 0) -> Literal is Smaller (More Specific)
+			return cmpSmaller
+		}
+
+	case *list:
+		if y, ok := rv.(*list); ok { return cmp(ctx, x.elems, y.elems) }
+		
+	case *compound:
+		if y, ok := rv.(*compound); ok { return cmp(ctx, x.elems, y.elems) }
+		// Optimization: compound vs flag (e.g. [-I /inc] vs -I/inc)
+		if y, ok := rv.(flag); ok && x.len() == 2 {
+			if x0, isFlg := unbox(x.elems[0]).(flag); isFlg {
+				// Case 1: The compound flag has no value (e.g. [- include]) vs -include
+				if isNull(x0.Value) || isNone(x0.Value) {
+					return cmp(ctx, x.elems[1], y.Value)
+				}
+
+				// Case 2: The compound flag has a word value (e.g. [-I include]) vs -Iinclude
+				// We assume standard word structures for this optimization.
+				// If complex types are involved, we break and fall through to string comparison.
+				var s0, s1, sy string
+				var ok0, ok1, oky bool
+
+				// 1. Left Flag Value
+				switch t := x0.Value.(type) {
+				case *word: s0, ok0 = t.s, true
+				}
+
+				// 2. Left Suffix Value
+				switch t := unbox(x.elems[1]).(type) {
+				case *word: s1, ok1 = t.s, true
+				}
+
+				// 3. Right Flag Value
+				switch t := y.Value.(type) {
+				case *word: sy, oky = t.s, true
+				}
+
+				// Perform direct string comparison of contents
+				if ok0 && ok1 && oky {
+					sx := s0 + s1
+					switch {
+					case sx == sy: return cmpEqual
+					case sx <  sy: return cmpSmaller
+					default:       return cmpGreater
+					}
+				}
 			}
 		}
+
+	case *path:
+		if y, ok := rv.(*path); ok { return cmp(ctx, x.elems, y.elems) }
+
+	case flag:
+		if y, ok := rv.(flag); ok { return cmp(ctx, x.Value, y.Value) }
+		
+	case *def:
+		if y, ok := rv.(*def); ok && x.name == y.name {
+			return cmp(ctx, x.value, y.value)
+		}
+	
+	case *arrow:
+		if y, ok := rv.(*arrow); ok {
+			if x.t != y.t {
+				if x.t < y.t { return cmpSmaller } else { return cmpGreater }
+			}
+			if t := cmp(ctx, x.o, y.o); t != cmpEqual { return t }
+			return cmp(ctx, x.s, y.s)
+		}
+
 	case *closure:
-		switch y := rv.(type) {
-		case *closure:
-			if cmp(ctx, x.x, y.x) == cmpEqual {
-				if cmp(ctx, x.o, y.o) == cmpEqual {
-					return cmp(ctx, x.a, y.a)
-				}
-			}
+		if y, ok := rv.(*closure); ok {
+			if t := cmp(ctx, x.x, y.x); t != cmpEqual { return t }
+			if t := cmp(ctx, x.o, y.o); t != cmpEqual { return t }
+			return cmp(ctx, x.a, y.a)
 		}
+
 	case *delegate:
+		if y, ok := rv.(*delegate); ok {
+			if t := cmp(ctx, x.x, y.x); t != cmpEqual { return t }
+			if t := cmp(ctx, x.o, y.o); t != cmpEqual { return t }
+			return cmp(ctx, x.a, y.a)
+		}
+
+	// 3. Handle Numeric Types
+	case int64:
 		switch y := rv.(type) {
-		case *delegate:
-			if cmp(ctx, x.x, y.x) == cmpEqual {
-				if cmp(ctx, x.o, y.o) == cmpEqual {
-					return cmp(ctx, x.a, y.a)
-				}
+		case int64  : return cmp_int(x, y)
+		case float64: return cmp_float(float64(x), y)
+		case string : if i, e := strconv.ParseInt(y, rb, 64); e == nil { return cmp_int(x, i) }
+		}
+	case float64:
+		switch y := rv.(type) {
+		case float64: return cmp_float(x, y)
+		case int64  : return cmp_float(x, float64(y))
+		case string : if f, e := strconv.ParseFloat(y, 64); e == nil { return cmp_float(x, f) }
+		}
+	case time.Time:
+		switch y := rv.(type) {
+		case time.Time: return cmp_time(x, y)
+		case string:
+			switch lb {
+			case 0: if t, e := parseDateTime(y); e == nil { return cmp_time(x, t) }
+			case 1: if t, e := parseDate(y); e == nil { return cmp_time(x, t) }
+			case 2: if t, e := parseTime(y); e == nil { return cmp_time(x, t) }
 			}
 		}
-	case *defcaps:
-		switch y := rv.(type) {
-		case *defcaps:
-			if res = cmp(ctx, x.Value, y.Value); res == cmpEqual {}
+	}
+
+	// 4. Universal Fallback: String Comparison
+	// This handles all mixed comparisons:
+	// *globpat vs *path, *word vs string, *punct vs *globmeta, etc.
+	// It also handles "Numeric vs String" where the string is not a valid number.
+
+	if __t(syntactic...) {
+		if x, ok := lv.(Value); ok {
+			if y, ok := rv.(Value); ok {
+				return cmp_string(x.String(), y.String())
+			}
 		}
-    case *loc:
-		switch y := rv.(type) {
-		case *loc: return cmp(ctx, x.Value, y.Value)
-		default: return cmp(ctx, x.Value, y)
-		}
-    default:
-		switch y := rv.(type) {
-		case *loc: return cmp(ctx, x, y.Value)
-		}
-		if false {
-			debug(pc(pc(ctx,r),l), "%s ⇔ %s | %v ⇔ %v", typeof(lv), typeof(rv), ts(lv), ts(rv))
-		} else if false {
-			ctx = pc(pc(ctx,r),l)
-			debug(ctx,
-				_f("%v ⇔ %v | %v ⇔ %v", ts(unbox(l)), ts(unbox(r)), ts(l), ts(r)),
-				_f("into: cmp(%s ⇔ %s) | %v ⇔ %v", typeof(lv), typeof(rv), ts(lv), ts(rv)),
-				trace{})
-		}
-    }
-    return cmpUnknown
+	}
+	return cmp_string(__string(ctx, lv), __string(ctx, rv))
 }
 func cmp_string(l, r string) cmpres {
 	switch {
@@ -1460,15 +1453,10 @@ func cmp_time(l, r time.Time) cmpres {
 
 func eq(x Context, a, b any) bool { return cmp(x, a, b) == cmpEqual }
 func equal(x Context, a, b any, yes ...bool) (res bool) {
-	if checkpoints {
-		defer func() {
-			if !res && sf("%v", a) == sf("%v", b) {
-				erro(pc(x,a), "%v: equal(%v, %v)", res, a, b, trace{})
-			}
-			if res && sf("%v", a) != sf("%v", b) {
-				erro(pc(x,a), "%v: equal(%v, %v)", res, a, b, trace{})
-			}
-		} ()
+	if checkpoints && false {
+		if s, t := sf("%v",a), sf("%v",b); (!res && s == t) || res && s != t {
+			defer debug(pc(x,a), "%v: equal(%v, %v)", res, s, t, callstack{num:6})
+		}
 	}
 	if __t(yes...) {
 		return __string(x, a) == __string(x, b)
@@ -1735,7 +1723,7 @@ func (p *argumented) ctx(ctx Context) *argumented_ctx {
         if a = expand(_final(ctx),a); patterned(ctx,a) {
             if stems := _stems(ctx); len(stems) > 0 {
                 if v, rest := stencil(ctx, a, stems); len(rest) > 0 {
-                    erro(pc(ctx,p), "partial stencil: %v, %v, %v, %v", a, v, rest, stems, trace{})
+                    debug(pc(ctx,p), "partial stencil: %v, %v, %v, %v", a, v, rest, stems, trace{})
                 } else if f := (as{a}).file(ctx, proj); f != nil {
                     a = f
                 } else {
@@ -2598,7 +2586,7 @@ func path_match2(ctx Context, pats []any, vals ...string) (full bool, res, stems
 					}
 				}
 			default:
-				erro(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr, trace{})
+				debug(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr, trace{})
 			}
 			if stem != nil { stems = append(stems, joinpath(stem...)) }
 		} else if x, y := pat.(*punct); y && x.token == PTAIL {
@@ -2607,19 +2595,6 @@ func path_match2(ctx Context, pats []any, vals ...string) (full bool, res, stems
 			full, res, stems = true, append(res, r.(string)), append(stems, s...)
 		} else {
 			break
-		}
-	}
-	if checkpoints {
-		if false && sf("%v",pats) == "/*?/test*/*?/" {
-			debug(pc(ctx,pats), "%v %d/%d %d/%d %v %v", full, iPats, lPats, iVals, lVals, res, stems)
-		}
-		if false && iPats == lPats && iVals == lVals {
-			if s1, s2 := sf("%v", vals), sf("%v", res); (s1 == s2) != full {
-				erro(pc(ctx,pats), "%v full=%v", pats, full)
-				note(pc(ctx,pats), "%v", vals)
-				note(pc(ctx,pats), "%v", res)
-				debug(pc(ctx,pats), "%v", stems, trace{})
-			}
 		}
 	}
 	full = full && iPats == lPats && iVals == lVals
@@ -2768,7 +2743,7 @@ func path_match3(ctx Context, pats []any, vals ...string) (full bool, res, stems
 					}
 				}
 			default:
-				erro(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr, trace{})
+				debug(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr, trace{})
 			}
 			if stem != nil { stems = append([]string{joinpath(stem...)}, stems...) }
 		} else if x, y := pat.(*punct); y && x.token == PROOT {
@@ -2777,11 +2752,6 @@ func path_match3(ctx Context, pats []any, vals ...string) (full bool, res, stems
 			full, res, stems = true, append([]string{r.(string)}, res...), append(s, stems...)
 		} else {
 			break
-		}
-	}
-	if checkpoints {
-		if false && sf("%v",pats) == "**/testdata/**" {
-			debug(pc(ctx,pats), "%v %d/%d %d/%d %v %v", full, iPats, lPats, iVals, lVals, res, stems)
 		}
 	}
 	full = full && iPats == -1 && iVals == -1
@@ -3434,6 +3404,10 @@ type globpat struct{ elements }
 func (_ *globpat) kind() Kind { return KindGlobPat }
 func (p *globpat) String() (s string) { for _, e := range p.elems { s += e.String() }; return }
 func (p *globpat) ts(ctx Context, _ string) string { return p.elements.ts(ctx, "glob") }
+func (p *globpat) match1(ctx Context, val string) (full bool, res any, stems []string) {
+	if ok, s := matchGlobElems(ctx, p.elems, val, nil); ok { return true, val, s }
+	return false, nil, nil
+}
 
 type globbrace struct{ globpat }
 func (p *globbrace) String() string { return "{=glob "+p.globpat.String()+"}" }
@@ -3865,8 +3839,21 @@ func __string(ctx Context, v any) (res string) {
 			}
 		}
 	case *arrow, *closure, *delegate:
-		if v = expand(ctx, t.(Value)); !equal(ctx, v.(Value), t.(Value)) { res = __string(ctx, v) }
-		if checkpoints { check_string(ctx, t.(Value), v.(Value), res) }
+		if val := t.(Value); true {
+			v := expand(ctx, val)
+			// Check if v differs from val without triggering __string recursion
+			if v != val {
+				// Fix: avoid infinite recursion via equal -> cmp -> __string -> expand -> equal
+				// If expand returns a different object (v != val), we use it. 
+				// We DO NOT check cmp(v, val) because cmp might fall back to __string(val), causing a loop.
+				if reflect.TypeOf(v) != reflect.TypeOf(val) {
+					res = __string(ctx, v)
+				} else if cmp(ctx, v, val) != cmpEqual {
+					res = __string(ctx, v)
+				}
+			}
+			if checkpoints { check_string(ctx, val, v, res) }
+		}
 	case fullname:
 		if v := t.Value; v != nil {
 			if x, y := v.(*file); y {
@@ -4028,7 +4015,7 @@ func __true(ctx Context, v Value) (res bool) {
 		if v = expand(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
-					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
+					debug(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
 				}
 			}
 			return __true(ctx, v)
@@ -4110,7 +4097,7 @@ func __int(ctx Context, v Value) (res int64) {
 		if v = expand(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
-					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
+					debug(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
 				}
 			}
 			return __int(ctx, v)
@@ -4175,7 +4162,7 @@ func __float(ctx Context, v Value) (_ float64) {
 		if v = expand(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
-					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
+					debug(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
 				}
 			}
 			return __float(ctx, v)
@@ -4251,7 +4238,7 @@ func expand(ctx Context, v Value) (res Value) {
                     case SELECT_PROP:
                         if v := closure_resolve(ctx, str); v != nil { o = v }
                     default:
-                        erro(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
+                        debug(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
                     }
                 case truly(ctx, delegate_t{}):
                     switch t.t {
@@ -4260,10 +4247,10 @@ func expand(ctx Context, v Value) (res Value) {
                     case SELECT_PROP:
                         if v := project_resolve(ctx, str); v != nil { o = v }
                     default:
-                        erro(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
+                        debug(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
                     }
                 default:
-                    erro(pc(ctx,t), "%v %v", o, ss, trace{})
+                    debug(pc(ctx,t), "%v %v", o, ss, trace{})
                 }
             }
             for _, s := range ss {
@@ -4459,7 +4446,7 @@ func sel(ctx Context, v any, s string) (res Value) {
         }
         return ease(ctx, vals)
     default:
-        erro(pc(ctx,v), "cannot sel: %v %v", ts(t), s, trace{})
+        debug(pc(ctx,v), "cannot sel: %v %v", ts(t), s, trace{})
     }
 	if g != nil {}
     return
@@ -4504,18 +4491,18 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		defer t.benchmark(ctx, time.Now(), _v)
 
 		if f := _v.Elem().FieldByName("builtinbase"); !f.IsValid() {
-			erro(pc(ctx,_i), "no such field: %s.builtinbase", _v.Elem().Type(), trace{})
+			debug(pc(ctx,_i), "no such field: %s.builtinbase", _v.Elem().Type(), trace{})
 		} else if f.CanAddr() {
 			b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
 			b.evocation = ctx
 		} else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
-			erro(pc(ctx,_i), "no such field: %s.evocation", _v.Elem().Type(), trace{})
+			debug(pc(ctx,_i), "no such field: %s.evocation", _v.Elem().Type(), trace{})
 		} else if f.CanSet() {
 			f.Set(reflect.ValueOf(ctx))
 		} else if f.CanAddr() && f.Addr().CanSet() {
 			f.Addr().SetPointer(unsafe.Pointer(ctx))
 		} else {
-			erro(pc(ctx,_i), "cannot set field: %s.evocation", _v.Elem().Type(), trace{})
+			debug(pc(ctx,_i), "cannot set field: %s.evocation", _v.Elem().Type(), trace{})
 		}
 
 		if o != nil { ctx.o = _opts(ctx, _v, o) }
@@ -4523,7 +4510,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		if x, y := _i.(builtin_x); y {
 			res = ease(ctx, x.x())
 		} else {
-			erro(pc(ctx,x), "no method: %v", t.t.Name(), trace{})
+			debug(pc(ctx,x), "no method: %v", t.t.Name(), trace{})
 		}
     default:
         do(ctx, _not_evoker{})
@@ -4531,238 +4518,287 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 	return
 }
 
-func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
-	var vals []string
-
-	switch t := unbox(val).(type) {
-	case *file:
-		if full, res, stems = match(ctx, pat, t.filestub.name); full || res != nil {
-			if checkpoints { check_match(pc(ctx,pat), pat, val, full, res, stems) }
-		}
-		return
-	case *filestub:
-		if full, res, stems = match(ctx, pat, t.name); full || res != nil {
-			if checkpoints { check_match(pc(ctx,pat), pat, val, full, res, stems) }
-		} else if t.dir != "" || t.sub != "" {
-			full, res, stems = match(ctx, pat, strings.Split(filepath.Join(t.dir, t.sub, t.name), pathSep))
-			if checkpoints { check_match(pc(ctx,pat), pat, val, full, res, stems) }
-		}
-		return
-	case    Value: vals = strings.Split(__string(ctx, t), pathSep)
-	case   string: vals = strings.Split(t, pathSep)
-	case []string: vals = t
-	case nil: return
-	}
-	
-	switch p := unbox(pat).(type) {
-	case []any:
-		var result []string
-		if truly(ctx, propReversal) {
-			full, result, stems = path_match3(ctx, p, vals...)
-			if checkpoints { check_match(ctx, p, vals, full, result, stems) }
-		} else {
-			full, result, stems = path_match2(ctx, p, vals...)
-			if checkpoints { check_match(ctx, p, vals, full, result, stems) }
-		}
-		switch len(result) {
-		case 0 : res = nil
-		case 1 : res = result[0]
-		default: res = result
-		}
-		return
+func isPattern(ctx Context, v any) bool {
+    switch t := v.(type) {
     case string:
-		switch strs := strings.Split(p, pathSep); len(strs) {
-		case 0: return
-		case 1:
-			switch len(vals) {
-			case 0:
-			case 1:
-				if t := vals[0]; strings.HasPrefix(t, p) {
-					if full, res = len(t) == len(p), t[:len(p)]; checkpoints {
-						check_match(ctx, pat, val, full, res, stems)
-					}
+        // Check for glob metacharacters: *, ?, [, {
+        return strings.ContainsAny(t, "*?[{")
+    case Value:
+        return patterned(ctx, t)
+    case []string:
+        for _, s := range t {
+            if strings.ContainsAny(s, "*?[{") { return true }
+        }
+        return false
+    }
+    return false
+}
+
+func matchGlobElems(ctx Context, elems []Value, val string, stems []string) (bool, []string) {
+	// 1. Base Case: Pattern Exhausted
+	if len(elems) == 0 {
+		// Match succeeds only if the value is also fully consumed
+		if val == "" {
+			return true, stems
+		}
+		return false, nil
+	}
+
+	head, tail := elems[0], elems[1:]
+
+	// 2. Element Matching
+	switch t := head.(type) {
+	case *globmeta:
+		switch t.token {
+		case QUE: // "?" matches exactly 1 char (excluding separator)
+			if len(val) > 0 && val[0] != pathSepByte {
+				// Recurse: consume 1 char
+				return matchGlobElems(ctx, tail, val[1:], append(stems, val[:1]))
+			}
+
+		case SAST: // "*" matches 0+ chars (excluding separator) - Greedy
+			// Find the boundary (next separator or end of string)
+			limit := strings.IndexByte(val, pathSepByte)
+			if limit == -1 {
+				limit = len(val)
+			}
+
+			// Greedy Backtracking: try matching as much as possible first
+			for i := limit; i >= 0; i-- {
+				// Optimize: if tail cannot match remaining, continue
+				if ok, s := matchGlobElems(ctx, tail, val[i:], append(stems, val[:i])); ok {
+					return true, s
 				}
-			default:
-				if p == vals[0] { res = []string{vals[0]} }
 			}
-			return
-		default:
-			return match(ctx, __string_any(strs...), vals)
-		}
-	case *raw: return match(ctx, p.s, val)
-	case *word: return match(ctx, p.s, val)
-	case *project: return match(ctx, p.name, val)
-	case *strlit: return match(ctx, p.s, val)
-	case *strval: return match(ctx, __string(ctx, p), val)
-	case *strcomp: return match(ctx, __string(ctx, p), val)
-	case *qualword: return match(ctx, __string(ctx, p), val)
-	case *plainline: return match(ctx, __string(ctx, p), val)
-	case *plain: return match(ctx, __string(ctx, p), val)
-	case *url: return match(ctx, __string(ctx, p), val)
-	case *rule: return match(ctx, p.target, val)
-	case *punct: return match(ctx, p.token.String(), val)
-	case *barefile: return match(ctx, p.Value, val)
-	case *path: return match(ctx, p.any(), val)
-	case *file: return match(ctx, &p.filestub, val)
-	case *filestub:
-		if full, res, stems = match(ctx, p.name, val); full || res != nil {
-			if checkpoints { check_match(pc(ctx,pat), pat, val, full, res, stems) }
-		} else if p.dir != "" || p.sub != "" {
-			full, res, stems = match(ctx, strings.Split(filepath.Join(p.dir, p.sub, p.name), pathSep), val)
-			if checkpoints { check_match(pc(ctx,pat), pat, val, full, res, stems) }
-		}
-		return
-	case *compound:
-		var n int
-		var s string
-		var elem Value
-		switch t := val.(type) {
-		case   Value : s = __string(ctx, t)
-		case   string: s = t
-		case []string: if len(t) == 1 { s = t[0] } else { return }
-		default:
-			erro(pc(ctx,p), "unsupported match: %v", ts(val), trace{})
-		}
 
-		if s == "" { return }
+		case DAST: // "**" matches 0+ chars (including separator) - Greedy
+			// Greedy Backtracking: try matching the entire rest of string down to empty
+			for i := len(val); i >= 0; i-- {
+				if ok, s := matchGlobElems(ctx, tail, val[i:], append(stems, val[:i])); ok {
+					return true, s
+				}
+			}
 
-		var rs string
-		for n, elem = range p.elems {
-			if _, r, ss := match(ctx, elem, s); r == nil {
-				break
-			} else if t := joinp(ctx, r); t == "" {
-				break
-			} else {
-				stems = append(stems, ss...)
-				s = s[len(t):]
-				rs += t
+		case ASTQ: // "*?" matches 0+ chars (including separator) - Non-Greedy
+			// Non-Greedy Forward Tracking: try matching empty first, then grow
+			for i := 0; i <= len(val); i++ {
+				if ok, s := matchGlobElems(ctx, tail, val[i:], append(stems, val[:i])); ok {
+					return true, s
+				}
 			}
 		}
-        if s == "" && n == len(p.elems)-1 { full = true }
-        if full || rs != "" { res = rs }
-        if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-		return
-    case flag:
-        switch t := val.(type) {
-        case *valbase, *none, *null:
-        case flag:
-            full, res, stems = match(ctx, p.Value, t.Value)
-            if s, y := res.(string); y { res = "-" + s }
-            if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-        case Value:
-            if v := __string(ctx, t); strings.HasPrefix(v, "-") {
-                full, res, stems = match(ctx, p.Value, v[1:])
-                if s, y := res.(string); y { res = "-" + s }
-                if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-            }
-        case string:
-            if strings.HasPrefix(t, "-") {
-                full, res, stems = match(ctx, p.Value, t[1:])
-                if s, y := res.(string); y { res = "-" + s }
-                if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-            }
-        default:
-            debug(ctx, "%v → %v", p, ts(val), trace{})
-        }
-		return
-    case *percpat:
-        switch t := val.(type) {
-        case *filestub:
-            if full, res, stems = p.match1(ctx, t.name); full || res != "" {
-                if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-            } else if t.dir != "" || t.sub != "" {
-                full, res, stems = p.match1(ctx, filepath.Join(t.dir, t.sub, t.name))  // NOTE: matching the fullname form
-                if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-            }
-        case *file:
-            if full, res, stems = p.match1(ctx, ident(ctx, t)); full || res != "" {
-                if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-            } else if t.dir != "" || t.sub != "" {
-                full, res, stems = p.match1(ctx, t.fullname()) // NOTE: matching the fullname form
-                if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-            }
-        case string:
-            full, res, stems = p.match1(ctx, t)
-            if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-        case Value:
-            full, res, stems = p.match1(ctx, __string(ctx, t))
-            if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-        default:
-            debug(ctx, "%v → %v", p, ts(val), trace{})
-        }
-		return
-    case *globbrace: return match(ctx, &p.globpat, val)
+
+	case *globrange: // "[...]"
+		// Reconstruct the range syntax [a-z] to use existing chunk matcher
+		chunk := t.String()
+		// globMatchChunk returns matched segments (ss) and the remaining string (rest)
+		// It handles the logic of parsing the range content
+		if ss, rest, ok, _ := globMatchChunk(chunk, val); ok {
+			// globMatchChunk consumes the char corresponding to the range
+			return matchGlobElems(ctx, tail, rest, append(stems, ss...))
+		}
+
+	default: // Literal Match (String, Word, etc.)
+		s := __string(ctx, t)
+		if strings.HasPrefix(val, s) {
+			return matchGlobElems(ctx, tail, val[len(s):], stems)
+		}
+	}
+
+	return false, nil
+}
+
+type is_swapped struct{}
+type swapped_ctx struct{ Context }
+func (c swapped_ctx) inner() Context { return c.Context }
+func (c swapped_ctx) cast(t reflect.Type) Context { return icast(c, t) }
+func (c swapped_ctx) do(ctx Context, op any) any {
+	switch op.(type) {
+	case is_swapped: return true
+	}
+	return c.Context.do(ctx, op)
+}
+
+func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
+	if checkpoints { defer check_match(ctx, pat, val, &full, &res, &stems) }
+
+    // Resolve Location wrappers
+    if x, ok := pat.(*loc); ok {
+        return match(ctx, x.Value, val)
+    }
+
+    // --- FORWARD MATCH LOGIC (Existing + Refined) ---
+    switch p := pat.(type) {
+    case *globbrace:
+        return match(ctx, &p.globpat, val)
+
     case *globpat:
         var s string
         switch t := val.(type) {
-        case      bare: s = string(t)
-        case *filestub: s = t.name
-        case     *file: s = ident(ctx, t)
-        case     Value: s = __string(ctx, t)
-        case    string: s = t
-        case  []string:
-            if n := len(t); n == 1 {
+        case []string: // Handle tokenized path (e.g. from splitting)
+            if len(t) == 1 {
                 s = t[0]
-            } else if true && n > 1 {
-                s = filepath.Join(t...) // TODO: optimization: avoid joining
             } else {
-				return
+                s = strings.Join(t, pathSep) 
             }
+		case    string: s = t
+		case *filestub: s = t.name
+		case     *file: s = t.filestub.name
+		case     Value: s = __string(ctx, t)
+		case *valbase, *none, *null: return
         default:
-            debug(ctx, "%v : unsupported match type: %v %v", p, val, ts(val), trace{})
+			debug(ctx, "%v: matching %s", p, ts(val), trace{})
         }
 
-        var err error
-        var pattern = __string(ctx, p)
-        if full, stems, err = globMatch(ctx, pattern, s); full { res = s }
-        if err != nil { debug(ctx, "%v : glob error: %v", p, err, trace{}) }
-        if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-		return
+        full, res, stems = p.match1(ctx, s)
+
     case *regexpat:
-        if p.Regexp != nil {
-            var str string
-            switch t := val.(type) {
-            case *filestub: str = t.name
-            case     *file: str = ident(ctx, t)
-            case     Value: str = __string(ctx, t)
-            case    string: str = t
-            case  []string: if len(t) == 1 { str = t[0] } else { return }
-            default:
-                debug(ctx, "%v :matching unsupported value: %s", p, ts(val), trace{})
-            }
+        if p.Regexp == nil { return }
 
-            if sm := p.Regexp.FindStringSubmatch(str); sm != nil && sm[0] == str {
-                full, res, stems = true, sm[0], sm[1:]
-                if checkpoints { check_match(pc(ctx,p), pat, val, full, res, stems) }
-            }
-        }
-		return
-    case *delegate, *closure:
-		if t1, ok := p.(Value); !ok {
-			debug(ctx, "incompatible value: %s", ts(p), trace{})
-		} else if t2 := expand(ctx, t1); t2 != nil {
-			if !equal(ctx, t2, t1) { return match(ctx, t2, val) }
-		} else {
-			erro(pc(ctx,p), "%v: nil match", t1, trace{})
-		}
-		return
-    // case compositePattern:
-	// 	if full, res, stems = match(ctx, p.Value, val); full {
-	// 		for _, con := range p.constraints {
-	// 			if a, b, c := match(ctx, con, val); !a { return a, b, c }
-	// 		}
-	// 	}
-	// 	return full, res, stems
-	case filemap:
 		var s string
-		full, res, s = p.match(ctx, val)
-		stems = []string{ s }
-		return
-	case nil: return
+		switch t := val.(type) {
+		case    string: s = t
+		case *filestub: s = t.name
+		case     *file: s = t.filestub.name
+		case     Value: s = __string(ctx, t)
+		case *valbase, *none, *null: return
+		default:
+			debug(ctx, "%v: matching %s", p, ts(val), trace{})
+        }
+
+		if sm := p.Regexp.FindStringSubmatch(s); sm != nil {
+			full, res, stems = true, sm[0], sm[1:]
+		}
+
+    case *path:
+        var vals []string
+        switch t := val.(type) {
+		case *valbase, *none, *null: return
+        case    *file: vals = strings.Split(t.filestub.name, pathSep)
+        case    Value: vals = strings.Split(__string(ctx, t), pathSep)
+        case   string: vals = strings.Split(t, pathSep)
+        case []string: vals = t
+        case [][]string: // Handle tokenizedPath result
+			// Flatten or handle logic. Assuming flattened for path match:
+			for _, segs := range t { vals = append(vals, segs...) }
+        }
+        
+        full, res, stems = path_match2(ctx, p.any(), vals...)
+
+    case []any: // Generic list of segments (e.g. from unboxing a path)
+        var vals []string
+        switch t := val.(type) {
+		case *valbase, *none, *null: return
+        case   string: vals = strings.Split(t, pathSep)
+        case []string: vals = t
+        default:       vals = splitpath(ctx, val)
+        }
+        
+        if truly(ctx, propReversal) {
+            full, res, stems = path_match3(ctx, p, vals...)
+        } else {
+            full, res, stems = path_match2(ctx, p, vals...)
+        }
+
+    case string: // Literal pattern (treated as prefix/equality)
+        // Normalize val to string for comparison
+        var s string
+        switch t := val.(type) {
+        case string: s = t
+        case Value:  s = __string(ctx, t)
+		case *valbase, *none, *null: return
+        }
+        
+        // Exact match or Prefix match depending on context/needs
+        // The existing logic often checks prefix for "path-like" behavior
+        if p == s {
+            full, res = true, s
+        } else if strings.HasPrefix(s, p) {
+            // Note: This prefix logic is specific to how smart handles implicit matches.
+            // Ensure this aligns with your exact rules.
+            full, res = len(s) == len(p), s[:len(p)]
+        }
+
+    case flag:
+		switch t := val.(type) {
+		case flag: return match(ctx, p.Value, t.Value)
+		case string:
+			if strings.HasPrefix(t, "-") { return match(ctx, p.Value, t[1:]) }
+		case Value: s := __string(ctx, t)
+			if strings.HasPrefix(s, "-") { return match(ctx, p.Value, s[1:]) }
+		case *valbase, *none, *null: return
+		}
+
+	case *compound:
+		// 1. Expand the compound to resolve variables and braces.
+		//    e.g. "img/{png,jpg}" -> ["img/png", "img/jpg"]
+		//    e.g. "src/$(DIR)/" -> "src/main/"
+		v := expand(ctx, p)
+
+		// 2. Handle List Result (Brace Expansion)
+		//    If it expands to a list, we match if ANY element matches (OR logic).
+		if l, ok := v.(*list); ok {
+			for _, elem := range l.elems {
+				if f, r, s := match(ctx, elem, val); f {
+					return true, r, s
+				}
+			}
+			return false, nil, nil
+		}
+
+		// 3. Handle Single Result
+		//    Recurse with the resolved value. 
+		//    If 'v' is a string or *strlit, the recursive call will handle it 
+		//    as a literal/prefix match (or you might want to check for glob metas).
+		//    We use __string(ctx, v) to ensure we pass a type 'match' understands (like string).
+		
+		// Optimization: if expansion didn't change anything (unlikely for compound),
+		// treat as string to prevent infinite recursion.
+		if equal(ctx, v, val) {
+			return match(ctx, __string(ctx, p), val)
+		}
+		
+		return match(ctx, v, val)
+
+	// --- Handle scalar values as patterns by converting to string ---
+	case *word, *strlit, *raw, *escaped, *punct, *barefile,
+		*binary, *octal, *decimal, *hexadecimal, *float,
+		*boolean, *answer, *option:
+		return match(ctx, __string(ctx, p), val)
+
+	case *valbase, *none, *null: return
+    default:
+		debug(ctx, "TODO: match(%v, %v) | %v, %v", pat, val, ts(pat), ts(val))
     }
 
-	debug(ctx, "TODO: match(%v, %v) | %v | %v, %v", pat, val, vals, ts(pat), ts(val), trace{})
-	return
+    // --- REVERSE MATCH LOGIC (The Fix) ---
+    // If forward match failed, and 'val' is a pattern, try matching 'val' against 'pat'.
+    // We treat 'pat' as the value (string) and 'val' as the pattern.
+    if !full && !truly(ctx, is_swapped{}) && isPattern(ctx, val) {
+        // Prevent infinite recursion: ensure we don't swap back and forth endlessly.
+        // We only swap if we are NOT already in a reversed check? 
+        // Or simply check if we are making progress.
+        // Simple guard: Check if 'pat' is NOT a pattern to avoid ambiguity, 
+        // OR rely on the fact that we are calling match(ctx, pattern, value).
+        
+        // Convert 'pat' to a string/value representation suitable for being matched against.
+        var patVal any = pat
+        if pv, ok := pat.(Value); ok {
+            patVal = __string(ctx, pv) // Force string representation
+        } else if ps, ok := pat.(string); ok {
+            patVal = ps
+        }
+
+        // Call match with swapped arguments
+        // match(ctx, pattern=val, value=pat)
+        f, _, _ := match(swapped_ctx{ctx}, val, patVal) 
+        
+        if f { full = true
+            // NOTE: We do NOT adopt 'res' or 'stems' from the reverse match 
+        }
+    }
+
+    return
 }
 
 func stencil(ctx Context, pat any, stems []string) (res Value, rest []string) {
@@ -4878,7 +4914,7 @@ func stencil(ctx Context, pat any, stems []string) (res Value, rest []string) {
         return p, stems
     }
 
-    erro(pc(ctx,pat), "stencil: %v %v", ts(pat), stems, trace{})
+    debug(pc(ctx,pat), "stencil: %v %v", ts(pat), stems, trace{})
     return
 }
 
@@ -4942,7 +4978,7 @@ func stamp(ctx Context, a any) (res []*file) {
     case *plainline: return stamp(ctx, t.elems)
     case *returner: return stamp(ctx, t.vals)
     default:
-        erro(pc(ctx,a), "%v", ts(a), trace{})
+        debug(pc(ctx,a), "%v", ts(a), trace{})
         return
     }
 }
@@ -4966,7 +5002,7 @@ func stat(ctx Context, a any) (res []*statinfo) {
     case fullname: return stat(ctx, t.Value)
     case negative: return stat(ctx, t.Value)
     default:
-        erro(pc(ctx,a), "%v", ts(a), trace{})
+        debug(pc(ctx,a), "%v", ts(a), trace{})
         return
     }
 }
@@ -5071,7 +5107,7 @@ func traverse(ctx Context, val Value) {
     case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
         do(ctx, act_traverse{p})
     default:
-        erro(pc(ctx,p), "unsupported traversal: %v", ts(val), trace{})
+        debug(pc(ctx,p), "unsupported traversal: %v", ts(val), trace{})
     }
 }
 

@@ -4398,10 +4398,13 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
 				ok2, _, _ := match(ctx, rVal, lVal)
 				switch {
 				case ok1 && ok2:
-					if t1, t2 := cmp(ctx, lVal, rVal), cmp(ctx, rVal, lVal); t1 != t2 || t1 != cmpEqual || t2 != cmpEqual {
-						debug(ctx, "TODO improvements for: %v %v, %v %v", lVal, rVal, t1, t2, callstack{frames:-1})
+					switch t := cmp(ctx, lVal, rVal); t {
+					case cmpEqual  : g.Add(1); go do_paths(true, lVal, paths)
+					case cmpGreater: g.Add(1); go do_paths(true, lVal, paths)
+					case cmpSmaller: g.Add(1); go do_paths(true, rVal, paths)
+					default:
+						debug(ctx, "cmp(%v, %v) => %v", lVal, rVal, t, trace{})
 					}
-					g.Add(1); go do_paths(true, lVal, paths)
 				case ok1 && !ok2:
 					g.Add(1); go do_paths(true, rVal, paths)
 				case !ok1 && ok2:

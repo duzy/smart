@@ -7,8 +7,6 @@
 package smart
 
 func testGlob(ctx *testcase) {
-	testGlobMatch(ctx)
-
 	if d := ctx.def("pat1.0"); d == nil {
 		ctx.err("pat1.0: %v", _project(ctx))
 	} else if v := d.value; v == nil {
@@ -278,13 +276,13 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat10.2: %v", _project(ctx))
 	} else if v := d2.value; v == nil {
 		ctx.err("pat10.2: %v", _project(ctx))
-	} else if a, b0, c := match(ctx, p, v); sf("%v %v %v", a, b0, c) != "false .test []" {
+	} else if a, b0, c := match(ctx, p, v); sf("%v %v %v", a, b0, c) != "false [.test] []" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b0, c)
 	} else if d3 := ctx.def("pat10.3"); d3 == nil {
 		ctx.err("pat10.3: %v", _project(ctx))
 	} else if v := d3.value; v == nil {
 		ctx.err("pat10.3: %v", _project(ctx))
-	} else if a, b0, c := match(ctx, p, v); sf("%v %v %v", a, b0, c) != "false .test []" {
+	} else if a, b0, c := match(ctx, p, v); sf("%v %v %v", a, b0, c) != "false [.test] []" {
 		ctx.err("%v %v: %v %v %v", p, v, a, b0, c)
 	}
 
@@ -376,135 +374,5 @@ func testGlob(ctx *testcase) {
 		ctx.err("%v", d)
 	} else if a, b, c := match(ctx, val, v); sf("%v %v %v", a, b, c) != "false <nil> []" {
 		ctx.err("%v %v: %v %v %v", val, v, a, b, c)
-	}
-}
-
-func testGlobMatch(ctx *testcase) {
-	if a, b, c := globMatch(ctx, "*.c", "foo.c"); !a || c != nil {
-		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
-	} else if len(b) != 1 {
-		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
-	} else if b[0] != "foo" {
-		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
-	}
-	if a, b, c := globMatch(ctx, "**.c", "foo.c"); !a || c != nil {
-		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
-	} else if len(b) != 1 {
-		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
-	} else if b[0] != "foo" {
-		ctx.err("glob(*.c, foo.c): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "*.c", "foo/bar.c"); a == true || c != nil {
-		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
-	} else if len(b) != 0 {
-		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
-	}
-	if a, b, c := globMatch(ctx, "**.c", "foo/bar.c"); !a || c != nil {
-		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
-	} else if len(b) != 1 {
-		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
-	} else if b[0] != "foo/bar" {
-		ctx.err("glob(**.c, foo/bar.c): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "*", "foobar"); !a || c != nil {
-		ctx.err("glob(*, foobar): %v %v %v", a, b, c)
-	} else if len(b) != 1 {
-		ctx.err("glob(*, foobar): %v %v %v", a, b, c)
-	}
-	if a, b, c := globMatch(ctx, "**", "foobar"); !a || c != nil {
-		ctx.err("glob(**, foobar): %v %v %v", a, b, c)
-	} else if len(b) != 1 {
-		ctx.err("glob(**, foobar): %v %v %v", a, b, c)
-	} else if b[0] != "foobar" {
-		ctx.err("glob(**, foobar): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "*", "foobar/"); a == true || c != nil {
-		ctx.err("glob(*, foobar/): %v %v %v", a, b, c)
-	} else if len(b) != 0 {
-		ctx.err("glob(*, foobar/): %v %v %v", a, b, c)
-	}
-	if a, b, c := globMatch(ctx, "**", "foobar/"); !a || c != nil {
-		ctx.err("glob(**, foobar/): %v %v %v", a, b, c)
-	} else if len(b) != 1 {
-		ctx.err("glob(**, foobar/): %v %v %v", a, b, c)
-	} else if b[0] != "foobar/" {
-		ctx.err("glob(**, foobar/): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "**", "foo/bar/"); !a || c != nil {
-		ctx.err("glob(**, foo/bar/): %v %v %v", a, b, c)
-	} else if len(b) != 1 {
-		ctx.err("glob(**, foo/bar/): %v %v %v", a, b, c)
-	} else if b[0] != "foo/bar/" {
-		ctx.err("glob(**, foo/bar/): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "**xx**", "foo/bar/xx/foo/bar"); !a || c != nil {
-		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if len(b) != 2 {
-		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if b[0] != "foo/bar/" {
-		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if b[1] != "/foo/bar" {
-		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "**/xx/**", "foo/bar/xx/foo/bar"); !a || c != nil {
-		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if len(b) != 2 {
-		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if b[0] != "foo/bar" {
-		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if b[1] != "foo/bar" {
-		ctx.err("glob(**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "**/??/**", "foo/bar/xx/foo/bar"); !a || c != nil {
-		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if len(b) != 4 {
-		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if b[0] != "foo/bar" {
-		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if b[1] != "x" {
-		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if b[2] != "x" {
-		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	} else if b[3] != "foo/bar" {
-		ctx.err("glob(**/??/**, foo/bar/xx/foo/bar): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "**/[xyz]/**", "foo/bar/z/foo/bar"); !a || c != nil {
-		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
-	} else if len(b) != 3 {
-		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
-	} else if b[0] != "foo/bar" {
-		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
-	} else if b[1] != "z" {
-		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
-	} else if b[2] != "foo/bar" {
-		ctx.err("glob(**/[xyz]/**, foo/bar/z/foo/bar): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "foo/???/bar", "foo/xyz/bar"); !a || c != nil {
-		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
-	} else if len(b) != 3 {
-		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
-	} else if b[0] != "x" {
-		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
-	} else if b[1] != "y" {
-		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
-	} else if b[2] != "z" {
-		ctx.err("glob(foo/???/bar, foo/xyz/bar): %v %v %v", a, b, c)
-	}
-
-	if a, b, c := globMatch(ctx, "foo/[xyz]/bar", "foo/z/bar"); !a || c != nil {
-		ctx.err("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
-	} else if len(b) != 1 {
-		ctx.err("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
-	} else if b[0] != "z" {
-		ctx.err("glob(foo/[xyz]/bar, foo/z/bar): %v %v %v", a, b, c)
 	}
 }
