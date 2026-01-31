@@ -405,7 +405,7 @@ func test__wildcard(ctx *testcase) {
 
 func test__wildcard1(ctx *testcase) {
 	var p = _project(ctx)
-	if x, y := p.filemap.v["**"]; y {
+	if x, y := p.filemap.get("**"); y {
 		ctx.err("%v %v", &p.filemap, x)
 	} else if s, t := p.filemap.String(), `{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}}`; s != t {
 		ctx.err("%s != %s", s, t)
@@ -414,16 +414,16 @@ func test__wildcard1(ctx *testcase) {
 
 func test__wildcard2(ctx *testcase) {
 	var p = _project(ctx)
-	if x, y := p.filemap.v["**"]; y {
+	if x, y := p.filemap.get("**"); y {
 		ctx.err("%v %v", &p.filemap, x)
-	} else if s, t := p.filemap.String(), ``; s != t {
+	} else if s, t := p.filemap.String(), `{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}}`; s != t {
 		ctx.err("%s != %s", s, t)
 	}
 }
 
 func test__wildcard3(ctx *testcase) {
 	var p = _project(ctx)
-	if x, y := p.filemap.v["**"]; y {
+	if x, y := p.filemap.get("**"); y {
 		ctx.err("%v %v", &p.filemap, x)
 	} else if s, t := p.filemap.String(), ``; s != t {
 		ctx.err("%s != %s", s, t)

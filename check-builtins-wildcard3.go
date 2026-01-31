@@ -8,9 +8,14 @@
 package smart
 
 var checkpoints__wildcard3 = map[string]map[string]any{
-	"loader.go": map[string]any{},
+	"loader.go": map[string]any{
+		`$/ {4:45:delegate {1:1:def /}}`:testdata_f(`%[1]s/builtins/wildcard/3 {4:45 {=path %[3]s {1:1:word builtins} {1:1:word wildcard} {1:1:word 3}}}`),
+		`$(dir $/) {4:39:delegate {4:41:builtin dir} {=list {4:45:delegate {1:1:def /}}}}`:testdata_f(`%[1]s/builtins/wildcard {4:39 {=path %[3]s {4:41:word builtins} {4:41:word wildcard}}}`,line_column_s("4:41")),
+	},
 }
 
 var checkstrs__wildcard3 = map[string]map[string]any{
-	"loader.go": map[string]any{},
+	"loader.go": map[string]any{
+		`0:0: $/ {4:45:delegate {1:1:def /}}`:testdata_f(`{4:45 {=path %[3]s {1:1:word builtins} {1:1:word wildcard} {1:1:word 3}}} %[1]s/builtins/wildcard/3`),
+	},
 }
