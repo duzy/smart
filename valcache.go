@@ -309,8 +309,6 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num: 2})
 	}()}
 
-	// Result Deduplication
-	// [User Preference] Check 'seen' first to avoid redundant payload matching
 	seen := make(map[*valcache]struct{})
 	fullvalue := do(ctx, fullvalue{})
 	fullmatch := func(c *valcache) bool {
@@ -332,18 +330,20 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 
 		s := ss[i][j]
 
-		// Token Boundary: Advance if token is fully consumed
+		// Token Boundary
 		if k == len(s) {
 			return f0(c, ss, i, j+1, 0)
 		}
 
 		// ---------------------------------------------------------------------
-		// 3. INPUT WILDCARD LOGIC
+		// 3. INPUT WILDCARD LOGIC ("**", "*", "*?")
 		// ---------------------------------------------------------------------
 		if s == WildcardAny { // "**"
+			// Option A: Step into Trie (match 1+ segments)
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
+			// Option B: Consume Input (match 0 segments)
 			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
 		}
@@ -399,40 +399,43 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		}
 		
 		// [FIX] "*" and "*?" Consumption Logic
-		if x, y := c.get("*"); y {
-			// 1. Transition (Match Empty)
-			if f0(x, ss, i, j, k) { found = true }
-			
-			// 2. Consume (Recursive check)
-			nextJ, nextK := j, k+1
-			if nextK == len(ss[i][nextJ]) { // [FIX] Exact match, not >
-				nextJ++; nextK = 0
-			}
-			
-			if nextJ == len(ss[i]) {
-				// [FIX] Reached End of Segment via consumption. 
-				// We MUST transition to child 'x' because 'c' cannot match past this segment.
-				if f0(x, ss, i, nextJ, nextK) { found = true }
-			} else {
-				// Still inside segment. Recurse on 'c' (Parent).
-				if f0(c, ss, i, nextJ, nextK) { found = true }
+		// We handle both here to ensure consistent token/segment boundary processing.
+		handleWildcard := func(wildcard string, crossSegments bool) {
+			if x, y := c.get(wildcard); y {
+				// 1. Transition (Match Empty)
+				// Transition to child node 'x' immediately (matching zero characters).
+				if f0(x, ss, i, j, k) { found = true }
+				
+				// 2. Consume (Match Character)
+				nextJ, nextK := j, k+1
+				
+				// Check for Token End
+				if nextK == len(ss[i][nextJ]) {
+					nextJ++
+					nextK = 0
+				}
+				
+				if nextJ == len(ss[i]) {
+					// Reached End of Segment
+					
+					// Option A: Finish Segment (Transition to child 'x')
+					// We must allow 'x' to handle the start of the NEXT segment (or End of Input).
+					if f0(x, ss, i, nextJ, nextK) { found = true }
+					
+					// Option B: Cross Boundary (Continue on parent 'c')
+					// Only for "*?" which can span multiple segments.
+					if crossSegments && i+1 < len(ss) {
+						if f0(c, ss, i+1, 0, 0) { found = true }
+					}
+				} else {
+					// Inside Segment: Recurse on parent 'c' (Greedy match within segment)
+					if f0(c, ss, i, nextJ, nextK) { found = true }
+				}
 			}
 		}
-		if x, y := c.get("*?"); y {
-			// Same logic as "*"
-			if f0(x, ss, i, j, k) { found = true }
-			
-			nextJ, nextK := j, k+1
-			if nextK == len(ss[i][nextJ]) {
-				nextJ++; nextK = 0
-			}
-			
-			if nextJ == len(ss[i]) {
-				if f0(x, ss, i, nextJ, nextK) { found = true }
-			} else {
-				if f0(c, ss, i, nextJ, nextK) { found = true }
-			}
-		}
+
+		handleWildcard("*", false)
+		handleWildcard("*?", true)
 
 		if x, y := c.get("**"); y {
 			if f0(x, ss, i, j, k) { found = true }       // Transition

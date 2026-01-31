@@ -203,8 +203,8 @@ var checkpoints_uncache = map[string]map[string]string{
 		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/b?r/v?.h`:`[{0:foo/b*/v*.h}]`,
 		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/xv1y.h`:`[{0:foo/x*y.h}]`,
 		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/xv*y.h`:`[{0:foo/x*y.h}]`,
-		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/**/x.h`:`[]`,
-		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} fo?/**/x.h`:`[]`,
+		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/**/x.h`:`[{0:f*?/x.h}]`,
+		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} fo?/**/x.h`:`[{0:f*?/x.h}]`,
 	},
 	"globpat":map[string]string{
 		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} *.h` :`[{0:**.h}]`,
@@ -251,7 +251,7 @@ func check_uncache(ctx Context, k any, c0 string, c *valcache, r []*valcache) {
 	if stop := (callstack{stop:"smart.hit"}); !y {
 		debug(ctx, _f("%s: `%s`:`%s`,", t, ks, vs), stop, trace{})
 	} else if vs != rs {
-		debug(ctx, _f("%s: %v", t, ks), _f("%s → %v != %v", k, vs, rs), stop, trace{})
+		debug(ctx, _f("%s: %v → %v != %v", t, ks, vs, rs), stop, trace{})
 	}
 }
 
