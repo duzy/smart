@@ -305,7 +305,7 @@ func cache(ctx Context, c *valcache, ss [][]string) *valcache {
 func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	var f0 func(*valcache, [][]string, int, int, int) bool
 
-	if l1, l2 := len(root.o), len(root.v); (l1 != 0 || l2 != 0) && false { defer func() {
+	if (root.o != nil || root.v != nil) && false { defer func() {
 		debug(ctx, "%v %v ⇒ %v", root, ss, r)
 	}()}
 
@@ -333,48 +333,39 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// 3. Token Boundary
 		if k == len(s) { return f0(c, ss, i, j+1, 0) }
 
-		// ---------------------------------------------------------------------
-		// 4. INPUT WILDCARD LOGIC ("**", "*", "*?", and "?")
-		// ---------------------------------------------------------------------
-
+		// 4. Input Wildcard
 		switch s {
-		case WildcardOne: // "*" matches exactly one segment
+		case WildcardOne: // "*"
 			for _, entry := range c.o {
-				// Advance BOTH Trie (entry.v) and Input (j+1)
-				// effectively matching one Trie node against one Input wildcard token.
-				if f0(entry.v, ss, i, j+1, 0) { found = true }
+				if f0(entry.v, ss, i, j, 0) { found = true } // Greedy Consume (Trie)
+			}
+			if f0(c, ss, i, j+1, 0) { found = true } // Stop (Consume Input)
+			return found
+
+		case WildcardShort: // "*?"
+			if f0(c, ss, i, j+1, 0) { found = true } // Stop (Non-Greedy)
+			for _, entry := range c.o {
+				if f0(entry.v, ss, i, j, 0) { found = true } // Continue
 			}
 			return found
 
-		case WildcardShort: // "*?" matches zero or more segments (Non-Greedy)
-			// 1. Try to STOP matching first (Skip Input wildcard)
-			// Matches "zero" additional segments.
-			if f0(c, ss, i, j+1, 0) { found = true }
-
-			// 2. Try to CONTINUE matching second (Consume Trie node)
-			// Matches "more" segments recursively.
+		case WildcardAny: // "**"
 			for _, entry := range c.o {
-				if f0(entry.v, ss, i, j, 0) { found = true }
+				if f0(entry.v, ss, i, j, 0) { found = true } // Greedy Consume
 			}
+			if f0(c, ss, i, j+1, 0) { found = true } // Stop
 			return found
 
-		case WildcardAny: // "**" matches zero or more segments (Greedy)
-			// 1. Try to CONTINUE matching first (Consume Trie node)
-			// Matches "more" segments recursively (deepest first).
+		case WildcardChar: // "?"
 			for _, entry := range c.o {
-				if f0(entry.v, ss, i, j, 0) { found = true }
-			}
-
-			// 2. Try to STOP matching second (Skip Input wildcard)
-			// Matches "zero" additional segments.
-			if f0(c, ss, i, j+1, 0) { found = true }
-			return found
-
-		case WildcardChar: // "?" matches exactly one character
-			// Assumes 'entry.k' is a single token/character.
-			for _, entry := range c.o {
-				if len(entry.k) == 1 {
+				// Match Literal or Set
+				if (len(entry.k) == 1 && !isWildcardMeta(entry.k)) || (len(entry.k) > 2 && entry.k[0] == '[') {
 					if f0(entry.v, ss, i, j+1, 0) { found = true }
+				}
+				// Match Trie Wildcards (*, **, *?)
+				if isWildcardMeta(entry.k) {
+					if f0(entry.v, ss, i, j+1, 0) { found = true } // Stop
+					if f0(c, ss, i, j+1, 0) { found = true }       // Continue
 				}
 			}
 			return found
@@ -418,54 +409,39 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		}
 
 		// D. Trie Wildcards
+		
 		if x, y := c.get("?"); y {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
 		
-		// [FIX] "*" and "*?" Consumption Logic
-		// We handle both here to ensure consistent token/segment boundary processing.
-		handle := func(wildcard string, crossSegments bool) {
-			if x, y := c.get(wildcard); y {
-				// 1. Transition (Match Empty)
-				// Transition to child node 'x' immediately (matching zero characters).
-				if f0(x, ss, i, j, k) { found = true }
-				
-				// 2. Consume (Match Character)
-				nextJ, nextK := j, k+1
-				
-				// Check for Token End
-				if nextK == len(ss[i][nextJ]) {
-					nextJ++
-					nextK = 0
-				}
-				
-				if nextJ == len(ss[i]) {
-					// Reached End of Segment
-					
-					// Option A: Finish Segment (Transition to child 'x')
-					// We must allow 'x' to handle the start of the NEXT segment (or End of Input).
-					if f0(x, ss, i, nextJ, nextK) { found = true }
-					
-					// Option B: Cross Boundary (Continue on parent 'c')
-					// Only for "*?" which can span multiple segments.
-					if crossSegments && i+1 < len(ss) {
-						if f0(c, ss, i+1, 0, 0) { found = true }
-					}
-				} else {
-					// Inside Segment: Recurse on parent 'c' (Greedy match within segment)
-					if f0(c, ss, i, nextJ, nextK) { found = true }
-				}
+		// Handle "*" (WildcardOne) in Trie
+		if x, y := c.get("*"); y {
+			if f0(x, ss, i, j, k) { found = true }          // Transition (Match 0)
+			
+			nextJ, nextK := j, k+1
+			if nextK == len(ss[i][nextJ]) { nextJ++; nextK = 0 }
+			
+			if nextJ < len(ss[i]) {
+				if f0(c, ss, i, nextJ, nextK) { found = true } // Consume (Match 1+)
+			} else {
+				if f0(x, ss, i, nextJ, nextK) { found = true } // End of Segment
 			}
 		}
 
-		handle("*", false)
-		handle("*?", true)
+		// Handle "*?" (WildcardShort) in Trie
+		if x, y := c.get("*?"); y {
+			if f0(x, ss, i, j, k) { found = true }          // Transition (Match 0) - Prioritized
 
+			nextJ, nextK := j, k+1
+			if nextK == len(ss[i][nextJ]) { nextJ++; nextK = 0 }
+			
+			if f0(c, ss, i, nextJ, nextK) { found = true }  // Consume (Match 1+)
+		}
+
+		// Handle "**" (WildcardAny) in Trie
 		if x, y := c.get("**"); y {
-			if f0(x, ss, i, j, k) { found = true }       // Transition
-			if j == 0 && k == 0 {
-				if f0(c, ss, i+1, 0, 0) { found = true } // Consume Segment
-			}
+			if f0(c, ss, i+1, 0, 0) { found = true }     // Consume Segment - Prioritized
+			if f0(x, ss, i, j, k) { found = true }       // Transition (Match 0)
 		}
 
 		return found
