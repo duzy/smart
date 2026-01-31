@@ -331,13 +331,17 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 
 		s := ss[i][j]
 
+		// [FIX] Token Boundary: If we consumed all chars in 's', move to next token
+		if k == len(s) {
+			return f0(c, ss, i, j+1, 0)
+		}
+
 		// ---------------------------------------------------------------------
 		// 3. INPUT WILDCARD LOGIC
 		// ---------------------------------------------------------------------
 		
 		if s == WildcardAny { // "**"
-			// Option B: Consume Children (Exhaustive)
-			// NO GUARDS: Allow "**" to match "*", "**", "?", "literal", etc.
+			// Option B: Consume Children
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
@@ -347,8 +351,7 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		}
 
 		if s == WildcardOne { // "*"
-			// Option B: Consume Children (Exhaustive)
-			// NO GUARDS: Allow "*" to match "*", "**", "?", "literal", etc.
+			// Option B: Consume Children
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
@@ -362,12 +365,9 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// ---------------------------------------------------------------------
 
 		// A. Compressed Node Match
-		// Only run this scan if the input segment is:
-		// 1. Fragmented (len > 1), e.g., ["z", "?"] matching "zz"
-		// 2. A singleton wildcard (?), e.g., ["?"] matching "a"
 		if k == 0 && (len(ss[i]) > 1 || s == WildcardChar) {
 			for _, entry := range c.o {
-				if isWildcardMeta(entry.k) { continue } // Logic 4C handles metas
+				if isWildcardMeta(entry.k) { continue }
 				if n, ok := consumeCompressed(entry.k, ss[i][j:]); ok {
 					if f0(entry.v, ss, i, j+n, 0) { found = true }
 				}
