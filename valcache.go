@@ -309,23 +309,12 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num:2})
 	}()}
 
-	// Payload Matcher & Deduplicator
-	// We use a map 'seen' to track added nodes (pointer equality) to ensure uniqueness.
-	seen := make(map[*valcache]struct{}) // Deduplication set
+	// Result Deduplication (Vital for overlapping matches)
+	seen := make(map[*valcache]struct{})
 	fullvalue := do(ctx, fullvalue{})
 	fullmatch := func(c *valcache) bool {
-		// 1. Check Payload Logic
-		if !c.matchPayload(ctx, fullvalue) {
-			return false
-		}
-		
-		// 2. Check Deduplication
-		// If we've already added this node to 'r', skip it.
-		if _, exists := seen[c]; exists {
-			return true // Return true to indicate "path finished", but don't re-add
-		}
-		
-		// 3. Add to Result
+		if !c.matchPayload(ctx, fullvalue) { return false }
+		if _, exists := seen[c]; exists { return true }
 		seen[c] = struct{}{}
 		r = append(r, c)
 		return true
@@ -347,23 +336,23 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// ---------------------------------------------------------------------
 		
 		if s == WildcardAny { // "**"
-			// Option B (Order 1): Consume Concrete Children (Exhaustive)
-			// We DO NOT skip metas here. We let "**" traverse into "*", "**", etc.
-			// Duplicate paths are filtered at the end by 'fullmatch'.
+			// Option B: Consume Children (Exhaustive)
+			// NO GUARDS: Allow "**" to match "*", "**", "?", "literal", etc.
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
-			// Option A (Order 2): Skip Input (Zero-match)
+			// Option A: Skip Input
 			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
 		}
 
 		if s == WildcardOne { // "*"
-			// Option B (Order 1): Consume Concrete Children
+			// Option B: Consume Children (Exhaustive)
+			// NO GUARDS: Allow "*" to match "*", "**", "?", "literal", etc.
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
-			// Option A (Order 2): Skip Input (Empty match)
+			// Option A: Skip Input
 			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
 		}
@@ -372,7 +361,20 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// 4. TRIE WILDCARD LOGIC
 		// ---------------------------------------------------------------------
 
-		// Literal / Prefix Match
+		// A. Compressed Node Match
+		// Only run this scan if the input segment is:
+		// 1. Fragmented (len > 1), e.g., ["z", "?"] matching "zz"
+		// 2. A singleton wildcard (?), e.g., ["?"] matching "a"
+		if k == 0 && (len(ss[i]) > 1 || s == WildcardChar) {
+			for _, entry := range c.o {
+				if isWildcardMeta(entry.k) { continue } // Logic 4C handles metas
+				if n, ok := consumeCompressed(entry.k, ss[i][j:]); ok {
+					if f0(entry.v, ss, i, j+n, 0) { found = true }
+				}
+			}
+		}
+
+		// B. Literal / Prefix Match
 		if k < len(s) {
 			charStr := s[k : k+1]
 			if x, y := c.get(charStr); y {
@@ -395,7 +397,7 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 			}
 		}
 
-		// Trie Wildcards
+		// C. Trie Wildcards
 		if x, y := c.get("?"); y {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
@@ -419,6 +421,34 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 func isWildcardMeta(k string) (res bool) {
 	switch k { case WildcardAny, WildcardOne, WildcardShort: res = true }
 	return
+}
+
+// Returns number of tokens consumed (n) and success (ok).
+func consumeCompressed(nodeKey string, tokens []string) (int, bool) {
+	keyIdx, tokIdx := 0, 0
+	for keyIdx < len(nodeKey) {
+		if tokIdx >= len(tokens) { return 0, false } // Not enough tokens
+		t := tokens[tokIdx]
+		
+		// If input has complex wildcards, abort optimization (let recursion handle it)
+		if t == WildcardAny || t == WildcardOne { return 0, false }
+
+		if t == WildcardChar { // "?"
+			keyIdx++ // Consumes 1 char of nodeKey
+			tokIdx++ // Consumes 1 token
+			continue
+		}
+		
+		// Literal Match (e.g. t="z" matches nodeKey="zz" at index 0)
+		if strings.HasPrefix(nodeKey[keyIdx:], t) {
+			keyIdx += len(t)
+			tokIdx++
+		} else {
+			return 0, false
+		}
+	}
+	// Must consume exactly the whole nodeKey
+	return tokIdx, true
 }
 
 func matchCharSet(pattern string, char byte) bool {
