@@ -305,8 +305,8 @@ func cache(ctx Context, c *valcache, ss [][]string) *valcache {
 func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	var f0 func(*valcache, [][]string, int, int, int) bool
 
-	if l1, l2 := len(root.o), len(root.v); (l1 != 0 || l2 != 0) { defer func() {
-		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num: 2})
+	if l1, l2 := len(root.o), len(root.v); (l1 != 0 || l2 != 0) && false { defer func() {
+		debug(ctx, "%v %v ⇒ %v", root, ss, r)
 	}()}
 
 	seen := make(map[*valcache]struct{})
@@ -330,34 +330,58 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 
 		s := ss[i][j]
 
-		// Token Boundary
-		if k == len(s) {
-			return f0(c, ss, i, j+1, 0)
-		}
+		// 3. Token Boundary
+		if k == len(s) { return f0(c, ss, i, j+1, 0) }
 
 		// ---------------------------------------------------------------------
-		// 3. INPUT WILDCARD LOGIC ("**", "*", "*?")
+		// 4. INPUT WILDCARD LOGIC ("**", "*", "*?", and "?")
 		// ---------------------------------------------------------------------
-		if s == WildcardAny { // "**"
-			// Option A: Step into Trie (match 1+ segments)
+
+		switch s {
+		case WildcardOne: // "*" matches exactly one segment
+			for _, entry := range c.o {
+				// Advance BOTH Trie (entry.v) and Input (j+1)
+				// effectively matching one Trie node against one Input wildcard token.
+				if f0(entry.v, ss, i, j+1, 0) { found = true }
+			}
+			return found
+
+		case WildcardShort: // "*?" matches zero or more segments (Non-Greedy)
+			// 1. Try to STOP matching first (Skip Input wildcard)
+			// Matches "zero" additional segments.
+			if f0(c, ss, i, j+1, 0) { found = true }
+
+			// 2. Try to CONTINUE matching second (Consume Trie node)
+			// Matches "more" segments recursively.
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
-			// Option B: Consume Input (match 0 segments)
-			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
-		}
 
-		if s == WildcardOne || s == WildcardShort { // "*", "*?"
+		case WildcardAny: // "**" matches zero or more segments (Greedy)
+			// 1. Try to CONTINUE matching first (Consume Trie node)
+			// Matches "more" segments recursively (deepest first).
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
+
+			// 2. Try to STOP matching second (Skip Input wildcard)
+			// Matches "zero" additional segments.
 			if f0(c, ss, i, j+1, 0) { found = true }
+			return found
+
+		case WildcardChar: // "?" matches exactly one character
+			// Assumes 'entry.k' is a single token/character.
+			for _, entry := range c.o {
+				if len(entry.k) == 1 {
+					if f0(entry.v, ss, i, j+1, 0) { found = true }
+				}
+			}
 			return found
 		}
 
 		// ---------------------------------------------------------------------
-		// 4. TRIE WILDCARD LOGIC
+		// 5. TRIE WILDCARD LOGIC
 		// ---------------------------------------------------------------------
 
 		// A. Compressed Node Match
@@ -386,21 +410,21 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 			}
 		} 
 		
-		// Hybrid Token Match
+		// C. Hybrid Token Match
 		if k == 0 {
 			if x, y := c.get(s); y {
 				if f0(x, ss, i, j+1, 0) { found = true }
 			}
 		}
 
-		// C. Trie Wildcards
+		// D. Trie Wildcards
 		if x, y := c.get("?"); y {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
 		
 		// [FIX] "*" and "*?" Consumption Logic
 		// We handle both here to ensure consistent token/segment boundary processing.
-		handleWildcard := func(wildcard string, crossSegments bool) {
+		handle := func(wildcard string, crossSegments bool) {
 			if x, y := c.get(wildcard); y {
 				// 1. Transition (Match Empty)
 				// Transition to child node 'x' immediately (matching zero characters).
@@ -434,8 +458,8 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 			}
 		}
 
-		handleWildcard("*", false)
-		handleWildcard("*?", true)
+		handle("*", false)
+		handle("*?", true)
 
 		if x, y := c.get("**"); y {
 			if f0(x, ss, i, j, k) { found = true }       // Transition
@@ -527,6 +551,7 @@ type matched_filemap struct{ filemap ; string }
 type matched_rule struct{ *rule ; string }
 func (t matched_filemap) String() string { return "{"+t.filemap.String()+" name="+t.string+"}" }
 func (t matched_rule) String() string { return "{"+t.rule.String()+" name="+t.string+"}" }
+
 func (p *valcache) matchPayload(ctx Context, fullval any) (ok bool) {
 	for _, a := range p.a {
 		switch a := a.(type) {
@@ -570,10 +595,6 @@ func matchUnca(ctx Context, pat, val any) (f bool, s string) {
 	} else {
 		f, t, _ = match(ctx, pat, val)	
 	}
-	if false && checkpoints { switch s := sf("%v %v → %v", pat, val, f); s {
-	case "foo/bar/v1.h foo/bar/v?.h → false", "foo/bar/v2.h foo/bar/v?.h → false":
-		debug(ctx, "matched incorrect: %v", t, callstack{stop:"smart.hit"})
-	}}
 	if f {
 		switch t := t.(type) {
 		case   string: s = t
