@@ -305,7 +305,7 @@ func cache(ctx Context, c *valcache, ss [][]string) *valcache {
 func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	var f0 func(*valcache, [][]string, int, int, int) bool
 
-	if l1, l2 := len(root.o), len(root.v); (l1 != 0 || l2 != 0) && false { defer func() {
+	if l1, l2 := len(root.o), len(root.v); (l1 != 0 || l2 != 0) { defer func() {
 		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num:2})
 	}()}
 
@@ -331,7 +331,7 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 
 		s := ss[i][j]
 
-		// Token Boundary: If we consumed all chars in 's', move to next token
+		// Token Boundary: Advance if token is fully consumed
 		if k == len(s) {
 			return f0(c, ss, i, j+1, 0)
 		}
@@ -339,21 +339,7 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// ---------------------------------------------------------------------
 		// 3. INPUT WILDCARD LOGIC
 		// ---------------------------------------------------------------------
-		
-		// Logic for **, *, and *? is identical in an exhaustive search:
-		// We try to match concrete children (Consume) AND try to skip ourselves (Empty Match).
-		
 		if s == WildcardAny { // "**"
-			// Option B: Consume Children
-			for _, entry := range c.o {
-				if f0(entry.v, ss, i, j, 0) { found = true }
-			}
-			// Option A: Skip Input
-			if f0(c, ss, i, j+1, 0) { found = true }
-			return found
-		}
-
-		if s == WildcardOne { // "*"
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
@@ -361,7 +347,7 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 			return found
 		}
 
-		if s == WildcardShort { // "*?"
+		if s == WildcardOne || s == WildcardShort { // "*", "*?"
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
@@ -374,10 +360,9 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// ---------------------------------------------------------------------
 
 		// A. Compressed Node Match
-		// Only run scan if input is Fragmented (["z", "?"]) or Singleton Wildcard (["?"])
 		if k == 0 && (len(ss[i]) > 1 || s == WildcardChar) {
 			for _, entry := range c.o {
-				if isWildcardMeta(entry.k) { continue } // Use helper to skip *, **, *?
+				if isWildcardMeta(entry.k) { continue }
 				if n, ok := consumeCompressed(entry.k, ss[i][j:]); ok {
 					if f0(entry.v, ss, i, j+n, 0) { found = true }
 				}
@@ -387,11 +372,9 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// B. Literal / Prefix Match
 		if k < len(s) {
 			charStr := s[k : k+1]
-			// Optimization: Fast direct lookup
 			if x, y := c.get(charStr); y {
 				if f0(x, ss, i, j, k+1) { found = true }
 			}
-			// Scan for Char Sets [a-z]
 			for _, entry := range c.o {
 				key := entry.k
 				if len(key) > 2 && key[0] == '[' {
@@ -413,17 +396,39 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		if x, y := c.get("?"); y {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
+		
+		// [FIX] "*" and "*?" Consumption Logic
+		// They must act as "Local Wildcards": consume chars/tokens but STOP at segment end.
 		if x, y := c.get("*"); y {
-			if f0(x, ss, i+1, 0, 0) { found = true }
+			if f0(x, ss, i, j, k) { found = true } // 1. Transition (Match Empty)
+			
+			// 2. Consume (Recursive check)
+			// Manually check bounds to prevent crossing Segment Boundary (i+1)
+			nextJ, nextK := j, k+1
+			if nextK > len(ss[i][nextJ]) { // Overflow token?
+				nextJ++; nextK = 0
+			}
+			if nextJ < len(ss[i]) { // STAY in current segment
+				if f0(c, ss, i, nextJ, nextK) { found = true }
+			}
 		}
 		if x, y := c.get("*?"); y {
-			// Trie "*?" behaves same as "*" (matches one segment) in this model
-			if f0(x, ss, i+1, 0, 0) { found = true }
+			if f0(x, ss, i, j, k) { found = true } // 1. Transition
+			
+			// 2. Consume (Same as *)
+			nextJ, nextK := j, k+1
+			if nextK > len(ss[i][nextJ]) {
+				nextJ++; nextK = 0
+			}
+			if nextJ < len(ss[i]) {
+				if f0(c, ss, i, nextJ, nextK) { found = true }
+			}
 		}
+
 		if x, y := c.get("**"); y {
 			if f0(x, ss, i, j, k) { found = true }       // Transition
 			if j == 0 && k == 0 {
-				if f0(c, ss, i+1, 0, 0) { found = true } // Consume
+				if f0(c, ss, i+1, 0, 0) { found = true } // Consume Segment (Aggressive)
 			}
 		}
 
