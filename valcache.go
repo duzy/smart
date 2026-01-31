@@ -305,7 +305,7 @@ func cache(ctx Context, c *valcache, ss [][]string) *valcache {
 func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	var f0 func(*valcache, [][]string, int, int, int) bool
 
-	if l1, l2 := len(root.o), len(root.v); (l1 != 0 || l2 != 0) { defer func() {
+	if l1, l2 := len(root.o), len(root.v); (l1 != 0 || l2 != 0) && false { defer func() {
 		debug(ctx, "(%v,%v) %v %v ⇒ %v", l1, l2, root, ss, r, callstack{num:2})
 	}()}
 
@@ -331,7 +331,7 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 
 		s := ss[i][j]
 
-		// [FIX] Token Boundary: If we consumed all chars in 's', move to next token
+		// Token Boundary: If we consumed all chars in 's', move to next token
 		if k == len(s) {
 			return f0(c, ss, i, j+1, 0)
 		}
@@ -360,14 +360,28 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 			return found
 		}
 
+		// [NEW] Support for "*?"
+		if s == WildcardShort { // "*?"
+			// Option B: Consume Children
+			for _, entry := range c.o {
+				if f0(entry.v, ss, i, j, 0) { found = true }
+			}
+			// Option A: Skip Input
+			if f0(c, ss, i, j+1, 0) { found = true }
+			return found
+		}
+
 		// ---------------------------------------------------------------------
 		// 4. TRIE WILDCARD LOGIC
 		// ---------------------------------------------------------------------
 
 		// A. Compressed Node Match
+		// Only run this scan if the input segment is:
+		// 1. Fragmented (len > 1), e.g., ["z", "?"] matching "zz"
+		// 2. A singleton wildcard (?), e.g., ["?"] matching "a"
 		if k == 0 && (len(ss[i]) > 1 || s == WildcardChar) {
 			for _, entry := range c.o {
-				if isWildcardMeta(entry.k) { continue }
+				if isWildcardMeta(entry.k) { continue } // Skip *, **, *?
 				if n, ok := consumeCompressed(entry.k, ss[i][j:]); ok {
 					if f0(entry.v, ss, i, j+n, 0) { found = true }
 				}
@@ -402,6 +416,10 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
 		if x, y := c.get("*"); y {
+			if f0(x, ss, i+1, 0, 0) { found = true }
+		}
+		// [NEW] Support for Trie-side "*?" (Treat same as "*" for segment matching)
+		if x, y := c.get("*?"); y {
 			if f0(x, ss, i+1, 0, 0) { found = true }
 		}
 		if x, y := c.get("**"); y {
