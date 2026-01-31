@@ -313,8 +313,8 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	seen := make(map[*valcache]struct{})
 	fullvalue := do(ctx, fullvalue{})
 	fullmatch := func(c *valcache) bool {
-		if !c.matchPayload(ctx, fullvalue) { return false }
 		if _, exists := seen[c]; exists { return true }
+		if !c.matchPayload(ctx, fullvalue) { return false }
 		seen[c] = struct{}{}
 		r = append(r, c)
 		return true
@@ -340,6 +340,9 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// 3. INPUT WILDCARD LOGIC
 		// ---------------------------------------------------------------------
 		
+		// Logic for **, *, and *? is identical in an exhaustive search:
+		// We try to match concrete children (Consume) AND try to skip ourselves (Empty Match).
+		
 		if s == WildcardAny { // "**"
 			// Option B: Consume Children
 			for _, entry := range c.o {
@@ -351,22 +354,17 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		}
 
 		if s == WildcardOne { // "*"
-			// Option B: Consume Children
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
-			// Option A: Skip Input
 			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
 		}
 
-		// [NEW] Support for "*?"
 		if s == WildcardShort { // "*?"
-			// Option B: Consume Children
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true }
 			}
-			// Option A: Skip Input
 			if f0(c, ss, i, j+1, 0) { found = true }
 			return found
 		}
@@ -376,12 +374,10 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// ---------------------------------------------------------------------
 
 		// A. Compressed Node Match
-		// Only run this scan if the input segment is:
-		// 1. Fragmented (len > 1), e.g., ["z", "?"] matching "zz"
-		// 2. A singleton wildcard (?), e.g., ["?"] matching "a"
+		// Only run scan if input is Fragmented (["z", "?"]) or Singleton Wildcard (["?"])
 		if k == 0 && (len(ss[i]) > 1 || s == WildcardChar) {
 			for _, entry := range c.o {
-				if isWildcardMeta(entry.k) { continue } // Skip *, **, *?
+				if isWildcardMeta(entry.k) { continue } // Use helper to skip *, **, *?
 				if n, ok := consumeCompressed(entry.k, ss[i][j:]); ok {
 					if f0(entry.v, ss, i, j+n, 0) { found = true }
 				}
@@ -391,9 +387,11 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		// B. Literal / Prefix Match
 		if k < len(s) {
 			charStr := s[k : k+1]
+			// Optimization: Fast direct lookup
 			if x, y := c.get(charStr); y {
 				if f0(x, ss, i, j, k+1) { found = true }
 			}
+			// Scan for Char Sets [a-z]
 			for _, entry := range c.o {
 				key := entry.k
 				if len(key) > 2 && key[0] == '[' {
@@ -418,8 +416,8 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		if x, y := c.get("*"); y {
 			if f0(x, ss, i+1, 0, 0) { found = true }
 		}
-		// [NEW] Support for Trie-side "*?" (Treat same as "*" for segment matching)
 		if x, y := c.get("*?"); y {
+			// Trie "*?" behaves same as "*" (matches one segment) in this model
 			if f0(x, ss, i+1, 0, 0) { found = true }
 		}
 		if x, y := c.get("**"); y {
