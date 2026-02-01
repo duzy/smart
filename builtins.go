@@ -4400,8 +4400,8 @@ func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
 				case ok1 && ok2:
 					switch t := cmp(ctx, lVal, rVal); t {
 					case cmpEqual  : g.Add(1); go do_paths(true, lVal, paths)
-					case cmpGreater: g.Add(1); go do_paths(true, lVal, paths)
-					case cmpSmaller: g.Add(1); go do_paths(true, rVal, paths)
+					case cmpSmaller: g.Add(1); go do_paths(true, lVal, paths)
+					case cmpGreater: g.Add(1); go do_paths(true, rVal, paths)
 					default:
 						debug(ctx, "cmp(%v, %v) => %v", lVal, rVal, t, trace{})
 					}

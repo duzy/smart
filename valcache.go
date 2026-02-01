@@ -305,7 +305,7 @@ func cache(ctx Context, c *valcache, ss [][]string) *valcache {
 func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	var f0 func(*valcache, [][]string, int, int, int) bool
 
-	if (root.o != nil || root.v != nil) && false { defer func() {
+	if false && !isEmpty(root) { defer func() {
 		debug(ctx, "%v %v ⇒ %v", root, ss, r)
 	}()}
 

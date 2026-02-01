@@ -25,3 +25,4 @@ fix1 ::= $(wildcard(-sort)             foobar/config/*.def.am)
 fix2 ::= $(wildcard(-sort)             foobar/config/*.def.in)
 fix3 ::= $(wildcard(-sort -dir=$//inc) foobar/config/*.def.am)
 fix4 ::= $(wildcard(-sort -dir=$//inc) foobar/config/*.def.in)
+
