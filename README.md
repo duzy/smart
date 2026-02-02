@@ -1,7 +1,7 @@
-# Smart (Simple Making ART for large project) (BETA)
+# Smart Make Art for large project (BETA)
 
-**SMArt** is a new scripting language inspired by `makefile` and designed
-for doing recursive tasks easily and make constructing large projects easy.
+**Smart** is a command-line utility and new scripting language inspired by `makefile` and designed
+for doing recursive tasks and constructing large projects easily.
 It's written in [Go](http://golang.org).
 
 [Documentation](https://github.com/extbit/smart/wiki/Smart-Construction)
@@ -13,20 +13,20 @@ It's written in [Go](http://golang.org).
 
 The language is inspired by [GNU make](https://www.gnu.org/software/make/).
 It has a similar syntax to `Makefile`, but a `smart` program is highly
-modularized, multi-dialect (extensible) and data-typed. In a `Makefile`, there's 
-only a global namespace, macros defined can later be referenced by any other macros
+modularized, multi-dialect (extensible), and data-typed. In a `Makefile`, there's 
+only a global namespace; macros defined can later be referenced by any other macros
 or rules. In `smart`, symbols are contained in a module, and the major modules are
-projects. A project is designed to be executed in order to update outdated targets,
-a module is to do more specific tasks and supposed to be **used** by a project.
+projects. A project is designed to be executed to update outdated targets,
+a module is to do more specific tasks, and is supposed to be **used** by a project.
 
 A `smart` module is declared with the keyword `module` or `project`. A module can be
-imported or used by any other module using keywords `import` or `use`. Symbols and
+imported or used by any other module using the keywords `import` or `use`. Symbols and
 rules defined in a module can only be accessed within the module scope.
 
-The `smart` language has some basic data types, this is another important difference
+The `smart` language has some basic data types; this is another important difference
 comparing to macros in a makefile.
 
-For more details please read the [documentation](https://github.com/extbit/smart/wiki/Smart-Construction).
+For more details, please read the [documentation](https://github.com/extbit/smart/wiki/Smart-Construction).
 
 ## Quick Start
 
@@ -41,8 +41,8 @@ $ $GOPATH/bin/smart -help
 
 ### Write `smart` scripts
 
-The `smart` command will look for file `do.smart` in the working directory to
-start building. For example of doing this:
+The `smart` command will look for the file `do.smart` in the working directory to
+start building. For example, of doing this:
 
 ```shell
 $ cd $GOPATH/src/github.com/extbit/smart/examples/hello
@@ -57,7 +57,7 @@ It should build the `hello` example and run it, having a 'Hello World!' output.
 ```makefile
 project example
 
-## "posix/thread" is a predefiend module, allowing users to use pthread
+## "posix/thread" is a predefined module, allowing users to use pthread
 ## in the project, it's supposed to append values of symbols like CFLAGS, LDFLAGS,
 ## LIBS, etc. But at the current version, it affects only the `libs` symbol.
 use "posix/thread"
@@ -69,7 +69,7 @@ LIBS =
 GREETING = "hello, there"
 
 # The default rule, using `shell` dialect to interpret the recipes.
-# Note that the `libs` was introduced by the "posix/thread".
+# Note that the `libs` were introduced by the "posix/thread".
 foo: foo.o [(shell)]
 	$(LINK) -o $@ $^ $(libs)
 
@@ -94,7 +94,7 @@ check:[(python) (stdout-equals "okay")]
 History
 =======
 
-The idea of the `smart` language is originated from the old [smart-make](https://github.com/duzy/smart-make)
+The idea of the `smart` language originated from the old [smart-make](https://github.com/duzy/smart-make)
 project, which is written in pure `Makefile` to ease building projects having a complex hierarchy.
 The rationale of `smart-make` is very similar to the [Android build system](https://android.googlesource.com/platform/build/+/master).
 
