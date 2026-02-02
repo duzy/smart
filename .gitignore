@@ -7,6 +7,7 @@
 .smart/
 _/
 
+/Q.md
 /make/out
 /make/tests/work
 /smart
