@@ -310,7 +310,7 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	}()}
 
 	seen := make(map[*valcache]struct{})
-	fullvalue := do(ctx, fullvalue{})
+	fullvalue := do(ctx, fullvalue{}).(Value)
 	fullmatch := func(c *valcache) bool {
 		if _, exists := seen[c]; exists { return true }
 		if !c.matchPayload(ctx, fullvalue) { return false }
@@ -528,7 +528,7 @@ type matched_rule struct{ *rule ; string }
 func (t matched_filemap) String() string { return "{"+t.filemap.String()+" name="+t.string+"}" }
 func (t matched_rule) String() string { return "{"+t.rule.String()+" name="+t.string+"}" }
 
-func (p *valcache) matchPayload(ctx Context, fullval any) (ok bool) {
+func (p *valcache) matchPayload(ctx Context, fullval Value) (ok bool) {
 	for _, a := range p.a {
 		switch a := a.(type) {
 		case filemap:
@@ -560,7 +560,7 @@ func (p *valcache) matchPayload(ctx Context, fullval any) (ok bool) {
 	return
 }
 
-func matchUnca(ctx Context, pat, val any) (f bool, s string) {
+func matchUnca(ctx Context, pat, val Value) (f bool, s string) {
 	var t any
 	if patterned(ctx, pat) {
 		if  f, t, _ = match(ctx, pat, val); !f && patterned(ctx, val) {
@@ -645,15 +645,13 @@ func tokp(ctx Context, c *valcache, p *path) hit_segs {
 	}
 	return hit_segs{c, ss}
 }
-func _hit(ctx Context, c *valcache, k any) (r []*valcache) {
+func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 	if checkpoints { defer func(s string) {
 		if  truly(ctx, propCache  ) { check_cache(ctx, k, s, c, r) }
 		if  truly(ctx, propUncache) { check_uncache(ctx, k, s, c, r) }
 		if !truly(ctx, propCache|propUncache) { debug(ctx, "%v %v", k, c, trace{}) }
 	}(c.String())}
 	switch t := k.(type) {
-	case   string : return do_hit(&fullctx{ctx,t}, toks(ctx, c, strings.Split(t, pathSep)...))
-	case []string : return do_hit(&fullctx{ctx,t}, toks(ctx, c, t...))
 	case *closure : return do_hit(&fullctx{ctx,t}, toks(ctx, c, "&"))
 	case *percpat : return do_hit(&fullctx{ctx,t}, toks(ctx, c))
 	case *regexpat: return do_hit(&fullctx{ctx,t}, toks(ctx, c))
@@ -664,14 +662,15 @@ func _hit(ctx Context, c *valcache, k any) (r []*valcache) {
 	case *strcomp : return do_hit(&fullctx{ctx,t}, toks(ctx, c, `"`+__string(ctx,t)+`"`))
 	case *argumented: return _hit(ctx, c, t.Value)
 	case *loc : return _hit(ctx, c, t.Value)
-	case *file: return _hit(ctx, c, t.name)
 	case *rule: return _hit(ctx, c, t.target)
-	default: return _hit(ctx, c, __string(ctx, k))
+	default:
+		segs := strings.Split(__string(ctx, k), pathSep)
+		return do_hit(&fullctx{ctx,t}, toks(ctx, c, segs...))
 	}
 }
 
 func do_hit(c Context, a any) (r []*valcache) { r, _ = do(c,a).([]*valcache); return }
-func hit(ctx Context, c *valcache, k any) []*valcache { return _hit(ctx, c, k) }
+func hit(ctx Context, c *valcache, k Value) []*valcache { return _hit(ctx, c, k) }
 
 type   cache_t struct{ Context }
 type uncache_t struct{ Context ; a []any }
@@ -754,7 +753,12 @@ func map_entry(ctx Context, p *project, target Value, prog *program) (entry entr
 
 func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 	var u = &uncache_t{ctx, nil}
-	var x = hit(u, c, key)
+	var k Value
+	if v, ok := key.(Value); ok { k = v } else {
+		k = _raw(_position(ctx), __string(ctx, key))
+	}
+	
+	var x = hit(u, c, k)
 	for _, a := range u.a {
 		switch t := a.(type) {
 		case T : res = append(res, t)

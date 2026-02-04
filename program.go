@@ -405,7 +405,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 }
 
 func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *file) {
-    var mapPrereqFile = func(name any) {
+    var mapPrereqFile = func(name Value) {
         var ms = unmap_files(unmap_uncheck_ctx{ctx}, _project(ctx), name, nil)
         if ms != nil {
             defer func() {
@@ -417,43 +417,29 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
         if prereqFile = select_file(ctx, ms); prereqFile != nil {
             prereqValue = prereqFile
-            return
-        }
-
-        if prereqValue == nil {
-            prereqValue = _strlit(_position(ctx), prereqFinal)
-        } else if f, y := to_file(prereqValue); y {
-            prereqFile = f
-        } else if _, y := prereqValue.(*path); y {
-            if f := _stat(ctx, prereqFinal); f != nil { prereqFile, prereqValue = f, f }
-        }
+			prereqFinal = prereqFile.name
+		} else if prereqValue != nil {
+			if f, y := to_file(prereqValue); y {
+				prereqFile = f
+				prereqFinal = f.name
+			} else {
+				prereqFinal = __string(ctx, prereqValue)
+				if _, y := prereqValue.(*path); y {
+					if f := _stat(ctx, __string(ctx, prereqValue)); f != nil { prereqFile, prereqValue = f, f }
+				}
+			}
+		}
     }
 
-    if prereqValue = val; prereqValue == nil {
-        if prereqFinal == "" {
-            debug(ctx, "prerequisite is nothing", trace{})
-        }
-
-        mapPrereqFile(prereqFinal)
-        return
-    }
-
+	prereqValue = val
     if _, y := prereqValue.(object); y { return }
 
     if !patterned(ctx,prereqValue) {
-        prereqFinal = __string(ctx, prereqValue)
-
-        if prereqFinal == "" { // just reject empty final
-            debug(ctx, "%v: %v: empty prerequisite, stems=%v", prereqValue, _stems(ctx), trace{})
-        }
-
         switch prereqValue.(type) {
-        case flag, *strlit, *strcomp:
-            return // skip checking files for performance
+        case flag, *strlit, *strcomp: // skip checking files for performance
+		default: mapPrereqFile(prereqValue)
         }
-
-        mapPrereqFile(prereqValue)
-        return
+		return
     }
 
     var stems = _stems(ctx)
@@ -469,11 +455,6 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
         errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems, trace{})
     } else if len(rest) > 0 {
         errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest, trace{})
-    }
-
-    if prereqFinal == "" { prereqFinal = __string(ctx, prereqValue); }
-    if prereqFinal == "" {
-        errostack(ctx, 3, "%v: empty prerequisite, stems=%v", prereqValue, stems, trace{})
     }
 
     mapPrereqFile(prereqValue)

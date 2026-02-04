@@ -52,7 +52,7 @@ func (p *filemap) patterns(ctx Context) (pats []Value) {
 }
 
 // match split filename into list and match each part with the pattern correspondingly.
-func (p *filemap) match(ctx Context, val any) (_ bool, _ Value, _ string) {
+func (p *filemap) match(ctx Context, val Value) (_ bool, _ Value, _ string) {
     // TODO: escape file matching for 'String' and "strcomp" values
     for _, pat := range p.patterns(ctx) {
         if matched, name := p._match(ctx, pat, val); matched {
@@ -62,7 +62,7 @@ func (p *filemap) match(ctx Context, val any) (_ bool, _ Value, _ string) {
     return
 }
 
-func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name string) {
+func (p *filemap) _match(ctx Context, pat, val Value) (matched bool, name string) {
     // TODO: escape file matching for 'String' and "strcomp" values
     var res any
     matched, res, _ = match(ctx, pat, val)
@@ -82,7 +82,7 @@ func (p *filemap) _match(ctx Context, pat Value, val any) (matched bool, name st
             for i := strings.LastIndex(ps, pathSep); -1 <= i; {
                 var ( prefix = ps[i+1:]; l = len(prefix) ) // NOTE: -1 <= i < len(ps)
                 if has := strings.HasPrefix(str, prefix) && str[l] == '/'; has {
-                    if matched, _, _ = match(ctx, pat, str[len(prefix)+1:]); matched { break }
+                    if matched, _, _ = match(ctx, pat, &raw{valbase{pat.Position()}, str[len(prefix)+1:]}); matched { break }
                 }
                 if 0 < i { i = strings.LastIndex(ps[:i], pathSep) } else { break }
             }
@@ -484,7 +484,7 @@ func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemme
             for _, pat := range p.patterns {
                 var pt = pat.target
                 var pa = pat.arged
-                var full, r, stems = match(ctx, pt, s)
+                var full, r, stems = match(ctx, pt, &raw{valbase{pt.Position()}, s})
                 var m = joinp(ctx, r)
                 prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
             }
@@ -521,7 +521,7 @@ func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*ste
 
 ForPatterns:
     for _, pat := range p.patterns {
-        if full, r, stems := match(ctx, pat.target, s); full {
+        if full, r, stems := match(ctx, pat.target, &raw{valbase{pat.target.Position()}, s}); full {
             var m = joinp(ctx, r)
 
             if true {
@@ -536,7 +536,7 @@ ForPatterns:
                 var t1 = time.Now()
                 var av = xmerge(ctx, pa...)
                 var t2 = time.Now()
-                for _, a := range av { if y, _, _ = match(ctx, a, s); y { break } }
+                for _, a := range av { if y, _, _ = match(ctx, a, &raw{valbase{a.Position()}, s}); y { break } }
 
                 var t3 = time.Now()
                 if d := t3.Sub(t1); d > 1*time.Second {

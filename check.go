@@ -13,6 +13,8 @@ import (
 	"regexp"
 )
 
+var rxLC = regexp.MustCompile(`[0-9]+:[0-9]+:?`)
+
 // NOTE: cannot decalre `checkpoints` as `const` because it's compile-time evaled.
 var checkpoints = true // vertag != "final"
 
@@ -246,7 +248,6 @@ func check_string(ctx Context, p Value, v Value, res string) {
 		trace{})
 }
 
-var rxLC = regexp.MustCompile(`[0-9]+:[0-9]+:?`)
 var checkpoints_cmp = map[string]string{
 	`[{= {=flag {=word foo}}} {=word bar}] [{=flag {=word foobar}}] []`:`equal`,
 	`[{= {=flag {=word foo}}} {=word bar}] {=flag {=word foobar}} []`:`equal`,
@@ -276,6 +277,7 @@ var checkpoints_cmp = map[string]string{
 	`[{=punct .} {=word test}] {=string .test} []`:`equal`,
 	`[{=token **}] {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} []`:`greater`,
 	`[{=token .} {=string test}] [{=string .test}] []`:`equal`,
+	`[{=token .}] {=compound {=word bar} {=punct .} {=word c}} []`:`smaller`,
 	`[{=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}] {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} []`:`smaller`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} []`:`equal`,
 	`[{=word x} {=punct .} {=word h}] [{=string config}] []`:`greater`,
@@ -319,9 +321,13 @@ var checkpoints_cmp = map[string]string{
 	`{=meta *} {=meta *} []`:`equal`,
 	`{=path {=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}} {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} []`:`smaller`,
 	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} []`:`equal`,
+	`{=punct .} {=compound {=word bar} {=punct .} {=word c}} []`:`smaller`,
 	`{=punct .} {=punct .} []`:`equal`,
 	`{=punct .} {=string .test} []`:`lprefix`,
 	`{=punct .} {=word .test} []`:`lprefix`,
+	`{=punct .} {=word c} []`:`smaller`,
+	`{=punct .} {=word foo} []`:`smaller`,
+	`{=punct .} {=word oo} []`:`smaller`,
 	`{=string foo} {=string foo} []`:`equal`,
 	`{=string h} {=string h} []`:`equal`,
 	`{=token **} {=token **} []`:`equal`,
@@ -331,8 +337,10 @@ var checkpoints_cmp = map[string]string{
 	`{=token -} {= {=flag {=}}} []`:`equal`,
 	`{=token .} {=string .test} []`:`lprefix`,
 	`{=token .} {=token .} []`:`equal`,
+	`{=token .} {=word bar} []`:`smaller`,
 	`{=word conf3} {=word bar} []`:`greater`,
 	`{=word conf3} {=word foo} []`:`smaller`,
+	`{=word c} {=word c} []`:`equal`,
 	`{=word foobar} {=meta **} []`:`smaller`,
 	`{=word foobar} {=word foobar} []`:`equal`,
 	`{=word foo} {=word foobar} []`:`lprefix`,
@@ -341,6 +349,7 @@ var checkpoints_cmp = map[string]string{
 	`{=word test} {=word test} []`:`equal`,
 	`{=word x} {=string config} []`:`greater`,
 	`{=word x} {=string x.h} []`:`lprefix`,
+	`{=word x} {=word xxx} []`:`lprefix`,
 	`{=word x} {=word x} []`:`equal`,
 }
 func check_cmp(ctx Context, l, lv, r, rv any, syn []bool, _r *cmpres) {
@@ -395,6 +404,7 @@ var checkpoints_match = map[string]any{
 	`%.c++ foo/bar.c++`:`true foo/bar.c++ [foo/bar]`,
 	`%.c++ x.c++`:`true x.c++ [x]`,
 	`%.c++ y.c++`:`true y.c++ [y]`,
+	`. .`:`true . []`,
 	`* a.h`:`true a.h [a.h]`,
 	`* a`:`true a [a]`,
 	`* b.h`:`true b.h [b.h]`,
@@ -845,6 +855,7 @@ var checkpoints_match = map[string]any{
 	`inc inc`:`true inc []`,
 	`t*a testdata`:`true testdata [estdat]`,
 	`test* testdata`:`true testdata [data]`,
+	`test test`:`true test []`,
 	`v*.h v1.h`:`true v1.h [1]`,
 	`v*.h v2.h`:`true v2.h [2]`,
 	`v*.h v?.h`:`true v?.h [?]`,
@@ -967,17 +978,16 @@ var checkpoints_match = map[string]any{
 	testdata_f(`testdata/builtins/trimsuffix %[1]s/builtins/trimsuffix`):`false [testdata builtins trimsuffix] []`,
 	testdata_f(`builtins/trimsuffix %[1]s`,trim_suffix{1,"testdata"}):`false <nil> []`,
 }
-func check_match(ctx Context, _p, _v any, _full *bool, _res *any, _stems *[]string) {
-	var full, res, stems = *_full, *_res, *_stems
-	var pat, val = joinp(ctx, _p), joinp(ctx, _v)
-	var k = sf("%v %v", pat, val)
-	var t = sf("%v %v %v", full, res, stems)
+func check_match(ctx Context, pat, val any, _full *bool, _res *any, _stems *[]string) {
+	var k = rxLC.ReplaceAllString(sf("%v %v", __string(ctx,pat), __string(ctx,val)), "=")
+	var t = rxLC.ReplaceAllString(sf("%v %v %v", *_full, *_res, *_stems), "=")
 	if fmt_slot.MatchString(k) { k = sf(k, testdata_s, strings.Split(testdata_s, pathSep)) }
 	if v := checkpoints_match[k]; v == nil {
 		debug(ctx, _f("`%v`:`%v`,", k, t), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)),
-			callstack{num:2}, trace{})
+			callstack{num:10}, trace{})
 	} else if v != t {
-		debug(ctx, _f(`%s`, k), _f("got: %s", t), _f("!= : %s", v), callstack{num:2}, trace{})
+		debug(ctx, _f(`%s | %s, %s`, k, ts(pat), ts(val)), _f("got: %s", t), _f("!= : %s", v),
+			callstack{num:10}, trace{})
 	}
 }
 

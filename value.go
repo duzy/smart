@@ -401,13 +401,13 @@ func closure_set(ctx Context, name string, val Value) (prev Value, okay bool) {
     return
 }
 
-func closure_files(ctx Context, name string, one bool) (res []*file) {
-    var a = unmap_files(ctx, _project(ctx), name, nil)
-    if f := select_file(ctx, a); f != nil {
-        if res = append(res, f); one { /* break */ }
-    }
-    return
-}
+// func closure_files(ctx Context, name string, one bool) (res []*file) {
+//     var a = unmap_files(ctx, _project(ctx), name, nil)
+//     if f := select_file(ctx, a); f != nil {
+//         if res = append(res, f); one { /* break */ }
+//     }
+//     return
+// }
 
 func closure_resolve(ctx Context, name string) (obj object) {
     for _, s := range closure_scopes(ctx) {
@@ -682,7 +682,7 @@ func splitpath(ctx Context, a any) (ss []string) {
 	case   string: ss = strings.Split(t, pathSep)
 	case    Value: ss = strings.Split(__string(ctx, t), pathSep)
 	case      nil: break
-	default: debug(ctx, "%v | %v", a, ts(a), trace{})
+	default: debug(ctx, "err splitpath: %v %s", a, ts(a), callstack{num:10}, trace{})
 	}
 	return
 }
@@ -972,7 +972,7 @@ func fnv1(ctx Context, t any, a ...any) (_ uint64) {
                 if t.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
                     b = o.AppendUint64(b, uint64(__int(ctx, t)))
                 } else {
-                    b = []byte(t.String()) // BUG: t.string(ctx)
+                    b = []byte(__string(ctx, t))
                 }
             }
         case []Value:
@@ -980,7 +980,7 @@ func fnv1(ctx Context, t any, a ...any) (_ uint64) {
                 if t.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
                     b = o.AppendUint64(b, uint64(__int(ctx, t)))
                 } else {
-                    b = []byte(t.String()) // BUG: t.string(ctx)
+                    b = []byte(__string(ctx, t))
                 }
             }
         default:
@@ -2309,324 +2309,6 @@ func (p *path) String() (s string) {
 }
 func (p *path) isAbs() bool { x, y := p.elems[0].(*punct); return y && x.token == PROOT }
 
-// ABANDONED
-func _path_match2(ctx Context, pats []any, vals ...string) (full bool, res, stems []string) {
-	var iPats, iVals = 0, 0
-	var lPats, lVals = len(pats), len(vals)
-	for ; iPats < lPats && iVals < lVals ; iPats, iVals = iPats+1, iVals+1 {
-		var pat = unbox(pats[iPats])
-		var mr, pre, suf = multia(ctx, pat) // %%  **  *?
-		if val := vals[iVals]; mr != multia_no {
-			var prefix = __string(ctx, pre)
-			if strings.HasPrefix(val, prefix) {
-				val = strings.TrimPrefix(val, prefix)
-			} else {
-				break
-			}
-
-			var (
-				suffix = __string(ctx, suf)
-				i int ; stem []string
-			)
-			sw_multia: switch full = false; mr {
-			case multia_ss, multia_pp: // ** %%
-				if suffix == "" {
-					if n := iPats+1; n < lPats {
-						switch t := unbox(pats[n]).(type) {
-						case flag, *word, string:
-							for j := lVals-1; iVals < j; j -= 1 {
-								if equal(ctx, t, vals[j]) {
-									res = append(res, vals[iVals:j+1]...)
-									stem = append(stem, vals[iVals:j]...)
-									iPats, iVals, full = n, j, true
-									break sw_multia
-								}
-							}
-						case *globpat, *percpat, *regexpat:
-							for j := lVals-1; iVals < j; j -= 1 {
-								if f, _, s := match(ctx, t, vals[j]); f {
-									res = append(res, vals[iVals:j+1]...)
-									stem = append(append(stem, val), vals[iVals+1:j]...)
-									stems = append(append(stems, joinpath(stem...)), s...)
-									iPats, iVals, full, stem = n, j, true, nil
-									break sw_multia
-								}
-							}
-						case *punct:
-							for j := lVals-1; iVals < j; j -= 1 {
-								if t.token == PTAIL {
-									if vals[j] == "" {
-										res = append(res, vals[iVals:j+1]...)
-										stem = append(stem, vals[iVals:j]...)
-										iPats, iVals, full = n, j, true
-									} else {
-										res = append(append(res, vals[iVals:j]...), "")
-										stem = append(append(stem, vals[iVals:j]...), "")
-										iPats, iVals = iPats, j
-									}
-									break sw_multia
-								}
-							}
-						}
-					}
-					res = append(res, vals[iVals:]...)
-					stem = append(append(stem, val), vals[iVals+1:]...)
-					iVals, full = lVals-1, true
-				} else {
-					for i = lVals-1; iVals < i; i -= 1 {
-						if strings.HasSuffix(vals[i], suffix) {
-							res = append(res, vals[iVals:i+1]...)
-							stem = append(append(append(append(stem, val), vals[iVals+1:i]...)), strings.TrimSuffix(vals[i], suffix))
-							iVals, full = i, true
-							break sw_multia
-						}
-					}
-					if i == iVals {
-						if strings.HasSuffix(val, suffix) {
-							res = append(res, vals[i])
-							stem = append(stem, strings.TrimSuffix(val, suffix))
-							full = true
-						} else {
-							res = append(res, vals[i:]...)
-							stem = append(append(stem, val), vals[i+1:]...)
-						}
-						break sw_multia
-					}
-				}
-			case multia_sq: // *? %?
-				if suffix == "" {
-					if n := iPats+1; n < lPats {
-						switch t := unbox(pats[n]).(type) {
-						case flag, *word, string:
-							for j := iVals+1; j < lVals; j += 1 {
-								if equal(ctx, t, vals[j]) {
-									res = append(res, vals[iVals:j+1]...)
-									stem = append(stem, vals[iVals:j]...)
-									iPats, iVals, full = n, j, true
-									break sw_multia
-								}
-							}
-						case *globpat, *percpat, *regexpat:
-							for j := iVals+1; j < lVals; j += 1 {
-								if f, _, s := match(ctx, t, vals[j]); f {
-									res = append(res, vals[iVals:j+1]...)
-									stem = append(append(stem, val), vals[iVals+1:j]...)
-									stems = append(append(stems, joinpath(stem...)), s...)
-									iPats, iVals, full, stem = n, j, true, nil
-									break sw_multia
-								}
-							}
-						case *punct:
-							for j := iVals+1; j < lVals; j += 1 {
-								if t.token == PTAIL {
-									if vals[j] == "" {
-										res = append(append(res, vals[iVals:j]...), "")
-										stem = append(stem, vals[iVals:j]...)
-										iPats, iVals, full = n, j, true
-										break sw_multia
-									}
-								}
-							}
-						}
-					}
-					res = append(res, vals[iVals:]...)
-					stem = append(append(stem, val), vals[iVals+1:]...)
-					iVals, full = lVals-1, true
-				} else {
-					for i = iVals+1; i < lVals; i += 1 {
-						if strings.HasSuffix(vals[i], suffix) {
-							res = append(res, vals[iVals:i+1]...)
-							stem = append(append(append(stem, val), vals[iVals+1:i]...), strings.TrimSuffix(vals[i], suffix))
-							iVals, full = i, true
-							break sw_multia
-						}
-					}
-					if i == iVals {
-						if strings.HasSuffix(val, suffix) {
-							res = append(res, vals[i])
-							stem = append(stem, strings.TrimSuffix(val, suffix))
-							full = true
-						} else {
-							res = append(res, vals[i:]...)
-							stem = append(append(stem, val), vals[i+1:]...)
-						}
-						break sw_multia
-					}
-				}
-			default:
-				debug(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr, trace{})
-			}
-			if stem != nil { stems = append(stems, joinpath(stem...)) }
-		} else if x, y := pat.(*punct); y && x.token == PTAIL {
-			if iVals+1 < lVals { full, res = val == "", append(res, "") }
-		} else if f, r, s := match(ctx, pat, val); f {
-			full, res, stems = true, append(res, r.(string)), append(stems, s...)
-		} else {
-			break
-		}
-	}
-	full = full && iPats == lPats && iVals == lVals
-	return
-}
-
-// OBSOLETE
-func _path_match3(ctx Context, pats []any, vals ...string) (full bool, res, stems []string) {
-	var lPats, lVals = len(pats), len(vals)
-	var iPats, iVals = lPats-1, lVals-1
-	for ; 0 <= iPats && 0 <= iVals; iPats, iVals = iPats-1, iVals-1 {
-		var pat = unbox(pats[iPats])
-		var mr, pre, suf = multia(ctx, pat) // %%  **  *?
-		if val := vals[iVals]; mr != multia_no {
-			var suffix = __string(ctx, suf)
-			if strings.HasSuffix(val, suffix) {
-				val = strings.TrimSuffix(val, suffix)
-			} else {
-				break
-			}
-
-			var (
-				prefix = __string(ctx, pre)
-				i int ; stem []string
-			)
-			sw_multia: switch full = false; mr {
-			case multia_ss, multia_pp: // ** %%
-				if prefix == "" {
-					if n := iPats-1; 0 <= n {
-						switch t := unbox(pats[n]).(type) {
-						case flag, *word, string:
-							for i = 0; i < iVals; i += 1 {
-								if equal(ctx, t, vals[i]) {
-									res = append(vals[i:iVals+1], res...)
-									stem = append(vals[i+1:iVals], append([]string{val}, stem...)...)
-									iPats, iVals, full = n, i, true
-									break sw_multia
-								}
-							}
-						case *globpat, *percpat, *regexpat:
-							for i = 0; i < iVals; i += 1 {
-								if f, _, s := match(ctx, t, vals[i]); f {
-									res = append(vals[i:iVals+1], res...)
-									stem = append(vals[i+1:iVals], append([]string{val}, stem...)...)
-									stems = append(s, append([]string{joinpath(stem...)}, stems...)...)
-									iPats, iVals, full, stem = n, i, true, nil
-									break sw_multia
-								}
-							}
-						case *punct:
-							for i = 0; i < iVals; i += 1 {
-								if t.token == PROOT {
-									if vals[i] == "" {
-										res = append(vals[i:iVals+1], res...)
-										stem = append(vals[i+1:iVals], append([]string{val}, stem...)...)
-										iPats, iVals, full = n, i, true
-									} else {
-										res = append([]string{""}, append(vals[i:iVals+1], res...)...)
-										stem = append([]string{""}, append(vals[i+1:iVals], append([]string{val}, stem...)...)...)
-										iVals = i
-									}
-									break sw_multia
-								}
-							}
-						}
-					}
-					res = append(vals[:iVals+1], res...)
-					stem = append(vals[:iVals], append([]string{val}, stem...)...)
-					iVals, full = 0, true
-				} else {
-					for i = 0; i < iVals; i += 1 {
-						if strings.HasPrefix(vals[i], prefix) {
-							res = append(vals[i:iVals+1], res...)
-							stem = append([]string{strings.TrimPrefix(vals[i], prefix)}, append(vals[i+1:iVals+1], append([]string{val}, stem...)...)...)
-							iVals, full = i, true
-							break sw_multia
-						}
-					}
-					if i == iVals {
-						if strings.HasPrefix(val, prefix) {
-							res = append([]string{vals[i]}, res...)
-							stem = append([]string{strings.TrimPrefix(val, prefix)}, stem...)
-							full = true
-						} else {
-							res = append(vals[:i], res...)
-							stem = append(vals[:i+1], append([]string{val}, stem...)...)
-						}
-						break sw_multia
-					}
-				}
-			case multia_sq: // *? %?
-				if prefix == "" {
-					if n := iPats-1; 0 <= n {
-						switch t := unbox(pats[n]).(type) {
-						case flag, *word, string:
-							for i = iVals-1; 0 <= i; i -= 1 {
-								if equal(ctx, t, vals[i]) {
-									res = append(vals[i:iVals+1], res...)
-									stem = append(vals[i+1:iVals], append([]string{val}, stem...)...)
-									iPats, iVals, full = n, i, true
-									break sw_multia
-								}
-							}
-						case *globpat, *percpat, *regexpat:
-							for i = iVals-1; 0 <= i; i -= 1 {
-								if f, _, s := match(ctx, t, vals[i]); f {
-									res = append(vals[i:iVals+1], res...)
-									stem = append(vals[i+1:iVals], append([]string{val}, stem...)...)
-									stems = append(s, append([]string{joinpath(stem...)}, stems...)...)
-									iPats, iVals, full, stem = n, i, true, nil
-									break sw_multia
-								}
-							}
-						case *punct:
-							for i = iVals-1; 0 <= i; i -= 1 {
-								if t.token == PROOT && vals[i] == "" {
-									res = append(vals[i:iVals+1], res...)
-									stem = append(vals[i+1:iVals], append([]string{val}, stem...)...)
-									iPats, iVals, full = n, i, true
-									break sw_multia
-								}
-							}
-						}
-					}
-					res = append(vals[:iVals+1], res...)
-					stem = append(vals[:iVals], append([]string{val}, stem...)...)
-					iVals, full = 0, true
-				} else {
-					for i = iVals-1; 0 <= i; i -= 1 {
-						if strings.HasPrefix(vals[i], prefix) {
-							res = append(vals[i:iVals+1], res...)
-							stem = append([]string{strings.TrimPrefix(vals[i], prefix)}, append(vals[i+1:iVals+1], append([]string{val}, stem...)...)...)
-							iVals, full = i, true
-							break sw_multia
-						}
-					}
-					if i == iVals {
-						if strings.HasPrefix(val, prefix) {
-							res = append([]string{vals[i]}, res...)
-							stem = append([]string{strings.TrimPrefix(val, prefix)}, stem...)
-							full = true
-						} else {
-							res = append(vals[:i], res...)
-							stem = append(vals[:i+1], append([]string{val}, stem...)...)
-						}
-						break sw_multia
-					}
-				}
-			default:
-				debug(pc(ctx,pat), "wrong match: %v %v (%d/%d %v)", pat, vals, iVals, lVals, mr, trace{})
-			}
-			if stem != nil { stems = append([]string{joinpath(stem...)}, stems...) }
-		} else if x, y := pat.(*punct); y && x.token == PROOT {
-			if 0 <= iVals { full, res = val == "", append([]string{""}, res...) }
-		} else if f, r, s := match(ctx, pat, val); f {
-			full, res, stems = true, append([]string{r.(string)}, res...), append(s, stems...)
-		} else {
-			break
-		}
-	}
-	full = full && iPats == -1 && iVals == -1
-	return
-}
-
 func _pathStr(ctx Context, str string) *path {
     return makePath(splitPathStr(ctx, str)...)
 }
@@ -3176,7 +2858,7 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
             debug(ctx, "mixing % pattern might have performance impact: %v", p)
         }
         for n := b-1; a < n; n -= 1 {
-            if f, r, ss := match(ctx, p.Suffix, rep[n:]); f && r != nil {
+            if f, r, ss := match(ctx, p.Suffix, _raw(p.Position(), rep[n:])); f && r != nil {
                 var s, _ = r.(string)
                 stems = append(append(stems, rep[a:n]), ss...)
                 result += s // rep[a:]
@@ -3637,6 +3319,7 @@ func __string(ctx Context, v any) (res string) {
 	switch t := v.(type) {
 	case string: return t
 	case rune: return string(t)
+	case token: return t.String()
 	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *qualword, *globmeta, *punct:
 		return t.(Value).String()
 	case *valbase, *null, *none, nil: return
@@ -3648,6 +3331,7 @@ func __string(ctx Context, v any) (res string) {
 	case *raw: return t.s
 	case *regexpat: return t.Regexp.String()
 	case *file: return t.filestub.name
+	case *filestub: return t.name
 	case *project: return t.name
 	case self: return t.name
 	case fullfile: return t.fullname()
@@ -4409,227 +4093,464 @@ func isPattern(ctx Context, v any) bool {
     return false
 }
 
-func matchGlobElems(ctx Context, elems []Value, val string, stems []string) (bool, []string) {
-	if len(elems) == 0 {
-		if val == "" {
-			return true, stems
+// matchCompComp match a segment (elems) against another segment (vals) (non-path)
+func matchCompComp(ctx Context, elems, vals []Value, stems []string) (bool, []string) {
+	// 1. Scan for Multi-Element Wildcard (DAST/ASTQ) in elems
+	var wildIndex = -1
+	var wildIsGreedy bool
+
+	for i, e := range elems {
+		// Use multia to detect DAST/ASTQ in the element
+		if m, _, _ := multia(ctx, e); m == multia_ss || m == multia_sq {
+			wildIndex = i
+			wildIsGreedy = (m == multia_ss)
+			break
+		}
+	}
+
+	// 2. If Wildcard Found: Handle Greedy/Non-Greedy Match
+	if wildIndex != -1 {
+		prefix := elems[:wildIndex]
+		suffix := elems[wildIndex+1:]
+
+		// Match prefix 1-to-1 against the start of vals
+		if len(vals) < len(prefix) {
+			return false, nil
+		}
+
+		var currentStems []string
+		for i, e := range prefix {
+			ok, _, s := match(ctx, e, vals[i])
+			if !ok {
+				return false, nil
+			}
+			currentStems = append(currentStems, s...)
+		}
+
+		remainingVals := vals[len(prefix):]
+		wildElem := elems[wildIndex]
+		var wildTokens []Value
+		if gp, ok := wildElem.(*globpat); ok {
+			wildTokens = gp.elems
+		} else {
+			// Fallback/Safety: should not happen if multia returned ss/sq
+			return false, nil
+		}
+
+		tryMatch := func(n int) (bool, []string) {
+			// 1. Match wildcard element against n values
+			// We use matchGlobComp for this
+			okWild, sWild := matchGlobComp(ctx, wildTokens, remainingVals[:n], nil)
+			if !okWild {
+				return false, nil
+			}
+
+			// 2. Recurse for suffix
+			okRest, sRest := matchCompComp(ctx, suffix, remainingVals[n:], nil)
+			if !okRest {
+				return false, nil
+			}
+
+			// Combine stems
+			totalStems := append(stems, currentStems...)
+			totalStems = append(totalStems, sWild...)
+			totalStems = append(totalStems, sRest...)
+			
+			return true, totalStems
+		}
+
+		if wildIsGreedy {
+			// Try matching max elements down to 0
+			for n := len(remainingVals); n >= 0; n-- {
+				if ok, s := tryMatch(n); ok {
+					return true, s
+				}
+			}
+		} else {
+			// Try matching 0 elements up to max
+			for n := 0; n <= len(remainingVals); n++ {
+				if ok, s := tryMatch(n); ok {
+					return true, s
+				}
+			}
 		}
 		return false, nil
 	}
 
+	// 3. No Multi-Element Wildcard: Normal 1-to-1 matching
+	if len(elems) != len(vals) {
+		return false, nil
+	}
+
+	var currentStems []string
+	for i, e := range elems {
+		ok, _, s := match(ctx, e, vals[i])
+		if !ok {
+			return false, nil
+		}
+		currentStems = append(currentStems, s...)
+	}
+
+	return true, append(stems, currentStems...)
+}
+
+// matchGlobSegment_obsolete matches glob elements (elems) against a string segment (val)
+func matchGlobSegment_obsolete(ctx Context, elems []Value, val string, stems []string) (bool, []string) {
+	if len(elems) == 0 { return val == "", stems }
+
 	head, tail := elems[0], elems[1:]
 
 	switch t := head.(type) {
-	case *globpat:
-		// Handle nested globpat by flattening/splicing its elements into the current stream
-		return matchGlobElems(ctx, append(t.elems, tail...), val, stems)
-
+	case *globpat: return matchGlobSegment_obsolete(ctx, append(t.elems, tail...), val, stems)
 	case *globmeta:
 		switch t.token {
-		case QUE: // "?" matches 1 char (except separator)
-			if len(val) > 0 && val[0] != pathSepByte {
-				return matchGlobElems(ctx, tail, val[1:], append(stems, val[:1]))
+		case QUE:
+			if len(val) > 0 {
+				_, n := utf8.DecodeRuneInString(val)
+				return matchGlobSegment_obsolete(ctx, tail, val[n:], append(stems, val[:n]))
 			}
-
-		case SAST: // "*" matches 0+ chars (except separator)
-			limit := strings.IndexByte(val, pathSepByte)
-			if limit == -1 {
-				limit = len(val)
-			}
-			// Greedy
-			for i := limit; i >= 0; i-- {
-				if ok, s := matchGlobElems(ctx, tail, val[i:], append(stems, val[:i])); ok {
-					return true, s
-				}
-			}
-
-		case DAST: // "**" matches 0+ chars (including separator)
-			// Greedy
+		case SAST, DAST: // "*" or "**" matches 0+ characters
 			for i := len(val); i >= 0; i-- {
-				if ok, s := matchGlobElems(ctx, tail, val[i:], append(stems, val[:i])); ok {
+				if ok, s := matchGlobSegment_obsolete(ctx, tail, val[i:], append(stems, val[:i])); ok {
 					return true, s
 				}
 			}
-
-		case ASTQ: // "*?" matches 0+ chars (including separator)
-			// Non-Greedy
+		case ASTQ: // "*?" matches 0+ characters (non-greedy)
 			for i := 0; i <= len(val); i++ {
-				if ok, s := matchGlobElems(ctx, tail, val[i:], append(stems, val[:i])); ok {
+				if ok, s := matchGlobSegment_obsolete(ctx, tail, val[i:], append(stems, val[:i])); ok {
 					return true, s
 				}
 			}
 		default:
-			// Treat other tokens as string literals
-			if s := t.token.String(); strings.HasPrefix(val, s) {
-				return matchGlobElems(ctx, tail, val[len(s):], stems)
+			if strings.HasPrefix(val, t.token.String()) {
+				return matchGlobSegment_obsolete(ctx, tail, val[len(t.token.String()):], stems)
 			}
 		}
 
-	case *globrange: // "[...]"
+	case *globrange:
 		if ss, rest, ok, _ := globMatchChunk(__string(ctx, t), val); ok {
-			return matchGlobElems(ctx, tail, rest, append(stems, ss...))
+			return matchGlobSegment_obsolete(ctx, tail, rest, append(stems, ss...))
 		}
 
-	default: // Literal
-		var s = __string(ctx, t)
-		// Special handling for string elements that might look like ranges [a-z]
-		if strings.HasPrefix(s, "[") {
-			if ss, rest, ok, _ := globMatchChunk(s, val); ok {
-				return matchGlobElems(ctx, tail, rest, append(stems, ss...))
-			}
+	default: // Literal match
+		if s := __string(ctx, t); strings.HasPrefix(val, s) {
+			return matchGlobSegment_obsolete(ctx, tail, val[len(s):], stems)
 		}
-		if strings.HasPrefix(val, s) {
-			return matchGlobElems(ctx, tail, val[len(s):], stems)
-		}
-	}
-
+	}	
 	return false, nil
 }
 
-// matchPathString avoids splitting the value string, processing segments iteratively.
-func matchPathString(ctx Context, pat []any, val string, res []string, stems []string) (bool, any, []string) {
-	if len(pat) == 0 {
-		if val == "" {
-			return true, res, stems
-		}
-		return false, nil, nil
-	}
+// matchGlobComp matches glob elements (elems) against compound elements (vals)
+func matchGlobComp(ctx Context, elems, vals []Value, stems []string) (bool, []string) {
+	if len(elems) == 0 { return len(vals) == 0, stems }
 
-	head, tail := pat[0], pat[1:]
+	head, tail := elems[0], elems[1:]
 
-	// Check if head matches multiple segments (contains ** or *?)
-	var isMulti bool
-	if gm, ok := head.(*globmeta); ok && gm.token == DAST {
-		isMulti = true
-	} else {
-		mr, _, _ := multia(ctx, head)
-		if mr == multia_ss || mr == multia_sq {
-			isMulti = true
-		}
-	}
-
-	if isMulti {
-		// Greedy match: Try matching head against prefixes of val (consuming multiple segments)
-		// We iterate from the end of val down to 0, stopping at separators.
-		for i := len(val); i >= 0; i-- {
-			// Only split at separators or end of string
-			if i < len(val) && val[i] != pathSepByte {
-				continue
+	switch t := head.(type) {
+	case *globpat: return matchGlobComp(ctx, append(t.elems, tail...), vals, stems)
+	case *globmeta:
+		switch t.token {
+		case QUE: // "?" matches exactly one Value
+			if len(vals) > 0 {
+				return matchGlobComp(ctx, tail, vals[1:], append(stems, __string(ctx, vals[0])))
 			}
-
-			chunk := val[:i]
-			var rest string
-			if i < len(val) {
-				rest = val[i+1:]
-			}
-
-			// Try to match the current chunk with head
-			if f, _, s := match(ctx, head, chunk); f {
-				// If head matches, append the consumed segments to res
-				var parts []string
-				if chunk != "" {
-					parts = strings.Split(chunk, string(pathSepByte))
-				}
-
-				// Match the rest of the pattern against the rest of the value
-				if f2, r2, s2 := matchPathString(ctx, tail, rest, append(res, parts...), append(stems, s...)); f2 {
-					return true, r2, s2
+		case SAST, DAST: // "*" or "**" matches 0+ Values
+			for i := len(vals); i >= 0; i-- {
+				var stem string
+				for _, v := range vals[:i] { stem += __string(ctx, v) }
+				if ok, s := matchGlobComp(ctx, tail, vals[i:], append(stems, stem)); ok {
+					return true, s
 				}
 			}
+		case ASTQ: // "*?" matches 0+ Values (Non-Greedy)
+			for i := 0; i <= len(vals); i++ {
+				var stem string
+				for _, v := range vals[:i] { stem += __string(ctx, v) }
+				if ok, s := matchGlobComp(ctx, tail, vals[i:], append(stems, stem)); ok {
+					return true, s
+				}
+			}
+		default:
+			if len(vals) > 0 && __string(ctx, t) == __string(ctx, vals[0]) {
+				return matchGlobComp(ctx, tail, vals[1:], stems)
+			}
 		}
-		return false, nil, nil
+
+	default: // Literal
+		if 0 < len(vals) && equal(ctx, t, vals[0]) {
+			return matchGlobComp(ctx, tail, vals[1:], stems)
+		}
+	}
+	return false, nil
+}
+
+// matchGlobPath matches glob elements (elems) against path segments (vals).
+func matchGlobPath(ctx Context, elems, vals []Value, stems []string) (bool, []string) {
+	// Helper to unpack a path segment into its components
+	unpack := func(v Value) []Value {
+		if c, ok := v.(*compound); ok {
+			return c.elems
+		}
+		return []Value{v}
 	}
 
-	// Normal single-segment match
-	var seg, rest string
-	idx := strings.IndexByte(val, pathSepByte)
-	if idx >= 0 {
-		seg, rest = val[:idx], val[idx+1:]
-	} else {
-		seg, rest = val, ""
+	// 1. Scan for Multi-Segment Wildcard (DAST/ASTQ) in elems
+	var wildIndex = -1
+	var wildToken token
+
+	for i, e := range elems {
+		// Check for globmeta DAST/ASTQ
+		if gm, ok := e.(*globmeta); ok {
+			if gm.token == DAST || gm.token == ASTQ {
+				wildIndex = i
+				wildToken = gm.token
+				break
+			}
+		}
 	}
 
-	if seg == "" && val == "" {
-		return false, nil, nil
+	// 2. If Wildcard Found: Handle Greedy/Non-Greedy Match across segments
+	if wildIndex != -1 {
+		prefix := elems[:wildIndex]
+		suffix := elems[wildIndex+1:]
+
+		// Define connector token: DAST uses SAST (*), ASTQ uses ASTQ (*?)
+		var connector token
+		if wildToken == DAST {
+			connector = SAST
+		} else {
+			connector = ASTQ
+		}
+
+		// Helper to attempt match for N segments consumed by the wildcard structure
+		tryMatch := func(n int) (bool, []string) {
+			// Case n=0: Wildcard structure consumes 0 segments.
+			if n == 0 {
+				pat := append(dup(prefix), suffix...)
+				return matchGlobPath(ctx, pat, vals, stems)
+			}
+
+			if len(vals) < n {
+				return false, nil
+			}
+
+			var currentStems []string
+
+			if n == 1 {
+				// Single segment match: Prefix + * + Suffix against vals[0]
+				pat := append(dup(prefix), &globmeta{valbase{elems[wildIndex].Position()}, connector})
+				pat = append(pat, suffix...)
+
+				// Unpack the segment to match against its components
+				if ok, s := matchGlobComp(ctx, pat, unpack(vals[0]), nil); ok {
+					if okRec, sRec := matchGlobPath(ctx, nil, vals[1:], nil); okRec {
+						return true, append(stems, append(s, sRec...)...)
+					}
+				}
+				return false, nil
+			}
+
+			// Case n > 1: Multi-segment match
+			
+			// 1. Match Prefix + * against vals[0]
+			patStart := append(dup(prefix), &globmeta{valbase{elems[wildIndex].Position()}, connector})
+			okStart, sStart := matchGlobComp(ctx, patStart, unpack(vals[0]), nil)
+			if !okStart {
+				return false, nil
+			}
+
+			// 2. Match * + Suffix against vals[n-1]
+			patEnd := append([]Value{&globmeta{valbase{elems[wildIndex].Position()}, connector}}, suffix...)
+			okEnd, sEnd := matchGlobComp(ctx, patEnd, unpack(vals[n-1]), nil)
+			if !okEnd {
+				return false, nil
+			}
+
+			// 3. Construct stems
+			prefixStems := sStart[:len(sStart)-1]
+			rem0 := sStart[len(sStart)-1]
+
+			rem1 := sEnd[0]
+			suffixStems := sEnd[1:]
+
+			// Build the middle stem (spanning vals[0] partial ... vals[n-1] partial)
+			var sb strings.Builder
+			sb.WriteString(rem0)
+			for k := 1; k < n; k++ {
+				sb.WriteString(pathSep)
+				if k < n-1 {
+					sb.WriteString(__string(ctx, vals[k]))
+				}
+			}
+			sb.WriteString(rem1)
+
+			currentStems = append(currentStems, prefixStems...)
+			currentStems = append(currentStems, sb.String())
+			currentStems = append(currentStems, suffixStems...)
+
+			// Recurse for remaining values (vals[n:]) with empty pattern
+			if okRec, sRec := matchGlobPath(ctx, nil, vals[n:], nil); okRec {
+				return true, append(stems, append(currentStems, sRec...)...)
+			}
+			return false, nil
+		}
+
+		// Iterate number of segments (n) to consume
+		if wildToken == DAST {
+			// Greedy: Max to 0
+			for n := len(vals); n >= 0; n-- {
+				if ok, s := tryMatch(n); ok {
+					return true, s
+				}
+			}
+		} else {
+			// Non-Greedy: 0 to Max
+			for n := 0; n <= len(vals); n++ {
+				if ok, s := tryMatch(n); ok {
+					return true, s
+				}
+			}
+		}
+		return false, nil
 	}
 
-	if f, _, s := match(ctx, head, seg); f {
-		newRes := append(res, seg)
-		return matchPathString(ctx, tail, rest, newRes, append(stems, s...))
+	// 3. No Multi-Segment Wildcard: Normal matching
+	if len(elems) == 0 {
+		return len(vals) == 0, stems
+	}
+	
+	// If matching a single path segment (common case for *.c matching foo.c)
+	if len(vals) == 1 {
+		return matchGlobComp(ctx, elems, unpack(vals[0]), stems)
 	}
 
+	// Fallback for multi-segment matching without ** (e.g. foo/bar matching foo/bar)
+	// This requires splitting elems by separator or ensuring 1-to-1 match.
+	// For now, we delegate to matchGlobComp but flattening values might be incorrect if elems has separators.
+	// However, without a separator in pattern, it can't match multiple segments anyway.
+	return matchGlobComp(ctx, elems, vals, stems)
+}
+
+// matchPathComp match path segments (elems) against a single segment (vals).
+func matchPathComp(ctx Context, elems []Value, vals []Value, res []Value, stems []string) (bool, any, []string) {
+	if len(elems) == 1 {
+		// TODO: delegate to matchCompComp(elems[0], vals) or matchGlobComp(elems[0], vals).
+		debug(ctx, "TODO: match path: %v %v %v", elems, vals, stems, callstack{num:5}, trace{})
+	}
 	return false, nil, nil
 }
 
-// matchPathSlice handles the []string case (legacy/fallback logic)
-func matchPathSlice(ctx Context, pat []any, vals []string, res []string, stems []string) (bool, any, []string) {
-	if len(pat) == 0 {
-		if len(vals) == 0 {
-			return true, res, stems
-		}
+// matchPathPath match path segments (elems) against path segments (vals).
+// There are no separators in the path segments; PROOT and PTAIL are virtual segments representing
+// the first and tail "/", for example "/usr/local/foobar/" ⇒ `[PROOT usr local foobar PTAIL]`.
+func matchPathPath(ctx Context, elems, vals []Value, res []Value, stems []string) (bool, any, []string) {
+	if truly(ctx, propReversal) {
+		// FIXME: match in reversed order, e.g. __trimsuffix for `$(trim-suffix testdata/**,$/)`
+		debug(ctx, "TODO: match path: %v %v %v", elems, vals, stems, callstack{num:5}, trace{})
 		return false, nil, nil
 	}
 
-	head, tail := pat[0], pat[1:]
+	// 1. Scan for Multi-Segment Wildcard (DAST/ASTQ) in elems
+	var wildIndex = -1
+	var wildIsGreedy bool
 
-	// Check if head matches multiple segments
-	var isMulti bool
-	if gm, ok := head.(*globmeta); ok && gm.token == DAST {
-		isMulti = true
-	} else {
-		mr, _, _ := multia(ctx, head)
-		if mr == multia_ss || mr == multia_sq {
-			isMulti = true
+	for i, e := range elems {
+		// Use multia to detect DAST/ASTQ in the segment
+		if m, _, _ := multia(ctx, e); m == multia_ss || m == multia_sq {
+			wildIndex = i
+			wildIsGreedy = (m == multia_ss)
+			break
 		}
 	}
 
-	if isMulti {
-		// Greedy match: Consume 0 to N segments
-		for i := len(vals); i >= 0; i-- {
-			chunk := vals[:i]
-			rest := vals[i:]
+	// 2. If Wildcard Found: Handle Greedy/Non-Greedy Match
+	if wildIndex != -1 {
+		prefix := elems[:wildIndex]
+		suffix := elems[wildIndex+1:]
 
-			if f, _, s := match(ctx, head, chunk); f {
-				if f2, r2, s2 := matchPathSlice(ctx, tail, rest, append(res, chunk...), append(stems, s...)); f2 {
-					return true, r2, s2
+		// Match prefix 1-to-1 against the start of vals
+		if len(vals) < len(prefix) {
+			return false, nil, nil
+		}
+
+		var currentStems []string
+		for i, e := range prefix {
+			ok, _, s := match(ctx, e, vals[i])
+			if !ok {
+				return false, nil, nil
+			}
+			currentStems = append(currentStems, s...)
+		}
+
+		remainingVals := vals[len(prefix):]
+		wildElem := elems[wildIndex]
+		var wildTokens []Value
+		if gp, ok := wildElem.(*globpat); ok {
+			wildTokens = gp.elems
+		} else {
+			// Fallback/Safety: should not happen if multia returned ss/sq
+			return false, nil, nil
+		}
+
+		tryMatch := func(n int) (bool, any, []string) {
+			// 1. Match wildcard segment against n path segments
+			// We use matchGlobPath for this, passing the wildElem's tokens and the sub-slice of vals
+			// Note: remainingVals[:n] is a slice of segments. matchGlobPath expects path segments.
+			okWild, sWild := matchGlobPath(ctx, wildTokens, remainingVals[:n], nil)
+			if !okWild {
+				return false, nil, nil
+			}
+
+			// 2. Recurse for suffix
+			okRest, _, sRest := matchPathPath(ctx, suffix, remainingVals[n:], nil, nil)
+			if !okRest {
+				return false, nil, nil
+			}
+
+			// Combine stems
+			totalStems := append(stems, currentStems...)
+			totalStems = append(totalStems, sWild...)
+			totalStems = append(totalStems, sRest...)
+			
+			return true, &path{elements{vals}}, totalStems
+		}
+
+		if wildIsGreedy {
+			// Try matching max segments down to 0
+			for n := len(remainingVals); n >= 0; n-- {
+				if ok, r, s := tryMatch(n); ok {
+					return true, r, s
+				}
+			}
+		} else {
+			// Try matching 0 segments up to max
+			for n := 0; n <= len(remainingVals); n++ {
+				if ok, r, s := tryMatch(n); ok {
+					return true, r, s
 				}
 			}
 		}
 		return false, nil, nil
 	}
 
-	if len(vals) == 0 {
+	// 3. No Multi-Segment Wildcard: Normal 1-to-1 matching
+	if len(elems) != len(vals) {
 		return false, nil, nil
 	}
 
-	if f, _, s := match(ctx, head, vals[0]); f {
-		newRes := append(res, vals[0])
-		return matchPathSlice(ctx, tail, vals[1:], newRes, append(stems, s...))
+	var currentStems []string
+	for i, e := range elems {
+		ok, _, s := match(ctx, e, vals[i])
+		if !ok {
+			return false, nil, nil
+		}
+		currentStems = append(currentStems, s...)
 	}
 
-	return false, nil, nil
+	return true, &path{elements{vals}}, append(stems, currentStems...)
 }
 
-func matchPath(ctx Context, pat []any, val any) (full bool, res any, stems []string) {
-	switch v := val.(type) {
-	case   string: return matchPathString(ctx, pat, v, nil, nil)
-	case []string: return matchPathSlice(ctx, pat, v, nil, nil)
-	default:       return matchPathSlice(ctx, pat, splitpath(ctx, val), nil, nil)
-	}
-}
-
-// FIXME: match in reversed order, e.g. __trimsuffix for `$(trim-suffix testdata/**,$/)`
-func matchPathReversed(ctx Context, pat []any, val any) (full bool, res any, stems []string) {
-	var vals []string
-	switch v := val.(type) {
-	case   string: vals = strings.Split(v, pathSep)
-	case []string: vals = v
-	default:       vals = splitpath(ctx, val)
-	}
-	return _path_match3(ctx, pat, vals...)
-}
-
-func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
+func match(ctx Context, pat, val Value) (full bool, res any, stems []string) {
 	if checkpoints { defer check_match(ctx, pat, val, &full, &res, &stems) }
 
     // --- FORWARD MATCH LOGIC ---
@@ -4640,110 +4561,99 @@ func match(ctx Context, pat, val any) (full bool, res any, stems []string) {
     case *globbrace:
         return match(ctx, &p.globpat, val)
 
-    case *globpat:
-        var s string
-        switch t := val.(type) {
-        case []string: // Handle tokenized path segments
-            if len(t) == 1 { s = t[0] } else { s = strings.Join(t, pathSep) }
-		case    string: s = t
-		case *filestub: s = t.name
-		case     *file: s = t.filestub.name
-		case     Value: s = __string(ctx, t)
-		case *valbase, *none, *null: return
-        default:
-			debug(ctx, "%v: matching %s", p, ts(val), trace{})
-        }
-		if ok, _s := matchGlobElems(ctx, p.elems, s, nil); ok {
-			full, res, stems = true, s, _s
-		}
-
-    case *regexpat:
-        if p.Regexp == nil { return }
-		var s string
-		switch t := val.(type) {
-		case    string: s = t
-		case *filestub: s = t.name
-		case     *file: s = t.filestub.name
-		case     Value: s = __string(ctx, t)
-		case *valbase, *none, *null: return
-		default:
-			debug(ctx, "%v: matching %s", p, ts(val), trace{})
-        }
-		if sm := p.Regexp.FindStringSubmatch(s); sm != nil {
-			full, res, stems = true, sm[0], sm[1:]
-		}
-
     case *path:
-		full, res, stems = matchPath(ctx, p.any(), val)
-
-	case []any: // Generic list of segments
-		if truly(ctx, propReversal) {
-			full, res, stems = matchPathReversed(ctx, p, val)
-		} else {
-			full, res, stems = matchPath(ctx, p, val)
-		}
-
-    case string: // Literal pattern (treated as prefix/equality)
-        var s string
-        switch t := val.(type) {
-        case string: s = t
-        case Value:  s = __string(ctx, t)
-		case *valbase, *none, *null: return
-        }
-        if p == s {
-            full, res = true, s
-        } else if strings.HasPrefix(s, p) {
-            full, res = len(s) == len(p), s[:len(p)]
-        }
-		if isPattern(ctx, p) || isPattern(ctx, s) {
-			debug(ctx, "%v %v", ts(pat), ts(val), callstack{num:10})
+		switch t := val.(type) {
+		case *path:
+			full, res, stems = matchPathPath(ctx, p.elems, t.elems, nil, nil)
+		case *compound:
+			full, res, stems = matchPathComp(ctx, p.elems, t.elems, nil, nil)
+		default: // scalar value (non-container)
+			full, res, stems = matchPathComp(ctx, p.elems, []Value{t}, nil, nil)
 		}
 
 	case *compound:
-		v := expand(ctx, p)
-		if l, ok := v.(*list); ok {
-			for _, elem := range l.elems {
-				if f, r, s := match(ctx, elem, val); f {
-					return true, r, s
-				}
-			}
-			return false, nil, nil
+        switch t := val.(type) {
+		case *compound:
+			if full, stems = matchCompComp(ctx, p.elems, t.elems, nil); full { res = t }
+        default: // scalar value
+			if full, stems = matchCompComp(ctx, p.elems, []Value{t}, nil); full { res = t }
+        }
+
+    case *globpat:
+		switch t := val.(type) {
+		case *path:
+			if full, stems = matchGlobPath(ctx, p.elems, t.elems, nil); full { res = t }
+		case *compound:
+			if full, stems = matchGlobComp(ctx, p.elems, t.elems, nil); full { res = t }
+		default: // scalar value
+			if full, stems = matchGlobComp(ctx, p.elems, []Value{t}, nil); full { res = t }
 		}
-		if c, ok := v.(*compound); ok && equal(ctx, v, p) {
-			if false {
-				return match(ctx, __string(ctx, c), val)
-			} else {
-				return match(ctx, c.globpat(), val)
-			}
+
+    case *regexpat:
+		if p.Regexp == nil {
+			debug(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num:10}, trace{})
 		}
-		return match(ctx, v, val)
+		// TODO: think of a similar way as globpat
+		switch t := val.(type) {
+		case *compound, *path, *word, *raw:
+			if sm := p.Regexp.FindStringSubmatch(__string(ctx,t)); sm != nil {
+				full, res, stems = true, sm[0], sm[1:]
+			}
+		default:
+			debug(ctx, "TODO: match: %s, %s", ts(p), ts(val), callstack{num:10}, trace{})
+		}
 
     case flag:
 		switch t := val.(type) {
 		case flag: return match(ctx, p.Value, t.Value)
-		case string:
-			if strings.HasPrefix(t, "-") { return match(ctx, p.Value, t[1:]) }
-		case Value: s := __string(ctx, t)
-			if strings.HasPrefix(s, "-") { return match(ctx, p.Value, s[1:]) }
-		case *valbase, *none, *null: return
+		default:
+			debug(ctx, "TODO: match: %s, %s", ts(p), ts(val), callstack{num:10}, trace{})
 		}
 
-	case *valbase, *none, *null: return
-    default: return match(ctx, __string(ctx, p), val)
+	case *valbase, *none, *null:
+		if isEmpty(val) { return true, nil, nil }
+		return false, nil, nil	
+
+	case *list: // or-match
+		switch t := val.(type) {
+		case *list: // or-match
+			for _, _p := range p.elems {
+				for _, _v := range t.elems {
+					if full, res, stems = match(ctx, _p, _v); full {
+						return
+					}
+				}
+			}
+		default:
+			for _, _p := range p.elems {
+				if full, res, stems = match(ctx, _p, val); full {
+					return
+				}
+			}
+		}
+
+    default: // Literal data (treated as prefix/equality)
+		ps, vs := __string(ctx, p), __string(ctx, val)
+		if ps == vs {
+			full, res = true, vs
+		} else if strings.HasPrefix(vs, ps) {
+			full, res = len(vs) == len(ps), vs[:len(ps)]
+		}
+		if isPattern(ctx, ps) {
+			// Debug stack trace before we have a better solution.
+			debug(ctx, "string is pattern: %v %v", p, ts(val), callstack{num:10}, trace{})
+		}
+		if isPattern(ctx, vs) {
+			// Debug stack trace before we have a better solution.
+			debug(ctx, "string is pattern: %v %v", p, ts(val), callstack{num:10}, trace{})
+		}
+		return
     }
 
     // --- REVERSE MATCH LOGIC ---
-    if !full && !truly(ctx, is_swapped{}) && isPattern(ctx, val) {
-        var patVal any = pat
-        if pv, ok := pat.(Value); ok {
-            patVal = __string(ctx, pv) // Force string representation
-        } else if ps, ok := pat.(string); ok {
-            patVal = ps
-        }
-
-        if f, _, _ := match(swapped_ctx{ctx}, val, patVal); f { full = true }
+    if !full && !truly(ctx, is_swapped{}) && patterned(ctx, val) {
+        full, _, _ = match(swapped_ctx{ctx}, val, pat)
     }
-
     return
 }
 

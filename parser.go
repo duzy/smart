@@ -2079,7 +2079,7 @@ defsloop:
             var neg bool
             if x, y := pat.(negative); y { pat, neg = x.Value, y }
 
-            var a, _, c = match(ctx, pat, name)
+            a, _, c := match(pc(ctx, pat), pat, &word{valbase{_position(ctx)}, name})
             if a && neg { continue defsloop }
             if a || neg {
                 if n := len(capture); n == 0 {

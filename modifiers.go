@@ -2286,7 +2286,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
             }
             if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
                 if proj := _project(ctx); proj != nil {
-                    info(ctx, "%v: %v %v", filename, proj, unmap_files(ctx, proj, filename, nil))
+                    info(ctx, "%v: %v %v", filename, proj, unmap_files(ctx, proj, _pathStr(ctx, filename), nil))
                     info(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
                     debug(ctx, "%v: %v (%v)", filename, e, tv(target), trace{})
                 }

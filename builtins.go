@@ -1033,7 +1033,7 @@ ForValList:
             }
         }
         for _, pat := range patList {
-            var matched, _, _ = match(ctx, pat, str)
+            var matched, _, _ = match(ctx, pat, val)
             if ctx.negated { matched = !matched }
             if matched {
                 if ctx.all {
@@ -1445,7 +1445,7 @@ defsloop:
             var neg bool
             if x, y := pat.(negative); y { pat, neg = x.Value, y }
 
-            var a, _, c = match(ctx, pat, name)
+            var a, _, c = match(pc(ctx, pat), pat, &word{valbase{_position(ctx)}, name})
             if a && neg { continue defsloop }
             if a || neg {
                 if ctx.r <= 0 || 0 == len(c) {
@@ -2412,7 +2412,7 @@ func (ctx *__patsubst) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__patsubst) matchPats(pats []Value, a any) (ok bool, pat Value, stems []string) {
+func (ctx *__patsubst) matchPats(pats []Value, a Value) (ok bool, pat Value, stems []string) {
 	for _, pat = range pats { if ok, _, stems = match(ctx, pat, a); ok { break } }
 	return
 }
@@ -2448,7 +2448,7 @@ func (ctx *__patsubst) x() (_ any) {
 	}
     for _, src := range sources {
 		var srcFile, source, full = ctx.srcFile(proj, src)
-        var ok, srcPat, stems = ctx.matchPats(srcPats, source)
+        var ok, srcPat, stems = ctx.matchPats(srcPats, src)
 		if !ok {
 			if !isTrivial(src) { res = append(res, src) }
 			continue // just append src to the list
@@ -2642,7 +2642,7 @@ func (ctx *__trimprefix) x() any {
 	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
 		var s = __string(ctx, val)
 		for _, prefix := range prefix {
-			full, r, _ := match(ctx, prefix, s)
+			full, r, _ := match(ctx, prefix, val)
 			if full { s = "" ; break } // trim all for full prefix
 			if t := joinp(ctx, r); strings.HasPrefix(s, t) {
 				s = strings.TrimPrefix(s, t)
@@ -2673,7 +2673,7 @@ func (ctx *__trimsuffix) x() any {
 	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
 		var s = __string(ctx, val)
 		for _, prefix := range prefix {
-			full, r, _ := match(reversal{ctx}, prefix, s)
+			full, r, _ := match(reversal{ctx}, prefix, val)
 			if full { s = "" ; break } // trim all for full prefix
 			if t := joinp(ctx, r); strings.HasSuffix(s, t) {
 				s = strings.TrimSuffix(s, t)
@@ -4236,7 +4236,7 @@ func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) 
             // fallthrough
         } else if nElems := len(p.elems); nElems == 0 {
             debug(ctx, "empty path: %v", pat, trace{})
-        } else if y, _, _ = match(ctx, p.elems[0], sub.n); y && nElems == 1 {
+        } else if y, _, _ = match(ctx, p.elems[0], &raw{valbase{p.Position()}, sub.n}); y && nElems == 1 {
             debug(ctx, "%v %v: invalid path: %v, %v, %v", topDir, sub.dn, pat, sub.n, nElems, trace{})
         } else if y && sub.isDir && nElems > 1 {
             val := p.elems[1]
@@ -4259,13 +4259,13 @@ func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) 
         } else if m, y := gp.elems[0].(*globmeta); !y {
             // fallthrough
         } else if m.token == DAST { // aka **
-            y, _, _ = match(ctx, gp, sub.dn)
+            y, _, _ = match(ctx, gp, &raw{valbase{pat.Position()}, sub.dn})
             if sub.isDir { subed(sub, pat) }
             if y { top.Add(1) ; go collect(sub.dn) ; return }
             return
         }
 
-        y, _, _ := match(ctx, pat, sub.n)
+        y, _, _ := match(ctx, pat, &raw{valbase{pat.Position()}, sub.n})
         if y { top.Add(1) ; go collect(sub.dn) ; return }
         return
     }
@@ -4275,7 +4275,7 @@ func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) 
         var sub = &subr{ d:subdir, n:name, dn:filepath.Join(subdir,name) }
 
         for _, x := range ctx.exclude {
-            if y, _, _ := match(ctx, x, sub.dn); y { return }
+            if y, _, _ := match(ctx, x, &raw{valbase{x.Position()}, sub.dn}); y { return }
         }
 
         if fi, err := os.Stat(filepath.Join(topDir, sub.dn)); err == nil {
