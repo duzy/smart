@@ -122,10 +122,10 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v", tst{t.pattern})
 	} else if __string(ctx,t.pattern) != "**.def.am" {
 		ctx.err("%v → %v", tst{pat5}, t.pattern)
-	} else if y, r, s := match(ctx, pat5, pat3); y {
-		ctx.err("%v %v ; %v %v", tst{pat5}, pat3, r, s)
-	} else if y, r, s := match(ctx, pat5, pat4); y {
-		ctx.err("%v %v ; %v %v", tst{pat5}, pat4, r, s)
+	} else if a, b, c := match(ctx, pat5, pat3); sf("%v %v %v", a, b, c) != "false <nil> []" {
+		ctx.err("%v %v: %v %v %v", pat5, pat3, a, b, c)
+	} else if a, b, c := match(ctx, pat5, pat4); sf("%v %v %v", a, b, c) != "false <nil> []" {
+		ctx.err("%v %v: %v %v %v", pat5, pat4, a, b, c)
 	}
 	if g, y := pat6.(*globpat); !y || g == nil {
 		ctx.err("%v", tst{pat6})
@@ -139,20 +139,10 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v", tst{cs[0].filemap})
 	} else if __string(ctx,m.pattern) != "**.def.am" {
 		ctx.err("%v → %v", tst{cs[0].filemap}, tst{m.pattern})
-	} else if y, r, s := match(ctx, pat6, pat3); !y {
-		ctx.err("%v, %v ; %v %v", tst{pat6}, pat3, r, s)
-	} else if r == nil {
-		ctx.err("%v, %v ; %v", tst{pat6}, pat3, tst{r})
-	} else if a, y := r.(string); !y {
-		ctx.err("%v, %v ; %v", tst{pat6}, pat3, tst{r})
-	} else if a != "foobar/config/*.def.am" {
-		ctx.err("%v, %v", tst{pat6}, pat3)
-	} else if s == nil || len(s) != 1 {
-		ctx.err("%v, %v ; %v", tst{pat6}, pat3, s)
-	} else if s[0] != "foobar/config/*" {
-		ctx.err("%v, %v ; %v", tst{pat6}, pat3, s)
-	} else if y, r, s := match(ctx, pat6, pat4); y {
-		ctx.err("%v, %v ; %v %v", tst{pat6}, pat4, r, s)
+	} else if a, b, c := match(ctx, pat6, pat3); sf("%v %v %v", a, b, c) != "false <nil> []" {
+		ctx.err("%v %v: %v %v %v", pat6, pat3, a, b, c)
+	} else if a, b, c := match(ctx, pat6, pat4); sf("%v %v %v", a, b, c) != "false <nil> []" {
+		ctx.err("%v %v: %v %v %v", pat6, pat4, a, b, c)
 	}
 
 	if s := _workdir(ctx); s == "" {

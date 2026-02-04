@@ -2074,48 +2074,58 @@ func (l ul) braced_defs(ctx Context) (res Value) {
 	var vals []Value
 
 defsloop:
-	for name, _ := range l.project.elems {
-        for _, pat := range pats {
-            var neg bool
-            if x, y := pat.(negative); y { pat, neg = x.Value, y }
+	for _k, _ := range l.project.elems {
+		for _, pat := range pats {
+			var pos = pat.Position()
+			var name = _raw(pos, _k)
+			var neg bool
+			if x, y := pat.(negative); y { pat, neg = x.Value, y }
 
-            a, _, c := match(pc(ctx, pat), pat, &word{valbase{_position(ctx)}, name})
-            if a && neg { continue defsloop }
-            if a || neg {
-                if n := len(capture); n == 0 {
-					pos := pat.Position()
-					s := strconv.Itoa(0)
-					w := _raw(pos, name)
-					dc := &defcaps{w, []*defcapture{&defcapture{s, w}}}
-					for i, cap := range c {
-						s = strconv.Itoa(i+1)
-						w = _raw(pos, cap)
-						dc.caps = append(dc.caps, &defcapture{s, w})
-						if ac != nil { ac.set(ctx, defStatic, s, w) }
+			a, _, c := match(pc(ctx, pat), pat, name)
+			if a && neg { continue defsloop }
+			if a || neg {
+				var main Value = name
+				var caps []*defcapture
+
+				// Always capture $0 as the full name
+				caps = append(caps, &defcapture{"0", main})
+
+				if len(capture) == 0 {
+					// Auto-numbered captures from stems: $1, $2...
+					for i, stem := range c {
+						s := strconv.Itoa(i+1)
+						caps = append(caps, &defcapture{s, _raw(pos, __string(ctx, stem))})
 					}
-					vals = append(vals, dc)
-					break
-                } else if n <= len(c) {
-					s := name
-					if n == 1 {
-						var i, e = strconv.Atoi(capture[0])
-						if e == nil && 0 < i && i <= len(c) { s = c[i-1] }
+				} else {
+					// Named captures
+					// If specifically one numeric capture requested, use that as the main result value
+					if len(capture) == 1 {
+						if i, e := strconv.Atoi(capture[0]); e == nil && 0 < i && i <= len(c) {
+							main = c[i-1]
+						}
 					}
-					pos := pat.Position()
-					dc := &defcaps{_raw(pos, s), []*defcapture{
-						&defcapture{strconv.Itoa(0), _raw(pos, name)},
-					}}
-					for i, cap := range capture {
-						if i < len(c) { s = c[i] } else { s = "" }
-						var w = _raw(pos, s)
-						dc.caps = append(dc.caps, &defcapture{cap, w})
-						if ac != nil { ac.set(ctx, defStatic, cap, w) }
+
+					for i, name := range capture {
+						var val Value
+						if i < len(c) {
+							val = _raw(pos, __string(ctx, c[i]))
+						} else {
+							val = _raw(pos, "")
+						}
+						caps = append(caps, &defcapture{name, val})
 					}
-					vals = append(vals, dc)
-					break
 				}
-            }
-        }
+
+				dc := &defcaps{main, caps}
+				if ac != nil {
+					for _, cap := range caps {
+						ac.set(ctx, defStatic, cap.name, cap.value)
+					}
+				}
+				vals = append(vals, dc)
+				break // matched this name
+			}
+		}
 	}
 	return ease(ctx, vals)
 }

@@ -634,8 +634,8 @@ func (p *rule) recipes() (res []Value) {
 // FIXME: p.target maybe not the real target
 
 func _stemmed(ctx Context) *stemmed_ctx { return cast[*stemmed_ctx](ctx) }
-func _stems(ctx Context) (res []string) {
-    res, _ = do(ctx, get_stems{}).([]string)
+func _stems(ctx Context) (res []Value) {
+    res, _ = do(ctx, get_stems{}).([]Value)
     return
 }
 
@@ -658,11 +658,11 @@ func (p *stemmed_ctx) do(ctx Context, op any) (_ any) {
 type stemmed_rule struct{
     *rule
     target Value
-    stems []string
+    stems []Value
 }
 func (p *stemmed_rule) kind() Kind { return p.rule.kind()|KindStemmedRule }
 func (p *stemmed_rule) destiny() Value { return p.target/* versus p.rule.target */ }
 func (p *stemmed_rule) String() (s string) {
-    for i, stem := range p.stems { if i > 0 { s += "," }; s += stem }
+    for i, stem := range p.stems { if i > 0 { s += "," }; s += stem.String() }
     return fmt.Sprintf("%s:%s", p.target, s) // "<%s:%s>"
 }

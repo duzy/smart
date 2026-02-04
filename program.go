@@ -405,15 +405,15 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 }
 
 func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *file) {
-    var mapPrereqFile = func(name Value) {
-        var ms = unmap_files(unmap_uncheck_ctx{ctx}, _project(ctx), name, nil)
-        if ms != nil {
-            defer func() {
-                if prereqFile != nil { return }
-                for _, m := range ms { warn(ctx, "%v, skipped %v", name, m) }
-                debug(ctx, "skipped %d, projects %v", len(ms), projects)
-            }()
-        }
+	var mapPrereqFile = func(name Value) {
+		var ms = unmap_files(unmap_uncheck_ctx{ctx}, _project(ctx), name, nil)
+		if ms != nil {
+			defer func() {
+				if prereqFile != nil { return }
+				for _, m := range ms { warn(ctx, "%v, skipped %v", name, m) }
+				debug(ctx, "skipped %d, projects %v", len(ms), projects)
+			}()
+		}
 
         if prereqFile = select_file(ctx, ms); prereqFile != nil {
             prereqValue = prereqFile
@@ -448,9 +448,14 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
         return
     }
 
-    var rest []string
+	var stemVals []Value
+	for _, s := range stems {
+		stemVals = append(stemVals, s)
+	}
+
+    var rest []Value
     prereqPattern = prereqValue
-    prereqValue, rest = stencil(ctx, prereqPattern, stems)
+    prereqValue, rest = stencil(ctx, prereqPattern, stemVals)
     if isTrivial(prereqValue) {
         errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems, trace{})
     } else if len(rest) > 0 {

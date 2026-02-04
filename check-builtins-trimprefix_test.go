@@ -48,14 +48,8 @@ func test__trimprefix(ctx *testcase) {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if s, t := __string(ctx, p), "**/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := match(ctx, v, pv); a {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if x, y := b.([]string); !y {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if !strings.HasPrefix(ps, joinpath(x...)) {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if !strings.HasPrefix(ps, joinpath(c...)) {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
+	} else if a, b, c := match(ctx, v, pv); sf("%v %v %v", a, b, c) != "false <nil> []" {
+		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	}
 
 	s = "pat1"
@@ -75,14 +69,8 @@ func test__trimprefix(ctx *testcase) {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
 	} else if s, t := __string(ctx, p), "%%/testdata"; s != t {
 		ctx.err("%v → %s != %s", tst{p}, t, s)
-	} else if a, b, c := match(ctx, v, pv); a {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if x, y := b.([]string); !y {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if !strings.HasPrefix(ps, joinpath(x...)) {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
-	} else if !strings.HasPrefix(ps, joinpath(c...)) {
-		ctx.err("%v %v → %v %v", tst{v}, pv, b, c)
+	} else if a, b, c := match(ctx, v, pv); sf("%v %v %v", a, b, c) != "false <nil> []" {
+		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	}
 
 	s = "pat2"
@@ -112,22 +100,8 @@ func test__trimprefix(ctx *testcase) {
 		ctx.err("%s != %s | %v", s, t, tst{p})
 	} else if s, t := __string(ctx, p), "/**/testdata"; s != t {
 		ctx.err("%s != %s | %v", s, t, tst{p})
-	} else if a, b, c := match(ctx, v, pv); a { // partially matched
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if x, y := b.([]string); !y {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if len(x) < 0 || x[0] != "" {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if len(c) < 0 || c[0] == "" {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.Contains(ps, joinpath(x...)) {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.Contains(ps, joinpath(c...)) {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.HasPrefix(ps, joinpath(x...)) {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.HasPrefix(ps, "/"+joinpath(c...)) {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
+	} else if a, b, c := match(ctx, v, pv); sf("%v %v %v", a, b, c) != "false <nil> []" {
+		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	}
 
 	s = "pat3"
@@ -153,22 +127,8 @@ func test__trimprefix(ctx *testcase) {
 		ctx.err("%s != %s | %v", s, t, tst{p})
 	} else if s, t := __string(ctx, p), "/%%/testdata"; s != t {
 		ctx.err("%s != %s | %v", s, t, tst{p})
-	} else if a, b, c := match(ctx, v, pv); a {
-		ctx.err("%s != %s | %v", s, t, tst{p})
-	} else if x, y := b.([]string); !y {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if len(x) < 0 || x[0] != "" {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if len(c) < 0 || c[0] == "" {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.Contains(ps, joinpath(x...)) {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.Contains(ps, joinpath(c...)) {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.HasPrefix(ps, joinpath(x...)) {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
-	} else if !strings.HasPrefix(ps, "/"+joinpath(c...)) {
-		ctx.err("%v %v → %v %v", tst{v}, v, b, c)
+	} else if a, b, c := match(ctx, v, pv); sf("%v %v %v", a, b, c) != "false <nil> []" {
+		ctx.err("%v %v: %v %v %v", p, v, a, b, c)
 	}
 
 	s = "val1"

@@ -1434,33 +1434,31 @@ func (ctx *__defs) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__defs) x() (_ any) {
-    var names []bare
+	var pos = _position(ctx)
+    var names []Value
     var pats []Value
-    for _, val := range merge(ctx.a...) {
-        pats = append(pats, val)
-    }
+    for _, val := range merge(ctx.a...) { pats = append(pats, val) }
+	
 defsloop:
-    for name, _ := range _project(ctx).elems {
-        var str string
+    for _k, _ := range _project(ctx).elems {
+		var name = _word(pos, _k)
         for _, pat := range pats {
-            var neg bool
+            neg := false
             if x, y := pat.(negative); y { pat, neg = x.Value, y }
 
-            var a, _, c = match(pc(ctx, pat), pat, &word{valbase{_position(ctx)}, name})
+            a, _, c := match(pc(ctx, pat), pat, name)
             if a && neg { continue defsloop }
             if a || neg {
                 if ctx.r <= 0 || 0 == len(c) {
-                    str = name
+					names = append(names, name)
                 } else if ctx.r <= len(c) {
-                    str = c[ctx.r-1]
+					names = append(names, c[ctx.r-1])
                 }
+				continue defsloop
             }
         }
-        if str != "" {
-            names = append(names, bare(str))
-        }
     }
-	if ctx.sort { slices.Sort(names) }
+	if ctx.sort { slices.SortFunc(names, func(a, b Value) int { return cmpValues(ctx, a, b) }) }
     return names
 }
 
@@ -2413,7 +2411,7 @@ func (ctx *__patsubst) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__patsubst) matchPats(pats []Value, a Value) (ok bool, pat Value, stems []string) {
+func (ctx *__patsubst) matchPats(pats []Value, a Value) (ok bool, pat Value, stems []Value) {
 	for _, pat = range pats { if ok, _, stems = match(ctx, pat, a); ok { break } }
 	return
 }
