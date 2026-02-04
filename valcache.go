@@ -534,22 +534,22 @@ func (p *valcache) matchPayload(ctx Context, fullval Value) (ok bool) {
 		case filemap:
 			var _a = filemap{a._filemap, expand(_final(ctx), a.pattern)}
 			for _, v := range merge(_a.pattern) {
-				if f, s := matchUnca(ctx, v, fullval); f {
-					if 0 < do(ctx, matched_filemap{_a, s}).(int) {
+				if f, r, _ := match(ctx, v, fullval); f {
+					if 0 < do(ctx, matched_filemap{_a, __string(ctx, r)}).(int) {
 						ok = true
 					} else {
-						debug(ctx, "%v %v", ts(a), s, trace{})
+						debug(ctx, "%v %v", ts(a), r, trace{})
 					}
 				}
 			}
 		case *rule:
 			var _a = &rule{expand(_final(ctx), a.target), a.arged, a.program}
 			for _, v := range merge(_a.target) {
-				if f, s := matchUnca(ctx, v, fullval); f {
-					if 0 < do(ctx, matched_rule{_a, s}).(int) {
+				if f, r, _ := match(ctx, v, fullval); f {
+					if 0 < do(ctx, matched_rule{_a, __string(ctx, r)}).(int) {
 						ok = true
 					} else {
-						debug(ctx, "%v %v", ts(a), s, trace{})
+						debug(ctx, "%v %v", ts(a), r, trace{})
 					}
 				}
 			}
@@ -559,30 +559,6 @@ func (p *valcache) matchPayload(ctx Context, fullval Value) (ok bool) {
 	}
 	return
 }
-
-func matchUnca(ctx Context, pat, val Value) (f bool, s string) {
-	var t any
-	if patterned(ctx, pat) {
-		if  f, t, _ = match(ctx, pat, val); !f && patterned(ctx, val) {
-			f, t, _ = match(ctx, val, pat)
-		}
-	} else if patterned(ctx, val) {
-		f, t, _ = match(ctx, val, pat)
-	} else {
-		f, t, _ = match(ctx, pat, val)	
-	}
-	if f {
-		switch t := t.(type) {
-		case   string: s = t
-		case []string: s = strings.Join(t, pathSep)
-		default: debug(ctx, "%v %v: %v", pat, val, ts(t), trace{})
-		}
-		if false {
-			debug(ctx, "%v %v", pat, val, callstack{stop:"smart.uncache"})
-		}
-	}
-	return
-} 
 
 func (p *valcache) ks() string {
 	var ks []string
