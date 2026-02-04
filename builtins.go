@@ -943,6 +943,7 @@ func (ctx *__less) x() (res any) {
 type __match struct { builtinbase
     regexps []*regexp.Regexp //`re,rx,reg,regex,regexp`
     negated bool `ne,neg,negated,negative,not`
+	shallow bool `shallow` // TODO: shallow match without expand $(xx) or &(yy)
     all bool `all`
 }
 func (ctx *__match) inner() Context { return &ctx.builtinbase }
