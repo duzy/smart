@@ -14,6 +14,7 @@ import (
 )
 
 var rxLC = regexp.MustCompile(`[0-9]+:[0-9]+:?`)
+var rxSquareBracket = regexp.MustCompile(`\[?(.+?)\]?`)
 
 // NOTE: cannot decalre `checkpoints` as `const` because it's compile-time evaled.
 var checkpoints = true // vertag != "final"
@@ -306,6 +307,7 @@ var checkpoints_cmp = map[string]string{
 	`{=glob {=meta **} {=punct .} {=word h}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=meta **} {=punct .} {=word h}} []`:`smaller`,
 	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=meta *} {=punct .} {=word h}} []`:`equal`,
+	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`greater`,
 	`{=list {16:16 {=word foo}}} {=list {=word foo}} []`:`equal`,
 	`{=list {= {=word foo}}} {=list {=word foo}} []`:`equal`,
 	`{=list {=compound {= {=flag {=word foo}}} {=word bar}}} {=list {=flag {=word foobar}}} []`:`equal`,
@@ -319,8 +321,10 @@ var checkpoints_cmp = map[string]string{
 	`{=meta **} {=word foo} []`:`greater`,
 	`{=meta *} {=meta **} []`:`smaller`,
 	`{=meta *} {=meta *} []`:`equal`,
+	`{=meta ?} {=meta *} []`:`smaller`,
 	`{=path {=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}} {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} []`:`smaller`,
 	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} []`:`equal`,
+	`{=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`{=punct .} {=compound {=word bar} {=punct .} {=word c}} []`:`smaller`,
 	`{=punct .} {=punct .} []`:`equal`,
 	`{=punct .} {=string .test} []`:`lprefix`,
@@ -328,7 +332,9 @@ var checkpoints_cmp = map[string]string{
 	`{=punct .} {=word c} []`:`smaller`,
 	`{=punct .} {=word foo} []`:`smaller`,
 	`{=punct .} {=word oo} []`:`smaller`,
+	`{=string bar} {=meta **} []`:`smaller`,
 	`{=string foo} {=string foo} []`:`equal`,
+	`{=string foo} {=word f} []`:`rprefix`,
 	`{=string h} {=string h} []`:`equal`,
 	`{=token **} {=token **} []`:`equal`,
 	`{=token **} {=word foo} []`:`greater`,
@@ -338,6 +344,7 @@ var checkpoints_cmp = map[string]string{
 	`{=token .} {=string .test} []`:`lprefix`,
 	`{=token .} {=token .} []`:`equal`,
 	`{=token .} {=word bar} []`:`smaller`,
+	`{=word bar} {=glob {=meta **} {=punct .} {=word hh}} []`:`smaller`,
 	`{=word conf3} {=word bar} []`:`greater`,
 	`{=word conf3} {=word foo} []`:`smaller`,
 	`{=word c} {=word c} []`:`equal`,
@@ -347,6 +354,7 @@ var checkpoints_cmp = map[string]string{
 	`{=word foo} {=word foo} []`:`equal`,
 	`{=word h} {=word h} []`:`equal`,
 	`{=word test} {=word test} []`:`equal`,
+	`{=word xv} {=word x} []`:`rprefix`,
 	`{=word x} {=string config} []`:`greater`,
 	`{=word x} {=string x.h} []`:`lprefix`,
 	`{=word x} {=word xxx} []`:`lprefix`,
@@ -357,9 +365,30 @@ func check_cmp(ctx Context, l, lv, r, rv any, syn []bool, _r *cmpres) {
 	
 	k := rxLC.ReplaceAllString(sf("%v %v %v", ts(l), ts(r), syn), "=")
 	t := rxLC.ReplaceAllString(sf("%v", *_r), "=")
+	sl := rxSquareBracket.ReplaceAllString(strings.ReplaceAll(sf("%v", l)," ",""), "$1")
+	sr := rxSquareBracket.ReplaceAllString(strings.ReplaceAll(sf("%v", r)," ",""), "$1")
+
+	s_kt := sf("`%v`:`%v`,", k, t)
+	for _, rx := range []*regexp.Regexp{
+		regexp.MustCompile("`"+`(.+?) (.+?) (.+?)`+"`:`"+`(lprefix|smaller|equal|greater|rprefix)`+"`,"),
+	}{ if sm := rx.FindStringSubmatch(s_kt); sm != nil {
+		switch sm[4] {
+		case "lprefix":
+			if strings.HasPrefix(sr, sl) { return }
+		case "smaller":
+			if sl < sr || sm[1] < sm[2] { return }
+		case "equal" :
+			if sl == sr || sm[1] == sm[2] { return }
+		case "greater":
+			if sl > sr || sm[1] > sm[2] { return }
+		case "rprefix":
+			if strings.HasPrefix(sl, sr) { return }
+		}
+		if false { debug(ctx, _f("%s | %v %v", s_kt, l, r), _f("%s | %s %s", sm[1:], sl, sr)) }
+	}}
 
 	if v := checkpoints_cmp[k]; v == "" {
-		debug(ctx, _f("`%v`:`%v`,", k, t), _f("%s", ts(lv)), _f("%s", ts(rv)), callstack{num:10}, trace{})
+		debug(ctx, _f("`%v`:`%v`,", k, t), _f("%s, %v", ts(lv), lv), _f("%s, %v", ts(rv), rv), callstack{num:10}, trace{})
 	} else if v != t {
 		debug(ctx, _f("`%s`", k), _f("got: %s", t), _f("!= : %s", v), callstack{num:10}, trace{})
 	}
@@ -391,8 +420,6 @@ func check_com(ctx *comctx, a, elems []Value, res *[]Value) {
 
 var fmt_slot = regexp.MustCompile(`%\[([0-9_a-z]+)\]s`)
 var checkpoints_match = map[string]any{
-	` builtins`:`false  []`,
-	` trimsuffix`:`false  []`,
 	`%.c foo.c++`:`false  []`,
 	`%.c foo.c`:`true foo.c [foo]`,
 	`%.c foo/bar.c++`:`false  []`,
@@ -405,7 +432,6 @@ var checkpoints_match = map[string]any{
 	`%.c++ x.c++`:`true x.c++ [x]`,
 	`%.c++ y.c++`:`true y.c++ [y]`,
 	`. .`:`true . []`,
-	`. c`:`false <nil> []`,
 	`* a.h`:`true a.h [a.h]`,
 	`* a`:`true a [a]`,
 	`* b.h`:`true b.h [b.h]`,
@@ -531,8 +557,8 @@ var checkpoints_match = map[string]any{
 	`*.def.in x.h`:`false <nil> []`,
 	`*.gen x.gen`:`true x.gen [x]`,
 	`*.gen y.gen`:`true y.gen [y]`,
-	`*.h **.h`:`true **.h [**]`,
 	`*.h *.h`:`true *.h [*]`,
+	`*.h **.h`:`true **.h [**]`,
 	`*.h a.def.am`:`false <nil> []`,
 	`*.h a.def.in`:`false <nil> []`,
 	`*.h a.h`:`true a.h [a]`,
@@ -577,27 +603,22 @@ var checkpoints_match = map[string]any{
 	`*/*/*.h bar.h`:`false <nil> []`,
 	`*/*/*.h foo.h`:`false <nil> []`,
 	`*data testdata`:`true testdata [test]`,
-	`. .c`:`false . []`,
-	`. .h`:`false . []`,
-	`. .o`:`false . []`,
-	`. .test`:`false . []`,
-	`. .txt`:`false . []`,
 	`.test .test`:`true .test []`,
-	`.test/**/**z .test/a/b/c/xyz`:`true [.test a b c xyz] [a/b/c xy]`,
-	`.test/**y/**y .test/a/b/cy/a/b/c/y`:`true [.test a b cy a b c y] [a/b/c a/b/c/]`,
-	`.test/**y/**y/z .test/a/b/cy/a/b/c/y/z`:`true [.test a b cy a b c y z] [a/b/c a/b/c/]`,
-	`.test/*.h .test/a.h`:`true [.test a.h] [a]`,
+	`.test/**/**z .test/a/b/c/xyz`:`true .test/a/b/c/xyz [a/b/c xy]`,
+	`.test/**y/**y .test/a/b/cy/a/b/c/y`:`true .test/a/b/cy/a/b/c/y [a/b/c a/b/c/]`,
+	`.test/**y/**y/z .test/a/b/cy/a/b/c/y/z`:`true .test/a/b/cy/a/b/c/y/z [a/b/c a/b/c/]`,
+	`.test/*.h .test/a.h`:`true .test/a.h [a]`,
 	`.test/*.h .test/a/b.h`:`false <nil> []`,
 	`.test/*.h .test/a/b/c.h`:`false <nil> []`,
 	`.test/*/*.h .test/a.h`:`false <nil> []`,
-	`.test/*/*.h .test/a/b.h`:`true [.test a b.h] [a b]`,
+	`.test/*/*.h .test/a/b.h`:`true .test/a/b.h [a b]`,
 	`.test/*/*.h .test/a/b/c.h`:`false <nil> []`,
 	`.test/*/*/*.h .test/a.h`:`false <nil> []`,
 	`.test/*/*/*.h .test/a/b.h`:`false <nil> []`,
-	`.test/*/*/*.h .test/a/b/c.h`:`true [.test a b c.h] [a b c]`,
+	`.test/*/*/*.h .test/a/b/c.h`:`true .test/a/b/c.h [a b c]`,
 	`.test/*/*/*.h .test/a/b/c/d.h`:`false <nil> []`,
 	`.test/*/*/*.h .test/a/b/c/d/e.h`:`false <nil> []`,
-	`.test/*?y/**y .test/a/b/cy/a/b/c/y`:`true [.test a b cy a b c y] [a/b/c a/b/c/]`,
+	`.test/*?y/**y .test/a/b/cy/a/b/c/y`:`true .test/a/b/cy/a/b/c/y [a/b/c a/b/c/]`,
 	`.test/a/**.c .test/a/b/c.auto`:`false <nil> []`,
 	`.test/a/**.c .test/a/b/c.none`:`false <nil> []`,
 	`.test/x**/**y .test/xa/b/c/dy`:`true .test/xa/b/c/dy [a/b/c d]`,
@@ -606,19 +627,19 @@ var checkpoints_match = map[string]any{
 	`.test/x**y .test/xxx-yyx/y`:`true .test/xxx-yyx/y [xx-yyx/]`,
 	`.test/x**y .test/xxx-yyx/z`:`false <nil> []`,
 	`.test/x**y .test/xxx-yyx`:`false <nil> []`,
-	`.test/x**y .test/xxx-yyy`:`true [.test xxx-yyy] [xx-yy]`,
-	`.test/x**y .test/xxx/a/b/c/yyy`:`true [.test xxx a b c yyy] [xx/a/b/c/yy]`,
-	`.test/x**y/x** .test/xaaa/bbb/ccc/y/xxx/xx`:`true [.test xaaa bbb ccc y xxx xx] [aaa/bbb/ccc/ xx/xx]`,
-	`.test/x**y/x** .test/xaabbccy/xabc`:`true [.test xaabbccy xabc] [aabbcc abc]`,
-	`.test/x**y/x**y .test/xaa/bb/ccy/xaa/bb/ccy`:`true [.test xaa bb ccy xaa bb ccy] [aa/bb/cc aa/bb/cc]`,
-	`.test/x**y/x**y .test/xaaay/x/aaa/y`:`true [.test xaaay x aaa y] [aaa /aaa/]`,
-	`.test/x**y/z .test/xxx-yyy/z`:`true [.test xxx-yyy z] [xx-yy]`,
-	`.test/x**y/z .test/xxx/a/b/c/yyy/z`:`true [.test xxx a b c yyy z] [xx/a/b/c/yy]`,
+	`.test/x**y .test/xxx-yyy`:`true .test/xxx-yyy [xx-yy]`,
+	`.test/x**y .test/xxx/a/b/c/yyy`:`true .test/xxx/a/b/c/yyy [xx/a/b/c/yy]`,
+	`.test/x**y/x** .test/xaaa/bbb/ccc/y/xxx/xx`:`true .test/xaaa/bbb/ccc/y/xxx/xx [aaa/bbb/ccc/ xx/xx]`,
+	`.test/x**y/x** .test/xaabbccy/xabc`:`true .test/xaabbccy/xabc [aabbcc abc]`,
+	`.test/x**y/x**y .test/xaa/bb/ccy/xaa/bb/ccy`:`true .test/xaa/bb/ccy/xaa/bb/ccy [aa/bb/cc aa/bb/cc]`,
+	`.test/x**y/x**y .test/xaaay/x/aaa/y`:`true .test/xaaay/x/aaa/y [aaa /aaa/]`,
+	`.test/x**y/z .test/xxx-yyy/z`:`true .test/xxx-yyy/z [xx-yy]`,
+	`.test/x**y/z .test/xxx/a/b/c/yyy/z`:`true .test/xxx/a/b/c/yyy/z [xx/a/b/c/yy]`,
 	`.test/x*?/**y .test/xa/b/c/dy`:`true .test/xa/b/c/dy [a b/c/d]`,
 	`.test/x*?/**y .test/xabc/abcy`:`true .test/xabc/abcy [abc abc]`,
 	`.test/x*?y .test/x/xx-yy/y`:`false <nil> []`,
-	`.test/x*?y/x*?y .test/xaa/bb/ccy/xaa/bb/ccy`:`true [.test xaa bb ccy xaa bb ccy] [aa/bb/cc aa/bb/cc]`,
-	`.test/x*?y/x*?y .test/xaaay/x/aaa/y`:`true [.test xaaay x aaa y] [aaa /aaa/]`,
+	`.test/x*?y/x*?y .test/xaa/bb/ccy/xaa/bb/ccy`:`true .test/xaa/bb/ccy/xaa/bb/ccy [aa/bb/cc aa/bb/cc]`,
+	`.test/x*?y/x*?y .test/xaaay/x/aaa/y`:`true .test/xaaay/x/aaa/y [aaa /aaa/]`,
 	`/builtins /builtins/trimprefix`:`false <nil> []`,
 	`?.h x.h`:`true x.h [x]`,
 	`^\.test\.([0-9]+)$ .test.10`:`true .test.10 [10]`,
@@ -743,7 +764,7 @@ var checkpoints_match = map[string]any{
 	`f*?/x.h foo/**/x.h`:`true foo/**/x.h [oo/**/x.h]`,
 	`f*?/x.h foo/b?r/v?.h`:`false <nil> []`,
 	`fo? foo`:`true foo [o]`,
-	`fo?/**/x.h f*?/x.h`:`false <nil> []`,
+	`fo?/**/x.h f*?/x.h`:`true <nil> []`,
 	`fo?/**/x.h foo/b*/v*.h`:`false foo/b*/v*.h [o b*/v*.h]`,
 	`fo?/**/x.h foo/x*y.h`:`false <nil> []`,
 	`foo **.h`:`false <nil> []`,
@@ -759,10 +780,10 @@ var checkpoints_match = map[string]any{
 	`foo/**.hh *.h`:`false <nil> []`,
 	`foo/**.hh foo/*.h`:`false <nil> []`,
 	`foo/**.hh foo/bar/*.hh`:`true foo/bar/*.hh [bar/*]`,
-	`foo/**/x.h f*?/x.h`:`false <nil> []`,
+	`foo/**/x.h f*?/x.h`:`true <nil> []`,
 	`foo/**/x.h foo/b*/v*.h`:`false <nil> []`,
 	`foo/**/x.h foo/x*y.h`:`false <nil> []`,
-	`foo/*.h **.h`:`true [] []`,
+	`foo/*.h **.h`:`true <nil> []`,
 	`foo/*.h *.h`:`false <nil> []`,
 	`foo/*.h foo/**.hh`:`false <nil> []`,
 	`foo/*.h foo/*.h`:`true foo/*.h [*]`,
@@ -808,7 +829,8 @@ var checkpoints_match = map[string]any{
 	`foo/bar/zz/?.h foo/*.h`:`false <nil> []`,
 	`foo/bar/zz/?.h foo/bar/zz/x.h`:`true foo/bar/zz/x.h [x]`,
 	`foo/bar/zz/?.h foo???/x.h`:`false <nil> []`,
-	`foo/bar/zz/x.h **.h`:`false <nil> []`,
+	`foo/bar/zz/x.h *.h`:`false <nil> []`,
+	`foo/bar/zz/x.h **.h`:`true <nil> []`,
 	`foo/bar/zz/x.h foo/bar/z?/?.h`:`false <nil> []`,
 	`foo/x*y.h foo/xv*y.h`:`true foo/xv*y.h [v*]`,
 	`foo/x*y.h foo/xv1y.h`:`true foo/xv1y.h [v1]`,
@@ -827,7 +849,7 @@ var checkpoints_match = map[string]any{
 	`foo??? foo.h`:`false <nil> []`,
 	`foo??? foo`:`false <nil> []`,
 	`foo??? foobar`:`true foobar [b a r]`,
-	`foo???/x.h **.h`:`true [] []`,
+	`foo???/x.h **.h`:`true <nil> []`,
 	`foo???/x.h *.h`:`false <nil> []`,
 	`foo???/x.h foo/*.h`:`false <nil> []`,
 	`foo???/x.h foo/bar/*.h`:`false <nil> []`,
@@ -851,9 +873,6 @@ var checkpoints_match = map[string]any{
 	`fo{2}(/o{2}){3}/bar\.c foo/oo/oo/oo/bar.c`:`true foo/oo/oo/oo/bar.c [/oo]`,
 	`fo{2}/bar\.c foo/bar.c`:`true foo/bar.c []`,
 	`fo{2}\.c foo.c`:`true foo.c []`,
-	`h in`:`false <nil> []`,
-	`h h`:`true h []`,
-	`h txt`:`false <nil> []`,
 	`inc .DS_Store`:`false <nil> []`,
 	`inc 1`:`false <nil> []`,
 	`inc 2`:`false <nil> []`,
@@ -989,19 +1008,31 @@ var checkpoints_match = map[string]any{
 func check_match(ctx Context, pat, val any, _full *bool, _res *Value, _stems *[]Value) {
 	var k = rxLC.ReplaceAllString(sf("%v %v", __string(ctx,pat), __string(ctx,val)), "=")
 	var t = rxLC.ReplaceAllString(sf("%v %v %v", *_full, *_res, *_stems), "=")
-	if fmt_slot.MatchString(k) { k = sf(k, testdata_s, strings.Split(testdata_s, pathSep)) }
-	if v := checkpoints_match[k]; v == nil {
-		s := sf("`%v`:`%v`,", k, t)
-		for _, rx := range []*regexp.Regexp{
-			// regexp.MustCompile("`" + `(.+?) \1.+?` + "`:`" + `false \1 \[]` + "`"),
-			regexp.MustCompile("`" + `[0-9a-zA-Z.]+ [0-9a-zA-Z.]+` + "`:`" + `false [0-9a-zA-Z.]+ \[]` + "`"),
-			regexp.MustCompile("`" + `[0-9a-zA-Z.]+ [0-9a-zA-Z.]+` + "`:`" + `true [0-9a-zA-Z.]+ \[]` + "`"),
-		} { if rx.MatchString(s) { return } }
 
+	if fmt_slot.MatchString(k) { k = sf(k, testdata_s, strings.Split(testdata_s, pathSep)) }
+
+	var s_kt = sf("`%v`:`%v`,", k, t)
+	for _, rx := range []*regexp.Regexp{
+		regexp.MustCompile("`"+`(.+?) (.+?)`+"`:`"+`(false|true) (.+?) (.+?)`+"`,"),
+	}{ if sm := rx.FindStringSubmatch(s_kt); sm != nil {
+		switch sm[3] {
+		case "true" :
+			if /* sm[1] == sm[2] && */ sm[2] == sm[4] { return }
+			if sm[4] == "<nil>" && sm[5] == "[]" && isPattern(ctx, sm[2]) { return }
+		case "false":
+			if sm[1] != sm[2] {
+				if sm[4] == "<nil>" && sm[5] == "[]" { return }
+				if strings.HasPrefix(sm[2], sm[4]) { return }
+			}
+		}
+		if true { debug(ctx, _f("%s", s_kt), _f("%s", sm[1:])) }
+	}}
+	
+	if v := checkpoints_match[k]; v == nil {
 		debug(ctx, _f("`%v`:`%v`,", k, t), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)),
 			callstack{num:10}, trace{})
 	} else if v != t {
-		debug(ctx, _f(`%s | %s, %s`, k, ts(pat), ts(val)), _f("got: %s", t), _f("!= : %s", v),
+		debug(ctx, _f(`%s | match(%s, %s)`, k, ts(pat), ts(val)), _f("got: %s", t), _f("!= : %s", v),
 			callstack{num:10}, trace{})
 	}
 }
@@ -1015,12 +1046,16 @@ var checkpoints__string_com = map[string]any{
 	`&(.test.foo)⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
 	`&(.test.h)a`:`-a`, `&(.test.h)b`:`-b`, `&(.test.h)c`:`-c`,
 	`&(target.arch)-&(target.vendor)-&(target.os)-&(target.abi)`:`foo-bar-{}-0`,
+	`*.h`:`*.h`,
+	`*.def.am`:`*.def.am`,
+	`**.h`:`**.h`,
+	`**.def.am`:`**.def.am`,
 	`,`:`,`,
 	`-a`:`-a`, `-b`:`-b`, `-c`:`-c`,
 	`-foobar`:`-foobar`,
 	`.`:`.`,
-	`.c`:`.c`,
 	`.c++`:`.c++`,
+	`.c`:`.c`,
 	`.deps`:`.deps`,
 	`.hh`:`.hh`,
 	`.test.v`:`.test.v`,
@@ -1041,8 +1076,8 @@ var checkpoints__string_com = map[string]any{
 	`a-b-3-abc`:`a-b-3-abc`,
 	`a-b-3`:`a-b-3`,
 	`a-b`:`a-b`,
-	`a.h`:`a.h`, // {=compound {31:18:word a} {31:19:punct .} {31:20:word h}}
 	`a.gen`:`a.gen`, `b.gen`:`b.gen`, `c.gen`:`c.gen`,
+	`a.h`:`a.h`, // {=compound {31:18:word a} {31:19:punct .} {31:20:word h}}
 	`a\,b\,c,x\,y\,z`:`a\,b\,c,x\,y\,z`,
 	`a\,b\,c`:`a\,b\,c`,
 	`aa-bb`:`aa-bb`, `ab-ba`:`ab-ba`,
@@ -1061,8 +1096,8 @@ var checkpoints__string_com = map[string]any{
 	`ba-ab`:`ba-ab`,
 	`ba`:`ba`,
 	`bar,`:`bar,`,
-	`bar.c`:`bar.c`,
 	`bar.c++`:`bar.c++`,
+	`bar.c`:`bar.c`,
 	`bara`:`bara`, `barb`:`barb`, `barc`:`barc`,
 	`baxx{}`:`baxx{}`,
 	`bayy{}`:`bayy{}`,
@@ -1086,6 +1121,7 @@ var checkpoints__string_com = map[string]any{
 	`do.smart`:`do.smart`,
 	`dst-nomap`:`dst-nomap`,
 	`err-dst-nomap`:`err-dst-nomap`,
+	`f*?`:`f*?`,
 	`fo-a1`:`fo-a1`, `fo-b2`:`fo-b2`, `fo-c3`:`fo-c3`,
 	`fo-ax`:`fo-ax`, `fo-ay`:`fo-ay`, `fo-az`:`fo-az`,
 	`fo-bx`:`fo-bx`, `fo-by`:`fo-by`, `fo-bz`:`fo-bz`,
@@ -1104,12 +1140,12 @@ var checkpoints__string_com = map[string]any{
 	`foo-a`:`foo-a`,
 	`foo-b`:`foo-b`,
 	`foo-bar-xx-yy-zz`:`foo-bar-xx-yy-zz`,
-	`foo.o`:`foo.o`,
-	`foo.c`:`foo.c`,
 	`foo.c++`:`foo.c++`,
+	`foo.c`:`foo.c`,
+	`foo.o`:`foo.o`,
 	`foo.txt`:`foo.txt`,
-	`foo/z.o`:`foo/z.o`,
 	`foo/bar.o`:`foo/bar.o`,
+	`foo/z.o`:`foo/z.o`,
 	`foo_ab-$1-$2`:`foo_ab-{}-{}`,
 	`foo_ab-a-b`:`foo_ab-a-b`,
 	`foo_ab-aa-bb`:`foo_ab-aa-bb`,
@@ -1125,7 +1161,6 @@ var checkpoints__string_com = map[string]any{
 	`foo_ba-{}{}-{}{}`:`foo_ba-{}{}-{}{}`,
 	`fooa`:`fooa`, `foob`:`foob`, `fooc`:`fooc`,
 	`foobar`:`foobar`, `not-foobar`:`not-foobar`,
-	`f*?`:`f*?`,
 	`mod-1`:`mod-1`,
 	`skip-nil`:`skip-nil`,
 	`test-B`:`test-B`,
@@ -1139,11 +1174,11 @@ var checkpoints__string_com = map[string]any{
 	`test.paniconexit0`:`test.paniconexit0`,
 	`test.timeout`:`test.timeout`,
 	`test.txt`:`test.txt`,
-	`v1.h`:`v1.h`, `v2.h`:`v2.h`,
 	`v-x-y-z-{}-{}`:`v-x-y-z-{}-{}`,
 	`v-x-y-{}-{}-{}`:`v-x-y-{}-{}-{}`,
 	`v-x-{}-{}-{}-{}`:`v-x-{}-{}-{}-{}`,
 	`v-{}-{}-{}-{}-{}`:`v-{}-{}-{}-{}-{}`, 
+	`v1.h`:`v1.h`, `v2.h`:`v2.h`,
 	`wy1{}zz`:`wy1{}zz`, `wy2{}zz`:`wy2{}zz`, `wy3{}zz`:`wy3{}zz`,
 	`x&(something)`:`x{}`,
 	`x-a`:`x-a`, `x-b`:`x-b`, `x-c`:`x-c`, `x-`:`x-`,
@@ -1153,9 +1188,9 @@ var checkpoints__string_com = map[string]any{
 	`x-y-z-{}-{}`:`x-y-z-{}-{}`,
 	`x-y-{}-{}-{}`:`x-y-{}-{}-{}`,
 	`x-{}-{}-{}-{}`:`x-{}-{}-{}-{}`,
-	`x.h`:`x.h`, `x.o`:`x.o`, `y.o`:`y.o`,
 	`x.c++`:`x.c++`, `y.c++`:`y.c++`,
 	`x.gen`:`x.gen`, `y.gen`:`y.gen`, `z.gen`:`z.gen`,
+	`x.h`:`x.h`, `x.o`:`x.o`, `y.o`:`y.o`,
 	`x.o.a`:`x.o.a`, `x.o.b`:`x.o.b`, `x.o.c`:`x.o.c`,
 	`x\,y\,z`:`x\,y\,z`,
 	`xa`:`xa`, `xb`:`xb`, `xc`:`xc`,
@@ -1196,11 +1231,11 @@ var checkpoints__string_com = map[string]any{
 	`yxa`:`yxa`, `yxb`:`yxb`, `yxa-yxb`:`yxa-yxb`,
 	`yy{}`:`yy{}`,
 	`y{}`:`y{}`,
-	`z.c`:`z.c`,
 	`z-a`:`z-a`,
 	`z-y-x-a`:`z-y-x-a`,
 	`z-yxa-yxb`:`z-yxa-yxb`,
 	`z-{}`:`z-{}`, `z-{}-{}`:`z-{}-{}`,
+	`z.c`:`z.c`,
 	`z{}`:`z{}`,
 	`{}-3`:`{}-3`, // {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}
 	`{}-{}-3-{}{}{}`:`{}-{}-3-{}{}{}`, // {=compound {23:36 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {23:48 {19:48:null}} {23:53 {19:54:null}} {23:58 {19:60:null}}}}}

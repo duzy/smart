@@ -39,8 +39,8 @@ var checkpoints_value = map[string]map[string]any{
 
 		`55:11:conf0 $@ {55:19:delegate {55:11:def @}}`:`conf0 {55:19 {55:11:word conf0}}`,
 
-		`56:11:conf1 $/ {56:48:delegate {1:1:def /}}`:testdata_f(`%[1]s/value {56:48 {=path %[3]s {1:1:word value}}}`),
-		`57:11:conf2 $/ {57:97:delegate {1:1:def /}}`:testdata_f(`%[1]s/value {57:97 {=path %[3]s {1:1:word value}}}`),
+		`56:11:conf1 $/ {56:48:delegate {1:1:def /}}`:testdata_f(`%[1]s/value {56:48 {=path %[3]s {1:1:raw value}}}`),
+		`57:11:conf2 $/ {57:97:delegate {1:1:def /}}`:testdata_f(`%[1]s/value {57:97 {=path %[3]s {1:1:raw value}}}`),
 
 		`56:11:conf1 $0 {56:45:delegate {56:46:auto 0}}`:testdata_fs(
 			`foo.o {56:45 {%[1]s/value/test.txt:1:1:raw foo.o}}`,
@@ -235,8 +235,8 @@ var checkpoints_value = map[string]map[string]any{
 
 var checkstrs_value = map[string]map[string]any{
 	"loader.go": map[string]any{
-		`56:11:conf1 $/ {56:48:delegate {1:1:def /}}`:testdata_f(`{56:48 {=path %[3]s {1:1:word value}}} %[1]s/value`),
-		`57:11:conf2 $/ {57:97:delegate {1:1:def /}}`:testdata_f(`{57:97 {=path %[3]s {1:1:word value}}} %[1]s/value`),
+		`56:11:conf1 $/ {56:48:delegate {1:1:def /}}`:testdata_f(`{56:48 {=path %[3]s {1:1:raw value}}} %[1]s/value`),
+		`57:11:conf2 $/ {57:97:delegate {1:1:def /}}`:testdata_f(`{57:97 {=path %[3]s {1:1:raw value}}} %[1]s/value`),
 	},
 	"check-value_test.go": map[string]any{
 		`82 11:9:cond03 &(something) {11:12:closure {11:14:word something}}`:`{11:12:null} `,

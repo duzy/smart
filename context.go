@@ -296,7 +296,6 @@ func db(ctx Context, ss ...string) (res bool) {
     return
 }
 
-type diagtype int
 const (
     diagInfo diagtype = iota
     diagWarn
@@ -304,10 +303,12 @@ const (
     diagPrompt
 )
 
+type diagtype int
 type diagpoint struct {
     t diagtype
     position Position
     message string
+	panic any
     stack []byte // see also rt_debug.Stack()
 }
 
@@ -382,11 +383,11 @@ func recovered(ctx Context) {
 }
 
 var _debug_m sync.Mutex
-func debug(ctx Context, f any, a ...any) { (callstack{skip:1}).debug(ctx, f, a...) }
-func (cs callstack) debug(ctx Context, f any, a ...any) {
+func debug(ctx Context, f any, a ...any) {
 	_debug_m.Lock(); defer _debug_m.Unlock()
 
 	var tr = false
+	var cs callstack
 	var dias []*diag_point
 	var args []any
 	for _, a := range a {
@@ -427,17 +428,18 @@ func (cs callstack) debug(ctx Context, f any, a ...any) {
 	}
 
 	if args = []any{}; p == nil { return }
-	if 0 < cs.num     { args = append(args, cs.num) }
-	if 0 < cs.skip    { args = append(args, skipint(cs.skip)) }
-	if 0 != cs.frames { args = append(args, frames(cs.frames)) }
-	if "" != cs.stop  { args = append(args, stopframe(cs.stop)) }
+	if cs.num > 0     { args = append(args, cs.num) }
+	if cs.skip > 0    { args = append(args, skipint(cs.skip)) }
+	if cs.frames != 0 { args = append(args, frames(cs.frames)) }
+	if cs.stop != ""  { args = append(args, stopframe(cs.stop)) }
 	if p.stack = _callstack("info:", 5, 0, args...); true { flush(ctx) }
 	if tr {
 		if truly(ctx, is_test_mode{}) {
-			panic(test_fail{ctx, 0})
+			p.panic = test_fail{ctx, 0}
 		} else {
-			panic(trace_errors{ctx, diagCount(ctx, diagError)})
+			p.panic = trace_errors{ctx, diagCount(ctx, diagError)}
 		}
+		panic(p.panic)
 	}
 }
 
@@ -497,7 +499,7 @@ func (d *diagnostic) add(p *diagpoint) *diagpoint {
 }
 func (d *diagnostic) point(ctx Context, dt diagtype, f string, args ...any) *diagpoint {
 	if dt != diagPrompt { f = strings.TrimSpace(f) }
-	return d.add(&diagpoint{dt, _position(ctx), fmt.Sprintf(f, args...), nil})
+	return d.add(&diagpoint{dt, _position(ctx), fmt.Sprintf(f, args...), nil, nil})
 }
 func (d *diagnostic) count(dt ...diagtype) (errs int) {
 	defer d.aquire()()
@@ -533,19 +535,23 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
             d.flushed += 1
         }
 
-        switch p.t {
-        case diagInfo: fmt.Fprintf(stderr, "%v:info: %s\n", pos, msg)
-        case diagWarn: fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
-        case diagPrompt:
-            if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
-            if pend && !strings.HasSuffix(msg, "\n") { return true }
-        case diagError:
-            if errs += 1 ; p.stack == nil {
-                fmt.Fprintf(stderr, "%v:error: %s\n", pos, msg)
-            } else {
-                fmt.Fprintf(stderr, "%v: %s\n", pos, msg)
-            }
-        }
+		if p.panic != nil {
+			msg += fmt.Sprintf(": %v", p.panic)
+		}
+
+		switch p.t {
+		case diagInfo: fmt.Fprintf(stderr, "%v:info: %s\n", pos, msg)
+		case diagWarn: fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
+		case diagPrompt:
+			if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
+			if pend && !strings.HasSuffix(msg, "\n") { return true }
+		case diagError:
+			if errs += 1 ; p.stack == nil {
+				fmt.Fprintf(stderr, "%v:error: %s\n", pos, msg)
+			} else {
+				fmt.Fprintf(stderr, "%v: %s\n", pos, msg)
+			}
+		}
 
         if p.stack != nil {
             fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(p.stack))

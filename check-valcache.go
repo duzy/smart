@@ -242,12 +242,10 @@ var checkpoints_uncache = map[string]map[string]string{
 	},
 }
 func check_uncache(ctx Context, k any, c0 string, c *valcache, r []*valcache) {
-	var (
-		t = typeof(k)
-		ks = sf("%v %s", c0, k)
-		vs = sf("%v", r)
-		rs, y = checkpoints_uncache[t][ks]
-	)
+	t := typeof(k)
+	ks := sf("%v %s", c0, k)
+	vs := sf("%v", r)
+	rs, y := checkpoints_uncache[t][ks]
 	if stop := (callstack{stop:"smart.hit"}); !y {
 		debug(ctx, _f("%s: `%s`:`%s`,", t, ks, vs), stop, trace{})
 	} else if vs != rs {
@@ -277,8 +275,8 @@ var checkpoints_unmap = map[string]string{
 	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/b?r/v?.h`:`[{0:foo/b*/v*.h}]`,
 	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/xv1y.h`:`[{0:foo/x*y.h}]`,
 	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/xv*y.h`:`[{0:foo/x*y.h}]`,
-	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/**/x.h`:`[]`,
-	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} fo?/**/x.h`:`[]`,
+	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/**/x.h`:`[{0:f*?/x.h}]`,
+	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} fo?/**/x.h`:`[{0:f*?/x.h}]`,
 	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c++`   :`[{0:&(gen)} {0:foo/bar.c++} {0:foo.c++}]`,
 	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c`     :`[{0:&(gen)} {0:foo/bar.c} {0:foo.c}]`,
 	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} *.gen`    :`[{0:&(gen)}]`,

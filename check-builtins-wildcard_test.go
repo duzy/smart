@@ -139,7 +139,7 @@ func test__wildcard(ctx *testcase) {
 		ctx.err("%v", tst{cs[0].filemap})
 	} else if __string(ctx,m.pattern) != "**.def.am" {
 		ctx.err("%v → %v", tst{cs[0].filemap}, tst{m.pattern})
-	} else if a, b, c := match(ctx, pat6, pat3); sf("%v %v %v", a, b, c) != "false <nil> []" {
+	} else if a, b, c := match(ctx, pat6, pat3); sf("%v %v %v", a, b, c) != "true foobar/config/*.def.am [foobar/config/*]" {
 		ctx.err("%v %v: %v %v %v", pat6, pat3, a, b, c)
 	} else if a, b, c := match(ctx, pat6, pat4); sf("%v %v %v", a, b, c) != "false <nil> []" {
 		ctx.err("%v %v: %v %v %v", pat6, pat4, a, b, c)

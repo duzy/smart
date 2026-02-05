@@ -1,8 +1,8 @@
 # Smart Make Art for large project (BETA)
 
-**Smart** is a command-line utility and new scripting language inspired by `makefile` and designed
+Go **Smart Make Art** is a command-line utility and new scripting language
+written in [Go](http://golang.org) and inspired by `makefile` and designed
 for doing recursive tasks and constructing large projects easily.
-It's written in [Go](http://golang.org).
 
 [Documentation](https://github.com/extbit/smart/wiki/Smart-Construction)
 

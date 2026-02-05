@@ -129,7 +129,7 @@ func testdata_dir_t(lc string) (s string) {
 			case len(ss)-1: s += "{"+lc+":punct TAIL}"
 			}
 		} else {
-			s += " {"+lc+":word "+t+"}"
+			s += " {"+lc+":raw "+t+"}"
 		}
 	}
 	return

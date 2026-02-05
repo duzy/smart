@@ -12,9 +12,9 @@ var checkpoints__wildcard1 = map[string]map[string]any{
 		`x.h {=compound {4:17:word x} {4:18:punct .} {4:19:word h}}`:`x.h {=compound {4:17:word x} {4:18:punct .} {4:19:word h}}`,
 		`x.h {=compound {4:59:word x} {4:60:punct .} {4:61:word h}}`:`x.h {=compound {4:59:word x} {4:60:punct .} {4:61:word h}}`,
 
-		`$/ {4:72:delegate {1:1:def /}}`:testdata_f(`%[1]s/builtins/wildcard/1 {4:72 {=path %[3]s {1:1:word builtins} {1:1:word wildcard} {1:1:word 1}}}`),
+		`$/ {4:72:delegate {1:1:def /}}`:testdata_f(`%[1]s/builtins/wildcard/1 {4:72 {=path %[3]s {1:1:raw builtins} {1:1:raw wildcard} {1:1:raw 1}}}`),
 
-		`$(dir $/) {4:66:delegate {4:68:builtin dir} {=list {4:72:delegate {1:1:def /}}}}`:testdata_f(`%[1]s/builtins/wildcard {4:66 {=path %[3]s {4:68:word builtins} {4:68:word wildcard}}}`,line_column_s("4:68")),
+		`$(dir $/) {4:66:delegate {4:68:builtin dir} {=list {4:72:delegate {1:1:def /}}}}`:testdata_f(`%[1]s/builtins/wildcard {4:66 {=path %[3]s {4:68:raw builtins} {4:68:raw wildcard}}}`,line_column_s("4:68")),
 
 		`7:6:val1 x.h {=compound {4:17:word x} {4:18:punct .} {4:19:word h}}`:`x.h {=compound {4:17:word x} {4:18:punct .} {4:19:word h}}`,
 		`8:6:val2 x.h {=compound {4:17:word x} {4:18:punct .} {4:19:word h}}`:`x.h {=compound {4:17:word x} {4:18:punct .} {4:19:word h}}`,
@@ -47,6 +47,6 @@ var checkpoints__wildcard1 = map[string]map[string]any{
 
 var checkstrs__wildcard1 = map[string]map[string]any{
 	"loader.go": map[string]any{
-		`0:0: $/ {4:72:delegate {1:1:def /}}`:testdata_f(`{4:72 {=path %[3]s {1:1:word builtins} {1:1:word wildcard} {1:1:word 1}}} %[1]s/builtins/wildcard/1`),
+		`0:0: $/ {4:72:delegate {1:1:def /}}`:testdata_f(`{4:72 {=path %[3]s {1:1:raw builtins} {1:1:raw wildcard} {1:1:raw 1}}} %[1]s/builtins/wildcard/1`),
 	},
 }

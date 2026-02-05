@@ -623,7 +623,7 @@ func tokp(ctx Context, c *valcache, p *path) hit_segs {
 }
 func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 	if checkpoints { defer func(s string) {
-		if  truly(ctx, propCache  ) { check_cache(ctx, k, s, c, r) }
+		if  truly(ctx, propCache)   { check_cache(ctx, k, s, c, r) }
 		if  truly(ctx, propUncache) { check_uncache(ctx, k, s, c, r) }
 		if !truly(ctx, propCache|propUncache) { debug(ctx, "%v %v", k, c, trace{}) }
 	}(c.String())}

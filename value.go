@@ -2181,122 +2181,6 @@ func exp_barefilize(ctx Context, targets ...Value) (res []Value) {
 const windowsOS = runtime.GOOS == "windows"
 var ErrBadPattern = errors.New("syntax error in pattern")
 
-// modified copy of filepath.getEsc
-func globGetEsc(chunk string) (r rune, nchunk string, err error) {
-    if len(chunk) == 0 || chunk[0] == '-' || chunk[0] == ']' {
-        err = ErrBadPattern
-        return
-    }
-    if chunk[0] == '\\' && !windowsOS {
-        chunk = chunk[1:]
-        if len(chunk) == 0 {
-            err = ErrBadPattern
-            return
-        }
-    }
-    r, n := utf8.DecodeRuneInString(chunk)
-    if r == utf8.RuneError && n == 1 {
-        err = ErrBadPattern
-    }
-    nchunk = chunk[n:]
-    if len(nchunk) == 0 {
-        err = ErrBadPattern
-    }
-    return
-}
-
-// modified copy of filepath.matchChunk
-// stems: all values matched ? and [...]
-func globMatchChunk(chunk, s string) (stems []string, rest string, ok bool, err error) {
-    // After the match fails (failed==true), the loop continues on processing chunk,
-    // checking that the pattern is well-formed but no longer reading s.
-    failed := false
-    for len(chunk) > 0 {
-        if !failed && len(s) == 0 {
-            failed = true
-        }
-        switch chunk[0] {
-        case '[':
-            // character class
-            var r rune
-            if !failed {
-                var n int
-                r, n = utf8.DecodeRuneInString(s)
-                s = s[n:]
-            }
-            chunk = chunk[1:]
-            // possibly negated
-            negated := false
-            if len(chunk) > 0 && chunk[0] == '^' {
-                negated = true
-                chunk = chunk[1:]
-            }
-            // parse all ranges
-            match := false
-            nrange := 0
-            for {
-                if len(chunk) > 0 && chunk[0] == ']' && nrange > 0 {
-                    chunk = chunk[1:]
-                    break
-                }
-                var lo, hi rune
-                if lo, chunk, err = globGetEsc(chunk); err != nil {
-                    return stems, "", false, err
-                }
-                hi = lo
-                if chunk[0] == '-' {
-                    if hi, chunk, err = globGetEsc(chunk[1:]); err != nil {
-                        return stems, "", false, err
-                    }
-                }
-                if lo <= r && r <= hi {
-                    match = true
-                }
-                nrange++
-            }
-            if match == negated {
-                failed = true
-            } else {
-                stems = append(stems, string(r))
-            }
-
-        case '?':
-            if !failed {
-                if s[0] == pathSepByte {
-                    failed = true
-                }
-                _, n := utf8.DecodeRuneInString(s)
-                stems = append(stems, s[:n])
-                s = s[n:]
-            }
-            chunk = chunk[1:]
-
-        case '\\':
-            if !windowsOS {
-                chunk = chunk[1:]
-                if len(chunk) == 0 {
-                    return stems, "", false, ErrBadPattern
-                }
-            }
-            fallthrough
-
-        default:
-            if !failed {
-                if chunk[0] != s[0] {
-                    failed = true
-                }
-                s = s[1:]
-            }
-            chunk = chunk[1:]
-        }
-    }
-
-    if failed {
-        return stems, "", false, nil
-    }
-    return stems, s, true, nil
-}
-
 type path struct{ elements }
 func (_ *path) kind() Kind { return KindPath }
 func (p *path) String() (s string) {
@@ -2826,7 +2710,7 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
     var pos = p.Position()
     var a, b = len(prefix), len(rep)
     if isTrivial(p.Suffix) {
-        if a < b { stems, result, full = append(stems, _word(pos, rep[a:])), rep, true }
+        if a < b { stems, result, full = append(stems, _raw(pos, rep[a:])), rep, true }
     } else if pp, ok := p.Suffix.(*percpat); a < b && ok {
         // FIXME: separate paths???  *) use % to match single path sep; *) use %% to match full path
         // fooxxbaryybaz -> foo%bar%baz => (foo xx bar yy baz) [xx yy]
@@ -2840,7 +2724,7 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
                     break
                 } else {
                     var v = rep[a:a+n]
-                    stems = append(stems, _word(pos, v))
+                    stems = append(stems, _raw(pos, v))
                     result += v + s
                     a += n + len(s)
                 }
@@ -2849,7 +2733,7 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
             if isTrivial(pp.Suffix) {
                 var s = rep[a:] // let %% matches everything else
                 full = true
-                stems = append(stems, _word(pos, s))
+                stems = append(stems, _raw(pos, s))
                 result += s
                 break
             } else if pp2, ok = pp.Suffix.(*percpat); ok {
@@ -2857,7 +2741,7 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
                 continue
             } else if s := __string(ctx, pp.Suffix); s != "" && strings.HasSuffix(rep[a:], s) {
                 if b -= len(s); a < b {
-                    stems = append(stems, _word(pos, rep[a:b]))
+                    stems = append(stems, _raw(pos, rep[a:b]))
                     result += rep[a:]
                     full = true
                 }
@@ -2871,7 +2755,7 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
         for n := b-1; a < n; n -= 1 {
             if f, r, ss := match(ctx, p.Suffix, _raw(p.Position(), rep[n:])); f && r != nil {
                 var s = __string(ctx, r)
-                stems = append(stems, _word(pos, rep[a:n]))
+                stems = append(stems, _raw(pos, rep[a:n]))
                 stems = append(stems, ss...)
                 result += s // rep[a:]
                 full = f
@@ -2881,7 +2765,7 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
     } else if a <= b {
         if s := __string(ctx, p.Suffix); strings.HasSuffix(rep[a:], s) {
             if b -= len(s); a < b {
-                stems = append(stems, _word(pos, rep[a:b]))
+                stems = append(stems, _raw(pos, rep[a:b]))
                 result = rep
                 full = true
             }
@@ -2901,7 +2785,7 @@ const (
 )
 
 // check for patterns like foo%%bar foo**bar foo*?bar
-func multia(ctx Context, p any) (result multia_result, prefix, suffix Value) {
+func multia(ctx Context, p Value) (result multia_result, prefix, suffix Value) {
     switch t := p.(type) {
 	case *loc: return multia(ctx, t.Value)
     case *percpat:
@@ -3315,19 +3199,21 @@ func updatedDeps(ctx Context, val Value, deps ...Value) (res []Value) {
 }
 
 func __t(a ...bool) (_ bool) { for _, a := range a { if a { return true } }; return }
-func __string_any(s ...string) (a []any) { for _, s := range s { a = append(a, s) }; return }
-type __string_ctx struct{ Context /* ; i int */ }
+func __sa(s ...string) (a []any) { for _, s := range s { a = append(a, s) }; return }
+
+type __stringing struct{}
+type __string_ctx struct{ Context }
 func (c *__string_ctx) inner() Context { return c.Context }
 func (c *__string_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
+	case __stringing: return true
 	case __string_ctx: switch t.Context { case c, c.Context, nil: return c }
 	case ex_closure, ex_def_1, ex_def_2, ex_def_3: return true
-	// case *delegate, *closure: c.i += 1
 	}
 	return c.Context.do(ctx, op)
 }
 func __string(ctx Context, v any) (res string) {
-    if _, ok := do(ctx, __string_ctx{}).(*__string_ctx); !ok { ctx = &__string_ctx{ctx} }
+	if !truly(ctx, __stringing{}) { ctx = &__string_ctx{ctx} }
 	switch t := v.(type) {
 	case string: return t
 	case rune: return string(t)
@@ -4105,293 +3991,637 @@ func isPattern(ctx Context, v any) bool {
     return false
 }
 
-// matchCompComp match a segment (elems) against another segment (vals) (non-path)
-func matchCompComp(ctx Context, elems, vals []Value, stems []Value) (bool, []Value) {
-	// 1. Scan for Multi-Element Wildcard (DAST/ASTQ) in elems
-	var wildIndex = -1
-	var wildIsGreedy bool
+// === Container Dispatcher Match Algorithm ===
+// There three containers to care for this match algorithm: scalar, composite, pattern; where
+// - patterns are globpat, percpat, and regexpat;
+// - composites are path, compound (plain composite), and globpat;
+// - scalars are non-composite-non-pattern values, e.g. word, raw, file, decimal, etc, or part of a scalar.
+// - Value is of scalar, composite, or pattern;
+// - path is special in many ways: path-sep-separated elems (pseudo split(str,pathSep)), composites, scalars;
+// - list is space-separated of other kinds of values, `merge` converts nested list into `[]Value`;
+// - flag is a special composite of the virtual DASH "-" and another Value;
+// - rune for characters of values like word, raw, etc., are also scalars, though not a Value.
+//
+// The main `match` function for this algorithm dispatches matching to lower level funcs
+// as `match<left><right>`, both the <left> and <right> parts could be Scalar, Comp, Glob.
+// - func match(ctx Context, pat, val Value) (full bool, res Value, stems []Value)
+// --- pat   - the left-side value of scalar, composite or pattern.
+// --- val   - the right-side value of scalar, composite or pattern.
+// --- full  - true if fully matched;
+// --- res   - val if full, prefix of val if not(full);
+// --- stems - for patterns: a matched meta (? * *? ** [...]) yields a stem.
+//
+// Dispatching targets the subtle funcs:
+// - The `matchCompComp` is "match(compound, composite) (bool, Value, []Value)";
+// - The `matchGlobComp` is "match(globpat, composite) (bool, Value, []Value)";
+// - The `matchScalarScalar` is "match(scalar, scalar) (bool, Value, []Value)".
+// - etc.
+//
+// Pseudo algorithm of MATCH(pat, val):
+// - FOR i, j := 0, 0; i < LENGTH(pat)
+// -   IF full, res, stems := MATCH(pat[i], val[j:]); full
+// -     RETURN(full, res, stems)
+// -   ELSE IF res != NIL
+// -     # here, res is the prefix part of val (or it's element, aka scalar)
+// -     IF i+1 < LENGTH(pat)
+// -       j += LENGTH(res)
+// -     ENDIF
+// -   ENDIF
+// -   i += 1
+// - ENDIF
+//
+// Ends.
 
-	for i, e := range elems {
-		// Use multia to detect DAST/ASTQ in the element
-		if m, _, _ := multia(ctx, e); m == multia_ss || m == multia_sq {
-			wildIndex = i
-			wildIsGreedy = (m == multia_ss)
+// splitPatternToken splits the pattern into the next token and the remainder.
+func splitPatternToken(pat string) (token, rest string) {
+	if len(pat) == 0 { return "", "" }
+
+	// Check for wildcards at start
+	if strings.HasPrefix(pat, "**") { return "**", pat[2:] }
+	if strings.HasPrefix(pat, "*?") { return "*?", pat[2:] }
+	if strings.HasPrefix(pat, "*") { return "*", pat[1:] }
+	if strings.HasPrefix(pat, "?") { return "?", pat[1:] }
+
+	if pat[0] == '[' {
+		// Find closing ]
+		for i := 1; i < len(pat); i++ {
+			if pat[i] == ']' {
+				return pat[:i+1], pat[i+1:]
+			}
+		}
+	}
+
+	// Literal chunk: consume until next wildcard
+	i := 0
+	for i < len(pat) {
+		c := pat[i]
+		if c == '*' || c == '?' || c == '[' {
 			break
 		}
+		i++
 	}
-
-	// 2. If Wildcard Found: Handle Greedy/Non-Greedy Match
-	if wildIndex != -1 {
-		prefix := elems[:wildIndex]
-		suffix := elems[wildIndex+1:]
-
-		// Match prefix 1-to-1 against the start of vals
-		if len(vals) < len(prefix) {
-			return false, nil
-		}
-
-		var currentStems []Value
-		for i, e := range prefix {
-			ok, _, s := match(ctx, e, vals[i])
-			if !ok {
-				return false, nil
-			}
-			currentStems = append(currentStems, s...)
-		}
-
-		remainingVals := vals[len(prefix):]
-		wildElem := elems[wildIndex]
-		var wildTokens []Value
-		if gp, ok := wildElem.(*globpat); ok {
-			wildTokens = gp.elems
-		} else {
-			// Fallback/Safety: should not happen if multia returned ss/sq
-			return false, nil
-		}
-
-		tryMatch := func(n int) (bool, []Value) {
-			// 1. Match wildcard element against n values
-			// We use matchGlobComp for this
-			okWild, sWild := matchGlobComp(ctx, wildTokens, remainingVals[:n], nil)
-			if !okWild {
-				return false, nil
-			}
-
-			// 2. Recurse for suffix
-			okRest, sRest := matchCompComp(ctx, suffix, remainingVals[n:], nil)
-			if !okRest {
-				return false, nil
-			}
-
-			// Combine stems
-			totalStems := append(stems, currentStems...)
-			totalStems = append(totalStems, sWild...)
-			totalStems = append(totalStems, sRest...)
-			
-			return true, totalStems
-		}
-
-		if wildIsGreedy {
-			// Try matching max elements down to 0
-			for n := len(remainingVals); n >= 0; n-- {
-				if ok, s := tryMatch(n); ok {
-					return true, s
-				}
-			}
-		} else {
-			// Try matching 0 elements up to max
-			for n := 0; n <= len(remainingVals); n++ {
-				if ok, s := tryMatch(n); ok {
-					return true, s
-				}
-			}
-		}
-		return false, nil
+	if i == 0 {
+		return pat[:1], pat[1:] // Consume at least one char if no progress
 	}
-
-	// 3. No Multi-Element Wildcard: Normal 1-to-1 matching
-	if len(elems) != len(vals) {
-		return false, nil
-	}
-
-	var currentStems []Value
-	for i, e := range elems {
-		ok, _, s := match(ctx, e, vals[i])
-		if !ok {
-			return false, nil
-		}
-		currentStems = append(currentStems, s...)
-	}
-
-	return true, append(stems, currentStems...)
+	return pat[:i], pat[i:]
 }
 
-// matchGlobComp matches glob elements (elems) against compound elements (vals)
-func matchGlobComp(ctx Context, elems, vals []Value, stems []Value) (bool, []Value) {
-	// 1. Scan for the first Multi-Element Wildcard
-	wildIdx := -1
-	var wildToken token
-
-	for i, e := range elems {
-		// Use multia to detect DAST/ASTQ/SAST in the element
-		if m, _, _ := multia(ctx, e); m == multia_ss || m == multia_sq {
-			wildIdx = i
-			if gm, ok := e.(*globmeta); ok {
-				wildToken = gm.token
-			} else {
-				wildToken = SAST
-			}
-			break
-		} else if gm, ok := e.(*globmeta); ok && (gm.token == SAST || gm.token == DAST || gm.token == ASTQ) {
-			wildIdx = i
-			wildToken = gm.token
-			break
-		}
+// globMatchCharSet checks if char matches the set pattern [range].
+func globMatchCharSet(pattern string, char rune) bool {
+	if len(pattern) < 3 { return false } // []]
+	inner := pattern[1 : len(pattern)-1]
+	negate := false
+	if len(inner) > 0 && inner[0] == '^' {
+		negate = true
+		inner = inner[1:]
 	}
 
-	// 2. No Wildcard: Match Sequence Exactly
-	if wildIdx == -1 {
-		remVals, seqStems, ok := matchGlobSequence(ctx, elems, vals)
-		if ok && len(remVals) == 0 {
-			return true, append(stems, seqStems...)
-		}
-		return false, nil
-	}
-
-	// 3. Wildcard Found: Pivot Strategy
-	prefix := elems[:wildIdx]
-	suffix := elems[wildIdx+1:]
-
-	// Match Prefix
-	remVals, preStems, ok := matchGlobSequence(ctx, prefix, vals)
-	if !ok {
-		return false, nil
-	}
-
-	// Helper to check a split point
-	checkSplit := func(splitIdx, splitOff int) (bool, []Value) {
-		var tailVals []Value
-		var middleParts []Value
-
-		// 1. Add full values to middle
-		if splitIdx > 0 {
-			middleParts = append(middleParts, remVals[:splitIdx]...)
-		}
-
-		// 2. Handle the split value
-		if splitIdx < len(remVals) {
-			val := remVals[splitIdx]
-			vs := __string(ctx, val)
-			
-			if splitOff > len(vs) { return false, nil }
-			midStr := vs[:splitOff]
-			tailStr := vs[splitOff:]
-
-			if midStr != "" {
-				middleParts = append(middleParts, _word(val.Position(), midStr))
+	match := false
+	for i := 0; i < len(inner); i++ {
+		if i+2 < len(inner) && inner[i+1] == '-' {
+			start, end := rune(inner[i]), rune(inner[i+2])
+			if char >= start && char <= end {
+				match = true
+				break
 			}
-
-			if tailStr != "" {
-				tailVal := _word(val.Position(), tailStr)
-				tailVals = make([]Value, 1, len(remVals)-splitIdx)
-				tailVals[0] = tailVal
-				tailVals = append(tailVals, remVals[splitIdx+1:]...)
-			} else {
-				tailVals = remVals[splitIdx+1:]
-			}
-		}
-
-		// Match Suffix against Tail
-		if ok, sufStems := matchGlobComp(ctx, suffix, tailVals, nil); ok {
-			// Construct the wildcard stem (middle)
-			var wildStem Value
-			if len(middleParts) == 1 {
-				wildStem = middleParts[0]
-			} else if len(middleParts) == 0 {
-				wildStem = _word(elems[wildIdx].Position(), "") // Empty match
-			} else {
-				wildStem = &compound{elements{middleParts}}
-			}
-			
-			res := append(stems, preStems...)
-			res = append(res, wildStem)
-			res = append(res, sufStems...)
-			return true, res
-		}
-		return false, nil
-	}
-
-	// Iterate split points
-	nVals := len(remVals)
-	if wildToken == ASTQ {
-		// Non-Greedy
-		for i := 0; i <= nVals; i++ {
-			limit := 0
-			if i < nVals { limit = len(__string(ctx, remVals[i])) }
-			for j := 0; j <= limit; j++ {
-				if ok, res := checkSplit(i, j); ok { return true, res }
-			}
-		}
-	} else {
-		// Greedy
-		for i := nVals; i >= 0; i-- {
-			limit := 0
-			if i < nVals { limit = len(__string(ctx, remVals[i])) }
-			for j := limit; j >= 0; j-- {
-				if ok, res := checkSplit(i, j); ok { return true, res }
+			i += 2
+		} else {
+			if rune(inner[i]) == char {
+				match = true
+				break
 			}
 		}
 	}
-
-	return false, nil
+	return match != negate
 }
 
-// matchGlobSequence matches a sequence of pattern elements against values linearly.
-// It supports partial matching (e.g. pattern "x" consumes prefix of value "xxx").
-// It returns the remaining values (potentially modified) and collected stems.
-func matchGlobSequence(ctx Context, elems, vals []Value) ([]Value, []Value, bool) {
-	pQueue := elems
-	vQueue := vals
-	var stems []Value
+// globMatch matches pattern `pat` against string `str`.
+// exact: if true, pattern must consume the entire string.
+//        if false, pattern matches a prefix of string.
+// Returns stems, remaining string, and success boolean.
+func globMatch(pat, str string, exact bool) (stems []string, rest string, ok bool) {
+	if len(pat) == 0 {
+		// Pattern exhausted.
+		if exact && len(str) > 0 {
+			return nil, "", false
+		}
+		return nil, str, true
+	}
 
-	for len(pQueue) > 0 {
-		if len(vQueue) == 0 {
-			return nil, nil, false
+	token, nextPat := splitPatternToken(pat)
+
+	switch {
+	case token == "**" || token == "*":
+		// Greedy Match
+		// Optimization: if * is last
+		if len(nextPat) == 0 {
+			if exact {
+				return []string{str}, "", true
+			} else {
+				// Prefix match: * consumes everything implies matching everything is a valid prefix
+				return []string{str}, "", true
+			}
 		}
 
-		p := pQueue[0]
-		v := vQueue[0]
+		// Backtracking (Greedy: start from end)
+		for i := len(str); i >= 0; i-- {
+			s := str[:i]
+			rem := str[i:]
+			if resStems, resRest, resOk := globMatch(nextPat, rem, exact); resOk {
+				return append([]string{s}, resStems...), resRest, true
+			}
+		}
+		return nil, "", false
 
-		// 1. Try Perfect/Structural Match
-		if full, _, s := match(ctx, p, v); full {
-			stems = append(stems, s...)
-			pQueue = pQueue[1:]
-			vQueue = vQueue[1:]
-			continue
+	case token == "*?":
+		// Non-Greedy Match
+		// Optimization: if *? is last
+		if len(nextPat) == 0 {
+			if exact {
+				return []string{str}, "", true
+			} else {
+				return []string{""}, str, true
+			}
 		}
 
-		// 2. Try Glob/String Match
-		ps := __string(ctx, p)
-		vs := __string(ctx, v)
+		// Backtracking (Non-Greedy: start from 0)
+		for i := 0; i <= len(str); i++ {
+			s := str[:i]
+			rem := str[i:]
+			if resStems, resRest, resOk := globMatch(nextPat, rem, exact); resOk {
+				return append([]string{s}, resStems...), resRest, true
+			}
+		}
+		return nil, "", false
 
-		ss, restVal, ok, _ := globMatchChunk(ps, vs)
+	case token == "?":
+		if len(str) == 0 { return nil, "", false }
+		r, size := utf8.DecodeRuneInString(str)
+		if r == utf8.RuneError { return nil, "", false }
+		s := str[:size]
+		rem := str[size:]
+		if resStems, resRest, resOk := globMatch(nextPat, rem, exact); resOk {
+			return append([]string{s}, resStems...), resRest, true
+		}
+		return nil, "", false
+
+	case strings.HasPrefix(token, "["):
+		if len(str) == 0 { return nil, "", false }
+		r, size := utf8.DecodeRuneInString(str)
+		if r != utf8.RuneError && globMatchCharSet(token, r) {
+			s := str[:size]
+			rem := str[size:]
+			if resStems, resRest, resOk := globMatch(nextPat, rem, exact); resOk {
+				return append([]string{s}, resStems...), resRest, true
+			}
+		}
+		return nil, "", false
+
+	default: // Literal
+		if strings.HasPrefix(str, token) {
+			return globMatch(nextPat, str[len(token):], exact)
+		}
+		return nil, "", false
+	}
+}
+
+// getScalarSubstr extracts a substring from a scalar Value.
+// If end is -1, it returns the substring from start to the end of the string.
+// It returns false if the value is not a supported scalar type.
+func getScalarSubstr(ctx Context, v Value, start, end int) string {
+	if end != -1 && start >= end { return "" }
+
+	var s string
+	switch t := v.(type) {
+	case *loc: return getScalarSubstr(ctx, t.Value, start, end)
+	case *word: s = t.s
+	case *strlit: s = t.s
+	case *raw: s = t.s
+	case *escaped: s = t.s
+	case *punct: s = t.token.String()
+	case *globmeta: s = t.token.String()
+	case *globpat: s = t.String()
+	case *binary: s = t.String()
+	case *octal: s = t.String()
+	case *decimal: s = t.String()
+	case *hexadecimal: s = t.String()
+	case *float: s = t.String()
+	case *datetime: s = t.String()
+	case *Date: s = t.String()
+	case *Time: s = t.String()
+	case *file: s = t.filestub.name
+	case *project: s = t.name
+	case *boolean: if t.bool { s = "true" } else { s = "false" }
+	case *answer: if t.bool { s = "yes" } else { s = "no" }
+	case *option: if t.bool { s = "on" } else { s = "off" }
+	case flag:
+		// Flags are synthetic: "-" + value.
+		// Map [start, end) to the underlying value's coordinates.
+		var vStart, vEnd int
+		var includeDash bool
+
+		if start <= 0 {
+			includeDash = true
+			vStart = 0
+		} else {
+			vStart = start - 1
+		}
+
+		if end == -1 {
+			vEnd = -1
+		} else {
+			if end <= 1 {
+				// Requested range is within or before the dash
+				if includeDash && end == 1 { return "-" }
+				return ""
+			}
+			vEnd = end - 1
+		}
+
+		// Recursively get the substring of the inner value
+		valStr := getScalarSubstr(ctx, t.Value, vStart, vEnd)
+
+		if includeDash {
+			return "-" + valStr
+		}
+		return valStr
+
+	default:
+		s = __string(ctx, v)
+	}
+
+	if start < 0 { start = 0 }
+	if end < 0 || end > len(s) { end = len(s) }
+	
+	if start > end { return "" }
+	if start >= len(s) { return "" }
+
+	return s[start:end]
+}
+
+// matchScalarScalar matches a scalar pattern against a scalar value.
+// It returns full=true if they are identical.
+// It returns full=false, res=prefix if val starts with pat.
+func matchScalarScalar(ctx Context, pat, val Value) (full bool, res Value, stems []Value) {
+	pStr := getScalarSubstr(ctx, pat, 0, -1)
+	vStr := getScalarSubstr(ctx, val, 0, -1)
+
+	if pStr == vStr {
+		return true, val, nil
+	}
+
+	if len(pStr) < len(vStr) && strings.HasPrefix(vStr, pStr) {
+		// Pattern is a prefix of Value.
+		return false, _raw(val.Position(), pStr), nil
+	}
+
+	// Try glob matching if pattern contains meta-characters
+	if isPattern(ctx, pStr) {
+		// 1. Try Exact Match First
+		ss, _, ok := globMatch(pStr, vStr, true)
 		if ok {
-			for _, str := range ss {
-				stems = append(stems, _word(v.Position(), str))
+			var stemVals []Value
+			for _, s := range ss {
+				stemVals = append(stemVals, _raw(val.Position(), s))
 			}
-			pQueue = pQueue[1:]
-			if len(restVal) == 0 {
-				vQueue = vQueue[1:]
-			} else {
-				newVal := _word(v.Position(), restVal)
-				newVQueue := make([]Value, len(vQueue))
-				newVQueue[0] = newVal
-				copy(newVQueue[1:], vQueue[1:])
-				vQueue = newVQueue
-			}
-			continue
+			return true, val, stemVals
 		}
 
-		// 3. Try Reverse Split
-		if !isPattern(ctx, ps) && strings.HasPrefix(ps, vs) {
-			vQueue = vQueue[1:]
-			restPat := ps[len(vs):]
-			newPat := _word(p.Position(), restPat)
-			newPQueue := make([]Value, len(pQueue))
-			newPQueue[0] = newPat
-			copy(newPQueue[1:], pQueue[1:])
-			pQueue = newPQueue
-			continue
+		// 2. Try Prefix Match
+		ss, rest, ok := globMatch(pStr, vStr, false)
+		if ok {
+			var stemVals []Value
+			for _, s := range ss {
+				stemVals = append(stemVals, _raw(val.Position(), s))
+			}
+			matchedStr := vStr[:len(vStr)-len(rest)]
+			return false, _raw(val.Position(), matchedStr), stemVals
+		}
+	} else if isPattern(ctx, vStr) {
+        // Reverse Intersection Check: Does Val match Pat?
+        // This handles cases like match("foo", "f*?") -> true
+        _, _, ok := globMatch(vStr, pStr, true)
+        if ok {
+            return true, val, nil
+        }
+    }
+
+	return false, nil, nil
+}
+
+// matchCompComp match a segment (elems) against another segment (vals) (non-path).
+// It iterates strictly (no wildcards), consuming vals segment by segment.
+// Returns res as the matched compound value (prefix of vals if not full).
+func matchCompComp(ctx Context, elems, vals []Value, stems []Value) (bool, Value, []Value) {
+	pIdx := 0 // Pattern Element Index
+	vIdx := 0 // Value Element Index
+	vOff := 0 // Offset within the current Value Element
+
+	var matchedParts []Value
+
+	for pIdx < len(elems) {
+		if vIdx >= len(vals) {
+			return false, nil, nil
 		}
 
-		return nil, nil, false
+		pat := elems[pIdx]
+		currentVal := vals[vIdx]
+		
+		var valPart Value
+		
+		if vOff == 0 {
+			valPart = currentVal
+		} else {
+			str := getScalarSubstr(ctx, currentVal, vOff, -1)
+			valPart = _raw(currentVal.Position(), str)
+		}
+
+		// Recursively match the element
+		full, res, s := match(ctx, pat, valPart)
+		if s != nil { stems = append(stems, s...) }
+
+		if full {
+			// Full match of the segment
+			matchedParts = append(matchedParts, valPart)
+			pIdx++
+			vIdx++
+			vOff = 0
+		} else if res != nil {
+			// Partial match (prefix)
+			matchedParts = append(matchedParts, res)
+			
+			consumedStr := getScalarSubstr(ctx, res, 0, -1)
+			consumedLen := len(consumedStr)
+			if consumedLen == 0 { return false, nil, nil }
+
+			vOff += consumedLen
+			pIdx++
+
+			// Check if we effectively finished the current value
+			fullStr := getScalarSubstr(ctx, currentVal, 0, -1)
+
+			if vOff == len(fullStr) {
+				vIdx++
+				vOff = 0
+			}
+		} else {
+			return false, nil, nil
+		}
 	}
 
-	return vQueue, stems, true
+	// Construct result value from matched parts
+	var resVal Value = &compound{elements{matchedParts}}
+	
+	// Check if we exhausted all values (Full Match)
+	if vIdx < len(vals) { return false, resVal, stems }
+	if vIdx == len(vals) && vOff > 0 { return false, resVal, stems }
+
+	return true, resVal, stems
+}
+
+// matchCompGlob matches compound elements (elems) against glob elements (vals).
+func matchCompGlob(ctx Context, elems, vals []Value, stems []Value) (bool, Value, []Value) {
+	// TODO match(compound, globpat)
+	return false, nil, nil
+}
+
+// matchGlobComp matches glob elements (elems) against compound elements (vals).
+// It supports wildcards (*, **, ?, etc.) and recursive backtracking.
+// Returns:
+//   full: true if the pattern matches the entire value sequence.
+//   res:  The value segment that was matched (useful for prefix matching).
+//   stems: Captured wildcard matches.
+func matchGlobComp(ctx Context, elems, vals []Value, stems []Value) (bool, Value, []Value) {
+	// glob returns (success, matched_parts, stems, finalVIdx, finalVOff)
+	var glob func(int, int, int, int, []Value) (bool, []Value, []Value, int, int)
+	glob = func(pIdx, pOff int, vIdx, vOff int, stems []Value) (bool, []Value, []Value, int, int) {
+		// Normalize vIdx/vOff
+		for vIdx < len(vals) {
+			str := getScalarSubstr(ctx, vals[vIdx], 0, -1)
+			if vOff < len(str) { break }
+			vIdx++
+			vOff = 0
+		}
+
+		var localParts []Value
+
+		for pIdx < len(elems) {
+			pat := elems[pIdx]
+
+			// 1. Check for Explicit Wildcard Token
+			isWild := false
+			var wildToken token
+
+			if pOff == 0 {
+				if m, _, _ := multia(ctx, pat); m == multia_ss || m == multia_sq {
+					isWild = true
+					if gm, ok := pat.(*globmeta); ok {
+						wildToken = gm.token
+					} else {
+						wildToken = SAST
+					}
+				} else if gm, ok := pat.(*globmeta); ok && (gm.token == SAST || gm.token == DAST || gm.token == ASTQ) {
+					isWild = true
+					wildToken = gm.token
+				}
+			}
+
+			if isWild {
+				suffixPIdx := pIdx + 1
+				nVals := len(vals)
+
+				check := func(i, j int) (bool, []Value, []Value, int, int) {
+					ok, suffixParts, newStems, fVIdx, fVOff := glob(suffixPIdx, 0, i, j, nil)
+					if ok {
+						var consumed Value
+						if vIdx == i {
+							if vIdx < nVals {
+								str := getScalarSubstr(ctx, vals[vIdx], vOff, j)
+								consumed = _raw(vals[vIdx].Position(), str)
+							} else {
+								consumed = _raw(pat.Position(), "")
+							}
+						} else {
+							var parts []Value
+							if vIdx < nVals {
+								str := getScalarSubstr(ctx, vals[vIdx], vOff, -1)
+								parts = append(parts, _raw(vals[vIdx].Position(), str))
+							}
+							if vIdx+1 < i {
+								parts = append(parts, vals[vIdx+1:i]...)
+							}
+							if i < nVals {
+								str := getScalarSubstr(ctx, vals[i], 0, j)
+								parts = append(parts, _raw(vals[i].Position(), str))
+							}
+							if len(parts) == 0 {
+								consumed = _raw(pat.Position(), "")
+							} else if len(parts) == 1 {
+								consumed = parts[0]
+							} else {
+								consumed = &compound{elements{parts}}
+							}
+						}
+						
+						totalParts := append([]Value{}, localParts...)
+						totalParts = append(totalParts, consumed)
+						totalParts = append(totalParts, suffixParts...)
+						
+						finalStems := append([]Value{}, stems...)
+						finalStems = append(finalStems, consumed)
+						finalStems = append(finalStems, newStems...)
+
+						return true, totalParts, finalStems, fVIdx, fVOff
+					}
+					return false, nil, nil, 0, 0
+				}
+
+				if wildToken == ASTQ {
+					for i := vIdx; i <= nVals; i++ {
+						startJ := 0
+						if i == vIdx { startJ = vOff }
+						limit := 0
+						if i < nVals {
+							str := getScalarSubstr(ctx, vals[i], 0, -1)
+							limit = len(str)
+						}
+						for j := startJ; j <= limit; j++ {
+							if ok, parts, resStems, fVi, fVo := check(i, j); ok {
+								return true, parts, resStems, fVi, fVo
+							}
+						}
+					}
+				} else {
+					for i := nVals; i >= vIdx; i-- {
+						limit := 0
+						if i < nVals {
+							str := getScalarSubstr(ctx, vals[i], 0, -1)
+							limit = len(str)
+						}
+						endJ := limit
+						for j := endJ; j >= 0; j-- {
+							if i == vIdx && j < vOff { break }
+							if ok, parts, resStems, fVi, fVo := check(i, j); ok {
+								return true, parts, resStems, fVi, fVo
+							}
+						}
+					}
+				}
+				return false, nil, nil, 0, 0
+			}
+
+			// 2. Non-Wildcard Match
+			if vIdx >= len(vals) { return false, nil, nil, 0, 0 }
+			
+			var valPart Value
+			currentVal := vals[vIdx]
+			strVal := getScalarSubstr(ctx, currentVal, 0, -1)
+
+			if vOff == 0 {
+				valPart = currentVal
+			} else {
+				if vOff >= len(strVal) { return false, nil, nil, 0, 0 }
+				valPart = _raw(currentVal.Position(), strVal[vOff:])
+			}
+			
+			full, res, s := match(ctx, pat, valPart)
+			if s != nil { stems = append(stems, s...) }
+
+			if full {
+				localParts = append(localParts, valPart)
+				pIdx++
+				vIdx++
+				vOff = 0
+				for vIdx < len(vals) {
+					str := getScalarSubstr(ctx, vals[vIdx], 0, -1)
+					if vOff < len(str) { break }
+					vIdx++
+					vOff = 0
+				}
+			} else if res != nil {
+				localParts = append(localParts, res)
+				cStr := getScalarSubstr(ctx, res, 0, -1)
+				vOff += len(cStr)
+				pIdx++
+				if vOff == len(strVal) {
+					vIdx++
+					vOff = 0
+				}
+			} else {
+				// 3. Fallback: Structural Mismatch Intersection Check
+				// If element-wise match failed (e.g. "fo" vs "f"), try to match the REST as strings.
+				// This handles cases like pat="fo?", val="f*?" where "fo" overlaps "f" and "*".
+				
+				// Reconstruct remaining Pattern string
+				restPat := getScalarSubstr(ctx, pat, pOff, -1)
+				for k := pIdx + 1; k < len(elems); k++ {
+					restPat += getScalarSubstr(ctx, elems[k], 0, -1)
+				}
+
+				// Reconstruct remaining Value string
+				restVal := strVal[vOff:]
+				for k := vIdx + 1; k < len(vals); k++ {
+					restVal += getScalarSubstr(ctx, vals[k], 0, -1)
+				}
+
+				// Check Forward: Does Pat match Val?
+				if ss, _, ok := globMatch(restPat, restVal, true); ok {
+					// Construct stems (simple string wrappers)
+					for _, s := range ss {
+						stems = append(stems, _raw(currentVal.Position(), s))
+					}
+					// Return success consuming everything
+					// We don't reconstruct detailed localParts here, just the consumed value
+					consumed := _raw(currentVal.Position(), restVal)
+					localParts = append(localParts, consumed)
+					return true, localParts, stems, len(vals), 0
+				}
+
+				// Check Backward: Does Val match Pat? (Intersection)
+				if _, _, ok := globMatch(restVal, restPat, true); ok {
+					// Note: stems here are from Val matching Pat, which might not be what we want 
+					// if we are capturing Pat's wildcards. But for intersection detection, it's sufficient.
+					// Ideally we want to know what Pat's wildcards matched.
+					// Since we don't have that easily, we accept the match.
+
+					// However, we must ensure we return the VAL as the result.
+					consumed := _raw(currentVal.Position(), restVal)
+					localParts = append(localParts, consumed)
+					return true, localParts, stems, len(vals), 0
+				}
+
+				return false, nil, nil, 0, 0
+			}
+		}
+		return true, localParts, stems, vIdx, vOff
+	}
+
+	ok, parts, stems, finalVIdx, finalVOff := glob(0, 0, 0, 0, stems)
+	
+	if ok {
+		var res Value
+		if len(parts) == 1 {
+			res = parts[0]
+		} else {
+			res = &compound{elements{parts}}
+		}
+		full := false
+		if finalVIdx == len(vals) && finalVOff == 0 {
+			full = true
+		} else if finalVIdx == len(vals)-1 {
+			str := getScalarSubstr(ctx, vals[finalVIdx], 0, -1)
+			if finalVOff == len(str) {
+				full = true
+			}
+		}
+		return full, res, stems
+	}
+
+	return false, nil, nil
 }
 
 // matchGlobPath matches glob elements (elems) against path segments (vals).
-func matchGlobPath(ctx Context, elems, vals []Value, stems []Value) (bool, []Value) {
+func matchGlobPath(ctx Context, elems, vals []Value, stems []Value) (bool, Value, []Value) {
 	unpack := func(v Value) []Value {
 		if c, ok := v.(*compound); ok { return c.elems }
 		return []Value{v}
@@ -4400,6 +4630,7 @@ func matchGlobPath(ctx Context, elems, vals []Value, stems []Value) (bool, []Val
 	var wildIndex = -1
 	var wildToken token
 
+	// Find Directory Wildcard (** or *?)
 	for i, e := range elems {
 		if gm, ok := e.(*globmeta); ok {
 			if gm.token == DAST || gm.token == ASTQ {
@@ -4416,91 +4647,103 @@ func matchGlobPath(ctx Context, elems, vals []Value, stems []Value) (bool, []Val
 		var connector token
 		if wildToken == DAST { connector = SAST } else { connector = ASTQ }
 
-		tryMatch := func(n int) (bool, []Value) {
+		tryMatch := func(n int) (bool, Value, []Value) {
+			// Case: Wildcard consumes segments. 
+			// For matchGlobPath with **, it must consume 'n' segments of 'vals'
+			if n != len(vals) { return false, nil, nil }
+
+			// Case: Wildcard collapses (matches nothing)
 			if n == 0 {
 				pat := append(dup(prefix), suffix...)
 				return matchGlobPath(ctx, pat, vals, stems)
 			}
-			if len(vals) < n { return false, nil }
 
-			var currentStems []Value
-
+			// Single segment match
 			if n == 1 {
 				pat := append(dup(prefix), &globmeta{valbase{elems[wildIndex].Position()}, connector})
 				pat = append(pat, suffix...)
-				if ok, s := matchGlobComp(ctx, pat, unpack(vals[0]), nil); ok {
-					if okRec, sRec := matchGlobPath(ctx, nil, vals[1:], nil); okRec {
-						return true, append(stems, append(s, sRec...)...)
-					}
+				
+				// Match the combined pattern against the single path segment
+				if ok, res, s := matchGlobComp(ctx, pat, unpack(vals[0]), nil); ok {
+					return true, &path{elements{[]Value{res}}}, append(stems, s...)
 				}
-				return false, nil
+				return false, nil, nil
 			}
 
-			// Multi-segment match
+			// Multi-segment match (n > 1)
+			// 1. Match Prefix + WildStart against vals[0]
 			patStart := append(dup(prefix), &globmeta{valbase{elems[wildIndex].Position()}, connector})
-			okStart, sStart := matchGlobComp(ctx, patStart, unpack(vals[0]), nil)
-			if !okStart { return false, nil }
+			okStart, resStart, sStart := matchGlobComp(ctx, patStart, unpack(vals[0]), nil)
+			if !okStart { return false, nil, nil }
 
+			// 2. Match WildEnd + Suffix against vals[n-1]
 			patEnd := append([]Value{&globmeta{valbase{elems[wildIndex].Position()}, connector}}, suffix...)
-			okEnd, sEnd := matchGlobComp(ctx, patEnd, unpack(vals[n-1]), nil)
-			if !okEnd { return false, nil }
+			okEnd, resEnd, sEnd := matchGlobComp(ctx, patEnd, unpack(vals[n-1]), nil)
+			if !okEnd { return false, nil, nil }
 
+			// 3. Construct the Stem for the ** wildcard
 			prefixStems := sStart[:len(sStart)-1]
-			rem0 := sStart[len(sStart)-1] // Value
-			rem1 := sEnd[0] // Value
+			rem0 := sStart[len(sStart)-1] // Capture from start segment
+			rem1 := sEnd[0]               // Capture from end segment
 			suffixStems := sEnd[1:]
 
-			// Build the middle path/compound
 			var middleParts []Value
-			// 1. rem0 (tail of first segment)
-			if !isEmpty(rem0) { middleParts = append(middleParts, rem0) }
-			// 2. intermediate segments
-			for k := 1; k < n-1; k++ {
-				middleParts = append(middleParts, vals[k])
-			}
-			// 3. rem1 (head of last segment)
-			if !isEmpty(rem1) { middleParts = append(middleParts, rem1) }
+			middleParts = append(middleParts, rem0)       // Tail of first segment
+			middleParts = append(middleParts, vals[1:n-1]...) // Whole intermediate segments
+			middleParts = append(middleParts, rem1)       // Head of last segment
 
 			var wildStem Value
 			if len(middleParts) == 0 {
-				wildStem = _word(elems[wildIndex].Position(), "")
+				wildStem = _raw(elems[wildIndex].Position(), "")
 			} else {
-				// Use path if likely path segments, else compound
-				// Simple heuristic: stick to path structure
-				wildStem = &path{elements{middleParts}} 
+				wildStem = &path{elements{middleParts}}
 			}
 
+			// 4. Combine Stems
+			currentStems := append([]Value{}, stems...)
 			currentStems = append(currentStems, prefixStems...)
 			currentStems = append(currentStems, wildStem)
 			currentStems = append(currentStems, suffixStems...)
 
-			if okRec, sRec := matchGlobPath(ctx, nil, vals[n:], nil); okRec {
-				return true, append(stems, append(currentStems, sRec...)...)
-			}
-			return false, nil
+			// 5. Construct Result
+			var resParts []Value
+			resParts = append(resParts, resStart)
+			resParts = append(resParts, vals[1:n-1]...)
+			resParts = append(resParts, resEnd)
+			
+			return true, &path{elements{resParts}}, currentStems
 		}
 
-		if wildToken == DAST {
+		// Try to match varying numbers of segments
+		if wildToken == DAST { // Greedy (**)
 			for n := len(vals); n >= 0; n-- {
-				if ok, s := tryMatch(n); ok { return true, s }
+				if ok, r, s := tryMatch(n); ok { return true, r, s }
 			}
-		} else {
+		} else { // Non-Greedy (*?)
 			for n := 0; n <= len(vals); n++ {
-				if ok, s := tryMatch(n); ok { return true, s }
+				if ok, r, s := tryMatch(n); ok { return true, r, s }
 			}
 		}
-		return false, nil
+		return false, nil, nil
 	}
 
+	// No directory wildcards in pattern
 	if len(elems) == 0 {
-		return len(vals) == 0, stems
+		if len(vals) == 0 {
+			return true, &path{elements{nil}}, stems
+		}
+		return false, nil, nil
 	}
 	
+	// A glob pattern without ** matches exactly one path segment
 	if len(vals) == 1 {
-		return matchGlobComp(ctx, elems, unpack(vals[0]), stems)
+		if ok, res, s := matchGlobComp(ctx, elems, unpack(vals[0]), stems); ok {
+			return true, &path{elements{[]Value{res}}}, s
+		}
+		return false, nil, nil
 	}
 
-	return false, nil
+	return false, nil, nil
 }
 
 // matchPathComp match path segments (elems) against a single segment (vals).
@@ -4524,6 +4767,7 @@ func matchPathPath(ctx Context, elems, vals []Value, res []Value, stems []Value)
 	var wildIsGreedy bool
 
 	for i, e := range elems {
+		// Allow x**y (embedded wildcard) to trigger multi-segment matching
 		if m, _, _ := multia(ctx, e); m == multia_ss || m == multia_sq {
 			wildIndex = i
 			wildIsGreedy = (m == multia_ss)
@@ -4548,15 +4792,22 @@ func matchPathPath(ctx Context, elems, vals []Value, res []Value, stems []Value)
 
 		remainingVals := vals[len(prefix):]
 		wildElem := elems[wildIndex]
+		
+		// Unwrap potential loc wrapper to access globpat
+		var we = wildElem
+		for { if l, ok := we.(*loc); ok { we = l.Value } else { break } }
+
 		var wildTokens []Value
-		if gp, ok := wildElem.(*globpat); ok {
+		if gp, ok := we.(*globpat); ok {
 			wildTokens = gp.elems
+		} else if gm, ok := we.(*globmeta); ok {
+			wildTokens = []Value{gm}
 		} else {
 			return false, nil, nil
 		}
 
 		tryMatch := func(n int) (bool, Value, []Value) {
-			okWild, sWild := matchGlobPath(ctx, wildTokens, remainingVals[:n], nil)
+			okWild, _, sWild := matchGlobPath(ctx, wildTokens, remainingVals[:n], nil)
 			if !okWild { return false, nil, nil }
 
 			okRest, _, sRest := matchPathPath(ctx, suffix, remainingVals[n:], nil, nil)
@@ -4595,73 +4846,78 @@ func matchPathPath(ctx Context, elems, vals []Value, res []Value, stems []Value)
 	return true, &path{elements{vals}}, append(stems, currentStems...)
 }
 
+// match matches pattern `pat` against value `val`.
 func match(ctx Context, pat, val Value) (full bool, res Value, stems []Value) {
 	if checkpoints { defer check_match(ctx, pat, val, &full, &res, &stems) }
+	switch s := sf("%v %v", pat, val); s {
+	case "fo?/**/x.h f*?/x.h": defer func() { if !full {
+		debug(ctx, "%v %v → %v %v %v", pat, val, full, res, stems, callstack{stop:"smart.hit"}, trace{})
+	}}()
+	case "f*?/x.h fo?/**/x.h": defer func() { if !full {
+		debug(ctx, "%v %v → %v %v %v", pat, val, full, res, stems, callstack{stop:"smart.hit"}, trace{})
+	}}()}
 
-    // --- FORWARD MATCH LOGIC ---
-    switch p := pat.(type) {
-    case *loc: // Resolve Location wrappers
-        return match(ctx, p.Value, val)
+	// Unwrapping wrappers
+	switch p := pat.(type) {
+	case *loc: return match(ctx, p.Value, val)
+	case *globbrace: return match(ctx, &p.globpat, val)
+	}
+	switch v := val.(type) {
+	case *loc: return match(ctx, pat, v.Value)
+	case *globbrace: return match(ctx, pat, &v.globpat)
+	}
 
-    case *globbrace:
-        return match(ctx, &p.globpat, val)
-
-    case *path:
-		switch t := val.(type) {
-		case *path:
-			full, res, stems = matchPathPath(ctx, p.elems, t.elems, nil, nil)
+	// Dispatcher
+	switch p := pat.(type) {
+	case *globpat:
+		switch v := val.(type) {
+		case *globpat:
+			full, res, stems = matchGlobComp(ctx, p.elems, v.elems, stems)
 		case *compound:
-			full, res, stems = matchPathComp(ctx, p.elems, t.elems, nil, nil)
-		default: // scalar value (non-container)
-			full, res, stems = matchPathComp(ctx, p.elems, []Value{t}, nil, nil)
+			full, res, stems = matchGlobComp(ctx, p.elems, v.elems, stems)
+		case *path:
+			if len(v.elems) == 1 { return match(ctx, pat, v.elems[0]) }
+			if len(v.elems) > 0 {
+				full, res, stems = matchGlobPath(ctx, p.elems, v.elems, stems)
+			}
+		default:
+			full, res, stems = matchGlobComp(ctx, p.elems, []Value{v}, stems)
 		}
 
 	case *compound:
-        switch t := val.(type) {
+		switch v := val.(type) {
 		case *compound:
-			if full, stems = matchCompComp(ctx, p.elems, t.elems, nil); full { res = t }
-        default: // scalar value
-			if full, stems = matchCompComp(ctx, p.elems, []Value{t}, nil); full { res = t }
-        }
-
-    case *globpat:
-		switch t := val.(type) {
+			full, res, stems = matchCompComp(ctx, p.elems, v.elems, stems)
+		case *globpat:
+			full, res, stems = matchCompComp(ctx, p.elems, v.elems, stems)
 		case *path:
-			if full, stems = matchGlobPath(ctx, p.elems, t.elems, nil); full { res = t }
-		case *compound:
-			if full, stems = matchGlobComp(ctx, p.elems, t.elems, nil); full { res = t }
-		default: // scalar value
-			if full, stems = matchGlobComp(ctx, p.elems, []Value{t}, nil); full { res = t }
+			if len(v.elems) == 1 { return match(ctx, pat, v.elems[0]) }
+		default:
+			full, res, stems = matchCompComp(ctx, p.elems, []Value{v}, stems)
 		}
 
-    case *regexpat:
+	case *path:
+		switch v := val.(type) {
+		case *path:
+			full, res, stems = matchPathPath(ctx, p.elems, v.elems, nil, stems)
+		default:
+			if len(p.elems) == 1 { return match(ctx, p.elems[0], v) }
+		}
+
+	case *regexpat:
 		if p.Regexp == nil {
-			debug(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num:10}, trace{})
+			debug(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num: 10}, trace{})
 		}
-		switch t := val.(type) {
-		case *compound, *path, *word, *raw:
-			if sm := p.Regexp.FindStringSubmatch(__string(ctx,t)); sm != nil {
-				// Convert submatches strings to Values
-				res = _word(val.Position(), sm[0])
-				for _, s := range sm[1:] {
-					stems = append(stems, _word(val.Position(), s))
-				}
-				full = true
+		if sm := p.Regexp.FindStringSubmatch(__string(ctx, val)); sm != nil {
+			res = _raw(val.Position(), sm[0])
+			for _, s := range sm[1:] {
+				stems = append(stems, _raw(val.Position(), s))
 			}
-		default:
-			debug(ctx, "TODO: match: %s, %s", ts(p), ts(val), callstack{num:10}, trace{})
+			full = true
 		}
 
-    case flag:
-		switch t := val.(type) {
-		case flag: return match(ctx, p.Value, t.Value)
-		default:
-			debug(ctx, "TODO: match: %s, %s", ts(p), ts(val), callstack{num:10}, trace{})
-		}
-
-	case *list: // or-match
-		switch t := val.(type) {
-		case *list: // or-match
+	case *list:
+		if t, ok := val.(*list); ok {
 			for _, _p := range p.elems {
 				for _, _v := range t.elems {
 					if full, res, stems = match(ctx, _p, _v); full {
@@ -4669,35 +4925,29 @@ func match(ctx Context, pat, val Value) (full bool, res Value, stems []Value) {
 					}
 				}
 			}
-		default:
+		} else {
 			for _, _p := range p.elems {
 				if full, res, stems = match(ctx, _p, val); full {
 					return
 				}
 			}
 		}
+		return // NOTE: terminate here, no reverse-match required!
 
-    default: // Literal data (treated as prefix/equality)
-		if isEmpty(p) { return isEmpty(val), nil, nil }
+	case flag:
+		if t, ok := val.(flag); ok { return match(ctx, p.Value, t.Value) }
+		full, res, stems = matchScalarScalar(ctx, pat, val)
+	default:
+		full, res, stems = matchScalarScalar(ctx, pat, val)
+	}
 
-		ps, vs := __string(ctx, p), __string(ctx, val)
-		if ps == vs {
-			full, res = true, val // Return original value object
-		} else if strings.HasPrefix(vs, ps) {
-			full = len(vs) == len(ps)
-			res = _word(val.Position(), vs[:len(ps)]) // New value for prefix match
-		}
-		if isPattern(ctx, ps) || isPattern(ctx, vs) {
-			debug(ctx, "string is pattern: %s %s", ts(p), ts(val), callstack{num:10}, trace{})
-		}
-		return
-    }
-
-    // --- REVERSE MATCH LOGIC ---
+	// Reverse Match Logic (Container Dispatcher)
+	// If the direct match failed, but the value is a pattern (e.g. wildcards),
+	// check if the value-pattern matches the pattern (intersection/cover).
     if !full && !truly(ctx, is_swapped{}) && patterned(ctx, val) {
         full, _, _ = match(swapped_ctx{ctx}, val, pat)
     }
-    return
+	return
 }
 
 func stencil(ctx Context, pat Value, stems []Value) (res Value, rest []Value) {
@@ -5031,7 +5281,7 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
             case "~" : v = makePunct(pos, TILDE)
             case "." : v = makePunct(pos, DOT)
             case "..": v = makePunct(pos, DOTDOT)
-            default  : v = _word(pos, s)
+            default  : v = _raw(pos, s)
             }
         } else if s == "" {
             if i+1 == len(a) {
@@ -5043,7 +5293,7 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
                 continue
             }
         } else {
-            v = _word(pos, s)
+            v = _raw(pos, s)
         }
         segments = append(segments, v)
     }
