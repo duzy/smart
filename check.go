@@ -1025,11 +1025,11 @@ func check_match(ctx Context, pat, val any, _full *bool, _res *Value, _stems *[]
 				if strings.HasPrefix(sm[2], sm[4]) { return }
 			}
 		}
-		if true { debug(ctx, _f("%s", s_kt), _f("%s", sm[1:])) }
+		if false { debug(ctx, "%s    → %s", s_kt, sm[1:]) }
 	}}
 	
 	if v := checkpoints_match[k]; v == nil {
-		debug(ctx, _f("`%v`:`%v`,", k, t), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)),
+		debug(ctx, _f(`%s`, s_kt), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)),
 			callstack{num:10}, trace{})
 	} else if v != t {
 		debug(ctx, _f(`%s | match(%s, %s)`, k, ts(pat), ts(val)), _f("got: %s", t), _f("!= : %s", v),

@@ -4183,6 +4183,36 @@ func globMatch(pat, str string, exact bool) (stems []string, rest string, ok boo
 	}
 }
 
+func getScalarLength(ctx Context, v Value) int {
+	var s string
+	switch t := v.(type) {
+	case *word: s = t.s
+	case *strlit: s = t.s
+	case *raw: s = t.s
+	case *escaped: s = t.s
+	case *punct: s = t.token.String()
+	case *globmeta: s = t.token.String()
+	case *globpat: s = t.String()
+	case *binary: s = t.String()
+	case *octal: s = t.String()
+	case *decimal: s = t.String()
+	case *hexadecimal: s = t.String()
+	case *float: s = t.String()
+	case *datetime: s = t.String()
+	case *Date: s = t.String()
+	case *Time: s = t.String()
+	case *file: s = t.filestub.name
+	case *project: s = t.name
+	case *boolean: if t.bool { s = "true" } else { s = "false" }
+	case *answer: if t.bool { s = "yes" } else { s = "no" }
+	case *option: if t.bool { s = "on" } else { s = "off" }
+	case *loc: return getScalarLength(ctx, t.Value)
+	case flag: return 1 + getScalarLength(ctx, t.Value)
+	default: return len(__string(ctx, v)) // TODO: optimization
+	}
+	return len(s)
+}
+
 // getScalarSubstr extracts a substring from a scalar Value.
 // If end is -1, it returns the substring from start to the end of the string.
 // It returns false if the value is not a supported scalar type.
@@ -4245,7 +4275,7 @@ func getScalarSubstr(ctx Context, v Value, start, end int) string {
 		return valStr
 
 	default:
-		s = __string(ctx, v)
+		s = __string(ctx, v) // TODO: optimization
 	}
 
 	if start < 0 { start = 0 }
@@ -4311,70 +4341,40 @@ func matchScalarScalar(ctx Context, pat, val Value) (full bool, res Value, stems
 // It iterates strictly (no wildcards), consuming vals segment by segment.
 // Returns res as the matched compound value (prefix of vals if not full).
 func matchCompComp(ctx Context, elems, vals []Value, stems []Value) (bool, Value, []Value) {
-	pIdx := 0 // Pattern Element Index
-	vIdx := 0 // Value Element Index
-	vOff := 0 // Offset within the current Value Element
-
 	var matchedParts []Value
+	var idx int
+	var val Value
 
-	for pIdx < len(elems) {
-		if vIdx >= len(vals) {
-			return false, nil, nil
-		}
+	if 0 < len(vals) { val = vals[0] }
 
-		pat := elems[pIdx]
-		currentVal := vals[vIdx]
+	for _, elem := range elems {
+		if val == nil { return false, nil, nil }
 		
-		var valPart Value
-		
-		if vOff == 0 {
-			valPart = currentVal
-		} else {
-			str := getScalarSubstr(ctx, currentVal, vOff, -1)
-			valPart = _raw(currentVal.Position(), str)
-		}
-
-		// Recursively match the element
-		full, res, s := match(ctx, pat, valPart)
+		full, res, s := matchScalarScalar(ctx, elem, val)
 		if s != nil { stems = append(stems, s...) }
-
 		if full {
-			// Full match of the segment
-			matchedParts = append(matchedParts, valPart)
-			pIdx++
-			vIdx++
-			vOff = 0
+			matchedParts = append(matchedParts, val)
 		} else if res != nil {
-			// Partial match (prefix)
 			matchedParts = append(matchedParts, res)
-			
-			consumedStr := getScalarSubstr(ctx, res, 0, -1)
-			consumedLen := len(consumedStr)
-			if consumedLen == 0 { return false, nil, nil }
 
-			vOff += consumedLen
-			pIdx++
-
-			// Check if we effectively finished the current value
-			fullStr := getScalarSubstr(ctx, currentVal, 0, -1)
-
-			if vOff == len(fullStr) {
-				vIdx++
-				vOff = 0
+			// Compute remainder
+			var l = getScalarLength(ctx, res)
+			if s := getScalarSubstr(ctx, val, l, -1); s != "" {
+				val = _raw(val.Position(), s); continue
 			}
 		} else {
-			return false, nil, nil
+			break
 		}
+		if idx++; idx < len(vals) { val = vals[idx] } else { val = nil }
 	}
 
-	// Construct result value from matched parts
-	var resVal Value = &compound{elements{matchedParts}}
-	
-	// Check if we exhausted all values (Full Match)
-	if vIdx < len(vals) { return false, resVal, stems }
-	if vIdx == len(vals) && vOff > 0 { return false, resVal, stems }
-
-	return true, resVal, stems
+	var res Value
+	switch len(matchedParts) {
+	case 0 : res = nil
+	case 1 : res = matchedParts[0]
+	default: res = &compound{elements{matchedParts}}
+	}
+	return (val == nil), res, stems
 }
 
 // matchCompGlob matches compound elements (elems) against glob elements (vals).
