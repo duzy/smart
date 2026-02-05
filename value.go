@@ -47,12 +47,11 @@ const (
 )
 
 const (
-    cmpUnknown cmpres =  0
-    cmpLprefix        = -2 // L is prefix of R, should also be 'smaller'
-    cmpSmaller        = -1 // meaningless so far
-    cmpGreater        =  1 // meaningless so far
-    cmpRprefix        =  2 // R is prefix of L, should also be 'greater'
-    cmpEqual          =  3
+	cmpLprefix cmpres = -2 // L is smaller then R, and L is the prefix of R
+	cmpSmaller cmpres = -1 // L is smaller then R
+	cmpEqual   cmpres =  0 // L is equal to R
+	cmpGreater cmpres =  1 // L is greater than R
+	cmpRprefix cmpres =  2 // L is greater than R, and R is the prefix of L
 )
 
 const (
@@ -139,16 +138,15 @@ const (
 )
 
 type cmpres int
-func (n cmpres) String() (s string) {
+func (n cmpres) String() string {
     switch n {
-    case cmpUnknown: s = "unknown"
-    case cmpLprefix: s = "lprefix"
-    case cmpRprefix: s = "rprefix"
-    case cmpSmaller: s = "smaller"
-    case cmpGreater: s = "greater"
-    case cmpEqual:   s = "equal"
+    case cmpLprefix: return "lprefix"
+    case cmpSmaller: return "smaller"
+    case cmpEqual:   return "equal"
+    case cmpGreater: return "greater"
+    case cmpRprefix: return "rprefix"
     }
-    return
+    return "unknown"
 }
 
 type existence int
