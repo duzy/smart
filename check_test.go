@@ -214,7 +214,7 @@ argsloop:
 			break argsloop
 		}
 	}
-	debug(ctx, f, append(i, callstack{num:1, skip:2})...)
+	debug(ctx, f, append(i, callstack{num:1, skip:1})...)
 	if false { flush(ctx) }
 }
 

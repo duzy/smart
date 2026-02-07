@@ -303,22 +303,16 @@ func cache(ctx Context, c *valcache, ss [][]string) *valcache {
 }
 
 func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
-	var f0 func(*valcache, [][]string, int, int, int) bool
-
-	if false && !isEmpty(root) { defer func() {
-		debug(ctx, "%v %v ⇒ %v", root, ss, r)
-	}()}
-
-	seen := make(map[*valcache]struct{})
+	seen := make(map[*valcache]bool)
 	fullvalue := do(ctx, fullvalue{}).(Value)
-	fullmatch := func(c *valcache) bool {
-		if _, exists := seen[c]; exists { return true }
-		if !c.matchPayload(ctx, fullvalue) { return false }
-		seen[c] = struct{}{}
-		r = append(r, c)
-		return true
+	fullmatch := func(c *valcache) (res bool) {
+		if full, exists := seen[c]; exists { return full }
+		if res = c.matchPayload(ctx, fullvalue); res { r = append(r, c) }
+		seen[c] = res
+		return 
 	}
 
+	var f0 func(*valcache, [][]string, int, int, int) bool
 	f0 = func(c *valcache, ss [][]string, i, j, k int) (found bool) {
 		if c == nil { return false }
 
@@ -523,34 +517,38 @@ func canStartMatch(c *valcache, segment []string) bool {
 
 // =============================================================================
 
-type matched_filemap struct{ filemap ; string }
-type matched_rule struct{ *rule ; string }
-func (t matched_filemap) String() string { return "{"+t.filemap.String()+" name="+t.string+"}" }
-func (t matched_rule) String() string { return "{"+t.rule.String()+" name="+t.string+"}" }
+type matched_filemap struct{ filemap ; value Value }
+type matched_rule struct{ *rule ; value Value }
+func (t matched_filemap) String() string { return "{"+t.filemap.String()+" name="+t.value.String()+"}" }
+func (t matched_rule) String() string { return "{"+t.rule.String()+" name="+t.value.String()+"}" }
 
-func (p *valcache) matchPayload(ctx Context, fullval Value) (ok bool) {
+func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 	for _, a := range p.a {
 		switch a := a.(type) {
 		case filemap:
-			var _a = filemap{a._filemap, expand(_final(ctx), a.pattern)}
-			for _, v := range merge(_a.pattern) {
-				if f, r, _ := match(ctx, v, fullval); f {
-					if 0 < do(ctx, matched_filemap{_a, __string(ctx, r)}).(int) {
-						ok = true
-					} else {
-						debug(ctx, "%v %v", ts(a), r, trace{})
-					}
+			if checkpoints {
+				r := cmp(ctx, a.pattern, fullvalue)
+				f, _, _ := match(ctx, a.pattern, fullvalue)
+				switch sf("%v", fullvalue) {
+				case "foo/**/x.h": debug(ctx, "%v %v %v %v", &a, fullvalue, r, f)
+				case "fo?/**/x.h": debug(ctx, "%v %v %v %v", &a, fullvalue, r, f)
+				}
+			}
+			if f, r, _ := match(ctx, a.pattern, fullvalue); f {
+				var a = filemap{a._filemap, a.pattern}
+				if 0 < do(ctx, matched_filemap{a, r}).(int) {
+					ok = true
+				} else {
+					debug(ctx, "%v %v", ts(a), r, trace{})
 				}
 			}
 		case *rule:
-			var _a = &rule{expand(_final(ctx), a.target), a.arged, a.program}
-			for _, v := range merge(_a.target) {
-				if f, r, _ := match(ctx, v, fullval); f {
-					if 0 < do(ctx, matched_rule{_a, __string(ctx, r)}).(int) {
-						ok = true
-					} else {
-						debug(ctx, "%v %v", ts(a), r, trace{})
-					}
+			if f, r, _ := match(ctx, a.target, fullvalue); f {
+				var a = &rule{a.target, a.arged, a.program}
+				if 0 < do(ctx, matched_rule{a, r}).(int) {
+					ok = true
+				} else {
+					debug(ctx, "%v %v", ts(a), r, trace{})
 				}
 			}
 		default:
@@ -597,9 +595,8 @@ func toks(ctx Context, c *valcache, segs ...string) hit_segs {
 func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
 	var s []string
 	if checkpoints { defer func() {
-		var _g = __string(ctx, g)
-		if t := tokenizePath(_g); sf("[%s]",s) != sf("%s",t) {
-			debug(ctx, "%s ⇒ [%s] != %v | %v", _g, s, t, c, trace{})
+		if t := tokenizePath(__string(ctx, g)); sf("[%s]",s) != sf("%s",t) {
+			debug(ctx, "%s ⇒ [%s] != %v | %v", g, s, t, c, trace{})
 		}
 	}()}
 	for _, e := range g.elems { s = append(s, __string(ctx, e)) }
@@ -608,9 +605,8 @@ func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
 func tokp(ctx Context, c *valcache, p *path) hit_segs {
 	var ss [][]string
 	if checkpoints { defer func() {
-		var s = __string(ctx, p)
-		if t := tokenizePath(s); sf("%s",ss) != sf("%s",t) {
-			debug(ctx, "%v: %v != %v", s, ss, t, trace{})
+		if t := tokenizePath(__string(ctx, p)); sf("%s",ss) != sf("%s",t) {
+			debug(ctx, "%v: %v != %v", p, ss, t, trace{})
 		}
 	}()}
 	for _, e := range p.elems {

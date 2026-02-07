@@ -312,7 +312,8 @@ type stat_sub struct { string }
 type stat_nonexist struct { bool }
 type stat_fileinfo struct{ os.FileInfo }
 
-func _stat(ctx Context, name string, aa ...any) (_ *file) {
+func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
+	var name = __string(ctx, a0)
     var sub, dir string
     var nonexist bool
     var fileInfo os.FileInfo

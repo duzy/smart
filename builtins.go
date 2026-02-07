@@ -4247,7 +4247,7 @@ func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) 
             subed(sub, val)
             return
         } else if sub.d == "" {
-            if y { debug(ctx, "%T %v %v", pat, pat, sub) }
+            if false && y { debug(ctx, "%v %v", p.elems[0], sub.n) }
             return
         }
 

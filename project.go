@@ -301,8 +301,8 @@ func select_file_1(ctx Context, m matched_filemap) (res *file) {
         if res, _ = m.pattern.(*file); res != nil {
             return
         } else {
-            var s = _project(ctx).absPath
-            return _stat(ctx, m.string, stat_dir{s}, stat_nonexist{true})
+            var d = _project(ctx).absPath
+            return _stat(ctx, m.value, stat_dir{d}, stat_nonexist{true})
         }
     }
 
@@ -310,17 +310,17 @@ func select_file_1(ctx Context, m matched_filemap) (res *file) {
 
     for _, v := range m.paths {
         if t := expand(_final(ctx),v); t != nil {
-            if s := __string(ctx, t); s != "" {
-                if f := _stat(ctx, m.string, stat_dir{s}, stat_nonexist{true}); f != nil {
+            if d := __string(ctx, t); d != "" {
+                if f := _stat(ctx, m.value, stat_dir{d}, stat_nonexist{true}); f != nil {
                     fs = append(fs, f)
                 } else {
-                    debug(ctx, "%s ⇒ %v → %v → ''", m.string, v, t, trace{})
+                    debug(ctx, "%s ⇒ %v → %v → ''", m.value, v, t, trace{})
                 }
             } else if false {
-                debug(ctx, "%s ⇒ %v → %v → ''", m.string, v, t, trace{})
+                debug(ctx, "%s ⇒ %v → %v → ''", m.value, v, t, trace{})
             }
         } else {
-            debug(ctx, "%s ⇒ %v", m.string, v, trace{})
+            debug(ctx, "%s ⇒ %v", m.value, v, trace{})
         }
     }
 
