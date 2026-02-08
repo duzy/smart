@@ -27,7 +27,7 @@ type token int
 // https://en.wikipedia.org/wiki/Mathematical_operators_and_symbols_in_Unicode
 const (
 	// Special tokens.
-	ILLEGAL = token(iota)
+	ILLEGAL = token(iota) // illegal token represents no valid token
 
 	EOF      // end of file
 	SPACE    // [ ]

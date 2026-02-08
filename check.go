@@ -580,7 +580,7 @@ var checkpoints_match = map[string]any{
 	`**z `:`false <nil> []`,
 	`**z xyz`:`true xyz [xy]`,
 	`*.c foo.c`:`true foo.c [foo]`,
-	`*.c foo/bar.c`:`false <nil> []`,
+	`*.c foo/bar.c`:`false foo [foo]`,
 	`*.c foo/oo/oo/oo/bar.c`:`false <nil> []`,
 	`*.def.am **.def.am`:`true **.def.am [**]`,
 	`*.def.am a.def.am`:`true a.def.am [a]`,

@@ -274,50 +274,36 @@ func testValue(ctx testcase1) {
 		ctx.err("%v", d)
 	} else if __string(src(ctx,d),v) != "foo.c" {
 		ctx.err("%v", tst{v})
-	} else if a, b, c := match(ctx, glob1, v); !a {
-		ctx.err("match(%v, %v): %v %v %v", glob1, v, a, b, c)
-	} else if a, b, c := match(ctx, glob2, v); !a {
-		ctx.err("match(%v, %v): %v %v %v", glob2, v, a, b, c)
-	} else if a, b, c := match(ctx, regex4, v); !a {
-		ctx.err("match(%v, %v): %v %v %v", regex4, v, a, b, c)
+	} else if a, b, c := match(ctx, glob1, v); sf("%v %v → %v %v %v", glob1, v, a, b, c) != "{=glob *.c} foo.c → true foo.c [foo]" {
+		ctx.err("%v %v → %v %v %v", glob1, v, a, b, c)
+	} else if a, b, c := match(ctx, glob2, v); sf("%v %v → %v %v %v", glob2, v, a, b, c) != "{=glob **.c} foo.c → true foo.c [foo]" {
+		ctx.err("%v %v → %v %v %v", glob2, v, a, b, c)
+	} else if a, b, c := match(ctx, regex4, v); sf("%v %v → %v %v %v", regex4, v, a, b, c) != "{=regex fo{2}\\.c} foo.c → true foo.c []" {
+		ctx.err("%v %v → %v %v %v", regex4, v, a, b, c)
 	}
 
 	if d := ctx.def("val2"); d == nil {
 		ctx.err("val2")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "foo/bar.c"; s != t {
-		ctx.err("%v : %s != %s", tst{v}, s, t)
-	} else if s := __string(src(ctx,d),v); s != t {
-		ctx.err("%v : %s != %s", tst{v}, s, t)
-	} else if p, y := v.(*path); !y {
-		ctx.err("%v : %v", tst{v}, v)
-	} else if len(p.elems) != 2 {
-		ctx.err("%v: %v: %v", typeof(v), v, p.elems)
-	} else if a, b, c := match(ctx, glob1, v); sf("%v %v %v", a, b, c) != "false <nil> []" {
-		ctx.err("%v %v: %v %v %v", glob1, v, a, b, c)
-	} else if a, b, c := match(ctx, glob2, v); sf("%v %v %v", a, b, c) != "true foo/bar.c [foo/bar]" {
-		ctx.err("%v %v: %v %v %v", glob2, v, a, b, c)
-	} else if a, b, c := match(ctx, regex5, v); sf("%v %v %v", a, b, c) != "true foo/bar.c []" {
-		ctx.err("%v %v: %v %v %v", regex5, v, a, b, c)
+	} else if a, b, c := match(ctx, glob1, v); sf("%v %v → %v %v %v", glob1, v, a, b, c) != "{=glob *.c} foo/bar.c → false foo [foo]" {
+		ctx.err("%v %v → %v %v %v", glob1, v, a, b, c)
+	} else if a, b, c := match(ctx, glob2, v); sf("%v %v → %v %v %v", glob2, v, a, b, c) != "{=glob **.c} foo/bar.c → true foo/bar.c [foo/bar]" {
+		ctx.err("%v %v → %v %v %v", glob2, v, a, b, c)
+	} else if a, b, c := match(ctx, regex5, v); sf("%v %v → %v %v %v", regex5, v, a, b, c) != "{=regex fo{2}/bar\\.c} foo/bar.c → true foo/bar.c []" {
+		ctx.err("%v %v → %v %v %v", regex5, v, a, b, c)
 	}
 
 	if d := ctx.def("val3"); d == nil {
 		ctx.err("val3")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if __string(src(ctx,d),v) != "foo/oo/oo/oo/bar.c" {
-		ctx.err("%v", tst{v})
-	} else if p, y := v.(*path); !y {
-		ctx.err("%v", tst{v})
-	} else if len(p.elems) != 5 {
-		ctx.err("%v: %v: %v", typeof(v), v, p.elems)
-	} else if a, b, c := match(ctx, glob1, v); sf("%v %v %v", a, b, c) != "false <nil> []" {
-		ctx.err("%v %v: %v %v %v", glob1, v, a, b, c)
-	} else if a, b, c := match(ctx, glob2, v); sf("%v %v %v", a, b, c) != "true foo/oo/oo/oo/bar.c [foo/oo/oo/oo/bar]" {
-		ctx.err("%v %v: %v %v %v", glob2, v, a, b, c)
-	} else if a, b, c := match(ctx, regex6, v); sf("%v %v %v", a, b, c) != "true foo/oo/oo/oo/bar.c [/oo]" {
-		ctx.err("%v %v: %v %v %v", regex6, v, a, b, c)
+	} else if a, b, c := match(ctx, glob1, v); sf("%v %v → %v %v %v", glob1, v, a, b, c) != "{=glob *.c} foo/oo/oo/oo/bar.c → false foo [foo]" {
+		ctx.err("%v %v → %v %v %v", glob1, v, a, b, c)
+	} else if a, b, c := match(ctx, glob2, v); sf("%v %v → %v %v %v", glob2, v, a, b, c) != "{=glob **.c} foo/oo/oo/oo/bar.c → true foo/oo/oo/oo/bar.c [foo/oo/oo/oo/bar]" {
+		ctx.err("%v %v → %v %v %v", glob2, v, a, b, c)
+	} else if a, b, c := match(ctx, regex6, v); sf("%v %v → %v %v %v", regex6, v, a, b, c) != "{=regex fo{2}(/o{2}){3}/bar\\.c} foo/oo/oo/oo/bar.c → true foo/oo/oo/oo/bar.c [/oo]" {
+		ctx.err("%v %v → %v %v %v", regex6, v, a, b, c)
 	}
 
 	// TODO: test glob.stencil(...)
