@@ -526,14 +526,6 @@ func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 	for _, a := range p.a {
 		switch a := a.(type) {
 		case filemap:
-			if checkpoints {
-				r := cmp(ctx, a.pattern, fullvalue)
-				f, _, _ := match(ctx, a.pattern, fullvalue)
-				switch sf("%v", fullvalue) {
-				case "foo/**/x.h": debug(ctx, "%v %v %v %v", &a, fullvalue, r, f)
-				case "fo?/**/x.h": debug(ctx, "%v %v %v %v", &a, fullvalue, r, f)
-				}
-			}
 			if f, r, _ := match(ctx, a.pattern, fullvalue); f {
 				var a = filemap{a._filemap, a.pattern}
 				if 0 < do(ctx, matched_filemap{a, r}).(int) {
