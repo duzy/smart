@@ -278,11 +278,14 @@ var checkpoints_cmp = map[string]string{
 	`[{=meta *}] [{=string zz}] []`:`greater`, // [*] [zz]
 	`[{=meta *}] {=word zz} []`:`greater`, // [*] zz
 	`[{=meta ?} {=punct .} {=word h}] {=compound {=word x} {=punct .} {=word h}} []`:`greater`, // [? . h] x.h
+	`[{=meta ?}] [{=string z}] []`:`greater`, // [?] [z]
 	`[{=punct .} {=word test}] [{=string .test}] []`:`equal`,
 	`[{=punct .} {=word test}] {=compound {=punct .} {=word test}} []`:`equal`,
 	`[{=punct .} {=word test}] {=string .test} []`:`equal`,
+	`[{=string ar}] [{=meta *}] []`:`smaller`, // [ar] [*]
 	`[{=string bar}] {=glob {=meta **} {=punct .} {=word hh}} []`:`smaller`, // [bar] **.hh
 	`[{=string bar}] {=glob {=word b} {=meta *}} []`:`smaller`, // [bar] b*
+	`[{=string v1y} {=punct .} {=word h}] [{=meta *} {=word y} {=punct .} {=word h}] []`:`smaller`, // [v1y . h] [* y . h]
 	`[{=token **}] {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} []`:`greater`,
 	`[{=token .} {=string test}] [{=string .test}] []`:`equal`,
 	`[{=token .}] {=compound {=word bar} {=punct .} {=word c}} []`:`smaller`,
@@ -316,8 +319,6 @@ var checkpoints_cmp = map[string]string{
 	`[{=word x} {=punct .} {=word h}] {=string x.h} []`:`equal`,
 	`[{=word z} {=meta ?}] [{=string zz}] []`:`greater`, // [z ?] [zz]
 	`[{=word z} {=meta ?}] {=word zz} []`:`greater`, // [z ?] zz
-	`{=string v1y} {=meta *} []`:`smaller`, // v1y *
-	`[{=string v1y} {=punct .} {=word h}] [{=meta *} {=word y} {=punct .} {=word h}] []`:`smaller`, // [v1y . h] [* y . h]
 	`{= {=flag {=word foo}}} {=flag {=word foobar}} []`:`lprefix`,
 	`{= {=flag {=word foo}}} {=token -} []`:`rprefix`,
 	`{= {=flag {=}}} {=token -} []`:`equal`,
@@ -367,6 +368,7 @@ var checkpoints_cmp = map[string]string{
 	`{=meta *} {=string zz} []`:`greater`, // * zz
 	`{=meta *} {=word v} []`:`greater`, // * v
 	`{=meta ?} {=meta *} []`:`smaller`,
+	`{=meta ?} {=string z} []`:`greater`, // ? z
 	`{=meta ?} {=word x} []`:`greater`, // ? x
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=glob {=meta **} {=punct .} {=word h}} []`:`smaller`,
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=glob {=meta *} {=punct .} {=word h}} []`:`smaller`,
@@ -401,12 +403,14 @@ var checkpoints_cmp = map[string]string{
 	`{=punct .} {=word c} []`:`smaller`,
 	`{=punct .} {=word foo} []`:`smaller`,
 	`{=punct .} {=word oo} []`:`smaller`,
+	`{=string ar} {=meta *} []`:`smaller`, // ar *
 	`{=string bar} {=meta **} []`:`smaller`,
 	`{=string bar} {=meta *} []`:`smaller`,
 	`{=string bar} {=word b} []`:`rprefix`,
 	`{=string foo} {=string foo} []`:`equal`,
 	`{=string foo} {=word f} []`:`rprefix`,
 	`{=string h} {=string h} []`:`equal`,
+	`{=string v1y} {=meta *} []`:`smaller`, // v1y *
 	`{=string zz} {=meta *} []`:`smaller`,
 	`{=token **} {=token **} []`:`equal`,
 	`{=token **} {=word foo} []`:`greater`,
@@ -448,10 +452,6 @@ var checkpoints_cmp = map[string]string{
 	`{=word zz} {=glob {=meta *}} []`:`smaller`,
 	`{=word zz} {=word zz} []`:`equal`, // zz zz
 	`{=word z} {=string zz} []`:`lprefix`, // z zz
-	`{=meta ?} {=string z} []`:`greater`, // ? z
-	`[{=meta ?}] [{=string z}] []`:`greater`, // [?] [z]
-	`{=string ar} {=meta *} []`:`smaller`, // ar *
-	`[{=string ar}] [{=meta *}] []`:`smaller`, // [ar] [*]
 }
 func check_cmp(ctx Context, l, r any, syn []bool) func(*cmpres) {
 	k := rxLC.ReplaceAllString(sf("%v %v %v", ts(l), ts(r), syn), "=")
@@ -460,7 +460,7 @@ func check_cmp(ctx Context, l, r any, syn []bool) func(*cmpres) {
 
 		t := rxLC.ReplaceAllString(sf("%v", *_res), "=")
 		if v := checkpoints_cmp[k]; v == "" {
-			if true { prompt(ctx, "	`%v`:`%v`, // %v %v\n", k, t, l, r) } else
+			if false { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r) } else
 			{ debug(ctx, _f("`%v`:`%v`,", k, t), _f("%s, %v", ts(l), l), _f("%s, %v", ts(r), r), callstack{num:10}, trace{}) }
 		} else if v != t {
 			debug(ctx, _f("`%s`", k), _f("got: %s <- %v %v", t, l, r), _f("!= : %s", v), callstack{num:10}, trace{})
@@ -1176,9 +1176,9 @@ func check_match(ctx Context, pat, val Value) func(*bool, *Value, *[]Value) {
 		}}
 
 		if v := checkpoints_match[k]; v == nil {
-			prompt(ctx, "	`%s`:`%s`, //match\n", k, t)
-			// debug(pc(ctx,pat), _f(`%s`, kt), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)),
-			// 	callstack{num:10}, trace{})
+			if false { prompt(ctx, "	`%s`:`%s`, //match\n", k, t) } else
+			{ debug(pc(ctx,pat), _f(`%s`, kt), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)),
+				callstack{num:10}, trace{}) }
 		} else if v != t {
 			debug(pc(ctx,pat), _f(`%s | match(%s, %s)`, k, ts(pat), ts(val)), _f("got: %s", t), _f("!= : %s", v),
 				callstack{num:10}, trace{})
@@ -1455,9 +1455,9 @@ func check_matchCompComp(ctx Context, elems, vals []Value, idx int, trail bool) 
 	var v = checkpoints_matchCompComp[k]
 	return func(_full, _patMatched *bool, _res, _rem *Value, _idx *int) {
 		if t := sf("%v %v %v %v", *_full, *_res, *_rem, *_idx); v == nil {
-			prompt(ctx, `	"%s":"%s", //matchCompComp`+"\n", k, t)
-			// debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("vals: %v", ts(vals)),
-			// 	callstack{num:16}, trace{})
+			if false { prompt(ctx, `	"%s":"%s", //matchCompComp`+"\n", k, t) } else
+			{ debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("vals: %v", ts(vals)),
+				callstack{num:16}, trace{}) }
 		} else if v != t {
 			debug(pc(ctx,elems), _f(`%s: %s != %s`, k, t, v), _f("elems: %v", ts(elems)), _f("vals: %v", ts(vals)),
 				callstack{num:16}, trace{})
@@ -1961,9 +1961,9 @@ func check_matchGlobComp(ctx Context, elems, vals, stems []Value, idx int, trail
 	var v = checkpoints_matchGlobComp[k]
 	return func(_full *bool, _res *Value, _stems *[]Value, _idx *int, _unconsumed *Value) {
 		if t := sf("%v %v %v %v %v", *_full, *_res, *_stems, *_idx, *_unconsumed); v == nil {
-			prompt(ctx, `	"%s":"%s", //matchGlobComp`+"\n", k, t)
-			// debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("vals: %v", ts(vals)),
-			// 	callstack{num:10}, trace{})
+			if false { prompt(ctx, `	"%s":"%s", //matchGlobComp`+"\n", k, t) } else
+			{ debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("vals: %v", ts(vals)),
+				callstack{num:10}, trace{}) }
 		} else if v != t {
 			debug(pc(ctx,elems), _f(`%s: %s != %s`, k, t, v), _f("elems: %v", ts(elems)), _f("vals: %v", ts(vals)),
 				callstack{num:10}, trace{})
@@ -2548,9 +2548,9 @@ func check_matchGlobPath(ctx Context, elems, segments, stems []Value, idx int) f
 	var v = checkpoints_matchGlobPath[k]
 	return func(_full *bool, _res *Value, _stems *[]Value, _idx *int, _wildToken *token) {
 		if t := sf("%v %v %v %v %v", *_full, *_res, *_stems, *_idx, *_wildToken); v == nil {
-			prompt(ctx, `	"%s":"%s", //matchGlobPath`+"\n", k, t)
-			// debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
-			// 	callstack{num:10}, trace{})
+			if false { prompt(ctx, `	"%s":"%s", //matchGlobPath`+"\n", k, t) } else
+			{ debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
+				callstack{num:10}, trace{}) }	
 		} else if v != t {
 			debug(pc(ctx,elems), _f(`%s: %s != %s`, k, t, v), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
 				callstack{num:10}, trace{})
@@ -2957,9 +2957,9 @@ func check_matchPathPath(ctx Context, elems, segments []Value, res []Value, stem
 	var v = checkpoints_matchPathPath[k]
 	return func(_full *bool, _res *Value, _stems *[]Value, _idx *int) {
 		if t := sf("%v %v %v %v", *_full, *_res, *_stems, *_idx); v == nil {
-			prompt(ctx, `	"%s":"%s", //matchPathPath`+"\n", k, t)
-			// debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
-			// 	callstack{num:10}, trace{})
+			if false { prompt(ctx, `	"%s":"%s", //matchPathPath`+"\n", k, t) } else
+			{ debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
+				callstack{num:10}, trace{}) }
 		} else if v != t {
 			debug(pc(ctx,elems), _f(`%s: %s != %s`, k, t, v), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
 				callstack{num:10}, trace{})

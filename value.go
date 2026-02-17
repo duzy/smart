@@ -4908,10 +4908,27 @@ func match(ctx Context, pat, val Value) (full bool, res Value, stems []Value) {
 	switch p := pat.(type) {
 	case *loc: return match(ctx, p.Value, val)
 	case *globbrace: return match(ctx, &p.globpat, val)
+	case *globmeta, *globrange: return match(ctx, _globpat(pat), val)
+	case *file: // p.name is representation-name, can be path, e.g. foo/bar/x.h
+		switch segs := splitPathStr(ctx, p.name); len(segs) {
+		case 0: return false, nil, nil
+		case 1: return match(ctx, segs[0], val)
+		default: return match(ctx, makePath(segs...), val)
+		}
+	case flag:
+		if v, ok := val.(flag); ok { return match(ctx, p.Value, v.Value) }
 	}
+
 	switch v := val.(type) {
 	case *loc: return match(ctx, pat, v.Value)
 	case *globbrace: return match(ctx, pat, &v.globpat)
+	case *globmeta, *globrange: return match(ctx, pat, _globpat(val))
+	case *file: // v.name is representation-name, can be path, e.g. foo/bar/x.h
+		switch segs := splitPathStr(ctx, v.name); len(segs) {
+		case 0: return false, nil, nil
+		case 1: return match(ctx, pat, segs[0])
+		default: return match(ctx, pat, makePath(segs...))
+		}
 	}
 
 	switch p := pat.(type) {
@@ -4982,9 +4999,6 @@ func match(ctx Context, pat, val Value) (full bool, res Value, stems []Value) {
 		}
 		return
 
-	case flag:
-		if t, ok := val.(flag); ok { return match(ctx, p.Value, t.Value) }
-		full, res = matchScalarScalar(ctx, pat, val, false)
 	default:
 		full, res = matchScalarScalar(ctx, pat, val, false)
 	}

@@ -531,7 +531,7 @@ func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 				if 0 < do(ctx, matched_filemap{a, r}).(int) {
 					ok = true
 				} else {
-					debug(ctx, "%v %v", ts(a), r, trace{})
+					debug(ctx, "%v %v", ts(a), r, callstack{num:10}, trace{})
 				}
 			}
 		case *rule:
@@ -540,11 +540,11 @@ func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 				if 0 < do(ctx, matched_rule{a, r}).(int) {
 					ok = true
 				} else {
-					debug(ctx, "%v %v", ts(a), r, trace{})
+					debug(ctx, "%v %v", ts(a), r, callstack{num:10}, trace{})
 				}
 			}
 		default:
-			debug(ctx, "%v", ts(a), trace{})
+			debug(ctx, "%v", ts(a), callstack{num:10}, trace{})
 		}
 	}
 	return
