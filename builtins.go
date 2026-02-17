@@ -4146,326 +4146,257 @@ func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
     return
 }
 
-type __wildcard struct { builtinbase
-    includeMissing bool `include,includemissing,include-missing,missing,all`
-    ignoreMissing bool `ignore,ignoremissing,ignore-missing`
-    errorMissing bool `err,error,errormissing,error-missing,no-missing`
-    exclude []Value `exclude,except,no,not`
-    filetype string `type` // dir, file, etc.
-	dir string `dir,directory`
-	sort bool `sort`
-}
-func (ctx *__wildcard) inner() Context { return &ctx.builtinbase }
-func (ctx *__wildcard) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
-}
-func (ctx *__wildcard) _directory(topDir string, pats ...Value) (files []*file) {
-    type subr struct {
-        d, n, dn string // dir, name, dir+name
-        pat chan Value
-        isDir bool
-        ss []*subr
-        sync.WaitGroup
-        sync.Mutex
-    }
-
-    var work func(sub *subr)
-    var top = subr{ pat: make(chan Value, 4) }
-    var subsub = func(sub *subr) (ss *subr) {
-        if sub.ss != nil { for _, s := range sub.ss {
-            if s != nil && sub != nil && s.d == sub.dn { return s }
-        }}
-        return
-    }
-    var subed = func(sub *subr, pat Value) {
-        var ss *subr = subsub(sub)
-        if ss == nil {
-            sub.Lock()
-            if ss = subsub(sub); ss == nil {
-                ss = &subr{ d: sub.dn, pat: make(chan Value, 1) }
-                sub.ss = append(sub.ss, ss)
-                top.Add(1) ; go work(ss)
-            }
-            sub.Unlock()
-        }
-        ss.pat <- pat
-    }
-	var collect_file = func(f *file) {
-		if ctx.sort {
-			i, found := slices.BinarySearchFunc(files, f, func(a, b *file) (i int) {
-				switch {
-				case a.name < b.name : i = -1
-				case a.name > b.name : i =  1
-				}
-				return
-			})
-			if !found { files = slices.Insert(files, i, f) }
-		} else {
-			files = append(files, f)
-		}
-	}
-    var collect = func(name string) {
-        var ne = ctx.includeMissing && !ctx.ignoreMissing
-        var f = _stat(ctx, name, stat_dir{topDir}, stat_nonexist{ne})
-        if true { assert(f != nil, "stat %s %s", name, topDir) }
-
-        top.Lock()
-        switch d := f.info.IsDir(); strings.ToLower(ctx.filetype) {
-        case "f", "file": if!d { collect_file(f) }
-        case "d", "dir" : if d { collect_file(f) }
-        case "":                 collect_file(f)
-        default:
-            debug(ctx, "unknown -filetype: %s (%v)", ctx.filetype, f, trace{})
-        }
-        top.Unlock()
-        top.Done()
-    }
-    var subcard = func(sub *subr, pat Value) {
-        defer sub.Done()
-
-        // if t, y := pat.(compositePattern); y { pat = t.Value }
-        if t, y := pat.(*list); y {
-            debug(ctx, "pattern is a list: %T %v %v", pat, pat, t.elems)
-            if len(t.elems) == 1 { pat = t.elems[0] }
-        }
-
-        var ctx = ctx
-        if p, y := pat.(*path); !y {
-            // fallthrough
-        } else if nElems := len(p.elems); nElems == 0 {
-            debug(ctx, "empty path: %v", pat, trace{})
-        } else if y, _, _ = match(ctx, p.elems[0], &raw{valbase{p.Position()}, sub.n}); y && nElems == 1 {
-            debug(ctx, "%v %v: invalid path: %v, %v, %v", topDir, sub.dn, pat, sub.n, nElems, trace{})
-        } else if y && sub.isDir && nElems > 1 {
-            val := p.elems[1]
-            if nElems > 2 {
-                var v = &path{}
-                v.elems = p.elems[1:]
-                val = v
-            }
-            subed(sub, val)
-            return
-        } else if sub.d == "" {
-            if false && y { debug(ctx, "%v %v", p.elems[0], sub.n) }
-            return
-        }
-
-        if gp, y := pat.(*globpat); !y {
-            // fallthrough
-        } else if len(gp.elems) == 0 {
-            debug(ctx, "empty glob: %v (%s)", pat, sub.dn, trace{})
-        } else if m, y := gp.elems[0].(*globmeta); !y {
-            // fallthrough
-        } else if m.token == DAST { // aka **
-            y, _, _ = match(ctx, gp, &raw{valbase{pat.Position()}, sub.dn})
-            if sub.isDir { subed(sub, pat) }
-            if y { top.Add(1) ; go collect(sub.dn) ; return }
-            return
-        }
-
-        y, _, _ := match(ctx, pat, &raw{valbase{pat.Position()}, sub.n})
-        if y { top.Add(1) ; go collect(sub.dn) ; return }
-        return
-    }
-    var subwork = func(subdir, name string, pats []Value) {
-        defer top.Done()
-
-        var sub = &subr{ d:subdir, n:name, dn:filepath.Join(subdir,name) }
-
-        for _, x := range ctx.exclude {
-            if y, _, _ := match(ctx, x, &raw{valbase{x.Position()}, sub.dn}); y { return }
-        }
-
-        if fi, err := os.Stat(filepath.Join(topDir, sub.dn)); err == nil {
-            sub.isDir = fi.IsDir()
-        } else {
-            debug(ctx, _f("%p: %v %v → %v", sub, sub.d, sub.n, sub.dn),
-				_f("%v", err), trace{})
-        }
-
-        for _, pat := range pats { sub.Add(1) ; go subcard(sub, pat) }
-        top.Add(1) ; go func() { sub.Wait()
-            for _, s := range sub.ss { if s.pat != nil { close(s.pat) }}
-            top.Done()
-        } ()
-    }
-
-    work = func(sub *subr) {
-        names := readDirNames(ctx, filepath.Join(topDir, sub.d), ctx.errorMissing)
-
-        var pats []Value
-        for v := range sub.pat { pats = append(pats, v) }
-        for _, name := range names { top.Add(1) ; go subwork(sub.d, name, pats) }
-        top.Done()
-    }
-
-    // Merge pats to make sure no patterns are concealed in List values, this will
-    // fail matchings in subcard routine.
-    pats = merge(pats...)
-
-    top.Add(1) ; go work(&top)
-    for _, v := range pats { top.pat <- v }; close(top.pat)
-    top.Wait()
-    return
-}
-func (ctx *__wildcard) _project_0(p *project, pats ...Value) (files []*file) {
-    for _, pat := range pats {
-        for _, a := range unmap_files(ctx, p, pat, nil) {
-            for _, loc := range a.paths {
-                var dir = __string(ctx, loc)
-                debug(ctx, "%v %v %v %v", pat, a.pattern, loc, dir)
-            }
-        }
-    }
-    return
-}
-func (ctx *__wildcard) _project_1(p *project, pats ...Value) (files []*file) {
-    var g sync.WaitGroup
-    for _, pat := range pats {
-        g.Add(1)
-        func() {
-            defer g.Done()
-            for _, a := range unmap_files(ctx, p, pat, nil) {
-                debug(ctx, "%v %v %v", pat, a.filemap.pattern, a.filemap.paths)
-            }
-        } ()
-    }
-    g.Wait()
-    return
-}
-func (ctx *__wildcard) _project(p *project, pats ...Value) (files []*file) {
-	if false { defer func(t0 time.Time) {
-		if d := time.Now().Sub(t0); d > 1*time.Second {
-			var pos = _position(ctx)
-			prompt(ctx, "%v: slow: %d patterns, %v\n", pos, len(pats), pats)
-			prompt(ctx, "%v: slow: %d files\n", pos, len(files))
-			debug(ctx, "%v: slow: %v\n", pos, d)
-		}
-	}(time.Now())}
-
-    var m sync.Mutex
-    var g sync.WaitGroup
-	var collect = func(t ...*file) {
-		m.Lock()
-		if ctx.sort {
-			for _, f := range t {
-				i, found := slices.BinarySearchFunc(files, f, func(a, b *file) (i int) {
-					switch {
-					case a.name < b.name : i = -1
-					case a.name > b.name : i =  1
-					}
-					return
-				})
-				if !found { files = slices.Insert(files, i, f) }
-			}
-		} else {
-			files = append(files, t...)
-		}
-		m.Unlock()
-		g.Done()
-	}
-
-    var ne = ctx.includeMissing && !ctx.ignoreMissing
-    var st = func(dir string, val Value) {
-        if f := _stat(ctx, __string(ctx, val), stat_dir{dir}, stat_nonexist{ne}); f != nil {
-            g.Add(1); go collect(f)
-        }
-    }
-
-	var do_paths = func(isPat bool, pat Value, paths []string) { defer g.Done()
-		for _, dir := range paths {
-			if isPat {
-				g.Add(1); go collect(ctx._directory(dir, pat)...)
-			} else {
-				st(dir, pat)
-			}
-		}
-	}
-
-    var f1 = func(lVal, rVal Value, fm *filemap) { defer g.Done()
-		var paths []string
-		for _, v := range merge(expands(_final(ctx), fm.paths...)...) {
-			paths = append(paths, __string(ctx, v))
-		}
-		var lValIsPattern = patterned(ctx, lVal)
-		var rValIsPattern = patterned(ctx, rVal)
-		switch {
-		case lValIsPattern:
-			if rValIsPattern {
-				ok1, _, _ := match(ctx, lVal, rVal)
-				ok2, _, _ := match(ctx, rVal, lVal)
-				switch {
-				case ok1 && ok2:
-					switch t := cmp(ctx, lVal, rVal); t {
-					case cmpEqual  : g.Add(1); go do_paths(true, lVal, paths)
-					case cmpSmaller: g.Add(1); go do_paths(true, lVal, paths)
-					case cmpGreater: g.Add(1); go do_paths(true, rVal, paths)
-					default:
-						debug(ctx, "cmp(%v, %v) => %v", lVal, rVal, t, trace{})
-					}
-				case ok1 && !ok2:
-					g.Add(1); go do_paths(true, rVal, paths)
-				case !ok1 && ok2:
-					g.Add(1); go do_paths(true, lVal, paths)
-				case !ok1 && !ok2:
-					debug(ctx, "%v %v", lVal, rVal, trace{})
-				default:
-					debug(ctx, "%v %v, %v %v", lVal, rVal, ok1, ok2, trace{})
-				}
-			} else {
-				g.Add(1); go do_paths(false, rVal, paths)
-			}
-		default:
-			if !rValIsPattern && !equal(ctx, lVal, rVal) {
-				debug(ctx, "%v %v", lVal, rVal, trace{})
-			}
-			g.Add(1); go do_paths(false, lVal, paths)
-		}
-    }
-
-    var f2 = func(pat Value, a filemap) { defer g.Done()
-        for _, v := range a.patterns(ctx) { g.Add(1); go f1(pat, v, &a) }
-    }
-
-    var f3 = func(pat Value) { defer g.Done()
-        for _, a := range unmap_files(ctx, p, pat, nil) { g.Add(1); go f2(pat, a.filemap) }
-    }
-
-    for _, pat := range pats { g.Add(1); go f3(pat) }
-
-    g.Wait()
-
-	if false && ctx.sort { slices.SortFunc(files, func(a, b *file) (i int) {
-		switch {
-		case a.name < b.name : i = -1
-		case a.name > b.name : i =  1
+// stepPattern advances the AST pattern by one directory level safely.
+func stepPattern(ctx Context, pat Value, name string) (nextPats []Value) {
+	if l, ok := pat.(*list); ok {
+		for _, e := range l.elems {
+			nextPats = append(nextPats, stepPattern(ctx, e, name)...)
 		}
 		return
-	})}
-    return
-}
-func (ctx *__wildcard) _do(pats ...Value) []*file {
-    if ctx.dir == "" {
-        return ctx._project(_project(ctx), pats...)
-    } else {
-        return ctx._directory(ctx.dir, pats...)
-    }
-}
-func (ctx *__wildcard) x() any {
-    if len(ctx.exclude) > 0 {
-        ctx.exclude = xmerge(_final(ctx.Context), ctx.exclude...)
-    }
+	}
 
-    var vals []Value
-    for _, f := range ctx._do(merge(ctx.a...)...) {
-        if f == nil {
-            debug(ctx, "nil file: %v", ctx.a, trace{})
-        } else {
-            vals = append(vals, f)
-        }
-    }
-    return vals
+	if p, ok := pat.(*path); ok {
+		if len(p.elems) == 0 { return }
+		first := p.elems[0]
+
+		if isMultiWildcard(first) {
+			// ** spans directories, so it must remain in the pattern for children
+			nextPats = append(nextPats, pat)
+
+			// ** can also consume 0 segments, so we check if the NEXT element matches this directory
+			if len(p.elems) > 1 {
+				okMatch, _, _ := match(ctx, p.elems[1], _raw(p.Position(), name))
+				if okMatch {
+					if len(p.elems) > 2 {
+						var nextPat Value
+						if len(p.elems) == 3 {
+							nextPat = p.elems[2]
+						} else {
+							nextPat = &path{elements{p.elems[2:]}}
+						}
+						nextPats = append(nextPats, nextPat)
+					}
+				}
+			}
+		} else {
+			// Standard strict segment match
+			okMatch, _, _ := match(ctx, first, _raw(p.Position(), name))
+			if okMatch {
+				if len(p.elems) > 1 {
+					var nextPat Value
+					if len(p.elems) == 2 {
+						nextPat = p.elems[1]
+					} else {
+						nextPat = &path{elements{p.elems[1:]}}
+					}
+					nextPats = append(nextPats, nextPat)
+				}
+			}
+		}
+		return
+	}
+
+	// Single segment global wildcards (like `**.h` without path wrapping)
+	if isMultiWildcard(pat) {
+		nextPats = append(nextPats, pat)
+	}
+
+	return
+}
+
+type __wildcard struct {
+	builtinbase
+	includeMissing bool    `include,includemissing,include-missing,missing,all`
+	ignoreMissing  bool    `ignore,ignoremissing,ignore-missing`
+	errorMissing   bool    `err,error,errormissing,error-missing,no-missing`
+	exclude        []Value `exclude,except,no,not`
+	filetype       string  `type` // dir, file, etc.
+	dir            string  `dir,directory`
+	sort           bool    `sort`
+	files []*file
+	m sync.Mutex
+}
+
+func (ctx *__wildcard) inner() Context { return &ctx.builtinbase }
+func (ctx *__wildcard) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
+}
+
+func (ctx *__wildcard) collect(f *file) {
+	if f != nil {
+		ctx.m.Lock()
+		if ctx.sort {
+			i, found := slices.BinarySearchFunc(ctx.files, f, func(a, b *file) int {
+				switch {
+				case a.name < b.name: return -1
+				case a.name > b.name: return 1
+				}
+				return 0
+			})
+			if !found {
+				ctx.files = slices.Insert(ctx.files, i, f)
+			}
+		} else {
+			ctx.files = append(ctx.files, f)
+		}
+		ctx.m.Unlock()
+	}
+}
+
+func (ctx *__wildcard) directory(topDir string, pats ...Value) {
+	var ne = ctx.includeMissing && !ctx.ignoreMissing
+	var g sync.WaitGroup
+
+	sem := make(chan struct{}, 64)
+	pats = merge(pats...)
+
+	var walk func(dir string, currentPats []Value)
+	walk = func(dir string, currentPats []Value) { defer g.Done()
+		names := readDirNames(ctx, filepath.Join(topDir, dir), ctx.errorMissing)
+
+		for _, name := range names {
+			dn := name
+			if dir != "" && dir != "." {
+				dn = joinpath(dir, name)
+			}
+
+			// 1. Exclude Check
+			excluded := false
+			dnPath := _pathStr(ctx, dn)
+			for _, x := range ctx.exclude {
+				if ok, _, _ := match(ctx, x, dnPath); ok {
+					excluded = true
+					break
+				}
+			}
+			if excluded { continue }
+
+			// 2. Step the patterns for descent
+			var nextPats []Value
+			for _, pat := range currentPats {
+				nextPats = append(nextPats, stepPattern(ctx, pat, name)...)
+			}
+
+			if len(nextPats) > 1 {
+				var unique []Value
+				seen := make(map[string]struct{})
+				for _, np := range nextPats {
+					s := np.String()
+					if _, ok := seen[s]; !ok {
+						seen[s] = struct{}{}
+						unique = append(unique, np)
+					}
+				}
+				nextPats = unique
+			}
+
+			// 3. Absolute Match Check
+			matched := false
+			for _, pat := range pats {
+				full, _, _ := match(ctx, pat, dnPath)
+				if full {
+					matched = true
+					break
+				}
+			}
+
+			var isDir bool
+			if matched || len(nextPats) > 0 {
+				if fi, err := os.Stat(filepath.Join(topDir, dn)); err == nil {
+					isDir = fi.IsDir()
+				} else {
+					continue
+				}
+			}
+
+			// 4. Collection
+			if matched {
+				validType := false
+				switch strings.ToLower(ctx.filetype) {
+				case "f", "file": validType = !isDir
+				case "d", "dir":  validType = isDir
+				case "":          validType = true
+				default:          validType = true
+				}
+
+				if validType {
+					ctx.collect(_stat(ctx, dn, stat_dir{topDir}, stat_nonexist{ne}))
+				}
+			}
+
+			// 5. Recursive Descent
+			if isDir && len(nextPats) > 0 {
+				g.Add(1)
+				sem <- struct{}{} // acquire
+				go func(d string, np []Value) {
+					walk(d, np)
+					<-sem // release
+				}(dn, nextPats)
+			}
+		}
+	}
+
+	g.Add(1)
+	walk("", pats)
+	g.Wait()
+}
+
+func (ctx *__wildcard) project(p *project, pats ...Value) {
+	var ne = ctx.includeMissing && !ctx.ignoreMissing
+	var g sync.WaitGroup
+
+	for _, argPat := range pats {
+		g.Add(1)
+		go func() { defer g.Done()
+			for _, a := range unmap_files(ctx, p, argPat, nil) {
+				for _, mapPat := range a.filemap.patterns(ctx) {
+					var isSearchPat bool
+					var search Value
+					if cmp(ctx, argPat, mapPat) == cmpSmaller {
+						search, isSearchPat = argPat, patterned(ctx, argPat)
+					} else {
+						search, isSearchPat = mapPat, patterned(ctx, mapPat)
+					}
+					for _, v := range merge(expands(_final(ctx), a.filemap.paths...)...) {
+						if false { debug(ctx, "%v %v -> %v, %v", argPat, mapPat, search, v) }
+						if dir := __string(ctx, v); isSearchPat {
+							ctx.directory(dir, search)
+						} else {
+							ctx.collect(_stat(ctx, __string(ctx, search), stat_dir{dir}, stat_nonexist{ne}))
+						}
+					}
+				}
+			}
+		} ()
+	}
+
+	g.Wait()
+}
+
+func (ctx *__wildcard) _do(pats ...Value) []*file {
+	if ctx.dir == "" {
+		ctx.project(_project(ctx), pats...)
+	} else {
+		ctx.directory(ctx.dir, pats...)
+	}
+	return ctx.files
+}
+
+func (ctx *__wildcard) x() any {
+	if len(ctx.exclude) > 0 {
+		ctx.exclude = xmerge(_final(ctx.Context), ctx.exclude...)
+	}
+
+	var vals []Value
+	for _, f := range ctx._do(merge(ctx.a...)...) {
+		if f == nil {
+			debug(ctx, "nil file: %v", ctx.a, trace{})
+		} else {
+			vals = append(vals, f)
+		}
+	}
+	return vals
 }
 
 type __readdir struct { builtinbase }

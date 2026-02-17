@@ -25,7 +25,7 @@ var checkpoints__wildcard2 = map[string]map[string]any{
 		`10:6:val4 $(wildcard(-sort) foo/**/x.h) {10:10:delegate {10:12:builtin wildcard} [{=flag {10:22:word sort}}] {=list {=path {10:28:word foo} {=glob {10:32:meta **}} {=compound {10:35:word x} {10:36:punct .} {10:37:word h}}}}}`:`{=file foo/bar/zz/x.h} {10:10 {=file foo/bar/zz/x.h}}`,
 
 		`11:6:val5 x.h {=compound {4:32:word x} {4:33:punct .} {4:34:word h}}`:`x.h {=compound {4:32:word x} {4:33:punct .} {4:34:word h}}`,
-		`11:6:val5 $(wildcard(-sort) fo?/**/x.h) {11:10:delegate {11:12:builtin wildcard} [{=flag {11:22:word sort}}] {=list {=path {=glob {11:28:word fo} {11:30:meta ?}} {=glob {11:32:meta **}} {=compound {11:35:word x} {11:36:punct .} {11:37:word h}}}}}`:`{=file foobar/x.h} {=file foo/bar/zz/x.h} {=list {11:10 {=file foobar/x.h}} {11:10 {=file foo/bar/zz/x.h}}}`,
+		`11:6:val5 $(wildcard(-sort) fo?/**/x.h) {11:10:delegate {11:12:builtin wildcard} [{=flag {11:22:word sort}}] {=list {=path {=glob {11:28:word fo} {11:30:meta ?}} {=glob {11:32:meta **}} {=compound {11:35:word x} {11:36:punct .} {11:37:word h}}}}}`:`{=file foo/bar/zz/x.h} {11:10 {=file foo/bar/zz/x.h}}`,
 	},
 }
 

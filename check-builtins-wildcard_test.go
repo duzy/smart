@@ -175,7 +175,8 @@ func test__wildcard(ctx *testcase) {
 				defer wg.Done()
 				b := __wildcard{}
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
-				if a := b._directory(workdirInc, pat3); len(a) != 1 {
+				b.directory(workdirInc, pat3)
+				if a := b.files; len(a) != 1 {
 					ctx.err("_wildcard(%v) (%d): %v", pat3, n, a)
 				} else if ident(ctx,a[0]) != "foobar/config/a.def.am" {
 					ctx.err("_wildcard(%v) (%d): %v", pat3, n, a[0])
@@ -191,7 +192,8 @@ func test__wildcard(ctx *testcase) {
 				defer wg.Done()
 				b := __wildcard{}
 				b.evocation = &evocation{automatic{Context:c}, nil, nil, nil}
-				if a := b._directory(workdirInc, pat4); len(a) != 2 {
+				b.directory(workdirInc, pat4)
+				if a := b.files; len(a) != 2 {
 					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a)
 				} else if invalid(ident(ctx,a[0])) {
 					ctx.err("_wildcard(%v) (%d): %v", pat4, n, a[0])
