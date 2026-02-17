@@ -270,17 +270,25 @@ var checkpoints_cmp = map[string]string{
 	`[{=meta **} {=punct .} {=word h}] {=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
 	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} []`:`greater`,
 	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`,
+	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [** . h] foo/bar/zz/x.h
 	`[{=meta *} {=punct .} {=word h}] [{=meta **} {=punct .} {=word h}] []`:`smaller`,
 	`[{=meta *} {=punct .} {=word h}] {=glob {=meta **} {=punct .} {=word h}} []`:`smaller`,
 	`[{=meta *} {=punct .} {=word h}] {=glob {=meta *} {=punct .} {=word h}} []`:`equal`,
+	`[{=meta *} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`greater`, // [* . h] v?.h
+	`[{=meta *}] [{=string zz}] []`:`greater`, // [*] [zz]
+	`[{=meta *}] {=word zz} []`:`greater`, // [*] zz
+	`[{=meta ?} {=punct .} {=word h}] {=compound {=word x} {=punct .} {=word h}} []`:`greater`, // [? . h] x.h
 	`[{=punct .} {=word test}] [{=string .test}] []`:`equal`,
 	`[{=punct .} {=word test}] {=compound {=punct .} {=word test}} []`:`equal`,
 	`[{=punct .} {=word test}] {=string .test} []`:`equal`,
+	`[{=string bar}] {=glob {=meta **} {=punct .} {=word hh}} []`:`smaller`, // [bar] **.hh
+	`[{=string bar}] {=glob {=word b} {=meta *}} []`:`smaller`, // [bar] b*
 	`[{=token **}] {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} []`:`greater`,
 	`[{=token .} {=string test}] [{=string .test}] []`:`equal`,
 	`[{=token .}] {=compound {=word bar} {=punct .} {=word c}} []`:`smaller`,
 	`[{=word b} {=meta *}] {=glob {=word b} {=meta ?} {=word r}} []`:`greater`,
 	`[{=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}] {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} []`:`smaller`,
+	`[{=word foo} {=compound {=word xv1y} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}} []`:`smaller`, // [foo xv1y.h] foo/x*y.h
 	`[{=word foo} {=glob {=meta **} {=punct .} {=word hh}}] {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}} []`:`greater`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} []`:`equal`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} []`:`greater`,
@@ -289,11 +297,27 @@ var checkpoints_cmp = map[string]string{
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}} []`:`greater`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} []`:`greater`,
+	`[{=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // [foo bar v1.h] foo/b*/v*.h
+	`[{=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, // [foo bar v1.h] foo/bar/v?.h
+	`[{=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // [foo bar v2.h] foo/b*/v*.h
+	`[{=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, // [foo bar v2.h] foo/bar/v?.h
+	`[{=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}] {=path {=word foo} {=glob {=meta **} {=punct .} {=word hh}}} []`:`smaller`, // [foo bar *.hh] foo/**.hh
+	`[{=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`, // [foo bar *.h] foo/bar/v?.h
+	`[{=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [foo bar * *.h] foo/bar/zz/x.h
+	`[{=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [foo bar z? ?.h] foo/bar/zz/x.h
+	`[{=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [foo bar zz ?.h] foo/bar/zz/x.h
+	`[{=word v1} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // [v1 . h] v?.h
+	`[{=word v2} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // [v2 . h] v?.h
+	`[{=word xv1y} {=punct .} {=word h}] {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}} []`:`smaller`, // [xv1y . h] x*y.h
 	`[{=word x} {=punct .} {=word h}] [{=string config}] []`:`greater`,
 	`[{=word x} {=punct .} {=word h}] [{=string x.h}] []`:`equal`,
 	`[{=word x} {=punct .} {=word h}] {=compound {=word x} {=punct .} {=word h}} []`:`equal`,
 	`[{=word x} {=punct .} {=word h}] {=string config} []`:`greater`,
 	`[{=word x} {=punct .} {=word h}] {=string x.h} []`:`equal`,
+	`[{=word z} {=meta ?}] [{=string zz}] []`:`greater`, // [z ?] [zz]
+	`[{=word z} {=meta ?}] {=word zz} []`:`greater`, // [z ?] zz
+	`{=string v1y} {=meta *} []`:`smaller`, // v1y *
+	`[{=string v1y} {=punct .} {=word h}] [{=meta *} {=word y} {=punct .} {=word h}] []`:`smaller`, // [v1y . h] [* y . h]
 	`{= {=flag {=word foo}}} {=flag {=word foobar}} []`:`lprefix`,
 	`{= {=flag {=word foo}}} {=token -} []`:`rprefix`,
 	`{= {=flag {=}}} {=token -} []`:`equal`,
@@ -302,6 +326,9 @@ var checkpoints_cmp = map[string]string{
 	`{=compound {= {=flag {=}}} {=word foobar}} {=flag {=word foobar}} []`:`equal`,
 	`{=compound {=punct .} {=word test}} {=compound {=punct .} {=word test}} []`:`equal`,
 	`{=compound {=punct .} {=word test}} {=string .test} []`:`equal`,
+	`{=compound {=word v1} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // v1.h v?.h
+	`{=compound {=word v2} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // v2.h v?.h
+	`{=compound {=word xv1y} {=punct .} {=word h}} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}} []`:`smaller`, // xv1y.h x*y.h
 	`{=compound {=word x} {=punct .} {=word h}} {=compound {=word x} {=punct .} {=word h}} []`:`equal`,
 	`{=compound {=word x} {=punct .} {=word h}} {=string config} []`:`greater`,
 	`{=compound {=word x} {=punct .} {=word h}} {=string x.h} []`:`equal`,
@@ -321,7 +348,9 @@ var checkpoints_cmp = map[string]string{
 	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`greater`,
 	`{=glob {=meta *} {=punct .} {=word h}} {=word bar} []`:`greater`,
 	`{=glob {=meta *}} {=word zz} []`:`greater`,
+	`{=glob {=meta ?} {=punct .} {=word h}} {=compound {=word x} {=punct .} {=word h}} []`:`greater`,
 	`{=glob {=word b} {=meta *}} {=glob {=word b} {=meta ?} {=word r}} []`:`greater`,
+	`{=glob {=word z} {=meta ?}} {=word zz} []`:`greater`, // z? zz
 	`{=list {16:16 {=word foo}}} {=list {=word foo}} []`:`equal`,
 	`{=list {= {=word foo}}} {=list {=word foo}} []`:`equal`,
 	`{=list {=compound {= {=flag {=word foo}}} {=word bar}}} {=list {=flag {=word foobar}}} []`:`equal`,
@@ -335,7 +364,10 @@ var checkpoints_cmp = map[string]string{
 	`{=meta **} {=word foo} []`:`greater`,
 	`{=meta *} {=meta **} []`:`smaller`,
 	`{=meta *} {=meta *} []`:`equal`,
+	`{=meta *} {=string zz} []`:`greater`, // * zz
+	`{=meta *} {=word v} []`:`greater`, // * v
 	`{=meta ?} {=meta *} []`:`smaller`,
+	`{=meta ?} {=word x} []`:`greater`, // ? x
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=glob {=meta **} {=punct .} {=word h}} []`:`smaller`,
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=glob {=meta *} {=punct .} {=word h}} []`:`smaller`,
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}} []`:`smaller`,
@@ -343,6 +375,7 @@ var checkpoints_cmp = map[string]string{
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} []`:`smaller`,
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} []`:`smaller`,
 	`{=path {=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}} {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} []`:`smaller`,
+	`{=path {=word foo} {=compound {=word xv1y} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}} []`:`smaller`, // foo/xv1y.h foo/x*y.h
 	`{=path {=word foo} {=glob {=meta **} {=punct .} {=word hh}}} {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}} []`:`greater`,
 	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} []`:`equal`,
 	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} []`:`greater`,
@@ -352,8 +385,15 @@ var checkpoints_cmp = map[string]string{
 	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`{=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta ?} {=word r}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`,
+	`{=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // foo/bar/v1.h foo/b*/v*.h
+	`{=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, // foo/bar/v1.h foo/bar/v?.h
+	`{=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // foo/bar/v2.h foo/b*/v*.h
+	`{=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, // foo/bar/v2.h foo/bar/v?.h
+	`{=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}} {=path {=word foo} {=glob {=meta **} {=punct .} {=word hh}}} []`:`smaller`, // foo/bar/*.hh foo/**.hh
 	`{=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`{=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
+	`{=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // foo/bar/z?/?.h foo/bar/zz/x.h
+	`{=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
 	`{=punct .} {=compound {=word bar} {=punct .} {=word c}} []`:`smaller`,
 	`{=punct .} {=punct .} []`:`equal`,
 	`{=punct .} {=string .test} []`:`lprefix`,
@@ -363,6 +403,7 @@ var checkpoints_cmp = map[string]string{
 	`{=punct .} {=word oo} []`:`smaller`,
 	`{=string bar} {=meta **} []`:`smaller`,
 	`{=string bar} {=meta *} []`:`smaller`,
+	`{=string bar} {=word b} []`:`rprefix`,
 	`{=string foo} {=string foo} []`:`equal`,
 	`{=string foo} {=word f} []`:`rprefix`,
 	`{=string h} {=string h} []`:`equal`,
@@ -377,6 +418,8 @@ var checkpoints_cmp = map[string]string{
 	`{=token .} {=word bar} []`:`smaller`,
 	`{=word bar} {=glob {=meta **} {=punct .} {=word hh}} []`:`smaller`,
 	`{=word bar} {=glob {=meta *} {=punct .} {=word h}} []`:`smaller`,
+	`{=word bar} {=glob {=word b} {=meta *}} []`:`smaller`, // bar b*
+	`{=word bar} {=word bar} []`:`equal`, // bar bar
 	`{=word b} {=meta **} []`:`smaller`,
 	`{=word conf3} {=word bar} []`:`greater`,
 	`{=word conf3} {=word foo} []`:`smaller`,
@@ -391,7 +434,10 @@ var checkpoints_cmp = map[string]string{
 	`{=word foo} {=word foo} []`:`equal`,
 	`{=word h} {=word h} []`:`equal`,
 	`{=word test} {=word test} []`:`equal`,
+	`{=word v1} {=word v} []`:`rprefix`, // v1 v
+	`{=word v2} {=word v} []`:`rprefix`, // v2 v
 	`{=word v} {=meta *} []`:`smaller`,
+	`{=word xv1y} {=word x} []`:`rprefix`,
 	`{=word xv} {=word x} []`:`rprefix`,
 	`{=word x} {=meta ?} []`:`smaller`,
 	`{=word x} {=string config} []`:`greater`,
@@ -400,40 +446,25 @@ var checkpoints_cmp = map[string]string{
 	`{=word x} {=word x} []`:`equal`,
 	`{=word zz} {=glob {=meta *} {=punct .} {=word h}} []`:`smaller`,
 	`{=word zz} {=glob {=meta *}} []`:`smaller`,
-	`{=glob {=meta ?} {=punct .} {=word h}} {=compound {=word x} {=punct .} {=word h}} []`:`greater`,
-	`{=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
+	`{=word zz} {=word zz} []`:`equal`, // zz zz
+	`{=word z} {=string zz} []`:`lprefix`, // z zz
+	`{=meta ?} {=string z} []`:`greater`, // ? z
+	`[{=meta ?}] [{=string z}] []`:`greater`, // [?] [z]
+	`{=string ar} {=meta *} []`:`smaller`, // ar *
+	`[{=string ar}] [{=meta *}] []`:`smaller`, // [ar] [*]
 }
-func check_cmp(ctx Context, l, lv, r, rv any, syn []bool, _r *cmpres) {
-	if !truly(ctx, is_test_mode{}) { return }
-	
+func check_cmp(ctx Context, l, r any, syn []bool) func(*cmpres) {
 	k := rxLC.ReplaceAllString(sf("%v %v %v", ts(l), ts(r), syn), "=")
-	t := rxLC.ReplaceAllString(sf("%v", *_r), "=")
-	sl := rxSquareBracket.ReplaceAllString(strings.ReplaceAll(sf("%v", l)," ",""), "$1")
-	sr := rxSquareBracket.ReplaceAllString(strings.ReplaceAll(sf("%v", r)," ",""), "$1")
+	return func(_res *cmpres) {
+		if !truly(ctx, is_test_mode{}) { return }
 
-	s_kt := sf("`%v`:`%v`,", k, t)
-	for _, rx := range []*regexp.Regexp{
-		regexp.MustCompile("`"+`(.+?) (.+?) (.+?)`+"`:`"+`(lprefix|smaller|equal|greater|rprefix)`+"`,"),
-	}{ if sm := rx.FindStringSubmatch(s_kt); sm != nil {
-		switch sm[4] {
-		case "lprefix":
-			if strings.HasPrefix(sr, sl) { return }
-		case "smaller":
-			if sl < sr || sm[1] < sm[2] { return }
-		case "equal" :
-			if sl == sr || sm[1] == sm[2] { return }
-		case "greater":
-			if sl > sr || sm[1] > sm[2] { return }
-		case "rprefix":
-			if strings.HasPrefix(sl, sr) { return }
+		t := rxLC.ReplaceAllString(sf("%v", *_res), "=")
+		if v := checkpoints_cmp[k]; v == "" {
+			if true { prompt(ctx, "	`%v`:`%v`, // %v %v\n", k, t, l, r) } else
+			{ debug(ctx, _f("`%v`:`%v`,", k, t), _f("%s, %v", ts(l), l), _f("%s, %v", ts(r), r), callstack{num:10}, trace{}) }
+		} else if v != t {
+			debug(ctx, _f("`%s`", k), _f("got: %s <- %v %v", t, l, r), _f("!= : %s", v), callstack{num:10}, trace{})
 		}
-		if false { debug(ctx, _f("%s | %v %v", s_kt, l, r), _f("%s | %s %s", sm[1:], sl, sr)) }
-	}}
-
-	if v := checkpoints_cmp[k]; v == "" {
-		debug(ctx, _f("`%v`:`%v`,", k, t), _f("%s, %v", ts(lv), lv), _f("%s, %v", ts(rv), rv), callstack{num:10}, trace{})
-	} else if v != t {
-		debug(ctx, _f("`%s`", k), _f("got: %s", t), _f("!= : %s", v), callstack{num:10}, trace{})
 	}
 }
 
@@ -463,47 +494,6 @@ func check_com(ctx *comctx, a, elems []Value, res *[]Value) {
 
 var fmt_slot = regexp.MustCompile(`%\[([0-9_a-z]+)\]s`)
 var checkpoints_match = map[string]any{
-	"fo?/**/x.h foo/bar":"false {=path foo} [o ]",
-	"fo?/**/x.h foo/bar/v1.h":"false {=path foo} [o ]",
-	"fo?/**/x.h foo/bar/v2.h":"false {=path foo} [o ]",
-	"fo?/**/x.h foo/bar/v3.hh":"false {=path foo} [o ]",
-	"fo?/**/x.h foo/bar/xyz000.txt":"false {=path foo} [o ]",
-	"fo?/**/x.h foo/bar/zz":"false {=path foo} [o ]",
-	"fo?/**/x.h foo/v1.h":"false {=path foo} [o ]",
-	"fo?/**/x.h foo/v2.h":"false {=path foo} [o ]",
-	"foo/**/x.h foo/bar":"false {=path foo} []",
-	"foo/**/x.h foo/bar/v1.h":"false {=path foo} []",
-	"foo/**/x.h foo/bar/v2.h":"false {=path foo} []",
-	"foo/**/x.h foo/bar/v3.hh":"false {=path foo} []",
-	"foo/**/x.h foo/bar/xyz000.txt":"false {=path foo} []",
-	"foo/**/x.h foo/bar/zz":"false {=path foo} []",
-	"foo/**/x.h foo/v1.h":"false {=path foo} []",
-	"foo/**/x.h foo/v2.h":"false {=path foo} []",
-	"foo/b*/v*.h foo/v1.h":"false {=path foo} []",
-	"foo/b*/v*.h foo/v2.h":"false {=path foo} []",
-	"foo/b*/v*.h foo/xv1y.h":"false {=path foo} []",
-	"foo/b*/v*.h foo/xv22y.h":"false {=path foo} []",
-	"foo/b*/v*.h foo/xv333y.h":"false {=path foo} []",
-	"foo/b?r/v?.h foo/v1.h":"false {=path foo} []",
-	"foo/b?r/v?.h foo/v2.h":"false {=path foo} []",
-	"foo/b?r/v?.h foo/xv1y.h":"false {=path foo} []",
-	"foo/b?r/v?.h foo/xv22y.h":"false {=path foo} []",
-	"foo/b?r/v?.h foo/xv333y.h":"false {=path foo} []",
-	"foo/bar/*.hh foo/v1.h":"false {=path foo} []",
-	"foo/bar/*.hh foo/v2.h":"false {=path foo} []",
-	"foo/bar/*.hh foo/xv1y.h":"false {=path foo} []",
-	"foo/bar/*.hh foo/xv22y.h":"false {=path foo} []",
-	"foo/bar/*.hh foo/xv333y.h":"false {=path foo} []",
-	"foo/bar/v?.h foo/v2.h":"false {=path foo} []",
-	"foo/bar/v?.h foo/xv1y.h":"false {=path foo} []",
-	"foo/bar/v?.h foo/xv22y.h":"false {=path foo} []",
-	"foo/x*y.h foo/bar":"false {=path foo} []",
-	"foo/x*y.h foo/v1.h":"false {=path foo} []",
-	"foo/x*y.h foo/v2.h":"false {=path foo} []",
-	"foo/xv*y.h foo/bar":"false {=path foo} []",
-	"foo/xv*y.h foo/v1.h":"false {=path foo} []",
-	"foo/xv*y.h foo/v2.h":"false {=path foo} []",
-	"foo???/x.h foobar/config":"false {=path foobar} [b a r]",
 	`%.c foo.c++`:`false  []`,
 	`%.c foo.c`:`true foo.c [foo]`,
 	`%.c foo/bar.c++`:`false  []`,
@@ -771,7 +761,15 @@ var checkpoints_match = map[string]any{
 	`fo? foo`:`true foo [o]`,
 	`fo?/**/x.h f*?/x.h`:`true <nil> [*?]`,
 	`fo?/**/x.h foo/b*/v*.h`:`false foo/b*/v*.h [o b*/v*.h]`,
+	`fo?/**/x.h foo/bar/v1.h`:`false {=path foo} [o ]`,
+	`fo?/**/x.h foo/bar/v2.h`:`false {=path foo} [o ]`,
+	`fo?/**/x.h foo/bar/v3.hh`:`false {=path foo} [o ]`,
+	`fo?/**/x.h foo/bar/xyz000.txt`:`false {=path foo} [o ]`,
 	`fo?/**/x.h foo/bar/zz/x.h`:`true foo/bar/zz/x.h [o/bar/zz]`,
+	`fo?/**/x.h foo/bar/zz`:`false {=path foo} [o ]`,
+	`fo?/**/x.h foo/bar`:`false {=path foo} [o ]`,
+	`fo?/**/x.h foo/v1.h`:`false {=path foo} [o ]`,
+	`fo?/**/x.h foo/v2.h`:`false {=path foo} [o ]`,
 	`fo?/**/x.h foo/x*y.h`:`false <nil> [o]`,
 	`fo?/**/x.h foobar/x.h`:`false <nil> []`,
 	`foo **.h`:`false <nil> []`,
@@ -789,7 +787,15 @@ var checkpoints_match = map[string]any{
 	`foo/**.hh foo/bar/*.hh`:`true foo/bar/*.hh [bar/*]`,
 	`foo/**/x.h f*?/x.h`:`true <nil> []`, // TODO: ?
 	`foo/**/x.h foo/b*/v*.h`:`false {=path foo} []`,
+	`foo/**/x.h foo/bar/v1.h`:`false {=path foo} []`,
+	`foo/**/x.h foo/bar/v2.h`:`false {=path foo} []`,
+	`foo/**/x.h foo/bar/v3.hh`:`false {=path foo} []`,
+	`foo/**/x.h foo/bar/xyz000.txt`:`false {=path foo} []`,
 	`foo/**/x.h foo/bar/zz/x.h`:`true foo/bar/zz/x.h [bar/zz]`,
+	`foo/**/x.h foo/bar/zz`:`false {=path foo} []`,
+	`foo/**/x.h foo/bar`:`false {=path foo} []`,
+	`foo/**/x.h foo/v1.h`:`false {=path foo} []`,
+	`foo/**/x.h foo/v2.h`:`false {=path foo} []`,
 	`foo/**/x.h foo/x*y.h`:`false <nil> []`,
 	`foo/**/x.h foobar/x.h`:`false <nil> []`,
 	`foo/*.h **.h`:`true <nil> []`,
@@ -811,14 +817,29 @@ var checkpoints_match = map[string]any{
 	`foo/b*/v*.h foo/b?r/v?.h`:`true foo/b?r/v?.h [?r ?]`,
 	`foo/b*/v*.h foo/bar/v1.h`:`true foo/bar/v1.h [ar 1]`,
 	`foo/b*/v*.h foo/bar/v2.h`:`true foo/bar/v2.h [ar 2]`,
+	`foo/b*/v*.h foo/v1.h`:`false {=path foo} []`,
+	`foo/b*/v*.h foo/v2.h`:`false {=path foo} []`,
+	`foo/b*/v*.h foo/xv1y.h`:`false {=path foo} []`,
+	`foo/b*/v*.h foo/xv22y.h`:`false {=path foo} []`,
+	`foo/b*/v*.h foo/xv333y.h`:`false {=path foo} []`,
 	`foo/b?r/v?.h f*?/x.h`:`false <nil> []`,
 	`foo/b?r/v?.h foo/b*/v*.h`:`false <nil> []`,
+	`foo/b?r/v?.h foo/v1.h`:`false {=path foo} []`,
+	`foo/b?r/v?.h foo/v2.h`:`false {=path foo} []`,
+	`foo/b?r/v?.h foo/xv1y.h`:`false {=path foo} []`,
+	`foo/b?r/v?.h foo/xv22y.h`:`false {=path foo} []`,
+	`foo/b?r/v?.h foo/xv333y.h`:`false {=path foo} []`,
 	`foo/bar/*.h foo/**.hh`:`false <nil> []`,
 	`foo/bar/*.h foo/*.h`:`false {=path foo} []`,
 	`foo/bar/*.h foo/bar/v?.h`:`true foo/bar/v?.h [v?]`,
 	`foo/bar/*.h foo/bar/zz/x.h`:`false <nil> []`,
 	`foo/bar/*.h foo???/x.h`:`false {=path foo} []`,
 	`foo/bar/*.hh foo/**.hh`:`true {=path foo} []`,
+	`foo/bar/*.hh foo/v1.h`:`false {=path foo} []`,
+	`foo/bar/*.hh foo/v2.h`:`false {=path foo} []`,
+	`foo/bar/*.hh foo/xv1y.h`:`false {=path foo} []`,
+	`foo/bar/*.hh foo/xv22y.h`:`false {=path foo} []`,
+	`foo/bar/*.hh foo/xv333y.h`:`false {=path foo} []`,
 	`foo/bar/*/*.h foo/**.hh`:`false <nil> []`,
 	`foo/bar/*/*.h foo/*.h`:`false {=path foo} []`,
 	`foo/bar/*/*.h foo/bar/v?.h`:`false foo/bar/v?.h [v?.h]`,
@@ -833,9 +854,17 @@ var checkpoints_match = map[string]any{
 	`foo/bar/v?.h foo/bar/v2.h`:`true foo/bar/v2.h [2]`,
 	`foo/bar/v?.h foo/bar/z?/?.h`:`false foo/bar []`,
 	`foo/bar/v?.h foo/v1.h`:`false {=path foo} []`,
+	`foo/bar/v?.h foo/v2.h`:`false {=path foo} []`,
+	`foo/bar/v?.h foo/xv1y.h`:`false {=path foo} []`,
+	`foo/bar/v?.h foo/xv22y.h`:`false {=path foo} []`,
 	`foo/bar/v?.h foo/xv333y.h`:`false {=path foo} []`,
 	`foo/bar/z?/?.h foo/*.h`:`false {=path foo} []`,
 	`foo/bar/z?/?.h foo/bar/zz/x.h`:`true foo/bar/zz/x.h [z x]`,
+	`foo/bar/z?/?.h foo/v1.h`:`false {=path foo} []`,
+	`foo/bar/z?/?.h foo/v2.h`:`false {=path foo} []`,
+	`foo/bar/z?/?.h foo/xv1y.h`:`false {=path foo} []`,
+	`foo/bar/z?/?.h foo/xv22y.h`:`false {=path foo} []`,
+	`foo/bar/z?/?.h foo/xv333y.h`:`false {=path foo} []`,
 	`foo/bar/z?/?.h foo???/x.h`:`false {=path foo} []`,
 	`foo/bar/zz/?.h foo/*.h`:`false {=path foo} []`,
 	`foo/bar/zz/?.h foo/bar/zz/x.h`:`true foo/bar/zz/x.h [x]`,
@@ -846,9 +875,15 @@ var checkpoints_match = map[string]any{
 	`foo/bar/zz/x.h foo/bar/*/*.h`:`true foo/bar []`,
 	`foo/bar/zz/x.h foo/bar/z?/?.h`:`true foo/bar []`,
 	`foo/bar/zz/x.h foo/bar/zz/?.h`:`true foo/bar/zz []`,
+	`foo/x*y.h foo/bar`:`false {=path foo} []`,
+	`foo/x*y.h foo/v1.h`:`false {=path foo} []`,
+	`foo/x*y.h foo/v2.h`:`false {=path foo} []`,
 	`foo/x*y.h foo/xv*y.h`:`true foo/xv*y.h [v*]`,
 	`foo/x*y.h foo/xv1y.h`:`true foo/xv1y.h [v1]`,
 	`foo/xv*y.h foo/b*/v*.h`:`false <nil> []`,
+	`foo/xv*y.h foo/bar`:`false {=path foo} []`,
+	`foo/xv*y.h foo/v1.h`:`false {=path foo} []`,
+	`foo/xv*y.h foo/v2.h`:`false {=path foo} []`,
 	`foo/xv*y.h foo/x*y.h`:`true {=path foo} []`,
 	`foo/z.c foo.o`:`false <nil> []`,
 	`foo/z.c foo/bar.o`:`false <nil> []`,
@@ -870,6 +905,7 @@ var checkpoints_match = map[string]any{
 	`foo???/x.h foo/bar/*/*.h`:`false {=path foo} []`,
 	`foo???/x.h foo/bar/z?/?.h`:`false {=path foo} []`,
 	`foo???/x.h foo/bar/zz/?.h`:`false {=path foo} []`,
+	`foo???/x.h foobar/config`:`false {=path foobar} [b a r]`,
 	`foobar **.def.am`:`false <nil> []`,
 	`foobar *.def.am`:`false <nil> []`,
 	`foobar bar.h`:`false <nil> []`,
@@ -1140,7 +1176,7 @@ func check_match(ctx Context, pat, val Value) func(*bool, *Value, *[]Value) {
 		}}
 
 		if v := checkpoints_match[k]; v == nil {
-			prompt(ctx, `	"%s":"%s", //match`+"\n", k, t)
+			prompt(ctx, "	`%s`:`%s`, //match\n", k, t)
 			// debug(pc(ctx,pat), _f(`%s`, kt), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)),
 			// 	callstack{num:10}, trace{})
 		} else if v != t {
@@ -1402,6 +1438,10 @@ var checkpoints_matchCompComp = map[string]any{
 	"[y] [y] 0 true":"true y <nil> 1",
 	"[y] [yyy] 0 true":"true y yy 1",
 	"[y] [z] 0 true":"false <nil> z 1",
+	"[z] [v1.h] 0 false":"false <nil> v1.h 0",
+	"[z] [v2.h] 0 false":"false <nil> v2.h 0",
+	"[z] [v3.hh] 0 false":"false <nil> v3.hh 0",
+	"[z] [xyz000.txt] 0 false":"false <nil> xyz000.txt 0",
 	"[z] [xyz] 0 true":"true z xy 1",
 	"[z] [z] 0 false":"true z <nil> 1",
 	"[z] [zz] 0 false":"false z z 0",
@@ -1728,6 +1768,7 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[. hh] [zz] [] 0 true":"false <nil> [] 1 <nil>",
 	"[. test] [. test] [] 0 false":"true .test [] 2 <nil>",
 	"[? . h] [x . h] [] 0 false":"true x.h [x] 3 <nil>",
+	"[? . h] [x.h] [] 0 false":"true x.h [x] 1 <nil>",
 	"[b *] [**] [] 0 false":"false <nil> [] 0 <nil>", // TODO: ?
 	"[b *] [b ? r] [] 0 false":"true b?r [?r] 3 <nil>",
 	"[b *] [bar] [] 0 false":"true bar [ar] 1 <nil>",
@@ -1903,6 +1944,10 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[y] [y] [] 0 true":"true y [] 1 <nil>",
 	"[y] [yyy] [] 0 true":"true y [] 1 yy",
 	"[y] [z] [] 0 true":"false <nil> [] 1 <nil>",
+	"[z ?] [v1.h] [] 0 false":"false <nil> [] 0 <nil>",
+	"[z ?] [v2.h] [] 0 false":"false <nil> [] 0 <nil>",
+	"[z ?] [v3.hh] [] 0 false":"false <nil> [] 0 <nil>",
+	"[z ?] [xyz000.txt] [] 0 false":"false <nil> [] 0 <nil>",
 	"[z ?] [zz] [] 0 false":"true zz [z] 1 <nil>",
 	"[z] [xyz] [] 0 true":"true z [] 1 xy",
 	"[z] [z] [] 0 false":"true z [] 1 <nil>",
@@ -2207,6 +2252,7 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[. test] [.test xxx-yyy z] 0":"true .test [] 1 ILLEGAL",
 	"[. test] [.test xxx-yyy] 0":"true .test [] 1 ILLEGAL",
 	"[? . h] [foo bar zz x.h] 3":"true x.h [x] 4 ILLEGAL",
+	"[? . h] [foo bar zz] 3":"false <nil> [] 3 ILLEGAL",
 	"[b *] [foo ** x.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[b *] [foo b?r v?.h] 1":"true b?r [?r] 2 ILLEGAL",
 	"[b *] [foo bar v1.h] 1":"true bar [ar] 2 ILLEGAL",
@@ -2483,7 +2529,13 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[xv * y . h] [foo xv22y.h] 1":"true xv22y.h [22] 2 ILLEGAL",
 	"[xv * y . h] [foo xv333y.h] 1":"true xv333y.h [333] 2 ILLEGAL",
 	"[xv * y . h] [foo] 1":"false <nil> [] 1 ILLEGAL",
+	"[z ?] [foo bar v1.h] 2":"false <nil> [] 2 ILLEGAL",
+	"[z ?] [foo bar v2.h] 2":"false <nil> [] 2 ILLEGAL",
+	"[z ?] [foo bar v3.hh] 2":"false <nil> [] 2 ILLEGAL",
+	"[z ?] [foo bar xyz000.txt] 2":"false <nil> [] 2 ILLEGAL",
 	"[z ?] [foo bar zz x.h] 2":"true zz [z] 3 ILLEGAL",
+	"[z ?] [foo bar zz] 2":"true zz [z] 3 ILLEGAL",
+	"[z ?] [foo bar] 2":"false <nil> [] 2 ILLEGAL",
 	"[z] [z] 0":"true z [] 1 ILLEGAL",
 	"[zz] [foo bar * *.h] 2":"false <nil> [] 2 ILLEGAL",
 	"[zz] [foo bar *.h] 2":"false <nil> [] 2 ILLEGAL",
@@ -2507,19 +2559,6 @@ func check_matchGlobPath(ctx Context, elems, segments, stems []Value, idx int) f
 }
 
 var checkpoints_matchPathPath = map[string]any{
-	"[foo b* v*.h] [foobar]":"false {=path foo} [] 0",
-	"[foo b* v*.h] [bar.h]":"false <nil> [] 0",
-	"[foo b* v*.h] [foo]":"false {=path foo} [] 1",
-	"[foo b* v*.h] [foo.h]":"false {=path foo} [] 0",
-	"[foo b* v*.h] [foo v2.h]":"false {=path foo} [] 1",
-	"[foo b* v*.h] [foo xv22y.h]":"false {=path foo} [] 1",
-	"[foo b* v*.h] [foo xv333y.h]":"false {=path foo} [] 1",
-	"[foo b* v*.h] [foo xv1y.h]":"false {=path foo} [] 1",
-	"[foo b* v*.h] [foo v1.h]":"false {=path foo} [] 1",
-	"[foo b* v*.h] [foo bar]":"false foo/bar [ar] 2",
-	"[foo b* v*.h] [foo bar v3.hh]":"false foo/bar/v3.hh [ar 3.hh] 2",
-	"[foo b* v*.h] [foo bar zz]":"false foo/bar [ar] 2",
-	"[foo b* v*.h] [foo bar xyz000.txt]":"false foo/bar [ar] 2",
 	"[**y z] [a b c y z]":"true a/b/c/y/z [a/b/c/] 0",
 	"[**y z] [z]":"false {=path z} [z] 0",
 	"[**y] []":"false <nil> [] 0",
@@ -2628,11 +2667,24 @@ var checkpoints_matchPathPath = map[string]any{
 	"[foo *.h] [foo??? x.h]":"false {=path foo} [] 0",
 	"[foo *.h] [foo]":"false {=path foo} [] 1",
 	"[foo *.h] [foobar]":"false {=path foo} [] 0",
+	"[foo b* v*.h] [bar.h]":"false <nil> [] 0",
 	"[foo b* v*.h] [fo? ** x.h]":"false <nil> [] 0",
 	"[foo b* v*.h] [foo ** x.h]":"false {=path foo} [] 1",
 	"[foo b* v*.h] [foo b?r v?.h]":"true foo/b?r/v?.h [?r ?] 3",
 	"[foo b* v*.h] [foo bar v1.h]":"true foo/bar/v1.h [ar 1] 3",
 	"[foo b* v*.h] [foo bar v2.h]":"true foo/bar/v2.h [ar 2] 3",
+	"[foo b* v*.h] [foo bar v3.hh]":"false foo/bar/v3.hh [ar 3.hh] 2",
+	"[foo b* v*.h] [foo bar xyz000.txt]":"false foo/bar [ar] 2",
+	"[foo b* v*.h] [foo bar zz]":"false foo/bar [ar] 2",
+	"[foo b* v*.h] [foo bar]":"false foo/bar [ar] 2",
+	"[foo b* v*.h] [foo v1.h]":"false {=path foo} [] 1",
+	"[foo b* v*.h] [foo v2.h]":"false {=path foo} [] 1",
+	"[foo b* v*.h] [foo xv1y.h]":"false {=path foo} [] 1",
+	"[foo b* v*.h] [foo xv22y.h]":"false {=path foo} [] 1",
+	"[foo b* v*.h] [foo xv333y.h]":"false {=path foo} [] 1",
+	"[foo b* v*.h] [foo.h]":"false {=path foo} [] 0",
+	"[foo b* v*.h] [foo]":"false {=path foo} [] 1",
+	"[foo b* v*.h] [foobar]":"false {=path foo} [] 0",
 	"[foo b?r v?.h] [bar.h]":"false <nil> [] 0",
 	"[foo b?r v?.h] [foo b* v*.h]":"false foo/b* [*] 1", // TODO: ?
 	"[foo b?r v?.h] [foo bar v1.h]":"true foo/bar/v1.h [a 1] 3",
@@ -2691,9 +2743,24 @@ var checkpoints_matchPathPath = map[string]any{
 	"[foo bar v?.h] [foo.h]":"false {=path foo} [] 0",
 	"[foo bar v?.h] [foo]":"false {=path foo} [] 1",
 	"[foo bar v?.h] [foobar]":"false {=path foo} [] 0",
+	"[foo bar z? ?.h] [bar.h]":"false <nil> [] 0",
 	"[foo bar z? ?.h] [foo *.h]":"false {=path foo} [] 1",
+	"[foo bar z? ?.h] [foo bar v1.h]":"false foo/bar [] 2",
+	"[foo bar z? ?.h] [foo bar v2.h]":"false foo/bar [] 2",
+	"[foo bar z? ?.h] [foo bar v3.hh]":"false foo/bar [] 2",
+	"[foo bar z? ?.h] [foo bar xyz000.txt]":"false foo/bar [] 2",
 	"[foo bar z? ?.h] [foo bar zz x.h]":"true foo/bar/zz/x.h [z x] 4",
+	"[foo bar z? ?.h] [foo bar zz]":"false foo/bar/zz [z] 3",
+	"[foo bar z? ?.h] [foo bar]":"false foo/bar [] 2",
+	"[foo bar z? ?.h] [foo v1.h]":"false {=path foo} [] 1",
+	"[foo bar z? ?.h] [foo v2.h]":"false {=path foo} [] 1",
+	"[foo bar z? ?.h] [foo xv1y.h]":"false {=path foo} [] 1",
+	"[foo bar z? ?.h] [foo xv22y.h]":"false {=path foo} [] 1",
+	"[foo bar z? ?.h] [foo xv333y.h]":"false {=path foo} [] 1",
+	"[foo bar z? ?.h] [foo.h]":"false {=path foo} [] 0",
 	"[foo bar z? ?.h] [foo??? x.h]":"false {=path foo} [] 0",
+	"[foo bar z? ?.h] [foo]":"false {=path foo} [] 1",
+	"[foo bar z? ?.h] [foobar]":"false {=path foo} [] 0",
 	"[foo bar zz ?.h] [foo *.h]":"false {=path foo} [] 1",
 	"[foo bar zz ?.h] [foo bar zz x.h]":"true foo/bar/zz/x.h [x] 4",
 	"[foo bar zz ?.h] [foo??? x.h]":"false {=path foo} [] 0",

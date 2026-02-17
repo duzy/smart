@@ -1193,11 +1193,11 @@ func cmpValues(ctx Context, a, b Value) int {
 }
 
 func cmp(ctx Context, l, r any, syntactic ...bool) (res cmpres) {
+	if checkpoints { defer check_cmp(ctx, l, r, syntactic)(&res) }
+
 	// 1. Unbox/Underlay: convert wrappers (*word, *boolean) to primitives (string, bool)
 	var lv, lb = underlay(l, 0)
 	var rv, rb = underlay(r, 0)
-
-	if checkpoints { defer func() { check_cmp(ctx, l, lv, r, rv, syntactic, &res) } () }
 
 	// 2. Structural & Recursive Comparison
 	switch x := lv.(type) {
@@ -1377,15 +1377,15 @@ func cmp_slice(ctx Context, x []any, rv any) cmpres {
 
 				if len(sx) < len(sy) && strings.HasPrefix(sy, sx) {
 					// x[i] is prefix of y[i]. Match rest of y[i] + y[i+1:] against x[i+1:]
-					restY := sy[len(sx):] + join_rest(ctx, y[i+1:])
-					restX := join_rest(ctx, x[i+1:])
-					return cmp_string(restX, restY)
+					restX := x[i+1:]
+					restY := append([]any{sy[len(sx):]}, y[i+1:]...)
+					return cmp(ctx, restX, restY)
 				}
 				if len(sy) < len(sx) && strings.HasPrefix(sx, sy) {
 					// y[i] is prefix of x[i]. Match rest of x[i] + x[i+1:] against y[i+1:]
-					restX := sx[len(sy):] + join_rest(ctx, x[i+1:])
-					restY := join_rest(ctx, y[i+1:])
-					return cmp_string(restX, restY)
+					restX := append([]any{sx[len(sy):]}, x[i+1:]...)
+					restY := y[i+1:]
+					return cmp(ctx, restX, restY)
 				}
 				return res
 			}
@@ -3187,6 +3187,7 @@ func updatedDeps(ctx Context, val Value, deps ...Value) (res []Value) {
 func __sa(s ...string) (a []any) { for _, s := range s { a = append(a, s) }; return }
 func __t(a ...bool) (_ bool) { for _, a := range a { if a { return true } }; return }
 func _if[T any](cond bool, t, f T) T { if cond { return t } else { return f } }
+func _if_cmp[T any](c Context, r cmpres, t, f T) T { if cmp(c, t, f) == r { return t } else { return f } }
 func _unless[T any](cond bool, t, f T) T { if !cond { return t } else { return f } }
 func _truly[T any](c Context, a any, t T, f T) T { if truly(c,a) { return t } else { return f } }
 func _falsely[T any](c Context, a any, t T, f T) T { if !truly(c,a) { return t } else { return f } }

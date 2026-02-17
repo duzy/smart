@@ -4351,15 +4351,13 @@ func (ctx *__wildcard) project(p *project, pats ...Value) {
 		go func() { defer g.Done()
 			for _, a := range unmap_files(ctx, p, argPat, nil) {
 				for _, mapPat := range a.filemap.patterns(ctx) {
-					var isSearchPat bool
-					var search Value
-					if cmp(ctx, argPat, mapPat) == cmpSmaller {
-						search, isSearchPat = argPat, patterned(ctx, argPat)
-					} else {
-						search, isSearchPat = mapPat, patterned(ctx, mapPat)
-					}
+					var search = _if_cmp(ctx, cmpSmaller, argPat, mapPat)
+					var isSearchPat = patterned(ctx, search)
 					for _, v := range merge(expands(_final(ctx), a.filemap.paths...)...) {
-						if false { debug(ctx, "%v %v -> %v, %v", argPat, mapPat, search, v) }
+						if false {
+							s := sf("%v %v -> %v", ts(argPat), ts(mapPat), search)
+							debug(ctx, "%s", rxLC.ReplaceAllString(s, "="))
+						}
 						if dir := __string(ctx, v); isSearchPat {
 							ctx.directory(dir, search)
 						} else {
