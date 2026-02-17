@@ -813,7 +813,7 @@ func (ctx *__not) cast(t reflect.Type) Context {
 }
 func (ctx *__not) x() (res any) {
     var t bool
-    for _, a := range ctx.a { if t = __true(ctx, a); t { break } }
+    for _, a := range ctx.a { if t = __true(ctx, expand(ctx, a)); t { break } }
     return !t
 }
 
@@ -825,9 +825,9 @@ func (ctx *__xor) cast(t reflect.Type) Context {
 }
 func (ctx *__xor) x() (res any) {
     if vals := merge(ctx.a...); len(vals) > 1 {
-        var t = __true(ctx, vals[0])
+        var t = __true(ctx, expand(ctx, vals[0]))
         for _, a := range vals[1:] {
-            if __true(ctx, a) != t {
+            if __true(ctx, expand(ctx, a)) != t {
                 return _boolean(a.Position(), true)
             }
         }
@@ -1132,7 +1132,7 @@ func (ctx *__if) ts(string) string {
 }
 func (ctx *__if) x() (res any) {
 	if 1 < len(ctx.a) {
-		if __true(ctx, ctx.a[0]) {
+		if __true(ctx, expand(ctx, ctx.a[0])) {
 			return expand(ctx, ctx.a[1])
 		} else {
 			return expands(ctx, ctx.a[2:]...)
