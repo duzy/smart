@@ -47,6 +47,7 @@ var checkpoints__if = map[string]map[string]any{
 
 var checkstrs__if = map[string]map[string]any{
 	"check-builtins-if_test.go": map[string]any{
+		`13:4:x9 &(none) {13:13:closure {13:15:word none}}`:`{13:13:null} `,
 		`19 5:6:x1 $(if {=yes},yes,no) {5:8:delegate {5:10:builtin if} {=list {5:18:yes}} {=list {5:20:word yes}} {=list {5:24:word no}}}`:`{5:8 {5:20:word yes}} yes`,
 		`30 6:6:x2 $(if {=no},yes,no) {6:8:delegate {6:10:builtin if} {=list {6:17:no}} {=list {6:19:word yes}} {=list {6:23:word no}}}`:`{6:8 {6:23:word no}} no`,
 		`122 15:6:x10 $(ifarg 1,yes,no) {15:8:delegate {15:10:builtin ifarg} {=list {15:16:decimal 1}} {=list {15:18:word yes}} {=list {15:22:word no}}}`:`{15:8 {15:22:word no}} no`,

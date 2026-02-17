@@ -239,19 +239,20 @@ func check_string(ctx Context, p Value, v Value, res string) {
 	switch v := ta.(type) {
 	case []string: for _, s := range v { if s == vs { return } }
 	case   string:                       if v == vs { return }
-	case nil: debug(pc(ctx,p), "`%v`:`%s`,", ks, vs, trace{})
 	}
 	debug(pc(ctx,p), _f("`%v`", ks),
 		_f(`got: %s`, vs),
 		_f(`!= : %v`, ta),
 		_f(`val: %v`, v),
 		_f(`res: %v`, res),
-		trace{})
+		callstack{num:10}, trace{})
 }
 
 var checkpoints_cmp = map[string]string{
+	`[] [] []`:`equal`, //cmp: [] []
 	`[{= {=flag {=word foo}}} {=word bar}] [{=flag {=word foobar}}] []`:`equal`,
 	`[{= {=flag {=word foo}}} {=word bar}] {=flag {=word foobar}} []`:`equal`,
+	`[{= {=flag {=}}} {=word foobar}] [{=flag {=word foobar}}] []`:`equal`,
 	`[{= {=flag {=}}} {=word foobar}] {=flag {=word foobar}} []`:`equal`,
 	`[{= {=word foo}}] [{=word foo}] []`:`equal`,
 	`[{= {=word foo}}] {=list {=word foo}} []`:`equal`,
@@ -282,17 +283,30 @@ var checkpoints_cmp = map[string]string{
 	`[{=punct .} {=word test}] [{=string .test}] []`:`equal`,
 	`[{=punct .} {=word test}] {=compound {=punct .} {=word test}} []`:`equal`,
 	`[{=punct .} {=word test}] {=string .test} []`:`equal`,
+	`[{=string 1} {=punct .} {=word h}] [{=meta ?} {=punct .} {=word h}] []`:`smaller`, // [1 . h] [? . h]
+	`[{=string 2} {=punct .} {=word h}] [{=meta ?} {=punct .} {=word h}] []`:`smaller`, // [2 . h] [? . h]
 	`[{=string ar}] [{=meta *}] []`:`smaller`, // [ar] [*]
 	`[{=string bar}] {=glob {=meta **} {=punct .} {=word hh}} []`:`smaller`, // [bar] **.hh
+	`[{=string bar}] {=glob {=word ba} {=meta *}} []`:`smaller`, //cmp: [bar] ba*
+	`[{=string bar}] {=glob {=word ba} {=meta ?}} []`:`smaller`, //cmp: [bar] ba?
 	`[{=string bar}] {=glob {=word b} {=meta *}} []`:`smaller`, // [bar] b*
+	`[{=string foo}] {=glob {=word f} {=meta *?}} []`:`smaller`, // [foo] f*?
+	`[{=string oo}] [{=meta *?}] []`:`smaller`, // [oo] [*?]
+	`[{=string r}] [{=meta *}] []`:`smaller`, //cmp: [r] [*]
+	`[{=string r}] [{=meta ?}] []`:`smaller`, //cmp: [r] [?]
 	`[{=string v1y} {=punct .} {=word h}] [{=meta *} {=word y} {=punct .} {=word h}] []`:`smaller`, // [v1y . h] [* y . h]
+	`[{=string v} {=meta *} {=word y} {=punct .} {=word h}] [{=meta *} {=word y} {=punct .} {=word h}] []`:`smaller`, // [v * y . h] [* y . h]
 	`[{=token **}] {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} []`:`greater`,
 	`[{=token .} {=string test}] [{=string .test}] []`:`equal`,
 	`[{=token .}] {=compound {=word bar} {=punct .} {=word c}} []`:`smaller`,
+	`[{=word bar}] [{=string bar}] []`:`equal`,
 	`[{=word b} {=meta *}] {=glob {=word b} {=meta ?} {=word r}} []`:`greater`,
+	`[{=word b} {=meta ?} {=word r}] {=glob {=word b} {=meta *}} []`:`smaller`, // [b ? r] [b *]
 	`[{=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}] {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} []`:`smaller`,
+	`[{=word foobar}] [{=string foobar}] []`:`equal`,
 	`[{=word foo} {=compound {=word xv1y} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}} []`:`smaller`, // [foo xv1y.h] foo/x*y.h
 	`[{=word foo} {=glob {=meta **} {=punct .} {=word hh}}] {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}} []`:`greater`,
+	`[{=word foo} {=glob {=meta **}} {=compound {=word x} {=punct .} {=word h}}] {=path {=glob {=word f} {=meta *?}} {=compound {=word x} {=punct .} {=word h}}} []`:`smaller`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} []`:`equal`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} []`:`greater`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}} []`:`greater`,
@@ -300,18 +314,24 @@ var checkpoints_cmp = map[string]string{
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}} []`:`greater`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} []`:`greater`,
+	`[{=word foo} {=glob {=word b} {=meta ?} {=word r}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // [foo b?r v?.h] [foo/b*/v*.h]
+	`[{=word foo} {=glob {=word xv} {=meta *} {=word y} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}} []`:`smaller`, // [foo xv*y.h] foo/x*y.h
+	`[{=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, //cmp: [foo bar v1.h] foo/ba*/v?.h
 	`[{=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // [foo bar v1.h] foo/b*/v*.h
 	`[{=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, // [foo bar v1.h] foo/bar/v?.h
+	`[{=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, //cmp: [foo bar v2.h] foo/ba*/v?.h
 	`[{=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // [foo bar v2.h] foo/b*/v*.h
 	`[{=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, // [foo bar v2.h] foo/bar/v?.h
 	`[{=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}] {=path {=word foo} {=glob {=meta **} {=punct .} {=word hh}}} []`:`smaller`, // [foo bar *.hh] foo/**.hh
 	`[{=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`, // [foo bar *.h] foo/bar/v?.h
 	`[{=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [foo bar * *.h] foo/bar/zz/x.h
+	`[{=word foo} {=word bar} {=glob {=word xyz} {=meta ?} {=meta ?} {=meta ?} {=punct .} {=word txt}}] {=path {=word foo} {=glob {=word ba} {=meta ?}} {=glob {=word xyz} {=meta *} {=punct .} {=word txt}}} []`:`smaller`, //cmp: [foo bar xyz???.txt] foo/ba?/xyz*.txt
 	`[{=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [foo bar z? ?.h] foo/bar/zz/x.h
 	`[{=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [foo bar zz ?.h] foo/bar/zz/x.h
 	`[{=word v1} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // [v1 . h] v?.h
 	`[{=word v2} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // [v2 . h] v?.h
 	`[{=word xv1y} {=punct .} {=word h}] {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}} []`:`smaller`, // [xv1y . h] x*y.h
+	`[{=word xv} {=meta *} {=word y} {=punct .} {=word h}] {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}} []`:`smaller`, // [xv * y . h] x*y.h
 	`[{=word x} {=punct .} {=word h}] [{=string config}] []`:`greater`,
 	`[{=word x} {=punct .} {=word h}] [{=string x.h}] []`:`equal`,
 	`[{=word x} {=punct .} {=word h}] {=compound {=word x} {=punct .} {=word h}} []`:`equal`,
@@ -321,8 +341,11 @@ var checkpoints_cmp = map[string]string{
 	`[{=word z} {=meta ?}] {=word zz} []`:`greater`, // [z ?] zz
 	`{= {=flag {=word foo}}} {=flag {=word foobar}} []`:`lprefix`,
 	`{= {=flag {=word foo}}} {=token -} []`:`rprefix`,
+	`{= {=flag {=}}} {=flag {=word foobar}} []`:`lprefix`,
 	`{= {=flag {=}}} {=token -} []`:`equal`,
 	`{= {=word foo}} {=word foo} []`:`equal`,
+	`{=closure {=def some}} {=closure {=def some}} []`:`equal`, //cmp: &(some) &(some)
+	`{=closure {=word none}} {=closure {=word none}} []`:`equal`, //cmp: &(none) &(none)
 	`{=compound {= {=flag {=word foo}}} {=word bar}} {=flag {=word foobar}} []`:`equal`,
 	`{=compound {= {=flag {=}}} {=word foobar}} {=flag {=word foobar}} []`:`equal`,
 	`{=compound {=punct .} {=word test}} {=compound {=punct .} {=word test}} []`:`equal`,
@@ -333,6 +356,7 @@ var checkpoints_cmp = map[string]string{
 	`{=compound {=word x} {=punct .} {=word h}} {=compound {=word x} {=punct .} {=word h}} []`:`equal`,
 	`{=compound {=word x} {=punct .} {=word h}} {=string config} []`:`greater`,
 	`{=compound {=word x} {=punct .} {=word h}} {=string x.h} []`:`equal`,
+	`{=def some} {=def some} []`:`equal`, //cmp: some:=thing some:=thing
 	`{=flag {=word foobar}} {=compound {= {=flag {=word foo}}} {=word bar}} []`:`equal`,
 	`{=flag {=word foobar}} {=compound {= {=flag {=}}} {=word foobar}} []`:`equal`,
 	`{=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}} []`:`greater`,
@@ -351,6 +375,8 @@ var checkpoints_cmp = map[string]string{
 	`{=glob {=meta *}} {=word zz} []`:`greater`,
 	`{=glob {=meta ?} {=punct .} {=word h}} {=compound {=word x} {=punct .} {=word h}} []`:`greater`,
 	`{=glob {=word b} {=meta *}} {=glob {=word b} {=meta ?} {=word r}} []`:`greater`,
+	`{=glob {=word b} {=meta ?} {=word r}} {=glob {=word b} {=meta *}} []`:`smaller`, // b?r b*
+	`{=glob {=word xv} {=meta *} {=word y} {=punct .} {=word h}} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}} []`:`smaller`, // xv*y.h x*y.h
 	`{=glob {=word z} {=meta ?}} {=word zz} []`:`greater`, // z? zz
 	`{=list {16:16 {=word foo}}} {=list {=word foo}} []`:`equal`,
 	`{=list {= {=word foo}}} {=list {=word foo}} []`:`equal`,
@@ -386,14 +412,19 @@ var checkpoints_cmp = map[string]string{
 	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}} []`:`greater`,
 	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} []`:`greater`,
-	`{=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta ?} {=word r}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`,
+	`{=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta ?} {=word r}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`, // foo/b*/v*.h foo/b?r/v?.h
+	`{=path {=word foo} {=glob {=word b} {=meta ?} {=word r}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // foo/b?r/v?.h foo/b*/v*.h
+	`{=path {=word foo} {=glob {=word xv} {=meta *} {=word y} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}} []`:`smaller`,
+	`{=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, //cmp: foo/bar/v1.h foo/ba*/v?.h
 	`{=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // foo/bar/v1.h foo/b*/v*.h
 	`{=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, // foo/bar/v1.h foo/bar/v?.h
+	`{=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, //cmp: foo/bar/v2.h foo/ba*/v?.h
 	`{=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} []`:`smaller`, // foo/bar/v2.h foo/b*/v*.h
 	`{=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`smaller`, // foo/bar/v2.h foo/bar/v?.h
 	`{=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}} {=path {=word foo} {=glob {=meta **} {=punct .} {=word hh}}} []`:`smaller`, // foo/bar/*.hh foo/**.hh
 	`{=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`{=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
+	`{=path {=word foo} {=word bar} {=glob {=word xyz} {=meta ?} {=meta ?} {=meta ?} {=punct .} {=word txt}}} {=path {=word foo} {=glob {=word ba} {=meta ?}} {=glob {=word xyz} {=meta *} {=punct .} {=word txt}}} []`:`smaller`, //cmp: foo/bar/xyz???.txt foo/ba?/xyz*.txt
 	`{=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // foo/bar/z?/?.h foo/bar/zz/x.h
 	`{=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
 	`{=punct .} {=compound {=word bar} {=punct .} {=word c}} []`:`smaller`,
@@ -403,14 +434,21 @@ var checkpoints_cmp = map[string]string{
 	`{=punct .} {=word c} []`:`smaller`,
 	`{=punct .} {=word foo} []`:`smaller`,
 	`{=punct .} {=word oo} []`:`smaller`,
+	`{=string 1} {=meta ?} []`:`smaller`, // 1 ?
+	`{=string 2} {=meta ?} []`:`smaller`, // 2 ?
 	`{=string ar} {=meta *} []`:`smaller`, // ar *
 	`{=string bar} {=meta **} []`:`smaller`,
 	`{=string bar} {=meta *} []`:`smaller`,
+	`{=string bar} {=word ba} []`:`rprefix`, //cmp: bar ba
 	`{=string bar} {=word b} []`:`rprefix`,
 	`{=string foo} {=string foo} []`:`equal`,
 	`{=string foo} {=word f} []`:`rprefix`,
 	`{=string h} {=string h} []`:`equal`,
+	`{=string oo} {=meta *?} []`:`smaller`, // oo *?
+	`{=string r} {=meta *} []`:`smaller`, //cmp: r *
+	`{=string r} {=meta ?} []`:`smaller`, //cmp: r ?
 	`{=string v1y} {=meta *} []`:`smaller`, // v1y *
+	`{=string v} {=meta *} []`:`smaller`, // v *
 	`{=string zz} {=meta *} []`:`smaller`,
 	`{=token **} {=token **} []`:`equal`,
 	`{=token **} {=word foo} []`:`greater`,
@@ -422,14 +460,21 @@ var checkpoints_cmp = map[string]string{
 	`{=token .} {=word bar} []`:`smaller`,
 	`{=word bar} {=glob {=meta **} {=punct .} {=word hh}} []`:`smaller`,
 	`{=word bar} {=glob {=meta *} {=punct .} {=word h}} []`:`smaller`,
+	`{=word bar} {=glob {=word ba} {=meta *}} []`:`smaller`, //cmp: bar ba*
+	`{=word bar} {=glob {=word ba} {=meta ?}} []`:`smaller`, //cmp: bar ba?
 	`{=word bar} {=glob {=word b} {=meta *}} []`:`smaller`, // bar b*
+	`{=word bar} {=string bar} []`:`equal`,
 	`{=word bar} {=word bar} []`:`equal`, // bar bar
 	`{=word b} {=meta **} []`:`smaller`,
+	`{=word b} {=word b} []`:`equal`,
 	`{=word conf3} {=word bar} []`:`greater`,
 	`{=word conf3} {=word foo} []`:`smaller`,
 	`{=word c} {=word c} []`:`equal`,
 	`{=word foobar} {=meta **} []`:`smaller`,
+	`{=word foobar} {=string foobar} []`:`equal`,
+	`{=word foobar} {=token -} []`:`greater`,
 	`{=word foobar} {=word foobar} []`:`equal`,
+	`{=word foo} {=glob {=word f} {=meta *?}} []`:`smaller`, // foo f*?
 	`{=word foo} {=meta **} []`:`smaller`,
 	`{=word foo} {=meta *} []`:`smaller`,
 	`{=word foo} {=token **} []`:`smaller`,
@@ -437,7 +482,9 @@ var checkpoints_cmp = map[string]string{
 	`{=word foo} {=word foobar} []`:`lprefix`,
 	`{=word foo} {=word foo} []`:`equal`,
 	`{=word h} {=word h} []`:`equal`,
+	`{=word none} {=word none} []`:`equal`, //cmp: none none
 	`{=word test} {=word test} []`:`equal`,
+	`{=word thing} {=word thing} []`:`equal`, //cmp: thing thing
 	`{=word v1} {=word v} []`:`rprefix`, // v1 v
 	`{=word v2} {=word v} []`:`rprefix`, // v2 v
 	`{=word v} {=meta *} []`:`smaller`,
@@ -452,6 +499,7 @@ var checkpoints_cmp = map[string]string{
 	`{=word zz} {=glob {=meta *}} []`:`smaller`,
 	`{=word zz} {=word zz} []`:`equal`, // zz zz
 	`{=word z} {=string zz} []`:`lprefix`, // z zz
+	`{=} {=word foobar} []`:`lprefix`,
 }
 func check_cmp(ctx Context, l, r any, syn []bool) func(*cmpres) {
 	k := rxLC.ReplaceAllString(sf("%v %v %v", ts(l), ts(r), syn), "=")
@@ -460,7 +508,7 @@ func check_cmp(ctx Context, l, r any, syn []bool) func(*cmpres) {
 
 		t := rxLC.ReplaceAllString(sf("%v", *_res), "=")
 		if v := checkpoints_cmp[k]; v == "" {
-			if false { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r) } else
+			if true { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r) } else
 			{ debug(ctx, _f("`%v`:`%v`,", k, t), _f("%s, %v", ts(l), l), _f("%s, %v", ts(r), r), callstack{num:10}, trace{}) }
 		} else if v != t {
 			debug(ctx, _f("`%s`", k), _f("got: %s <- %v %v", t, l, r), _f("!= : %s", v), callstack{num:10}, trace{})
@@ -858,6 +906,11 @@ var checkpoints_match = map[string]any{
 	`foo/bar/v?.h foo/xv1y.h`:`false {=path foo} []`,
 	`foo/bar/v?.h foo/xv22y.h`:`false {=path foo} []`,
 	`foo/bar/v?.h foo/xv333y.h`:`false {=path foo} []`,
+	`foo/bar/xyz???.txt foo/v1.h`:`false {=path foo} []`, //match
+	`foo/bar/xyz???.txt foo/v2.h`:`false {=path foo} []`, //match
+	`foo/bar/xyz???.txt foo/xv1y.h`:`false {=path foo} []`, //match
+	`foo/bar/xyz???.txt foo/xv22y.h`:`false {=path foo} []`, //match
+	`foo/bar/xyz???.txt foo/xv333y.h`:`false {=path foo} []`, //match
 	`foo/bar/z?/?.h foo/*.h`:`false {=path foo} []`,
 	`foo/bar/z?/?.h foo/bar/zz/x.h`:`true foo/bar/zz/x.h [z x]`,
 	`foo/bar/z?/?.h foo/v1.h`:`false {=path foo} []`,
@@ -1176,7 +1229,7 @@ func check_match(ctx Context, pat, val Value) func(*bool, *Value, *[]Value) {
 		}}
 
 		if v := checkpoints_match[k]; v == nil {
-			if false { prompt(ctx, "	`%s`:`%s`, //match\n", k, t) } else
+			if true { prompt(ctx, "	`%s`:`%s`, //match\n", k, t) } else
 			{ debug(pc(ctx,pat), _f(`%s`, kt), _f("pat: %v", ts(pat)), _f("val: %v", ts(val)),
 				callstack{num:10}, trace{}) }
 		} else if v != t {
@@ -1298,6 +1351,9 @@ var checkpoints_matchCompComp = map[string]any{
 	"[. hh] [xyz000.txt] 0 true":"false <nil> xyz000.txt 1",
 	"[. hh] [zz] 0 true":"false <nil> zz 1",
 	"[. test] [. test] 0 false":"true .test <nil> 2",
+	"[. txt] [. txt] 0 true":"true .txt <nil> 2", //matchCompComp
+	"[. txt] [.txt] 0 false":"true .txt <nil> 1", //matchCompComp
+	"[. txt] [txt] 0 true":"false txt <nil> 1", //matchCompComp
 	"[b] [**] 0 false":"false <nil> ** 0", // TODO: ?
 	"[b] [b *] 0 false":"false b * 1", // TODO: ?
 	"[b] [b ? r] 0 false":"false b ? 1",
@@ -1307,6 +1363,7 @@ var checkpoints_matchCompComp = map[string]any{
 	"[b] [xv1y.h] 0 false":"false <nil> xv1y.h 0",
 	"[b] [xv22y.h] 0 false":"false <nil> xv22y.h 0",
 	"[b] [xv333y.h] 0 false":"false <nil> xv333y.h 0",
+	"[ba] [bar] 0 false":"false ba r 0", //matchCompComp
 	"[bar] [* . h] 0 false":"false <nil> * 0",
 	"[bar] [** . hh] 0 false":"false <nil> ** 0",
 	"[bar] [bar] 0 false":"true bar <nil> 1",
@@ -1400,6 +1457,12 @@ var checkpoints_matchCompComp = map[string]any{
 	"[xv] [xv1y.h] 0 false":"false xv 1y.h 0",
 	"[xv] [xv22y.h] 0 false":"false xv 22y.h 0",
 	"[xv] [xv333y.h] 0 false":"false xv 333y.h 0",
+	"[xyz] [v1.h] 0 false":"false <nil> v1.h 0", //matchCompComp
+	"[xyz] [v2.h] 0 false":"false <nil> v2.h 0", //matchCompComp
+	"[xyz] [v3.hh] 0 false":"false <nil> v3.hh 0", //matchCompComp
+	"[xyz] [xyz ? ? ? . txt] 0 false":"false xyz ? 1", //matchCompComp
+	"[xyz] [xyz000.txt] 0 false":"false xyz 000.txt 0", //matchCompComp
+	"[xyz] [zz] 0 false":"false <nil> zz 0", //matchCompComp
 	"[y . h] [. h] 0 true":"false .h <nil> 2",
 	"[y . h] [1y.h] 0 true":"true y.h 1 1",
 	"[y . h] [1y.h] [] 0 true":"true y.h [] 1 1",
@@ -1455,7 +1518,7 @@ func check_matchCompComp(ctx Context, elems, vals []Value, idx int, trail bool) 
 	var v = checkpoints_matchCompComp[k]
 	return func(_full, _patMatched *bool, _res, _rem *Value, _idx *int) {
 		if t := sf("%v %v %v %v", *_full, *_res, *_rem, *_idx); v == nil {
-			if false { prompt(ctx, `	"%s":"%s", //matchCompComp`+"\n", k, t) } else
+			if true { prompt(ctx, `	"%s":"%s", //matchCompComp`+"\n", k, t) } else
 			{ debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("vals: %v", ts(vals)),
 				callstack{num:16}, trace{}) }
 		} else if v != t {
@@ -1767,6 +1830,8 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[. hh] [xyz000.txt] [] 0 true":"false <nil> [] 1 <nil>",
 	"[. hh] [zz] [] 0 true":"false <nil> [] 1 <nil>",
 	"[. test] [. test] [] 0 false":"true .test [] 2 <nil>",
+	"[. txt] [. txt] [] 0 true":"true .txt [] 2 <nil>", //matchGlobComp
+	"[. txt] [txt] [] 0 true":"false txt [] 1 <nil>", //matchGlobComp
 	"[? . h] [x . h] [] 0 false":"true x.h [x] 3 <nil>",
 	"[? . h] [x.h] [] 0 false":"true x.h [x] 1 <nil>",
 	"[b *] [**] [] 0 false":"false <nil> [] 0 <nil>", // TODO: ?
@@ -1784,6 +1849,8 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[b ? r] [xv1y.h] [] 0 false":"false <nil> [] 0 <nil>",
 	"[b ? r] [xv22y.h] [] 0 false":"false <nil> [] 0 <nil>",
 	"[b ? r] [xv333y.h] [] 0 false":"false <nil> [] 0 <nil>",
+	"[ba *] [bar] [] 0 false":"true bar [r] 1 <nil>", //matchGlobComp
+	"[ba ?] [bar] [] 0 false":"true bar [r] 1 <nil>", //matchGlobComp
 	"[bar] [* . h] [] 0 false":"false <nil> [] 0 <nil>",
 	"[bar] [** . hh] [] 0 false":"false <nil> [] 0 <nil>",
 	"[bar] [bar] [] 0 false":"true bar [] 1 <nil>",
@@ -1909,6 +1976,12 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[xv * y . h] [xv1y.h] [] 0 false":"true xv1y.h [1] 1 <nil>",
 	"[xv * y . h] [xv22y.h] [] 0 false":"true xv22y.h [22] 1 <nil>",
 	"[xv * y . h] [xv333y.h] [] 0 false":"true xv333y.h [333] 1 <nil>",
+	"[xyz * . txt] [xyz ? ? ? . txt] [] 0 false":"true xyz???.txt [???] 6 <nil>", //matchGlobComp
+	"[xyz ? ? ? . txt] [v1.h] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
+	"[xyz ? ? ? . txt] [v2.h] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
+	"[xyz ? ? ? . txt] [v3.hh] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
+	"[xyz ? ? ? . txt] [xyz000.txt] [] 0 false":"true xyz000.txt [0 0 0] 1 <nil>", //matchGlobComp
+	"[xyz ? ? ? . txt] [zz] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
 	"[y . h] [. h] [] 0 true":"false .h [] 2 <nil>",
 	"[y . h] [1y.h] [] 0 true":"true y.h [] 1 1",
 	"[y . h] [22y.h] [] 0 true":"true y.h [] 1 22",
@@ -1961,7 +2034,7 @@ func check_matchGlobComp(ctx Context, elems, vals, stems []Value, idx int, trail
 	var v = checkpoints_matchGlobComp[k]
 	return func(_full *bool, _res *Value, _stems *[]Value, _idx *int, _unconsumed *Value) {
 		if t := sf("%v %v %v %v %v", *_full, *_res, *_stems, *_idx, *_unconsumed); v == nil {
-			if false { prompt(ctx, `	"%s":"%s", //matchGlobComp`+"\n", k, t) } else
+			if true { prompt(ctx, `	"%s":"%s", //matchGlobComp`+"\n", k, t) } else
 			{ debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("vals: %v", ts(vals)),
 				callstack{num:10}, trace{}) }
 		} else if v != t {
@@ -2280,6 +2353,9 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[b ? r] [foo xv22y.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[b ? r] [foo xv333y.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[b ? r] [foo] 1":"false <nil> [] 1 ILLEGAL",
+	"[ba *] [foo bar v1.h] 1":"true bar [r] 2 ILLEGAL", //matchGlobPath
+	"[ba *] [foo bar v2.h] 1":"true bar [r] 2 ILLEGAL", //matchGlobPath
+	"[ba ?] [foo bar xyz???.txt] 1":"true bar [r] 2 ILLEGAL", //matchGlobPath
 	"[bar] [foo **.hh] 1":"false <nil> [] 1 ILLEGAL",
 	"[bar] [foo *.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[bar] [foo bar * *.h] 1":"true bar [] 2 ILLEGAL",
@@ -2370,6 +2446,7 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[foo] [foo bar v3.hh] 0":"true foo [] 1 ILLEGAL",
 	"[foo] [foo bar v?.h] 0":"true foo [] 1 ILLEGAL",
 	"[foo] [foo bar xyz000.txt] 0":"true foo [] 1 ILLEGAL",
+	"[foo] [foo bar xyz???.txt] 0":"true foo [] 1 ILLEGAL", //matchGlobPath
 	"[foo] [foo bar z? ?.h] 0":"true foo [] 1 ILLEGAL",
 	"[foo] [foo bar zz ?.h] 0":"true foo [] 1 ILLEGAL",
 	"[foo] [foo bar zz x.h] 0":"true foo [] 1 ILLEGAL",
@@ -2529,6 +2606,13 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[xv * y . h] [foo xv22y.h] 1":"true xv22y.h [22] 2 ILLEGAL",
 	"[xv * y . h] [foo xv333y.h] 1":"true xv333y.h [333] 2 ILLEGAL",
 	"[xv * y . h] [foo] 1":"false <nil> [] 1 ILLEGAL",
+	"[xyz * . txt] [foo bar xyz???.txt] 2":"true xyz???.txt [???] 3 ILLEGAL", //matchGlobPath
+	"[xyz ? ? ? . txt] [foo bar v1.h] 2":"false <nil> [] 2 ILLEGAL", //matchGlobPath
+	"[xyz ? ? ? . txt] [foo bar v2.h] 2":"false <nil> [] 2 ILLEGAL", //matchGlobPath
+	"[xyz ? ? ? . txt] [foo bar v3.hh] 2":"false <nil> [] 2 ILLEGAL", //matchGlobPath
+	"[xyz ? ? ? . txt] [foo bar xyz000.txt] 2":"true xyz000.txt [0 0 0] 3 ILLEGAL", //matchGlobPath
+	"[xyz ? ? ? . txt] [foo bar zz] 2":"false <nil> [] 2 ILLEGAL", //matchGlobPath
+	"[xyz ? ? ? . txt] [foo bar] 2":"false <nil> [] 2 ILLEGAL", //matchGlobPath
 	"[z ?] [foo bar v1.h] 2":"false <nil> [] 2 ILLEGAL",
 	"[z ?] [foo bar v2.h] 2":"false <nil> [] 2 ILLEGAL",
 	"[z ?] [foo bar v3.hh] 2":"false <nil> [] 2 ILLEGAL",
@@ -2548,7 +2632,7 @@ func check_matchGlobPath(ctx Context, elems, segments, stems []Value, idx int) f
 	var v = checkpoints_matchGlobPath[k]
 	return func(_full *bool, _res *Value, _stems *[]Value, _idx *int, _wildToken *token) {
 		if t := sf("%v %v %v %v %v", *_full, *_res, *_stems, *_idx, *_wildToken); v == nil {
-			if false { prompt(ctx, `	"%s":"%s", //matchGlobPath`+"\n", k, t) } else
+			if true { prompt(ctx, `	"%s":"%s", //matchGlobPath`+"\n", k, t) } else
 			{ debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
 				callstack{num:10}, trace{}) }	
 		} else if v != t {
@@ -2701,6 +2785,9 @@ var checkpoints_matchPathPath = map[string]any{
 	"[foo b?r v?.h] [foo.h]":"false {=path foo} [] 0",
 	"[foo b?r v?.h] [foo]":"false {=path foo} [] 1",
 	"[foo b?r v?.h] [foobar]":"false {=path foo} [] 0",
+	"[foo ba* v?.h] [foo bar v1.h]":"true foo/bar/v1.h [r 1] 3", //matchPathPath
+	"[foo ba* v?.h] [foo bar v2.h]":"true foo/bar/v2.h [r 2] 3", //matchPathPath
+	"[foo ba? xyz*.txt] [foo bar xyz???.txt]":"true foo/bar/xyz???.txt [r ???] 3", //matchPathPath
 	"[foo bar * *.h] [foo *.h]":"false {=path foo} [] 1",
 	"[foo bar * *.h] [foo bar v?.h]":"false foo/bar/v?.h [v?.h] 3",
 	"[foo bar * *.h] [foo bar zz x.h]":"true foo/bar/zz/x.h [zz x] 4",
@@ -2743,6 +2830,21 @@ var checkpoints_matchPathPath = map[string]any{
 	"[foo bar v?.h] [foo.h]":"false {=path foo} [] 0",
 	"[foo bar v?.h] [foo]":"false {=path foo} [] 1",
 	"[foo bar v?.h] [foobar]":"false {=path foo} [] 0",
+	"[foo bar xyz???.txt] [bar.h]":"false <nil> [] 0", //matchPathPath
+	"[foo bar xyz???.txt] [foo bar v1.h]":"false foo/bar [] 2", //matchPathPath
+	"[foo bar xyz???.txt] [foo bar v2.h]":"false foo/bar [] 2", //matchPathPath
+	"[foo bar xyz???.txt] [foo bar v3.hh]":"false foo/bar [] 2", //matchPathPath
+	"[foo bar xyz???.txt] [foo bar xyz000.txt]":"true foo/bar/xyz000.txt [0 0 0] 3", //matchPathPath
+	"[foo bar xyz???.txt] [foo bar zz]":"false foo/bar [] 2", //matchPathPath
+	"[foo bar xyz???.txt] [foo bar]":"false foo/bar [] 2", //matchPathPath
+	"[foo bar xyz???.txt] [foo v1.h]":"false {=path foo} [] 1", //matchPathPath
+	"[foo bar xyz???.txt] [foo v2.h]":"false {=path foo} [] 1", //matchPathPath
+	"[foo bar xyz???.txt] [foo xv1y.h]":"false {=path foo} [] 1", //matchPathPath
+	"[foo bar xyz???.txt] [foo xv22y.h]":"false {=path foo} [] 1", //matchPathPath
+	"[foo bar xyz???.txt] [foo xv333y.h]":"false {=path foo} [] 1", //matchPathPath
+	"[foo bar xyz???.txt] [foo.h]":"false {=path foo} [] 0", //matchPathPath
+	"[foo bar xyz???.txt] [foo]":"false {=path foo} [] 1", //matchPathPath
+	"[foo bar xyz???.txt] [foobar]":"false {=path foo} [] 0", //matchPathPath
 	"[foo bar z? ?.h] [bar.h]":"false <nil> [] 0",
 	"[foo bar z? ?.h] [foo *.h]":"false {=path foo} [] 1",
 	"[foo bar z? ?.h] [foo bar v1.h]":"false foo/bar [] 2",
@@ -2957,7 +3059,7 @@ func check_matchPathPath(ctx Context, elems, segments []Value, res []Value, stem
 	var v = checkpoints_matchPathPath[k]
 	return func(_full *bool, _res *Value, _stems *[]Value, _idx *int) {
 		if t := sf("%v %v %v %v", *_full, *_res, *_stems, *_idx); v == nil {
-			if false { prompt(ctx, `	"%s":"%s", //matchPathPath`+"\n", k, t) } else
+			if true { prompt(ctx, `	"%s":"%s", //matchPathPath`+"\n", k, t) } else
 			{ debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
 				callstack{num:10}, trace{}) }
 		} else if v != t {

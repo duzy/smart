@@ -417,7 +417,7 @@ func test__wildcard3(ctx *testcase) {
 	var p = _project(ctx)
 	if x, y := p.filemap.get("**"); y {
 		ctx.err("%v %v", &p.filemap, x)
-	} else if s, t := p.filemap.String(), ``; s != t {
+	} else if s, t := p.filemap.String(), `{foo:{ba:{*:{v:{?:{.:{h:{0:foo/ba*/v?.h}}}}},?:{xyz:{*:{.:{txt:{0:foo/ba?/xyz*.txt}}}}}}}}`; s != t {
 		ctx.err("%s != %s", s, t)
 	}
 }

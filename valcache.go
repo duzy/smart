@@ -381,26 +381,25 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 
 		// B. Literal / Prefix Match
 		if k < len(s) {
-			charStr := s[k : k+1]
-			if x, y := c.get(charStr); y {
-				if f0(x, ss, i, j, k+1) { found = true }
-			}
 			for _, entry := range c.o {
 				key := entry.k
+				if isWildcardMeta(key) || key == "?" { continue }
+
 				if len(key) > 2 && key[0] == '[' {
 					if matchCharSet(key, s[k]) {
 						if f0(entry.v, ss, i, j, k+1) { found = true }
 					}
+				} else if len(key) > 0 { // Literal match
+					if strings.HasPrefix(s[k:], key) {
+						// Advance k by the length of the matched prefix.
+						// The next recursive call will safely hit '3. Token Boundary' if k == len(s)!
+						if f0(entry.v, ss, i, j, k+len(key)) { found = true }
+					}
 				}
 			}
-		} 
-		
-		// C. Hybrid Token Match
-		if k == 0 {
-			if x, y := c.get(s); y {
-				if f0(x, ss, i, j+1, 0) { found = true }
-			}
 		}
+
+		// (C. Hybrid Token Match has been safely superseded and optimized into B)
 
 		// D. Trie Wildcards
 		
