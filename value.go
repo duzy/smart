@@ -4501,10 +4501,7 @@ func matchGlobComp(ctx Context, elems, vals, stems []Value, idx int, trail bool)
 					return false, matchedRes(), stems, idx, nil
 				}
 
-				// FIX 3a: `?` cannot match a structural boundary! Only reject PROOT/PTAIL.
-				if indexRootTailPunct(val) != -1 {
-					return false, matchedRes(), stems, idx, nil
-				}
+				// PURGED: No more Punctuation Immunity! Let it eat freely.
 
 				_, r, s := matchGlobScalar(ctx, e, val)
 				if r != nil { 
@@ -4531,11 +4528,7 @@ func matchGlobComp(ctx Context, elems, vals, stems []Value, idx int, trail bool)
 						if idx < len(vals) { t = append(t, vals[idx:]...) }
 					}
 
-					// FIX 3b: Wildcards cannot consume structural path boundaries!
-					if boundaryIdx := indexRootTailPunct(t...); boundaryIdx != -1 {
-						// Truncate the consumable slice right before the boundary
-						t = t[:boundaryIdx]
-					}
+					// PURGED: No more Punctuation Immunity truncation!
 
 					if len(t) > 0 {
 						matchedParts = append(matchedParts, t...)
@@ -4564,8 +4557,7 @@ func matchGlobComp(ctx Context, elems, vals, stems []Value, idx int, trail bool)
 				remainder := getRemainder()
 
 				globRem := func(k int, isTrail bool) bool {
-					// FIX 3c: Ensure the consumed remainder doesn't contain boundaries
-					if indexRootTailPunct(remainder[:k]...) != -1 { return false }
+					// PURGED: No more Punctuation Immunity inside globRem!
 
 					if ok, r, s, _, unconsumed := matchGlobComp(ctx, cons, remainder[k:], nil, 0, isTrail); ok {
 						if k > 0 { matchedParts = append(matchedParts, remainder[:k]...) }
@@ -4857,6 +4849,24 @@ func matchPathPath(ctx Context, elems, segments, res, stems []Value, idx int) (_
 		debug(ctx, "TODO: match path: %v %v %v", elems, segments, stems, callstack{num:5}, trace{})
 		return false, nil, stems, idx
 	}
+
+	// --- NEW STRUCTURAL SAFETY GUARD ---
+	// Prevent relative path patterns from matching absolute paths and vice versa.
+	if idx == 0 && len(elems) > 0 && len(segments) > 0 {
+		patIsAbs, valIsAbs := false, false
+		
+		if patAtoms := unpack(elems[0]); len(patAtoms) > 0 {
+			if p, ok := unloc(patAtoms[0]).(*punct); ok && p.token == PROOT { patIsAbs = true }
+		}
+		if valAtoms := unpack(segments[0]); len(valAtoms) > 0 {
+			if p, ok := unloc(valAtoms[0]).(*punct); ok && p.token == PROOT { valIsAbs = true }
+		}
+
+		if patIsAbs != valIsAbs {
+			return false, nil, stems, 0
+		}
+	}
+	// -----------------------------------
 
 	// Helper to prevent empty path wrappers AND typed nils
 	makePath := func(v []Value) Value { if 0 < len(v) { return &path{elements{v}} } else { return nil } }
