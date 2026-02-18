@@ -223,29 +223,31 @@ var checkstrs = map[string]map[string]map[string]any{
 	"testdata/valcache/2":           checkstrs_valcache2,
 	"testdata/valcache/3":           checkstrs_valcache3,
 }
-func check_string(ctx Context, p Value, v Value, res string) {
+func check_string(ctx Context, v any) func(*Value, *string) {
 	var (
 		src = strings.Split(try[string](ctx,source{}),":")
 		d, _ = do(ctx, origin_def{}).(*def)
-		dn = func() (s string) { if d != nil { s = d.name }; return } ()
-		ks = func() (s string) {
-		if src[0] != "loader.go" && 1 < len(src) { s = src[1] + " " }
-			s += line_column(d)+":"+dn+" "+p.String()+" "+ts(p)
+		k = func() (s string) {
+			if src[0] != "loader.go" && 1 < len(src) { s = src[1] + " " }
+			if d != nil {
+				s += sf("%v:%v %v %v", line_column(d), d.name, v, ts(v,ctx))
+			} else {
+				s += sf("%v", ts(v,ctx))
+			}
 			return
 		} ()
-		vs = ts(v,ctx)+" "+res
-		ta = checkstrs[_project(ctx).spec][src[0]][ks]
 	)
-	switch v := ta.(type) {
-	case []string: for _, s := range v { if s == vs { return } }
-	case   string:                       if v == vs { return }
+	return func(_val *Value, _res *string) {
+		p := _project(ctx);  if p == nil { return }
+		t := checkstrs[p.spec][src[0]][k]; if t == nil { return }
+		s := sf("%v %v", ts(*_val,ctx), *_res); if s == t { return }
+		debug(pc(ctx,d), _f("`%v`", k),
+			_f(`got: %v`, s),
+			_f(`!= : %v`, t),
+			_f(`val: %v`, *_val),
+			_f(`res: %v`, *_res),
+			callstack{num:10}, trace{})
 	}
-	debug(pc(ctx,p), _f("`%v`", ks),
-		_f(`got: %s`, vs),
-		_f(`!= : %v`, ta),
-		_f(`val: %v`, v),
-		_f(`res: %v`, res),
-		callstack{num:10}, trace{})
 }
 
 var checkpoints_cmp = map[string]string{
@@ -458,6 +460,16 @@ var checkpoints_cmp = map[string]string{
 	`{=token .} {=string .test} []`:`lprefix`,
 	`{=token .} {=token .} []`:`equal`,
 	`{=token .} {=word bar} []`:`smaller`,
+	`{=word a} {= {=word a}} []`:`equal`, //cmp: a a
+	`{=word x} {= {=word a}} []`:`greater`, //cmp: x a
+	`{=word x} {= {=word b}} []`:`greater`, //cmp: x b
+	`{=word x} {= {=word c}} []`:`greater`, //cmp: x c
+	`{=word x} {= {= {=null}}} []`:`rprefix`, //cmp: x {}
+	`{=word b} {= {=word a}} []`:`greater`, //cmp: b a
+	`{=word b} {= {=word b}} []`:`equal`, //cmp: b b
+	`{=word c} {= {=word a}} []`:`greater`, //cmp: c a
+	`{=word c} {= {=word b}} []`:`greater`, //cmp: c b
+	`{=word c} {= {=word c}} []`:`equal`, //cmp: c c
 	`{=word bar} {=glob {=meta **} {=punct .} {=word hh}} []`:`smaller`,
 	`{=word bar} {=glob {=meta *} {=punct .} {=word h}} []`:`smaller`,
 	`{=word bar} {=glob {=word ba} {=meta *}} []`:`smaller`, //cmp: bar ba*
@@ -1354,6 +1366,9 @@ var checkpoints_matchCompComp = map[string]any{
 	"[. txt] [. txt] 0 true":"true .txt <nil> 2", //matchCompComp
 	"[. txt] [.txt] 0 false":"true .txt <nil> 1", //matchCompComp
 	"[. txt] [txt] 0 true":"false txt <nil> 1", //matchCompComp
+	"[Volumes] [Volumes] 0 false":"true Volumes <nil> 1", //matchCompComp
+	"[] [] 0 false":"true  <nil> 1", //matchCompComp
+	"[] [builtins] 0 false":"false  builtins 0", //matchCompComp
 	"[b] [**] 0 false":"false <nil> ** 0", // TODO: ?
 	"[b] [b *] 0 false":"false b * 1", // TODO: ?
 	"[b] [b ? r] 0 false":"false b ? 1",
@@ -1372,8 +1387,10 @@ var checkpoints_matchCompComp = map[string]any{
 	"[bar] [xv1y.h] 0 false":"false <nil> xv1y.h 0",
 	"[bar] [xv22y.h] 0 false":"false <nil> xv22y.h 0",
 	"[bar] [xv333y.h] 0 false":"false <nil> xv333y.h 0",
+	"[builtins] [builtins] 0 false":"true builtins <nil> 1", //matchCompComp
 	"[config] [config] 0 false":"true config <nil> 1",
 	"[config] [x.h] 0 false":"false <nil> x.h 0",
+	"[extbit.io] [extbit.io] 0 false":"true extbit.io <nil> 1", //matchCompComp
 	"[f] [bar.h] 0 false":"false <nil> bar.h 0",
 	"[f] [fo ?] 0 false":"false f o 0",
 	"[f] [foo.h] 0 false":"false f oo.h 0",
@@ -1395,6 +1412,7 @@ var checkpoints_matchCompComp = map[string]any{
 	"[foobar] [foo.h] 0 false":"false <nil> foo.h 0",
 	"[foobar] [foo] 0 false":"false <nil> foo 0",
 	"[foobar] [foobar] 0 false":"true foobar <nil> 1",
+	"[go] [go] 0 false":"true go <nil> 1", //matchCompComp
 	"[inc] [.DS_Store] 0 false":"false <nil> .DS_Store 0",
 	"[inc] [1] 0 false":"false <nil> 1 0",
 	"[inc] [2] 0 false":"false <nil> 2 0",
@@ -1404,6 +1422,16 @@ var checkpoints_matchCompComp = map[string]any{
 	"[inc] [inc] 0 false":"true inc <nil> 1",
 	"[r] [] 0 false":"false <nil> <nil> 0",
 	"[r] [r] 0 false":"true r <nil> 1",
+	"[smart] [smart] 0 false":"true smart <nil> 1", //matchCompComp
+	"[src] [src] 0 false":"true src <nil> 1", //matchCompComp
+	"[testdata] [builtins] 0 false":"false <nil> builtins 0", //matchCompComp
+	"[testdata] [extbit.io] 0 false":"false <nil> extbit.io 0", //matchCompComp
+	"[testdata] [go] 0 false":"false <nil> go 0", //matchCompComp
+	"[testdata] [smart] 0 false":"false <nil> smart 0", //matchCompComp
+	"[testdata] [src] 0 false":"false <nil> src 0", //matchCompComp
+	"[testdata] [testdata] 0 false":"true testdata <nil> 1", //matchCompComp
+	"[testdata] [trimprefix] 0 false":"false <nil> trimprefix 0", //matchCompComp
+	"[testdata] [workspace] 0 false":"false <nil> workspace 0", //matchCompComp
 	"[v] [* . h] 0 false":"false <nil> * 0",
 	"[v] [*] 0 false":"false <nil> * 0", // TODO: ?
 	"[v] [v * . h] 0 false":"false v * 1",
@@ -1415,6 +1443,7 @@ var checkpoints_matchCompComp = map[string]any{
 	"[v] [v3.hh] 0 false":"false v 3.hh 0",
 	"[v] [xyz000.txt] 0 false":"false <nil> xyz000.txt 0",
 	"[v] [zz] 0 false":"false <nil> zz 0",
+	"[workspace] [workspace] 0 false":"true workspace <nil> 1", //matchCompComp
 	"[x . h] [* . h] 0 false":"false <nil> * 0", // TODO: ?
 	"[x . h] [**] 0 false":"false <nil> ** 0",
 	"[x . h] [? . h] 0 false":"false <nil> ? 0", // TODO: ?
@@ -1670,20 +1699,30 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[** y] [z] [] 0 false":"false z [z] 0 <nil>",
 	"[** z] [xyz] [] 0 false":"true xyz [xy] 1 <nil>",
 	"[**] [. test] [] 0 false":"true .test [.test] 2 <nil>",
+	"[**] [Volumes] [] 0 false":"true Volumes [Volumes] 1 <nil>", //matchGlobComp
+	"[**] [] [] 0 false":"true <nil> [] 0 <nil>", //matchGlobComp
 	"[**] [a] [] 0 false":"true a [a] 1 <nil>",
 	"[**] [aaa] [] 0 false":"true aaa [aaa] 1 <nil>",
 	"[**] [abcy] [] 0 false":"true abcy [abcy] 1 <nil>",
 	"[**] [b *] [] 0 false":"true b* [b*] 2 <nil>",
 	"[**] [bar] [] 0 false":"true bar [bar] 1 <nil>",
+	"[**] [builtins] [] 0 false":"true builtins [builtins] 1 <nil>", //matchGlobComp
 	"[**] [c] [] 0 false":"true c [c] 1 <nil>",
 	"[**] [dy] [] 0 false":"true dy [dy] 1 <nil>",
+	"[**] [extbit.io] [] 0 false":"true extbit.io [extbit.io] 1 <nil>", //matchGlobComp
 	"[**] [foo ? ? ?] [] 0 false":"true foo??? [foo???] 4 <nil>",
 	"[**] [foo] [] 0 false":"true foo [foo] 1 <nil>",
 	"[**] [foobar] [] 0 false":"true foobar [foobar] 1 <nil>",
+	"[**] [go] [] 0 false":"true go [go] 1 <nil>", //matchGlobComp
+	"[**] [smart] [] 0 false":"true smart [smart] 1 <nil>", //matchGlobComp
+	"[**] [src] [] 0 false":"true src [src] 1 <nil>", //matchGlobComp
+	"[**] [testdata] [] 0 false":"true testdata [testdata] 1 <nil>", //matchGlobComp
+	"[**] [trimprefix] [] 0 false":"true trimprefix [trimprefix] 1 <nil>", //matchGlobComp
 	"[**] [v * . h] [] 0 false":"true v*.h [v*.h] 4 <nil>",
 	"[**] [v1.h] [] 0 false":"true v1.h [v1.h] 1 <nil>",
 	"[**] [v2.h] [] 0 false":"true v2.h [v2.h] 1 <nil>",
 	"[**] [v3.hh] [] 0 false":"true v3.hh [v3.hh] 1 <nil>",
+	"[**] [workspace] [] 0 false":"true workspace [workspace] 1 <nil>", //matchGlobComp
 	"[**] [x.h] [] 0 false":"true x.h [x.h] 1 <nil>",
 	"[**] [xv1y.h] [] 0 false":"true xv1y.h [xv1y.h] 1 <nil>",
 	"[**] [xv22y.h] [] 0 false":"true xv22y.h [xv22y.h] 1 <nil>",
@@ -1834,6 +1873,10 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[. txt] [txt] [] 0 true":"false txt [] 1 <nil>", //matchGlobComp
 	"[? . h] [x . h] [] 0 false":"true x.h [x] 3 <nil>",
 	"[? . h] [x.h] [] 0 false":"true x.h [x] 1 <nil>",
+	"[Volumes] [Volumes] 0 false":"true Volumes <nil> 1", //matchCompComp
+	"[Volumes] [Volumes] [] 0 false":"true Volumes [] 1 <nil>", //matchGlobComp
+	"[] [] [] 0 false":"true  [] 1 <nil>", //matchGlobComp
+	"[] [builtins] [] 0 false":"false  [] 0 <nil>", //matchGlobComp
 	"[b *] [**] [] 0 false":"false <nil> [] 0 <nil>", // TODO: ?
 	"[b *] [b ? r] [] 0 false":"true b?r [?r] 3 <nil>",
 	"[b *] [bar] [] 0 false":"true bar [ar] 1 <nil>",
@@ -1860,9 +1903,11 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[bar] [xv1y.h] [] 0 false":"false <nil> [] 0 <nil>",
 	"[bar] [xv22y.h] [] 0 false":"false <nil> [] 0 <nil>",
 	"[bar] [xv333y.h] [] 0 false":"false <nil> [] 0 <nil>",
+	"[builtins] [builtins] [] 0 false":"true builtins [] 1 <nil>", //matchGlobComp
 	"[config] [config] [] 0 false":"true config [] 1 <nil>",
 	"[config] [foobar x.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[config] [x.h] [] 0 false":"false <nil> [] 0 <nil>",
+	"[extbit.io] [extbit.io] [] 0 false":"true extbit.io [] 1 <nil>", //matchGlobComp
 	"[f *?] [bar.h] [] 0 false":"false <nil> [] 0 <nil>",
 	"[f *?] [fo ?] [] 0 false":"true fo? [o?] 2 <nil>",
 	"[f *?] [foo.h] [] 0 false":"true foo.h [oo.h] 1 <nil>",
@@ -1893,6 +1938,7 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[foobar] [foo.h] [] 0 false":"false <nil> [] 0 <nil>",
 	"[foobar] [foo] [] 0 false":"false <nil> [] 0 <nil>",
 	"[foobar] [foobar] [] 0 false":"true foobar [] 1 <nil>",
+	"[go] [go] [] 0 false":"true go [] 1 <nil>", //matchGlobComp
 	"[inc] [.DS_Store] [] 0 false":"false <nil> [] 0 <nil>",
 	"[inc] [1] [] 0 false":"false <nil> [] 0 <nil>",
 	"[inc] [2] [] 0 false":"false <nil> [] 0 <nil>",
@@ -1900,6 +1946,16 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[inc] [4] [] 0 false":"false <nil> [] 0 <nil>",
 	"[inc] [do.smart] [] 0 false":"false <nil> [] 0 <nil>",
 	"[inc] [inc] [] 0 false":"true inc [] 1 <nil>",
+	"[smart] [smart] [] 0 false":"true smart [] 1 <nil>", //matchGlobComp
+	"[src] [src] [] 0 false":"true src [] 1 <nil>", //matchGlobComp
+	"[testdata] [builtins] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
+	"[testdata] [extbit.io] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
+	"[testdata] [go] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
+	"[testdata] [smart] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
+	"[testdata] [src] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
+	"[testdata] [testdata] [] 0 false":"true testdata [] 1 <nil>", //matchGlobComp
+	"[testdata] [trimprefix] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
+	"[testdata] [workspace] [] 0 false":"false <nil> [] 0 <nil>", //matchGlobComp
 	"[v * . h] [v ? . h] [] 0 false":"true v?.h [?] 4 <nil>",
 	"[v * . h] [v1 . h] [] 0 false":"true v1.h [1] 3 <nil>",
 	"[v * . h] [v1.h] [] 0 false":"true v1.h [1] 1 <nil>",
@@ -1918,6 +1974,7 @@ var checkpoints_matchGlobComp = map[string]any{
 	"[v ? . h] [v3.hh] [] 0 false":"false v3.h [3] 0 <nil>",
 	"[v ? . h] [xyz000.txt] [] 0 false":"false <nil> [] 0 <nil>",
 	"[v ? . h] [zz] [] 0 false":"false <nil> [] 0 <nil>",
+	"[workspace] [workspace] [] 0 false":"true workspace [] 1 <nil>", //matchGlobComp
 	"[x * y . h] [bar] [] 0 false":"false <nil> [] 0 <nil>",
 	"[x * y . h] [v1.h] [] 0 false":"false <nil> [] 0 <nil>",
 	"[x * y . h] [v2.h] [] 0 false":"false <nil> [] 0 <nil>",
@@ -2224,6 +2281,19 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[** y] [z] 0":"false z [z] 0 **",
 	"[** z] [] 0":"false <nil> [] 0 ILLEGAL",
 	"[** z] [xyz] 0":"true xyz [xy] 1 **",
+	testdata_f("[**] [%[2]s builtins trimprefix] 0"):testdata_f("true %[1]s/builtins/trimprefix [%[1]s/builtins/trimprefix] 10 **"),
+	testdata_f("[**] [%[2]s builtins] 0"):testdata_f("true %[1]s/builtins [%[1]s/builtins] 9 **"),
+	testdata_f("[**] [%[2]s] 0"):testdata_f("true %[1]s [%[1]s] 8 **"),
+	testdata_f("[**] [%[2]s] 0",trim_suffix{2," testdata"}):testdata_f("true %[1]s [%[1]s] 7 **",trim_suffix{1,"/testdata"}),
+	// "[**] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 0":"true /Volumes/workspace/go/src/extbit.io/smart/testdata/builtins/trimprefix [/Volumes/workspace/go/src/extbit.io/smart/testdata/builtins/trimprefix] 10 **", //matchGlobPath
+	// "[**] [ Volumes workspace go src extbit.io smart testdata builtins] 0":"true /Volumes/workspace/go/src/extbit.io/smart/testdata/builtins [/Volumes/workspace/go/src/extbit.io/smart/testdata/builtins] 9 **", //matchGlobPath
+	// "[**] [ Volumes workspace go src extbit.io smart testdata] 0":"true /Volumes/workspace/go/src/extbit.io/smart/testdata [/Volumes/workspace/go/src/extbit.io/smart/testdata] 8 **", //matchGlobPath
+	// "[**] [ Volumes workspace go src extbit.io smart] 0":"true /Volumes/workspace/go/src/extbit.io/smart [/Volumes/workspace/go/src/extbit.io/smart] 7 **", //matchGlobPath
+	"[**] [ Volumes workspace go src extbit.io] 0":"true /Volumes/workspace/go/src/extbit.io [/Volumes/workspace/go/src/extbit.io] 6 **", //matchGlobPath
+	"[**] [ Volumes workspace go src] 0":"true /Volumes/workspace/go/src [/Volumes/workspace/go/src] 5 **", //matchGlobPath
+	"[**] [ Volumes workspace go] 0":"true /Volumes/workspace/go [/Volumes/workspace/go] 4 **", //matchGlobPath
+	"[**] [ Volumes workspace] 0":"true /Volumes/workspace [/Volumes/workspace] 3 **", //matchGlobPath
+	"[**] [ Volumes] 0":"true /Volumes [/Volumes] 2 **", //matchGlobPath
 	"[**] [.test a b c xyz] 1":"true a/b/c/xyz [a/b/c/xyz] 5 **",
 	"[**] [] 0":"true <nil> [] 0 **",
 	"[**] [a b c xyz] 0":"true a/b/c/xyz [a/b/c/xyz] 4 **",
@@ -2326,6 +2396,9 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[. test] [.test xxx-yyy] 0":"true .test [] 1 ILLEGAL",
 	"[? . h] [foo bar zz x.h] 3":"true x.h [x] 4 ILLEGAL",
 	"[? . h] [foo bar zz] 3":"false <nil> [] 3 ILLEGAL",
+	"[Volumes] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 1":"true Volumes [] 2 ILLEGAL", //matchGlobPath
+	"[] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 0":"true  [] 1 ILLEGAL", //matchGlobPath
+	"[] [testdata builtins trimprefix] 1":"false  [] 2 ILLEGAL", //matchGlobPath
 	"[b *] [foo ** x.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[b *] [foo b?r v?.h] 1":"true b?r [?r] 2 ILLEGAL",
 	"[b *] [foo bar v1.h] 1":"true bar [ar] 2 ILLEGAL",
@@ -2376,6 +2449,7 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[bar] [foo xv22y.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[bar] [foo xv333y.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[bar] [foo] 1":"false <nil> [] 1 ILLEGAL",
+	"[builtins] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 8":"true builtins [] 9 ILLEGAL", //matchGlobPath
 	"[config] [foobar config a.def.am] 1":"true config [] 2 ILLEGAL",
 	"[config] [foobar config a.def.in] 1":"true config [] 2 ILLEGAL",
 	"[config] [foobar config b.def.in] 1":"true config [] 2 ILLEGAL",
@@ -2383,6 +2457,7 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[config] [foobar config] 1":"true config [] 2 ILLEGAL",
 	"[config] [foobar x.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[config] [foobar] 1":"false <nil> [] 1 ILLEGAL",
+	"[extbit.io] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 5":"true extbit.io [] 6 ILLEGAL", //matchGlobPath
 	"[f *?] [] 0":"false <nil> [] 0 ILLEGAL",
 	"[f *?] [bar.h] 0":"false <nil> [] 0 ILLEGAL",
 	"[f *?] [fo? ** x.h] 0":"true fo?/**/x.h [o?/**/x.h] 3 *?",
@@ -2473,6 +2548,7 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[foobar] [foobar config] 0":"true foobar [] 1 ILLEGAL",
 	"[foobar] [foobar x.h] 0":"true foobar [] 1 ILLEGAL",
 	"[foobar] [foobar] 0":"true foobar [] 1 ILLEGAL",
+	"[go] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 3":"true go [] 4 ILLEGAL", //matchGlobPath
 	"[inc] [.DS_Store] 0":"false <nil> [] 0 ILLEGAL",
 	"[inc] [1] 0":"false <nil> [] 0 ILLEGAL",
 	"[inc] [2] 0":"false <nil> [] 0 ILLEGAL",
@@ -2502,6 +2578,18 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[inc] [inc foobar x.h] 0":"true inc [] 1 ILLEGAL",
 	"[inc] [inc foobar] 0":"true inc [] 1 ILLEGAL",
 	"[inc] [inc] 0":"true inc [] 1 ILLEGAL",
+	"[smart] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 6":"true smart [] 7 ILLEGAL", //matchGlobPath
+	"[src] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 4":"true src [] 5 ILLEGAL", //matchGlobPath
+	"[testdata] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 7":"true testdata [] 8 ILLEGAL", //matchGlobPath
+	"[testdata] [] 0":"false <nil> [] 0 ILLEGAL", //matchGlobPath
+	"[testdata] [builtins trimprefix] 0":"false <nil> [] 0 ILLEGAL", //matchGlobPath
+	"[testdata] [extbit.io smart testdata builtins trimprefix] 0":"false <nil> [] 0 ILLEGAL", //matchGlobPath
+	"[testdata] [go src extbit.io smart testdata builtins trimprefix] 0":"false <nil> [] 0 ILLEGAL", //matchGlobPath
+	"[testdata] [smart testdata builtins trimprefix] 0":"false <nil> [] 0 ILLEGAL", //matchGlobPath
+	"[testdata] [src extbit.io smart testdata builtins trimprefix] 0":"false <nil> [] 0 ILLEGAL", //matchGlobPath
+	"[testdata] [testdata builtins trimprefix] 0":"true testdata [] 1 ILLEGAL", //matchGlobPath
+	"[testdata] [trimprefix] 0":"false <nil> [] 0 ILLEGAL", //matchGlobPath
+	"[testdata] [workspace go src extbit.io smart testdata builtins trimprefix] 0":"false <nil> [] 0 ILLEGAL", //matchGlobPath
 	"[v * . h] [foo b?r v?.h] 2":"true v?.h [?] 3 ILLEGAL",
 	"[v * . h] [foo bar v1.h] 2":"true v1.h [1] 3 ILLEGAL",
 	"[v * . h] [foo bar v2.h] 2":"true v2.h [2] 3 ILLEGAL",
@@ -2518,6 +2606,7 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[v ? . h] [foo bar xyz000.txt] 2":"false <nil> [] 2 ILLEGAL",
 	"[v ? . h] [foo bar zz] 2":"false <nil> [] 2 ILLEGAL",
 	"[v ? . h] [foo bar] 2":"false <nil> [] 2 ILLEGAL",
+	"[workspace] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix] 2":"true workspace [] 3 ILLEGAL", //matchGlobPath
 	"[x * y . h] [foo bar] 1":"false <nil> [] 1 ILLEGAL",
 	"[x * y . h] [foo v1.h] 1":"false <nil> [] 1 ILLEGAL",
 	"[x * y . h] [foo v2.h] 1":"false <nil> [] 1 ILLEGAL",
@@ -2628,6 +2717,9 @@ var checkpoints_matchGlobPath = map[string]any{
 	"[zz] [foo bar zz x.h] 2":"true zz [] 3 ILLEGAL",
 }
 func check_matchGlobPath(ctx Context, elems, segments, stems []Value, idx int) func(*bool, *Value, *[]Value, *int, *token) {
+	// debug(ctx,
+	// 	_f("%s", testdata_f("[%[2]s builtins trimprefix]")),
+	// 	_f("%s", testdata_f("%[1]s/builtins/trimprefix")))
 	var k = sf("%v %v %v", elems, segments, idx)
 	var v = checkpoints_matchGlobPath[k]
 	return func(_full *bool, _res *Value, _stems *[]Value, _idx *int, _wildToken *token) {
@@ -2636,13 +2728,23 @@ func check_matchGlobPath(ctx Context, elems, segments, stems []Value, idx int) f
 			{ debug(pc(ctx,elems), _f(`"%s":"%s",`, k, t), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
 				callstack{num:10}, trace{}) }	
 		} else if v != t {
-			debug(pc(ctx,elems), _f(`%s: %s != %s`, k, t, v), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
-				callstack{num:10}, trace{})
+			{ debug(pc(ctx,elems), _f(`%s: %s != %s`, k, t, v), _f("elems: %v", ts(elems)), _f("segments: %v", ts(segments)),
+				callstack{num:10}, trace{}) }
 		}
 	}
 }
 
 var checkpoints_matchPathPath = map[string]any{
+	"[ Volumes workspace go src extbit.io smart testdata builtins] [ Volumes workspace go src extbit.io smart testdata builtins trimprefix]":"false /Volumes/workspace/go/src/extbit.io/smart/testdata/builtins [] 9", //matchPathPath
+	"[testdata ] []":"false <nil> [] 0", //matchPathPath
+	"[testdata ] [builtins trimprefix]":"false <nil> [] 0", //matchPathPath
+	"[testdata ] [extbit.io smart testdata builtins trimprefix]":"false <nil> [] 0", //matchPathPath
+	"[testdata ] [go src extbit.io smart testdata builtins trimprefix]":"false <nil> [] 0", //matchPathPath
+	"[testdata ] [smart testdata builtins trimprefix]":"false <nil> [] 0", //matchPathPath
+	"[testdata ] [src extbit.io smart testdata builtins trimprefix]":"false <nil> [] 0", //matchPathPath
+	"[testdata ] [testdata builtins trimprefix]":"false testdata/ [] 1", //matchPathPath
+	"[testdata ] [workspace go src extbit.io smart testdata builtins trimprefix]":"false <nil> [] 0", //matchPathPath
+	"[testdata ] [trimprefix]":"false <nil> [] 0", //matchPathPath
 	"[**y z] [a b c y z]":"true a/b/c/y/z [a/b/c/] 0",
 	"[**y z] [z]":"false {=path z} [z] 0",
 	"[**y] []":"false <nil> [] 0",

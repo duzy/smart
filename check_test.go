@@ -89,6 +89,8 @@ func testdata_f(f string, _a ...any) string {
 		default: a = append(a, t)
 		}
 	}
+	// var testdata_s = testdata_dir()
+	// var testdata_a = strings.Join(strings.Split(testdata_s, pathSep), " ")
 	var ss = []string{testdata_s, testdata_a, testdata_dir_t(lc)}
 	for _, tr := range tr_pre {
 		if i := tr.int-1; -1 < i && tr.string != "" {

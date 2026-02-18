@@ -14,9 +14,9 @@ func test__contains(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "{}"; s != t {
+	} else if s, t := v.String(), "{=true}"; s != t {
 		ctx.err("%s != %s | %v", s, t, tst{v})
-	} else if s, t := __string(src(ctx,d), v), ""; s != t {
+	} else if s, t := __string(src(ctx,d), v), "true"; s != t {
 		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 
@@ -25,9 +25,9 @@ func test__contains(ctx *testcase) {
 		ctx.err(s)
 	} else if v := d.value; v == nil {
 		ctx.err("%v", tst{d})
-	} else if s, t := v.String(), "{}"; s != t {
+	} else if s, t := v.String(), "{=true}"; s != t {
 		ctx.err("%s != %s | %v", s, t, tst{v})
-	} else if s, t := __string(src(ctx,d), v), ""; s != t {
+	} else if s, t := __string(src(ctx,d), v), "true"; s != t {
 		ctx.err("%s != %s | %v", s, t, tst{v})
 	}
 

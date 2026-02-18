@@ -2934,95 +2934,135 @@ func (ctx *__contains) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__contains) x() (_ any) {
-    if len(ctx.a) < 2 {
-        debug(ctx, "unexpected number of arguments, try $(contains a b c1 c2, v1 v2 …)", trace{})
-    }
+    var list = xmerge(ctx, ctx.a[1:]...)
+	for _, val := range xmerge(ctx, ctx.a[0]) {
+		var s string
+		if ctx.string { s = __string(ctx, val) }
 
-    var n int
-    var vals = merge(ctx.a[0])
-    var list = merge(ctx.a[1:]...)
-    if len(vals) == 0 || len(list) == 0 {
-        debug(ctx, "insufficient number of arguments: %v ⇒ %v %v", ctx.a, vals, list, trace{})
-    }
+		for _, elem := range list {
+			var t bool
+			if ctx.match || patterned(ctx, val) {
+				t, _, _ = match(swapped_ctx{ctx}, val, elem)
+			} else if ctx.string {
+				t = __string(ctx, elem) == s
+			} else {
+				t = cmp(ctx, val, elem) == cmpEqual
+			}
 
-outer:
-    for _, val := range vals {
-        var s string
-        if ctx.string { s = __string(ctx, val) }
-
-        for _, elem := range list {
-            var t bool
-            if ctx.match || patterned(ctx,val) {
-                t, _, _ = match(ctx, val, elem)
-            } else if ctx.string {
-                t = __string(ctx, elem) == s
-            } else {
-                t = cmp(ctx, val, elem) == cmpEqual
-            }
-            if t { n += 1; continue outer }
-        }
-    }
-
-    if n == len(vals) {
-        return _boolean(_position(ctx), true)
-    } else {
-        return
-    }
+			if t {
+				// ANY semantics: Return truthy immediately upon the first intersection!
+				return _loc(toBool(elem, true), _position(ctx))
+			}
+		}
+	}
+	return
 }
 
-type __sort struct { builtinbase }
+//
+
+// $(sort(-u -reverse) list...)
+// Sorts the AST elements lexically based on their string representation/glob rank.
+type __sort struct { builtinbase
+	reverse bool `reverse,rev`
+	unique  bool `unique,u`
+}
 func (ctx *__sort) inner() Context { return &ctx.builtinbase }
 func (ctx *__sort) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
 }
 func (ctx *__sort) x() (res any) {
-    debug(ctx, "TODO: $(sort ...)", trace{})
-    return
+	vals := xmerge(ctx, ctx.a...)
+	if len(vals) == 0 { return }
+
+	// OPTIMIZATION: Deduplicate FIRST using the fast hash map.
+	// This drastically reduces the N in O(N log N) for the expensive AST sort.
+	if ctx.unique {
+		vals = unique(ctx, vals...)
+	}
+
+	// Standard AST sorting
+	// (Using an explicit if/else avoids the generic _if allocating two closures)
+	var f func(a, b Value) int
+	if ctx.reverse {
+		f = func(a, b Value) int { return cmpValues(ctx, b, a) }
+	} else {
+		f = func(a, b Value) int { return cmpValues(ctx, a, b) }
+	}
+	slices.SortFunc(vals, f)
+
+	return vals
 }
 
+// $(wordlist start, end, list...)
+// Returns the slice of the list from index 's' to 'e' (0-based, exclusive end like Go/Python).
 type __wordlist struct { builtinbase }
 func (ctx *__wordlist) inner() Context { return &ctx.builtinbase }
 func (ctx *__wordlist) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
 }
 func (ctx *__wordlist) x() (res any) {
-    debug(ctx, "TODO: $(wordlist ...)", trace{})
-    return
+	if len(ctx.a) < 2 {
+		debug(ctx, "wordlist requires indices: $(wordlist start, end, list...)", trace{})
+		return
+	}
+
+	s := int(__int(ctx, expand(ctx, ctx.a[0])))
+	e := int(__int(ctx, expand(ctx, ctx.a[1])))
+	vals := xmerge(ctx, ctx.a[2:]...)
+
+	// Intuitive, safe clamping for out-of-bounds indices
+	if s < 0 { s = 0 }
+	if e > len(vals) { e = len(vals) }
+	if s >= e || s >= len(vals) { return } // Native empty return
+
+	return vals[s:e]
 }
 
+// $(words list...)
+// Returns the number of elements in the AST list.
 type __words struct { builtinbase }
 func (ctx *__words) inner() Context { return &ctx.builtinbase }
 func (ctx *__words) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
 }
 func (ctx *__words) x() (res any) {
-    debug(ctx, "TODO: $(words ...)", trace{})
-    return
+	// ease() natively handles converting int64 to the proper AST numeric node.
+	return int64(len(xmerge(ctx, ctx.a...)))
 }
 
+// $(firstword list...)
+// Returns the first element of the list.
 type __firstword struct { builtinbase }
 func (ctx *__firstword) inner() Context { return &ctx.builtinbase }
 func (ctx *__firstword) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
 }
 func (ctx *__firstword) x() (res any) {
-    debug(ctx, "TODO: $(firstword ...)", trace{})
-    return
+	vals := xmerge(ctx, ctx.a...)
+	if len(vals) > 0 {
+		return vals[0]
+	}
+	return
 }
 
+// $(lastword list...)
+// Returns the last element of the list.
 type __lastword struct { builtinbase }
 func (ctx *__lastword) inner() Context { return &ctx.builtinbase }
 func (ctx *__lastword) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
 }
 func (ctx *__lastword) x() (res any) {
-    debug(ctx, "TODO: $(lastword ...)", trace{})
-    return
+	vals := xmerge(ctx, ctx.a...)
+	if n := len(vals); n > 0 {
+		return vals[n-1]
+	}
+	return
 }
 
 type __encodebase64 struct { builtinbase }

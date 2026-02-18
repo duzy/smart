@@ -1117,7 +1117,9 @@ func unbox(a any) any {
 
 // underlay convert 'a' into native value underneath (aka bool, int, etc.).
 func underlay(a any, b int) (any, int) {
+	if a == nil { return "", 0 } // Safely handle nil interfaces
     switch t := a.(type) {
+	case *valbase, *null, *none, *undef: return "", 0 // Unbox empty AST nodes to ""
     case *loc: return underlay(t.Value, b)
     case self: return t.project, 0
 	case *globmeta: return t.token, 0
@@ -1125,6 +1127,9 @@ func underlay(a any, b int) (any, int) {
     case *boolean: return t.bool, 0
     case *word: return t.s, 0
     case *raw: return t.s, 0
+	case *strlit: return t.s, 0          // ADDED: instantly maps to primitive string
+	case *file: return t.filestub.name, 0 // ADDED: prevents deep file stringification
+	case *project: return t.name, 0      // ADDED
     case *binary: return t.int64, 2
     case *octal: return t.int64, 8
     case *decimal: return t.int64, 10
@@ -1344,13 +1349,11 @@ func cmp(ctx Context, l, r any, syntactic ...bool) (res cmpres) {
 	}
 
 	// 3. Universal Fallback: String Comparison
+	// STRICTLY decoupled from __string(ctx, ...) to prevent deep AST expansion hell.
+	// We rely purely on the structural .String() representation to establish a fast sorting order!
 	var sx, sy string
-	if __t(syntactic...) {
-		if x, ok := lv.(Value); ok { sx = x.String() } else { sx = __string(ctx, lv) }
-		if y, ok := rv.(Value); ok { sy = y.String() } else { sy = __string(ctx, rv) }
-	} else {
-		sx, sy = __string(ctx, lv), __string(ctx, rv)
-	}
+	if x, ok := lv.(fmt.Stringer); ok { sx = x.String() } else { sx = fmt.Sprintf("%v", lv) }
+	if y, ok := rv.(fmt.Stringer); ok { sy = y.String() } else { sy = fmt.Sprintf("%v", rv) }	
 	return cmp_string(sx, sy)
 }
 
@@ -1362,30 +1365,29 @@ func cmp_slice(ctx Context, x []any, rv any) cmpres {
 		for ; i < len(x) && i < len(y); i++ {
 			if res := cmp(ctx, x[i], y[i]); res != cmpEqual {
 				// FIX: If either element is a wildcard, return the comparison result immediately.
-				// We must NOT perform string fragmentation checks on wildcards because
-				// they follow specificity rules (e.g. '*' < '**'), whereas string logic 
-				// would see '*' as a prefix of '**' and try to match the remainder.
 				if globRank(_underlay(x[i])) > 0 || globRank(_underlay(y[i])) > 0 {
 					return res
 				}
 
-				// Try fragmentation check:
-				// If structural comparison fails, check if one side is a prefix of the other in string form,
-				// and if the remainder matches the rest of the other slice.
-				sx, sy := __string(ctx, x[i]), __string(ctx, y[i])
-				if sx == sy { continue } // Treat as equal if strings match (e.g. word vs string)
+				// STRICTLY decouple from __string to prevent AST expansion hell!
+				// Attempt fragmentation ONLY if both items can be safely converted to static strings.
+				sx, okx := staticStr(x[i])
+				sy, oky := staticStr(y[i])
 
-				if len(sx) < len(sy) && strings.HasPrefix(sy, sx) {
-					// x[i] is prefix of y[i]. Match rest of y[i] + y[i+1:] against x[i+1:]
-					restX := x[i+1:]
-					restY := append([]any{sy[len(sx):]}, y[i+1:]...)
-					return cmp(ctx, restX, restY)
-				}
-				if len(sy) < len(sx) && strings.HasPrefix(sx, sy) {
-					// y[i] is prefix of x[i]. Match rest of x[i] + x[i+1:] against y[i+1:]
-					restX := append([]any{sx[len(sy):]}, x[i+1:]...)
-					restY := y[i+1:]
-					return cmp(ctx, restX, restY)
+				// If both are safe, trivial strings, try fragmentation
+				if okx && oky {
+					if sx == sy { continue } 
+					
+					if len(sx) < len(sy) && strings.HasPrefix(sy, sx) {
+						restX := x[i+1:]
+						restY := append([]any{sy[len(sx):]}, y[i+1:]...)
+						return cmp(ctx, restX, restY)
+					}
+					if len(sy) < len(sx) && strings.HasPrefix(sx, sy) {
+						restX := append([]any{sx[len(sy):]}, x[i+1:]...)
+						restY := y[i+1:]
+						return cmp(ctx, restX, restY)
+					}
 				}
 				return res
 			}
@@ -1782,6 +1784,13 @@ func (p *option) ts(ctx Context, _ string) (s string) {
 }
 
 type prediction struct{ boolean ; s string }
+
+func toBool(v Value, t bool) Value {
+	if l, ok := v.(*loc); ok {
+		return &loc{toBool(l.Value, t), l.pos}
+	}
+	return _boolean(v.Position(), t)
+}
 
 func boolVal(v Value) (res, y bool) {
     switch t := v.(type) {
@@ -2797,6 +2806,16 @@ func (p *percpat) match1(ctx Context, rep string) (full bool, result string, ste
     return
 }
 
+func indexRootTailPunct(v ...Value) int {
+	for i, v := range v {
+		p, isPunct := unloc(v).(*punct)
+		if isPunct && (p.token == PROOT || p.token == PTAIL) {
+			return i
+		}
+	}
+	return -1
+}
+
 func isMultiWildcard(v Value) bool {
 	v = unloc(v) // Safely unwrap location nodes
 
@@ -3213,6 +3232,8 @@ func (c *__string_ctx) do(ctx Context, op any) any {
 	return c.Context.do(ctx, op)
 }
 func __string(ctx Context, v any) (res string) {
+	var val Value
+	if checkpoints { defer check_string(ctx, v)(&val, &res) }
 	if !truly(ctx, __stringing{}) { ctx = &__string_ctx{ctx} }
 	switch t := v.(type) {
 	case string: return t
@@ -3286,20 +3307,16 @@ func __string(ctx Context, v any) (res string) {
 			}
 		}
 	case *arrow, *closure, *delegate:
-		if val := t.(Value); true {
-			v := expand(ctx, val)
-			// Check if v differs from val without triggering __string recursion
-			if v != val {
-				// Fix: avoid infinite recursion via equal -> cmp -> __string -> expand -> equal
-				// If expand returns a different object (v != val), we use it. 
-				// We DO NOT check cmp(v, val) because cmp might fall back to __string(val), causing a loop.
-				if reflect.TypeOf(v) != reflect.TypeOf(val) {
-					res = __string(ctx, v)
-				} else if cmp(ctx, v, val) != cmpEqual {
-					res = __string(ctx, v)
-				}
+		// Check if v differs from val without triggering __string recursion
+		if val = expand(ctx, t.(Value)); val != v {
+			// Fix: avoid infinite recursion via equal -> cmp -> __string -> expand -> equal
+			// If expand returns a different object (v != val), we use it. 
+			// We DO NOT check cmp(v, val) because cmp might fall back to __string(val), causing a loop.
+			if reflect.TypeOf(val) != reflect.TypeOf(v) {
+				res = __string(ctx, val)
+			} else if cmp(ctx, val, v) != cmpEqual {
+				res = __string(ctx, val)
 			}
-			if checkpoints { check_string(ctx, val, v, res) }
 		}
 	case fullname:
 		if v := t.Value; v != nil {
@@ -4185,32 +4202,58 @@ func globMatch(pat, str string, exact bool) (stems []string, rest string, ok boo
 	}
 }
 
+// staticStr returns the string representation of a value ONLY if it can be 
+// determined without evaluating definitions, closures, or rules.
+func staticStr(v any) (string, bool) {
+	if v == nil { return "", true }
+	switch t := v.(type) {
+	case *valbase, *null, *none, *undef: return "", true // Map empty AST nodes to ""
+	case string: return t, true
+	case token: return t.String(), true
+	case int: return strconv.Itoa(t), true
+	case int64: return strconv.FormatInt(t, 10), true
+	case float64: return strconv.FormatFloat(t, 'g', -1, 64), true
+	case *word: return t.s, true
+	case *raw: return t.s, true
+	case *strlit: return t.s, true
+	case *punct: return t.token.String(), true
+	case *globmeta: return t.token.String(), true
+	case *decimal: return strconv.FormatInt(t.int64, 10), true
+	case *float: return strconv.FormatFloat(t.float64, 'g', -1, 64), true
+	case *boolean:
+		if t.bool { return "true", true }
+		return "false", true
+	case *file:
+		if t.filestub != nil { return t.filestub.name, true }
+		return "", false
+	case *project: return t.name, true
+	case flag:
+		if t.Value == nil || isEmpty(t.Value) { return "-", true }
+		if s, ok := staticStr(t.Value); ok { return "-" + s, true }
+		return "", false
+	case *loc:
+		return staticStr(t.Value)
+	case *path:
+		var sb strings.Builder
+		for i, e := range t.elems {
+			if i > 0 { sb.WriteString(pathSep) }
+			if s, ok := staticStr(e); ok { sb.WriteString(s) } else { return "", false }
+		}
+		return sb.String(), true
+	case *compound:
+		var sb strings.Builder
+		for _, e := range t.elems {
+			if s, ok := staticStr(e); ok { sb.WriteString(s) } else { return "", false }
+		}
+		return sb.String(), true
+	}
+	return "", false
+}
+
 // Replacement of __string for fast match. TODO: more optimization/interning
 func quickStr(ctx Context, v Value) string {
-	switch t := v.(type) {
-	case *word: return t.s
-	case *strlit: return t.s
-	case *raw: return t.s
-	case *escaped: return t.s
-	case *punct: return t.token.String()
-	case *globmeta: return t.token.String()
-	case *globpat: return t.String()
-	case *binary: return t.String()
-	case *octal: return t.String()
-	case *decimal: return t.String()
-	case *hexadecimal: return t.String()
-	case *float: return t.String()
-	case *datetime: return t.String()
-	case *Date: return t.String()
-	case *Time: return t.String()
-	case *file: return t.filestub.name
-	case *project: return t.name
-	case *boolean: return _if(t.bool, "true", "false")
-	case *answer: return _if(t.bool, "yes", "no")
-	case *option: return _if(t.bool, "on", "off")
-	case *loc: return quickStr(ctx, t.Value)
-	default: return __string(ctx, v) // TODO: optimization
-	}
+	if s, ok := staticStr(v); ok { return s }
+	return __string(ctx, v) // Only fallback if staticStr refuses
 }
 
 func getScalarLength(ctx Context, v Value) int {
@@ -4454,16 +4497,16 @@ func matchGlobComp(ctx Context, elems, vals, stems []Value, idx int, trail bool)
 
 			if gm.token == QUE { // ?
 				var val Value
-				if rem != nil {
-					val = rem
-				} else if idx < len(vals) {
-					val = vals[idx]
-				} else {
+				if rem != nil { val = rem } else if idx < len(vals) { val = vals[idx] } else {
+					return false, matchedRes(), stems, idx, nil
+				}
+
+				// FIX 3a: `?` cannot match a structural boundary! Only reject PROOT/PTAIL.
+				if indexRootTailPunct(val) != -1 {
 					return false, matchedRes(), stems, idx, nil
 				}
 
 				_, r, s := matchGlobScalar(ctx, e, val)
-
 				if r != nil { 
 					matchedParts = append(matchedParts, r) 
 					
@@ -4488,16 +4531,27 @@ func matchGlobComp(ctx Context, elems, vals, stems []Value, idx int, trail bool)
 						if idx < len(vals) { t = append(t, vals[idx:]...) }
 					}
 
+					// FIX 3b: Wildcards cannot consume structural path boundaries!
+					if boundaryIdx := indexRootTailPunct(t...); boundaryIdx != -1 {
+						// Truncate the consumable slice right before the boundary
+						t = t[:boundaryIdx]
+					}
+
 					if len(t) > 0 {
 						matchedParts = append(matchedParts, t...)
 						var wildStem Value
 						if len(t) == 1 { wildStem = t[0] } else 
 						{ wildStem = &compound{elements{t}} }
 						stems = append(stems, wildStem)
-						idx = len(vals)
-					} else {
+
+						// CORRECTION 1: Advance idx only by what we actually consumed!
+						idx += len(t)
+					} else if gm.token == SAST {
+						// CORRECTION 2: Only standard '*' needs an explicit empty stem here!
 						stems = append(stems, _raw(e.Position(), ""))
 					}
+
+					// RETURN TRUE! The wildcard successfully consumed everything it was legally allowed to.
 					return true, matchedRes(), stems, idx, nil
 				}
 
@@ -4510,6 +4564,9 @@ func matchGlobComp(ctx Context, elems, vals, stems []Value, idx int, trail bool)
 				remainder := getRemainder()
 
 				globRem := func(k int, isTrail bool) bool {
+					// FIX 3c: Ensure the consumed remainder doesn't contain boundaries
+					if indexRootTailPunct(remainder[:k]...) != -1 { return false }
+
 					if ok, r, s, _, unconsumed := matchGlobComp(ctx, cons, remainder[k:], nil, 0, isTrail); ok {
 						if k > 0 { matchedParts = append(matchedParts, remainder[:k]...) }
 						if unconsumed != nil { matchedParts = append(matchedParts, unconsumed) }
@@ -4820,8 +4877,19 @@ func matchPathPath(ctx Context, elems, segments, res, stems []Value, idx int) (_
 			)
 
 			tryMatch := func(n int) bool {
-				okWild, rWild, sWild, _, _ := matchGlobPath(ctx, pat, remainingSegs[:n], nil, 0)
-				
+				okWild, rWild, sWild, wildIdx, _ := matchGlobPath(ctx, pat, remainingSegs[:n], nil, 0)
+
+				// FIX 2: Strict Consumption Verification!
+				// Ensure that the wildcard spanning logic actually consumed exactly n segments!
+				// This perfectly prevents a relative `**` from falsely matching an absolute `ROOT`.
+				if !okWild || wildIdx != n {
+					if bestRes == nil { 
+						bestRes = makePath(append(append([]Value{}, segments[:idx]...), rWild))
+						bestStems = append(append([]Value{}, stems...), sWild...)
+					}
+					return false
+				}
+
 				parts := append([]Value{}, segments[:idx]...)
 				if rWild != nil { 
 					if p, ok := rWild.(*path); ok {
@@ -5307,28 +5375,73 @@ func traverse(ctx Context, val Value) {
     }
 }
 
-func unique(ctx Context, values ...Value) (elems []Value) {
-    seen := make(map[uint64]struct{}, len(values))
-    for _, v := range values {
-        var n = hash(ctx, v)
-        if _, y := seen[n]; !y {
-            elems = append(elems, v)
-            seen[n] = struct{}{}
-        }
-    }
-    return
+func unique(ctx Context, values ...Value) []Value {
+	if len(values) == 0 {
+		return nil
+	}
+
+	// 1. Pre-allocate slice capacity to completely eliminate memory copying during append
+	elems := make([]Value, 0, len(values))
+	
+	// 2. Use []Value to safely chain hash collisions
+	seen := make(map[uint64][]Value, len(values))
+
+	for _, v := range values {
+		n := hash(ctx, v)
+
+		// Check if we've seen this hash
+		if existing, found := seen[n]; found {
+			// Slow path: Hash collision or duplicate. Verify structural equality!
+			isDuplicate := false
+			for _, ev := range existing {
+				if equal(ctx, v, ev) {
+					isDuplicate = true
+					break
+				}
+			}
+			if isDuplicate {
+				continue
+			}
+		}
+
+		// Fast path: First time seeing this value (or a legitimate hash collision)
+		seen[n] = append(seen[n], v)
+		elems = append(elems, v)
+	}
+
+	return elems
 }
-func reverse_unique(ctx Context, values ...Value) (elems []Value) {
-    seen := make(map[uint64]struct{}, len(values))
-    for j := len(values)-1; 0 <= j; j -= 1 {
-        var v = values[j]
-        var n = hash(ctx, v)
-        if _, y := seen[n]; !y {
-            elems = append(elems, v)
-            seen[n] = struct{}{}
-        }
-    }
-    return
+
+func reverse_unique(ctx Context, values ...Value) []Value {
+	if len(values) == 0 {
+		return nil
+	}
+
+	elems := make([]Value, 0, len(values))
+	seen := make(map[uint64][]Value, len(values))
+
+	for j := len(values) - 1; 0 <= j; j-- {
+		v := values[j]
+		n := hash(ctx, v)
+
+		if existing, found := seen[n]; found {
+			isDuplicate := false
+			for _, ev := range existing {
+				if equal(ctx, v, ev) {
+					isDuplicate = true
+					break
+				}
+			}
+			if isDuplicate {
+				continue
+			}
+		}
+
+		seen[n] = append(seen[n], v)
+		elems = append(elems, v)
+	}
+
+	return elems
 }
 
 func splitPathStr(ctx Context, str string) (segments []Value) {
