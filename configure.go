@@ -136,8 +136,8 @@ func walkFileInfos(ctx Context, root string, pats []Value, fn filepath.WalkFunc)
     ForPats:
         for _, p := range pats {
             var matched bool
-            if matched, _, _ = match(ctx, p, _pathStr(ctx, path)); !matched {
-                matched, _, _ = match(ctx, p, _pathStr(ctx, filepath.Base(path)))
+            if matched, _, _, _ = match(ctx, p, _pathStr(ctx, path)); !matched {
+                matched, _, _, _ = match(ctx, p, _pathStr(ctx, filepath.Base(path)))
             }
             if matched {
                 if err = fn(path, info, err); err != nil {

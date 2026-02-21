@@ -525,7 +525,7 @@ func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 	for _, a := range p.a {
 		switch a := a.(type) {
 		case filemap:
-			if f, r, _ := match(ctx, a.pattern, fullvalue); f {
+			if f, r, _, _ := match(ctx, a.pattern, fullvalue); f {
 				var a = filemap{a._filemap, a.pattern}
 				if 0 < do(ctx, matched_filemap{a, r}).(int) {
 					ok = true
@@ -534,7 +534,7 @@ func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 				}
 			}
 		case *rule:
-			if f, r, _ := match(ctx, a.target, fullvalue); f {
+			if f, r, _, _ := match(ctx, a.target, fullvalue); f {
 				var a = &rule{a.target, a.arged, a.program}
 				if 0 < do(ctx, matched_rule{a, r}).(int) {
 					ok = true

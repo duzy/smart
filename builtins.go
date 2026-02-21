@@ -980,9 +980,9 @@ func (ctx *__match) x() (result any) {
         for _, right := range rightList {
             var matched bool
             if !patterned(ctx, left) && patterned(ctx, right) {
-                matched, _, _ = match(ctx, right, left)
+                matched, _, _, _ = match(ctx, right, left)
             } else {
-                matched, _, _ = match(ctx, left, right)
+                matched, _, _, _ = match(ctx, left, right)
             }
             if matched {
                 if res == nil { res = _boolean(_position(ctx), true) }
@@ -1034,7 +1034,7 @@ ForValList:
             }
         }
         for _, pat := range patList {
-            var matched, _, _ = match(ctx, pat, val)
+            var matched, _, _, _ = match(ctx, pat, val)
             if ctx.negated { matched = !matched }
             if matched {
                 if ctx.all {
@@ -1446,7 +1446,7 @@ defsloop:
             neg := false
             if x, y := pat.(negative); y { pat, neg = x.Value, y }
 
-            a, _, c := match(pc(ctx, pat), pat, name)
+            a, _, _, c := match(pc(ctx, pat), pat, name)
             if a && neg { continue defsloop }
             if a || neg {
                 if ctx.r <= 0 || 0 == len(c) {
@@ -2275,7 +2275,7 @@ func (ctx *__filter) _x(pats []Value, values... Value) (result []Value) {
 
     var f = func(v Value) Value {
         for _, pat := range pats {
-            if full, res, stems := match(ctx, pat, v); full {
+            if full, res, _, stems := match(ctx, pat, v); full {
                 if ctx.neg {
                     v = nil
                 } else if ctx.stem {
@@ -2412,7 +2412,7 @@ func (ctx *__patsubst) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__patsubst) matchPats(pats []Value, a Value) (ok bool, pat Value, stems []Value) {
-	for _, pat = range pats { if ok, _, stems = match(ctx, pat, a); ok { break } }
+	for _, pat = range pats { if ok, _, _, stems = match(ctx, pat, a); ok { break } }
 	return
 }
 func (ctx *__patsubst) srcFile(proj *project, src Value) (srcFile *file, source any, full bool) {
@@ -2638,24 +2638,26 @@ func (ctx *__trimprefix) cast(t reflect.Type) Context {
 func (ctx *__trimprefix) x() any {
 	var res []Value
 	var prefix = merge(expand(ctx, ctx.a[0]))
+	
 	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
-		var s = __string(ctx, val)
-		for _, prefix := range prefix {
-			full, r, _ := match(ctx, prefix, val)
-			if full { s = "" ; break } // trim all for full prefix
-			if t := joinp(ctx, r); strings.HasPrefix(s, t) {
-				s = strings.TrimPrefix(s, t)
-			} else {
-				s = strings.TrimLeftFunc(s, unicode.IsSpace)
+		var remainder Value = val // Default to original value
+
+		for _, p := range prefix {
+			// Use the new match signature which provides the AST remainder directly
+			full, r, rem, _ := match(ctx, p, val)
+			debug(ctx, "__trimprefix: %v %v -> %v %v %v", p, val, full, r, rem)
+			
+			if full {
+				remainder = _null(val.Position()) // Fully matched -> empty remainder
+				break
+			} else if r != nil {
+				// Partial match: 'rem' contains exactly the unconsumed AST nodes
+				remainder = rem
+				break
 			}
 		}
-		if s == "" {
-			res = append(res, _null(val.Position()))
-		} else if strings.Contains(s, pathSep) {
-			res = append(res, _pathStr(ctx, s))
-		} else {
-			res = append(res, _word(val.Position(), s))
-		}
+		
+		res = append(res, remainder)
 	}
 	return res
 }
@@ -2668,25 +2670,29 @@ func (ctx *__trimsuffix) cast(t reflect.Type) Context {
 }
 func (ctx *__trimsuffix) x() any {
 	var res []Value
-	var prefix = merge(expand(ctx, ctx.a[0]))
+	// 1. Expand suffix patterns (first argument)
+	var suffixes = merge(expand(ctx, ctx.a[0]))
+
+	// 2. Process values (remaining arguments)
 	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
-		var s = __string(ctx, val)
-		for _, prefix := range prefix {
-			full, r, _ := match(reversal{ctx}, prefix, val)
-			if full { s = "" ; break } // trim all for full prefix
-			if t := joinp(ctx, r); strings.HasSuffix(s, t) {
-				s = strings.TrimSuffix(s, t)
-			} else {
-				s = strings.TrimRightFunc(s, unicode.IsSpace)
+		var remainder Value = val // Default: keep original
+
+		for _, suffix := range suffixes {
+			// Use reversal{ctx} to tell match() to perform a trailing match.
+			// 'rem' will contain the *unconsumed prefix*, which is exactly what we want.
+			full, r, rem, _ := match(reversal{ctx}, suffix, val)
+
+			if full {
+				remainder = _null(val.Position()) // Fully consumed -> empty result
+				break
+			} else if r != nil {
+				// Partial match: suffix matched the end.
+				// rem is the AST structure preceding the match.
+				remainder = rem
+				break
 			}
 		}
-		if s == "" {
-			res = append(res, _null(val.Position()))
-		} else if strings.Contains(s, pathSep) {
-			res = append(res, _pathStr(ctx, s))
-		} else {
-			res = append(res, _word(val.Position(), s))
-		}
+		res = append(res, remainder)
 	}
 	return res
 }
@@ -2701,24 +2707,69 @@ func (ctx *__trimext) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__trimext) x() any {
-    var ext string
-    var res []Value
-    for i, a := range ctx.a {
-        if s := __string(ctx, a); s != "" {
-            if i == 0 && len(ctx.a) > 1 {
-                ext = s
-            } else if ext == "" {
-                for ext = filepath.Ext(s); ext != ""; {
-                    s = strings.TrimSuffix(s, ext)
-                    if ctx.all { ext = filepath.Ext(s) } else { break }
-                }
-                res = append(res, _word(a.Position(), s))
-            } else if ext == filepath.Ext(s) {
-                res = append(res, _word(a.Position(), strings.TrimRight(s, ext)))
-            }
-        }
-    }
-    return res
+	var res []Value
+	var patterns []Value
+	var values []Value
+
+	// 1. Parse arguments: optional explicit extension patterns vs auto-detect
+	if len(ctx.a) > 1 {
+		patterns = merge(expand(ctx, ctx.a[0]))
+		for _, a := range ctx.a[1:] {
+			values = append(values, merge(expands(ctx, a)...)...)
+		}
+	} else {
+		for _, a := range ctx.a {
+			values = append(values, merge(expands(ctx, a)...)...)
+		}
+	}
+
+	// 2. Process values
+	for _, val := range values {
+		var currentVal = val
+		
+		// Loop for recursive trimming (if ctx.all is set, e.g., tar.gz -> tar -> "")
+		for {
+			var matched bool
+			var remainder Value = currentVal
+
+			if len(patterns) > 0 {
+				// A. Explicit Pattern Mode (behaves like trim-suffix)
+				for _, pat := range patterns {
+					full, r, rem, _ := match(reversal{ctx}, pat, currentVal)
+					if full {
+						matched = true; remainder = _null(currentVal.Position()); break
+					} else if r != nil {
+						matched = true; remainder = rem; break
+					}
+				}
+			} else {
+				// B. Auto-Detect Mode (uses filepath.Ext logic)
+				// We must peek at the string representation to find the extension.
+				// This is safe because we only stringify to *find* the extension,
+				// then use match() to *remove* it, preserving the AST structure of the prefix.
+				str := quickStr(ctx, currentVal) 
+				if ext := filepath.Ext(str); ext != "" {
+					// Construct a raw pattern from the detected extension
+					pat := _raw(currentVal.Position(), ext)
+					
+					full, r, rem, _ := match(reversal{ctx}, pat, currentVal)
+					if full {
+						matched = true; remainder = _null(currentVal.Position())
+					} else if r != nil {
+						matched = true; remainder = rem
+					}
+				}
+			}
+
+			if matched {
+				currentVal = remainder
+				if ctx.all { continue } // Repeat if --all flag is active
+			}
+			break // Stop if no match or not recursive
+		}
+		res = append(res, currentVal)
+	}
+	return res
 }
 
 type __gitdir struct { builtinbase }
@@ -2942,7 +2993,7 @@ func (ctx *__contains) x() (_ any) {
 		for _, elem := range list {
 			var t bool
 			if ctx.match || patterned(ctx, val) {
-				t, _, _ = match(swapped_ctx{ctx}, val, elem)
+				t, _, _, _ = match(swapped_ctx{ctx}, val, elem)
 			} else if ctx.string {
 				t = __string(ctx, elem) == s
 			} else {
@@ -4205,7 +4256,7 @@ func stepPattern(ctx Context, pat Value, name string) (nextPats []Value) {
 
 			// ** can also consume 0 segments, so we check if the NEXT element matches this directory
 			if len(p.elems) > 1 {
-				okMatch, _, _ := match(ctx, p.elems[1], _raw(p.Position(), name))
+				okMatch, _, _, _ := match(ctx, p.elems[1], _raw(p.Position(), name))
 				if okMatch {
 					if len(p.elems) > 2 {
 						var nextPat Value
@@ -4220,7 +4271,7 @@ func stepPattern(ctx Context, pat Value, name string) (nextPats []Value) {
 			}
 		} else {
 			// Standard strict segment match
-			okMatch, _, _ := match(ctx, first, _raw(p.Position(), name))
+			okMatch, _, _, _ := match(ctx, first, _raw(p.Position(), name))
 			if okMatch {
 				if len(p.elems) > 1 {
 					var nextPat Value
@@ -4305,7 +4356,7 @@ func (ctx *__wildcard) directory(topDir string, pats ...Value) {
 			excluded := false
 			dnPath := _pathStr(ctx, dn)
 			for _, x := range ctx.exclude {
-				if ok, _, _ := match(ctx, x, dnPath); ok {
+				if ok, _, _, _ := match(ctx, x, dnPath); ok {
 					excluded = true
 					break
 				}
@@ -4334,7 +4385,7 @@ func (ctx *__wildcard) directory(topDir string, pats ...Value) {
 			// 3. Absolute Match Check
 			matched := false
 			for _, pat := range pats {
-				full, _, _ := match(ctx, pat, dnPath)
+				full, _, _, _ := match(ctx, pat, dnPath)
 				if full {
 					matched = true
 					break

@@ -217,7 +217,7 @@ func (p *execution) dirty_mark(vals ...Value) {
                     dup = true; continue ForVals
                 }
                 for _, pat := range opts.pats {
-                    if mat, _, _ = match(p, pat, val); mat {
+                    if mat, _, _, _ = match(p, pat, val); mat {
                         if perUpdatedDep { updatedDeps(p, t, val) }
                         break ForVals
                     }
@@ -301,7 +301,7 @@ func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
         var mat bool = len(opts.pats) == 0
         if !mat {
             for _, pat := range opts.pats {
-                if mat, _, _ = match(ctx, pat, dep); mat { break }
+                if mat, _, _, _ = match(ctx, pat, dep); mat { break }
             }
         }
         if mat && (updated(ctx, dep) || statFile(ctx, dep).mod().After(statFile(ctx, target).mod())) {

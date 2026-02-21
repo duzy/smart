@@ -2081,7 +2081,7 @@ defsloop:
 			var neg bool
 			if x, y := pat.(negative); y { pat, neg = x.Value, y }
 
-			a, _, c := match(pc(ctx, pat), pat, name)
+			a, _, _, c := match(pc(ctx, pat), pat, name)
 			if a && neg { continue defsloop }
 			if a || neg {
 				var main Value = name
