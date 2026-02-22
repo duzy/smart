@@ -258,6 +258,9 @@ func (s *scanner) scanComment(ctx Context) (res string) {
 
 	var offs = s.offset
 	for s.ch != '\n' && s.ch != -1 { s.next(ctx) }
+
+	// We should intern identifiers, words, and numbers. We should not intern
+	// comments (they are long and rarely repeated) to avoid bloating the pool.
 	return string(s.src[offs:s.offset])
 }
 
@@ -269,7 +272,7 @@ func (s *scanner) scanIdentifier(ctx Context) string {
 			if n < len(s.src) && rune(s.src[n]) == '>' { break }
 		}
 	}
-	return string(s.src[offs:s.offset])
+	return internBytes(s.src[offs:s.offset])
 }
 
 func digitVal(ch rune) int {
@@ -548,7 +551,7 @@ exponent:
 	} */
 
 exit:
-	return tok, string(s.src[offs:s.offset])
+	return tok, internBytes(s.src[offs:s.offset])
 }
 
 func (s *scanner) scanEscape(ctx Context, quote rune) bool {
@@ -625,7 +628,7 @@ func (s *scanner) scanStrliting(ctx Context, ml bool) string {
 		}
 	}
 
-	return string(s.src[offs+1:s.offset-1])
+	return internBytes(s.src[offs+1:s.offset-1])
 }
 
 func (s *scanner) scanString(ctx Context, ml bool) string {
@@ -656,7 +659,7 @@ func (s *scanner) scanString(ctx Context, ml bool) string {
 		case '$': //
 		}
 	}
-	return string(s.src[offs:s.offset])
+	return internBytes(s.src[offs:s.offset])
 }
 
 func (s *scanner) scanStrcomp(ctx Context, q rune) (tok token, lit string) {
@@ -727,7 +730,7 @@ rawloop:
 		}
 	}
 
-	tok, lit = RAW, string(s.src[offs:s.offset])
+	tok, lit = RAW, internBytes(s.src[offs:s.offset])
 	return
 }
 
@@ -738,11 +741,6 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 	case s.bits.isStrcompString(): tok, lit = s.scanStrcomp(ctx, '"')
 	case s.bits.isStrcompLine()  : tok, lit = s.scanStrcomp(ctx, 0)
 	}
-	defer func() {
-		if tok == WORD && lit == "foo_ab-" {
-			debug(ctx, "%v", lit)
-		}
-	} ()
 
 	if tok != 0 {
 		switch tok {
@@ -956,7 +954,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 			s.push(isStrcompLine)
 		} else {
 			for s.ch == ' ' || s.ch == '\t' { s.next(ctx) }
-			tok, lit = SPACE, string(s.src[offs:s.offset])
+			tok, lit = SPACE, internBytes(s.src[offs:s.offset])
 		}
 	case '~':
 		if s.ch == '>' { s.next(ctx) // concume the '>' // ~>

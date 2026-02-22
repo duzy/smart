@@ -1174,24 +1174,6 @@ func globRank(v any) int {
 	return 0
 }
 
-// Helper to construct a path value from a list of segments plus an optional tail
-func joinPath(segs []Value, tail Value) Value {
-	if len(segs) == 0 && tail == nil { return nil }
-	parts := make([]Value, 0, len(segs)+1)
-	parts = append(parts, segs...)
-	if tail != nil { parts = append(parts, tail) }
-	if len(parts) == 1 { return parts[0] }
-	return &path{elements{parts}}
-}
-
-func join_rest(ctx Context, a []any) string {
-	var sb strings.Builder
-	for _, v := range a {
-		sb.WriteString(__string(ctx, v))
-	}
-	return sb.String()
-}
-
 // cmpValues is for slices.SortFunc(vals, cmp_values)
 func cmpValues(ctx Context, a, b Value) int {
 	if t := cmp(ctx, a, b); t == cmpEqual { return 0 } else { return int(t) }
@@ -4386,10 +4368,23 @@ func matchGlobScalar(ctx Context, pat, val Value, trail bool) (matched bool, res
 	return false, nil, nil, nil
 }
 
+func packRes(parts []Value, segs bool) Value {
+	switch len(parts) {
+	case 0: return nil
+	case 1: return parts[0]
+	}
+	if segs {
+		return &path{elements{parts}}
+	} else {
+		return &compound{elements{parts}}
+	}
+}
+
 // matchCompComp matches a segment (elems) against another segment (vals) (non-path).
 // It iterates strictly (no wildcards), consuming vals segment by segment.
 // Returns matched=true if ALL pattern elements were successfully matched and consumed.
 // Returns rem as the remainder of the last partially consumed value segment.
+// matchCompComp matches a segment (elems) against another segment (vals) (non-path).
 func matchCompComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matched bool, _res, _rem Value, _idx int) {
 	if checkpoints { defer check_matchCompComp(ctx, elems, vals, idx, trail)(&_matched, &_res, &_rem, &_idx) }
 	if len(vals) == 0 || idx >= len(vals) { return len(elems) == 0, nil, nil, idx }
@@ -4397,45 +4392,38 @@ func matchCompComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 	var matchedParts []Value
 
 	if trail {
-		// Trailing match (right-to-left)
+		// Backward match (right-to-left)
 		remIdx := len(vals) - 1
 		if idx <= remIdx { _rem = vals[remIdx] }
 		
 		for i := len(elems) - 1; _rem != nil && 0 <= i; i-- {
 			matched, r1, r2 := matchScalarScalar(ctx, elems[i], _rem, true)
-			if !matched { break } // Halt on first failure
+			if !matched { break }
 
-			if r2 == nil || isEmpty(r2) { // Atom fully consumed
+			if r2 == nil || isEmpty(r2) {
 				matchedParts = append([]Value{_rem}, matchedParts...)
 				remIdx--
 				if remIdx >= idx { _rem = vals[remIdx] } else { _rem = nil }
-			} else { // Atom partially consumed (leaves remainder for caller/wildcard)
+			} else {
 				matchedParts = append([]Value{r1}, matchedParts...)
 				_rem = r2
 			}
 		}
 		
 		_matched = len(matchedParts) == len(elems)
-
-		// Calculate _idx (start of match) based on where we stopped
-		if _rem != nil {
-			_idx = remIdx // Points to the segment partially consumed
-		} else {
-			_idx = remIdx + 1 // Points to the segment *after* the last fully consumed one
-		}
-
+		if _rem != nil { _idx = remIdx } else { _idx = remIdx + 1 }
 	} else {
 		// Forward match (left-to-right)
 		_rem = vals[idx]
 		
 		for i := 0; _rem != nil && i < len(elems); i++ {
 			matched, r1, r2 := matchScalarScalar(ctx, elems[i], _rem, false)
-			if !matched { break } // Halt on first failure
+			if !matched { break }
 
-			if r2 == nil || isEmpty(r2) { // Atom fully consumed
+			if r2 == nil || isEmpty(r2) {
 				matchedParts = append(matchedParts, _rem)
 				if idx++; idx < len(vals) { _rem = vals[idx] } else { _rem = nil }
-			} else { // Atom partially consumed
+			} else {
 				matchedParts = append(matchedParts, r1)
 				_rem = r2
 			}
@@ -4445,11 +4433,7 @@ func matchCompComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 		_idx = idx
 	}
 
-	switch len(matchedParts) {
-	case 0 : _res = nil
-	case 1 : _res = matchedParts[0]
-	default: _res = &compound{elements{matchedParts}}
-	}
+	_res = packRes(matchedParts, false)
 	return
 }
 
@@ -4459,14 +4443,6 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 
 	wildToken = ILLEGAL
 	originalIdx := idx 
-
-	matchedRes := func(parts []Value) Value {
-		switch len(parts) {
-		case 0: return nil
-		case 1: return parts[0]
-		default: return &compound{elements{parts}}
-		}
-	}
 
 	if trail {
 		// ==========================================
@@ -4492,7 +4468,7 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 						var failParts []Value
 						if r1 != nil { failParts = append([]Value{r1}, failParts...) }
 						failParts = append(failParts, matchedSuffix...)
-						return false, matchedRes(failParts), r2Rem, _stems, remEnd, wildToken
+						return false, packRes(failParts,false), nil, _stems, originalIdx, wildToken
 					}
 				}
 
@@ -4514,7 +4490,7 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 				
 				for ; k != end ; k += step {
 					okPrefix, rPrefix, remPrefix, sPrefix, _, _ := matchGlobComp(ctx, prefix, gapVals[:k], 0, false)
-					if !okPrefix { continue } // CONTRACT: 'ok' is the single source of truth
+					if !okPrefix { continue } 
 
 					var resParts []Value
 					if rPrefix != nil { resParts = append(resParts, rPrefix) }
@@ -4522,7 +4498,7 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 					if len(gapVals) > k { resParts = append(resParts, gapVals[k:]...) } 
 					resParts = append(resParts, matchedSuffix...)
 					
-					currentRes := matchedRes(resParts)
+					currentRes := packRes(resParts,false)
 
 					var wildStemParts []Value
 					if remPrefix != nil { wildStemParts = append(wildStemParts, remPrefix) }
@@ -4544,7 +4520,7 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 					var failParts []Value
 					failParts = append(failParts, gapVals...)
 					failParts = append(failParts, matchedSuffix...)
-					bestRes = matchedRes(failParts)
+					bestRes = packRes(failParts, false)
 					
 					var wildStem Value
 					if len(gapVals) == 1 { wildStem = gapVals[0] } else 
@@ -4552,50 +4528,88 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 					{ wildStem = _raw(e.Position(), "") }
 					bestStems = append([]Value{wildStem}, _stems...)
 				}
-				return false, bestRes, nil, bestStems, remEnd, wildToken
+				return false, bestRes, nil, bestStems, originalIdx, wildToken
 
 			} else if gm, ok := e.(*globmeta); ok && gm.token == QUE {
-				if remEnd <= 0 { return false, matchedRes(matchedSuffix), nil, _stems, remEnd, wildToken }
-				val := vals[remEnd-1]
-				_, r, rem, s := matchGlobScalar(ctx, e, val, true)
-				if s != nil { _stems = append(append([]Value{}, s...), _stems...) }
-				if r != nil {
-					matchedSuffix = append([]Value{r}, matchedSuffix...)
+				var r2 Value
+				if i < len(elems)-1 {
+					patElems := elems[i+1:]
+					patOk, r1, r2Rem, nextIdx := matchCompComp(ctx, patElems, vals[:remEnd], 0, true)
+
+					if patOk { 
+						if r1 != nil { matchedSuffix = append([]Value{r1}, matchedSuffix...) }
+						remEnd = nextIdx
+						r2 = r2Rem
+					} else {
+						var failParts []Value
+						if r1 != nil { failParts = append([]Value{r1}, failParts...) }
+						failParts = append(failParts, matchedSuffix...)
+						return false, packRes(failParts, false), nil, _stems, originalIdx, wildToken
+					}
+				}
+
+				wildToken = gm.token
+				
+				var gapVal Value
+				if r2 != nil {
+					gapVal = r2
+				} else if remEnd-1 >= 0 {
+					gapVal = vals[remEnd-1]
+				} else {
+					var failParts []Value
+					failParts = append(failParts, matchedSuffix...)
+					return false, packRes(failParts, false), nil, _stems, originalIdx, wildToken
+				}
+
+				okMatch, rPrefix, remPrefix, sPrefix := matchGlobScalar(ctx, e, gapVal, true)
+				if sPrefix != nil { _stems = append(append([]Value{}, sPrefix...), _stems...) }
+				
+				if okMatch {
+					matchedSuffix = append([]Value{rPrefix}, matchedSuffix...)
 					
 					var gapVals []Value
 					if remEnd-1 > 0 { gapVals = append(gapVals, vals[:remEnd-1]...) }
-					if rem != nil { gapVals = append(gapVals, rem) }
+					if remPrefix != nil { gapVals = append(gapVals, remPrefix) }
 
-					okPrefix, rPrefix, remPrefix, sPrefix, _, _ := matchGlobComp(ctx, elems[:i], gapVals, 0, false)
+					okPrefix, rRest, remRest, sRest, _, _ := matchGlobComp(ctx, elems[:i], gapVals, 0, true)
 					
-					if okPrefix && remPrefix == nil {
+					if okPrefix && remRest == nil {
 						var resParts []Value
-						if rPrefix != nil { resParts = append(resParts, rPrefix) }
+						if rRest != nil { resParts = append(resParts, rRest) }
 						resParts = append(resParts, matchedSuffix...)
 						currentStems := append([]Value{}, _stems...)
-						if sPrefix != nil { currentStems = append(sPrefix, currentStems...) }
-						return true, matchedRes(resParts), nil, currentStems, 0, wildToken
+						if sRest != nil { currentStems = append(sRest, currentStems...) }
+						return true, packRes(resParts, false), nil, currentStems, 0, wildToken
 					}
 
 					var failParts []Value
-					if rPrefix != nil { failParts = append(failParts, rPrefix) }
+					if rRest != nil { failParts = append(failParts, rRest) }
 					failParts = append(failParts, matchedSuffix...)
-					return false, matchedRes(failParts), nil, _stems, 0, wildToken
+
+					// FIX: Merge sRest into best-effort stems on failure
+					var failStems []Value
+					failStems = append(failStems, sRest...)
+					failStems = append(failStems, _stems...)
+					return false, packRes(failParts, false), nil, failStems, originalIdx, wildToken
 				} else {
-					return false, matchedRes(matchedSuffix), rem, _stems, remEnd, wildToken
+					var failParts []Value
+					failParts = append(failParts, matchedSuffix...)
+					return false, packRes(failParts, false), nil, _stems, originalIdx, wildToken
 				}
 			}
 		}
 
 		if wildToken == ILLEGAL {
 			if remEnd <= 0 { 
-				_res = matchedRes(vals[:remEnd])
-				return (len(elems) == 0 && _res == nil), _res, nil, _stems, remEnd, ILLEGAL
+				_res = packRes(vals[:remEnd], false)
+				if len(elems) == 0 && _res == nil {
+					return true, _res, nil, _stems, remEnd, ILLEGAL
+				}
+				return false, _res, nil, _stems, originalIdx, ILLEGAL
 			}
 
 			patOk, r1, r2, nextIdx := matchCompComp(ctx, elems, vals[:remEnd], 0, true)
 			if patOk { 
-				// FIX: Return r2 strictly as the scalar fraction. Let the caller use nextIdx.
 				return true, r1, r2, _stems, nextIdx, ILLEGAL 
 			} 
 			
@@ -4603,7 +4617,7 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 			if r1 != nil { failParts = append([]Value{r1}, failParts...) }
 			failParts = append(vals[remEnd:], failParts...)
 
-			return false, matchedRes(failParts), r2, _stems, nextIdx, ILLEGAL
+			return false, packRes(failParts, false), nil, _stems, originalIdx, ILLEGAL
 		}
 
 	} else {
@@ -4628,7 +4642,7 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 						var failParts []Value
 						failParts = append(failParts, matchedPrefix...)
 						if r1 != nil { failParts = append(failParts, r1) }
-						return false, matchedRes(failParts), r2Rem, _stems, idx, wildToken
+						return false, packRes(failParts, false), nil, _stems, originalIdx, wildToken
 					}
 				}
 
@@ -4650,7 +4664,7 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 				
 				for ; 0 <= k && k <= len(gapVals) ; k += step {
 					okSuffix, rSuffix, remSuffix, sSuffix, _, _ := matchGlobComp(ctx, suffix, gapVals[k:], 0, true)
-					if !okSuffix { continue } // CONTRACT: 'ok' is the single source of truth
+					if !okSuffix { continue } 
 
 					var resParts []Value
 					resParts = append(resParts, matchedPrefix...)
@@ -4658,7 +4672,7 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 					if remSuffix != nil { resParts = append(resParts, remSuffix) }
 					if rSuffix != nil { resParts = append(resParts, rSuffix) }
 					
-					currentRes := matchedRes(resParts)
+					currentRes := packRes(resParts, false)
 
 					var wildStemParts []Value
 					if k > 0 { wildStemParts = append(wildStemParts, gapVals[:k]...) }
@@ -4680,7 +4694,7 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 					var failParts []Value
 					failParts = append(failParts, matchedPrefix...)
 					failParts = append(failParts, gapVals...)
-					bestRes = matchedRes(failParts)
+					bestRes = packRes(failParts, false)
 					
 					var wildStem Value
 					if len(gapVals) == 1 { wildStem = gapVals[0] } else 
@@ -4688,59 +4702,98 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 					{ wildStem = _raw(e.Position(), "") }
 					bestStems = append(_stems, wildStem)
 				}
-				return false, bestRes, nil, bestStems, idx, wildToken
+				return false, bestRes, nil, bestStems, originalIdx, wildToken
 				
 			} else if gm, ok := e.(*globmeta); ok && gm.token == QUE {
-				if idx >= len(vals) { return false, matchedRes(matchedPrefix), nil, _stems, idx, wildToken }
-				val := vals[idx]
-				_, r, rem, s := matchGlobScalar(ctx, e, val, false)
-				if s != nil { _stems = append(_stems, s...) }
-				if r != nil {
-					matchedPrefix = append(matchedPrefix, r)
+				var r2 Value
+				if 0 < i {
+					patElems := elems[0:i]
+					patOk, r1, r2Rem, nextIdx := matchCompComp(ctx, patElems, vals[idx:], 0, false)
+
+					if patOk { 
+						if r1 != nil { matchedPrefix = append(matchedPrefix, r1) }
+						idx += nextIdx
+						r2 = r2Rem
+					} else {
+						var failParts []Value
+						failParts = append(failParts, matchedPrefix...)
+						if r1 != nil { failParts = append(failParts, r1) }
+						return false, packRes(failParts, false), nil, _stems, originalIdx, wildToken
+					}
+				}
+
+				wildToken = gm.token
+
+				var gapVal Value
+				if r2 != nil {
+					gapVal = r2
+				} else if idx < len(vals) {
+					gapVal = vals[idx]
+				} else {
+					var failParts []Value
+					failParts = append(failParts, matchedPrefix...)
+					return false, packRes(failParts, false), nil, _stems, originalIdx, wildToken
+				}
+
+				okMatch, rSuffix, remSuffix, sSuffix := matchGlobScalar(ctx, e, gapVal, false)
+				if sSuffix != nil { _stems = append(_stems, sSuffix...) }
+				
+				if okMatch {
+					matchedPrefix = append(matchedPrefix, rSuffix)
 					
 					var gapVals []Value
-					if rem != nil { gapVals = append(gapVals, rem) }
+					if remSuffix != nil { gapVals = append(gapVals, remSuffix) }
 					if idx+1 < len(vals) { gapVals = append(gapVals, vals[idx+1:]...) }
 
-					okSuffix, rSuffix, remSuffix, sSuffix, _, _ := matchGlobComp(ctx, elems[i+1:], gapVals, 0, true)
+					okSuffix, rRest, remRest, sRest, _, _ := matchGlobComp(ctx, elems[i+1:], gapVals, 0, false)
 					
-					if okSuffix && remSuffix == nil {
+					if okSuffix && remRest == nil {
 						var resParts []Value
 						resParts = append(resParts, matchedPrefix...)
-						if rSuffix != nil { resParts = append(resParts, rSuffix) }
+						if rRest != nil { resParts = append(resParts, rRest) }
 						currentStems := append([]Value{}, _stems...)
-						if sSuffix != nil { currentStems = append(currentStems, sSuffix...) }
+						if sRest != nil { currentStems = append(currentStems, sRest...) }
 						
-						return true, matchedRes(resParts), nil, currentStems, len(vals), wildToken
+						return true, packRes(resParts, false), nil, currentStems, len(vals), wildToken
 					}
 
 					var failParts []Value
 					failParts = append(failParts, matchedPrefix...)
-					if rSuffix != nil { failParts = append(failParts, rSuffix) }
-					return false, matchedRes(failParts), nil, _stems, idx, wildToken
+					if rRest != nil { failParts = append(failParts, rRest) }
+					
+					// FIX: Merge sRest into best-effort stems on failure
+					var failStems []Value
+					failStems = append(failStems, _stems...)
+					failStems = append(failStems, sRest...)
+					
+					return false, packRes(failParts, false), nil, failStems, originalIdx, wildToken
 				} else {
-					return false, matchedRes(matchedPrefix), rem, _stems, idx, wildToken
+					var failParts []Value
+					failParts = append(failParts, matchedPrefix...)
+					return false, packRes(failParts, false), nil, _stems, originalIdx, wildToken
 				}
 			}
 		}
 
 		if wildToken == ILLEGAL {
 			if idx >= len(vals) {
-				_res = matchedRes(vals[originalIdx:idx])
-				return (len(elems) == 0 && _res == nil), _res, nil, _stems, idx, ILLEGAL
+				_res = packRes(vals[originalIdx:idx], false)
+				if len(elems) == 0 && _res == nil {
+					return true, _res, nil, _stems, idx, ILLEGAL
+				}
+				return false, _res, nil, _stems, originalIdx, ILLEGAL
 			}
 
 			patOk, r1, r2, nextIdx := matchCompComp(ctx, elems, vals[idx:], 0, false)
 			if patOk { 
-				// FIX: Return r2 strictly as the scalar fraction. Let the caller use idx + nextIdx.
-				return true, r1, r2, _stems, idx + nextIdx, ILLEGAL
+				return true, r1, r2, _stems, idx + nextIdx, ILLEGAL 
 			} 
 			
 			var failParts []Value
 			failParts = append(failParts, vals[originalIdx:idx]...)
 			if r1 != nil { failParts = append(failParts, r1) }
 
-			return false, matchedRes(failParts), r2, _stems, idx + nextIdx, ILLEGAL
+			return false, packRes(failParts, false), nil, _stems, originalIdx, ILLEGAL
 		}
 	}
 
@@ -4749,15 +4802,10 @@ func matchGlobComp(ctx Context, elems, vals []Value, idx int, trail bool) (_matc
 
 // matchGlobPath matches glob elements (elems) against path segments (segments).
 func matchGlobPath(ctx Context, elems, segments []Value, idx int, trail bool) (_matched bool, _res, _rem Value, _stems []Value, _idx int, wildToken token) {
-	if checkpoints { defer check_matchGlobPath(ctx, elems, segments, idx)(&_matched, &_res, &_rem, &_stems, &_idx, &wildToken) }
+	if checkpoints { defer check_matchGlobPath(ctx, elems, segments, idx, trail)(&_matched, &_res, &_rem, &_stems, &_idx, &wildToken) }
 
 	wildToken = ILLEGAL
 	originalIdx := idx 
-
-	makePath := func(parts []Value) Value {
-		if len(parts) == 0 { return nil } else if len(parts) == 1 { return parts[0] }
-		return &path{elements{parts}}
-	}
 
 	if trail {
 		// ==========================================
@@ -4765,30 +4813,36 @@ func matchGlobPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 		// ==========================================
 		var matchedSuffix, remEnd Value
 		var endStems []Value
-		gapEndIdx := idx
+		var nextIdxEnd int
 
 		for i := len(elems) - 1; i >= 0; i-- {
 			e := unloc(elems[i])
 			if gm, ok := e.(*globmeta); ok && (gm.token == DAST || gm.token == ASTQ) {
 				
 				if i < len(elems)-1 {
+					if idx-1 < 0 {
+						var failParts []Value
+						failParts = append(failParts, segments[idx:originalIdx]...)
+						return false, packRes(failParts, true), nil, _stems, idx, wildToken
+					}
+
 					patElems, vals := elems[i+1:], unpack(segments[idx-1])
-					ok, r, rem, s, _, _ := matchGlobComp(ctx, patElems, vals, 0, true)
+					ok, r, rem, s, nextIdx, _ := matchGlobComp(ctx, patElems, vals, 0, true)
 
 					if ok && rem == nil { 
 						if s != nil { _stems = append(append([]Value{}, s...), _stems...) }
+						nextIdxEnd = nextIdx // FIX: Capture cursor unconditionally
 						idx--
-						gapEndIdx = originalIdx - 1
 					} else if ok || r != nil { 
 						matchedSuffix = r 
 						remEnd = rem
 						endStems = s
-						gapEndIdx = originalIdx - 1
+						nextIdxEnd = nextIdx 
 					} else {
 						var failParts []Value
 						if r != nil { failParts = append(failParts, r) }
 						failParts = append(failParts, segments[idx:originalIdx]...)
-						return false, makePath(failParts), rem, _stems, idx, wildToken
+						return false, packRes(failParts, true), rem, _stems, idx, wildToken
 					}
 				}
 
@@ -4811,60 +4865,76 @@ func matchGlobPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 						
 						var resParts []Value
 						if r != nil { resParts = append(resParts, r) }
-						currentRes = makePath(resParts)
+						currentRes = packRes(resParts, true)
 
 						if s != nil { currentStems = append(append([]Value{}, s...), currentStems...) }
 
-						if ok && rem == nil { 
-							return true, currentRes, nil, currentStems, k, wildToken
-						}
-						
+						if ok && rem == nil { return true, currentRes, nil, currentStems, k, wildToken }
 						if !matchFound { bestRes, bestStems, matchFound = currentRes, currentStems, true }
 						if !ok { continue } 
 						continue
 					}
 
 					// Case 2: Multi-Segment Match
-					okStart, _, remStart, sStart, _, _ := matchGlobComp(ctx, prefix, unpack(segments[k]), 0, false)
-					if !okStart { continue } 
+					okStart, _, remStart, sStart, nextIdxStart, _ := matchGlobComp(ctx, prefix, unpack(segments[k]), 0, false)
 
-					currentRes = makePath(segments[k : originalIdx])
-
-					var startStem, endStem Value
-					var startRest, endRest []Value
-
-					if len(sStart) > 0 {
-						startStem = sStart[len(sStart)-1]
-						startRest = sStart[:len(sStart)-1]
-					}
-					if len(endStems) > 0 {
-						endStem = endStems[0]
-						endRest = endStems[1:]
-					}
+					currentRes = packRes(segments[k : originalIdx], true)
 
 					var wildStemParts []Value
-					if remStart != nil { wildStemParts = append(wildStemParts, remStart) }
-					if startStem != nil { wildStemParts = append(wildStemParts, startStem) }
 					
-					if gapEndIdx > k + 1 { wildStemParts = append(wildStemParts, segments[k+1:gapEndIdx]...) }
-					
-					if remEnd != nil { wildStemParts = append(wildStemParts, remEnd) }
-					if matchedSuffix == nil && i < len(elems)-1 && len(wildStemParts) == 0 {
-						wildStemParts = append(wildStemParts, _raw(e.Position(), ""))
+					if i > 0 {
+						var startGapParts []Value
+						valsK := unpack(segments[k])
+						
+						if !okStart {
+							startGapParts = append(startGapParts, valsK...)
+						} else {
+							if remStart != nil { startGapParts = append(startGapParts, remStart) }
+							untouchedIdx := nextIdxStart
+							if remStart != nil { untouchedIdx++ } 
+							if untouchedIdx < len(valsK) { startGapParts = append(startGapParts, valsK[untouchedIdx:]...) }
+						}
+						
+						gapStartSeg := packRes(startGapParts, false)
+						if gapStartSeg != nil { wildStemParts = append(wildStemParts, gapStartSeg) } else { wildStemParts = append(wildStemParts, _raw(e.Position(), "")) }
+					} else {
+						wildStemParts = append(wildStemParts, segments[k])
 					}
-					if endStem != nil { wildStemParts = append(wildStemParts, endStem) }
-					
+
+					for m := k + 1; m < originalIdx - 1; m++ {
+						wildStemParts = append(wildStemParts, segments[m])
+					}
+
+					if i < len(elems)-1 {
+						var endGapParts []Value
+						valsOrig := unpack(segments[originalIdx-1])
+						if nextIdxEnd > 0 { endGapParts = append(endGapParts, valsOrig[:nextIdxEnd]...) }
+						if remEnd != nil { endGapParts = append(endGapParts, remEnd) }
+						gapEndSeg := packRes(endGapParts, false)
+						if gapEndSeg != nil { wildStemParts = append(wildStemParts, gapEndSeg) } else { wildStemParts = append(wildStemParts, _raw(e.Position(), "")) }
+					} else {
+						wildStemParts = append(wildStemParts, segments[originalIdx-1])
+					}
+
 					var wildStem Value
 					if len(wildStemParts) == 1 { wildStem = wildStemParts[0] } else 
 					if len(wildStemParts) > 0 { wildStem = &path{elements{wildStemParts}} }
 
 					var newStems []Value
-					newStems = append(newStems, startRest...)
+					newStems = append(newStems, sStart...)
 					if wildStem != nil { newStems = append(newStems, wildStem) }
-					newStems = append(newStems, endRest...)
+					newStems = append(newStems, endStems...)
 
-					currentStems = append(newStems, currentStems...)
+					if !matchFound {
+						bestRes = currentRes
+						bestStems = append([]Value{}, _stems...)
+						bestStems = append(bestStems, newStems...)
+						matchFound = true
+					}
 
+					if !okStart { continue } 
+
+					currentStems = append(currentStems, newStems...)
 					return true, currentRes, nil, currentStems, k, wildToken
 				}
 
@@ -4872,32 +4942,23 @@ func matchGlobPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 					var failParts []Value
 					if matchedSuffix != nil { failParts = append(failParts, matchedSuffix) }
 					failParts = append(failParts, segments[idx:originalIdx]...)
-					bestRes = makePath(failParts)
+					bestRes = packRes(failParts, true)
 				}
 				return false, bestRes, nil, bestStems, idx, wildToken
 			}
 		}
 
 		if wildToken == ILLEGAL {
-			if idx <= 0 {
-				return false, makePath(segments[idx:originalIdx]), nil, _stems, idx, ILLEGAL
-			}
-
+			if idx <= 0 { return false, packRes(segments[idx:originalIdx], true), nil, _stems, idx, ILLEGAL }
 			patAtoms := elems
 			segAtoms := unpack(segments[idx-1])
-
 			ok, r, rem, s, _, _ := matchGlobComp(ctx, patAtoms, segAtoms, 0, true)
 			if s != nil { _stems = append(append([]Value{}, s...), _stems...) }
-
-			if ok && rem == nil { 
-				return true, makePath(segments[idx-1:originalIdx]), nil, _stems, idx - 1, ILLEGAL			
-			}
-			
+			if ok && rem == nil { return true, packRes(segments[idx-1:originalIdx], true), nil, _stems, idx - 1, ILLEGAL }
 			var failParts []Value
 			if r != nil { failParts = append(failParts, r) }
 			failParts = append(failParts, segments[idx:originalIdx]...)
-
-			return false, makePath(failParts), rem, _stems, _if(r != nil, idx - 1, idx), ILLEGAL
+			return false, packRes(failParts, true), rem, _stems, _if(r != nil, idx - 1, idx), ILLEGAL
 		}
 	} else {
 		// ==========================================
@@ -4905,29 +4966,35 @@ func matchGlobPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 		// ==========================================
 		var matchedPrefix, remStart Value
 		var startStems []Value
-		gapStartIdx := idx
+		var nextIdxStart int
 
 		for i, e := range elems { e = unloc(e) 
 			if gm, ok := e.(*globmeta); ok && (gm.token == DAST || gm.token == ASTQ) {
 				
 				if 0 < i {
+					if idx >= len(segments) {
+						var failParts []Value
+						failParts = append(failParts, segments[originalIdx:idx]...)
+						return false, packRes(failParts, true), nil, _stems, idx, wildToken
+					}
+
 					patElems, vals := elems[0:i], unpack(segments[idx])
-					ok, r, rem, s, _, _ := matchGlobComp(ctx, patElems, vals, 0, false)
+					ok, r, rem, s, nextIdx, _ := matchGlobComp(ctx, patElems, vals, 0, false)
 
 					if ok && rem == nil { 
 						if s != nil { _stems = append(_stems, s...) }
+						nextIdxStart = nextIdx // FIX: Capture cursor unconditionally
 						idx++
-						gapStartIdx = originalIdx + 1
 					} else if ok || r != nil { 
 						matchedPrefix = r 
 						remStart = rem
 						startStems = s
-						gapStartIdx = originalIdx + 1
+						nextIdxStart = nextIdx 
 					} else {
 						var failParts []Value
 						failParts = append(failParts, segments[originalIdx:idx]...)
 						if r != nil { failParts = append(failParts, r) }
-						return false, makePath(failParts), rem, _stems, idx, wildToken
+						return false, packRes(failParts, true), rem, _stems, idx, wildToken
 					}
 				}
 
@@ -4941,100 +5008,113 @@ func matchGlobPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 				var k, step int
 				if gm.token == ASTQ { k, step = idx, 1 } else { k, step = len(segments)-1, -1 }
 				for ; idx <= k && k < len(segments) ; k += step {
-					var currentRes Value
-					var currentStems = append([]Value{}, _stems...)
-
 					// Case 1: Single Segment Match
 					if k == originalIdx {
 						ok, r, rem, s, _, _ := matchGlobComp(ctx, elems, unpack(segments[k]), 0, false)
 						
-						var resParts []Value
-						resParts = append(resParts, segments[originalIdx:idx]...)
-						if r != nil { resParts = append(resParts, r) }
-						currentRes = makePath(resParts)
-
-						if s != nil { currentStems = append(currentStems, s...) }
+						var currentStems = append(append([]Value{}, _stems...), s...)
+						if !matchFound {
+							bestRes = packRes(segments[originalIdx : k+1], true)
+							bestStems = currentStems
+							matchFound = true
+						}
 
 						if ok && rem == nil { 
-							return true, currentRes, nil, currentStems, k + 1, wildToken 
+							var resParts []Value
+							resParts = append(resParts, segments[originalIdx:idx]...)
+							if r != nil { resParts = append(resParts, r) }
+							return true, packRes(resParts, true), nil, currentStems, k + 1, wildToken 
 						}
-						
-						if !matchFound { bestRes, bestStems, matchFound = currentRes, currentStems, true }
-						if !ok { continue } 
-						continue
+						continue 
 					}
 
 					// Case 2: Multi-Segment Match
-					okEnd, _, remEnd, sEnd, _, _ := matchGlobComp(ctx, suffix, unpack(segments[k]), 0, true)
-					if !okEnd { continue } 
-
-					currentRes = makePath(segments[originalIdx : k+1])
-
-					var startStem, endStem Value
-					var startRest, endRest []Value
-
-					if len(startStems) > 0 {
-						startStem = startStems[len(startStems)-1]
-						startRest = startStems[:len(startStems)-1]
-					}
-					if len(sEnd) > 0 {
-						endStem = sEnd[0]
-						endRest = sEnd[1:]
-					}
+					okEnd, _, remEnd, sEnd, nextIdxEnd, _ := matchGlobComp(ctx, suffix, unpack(segments[k]), 0, true)
 
 					var wildStemParts []Value
-					if remStart != nil { wildStemParts = append(wildStemParts, remStart) }
-					if matchedPrefix == nil && i > 0 && len(wildStemParts) == 0 {
-						wildStemParts = append(wildStemParts, _raw(e.Position(), ""))
+					
+					if i > 0 {
+						var startGapParts []Value
+						valsOrig := unpack(segments[originalIdx])
+						
+						if remStart != nil { startGapParts = append(startGapParts, remStart) }
+						untouchedIdx := nextIdxStart
+						if remStart != nil { untouchedIdx++ } 
+						if untouchedIdx < len(valsOrig) { startGapParts = append(startGapParts, valsOrig[untouchedIdx:]...) }
+						
+						gapStartSeg := packRes(startGapParts, false)
+						if gapStartSeg != nil { wildStemParts = append(wildStemParts, gapStartSeg) } else { wildStemParts = append(wildStemParts, _raw(e.Position(), "")) }
+					} else {
+						wildStemParts = append(wildStemParts, segments[originalIdx])
 					}
-					if startStem != nil { wildStemParts = append(wildStemParts, startStem) }
-					
-					if k > gapStartIdx { wildStemParts = append(wildStemParts, segments[gapStartIdx:k]...) }
-					
-					if remEnd != nil { wildStemParts = append(wildStemParts, remEnd) }
-					if endStem != nil { wildStemParts = append(wildStemParts, endStem) }
-					
+
+					for m := originalIdx + 1; m < k; m++ {
+						wildStemParts = append(wildStemParts, segments[m])
+					}
+
+					if i < len(elems)-1 {
+						var endGapParts []Value
+						valsK := unpack(segments[k])
+						
+						if !okEnd {
+							endGapParts = append(endGapParts, valsK...)
+						} else {
+							if nextIdxEnd > 0 { endGapParts = append(endGapParts, valsK[:nextIdxEnd]...) }
+							if remEnd != nil { endGapParts = append(endGapParts, remEnd) }
+						}
+						
+						gapEndSeg := packRes(endGapParts, false)
+						if gapEndSeg != nil { wildStemParts = append(wildStemParts, gapEndSeg) } else { wildStemParts = append(wildStemParts, _raw(e.Position(), "")) }
+					} else {
+						wildStemParts = append(wildStemParts, segments[k])
+					}
+
 					var wildStem Value
 					if len(wildStemParts) == 1 { wildStem = wildStemParts[0] } else 
 					if len(wildStemParts) > 0 { wildStem = &path{elements{wildStemParts}} }
 
-					currentStems = append(currentStems, startRest...)
-					if wildStem != nil { currentStems = append(currentStems, wildStem) }
-					currentStems = append(currentStems, endRest...)
+					var newStems []Value
+					newStems = append(newStems, startStems...)
+					if wildStem != nil { newStems = append(newStems, wildStem) }
+					newStems = append(newStems, sEnd...)
 
-					return true, currentRes, nil, currentStems, k + 1, wildToken
+					if !matchFound {
+						bestRes = packRes(segments[originalIdx : k+1], true)
+						bestStems = append([]Value{}, _stems...)
+						bestStems = append(bestStems, newStems...)
+						matchFound = true
+					}
+
+					if !okEnd { continue } 
+
+					var currentStems []Value
+					currentStems = append(currentStems, _stems...)
+					currentStems = append(currentStems, newStems...)
+
+					return true, packRes(segments[originalIdx : k+1], true), nil, currentStems, k + 1, wildToken
 				}
 
 				if bestRes == nil {
 					var failParts []Value
 					failParts = append(failParts, segments[originalIdx:idx]...)
 					if matchedPrefix != nil { failParts = append(failParts, matchedPrefix) }
-					bestRes = makePath(failParts)
+					bestRes = packRes(failParts, true)
 				}
 				return false, bestRes, nil, bestStems, idx, wildToken
 			}
 		}
 
 		if wildToken == ILLEGAL {
-			if idx >= len(segments) {
-				return false, makePath(segments[originalIdx:idx]), nil, _stems, idx, ILLEGAL
-			}
-
+			if idx >= len(segments) { return false, packRes(segments[originalIdx:idx], true), nil, _stems, idx, ILLEGAL }
 			patAtoms := elems
 			segAtoms := unpack(segments[idx])
-
 			ok, r, rem, s, _, _ := matchGlobComp(ctx, patAtoms, segAtoms, 0, false)
 			if s != nil { _stems = append(_stems, s...) }
-
-			if ok && rem == nil { 
-				return true, makePath(segments[originalIdx:idx+1]), nil, _stems, idx + 1, ILLEGAL			
-			}
-			
+			if ok && rem == nil { return true, packRes(segments[originalIdx:idx+1], true), nil, _stems, idx + 1, ILLEGAL }
 			var failParts []Value
 			failParts = append(failParts, segments[originalIdx:idx]...)
 			if r != nil { failParts = append(failParts, r) }
-
-			return false, makePath(failParts), rem, _stems, _if(r != nil, idx + 1, idx), ILLEGAL
+			return false, packRes(failParts, true), rem, _stems, _if(r != nil, idx + 1, idx), ILLEGAL
 		}
 	}
 
@@ -5043,10 +5123,7 @@ func matchGlobPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 
 // matchPathPath match path segments (elems) against path segments.
 func matchPathPath(ctx Context, elems, segments []Value, idx int, trail bool) (_matched bool, _res, _rem Value, _stems []Value, _idx int) {
-	if checkpoints { defer check_matchPathPath(ctx, elems, segments, idx)(&_matched, &_res, &_rem, &_stems, &_idx) }
-
-	makePath := func(v []Value) Value { if 0 < len(v) { return &path{elements{v}} } else { return nil } }
-
+	if checkpoints { defer check_matchPathPath(ctx, elems, segments, idx, trail)(&_matched, &_res, &_rem, &_stems, &_idx) }
 	if trail {
 		// --- REVERSE (TRAILING) MATCH LOGIC ---
 		segIdx := len(segments)
@@ -5056,28 +5133,50 @@ func matchPathPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 			
 			var probeSegs []Value
 			if segIdx > 0 { probeSegs = segments[segIdx-1 : segIdx] }
-			ok, r, rem, s, _, wildToken := matchGlobPath(ctx, pat, probeSegs, len(probeSegs), true)
+			ok, r, rem, s, nextIdx, wildToken := matchGlobPath(ctx, pat, probeSegs, len(probeSegs), true)
 
 			if wildToken == DAST || wildToken == ASTQ {
-				for n := 0; n <= segIdx; n++ {
-					k := segIdx - n // Left boundary
+				var bestFailRes Value
+				var bestFailStems []Value = _stems
+				var bestFailIdx int = segIdx 
+				var matchFound bool
+
+				var startN, endN, stepN int
+				if wildToken == ASTQ { startN, endN, stepN = 0, segIdx + 1, 1 } else { startN, endN, stepN = segIdx, -1, -1 }
+
+				for n := startN; n != endN; n += stepN {
+					k := segIdx - n 
 					
 					var okGap bool
 					var rGap, remGap Value
 					var sGap []Value
+					var gapNextIdx int
 
-					// Caller-side safety & optimization for 0-length gaps
 					if n == 0 {
-						if len(pat) > 1 { continue } // Literals like x**y cannot match 0 segments
-						okGap, rGap, remGap, sGap = true, nil, nil, nil
+						if len(pat) > 1 { continue } 
+						okGap, rGap, remGap, sGap, gapNextIdx = true, nil, nil, nil, 0
 					} else if n == 1 && len(probeSegs) == 1 {
-						okGap, rGap, remGap, sGap = ok, r, nil, s 
+						okGap, rGap, remGap, sGap, gapNextIdx = ok, r, nil, s, nextIdx 
 					} else {
-						okGap, rGap, remGap, sGap, _, _ = matchGlobPath(ctx, pat, segments[k:segIdx], n, true)
+						okGap, rGap, remGap, sGap, gapNextIdx, _ = matchGlobPath(ctx, pat, segments[k:segIdx], n, true)
 					}
 					
-					// FIX: A path segment must completely align with the '/' boundary!
-					if !okGap || remGap != nil { continue }
+					if !matchFound {
+						var failParts []Value
+						if rGap != nil {
+							if p, ok := rGap.(*path); ok { failParts = append(failParts, p.elems...) } else { failParts = append(failParts, rGap) }
+						}
+						failParts = append(failParts, segments[segIdx:]...)
+						bestFailRes = packRes(failParts, true)
+
+						bestFailStems = make([]Value, 0, len(sGap)+len(_stems))
+						bestFailStems = append(bestFailStems, sGap...)
+						bestFailStems = append(bestFailStems, _stems...)
+						bestFailIdx = k 
+						matchFound = true
+					}
+
+					if !okGap || remGap != nil || gapNextIdx != 0 { continue } 
 
 					okPrefix, rPrefix, remPrefix, sPrefix, _k := matchPathPath(ctx, elems[:i], segments[:k], k, true)
 					
@@ -5096,63 +5195,115 @@ func matchPathPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 						currentStems = append(currentStems, sGap...)
 						currentStems = append(currentStems, _stems...)
 
-						return true, makePath(parts), remPrefix, currentStems, 0
+						return true, packRes(parts, true), remPrefix, currentStems, 0
+					}
+
+					if okGap {
+						var failParts []Value
+						if rPrefix != nil {
+							if p, ok := rPrefix.(*path); ok { failParts = append(failParts, p.elems...) } else { failParts = append(failParts, rPrefix) }
+						}
+						if rGap != nil {
+							if p, ok := rGap.(*path); ok { failParts = append(failParts, p.elems...) } else { failParts = append(failParts, rGap) }
+						}
+						failParts = append(failParts, segments[segIdx:]...)
+						bestFailRes = packRes(failParts, true)
+
+						bestFailStems = make([]Value, 0, len(sPrefix)+len(sGap)+len(_stems))
+						bestFailStems = append(bestFailStems, sPrefix...)
+						bestFailStems = append(bestFailStems, sGap...)
+						bestFailStems = append(bestFailStems, _stems...)
+						bestFailIdx = _k 
 					}
 				}
-				return false, nil, makePath(segments[:segIdx]), _stems, 0
+				
+				if !matchFound {
+					bestFailRes = packRes(segments[segIdx:], true)
+					bestFailIdx = segIdx
+				}
+				return false, bestFailRes, nil, bestFailStems, bestFailIdx 
 			}
 
-			// FIX: Non-wildcard path segments must also fully consume the boundary
 			if !ok || rem != nil {
 				var failParts []Value
 				if r != nil { failParts = append(failParts, r) }
 				failParts = append(failParts, segments[segIdx:]...)
-				return false, makePath(failParts), rem, _stems, 0
+
+				// FIX: Capture best-effort stems on failure
+				var currentStems []Value
+				currentStems = append(currentStems, s...)
+				currentStems = append(currentStems, _stems...)
+
+				return false, packRes(failParts, true), rem, currentStems, segIdx - len(probeSegs) + nextIdx
 			}
 
 			if s != nil { _stems = append(append([]Value{}, s...), _stems...) }
 			segIdx--
 		}
 
-		remPath := makePath(segments[:segIdx])
-		resPath := makePath(segments[segIdx:])
+		remPath := packRes(segments[:segIdx], true)
+		resPath := packRes(segments[segIdx:], true)
 		return true, resPath, remPath, _stems, 0
 
 	} else {
 		// --- FORWARD (STANDARD) MATCH LOGIC ---
+		originalIdx := idx 
+
 		for i, e := range elems {
 			pat := unpack(e)
 
 			var probeSegs []Value
 			if idx < len(segments) { probeSegs = segments[idx : idx+1] }
-			ok, r, rem, s, _, wildToken := matchGlobPath(ctx, pat, probeSegs, 0, false)
+			ok, r, rem, s, nextIdx, wildToken := matchGlobPath(ctx, pat, probeSegs, 0, false)
 
 			if wildToken == DAST || wildToken == ASTQ {
-				for n := 0; idx+n <= len(segments); n++ {
-					k := idx + n // Right boundary
+				var bestFailRes Value
+				var bestFailStems []Value = _stems
+				var bestFailIdx int = idx 
+				var matchFound bool
+
+				var startN, endN, stepN int
+				if wildToken == ASTQ { startN, endN, stepN = 0, len(segments) - idx + 1, 1 } else { startN, endN, stepN = len(segments) - idx, -1, -1 }
+
+				for n := startN; n != endN; n += stepN {
+					k := idx + n 
 					
 					var okGap bool
 					var rGap, remGap Value
 					var sGap []Value
+					var gapNextIdx int
 
-					// Caller-side safety & optimization for 0-length gaps
 					if n == 0 {
-						if len(pat) > 1 { continue } // Literals like x**y cannot match 0 segments
-						okGap, rGap, remGap, sGap = true, nil, nil, nil
+						if len(pat) > 1 { continue } 
+						okGap, rGap, remGap, sGap, gapNextIdx = true, nil, nil, nil, 0
 					} else if n == 1 && len(probeSegs) == 1 {
-						okGap, rGap, remGap, sGap = ok, r, nil, s 
+						okGap, rGap, remGap, sGap, gapNextIdx = ok, r, nil, s, nextIdx 
 					} else {
-						okGap, rGap, remGap, sGap, _, _ = matchGlobPath(ctx, pat, segments[idx:k], 0, false)
+						okGap, rGap, remGap, sGap, gapNextIdx, _ = matchGlobPath(ctx, pat, segments[idx:k], 0, false)
 					}
 
-					// FIX: A path segment must completely align with the '/' boundary!
-					if !okGap || remGap != nil { continue }
+					if !matchFound {
+						var failParts []Value
+						failParts = append(failParts, segments[originalIdx:idx]...) 
+						if rGap != nil {
+							if p, ok := rGap.(*path); ok { failParts = append(failParts, p.elems...) } else { failParts = append(failParts, rGap) }
+						}
+						bestFailRes = packRes(failParts, true)
+
+						bestFailStems = make([]Value, 0, len(_stems)+len(sGap))
+						bestFailStems = append(bestFailStems, _stems...)
+						bestFailStems = append(bestFailStems, sGap...)
+						bestFailIdx = k 
+						matchFound = true
+					}
+
+					if !okGap || remGap != nil || gapNextIdx != n { continue } 
 
 					okRest, rRest, remRest, sRest, _n := matchPathPath(ctx, elems[i+1:], segments, k, false)
 					
 					if okRest && _n == len(segments) {
 						var parts []Value
-						parts = append(parts, segments[:idx]...)
+						parts = append(parts, segments[originalIdx:idx]...) 
 						if rGap != nil {
 							if p, ok := rGap.(*path); ok { parts = append(parts, p.elems...) } else { parts = append(parts, rGap) }
 						}
@@ -5165,21 +5316,48 @@ func matchPathPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 						currentStems = append(currentStems, sGap...)
 						currentStems = append(currentStems, sRest...)
 
-						return true, makePath(parts), remRest, currentStems, len(segments)
+						return true, packRes(parts, true), remRest, currentStems, len(segments)
+					}
+
+					if okGap {
+						var failParts []Value
+						failParts = append(failParts, segments[originalIdx:idx]...) 
+						if rGap != nil {
+							if p, ok := rGap.(*path); ok { failParts = append(failParts, p.elems...) } else { failParts = append(failParts, rGap) }
+						}
+						if rRest != nil {
+							if p, ok := rRest.(*path); ok { failParts = append(failParts, p.elems...) } else { failParts = append(failParts, rRest) }
+						}
+						bestFailRes = packRes(failParts, true)
+
+						bestFailStems = make([]Value, 0, len(_stems)+len(sGap)+len(sRest))
+						bestFailStems = append(bestFailStems, _stems...)
+						bestFailStems = append(bestFailStems, sGap...)
+						bestFailStems = append(bestFailStems, sRest...)
+						bestFailIdx = _n 
 					}
 				}
 				
-				var failParts []Value
-				failParts = append(failParts, segments[:idx]...)
-				return false, makePath(failParts), makePath(segments[idx:]), _stems, idx
+				if !matchFound {
+					var failParts []Value
+					failParts = append(failParts, segments[originalIdx:idx]...) 
+					bestFailRes = packRes(failParts, true)
+					bestFailIdx = idx
+				}
+				return false, bestFailRes, nil, bestFailStems, bestFailIdx 
 			}
 
-			// FIX: Non-wildcard path segments must also fully consume the boundary
 			if !ok || rem != nil {
 				var failParts []Value
-				failParts = append(failParts, segments[:idx]...)
+				failParts = append(failParts, segments[originalIdx:idx]...) 
 				if r != nil { failParts = append(failParts, r) }
-				return false, makePath(failParts), makePath(segments[idx:]), _stems, idx
+
+				// FIX: Capture best-effort stems on failure
+				var currentStems []Value
+				currentStems = append(currentStems, _stems...)
+				currentStems = append(currentStems, s...)
+
+				return false, packRes(failParts, true), rem, currentStems, idx + nextIdx
 			}
 
 			if s != nil { _stems = append(_stems, s...) }
@@ -5187,10 +5365,10 @@ func matchPathPath(ctx Context, elems, segments []Value, idx int, trail bool) (_
 		}
 
 		if idx < len(segments) {
-			return false, makePath(segments[:idx]), makePath(segments[idx:]), _stems, idx
+			return true, packRes(segments[originalIdx:idx], true), packRes(segments[idx:], true), _stems, idx 
 		}
 
-		return true, makePath(segments), nil, _stems, idx
+		return true, packRes(segments[originalIdx:idx], true), nil, _stems, idx 
 	}
 }
 
@@ -5207,7 +5385,7 @@ func match(ctx Context, pat, val Value) (full bool, res, rem Value, stems []Valu
 		switch segs := splitPathStr(ctx, p.name); len(segs) {
 		case 0: return false, nil, nil, nil
 		case 1: return match(ctx, segs[0], val)
-		default: return match(ctx, makePath(segs...), val)
+		default: return match(ctx, packRes(segs, true), val)
 		}
 	case flag:
 		if v, ok := val.(flag); ok { return match(ctx, p.Value, v.Value) }
@@ -5221,79 +5399,66 @@ func match(ctx Context, pat, val Value) (full bool, res, rem Value, stems []Valu
 		switch segs := splitPathStr(ctx, v.name); len(segs) {
 		case 0: return false, nil, nil, nil
 		case 1: return match(ctx, pat, segs[0])
-		default: return match(ctx, pat, makePath(segs...))
+		default: return match(ctx, pat, packRes(segs, true))
 		}
 	}
-
-	trail := truly(ctx, propReversal)
 
 	makeRem := func(unconsumed Value, rest []Value) Value {
 		var parts []Value
 		if unconsumed != nil { parts = append(parts, unconsumed) }
-		parts = append(parts, rest...)
-		if len(parts) == 0 { return nil }
-		if len(parts) == 1 { return parts[0] }
-		return &compound{elements{parts}}
+		return packRes(append(parts, rest...), false)
 	}
+
+	idx, trail := 0, truly(ctx, propReversal)
 
 	switch p := pat.(type) {
 	case *globpat:
 		switch v := val.(type) {
 		case *path:
-			if len(v.elems) > 0 {
-				matched, r, rm, s, n, _ := matchGlobPath(ctx, p.elems, v.elems, 0, trail)
-				res, rem, stems = r, rm, s
-				full = matched && rem == nil && (trail && n <= 0 || !trail && n == len(v.elems))
-			}
+			full, res, rem, stems, idx, _ = matchGlobPath(ctx, p.elems, v.elems, idx, trail)
+			full = full && rem == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
 		case *globpat:
-			matched, r, rm, s, idx, _ := matchGlobComp(ctx, p.elems, v.elems, 0, trail)
-			res, stems = r, s
-			full = matched && rm == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
-			if !full && res != nil { rem = makeRem(rm, v.elems[idx:]) } else { rem = rm }
+			full, res, rem, stems, idx, _ = matchGlobComp(ctx, p.elems, v.elems, idx, trail)
+			full = full && rem == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
+			if !full && res != nil { rem = makeRem(rem, v.elems[idx:]) }
 		case *compound:
-			matched, r, rm, s, idx, _ := matchGlobComp(ctx, p.elems, v.elems, 0, trail)
-			res, stems = r, s
-			full = matched && rm == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
-			if !full && res != nil { rem = makeRem(rm, v.elems[idx:]) } else { rem = rm }
+			full, res, rem, stems, idx, _ = matchGlobComp(ctx, p.elems, v.elems, idx, trail)
+			full = full && rem == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
+			if !full && res != nil { rem = makeRem(rem, v.elems[idx:]) }
 		default:
-			matched, r, rm, s, idx, _ := matchGlobComp(ctx, p.elems, []Value{v}, 0, trail)
-			res, stems = r, s
-			full = matched && rm == nil && (trail && idx <= 0 || !trail && idx == 1)
-			if !full && res != nil { if idx < 1 { rem = makeRem(rm, nil) } } else { rem = rm }
+			full, res, rem, stems, idx, _ = matchGlobComp(ctx, p.elems, []Value{v}, idx, trail)
+			full = full && rem == nil && (trail && idx <= 0 || !trail && idx == 1)
+			if !full && res != nil && idx < 1 { rem = makeRem(rem, nil) }
 		}
 
 	case *compound:
 		switch v := val.(type) {
 		case *path:
-			if len(v.elems) > 0 { return match(ctx, pat, v.elems[0]) }
+			_, res, rem, stems = match(ctx, pat, v.elems[0])
+			full, rem = full && len(p.elems) <= 1, makeRem(rem, v.elems[1:])
 		case *compound:
-			matched, r, unconsumed, idx := matchCompComp(ctx, p.elems, v.elems, 0, trail)
-			res = r
-			full = matched && unconsumed == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
-			if !full && res != nil { rem = makeRem(unconsumed, v.elems[idx:]) } else { rem = unconsumed }
+			full, res, rem, idx = matchCompComp(ctx, p.elems, v.elems, idx, trail)
+			full = full && rem == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
+			if !full && res != nil { rem = makeRem(rem, v.elems[idx:]) }
 		case *globpat:
-			matched, r, unconsumed, idx := matchCompComp(ctx, p.elems, v.elems, 0, trail)
-			res = r
-			full = matched && unconsumed == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
-			if !full && res != nil { rem = makeRem(unconsumed, v.elems[idx:]) } else { rem = unconsumed }
+			full, res, rem, idx = matchCompComp(ctx, p.elems, v.elems, idx, trail)
+			full = full && rem == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
+			if !full && res != nil { rem = makeRem(rem, v.elems[idx:]) }
 		default:
-			matched, r, unconsumed, idx := matchCompComp(ctx, p.elems, []Value{v}, 0, trail)
-			res = r
-			full = matched && unconsumed == nil && (trail && idx <= 0 || !trail && idx == 1)
-			if !full && res != nil { if idx < 1 { rem = makeRem(unconsumed, nil) } } else { rem = unconsumed }
+			full, res, rem, idx = matchCompComp(ctx, p.elems, []Value{v}, idx, trail)
+			full = full && rem == nil && (trail && idx <= 0 || !trail && idx == 1)
+			if !full && res != nil && idx < 1 { rem = makeRem(rem, nil) }
 		}
 
 	case *path:
 		switch v := val.(type) {
 		case *path:
-			matched, r, rm, s, idx := matchPathPath(ctx, p.elems, v.elems, 0, trail)
-			res, rem, stems = r, rm, s
-			full = matched && rem == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
-			if !full && res != nil && rem == nil && idx < len(v.elems) {
-				rem = &path{elements{v.elems[idx:]}}
-			}
+			full, res, rem, stems, idx = matchPathPath(ctx, p.elems, v.elems, idx, trail)
+			full = full && rem == nil && (trail && idx <= 0 || !trail && idx == len(v.elems))
+			if !full && res != nil && rem == nil { rem = packRes(v.elems[idx:], true) }
 		default:
-			if len(p.elems) == 1 { return match(ctx, p.elems[0], v) }
+			full, res, rem, stems = match(ctx, p.elems[0], v)
+			full = full && len(p.elems) <= 1
 		}
 
 	case *regexpat:
@@ -5319,14 +5484,13 @@ func match(ctx Context, pat, val Value) (full bool, res, rem Value, stems []Valu
 		return
 
 	default:
-		matched, r, rm := matchScalarScalar(ctx, pat, val, trail)
-		res, rem = r, rm
-		full = matched && rem == nil // Only full if entire scalar was matched
+		full, res, rem = matchScalarScalar(ctx, pat, val, trail)
+		full = full && rem == nil // Only full if entire scalar was matched
 	}
 
 	if !full && !truly(ctx, is_swapped{}) && patterned(ctx, val) {
-		if ok, _, _, _ := match(swapped_ctx{ctx}, val, pat); ok {
-			full, res, rem, stems = true, val, nil, nil
+		if full, _, _, _ = match(swapped_ctx{ctx}, val, pat); full {
+			res, rem, stems = val, nil, nil
 		}
 	}
 	return

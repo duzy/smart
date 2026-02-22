@@ -3359,7 +3359,7 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat12.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat12.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*/*.h .test/a.h → false .test/a.h [a.h ]" {
+	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*/*.h .test/a.h → false .test/a.h [a.h]" {
 		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
 	} else if d2 := ctx.def("pat12.2"); d2 == nil {
 		ctx.err("pat12.2: %v", _project(ctx))

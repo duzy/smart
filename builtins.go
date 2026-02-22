@@ -4219,22 +4219,41 @@ func (ctx *__glob) x() (_ any) {
 }
 
 func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
-    if f, err := os.Stat(sd); err != nil {
-        if errorMissing {
-            debug(ctx, "%v", err, trace{})
-        }
-        return
-    } else if !f.IsDir() {
-        debug(ctx, "not dir: %v", sd, trace{})
-    } else if dir, err := os.Open(sd); err != nil {
-        debug(ctx, "not dir: %v", sd, trace{})
-    } else if names, err = dir.Readdirnames(-1); err != nil { // NOTE: see also filepath.Glob(...)
-        if errorMissing { debug(ctx, "readdir: %v", err, trace{}) }
-        return
-    } else {
-        dir.Close()
-    }
-    return
+	if f, err := os.Stat(sd); err != nil {
+		if errorMissing {
+			debug(ctx, "%v", err, trace{})
+		}
+		return
+	} else if !f.IsDir() {
+		debug(ctx, "not dir: %v", sd, trace{})
+		return
+	}
+
+	// Use os.ReadDir (Go 1.16+) instead of os.Open + Readdirnames.
+	// It is faster and gives us DirEntry, which knows IsDir() without extra syscalls.
+	entries, err := os.ReadDir(sd)
+	if err != nil {
+		if errorMissing { debug(ctx, "readdir: %v", err, trace{}) }
+		return
+	}
+
+	names = make([]string, 0, len(entries))
+
+	for _, entry := range entries {
+		name := entry.Name()
+		
+		if entry.IsDir() {
+			// Directories heavily repeat (src, bin, pkg, internal). Intern them!
+			names = append(names, intern(name))
+		} else {
+			// Files are often unique artifacts (obj_123.o). Leave them raw to protect GC.
+			// Optional: You can explicitly intern safe, known file types here if desired:
+			// if strings.HasSuffix(name, ".smart") { name = intern(name) }
+			
+			names = append(names, name)
+		}
+	}
+	return
 }
 
 // stepPattern advances the AST pattern by one directory level safely.
@@ -4445,10 +4464,6 @@ func (ctx *__wildcard) project(p *project, pats ...Value) {
 					var search = _if_cmp(ctx, cmpSmaller, argPat, mapPat)
 					var isSearchPat = patterned(ctx, search)
 					for _, v := range merge(expands(_final(ctx), a.filemap.paths...)...) {
-						if false {
-							s := sf("%v %v -> %v", ts(argPat), ts(mapPat), search)
-							debug(ctx, "%s", rxLC.ReplaceAllString(s, "="))
-						}
 						if dir := __string(ctx, v); isSearchPat {
 							ctx.directory(dir, search)
 						} else {

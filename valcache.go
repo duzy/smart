@@ -56,6 +56,40 @@ func intern(s string) string {
 	return s
 }
 
+func internBytes(b []byte) string {
+	// Optional: Micro-optimize single-byte/common sequences to bypass the lock entirely
+	switch len(b) {
+	case 1:
+		switch b[0] {
+		case '*': return WildcardOne
+		case '?': return WildcardChar
+		}
+	case 2:
+		if b[0] == '*' { switch b[1] {
+		case '*': return WildcardAny
+		case '?': return WildcardShort
+		}}
+	}
+
+	// 1. Zero-allocation fast-path lookup
+	internM.RLock()
+	interned, ok := internPool[string(b)]
+	internM.RUnlock()
+	if ok { return interned }
+
+	// 2. Slow-path allocation
+	s := string(b)
+	internM.Lock()
+	// Double check to prevent race conditions
+	if interned, ok = internPool[s]; ok {
+		internM.Unlock()
+		return interned
+	}
+	internPool[s] = s
+	internM.Unlock()
+	return s
+}
+
 // nodeEntry preserves order
 type nodeEntry struct {
 	k string
