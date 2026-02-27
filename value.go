@@ -4700,18 +4700,21 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 							}
 
 							if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, nextSegs); mPath {
+								shift := iSPath
+								if shift == 0 { shift = 1 } // FIX: Absolute offset alignment
+
 								if k == 0 {
 									return true,
 										concat(res, packCompRes(concat(resAtoms, gapAtoms, rSuf)), rPath),
 										remPath,
 										concat(stems, s, gapseg{true, patAtoms[ie], gapAtoms}, sSuf, sPath),
-										iE + 1 + iEPath, iS + iSPath
+										iE + 1 + iEPath, iS + shift
 								} else {
 									return true,
 										concat(res, segments[iS], gap[:k-1], packCompRes(concat(gapAtoms, rSuf)), rPath),
 										remPath,
 										concat(stems, s, stemseg{patAtoms[ie], packPathRes(concat(gapseg{ie > 0, patAtoms[ie], remAtoms}, gap[:k-1], gapseg{true, patAtoms[ie], gapAtoms}))}, sSuf, sPath),
-										iE + 1 + iEPath, iS + k + iSPath
+										iE + 1 + iEPath, iS + k + shift
 								}
 							}
 						}
@@ -4855,18 +4858,21 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 							}
 
 							if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, nextSegs); mPath {
+								shift := iSPath
+								if shift == len(nextSegs) { shift-- } // FIX: Absolute offset alignment
+
 								if k == len(gap) {
 									return true,
 										concat(rPath, packCompRes(concat(rPre, gapAtoms, resAtoms)), res),
 										remPath,
 										concat(sPath, sPre, gapseg{true, patAtoms[ie], gapAtoms}, s, stems),
-										iEPath, iSPath
+										iEPath, shift
 								} else {
 									return true,
 										concat(rPath, packCompRes(concat(rPre, gapAtoms)), gap[k+1:], segments[iS], res),
 										remPath,
 										concat(sPath, sPre, stemseg{patAtoms[ie], packPathRes(concat(gapseg{len(preAtoms) > 0, patAtoms[ie], gapAtoms}, gap[k+1:], gapseg{ie+1 < len(patAtoms), patAtoms[ie], remAtoms}))}, s, stems),
-										iEPath, iSPath
+										iEPath, shift
 								}
 							}
 						}
