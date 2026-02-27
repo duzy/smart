@@ -3118,38 +3118,86 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat1.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat1.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y .test/xxx-yyy → true .test/xxx-yyy [xx-yy]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y .test/xxx-yyy → true .test/xxx-yyy <nil> [xx-yy]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d2 := ctx.def("pat1.2"); d2 == nil {
 		ctx.err("pat1.2: %v", _project(ctx))
 	} else if v := d2.value; v == nil {
 		ctx.err("pat1.2: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y .test/xxx-yyx → false .test/xxx-yyx [xx-yyx]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y .test/xxx-yyx → false .test/xxx-yyx <nil> [xx-yyx]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d3 := ctx.def("pat1.3"); d3 == nil {
 		ctx.err("pat1.3: %v", _project(ctx))
 	} else if v := d3.value; v == nil {
 		ctx.err("pat1.3: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y .test/xxx-yyx/y → true .test/xxx-yyx/y [xx-yyx/]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y .test/xxx-yyx/y → true .test/xxx-yyx/y <nil> [xx-yyx/]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d4 := ctx.def("pat1.4"); d4 == nil {
-		ctx.err("pat1.3: %v", _project(ctx))
+		ctx.err("pat1.4: %v", _project(ctx))
 	} else if v := d4.value; v == nil {
-		ctx.err("pat1.3: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y .test/xxx-yyx/z → false .test/xxx-yyx/z [xx-yyx/z]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+		ctx.err("pat1.4: %v", _project(ctx))
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y .test/xxx-yyx/z → false .test/xxx-yyx/z <nil> [xx-yyx/z]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d5 := ctx.def("pat1.5"); d5 == nil {
 		ctx.err("pat1.5: %v", _project(ctx))
 	} else if v := d5.value; v == nil {
 		ctx.err("pat1.5: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y .test/xxx/a/b/c/yyy → true .test/xxx/a/b/c/yyy [xx/a/b/c/yy]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y .test/xxx/a/b/c/yyy → true .test/xxx/a/b/c/yyy <nil> [xx/a/b/c/yy]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d6 := ctx.def("pat1.6"); d6 == nil {
 		ctx.err("pat1.6: %v", _project(ctx))
 	} else if v := d6.value; v == nil {
 		ctx.err("pat1.6: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y .test/x/xx-yy/y → true .test/x/xx-yy/y [/xx-yy/]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y .test/x/xx-yy/y → true .test/x/xx-yy/y <nil> [/xx-yy/]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
+	}
+
+	if d := ctx.def("pat1.01"); d == nil {
+		ctx.err("pat1.01: %v", _project(ctx))
+	} else if v := d.value; v == nil {
+		ctx.err("pat1.01: %v", _project(ctx))
+	} else if p, y := v.(*path); !y {
+		ctx.err("%v : %v", tst{v}, v)
+	} else if p.len() != 2 {
+		ctx.err("%v", p)
+	} else if s, t := p.String(), ".test/x*?y"; s != t {
+		ctx.err("%v: %s != %s", v, s, t)
+	} else if d1 := ctx.def("pat1.1"); d1 == nil {
+		ctx.err("pat1.1: %v", _project(ctx))
+	} else if v := d1.value; v == nil {
+		ctx.err("pat1.1: %v", _project(ctx))
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x*?y .test/xxx-yyy → false .test/xxx-y yy [xx-]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
+	} else if d2 := ctx.def("pat1.2"); d2 == nil {
+		ctx.err("pat1.2: %v", _project(ctx))
+	} else if v := d2.value; v == nil {
+		ctx.err("pat1.2: %v", _project(ctx))
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x*?y .test/xxx-yyx → false .test/xxx-y yx [xx-]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
+	} else if d3 := ctx.def("pat1.3"); d3 == nil {
+		ctx.err("pat1.3: %v", _project(ctx))
+	} else if v := d3.value; v == nil {
+		ctx.err("pat1.3: %v", _project(ctx))
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x*?y .test/xxx-yyx/y → false .test/xxx-y yx/y [xx-]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
+	} else if d4 := ctx.def("pat1.4"); d4 == nil {
+		ctx.err("pat1.4: %v", _project(ctx))
+	} else if v := d4.value; v == nil {
+		ctx.err("pat1.4: %v", _project(ctx))
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x*?y .test/xxx-yyx/z → false .test/xxx-y yx/z [xx-]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
+	} else if d5 := ctx.def("pat1.5"); d5 == nil {
+		ctx.err("pat1.5: %v", _project(ctx))
+	} else if v := d5.value; v == nil {
+		ctx.err("pat1.5: %v", _project(ctx))
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x*?y .test/xxx/a/b/c/yyy → false .test/xxx/a/b/c/y yy [xx/a/b/c/]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
+	} else if d6 := ctx.def("pat1.6"); d6 == nil {
+		ctx.err("pat1.6: %v", _project(ctx))
+	} else if v := d6.value; v == nil {
+		ctx.err("pat1.6: %v", _project(ctx))
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x*?y .test/x/xx-yy/y → false .test/x/xx-y y/y [/xx-]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	}
 
 	if d := ctx.def("pat2.0"); d == nil {
@@ -3166,14 +3214,14 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat2.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat2.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y/z .test/xxx-yyy/z → true .test/xxx-yyy/z [xx-yy]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y/z .test/xxx-yyy/z → true .test/xxx-yyy/z <nil> [xx-yy]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d2 := ctx.def("pat2.2"); d2 == nil {
 		ctx.err("pat2.2: %v", _project(ctx))
 	} else if v := d2.value; v == nil {
 		ctx.err("pat2.2: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y/z .test/xxx/a/b/c/yyy/z → true .test/xxx/a/b/c/yyy/z [xx/a/b/c/yy]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y/z .test/xxx/a/b/c/yyy/z → true .test/xxx/a/b/c/yyy/z <nil> [xx/a/b/c/yy]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	}
 
 	if d := ctx.def("pat3.0"); d == nil {
@@ -3190,14 +3238,14 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat3.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat3.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y/x** .test/xaaa/bbb/ccc/y/xxx/xx → true .test/xaaa/bbb/ccc/y/xxx/xx [aaa/bbb/ccc/ xx/xx]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y/x** .test/xaaa/bbb/ccc/y/xxx/xx → true .test/xaaa/bbb/ccc/y/xxx/xx <nil> [aaa/bbb/ccc/ xx/xx]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d2 := ctx.def("pat3.2"); d2 == nil {
 		ctx.err("pat3.2: %v", _project(ctx))
 	} else if v := d2.value; v == nil {
 		ctx.err("pat3.2: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y/x** .test/xaabbccy/xabc → true .test/xaabbccy/xabc [aabbcc abc]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y/x** .test/xaabbccy/xabc → true .test/xaabbccy/xabc <nil> [aabbcc abc]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	}
 
 	if d := ctx.def("pat4.0"); d == nil {
@@ -3214,14 +3262,14 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat4.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat4.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y/x**y .test/xaa/bb/ccy/xaa/bb/ccy → true .test/xaa/bb/ccy/xaa/bb/ccy [aa/bb/cc aa/bb/cc]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y/x**y .test/xaa/bb/ccy/xaa/bb/ccy → true .test/xaa/bb/ccy/xaa/bb/ccy <nil> [aa/bb/cc aa/bb/cc]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d2 := ctx.def("pat4.2"); d == nil {
 		ctx.err("pat4.2: %v", _project(ctx))
 	} else if v := d2.value; v == nil {
 		ctx.err("pat4.2: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/x**y/x**y .test/xaaay/x/aaa/y → true .test/xaaay/x/aaa/y [aaa /aaa/]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/x**y/x**y .test/xaaay/x/aaa/y → true .test/xaaay/x/aaa/y <nil> [aaa /aaa/]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	}
 
 	if d := ctx.def("pat5.0"); d == nil {
@@ -3267,8 +3315,8 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat7.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat7.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/**y/**y/z .test/a/b/cy/a/b/c/y/z → true .test/a/b/cy/a/b/c/y/z [a/b/c a/b/c/]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/**y/**y/z .test/a/b/cy/a/b/c/y/z → true .test/a/b/cy/a/b/c/y/z [a/b/c a/b/c/]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	}
 
 	if d := ctx.def("pat8.0"); d == nil {
@@ -3285,8 +3333,8 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat8.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat8.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/**/**z .test/a/b/c/xyz → true .test/a/b/c/xyz [a/b/c xy]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/**/**z .test/a/b/c/xyz → true .test/a/b/c/xyz [a/b/c xy]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	}
 
 	if d := ctx.def("pat10.0"); d == nil {
@@ -3301,20 +3349,20 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat10.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat10.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*.h .test/a.h → true .test/a.h [a]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*.h .test/a.h → true .test/a.h [a]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d2 := ctx.def("pat10.2"); d2 == nil {
 		ctx.err("pat10.2: %v", _project(ctx))
 	} else if v := d2.value; v == nil {
 		ctx.err("pat10.2: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*.h .test/a/b.h → false .test/a [a]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*.h .test/a/b.h → false .test/a [a]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d3 := ctx.def("pat10.3"); d3 == nil {
 		ctx.err("pat10.3: %v", _project(ctx))
 	} else if v := d3.value; v == nil {
 		ctx.err("pat10.3: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*.h .test/a/b/c.h → false .test/a [a]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*.h .test/a/b/c.h → false .test/a [a]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	}
 
 	if d := ctx.def("pat11.0"); d == nil {
@@ -3329,20 +3377,20 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat11.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat11.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*.h .test/a.h → false .test/a.h [a.h]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*/*.h .test/a.h → false .test/a.h [a.h]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d2 := ctx.def("pat11.2"); d2 == nil {
 		ctx.err("pat11.2: %v", _project(ctx))
 	} else if v := d2.value; v == nil {
 		ctx.err("pat11.2: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*.h .test/a/b.h → true .test/a/b.h [a b]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*/*.h .test/a/b.h → true .test/a/b.h [a b]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d3 := ctx.def("pat11.3"); d3 == nil {
 		ctx.err("pat11.3: %v", _project(ctx))
 	} else if v := d3.value; v == nil {
 		ctx.err("pat11.3: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*.h .test/a/b/c.h → false .test/a/b [a b]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*/*.h .test/a/b/c.h → false .test/a/b [a b]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	}
 
 	if d := ctx.def("pat12.0"); d == nil {
@@ -3359,32 +3407,32 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat12.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("pat12.1: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*/*.h .test/a.h → false .test/a.h [a.h]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*/*/*.h .test/a.h → false .test/a.h [a.h]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d2 := ctx.def("pat12.2"); d2 == nil {
 		ctx.err("pat12.2: %v", _project(ctx))
 	} else if v := d2.value; v == nil {
 		ctx.err("pat12.2: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*/*.h .test/a/b.h → false .test/a/b.h [a b.h]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*/*/*.h .test/a/b.h → false .test/a/b.h [a b.h]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d3 := ctx.def("pat12.3"); d3 == nil {
 		ctx.err("pat12.3: %v", _project(ctx))
 	} else if v := d3.value; v == nil {
 		ctx.err("pat12.3: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*/*.h .test/a/b/c.h → true .test/a/b/c.h [a b c]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*/*/*.h .test/a/b/c.h → true .test/a/b/c.h [a b c]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d4 := ctx.def("pat12.4"); d4 == nil {
 		ctx.err("pat12.4: %v", _project(ctx))
 	} else if v := d4.value; v == nil {
 		ctx.err("pat12.4: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*/*.h .test/a/b/c/d.h → false .test/a/b/c [a b c]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*/*/*.h .test/a/b/c/d.h → false .test/a/b/c [a b c]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	} else if d5 := ctx.def("pat12.5"); d5 == nil {
 		ctx.err("pat12.5: %v", _project(ctx))
 	} else if v := d5.value; v == nil {
 		ctx.err("pat12.5: %v", _project(ctx))
-	} else if a, b, _, c := match(ctx, p, v); sf("%v %v → %v %v %v", p, v, a, b, c) != ".test/*/*/*.h .test/a/b/c/d/e.h → false .test/a/b/c [a b c]" {
-		ctx.err("%v %v → %v %v %v", p, v, a, b, c)
+	} else if a, b, c, d := match(ctx, p, v); sf("%v %v → %v %v %v %v", p, v, a, b, c, d) != ".test/*/*/*.h .test/a/b/c/d/e.h → false .test/a/b/c [a b c]" {
+		ctx.err("%v %v → %v %v %v %v", p, v, a, b, c, d)
 	}
 
 	if d := ctx.def("pat.0"); d == nil {
@@ -3397,14 +3445,14 @@ func testGlob(ctx *testcase) {
 		ctx.err("pat13.1: %v", _project(ctx))
 	} else if v := d1.value; v == nil {
 		ctx.err("%v", d)
-	} else if a, b, _, c := match(ctx, val, v); sf("%v %v → %v %v %v", val, v, a, b, c) != "**.auto .test/a/b/c.auto → true .test/a/b/c.auto [.test/a/b/c]" {
-		ctx.err("%v %v → %v %v %v", val, v, a, b, c)
+	} else if a, b, c, d := match(ctx, val, v); sf("%v %v → %v %v %v %v", val, v, a, b, c, d) != "**.auto .test/a/b/c.auto → true .test/a/b/c.auto [.test/a/b/c]" {
+		ctx.err("%v %v → %v %v %v %v", val, v, a, b, c, d)
 	} else if d2 := ctx.def("pat13.2"); d2 == nil {
 		ctx.err("pat13.2: %v", _project(ctx))
 	} else if v := d2.value; v == nil {
 		ctx.err("%v", d)
-	} else if a, b, _, c := match(ctx, val, v); sf("%v %v → %v %v %v", val, v, a, b, c) != "**.auto .test/a/b/c.test → false .test/a/b/c.test [.test/a/b/c.test]" {
-		ctx.err("%v %v → %v %v %v", val, v, a, b, c)
+	} else if a, b, c, d := match(ctx, val, v); sf("%v %v → %v %v %v %v", val, v, a, b, c, d) != "**.auto .test/a/b/c.test → false .test/a/b/c.test [.test/a/b/c.test]" {
+		ctx.err("%v %v → %v %v %v %v", val, v, a, b, c, d)
 	}
 }
 

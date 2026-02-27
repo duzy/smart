@@ -49,3 +49,5 @@ pat4.01 := .test/x*?y/x*?y
 pat6.01 := .test/*?y/*?y
 pat7.01 := .test/*?y/*?y/z
 pat5.01 := .test/x*?/**y
+pat1.01 := .test/x*?y
+pat2.01 := .test/x*?y/z
