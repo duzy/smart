@@ -4661,46 +4661,104 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 			pathElems := elems[iE+1:]
 			gap := segments[iS+1:] 
 
-			step, start := 1, 0
-			if wt == DAST { step, start = -1, len(gap) }
-
-			for k := start; k >= 0 && k <= len(gap); k += step {
-				if k == 0 {
-					if !partial { continue }
-					var mSuf bool
-					var remSuf, sSuf []Value
-					
-					if len(sufAtoms) > 0 {
-						mSuf, _, remSuf, sSuf, _, _, _ = backwardGlobComp(ctx, sufAtoms, remAtoms)
-						if !mSuf { continue }
+			if wt == ASTQ {
+				for k := 0; k <= len(gap); k++ {
+					var targetAtoms []Value
+					var targetPos Position
+					if k == 0 {
+						if !partial { continue }
+						targetAtoms = remAtoms
+						targetPos = segments[iS].Position()
 					} else {
-						remSuf = remAtoms
+						targetAtoms = unpack(gap[k-1])
+						targetPos = gap[k-1].Position()
 					}
 
-					if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, gap); mPath {
-						return true,
-							concat(res, segments[iS], rPath),
-							remPath,
-							concat(stems, s, gapseg{true, patAtoms[ie], remSuf}, sSuf, sPath),
-							iE + 1 + iEPath, iS + 1 + iSPath // FIX: Translating relative slice indices to absolute
+					str := getScalarSubstr(ctx, packCompRes(targetAtoms), 0, -1)
+					for i := 0; i <= len(str); {
+						var mSuf bool
+						var rSuf, remSuf, sSuf []Value
+
+						if len(sufAtoms) > 0 {
+							var testVals []Value
+							if i < len(str) { testVals = unpack(_raw(targetPos, str[i:])) }
+							mSuf, rSuf, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, testVals)
+						} else {
+							mSuf = true
+							if i < len(str) { remSuf = unpack(_raw(targetPos, str[i:])) }
+						}
+
+						if mSuf {
+							var gapAtoms []Value
+							if i > 0 { gapAtoms = []Value{_raw(targetPos, str[:i])} }
+
+							var nextSegs []Value
+							if k == 0 {
+								nextSegs = concat(packCompRes(remSuf), optraw{len(remSuf) == 0 && len(gap) > 0, targetPos, ""}, gap)
+							} else {
+								nextSegs = concat(packCompRes(remSuf), optraw{len(remSuf) == 0 && k < len(gap), targetPos, ""}, gap[k:])
+							}
+
+							if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, nextSegs); mPath {
+								if k == 0 {
+									return true,
+										concat(res, packCompRes(concat(resAtoms, gapAtoms, rSuf)), rPath),
+										remPath,
+										concat(stems, s, gapseg{true, patAtoms[ie], gapAtoms}, sSuf, sPath),
+										iE + 1 + iEPath, iS + iSPath
+								} else {
+									return true,
+										concat(res, segments[iS], gap[:k-1], packCompRes(concat(gapAtoms, rSuf)), rPath),
+										remPath,
+										concat(stems, s, stemseg{patAtoms[ie], packPathRes(concat(gapseg{ie > 0, patAtoms[ie], remAtoms}, gap[:k-1], gapseg{true, patAtoms[ie], gapAtoms}))}, sSuf, sPath),
+										iE + 1 + iEPath, iS + k + iSPath
+								}
+							}
+						}
+						if i == len(str) { break }
+						_, size := utf8.DecodeRuneInString(str[i:])
+						i += size
 					}
-				} else {
-					var mSuf bool
-					var remSuf, sSuf []Value
-					
-					if len(sufAtoms) > 0 {
-						mSuf, _, remSuf, sSuf, _, _, _ = backwardGlobComp(ctx, sufAtoms, unpack(gap[k-1]))
-						if !mSuf { continue }
+				}
+			} else {
+				for k := len(gap); k >= 0; k-- {
+					if k == 0 {
+						if !partial { continue }
+						var mSuf bool
+						var remSuf, sSuf []Value
+
+						if len(sufAtoms) > 0 {
+							mSuf, _, remSuf, sSuf, _, _, _ = backwardGlobComp(ctx, sufAtoms, remAtoms)
+							if !mSuf { continue }
+						} else {
+							remSuf = remAtoms
+						}
+
+						if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, gap); mPath {
+							return true,
+								concat(res, segments[iS], rPath),
+								remPath,
+								concat(stems, s, gapseg{true, patAtoms[ie], remSuf}, sSuf, sPath),
+								iE + 1 + iEPath, iS + 1 + iSPath
+						}
 					} else {
-						remSuf = unpack(gap[k-1])
-					}
+						var mSuf bool
+						var remSuf, sSuf []Value
 
-					if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, gap[k:]); mPath {
-						return true,
-							concat(res, segments[iS], gap[:k], rPath),
-							remPath,
-							concat(stems, s, stemseg{patAtoms[ie], packPathRes(concat(gapseg{ie > 0, patAtoms[ie], remAtoms}, gap[:k-1], gapseg{len(sufAtoms) > 0, patAtoms[ie], remSuf}))}, sSuf, sPath),
-							iE + 1 + iEPath, iS + 1 + k + iSPath // FIX: Translating relative slice indices to absolute
+						if len(sufAtoms) > 0 {
+							mSuf, _, remSuf, sSuf, _, _, _ = backwardGlobComp(ctx, sufAtoms, unpack(gap[k-1]))
+							if !mSuf { continue }
+						} else {
+							remSuf = unpack(gap[k-1])
+						}
+
+						if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, gap[k:]); mPath {
+							return true,
+								concat(res, segments[iS], gap[:k], rPath),
+								remPath,
+								concat(stems, s, stemseg{patAtoms[ie], packPathRes(concat(gapseg{ie > 0, patAtoms[ie], remAtoms}, gap[:k-1], gapseg{len(sufAtoms) > 0, patAtoms[ie], remSuf}))}, sSuf, sPath),
+								iE + 1 + iEPath, iS + 1 + k + iSPath
+						}
 					}
 				}
 			}
@@ -4758,46 +4816,104 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 			pathElems := elems[:iE]
 			gap := segments[:iS] 
 
-			step, start := 1, 0
-			if wt == ASTQ { step, start = -1, len(gap) }
-
-			for k := start; k >= 0 && k <= len(gap); k += step {
-				if k == len(gap) {
-					if !partial { continue }
-					var mPre bool
-					var remPre, sPre []Value
-
-					if len(preAtoms) > 0 {
-						mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, remAtoms)
-						if !mPre { continue }
+			if wt == ASTQ {
+				for k := len(gap); k >= 0; k-- {
+					var targetAtoms []Value
+					var targetPos Position
+					if k == len(gap) {
+						if !partial { continue }
+						targetAtoms = remAtoms
+						targetPos = segments[iS].Position()
 					} else {
-						remPre = remAtoms
+						targetAtoms = unpack(gap[k])
+						targetPos = gap[k].Position()
 					}
 
-					if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, gap); mPath {
-						return true,
-							concat(rPath, segments[iS], res),
-							remPath,
-							concat(sPath, sPre, gapseg{true, patAtoms[ie], remPre}, s, stems),
-							iEPath, iSPath // Prefix slices natively preserve absolute 0-index origins
+					str := getScalarSubstr(ctx, packCompRes(targetAtoms), 0, -1)
+					for i := len(str); i >= 0; {
+						var mPre bool
+						var rPre, remPre, sPre []Value
+
+						if len(preAtoms) > 0 {
+							var testVals []Value
+							if i > 0 { testVals = unpack(_raw(targetPos, str[:i])) }
+							mPre, rPre, remPre, sPre, _, _, _ = backwardGlobComp(ctx, preAtoms, testVals)
+						} else {
+							mPre = true
+							if i > 0 { remPre = unpack(_raw(targetPos, str[:i])) }
+						}
+
+						if mPre {
+							var gapAtoms []Value
+							if i < len(str) { gapAtoms = []Value{_raw(targetPos, str[i:])} }
+
+							var nextSegs []Value
+							if k == len(gap) {
+								nextSegs = concat(gap, packCompRes(remPre), optraw{len(remPre) == 0 && len(gap) > 0, targetPos, ""})
+							} else {
+								nextSegs = concat(gap[:k], packCompRes(remPre), optraw{len(remPre) == 0 && k > 0, targetPos, ""})
+							}
+
+							if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, nextSegs); mPath {
+								if k == len(gap) {
+									return true,
+										concat(rPath, packCompRes(concat(rPre, gapAtoms, resAtoms)), res),
+										remPath,
+										concat(sPath, sPre, gapseg{true, patAtoms[ie], gapAtoms}, s, stems),
+										iEPath, iSPath
+								} else {
+									return true,
+										concat(rPath, packCompRes(concat(rPre, gapAtoms)), gap[k+1:], segments[iS], res),
+										remPath,
+										concat(sPath, sPre, stemseg{patAtoms[ie], packPathRes(concat(gapseg{len(preAtoms) > 0, patAtoms[ie], gapAtoms}, gap[k+1:], gapseg{ie+1 < len(patAtoms), patAtoms[ie], remAtoms}))}, s, stems),
+										iEPath, iSPath
+								}
+							}
+						}
+						if i == 0 { break }
+						_, size := utf8.DecodeLastRuneInString(str[:i])
+						i -= size
 					}
-				} else {
-					var mPre bool
-					var remPre, sPre []Value
-					
-					if len(preAtoms) > 0 {
-						mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, unpack(gap[k]))
-						if !mPre { continue }
+				}
+			} else {
+				for k := 0; k <= len(gap); k++ {
+					if k == len(gap) {
+						if !partial { continue }
+						var mPre bool
+						var remPre, sPre []Value
+
+						if len(preAtoms) > 0 {
+							mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, remAtoms)
+							if !mPre { continue }
+						} else {
+							remPre = remAtoms
+						}
+
+						if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, gap); mPath {
+							return true,
+								concat(rPath, segments[iS], res),
+								remPath,
+								concat(sPath, sPre, gapseg{true, patAtoms[ie], remPre}, s, stems),
+								iEPath, iSPath
+						}
 					} else {
-						remPre = unpack(gap[k])
-					}
+						var mPre bool
+						var remPre, sPre []Value
 
-					if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, gap[:k]); mPath {
-						return true,
-							concat(rPath, gap[k:], segments[iS], res),
-							remPath,
-							concat(sPath, sPre, stemseg{patAtoms[ie], packPathRes(concat(gapseg{len(preAtoms) > 0, patAtoms[ie], remPre}, gap[k+1:], gapseg{ie+1 < len(patAtoms), patAtoms[ie], remAtoms}))}, s, stems),
-							iEPath, iSPath
+						if len(preAtoms) > 0 {
+							mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, unpack(gap[k]))
+							if !mPre { continue }
+						} else {
+							remPre = unpack(gap[k])
+						}
+
+						if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, gap[:k]); mPath {
+							return true,
+								concat(rPath, gap[k:], segments[iS], res),
+								remPath,
+								concat(sPath, sPre, stemseg{patAtoms[ie], packPathRes(concat(gapseg{len(preAtoms) > 0, patAtoms[ie], remPre}, gap[k+1:], gapseg{ie+1 < len(patAtoms), patAtoms[ie], remAtoms}))}, s, stems),
+								iEPath, iSPath
+						}
 					}
 				}
 			}
