@@ -338,6 +338,10 @@ func cache(ctx Context, c *valcache, ss [][]string) *valcache {
 
 func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 	seen := make(map[*valcache]bool)
+	seenShadows := make(map[*valcache]struct{})
+	seenAmpNodes := make(map[*valcache]struct{}) // <--- NEW: Query-level & edge lock
+	var shadowsToSearch []*valcache // <--- NEW: Queue to defer shadow searches
+
 	fullvalue := do(ctx, fullvalue{}).(Value)
 	fullmatch := func(c *valcache) (res bool) {
 		if full, exists := seen[c]; exists { return full }
@@ -345,6 +349,8 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 		seen[c] = res
 		return 
 	}
+
+	const priorDynamicClosureShadowing = true
 
 	var f0 func(*valcache, [][]string, int, int, int) bool
 	f0 = func(c *valcache, ss [][]string, i, j, k int) (found bool) {
@@ -360,6 +366,32 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 
 		// 3. Token Boundary
 		if k == len(s) { return f0(c, ss, i, j+1, 0) }
+
+		// ---------------------------------------------------------------------
+		// DYNAMIC CLOSURE SHADOWING
+		// Must be evaluated before Input Wildcards to survive early returns!
+		// ---------------------------------------------------------------------
+		var doDynamicClosureShadowing func()
+		if x, y := c.get("&"); !y { doDynamicClosureShadowing = func() {} } else {
+			doDynamicClosureShadowing = func() {
+				// CRITICAL FIX: Lock the specific '&' edge!
+				// This guarantees that even if ** forces f0 to revisit this node 
+				// with a new token state, we never double-queue its shadow trie!
+				if _, ok := seenAmpNodes[x]; ok { return } else { seenAmpNodes[x] = struct{}{} }
+
+				if proj := _project(ctx); proj != nil {
+					for _, payload := range x.a {
+						if shadow := proj.shadow(ctx, payload); shadow != nil {
+							if _, ok := seenShadows[shadow]; !ok { 
+								seenShadows[shadow] = struct{}{}
+								shadowsToSearch = append(shadowsToSearch, shadow)
+							}
+						}
+					}
+				}
+			}
+		}
+		if priorDynamicClosureShadowing { doDynamicClosureShadowing() }
 
 		// 4. Input Wildcard
 		switch s {
@@ -471,10 +503,22 @@ func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
 			if f0(x, ss, i, j, k) { found = true }       // Transition (Match 0)
 		}
 
+		// ---------------------------------------------------------------------
+		// DYNAMIC CLOSURE SHADOWING
+		// ---------------------------------------------------------------------
+		if !priorDynamicClosureShadowing { doDynamicClosureShadowing() }
 		return found
 	}
 
+	// 1. Traverse the Static Trie and collect all static matches
 	f0(root, ss, 0, 0, 0)
+
+	// 2. Flush the queue: Traverse the Discovered Shadow Tries
+	// This guarantees dynamic matches are appended securely at the END of the array!
+	for _, shadow := range shadowsToSearch {
+		f0(shadow, ss, 0, 0, 0)
+	}
+
 	return
 }
 
@@ -552,28 +596,38 @@ func canStartMatch(c *valcache, segment []string) bool {
 
 type matched_filemap struct{ filemap ; value Value }
 type matched_rule struct{ *rule ; value Value }
-func (t matched_filemap) String() string { return "{"+t.filemap.String()+" name="+t.value.String()+"}" }
-func (t matched_rule) String() string { return "{"+t.rule.String()+" name="+t.value.String()+"}" }
+func (t matched_filemap) String() string {
+	s1, s2 := t.filemap.String(), t.value.String()
+	if s1 == s2 { return "{=matched_filemap "+s1+"}" }
+	return "{=matched_filemap "+s1+" name="+s2+"}"
+}
+func (t matched_rule) String() string {
+	s1, s2 := t.rule.String(), t.value.String()
+	if s1 == s2 { return "{=matched_rule "+s1+"}" }
+	return "{=matched_rule "+s1+" name="+s2+"}"
+}
 
 func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 	for _, a := range p.a {
 		switch a := a.(type) {
 		case filemap:
-			if f, r, _, _ := match(ctx, a.pattern, fullvalue); f {
+			// Ensure matched == true AND there is no unconsumed remainder
+			if matched, res, rem, _ := match(ctx, a.pattern, fullvalue); matched && rem == nil {
 				var a = filemap{a._filemap, a.pattern}
-				if 0 < do(ctx, matched_filemap{a, r}).(int) {
+				if 0 < do(ctx, matched_filemap{a, res}).(int) {
 					ok = true
 				} else {
-					debug(ctx, "%v %v", ts(a), r, callstack{num:10}, trace{})
+					debug(ctx, "%v %v", ts(a), res, callstack{num:10}, trace{})
 				}
 			}
 		case *rule:
-			if f, r, _, _ := match(ctx, a.target, fullvalue); f {
+			// Ensure matched == true AND there is no unconsumed remainder
+			if matched, res, rem, _ := match(ctx, a.target, fullvalue); matched && rem == nil {
 				var a = &rule{a.target, a.arged, a.program}
-				if 0 < do(ctx, matched_rule{a, r}).(int) {
+				if 0 < do(ctx, matched_rule{a, res}).(int) {
 					ok = true
 				} else {
-					debug(ctx, "%v %v", ts(a), r, callstack{num:10}, trace{})
+					debug(ctx, "%v %v", ts(a), res, callstack{num:10}, trace{})
 				}
 			}
 		default:
@@ -614,58 +668,147 @@ func (p *fullctx) do(ctx Context, op any) any {
 	}
 	return p.Context.do(ctx, op)
 }
+
+// toks handles pure string splitting. We intercept the string here BEFORE it 
+// hits tokenizeSegments, ensuring "**.c" natively compiles as "**/*.c".
 func toks(ctx Context, c *valcache, segs ...string) hit_segs {
-	return hit_segs{c, tokenizeSegments(segs)}
+	var norm []string
+	for _, seg := range segs {
+		// Option 1: Normalize intra-string path closures
+		if strings.Contains(seg, "**.") {
+			norm = append(norm, strings.ReplaceAll(seg, "**.", "**/*."))
+		} else {
+			norm = append(norm, seg)
+		}
+	}
+	return hit_segs{c, tokenizeSegments(norm)}
 }
+
+// tokc delegates to toks, so it automatically inherits the normalization
+// applied above when prefix is evaluated.
+func tokc(ctx Context, c *valcache, comp *compound) hit_segs {
+	var prefix string
+	for _, e := range comp.elems {
+		if _, isClosure := unbox(e).(*closure); isClosure {
+			var ss [][]string
+			if prefix != "" { 
+				ss = append(ss, toks(ctx, c, prefix).s...) 
+			}
+			ss = append(ss, []string{"&"})
+			return hit_segs{c, ss} // Mathematical halt!
+		}
+		prefix += __string(ctx, e)
+	}
+	if prefix != "" { return toks(ctx, c, prefix) }
+	return hit_segs{c, nil}
+}
+
+// UPGRADED: tokg builds the token array directly. We use a lookahead (peek) 
+// to dynamically inject a '*' node if '**' is followed by a literal '.'.
 func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
 	var s []string
-	if checkpoints { defer func() {
+	if false && checkpoints { defer func() {
 		if t := tokenizePath(__string(ctx, g)); sf("[%s]",s) != sf("%s",t) {
 			debug(ctx, "%s ⇒ [%s] != %v | %v", g, s, t, c, trace{})
 		}
 	}()}
-	for _, e := range g.elems { s = append(s, __string(ctx, e)) }
+	
+	for i, e := range g.elems {
+		if _, isClosure := unbox(e).(*closure); isClosure {
+			var ss [][]string
+			if len(s) > 0 { ss = append(ss, s) }
+			ss = append(ss, []string{"&"})
+			return hit_segs{c, ss} // Mathematical halt!
+		}
+		
+		str := __string(ctx, e)
+		
+		// Fallback for un-split strings inside glob elements
+		if strings.Contains(str, "**.") {
+			str = strings.ReplaceAll(str, "**.", "**/*.")
+		}
+		
+		s = append(s, str) 
+		
+		// Option 1: Inter-token lookahead injection
+		// If current node is "**" and the NEXT node is ".", we implicitly 
+		// insert a "*" node into the slice to consume the file base name.
+		if str == "**" && i+1 < len(g.elems) {
+			nextStr := __string(ctx, g.elems[i+1])
+			if nextStr == "." || strings.HasPrefix(nextStr, ".") {
+				s = append(s, "*") // Inject implicit file-base consumer
+			}
+		}
+	}
 	return hit_segs{c, [][]string{s}}
 }
+
+// tokp natively delegates to tokc/tokg/toks, so it requires no normalization logic of its own.
 func tokp(ctx Context, c *valcache, p *path) hit_segs {
 	var ss [][]string
-	if checkpoints { defer func() {
+	if false && checkpoints { defer func() {
 		if t := tokenizePath(__string(ctx, p)); sf("%s",ss) != sf("%s",t) {
 			debug(ctx, "%v: %v != %v", p, ss, t, trace{})
 		}
 	}()}
+	
 	for _, e := range p.elems {
 		switch t := unbox(e).(type) {
-		case *globpat: ss = append(ss, tokg(ctx, c, t).s...)
-		default: ss = append(ss, toks(ctx, c, __string(ctx, t)).s...)
+		case *closure:
+			ss = append(ss, []string{"&"})
+			return hit_segs{c, ss} 
+			
+		case *compound:
+			res := tokc(ctx, c, t)
+			ss = append(ss, res.s...)
+			if len(res.s) > 0 && len(res.s[len(res.s)-1]) == 1 && res.s[len(res.s)-1][0] == "&" {
+				return hit_segs{c, ss}
+			}
+			
+		case *globpat: 
+			res := tokg(ctx, c, t)
+			ss = append(ss, res.s...)
+			if len(res.s) > 0 && len(res.s[len(res.s)-1]) == 1 && res.s[len(res.s)-1][0] == "&" {
+				return hit_segs{c, ss}
+			}
+			
+		default: 
+			ss = append(ss, toks(ctx, c, __string(ctx, t)).s...)
 		}
 	}
 	return hit_segs{c, ss}
 }
+
 func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 	if checkpoints { defer func(s string) {
 		if  truly(ctx, propCache)   { check_cache(ctx, k, s, c, r) }
 		if  truly(ctx, propUncache) { check_uncache(ctx, k, s, c, r) }
-		if !truly(ctx, propCache|propUncache) { debug(ctx, "%v %v", k, c, trace{}) }
+		if !truly(ctx, propCache|propUncache) { debug(ctx, "%v %v", k, c, callstack{num:10}, trace{}) }
 	}(c.String())}
+	
 	switch t := k.(type) {
-	case *closure : return do_hit(&fullctx{ctx,t}, toks(ctx, c, "&"))
-	case *percpat : return do_hit(&fullctx{ctx,t}, toks(ctx, c))
-	case *regexpat: return do_hit(&fullctx{ctx,t}, toks(ctx, c))
-	case *globpat : return do_hit(&fullctx{ctx,t}, tokg(ctx, c, t))
-	case *path    : return do_hit(&fullctx{ctx,t}, tokp(ctx, c, t))
-	case *strval  : return do_hit(&fullctx{ctx,t}, toks(ctx, c, `{`+__string(ctx,t)+`}`))
-	case *strlit  : return do_hit(&fullctx{ctx,t}, toks(ctx, c, `'`+__string(ctx,t.s)+`'`))
-	case *strcomp : return do_hit(&fullctx{ctx,t}, toks(ctx, c, `"`+__string(ctx,t)+`"`))
 	case *argumented: return _hit(ctx, c, t.Value)
-	case *loc : return _hit(ctx, c, t.Value)
-	case *rule: return _hit(ctx, c, t.target)
+	case *loc       : return _hit(ctx, c, t.Value)
+	case *rule      : return _hit(ctx, c, t.target)
+	case *closure   : return do_hit(&fullctx{ctx,t}, toks(ctx, c, "&")) // Return directly to avoid duplication
+	case *compound  : r = do_hit(&fullctx{ctx,t}, tokc(ctx, c, t))
+	case *globpat   : r = do_hit(&fullctx{ctx,t}, tokg(ctx, c, t))
+	case *path      : r = do_hit(&fullctx{ctx,t}, tokp(ctx, c, t))
+	case *percpat   : r = do_hit(&fullctx{ctx,t}, toks(ctx, c))
+	case *regexpat  : r = do_hit(&fullctx{ctx,t}, toks(ctx, c))
+	case *strval    : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `{`+__string(ctx,t)+`}`))
+	case *strlit    : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `'`+__string(ctx,t.s)+`'`))
+	case *strcomp   : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `"`+__string(ctx,t)+`"`))
 	default:
 		segs := strings.Split(__string(ctx, k), pathSep)
-		return do_hit(&fullctx{ctx,t}, toks(ctx, c, segs...))
+		r = do_hit(&fullctx{ctx,t}, toks(ctx, c, segs...))
 	}
-}
 
+	// Universal Closure Inclusion: For any non-recursive query, unconditionally 
+	// fetch the dynamic closures branch ("&") and append it to the results.
+	if false { r = append(r, do_hit(&fullctx{ctx, k}, toks(ctx, c, "&"))...) }
+	return r
+}
 func do_hit(c Context, a any) (r []*valcache) { r, _ = do(c,a).([]*valcache); return }
 func hit(ctx Context, c *valcache, k Value) []*valcache { return _hit(ctx, c, k) }
 
@@ -751,19 +894,34 @@ func map_entry(ctx Context, p *project, target Value, prog *program) (entry entr
 func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 	var u = &uncache_t{ctx, nil}
 	var k Value
-	if v, ok := key.(Value); ok { k = v } else {
-		k = _raw(_position(ctx), __string(ctx, key))
+
+	if v, ok := key.(Value); ok { 
+		k = v 
+	} else {
+		str := __string(ctx, key)
+		// Emulate the parser: if the raw string is a path, pack it into a *path AST node.
+		if strings.Contains(str, pathSep) {
+			if segs := splitPathStr(ctx, str); len(segs) > 1 {
+				k = packPath(segs)
+			} else {
+				k = _raw(_position(ctx), str)
+			}
+		} else {
+			k = _raw(_position(ctx), str)
+		}
 	}
 	
 	var x = hit(u, c, k)
 	for _, a := range u.a {
 		switch t := a.(type) {
-		case T : res = append(res, t)
-		default: debug(ctx, "%v %v", ts(key), ts(a), trace{})
+		case T: 
+			res = append(res, t)
+		default: 
+			debug(ctx, "%v %v", ts(key), ts(a), trace{})
 		}
 	}
 	if checkpoints { check_unmap(u, key, c, x) }
-    return
+	return
 }
 
 func unmap_entries(ctx Context, p *project, key any, m map[*project]struct{}) (res []entry) {

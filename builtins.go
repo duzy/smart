@@ -1289,7 +1289,7 @@ func (ctx *__env) x() (res any) {
         if val := expand(ctx, a); isTrivial(val) {
             continue
         } else if s := strings.TrimSpace(__string(ctx, val)); s != "" {
-            vals = append(vals, _strlit(a.Position(), os.Getenv(s)))
+            vals = append(vals, _raw(a.Position(), os.Getenv(s)))
         }
     }
     return vals
@@ -1328,36 +1328,6 @@ func (ctx *__var) cast(t reflect.Type) Context {
 }
 func (ctx *__var) x() (res any) {
     return
-}
-
-type __closure struct { builtinbase ; closure bool `closure` }
-func (ctx *__closure) inner() Context { return &ctx.builtinbase }
-func (ctx *__closure) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
-}
-func (ctx *__closure) x() (res any) {
-    var vals []Value
-    var pos = _position(ctx)
-    for _, a := range merge(ctx.a[0]) {
-        vals = append(vals, makeClosure(pos, LPAREN, a, nil, ctx.a[1:]...))
-    }
-    return vals
-}
-
-type __delegate struct { builtinbase ; closure bool `closure` }
-func (ctx *__delegate) inner() Context { return &ctx.builtinbase }
-func (ctx *__delegate) cast(t reflect.Type) Context {
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
-}
-func (ctx *__delegate) x() (res any) {
-    var vals []Value
-    var pos = _position(ctx)
-    for _, a := range merge(ctx.a[0]) {
-        vals = append(vals, makeDelegate(pos, LPAREN, a, nil, ctx.a[1:]...))
-    }
-    return vals
 }
 
 type __call struct { builtinbase ; closure bool `closure` }
@@ -1441,7 +1411,7 @@ func (ctx *__defs) x() (_ any) {
 	
 defsloop:
     for _k, _ := range _project(ctx).elems {
-		var name = _word(pos, _k)
+		var name = _raw(pos, _k)
         for _, pat := range pats {
             neg := false
             if x, y := pat.(negative); y { pat, neg = x.Value, y }
@@ -1518,7 +1488,7 @@ func (ctx *__shell) x() (res any) {
             debug(ctx, "%s", err, trace{})
             return
         }
-        val := _strlit(pos, strings.TrimSpace(bufout.String()))
+        val := _raw(pos, strings.TrimSpace(bufout.String()))
         vals = append(vals, val)
         bufout.Reset()
         buferr.Reset()
@@ -1538,7 +1508,7 @@ func (ctx *__which) x() (res any) {
         if s, err := exec.LookPath(__string(ctx, a)); err != nil {
             debug(ctx, "%v", err, trace{})
         } else if s != "" {
-            vals = append(vals, _strlit(_position(ctx), s))
+            vals = append(vals, _raw(_position(ctx), s))
         }
     }
     return vals
@@ -2384,17 +2354,20 @@ func (ctx *__subst) x() (_ any) {
 }
 
 func coupleval(ctx Context, v Value, str string) (_ Value) {
-	switch v.(type) {
-	case *file, fullfile:
+	// Use unbox just in case v is wrapped in *loc or *argumented
+	switch unbox(v).(type) { 
 	case *strlit, *strcomp:
 		return _strlit(_position(ctx), str)
 	case *path:
 		return _pathStr(ctx, str)
+	case *file, fullfile:
+		// REFINED: Treat files as paths if they contain slashes, otherwise words.
+		if strings.Contains(str, pathSep) { return _pathStr(ctx, str) }
+		return _word(_position(ctx), str)
 	default:
 		if strings.Contains(str, pathSep) { return _pathStr(ctx, str) }
 		return _word(_position(ctx), str)
 	}
-	return
 }
 
 // $(patsubst pattern,replacement,text)
@@ -2402,9 +2375,10 @@ func coupleval(ctx Context, v Value, str string) (_ Value) {
 // TODO: supports: $(var:suffix=replacement)
 // TODO: support flags -name and -full for name-only and full-name-only matching
 type __patsubst struct { builtinbase
-    mapfiles bool `map,mapfiles,map-files`
     fullfiles bool `fullfile,fullfiles`
+    mapfiles  bool `map,mapfiles,map-files,files`
     nofilemap bool `nomap,no-map,nofile,nofiles,no-files,no-filemap`
+    filter    bool `filter,filter-unmatched,match-only` // Added filter option
 }
 func (ctx *__patsubst) inner() Context { return &ctx.builtinbase }
 func (ctx *__patsubst) cast(t reflect.Type) Context {
@@ -2412,8 +2386,13 @@ func (ctx *__patsubst) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__patsubst) matchPats(pats []Value, a Value) (ok bool, pat Value, stems []Value) {
-	for _, pat = range pats { if ok, _, _, stems = match(ctx, pat, a); ok { break } }
-	return
+	var rem Value
+	for _, pat = range pats {
+		if ok, _, rem, stems = match(ctx, pat, a); ok && (rem == nil || isEmpty(rem)) {
+			return true, pat, stems
+		}
+	}
+	return false, nil, nil
 }
 func (ctx *__patsubst) srcFile(proj *project, src Value) (srcFile *file, source any, full bool) {
 	var ok bool
@@ -2435,55 +2414,69 @@ func (ctx *__patsubst) srcFile(proj *project, src Value) (srcFile *file, source 
 	return
 }
 func (ctx *__patsubst) x() (_ any) {
-    var (
-        srcPats, dstPats, sources, res []Value
-        proj = _project(ctx)
-    )
+	var (
+		srcPats, dstPats, sources, res []Value
+		proj = _project(ctx)
+	)
 	if nil != ctx.a {
 		var l = len(ctx.a)
 		if 0 < l { srcPats = xmerge(ctx, ctx.a[0]) }
 		if 1 < l { dstPats = xmerge(ctx, ctx.a[1]) }
 		if 2 < l { sources = xmerge(ctx, ctx.a[2:]...) }
 	}
-    for _, src := range sources {
+
+	for _, src := range sources {
 		var srcFile, source, full = ctx.srcFile(proj, src)
-        var ok, srcPat, stems = ctx.matchPats(srcPats, src)
+		
+		// This now returns an exact, cleanly stripped stem (e.g., "foo")
+		var ok, srcPat, stems = ctx.matchPats(srcPats, src)
+		
 		if !ok {
-			if !isTrivial(src) { res = append(res, src) }
-			continue // just append src to the list
+			// Pass-through unmatched files seamlessly
+			if !ctx.filter && !isTrivial(src) { res = append(res, src) }
+			continue 
 		}
 
-        for _, dstPat := range dstPats {
-            var val, ramnant = stencil(ctx, dstPat, stems)
-            if isNull(val) {
-                debug(ctx, "nil stencil: %s: %v (stems=%v, ramnant=%v)", typeof(dstPat), dstPat, stems, ramnant, trace{})
-            } else if 0 < ctx.debug {
-                debug(ctx, "patsubst: %v: %v → %v → %v %v → %v %v", srcPat, src, source, stems, dstPat, val, ramnant)
-            }
+		for _, dstPat := range dstPats {
+			// AST-to-AST Structural Mapping!
+			var val, ramnant = stencil(ctx, dstPat, stems)
+			if false { debug(ctx, "%v : %v %v : %v -> %v %v", src, srcPat, stems, dstPat, val, ramnant) }
+			
+			if isNull(val) {
+				debug(ctx, "nil stencil: %s: %v (stems=%v, ramnant=%v)", typeof(dstPat), dstPat, stems, ramnant, trace{})
+				continue
+			} else if 0 < ctx.debug {
+				debug(ctx, "patsubst: %v: %v → %v → %v %v → %v %v", srcPat, src, source, stems, dstPat, val, ramnant)
+			}
 
-            var str string
-            if str = __string(ctx, val); str == "" { continue }
-            if srcFile != nil {
-                var dst *file
-                if ctx.nofilemap {
-                    dst = _stat(ctx, str, stat_sub{srcFile.sub}, stat_dir{srcFile.dir}, stat_nonexist{true})
+			var str string
+			if str = __string(ctx, val); str == "" { continue }
+			
+			if srcFile != nil {
+				var dst *file
+				if ctx.nofilemap {
+					dst = _stat(ctx, str, stat_sub{srcFile.sub}, stat_dir{srcFile.dir}, stat_nonexist{true})
 				} else {
+					// Because we used stencil, `val` is a rich AST node!
+					// proj.file can natively parse it against the valcache trie!
 					dst = proj.file(ctx, val)
 				}
+				
 				if dst == nil {
 					debug(ctx, "%v %v", srcPat, srcFile)
 				} else if dst.position = srcPat.Position(); full {
-                    res = append(res, fullfile{dst})
-                } else {
-                    res = append(res, dst)
-                }
-                continue
-            }
+					res = append(res, fullfile{dst})
+				} else {
+					res = append(res, dst)
+				}
+				continue
+			}
 
+			// Uses your newly hardened coupleval() function!
 			res = append(res, coupleval(pc(ctx, dstPat), src, str))
-        }
-    }
-    return res
+		}
+	}
+	return res
 }
 
 type __title struct { builtinbase }
@@ -2637,26 +2630,24 @@ func (ctx *__trimprefix) cast(t reflect.Type) Context {
 }
 func (ctx *__trimprefix) x() any {
 	var res []Value
-	var prefix = merge(expand(ctx, ctx.a[0]))
-	
-	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
-		var remainder Value = val // Default to original value
+	var prefixes = merge(expand(ctx, ctx.a[0]))
 
-		for _, p := range prefix {
-			// Use the new match signature which provides the AST remainder directly
-			full, r, rem, _ := match(ctx, p, val)
-			debug(ctx, "__trimprefix: %v %v -> %v %v %v", p, val, full, r, rem)
-			
-			if full {
-				remainder = _null(val.Position()) // Fully matched -> empty remainder
-				break
-			} else if r != nil {
-				// Partial match: 'rem' contains exactly the unconsumed AST nodes
-				remainder = rem
-				break
+	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
+		var remainder Value = val
+
+		for _, prefix := range prefixes {
+			matched, _, rem, _ := match(ctx, prefix, remainder)
+
+			if matched { // The prefix pattern was completely satisfied!
+				if rem == nil || isEmpty(rem) {
+					remainder = _null(val.Position()) // Fully consumed target
+					break // Nothing left to trim, safe to break
+				} else {
+					remainder = rem // Prefix trimmed, keep the rest for chaining!
+				}
 			}
 		}
-		
+
 		res = append(res, remainder)
 	}
 	return res
@@ -2670,28 +2661,24 @@ func (ctx *__trimsuffix) cast(t reflect.Type) Context {
 }
 func (ctx *__trimsuffix) x() any {
 	var res []Value
-	// 1. Expand suffix patterns (first argument)
 	var suffixes = merge(expand(ctx, ctx.a[0]))
 
-	// 2. Process values (remaining arguments)
 	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
-		var remainder Value = val // Default: keep original
+		var remainder Value = val
 
 		for _, suffix := range suffixes {
-			// Use reversal{ctx} to tell match() to perform a trailing match.
-			// 'rem' will contain the *unconsumed prefix*, which is exactly what we want.
-			full, r, rem, _ := match(reversal{ctx}, suffix, val)
+			matched, _, rem, _ := match(reversal{ctx}, suffix, remainder)
 
-			if full {
-				remainder = _null(val.Position()) // Fully consumed -> empty result
-				break
-			} else if r != nil {
-				// Partial match: suffix matched the end.
-				// rem is the AST structure preceding the match.
-				remainder = rem
-				break
+			if matched { // The suffix pattern was completely satisfied!
+				if rem == nil || isEmpty(rem) {
+					remainder = _null(val.Position()) // Fully consumed target
+					break // Nothing left to trim, safe to break
+				} else {
+					remainder = rem // Suffix trimmed, keep the rest for chaining!
+				}
 			}
 		}
+
 		res = append(res, remainder)
 	}
 	return res
@@ -4344,9 +4331,7 @@ func (ctx *__wildcard) collect(f *file) {
 				}
 				return 0
 			})
-			if !found {
-				ctx.files = slices.Insert(ctx.files, i, f)
-			}
+			if !found { ctx.files = slices.Insert(ctx.files, i, f) }
 		} else {
 			ctx.files = append(ctx.files, f)
 		}
@@ -4371,18 +4356,28 @@ func (ctx *__wildcard) directory(topDir string, pats ...Value) {
 				dn = joinpath(dir, name)
 			}
 
-			// 1. Exclude Check
+			// 1. Exclude Check (Must be an absolute match!)
 			excluded := false
 			dnPath := _pathStr(ctx, dn)
 			for _, x := range ctx.exclude {
-				if ok, _, _, _ := match(ctx, x, dnPath); ok {
+				if ok, _, rem, _ := match(ctx, x, dnPath); ok && rem == nil {
 					excluded = true
 					break
 				}
 			}
 			if excluded { continue }
 
-			// 2. Step the patterns for descent
+			// 2. Absolute Match Check (Determines if THIS path is a collected result)
+			matched := false
+			for _, pat := range pats {
+				full, _, rem, _ := match(ctx, pat, dnPath)
+				if full && rem == nil {
+					matched = true
+					break
+				}
+			}
+
+			// 3. Step the patterns (Determines ONLY if we should recurse deeper)
 			var nextPats []Value
 			for _, pat := range currentPats {
 				nextPats = append(nextPats, stepPattern(ctx, pat, name)...)
@@ -4401,16 +4396,6 @@ func (ctx *__wildcard) directory(topDir string, pats ...Value) {
 				nextPats = unique
 			}
 
-			// 3. Absolute Match Check
-			matched := false
-			for _, pat := range pats {
-				full, _, _, _ := match(ctx, pat, dnPath)
-				if full {
-					matched = true
-					break
-				}
-			}
-
 			var isDir bool
 			if matched || len(nextPats) > 0 {
 				if fi, err := os.Stat(filepath.Join(topDir, dn)); err == nil {
@@ -4420,7 +4405,7 @@ func (ctx *__wildcard) directory(topDir string, pats ...Value) {
 				}
 			}
 
-			// 4. Collection
+			// 4. Collection (Strictly relies on Absolute Match!)
 			if matched {
 				validType := false
 				switch strings.ToLower(ctx.filetype) {

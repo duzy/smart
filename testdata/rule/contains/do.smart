@@ -1,6 +1,6 @@
 project testrules # also builtins/contains/do.smart
 
-val := a b c $1
+val = a b c $1
 
 foo: ; $(val $@)
 

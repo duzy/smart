@@ -212,7 +212,7 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
                     if c := user.configure; c != nil {
                         note(ctx, "%v", ts(c.resolve(ctx, "use.*")))
                     }
-                    erro(pc(ctx,o), "%v: empty use spec: %v", user, ts(spec), trace{})
+                    debug(pc(ctx,o), "%v: empty use spec: %v", user, ts(spec), trace{})
                 } else {
                     f(op, spec, val, name)
                 }
@@ -340,15 +340,15 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
     if x, y := specVal.(*project); y {
         loaded = x
     } else if spec = __string(ctx, specVal); spec == "" {
-        erro(pc(ctx,specVal), "empty spec: %v", ts(specVal), trace{})
+        debug(pc(ctx,specVal), "empty spec: %v", ts(specVal), trace{})
     } else if absPath, isDir = l.search(ctx, spec); absPath == "" {
-        erro(pc(ctx,specVal), "missing `%s` (in %v)", spec, l.paths, trace{})
+        debug(pc(ctx,specVal), "missing `%s` (in %v)", spec, l.paths, trace{})
     } else {
         loaded, y = l.globe.loaded[absPath]
 
         for ll := _loader(l.loader.Context); ll != nil; ll = _loader(ll.Context) {
             if ll.project.absPath == absPath {
-                erro(pc(ctx,specVal), "%s: loop detected", l.project, trace{})
+                debug(pc(ctx,specVal), "%s: loop detected", l.project, trace{})
             }
         }
     }
@@ -396,12 +396,12 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
             // NOTE: proj could be nil
             prompt(ctx, "%v: %v is already a base\n", l.project, spec)
             debug(ctx, "`%s` is already a base (proj=%s)", spec, proj)
-            errostack(ctx, 10, "%v", ctx, trace{})
+            debug(ctx, "%v", ctx, trace{})
         } else if res {
             // NOTE: proj could be nil
             prompt(ctx, "%v: %v already imported by %v\n", l.project, spec, proj)
             debug(ctx, "'%s' already imported by '%s'", spec, proj)
-            errostack(ctx, 10, "%v", ctx, trace{})
+            debug(ctx, "%v", ctx, trace{})
         }
     }
 
@@ -430,7 +430,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
         var up = use.project
         if loaded == up {
             if !opts.noVars && !opts.files {
-                errostack(ctx, 10, "%v: using `%s` multiple times: %v", l.project, spec, l.project.use.list, trace{})
+                debug(ctx, "%v: using `%s` multiple times: %v", l.project, spec, l.project.use.list, trace{})
             }
             return
         }
@@ -761,7 +761,7 @@ paramsloop:
             elem, ctx = x.Value, x.ctx(ctx)
         }
         if x, y := elem.(*pair); y {
-            erro(pc(ctx,x), "use -set(%v) instead", x, trace{})
+            debug(pc(ctx,x), "use -set(%v) instead", x, trace{})
         }
 
         var spec string
@@ -773,7 +773,7 @@ paramsloop:
         } else if strings.Contains(spec, "//") {
             note(ctx, "%v: invalid spec: %v → %v", l.project, elem, specVal)
             note(ctx, "%v: invalid spec: %v → %v", l.project, elem, spec)
-            errostack(ctx, 5, trace{})
+            debug(ctx, trace{})
         } else if implicitBase != "" && spec == implicitBase {
             if i == implicitIndex {
                 ctx = load_implicit{ctx}
@@ -949,7 +949,7 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
         } else {
             cc.configure = __string(ctx, v)
             if cc.configure == "" {
-                errostack(ctx, 3, "empty configure spec: %v", ts(v), trace{})
+                debug(ctx, "empty configure spec: %v", ts(v), trace{})
             } else if cc.configure == "." {
                 cc.configure, cc.local = cs, true
             }
@@ -975,13 +975,13 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
             cc.abs, cc.isDir = l.search(ctx, cc.configure)
         }
         if cc.abs == "" {
-            errostack(ctx, 3, "%v: no such project: %s", l.project, cc.configure, trace{})
+            debug(ctx, "%v: no such project: %s", l.project, cc.configure, trace{})
         }
     }
 
     if cc.abs == "" {
         if l.project.opt.configure != nil {
-            errostack(ctx, 3, "%v: missing the default .configure", l.project, trace{})
+            debug(ctx, "%v: missing the default .configure", l.project, trace{})
         }
         return
     }
@@ -993,20 +993,20 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
     }
 
     if cc.declared == nil {
-        errostack(ctx, 3, "%s not loaded", cc.configure, trace{})
+        debug(ctx, "%s not loaded", cc.configure, trace{})
     }
 
     if x, y := l.project.Lookup(dot_configure).(*project); !y || x == nil {
         if _, alt := l.project.projectname(ctx, dot_configure, cc.declared); alt != nil {
             if p, y := alt.(*project); !y || p == nil {
-                errostack(ctx, 3, "name `%s' already taken: %s", cc.declared.name, typeof(alt), trace{})
+                debug(ctx, "name `%s' already taken: %s", cc.declared.name, typeof(alt), trace{})
             }
         }
     }
 
     if l.project.configure == cc.declared { return }
     if l.project.configure != nil {
-        errostack(ctx, 3, "%s already specified", dot_configure, trace{})
+        debug(ctx, "%s already specified", dot_configure, trace{})
     }
 
     // Set .configure first to ensure the configuration.sm is correct
@@ -1014,7 +1014,7 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 
     for _, proj := range cc.declared.usees(true, false, false, false) {
         if e := l.use_proj(ctx, useopts{}, proj); e != nil { // see usevars
-            errostack(ctx, 3, "failed to use %v : %v", proj, e, trace{})
+            debug(ctx, "failed to use %v : %v", proj, e, trace{})
         }
     }
 
@@ -1022,10 +1022,10 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 
     var c = l.project.configuration
     if c != nil {
-        errostack(ctx, 3, "%v: already loaded %v", l.project, c, trace{})
+        debug(ctx, "%v: already loaded %v", l.project, c, trace{})
     }
     if c = l.project.configuration_sm(ctx); c == nil {
-        errostack(ctx, 3, "%v: nil configuration file", ident, trace{})
+        debug(ctx, "%v: nil configuration file", ident, trace{})
     }
     if !c.exists() || c.stat(ctx) == nil {
         return // not configured yet
@@ -1078,11 +1078,11 @@ func load_source_bytes(ctx Context, opts *include_opts, filename string, source 
             case *bytes.Buffer: _, e = buf.Write(s.Bytes())
             case     io.Reader: _, e = io.Copy(&buf, s)
             default:
-                errostack(pc(ctx,filename), 3, "invalid source : %v", ts(src), trace{})
+                debug(pc(ctx,filename), "invalid source : %v", ts(src), trace{})
             }
 
             if e != nil {
-                errostack(pc(ctx,filename), 3, "copy bytes (%s) failed : %v", typeof(src), e, trace{})
+                debug(pc(ctx,filename), "copy bytes (%s) failed : %v", typeof(src), e, trace{})
             }
         }
         if 0 < n { return buf.Bytes() }
@@ -1091,11 +1091,11 @@ func load_source_bytes(ctx Context, opts *include_opts, filename string, source 
         return t
     } else if _, y := e.(*fs.PathError); y {
         if (opts != nil && !opts.ifExists) {
-            errostack(pc(ctx,filename), 3, "no such source file", trace{})
+            debug(pc(ctx,filename), "no such source file", trace{})
         }
         return
     } else {
-        errostack(pc(ctx,filename), 3, "%v", e, trace{})
+        debug(pc(ctx,filename), "%v", e, trace{})
         return
     }
 }
@@ -1106,7 +1106,7 @@ func (l ul) source(ctx Context, filename string, a_src any) (res Value) {
     var text []byte
 
     defer func(p *parser) {
-        if l.p == nil { errostack(ctx, 3, "nil parser", trace{}) }
+        if l.p == nil { debug(ctx, "nil parser", trace{}) }
         l.p = p
     } (l.p)
 
@@ -1249,9 +1249,9 @@ func (l ul) file(ctx Context, spec, absPath string, source any) {
     if l.traceLaunch { defer un(l_trace(l_launch, "ul.load")) }
 
     if absPath == "" {
-        errostack(pc(ctx,l.p), 5, "%v: no such base: %v", l.project.name, spec, trace{})
+        debug(pc(ctx,l.p), "%v: no such base: %v", l.project.name, spec, trace{})
     } else if !filepath.IsAbs(absPath) {
-        errostack(pc(ctx,l.p), 5, "%v: not absolute path: %v", l.project.name, spec, trace{})
+        debug(pc(ctx,l.p), "%v: not absolute path: %v", l.project.name, spec, trace{})
     }
 
     // Check loaded project.
@@ -1294,7 +1294,7 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
                 c := pc(ctx, d.value)
                 note(c, "conflicts project name %v", ts(d))
                 note(c, "conflicts project name %v", loaded)
-                errostack(c, 6, "%v %v", d, loaded, trace{})
+                debug(c, "%v %v", d, loaded, trace{})
             }
         }
         if l.project != nil {

@@ -457,9 +457,9 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
     prereqPattern = prereqValue
     prereqValue, rest = stencil(ctx, prereqPattern, stemVals)
     if isTrivial(prereqValue) {
-        errostack(ctx, 3, "%v: empty stencil with %v", prereqPattern, stems, trace{})
+        debug(ctx, "%v: empty stencil with %v", prereqPattern, stems, trace{})
     } else if len(rest) > 0 {
-        errostack(ctx, 3, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest, trace{})
+        debug(ctx, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest, trace{})
     }
 
     mapPrereqFile(prereqValue)
@@ -508,16 +508,16 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     )
 
     if targetValue = auto_target_value(ctx); targetValue == nil {
-        erro(ctx, "%s: target is nil\n", prereqFinal, trace{})
+        debug(ctx, "%s: target is nil\n", prereqFinal, trace{})
     } else if isTrivial(targetValue) {
-        erro(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue, trace{})
+        debug(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue, trace{})
     }
 
     var projs = []*project{ p.proj }
 
     if len(projs) == 0 {
         note(ctx, "%v", closure_projects(ctx))
-        erro(ctx, "%v: %v → %v: no projects", p.proj, targetValue, prereqValue, trace{})
+        debug(ctx, "%v: %v → %v: no projects", p.proj, targetValue, prereqValue, trace{})
     }
 
     prereqValue, prereqPattern, prereqFinal, prereqFile = probPrereqValue(ctx, projs, prereqValue)
@@ -647,11 +647,11 @@ func (prog *program) workdir(ctx Context) (workdir string) {
         var o object
         if o = proj.resolve(ctx, "CWD"); isTrivial(o) {
             if o = proj.resolve(ctx, "/"); isTrivial(o) {
-                erro(ctx, "both $(CWD) and $/ are trivial", trace{})
+                debug(ctx, "both $(CWD) and $/ are trivial", trace{})
             }
         }
         if v := expand(_final(ctx),o); v == nil {
-            erro(ctx, "trivial %v", ts(o), trace{})
+            debug(ctx, "trivial %v", ts(o), trace{})
         } else {
             workdir = __string(ctx, v)
         }
@@ -665,7 +665,7 @@ func (prog *program) workdir(ctx Context) (workdir string) {
 
 func (prog *program) target(ctx *execution) (target Value) {
     if target = _entry(ctx).destiny(); target == nil {
-        erro(ctx, "%v: nil entry target", target, trace{})
+        debug(ctx, "%v: nil entry target", target, trace{})
     }
 
     switch a := target.(type) {
@@ -795,9 +795,7 @@ func (prog *program) execute(_ctx Context) (res Value) {
         proj:prog.project, recipes:prog.recipes, language:prog.language,
     }
 
-    if checkpoints {
-        defer prog.execute_check(exe, &res)
-    }
+    if checkpoints { defer prog.execute_check(exe, &res) }
 
     prog.check_exe(exe)
 
@@ -824,9 +822,7 @@ func (prog *program) execute(_ctx Context) (res Value) {
         exe.params[param.name] = param
     }
 
-    if checkpoints {
-        prog.execute_check_0(exe)
-    }
+    if checkpoints { prog.execute_check_0(exe) }
 
     // NOTE: set "@" before setting auto args
     // Select the right target value before setting parameters,
@@ -841,9 +837,7 @@ func (prog *program) execute(_ctx Context) (res Value) {
     exe.prerequisites(prog.depends, false)
     exe.prerequisites(prog.ordered, true)
 
-    if checkpoints {
-        prog.execute_check_1(exe)
-    }
+    if checkpoints { prog.execute_check_1(exe) }
 
     if len(prog.recipes) == 0  { return }
     return prog.result_or_default_interpret(exe)

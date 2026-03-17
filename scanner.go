@@ -522,12 +522,15 @@ func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string)
 
 fraction:
 	if s.ch == '.' {
-		if n := s.offset+2; n < len(s.src) {
-			if ch := rune(s.src[n]); /*unicode.IsSpace(ch) { // 1. -> FLOAT 1.0
-                                // do nothing here
-                        } else if*/ !IsDigit(ch) { // 1.o -> INT 1    DOT .    STRING o
+		// Lookahead to see if the character IMMEDIATELY following the dot is a digit.
+		// If it's a '$', '&', or letter, this is not a float (e.g., "1.$2" or "1.foo").
+		if n := s.offset + 1; n < len(s.src) { // <--- FIX: +1 instead of +2
+			if ch := rune(s.src[n]); !IsDigit(ch) { 
 				goto exit
 			}
+		} else {
+			// If the dot is the last character in the file, it's not a float
+			goto exit
 		}
 		tok = FLOAT
 		s.next(ctx)

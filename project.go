@@ -246,6 +246,10 @@ func (c project_ctx) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 
+type shadowCache struct {
+	val  string
+	trie *valcache
+}
 type project_ext struct{ *plugin.Plugin }
 type project struct {
     *scope
@@ -268,6 +272,9 @@ type project struct {
     filemap valcache
     entries valcache
 
+	shadowsMu sync.RWMutex
+	shadows map[Value]*shadowCache
+
     patterns []*rule // order is important
     configs  []*def // configure entries
     main entry
@@ -282,6 +289,78 @@ func (p *project) String() string { return "{=project "+p.name+"}" }
 func (p *project) owner() *project { return p.scope.project }
 func (p *project) ts(ctx Context, t string) string {
     return "{" + lp(ctx,p.position,t) + " " + p.name + "}"
+}
+
+// shadow builds an isolated valcache for the dynamic payload,
+// shadowing stale results by tracking the evaluated string value.
+func (p *project) shadow(ctx Context, payload any) *valcache {
+	var cacheKey Value
+	switch t := payload.(type) {
+	case filemap: cacheKey = t.pattern
+	case *rule: cacheKey = t.target
+	}
+	if cacheKey == nil { return nil }
+
+	// 1. Fully evaluate the closure to get the CURRENT files
+	compiledVal := unloc(expand(_final(ctx), cacheKey))
+	if compiledVal == nil { return nil }
+
+	// 2. Stringify the result to detect reassignments (Stale Cache Detection)
+	compiledStr := __string(ctx, compiledVal)
+
+	// 3. O(1) Memoization Hit (Thread-Safe Read)
+	p.shadowsMu.RLock()
+	if sc, ok := p.shadows[cacheKey]; ok && sc.val == compiledStr {
+		p.shadowsMu.RUnlock()
+		return sc.trie
+	}
+	p.shadowsMu.RUnlock()
+
+	// 4. Cache Miss / Stale Cache: The variable changed! Build a NEW isolated shadow trie.
+	shadow := &valcache{}
+
+	inject := func(elem Value) {
+		var boundPayload any = payload
+		switch t := payload.(type) {
+		case filemap: boundPayload = filemap{_filemap: t._filemap, pattern: elem}
+		case *rule:
+			r := *t
+			r.target = elem
+			boundPayload = &r
+		}
+
+		if nodes := hit(cache_t{ctx}, shadow, elem); len(nodes) > 0 {
+			found := false
+			for _, a := range nodes[0].a {
+				switch existing := a.(type) {
+				case filemap:
+					if bp, ok := boundPayload.(filemap); ok {
+						if existing._filemap == bp._filemap && __string(ctx, existing.pattern) == __string(ctx, bp.pattern) { found = true }
+					}
+				case *rule:
+					if bp, ok := boundPayload.(*rule); ok {
+						if __string(ctx, existing.target) == __string(ctx, bp.target) { found = true }
+					}
+				}
+			}
+			if !found { nodes[0].a = append(nodes[0].a, boundPayload) }
+		}
+	}
+
+	// 5. Inject the NEW current files into the isolated shadow trie
+	if list, ok := compiledVal.(*list); ok {
+		for _, elem := range list.elems { inject(elem) }
+	} else {
+		inject(compiledVal)
+	}
+
+	// 6. Save the new shadow trie (Thread-Safe Write)
+	p.shadowsMu.Lock()
+	if p.shadows == nil { p.shadows = make(map[Value]*shadowCache) }
+	p.shadows[cacheKey] = &shadowCache{val: compiledStr, trie: shadow}
+	p.shadowsMu.Unlock()
+	
+	return shadow
 }
 
 type self struct { *project }
@@ -435,12 +514,10 @@ func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) 
         entries = append(entries, p.configure._entries(ctx, name, true)...)
     }
 
-    var alwaysResolveBases bool
-    if n := len(_b); n > 0 { alwaysResolveBases = _b[n-1] }
-
-    if alwaysResolveBases || entries == nil {
+    var resolveBases = __t(_b...)
+    if resolveBases || entries == nil {
         for _, base := range p.bases {
-            if t := base._entries(ctx, name, alwaysResolveBases); t != nil {
+            if t := base._entries(ctx, name, resolveBases); t != nil {
                 entries = append(entries, t...)
                 break
             }
@@ -449,7 +526,7 @@ func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) 
 
     if false && entries == nil { // NOTE: this would be SLOW
         for _, u := range p.use.list {
-            t := u.project._entries(ctx, name, alwaysResolveBases)
+            t := u.project._entries(ctx, name, resolveBases)
             if t != nil { entries = append(entries, t...); break }
         }
     }
@@ -459,7 +536,7 @@ func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) 
 func (p *project) entry(c Context, name any, a ...bool) (_ entry) {
     var entries = p._entries(c, name, a...)
     if n := len(entries); 0 < n {
-        if 1 < n { erro(c, "%v : %d entries", name, n, trace{}) }
+        if 1 < n { debug(c, "%v : %d entries", name, n, trace{}) }
         return entries[0]
     }
     return

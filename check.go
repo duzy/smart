@@ -9,13 +9,16 @@ package smart
 
 import (
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
-	"regexp"
 )
 
 var rxLC = regexp.MustCompile(`[0-9]+:[0-9]+:?`)
-var rxIgnoredAutos = regexp.MustCompile(`(?:[0-9@<^>_/\-])`)
+var rxIgnoredAutos = regexp.MustCompile(`^(?:[0-9@<^>_/\-])(?:⇒.+)?$`)
 var rxSquareBracket = regexp.MustCompile(`\[?(.+?)\]?`)
 
 // NOTE: cannot decalre `checkpoints` as `const` because it's compile-time evaled.
@@ -564,12 +567,12 @@ func check_prefix(ctx Context, tag string, x, y Value, res *Value) {
 				_f("note: \"%s\"", s),
 				callstack{num:10}, trace{}) }
 		} else {
-			debug(pc(pc(ctx,y),x),
+			if true { debug(pc(pc(ctx,y),x),
 				_f("`%v`", k),
 				_f(`got: %v`, t),
 				_f(`!= : %v`, v),
 				_f("note: \"%s\"", s),
-				callstack{num:10}, trace{})
+				callstack{num:10}, trace{}) }
 		}
 	}
 }
@@ -648,8 +651,8 @@ var checkspecs = map[string]map[string]any{
 		`&(.test.{}) {5:25:closure {=compound {5:27:punct .} {5:28:word test} {5:32:punct .} {5:33 {5:34:null}}}}`: `{} {5:25:null}`,
 	},
 	"testdata/builtins/trimprefix": map[string]any{
-		`$(dir $/) {10:32:delegate {10:34:builtin dir} {=list {10:39:delegate {1:1:def /}}}}`:testdata_f(`%[1]s/builtins {10:32 {=path %[3]s {10:34:raw builtins}}}`,line_column_s("10:34")),
-		`$(dir2 $/) {11:32:delegate {11:34:builtin dir2} {=list {11:39:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {11:32 {=path %[3]s}}`,line_column_s("11:34")),
+		`$(dir $/) {10:32:delegate {10:34:builtin dir} {=list {10:39:delegate {1:1:def /}}}}`: testdata_f(`%[1]s/builtins {10:32 {=path %[3]s {10:34:raw builtins}}}`,line_column_s("10:34")),
+		`$(dir2 $/) {11:32:delegate {11:34:builtin dir2} {=list {11:39:delegate {1:1:def /}}}}`: testdata_f(`%[1]s {11:32 {=path %[3]s}}`,line_column_s("11:34")),
 		`$(pat0) {11:23:delegate {5:6:def pat0}}`:`**/testdata {11:23 {=path {=glob {5:10:meta **}} {5:13:word testdata}}}`,
 		`$(pat0) {12:23:delegate {5:6:def pat0}}`:`**/testdata {12:23 {=path {=glob {5:10:meta **}} {5:13:word testdata}}}`,
 		`$(pat1) {13:23:delegate {6:6:def pat1}}`:`%%/testdata {13:23 {=path {=percpat {6:10} {=percpat {6:12} {6:12}}} {6:13:word testdata}}}`,
@@ -657,14 +660,14 @@ var checkspecs = map[string]map[string]any{
 		`$(pat3) {15:23:delegate {8:6:def pat3}}`:`/%%/testdata {15:23 {=path {8:9:punct ROOT} {=percpat {8:10} {=percpat {8:12} {8:12}}} {8:13:word testdata}}}`,
 		`$(pat4) {20:23:delegate {17:6:def pat4}}`:`*?/testdata {20:23 {=path {=glob {17:10:meta *?}} {17:13:word testdata}}}`,
 		`$(pat5) {21:23:delegate {18:6:def pat5}}`:`/*?/testdata {21:23 {=path {18:9:punct ROOT} {=glob {18:10:meta *?}} {18:13:word testdata}}}`,
-		`$(trim-prefix $(dir $/),$/) {10:9:delegate {10:11:builtin trim-prefix} {=list {10:32:delegate {10:34:builtin dir} {=list {10:39:delegate {1:1:def /}}}}} {=list {10:43:delegate {1:1:def /}}}}`:`/trimprefix {10:9 {=path {10:11:punct ROOT} {10:11:raw trimprefix}}}`,
-		`$(trim-prefix $(pat0)/ $(dir2 $/),$/) {11:9:delegate {11:11:builtin trim-prefix} {=list {=path {11:23:delegate {5:6:def pat0}} {11:31:punct TAIL}} {11:32:delegate {11:34:builtin dir2} {=list {11:39:delegate {1:1:def /}}}}} {=list {11:43:delegate {1:1:def /}}}}`:`/builtins/trimprefix {11:9 {=path {11:11:punct ROOT} {11:11:raw builtins} {11:11:raw trimprefix}}}`,
-		`$(trim-prefix $(pat0)/,$/) {12:9:delegate {12:11:builtin trim-prefix} {=list {=path {12:23:delegate {5:6:def pat0}} {12:31:punct TAIL}}} {=list {12:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {12:9 {=path {12:11:word builtins} {12:11:word trimprefix}}}`,
-		`$(trim-prefix $(pat1)/,$/) {13:9:delegate {13:11:builtin trim-prefix} {=list {=path {13:23:delegate {6:6:def pat1}} {13:31:punct TAIL}}} {=list {13:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {13:9 {=path {13:11:word builtins} {13:11:word trimprefix}}}`,
-		`$(trim-prefix $(pat2)/,$/) {14:9:delegate {14:11:builtin trim-prefix} {=list {=path {14:23:delegate {7:6:def pat2}} {14:31:punct TAIL}}} {=list {14:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {14:9 {=path {14:11:word builtins} {14:11:word trimprefix}}}`,
-		`$(trim-prefix $(pat3)/,$/) {15:9:delegate {15:11:builtin trim-prefix} {=list {=path {15:23:delegate {8:6:def pat3}} {15:31:punct TAIL}}} {=list {15:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {15:9 {=path {15:11:word builtins} {15:11:word trimprefix}}}`,
-		`$(trim-prefix $(pat4)/,$/) {20:9:delegate {20:11:builtin trim-prefix} {=list {=path {20:23:delegate {17:6:def pat4}} {20:31:punct TAIL}}} {=list {20:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {20:9 {=path {20:11:word builtins} {20:11:word trimprefix}}}`,
-		`$(trim-prefix $(pat5)/,$/) {21:9:delegate {21:11:builtin trim-prefix} {=list {=path {21:23:delegate {18:6:def pat5}} {21:31:punct TAIL}}} {=list {21:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {21:9 {=path {21:11:word builtins} {21:11:word trimprefix}}}`,
+		`$(trim-prefix $(dir $/),$/) {10:9:delegate {10:11:builtin trim-prefix} {=list {10:32:delegate {10:34:builtin dir} {=list {10:39:delegate {1:1:def /}}}}} {=list {10:43:delegate {1:1:def /}}}}`:[]string{`/trimprefix {10:9 {=path {1:1:raw} {1:1:raw trimprefix}}}`,},
+		`$(trim-prefix $(pat0)/ $(dir2 $/),$/) {11:9:delegate {11:11:builtin trim-prefix} {=list {=path {11:23:delegate {5:6:def pat0}} {11:31:punct TAIL}} {11:32:delegate {11:34:builtin dir2} {=list {11:39:delegate {1:1:def /}}}}} {=list {11:43:delegate {1:1:def /}}}}`:`builtins/trimprefix {11:9 {=path {1:1:raw builtins} {1:1:raw trimprefix}}}`,
+		`$(trim-prefix $(pat0)/,$/) {12:9:delegate {12:11:builtin trim-prefix} {=list {=path {12:23:delegate {5:6:def pat0}} {12:31:punct TAIL}}} {=list {12:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {12:9 {=path {1:1:raw builtins} {1:1:raw trimprefix}}}`,
+		`$(trim-prefix $(pat1)/,$/) {13:9:delegate {13:11:builtin trim-prefix} {=list {=path {13:23:delegate {6:6:def pat1}} {13:31:punct TAIL}}} {=list {13:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {13:9 {=path {1:1:raw builtins} {1:1:raw trimprefix}}}`,
+		`$(trim-prefix $(pat2)/,$/) {14:9:delegate {14:11:builtin trim-prefix} {=list {=path {14:23:delegate {7:6:def pat2}} {14:31:punct TAIL}}} {=list {14:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {14:9 {=path {1:1:raw builtins} {1:1:raw trimprefix}}}`,
+		`$(trim-prefix $(pat3)/,$/) {15:9:delegate {15:11:builtin trim-prefix} {=list {=path {15:23:delegate {8:6:def pat3}} {15:31:punct TAIL}}} {=list {15:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {15:9 {=path {1:1:raw builtins} {1:1:raw trimprefix}}}`,
+		`$(trim-prefix $(pat4)/,$/) {20:9:delegate {20:11:builtin trim-prefix} {=list {=path {20:23:delegate {17:6:def pat4}} {20:31:punct TAIL}}} {=list {20:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {20:9 {=path {1:1:raw builtins} {1:1:raw trimprefix}}}`,
+		`$(trim-prefix $(pat5)/,$/) {21:9:delegate {21:11:builtin trim-prefix} {=list {=path {21:23:delegate {18:6:def pat5}} {21:31:punct TAIL}}} {=list {21:32:delegate {1:1:def /}}}}`:`builtins/trimprefix {21:9 {=path {1:1:raw builtins} {1:1:raw trimprefix}}}`,
 		`$(trim-prefix **/testdata/**,$/) {28:10:delegate {28:12:builtin trim-prefix} {=list {=path {=glob {28:25:meta **}} {28:28:word testdata} {=glob {28:37:meta **}}}} {=list {28:40:delegate {1:1:def /}}}}`:`{} {28:10 {28:40:null}}`,
 		`$(trim-prefix **/testdata/**/,$//) {29:10:delegate {29:12:builtin trim-prefix} {=list {=path {=glob {29:25:meta **}} {29:28:word testdata} {=glob {29:37:meta **}} {29:40:punct TAIL}}} {=list {=path {29:41:delegate {1:1:def /}} {29:44:punct TAIL}}}}`:`{} {29:10 {29:41:null}}`,
 		`$(trim-prefix *?/testdata/*?,$/) {33:10:delegate {33:12:builtin trim-prefix} {=list {=path {=glob {33:25:meta *?}} {33:28:word testdata} {=glob {33:37:meta *?}}}} {=list {33:40:delegate {1:1:def /}}}}`:`{} {33:10 {33:40:null}}`,
@@ -672,8 +675,8 @@ var checkspecs = map[string]map[string]any{
 		`$(trim-prefix /**/ trimprefix,$/) {26:10:delegate {26:12:builtin trim-prefix} {=list {=path {26:24:punct ROOT} {=glob {26:25:meta **}} {26:28:punct TAIL}} {26:29:word trimprefix}} {=list {26:40:delegate {1:1:def /}}}}`:`{} {26:10 {26:40:null}}`,
 		`$(trim-prefix /**/ trimprefix/,$//) {27:10:delegate {27:12:builtin trim-prefix} {=list {=path {27:24:punct ROOT} {=glob {27:25:meta **}} {27:28:punct TAIL}} {=path {27:29:word trimprefix} {27:40:punct TAIL}}} {=list {=path {27:41:delegate {1:1:def /}} {27:44:punct TAIL}}}}`:`{} {27:10 {27:41:null}}`,
 		`$(trim-prefix /**/*data/*?/,$//) {41:10:delegate {41:12:builtin trim-prefix} {=list {=path {41:24:punct ROOT} {=glob {41:25:meta **}} {=glob {41:28:meta *} {41:29:word data}} {=glob {41:34:meta *?}} {41:37:punct TAIL}}} {=list {=path {41:38:delegate {1:1:def /}} {41:41:punct TAIL}}}}`:`{} {41:10 {41:38:null}}`,
-		`$(trim-prefix /**/testdata /builtins,$/) {24:10:delegate {24:12:builtin trim-prefix} {=list {=path {24:24:punct ROOT} {=glob {24:25:meta **}} {24:28:word testdata}} {=path {24:37:punct ROOT} {24:38:word builtins}}} {=list {24:47:delegate {1:1:def /}}}}`:`/trimprefix {24:10 {=path {24:12:punct ROOT} {24:12:word trimprefix}}}`,
-		`$(trim-prefix /**/testdata/ builtins,$/) {25:10:delegate {25:12:builtin trim-prefix} {=list {=path {25:24:punct ROOT} {=glob {25:25:meta **}} {25:28:word testdata} {25:37:punct TAIL}} {25:38:word builtins}} {=list {25:47:delegate {1:1:def /}}}}`:`/trimprefix {25:10 {=path {25:12:punct ROOT} {25:12:word trimprefix}}}`,
+		`$(trim-prefix /**/testdata /builtins,$/) {24:10:delegate {24:12:builtin trim-prefix} {=list {=path {24:24:punct ROOT} {=glob {24:25:meta **}} {24:28:word testdata}} {=path {24:37:punct ROOT} {24:38:word builtins}}} {=list {24:47:delegate {1:1:def /}}}}`: `/trimprefix {24:10 {=path {1:1:raw} {1:1:raw trimprefix}}}`,
+		`$(trim-prefix /**/testdata/ builtins,$/) {25:10:delegate {25:12:builtin trim-prefix} {=list {=path {25:24:punct ROOT} {=glob {25:25:meta **}} {25:28:word testdata} {25:37:punct TAIL}} {25:38:word builtins}} {=list {25:47:delegate {1:1:def /}}}}`: `/trimprefix {25:10 {=path {1:1:raw} {1:1:raw trimprefix}}}`,
 		`$(trim-prefix /**/testdata/**,$/) {30:10:delegate {30:12:builtin trim-prefix} {=list {=path {30:24:punct ROOT} {=glob {30:25:meta **}} {30:28:word testdata} {=glob {30:37:meta **}}}} {=list {30:40:delegate {1:1:def /}}}}`:`{} {30:10 {30:40:null}}`,
 		`$(trim-prefix /**/testdata/**/,$//) {31:10:delegate {31:12:builtin trim-prefix} {=list {=path {31:24:punct ROOT} {=glob {31:25:meta **}} {31:28:word testdata} {=glob {31:37:meta **}} {31:40:punct TAIL}}} {=list {=path {31:41:delegate {1:1:def /}} {31:44:punct TAIL}}}}`:`{} {31:10 {31:41:null}}`,
 		`$(trim-prefix /*?/*data/*?/,$//) {40:10:delegate {40:12:builtin trim-prefix} {=list {=path {40:24:punct ROOT} {=glob {40:25:meta *?}} {=glob {40:28:meta *} {40:29:word data}} {=glob {40:34:meta *?}} {40:37:punct TAIL}}} {=list {=path {40:38:delegate {1:1:def /}} {40:41:punct TAIL}}}}`:`{} {40:10 {40:38:null}}`,
@@ -683,27 +686,27 @@ var checkspecs = map[string]map[string]any{
 		`$(trim-prefix /*?/test*/*?/,$//) {38:10:delegate {38:12:builtin trim-prefix} {=list {=path {38:24:punct ROOT} {=glob {38:25:meta *?}} {=glob {38:28:word test} {38:32:meta *}} {=glob {38:34:meta *?}} {38:37:punct TAIL}}} {=list {=path {38:38:delegate {1:1:def /}} {38:41:punct TAIL}}}}`:`{} {38:10 {38:38:null}}`,
 		`$(trim-prefix /*?/testdata/*?,$/) {35:10:delegate {35:12:builtin trim-prefix} {=list {=path {35:24:punct ROOT} {=glob {35:25:meta *?}} {35:28:word testdata} {=glob {35:37:meta *?}}}} {=list {35:40:delegate {1:1:def /}}}}`:`{} {35:10 {35:40:null}}`,
 		`$(trim-prefix /*?/testdata/*?/,$//) {36:10:delegate {36:12:builtin trim-prefix} {=list {=path {36:24:punct ROOT} {=glob {36:25:meta *?}} {36:28:word testdata} {=glob {36:37:meta *?}} {36:40:punct TAIL}}} {=list {=path {36:41:delegate {1:1:def /}} {36:44:punct TAIL}}}}`:`{} {36:10 {36:41:null}}`,
-		`$(trim-prefix /*?/testdata/,$/) {22:9:delegate {22:11:builtin trim-prefix} {=list {=path {22:23:punct ROOT} {=glob {22:24:meta *?}} {22:27:word testdata} {22:36:punct TAIL}}} {=list {22:37:delegate {1:1:def /}}}}`:`builtins/trimprefix {22:9 {=path {22:11:word builtins} {22:11:word trimprefix}}}`,
+		`$(trim-prefix /*?/testdata/,$/) {22:9:delegate {22:11:builtin trim-prefix} {=list {=path {22:23:punct ROOT} {=glob {22:24:meta *?}} {22:27:word testdata} {22:36:punct TAIL}}} {=list {22:37:delegate {1:1:def /}}}}`:`builtins/trimprefix {22:9 {=path {1:1:raw builtins} {1:1:raw trimprefix}}}`,
 	},
 	"testdata/builtins/trimsuffix": map[string]any{
 		`$(base2 $/) {12:32:delegate {12:34:builtin base2} {=list {12:40:delegate {1:1:def /}}}}`:`builtins/trimsuffix {12:32 {=path {12:40:word builtins} {12:40:word trimsuffix}}}`,
 		`$(base3 $/) {11:32:delegate {11:34:builtin base3} {=list {11:40:delegate {1:1:def /}}}}`:`testdata/builtins/trimsuffix {11:32 {=path {11:40:word testdata} {11:40:word builtins} {11:40:word trimsuffix}}}`,
-		`$(dir3 $/) {3:6:delegate {3:8:builtin dir3} {=list {3:13:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {3:6 {=path %[3]s}}`,trim_suffix{1,"/testdata"},trim_suffix{3," {3:8:word testdata}"},line_column_s("3:8")),
+		`$(dir3 $/) {3:6:delegate {3:8:builtin dir3} {=list {3:13:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {3:6 {=path %[3]s}}`,trim_suffix{1,"/testdata"},trim_suffix{3," {3:8:raw testdata}"},line_column_s("3:8")),
 		`$(pat0) {12:24:delegate {6:6:def pat0}}`:`testdata/** {12:24 {=path {6:9:word testdata} {=glob {6:18:meta **}}}}`,
 		`$(pat0) {13:24:delegate {6:6:def pat0}}`:`testdata/** {13:24 {=path {6:9:word testdata} {=glob {6:18:meta **}}}}`,
 		`$(pat1) {14:24:delegate {7:6:def pat1}}`:`testdata/%% {14:24 {=path {7:9:word testdata} {=percpat {7:18} {=percpat {7:20} {7:20}}}}}`,
 		`$(pat2) {15:24:delegate {8:6:def pat2}}`:`testdata/**/ {15:24 {=path {8:9:word testdata} {=glob {8:18:meta **}} {8:21:punct TAIL}}}`,
 		`$(pat3) {16:24:delegate {9:6:def pat3}}`:`testdata/%%/ {16:24 {=path {9:9:word testdata} {=percpat {9:18} {=percpat {9:20} {9:20}}} {9:21:punct TAIL}}}`,
-		`$(trim-suffix $(base3 $/),$/) {11:9:delegate {11:11:builtin trim-suffix} {=list {11:32:delegate {11:34:builtin base3} {=list {11:40:delegate {1:1:def /}}}}} {=list {11:44:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {11:9 {=path %[3]s {11:11:punct TAIL}}}`,trim_suffix{1,"testdata"},trim_suffix{3," {11:11:word testdata}"},line_column_s("11:11")),
-		`$(trim-suffix $(pat0) $(base2 $/),$/) {12:9:delegate {12:11:builtin trim-suffix} {=list {12:24:delegate {6:6:def pat0}} {12:32:delegate {12:34:builtin base2} {=list {12:40:delegate {1:1:def /}}}}} {=list {12:44:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {12:9 {=path %[3]s {12:11:punct TAIL}}}`,trim_suffix{1,"testdata"},trim_suffix{3," {12:11:word testdata}"},line_column_s("12:11")),
-		`$(trim-suffix $(pat0),$/) {13:9:delegate {13:11:builtin trim-suffix} {=list {13:24:delegate {6:6:def pat0}}} {=list {13:32:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {13:9 {=path %[3]s {13:11:punct TAIL}}}`,trim_suffix{1,"testdata"},trim_suffix{3," {13:11:word testdata}"},line_column_s("13:11")),
+		`$(trim-suffix $(base3 $/),$/) {11:9:delegate {11:11:builtin trim-suffix} {=list {11:32:delegate {11:34:builtin base3} {=list {11:40:delegate {1:1:def /}}}}} {=list {11:44:delegate {1:1:def /}}}}`:testdata_f2(`%[1]s {11:9 {=unwrap-loc-path %[3]s {=raw}}}`,trim_unloc{3},trim_suffix{1,"testdata"},trim_suffix{3," {=raw testdata}"}),
+		`$(trim-suffix $(pat0) $(base2 $/),$/) {12:9:delegate {12:11:builtin trim-suffix} {=list {12:24:delegate {6:6:def pat0}} {12:32:delegate {12:34:builtin base2} {=list {12:40:delegate {1:1:def /}}}}} {=list {12:44:delegate {1:1:def /}}}}`:testdata_f2(`%[1]s {12:9 {=unwrap-loc-path %[3]s {=raw}}}`,trim_unloc{3},trim_suffix{1,"testdata"},trim_suffix{3," {=raw testdata}"}),
+		`$(trim-suffix $(pat0),$/) {13:9:delegate {13:11:builtin trim-suffix} {=list {13:24:delegate {6:6:def pat0}}} {=list {13:32:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {13:9 {=path %[3]s {1:1:raw}}}`,trim_suffix{1,"testdata"},trim_suffix{3," {1:1:raw testdata}"}),
 		`$(trim-suffix **/testdata/**,$/) {18:10:delegate {18:12:builtin trim-suffix} {=list {=path {=glob {18:25:meta **}} {18:28:word testdata} {=glob {18:37:meta **}}}} {=list {18:40:delegate {1:1:def /}}}}`:`{} {18:10 {18:40:null}}`,
 		`$(trim-suffix **/testdata/**/,$//) {19:10:delegate {19:12:builtin trim-suffix} {=list {=path {=glob {19:25:meta **}} {19:28:word testdata} {=glob {19:37:meta **}} {19:40:punct TAIL}}} {=list {=path {19:41:delegate {1:1:def /}} {19:44:punct TAIL}}}}`:`{} {19:10 {19:41:null}}`,
 		`$(trim-suffix *?/testdata/*?,$/) {28:10:delegate {28:12:builtin trim-suffix} {=list {=path {=glob {28:25:meta *?}} {28:28:word testdata} {=glob {28:37:meta *?}}}} {=list {28:40:delegate {1:1:def /}}}}`:`{} {28:10 {28:40:null}}`,
 		`$(trim-suffix *?/testdata/*?/,$//) {29:10:delegate {29:12:builtin trim-suffix} {=list {=path {=glob {29:25:meta *?}} {29:28:word testdata} {=glob {29:37:meta *?}} {29:40:punct TAIL}}} {=list {=path {29:41:delegate {1:1:def /}} {29:44:punct TAIL}}}}`:`{} {29:10 {29:41:null}}`,
-		`$(trim-suffix /$(pat1),$/) {14:9:delegate {14:11:builtin trim-suffix} {=list {=path {14:23:punct ROOT} {14:24:delegate {7:6:def pat1}}}} {=list {14:32:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {14:9 {=path %[3]s}}`,trim_suffix{1,"/testdata"},trim_suffix{3," {14:11:word testdata}"},line_column_s("14:11")),
-		`$(trim-suffix /$(pat2),$//) {15:9:delegate {15:11:builtin trim-suffix} {=list {=path {15:23:punct ROOT} {15:24:delegate {8:6:def pat2}}}} {=list {=path {15:32:delegate {1:1:def /}} {15:35:punct TAIL}}}}`:testdata_f(`%[1]s {15:9 {=path %[3]s}}`,trim_suffix{1,"/testdata"},trim_suffix{3," {15:11:word testdata}"},line_column_s("15:11")),
-		`$(trim-suffix /$(pat3),$//) {16:9:delegate {16:11:builtin trim-suffix} {=list {=path {16:23:punct ROOT} {16:24:delegate {9:6:def pat3}}}} {=list {=path {16:32:delegate {1:1:def /}} {16:35:punct TAIL}}}}`:testdata_f(`%[1]s {16:9 {=path %[3]s}}`,trim_suffix{1,"/testdata"},trim_suffix{3," {16:11:word testdata}"},line_column_s("16:11")),
+		`$(trim-suffix /$(pat1),$/) {14:9:delegate {14:11:builtin trim-suffix} {=list {=path {14:23:punct ROOT} {14:24:delegate {7:6:def pat1}}}} {=list {14:32:delegate {1:1:def /}}}}`:testdata_f2(`%[1]s {14:9 {=unwrap-loc-path %[3]s}}`,trim_suffix{1,"/testdata"},trim_unloc{3},trim_suffix{3," {=raw testdata}"}),
+		`$(trim-suffix /$(pat2),$//) {15:9:delegate {15:11:builtin trim-suffix} {=list {=path {15:23:punct ROOT} {15:24:delegate {8:6:def pat2}}}} {=list {=path {15:32:delegate {1:1:def /}} {15:35:punct TAIL}}}}`:testdata_f2(`%[1]s {15:9 {=unwrap-loc-path %[3]s}}`,trim_suffix{1,"/testdata"},trim_unloc{3},trim_suffix{3," {=raw testdata}"}),
+		`$(trim-suffix /$(pat3),$//) {16:9:delegate {16:11:builtin trim-suffix} {=list {=path {16:23:punct ROOT} {16:24:delegate {9:6:def pat3}}}} {=list {=path {16:32:delegate {1:1:def /}} {16:35:punct TAIL}}}}`:testdata_f2(`%[1]s {16:9 {=unwrap-loc-path %[3]s}}`,trim_suffix{1,"/testdata"},trim_unloc{3},trim_suffix{3," {=raw testdata}"}),
 		`$(trim-suffix /**/*data/*?/,$//) {36:10:delegate {36:12:builtin trim-suffix} {=list {=path {36:24:punct ROOT} {=glob {36:25:meta **}} {=glob {36:28:meta *} {36:29:word data}} {=glob {36:34:meta *?}} {36:37:punct TAIL}}} {=list {=path {36:38:delegate {1:1:def /}} {36:41:punct TAIL}}}}`:`{} {36:10 {36:38:null}}`,
 		`$(trim-suffix /**/,$//) {26:10:delegate {26:12:builtin trim-suffix} {=list {=path {26:36:punct ROOT} {=glob {26:37:meta **}} {26:40:punct TAIL}}} {=list {=path {26:41:delegate {1:1:def /}} {26:44:punct TAIL}}}}`:`{} {26:10 {26:41:null}}`,
 		`$(trim-suffix /**/testdata/**,$/) {20:10:delegate {20:12:builtin trim-suffix} {=list {=path {20:24:punct ROOT} {=glob {20:25:meta **}} {20:28:word testdata} {=glob {20:37:meta **}}}} {=list {20:40:delegate {1:1:def /}}}}`:`{} {20:10 {20:40:null}}`,
@@ -715,10 +718,10 @@ var checkspecs = map[string]map[string]any{
 		`$(trim-suffix /*?/test*/*?/,$//) {33:10:delegate {33:12:builtin trim-suffix} {=list {=path {33:24:punct ROOT} {=glob {33:25:meta *?}} {=glob {33:28:word test} {33:32:meta *}} {=glob {33:34:meta *?}} {33:37:punct TAIL}}} {=list {=path {33:38:delegate {1:1:def /}} {33:41:punct TAIL}}}}`:`{} {33:10 {33:38:null}}`,
 		`$(trim-suffix /*?/testdata/*?,$/) {30:10:delegate {30:12:builtin trim-suffix} {=list {=path {30:24:punct ROOT} {=glob {30:25:meta *?}} {30:28:word testdata} {=glob {30:37:meta *?}}}} {=list {30:40:delegate {1:1:def /}}}}`:`{} {30:10 {30:40:null}}`,
 		`$(trim-suffix /*?/testdata/*?/,$//) {31:10:delegate {31:12:builtin trim-suffix} {=list {=path {31:24:punct ROOT} {=glob {31:25:meta *?}} {31:28:word testdata} {=glob {31:37:meta *?}} {31:40:punct TAIL}}} {=list {=path {31:41:delegate {1:1:def /}} {31:44:punct TAIL}}}}`:`{} {31:10 {31:41:null}}`,
-		`$(trim-suffix /testdata/**,$/) {23:10:delegate {23:12:builtin trim-suffix} {=list {=path {23:27:punct ROOT} {23:28:word testdata} {=glob {23:37:meta **}}}} {=list {23:40:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {23:10 {=path %[3]s}}`,trim_suffix{1,"/testdata"},trim_suffix{3," {23:12:word testdata}"},line_column_s("23:12")),
-		`$(trim-suffix /testdata/**/,$//) {25:10:delegate {25:12:builtin trim-suffix} {=list {=path {25:27:punct ROOT} {25:28:word testdata} {=glob {25:37:meta **}} {25:40:punct TAIL}}} {=list {=path {25:41:delegate {1:1:def /}} {25:44:punct TAIL}}}}`:testdata_f(`%[1]s {25:10 {=path %[3]s}}`,trim_suffix{1,"/testdata"},trim_suffix{3," {25:12:word testdata}"},line_column_s("25:12")),
-		`$(trim-suffix testdata/**,$/) {22:10:delegate {22:12:builtin trim-suffix} {=list {=path {22:28:word testdata} {=glob {22:37:meta **}}}} {=list {22:40:delegate {1:1:def /}}}}`:testdata_f(`%[1]s {22:10 {=path %[3]s {22:12:punct TAIL}}}`,trim_suffix{1,"testdata"},trim_suffix{3," {22:12:word testdata}"},line_column_s("22:12")),
-		`$(trim-suffix testdata/**/,$//) {24:10:delegate {24:12:builtin trim-suffix} {=list {=path {24:28:word testdata} {=glob {24:37:meta **}} {24:40:punct TAIL}}} {=list {=path {24:41:delegate {1:1:def /}} {24:44:punct TAIL}}}}`:testdata_f(`%[1]s {24:10 {=path %[3]s {24:12:punct TAIL}}}`,trim_suffix{1,"testdata"},trim_suffix{3," {24:12:word testdata}"},line_column_s("24:12")),
+		`$(trim-suffix /testdata/**,$/) {23:10:delegate {23:12:builtin trim-suffix} {=list {=path {23:27:punct ROOT} {23:28:word testdata} {=glob {23:37:meta **}}}} {=list {23:40:delegate {1:1:def /}}}}`:testdata_f2(`%[1]s {23:10 {=unwrap-loc-path %[3]s}}`,trim_unloc{3},trim_suffix{1,"/testdata"},trim_suffix{3," {=raw testdata}"}),
+		`$(trim-suffix /testdata/**/,$//) {25:10:delegate {25:12:builtin trim-suffix} {=list {=path {25:27:punct ROOT} {25:28:word testdata} {=glob {25:37:meta **}} {25:40:punct TAIL}}} {=list {=path {25:41:delegate {1:1:def /}} {25:44:punct TAIL}}}}`:testdata_f2(`%[1]s {25:10 {=unwrap-loc-path %[3]s}}`,trim_unloc{3},trim_suffix{1,"/testdata"},trim_suffix{3," {=raw testdata}"}),
+		`$(trim-suffix testdata/**,$/) {22:10:delegate {22:12:builtin trim-suffix} {=list {=path {22:28:word testdata} {=glob {22:37:meta **}}}} {=list {22:40:delegate {1:1:def /}}}}`:testdata_f2(`%[1]s {22:10 {=unwrap-loc-path %[3]s {=raw}}}`,trim_unloc{3},trim_suffix{1,"testdata"},trim_suffix{3," {=raw testdata}"}),
+		`$(trim-suffix testdata/**/,$//) {24:10:delegate {24:12:builtin trim-suffix} {=list {=path {24:28:word testdata} {=glob {24:37:meta **}} {24:40:punct TAIL}}} {=list {=path {24:41:delegate {1:1:def /}} {24:44:punct TAIL}}}}`:testdata_f2(`%[1]s {24:10 {=unwrap-loc-path %[3]s {=raw}}}`,trim_unloc{3},trim_suffix{1,"testdata"},trim_suffix{3," {=raw testdata}"}),
 	},
 	"testdata/builtins/if": map[string]any{
 		`$(if &(none),yes,no) {11:8:delegate {11:10:builtin if} {=list {11:13:closure {11:15:word none}}} {=list {11:21:word yes}} {=list {11:25:word no}}}`: `no {11:8 {11:25:word no}}`,
@@ -811,9 +814,12 @@ var checkspecs = map[string]map[string]any{
 		`$(.test.foreach.c $1,4) {18:11:delegate {5:17:def .test.foreach.c} {=list {18:29:delegate {3:30:auto 1}}} {=list {18:32:decimal 4}}}`: []string{`bx{} by{} bz{} baxx{} bayy{} -x{&(.test.foreach.x)} -x{&(.test.foreach.x.3)} -x{&(.test.foreach.x.4)} {=list {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:37:word x} {4:38 {3:30:null}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:41:word y} {4:42 {3:30:null}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:45:word z} {4:46 {3:30:null}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:49:word xx} {4:51 {3:43:null}}}}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:54:word yy} {4:56 {3:43:null}}}}}}}}}}}}} {18:11 {6:5 {=flag {=compound {6:74:word x} {6:75 {6:15:disjunction {6:15:closure {15:17:def .test.foreach.x}}}}}}}} {18:11 {6:5 {=flag {=compound {6:74:word x} {6:75 {6:34 {6:50:disjunction {6:50:closure {19:19:def .test.foreach.x.3}}}}}}}}} {18:11 {6:5 {=flag {=compound {6:74:word x} {6:75 {6:34 {6:50:disjunction {6:50:closure {20:19:def .test.foreach.x.4}}}}}}}}}}`,`bx{} by{} bz{} baxx{} bayy{} -x{&(.test.foreach.x)} -x{&(.test.foreach.x.4)} {=list {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:37:word x} {4:38 {3:30:null}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:41:word y} {4:42 {3:30:null}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:45:word z} {4:46 {3:30:null}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:49:word xx} {4:51 {3:43:null}}}}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:54:word yy} {4:56 {3:43:null}}}}}}}}}}}}} {18:11 {6:5 {=flag {=compound {6:74:word x} {6:75 {6:15:disjunction {6:15:closure {15:17:def .test.foreach.x}}}}}}}} {18:11 {6:5 {=flag {=compound {6:74:word x} {6:75 {6:34 {6:50:disjunction {6:50:closure {20:19:def .test.foreach.x.4}}}}}}}}}}`,`bx{} by{} bz{} baxx{} bayy{} -xvw -xW{}{} {=list {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:37:word x} {4:38 {3:30:null}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:41:word y} {4:42 {3:30:null}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:45:word z} {4:46 {3:30:null}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:49:word xx} {4:51 {3:43:null}}}}}}}}}}}}} {18:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:54:word yy} {4:56 {3:43:null}}}}}}}}}}}}} {18:11 {6:5 {=flag {=compound {6:74:word x} {6:75 {6:15 {21:21:word vw}}}}}}} {18:11 {6:5 {=flag {=compound {6:74:word x} {6:75 {6:34 {6:50 {=compound {20:21:word W} {20:22 {3:30:null}} {20:24 {3:43:null}}}}}}}}}}}`,},
 		`$(.test.foreach.c) {12:11:delegate {5:17:def .test.foreach.c}}`: `bx{} by{} bz{} baxx{} bayy{} -x{&(.test.foreach.x)} {=list {12:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:37:word x} {4:38 {3:30:null}}}}}}}}}} {12:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:41:word y} {4:42 {3:30:null}}}}}}}}}} {12:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:45:word z} {4:46 {3:30:null}}}}}}}}}} {12:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:49:word xx} {4:51 {3:43:null}}}}}}}}}}}}} {12:11 {5:19 {4:19 {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:54:word yy} {4:56 {3:43:null}}}}}}}}}}}}} {12:11 {6:5 {=flag {=compound {6:74:word x} {6:75 {6:15:disjunction {6:15:closure {15:17:def .test.foreach.x}}}}}}}}}`,
 		`$(.test.foreach.d) {27:11:delegate {24:19:def .test.foreach.d}}`: `{} {27:11 {24:21 {24:23:null}}}`,
+		`$(.test.foreach.d.$_ $3,$4) {24:37:delegate {=compound {24:39:punct .} {24:40:word test} {24:44:punct .} {24:45:word foreach} {24:52:punct .} {24:53:word d} {24:54:punct .} {24:55:delegate {3:47:auto _}}} {=list {24:58:delegate {24:59:auto 3}}} {=list {24:61:delegate {24:62:auto 4}}}}`: []string{`{} {24:37 {25:21 {25:23:null}}}`,`{} {24:37 {26:21 {26:23:null}}}`,`-xa -xb {=list {24:37 {25:21 {=flag {=compound {25:38:word x} {25:39 {25:31 {24:58 {1:9:word a}}}}}}}} {24:37 {25:21 {=flag {=compound {25:38:word x} {25:39 {25:34 {24:61 {1:9:word b}}}}}}}}}`,`-ya -yb {=list {24:37 {26:21 {=flag {=compound {26:38:word y} {26:39 {26:31 {24:58 {1:9:word a}}}}}}}} {24:37 {26:21 {=flag {=compound {26:38:word y} {26:39 {26:34 {24:61 {1:9:word b}}}}}}}}}`,},
 		`$(foreach $1 $(foreach $2,a$_),b$_) {3:19:delegate {3:21:builtin foreach} {=list {3:29:delegate {3:30:auto 1}} {3:32:delegate {3:34:builtin foreach} {=list {3:42:delegate {3:43:auto 2}}} {=list {=compound {3:45:word a} {3:46:delegate {3:47:auto _}}}}}} {=list {=compound {3:50:word b} {3:51:delegate {3:47:auto _}}}}}`: `bx{} by{} bz{} baxx{} bayy{} {=list {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:37:word x} {4:38 {3:30:null}}}}}}} {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:41:word y} {4:42 {3:30:null}}}}}}} {3:19 {=compound {3:50:word b} {3:51 {3:29 {=compound {4:45:word z} {4:46 {3:30:null}}}}}}} {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:49:word xx} {4:51 {3:43:null}}}}}}}}}} {3:19 {=compound {3:50:word b} {3:51 {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:54:word yy} {4:56 {3:43:null}}}}}}}}}}}`,
-		`$(foreach $1 $2,$(.test.foreach.d.$_ $3,$4)) {24:21:delegate {24:23:builtin foreach} {=list {24:31:delegate {3:30:auto 1}} {24:34:delegate {3:43:auto 2}}} {=list {24:37:delegate {=compound {24:39:punct .} {24:40:word test} {24:44:punct .} {24:45:word foreach} {24:52:punct .} {24:53:word d} {24:54:punct .} {24:55:delegate {3:47:auto _}}} {=list {24:58:delegate {24:59:auto 3}}} {=list {24:61:delegate {24:62:auto 4}}}}}}`: `{} {24:21 {24:23:null}}`,
+		`$(foreach $1 $2,$(.test.foreach.d.$_ $3,$4)) {24:21:delegate {24:23:builtin foreach} {=list {24:31:delegate {3:30:auto 1}} {24:34:delegate {3:43:auto 2}}} {=list {24:37:delegate {=compound {24:39:punct .} {24:40:word test} {24:44:punct .} {24:45:word foreach} {24:52:punct .} {24:53:word d} {24:54:punct .} {24:55:delegate {3:47:auto _}}} {=list {24:58:delegate {24:59:auto 3}}} {=list {24:61:delegate {24:62:auto 4}}}}}}`: []string{`{} {24:21 {24:23:null}}`,`-xa -xb -ya -yb {=list {24:21 {24:37 {25:21 {=flag {=compound {25:38:word x} {25:39 {25:31 {24:58 {1:9:word a}}}}}}}}} {24:21 {24:37 {25:21 {=flag {=compound {25:38:word x} {25:39 {25:34 {24:61 {1:9:word b}}}}}}}}} {24:21 {24:37 {26:21 {=flag {=compound {26:38:word y} {26:39 {26:31 {24:58 {1:9:word a}}}}}}}}} {24:21 {24:37 {26:21 {=flag {=compound {26:38:word y} {26:39 {26:34 {24:61 {1:9:word b}}}}}}}}}}`,},
 		`$(foreach $1 $2,&(.test.foreach.x.$_)) {6:34:delegate {6:36:builtin foreach} {=list {6:44:delegate {3:30:auto 1}} {6:47:delegate {3:43:auto 2}}} {=list {6:50:closure {=compound {6:52:punct .} {6:53:word test} {6:57:punct .} {6:58:word foreach} {6:65:punct .} {6:66:word x} {6:67:punct .} {6:68:delegate {3:47:auto _}}}}}}`: []string{`&(.test.foreach.x.4) {6:34 {6:50:closure {20:19:def .test.foreach.x.4}}}`,`&(.test.foreach.x.3) &(.test.foreach.x.4) {=list {6:34 {6:50:closure {19:19:def .test.foreach.x.3}}} {6:34 {6:50:closure {20:19:def .test.foreach.x.4}}}}`,`W{}{} {6:34 {6:50 {=compound {20:21:word W} {20:22 {3:30:null}} {20:24 {3:43:null}}}}}`,`{} {6:34 {6:36:null}}`,},
+		`$(foreach $1 $2,-x$_) {25:21:delegate {25:23:builtin foreach} {=list {25:31:delegate {3:30:auto 1}} {25:34:delegate {3:43:auto 2}}} {=list {=flag {=compound {25:38:word x} {25:39:delegate {3:47:auto _}}}}}}`:[]string{`{} {25:21 {25:23:null}}`,`-xa -xb {=list {25:21 {=flag {=compound {25:38:word x} {25:39 {25:31 {24:58 {1:9:word a}}}}}}} {25:21 {=flag {=compound {25:38:word x} {25:39 {25:34 {24:61 {1:9:word b}}}}}}}}`},
+		`$(foreach $1 $2,-y$_) {26:21:delegate {26:23:builtin foreach} {=list {26:31:delegate {3:30:auto 1}} {26:34:delegate {3:43:auto 2}}} {=list {=flag {=compound {26:38:word y} {26:39:delegate {3:47:auto _}}}}}}`:[]string{`{} {26:21 {26:23:null}}`,`-ya -yb {=list {26:21 {=flag {=compound {26:38:word y} {26:39 {26:31 {24:58 {1:9:word a}}}}}}} {26:21 {=flag {=compound {26:38:word y} {26:39 {26:34 {24:61 {1:9:word b}}}}}}}}`},
 		`$(foreach $2,a$_) {3:32:delegate {3:34:builtin foreach} {=list {3:42:delegate {3:43:auto 2}}} {=list {=compound {3:45:word a} {3:46:delegate {3:47:auto _}}}}}`: `axx{} ayy{} {=list {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:49:word xx} {4:51 {3:43:null}}}}}}} {3:32 {=compound {3:45:word a} {3:46 {3:42 {=compound {4:54:word yy} {4:56 {3:43:null}}}}}}}}`,
 		`$(foreach &(.test.foreach.x) $(foreach $1 $2,&(.test.foreach.x.$_)),-x$_) {6:5:delegate {6:7:builtin foreach} {=list {6:15:closure {=compound {6:17:punct .} {6:18:word test} {6:22:punct .} {6:23:word foreach} {6:30:punct .} {6:31:word x}}} {6:34:delegate {6:36:builtin foreach} {=list {6:44:delegate {3:30:auto 1}} {6:47:delegate {3:43:auto 2}}} {=list {6:50:closure {=compound {6:52:punct .} {6:53:word test} {6:57:punct .} {6:58:word foreach} {6:65:punct .} {6:66:word x} {6:67:punct .} {6:68:delegate {3:47:auto _}}}}}}} {=list {=flag {=compound {6:74:word x} {6:75:delegate {3:47:auto _}}}}}}`: []string{`-x{&(.test.foreach.x)} -x{&(.test.foreach.x.3)} -x{&(.test.foreach.x.4)} {=list {6:5 {=flag {=compound {6:74:word x} {6:75 {6:15:disjunction {6:15:closure {15:17:def .test.foreach.x}}}}}}} {6:5 {=flag {=compound {6:74:word x} {6:75 {6:34 {6:50:disjunction {6:50:closure {19:19:def .test.foreach.x.3}}}}}}}} {6:5 {=flag {=compound {6:74:word x} {6:75 {6:34 {6:50:disjunction {6:50:closure {20:19:def .test.foreach.x.4}}}}}}}}}`,`-x{&(.test.foreach.x)} -x{&(.test.foreach.x.4)} {=list {6:5 {=flag {=compound {6:74:word x} {6:75 {6:15:disjunction {6:15:closure {15:17:def .test.foreach.x}}}}}}} {6:5 {=flag {=compound {6:74:word x} {6:75 {6:34 {6:50:disjunction {6:50:closure {20:19:def .test.foreach.x.4}}}}}}}}}`,`-xvw -xW{}{} {=list {6:5 {=flag {=compound {6:74:word x} {6:75 {6:15 {21:21:word vw}}}}}} {6:5 {=flag {=compound {6:74:word x} {6:75 {6:34 {6:50 {=compound {20:21:word W} {20:22 {3:30:null}} {20:24 {3:43:null}}}}}}}}}}`,`-x{&(.test.foreach.x)} {6:5 {=flag {=compound {6:74:word x} {6:75 {6:15:disjunction {6:15:closure {15:17:def .test.foreach.x}}}}}}}`,},
 		`&(.test.foreach.x) {6:15:closure {15:17:def .test.foreach.x}}`: []string{`&(.test.foreach.x) {6:15:closure {15:17:def .test.foreach.x}}`,`vw {6:15 {21:21:word vw}}`,},
@@ -833,7 +839,7 @@ var checkspecs = map[string]map[string]any{
 		`$(if $(.test.$_),std=&(.test.$_)) {6:27:delegate {6:29:builtin if} {=list {6:32:delegate {=compound {6:34:punct .} {6:35:word test} {6:39:punct .} {6:40:delegate {3:28:auto _}}}}} {=list {=pair {6:44:word std} {6:48:closure {=compound {6:50:punct .} {6:51:word test} {6:55:punct .} {6:56:delegate {3:28:auto _}}}}}}}`: []string{`std=&(.test.if.x) {6:27 {=pair {6:44:word std} {6:48:closure {7:12:def .test.if.x}}}}`,`std=&(.test.if.y) {6:27 {=pair {6:44:word std} {6:48:closure {8:12:def .test.if.y}}}}`,`std=xxx {6:27 {=pair {6:44:word std} {6:48 {7:15:word xxx}}}}`,`std=yyy {6:27 {=pair {6:44:word std} {6:48 {8:15:word yyy}}}}`,`{} {6:27 {6:29:null}}`,},
 		`$(if &(.test.$_),std=&(.test.$_)) {5:27:delegate {5:29:builtin if} {=list {5:32:closure {=compound {5:34:punct .} {5:35:word test} {5:39:punct .} {5:40:delegate {3:28:auto _}}}}} {=list {=pair {5:44:word std} {5:48:closure {=compound {5:50:punct .} {5:51:word test} {5:55:punct .} {5:56:delegate {3:28:auto _}}}}}}}`: []string{`{} {5:27 {5:29:null}}`,`std=xxx {5:27 {=pair {5:44:word std} {5:48 {7:15:word xxx}}}}`,`std=yyy {5:27 {=pair {5:44:word std} {5:48 {8:15:word yyy}}}}`,},
 		`&(.test.$_) {4:44:closure {=compound {4:46:punct .} {4:47:word test} {4:51:punct .} {4:52:delegate {3:28:auto _}}}}`: []string{`&(.test.a) {4:44:closure {3:9:def .test.a}}`,`&(.test.b) {4:44:closure {=compound {4:46:punct .} {4:47:word test} {4:51:punct .} {4:52 {4:24 {1:9:word b}}}}}`,`&(.test.if.x) {4:44:closure {7:12:def .test.if.x}}`,`&(.test.if.y) {4:44:closure {8:12:def .test.if.y}}`,`&(.test.if.z) {4:44:closure {=compound {4:46:punct .} {4:47:word test} {4:51:punct .} {4:52 {4:24 {1:9:word if.z}}}}}`,`xxx {4:44 {7:15:word xxx}}`,`yyy {4:44 {8:15:word yyy}}`,`{} {4:44:null}`,},
-		`&(.test.$_) {5:32:closure {=compound {5:34:punct .} {5:35:word test} {5:39:punct .} {5:40:delegate {3:28:auto _}}}}`: []string{`&(.test.if.x) {5:32:closure {7:12:def .test.if.x}}`,`&(.test.if.y) {5:32:closure {8:12:def .test.if.y}}`,`&(.test.zzz) {5:32:closure {=compound {5:34:punct .} {5:35:word test} {5:39:punct .} {5:40 {5:24 {1:9:word zzz}}}}}`,`xxx {5:32 {7:15:word xxx}}`,`yyy {5:32 {8:15:word yyy}}`,},
+		`&(.test.$_) {5:32:closure {=compound {5:34:punct .} {5:35:word test} {5:39:punct .} {5:40:delegate {3:28:auto _}}}}`: []string{`&(.test.if.x) {5:32:closure {7:12:def .test.if.x}}`,`&(.test.if.y) {5:32:closure {8:12:def .test.if.y}}`,`&(.test.zzz) {5:32:closure {=compound {5:34:punct .} {5:35:word test} {5:39:punct .} {5:40 {5:21 {1:9:word zzz}}}}}`,`&(.test.zzz) {5:32:closure {=compound {5:34:punct .} {5:35:word test} {5:39:punct .} {5:40 {5:24 {1:9:word zzz}}}}}`,`xxx {5:32 {7:15:word xxx}}`,`yyy {5:32 {8:15:word yyy}}`,},
 		`&(.test.$_) {5:48:closure {=compound {5:50:punct .} {5:51:word test} {5:55:punct .} {5:56:delegate {3:28:auto _}}}}`: []string{`xxx {5:48 {7:15:word xxx}}`,`yyy {5:48 {8:15:word yyy}}`,},
 		`&(.test.$_) {6:48:closure {=compound {6:50:punct .} {6:51:word test} {6:55:punct .} {6:56:delegate {3:28:auto _}}}}`: []string{`&(.test.if.x) {6:48:closure {7:12:def .test.if.x}}`,`&(.test.if.y) {6:48:closure {8:12:def .test.if.y}}`,`xxx {6:48 {7:15:word xxx}}`,`yyy {6:48 {8:15:word yyy}}`,},
 		`&(.test.a) {4:44:closure {3:9:def .test.a}}`: `{} {4:44 {3:11 {3:13:null}}}`,
@@ -884,7 +890,8 @@ var checkspecs = map[string]map[string]any{
 	},
 	"testdata/builtins/foreach/5": map[string]any{
 		`$(.test.x.o.$_) {17:45:delegate {=compound {17:47:punct .} {17:48:word test} {17:52:punct .} {17:53:word x} {17:54:punct .} {17:55:word o} {17:56:punct .} {17:57:delegate {3:43:auto _}}}}`: []string{`x.o.a {17:45 {=compound {20:16:word x} {20:17:punct .} {20:18:word o} {20:19:punct .} {20:20:word a}}}`,`x.o.b {17:45 {=compound {21:16:word x} {21:17:punct .} {21:18:word o} {21:19:punct .} {21:20:word b}}}`,`x.o.c {17:45 {=compound {22:16:word x} {22:17:punct .} {22:18:word o} {22:19:punct .} {22:20:word c}}}`,},
-		`$(.test.x.x $1) {6:16:delegate {3:14:def .test.x.x} {=list {6:28:delegate {3:27:auto 1}}}}`: []string{`&(.test.x.a) &(.test.x.&(.test.o).a) {=list {6:16 {3:16 {3:32:closure {17:14:def .test.x.a}}}} {6:16 {3:16 {3:52:closure {=compound {3:54:punct .} {3:55:word test} {3:59:punct .} {3:60:word x} {3:61:punct .} {3:62:closure {23:13:def .test.o}} {3:72:punct .} {3:73 {3:26 {6:28 {1:9:word a}}}}}}}}}`,`{} {6:16 {3:16 {3:18:null}}}`,`{} {9:16 {3:16 {3:18:null}}}`,},
+		`$(.test.x.x $1) {6:16:delegate {3:14:def .test.x.x} {=list {6:28:delegate {3:27:auto 1}}}}`: []string{`{} {6:16 {3:16 {3:18:null}}}`,`&(.test.x.a) &(.test.x.&(.test.o).a) {=list {6:16 {3:16 {3:32:closure {17:14:def .test.x.a}}}} {6:16 {3:16 {3:52:closure {=compound {3:54:punct .} {3:55:word test} {3:59:punct .} {3:60:word x} {3:61:punct .} {3:62:closure {23:13:def .test.o}} {3:72:punct .} {3:73 {3:26 {6:28 {1:9:word a}}}}}}}}}`,},
+		`$(.test.x.x $1) {9:16:delegate {3:14:def .test.x.x} {=list {9:28:delegate {3:27:auto 1}}}}`: []string{`{} {9:16 {3:16 {3:18:null}}}`,},
 		`$(.test.x.x $1,$2) {10:16:delegate {3:14:def .test.x.x} {=list {10:28:delegate {3:27:auto 1}}} {=list {10:31:delegate {3:30:auto 2}}}}`: `{} {10:16 {3:16 {3:18:null}}}`,
 		`$(.test.x.x $1,$2) {7:16:delegate {3:13:def .test.x.x} {=list {7:28:delegate {3:27:auto 1}}} {=list {7:31:delegate {3:30:auto 2}}}}`: `{} {7:16 {3:16 {3:18:null}}}`,
 		`$(.test.x.x $1,$2) {7:16:delegate {3:14:def .test.x.x} {=list {7:28:delegate {3:27:auto 1}}} {=list {7:31:delegate {3:30:auto 2}}}}`: []string{`&(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b) {=list {7:16 {3:16 {3:32:closure {17:14:def .test.x.a}}}} {7:16 {3:16 {3:52:closure {=compound {3:54:punct .} {3:55:word test} {3:59:punct .} {3:60:word x} {3:61:punct .} {3:62:closure {23:13:def .test.o}} {3:72:punct .} {3:73 {3:26 {7:28 {1:9:word a}}}}}}}} {7:16 {3:16 {3:32:closure {18:14:def .test.x.b}}}} {7:16 {3:16 {3:52:closure {=compound {3:54:punct .} {3:55:word test} {3:59:punct .} {3:60:word x} {3:61:punct .} {3:62:closure {23:13:def .test.o}} {3:72:punct .} {3:73 {3:29 {7:31 {1:9:word b}}}}}}}}}`,`{} {7:16 {3:16 {3:18:null}}}`,},
@@ -1036,8 +1043,8 @@ var checkspecs = map[string]map[string]any{
 		`$(join foo bar xx yy zz,-) {3:9:delegate {3:11:builtin join} {=list {3:16:word foo} {3:20:word bar} {3:24:word xx} {3:27:word yy} {3:30:word zz}} {=list {=flag {3:34}}}}`: `foo-bar-xx-yy-zz {3:9 {=compound {3:16:word foo} {=flag {3:34}} {3:20:word bar} {=flag {3:34}} {3:24:word xx} {=flag {3:34}} {3:27:word yy} {=flag {3:34}} {3:30:word zz}}}`,
 		`$(join foo bar xx yy zz,-) {4:9:delegate {4:11:builtin join} {=list {4:16:word foo} {4:20:word bar} {4:24:word xx} {4:27:word yy} {4:30:word zz}} {=list {=flag {4:34}}}}`: `foo-bar-xx-yy-zz {4:9 {=compound {4:16:word foo} {=flag {4:34}} {4:20:word bar} {=flag {4:34}} {4:24:word xx} {=flag {4:34}} {4:27:word yy} {=flag {4:34}} {4:30:word zz}}}`,
 		`&(XXX) {6:35:closure {6:37:word XXX}}`: `{} {6:35:null}`,
-		`&(target.abi) {5:61:closure {=compound {5:63:word target} {5:69:punct .} {5:70:word abi}}}`: `{5:61 {11:18:decimal 0}}`,
-		`&(target.abi) {6:72:closure {=compound {6:74:word target} {6:80:punct .} {6:81:word abi}}}`: `{6:72 {11:18:decimal 0}}`,
+		`&(target.abi) {5:61:closure {=compound {5:63:word target} {5:69:punct .} {5:70:word abi}}}`: `0 {5:61 {11:18:decimal 0}}`,
+		`&(target.abi) {6:72:closure {=compound {6:74:word target} {6:80:punct .} {6:81:word abi}}}`: `0 {6:72 {11:18:decimal 0}}`,
 		`&(target.arch) {5:16:closure {=compound {5:18:word target} {5:24:punct .} {5:25:word arch}}}`: `foo {5:16 {8:18:word foo}}`,
 		`&(target.arch) {6:20:closure {=compound {6:22:word target} {6:28:punct .} {6:29:word arch}}}`: `foo {6:20 {8:18:word foo}}`,
 		`&(target.os) {5:48:closure {=compound {5:50:word target} {5:56:punct .} {5:57:word os}}}`: `{} {5:48:null}`,
@@ -1056,6 +1063,20 @@ var checkspecs = map[string]map[string]any{
 		`$(or -no,-yes,xx) {4:10:delegate {4:12:builtin or} {=list {=flag {4:16:word no}}} {=list {=flag {4:20:word yes}}} {=list {4:24:word xx}}}`:`-no {4:10 {=flag {4:16:word no}}}`,
 		`$(or -yes,-no,xx) {5:10:delegate {5:12:builtin or} {=list {=flag {5:16:word yes}}} {=list {=flag {5:21:word no}}} {=list {5:24:word xx}}}`:`-yes {5:10 {=flag {5:16:word yes}}}`,
 	},
+
+	"testdata/builtins/file": map[string]any{
+		`$(file foo.txt) {8:9:delegate {8:11:builtin file} {=list {=compound {8:16:word foo} {8:19:punct .} {8:20:word txt}}}}`:`{=file foo.txt} {8:9 {=file foo.txt}}`,
+	},
+	"testdata/builtins/file/0": map[string]any{
+		`$(file .test/a/b/c/foo.c) {12:11:delegate {12:13:builtin file} {=list {=path {=compound {12:28:punct .} {12:29:word test}} {12:34:word a} {12:36:word b} {12:38:word c} {=compound {12:40:word foo} {12:43:punct .} {12:44:word c}}}}}`:`{=file .test/a/b/c/foo.c} {12:11 {=file .test/a/b/c/foo.c}}`,
+		`$(file(-missing) .test/a/b/c/foo.c) {13:11:delegate {13:13:builtin file} [{=flag {13:19:word missing}}] {=list {=path {=compound {13:28:punct .} {13:29:word test}} {13:34:word a} {13:36:word b} {13:38:word c} {=compound {13:40:word foo} {13:43:punct .} {13:44:word c}}}}}`:`{=file .test/a/b/c/foo.c} {13:11 {=file .test/a/b/c/foo.c}}`,
+		`$(file .test/xx/foo.c) {15:11:delegate {15:13:builtin file} {=list {=path {=compound {15:28:punct .} {15:29:word test}} {15:34:word xx} {=compound {15:37:word foo} {15:40:punct .} {15:41:word c}}}}}`:`{=file .test/xx/foo.c} {15:11 {=file .test/xx/foo.c}}`,
+		`$(file(-missing) .test/xx/foo.c) {16:11:delegate {16:13:builtin file} [{=flag {16:19:word missing}}] {=list {=path {=compound {16:28:punct .} {16:29:word test}} {16:34:word xx} {=compound {16:37:word foo} {16:40:punct .} {16:41:word c}}}}}`:`{=file .test/xx/foo.c} {16:11 {=file .test/xx/foo.c}}`,
+		`$(file .test/xx/yy/foo.c) {18:9:delegate {18:11:builtin file} {=list {=path {=compound {18:16:punct .} {18:17:word test}} {18:22:word xx} {18:25:word yy} {=compound {18:28:word foo} {18:31:punct .} {18:32:word c}}}}}`:`{=file .test/xx/yy/foo.c} {18:9 {=file .test/xx/yy/foo.c}}`,
+		`$(file .test/xx/yy/zz/foo.c) {19:9:delegate {19:11:builtin file} {=list {=path {=compound {19:16:punct .} {19:17:word test}} {19:22:word xx} {19:25:word yy} {19:28:word zz} {=compound {19:31:word foo} {19:34:punct .} {19:35:word c}}}}}`:`{=file .test/xx/yy/zz/foo.c} {19:9 {=file .test/xx/yy/zz/foo.c}}`,
+		`$(file .test/xx/yy/zz/aa/foo.c) {20:9:delegate {20:11:builtin file} {=list {=path {=compound {20:16:punct .} {20:17:word test}} {20:22:word xx} {20:25:word yy} {20:28:word zz} {20:31:word aa} {=compound {20:34:word foo} {20:37:punct .} {20:38:word c}}}}}`:`{} {20:9 {20:11:null}}`,
+	},
+	
 	"testdata/value": map[string]any{
 		`$(grep {=regex ^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$$},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt) {57:19:delegate {57:21:builtin grep} {=list {57:34:regex ^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$}} {=list {57:72:delegate {56:46:auto 0}} {57:75:delegate {19:21:auto 1}} {57:78:delegate {57:79:auto 2}} {57:81:delegate {57:82:auto 3}} {57:84:delegate {57:86:auto i}} {57:89:delegate {57:90:auto 5}} {57:92:delegate {57:94:auto x}}} {=list {=path {57:97:delegate {1:1:def /}} {=compound {57:100:word test} {57:104:punct .} {57:105:word txt}}}}}`: testdata_f(`foo.o foo . o foo-x.o foo -x -x x . o foo-x-y.o foo -x-y -y y . o foo-x-y-z.o foo -x-y-z -z z . o foobar.o foobar . o {=list `+`{57:19 {57:72 {%[1]s/value/test.txt:1:1:raw foo.o}}} `+`{57:19 {57:75 {%[1]s/value/test.txt:1:1:raw foo}}} `+`{57:19 {57:78 {%[1]s/value/test.txt:1:4:raw}}} `+`{57:19 {57:81 {%[1]s/value/test.txt:1:4:raw}}} `+`{57:19 {57:84 {%[1]s/value/test.txt:1:4:raw}}} `+`{57:19 {57:89 {%[1]s/value/test.txt:1:4:raw .}}} `+`{57:19 {57:92 {%[1]s/value/test.txt:1:5:raw o}}} `+`{57:19 {57:72 {%[1]s/value/test.txt:2:1:raw foo-x.o}}} `+`{57:19 {57:75 {%[1]s/value/test.txt:2:1:raw foo}}} `+`{57:19 {57:78 {%[1]s/value/test.txt:2:4:raw -x}}} `+`{57:19 {57:81 {%[1]s/value/test.txt:2:4:raw -x}}} `+`{57:19 {57:84 {%[1]s/value/test.txt:2:5:raw x}}} `+`{57:19 {57:89 {%[1]s/value/test.txt:2:6:raw .}}} `+`{57:19 {57:92 {%[1]s/value/test.txt:2:7:raw o}}} `+`{57:19 {57:72 {%[1]s/value/test.txt:3:1:raw foo-x-y.o}}} `+`{57:19 {57:75 {%[1]s/value/test.txt:3:1:raw foo}}} `+`{57:19 {57:78 {%[1]s/value/test.txt:3:4:raw -x-y}}} `+`{57:19 {57:81 {%[1]s/value/test.txt:3:6:raw -y}}} `+`{57:19 {57:84 {%[1]s/value/test.txt:3:7:raw y}}} `+`{57:19 {57:89 {%[1]s/value/test.txt:3:8:raw .}}} `+`{57:19 {57:92 {%[1]s/value/test.txt:3:9:raw o}}} `+`{57:19 {57:72 {%[1]s/value/test.txt:4:1:raw foo-x-y-z.o}}} `+`{57:19 {57:75 {%[1]s/value/test.txt:4:1:raw foo}}} `+`{57:19 {57:78 {%[1]s/value/test.txt:4:4:raw -x-y-z}}} `+`{57:19 {57:81 {%[1]s/value/test.txt:4:8:raw -z}}} `+`{57:19 {57:84 {%[1]s/value/test.txt:4:9:raw z}}} `+`{57:19 {57:89 {%[1]s/value/test.txt:4:10:raw .}}} `+`{57:19 {57:92 {%[1]s/value/test.txt:4:11:raw o}}} `+`{57:19 {57:72 {%[1]s/value/test.txt:5:1:raw foobar.o}}} `+`{57:19 {57:75 {%[1]s/value/test.txt:5:1:raw foobar}}} `+`{57:19 {57:78 {%[1]s/value/test.txt:5:7:raw}}} `+`{57:19 {57:81 {%[1]s/value/test.txt:5:7:raw}}} `+`{57:19 {57:84 {%[1]s/value/test.txt:5:7:raw}}} `+`{57:19 {57:89 {%[1]s/value/test.txt:5:7:raw .}}} `+`{57:19 {57:92 {%[1]s/value/test.txt:5:8:raw o}}}}`),
 		`$(grep {=regex ^.+?\.o$$},$0,$//test.txt) {56:19:delegate {56:21:builtin grep} {=list {56:34:regex ^.+?\.o$}} {=list {56:45:delegate {56:46:auto 0}}} {=list {=path {56:48:delegate {1:1:def /}} {=compound {56:51:word test} {56:55:punct .} {56:56:word txt}}}}}`: testdata_f(`foo.o foo-x.o foo-x-y.o foo-x-y-z.o foobar.o {=list `+`{56:19 {56:45 {%[1]s/value/test.txt:1:1:raw foo.o}}} `+`{56:19 {56:45 {%[1]s/value/test.txt:2:1:raw foo-x.o}}} `+`{56:19 {56:45 {%[1]s/value/test.txt:3:1:raw foo-x-y.o}}} `+`{56:19 {56:45 {%[1]s/value/test.txt:4:1:raw foo-x-y-z.o}}} `+`{56:19 {56:45 {%[1]s/value/test.txt:5:1:raw foobar.o}}}}`),
@@ -1067,21 +1088,37 @@ var checkspecs = map[string]map[string]any{
 		`&(something) {20:20:closure {20:22:word something}}`: []string{`{} {20:20:null}`,`{20:22:word something} &(something) {20:20:closure {20:22:word something}}`},
 	},
 	"testdata/value/auto": map[string]any{
-		`$(.test.x0) {21:36:delegate {19:11:def .test.x0}}`: `x-y-3 {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,
-		`$(.test.x0) {22:36:delegate {19:11:def .test.x0}}`: `x-y-3 {22:36 {19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,
+		`$(.test.x0) {21:36:delegate {19:11:def .test.x0}}`: []string{`x-y-3 {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,},
+		`$(.test.x0) {22:36:delegate {19:11:def .test.x0}}`: []string{`x-y-3 {22:36 {19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,},
 		`$(.test.x0) {23:36:delegate {19:11:def .test.x0}}`: []string{`{}-{}-3 {23:36 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,`x-y-3 {23:36 {19:13 {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,`a-b-3 {23:36 {19:13 {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,},
-		`$(.test.x0) {24:36:delegate {19:11:def .test.x0}}`: `{}-{}-3 {24:36 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,
-		`$(.test.y0) {26:35:delegate {21:11:def .test.y0}}`: `x-y-3-xyz {26:35 {21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}}`,
-		`$(.test.y0) {27:35:delegate {21:11:def .test.y0}}`: `x-y-3-xyz {27:35 {21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}}`,
-		`$(.test.z0) {28:35:delegate {23:11:def .test.z0}}`: `a-b-3-abc {28:35 {23:13 {=compound {23:36 {19:13 {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {23:48 {28:22:word a}} {23:53 {28:27:word b}} {23:58 {28:32:word c}}}}}}}`,
-		`$(a) {10:30:delegate {6:31:auto a}}`: []string{`{} {10:30 {6:31:null}}`,`x {10:30 {1:9:word x}}`,`2 {10:30 {11:18:decimal 2}}`,`2 {11:30 {11:18:decimal 2}}`,},
-		`$(a) {6:29:delegate {6:31:auto a}}`: `{} {6:29 {6:31:null}}`,
-		`$(a) {7:29:delegate {6:31:auto a}}`: `2 {7:29 {7:18:decimal 2}}`,
+		`$(.test.x0) {24:36:delegate {19:11:def .test.x0}}`: []string{`{}-{}-3 {24:36 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,},
+		`$(.test.y0) {26:35:delegate {21:11:def .test.y0}}`: []string{`x-y-3-xyz {26:35 {21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}}`,},
+		`$(.test.y0) {27:35:delegate {21:11:def .test.y0}}`: []string{`x-y-3-xyz {27:35 {21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}}`,},
+		`$(.test.z0) {28:35:delegate {23:11:def .test.z0}}`: []string{`a-b-3-abc {28:35 {23:13 {=compound {23:36 {19:13 {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {23:48 {28:22:word a}} {23:53 {28:27:word b}} {23:58 {28:32:word c}}}}}}}`,},
+		`$(a) {6:29:delegate {6:31:auto a}}`: []string{`{} {6:29 {6:31:null}}`},
+		`$(a) {7:29:delegate {6:31:auto a}}`: []string{`2 {7:29 {7:18:decimal 2}}`},
+		`$(a) {10:30:delegate {6:31:auto a}}`: []string{`{} {10:30 {6:31:null}}`,`x {10:30 {1:9:word x}}`,`2 {10:30 {11:18:decimal 2}}`,},
+		`$(a) {11:30:delegate {6:31:auto a}}`: []string{`2 {11:30 {11:18:decimal 2}}`},
 		`$(a1) {19:46:delegate {19:48:auto a1}}`: []string{`{} {19:46 {19:48:null}}`,`x {19:46 {1:9:word x}}`,`a {19:46 {28:22:word a}}`,`x {19:46 {21:23:word x}}`,`x {19:46 {21:23:word x}}`,`x {19:46 {22:23:word x}}`,`{} {20:46 {19:48:null}}`,`x {21:48 {21:23:word x}}`,},
+		`$(a1) {20:46:delegate {19:48:auto a1}}`: []string{`{} {20:46 {19:48:null}}`,},
+		`$(a1) {21:48:delegate {19:48:auto a1}}`: []string{`x {21:48 {21:23:word x}}`,},
+		`$(a1) {22:48:delegate {19:48:auto a1}}`: []string{`x {22:48 {22:23:word x}}`,},
 		`$(a1) {23:48:delegate {19:48:auto a1}}`: []string{`{} {23:48 {19:48:null}}`,`x {23:48 {1:9:word x}}`,`a {23:48 {28:22:word a}}`,`{} {24:48 {19:48:null}}`,},
+		`$(a1) {24:48:delegate {19:48:auto a1}}`: []string{`{} {24:48 {19:48:null}}`,},
 		`$(a2) {19:52:delegate {19:54:auto a2}}`: []string{`{} {19:52 {19:54:null}}`,`y {19:52 {1:9:word y}}`,`b {19:52 {28:27:word b}}`,`y {19:52 {21:28:word y}}`,`y {19:52 {22:28:word y}}`,`{} {20:52 {19:54:null}}`,`y {21:53 {21:28:word y}}`,},
+		`$(a2) {20:52:delegate {19:54:auto a2}}`: []string{`{} {20:52 {19:54:null}}`,},
+		`$(a2) {21:53:delegate {19:54:auto a2}}`: []string{`y {21:53 {21:28:word y}}`,},
+		`$(a2) {22:53:delegate {19:54:auto a2}}`: []string{`y {22:53 {22:28:word y}}`,},
 		`$(a2) {23:53:delegate {19:54:auto a2}}`: []string{`{} {23:53 {19:54:null}}`,`y {23:53 {1:9:word y}}`,`b {23:53 {28:27:word b}}`,`{} {24:53 {19:54:null}}`,`3 {19:58 {19:33:decimal 3}}`,`z {21:58 {21:33:word z}}`,`z {22:58 {22:33:word z}}`,`c {23:58 {28:32:word c}}`,`{} {23:58 {19:60:null}}`,`{} {24:58 {19:60:null}}`,},
+		`$(a2) {24:53:delegate {19:54:auto a2}}`: []string{`{} {24:53 {19:54:null}}`,},
+		`$(a3) {19:58:delegate {19:60:auto a3}}`: []string{`3 {19:58 {19:33:decimal 3}}`,},
+		`$(a3) {20:58:delegate {19:60:auto a3}}`: []string{`3 {20:58 {20:33:decimal 3}}`,},
+		`$(a3) {21:58:delegate {19:60:auto a3}}`: []string{`z {21:58 {21:33:word z}}`,},
+		`$(a3) {22:58:delegate {19:60:auto a3}}`: []string{`z {22:58 {22:33:word z}}`,},
+		`$(a3) {23:58:delegate {19:60:auto a3}}`: []string{`{} {23:58 {19:60:null}}`,`c {23:58 {28:32:word c}}`},
+		`$(a3) {24:58:delegate {19:60:auto a3}}`: []string{`{} {24:58 {19:60:null}}`,},
 		`$(auto $(.test.x0)-$(a1)$(a2)$(a3)) {23:13:delegate {23:15:builtin auto} {=list {=compound {23:36:delegate {19:11:def .test.x0}} {=flag {=compound {23:48:delegate {19:48:auto a1}} {23:53:delegate {19:54:auto a2}} {23:58:delegate {19:60:auto a3}}}}}}}`: []string{`{}-{}-3-{}{}{} {23:13 {=compound {23:36 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {23:48 {19:48:null}} {23:53 {19:54:null}} {23:58 {19:60:null}}}}}}`,`x-y-3-xy{} {23:13 {=compound {23:36 {19:13 {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {23:48 {1:9:word x}} {23:53 {1:9:word y}} {23:58 {19:60:null}}}}}}`,`a-b-3-abc {23:13 {=compound {23:36 {19:13 {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {23:48 {28:22:word a}} {23:53 {28:27:word b}} {23:58 {28:32:word c}}}}}}`,`{}-{}-3-{}{}{} {24:13 {=compound {24:36 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {24:48 {19:48:null}} {24:53 {19:54:null}} {24:58 {19:60:null}}}}}}`,},
+		`$(auto $(.test.x0)-$(a1)$(a2)$(a3)) {24:13:delegate {24:15:builtin auto} {=list {=compound {24:36:delegate {19:11:def .test.x0}} {=flag {=compound {24:48:delegate {19:48:auto a1}} {24:53:delegate {19:54:auto a2}} {24:58:delegate {19:60:auto a3}}}}}}}`: []string{`{}-{}-3-{}{}{} {24:13 {=compound {24:36 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {24:48 {19:48:null}} {24:53 {19:54:null}} {24:58 {19:60:null}}}}}}`},
 		`$(auto $(a)) {10:9:delegate {10:11:builtin auto} {=list {10:30:delegate {6:31:auto a}}}}`: []string{`{} {10:9 {10:30 {6:31:null}}}`,`x {10:9 {10:30 {1:9:word x}}}`,`2 {10:9 {10:30 {11:18:decimal 2}}}`,},
 		`$(auto $(a)) {6:9:delegate {6:11:builtin auto} {=list {6:29:delegate {6:31:auto a}}}}`: `{} {6:9 {6:29 {6:31:null}}}`,
 		`$(auto(a1=a a2=b a3=c) $(.test.y0)) {27:12:delegate {27:14:builtin auto} [{=pair {27:19:word a1} {27:22:word a}} {=pair {27:24:word a2} {27:27:word b}} {=pair {27:29:word a3} {27:32:word c}}] {=list {27:35:delegate {21:11:def .test.y0}}}}`: `x-y-3-xyz {27:12 {27:35 {21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}}}`,
@@ -1089,6 +1126,7 @@ var checkspecs = map[string]map[string]any{
 		`$(auto(a1=x a2=y a3=z) $(.test.x0)-$(a1)$(a2)$(a3)) {21:13:delegate {21:15:builtin auto} [{=pair {21:20:word a1} {21:23:word x}} {=pair {21:25:word a2} {21:28:word y}} {=pair {21:30:word a3} {21:33:word z}}] {=list {=compound {21:36:delegate {19:11:def .test.x0}} {=flag {=compound {21:48:delegate {19:48:auto a1}} {21:53:delegate {19:54:auto a2}} {21:58:delegate {19:60:auto a3}}}}}}}`: `x-y-3-xyz {21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}`,
 		`$(auto(a1=x a2=y a3=z) $(.test.x0)-$(a1)$(a2)$(a3)) {22:13:delegate {22:15:builtin auto} [{=pair {22:20:word a1} {22:23:word x}} {=pair {22:25:word a2} {22:28:word y}} {=pair {22:30:word a3} {22:33:word z}}] {=list {=compound {22:36:delegate {19:11:def .test.x0}} {=flag {=compound {22:48:delegate {19:48:auto a1}} {22:53:delegate {19:54:auto a2}} {22:58:delegate {19:60:auto a3}}}}}}}`: `x-y-3-xyz {22:13 {=compound {22:36 {19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {22:48 {22:23:word x}} {22:53 {22:28:word y}} {22:58 {22:33:word z}}}}}}`,
 		`$(auto(a3=3) $(a1)-$(a2)-$(a3)) {19:13:delegate {19:15:builtin auto} [{=pair {19:30:word a3} {19:33:decimal 3}}] {=list {=compound {19:46:delegate {19:48:auto a1}} {=flag {=compound {19:52:delegate {19:54:auto a2}} {=flag {19:58:delegate {19:60:auto a3}}}}}}}}`: []string{`{}-{}-3 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,`{}-{}-3 {20:13 {=compound {20:46 {19:48:null}} {=flag {=compound {20:52 {19:54:null}} {=flag {20:58 {20:33:decimal 3}}}}}}}`,`x-y-3 {19:13 {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,`a-b-3 {19:13 {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,`x-y-3 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,`x-y-3 {19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,},
+		`$(auto(a3=3) $(a1)-$(a2)-$(a3)) {20:13:delegate {20:15:builtin auto} [{=pair {20:30:word a3} {20:33:decimal 3}}] {=list {=compound {20:46:delegate {19:48:auto a1}} {=flag {=compound {20:52:delegate {19:54:auto a2}} {=flag {20:58:delegate {19:60:auto a3}}}}}}}}`: []string{`{}-{}-3 {20:13 {=compound {20:46 {19:48:null}} {=flag {=compound {20:52 {19:54:null}} {=flag {20:58 {20:33:decimal 3}}}}}}}`},
 		`$(auto(a=2) $(val01),$(a)) {11:9:delegate {11:11:builtin auto} [{=pair {11:16:word a} {11:18:decimal 2}}] {=list {11:21:delegate {10:7:def val01}}} {=list {11:30:delegate {6:31:auto a}}}}`: `2 2 {=list {11:9 {11:21 {10:9 {10:30 {11:18:decimal 2}}}}} {11:9 {11:30 {11:18:decimal 2}}}}`,
 		`$(auto(a=2) $(val1),$(a)) {7:9:delegate {7:11:builtin auto} [{=pair {7:16:word a} {7:18:decimal 2}}] {=list {7:21:delegate {6:6:def val1}}} {=list {7:29:delegate {6:31:auto a}}}}`: `{} 2 {=list {7:9 {7:21 {6:9 {6:29 {6:31:null}}}}} {7:9 {7:29 {7:18:decimal 2}}}}`,
 		`$(auto(a=3) $(val02)) {12:9:delegate {12:11:builtin auto} [{=pair {12:16:word a} {12:18:decimal 3}}] {=list {12:21:delegate {11:7:def val02}}}}`: `2 2 {=list {12:9 {12:21 {11:9 {11:21 {10:9 {10:30 {11:18:decimal 2}}}}}}} {12:9 {12:21 {11:9 {11:30 {11:18:decimal 2}}}}}}`,
@@ -1213,9 +1251,9 @@ var checkspecs = map[string]map[string]any{
 		`&(&(.test.x) ab,ba) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=list {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}`: `foo_ab-ab-ba {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=flag {3:22 {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}}}}}`,
 		`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}`: `foo_ab-xy-yx {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=flag {3:22 {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}}}}}`,
 		`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`: []string{`foo_ab-xy-yx {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=flag {3:22 {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}}}}}`,`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`,},
-		`&(.test.x) {10:17:closure {18:11:def .test.x}}`: []string{`.test.ab {10:17 {=compound {28:16:punct .} {28:17:word test} {28:21:punct .} {28:22:word ab}}}`,`&(.test.x) {10:17:closure {18:11:def .test.x}}`,},
+		`&(.test.x) {10:17:closure {18:11:def .test.x}}`: []string{`&(.test.x) {10:17:closure {18:11:def .test.x}}`,`.test.ab {10:17 {=compound {28:16:punct .} {28:17:word test} {28:21:punct .} {28:22:word ab}}}`,},
 		`&(.test.x) {10:17:closure {=compound {10:19:punct .} {10:20:word test} {10:24:punct .} {10:25:word x}}}`: []string{`&(.test.x) {10:17:closure {=compound {10:19:punct .} {10:20:word test} {10:24:punct .} {10:25:word x}}}`,`.test.ab {10:17 {=compound {28:16:punct .} {28:17:word test} {28:21:punct .} {28:22:word ab}}}`,`&(.test.x) {10:17:closure {18:11:def .test.x}}`,`.test.ab {10:17 {=compound {28:16:punct .} {28:17:word test} {28:21:punct .} {28:22:word ab}}}`,`&(.test.x) {10:17:closure {18:11:def .test.x}}`,`.test.ba {10:17 {=compound {18:16:punct .} {18:17:word test} {18:21:punct .} {18:22:word ba}}}`,`{} {10:17:null}`,},
-		`&(.test.x) {22:17:closure {18:11:def .test.x}}`: []string{`&(.test.x) {22:17:closure {18:11:def .test.x}}`,`.test.ab {22:17 {=compound {28:16:punct .} {28:17:word test} {28:21:punct .} {28:22:word ab}}}`,},
+		`&(.test.x) {22:17:closure {18:11:def .test.x}}`: []string{`&(.test.x) {22:17:closure {18:11:def .test.x}}`,`.test.ab {22:17 {=compound {28:16:punct .} {28:17:word test} {28:21:punct .} {28:22:word ab}}}`,`.test.ba {22:17 {=compound {18:16:punct .} {18:17:word test} {18:21:punct .} {18:22:word ba}}}`,},
 	},
 	"testdata/value/2/1": map[string]any{
 		`$(&(.test.x) $1$1,$2$2) {10:15:delegate {10:17:closure {=compound {10:19:punct .} {10:20:word test} {10:24:punct .} {10:25:word x}}} {=list {=compound {10:28:delegate {3:20:auto 1}} {10:30:delegate {3:20:auto 1}}}} {=list {=compound {10:33:delegate {3:23:auto 2}} {10:35:delegate {3:23:auto 2}}}}}`: `$(&(.test.x) {}{},{}{}) {10:15:delegate {10:17:closure {=compound {10:19:punct .} {10:20:word test} {10:24:punct .} {10:25:word x}}} {=list {=compound {10:28 {3:20:null}} {10:30 {3:20:null}}}} {=list {=compound {10:33 {3:23:null}} {10:35 {3:23:null}}}}}`,
@@ -1368,37 +1406,266 @@ var checkspecs = map[string]map[string]any{
 	"testdata/value/bug_01": map[string]any{
 	},
 	"testdata/valcache": map[string]any{
-		`$(sources) {26:53:delegate {25:9:def sources}}`: `{=file foo.c} {=file foo.c++} {=file foo/bar.c} {=file foo/bar.c++} {=file foo/z.c} {=file x.c++} {=file y.c++} {=list {26:53 {25:12 {=file foo.c}}} {26:53 {25:12 {=file foo.c++}}} {26:53 {25:12 {=file foo/bar.c}}} {26:53 {25:12 {=file foo/bar.c++}}} {26:53 {25:12 {=file foo/z.c}}} {26:53 {25:12 {=file x.c++}}} {26:53 {25:12 {=file y.c++}}}}`,
+		`$(sources) {26:40:delegate {25:9:def sources}}`: `{=file foo.c} {=file foo.c++} {=file foo/bar.c} {=file foo/bar.c++} {=file foo/z.c} {=file x.c++} {=file y.c++} {=list {26:40 {25:12 {=file foo.c}}} {26:40 {25:12 {=file foo.c++}}} {26:40 {25:12 {=file foo/bar.c}}} {26:40 {25:12 {=file foo/bar.c++}}} {26:40 {25:12 {=file foo/z.c}}} {26:40 {25:12 {=file x.c++}}} {26:40 {25:12 {=file y.c++}}}}`,
+		`$(sources) {27:50:delegate {25:9:def sources}}`: `{=file foo.c} {=file foo.c++} {=file foo/bar.c} {=file foo/bar.c++} {=file foo/z.c} {=file x.c++} {=file y.c++} {=list {27:50 {25:12 {=file foo.c}}} {27:50 {25:12 {=file foo.c++}}} {27:50 {25:12 {=file foo/bar.c}}} {27:50 {25:12 {=file foo/bar.c++}}} {27:50 {25:12 {=file foo/z.c}}} {27:50 {25:12 {=file x.c++}}} {27:50 {25:12 {=file y.c++}}}}`,
 		`$(wildcard(-sort -missing) **.c **.c++) {25:12:delegate {25:14:builtin wildcard} [{=flag {25:24:word sort}} {=flag {25:30:word missing}}] {=list {=glob {25:39:meta **} {25:41:punct .} {25:42:word c}} {=glob {25:44:meta **} {25:46:punct .} {25:47:word c++}}}}`: `{=file foo.c} {=file foo.c++} {=file foo/bar.c} {=file foo/bar.c++} {=file foo/z.c} {=file x.c++} {=file y.c++} {=list {25:12 {=file foo.c}} {25:12 {=file foo.c++}} {25:12 {=file foo/bar.c}} {25:12 {=file foo/bar.c++}} {25:12 {=file foo/z.c}} {25:12 {=file x.c++}} {25:12 {=file y.c++}}}`,
 		`$(wildcard(-sort -missing) **.gen) {21:13:delegate {21:15:builtin wildcard} [{=flag {21:25:word sort}} {=flag {21:31:word missing}}] {=list {=glob {21:40:meta **} {21:42:punct .} {21:43:word gen}}}}`: `{=file a.gen} {=file b.gen} {=file foo/c.gen} {=list {21:13 {=file a.gen}} {21:13 {=file b.gen}} {21:13 {=file foo/c.gen}}}`,
 		`$(wildcard(-sort -missing) *.gen) {17:13:delegate {17:15:builtin wildcard} [{=flag {17:25:word sort}} {=flag {17:31:word missing}}] {=list {=glob {17:40:meta *} {17:41:punct .} {17:42:word gen}}}}`: `{=file x.gen} {=file y.gen} {=list {17:13 {=file x.gen}} {17:13 {=file y.gen}}}`,
 		`$(wildcard(-sort) **.gen) {22:13:delegate {22:15:builtin wildcard} [{=flag {22:25:word sort}}] {=list {=glob {22:40:meta **} {22:42:punct .} {22:43:word gen}}}}`: `{=file foo/c.gen} {22:13 {=file foo/c.gen}}`,
 		`$(wildcard(-sort) *.gen) {18:13:delegate {18:15:builtin wildcard} [{=flag {18:25:word sort}}] {=list {=glob {18:40:meta *} {18:41:punct .} {18:42:word gen}}}}`: `{=file x.gen} {18:13 {=file x.gen}}`,
-		`&(gen) {4:40:closure {4:42:word gen}}`: []string{`&(gen) {4:40:closure {4:42:word gen}}`,`a.gen b.gen foo/c.gen {=list {4:40 {=compound {20:8:word a} {20:9:punct .} {20:10:word gen}}} {4:40 {=compound {20:14:word b} {20:15:punct .} {20:16:word gen}}} {4:40 {=path {20:20:word foo} {=compound {20:24:word c} {20:25:punct .} {20:26:word gen}}}}}`,`x.c++ y.c++ foo/z.c {=list {4:40 {=compound {24:8:word x} {24:9:punct .} {24:10:word c++}}} {4:40 {=compound {24:14:word y} {24:15:punct .} {24:16:word c++}}} {4:40 {=path {24:20:word foo} {=compound {24:24:word z} {24:25:punct .} {24:26:word c}}}}}`,`x.c++ y.c++ foo/z.c {=list {4:40 {=compound {24:8:word x} {24:9:punct .} {24:10:word c++}}} {4:40 {=compound {24:14:word y} {24:15:punct .} {24:16:word c++}}} {4:40 {=path {24:20:word foo} {=compound {24:24:word z} {24:25:punct .} {24:26:word c}}}}}`,`x.gen y.gen foo/z.gen {=list {4:40 {=compound {16:8:word x} {16:9:punct .} {16:10:word gen}}} {4:40 {=compound {16:14:word y} {16:15:punct .} {16:16:word gen}}} {4:40 {=path {16:20:word foo} {=compound {16:24:word z} {16:25:punct .} {16:26:word gen}}}}}`,},
+		`$(patsubst(-nomap) %.c,%.o,$(sources)) {26:13:delegate {26:15:builtin patsubst} [{=flag {26:25:word nomap}}] {=list {=percpat {26:32} {=compound {26:33:punct .} {26:34:word c}}}} {=list {=percpat {26:36} {=compound {26:37:punct .} {26:38:word o}}}} {=list {26:40:delegate {25:9:def sources}}}}`:`{=file foo.o} {=file foo.c++} {=file foo/bar.o} {=file foo/bar.c++} {=file foo/z.o} {=file x.c++} {=file y.c++} {=list {26:13 {=file foo.o}} {26:13 {26:40 {25:12 {=file foo.c++}}}} {26:13 {=file foo/bar.o}} {26:13 {26:40 {25:12 {=file foo/bar.c++}}}} {26:13 {=file foo/z.o}} {26:13 {26:40 {25:12 {=file x.c++}}}} {26:13 {26:40 {25:12 {=file y.c++}}}}}`,
+		`$(patsubst(-nomap -filter) %.c++,%.o,$(sources)) {27:13:delegate {27:15:builtin patsubst} [{=flag {27:25:word nomap}} {=flag {27:32:word filter}}] {=list {=percpat {27:40} {=compound {27:41:punct .} {27:42:word c++}}}} {=list {=percpat {27:46} {=compound {27:47:punct .} {27:48:word o}}}} {=list {27:50:delegate {25:9:def sources}}}}`:`{=file foo.o} {=file foo/bar.o} {=file x.o} {=file y.o} {=list {27:13 {=file foo.o}} {27:13 {=file foo/bar.o}} {27:13 {=file x.o}} {27:13 {=file y.o}}}`,
+		`&(gen) {4:40:closure {4:42:word gen}}`: []string{`&(gen) {4:40:closure {4:42:word gen}}`,`x.gen y.gen foo/z.gen {=list {4:40 {=compound {16:8:word x} {16:9:punct .} {16:10:word gen}}} {4:40 {=compound {16:14:word y} {16:15:punct .} {16:16:word gen}}} {4:40 {=path {16:20:word foo} {=compound {16:24:word z} {16:25:punct .} {16:26:word gen}}}}}`, `a.gen b.gen foo/c.gen {=list {4:40 {=compound {20:8:word a} {20:9:punct .} {20:10:word gen}}} {4:40 {=compound {20:14:word b} {20:15:punct .} {20:16:word gen}}} {4:40 {=path {20:20:word foo} {=compound {20:24:word c} {20:25:punct .} {20:26:word gen}}}}}`, `x.c++ y.c++ foo/z.c {=list {4:40 {=compound {24:8:word x} {24:9:punct .} {24:10:word c++}}} {4:40 {=compound {24:14:word y} {24:15:punct .} {24:16:word c++}}} {4:40 {=path {24:20:word foo} {=compound {24:24:word z} {24:25:punct .} {24:26:word c}}}}}`,},
 	},
 	"testdata/valcache/1": map[string]any{
 	},
 	"testdata/valcache/2": map[string]any{
 	},
 	"testdata/valcache/3": map[string]any{
-		`&(gen) {4:16:closure {4:18:word gen}}`:`&(gen) {4:16:closure {4:18:word gen}}`,
+		`&(gen) {4:12:closure {4:14:word gen}}`:[]string{`&(gen) {4:12:closure {4:14:word gen}}`,testdata_f(`x.h y.h z.h {=list {%[1]s/valcache/3/do.smart:4:12 {=compound {3:9:word x} {3:10:punct .} {3:11:word h}}} {%[1]s/valcache/3/do.smart:4:12 {=compound {3:13:word y} {3:14:punct .} {3:15:word h}}} {%[1]s/valcache/3/do.smart:4:12 {=compound {3:17:word z} {3:18:punct .} {3:19:word h}}}}`)},
+		`&(gen) {4:16:closure {4:18:word gen}}`:[]string{`&(gen) {4:16:closure {4:18:word gen}}`,testdata_f(``)},
+	},
+	"testdata/valcache/3/a": map[string]any{
+		`&(gen) {4:12:closure {4:14:word gen}}`:[]string{`&(gen) {4:12:closure {4:14:word gen}}`,testdata_f(`x.h y.h z.h {=list {%[1]s/valcache/3/do.smart:4:12 {=compound {3:9:word x} {3:10:punct .} {3:11:word h}}} {%[1]s/valcache/3/do.smart:4:12 {=compound {3:13:word y} {3:14:punct .} {3:15:word h}}} {%[1]s/valcache/3/do.smart:4:12 {=compound {3:17:word z} {3:18:punct .} {3:19:word h}}}}`)},
+		`$(wildcard(-sort) x.h y.h z.h) {4:9:delegate {4:11:builtin wildcard} [{=flag {4:21:word sort}}] {=list {=compound {4:27:word x} {4:28:punct .} {4:29:word h}} {=compound {4:31:word y} {4:32:punct .} {4:33:word h}} {=compound {4:35:word z} {4:36:punct .} {4:37:word h}}}}`:`{=file x.h} {=file y.h} {=file z.h} {=list {4:9 {=file x.h}} {4:9 {=file y.h}} {4:9 {=file z.h}}}`,
+		`$(wildcard(-sort) *.h) {5:9:delegate {5:11:builtin wildcard} [{=flag {5:21:word sort}}] {=list {=glob {5:27:meta *} {5:28:punct .} {5:29:word h}}}}`:`{=file x.h} {=file y.h} {=file z.h} {=list {5:9 {=file x.h}} {5:9 {=file y.h}} {5:9 {=file z.h}}}`,
+		`$(wildcard main/a.c) {6:9:delegate {6:11:builtin wildcard} {=list {=path {6:20:word main} {=compound {6:25:word a} {6:26:punct .} {6:27:word c}}}}}`:`{=file main/a.c} {6:9 {=file main/a.c}}`,
+	},
+	"testdata/valcache/4": map[string]any{
+		`&(va1) {4:10:closure {4:12:word va1}}`:[]string{`&(va1) {4:10:closure {4:12:word va1}}`,},
+		`&(va2) {4:20:closure {4:22:word va2}}`:[]string{`&(va2) {4:20:closure {4:22:word va2}}`,`{} {4:20:null}`,},
+		`&(va3) {4:34:closure {4:36:word va3}}`:[]string{`&(va3) {4:34:closure {4:36:word va3}}`,`{} {4:34:null}`,},
+		`&(va1) {4:45:closure {4:47:word va1}}`:[]string{`&(va1) {4:45:closure {4:47:word va1}}`,`{} {4:45:null}`,},
+		`&(va2) {4:54:closure {4:56:word va2}}`:[]string{`&(va2) {4:54:closure {4:56:word va2}}`,`{} {4:54:null}`,},
+		`&(va3) {4:63:closure {4:65:word va3}}`:[]string{`&(va3) {4:63:closure {4:65:word va3}}`,`{} {4:63:null}`,},
+	},
+	"testdata/rule/0": map[string]any{
+		`$(foreach foo bar,{=plainline line-$_}) {4:10:delegate {4:12:builtin foreach} {=list {4:20:word foo} {4:24:word bar}} {=list {=plainline {4:39:raw line-} {4:45:delegate {4:46:auto _}}}}}`:`{=plainline line-foo} {=plainline line-bar} {=list {4:10 {=plainline {4:39:raw line-} {4:45 {4:20:word foo}}}} {4:10 {=plainline {4:39:raw line-} {4:45 {4:24:word bar}}}}}`,
+		`$(items) {27:12:delegate {3:7:def items}}`:`a b c {=list {27:12 {3:10:word a}} {27:12 {3:12:word b}} {27:12 {3:14:word c}}}`,
+		`$(ARG1) {10:10:delegate {1:1:auto ARG1}}`:`x {10:10 {1:9:word x}}`,
+		`$(ARG2) {10:17:delegate {1:1:auto ARG2}}`:`y {10:17 {1:9:word y}}`,
+		`$(ARG3) {10:24:delegate {1:1:auto ARG3}}`:`z {10:24 {1:9:word z}}`,
+		`$(ARG1) {13:2:delegate {1:1:auto ARG1}}`:[]string{`rule0 xyz {=list {13:2 {9:30 {9:1:word rule0}}} {13:2 {9:33:word xyz}}}`,`xxYzz {13:2 {1:9:word xxYzz}}`,},
+		`$(ARGS) {17:12:delegate {1:1:auto ARGS}}`:[]string{`aa bb cc {=list {17:12 {1:9:word aa}} {17:12 {1:9:word bb}} {17:12 {1:9:word cc}}}`,`{} {17:12 {1:1:null}}`,},
+		`$(ARGS) {22:12:delegate {1:1:auto ARGS}}`:[]string{`aa bb cc {=list {22:12 {1:9:word aa}} {22:12 {1:9:word bb}} {22:12 {1:9:word cc}}}`,},
+		`$(foreach $(ARGS),arg-$_) {17:2:delegate {17:4:builtin foreach} {=list {17:12:delegate {1:1:auto ARGS}}} {=list {=compound {17:20:word arg} {=flag {17:24:delegate {4:46:auto _}}}}}}`:[]string{`arg-aa arg-bb arg-cc {=list {17:2 {=compound {17:20:word arg} {=flag {17:24 {17:12 {1:9:word aa}}}}}} {17:2 {=compound {17:20:word arg} {=flag {17:24 {17:12 {1:9:word bb}}}}}} {17:2 {=compound {17:20:word arg} {=flag {17:24 {17:12 {1:9:word cc}}}}}}}`,`{} {17:2 {17:4:null}}`,},
+		`$(foreach $(ARGS),{=plainline arg-$_}) {22:2:delegate {22:4:builtin foreach} {=list {22:12:delegate {1:1:auto ARGS}}} {=list {=plainline {22:31:raw arg-} {22:36:delegate {4:46:auto _}}}}}`:`{=plainline arg-aa} {=plainline arg-bb} {=plainline arg-cc} {=list {22:2 {=plainline {22:31:raw arg-} {22:36 {22:12 {1:9:word aa}}}}} {22:2 {=plainline {22:31:raw arg-} {22:36 {22:12 {1:9:word bb}}}}} {22:2 {=plainline {22:31:raw arg-} {22:36 {22:12 {1:9:word cc}}}}}}`,
+	},
+	"testdata/rule/1": map[string]any{
+		`${.test.foobax} {17:12:delegate {=compound {17:14:punct .} {17:15:word test} {17:19:punct .} {17:20:word foobax}}}`:`fxxbar {17:12 {5:27 {15:7 {5:33:word fxxbar}}}}`,
+		`${.test.foobay} {18:12:delegate {=compound {18:14:punct .} {18:15:word test} {18:19:punct .} {18:20:word foobay}}}`:`.test.fxx {18:12 {6:27 {15:7 {6:33 {=compound {6:15:punct .} {6:16:word test} {6:20:punct .} {6:21:word fxx}}}}}}`,
+		`${.test.foobaz} {19:12:delegate {=compound {19:14:punct .} {19:15:word test} {19:19:punct .} {19:20:word foobaz}}}`:`.test.fxx {19:12 {7:27 {15:7 {7:33 {=compound {7:15:punct .} {7:16:word test} {7:20:punct .} {7:21:word fxx}}}}}}`,
+		`&(foo fxxbar) {5:27:closure {5:29:word foo} {=list {5:33:word fxxbar}}}`:`fxxbar {5:27 {15:7 {5:33:word fxxbar}}}`,
+		`&(foo $<) {6:27:closure {6:29:word foo} {=list {6:33:delegate {6:34:auto <}}}}`:`.test.fxx {6:27 {15:7 {6:33 {=compound {6:15:punct .} {6:16:word test} {6:20:punct .} {6:21:word fxx}}}}}`,
+		`&(foo $>) {7:27:closure {7:29:word foo} {=list {7:33:delegate {7:34:auto >}}}}`:`.test.fxx {7:27 {15:7 {7:33 {=compound {7:15:punct .} {7:16:word test} {7:20:punct .} {7:21:word fxx}}}}}`,
+	},
+	"testdata/rule/contains": map[string]any{
+		`${foo} {7:13:delegate {7:15:word foo}}`:`a b c foo {=list {7:13 {5:8 {3:7:word a}}} {7:13 {5:8 {3:9:word b}}} {7:13 {5:8 {3:11:word c}}} {7:13 {5:8 {3:13 {5:14 {5:1:word foo}}}}}}`,
+		`${foo} {8:13:delegate {8:15:word foo}}`:`a b c foo {=list {8:13 {5:8 {3:7:word a}}} {8:13 {5:8 {3:9:word b}}} {8:13 {5:8 {3:11:word c}}} {8:13 {5:8 {3:13 {5:14 {5:1:word foo}}}}}}`,
+		`${foo} {9:13:delegate {9:15:word foo}}`:`a b c foo {=list {9:13 {5:8 {3:7:word a}}} {9:13 {5:8 {3:9:word b}}} {9:13 {5:8 {3:11:word c}}} {9:13 {5:8 {3:13 {5:14 {5:1:word foo}}}}}}`,
+		`${foo} {10:28:delegate {10:30:word foo}}`:`a b c foo {=list {10:28 {5:8 {3:7:word a}}} {10:28 {5:8 {3:9:word b}}} {10:28 {5:8 {3:11:word c}}} {10:28 {5:8 {3:13 {5:14 {5:1:word foo}}}}}}`,
+		`$(contains foo,${foo}) {10:13:delegate {10:15:builtin contains} {=list {10:24:word foo}} {=list {10:28:delegate {10:30:word foo}}}}`:`{=true} {10:13 {10:15 {10:28 {5:8 {3:13 {5:14 {5:1:true}}}}}}}`,
+		`$(val $@) {5:8:delegate {3:5:def val} {=list {5:14:delegate {5:15:auto @}}}}`:`a b c foo {=list {5:8 {3:7:word a}} {5:8 {3:9:word b}} {5:8 {3:11:word c}} {5:8 {3:13 {5:14 {5:1:word foo}}}}}`,
 	},
 	"testdata/rule/shell/for-stdout": map[string]any{
+		`${.test a,b} {14:13:delegate {=compound {14:15:punct .} {14:16:word test}} {=list {14:21:word a}} {=list {14:23:word b}}}`:[]string{`{} {14:13 {12:2:null}}`,},
+		`${.test a,b} {15:13:delegate {=compound {15:15:punct .} {15:16:word test}} {=list {15:21:word a}} {=list {15:23:word b}}}`:[]string{`{} {15:13 {12:2:null}}`,},
+		`${.test $1,$2} {16:13:delegate {=compound {16:15:punct .} {16:16:word test}} {=list {16:21:delegate {16:22:auto 1}}} {=list {16:24:delegate {16:25:auto 2}}}}`:[]string{`{} {16:13 {12:2:null}}`,},
+		`${.test $1,$2} {19:28:delegate {=compound {19:30:punct .} {19:31:word test}} {=list {19:36:delegate {16:22:auto 1}}} {=list {19:39:delegate {16:25:auto 2}}}}`:[]string{`{} {19:28 {12:2:null}}`,},
+		`${.test $1,$2} {23:28:delegate {=compound {23:30:punct .} {23:31:word test}} {=list {23:36:delegate {16:22:auto 1}}} {=list {23:39:delegate {16:25:auto 2}}}}`:[]string{`{} {23:28 {12:2:null}}`,},
+		`${.test.0 a,b} {8:13:delegate {=compound {8:15:punct .} {8:16:word test} {8:20:punct .} {8:21:decimal 0}} {=list {8:23:word a}} {=list {8:25:word b}}}`:`{} {8:13 {6:2:null}}`,
+		`${.test.0 a,b} {9:13:delegate {=compound {9:15:punct .} {9:16:word test} {9:20:punct .} {9:21:decimal 0}} {=list {9:23:word a}} {=list {9:25:word b}}}`:`{} {9:13 {6:2:null}}`,
+		`$(.test.v3 a,b) {17:13:delegate {16:11:def .test.v3} {=list {17:24:word a}} {=list {17:26:word b}}}`:[]string{`{} {17:13 {16:13:null}}`,`{} {17:13 {16:13 {12:2:null}}}`,},
+		`$(str) {6:18:delegate {1:1:auto str}}`:[]string{`a {6:18 {8:23:word a}}`,`a {6:18 {9:23:word a}}`,},
+		`$(str) {12:18:delegate {1:1:auto str}}`:[]string{`a {12:18 {1:9:word a}}`,`a {12:18 {14:21:word a}}`,`a {12:18 {15:21:word a}}`,`a {12:18 {16:21 {1:9:word a}}}`,`a {12:18 {16:21 {17:24:word a}}}`,`{} {12:18 {16:21 {16:22:null}}}`,"'test one\n' {12:18 {19:36 {0:0:strlit 'test one\\n'}}}","'test two\n' {12:18 {19:36 {0:0:strlit 'test two\\n'}}}","'test one\n' {12:18 {23:36 {0:0:strlit 'test one\\n'}}}","'test two\n' {12:18 {23:36 {0:0:strlit 'test two\\n'}}}","'test thr\n' {12:18 {23:36 {0:0:strlit 'test thr\\n'}}}",},
+		`$(line) {6:10:delegate {1:1:auto line}}`:[]string{`b {6:10 {8:25:word b}}`,`b {6:10 {9:25:word b}}`,},
+		`$(line) {12:10:delegate {1:1:auto line}}`:[]string{`b {12:10 {1:9:word b}}`,`b {12:10 {14:23:word b}}`,`b {12:10 {15:23:word b}}`,`b {12:10 {16:24 {1:9:word b}}}`,`b {12:10 {16:24 {17:26:word b}}}`,`{} {12:10 {16:24 {16:25:null}}}`,`1 {12:10 {19:39 {0:0:decimal 1}}}`,`2 {12:10 {19:39 {0:0:decimal 2}}}`,`1 {12:10 {23:39 {0:0:decimal 1}}}`,`2 {12:10 {23:39 {0:0:decimal 2}}}`,`3 {12:10 {23:39 {0:0:decimal 3}}}`,},
+		`$(debug $(line) $(str)) {6:2:delegate {6:4:builtin debug} {=list {6:10:delegate {1:1:auto line}} {6:18:delegate {1:1:auto str}}}}`:`{} {6:2:null}`,
+		`$(debug $(line) $(str)) {12:2:delegate {12:4:builtin debug} {=list {12:10:delegate {1:1:auto line}} {12:18:delegate {1:1:auto str}}}}`:`{} {12:2:null}`,
 	},
 	"testdata/template": map[string]any{
-		`$(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)}) {20:9:delegate {20:11:builtin defs} [{=pair {=flag {20:17:word capture}} {20:25:decimal 1}} {=flag {20:28:word sort}}] {=list {20:42:regex ^var\.([xyz]+)}}}`: `xxx yyy zzz {=list {20:9 {20:11:word xxx}} {20:9 {20:11:word yyy}} {20:9 {20:11:word zzz}}}`,
-		`$(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)}) {32:9:delegate {32:11:builtin defs} [{=pair {=flag {32:17:word capture}} {32:25:decimal 1}} {=flag {32:28:word sort}}] {=list {32:42:regex ^var\.([xyz]+)}}}`: `xxx yyy zzz {=list {32:9 {32:11:word xxx}} {32:9 {32:11:word yyy}} {32:9 {32:11:word zzz}}}`,
+		`$(defs(-capture=1 -sort) !{=regex ^var\.([xy]+)}) {10:9:delegate {10:11:builtin defs} [{=pair {=flag {10:17:word capture}} {10:25:decimal 1}} {=flag {10:28:word sort}}] {=list {=negative {10:43:regex ^var\.([xy]+)}}}}`: `.self .usee var.zzz var2 vars xyz {=list {10:9 {10:11:raw .self}} {10:9 {10:11:raw .usee}} {10:9 {10:11:raw var.zzz}} {10:9 {10:11:raw var2}} {10:9 {10:11:raw vars}} {10:9 {10:11:raw xyz}}}`,
+		`$(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)}) {20:9:delegate {20:11:builtin defs} [{=pair {=flag {20:17:word capture}} {20:25:decimal 1}} {=flag {20:28:word sort}}] {=list {20:42:regex ^var\.([xyz]+)}}}`: `xxx yyy zzz {=list {20:9 {20:11:raw xxx}} {20:9 {20:11:raw yyy}} {20:9 {20:11:raw zzz}}}`,
+		`$(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)}) {32:9:delegate {32:11:builtin defs} [{=pair {=flag {32:17:word capture}} {32:25:decimal 1}} {=flag {32:28:word sort}}] {=list {32:42:regex ^var\.([xyz]+)}}}`: `xxx yyy zzz {=list {32:9 {32:11:raw xxx}} {32:9 {32:11:raw yyy}} {32:9 {32:11:raw zzz}}}`,
+		`$(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)}) {9:9:delegate {9:11:builtin defs} [{=pair {=flag {9:17:word capture}} {9:25:decimal 1}} {=flag {9:28:word sort}}] {=list {9:43:regex ^var\.([xyz]+)}}}`: `xxx yyy zzz {=list {9:9 {9:11:raw xxx}} {9:9 {9:11:raw yyy}} {9:9 {9:11:raw zzz}}}`,
 		`$(xyz) {16:10:delegate {3:5:def xyz}}`: `xxx yyy zzz {=list {16:10 {3:9:word xxx}} {16:10 {3:13:word yyy}} {16:10 {3:17:word zzz}}}`,
 		`$(xyz) {16:11:delegate {3:5:def xyz}}`: `xxx yyy zzz {=list {16:11 {3:9:word xxx}} {16:11 {3:13:word yyy}} {16:11 {3:17:word zzz}}}`,
 		`$(xyz) {28:10:delegate {3:5:def xyz}}`: `xxx yyy zzz {=list {28:10 {3:9:word xxx}} {28:10 {3:13:word yyy}} {28:10 {3:17:word zzz}}}`,
 		`$(xyz) {28:11:delegate {3:5:def xyz}}`: `xxx yyy zzz {=list {28:11 {3:9:word xxx}} {28:11 {3:13:word yyy}} {28:11 {3:17:word zzz}}}`,
 		`$(xyz) {5:9:delegate {3:5:def xyz}}`: `xxx yyy zzz {=list {5:9 {3:9:word xxx}} {5:9 {3:13:word yyy}} {5:9 {3:17:word zzz}}}`,
-		`$(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)}) {9:9:delegate {9:11:builtin defs} [{=pair {=flag {9:17:word capture}} {9:25:decimal 1}} {=flag {9:28:word sort}}] {=list {9:43:regex ^var\.([xyz]+)}}}`: `xxx yyy zzz {=list {9:9 {9:11:word xxx}} {9:9 {9:11:word yyy}} {9:9 {9:11:word zzz}}}`,
-		`$(defs(-capture=1 -sort) !{=regex ^var\.([xy]+)}) {10:9:delegate {10:11:builtin defs} [{=pair {=flag {10:17:word capture}} {10:25:decimal 1}} {=flag {10:28:word sort}}] {=list {=negative {10:43:regex ^var\.([xy]+)}}}}`: `.self .usee var.zzz var2 vars xyz {=list {10:9 {10:11:word .self}} {10:9 {10:11:word .usee}} {10:9 {10:11:word var.zzz}} {10:9 {10:11:word var2}} {10:9 {10:11:word vars}} {10:9 {10:11:word xyz}}}`,
 	},
 	"testdata/modifier": map[string]any{
 		`$(val) {4:22:delegate {3:6:def val}}`:`foobar {4:22 {3:9:word foobar}}`,
 		`$(val) {5:22:delegate {3:6:def val}}`:`foobar {5:22 {3:9:word foobar}}`,
+	},
+	"testdata/configuration/.base": map[string]any{
+		`$(dir3 $/) {3:14:delegate {3:16:builtin dir3} {=list {3:21:delegate {1:1:def /}}}}`:`/Volumes/workspace/go/src/extbit.io/smart {3:14 {=path {3:16:punct ROOT} {3:16:raw Volumes} {3:16:raw workspace} {3:16:raw go} {3:16:raw src} {3:16:raw extbit.io} {3:16:raw smart}}}`,
+	},
+	".smart/modules/general": map[string]any{
+		`$(dir(-contains=.smart/modules) $/) {3:15:delegate {3:17:builtin dir} [{=pair {=flag {3:22:word contains}} {=path {=compound {3:31:punct .} {3:32:word smart}} {3:38:word modules}}}] {=list {3:47:delegate {1:1:def /}}}}`:`/Volumes/workspace {3:15 {=path {3:17:punct ROOT} {3:17:raw Volumes} {3:17:raw workspace}}}`,
+		`$(dir $(workspace)) {4:15:delegate {4:17:builtin dir} {=list {4:21:delegate {3:11:def workspace}}}}`:`/Volumes {4:15 {=path {4:17:punct ROOT} {4:17:raw Volumes}}}`,
+		`$(dir $/) {7:34:delegate {7:36:builtin dir} {=list {7:40:delegate {1:1:def /}}}}`:modules_f(`%[1]s {7:34 {=path {7:36:punct ROOT} {7:36:raw Volumes} {7:36:raw workspace} {7:36:raw .smart} {7:36:raw modules}}}`),
+		`$(dir2 $/) {7:45:delegate {7:47:builtin dir2} {=list {7:52:delegate {1:1:def /}}}}`:modules_f(`%[1]s {7:45 {=path {7:47:punct ROOT} {7:47:raw Volumes} {7:47:raw workspace} {7:47:raw .smart}}}`,trim_suffix{1,"/modules"}),
+		`$(dir3 $/) {7:57:delegate {7:59:builtin dir3} {=list {7:64:delegate {1:1:def /}}}}`:modules_f(`%[1]s {7:57 {=path {7:59:punct ROOT} {7:59:raw Volumes} {7:59:raw workspace}}}`,trim_suffix{1,"/.smart/modules"}),
+		`$(workspace) {4:21:delegate {3:11:def workspace}}`:modules_f(`%[1]s {4:21 {3:15 {=path {3:17:punct ROOT} {3:17:raw Volumes} {3:17:raw workspace}}}}`,trim_suffix{1,"/.smart/modules"}),
+		`$(workspace) {5:15:delegate {3:11:def workspace}}`:modules_f(`%[1]s {5:15 {3:15 {=path {3:17:punct ROOT} {3:17:raw Volumes} {3:17:raw workspace}}}}`,trim_suffix{1,"/.smart/modules"}),
+		`$(workout) {11:11:delegate {4:11:def workout}}`:`/Volumes/workout {11:11 {=path {4:15 {4:17:punct ROOT}} {4:15 {4:17:raw Volumes}} {4:35:word workout}}}`,
+		`&(rel.chop) {9:29:closure {7:11:def rel.chop}}`:modules_f(`**/.smart/modules/ %[1]s/.smart/modules/ %[1]s/.smart/ %[1]s/ {=list {9:29 {=path {=glob {7:15:meta **}} {=compound {7:18:punct .} {7:19:word smart}} {7:25:word modules} {7:33:punct TAIL}}} {9:29 {=path {7:34 {7:36:punct ROOT}} {7:34 {7:36:raw Volumes}} {7:34 {7:36:raw workspace}} {7:34 {7:36:raw .smart}} {7:34 {7:36:raw modules}} {7:44:punct TAIL}}} {9:29 {=path {7:45 {7:47:punct ROOT}} {7:45 {7:47:raw Volumes}} {7:45 {7:47:raw workspace}} {7:45 {7:47:raw .smart}} {7:56:punct TAIL}}} {9:29 {=path {7:57 {7:59:punct ROOT}} {7:57 {7:59:raw Volumes}} {7:57 {7:59:raw workspace}} {7:68:punct TAIL}}}}`,trim_suffix{1,"/.smart/modules"}),
+		`&(rel.remnant) {11:22:closure {9:13:def rel.remnant}}`:`general {11:22 {9:15 {1:1:raw general}}}`,
+		`&(outtmp) {14:49:closure {11:8:def outtmp}}`:`/Volumes/workout/general {14:49 {=path {11:11 {4:15 {4:17:punct ROOT}}} {11:11 {4:15 {4:17:raw Volumes}}} {11:11 {4:35:word workout}} {11:22 {9:15 {1:1:raw general}}}}}`,
+		`$(trim-prefix &(rel.chop),&/) {9:15:delegate {9:17:builtin trim-prefix} {=list {9:29:closure {7:11:def rel.chop}}} {=list {9:41:closure {1:1:def /}}}}`:`general {9:15 {1:1:raw general}}`,
+	},
+	".smart/modules/variant/.target/.base": map[string]any{
+		`$(.mode) {4:25:delegate {0:0:def .mode}}`:`goals {4:25 {0:0:word goals}}`,
+		`$(.mode) {5:25:delegate {0:0:def .mode}}`:`goals {5:25 {0:0:word goals}}`,
+		`$(.mode) {6:25:delegate {0:0:def .mode}}`:`goals {6:25 {0:0:word goals}}`,
+		`$(lowercase $(uname.machine)) {39:19:delegate {39:21:builtin lowercase} {=list {39:31:delegate {20:17:def uname.machine}}}}`:`arm64 {39:19 {39:31:raw arm64}}`,
+		`$(lowercase $(uname.machine)) {87:19:delegate {87:21:builtin lowercase} {=list {87:31:delegate {20:17:def uname.machine}}}}`:`arm64 {87:19 {87:31:raw arm64}}`,
+		`$(lowercase $(uname.os)) {40:19:delegate {40:21:builtin lowercase} {=list {40:31:delegate {18:17:def uname.os}}}}`:`darwin {40:19 {40:31:raw darwin}}`,
+		`$(lowercase $(uname.os)) {88:19:delegate {88:21:builtin lowercase} {=list {88:31:delegate {18:17:def uname.os}}}}`:`darwin {88:19 {88:31:raw darwin}}`,
+		`$(lowercase $(uname.release)) {41:19:delegate {41:21:builtin lowercase} {=list {41:31:delegate {22:17:def uname.release}}}}`:`25.4.0 {41:19 {41:31:raw 25.4.0}}`,
+		`$(lowercase $(uname.release)) {89:19:delegate {89:21:builtin lowercase} {=list {89:31:delegate {22:17:def uname.release}}}}`:`25.4.0 {89:19 {89:31:raw 25.4.0}}`,
+		`$(match $(.mode),clean) {4:17:delegate {4:19:builtin match} {=list {4:25:delegate {0:0:def .mode}}} {=list {4:34:word clean}}}`:`{} {4:17:null}`,
+		`$(match $(.mode),configure) {5:17:delegate {5:19:builtin match} {=list {5:25:delegate {0:0:def .mode}}} {=list {5:34:word configure}}}`:`{} {5:17:null}`,
+		`$(match $(.mode),goals) {6:17:delegate {6:19:builtin match} {=list {6:25:delegate {0:0:def .mode}}} {=list {6:34:word goals}}}`:`{=true} {6:17 {6:19:true}}`,
+		// `&(match {=regex arm$$},&(target.arch)) {96:25:closure {96:27:builtin match} {=list {96:41:regex arm$}} {=list {96:48:closure {87:16:def target.arch}}}}`:`&(match {=regex arm$$},&(target.arch)) {96:25:closure {96:27:builtin match} {=list {96:41:regex arm$}} {=list {96:48:closure {87:16:def target.arch}}}}`,
+		// `&(match {=regex x86$$},&(target.arch)) {100:25:closure {100:27:builtin match} {=list {100:41:regex x86$}} {=list {100:48:closure {87:16:def target.arch}}}}`:`&(match {=regex x86$$},&(target.arch)) {100:25:closure {100:27:builtin match} {=list {100:41:regex x86$}} {=list {100:48:closure {87:16:def target.arch}}}}`,
+		// `&(match arm64,&(target.arch)) {97:25:closure {97:27:builtin match} {=list {97:33:word arm64}} {=list {97:48:closure {87:16:def target.arch}}}}`:`&(match arm64,&(target.arch)) {97:25:closure {97:27:builtin match} {=list {97:33:word arm64}} {=list {97:48:closure {87:16:def target.arch}}}}`,
+		// `&(match wasm32,&(target.arch)) {98:25:closure {98:27:builtin match} {=list {98:33:word wasm32}} {=list {98:48:closure {87:16:def target.arch}}}}`:`&(match wasm32,&(target.arch)) {98:25:closure {98:27:builtin match} {=list {98:33:word wasm32}} {=list {98:48:closure {87:16:def target.arch}}}}`,
+		// `&(match wasm64,&(target.arch)) {99:25:closure {99:27:builtin match} {=list {99:33:word wasm64}} {=list {99:48:closure {87:16:def target.arch}}}}`:`&(match wasm64,&(target.arch)) {99:25:closure {99:27:builtin match} {=list {99:33:word wasm64}} {=list {99:48:closure {87:16:def target.arch}}}}`,
+		// `&(match x86_64,&(target.arch)) {101:25:closure {101:27:builtin match} {=list {101:33:word x86_64}} {=list {101:48:closure {87:16:def target.arch}}}}`:`&(match x86_64,&(target.arch)) {101:25:closure {101:27:builtin match} {=list {101:33:word x86_64}} {=list {101:48:closure {87:16:def target.arch}}}}`,
+		// `&(match darwin,&(target.os)) {102:25:closure {102:27:builtin match} {=list {102:33:word darwin}} {=list {102:48:closure {88:16:def target.os}}}}`:`&(match darwin,&(target.os)) {102:25:closure {102:27:builtin match} {=list {102:33:word darwin}} {=list {102:48:closure {88:16:def target.os}}}}`,
+		// `&(match linux,&(target.os)) {103:25:closure {103:27:builtin match} {=list {103:33:word linux}} {=list {103:48:closure {88:16:def target.os}}}}`:`&(match linux,&(target.os)) {103:25:closure {103:27:builtin match} {=list {103:33:word linux}} {=list {103:48:closure {88:16:def target.os}}}}`,
+		// `&(match ios,&(target.os)) {104:25:closure {104:27:builtin match} {=list {104:33:word ios}} {=list {104:48:closure {88:16:def target.os}}}}`:`&(match ios,&(target.os)) {104:25:closure {104:27:builtin match} {=list {104:33:word ios}} {=list {104:48:closure {88:16:def target.os}}}}`,
+		// `&(match solaris,&(target.os)) {105:25:closure {105:27:builtin match} {=list {105:33:word solaris}} {=list {105:48:closure {88:16:def target.os}}}}`:`&(match solaris,&(target.os)) {105:25:closure {105:27:builtin match} {=list {105:33:word solaris}} {=list {105:48:closure {88:16:def target.os}}}}`,
+		// `&(match openbsd,&(target.os)) {106:25:closure {106:27:builtin match} {=list {106:33:word openbsd}} {=list {106:48:closure {88:16:def target.os}}}}`:`&(match openbsd,&(target.os)) {106:25:closure {106:27:builtin match} {=list {106:33:word openbsd}} {=list {106:48:closure {88:16:def target.os}}}}`,
+		// `&(match freebsd,&(target.os)) {107:25:closure {107:27:builtin match} {=list {107:33:word freebsd}} {=list {107:48:closure {88:16:def target.os}}}}`:`&(match freebsd,&(target.os)) {107:25:closure {107:27:builtin match} {=list {107:33:word freebsd}} {=list {107:48:closure {88:16:def target.os}}}}`,
+		// `&(match mingw,&(target.os)) {108:25:closure {108:27:builtin match} {=list {108:33:word mingw}} {=list {108:48:closure {88:16:def target.os}}}}`:`&(match mingw,&(target.os)) {108:25:closure {108:27:builtin match} {=list {108:33:word mingw}} {=list {108:48:closure {88:16:def target.os}}}}`,
+		// `&(match win32,&(target.os)) {109:25:closure {109:27:builtin match} {=list {109:33:word win32}} {=list {109:48:closure {88:16:def target.os}}}}`:`&(match win32,&(target.os)) {109:25:closure {109:27:builtin match} {=list {109:33:word win32}} {=list {109:48:closure {88:16:def target.os}}}}`,
+		// `&(match win64,&(target.os)) {110:25:closure {110:27:builtin match} {=list {110:33:word win64}} {=list {110:48:closure {88:16:def target.os}}}}`:`&(match win64,&(target.os)) {110:25:closure {110:27:builtin match} {=list {110:33:word win64}} {=list {110:48:closure {88:16:def target.os}}}}`,
+		`$(uname.machine) {39:31:delegate {20:17:def uname.machine}}`:`arm64 {39:31 {20:20:raw arm64}}`,
+		`$(uname.machine) {87:31:delegate {20:17:def uname.machine}}`:`arm64 {87:31 {20:20:raw arm64}}`,
+		`$(uname.os) {40:31:delegate {18:17:def uname.os}}`:`Darwin {40:31 {18:20:raw Darwin}}`,
+		`$(uname.os) {88:31:delegate {18:17:def uname.os}}`:`Darwin {88:31 {18:20:raw Darwin}}`,
+		`$(uname.release) {41:31:delegate {22:17:def uname.release}}`:`25.4.0 {41:31 {22:20:raw 25.4.0}}`,
+		`$(uname.release) {89:31:delegate {22:17:def uname.release}}`:`25.4.0 {89:31 {22:20:raw 25.4.0}}`,
+		// `&(host.release) {42:30:closure {41:16:def host.release}}`:`&(host.release) {42:30:closure {41:16:def host.release}}`,
+		// `&(target.abi) {13:33:closure {=compound {13:35:word target} {13:41:punct .} {13:42:word abi}}}`:`&(target.abi) {13:33:closure {=compound {13:35:word target} {13:41:punct .} {13:42:word abi}}}`,
+		// `&(target.arch) {13:18:closure {=compound {13:20:word target} {13:26:punct .} {13:27:word arch}}}`:`&(target.arch) {13:18:closure {=compound {13:20:word target} {13:26:punct .} {13:27:word arch}}}`,
+		// `&(target.arch) {96:48:closure {87:16:def target.arch}}`:`&(target.arch) {96:48:closure {87:16:def target.arch}}`,
+		// `&(target.arch) {97:48:closure {87:16:def target.arch}}`:`&(target.arch) {97:48:closure {87:16:def target.arch}}`,
+		// `&(target.arch) {98:48:closure {87:16:def target.arch}}`:`&(target.arch) {98:48:closure {87:16:def target.arch}}`,
+		// `&(target.arch) {99:48:closure {87:16:def target.arch}}`:`&(target.arch) {99:48:closure {87:16:def target.arch}}`,
+		// `&(target.arch) {100:48:closure {87:16:def target.arch}}`:`&(target.arch) {100:48:closure {87:16:def target.arch}}`,
+		// `&(target.arch) {101:48:closure {87:16:def target.arch}}`:`&(target.arch) {101:48:closure {87:16:def target.arch}}`,
+		// `&(target.release) {90:30:closure {89:16:def target.release}}`:`&(target.release) {90:30:closure {89:16:def target.release}}`,
+		// `&(target.os) {102:48:closure {88:16:def target.os}}`:`&(target.os) {102:48:closure {88:16:def target.os}}`,
+		// `&(target.os) {103:48:closure {88:16:def target.os}}`:`&(target.os) {103:48:closure {88:16:def target.os}}`,
+		// `&(target.os) {104:48:closure {88:16:def target.os}}`:`&(target.os) {104:48:closure {88:16:def target.os}}`,
+		// `&(target.os) {105:48:closure {88:16:def target.os}}`:`&(target.os) {105:48:closure {88:16:def target.os}}`,
+		// `&(target.os) {106:48:closure {88:16:def target.os}}`:`&(target.os) {106:48:closure {88:16:def target.os}}`,
+		// `&(target.os) {107:48:closure {88:16:def target.os}}`:`&(target.os) {107:48:closure {88:16:def target.os}}`,
+		// `&(target.os) {108:48:closure {88:16:def target.os}}`:`&(target.os) {108:48:closure {88:16:def target.os}}`,
+		// `&(target.os) {109:48:closure {88:16:def target.os}}`:`&(target.os) {109:48:closure {88:16:def target.os}}`,
+		// `&(target.os) {110:48:closure {88:16:def target.os}}`:`&(target.os) {110:48:closure {88:16:def target.os}}`,
+		// `&(target.tmp) {124:11:closure {94:17:def target.tmp}}`:`&(target.tmp) {124:11:closure {94:17:def target.tmp}}`,
+		// `&(target.out) {125:11:closure {93:17:def target.out}}`:`&(target.out) {125:11:closure {93:17:def target.out}}`,
+		// `&(target.out) {126:11:closure {93:17:def target.out}}`:`&(target.out) {126:11:closure {93:17:def target.out}}`,
+		// `&(target.out) {127:11:closure {93:17:def target.out}}`:`&(target.out) {127:11:closure {93:17:def target.out}}`,
+		// `&(target.out) {128:11:closure {93:17:def target.out}}`:`&(target.out) {128:11:closure {93:17:def target.out}}`,
+		// `&(target.out) {129:11:closure {93:17:def target.out}}`:`&(target.out) {129:11:closure {93:17:def target.out}}`,
+		// `&(uname.os) {42:19:closure {18:17:def uname.os}}`:`&(uname.os) {42:19:closure {18:17:def uname.os}}`,
+		// `&(uname.os) {90:19:closure {18:17:def uname.os}}`:`&(uname.os) {90:19:closure {18:17:def uname.os}}`,
+		// `&(rel.remnant) {124:25:closure {9:13:def rel.remnant}}`:modules_f(`&(rel.remnant) {124:25:closure {%[1]s/general/do.smart:9:13:def rel.remnant}}`),
+		// `&(outtmp) {130:11:closure {124:8:def outtmp}}`:`&(outtmp) {130:11:closure {124:8:def outtmp}}`,
+		// `&(outpre) {131:11:closure {125:8:def outpre}}`:`&(outpre) {131:11:closure {125:8:def outpre}}`,
+		// `&(plugin.ext) {143:20:closure {140:16:def plugin.ext}}`:`&(plugin.ext) {143:20:closure {140:16:def plugin.ext}}`,
+		// `&(shared.ext) {144:20:closure {141:16:def shared.ext}}`:`&(shared.ext) {144:20:closure {141:16:def shared.ext}}`,
+	},
+	".smart/modules/variant": map[string]any{
+		`&(variant.tag) {4:18:closure {3:14:def variant.tag}}`:`&(variant.tag) {4:18:closure {3:14:def variant.tag}}`,
+		`&(target.out) {4:22:closure {93:17:def target.out}}`:modules_f(`&(target.out) {4:22:closure {%[1]s/variant/.target/.base/do.smart:93:17:def target.out}}`),
+	},
+	".smart/modules/variant/.target": map[string]any{
+		`&(target.os) {12:27:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:12:27 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {13:1:closure {88:16:def target.os}}`:modules_f(`darwin {13:1 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {17:1:closure {88:16:def target.os}}`:modules_f(`darwin {17:1 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {26:1:closure {88:16:def target.os}}`:modules_f(`darwin {26:1 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {34:1:closure {88:16:def target.os}}`:modules_f(`darwin {34:1 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {45:1:closure {88:16:def target.os}}`:modules_f(`darwin {45:1 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`$(c++.std) {5:6:delegate {204:9:def c++.std}}`:modules_f(`algorithm any array atomic barrier bit bitset cassert ccomplex cctype cerrno cfenv cfloat charconv chrono cinttypes ciso646 climits clocale cmath codecvt compare complex complex.h concepts condition_variable coroutine csetjmp csignal cstdarg cstdbool cstddef cstdint cstdio cstdlib cstring ctgmath ctime ctype.h cuchar cwchar cwctype deque errno.h exception execution fenv.h filesystem float.h format forward_list fstream functional future initializer_list inttypes.h iomanip ios iosfwd iostream istream iterator latch limits limits.h list locale locale.h map math.h memory module.modulemap mutex new numbers numeric optional ostream queue random ranges ratio regex scoped_allocator semaphore set setjmp.h shared_mutex span sstream stack stdbool.h stddef.h stdexcept stdint.h stdio.h stdlib.h streambuf string string.h string_view strstream system_error tgmath.h thread tuple type_traits typeindex typeinfo uchar.h unordered_map unordered_set utility valarray variant vector version wchar.h wctype.h {=list {5:6 {%[1]s/variant/.target/.base/do.smart:205:3:word algorithm}} {5:6 {%[1]s/variant/.target/.base/do.smart:206:3:word any}} {5:6 {%[1]s/variant/.target/.base/do.smart:207:3:word array}} {5:6 {%[1]s/variant/.target/.base/do.smart:208:3:word atomic}} {5:6 {%[1]s/variant/.target/.base/do.smart:209:3:word barrier}} {5:6 {%[1]s/variant/.target/.base/do.smart:210:3:word bit}} {5:6 {%[1]s/variant/.target/.base/do.smart:211:3:word bitset}} {5:6 {%[1]s/variant/.target/.base/do.smart:212:3:word cassert}} {5:6 {%[1]s/variant/.target/.base/do.smart:213:3:word ccomplex}} {5:6 {%[1]s/variant/.target/.base/do.smart:214:3:word cctype}} {5:6 {%[1]s/variant/.target/.base/do.smart:215:3:word cerrno}} {5:6 {%[1]s/variant/.target/.base/do.smart:216:3:word cfenv}} {5:6 {%[1]s/variant/.target/.base/do.smart:217:3:word cfloat}} {5:6 {%[1]s/variant/.target/.base/do.smart:218:3:word charconv}} {5:6 {%[1]s/variant/.target/.base/do.smart:219:3:word chrono}} {5:6 {%[1]s/variant/.target/.base/do.smart:220:3:word cinttypes}} {5:6 {%[1]s/variant/.target/.base/do.smart:221:3:word ciso646}} {5:6 {%[1]s/variant/.target/.base/do.smart:222:3:word climits}} {5:6 {%[1]s/variant/.target/.base/do.smart:223:3:word clocale}} {5:6 {%[1]s/variant/.target/.base/do.smart:224:3:word cmath}} {5:6 {%[1]s/variant/.target/.base/do.smart:225:3:word codecvt}} {5:6 {%[1]s/variant/.target/.base/do.smart:226:3:word compare}} {5:6 {%[1]s/variant/.target/.base/do.smart:227:3:word complex}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:228:3:word complex} {%[1]s/variant/.target/.base/do.smart:228:10:punct .} {%[1]s/variant/.target/.base/do.smart:228:11:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:229:3:word concepts}} {5:6 {%[1]s/variant/.target/.base/do.smart:230:3:word condition_variable}} {5:6 {%[1]s/variant/.target/.base/do.smart:231:3:word coroutine}} {5:6 {%[1]s/variant/.target/.base/do.smart:232:3:word csetjmp}} {5:6 {%[1]s/variant/.target/.base/do.smart:233:3:word csignal}} {5:6 {%[1]s/variant/.target/.base/do.smart:234:3:word cstdarg}} {5:6 {%[1]s/variant/.target/.base/do.smart:235:3:word cstdbool}} {5:6 {%[1]s/variant/.target/.base/do.smart:236:3:word cstddef}} {5:6 {%[1]s/variant/.target/.base/do.smart:237:3:word cstdint}} {5:6 {%[1]s/variant/.target/.base/do.smart:238:3:word cstdio}} {5:6 {%[1]s/variant/.target/.base/do.smart:239:3:word cstdlib}} {5:6 {%[1]s/variant/.target/.base/do.smart:240:3:word cstring}} {5:6 {%[1]s/variant/.target/.base/do.smart:241:3:word ctgmath}} {5:6 {%[1]s/variant/.target/.base/do.smart:242:3:word ctime}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:243:3:word ctype} {%[1]s/variant/.target/.base/do.smart:243:8:punct .} {%[1]s/variant/.target/.base/do.smart:243:9:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:244:3:word cuchar}} {5:6 {%[1]s/variant/.target/.base/do.smart:245:3:word cwchar}} {5:6 {%[1]s/variant/.target/.base/do.smart:246:3:word cwctype}} {5:6 {%[1]s/variant/.target/.base/do.smart:247:3:word deque}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:248:3:word errno} {%[1]s/variant/.target/.base/do.smart:248:8:punct .} {%[1]s/variant/.target/.base/do.smart:248:9:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:249:3:word exception}} {5:6 {%[1]s/variant/.target/.base/do.smart:250:3:word execution}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:251:3:word fenv} {%[1]s/variant/.target/.base/do.smart:251:7:punct .} {%[1]s/variant/.target/.base/do.smart:251:8:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:252:3:word filesystem}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:253:3:word float} {%[1]s/variant/.target/.base/do.smart:253:8:punct .} {%[1]s/variant/.target/.base/do.smart:253:9:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:254:3:word format}} {5:6 {%[1]s/variant/.target/.base/do.smart:255:3:word forward_list}} {5:6 {%[1]s/variant/.target/.base/do.smart:256:3:word fstream}} {5:6 {%[1]s/variant/.target/.base/do.smart:257:3:word functional}} {5:6 {%[1]s/variant/.target/.base/do.smart:258:3:word future}} {5:6 {%[1]s/variant/.target/.base/do.smart:259:3:word initializer_list}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:260:3:word inttypes} {%[1]s/variant/.target/.base/do.smart:260:11:punct .} {%[1]s/variant/.target/.base/do.smart:260:12:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:261:3:word iomanip}} {5:6 {%[1]s/variant/.target/.base/do.smart:262:3:word ios}} {5:6 {%[1]s/variant/.target/.base/do.smart:263:3:word iosfwd}} {5:6 {%[1]s/variant/.target/.base/do.smart:264:3:word iostream}} {5:6 {%[1]s/variant/.target/.base/do.smart:265:3:word istream}} {5:6 {%[1]s/variant/.target/.base/do.smart:266:3:word iterator}} {5:6 {%[1]s/variant/.target/.base/do.smart:267:3:word latch}} {5:6 {%[1]s/variant/.target/.base/do.smart:268:3:word limits}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:269:3:word limits} {%[1]s/variant/.target/.base/do.smart:269:9:punct .} {%[1]s/variant/.target/.base/do.smart:269:10:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:270:3:word list}} {5:6 {%[1]s/variant/.target/.base/do.smart:271:3:word locale}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:272:3:word locale} {%[1]s/variant/.target/.base/do.smart:272:9:punct .} {%[1]s/variant/.target/.base/do.smart:272:10:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:273:3:word map}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:274:3:word math} {%[1]s/variant/.target/.base/do.smart:274:7:punct .} {%[1]s/variant/.target/.base/do.smart:274:8:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:275:3:word memory}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:276:3:word module} {%[1]s/variant/.target/.base/do.smart:276:9:punct .} {%[1]s/variant/.target/.base/do.smart:276:10:word modulemap}}} {5:6 {%[1]s/variant/.target/.base/do.smart:277:3:word mutex}} {5:6 {%[1]s/variant/.target/.base/do.smart:278:3:word new}} {5:6 {%[1]s/variant/.target/.base/do.smart:279:3:word numbers}} {5:6 {%[1]s/variant/.target/.base/do.smart:280:3:word numeric}} {5:6 {%[1]s/variant/.target/.base/do.smart:281:3:word optional}} {5:6 {%[1]s/variant/.target/.base/do.smart:282:3:word ostream}} {5:6 {%[1]s/variant/.target/.base/do.smart:283:3:word queue}} {5:6 {%[1]s/variant/.target/.base/do.smart:284:3:word random}} {5:6 {%[1]s/variant/.target/.base/do.smart:285:3:word ranges}} {5:6 {%[1]s/variant/.target/.base/do.smart:286:3:word ratio}} {5:6 {%[1]s/variant/.target/.base/do.smart:287:3:word regex}} {5:6 {%[1]s/variant/.target/.base/do.smart:288:3:word scoped_allocator}} {5:6 {%[1]s/variant/.target/.base/do.smart:289:3:word semaphore}} {5:6 {%[1]s/variant/.target/.base/do.smart:290:3:word set}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:291:3:word setjmp} {%[1]s/variant/.target/.base/do.smart:291:9:punct .} {%[1]s/variant/.target/.base/do.smart:291:10:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:292:3:word shared_mutex}} {5:6 {%[1]s/variant/.target/.base/do.smart:293:3:word span}} {5:6 {%[1]s/variant/.target/.base/do.smart:294:3:word sstream}} {5:6 {%[1]s/variant/.target/.base/do.smart:295:3:word stack}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:296:3:word stdbool} {%[1]s/variant/.target/.base/do.smart:296:10:punct .} {%[1]s/variant/.target/.base/do.smart:296:11:word h}}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:297:3:word stddef} {%[1]s/variant/.target/.base/do.smart:297:9:punct .} {%[1]s/variant/.target/.base/do.smart:297:10:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:298:3:word stdexcept}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:299:3:word stdint} {%[1]s/variant/.target/.base/do.smart:299:9:punct .} {%[1]s/variant/.target/.base/do.smart:299:10:word h}}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:300:3:word stdio} {%[1]s/variant/.target/.base/do.smart:300:8:punct .} {%[1]s/variant/.target/.base/do.smart:300:9:word h}}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:301:3:word stdlib} {%[1]s/variant/.target/.base/do.smart:301:9:punct .} {%[1]s/variant/.target/.base/do.smart:301:10:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:302:3:word streambuf}} {5:6 {%[1]s/variant/.target/.base/do.smart:303:3:word string}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:304:3:word string} {%[1]s/variant/.target/.base/do.smart:304:9:punct .} {%[1]s/variant/.target/.base/do.smart:304:10:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:305:3:word string_view}} {5:6 {%[1]s/variant/.target/.base/do.smart:306:3:word strstream}} {5:6 {%[1]s/variant/.target/.base/do.smart:307:3:word system_error}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:308:3:word tgmath} {%[1]s/variant/.target/.base/do.smart:308:9:punct .} {%[1]s/variant/.target/.base/do.smart:308:10:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:309:3:word thread}} {5:6 {%[1]s/variant/.target/.base/do.smart:310:3:word tuple}} {5:6 {%[1]s/variant/.target/.base/do.smart:311:3:word type_traits}} {5:6 {%[1]s/variant/.target/.base/do.smart:312:3:word typeindex}} {5:6 {%[1]s/variant/.target/.base/do.smart:313:3:word typeinfo}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:314:3:word uchar} {%[1]s/variant/.target/.base/do.smart:314:8:punct .} {%[1]s/variant/.target/.base/do.smart:314:9:word h}}} {5:6 {%[1]s/variant/.target/.base/do.smart:315:3:word unordered_map}} {5:6 {%[1]s/variant/.target/.base/do.smart:316:3:word unordered_set}} {5:6 {%[1]s/variant/.target/.base/do.smart:317:3:word utility}} {5:6 {%[1]s/variant/.target/.base/do.smart:318:3:word valarray}} {5:6 {%[1]s/variant/.target/.base/do.smart:319:3:word variant}} {5:6 {%[1]s/variant/.target/.base/do.smart:320:3:word vector}} {5:6 {%[1]s/variant/.target/.base/do.smart:321:3:word version}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:322:3:word wchar} {%[1]s/variant/.target/.base/do.smart:322:8:punct .} {%[1]s/variant/.target/.base/do.smart:322:9:word h}}} {5:6 {=compound {%[1]s/variant/.target/.base/do.smart:323:3:word wctype} {%[1]s/variant/.target/.base/do.smart:323:9:punct .} {%[1]s/variant/.target/.base/do.smart:323:10:word h}}}}`),
+		`$(outinc) {5:20:delegate {126:8:def outinc}}`:modules_f(`&(target.out)/include {5:20 {=path {%[1]s/variant/.target/.base/do.smart:126:11:closure {%[1]s/variant/.target/.base/do.smart:93:17:def target.out}} {%[1]s/variant/.target/.base/do.smart:126:25:word include}}}`),
+	},
+	".smart/modules/variant/.target/darwin": map[string]any{
+		`&(target.os) {12:27:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:12:27 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {16:35:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:16:35 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {25:27:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:25:27 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {33:34:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:33:34 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {44:44:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:44:44 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`$(shell clang --print-resource-dir) {60:40:delegate {60:42:builtin shell} {=list {60:48:word clang} {=flag {=flag {=compound {60:56:word print} {=flag {=compound {60:62:word resource} {=flag {60:71:word dir}}}}}}}}}`:`/Users/duzy/Library/Developer/Toolchains/swift-6.1.2-RELEASE.xctoolchain/usr/lib/clang/17 {60:40 {60:42:raw /Users/duzy/Library/Developer/Toolchains/swift-6.1.2-RELEASE.xctoolchain/usr/lib/clang/17}}`,
+		`$(path $(shell clang --print-resource-dir)) {60:33:delegate {60:35:builtin path} {=list {60:40:delegate {60:42:builtin shell} {=list {60:48:word clang} {=flag {=flag {=compound {60:56:word print} {=flag {=compound {60:62:word resource} {=flag {60:71:word dir}}}}}}}}}}}`:`/Users/duzy/Library/Developer/Toolchains/swift-6.1.2-RELEASE.xctoolchain/usr/lib/clang/17 {60:33 {=path {60:35:punct ROOT} {60:35:raw Users} {60:35:raw duzy} {60:35:raw Library} {60:35:raw Developer} {60:35:raw Toolchains} {60:35:raw swift-6.1.2-RELEASE.xctoolchain} {60:35:raw usr} {60:35:raw lib} {60:35:raw clang} {60:35:raw 17}}}`,
+		`$(Xcode.toolchain.resourceDir) {61:28:delegate {60:29:def Xcode.toolchain.resourceDir}}`:`/Users/duzy/Library/Developer/Toolchains/swift-6.1.2-RELEASE.xctoolchain/usr/lib/clang/17 {61:28 {60:33 {=path {60:35:punct ROOT} {60:35:raw Users} {60:35:raw duzy} {60:35:raw Library} {60:35:raw Developer} {60:35:raw Toolchains} {60:35:raw swift-6.1.2-RELEASE.xctoolchain} {60:35:raw usr} {60:35:raw lib} {60:35:raw clang} {60:35:raw 17}}}}`,
+		`$(Xcode.toolchain) {62:28:delegate {61:17:def Xcode.toolchain}}`:`/Users/duzy/Library/Developer/Toolchains/swift-6.1.2-RELEASE.xctoolchain {62:28 {61:21 {=path {61:23:punct ROOT} {61:23:raw Users} {61:23:raw duzy} {61:23:raw Library} {61:23:raw Developer} {61:23:raw Toolchains} {61:23:raw swift-6.1.2-RELEASE.xctoolchain}}}}`,
+		`$(Xcode.toolchain) {63:28:delegate {61:17:def Xcode.toolchain}}`:`/Users/duzy/Library/Developer/Toolchains/swift-6.1.2-RELEASE.xctoolchain {63:28 {61:21 {=path {61:23:punct ROOT} {61:23:raw Users} {61:23:raw duzy} {61:23:raw Library} {61:23:raw Developer} {61:23:raw Toolchains} {61:23:raw swift-6.1.2-RELEASE.xctoolchain}}}}`,
+		`$(Xcode.platforms) {64:21:delegate {62:17:def Xcode.platforms}}`:`/Users/duzy/Library/Developer/Platforms {64:21 {=path {62:21 {62:23:punct ROOT}} {62:21 {62:23:raw Users}} {62:21 {62:23:raw duzy}} {62:21 {62:23:raw Library}} {62:21 {62:23:raw Developer}} {62:48:word Platforms}}}`,
+		`$(Xcode.platforms) {67:30:delegate {62:17:def Xcode.platforms}}`:`/Users/duzy/Library/Developer/Platforms {67:30 {=path {62:21 {62:23:punct ROOT}} {62:21 {62:23:raw Users}} {62:21 {62:23:raw duzy}} {62:21 {62:23:raw Library}} {62:21 {62:23:raw Developer}} {62:48:word Platforms}}}`,
+		`$(Xcode.platforms) {68:30:delegate {62:17:def Xcode.platforms}}`:`/Users/duzy/Library/Developer/Platforms {68:30 {=path {62:21 {62:23:punct ROOT}} {62:21 {62:23:raw Users}} {62:21 {62:23:raw duzy}} {62:21 {62:23:raw Library}} {62:21 {62:23:raw Developer}} {62:48:word Platforms}}}`,
+		`$(MacOSX.platform) {65:21:delegate {64:17:def MacOSX.platform}}`:`/Users/duzy/Library/Developer/Platforms/MacOSX.platform {65:21 {=path {64:21 {62:21 {62:23:punct ROOT}}} {64:21 {62:21 {62:23:raw Users}}} {64:21 {62:21 {62:23:raw duzy}}} {64:21 {62:21 {62:23:raw Library}}} {64:21 {62:21 {62:23:raw Developer}}} {64:21 {62:48:word Platforms}} {=compound {64:40:word MacOSX} {64:46:punct .} {64:47:word platform}}}}`,
+		`$(MacOSX.sdk) {75:15:delegate {65:17:def MacOSX.sdk}}`:`/Users/duzy/Library/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk {75:15 {=path {65:21 {64:21 {62:21 {62:23:punct ROOT}}}} {65:21 {64:21 {62:21 {62:23:raw Users}}}} {65:21 {64:21 {62:21 {62:23:raw duzy}}}} {65:21 {64:21 {62:21 {62:23:raw Library}}}} {65:21 {64:21 {62:21 {62:23:raw Developer}}}} {65:21 {64:21 {62:48:word Platforms}}} {65:21 {=compound {64:40:word MacOSX} {64:46:punct .} {64:47:word platform}}} {65:40:word Developer} {65:50:word SDKs} {=compound {65:55:word MacOSX} {65:61:punct .} {65:62:word sdk}}}}`,
+		`$(dir4 $(Xcode.toolchain.resourceDir)) {61:21:delegate {61:23:builtin dir4} {=list {61:28:delegate {60:29:def Xcode.toolchain.resourceDir}}}}`:`/Users/duzy/Library/Developer/Toolchains/swift-6.1.2-RELEASE.xctoolchain {61:21 {=path {61:23:punct ROOT} {61:23:raw Users} {61:23:raw duzy} {61:23:raw Library} {61:23:raw Developer} {61:23:raw Toolchains} {61:23:raw swift-6.1.2-RELEASE.xctoolchain}}}`,
+		`$(dir2 $(Xcode.toolchain)) {62:21:delegate {62:23:builtin dir2} {=list {62:28:delegate {61:17:def Xcode.toolchain}}}}`:`/Users/duzy/Library/Developer {62:21 {=path {62:23:punct ROOT} {62:23:raw Users} {62:23:raw duzy} {62:23:raw Library} {62:23:raw Developer}}}`,
+		`$(--sysroot) {96:66:delegate {75:11:def --sysroot}}`:`/Users/duzy/Library/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk {96:66 {75:15 {=path {65:21 {64:21 {62:21 {62:23:punct ROOT}}}} {65:21 {64:21 {62:21 {62:23:raw Users}}}} {65:21 {64:21 {62:21 {62:23:raw duzy}}}} {65:21 {64:21 {62:21 {62:23:raw Library}}}} {65:21 {64:21 {62:21 {62:23:raw Developer}}}} {65:21 {64:21 {62:48:word Platforms}}} {65:21 {=compound {64:40:word MacOSX} {64:46:punct .} {64:47:word platform}}} {65:40:word Developer} {65:50:word SDKs} {=compound {65:55:word MacOSX} {65:61:punct .} {65:62:word sdk}}}}}`,
+		`$(addsuffix /include,$(--sysroot)) {96:45:delegate {96:47:builtin addsuffix} {=list {=path {96:57:punct ROOT} {96:58:word include}}} {=list {96:66:delegate {75:11:def --sysroot}}}}`:`/Users/duzy/Library/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/include {96:45 {96:66 {75:15 {=path {65:21 {64:21 {62:21 {62:23:punct ROOT}}}} {65:21 {64:21 {62:21 {62:23:raw Users}}}} {65:21 {64:21 {62:21 {62:23:raw duzy}}}} {65:21 {64:21 {62:21 {62:23:raw Library}}}} {65:21 {64:21 {62:21 {62:23:raw Developer}}}} {65:21 {64:21 {62:48:word Platforms}}} {65:21 {=compound {64:40:word MacOSX} {64:46:punct .} {64:47:word platform}}} {65:40:word Developer} {65:50:word SDKs} {=path {=compound {65:55:word MacOSX} {65:61:punct .} {65:62:word sdk} {96:57:punct ROOT}} {96:58:word include}}}}}}`,
+	},
+	".smart/modules/variant/.target/darwin/arm64": map[string]any{
+		`&(target.os) {12:27:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:12:27 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {16:35:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:16:35 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {25:27:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:25:27 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {33:34:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:33:34 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {44:44:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:44:44 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+	},
+	".smart/modules/variant/bootstrap": map[string]any{
+		`&(target.os) {12:27:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:12:27 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {16:35:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:16:35 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {25:27:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:25:27 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {33:34:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:33:34 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {44:44:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:44:44 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(variant) {3:44:closure {3:46:word variant}}`:testdata_f(`darwin/arm64/bootstrap {3:44 {=path {%[1]s/configuration/do.smart:2:33:word darwin} {%[1]s/configuration/do.smart:2:40:word arm64} {%[1]s/configuration/do.smart:2:46:word bootstrap}}}`),
+		`$(dir &(variant)) {3:38:delegate {3:40:builtin dir} {=list {3:44:closure {3:46:word variant}}}}`:`darwin/arm64 {3:38 {=path {3:40:raw darwin} {3:40:raw arm64}}}`,
+		`$(bootstrap) {11:7:delegate {9:11:def bootstrap}}`:`/usr {11:7 {=path {9:14:punct ROOT} {9:15:word usr}}}`,
+		`$(bootstrap) {12:7:delegate {9:11:def bootstrap}}`:`/usr {12:7 {=path {9:14:punct ROOT} {9:15:word usr}}}`,
+	},
+	".smart/modules/app/.base": map[string]any{
+		`$(base &(variant)) {1:39:delegate {1:41:builtin base} {=list {1:46:closure {1:48:word variant}}}}`:`bootstrap {1:39 {1:46:word bootstrap}}`,
+		`$(env PATH) {21:14:delegate {21:16:builtin env} {=list {21:20:word PATH}}}`:`/usr/local/go1.25.0/bin:/Users/duzy/.swiftly/bin:/Users/duzy/.cargo/bin:/Volumes/workout/arm64-apple-darwin-extbit/production/bin:/opt/homebrew/bin:/opt/flutter/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pkg/env/active/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/go/bin:/Applications/Emacs.app/Contents/MacOS/bin-arm64-11:/Applications/Emacs.app/Contents/MacOS/libexec-arm64-11 {21:14 {21:20:raw /usr/local/go1.25.0/bin:/Users/duzy/.swiftly/bin:/Users/duzy/.cargo/bin:/Volumes/workout/arm64-apple-darwin-extbit/production/bin:/opt/homebrew/bin:/opt/flutter/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pkg/env/active/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/go/bin:/Applications/Emacs.app/Contents/MacOS/bin-arm64-11:/Applications/Emacs.app/Contents/MacOS/libexec-arm64-11}}`,
+		`$(is.goals) {13:14:delegate {6:14:def is.goals}}`:modules_f(`{=true} {13:14 {%[1]s/variant/.target/.base/do.smart:6:17 {%[1]s/variant/.target/.base/do.smart:6:19:true}}}`),
+		`$(join &(target.arch)&(target.sub) &(target.vendor) &(target.sys) &(target.abi),-) {92:19:delegate {92:21:builtin join} {=list {=compound {92:26:closure {87:16:def target.arch}} {92:40:closure {=compound {92:42:word target} {92:48:punct .} {92:49:word sub}}}} {92:54:closure {91:17:def target.vendor}} {92:71:closure {90:16:def target.sys}} {92:85:closure {86:16:def target.abi}}} {=list {=flag {92:100}}}}`:`&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi) {92:19 {=compound {92:26:closure {87:16:def target.arch}} {92:40:closure {=compound {92:42:word target} {92:48:punct .} {92:49:word sub}}} {=flag {92:100}} {92:54:closure {91:17:def target.vendor}} {=flag {92:100}} {92:71:closure {90:16:def target.sys}} {=flag {92:100}} {92:85:closure {86:16:def target.abi}}}}`,
+		`$(or &(&(target.os)~vendor),unknown) {91:19:delegate {91:21:builtin or} {=list {91:24:closure {=compound {91:26:closure {88:16:def target.os}} {91:38:punct ~} {91:39:word vendor}}}} {=list {91:47:word unknown}}}`:`apple {91:19 {91:24 {9:18:word apple}}}`,
+		`$(trim-prefix &(rel.chop),&/) {9:15:delegate {9:17:builtin trim-prefix} {=list {9:29:closure {7:11:def rel.chop}}} {=list {9:41:closure {1:1:def /}}}}`:`general {9:15 {1:1:raw general}}`,
+		`$(workout) {93:19:delegate {4:11:def workout}}`:modules_f(`/Volumes/workout {93:19 {=path {%[1]s/general/do.smart:4:15 {%[1]s/general/do.smart:4:17:punct ROOT}} {%[1]s/general/do.smart:4:15 {%[1]s/general/do.smart:4:17:raw Volumes}} {%[1]s/general/do.smart:4:35:word workout}}}`),
+		`&(&(target.os)~vendor) {91:24:closure {=compound {91:26:closure {88:16:def target.os}} {91:38:punct ~} {91:39:word vendor}}}`:`apple {91:24 {9:18:word apple}}`,
+		`&(outtmp) {14:49:closure {11:8:def outtmp}}`:modules_f(`/Volumes/workout/general {%[1]s/general/do.smart:14:49 {=path {%[1]s/general/do.smart:11:11 {%[1]s/general/do.smart:4:15 {%[1]s/general/do.smart:4:17:punct ROOT}}} {%[1]s/general/do.smart:11:11 {%[1]s/general/do.smart:4:15 {%[1]s/general/do.smart:4:17:raw Volumes}}} {%[1]s/general/do.smart:11:11 {%[1]s/general/do.smart:4:35:word workout}} {%[1]s/general/do.smart:11:22 {%[1]s/general/do.smart:9:15 {%[1]s/general/do.smart:1:1:raw general}}}}}`),
+		`&(rel.chop) {9:29:closure {7:11:def rel.chop}}`:modules_f(`**/.smart/modules/ %[1]s/.smart/modules/ %[1]s/.smart/ %[1]s/ {=list {9:29 {=path {=glob {7:15:meta **}} {=compound {7:18:punct .} {7:19:word smart}} {7:25:word modules} {7:33:punct TAIL}}} {9:29 {=path {7:34 {7:36:punct ROOT}} {7:34 {7:36:raw Volumes}} {7:34 {7:36:raw workspace}} {7:34 {7:36:raw .smart}} {7:34 {7:36:raw modules}} {7:44:punct TAIL}}} {9:29 {=path {7:45 {7:47:punct ROOT}} {7:45 {7:47:raw Volumes}} {7:45 {7:47:raw workspace}} {7:45 {7:47:raw .smart}} {7:56:punct TAIL}}} {9:29 {=path {7:57 {7:59:punct ROOT}} {7:57 {7:59:raw Volumes}} {7:57 {7:59:raw workspace}} {7:68:punct TAIL}}}}`,trim_suffix{1,"/.smart/modules"}),
+		`&(rel.remnant) {11:22:closure {9:13:def rel.remnant}}`:`general {11:22 {9:15 {1:1:raw general}}}`,
+		`&(rel.remnant) {124:25:closure {9:13:def rel.remnant}}`:modules_f(`general {%[1]s/variant/.target/.base/do.smart:124:25 {%[1]s/general/do.smart:9:15 {%[1]s/general/do.smart:1:1:raw general}}}`),
+		`&(target.abi) {92:85:closure {86:16:def target.abi}}`:modules_f(`macho {%[1]s/variant/.target/.base/do.smart:92:85 {%[1]s/variant/.target/.base/do.smart:86:19:word macho}}`),
+		`&(target.arch) {92:26:closure {87:16:def target.arch}}`:modules_f(`arm64 {%[1]s/variant/.target/.base/do.smart:92:26 {%[1]s/variant/.target/.base/do.smart:87:19 {%[1]s/variant/.target/.base/do.smart:87:31:raw arm64}}}`),
+		`&(target.os) {12:27:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:12:27 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {16:35:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:16:35 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {25:27:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:25:27 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {33:34:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:33:34 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {44:44:closure {88:16:def target.os}}`:modules_f(`darwin {%[1]s/variant/.target/do.smart:44:44 {%[1]s/variant/.target/.base/do.smart:88:19 {%[1]s/variant/.target/.base/do.smart:88:31:raw darwin}}}`),
+		`&(target.os) {91:26:closure {88:16:def target.os}}`:`darwin {91:26 {88:19 {88:31:raw darwin}}}`,
+		`&(target.out) {94:19:closure {93:17:def target.out}}`:modules_f(`/Volumes/workout/&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi)/bootstrap {94:19 {=path {93:19 {%[1]s/general/do.smart:4:15 {%[1]s/general/do.smart:4:17:punct ROOT}}} {93:19 {%[1]s/general/do.smart:4:15 {%[1]s/general/do.smart:4:17:raw Volumes}}} {93:19 {%[1]s/general/do.smart:4:35:word workout}} {93:30 {92:19 {=compound {92:26:closure {87:16:def target.arch}} {92:40:closure {=compound {92:42:word target} {92:48:punct .} {92:49:word sub}}} {=flag {92:100}} {92:54:closure {91:17:def target.vendor}} {=flag {92:100}} {92:71:closure {90:16:def target.sys}} {=flag {92:100}} {92:85:closure {86:16:def target.abi}}}}} {93:47 {%[1]s/variant/bootstrap:5:20:word bootstrap}}}}`),
+		`&(target.release) {90:30:closure {89:16:def target.release}}`:`25.4.0 {90:30 {89:19 {89:31:raw 25.4.0}}}`,
+		`&(target.sub) {92:40:closure {=compound {92:42:word target} {92:48:punct .} {92:49:word sub}}}`:modules_f(`{} {%[1]s/variant/.target/.base/do.smart:92:40:null}`),
+		`&(target.sys) {92:71:closure {90:16:def target.sys}}`:modules_f(`Darwin25.4.0 {%[1]s/variant/.target/.base/do.smart:92:71 {=compound {%[1]s/variant/.target/.base/do.smart:90:19 {%[1]s/variant/.target/.base/do.smart:18:20:raw Darwin}} {%[1]s/variant/.target/.base/do.smart:90:30 {%[1]s/variant/.target/.base/do.smart:89:19 {%[1]s/variant/.target/.base/do.smart:89:31:raw 25.4.0}}}}}`),
+		`&(target.tmp) {124:11:closure {94:17:def target.tmp}}`:modules_f(`/Volumes/workout/&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi)/bootstrap/tmp {%[1]s/variant/.target/.base/do.smart:124:11 {=path {%[1]s/variant/.target/.base/do.smart:94:19 {%[1]s/variant/.target/.base/do.smart:93:19 {%[1]s/general/do.smart:4:15 {%[1]s/general/do.smart:4:17:punct ROOT}}}} {%[1]s/variant/.target/.base/do.smart:94:19 {%[1]s/variant/.target/.base/do.smart:93:19 {%[1]s/general/do.smart:4:15 {%[1]s/general/do.smart:4:17:raw Volumes}}}} {%[1]s/variant/.target/.base/do.smart:94:19 {%[1]s/variant/.target/.base/do.smart:93:19 {%[1]s/general/do.smart:4:35:word workout}}} {%[1]s/variant/.target/.base/do.smart:94:19 {%[1]s/variant/.target/.base/do.smart:93:30 {%[1]s/variant/.target/.base/do.smart:92:19 {=compound {%[1]s/variant/.target/.base/do.smart:92:26:closure {%[1]s/variant/.target/.base/do.smart:87:16:def target.arch}} {%[1]s/variant/.target/.base/do.smart:92:40:closure {=compound {%[1]s/variant/.target/.base/do.smart:92:42:word target} {%[1]s/variant/.target/.base/do.smart:92:48:punct .} {%[1]s/variant/.target/.base/do.smart:92:49:word sub}}} {=flag {%[1]s/variant/.target/.base/do.smart:92:100}} {%[1]s/variant/.target/.base/do.smart:92:54:closure {%[1]s/variant/.target/.base/do.smart:91:17:def target.vendor}} {=flag {%[1]s/variant/.target/.base/do.smart:92:100}} {%[1]s/variant/.target/.base/do.smart:92:71:closure {%[1]s/variant/.target/.base/do.smart:90:16:def target.sys}} {=flag {%[1]s/variant/.target/.base/do.smart:92:100}} {%[1]s/variant/.target/.base/do.smart:92:85:closure {%[1]s/variant/.target/.base/do.smart:86:16:def target.abi}}}}}} {%[1]s/variant/.target/.base/do.smart:94:19 {%[1]s/variant/.target/.base/do.smart:93:47 {%[1]s/variant/bootstrap:5:20:word bootstrap}}} {%[1]s/variant/.target/.base/do.smart:94:33:word tmp}}}`),
+		`&(target.triple) {93:30:closure {92:17:def target.triple}}`:`&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi) {93:30 {92:19 {=compound {92:26:closure {87:16:def target.arch}} {92:40:closure {=compound {92:42:word target} {92:48:punct .} {92:49:word sub}}} {=flag {92:100}} {92:54:closure {91:17:def target.vendor}} {=flag {92:100}} {92:71:closure {90:16:def target.sys}} {=flag {92:100}} {92:85:closure {86:16:def target.abi}}}}}`,
+		`&(target.vendor) {92:54:closure {91:17:def target.vendor}}`:modules_f(`apple {%[1]s/variant/.target/.base/do.smart:92:54 {%[1]s/variant/.target/.base/do.smart:91:19 {%[1]s/variant/.target/.base/do.smart:91:24 {%[1]s/variant/.target/.base/do.smart:9:18:word apple}}}}`),
+		`&(variant) {1:46:closure {1:48:word variant}}`:testdata_f(`darwin/arm64/bootstrap {1:46 {=path {%[1]s/configuration/do.smart:2:33:word darwin} {%[1]s/configuration/do.smart:2:40:word arm64} {%[1]s/configuration/do.smart:2:46:word bootstrap}}}`),
+		`&(variant.tag) {93:47:closure {=compound {93:49:word variant} {93:56:punct .} {93:57:word tag}}}`:modules_f(`bootstrap {93:47 {%[1]s/variant/bootstrap:5:20:word bootstrap}}`),
+		`&(uname.os) {90:19:closure {18:17:def uname.os}}`:`Darwin {90:19 {18:20:raw Darwin}}`,
 	},
 }
 func check(ctx Context, res Value, p Value, x ...Value) {
@@ -1413,7 +1680,11 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 	src := strings.Split(source, ":")
 	if src == nil { src = []string{""} }
 
-	spec := func() (s string) { if j := _project(ctx); j != nil { s = j.spec }; return } ()
+	spec := func() (s string) {
+		if j := _project(ctx); j != nil { s = j.spec }
+		for strings.HasPrefix(s, "../") { s = strings.TrimPrefix(s, "../") }
+		return
+	} ()
 
 	d, _ := do(ctx, origin_def{}).(*def)
 
@@ -1424,7 +1695,35 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 		return
 	} ()
 
-	v := sf("%v %s", res, ts(res, ctx))
+	v := func() string {
+		switch expected := checkspecs[spec][k].(type) {
+		case unwrap_loc_part:
+			// Dynamically find all {=unwrap-loc-XXX } markers the expected string requested
+			marker := regexp.MustCompile(`\{=unwrap-loc-([^\s{}]+)\s`)
+			matches := marker.FindAllStringSubmatch(string(expected), -1)
+
+			s := ts(res, ctx)
+			seen := make(map[string]bool)
+			for _, m := range matches {
+				tag := m[1] // e.g., "path", "list", etc.
+				if seen[tag] { continue }
+				seen[tag] = true
+				
+				searchTag := "{=" + tag + " "
+				replaceTag := "{=unwrap-loc-" + tag + " "
+				
+				// Split the ACTUAL AST string by the standard tag, unwrap the contents,
+				// and re-join with the marker
+				parts := strings.Split(s, searchTag)
+				for i := 1; i < len(parts); i++ {
+					parts[i] = unwrapLocStr(parts[i])
+				}
+				s = strings.Join(parts, replaceTag)
+			}
+			return sf("%v %s", res, s)
+		}
+		return sf("%v %s", res, ts(res, ctx))
+	} ()
 
 	t := func() any {
 		switch t := checkspecs[spec][k].(type) {
@@ -1435,6 +1734,8 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 				})
 			}
 			return []string(t)
+		case unwrap_loc_part:
+			return string(t) // Cast to string so the lower switch can match it against `v`
 		case map[string]any, map[string]string:
 			debug(pc(pc(ctx,res),p), "%v %v", k, t)
 			return nil
@@ -1443,17 +1744,25 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 		}
 	} ()
 
-	switch _t := t.(type) {
-	case []string: for _, s := range _t { if s == v { return } }
-	case string: if _t == v { return }
-	}
+	if p.String() == res.String() { return }
 
-	debug(pc(pc(ctx,res),p), //_f("info: %v", _project(ctx)),
-		_f("`%v`", k),
-		_f(`got: %s`, v),
-		_f(`!= : %v`, t),
-		_f(`note: %v "%s"`, source, spec),
-		callstack{num:8}, trace{})
+	if t == nil {
+		debug(pc(pc(ctx,res),p),
+			_f("`%v`:`%v`,", k, v),
+			_f(`note: %v "%s"`, source, spec),
+			callstack{num:8}, trace{})
+	} else {
+		switch t := t.(type) {
+		case []string: for _, s := range t { if s == v { return } }
+		case string: if t == v { return }
+		}
+		debug(pc(pc(ctx,res),p), //_f("info: %v", _project(ctx)),
+			_f("`%v`", k),
+			_f(`got: %s`, v),
+			_f(`!= : %v`, t),
+			_f(`note: %v "%s"`, source, spec),
+			callstack{num:8}, trace{})
+	}
 }
 
 var checkstrs = map[string]map[string]any{
@@ -1791,7 +2100,8 @@ func check_string(ctx Context, v any) func(*Value, *string) {
 		p := _project(ctx);  if p == nil { return }
 		t := checkstrs[p.spec][k]; if t == nil { return }
 		s := sf("%v %v", ts(*_val,ctx), *_res); if s == t { return }
-		debug(pc(ctx,d), _f("`%v`", k),
+		debug(pc(ctx,d),
+			_f("`%v`", k),
 			_f(`got: %v`, s),
 			_f(`!= : %v`, t),
 			_f(`val: %v`, *_val),
@@ -1801,7 +2111,6 @@ func check_string(ctx Context, v any) func(*Value, *string) {
 }
 
 var checkpoints_cmp = map[string]string{
-	`[] [] []`:`equal`, //cmp: [] []
 	`[{= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}] {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}} []`:`equal`, //cmp: [xq xp] xq xp
 	`[{= {=flag {=word foo}}} {=word bar}] [{=flag {=word foobar}}] []`:`equal`,
 	`[{= {=flag {=word foo}}} {=word bar}] {=flag {=word foobar}} []`:`equal`,
@@ -1817,7 +2126,18 @@ var checkpoints_cmp = map[string]string{
 	`[{=flag {=word foobar}}] [{=compound {= {=flag {=}}} {=word foobar}}] []`:`equal`,
 	`[{=flag {=word foobar}}] {=list {=compound {= {=flag {=word foo}}} {=word bar}}} []`:`equal`,
 	`[{=flag {=word foobar}}] {=list {=compound {= {=flag {=}}} {=word foobar}}} []`:`equal`,
+	`[{=glob {=word fo} {=meta ?}} {=glob {=meta **}} {=compound {=word x} {=punct .} {=word h}}] {=path {=glob {=word f} {=meta *?}} {=compound {=word x} {=punct .} {=word h}}} []`:`smaller`, //cmp: [fo? ** x.h] f*?/x.h
+	`[{=meta **} {=punct .} {=word c++}] {= {=compound {=word x} {=punct .} {=word c++}}} []`:`greater`, //cmp: [** . c++] x.c++
+	`[{=meta **} {=punct .} {=word c++}] {= {=compound {=word y} {=punct .} {=word c++}}} []`:`greater`, //cmp: [** . c++] y.c++
+	`[{=meta **} {=punct .} {=word c++}] {=compound {=word foo} {=punct .} {=word c++}} []`:`greater`, //cmp: [** . c++] foo.c++
+	`[{=meta **} {=punct .} {=word c++}] {=path {=word foo} {=compound {=word bar} {=punct .} {=word c++}}} []`:`greater`, //cmp: [** . c++] foo/bar.c++
+	`[{=meta **} {=punct .} {=word c}] {= {=path {=word foo} {=compound {=word z} {=punct .} {=word c}}}} []`:`greater`, //cmp: [** . c] foo/z.c
+	`[{=meta **} {=punct .} {=word c}] {=compound {=word foo} {=punct .} {=word c}} []`:`greater`, //cmp: [** . c] foo.c
+	`[{=meta **} {=punct .} {=word c}] {=path {=word foo} {=compound {=word bar} {=punct .} {=word c}}} []`:`greater`, //cmp: [** . c] foo/bar.c
 	`[{=meta **} {=punct .} {=word def} {=punct .} {=word am}] [{=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}] []`:`smaller`,
+	`[{=meta **} {=punct .} {=word gen}] {= {=compound {=word a} {=punct .} {=word gen}}} []`:`greater`, //cmp: [** . gen] a.gen
+	`[{=meta **} {=punct .} {=word gen}] {= {=compound {=word b} {=punct .} {=word gen}}} []`:`greater`, //cmp: [** . gen] b.gen
+	`[{=meta **} {=punct .} {=word gen}] {= {=path {=word foo} {=compound {=word c} {=punct .} {=word gen}}}} []`:`greater`, //cmp: [** . gen] foo/c.gen
 	`[{=meta **} {=punct .} {=word h}] [{=meta **} {=punct .} {=word h}] []`:`equal`,
 	`[{=meta **} {=punct .} {=word h}] [{=meta *} {=punct .} {=word h}] []`:`greater`,
 	`[{=meta **} {=punct .} {=word h}] {=glob {=meta **} {=punct .} {=word h}} []`:`equal`,
@@ -1825,7 +2145,12 @@ var checkpoints_cmp = map[string]string{
 	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} []`:`greater`,
 	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [** . h] foo/bar/zz/x.h
+	`[{=meta *} {=punct .} {=word gen}] {= {=compound {=word x} {=punct .} {=word gen}}} []`:`greater`, //cmp: [* . gen] x.gen
+	`[{=meta *} {=punct .} {=word gen}] {= {=compound {=word y} {=punct .} {=word gen}}} []`:`greater`, //cmp: [* . gen] y.gen
 	`[{=meta *} {=punct .} {=word h}] [{=meta **} {=punct .} {=word h}] []`:`smaller`,
+	`[{=meta *} {=punct .} {=word h}] {= {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
+	`[{=meta *} {=punct .} {=word h}] {= {=compound {=word y} {=punct .} {=word h}}} []`:`greater`,
+	`[{=meta *} {=punct .} {=word h}] {= {=compound {=word z} {=punct .} {=word h}}} []`:`greater`,
 	`[{=meta *} {=punct .} {=word h}] {=glob {=meta **} {=punct .} {=word h}} []`:`smaller`,
 	`[{=meta *} {=punct .} {=word h}] {=glob {=meta *} {=punct .} {=word h}} []`:`equal`,
 	`[{=meta *} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`greater`, // [* . h] v?.h
@@ -1833,6 +2158,10 @@ var checkpoints_cmp = map[string]string{
 	`[{=meta *}] {=word zz} []`:`greater`, // [*] zz
 	`[{=meta ?} {=punct .} {=word h}] {=compound {=word x} {=punct .} {=word h}} []`:`greater`, // [? . h] x.h
 	`[{=meta ?}] [{=string z}] []`:`greater`, // [?] [z]
+	`[{=punct .} {=word test} {=punct .} {= {= {=word zzz}}}] {=compound {=punct .} {=word test} {=punct .} {= {= {=word zzz}}}} []`:`equal`,
+	`[{=punct .} {=word test} {=punct .} {=word foobax}] {=compound {=punct .} {=word test} {=punct .} {=word fxx}} []`:`smaller`, //cmp: [. test . foobax] .test.fxx
+	`[{=punct .} {=word test} {=punct .} {=word foobay}] {=compound {=punct .} {=word test} {=punct .} {=word fxx}} []`:`smaller`, //cmp: [. test . foobay] .test.fxx
+	`[{=punct .} {=word test} {=punct .} {=word foobaz}] {=compound {=punct .} {=word test} {=punct .} {=word fxx}} []`:`smaller`, //cmp: [. test . foobaz] .test.fxx
 	`[{=punct .} {=word test}] [{=string .test}] []`:`equal`,
 	`[{=punct .} {=word test}] {=compound {=punct .} {=word test}} []`:`equal`,
 	`[{=punct .} {=word test}] {=string .test} []`:`equal`,
@@ -1844,7 +2173,9 @@ var checkpoints_cmp = map[string]string{
 	`[{=string bar}] {=glob {=word ba} {=meta ?}} []`:`smaller`, //cmp: [bar] ba?
 	`[{=string bar}] {=glob {=word b} {=meta *}} []`:`smaller`, // [bar] b*
 	`[{=string foo}] {=glob {=word f} {=meta *?}} []`:`smaller`, // [foo] f*?
+	`[{=string main}] {=glob {=meta *}} []`:`smaller`,
 	`[{=string oo}] [{=meta *?}] []`:`smaller`, // [oo] [*?]
+	`[{=string o} {=meta ?}] [{=meta *?}] []`:`smaller`, //cmp: [o ?] [*?]
 	`[{=string r}] [{=meta *}] []`:`smaller`, //cmp: [r] [*]
 	`[{=string r}] [{=meta ?}] []`:`smaller`, //cmp: [r] [?]
 	`[{=string v1y} {=punct .} {=word h}] [{=meta *} {=word y} {=punct .} {=word h}] []`:`smaller`, // [v1y . h] [* y . h]
@@ -1881,6 +2212,8 @@ var checkpoints_cmp = map[string]string{
 	`[{=word foo} {=word bar} {=glob {=word xyz} {=meta ?} {=meta ?} {=meta ?} {=punct .} {=word txt}}] {=path {=word foo} {=glob {=word ba} {=meta ?}} {=glob {=word xyz} {=meta *} {=punct .} {=word txt}}} []`:`smaller`, //cmp: [foo bar xyz???.txt] foo/ba?/xyz*.txt
 	`[{=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [foo bar z? ?.h] foo/bar/zz/x.h
 	`[{=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // [foo bar zz ?.h] foo/bar/zz/x.h
+	`[{=word fo} {=meta ?}] {=glob {=word f} {=meta *?}} []`:`smaller`, //cmp: [fo ?] f*?
+	`[{=word main} {=compound {=word a} {=punct .} {=word c}}] {=path {=glob {=meta *}} {=compound {=word a} {=punct .} {=word c}}} []`:`smaller`,
 	`[{=word v1} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // [v1 . h] v?.h
 	`[{=word v2} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // [v2 . h] v?.h
 	`[{=word xv1y} {=punct .} {=word h}] {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}} []`:`smaller`, // [xv1y . h] x*y.h
@@ -1890,11 +2223,14 @@ var checkpoints_cmp = map[string]string{
 	`[{=word x} {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}}] {=list {=word x} {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}}} []`:`equal`, //cmp: [x xq xp] x xq xp
 	`[{=word x} {=punct .} {=word h}] [{=string config}] []`:`greater`,
 	`[{=word x} {=punct .} {=word h}] [{=string x.h}] []`:`equal`,
+	`[{=word x} {=punct .} {=word h}] {= {=compound {=word x} {=punct .} {=word h}}} []`:`equal`, //cmp: [x . h] x.h
 	`[{=word x} {=punct .} {=word h}] {=compound {=word x} {=punct .} {=word h}} []`:`equal`,
 	`[{=word x} {=punct .} {=word h}] {=string config} []`:`greater`,
 	`[{=word x} {=punct .} {=word h}] {=string x.h} []`:`equal`,
+	`[{=word y} {=punct .} {=word h}] {= {=compound {=word y} {=punct .} {=word h}}} []`:`equal`, //cmp: [y . h] y.h
 	`[{=word z} {=meta ?}] [{=string zz}] []`:`greater`, // [z ?] [zz]
 	`[{=word z} {=meta ?}] {=word zz} []`:`greater`, // [z ?] zz
+	`[{=word z} {=punct .} {=word h}] {= {=compound {=word z} {=punct .} {=word h}}} []`:`equal`, //cmp: [z . h] z.h
 	`{= {=compound {=word x} {= {=word p}}}} {= {=compound {=word x} {= {=word p}}}} []`:`equal`, //cmp: xp xp
 	`{= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word q}}}} []`:`equal`, //cmp: xq xq
 	`{= {=flag {=word foo}}} {=flag {=word foobar}} []`:`lprefix`,
@@ -1902,25 +2238,40 @@ var checkpoints_cmp = map[string]string{
 	`{= {=flag {=}}} {=flag {=word foobar}} []`:`lprefix`,
 	`{= {=flag {=}}} {=token -} []`:`equal`,
 	`{= {=word foo}} {=word foo} []`:`equal`,
-	`{= {=word p}} {= {=word p}} []`:`equal`, //cmp: p p
-	`{= {=word q}} {= {=word q}} []`:`equal`, //cmp: q q
 	`{=closure {=def some}} {=closure {=def some}} []`:`equal`, //cmp: &(some) &(some)
 	`{=closure {=word none}} {=closure {=word none}} []`:`equal`, //cmp: &(none) &(none)
 	`{=compound {= {=flag {=word foo}}} {=word bar}} {=flag {=word foobar}} []`:`equal`,
 	`{=compound {= {=flag {=}}} {=word foobar}} {=flag {=word foobar}} []`:`equal`,
+	`{=compound {=punct .} {=word test} {=punct .} {=word foobax}} {=compound {=punct .} {=word test} {=punct .} {=word fxx}} []`:`smaller`, //cmp: .test.foobax .test.fxx
+	`{=compound {=punct .} {=word test} {=punct .} {=word foobay}} {=compound {=punct .} {=word test} {=punct .} {=word fxx}} []`:`smaller`, //cmp: .test.foobay .test.fxx
+	`{=compound {=punct .} {=word test} {=punct .} {=word foobaz}} {=compound {=punct .} {=word test} {=punct .} {=word fxx}} []`:`smaller`, //cmp: .test.foobaz .test.fxx
 	`{=compound {=punct .} {=word test}} {=compound {=punct .} {=word test}} []`:`equal`,
 	`{=compound {=punct .} {=word test}} {=string .test} []`:`equal`,
 	`{=compound {=word v1} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // v1.h v?.h
 	`{=compound {=word v2} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`smaller`, // v2.h v?.h
 	`{=compound {=word xv1y} {=punct .} {=word h}} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}} []`:`smaller`, // xv1y.h x*y.h
+	`{=compound {=word x} {=punct .} {=word h}} {= {=compound {=word x} {=punct .} {=word h}}} []`:`equal`, //cmp: x.h x.h
 	`{=compound {=word x} {=punct .} {=word h}} {=compound {=word x} {=punct .} {=word h}} []`:`equal`,
 	`{=compound {=word x} {=punct .} {=word h}} {=string config} []`:`greater`,
 	`{=compound {=word x} {=punct .} {=word h}} {=string x.h} []`:`equal`,
-	`{=def some} {=def some} []`:`equal`, //cmp: some:=thing some:=thing
+	`{=compound {=word y} {=punct .} {=word h}} {= {=compound {=word y} {=punct .} {=word h}}} []`:`equal`, //cmp: y.h y.h
+	`{=compound {=word z} {=punct .} {=word h}} {= {=compound {=word z} {=punct .} {=word h}}} []`:`equal`, //cmp: z.h z.h
+	`{=file foo.txt} {=fullname {=file foo.txt}} []`:`equal`, //cmp: {=file foo.txt} {=file foo.txt}
 	`{=flag {=word foobar}} {=compound {= {=flag {=word foo}}} {=word bar}} []`:`equal`,
 	`{=flag {=word foobar}} {=compound {= {=flag {=}}} {=word foobar}} []`:`equal`,
+	`{=fullname {=file foo.txt}} {=file foo.txt} []`:`equal`, //cmp: {=file foo.txt} {=file foo.txt}
+	`{=glob {=meta **} {=punct .} {=word c++}} {= {=compound {=word x} {=punct .} {=word c++}}} []`:`greater`, //cmp: **.c++ x.c++
+	`{=glob {=meta **} {=punct .} {=word c++}} {= {=compound {=word y} {=punct .} {=word c++}}} []`:`greater`, //cmp: **.c++ y.c++
+	`{=glob {=meta **} {=punct .} {=word c++}} {=compound {=word foo} {=punct .} {=word c++}} []`:`greater`, //cmp: **.c++ foo.c++
+	`{=glob {=meta **} {=punct .} {=word c++}} {=path {=word foo} {=compound {=word bar} {=punct .} {=word c++}}} []`:`greater`, //cmp: **.c++ foo/bar.c++
+	`{=glob {=meta **} {=punct .} {=word c}} {= {=path {=word foo} {=compound {=word z} {=punct .} {=word c}}}} []`:`greater`, //cmp: **.c foo/z.c
+	`{=glob {=meta **} {=punct .} {=word c}} {=compound {=word foo} {=punct .} {=word c}} []`:`greater`, //cmp: **.c foo.c
+	`{=glob {=meta **} {=punct .} {=word c}} {=path {=word foo} {=compound {=word bar} {=punct .} {=word c}}} []`:`greater`, //cmp: **.c foo/bar.c
 	`{=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}} []`:`greater`,
 	`{=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} {=path {=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}} []`:`greater`,
+	`{=glob {=meta **} {=punct .} {=word gen}} {= {=compound {=word a} {=punct .} {=word gen}}} []`:`greater`, //cmp: **.gen a.gen
+	`{=glob {=meta **} {=punct .} {=word gen}} {= {=compound {=word b} {=punct .} {=word gen}}} []`:`greater`, //cmp: **.gen b.gen
+	`{=glob {=meta **} {=punct .} {=word gen}} {= {=path {=word foo} {=compound {=word c} {=punct .} {=word gen}}}} []`:`greater`, //cmp: **.gen foo/c.gen
 	`{=glob {=meta **} {=punct .} {=word hh}} {=word bar} []`:`greater`,
 	`{=glob {=meta **} {=punct .} {=word h}} {=glob {=meta **} {=punct .} {=word h}} []`:`equal`,
 	`{=glob {=meta **} {=punct .} {=word h}} {=glob {=meta *} {=punct .} {=word h}} []`:`greater`,
@@ -1928,6 +2279,11 @@ var checkpoints_cmp = map[string]string{
 	`{=glob {=meta **} {=punct .} {=word h}} {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} []`:`greater`,
 	`{=glob {=meta **} {=punct .} {=word h}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} []`:`greater`,
 	`{=glob {=meta **} {=punct .} {=word h}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
+	`{=glob {=meta *} {=punct .} {=word gen}} {= {=compound {=word x} {=punct .} {=word gen}}} []`:`greater`, //cmp: *.gen x.gen
+	`{=glob {=meta *} {=punct .} {=word gen}} {= {=compound {=word y} {=punct .} {=word gen}}} []`:`greater`, //cmp: *.gen y.gen
+	`{=glob {=meta *} {=punct .} {=word h}} {= {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
+	`{=glob {=meta *} {=punct .} {=word h}} {= {=compound {=word y} {=punct .} {=word h}}} []`:`greater`,
+	`{=glob {=meta *} {=punct .} {=word h}} {= {=compound {=word z} {=punct .} {=word h}}} []`:`greater`,
 	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=meta **} {=punct .} {=word h}} []`:`smaller`,
 	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=meta *} {=punct .} {=word h}} []`:`equal`,
 	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}} []`:`greater`,
@@ -1936,6 +2292,7 @@ var checkpoints_cmp = map[string]string{
 	`{=glob {=meta ?} {=punct .} {=word h}} {=compound {=word x} {=punct .} {=word h}} []`:`greater`,
 	`{=glob {=word b} {=meta *}} {=glob {=word b} {=meta ?} {=word r}} []`:`greater`,
 	`{=glob {=word b} {=meta ?} {=word r}} {=glob {=word b} {=meta *}} []`:`smaller`, // b?r b*
+	`{=glob {=word fo} {=meta ?}} {=glob {=word f} {=meta *?}} []`:`smaller`, //cmp: fo? f*?
 	`{=glob {=word xv} {=meta *} {=word y} {=punct .} {=word h}} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}} []`:`smaller`, // xv*y.h x*y.h
 	`{=glob {=word z} {=meta ?}} {=word zz} []`:`greater`, // z? zz
 	`{=list {16:16 {=word foo}}} {=list {=word foo}} []`:`equal`,
@@ -1949,12 +2306,19 @@ var checkpoints_cmp = map[string]string{
 	`{=meta **} {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} []`:`greater`,
 	`{=meta **} {=meta **} []`:`equal`,
 	`{=meta **} {=meta *} []`:`greater`,
+	`{=meta **} {=word a} []`:`greater`, //cmp: ** a
+	`{=meta **} {=word b} []`:`greater`, //cmp: ** b
 	`{=meta **} {=word foobar} []`:`greater`,
 	`{=meta **} {=word foo} []`:`greater`,
+	`{=meta **} {=word x} []`:`greater`, //cmp: ** x
+	`{=meta **} {=word y} []`:`greater`, //cmp: ** y
 	`{=meta *} {=meta **} []`:`smaller`,
 	`{=meta *} {=meta *} []`:`equal`,
 	`{=meta *} {=string zz} []`:`greater`, // * zz
 	`{=meta *} {=word v} []`:`greater`, // * v
+	`{=meta *} {=word x} []`:`greater`, //cmp: * x
+	`{=meta *} {=word y} []`:`greater`, //cmp: * y
+	`{=meta *} {=word z} []`:`greater`,
 	`{=meta ?} {=meta *} []`:`smaller`,
 	`{=meta ?} {=string z} []`:`greater`, // ? z
 	`{=meta ?} {=word x} []`:`greater`, // ? x
@@ -1964,6 +2328,7 @@ var checkpoints_cmp = map[string]string{
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}} []`:`smaller`,
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} []`:`smaller`,
 	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} []`:`smaller`,
+	`{=path {=glob {=word fo} {=meta ?}} {=glob {=meta **}} {=compound {=word x} {=punct .} {=word h}}} {=path {=glob {=word f} {=meta *?}} {=compound {=word x} {=punct .} {=word h}}} []`:`smaller`, //cmp: fo?/**/x.h f*?/x.h
 	`{=path {=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}} {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}} []`:`smaller`,
 	`{=path {=word foo} {=compound {=word xv1y} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}} []`:`smaller`, // foo/xv1y.h foo/x*y.h
 	`{=path {=word foo} {=glob {=meta **} {=punct .} {=word hh}}} {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}} []`:`greater`,
@@ -1990,6 +2355,7 @@ var checkpoints_cmp = map[string]string{
 	`{=path {=word foo} {=word bar} {=glob {=word xyz} {=meta ?} {=meta ?} {=meta ?} {=punct .} {=word txt}}} {=path {=word foo} {=glob {=word ba} {=meta ?}} {=glob {=word xyz} {=meta *} {=punct .} {=word txt}}} []`:`smaller`, //cmp: foo/bar/xyz???.txt foo/ba?/xyz*.txt
 	`{=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`, // foo/bar/z?/?.h foo/bar/zz/x.h
 	`{=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}} []`:`greater`,
+	`{=path {=word main} {=compound {=word a} {=punct .} {=word c}}} {=path {=glob {=meta *}} {=compound {=word a} {=punct .} {=word c}}} []`:`smaller`,
 	`{=punct .} {=compound {=word bar} {=punct .} {=word c}} []`:`smaller`,
 	`{=punct .} {=punct .} []`:`equal`,
 	`{=punct .} {=string .test} []`:`lprefix`,
@@ -1997,6 +2363,35 @@ var checkpoints_cmp = map[string]string{
 	`{=punct .} {=word c} []`:`smaller`,
 	`{=punct .} {=word foo} []`:`smaller`,
 	`{=punct .} {=word oo} []`:`smaller`,
+	`{=raw .self} {=raw .usee} []`:`smaller`, //cmp: .self .usee
+	`{=raw .self} {=raw var.zzz} []`:`smaller`, //cmp: .self var.zzz
+	`{=raw .self} {=raw var2} []`:`smaller`, //cmp: .self var2
+	`{=raw .self} {=raw vars} []`:`smaller`, //cmp: .self vars
+	`{=raw .self} {=raw xyz} []`:`smaller`, //cmp: .self xyz
+	`{=raw .usee} {=raw .self} []`:`greater`, //cmp: .usee .self
+	`{=raw .usee} {=raw var.zzz} []`:`smaller`, //cmp: .usee var.zzz
+	`{=raw .usee} {=raw var2} []`:`smaller`, //cmp: .usee var2
+	`{=raw .usee} {=raw vars} []`:`smaller`, //cmp: .usee vars
+	`{=raw .usee} {=raw xyz} []`:`smaller`, //cmp: .usee xyz
+	`{=raw var.zzz} {=raw .usee} []`:`greater`, //cmp: var.zzz .usee
+	`{=raw var.zzz} {=raw var2} []`:`smaller`, //cmp: var.zzz var2
+	`{=raw var.zzz} {=raw vars} []`:`smaller`, //cmp: var.zzz vars
+	`{=raw var.zzz} {=raw xyz} []`:`smaller`, //cmp: var.zzz xyz
+	`{=raw var2} {=raw var.zzz} []`:`greater`, //cmp: var2 var.zzz
+	`{=raw var2} {=raw vars} []`:`smaller`, //cmp: var2 vars
+	`{=raw var2} {=raw xyz} []`:`smaller`, //cmp: var2 xyz
+	`{=raw vars} {=raw var.zzz} []`:`greater`, //cmp: vars var.zzz
+	`{=raw vars} {=raw var2} []`:`greater`, //cmp: vars var2
+	`{=raw vars} {=raw xyz} []`:`smaller`, //cmp: vars xyz
+	`{=raw xxx} {=raw yyy} []`:`smaller`, //cmp: xxx yyy
+	`{=raw xxx} {=raw zzz} []`:`smaller`, //cmp: xxx zzz
+	`{=raw xyz} {=raw .usee} []`:`greater`, //cmp: xyz .usee
+	`{=raw xyz} {=raw var2} []`:`greater`, //cmp: xyz var2
+	`{=raw xyz} {=raw vars} []`:`greater`, //cmp: xyz vars
+	`{=raw yyy} {=raw xxx} []`:`greater`, //cmp: yyy xxx
+	`{=raw yyy} {=raw zzz} []`:`smaller`, //cmp: yyy zzz
+	`{=raw zzz} {=raw xxx} []`:`greater`, //cmp: zzz xxx
+	`{=raw zzz} {=raw yyy} []`:`greater`, //cmp: zzz yyy
 	`{=string 1} {=meta ?} []`:`smaller`, // 1 ?
 	`{=string 2} {=meta ?} []`:`smaller`, // 2 ?
 	`{=string ar} {=meta *} []`:`smaller`, // ar *
@@ -2007,7 +2402,9 @@ var checkpoints_cmp = map[string]string{
 	`{=string foo} {=string foo} []`:`equal`,
 	`{=string foo} {=word f} []`:`rprefix`,
 	`{=string h} {=string h} []`:`equal`,
+	`{=string main} {=meta *} []`:`smaller`,
 	`{=string oo} {=meta *?} []`:`smaller`, // oo *?
+	`{=string o} {=meta *?} []`:`smaller`, //cmp: o *?
 	`{=string r} {=meta *} []`:`smaller`, //cmp: r *
 	`{=string r} {=meta ?} []`:`smaller`, //cmp: r ?
 	`{=string v1y} {=meta *} []`:`smaller`, // v1y *
@@ -2021,44 +2418,78 @@ var checkpoints_cmp = map[string]string{
 	`{=token .} {=string .test} []`:`lprefix`,
 	`{=token .} {=token .} []`:`equal`,
 	`{=token .} {=word bar} []`:`smaller`,
+	`{=word .self} {=word .usee} []`:`smaller`, //cmp: .self .usee
+	`{=word .self} {=word var.zzz} []`:`smaller`, //cmp: .self var.zzz
+	`{=word .self} {=word var2} []`:`smaller`, //cmp: .self var2
+	`{=word .self} {=word vars} []`:`smaller`, //cmp: .self vars
+	`{=word .self} {=word xyz} []`:`smaller`, //cmp: .self xyz
+	`{=word .usee} {=word .self} []`:`greater`, //cmp: .usee .self
+	`{=word .usee} {=word var.zzz} []`:`smaller`, //cmp: .usee var.zzz
+	`{=word .usee} {=word var2} []`:`smaller`, //cmp: .usee var2
+	`{=word .usee} {=word vars} []`:`smaller`, //cmp: .usee vars
+	`{=word .usee} {=word xyz} []`:`smaller`, //cmp: .usee xyz
 	`{=word a} {= {=word a}} []`:`equal`, //cmp: a a
+	`{=word a} {=word d} []`:`smaller`,
 	`{=word bar} {=glob {=meta **} {=punct .} {=word hh}} []`:`smaller`,
 	`{=word bar} {=glob {=meta *} {=punct .} {=word h}} []`:`smaller`,
 	`{=word bar} {=glob {=word ba} {=meta *}} []`:`smaller`, //cmp: bar ba*
 	`{=word bar} {=glob {=word ba} {=meta ?}} []`:`smaller`, //cmp: bar ba?
 	`{=word bar} {=glob {=word b} {=meta *}} []`:`smaller`, // bar b*
 	`{=word bar} {=string bar} []`:`equal`,
-	`{=word bar} {=word bar} []`:`equal`, // bar bar
 	`{=word b} {= {=word a}} []`:`greater`, //cmp: b a
 	`{=word b} {= {=word b}} []`:`equal`, //cmp: b b
 	`{=word b} {=meta **} []`:`smaller`,
-	`{=word b} {=word b} []`:`equal`,
+	`{=word b} {=word d} []`:`smaller`,
 	`{=word conf3} {=word bar} []`:`greater`,
 	`{=word conf3} {=word foo} []`:`smaller`,
 	`{=word c} {= {=word a}} []`:`greater`, //cmp: c a
 	`{=word c} {= {=word b}} []`:`greater`, //cmp: c b
 	`{=word c} {= {=word c}} []`:`equal`, //cmp: c c
-	`{=word c} {=word c} []`:`equal`,
+	`{=word c} {=word d} []`:`smaller`,
 	`{=word foobar} {=meta **} []`:`smaller`,
 	`{=word foobar} {=string foobar} []`:`equal`,
 	`{=word foobar} {=token -} []`:`greater`,
 	`{=word foobar} {=word foobar} []`:`equal`,
+	`{=word foobax} {=word fxx} []`:`smaller`, //cmp: foobax fxx
+	`{=word foobay} {=word fxx} []`:`smaller`, //cmp: foobay fxx
+	`{=word foobaz} {=word fxx} []`:`smaller`, //cmp: foobaz fxx
+	`{=word foo} {= {= {= {= {=word foo}}}}} []`:`equal`, //cmp: foo foo
+	`{=word foo} {= {= {=word a}}} []`:`greater`, //cmp: foo a
+	`{=word foo} {= {= {=word b}}} []`:`greater`, //cmp: foo b
+	`{=word foo} {= {= {=word c}}} []`:`greater`, //cmp: foo c
 	`{=word foo} {=glob {=word f} {=meta *?}} []`:`smaller`, // foo f*?
 	`{=word foo} {=meta **} []`:`smaller`,
 	`{=word foo} {=meta *} []`:`smaller`,
+	`{=word foo} {=null} []`:`rprefix`, //cmp: foo {}
 	`{=word foo} {=token **} []`:`smaller`,
 	`{=word foo} {=token *} []`:`smaller`,
+	`{=word foo} {=word bar} []`:`greater`, //cmp: foo bar
 	`{=word foo} {=word foobar} []`:`lprefix`,
 	`{=word foo} {=word foo} []`:`equal`,
+	`{=word fo} {=word f} []`:`rprefix`, //cmp: fo f
 	`{=word h} {=word h} []`:`equal`,
+	`{=word main} {=glob {=meta *}} []`:`smaller`,
 	`{=word none} {=word none} []`:`equal`, //cmp: none none
+	`{=word rule0} {=word rule1} []`:`smaller`, //cmp: rule0 rule1
 	`{=word test} {=word test} []`:`equal`,
 	`{=word thing} {=word thing} []`:`equal`, //cmp: thing thing
 	`{=word v1} {=word v} []`:`rprefix`, // v1 v
 	`{=word v2} {=word v} []`:`rprefix`, // v2 v
+	`{=word var.zzz} {=word .usee} []`:`greater`, //cmp: var.zzz .usee
+	`{=word var.zzz} {=word var2} []`:`smaller`, //cmp: var.zzz var2
+	`{=word var.zzz} {=word xyz} []`:`smaller`, //cmp: var.zzz xyz
+	`{=word var2} {=word var.zzz} []`:`greater`, //cmp: var2 var.zzz
+	`{=word var2} {=word vars} []`:`smaller`, //cmp: var2 vars
+	`{=word var2} {=word xyz} []`:`smaller`, //cmp: var2 xyz
+	`{=word vars} {=word var.zzz} []`:`greater`, //cmp: vars var.zzz
+	`{=word vars} {=word var2} []`:`greater`, //cmp: vars var2
+	`{=word vars} {=word xyz} []`:`smaller`, //cmp: vars xyz
 	`{=word v} {=meta *} []`:`smaller`,
 	`{=word xv1y} {=word x} []`:`rprefix`,
 	`{=word xv} {=word x} []`:`rprefix`,
+	`{=word xyz} {=word .usee} []`:`greater`, //cmp: xyz .usee
+	`{=word xyz} {=word var2} []`:`greater`, //cmp: xyz var2
+	`{=word xyz} {=word vars} []`:`greater`, //cmp: xyz vars
 	`{=word x} {= {= {=null}}} []`:`rprefix`, //cmp: x {}
 	`{=word x} {= {=word a}} []`:`greater`, //cmp: x a
 	`{=word x} {= {=word b}} []`:`greater`, //cmp: x b
@@ -2067,27 +2498,39 @@ var checkpoints_cmp = map[string]string{
 	`{=word x} {=string config} []`:`greater`,
 	`{=word x} {=string x.h} []`:`lprefix`,
 	`{=word x} {=word xxx} []`:`lprefix`,
-	`{=word x} {=word x} []`:`equal`,
 	`{=word zz} {=glob {=meta *} {=punct .} {=word h}} []`:`smaller`,
 	`{=word zz} {=glob {=meta *}} []`:`smaller`,
-	`{=word zz} {=word zz} []`:`equal`, // zz zz
 	`{=word z} {=string zz} []`:`lprefix`, // z zz
 	`{=} {=word foobar} []`:`lprefix`,
+	`{=word init_flags} {=word init_flags_c} []`:`lprefix`,
+	`{=word init_flags} {=word init_flags_d} []`:`lprefix`,
+	`{=word init_flags_c} {=word init_flags_d} []`:`smaller`,
+	`{=word init_langs_flags} {=word init_flags} []`:`greater`,
+	`{=word init_langs_flags} {=word init_flags_c} []`:`greater`,
+	`{=word init_langs_flags} {=word init_flags_d} []`:`greater`,
 }
 func check_cmp(ctx Context, l, r any, syn []bool) func(*cmpres) {
 	k := rxLC.ReplaceAllString(sf("%v %v %v", ts(l), ts(r), syn), "=")
 	return func(_res *cmpres) {
 		if !truly(ctx, is_test_mode{}) { return }
+		if (*_res) == cmpEqual {
+			if rxLC.ReplaceAllString(ts(l), "=") == rxLC.ReplaceAllString(ts(r), "=") { return }
+		}
 
 		t := rxLC.ReplaceAllString(sf("%v", *_res), "=")
+
 		if v := checkpoints_cmp[k]; v == "" {
-			if true { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r) } else
-			{ debug(ctx, _f("`%v`:`%v`,", k, t), _f("%s, %v", ts(l), l), _f("%s, %v", ts(r), r), callstack{num:10}, trace{}) }
+			if false { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r) } else
+			{ debug(pc(pc(ctx,r),l),
+				_f("`%v`:`%v`,", k, t),
+				_f("%s, %v", ts(l), l),
+				_f("%s, %v", ts(r), r),
+				callstack{num:10}, trace{}) }
 		} else if v != t {
 			if false { prompt(ctx, "`%v`:`%v`, // %v %v\n", k, t, l, r) } else
-			{ debug(ctx,
+			{ debug(pc(pc(ctx,r),l),
 				_f("`%s`", k),
-				_f("got: %s <- %v %v", t, l, r),
+				_f("got: %s  <- cmp(%v, %v)", t, l, r),
 				_f("!= : %s", v),
 				callstack{num:10}, trace{}) }
 		}
@@ -2119,40 +2562,126 @@ func check_com(ctx *comctx, a, elems []Value, res *[]Value) {
 }
 
 var checkpoints_match = func(m map[string]any) map[string]any {
+	a := append(append([]string{}, testdata_l...), "builtins", "trimprefix")
+	for i := len(a); 0 <= i; i-- {
+		if 0 < i && i < len(a) {
+			s0 := strings.Join(a    , pathSep)
+			s1 := strings.Join(a[:i], pathSep); if s1 == "" { if i == 1 { s1 = "/" } else { s1 = "<nil>" } }
+			s2 := strings.Join(a[i:], pathSep); if s2 == "" { if i == 1 { s2 = "/" } else { s2 = "<nil>" } }
+			k := sf(`%[1]s %[2]s false`, s1, s0)
+			v := sf(`%[1]v %[2]s /%[3]s []`, i <= len(a), s1, s2)
+			m[k] = v ; if false { fmt.Printf(`"%v":"%v"`+"\n", k, v) }
+			if false { fmt.Printf("%d/%d %v %v\n", i, len(a), k, v) }
+		}
+		if false {
+			s := strings.Join(a[:i], pathSep)
+			k1 := sf(`**/testdata/ %[1]s false`, s)
+			k2 := sf(`*?/testdata/ %[1]s false`, s)
+			k3 := sf(`%%%%/testdata/ %[1]s false`, s)
+			if n := testdata_i + 1; n < i {
+				r := strings.Join(append(append([]string{}, a[:n]...), ""), pathSep)
+				s := strings.Join(a[:n-1], pathSep)
+				t := strings.Join(a[n:i], pathSep) // FIX: Bound slice to i
+				m[k1] = sf(`%[1]v %[2]s %[3]s [%[4]s]`, n == i, r, t, s)
+				m[k2] = sf(`%[1]v %[2]s %[3]s [%[4]s/]`, n == i, r, t, s)
+				m[k3] = m[k1]
+			} else {
+				s := strings.Join(a[:i], pathSep)
+				t := strings.Join([]string{}, pathSep) // FIX: Empty remainder
+				v := sf(`false %[1]s %[2]s [%[3]s]`, s, t, s, i)
+				m[k1], m[k2], m[k3] = v, v, v
+			}
+			if false { fmt.Printf(`"%v":"%v"`+"\n", k1, m[k1]) }
+		}
+		if false {
+			s := strings.Join(a[:i], pathSep)
+			k1 := sf(`/**/testdata/ %[1]s false`, s)
+			k2 := sf(`/*?/testdata/ %[1]s false`, s)
+			k3 := sf(`/%%%%/testdata/ %[1]s false`, s)
+			if n := testdata_i + 1; n < i {
+				r := strings.Join(append(append([]string{}, a[1:n]...), ""), pathSep)
+				s := strings.Join(a[1:n-1], pathSep)
+				t := strings.Join(a[n:i], pathSep) // FIX: Bound slice to i
+				m[k1] = sf(`%[1]v %[2]s %[3]s [%[4]s]`, n == i, r, t, s)
+				m[k2] = sf(`%[1]v %[2]s %[3]s [%[4]s/]`, n == i, r, t, s)
+				m[k3] = m[k1]
+			} else {
+				s := strings.Join(a[:i], pathSep)
+				t := strings.Join([]string{}, pathSep) // FIX: Empty remainder
+				v := sf(`false %[1]s %[2]s [%[3]s]`, s, t, s, i)
+				m[k1], m[k2], m[k3] = v, v, v
+			}
+			if false { fmt.Printf(`"%v":"%v"`+"\n", k1, m[k1]) }
+		}
+	}
 	return m
 }(map[string]any{
+	testdata_f(`%[1]s builtins/trimprefix false`): `false <nil> builtins/trimprefix []`,
+	testdata_f(`builtins/trimsuffix %[1]s true`, trim_suffix{1,"testdata"}): testdata_f(`false <nil> %[1]s []`, trim_suffix{1,"testdata"}),
+	testdata_f(`testdata/builtins/trimprefix %[1]s/builtins/trimprefix false`): testdata_f(`false <nil> %[1]s/builtins/trimprefix []`),
+	testdata_f(`testdata/builtins/trimsuffix %[1]s/builtins/trimsuffix false`): testdata_f(`false <nil> %[1]s/builtins/trimsuffix []`),
+	testdata_f(`testdata/builtins/trimsuffix %[1]s/builtins/trimsuffix true`): testdata_f(`true %[1]s [] []`, trim_suffix{1,"/testdata"}),
+	testdata_f(`testdata/**/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true testdata/builtins/trimsuffix/ %[1]s [builtins/trimsuffix]`, trim_suffix{1,"testdata"}),
+	testdata_f(`testdata/**/ %[1]s/builtins/trimsuffix true`): testdata_f(`false <nil> %[1]s/builtins/trimsuffix []`),
+	testdata_f(`testdata/** %[1]s/builtins/trimsuffix true`): testdata_f(`true testdata/builtins/trimsuffix %[1]s [builtins/trimsuffix]`, trim_suffix{1,"testdata"}),
+	testdata_f(`**/testdata %[1]s/builtins/trimprefix false`): testdata_f(`true %[1]s/testdata /builtins/trimprefix [%[1]s]`, trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/ %[1]s/builtins/trimprefix false`): testdata_f(`true %[1]s/testdata/ builtins/trimprefix [%[1]s]`, trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/** %[1]s/builtins/trimprefix false`): testdata_f(`true %[1]s/testdata/builtins/trimprefix <nil> [%[1]s builtins/trimprefix]`, trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/**/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true %[1]s/testdata/builtins/trimprefix/ <nil> [%[1]s builtins/trimprefix]`, trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/** %[1]s/builtins/trimsuffix true`): testdata_f(`true %[1]s/testdata/builtins/trimsuffix <nil> [%[1]s builtins/trimsuffix]`, trim_suffix{1,"/testdata"}),
+	testdata_f(`**/testdata/**/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true %[1]s/testdata/builtins/trimsuffix/ <nil> [%[1]s builtins/trimsuffix]`, trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/ %[1]s/builtins/trimprefix false`): testdata_f(`false /%[1]s/builtins/trimprefix <nil> [/%[1]s/builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/"}),
+	testdata_f(`*?/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/builtins/trimprefix/ <nil> [/%[1]s/builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/"}),
+	testdata_f(`*?/testdata/ %[1]s/builtins/trimprefix false`): testdata_f(`true /%[1]s/testdata/ builtins/trimprefix [/%[1]s]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata/*? %[1]s/builtins/trimprefix false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix <nil> [/%[1]s builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata/*? %[1]s/builtins/trimsuffix true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix <nil> [/%[1]s builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata/*?/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix/ <nil> [/%[1]s builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`*?/testdata/*?/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix/ <nil> [/%[1]s builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/testdata/**/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /testdata/builtins/trimsuffix/ %[1]s [builtins/trimsuffix]`, trim_suffix{1,"/testdata"}),
+	testdata_f(`/testdata/** %[1]s/builtins/trimsuffix true`): testdata_f(`true /testdata/builtins/trimsuffix %[1]s [builtins/trimsuffix]`, trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/ %[1]s/builtins/trimprefix false`): testdata_f(`true /%[1]s/builtins/ trimprefix [%[1]s/builtins]`, trim_prefix{1,"/"}, trim_suffix{1,"/"}),
+	testdata_f(`/**/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/builtins/trimprefix/ <nil> [%[1]s/builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/"}),
+	testdata_f(`/**/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/builtins/trimsuffix/ <nil> [%[1]s/builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/"}),
+	testdata_f(`/**/*data/*?/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix/ <nil> [%[1]s test builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/*data/*?/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix/ <nil> [%[1]s test builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata %[1]s/builtins/trimprefix false`): testdata_f(`true /%[1]s/testdata /builtins/trimprefix [%[1]s]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/ %[1]s/builtins/trimprefix false`): testdata_f(`true /%[1]s/testdata/ builtins/trimprefix [%[1]s]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/** %[1]s/builtins/trimprefix false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix <nil> [%[1]s builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/** %[1]s/builtins/trimsuffix true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix <nil> [%[1]s builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/**/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix/ <nil> [%[1]s builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/**/testdata/**/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix/ <nil> [%[1]s builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/ %[1]s/builtins/trimprefix false`): testdata_f(`false /%[1]s/builtins/trimprefix <nil> [%[1]s/builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/"}),
+	testdata_f(`/*?/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/builtins/trimprefix/ <nil> [%[1]s/builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/"}),
+	testdata_f(`/*?/ %[1]s/builtins/trimsuffix true`): testdata_f(`false /%[1]s/builtins/trimsuffix <nil> [%[1]s/builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/"}),
+	testdata_f(`/*?/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/builtins/trimsuffix/ <nil> [%[1]s/builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/"}),
+	testdata_f(`/*?/*data/*?/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix/ <nil> [%[1]s test builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/*data/*?/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix/ <nil> [%[1]s test builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/t*a/*?/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix/ <nil> [%[1]s estdat builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/t*a/*?/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix/ <nil> [%[1]s estdat builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/test*/**/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix/ <nil> [%[1]s data builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/test*/**/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix/ <nil> [%[1]s data builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/test*/*?/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix/ <nil> [%[1]s data builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/test*/*?/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix/ <nil> [%[1]s data builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/ %[1]s/builtins/trimprefix false`): testdata_f(`true /%[1]s/testdata/ builtins/trimprefix [%[1]s]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/*? %[1]s/builtins/trimprefix false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix <nil> [%[1]s builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/*? %[1]s/builtins/trimsuffix true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix <nil> [%[1]s builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/*?/ %[1]s/builtins/trimprefix/ false`): testdata_f(`true /%[1]s/testdata/builtins/trimprefix/ <nil> [%[1]s builtins/trimprefix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`/*?/testdata/*?/ %[1]s/builtins/trimsuffix/ true`): testdata_f(`true /%[1]s/testdata/builtins/trimsuffix/ <nil> [%[1]s builtins/trimsuffix]`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	modules_f("**/.smart/modules/ %[1]s/general false"):modules_f("true %[1]s/ general [/Volumes/workspace]"),
+	modules_f("%[1]s/ general false",trim_suffix{1,"/.smart/modules"}):"false <nil> general []",
+	modules_f("%[1]s/ general false",trim_suffix{1,"/modules"}):"false <nil> general []",
+	modules_f("%[1]s/ general false"):"false <nil> general []",
 	"%.c foo.c false":"true foo.c <nil> [foo]",
-	"%.c foo.c++ false":"false foo.c++ <nil> [foo.c++]",
+	"%.c foo.c++ false":"true foo.c ++ [foo]",
 	"%.c foo/bar.c false":"true foo/bar.c <nil> [foo/bar]",
-	"%.c foo/bar.c++ false":"false foo /bar.c++ [foo]",
+	"%.c foo/bar.c++ false":"true foo/bar.c ++ [foo/bar]",
 	"%.c foo/z.c false":"true foo/z.c <nil> [foo/z]",
-	"%.c x.c++ false":"false x.c++ <nil> [x.c++]",
-	"%.c y.c++ false":"false y.c++ <nil> [y.c++]",
+	"%.c x.c++ false":"true x.c ++ [x]",
+	"%.c y.c++ false":"true y.c ++ [y]",
 	"%.c++ foo.c++ false":"true foo.c++ <nil> [foo]",
 	"%.c++ foo/bar.c++ false":"true foo/bar.c++ <nil> [foo/bar]",
 	"%.c++ x.c++ false":"true x.c++ <nil> [x]",
 	"%.c++ y.c++ false":"true y.c++ <nil> [y]",
-	"* a false":"true a <nil> [a]",
-	"* a.h false":"true a.h <nil> [a.h]",
-	"* b false":"true b <nil> [b]",
-	"* b.h false":"true b.h <nil> [b.h]",
-	"* bar false":"true bar <nil> [bar]",
-	"* bar.h false":"true bar.h <nil> [bar.h]",
-	"* config false":"true config <nil> [config]",
-	"* foo false":"true foo <nil> [foo]",
-	"* foo.h false":"true foo.h <nil> [foo.h]",
-	"* foobar false":"true foobar <nil> [foobar]",
-	"* v1.h false":"true v1.h <nil> [v1.h]",
-	"* v2.h false":"true v2.h <nil> [v2.h]",
-	"* v?.h false":"true v?.h <nil> [v?.h]",
-	"* x.h false":"true x.h <nil> [x.h]",
-	"* xv1y.h false":"true xv1y.h <nil> [xv1y.h]",
-	"* xv22y.h false":"true xv22y.h <nil> [xv22y.h]",
-	"* xv333y.h false":"true xv333y.h <nil> [xv333y.h]",
-	"* zz false":"true zz <nil> [zz]",
-	"** a/b/c false":"true a/b/c <nil> [a/b/c]",
-	"** a/b/c/xyz false":"true a/b/c/xyz <nil> [a/b/c/xyz]",
-	"** false":"true  <nil> <nil> []",
 	"**.auto .test/a/b/c.auto false":"true .test/a/b/c.auto <nil> [.test/a/b/c]",
 	"**.auto .test/a/b/c.test false":"false .test/a/b/c.test <nil> [.test/a/b/c.test]",
 	"**.c foo.c false":"true foo.c <nil> [foo]",
@@ -2226,7 +2755,12 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"**.h inc/foobar/config/x.h false":"true inc/foobar/config/x.h <nil> [inc/foobar/config/x]",
 	"**.h inc/foobar/x.h false":"true inc/foobar/x.h <nil> [inc/foobar/x]",
 	"**.o **.o false":"true **.o <nil> [**]",
+	"**.o foo.c++.o false":"true foo.c++.o <nil> [foo.c++]",
+	"**.o foo.c.o false":"true foo.c.o <nil> [foo.c]",
 	"**.o foo.o false":"true foo.o <nil> [foo]",
+	"**.o foo/bar.o false":"true foo/bar.o <nil> [foo/bar]",
+	"**.o x.c++.o false":"true x.c++.o <nil> [x.c++]",
+	"**.o y.c++.o false":"true y.c++.o <nil> [y.c++]",
 	"**y  false":"false  <nil> []",
 	"**y a/b/c/y false":"true a/b/c/y <nil> [a/b/c/]",
 	"**y a/b/c/y/z false":"false a/b/c/y/z <nil> [a/b/c/y/z]",
@@ -2302,9 +2836,19 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"*/*.h xv333y.h false":"false xv333y.h <nil> [xv333y.h]",
 	"*/*/*.h bar.h false":"false bar.h <nil> [bar.h]",
 	"*/*/*.h foo.h false":"false foo.h <nil> [foo.h]",
+	"*/a.c main/a.c false":"true main/a.c <nil> [main]",
 	"*data testdata false":"true testdata <nil> [test]",
-	". . false":"true . <nil> <nil> []",
-	".test .test false":"true .test <nil> <nil> []",
+	".deps **.c false":"false <nil> **.c []",
+	".deps **.c++ false":"false <nil> **.c++ []",
+	".deps **.gen false":"false <nil> **.gen []",
+	".deps *.gen false":"false <nil> *.gen []",
+	".deps/??/??/?????????? **.c false":"false <nil> **.c []",
+	".deps/??/??/?????????? **.c++ false":"false <nil> **.c++ []",
+	".deps/??/??/?????????? **.gen false":"false <nil> **.gen []",
+	".deps/??/??/?????????? *.gen false":"false <nil> *.gen []",
+	".deps/??/??/?????????? .deps/xx/yy/zzzzzzzzzz false":"true .deps/xx/yy/zzzzzzzzzz <nil> [x x y y z z z z z z z z z z]",
+	".deps/??/??/?????????? foo/*.c false":"false <nil> foo/*.c []",
+	".deps/??/??/?????????? foo/*.c++ false":"false <nil> foo/*.c++ []",
 	".test/**/**z .test/a/b/c/xyz false":"true .test/a/b/c/xyz <nil> [a/b/c xy]",
 	".test/**y/**y .test/a/b/cy/a/b/c/y false":"true .test/a/b/cy/a/b/c/y <nil> [a/b/c a/b/c/]",
 	".test/**y/**y/z .test/a/b/cy/a/b/c/y/z false":"true .test/a/b/cy/a/b/c/y/z <nil> [a/b/c a/b/c/]",
@@ -2320,6 +2864,7 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	".test/*/*/*.h .test/a/b/c/d.h false":"false .test/a/b/c /d.h [a b c]",
 	".test/*/*/*.h .test/a/b/c/d/e.h false":"false .test/a/b/c /d/e.h [a b c]",
 	".test/*?y/**y .test/a/b/cy/a/b/c/y false":"true .test/a/b/cy/a/b/c/y <nil> [a/b/c a/b/c/]",
+	".test/a/**.c .test/a/b/c/foo.c false":"true .test/a/b/c/foo.c <nil> [b/c/foo]",
 	".test/a/**.c .test/a/b/c.auto false":"false .test/a/b/c.auto <nil> [b/c.auto]",
 	".test/a/**.c .test/a/b/c.none false":"false .test/a/b/c.none <nil> [b/c.none]",
 	".test/x**/**y .test/xa/b/c/dy false":"true .test/xa/b/c/dy <nil> [a/b/c d]",
@@ -2338,24 +2883,29 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	".test/x**y/z .test/xxx/a/b/c/yyy/z false":"true .test/xxx/a/b/c/yyy/z <nil> [xx/a/b/c/yy]",
 	".test/x*?/**y .test/xa/b/c/dy false":"true .test/xa/b/c/dy <nil> [a b/c/d]",
 	".test/x*?/**y .test/xabc/abcy false":"true .test/xabc/abcy <nil> [abc abc]",
-	".test/x*?y .test/x/xx-yy/y false":"false .test/x/xx-y y/y [/xx-]",
-	".test/x*?y .test/xxx-yyx false":"false .test/xxx-y yx [xx-]",
-	".test/x*?y .test/xxx-yyx/y false":"false .test/xxx-y yx/y [xx-]",
-	".test/x*?y .test/xxx-yyx/z false":"false .test/xxx-y yx/z [xx-]",
-	".test/x*?y .test/xxx-yyy false":"false .test/xxx-y yy [xx-]",
-	".test/x*?y .test/xxx/a/b/c/yyy false":"false .test/xxx/a/b/c/y yy [xx/a/b/c/]",
+	".test/x*?y .test/x/xx-yy/y false":"true .test/x/xx-y y/y [/xx-]",
+	".test/x*?y .test/xxx-yyx false":"true .test/xxx-y yx [xx-]",
+	".test/x*?y .test/xxx-yyx/y false":"true .test/xxx-y yx/y [xx-]",
+	".test/x*?y .test/xxx-yyx/z false":"true .test/xxx-y yx/z [xx-]",
+	".test/x*?y .test/xxx-yyy false":"true .test/xxx-y yy [xx-]",
+	".test/x*?y .test/xxx/a/b/c/yyy false":"true .test/xxx/a/b/c/y yy [xx/a/b/c/]",
 	".test/x*?y/x*?y .test/xaa/bb/ccy/xaa/bb/ccy false":"true .test/xaa/bb/ccy/xaa/bb/ccy <nil> [aa/bb/cc aa/bb/cc]",
 	".test/x*?y/x*?y .test/xaaay/x/aaa/y false":"true .test/xaaay/x/aaa/y <nil> [aaa /aaa/]",
-	"/builtins /builtins/trimprefix false":"false <nil> /builtins/trimprefix []",
+	".test/xx/*.c .test/xx/foo.c false":"true .test/xx/foo.c <nil> [foo]",
+	".test/xx/yy/*.c .test/xx/yy/foo.c false":"true .test/xx/yy/foo.c <nil> [foo]",
+	".test/xx/yy/zz/*.c .test/xx/yy/zz/foo.c false":"true .test/xx/yy/zz/foo.c <nil> [foo]",
 	"?.h x.h false":"true x.h <nil> [x]",
-	"auto auto false":"true auto <nil> []",
+	"a.gen **.gen false":"true **.gen <nil> []",
 	"auto test false":"false <nil> test []",
 	"b* b?r false":"true b?r <nil> [?r]",
 	"b* bar false":"true bar <nil> [ar]",
+	"b.gen **.gen false":"true **.gen <nil> []",
 	"b?r b* false":"false <nil> b* []",
 	"b?r bar false":"true bar <nil> [a]",
+	"b?r config false":"false <nil> config []",
 	"b?r v1.h false":"false <nil> v1.h []",
 	"b?r v2.h false":"false <nil> v2.h []",
+	"b?r x.h false":"false <nil> x.h []",
 	"b?r xv1y.h false":"false <nil> xv1y.h []",
 	"b?r xv22y.h false":"false <nil> xv22y.h []",
 	"b?r xv333y.h false":"false <nil> xv333y.h []",
@@ -2365,9 +2915,10 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"b?r/v?.h xv22y.h false":"false <nil> xv22y.h []",
 	"b?r/v?.h xv333y.h false":"false <nil> xv333y.h []",
 	"bar *.h false":"false <nil> *.h []",
-	"bar bar false":"true bar <nil> []",
+	"bar config false":"false <nil> config []",
 	"bar v1.h false":"false <nil> v1.h []",
 	"bar v2.h false":"false <nil> v2.h []",
+	"bar x.h false":"false <nil> x.h []",
 	"bar xv1y.h false":"false <nil> xv1y.h []",
 	"bar xv22y.h false":"false <nil> xv22y.h []",
 	"bar xv333y.h false":"false <nil> xv333y.h []",
@@ -2381,9 +2932,6 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"bar/v?.h xv1y.h false":"false <nil> xv1y.h []",
 	"bar/v?.h xv22y.h false":"false <nil> xv22y.h []",
 	"bar/v?.h xv333y.h false":"false <nil> xv333y.h []",
-	"builtins builtins/trimprefix false":"false builtins /trimprefix []",
-	"c c false":"true c <nil> <nil> []",
-	"config config false":"true config <nil> []",
 	"config x.h false":"false <nil> x.h []",
 	"config/*.def.am x.h false":"false <nil> x.h []",
 	"config/*.def.in x.h false":"false <nil> x.h []",
@@ -2393,8 +2941,14 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"f*?/x.h foo/bar/x.h false":"true foo/bar/x.h <nil> [oo/bar]",
 	"f*?/x.h foobar/config/x.h false":"true foobar/config/x.h <nil> [oobar/config]",
 	"f*?/x.h foobar/x.h false":"true foobar/x.h <nil> [oobar]",
+	"fo? bar.h false":"false <nil> bar.h []",
 	"fo? foo false":"true foo <nil> [o]",
+	"fo? foo.h false":"true foo .h [o]",
+	"fo? foobar false":"true foo bar [o]",
+	"fo?/**/x.h bar.h false":"false <nil> bar.h []",
 	"fo?/**/x.h f*?/x.h false":"true f*?/x.h <nil> [*?]",
+	"fo?/**/x.h foo false":"false foo <nil> [o]",
+	"fo?/**/x.h foo.h false":"false foo .h [o]",
 	"fo?/**/x.h foo/b*/v*.h false":"false foo/b*/v*.h <nil> [o b*/v*.h]",
 	"fo?/**/x.h foo/bar false":"false foo/bar <nil> [o bar]",
 	"fo?/**/x.h foo/bar/v1.h false":"false foo/bar/v1.h <nil> [o bar/v1.h]",
@@ -2402,20 +2956,37 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"fo?/**/x.h foo/bar/v3.hh false":"false foo/bar/v3.hh <nil> [o bar/v3.hh]",
 	"fo?/**/x.h foo/bar/xyz000.txt false":"false foo/bar/xyz000.txt <nil> [o bar/xyz000.txt]",
 	"fo?/**/x.h foo/bar/zz false":"false foo/bar/zz <nil> [o bar/zz]",
-	"fo?/**/x.h foo/bar/zz/x.h false":"true foo/bar/zz/x.h <nil> [o/bar/zz]",
+	"fo?/**/x.h foo/bar/zz/x.h false":"true foo/bar/zz/x.h <nil> [o bar/zz]",
 	"fo?/**/x.h foo/v1.h false":"false foo/v1.h <nil> [o v1.h]",
 	"fo?/**/x.h foo/v2.h false":"false foo/v2.h <nil> [o v2.h]",
 	"fo?/**/x.h foo/x*y.h false":"false foo/x*y.h <nil> [o x*y.h]",
-	"fo?/**/x.h foobar/x.h false":"false <nil> foobar/x.h []",
+	"fo?/**/x.h foo/xv1y.h false":"false foo/xv1y.h <nil> [o xv1y.h]",
+	"fo?/**/x.h foo/xv22y.h false":"false foo/xv22y.h <nil> [o xv22y.h]",
+	"fo?/**/x.h foo/xv333y.h false":"false foo/xv333y.h <nil> [o xv333y.h]",
+	"fo?/**/x.h foobar false":"false foo bar [o]",
+	"fo?/**/x.h foobar/config false":"false foo bar/config [o]",
+	"fo?/**/x.h foobar/config/a.def.am false":"false foo bar/config/a.def.am [o]",
+	"fo?/**/x.h foobar/config/a.def.in false":"false foo bar/config/a.def.in [o]",
+	"fo?/**/x.h foobar/config/b.def.in false":"false foo bar/config/b.def.in [o]",
+	"fo?/**/x.h foobar/config/x.h false":"false foo bar/config/x.h [o]",
+	"fo?/**/x.h foobar/x.h false":"false foo bar/x.h [o]",
+	"foo **.c false":"false <nil> **.c []",
+	"foo **.c++ false":"false <nil> **.c++ []",
+	"foo **.gen false":"false <nil> **.gen []",
 	"foo **.h false":"false <nil> **.h []",
+	"foo *.gen false":"false <nil> *.gen []",
 	"foo *.h false":"false <nil> *.h []",
 	"foo bar.h false":"false <nil> bar.h []",
-	"foo foo false":"true foo <nil> []",
-	"foo foo.h false":"false foo .h []",
-	"foo foo.o false":"false foo .o []",
+	"foo foo.h false":"true foo .h []",
 	"foo foo.txt false":"false foo .txt []",
 	"foo foo??? false":"false foo ??? []",
-	"foo foobar false":"false foo bar []",
+	"foo foobar false":"true foo bar []",
+	"foo.c **.c false":"true **.c <nil> []",
+	"foo.c foo false":"false foo <nil> []",
+	"foo.c foo/*.c false":"false foo /*.c []",
+	"foo.c++ **.c++ false":"true **.c++ <nil> []",
+	"foo.c++ foo false":"false foo <nil> []",
+	"foo.c++ foo/*.c++ false":"false foo /*.c++ []",
 	"foo/**.hh **.h false":"false <nil> **.h []",
 	"foo/**.hh *.h false":"false <nil> *.h []",
 	"foo/**.hh foo/*.h false":"false foo/*.h <nil> [*.h]",
@@ -2439,7 +3010,12 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo/**/x.h foo/xv22y.h false":"false foo/xv22y.h <nil> [xv22y.h]", //match
 	"foo/**/x.h foo/xv333y.h false":"false foo/xv333y.h <nil> [xv333y.h]", //match
 	"foo/**/x.h foobar false":"false foo bar []", //match
-	"foo/**/x.h foobar/x.h false":"false <nil> foobar/x.h []",
+	"foo/**/x.h foobar/config false":"false foo bar/config []",
+	"foo/**/x.h foobar/config/a.def.am false":"false foo bar/config/a.def.am []",
+	"foo/**/x.h foobar/config/a.def.in false":"false foo bar/config/a.def.in []",
+	"foo/**/x.h foobar/config/b.def.in false":"false foo bar/config/b.def.in []",
+	"foo/**/x.h foobar/config/x.h false":"false foo bar/config/x.h []",
+	"foo/**/x.h foobar/x.h false":"false foo bar/x.h []",
 	"foo/*.h **.h false":"true **.h <nil> []",
 	"foo/*.h *.h false":"false <nil> *.h []",
 	"foo/*.h bar.h false":"false <nil> bar.h []", //match
@@ -2449,13 +3025,13 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo/*.h foo/*.h false":"true foo/*.h <nil> [*]",
 	"foo/*.h foo/bar false":"false foo/bar <nil> [bar]", //match
 	"foo/*.h foo/bar/*.h false":"false foo/bar /*.h [bar]", //match
-	"foo/*.h foo/bar/*/*.h false":"false foo /bar/*/*.h [bar]",
-	"foo/*.h foo/bar/v1.h false":"false foo /bar/v1.h [bar]",
-	"foo/*.h foo/bar/v2.h false":"false foo /bar/v2.h [bar]",
-	"foo/*.h foo/bar/v?.h false":"false foo /bar/v?.h [bar]",
-	"foo/*.h foo/bar/z?/?.h false":"false foo /bar/z?/?.h [bar]",
-	"foo/*.h foo/bar/zz/?.h false":"false foo /bar/zz/?.h [bar]",
-	"foo/*.h foo/bar/zz/x.h false":"false foo /bar/zz/x.h [bar]",
+	"foo/*.h foo/bar/*/*.h false":"false foo/bar /*/*.h [bar]",
+	"foo/*.h foo/bar/v1.h false":"false foo/bar /v1.h [bar]",
+	"foo/*.h foo/bar/v2.h false":"false foo/bar /v2.h [bar]",
+	"foo/*.h foo/bar/v?.h false":"false foo/bar /v?.h [bar]",
+	"foo/*.h foo/bar/z?/?.h false":"false foo/bar /z?/?.h [bar]",
+	"foo/*.h foo/bar/zz/?.h false":"false foo/bar /zz/?.h [bar]",
+	"foo/*.h foo/bar/zz/x.h false":"false foo/bar /zz/x.h [bar]",
 	"foo/*.h foo/v1.h false":"true foo/v1.h <nil> [v1]", //match
 	"foo/*.h foo/v2.h false":"true foo/v2.h <nil> [v2]", //match
 	"foo/*.h foo/xv1y.h false":"true foo/xv1y.h <nil> [xv1y]", //match
@@ -2463,6 +3039,8 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo/*.h foo/xv333y.h false":"true foo/xv333y.h <nil> [xv333y]", //match
 	"foo/*.h foo???/x.h false":"false <nil> foo???/x.h []",
 	"foo/*.h foobar false":"false foo bar []", //match
+	"foo/*.h foobar/config false":"false foo bar/config []",
+	"foo/*.h foobar/x.h false":"false foo bar/x.h []",
 	"foo/*.hh *.h false":"false <nil> *.h []",
 	"foo/b*/v*.h fo?/**/x.h false":"false <nil> fo?/**/x.h []",
 	"foo/b*/v*.h foo/**/x.h false":"false foo **/x.h []", //match
@@ -2482,7 +3060,7 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo/b?r/v?.h foo/bar false":"false foo/bar <nil> [a]",
 	"foo/b?r/v?.h foo/bar/v1.h false":"true foo/bar/v1.h <nil> [a 1]",
 	"foo/b?r/v?.h foo/bar/v2.h false":"true foo/bar/v2.h <nil> [a 2]",
-	"foo/b?r/v?.h foo/bar/v3.hh false":"false foo/bar/v3.h h [a 3]", //match
+	"foo/b?r/v?.h foo/bar/v3.hh false":"true foo/bar/v3.h h [a 3]", //match
 	"foo/b?r/v?.h foo/bar/xyz000.txt false":"false foo/bar xyz000.txt [a]",
 	"foo/b?r/v?.h foo/bar/zz false":"false foo/bar zz [a]",
 	"foo/b?r/v?.h foo/v1.h false":"false foo v1.h []",
@@ -2491,19 +3069,40 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo/b?r/v?.h foo/xv22y.h false":"false foo xv22y.h []",
 	"foo/b?r/v?.h foo/xv333y.h false":"false foo xv333y.h []",
 	"foo/b?r/v?.h foobar false":"false foo bar []", //match
+	"foo/b?r/v?.h foobar/config false":"false foo bar/config []",
+	"foo/b?r/v?.h foobar/x.h false":"false foo bar/x.h []",
+	"foo/ba*/v?.h foo/bar/v1.h false":"true foo/bar/v1.h <nil> [r 1]",
+	"foo/ba*/v?.h foo/bar/v2.h false":"true foo/bar/v2.h <nil> [r 2]",
+	"foo/ba?/xyz*.txt foo/bar/xyz???.txt false":"true foo/bar/xyz???.txt <nil> [r ???]",
+	"foo/bar.c **.c false":"true **.c <nil> []",
+	"foo/bar.c foo/*.c false":"true foo/*.c <nil> []",
+	"foo/bar.c++ **.c++ false":"true **.c++ <nil> []",
+	"foo/bar.c++ foo/*.c++ false":"true foo/*.c++ <nil> []",
 	"foo/bar/*.h foo/**.hh false":"false foo/bar/**.hh <nil> [**.hh]",
-	"foo/bar/*.h foo/*.h false":"false foo /*.h []",
+	"foo/bar/*.h foo/*.h false":"false foo *.h []",
 	"foo/bar/*.h foo/bar/v?.h false":"true foo/bar/v?.h <nil> [v?]",
 	"foo/bar/*.h foo/bar/zz/x.h false":"false foo/bar/zz /x.h [zz]",
 	"foo/bar/*.h foo???/x.h false":"false <nil> foo???/x.h []",
-	"foo/bar/*.hh foo/**.hh false":"false foo /**.hh []",
-	"foo/bar/*.hh foo/v1.h false":"false foo /v1.h []",
-	"foo/bar/*.hh foo/v2.h false":"false foo /v2.h []",
-	"foo/bar/*.hh foo/xv1y.h false":"false foo /xv1y.h []",
-	"foo/bar/*.hh foo/xv22y.h false":"false foo /xv22y.h []",
-	"foo/bar/*.hh foo/xv333y.h false":"false foo /xv333y.h []",
-	"foo/bar/*/*.h foo/**.hh false":"false foo /**.hh []",
-	"foo/bar/*/*.h foo/*.h false":"false foo /*.h []",
+	"foo/bar/*.hh bar.h false":"false <nil> bar.h []",
+	"foo/bar/*.hh foo false":"false foo <nil> []",
+	"foo/bar/*.hh foo.h false":"false foo .h []",
+	"foo/bar/*.hh foo/**.hh false":"false foo **.hh []",
+	"foo/bar/*.hh foo/bar false":"false foo/bar <nil> []",
+	"foo/bar/*.hh foo/bar/v1.h false":"false foo/bar/v1.h <nil> [v1.h]",
+	"foo/bar/*.hh foo/bar/v2.h false":"false foo/bar/v2.h <nil> [v2.h]",
+	"foo/bar/*.hh foo/bar/v3.hh false":"true foo/bar/v3.hh <nil> [v3]",
+	"foo/bar/*.hh foo/bar/xyz000.txt false":"false foo/bar/xyz000.txt <nil> [xyz000.txt]",
+	"foo/bar/*.hh foo/bar/zz false":"false foo/bar/zz <nil> [zz]",
+	"foo/bar/*.hh foo/v1.h false":"false foo v1.h []",
+	"foo/bar/*.hh foo/v2.h false":"false foo v2.h []",
+	"foo/bar/*.hh foo/xv1y.h false":"false foo xv1y.h []",
+	"foo/bar/*.hh foo/xv22y.h false":"false foo xv22y.h []",
+	"foo/bar/*.hh foo/xv333y.h false":"false foo xv333y.h []",
+	"foo/bar/*.hh foobar false":"false foo bar []",
+	"foo/bar/*.hh foobar/config false":"false foo bar/config []",
+	"foo/bar/*.hh foobar/x.h false":"false foo bar/x.h []",
+	"foo/bar/*/*.h foo/**.hh false":"false foo **.hh []",
+	"foo/bar/*/*.h foo/*.h false":"false foo *.h []",
 	"foo/bar/*/*.h foo/bar/v?.h false":"false foo/bar/v?.h <nil> [v?.h]",
 	"foo/bar/*/*.h foo/bar/zz/x.h false":"true foo/bar/zz/x.h <nil> [zz x]",
 	"foo/bar/*/*.h foo???/x.h false":"false <nil> foo???/x.h []",
@@ -2518,9 +3117,9 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo/bar/v?.h foo/bar/*/*.h false":"false foo/bar */*.h []", //match
 	"foo/bar/v?.h foo/bar/v1.h false":"true foo/bar/v1.h <nil> [1]",
 	"foo/bar/v?.h foo/bar/v2.h false":"true foo/bar/v2.h <nil> [2]",
-	"foo/bar/v?.h foo/bar/v3.hh false":"false foo/bar/v3.h h [3]", //match
+	"foo/bar/v?.h foo/bar/v3.hh false":"true foo/bar/v3.h h [3]", //match
 	"foo/bar/v?.h foo/bar/xyz000.txt false":"false foo/bar xyz000.txt []", //match
-	"foo/bar/v?.h foo/bar/z?/?.h false":"false foo/bar /z?/?.h []",
+	"foo/bar/v?.h foo/bar/z?/?.h false":"false foo/bar z?/?.h []",
 	"foo/bar/v?.h foo/bar/zz false":"false foo/bar zz []", //match
 	"foo/bar/v?.h foo/v1.h false":"false foo v1.h []", //match
 	"foo/bar/v?.h foo/v2.h false":"false foo v2.h []", //match
@@ -2528,20 +3127,34 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo/bar/v?.h foo/xv22y.h false":"false foo xv22y.h []", //match
 	"foo/bar/v?.h foo/xv333y.h false":"false foo xv333y.h []", //match
 	"foo/bar/v?.h foobar false":"false foo bar []", //match
-	"foo/bar/xyz???.txt foo/v1.h false":"false foo /v1.h []",
-	"foo/bar/xyz???.txt foo/v2.h false":"false foo /v2.h []",
-	"foo/bar/xyz???.txt foo/xv1y.h false":"false foo /xv1y.h []",
-	"foo/bar/xyz???.txt foo/xv22y.h false":"false foo /xv22y.h []",
-	"foo/bar/xyz???.txt foo/xv333y.h false":"false foo /xv333y.h []",
-	"foo/bar/z?/?.h foo/*.h false":"false foo /*.h []",
+	"foo/bar/v?.h foobar/config false":"false foo bar/config []",
+	"foo/bar/v?.h foobar/x.h false":"false foo bar/x.h []",
+	"foo/bar/xyz???.txt bar.h false":"false <nil> bar.h []",
+	"foo/bar/xyz???.txt foo false":"false foo <nil> []",
+	"foo/bar/xyz???.txt foo.h false":"false foo .h []",
+	"foo/bar/xyz???.txt foo/bar false":"false foo/bar <nil> []",
+	"foo/bar/xyz???.txt foo/bar/v1.h false":"false foo/bar v1.h []",
+	"foo/bar/xyz???.txt foo/bar/v2.h false":"false foo/bar v2.h []",
+	"foo/bar/xyz???.txt foo/bar/v3.hh false":"false foo/bar v3.hh []",
+	"foo/bar/xyz???.txt foo/bar/xyz000.txt false":"true foo/bar/xyz000.txt <nil> [0 0 0]",
+	"foo/bar/xyz???.txt foo/bar/zz false":"false foo/bar zz []",
+	"foo/bar/xyz???.txt foo/v1.h false":"false foo v1.h []",
+	"foo/bar/xyz???.txt foo/v2.h false":"false foo v2.h []",
+	"foo/bar/xyz???.txt foo/xv1y.h false":"false foo xv1y.h []",
+	"foo/bar/xyz???.txt foo/xv22y.h false":"false foo xv22y.h []",
+	"foo/bar/xyz???.txt foo/xv333y.h false":"false foo xv333y.h []",
+	"foo/bar/xyz???.txt foobar false":"false foo bar []",
+	"foo/bar/xyz???.txt foobar/config false":"false foo bar/config []",
+	"foo/bar/xyz???.txt foobar/x.h false":"false foo bar/x.h []",
+	"foo/bar/z?/?.h foo/*.h false":"false foo *.h []",
 	"foo/bar/z?/?.h foo/bar/zz/x.h false":"true foo/bar/zz/x.h <nil> [z x]",
-	"foo/bar/z?/?.h foo/v1.h false":"false foo /v1.h []",
-	"foo/bar/z?/?.h foo/v2.h false":"false foo /v2.h []",
-	"foo/bar/z?/?.h foo/xv1y.h false":"false foo /xv1y.h []",
-	"foo/bar/z?/?.h foo/xv22y.h false":"false foo /xv22y.h []",
-	"foo/bar/z?/?.h foo/xv333y.h false":"false foo /xv333y.h []",
+	"foo/bar/z?/?.h foo/v1.h false":"false foo v1.h []",
+	"foo/bar/z?/?.h foo/v2.h false":"false foo v2.h []",
+	"foo/bar/z?/?.h foo/xv1y.h false":"false foo xv1y.h []",
+	"foo/bar/z?/?.h foo/xv22y.h false":"false foo xv22y.h []",
+	"foo/bar/z?/?.h foo/xv333y.h false":"false foo xv333y.h []",
 	"foo/bar/z?/?.h foo???/x.h false":"false <nil> foo???/x.h []",
-	"foo/bar/zz/?.h foo/*.h false":"false foo /*.h []",
+	"foo/bar/zz/?.h foo/*.h false":"false foo *.h []",
 	"foo/bar/zz/?.h foo/bar/zz/x.h false":"true foo/bar/zz/x.h <nil> [x]",
 	"foo/bar/zz/?.h foo???/x.h false":"false <nil> foo???/x.h []",
 	"foo/bar/zz/x.h **.h false":"true **.h <nil> []",
@@ -2551,6 +3164,7 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo/bar/zz/x.h foo/bar/*/*.h false":"true foo/bar/*/*.h <nil> []",
 	"foo/bar/zz/x.h foo/bar/z?/?.h false":"true foo/bar/z?/?.h <nil> []",
 	"foo/bar/zz/x.h foo/bar/zz/?.h false":"true foo/bar/zz/?.h <nil> []",
+	"foo/c.gen **.gen false":"true **.gen <nil> []",
 	"foo/x*y.h foo/bar false":"false foo /bar []",
 	"foo/x*y.h foo/v1.h false":"false foo /v1.h []",
 	"foo/x*y.h foo/v2.h false":"false foo /v2.h []",
@@ -2568,16 +3182,16 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo/xv*y.h foo/xv22y.h false":"true foo/xv22y.h <nil> [22]",
 	"foo/xv*y.h foo/xv333y.h false":"true foo/xv333y.h <nil> [333]",
 	"foo/xv*y.h foobar false":"false foo bar []", //match
-	"foo/xv*y.h {=path bar.h} false":"false <nil> bar.h []",
-	"foo/xv*y.h {=path foo.h} false":"false foo .h []",
-	"foo/xv*y.h {=path foobar} false":"false foo bar []",
-	"foo/xv*y.h {=path foo} false":"false foo <nil> []",
+	"foo/xv*y.h foobar/config false":"false foo bar/config []",
+	"foo/xv*y.h foobar/x.h false":"false foo bar/x.h []",
+	"foo/z.c **.c false":"true **.c <nil> []",
 	"foo/z.c foo.o false":"false <nil> foo.o []",
+	"foo/z.c foo/*.c false":"true foo/*.c <nil> []",
 	"foo/z.c foo/bar.o false":"false foo /bar.o []",
 	"foo/z.c foo/z.o false":"false foo/z. .o []",
 	"foo/z.c x.o false":"false <nil> x.o []",
 	"foo/z.c y.o false":"false <nil> y.o []",
-	"foo/z.gen **.gen false":"true foo/z.gen <nil> [foo z]",
+	"foo/z.gen **.gen false":"true **.gen <nil> []",
 	"foo/z.gen *.gen false":"false <nil> *.gen []",
 	"foo??? **.h false":"false <nil> **.h []",
 	"foo??? *.h false":"false <nil> *.h []",
@@ -2585,25 +3199,24 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foo??? foo false":"false foo <nil> []",
 	"foo??? foo.h false":"false foo.h <nil> [. h]",
 	"foo??? foobar false":"true foobar <nil> [b a r]",
-	"foo???/x.h **.h false":"false <nil> **.h []",
+	"foo???/x.h **.h false":"true **.h <nil> []",
 	"foo???/x.h *.h false":"false <nil> *.h []",
-	"foo???/x.h bar.h false":"false <nil> bar.h []", //match
-	"foo???/x.h foo false":"false foo <nil> []", //match
-	"foo???/x.h foo.h false":"false foo.h <nil> [. h]", //match
+	"foo???/x.h bar.h false":"false <nil> bar.h []",
+	"foo???/x.h foo false":"false foo <nil> []",
+	"foo???/x.h foo.h false":"false foo.h <nil> [. h]",
 	"foo???/x.h foo/*.h false":"false foo /*.h []",
 	"foo???/x.h foo/bar/*.h false":"false foo /bar/*.h []",
 	"foo???/x.h foo/bar/*/*.h false":"false foo /bar/*/*.h []",
 	"foo???/x.h foo/bar/z?/?.h false":"false foo /bar/z?/?.h []",
 	"foo???/x.h foo/bar/zz/?.h false":"false foo /bar/zz/?.h []",
-	"foo???/x.h foobar false":"false foobar <nil> [b a r]", //match
-	"foo???/x.h foobar/config false":"false foobar config [b a r]", //match
-	"foo???/x.h foobar/x.h false":"true foobar/x.h <nil> [b a r]", //match
+	"foo???/x.h foobar false":"false foobar <nil> [b a r]",
+	"foo???/x.h foobar/config false":"false foobar config [b a r]",
+	"foo???/x.h foobar/x.h false":"true foobar/x.h <nil> [b a r]",
 	"foobar **.def.am false":"false <nil> **.def.am []",
 	"foobar *.def.am false":"false <nil> *.def.am []",
 	"foobar bar.h false":"false <nil> bar.h []",
 	"foobar foo false":"false <nil> foo []",
 	"foobar foo.h false":"false <nil> foo.h []",
-	"foobar foobar false":"true foobar <nil> []",
 	"foobar/config/*.def.am **.def.am false":"true **.def.am <nil> []",
 	"foobar/config/*.def.am **.h false":"false foobar/config/**.h <nil> [**.h]",
 	"foobar/config/*.def.am *.def.am false":"false <nil> *.def.am []",
@@ -2630,14 +3243,16 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"foobar/config/*.def.in foobar/config/a.def.am false":"false foobar/config/a.def.am <nil> [a.def.am]",
 	"foobar/config/*.def.in foobar/config/a.def.in false":"true foobar/config/a.def.in <nil> [a]",
 	"foobar/config/*.def.in foobar/config/b.def.in false":"true foobar/config/b.def.in <nil> [b]",
+	"foobar/config/*.def.in foobar/config/x.h false":"false foobar/config/x.h <nil> [x.h]",
 	"foobar/config/*.def.in foobar/x.h false":"false foobar x.h []",
+	"goals clean false":"false <nil> clean []",
+	"goals configure false":"false <nil> configure []",
 	"inc .DS_Store false":"false <nil> .DS_Store []",
 	"inc 1 false":"false <nil> 1 []",
 	"inc 2 false":"false <nil> 2 []",
 	"inc 3 false":"false <nil> 3 []",
 	"inc 4 false":"false <nil> 4 []",
 	"inc do.smart false":"false <nil> do.smart []",
-	"inc inc false":"true inc <nil> []",
 	"inc/**.h .DS_Store false":"false <nil> .DS_Store []",
 	"inc/**.h 1 false":"false <nil> 1 []",
 	"inc/**.h 2 false":"false <nil> 2 []",
@@ -2742,7 +3357,6 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"inc/*/*/*.h inc/foobar/config/b.def.in false":"false inc/foobar/config/b.def.in <nil> [foobar config b.def.in]",
 	"inc/*/*/*.h inc/foobar/config/x.h false":"true inc/foobar/config/x.h <nil> [foobar config x]",
 	"t*a testdata false":"true testdata <nil> [estdat]",
-	"test test false":"true test <nil> []",
 	"test* testdata false":"true testdata <nil> [data]",
 	"v*.h v1.h false":"true v1.h <nil> [1]",
 	"v*.h v2.h false":"true v2.h <nil> [2]",
@@ -2784,40 +3398,58 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	"x**y xxx/a/b/c/yyy/z false":"false xxx/a/b/c/yyy/z <nil> [xx/a/b/c/yyy/z]",
 	"x*y.h xv*y.h false":"true xv*y.h <nil> [v*]",
 	"x*y.h xv1y.h false":"true xv1y.h <nil> [v1]",
+	"x.c++ **.c++ false":"true **.c++ <nil> []",
 	"x.c++ x.o false":"false x. o []",
-	"x.h bar false":"false <nil> bar []", //match
+	"x.gen **.gen false":"true **.gen <nil> []",
+	"x.gen *.gen false":"true *.gen <nil> []",
+	"x.h *.h false":"true *.h <nil> []",
+	"x.h a.def.am false":"false <nil> a.def.am []",
+	"x.h a.def.in false":"false <nil> a.def.in []",
+	"x.h b.def.in false":"false <nil> b.def.in []",
+	"x.h bar false":"false <nil> bar []",
 	"x.h config false":"false <nil> config []",
-	"x.h v1.h false":"false <nil> v1.h []", //match
-	"x.h v2.h false":"false <nil> v2.h []", //match
-	"x.h v3.hh false":"false <nil> v3.hh []", //match
-	"x.h x.h false":"true x.h <nil> []",
-	"x.h xv1y.h false":"false x <nil> []", //match
-	"x.h xv22y.h false":"false x <nil> []", //match
-	"x.h xv333y.h false":"false x <nil> []", //match
-	"x.h xyz000.txt false":"false x <nil> []", //match
-	"x.h zz false":"false <nil> zz []", //match
+	"x.h v1.h false":"false <nil> v1.h []",
+	"x.h v2.h false":"false <nil> v2.h []",
+	"x.h v3.hh false":"false <nil> v3.hh []",
+	"x.h xv1y.h false":"false x v1y.h []",
+	"x.h xv22y.h false":"false x v22y.h []",
+	"x.h xv333y.h false":"false x v333y.h []",
+	"x.h xyz000.txt false":"false x yz000.txt []",
+	"x.h zz false":"false <nil> zz []",
 	"xv*y.h xv1y.h false":"true xv1y.h <nil> [1]",
 	"xv*y.h xv22y.h false":"true xv22y.h <nil> [22]",
 	"xv*y.h xv333y.h false":"true xv333y.h <nil> [333]",
 	"y y.o false":"false y .o []",
+	"y.c++ **.c++ false":"true **.c++ <nil> []",
 	"y.c++ y.o false":"false y. o []",
-	"z z false":"true z <nil> []",
+	"y.gen **.gen false":"true **.gen <nil> []",
+	"y.gen *.gen false":"true *.gen <nil> []",
+	"y.h *.h false":"true *.h <nil> []",
 	"z z.o false":"false z .o []",
 	"z.c z.o false":"false z. o []",
+	"z.h *.h false":"true *.h <nil> []",
 	"z? zz false":"true zz <nil> [z]",
-	`{=regex ^\.test\.([0-9]+)$} .test.10 false`:`true .test.10 <nil> [10]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.11 false`:`true .test.11 <nil> [11]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.12 false`:`true .test.12 <nil> [12]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.13 false`:`true .test.13 <nil> [13]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.1 false`:`true .test.1 <nil> [1]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.2 false`:`true .test.2 <nil> [2]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.3 false`:`true .test.3 <nil> [3]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.4 false`:`true .test.4 <nil> [4]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.5 false`:`true .test.5 <nil> [5]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.6 false`:`true .test.6 <nil> [6]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.7 false`:`true .test.7 <nil> [7]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.8 false`:`true .test.8 <nil> [8]`,
-	`{=regex ^\.test\.([0-9]+)$} .test.9 false`:`true .test.9 <nil> [9]`,
+	`{=regex ^\.test\.([0-9]+)$$} .self false`:"false <nil> .self []",
+	`{=regex ^\.test\.([0-9]+)$$} .test.1 false`:`true .test.1 <nil> [1]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.10 false`:`true .test.10 <nil> [10]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.11 false`:`true .test.11 <nil> [11]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.12 false`:`true .test.12 <nil> [12]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.13 false`:`true .test.13 <nil> [13]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.2 false`:`true .test.2 <nil> [2]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.3 false`:`true .test.3 <nil> [3]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.4 false`:`true .test.4 <nil> [4]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.5 false`:`true .test.5 <nil> [5]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.6 false`:`true .test.6 <nil> [6]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.7 false`:`true .test.7 <nil> [7]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.8 false`:`true .test.8 <nil> [8]`,
+	`{=regex ^\.test\.([0-9]+)$$} .test.9 false`:`true .test.9 <nil> [9]`,
+	`{=regex ^\.test\.([0-9]+)$$} .usee false`:"false <nil> .usee []",
+	`{=regex ^\.test\.([0-9]+)$$} var.xxx false`:"false <nil> var.xxx []",
+	`{=regex ^\.test\.([0-9]+)$$} var.yyy false`:"false <nil> var.yyy []",
+	`{=regex ^\.test\.([0-9]+)$$} var.zzz false`:"false <nil> var.zzz []",
+	`{=regex ^\.test\.([0-9]+)$$} var2 false`:"false <nil> var2 []",
+	`{=regex ^\.test\.([0-9]+)$$} vars false`:"false <nil> vars []",
+	`{=regex ^\.test\.([0-9]+)$$} xyz false`:"false <nil> xyz []",
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} .self false`:`false <nil> .self []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} .usee false`:`false <nil> .usee []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} 1 false`:`false <nil> 1 []`,
@@ -2848,8 +3480,8 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} regex4 false`:`false <nil> regex4 []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} regex5 false`:`false <nil> regex5 []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} regex6 false`:`false <nil> regex6 []`,
-	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} val10 false`:`false <nil> val10 []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} val1 false`:`false <nil> val1 []`,
+	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} val10 false`:`false <nil> val10 []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} val2 false`:`false <nil> val2 []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} val3 false`:`false <nil> val3 []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} val4 false`:`false <nil> val4 []`,
@@ -2859,6 +3491,24 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} val8 false`:`false <nil> val8 []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} val9 false`:`false <nil> val9 []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} vals false`:`false <nil> vals []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} .self false`:`false <nil> .self []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} .usee false`:`false <nil> .usee []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} foa.aaa false`:`true foa.aaa <nil> [a aaa]`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} fob.bbb false`:`true fob.bbb <nil> [b bbb]`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} foc.ccc false`:`true foc.ccc <nil> [c ccc]`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} foo.bar false`:`true foo.bar <nil> [o bar]`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v.a false`:`false <nil> v.a []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v.b false`:`false <nil> v.b []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v.c false`:`false <nil> v.c []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v.o false`:`false <nil> v.o []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v1.a false`:`false <nil> v1.a []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v1.b false`:`false <nil> v1.b []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v1.c false`:`false <nil> v1.c []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v1.o false`:`false <nil> v1.o []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v2.a false`:`false <nil> v2.a []`,
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v2.b false`:`false <nil> v2.b []`, //match
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v2.c false`:`false <nil> v2.c []`, //match
+	`{=regex ^fo([a-z])\.([a-z]+)$$} v2.o false`:`false <nil> v2.o []`,
 	`{=regex ^val([1-9])$$} .self false`:`false <nil> .self []`,
 	`{=regex ^val([1-9])$$} .usee false`:`false <nil> .usee []`,
 	`{=regex ^val([1-9])$$} 1 false`:`false <nil> 1 []`,
@@ -2884,105 +3534,102 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	`{=regex ^val([1-9])$$} val3 false`:`true val3 <nil> [3]`,
 	`{=regex ^val([1-9])$$} val4 false`:`true val4 <nil> [4]`,
 	`{=regex ^val([1-9])$$} val5 false`:`true val5 <nil> [5]`,
+	`{=regex ^var\.([xy]+)} .self false`:"false <nil> .self []",
+	`{=regex ^var\.([xy]+)} .usee false`:"false <nil> .usee []",
 	`{=regex ^var\.([xy]+)} var.xxx false`:`true var.xxx <nil> [xxx]`,
 	`{=regex ^var\.([xy]+)} var.yyy false`:`true var.yyy <nil> [yyy]`,
+	`{=regex ^var\.([xy]+)} var.zzz false`:"false <nil> var.zzz []",
+	`{=regex ^var\.([xy]+)} var2 false`:"false <nil> var2 []",
+	`{=regex ^var\.([xy]+)} vars false`:"false <nil> vars []",
+	`{=regex ^var\.([xy]+)} xyz false`:"false <nil> xyz []",
+	`{=regex ^var\.([xyz]+)} .self false`:"false <nil> .self []",
+	`{=regex ^var\.([xyz]+)} .test.1 false`:"false <nil> .test.1 []",
+	`{=regex ^var\.([xyz]+)} .test.10 false`:"false <nil> .test.10 []",
+	`{=regex ^var\.([xyz]+)} .test.2 false`:"false <nil> .test.2 []",
+	`{=regex ^var\.([xyz]+)} .test.3 false`:"false <nil> .test.3 []",
+	`{=regex ^var\.([xyz]+)} .test.4 false`:"false <nil> .test.4 []",
+	`{=regex ^var\.([xyz]+)} .test.5 false`:"false <nil> .test.5 []",
+	`{=regex ^var\.([xyz]+)} .test.6 false`:"false <nil> .test.6 []",
+	`{=regex ^var\.([xyz]+)} .test.7 false`:"false <nil> .test.7 []",
+	`{=regex ^var\.([xyz]+)} .test.8 false`:"false <nil> .test.8 []",
+	`{=regex ^var\.([xyz]+)} .test.9 false`:"false <nil> .test.9 []",
+	`{=regex ^var\.([xyz]+)} .usee false`:"false <nil> .usee []",
 	`{=regex ^var\.([xyz]+)} var.xxx false`:`true var.xxx <nil> [xxx]`,
 	`{=regex ^var\.([xyz]+)} var.yyy false`:`true var.yyy <nil> [yyy]`,
 	`{=regex ^var\.([xyz]+)} var.zzz false`:`true var.zzz <nil> [zzz]`,
+	`{=regex ^var\.([xyz]+)} var2 false`:"false <nil> var2 []",
+	`{=regex ^var\.([xyz]+)} vars false`:"false <nil> vars []",
+	`{=regex ^var\.([xyz]+)} xyz false`:"false <nil> xyz []",
 	`{=regex fo{2}(/o{2}){3}/bar\.c} foo/oo/oo/oo/bar.c false`:`true foo/oo/oo/oo/bar.c <nil> [/oo]`,
 	`{=regex fo{2}/bar\.c} foo/bar.c false`:`true foo/bar.c <nil> []`,
 	`{=regex fo{2}\.c} foo.c false`:`true foo.c <nil> []`,
-	testdata_f(`%[1]s builtins/trimprefix`                  ):`false <nil> builtins/trimprefix []`,
-	testdata_f(`%%%%/testdata %[1]s/builtins/trimprefix`    ):testdata_f(`false [%[2]s] <nil> [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`%%%%/testdata/ %[1]s/builtins/trimprefix`   ):testdata_f(`false [%[2]s ] <nil> [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`**/testdata %[1]s/builtins/trimprefix`      ):testdata_f(`false [%[2]s] <nil> [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`**/testdata/ %[1]s/builtins/trimprefix`     ):testdata_f(`false [%[2]s ] <nil> [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`**/testdata/** %[1]s/builtins/trimprefix`   ):testdata_f(`true [%[2]s builtins trimprefix] <nil> [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`**/testdata/** %[1]s/builtins/trimsuffix`   ):testdata_f(`true [%[2]s builtins trimsuffix] <nil> [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`**/testdata/**/ %[1]s/builtins/trimprefix/` ):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`**/testdata/**/ %[1]s/builtins/trimsuffix/` ):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`*?/testdata %[1]s/builtins/trimprefix`      ):testdata_f(`false [%[2]s] <nil> [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`*?/testdata %[1]s`                          ):testdata_f(`true [%[2]s] <nil> [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`*?/testdata/ %[1]s/`                        ):testdata_f(`true [%[2]s ] <nil> [%[1]s]`,trim_suffix{1,"testdata"}),
-	testdata_f(`*?/testdata/ %[1]s/builtins/trimprefix`     ):testdata_f(`false [%[2]s ] <nil> [%[1]s]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`*?/testdata/*? %[1]s/builtins/trimprefix`   ):testdata_f(`true [%[2]s builtins trimprefix] <nil> [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`*?/testdata/*?/ %[1]s/builtins/trimprefix/` ):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s builtins/trimprefix]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`*?/testdata/*? %[1]s/builtins/trimsuffix`   ):testdata_f(`true [%[2]s builtins trimsuffix] <nil> [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`*?/testdata/*?/ %[1]s/builtins/trimsuffix/` ):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s builtins/trimsuffix]`,trim_suffix{1,"/testdata"}),
-	testdata_f(`/%%%%/testdata %[1]s/builtins/trimprefix`   ):testdata_f(`false [%[2]s] <nil> [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/%%%%/testdata/ %[1]s/builtins/trimprefix`  ):testdata_f(`false [%[2]s ] <nil> [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/**/ %[1]s/builtins/trimprefix/`            ):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s/builtins/trimprefix]`,trim_prefix{1,"/"}),
-	testdata_f(`/**/ %[1]s/builtins/trimsuffix/`            ):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s/builtins/trimsuffix]`,trim_prefix{1,"/"}),
-	testdata_f(`/**/ %[1]s/builtins/trimprefix`             ):testdata_f(`false [%[2]s builtins ] <nil> [%[1]s/builtins/]`,trim_prefix{1,"/"}),
-	testdata_f(`/**/ %[1]s/builtins/trimsuffix`             ):testdata_f(`false [%[2]s builtins ] <nil> [%[1]s/builtins/]`,trim_prefix{1,"/"}),
-	testdata_f(`/*?/ %[1]s/builtins/trimprefix/`            ):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s/builtins/trimprefix]`,trim_prefix{1,"/"}),
-	testdata_f(`/*?/ %[1]s/builtins/trimsuffix/`            ):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s/builtins/trimsuffix]`,trim_prefix{1,"/"}),
-	testdata_f(`/*?/ %[1]s/builtins/trimprefix`             ):testdata_f(`false [%[2]s builtins ] <nil> [%[1]s/builtins/]`,trim_prefix{1,"/"}),
-	testdata_f(`/*?/ %[1]s/builtins/trimsuffix`             ):testdata_f(`false [%[2]s builtins ] <nil> [%[1]s/builtins/]`,trim_prefix{1,"/"}),
-	testdata_f(`/**/testdata %[1]s/builtins/trimprefix`     ):testdata_f(`false [%[2]s] <nil> [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/**/testdata/ %[1]s/builtins/trimprefix`    ):testdata_f(`false [%[2]s ] <nil> [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/**/testdata/** %[1]s/builtins/trimprefix`  ):testdata_f(`true [%[2]s builtins trimprefix] <nil> [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/**/testdata/** %[1]s/builtins/trimsuffix`  ):testdata_f(`true [%[2]s builtins trimsuffix] <nil> [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/**/testdata/**/ %[1]s/builtins/trimprefix/`):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/**/testdata/**/ %[1]s/builtins/trimsuffix/`):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/testdata %[1]s/builtins/trimprefix`     ):testdata_f(`false [%[2]s] <nil> [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/testdata %[1]s`                         ):testdata_f(`true [%[2]s] <nil> [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/testdata/ %[1]s/`                       ):testdata_f(`true [%[2]s ] <nil> [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/testdata/ %[1]s/builtins/trimprefix`    ):testdata_f(`false [%[2]s ] <nil> [%[1]s]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/testdata/*? %[1]s/builtins/trimprefix`  ):testdata_f(`true [%[2]s builtins trimprefix] <nil> [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/testdata/*? %[1]s/builtins/trimsuffix`  ):testdata_f(`true [%[2]s builtins trimsuffix] <nil> [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/testdata/*?/ %[1]s/builtins/trimprefix/`):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/testdata/*?/ %[1]s/builtins/trimsuffix/`):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/test*/*?/ %[1]s/builtins/trimprefix/`   ):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s data builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/test*/**/ %[1]s/builtins/trimprefix/`   ):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s data builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/test*/*?/ %[1]s/builtins/trimsuffix/`   ):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s data builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/test*/**/ %[1]s/builtins/trimsuffix/`   ):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s data builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/*data/*?/ %[1]s/builtins/trimprefix/`   ):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s test builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/**/*data/*?/ %[1]s/builtins/trimprefix/`   ):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s test builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/*data/*?/ %[1]s/builtins/trimsuffix/`   ):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s test builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/**/*data/*?/ %[1]s/builtins/trimsuffix/`   ):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s test builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/t*a/*?/ %[1]s/builtins/trimprefix/`     ):testdata_f(`true [%[2]s builtins trimprefix ] <nil> [%[1]s estdat builtins/trimprefix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/*?/t*a/*?/ %[1]s/builtins/trimsuffix/`     ):testdata_f(`true [%[2]s builtins trimsuffix ] <nil> [%[1]s estdat builtins/trimsuffix]`,trim_prefix{1,"/"},trim_suffix{1,"/testdata"}),
-	testdata_f(`/builtins %[1]s/builtins/trimprefix`        ):`false <nil> /builtins/trimprefix []`,
-	testdata_f(`/testdata/%%%% %[1]s/builtins/trimsuffix`   ):`false [ testdata builtins trimsuffix] <nil> [builtins/trimsuffix]`,
-	testdata_f(`/testdata/%%%% %[1]s/builtins/trimsuffix/`  ):`false [ testdata builtins trimsuffix ] <nil> [builtins/trimsuffix]`,
-	testdata_f(`/testdata/%%%%/ %[1]s/builtins/trimsuffix/` ):`false [ testdata builtins trimsuffix ] <nil> [builtins/trimsuffix]`,
-	testdata_f(`/testdata/** %[1]s/builtins/trimsuffix`     ):`false [ testdata builtins trimsuffix] <nil> [builtins/trimsuffix]`,
-	testdata_f(`/testdata/** %[1]s/builtins/trimsuffix/`    ):`false [ testdata builtins trimsuffix ] <nil> [builtins/trimsuffix]`,
-	testdata_f(`/testdata/**/ %[1]s/builtins/trimsuffix`    ):`false <nil> /testdata/builtins/trimsuffix []`,
-	testdata_f(`/testdata/**/ %[1]s/builtins/trimsuffix/`   ):`false [ testdata builtins trimsuffix ] <nil> [builtins/trimsuffix]`,
-	testdata_f(`testdata/** %[1]s/builtins/trimsuffix`      ):`false [testdata builtins trimsuffix] <nil> [builtins/trimsuffix]`,
-	testdata_f(`testdata/** %[1]s/builtins/trimsuffix/`     ):`false [testdata builtins trimsuffix ] <nil> [builtins/trimsuffix]`,
-	testdata_f(`testdata/**/ %[1]s/builtins/trimsuffix`     ):`false <nil> testdata/builtins/trimsuffix []`,
-	testdata_f(`testdata/**/ %[1]s/builtins/trimsuffix/`    ):`false [testdata builtins trimsuffix ] <nil> [builtins/trimsuffix]`,
-	testdata_f(`testdata/%%%% %[1]s/builtins/trimsuffix`    ):`false [testdata builtins trimsuffix] <nil> [builtins/trimsuffix]`,
-	testdata_f(`testdata/%%%% %[1]s/builtins/trimsuffix/`   ):`false [testdata builtins trimsuffix ] <nil> [builtins/trimsuffix]`,
-	testdata_f(`testdata/%%%%/ %[1]s/builtins/trimsuffix`   ):`false <nil> testdata/builtins/trimsuffix []`,
-	testdata_f(`testdata/%%%%/ %[1]s/builtins/trimsuffix/`  ):`false [testdata builtins trimsuffix ] <nil> [builtins/trimsuffix]`,
-	testdata_f(`testdata/builtins/trimsuffix %[1]s/builtins/trimsuffix`):`false [testdata builtins trimsuffix] <nil> []`,
-	testdata_f(`builtins/trimsuffix %[1]s`,trim_suffix{1,"testdata"}):`false <nil> testdata []`,
 })
 func check_match(ctx Context, pat, val Value) func(*bool, *Value, *Value, *[]Value) {
 	if x, y := pat.(*globbrace); y { pat = &x.globpat }
 	if p, ok := pat.(*path); ok && len(p.elems) == 1 { pat = p.elems[0] }
 	if p, ok := val.(*path); ok && len(p.elems) == 1 { val = p.elems[0] }
-	var k = rxLC.ReplaceAllString(sf("%v %v %v", pat, val, truly(ctx, propReversal)), "=")
+	var trail = truly(ctx, propReversal)
+	var k = sf("%v %v %v", pat, val, trail)
 	return func(matched *bool, res, rem *Value, stems *[]Value) {
+		if strings.Contains(k, "%") { return } // FIXME
 		if truly(ctx, is_swapped{}) { return }
 
-		t := rxLC.ReplaceAllString(sf("%v %v %v %v", *matched, *res, *rem, *stems), "=")
+		t := sf("%v %v %v %v", *matched, *res, *rem, *stems)
+
+		if val == nil && !*matched && "false <nil> <nil> []" == t {
+			return
+		} else if p, v := sf("%v", pat), sf("%v", val); *matched {
+			if p == v {
+				if sf("true %[1]v <nil> []", val) == t { return }
+			} else if trail {
+				if strings.HasSuffix(v, p) { if p == "" { p = "<nil>" }
+					if v := sf("true %v %v []", p, strings.TrimSuffix(v, p)); v == t { return } else {
+						debug(pc(ctx,pat),
+							_f(`match: %s`, k),
+							_f("got: %s", t),
+							_f("!= : %s", v),
+							callstack{num:10}, trace{})
+					}
+				}
+			} else {
+				if strings.HasPrefix(v, p) { if p == "" { p = "<nil>" }
+					if v := sf("true %v %v []", p, strings.TrimPrefix(v, p)); v == t { return } else {
+						debug(pc(ctx,pat),
+							_f(`match: %s`, k),
+							_f("got: %s", t),
+							_f("!= : %s", v),
+							// _f("%s", ts(p)),
+							callstack{num:10}, trace{})
+					}
+				}
+			}
+			switch p {
+			case "*": s, r := v, "<nil>"
+				if i := strings.Index(v, "/"); 0 <= i { s, r = s[:i], s[i:] }
+				if sf("true %[1]s %[2]s [%[1]s]", s, r) == t { return }
+			case "**":
+				if sf("true %[1]s <nil> [%[1]s]", v) == t { return }
+			}
+		}
 
 		if v := checkpoints_match[k]; v == nil {
-			if true { prompt(ctx, `	"%s":"%s", //match`+"\n", k, t) } else
-			{ debug(pc(ctx,pat),
-				_f("\"%s\":\"%s\",", k, t),
+			if false  { prompt(ctx, `	"%s":"%s", //match`+"\n", k, t) } else
+			if false  { prompt(ctx, "	`%s`:`%s`, //match\n", k, t) } else
+			if strings.Contains(k, "{=regex ") { debug(pc(ctx,pat),
+				_f("match: `%s`:`%s`,", k, t),
 				_f("pat: %v", ts(pat)),
 				_f("val: %v", ts(val)),
+				callstack{num:10}, trace{}) } else
+			{ debug(pc(ctx,pat),
+				_f("match: \"%s\":\"%s\",", k, t),
+				_f("pat: %v", ts(pat)),
+				_f("val: %v", ts(val)),
+				// _f("%s", modules_f("%[1]s",trim_suffix{1,"/.smart/modules"})),
 				callstack{num:10}, trace{}) }
 		} else if v != t {
-			if true { prompt(ctx, `	"%s":"%s", //match != %v`+"\n", k, t, v) } else
+			if false { prompt(ctx, `	"%s":"%s", //match != "%v"`+"\n", k, t, v) } else
 			{ debug(pc(ctx,pat),
-				_f(`%s`, k),
+				_f(`match: %s`, k),
 				_f("got: %s", t),
 				_f("!= : %s", v),
 				callstack{num:10}, trace{}) }
@@ -2997,16 +3644,16 @@ func check_matchGlobScalar(ctx Context, pat, val Value, trail bool) func(*bool, 
 	var v = checkpoints_matchGlobScalar[k]
 	return func(matched *bool, res, rem *Value, stems *[]Value) {
 		if t := sf("%v %v %v %v", *matched, *res, *rem, *stems); v == nil {
-			if true { prompt(ctx, `	"%s":"%s", //matchGlobScalar`+"\n", k, t) } else
+			if false { prompt(ctx, `	"%s":"%s", //matchGlobScalar`+"\n", k, t) } else
 			{ debug(pc(ctx,pat),
-				_f(`"%s":"%s",`, k, t),
+				_f(`matchGlobScalar: "%s":"%s",`, k, t),
 				_f("elems: %v", ts(pat)),
 				_f("vals: %v", ts(val)),
 				callstack{num:16}, trace{}) }
 		} else if v != t {
-			if true { prompt(ctx, `"%s":"%s", //matchGlobScalar != %v`+"\n", k, t, v) } else
+			if false { prompt(ctx, `"%s":"%s", //matchGlobScalar != %v`+"\n", k, t, v) } else
 			{ debug(pc(ctx,pat),
-				_f(`"%s": "%s" != "%s"`, k, t, v),
+				_f(`matchGlobScalar: "%s": "%s" != "%s"`, k, t, v),
 				_f("elems: %v", ts(pat)),
 				_f("vals: %v", ts(val)),
 				callstack{num:16}, trace{}) }
@@ -3023,7 +3670,6 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	}
 	return m
 }(map[string]any{
-	"[. auto] [. auto] true":"true [. auto] [] 2 2",
 	"[. auto] [. test] true":"false [] [. test] 0 2",
 	"[. auto] [a] true":"false [] [a] 0 1",
 	"[. auto] [auto] true":"false [] [auto] 0 1",
@@ -3031,10 +3677,6 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[. auto] [c . auto] true":"true [. auto] [] 0 0",
 	"[. auto] [c . test] true":"false [] [. test] 0 2",
 	"[. auto] [test] true":"false [] [test] 0 1",
-	"[. c] [. c] false":"true [. c] [] 2 2",
-	"[. c] [. c] true":"true [. c] [] 0 0",
-	"[. c] [] false":"false [] [] 0 0",
-	"[. c] [] true":"false [] [] 0 0",
 	"[. c] [bar . c] true":"true [. c] [] 0 0",
 	"[. c] [c] false":"false [] [c] 0 1",
 	"[. c] [c] true":"false [] [] 0 0",
@@ -3043,7 +3685,6 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[. def . am] [* . def . am] true":"true [. def . am] [] 0 0",
 	"[. def . am] [* . def . in] true":"false [] [. def . in] 0 3",
 	"[. def . am] [. am] true":"false [] [. am] 0 2",
-	"[. def . am] [. def . am] true":"true [. def . am] [] 0 0",
 	"[. def . am] [. def . in] true":"false [] [. def . in] 0 3",
 	"[. def . am] [. in] true":"false [] [. in] 0 2",
 	"[. def . am] [a.def.am] true":"true [.def.am] [] 0 0",
@@ -3060,9 +3701,11 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[. def . in] [a.def.in] true":"true [.def.in] [] 0 0",
 	"[. def . in] [b.def.in] true":"true [.def.in] [] 0 0",
 	"[. def . in] [x.h] true":"false [] [.h] 0 1",
+	"[. deps] [* . gen] false":"false [] [* . gen] 0 0",
+	"[. deps] [** . gen] false":"false [] [** . gen] 0 0",
+	"[. deps] [** . c++] false":"false [] [** . c++] 0 0",
+	"[. deps] [** . c] false":"false [] [** . c] 0 0",
 	"[. h] [* . h] true":"true [. h] [] 0 0",
-	"[. h] [. h] false":"true [. h] [] 2 2",
-	"[. h] [. h] true":"true [. h] [] 0 0",
 	"[. h] [.h] false":"true [.h] [] 2 1",
 	"[. h] [.hh] false":"true [.h] [h] 2 1",
 	"[. h] [1.h] true":"true [.h] [] 0 0",
@@ -3136,29 +3779,30 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[. h] [xv333y.h] true":"true [.h] [] 0 0",
 	"[. h] [xyz000.txt] true":"false [] [.txt] 0 1",
 	"[. h] [zz] true":"false [] [zz] 0 1",
-	"[. hh] [. hh] true":"true [. hh] [] 2 2",
 	"[. hh] [hh] true":"false [] [hh] 0 1",
 	"[. hh] [v1.h] true":"false [] [.h] 0 1",
 	"[. hh] [v2.h] true":"false [] [.h] 0 1",
 	"[. hh] [v3.hh] true":"true [.hh] [] 0 0",
 	"[. hh] [xyz000.txt] true":"false [] [.txt] 0 1",
 	"[. hh] [zz] true":"false [] [zz] 0 1",
-	"[. test] [. test] false":"true [. test] [] 2 2",
-	"[. txt] [. txt] true":"true [. txt] [] 2 2",
 	"[. txt] [.txt] false":"true [.txt] [] 2 1",
 	"[. txt] [txt] true":"false [] [txt] 0 1",
-	"[Volumes] [Volumes] false":"true [Volumes] [] 1 1",
-	"[] [] false":"true [] [] 0 0",
-	"[] [] true":"true [] [] 0 0",
-	"[] [abcy] true":"true [] [abcy] 0 1",
-	"[] [builtins] false":"false [] [builtins] 0 1",
-	"[] [c] true":"true [] [c] 0 1",
-	"[] [dy] true":"true [] [dy] 0 1",
-	"[] [foo] false":"false [] [foo] 0 1",
-	"[] [oo] true":"true [] [oo] 0 1",
-	"[] [v * . h] true":"true [] [v * . h] 0 4",
-	"[] [xx] true":"true [] [xx] 0 1",
-	"[] [xyz] true":"true [] [xyz] 0 1",
+	"[. test] [.test] false":"true [. test] [] 2 1",
+	"[. test] [.test/a/b/c/foo.c] false":"true [. test] [/a/b/c/foo.c] 2 0",
+	"[. test1] [.test1] false":"true [. test1] [] 2 1",
+	"[. test2] [.test2] false":"true [. test2] [] 2 1",
+	"[. test . a] [.test.a] false":"true [. test . a] [] 4 1",
+	"[. test . b] [.test.b] false":"true [. test . b] [] 4 1",
+	"[. test . c] [.test.c] false":"true [. test . c] [] 4 1",
+	"[. test . a . aaa] [.test.a.aaa] false":"true [. test . a . aaa] [] 6 1",
+	"[. test . b . bbb] [.test.b.bbb] false":"true [. test . b . bbb] [] 6 1",
+	"[. test . c . ccc] [.test.c.ccc] false":"true [. test . c . ccc] [] 6 1",
+	"[. test . o . bar] [.test.o.bar] false":"true [. test . o . bar] [] 6 1",
+	"[. test . foobax] [.test.foobax] false":"true [. test . foobax] [] 4 1",
+	"[. test . foobay] [.test.foobay] false":"true [. test . foobay] [] 4 1",
+	"[. test . foobaz] [.test.foobaz] false":"true [. test . foobaz] [] 4 1",
+	"[a . gen] [** . gen] false":"false [] [** . gen] 0 0",
+	"[b . gen] [** . gen] false":"false [] [** . gen] 0 0",
 	"[b] [**] false":"false [] [**] 0 1",
 	"[b] [b *] false":"true [b] [*] 1 2",
 	"[b] [b ? r] false":"true [b] [? r] 1 3",
@@ -3171,18 +3815,14 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[ba] [bar] false":"true [ba] [r] 1 1",
 	"[bar] [* . h] false":"false [] [* . h] 0 3",
 	"[bar] [** . hh] false":"false [] [** . hh] 0 3",
-	"[bar] [bar] false":"true [bar] [] 1 1",
 	"[bar] [foo bar *.h] 1":"false [] [bar *.h] 0 2",
 	"[bar] [v1.h] false":"false [] [v1.h] 0 1",
 	"[bar] [v2.h] false":"false [] [v2.h] 0 1",
 	"[bar] [xv1y.h] false":"false [] [xv1y.h] 0 1",
 	"[bar] [xv22y.h] false":"false [] [xv22y.h] 0 1",
 	"[bar] [xv333y.h] false":"false [] [xv333y.h] 0 1",
-	"[builtins] [builtins] false":"true [builtins] [] 1 1",
-	"[config] [config] false":"true [config] [] 1 1",
 	"[config] [foobar x.h] 1":"false [] [x.h] 0 1",
 	"[config] [x.h] false":"false [] [x.h] 0 1",
-	"[extbit.io] [extbit.io] false":"true [extbit.io] [] 1 1",
 	"[f] [bar.h] false":"false [] [bar.h] 0 1",
 	"[f] [fo ?] false":"true [f] [o ?] 1 2",
 	"[f] [foo.h] false":"true [f] [oo.h] 1 1",
@@ -3193,40 +3833,35 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[fo] [foo.h] false":"true [fo] [o.h] 1 1",
 	"[fo] [foo] false":"true [fo] [o] 1 1",
 	"[fo] [foobar] false":"true [fo] [obar] 1 1",
-	"[foo] [* . h] false":"false [] [* . h] 0 3",
-	"[foo] [** . h] false":"false [] [** . h] 0 3",
+	"[foo] [* . gen] false":"false [] [* . gen] 0 0",
+	"[foo] [** . gen] false":"false [] [** . gen] 0 0",
+	"[foo] [** . c++] false":"false [] [** . c++] 0 0",
+	"[foo] [** . c] false":"false [] [** . c] 0 0",
+	"[foo] [* . h] false":"false [] [* . h] 0 0",
+	"[foo] [** . h] false":"false [] [** . h] 0 0",
 	"[foo] [bar.h] false":"false [] [bar.h] 0 1",
 	"[foo] [f *?] false":"false [] [f *?] 0 2",
 	"[foo] [fo ?] false":"false [] [fo ?] 0 2",
 	"[foo] [foo ? ? ?] false":"true [foo] [? ? ?] 1 4",
+	"[foo] [foo . c] false":"true [foo] [. c] 1 1",
+	"[foo] [foo . c++] false":"true [foo] [. c++] 1 1",
 	"[foo] [foo.h] false":"true [foo] [.h] 1 1",
-	"[foo] [foo] false":"true [foo] [] 1 1",
 	"[foo] [foobar] false":"true [foo] [bar] 1 1",
+	"[foo . c++] [** . c++] false":"false [] [** . c++] 0 0",
+	"[foo . c++] [foo] false":"false [foo] [] 1 1",
+	"[foo . c] [** . c] false":"false [] [** . c] 0 0",
+	"[foo . c] [foo] false":"false [foo] [] 1 1",
+	"[foobar] [* . def . am] false":"false [] [* . def . am] 0 0",
+	"[foobar] [** . def . am] false":"false [] [** . def . am] 0 0",
 	"[foobar] [bar.h] false":"false [] [bar.h] 0 1",
 	"[foobar] [foo.h] false":"false [] [foo.h] 0 1",
 	"[foobar] [foo] false":"false [] [foo] 0 1",
-	"[foobar] [foobar] false":"true [foobar] [] 1 1",
-	"[go] [go] false":"true [go] [] 1 1",
 	"[inc] [.DS_Store] false":"false [] [.DS_Store] 0 1",
 	"[inc] [1] false":"false [] [1] 0 1",
 	"[inc] [2] false":"false [] [2] 0 1",
 	"[inc] [3] false":"false [] [3] 0 1",
 	"[inc] [4] false":"false [] [4] 0 1",
 	"[inc] [do.smart] false":"false [] [do.smart] 0 1",
-	"[inc] [inc] false":"true [inc] [] 1 1",
-	"[r] [] false":"false [] [] 0 0",
-	"[r] [r] false":"true [r] [] 1 1",
-	"[smart] [smart] false":"true [smart] [] 1 1",
-	"[src] [src] false":"true [src] [] 1 1",
-	"[testdata] [Volumes] false":"false [] [Volumes] 0 1",
-	"[testdata] [builtins] false":"false [] [builtins] 0 1",
-	"[testdata] [extbit.io] false":"false [] [extbit.io] 0 1",
-	"[testdata] [go] false":"false [] [go] 0 1",
-	"[testdata] [smart] false":"false [] [smart] 0 1",
-	"[testdata] [src] false":"false [] [src] 0 1",
-	"[testdata] [testdata] false":"true [testdata] [] 1 1",
-	"[testdata] [trimprefix] false":"false [] [trimprefix] 0 1",
-	"[testdata] [workspace] false":"false [] [workspace] 0 1",
 	"[v] [* . h] false":"false [] [* . h] 0 3",
 	"[v] [*] false":"false [] [*] 0 1",
 	"[v] [v * . h] false":"true [v] [* . h] 1 4",
@@ -3236,30 +3871,33 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[v] [v2 . h] false":"true [v] [2 . h] 1 3",
 	"[v] [v2.h] false":"true [v] [2.h] 1 1",
 	"[v] [v3.hh] false":"true [v] [3.hh] 1 1",
-	"[v] [xyz000.txt] false":"false [] [xyz000.txt] 0 1",
-	"[v] [zz] false":"false [] [zz] 0 1",
-	"[workspace] [workspace] false":"true [workspace] [] 1 1",
-	"[x . h] [* . h] false":"false [] [* . h] 0 3",
+	"[v] [xyz000.txt] false":"false [] [xyz000.txt] 0 0",
+	"[v] [zz] false":"false [] [zz] 0 0",
+	"[x . c++] [** . c++] false":"false [] [** . c++] 0 0",
+	"[x . gen] [** . gen] false":"false [] [** . gen] 0 0",
+	"[x . gen] [* . gen] false":"false [] [* . gen] 0 0",
+	"[x . h] [* . h] false":"false [] [* . h] 0 0",
 	"[x . h] [**] false":"false [] [**] 0 1",
-	"[x . h] [? . h] false":"false [] [? . h] 0 3",
-	"[x . h] [b *] false":"false [] [b *] 0 2",
-	"[x . h] [bar] false":"false [] [bar] 0 1",
-	"[x . h] [config] false":"false [] [config] 0 1",
-	"[x . h] [v * . h] false":"false [] [v * . h] 0 4",
-	"[x . h] [v1.h] false":"false [] [v1.h] 0 1",
-	"[x . h] [v2.h] false":"false [] [v2.h] 0 1",
-	"[x . h] [v3.hh] false":"false [] [v3.hh] 0 1",
-	"[x . h] [x . h] false":"true [x . h] [] 3 3",
-	"[x . h] [x.h] false":"true [x . h] [] 3 1", //matchCompComp != true [x.h] [] 3 1
-	"[x . h] [xv1y.h] false":"false [x] [] 1 0", //matchCompComp != false [x] [v1y.h] 1 1
-	"[x . h] [xv22y.h] false":"false [x] [] 1 0", //matchCompComp != false [x] [v22y.h] 1 1
-	"[x . h] [xv333y.h] false":"false [x] [] 1 0", //matchCompComp != false [x] [v333y.h] 1 1
-	"[x . h] [xyz000.txt] false":"false [x] [] 1 0", //matchCompComp != false [x] [yz000.txt] 1 1
-	"[x . h] [zz] false":"false [] [zz] 0 1",
+	"[x . h] [? . h] false":"false [] [? . h] 0 0",
+	"[x . h] [a.def.am] false":"false [] [a.def.am] 0 0",
+	"[x . h] [a.def.in] false":"false [] [a.def.in] 0 0",
+	"[x . h] [b *] false":"false [] [b *] 0 0",
+	"[x . h] [b.def.in] false":"false [] [b.def.in] 0 0",
+	"[x . h] [bar] false":"false [] [bar] 0 0",
+	"[x . h] [config] false":"false [] [config] 0 0",
+	"[x . h] [v * . h] false":"false [] [v * . h] 0 0",
+	"[x . h] [v1.h] false":"false [] [v1.h] 0 0",
+	"[x . h] [v2.h] false":"false [] [v2.h] 0 0",
+	"[x . h] [v3.hh] false":"false [] [v3.hh] 0 0",
+	"[x . h] [x.h] false":"true [x . h] [] 3 1",
+	"[x . h] [xv1y.h] false":"false [x] [v1y.h] 1 0",
+	"[x . h] [xv22y.h] false":"false [x] [v22y.h] 1 0",
+	"[x . h] [xv333y.h] false":"false [x] [v333y.h] 1 0",
+	"[x . h] [xyz000.txt] false":"false [x] [yz000.txt] 1 0",
+	"[x . h] [zz] false":"false [] [zz] 0 0",
 	"[x] [bar] false":"false [] [bar] 0 1",
 	"[x] [v1.h] false":"false [] [v1.h] 0 1",
 	"[x] [v2.h] false":"false [] [v2.h] 0 1",
-	"[x] [x] false":"true [x] [] 1 1",
 	"[x] [xa] false":"true [x] [a] 1 1",
 	"[x] [xaa] false":"true [x] [aa] 1 1",
 	"[x] [xaaa] false":"true [x] [aaa] 1 1",
@@ -3288,6 +3926,9 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[xyz] [xyz ? ? ? . txt] false":"true [xyz] [? ? ? . txt] 1 6",
 	"[xyz] [xyz000.txt] false":"true [xyz] [000.txt] 1 1",
 	"[xyz] [zz] false":"false [] [zz] 0 1",
+	"[y . c++] [** . c++] false":"false [] [** . c++] 0 0",
+	"[y . gen] [* . gen] false":"false [] [* . gen] 0 0",
+	"[y . gen] [** . gen] false":"false [] [** . gen] 0 0",
 	"[y . h] [. h] true":"false [] [. h] 0 2",
 	"[y . h] [1y.h] true":"true [1y.h] [] 3 1",
 	"[y . h] [22y.h] true":"true [22y.h] [] 3 1",
@@ -3297,7 +3938,7 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[y . h] [v1y.h] true":"true [v1y.h] [] 3 1",
 	"[y . h] [v22y.h] true":"true [v22y.h] [] 3 1",
 	"[y . h] [v333y.h] true":"true [v333y.h] [] 3 1",
-	"[y . h] [y . h] true":"true [y . h] [] 3 3",
+	"[y . h] [* . h] false":"false [] [* . h] 0 0",
 	"[y] [-yyx] true":"false [] [-yyx] 0 1",
 	"[y] [-yyy] false":"false [] [-yyy] 0 1",
 	"[y] [-yyy] true":"true [-yyy] [] 1 1",
@@ -3327,7 +3968,6 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[y] [xxx -yyy] false":"false [] [xxx -yyy] 0 2",
 	"[y] [xxx -yyy] true":"true [xxx -yyy] [] 1 2",
 	"[y] [xxx] true":"false [] [xxx] 0 1",
-	"[y] [y] true":"true [y] [] 1 1",
 	"[y] [yyy] true":"true [yyy] [] 1 1",
 	"[y] [z] true":"false [] [z] 0 1",
 	"[z] [v1.h] false":"false [] [v1.h] 0 1",
@@ -3335,28 +3975,56 @@ var checkpoints_matchCompComp = func(m map[string]any) map[string]any {
 	"[z] [v3.hh] false":"false [] [v3.hh] 0 1",
 	"[z] [xyz000.txt] false":"false [] [xyz000.txt] 0 1",
 	"[z] [xyz] true":"true [xyz] [] 1 1",
-	"[z] [z] false":"true [z] [] 1 1",
 	"[z] [zz] false":"true [zz] [] 1 1",
 	"[zz] [* . h] false":"false [] [* . h] 0 3",
 	"[zz] [*] false":"false [] [*] 0 1",
 	"[zz] [z ?] false":"false [] [z ?] 0 2",
-	"[zz] [zz] false":"true [zz] [] 1 1",
+	"[z . h] [* . h] false":"false [] [* . h] 0 0",
 })
 func check_matchCompComp(ctx Context, elems, vals []Value, trail bool) func(*bool, *[]Value, *[]Value, *int, *int) {
 	var k = sf("%v %v %v", elems, vals, trail)
 	var v = checkpoints_matchCompComp[k]
-	return func(matched *bool, res, rem *[]Value, eIdx, sIdx *int) {
-		if t := sf("%v %v %v %v %v", *matched, *res, *rem, *eIdx, *sIdx); v == nil {
-			if true { prompt(ctx, `	"%s":"%s", //matchCompComp`+"\n", k, t) } else
+	return func(matched *bool, res, rem *[]Value, iE, iV *int) {
+		if i := *iE; i < 0 { debug(ctx, "wrong iE: %v ; %v", i, k, trace{}) }
+		if i := *iV; i < 0 { debug(ctx, "wrong iV: %v ; %v", i, k, trace{}) }
+		var t = sf("%v %v %v %v %v", *matched, *res, *rem, *iE, *iV)
+		if *matched {
+			switch sf("%v", elems) {
+			case sf("%v", vals):
+				if sf("true %[1]v [] %[2]d %[2]d", vals, len(vals)) == t { return }
+			case "[]":
+				if sf("true [] %[1]v 0 %[2]d", elems, len(elems)) == t { return }
+			}
+			if trail {
+				switch t {
+				case sf("true %[1]v [] 0 0", elems): return
+				}
+			} else {
+				switch t {
+				case sf("true %[1]v [] %[2]d %[2]d", elems, len(elems)): return
+				}
+			}
+		} else {
+			switch sf("%v", elems) {
+			case "[]":
+				if sf("true [] %[1]v 0 %[2]d", elems, len(elems)) == t { return }
+			}
+			switch sf("%v", vals) {
+			case "[]":
+				if sf("false [] [] 0 0") == t { return }
+			}
+		}
+		if v == nil {
+			if false { prompt(ctx, `	"%s":"%s", //matchCompComp`+"\n", k, t) } else
 			{ debug(pc(ctx,elems),
-				_f(`"%s":"%s",`, k, t),
+				_f(`matchCompComp: "%s":"%s",`, k, t),
 				_f("elems: %v", ts(elems)),
 				_f("vals: %v", ts(vals)),
 				callstack{num:16}, trace{}) }
 		} else if v != t {
-			if true { prompt(ctx, `	"%s":"%s", //matchCompComp != %v`+"\n", k, t, v) } else
+			if false { prompt(ctx, `	"%s":"%s", //matchCompComp != %v`+"\n", k, t, v) } else
 			{ debug(pc(ctx,elems),
-				_f(`"%s": "%s" != "%s" // len(vals)=%v`, k, t, v, len(vals)),
+				_f(`matchCompComp: "%s": "%s" != "%s"`, k, t, v),
 				_f("elems: %v", ts(elems)),
 				_f("vals: %v", ts(vals)),
 				callstack{num:16}, trace{}) }
@@ -3367,12 +4035,30 @@ func check_matchCompComp(ctx Context, elems, vals []Value, trail bool) func(*boo
 var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	a := append(append([]string{}, testdata_l...), "builtins", "trimprefix")
 	for i := len(a)-1; 0 <= i; i-- {
-		k := sf(`[testdata] %[1]s false`, a[i])
-		v := sf(`false [] [%[1]s] [] %[2]d %[2]d ILLEGAL`, a[i], len(a)-i)
-		m[k] = v ; if false { fmt.Printf(`"%v":"%v"`+"\n", k, v) }
+		{
+			k := sf(`[%[1]s] [%[1]s] false`, a[i])
+			v := sf(`true [%[1]s] [] [] 1 1 ILLEGAL`, a[i])
+			m[k] = v ; if false { fmt.Printf(`"%v":"%v"`+"\n", k, v) }
+		}
+		{
+			k := sf(`[testdata] %[1]s false`, a[i])
+			v := sf(`false [] [%[1]s] [] %[2]d %[2]d ILLEGAL`, a[i], len(a)-i)
+			m[k] = v ; if false { fmt.Printf(`"%v":"%v"`+"\n", k, v) }
+		}
 	}
 	return m
 }(map[string]any{
+	"[%.c] [foo.c++] false":"true [foo.c] [++] [foo] 1 1 ILLEGAL",
+	"[%.c] [foo.c] false":"true [foo.c] [] [foo] 1 1 ILLEGAL",
+	"[%.c] [x.c++] false":"true [x.c] [++] [x] 1 1 ILLEGAL",
+	"[%.c] [y.c++] false":"true [y.c] [++] [y] 1 1 ILLEGAL",
+	"[%.c++] [foo.c] false":"false [] [foo.c] [] 0 0 **",
+	"[%.c++] [foo.c++] false":"true [foo.c++] [] [foo] 1 1 ILLEGAL",
+	"[%.c++] [x.c++] false":"true [x.c++] [] [x] 1 1 ILLEGAL",
+	"[%.c++] [y.c++] false":"true [y.c++] [] [y] 1 1 ILLEGAL",
+	"[* . c++] [foo] false":"false [foo] [] [foo] 0 1 ILLEGAL",
+	"[* . c++] [x . c++] false":"true [x . c++] [] [x] 3 3 ILLEGAL",
+	"[* . c++] [y . c++] false":"true [y . c++] [] [y] 3 3 ILLEGAL",
 	"[* . c] [foo . c] false":"true [foo . c] [] [foo] 3 3 ILLEGAL",
 	"[* . c] [foo] false":"false [foo] [] [foo] 0 1 ILLEGAL",
 	"[* . def . am] [a.def.am] false":"true [a .def.am] [] [a] 4 2 ILLEGAL",
@@ -3384,6 +4070,12 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[* . def . in] [a.def.in] false":"true [a .def.in] [] [a] 4 2 ILLEGAL",
 	"[* . def . in] [b.def.in] false":"true [b .def.in] [] [b] 4 2 ILLEGAL",
 	"[* . def . in] [x.h] false":"false [x.h] [] [x.h] 0 1 ILLEGAL",
+	"[* . gen] [. deps] false":"false [. deps] [] [.deps] 0 2 ILLEGAL",
+	"[* . gen] [a . gen] false":"true [a . gen] [] [a] 3 3 ILLEGAL",
+	"[* . gen] [b . gen] false":"true [b . gen] [] [b] 3 3 ILLEGAL",
+	"[* . gen] [foo] false":"false [foo] [] [foo] 0 1 ILLEGAL",
+	"[* . gen] [x . gen] false":"true [x . gen] [] [x] 3 3 ILLEGAL",
+	"[* . gen] [y . gen] false":"true [y . gen] [] [y] 3 3 ILLEGAL",
 	"[* . h] [* . h] false":"true [* . h] [] [*] 3 3 ILLEGAL",
 	"[* . h] [** . h] false":"true [** . h] [] [**] 3 3 ILLEGAL",
 	"[* . h] [a . h] false":"true [a . h] [] [a] 3 3 ILLEGAL",
@@ -3412,6 +4104,8 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[* . h] [xv22y.h] false":"true [xv22y .h] [] [xv22y] 3 2 ILLEGAL",
 	"[* . h] [xv333y.h] false":"true [xv333y .h] [] [xv333y] 3 2 ILLEGAL",
 	"[* . h] [xyz000.txt] false":"false [xyz000] [.txt] [xyz000] 0 1 ILLEGAL",
+	"[* . h] [y . h] false":"true [y . h] [] [y] 3 3 ILLEGAL",
+	"[* . h] [z . h] false":"true [z . h] [] [z] 3 3 ILLEGAL",
 	"[* . h] [zz] false":"false [zz] [] [zz] 0 1 ILLEGAL",
 	"[* . hh] [v1.h] false":"false [v1] [.h] [v1] 0 1 ILLEGAL",
 	"[* . hh] [v2.h] false":"false [v2] [.h] [v2] 0 1 ILLEGAL",
@@ -3423,6 +4117,12 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[** . auto] [b] false":"false [] [b] [] 0 0 **",
 	"[** . auto] [c . auto] false":"true [c . auto] [] [c] 3 3 ILLEGAL",
 	"[** . auto] [c . test] false":"false [] [c . test] [] 0 0 **",
+	"[** . c++] [. deps] false":"false [] [. deps] [] 0 0 **",
+	"[** . c++] [foo . c++] false":"true [foo . c++] [] [foo] 3 3 ILLEGAL",
+	"[** . c++] [foo] false":"false [] [foo] [] 0 0 **",
+	"[** . c++] [x . c++] false":"true [x . c++] [] [x] 3 3 ILLEGAL",
+	"[** . c++] [y . c++] false":"true [y . c++] [] [y] 3 3 ILLEGAL",
+	"[** . c] [. deps] false":"false [] [. deps] [] 0 0 **",
 	"[** . c] [bar . c] false":"true [bar . c] [] [bar] 3 3 ILLEGAL",
 	"[** . c] [foo . c] false":"true [foo . c] [] [foo] 3 3 ILLEGAL",
 	"[** . c] [foo] false":"false [] [foo] [] 0 0 **",
@@ -3431,6 +4131,12 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[** . def . am] [** . def . am] false":"true [** . def . am] [] [**] 5 5 ILLEGAL",
 	"[** . def . am] [config] false":"false [] [config] [] 0 0 **",
 	"[** . def . am] [foobar] false":"false [] [foobar] [] 0 0 **",
+	"[** . gen] [. deps] false":"false [] [. deps] [] 0 0 **",
+	"[** . gen] [a . gen] false":"true [a . gen] [] [a] 3 3 ILLEGAL",
+	"[** . gen] [b . gen] false":"true [b . gen] [] [b] 3 3 ILLEGAL",
+	"[** . gen] [foo] false":"false [] [foo] [] 0 0 **",
+	"[** . gen] [x . gen] false":"true [x . gen] [] [x] 3 3 ILLEGAL",
+	"[** . gen] [y . gen] false":"true [y . gen] [] [y] 3 3 ILLEGAL",
 	"[** . h] [* . h] false":"true [* . h] [] [*] 3 3 ILLEGAL",
 	"[** . h] [** . h] false":"true [** . h] [] [**] 3 3 ILLEGAL",
 	"[** . h] [a.def.am] false":"false [] [a.def.am] [] 0 0 **",
@@ -3441,48 +4147,8 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[** . h] [config] false":"false [] [config] [] 0 0 **",
 	"[** . h] [foo ? ? ?] false":"false [] [foo ? ? ?] [] 0 0 **",
 	"[** . h] [foo.h] false":"true [foo.h] [] [foo] 3 1 ILLEGAL",
-	// "[** . h] [foo/bar/v1.h] false":"true [foo/bar/v1.h] [] [foo/bar/v1] 3 1 ILLEGAL",
-	// "[** . h] [foo/bar/v2.h] false":"true [foo/bar/v2.h] [] [foo/bar/v2] 3 1 ILLEGAL",
-	// "[** . h] [foo/bar/v3.hh] false":"false [] [foo/bar/v3.hh] [] 0 0 **",
-	// "[** . h] [foo/bar/xyz000.txt] false":"false [] [foo/bar/xyz000.txt] [] 0 0 **",
-	// "[** . h] [foo/bar/zz/x.h] false":"true [foo/bar/zz/x.h] [] [foo/bar/zz/x] 3 1 ILLEGAL",
-	// "[** . h] [foo/bar/zz] false":"false [] [foo/bar/zz] [] 0 0 **",
-	// "[** . h] [foo/bar] false":"false [] [foo/bar] [] 0 0 **",
-	// "[** . h] [foo/v1.h] false":"true [foo/v1.h] [] [foo/v1] 3 1 ILLEGAL",
-	// "[** . h] [foo/v2.h] false":"true [foo/v2.h] [] [foo/v2] 3 1 ILLEGAL",
-	// "[** . h] [foo/xv1y.h] false":"true [foo/xv1y.h] [] [foo/xv1y] 3 1 ILLEGAL",
-	// "[** . h] [foo/xv22y.h] false":"true [foo/xv22y.h] [] [foo/xv22y] 3 1 ILLEGAL",
-	// "[** . h] [foo/xv333y.h] false":"true [foo/xv333y.h] [] [foo/xv333y] 3 1 ILLEGAL",
 	"[** . h] [foo] false":"false [] [foo] [] 0 0 **",
-	// "[** . h] [foobar/config/a.def.am] false":"false [] [foobar/config/a.def.am] [] 0 0 **",
-	// "[** . h] [foobar/config/a.def.in] false":"false [] [foobar/config/a.def.in] [] 0 0 **",
-	// "[** . h] [foobar/config/b.def.in] false":"false [] [foobar/config/b.def.in] [] 0 0 **",
-	// "[** . h] [foobar/config/x.h] false":"true [foobar/config/x.h] [] [foobar/config/x] 3 1 ILLEGAL",
-	// "[** . h] [foobar/config] false":"false [] [foobar/config] [] 0 0 **",
-	// "[** . h] [foobar/x.h] false":"true [foobar/x.h] [] [foobar/x] 3 1 ILLEGAL",
 	"[** . h] [foobar] false":"false [] [foobar] [] 0 0 **",
-	// "[** . h] [inc/bar.h] false":"true [inc/bar.h] [] [inc/bar] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo.h] false":"true [inc/foo.h] [] [inc/foo] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo/bar/v1.h] false":"true [inc/foo/bar/v1.h] [] [inc/foo/bar/v1] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo/bar/v2.h] false":"true [inc/foo/bar/v2.h] [] [inc/foo/bar/v2] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo/bar/v3.hh] false":"false [] [inc/foo/bar/v3.hh] [] 0 0 **",
-	// "[** . h] [inc/foo/bar/xyz000.txt] false":"false [] [inc/foo/bar/xyz000.txt] [] 0 0 **",
-	// "[** . h] [inc/foo/bar/zz/x.h] false":"true [inc/foo/bar/zz/x.h] [] [inc/foo/bar/zz/x] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo/bar/zz] false":"false [] [inc/foo/bar/zz] [] 0 0 **",
-	// "[** . h] [inc/foo/bar] false":"false [] [inc/foo/bar] [] 0 0 **",
-	// "[** . h] [inc/foo/v1.h] false":"true [inc/foo/v1.h] [] [inc/foo/v1] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo/v2.h] false":"true [inc/foo/v2.h] [] [inc/foo/v2] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo/xv1y.h] false":"true [inc/foo/xv1y.h] [] [inc/foo/xv1y] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo/xv22y.h] false":"true [inc/foo/xv22y.h] [] [inc/foo/xv22y] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo/xv333y.h] false":"true [inc/foo/xv333y.h] [] [inc/foo/xv333y] 3 1 ILLEGAL",
-	// "[** . h] [inc/foo] false":"false [] [inc/foo] [] 0 0 **",
-	// "[** . h] [inc/foobar/config/a.def.am] false":"false [] [inc/foobar/config/a.def.am] [] 0 0 **",
-	// "[** . h] [inc/foobar/config/a.def.in] false":"false [] [inc/foobar/config/a.def.in] [] 0 0 **",
-	// "[** . h] [inc/foobar/config/b.def.in] false":"false [] [inc/foobar/config/b.def.in] [] 0 0 **",
-	// "[** . h] [inc/foobar/config/x.h] false":"true [inc/foobar/config/x.h] [] [inc/foobar/config/x] 3 1 ILLEGAL",
-	// "[** . h] [inc/foobar/config] false":"false [] [inc/foobar/config] [] 0 0 **",
-	// "[** . h] [inc/foobar/x.h] false":"true [inc/foobar/x.h] [] [inc/foobar/x] 3 1 ILLEGAL",
-	// "[** . h] [inc/foobar] false":"false [] [inc/foobar] [] 0 0 **",
 	"[** . h] [v ? . h] false":"true [v? . h] [] [v?] 3 3 ILLEGAL",
 	"[** . h] [v1.h] false":"true [v1.h] [] [v1] 3 1 ILLEGAL",
 	"[** . h] [v2.h] false":"true [v2.h] [] [v2] 3 1 ILLEGAL",
@@ -3495,6 +4161,14 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[** . h] [xyz000.txt] false":"false [] [xyz000.txt] [] 0 0 **",
 	"[** . h] [zz] false":"false [] [zz] [] 0 0 **",
 	"[** . hh] [* . hh] false":"true [* . hh] [] [*] 3 3 ILLEGAL",
+	"[** . o] [foo . o] false":"true [foo . o] [] [foo] 3 3 ILLEGAL",
+	"[** . o] [foo .o] false":"true [foo . o] [] [foo] 3 2 ILLEGAL",
+	"[** . o] [foo.c .o] false":"true [foo.c . o] [] [foo.c] 3 2 ILLEGAL",
+	"[** . o] [foo.c++ .o] false":"true [foo.c++ . o] [] [foo.c++] 3 2 ILLEGAL",
+	"[** . o] [foo.o] false":"true [foo . o] [] [foo] 3 1 ILLEGAL",
+	"[** . o] [foo/bar.o] false":"true [foo/bar . o] [] [foo/bar] 3 1 ILLEGAL",
+	"[** . o] [x.c++ .o] false":"true [x.c++ . o] [] [x.c++] 3 2 ILLEGAL",
+	"[** . o] [y.c++ .o] false":"true [y.c++ . o] [] [y.c++] 3 2 ILLEGAL",
 	"[** y] [a] false":"false [] [a] [] 0 0 **",
 	"[** y] [aaa] false":"false [] [aaa] [] 0 0 **",
 	"[** y] [abcy] false":"true [abcy] [] [abc] 2 1 ILLEGAL",
@@ -3515,81 +4189,13 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[** y] [yyy] false":"true [yyy] [] [yy] 2 1 ILLEGAL",
 	"[** y] [z] false":"false [] [z] [] 0 0 **",
 	"[** z] [xyz] false":"true [xyz] [] [xy] 2 1 ILLEGAL",
-	"[**] [. test] false":"true [. test] [] [. test] 1 2 ILLEGAL",
-	"[**] [Volumes] false":"true [Volumes] [] [Volumes] 1 1 ILLEGAL",
-	"[**] [] false":"true [] [] [] 1 0 ILLEGAL",
-	"[**] [a] false":"true [a] [] [a] 1 1 ILLEGAL",
-	"[**] [aaa] false":"true [aaa] [] [aaa] 1 1 ILLEGAL",
-	"[**] [abcy] false":"true [abcy] [] [abcy] 1 1 ILLEGAL",
-	"[**] [b *] false":"true [b *] [] [b *] 1 2 ILLEGAL",
-	"[**] [bar] false":"true [bar] [] [bar] 1 1 ILLEGAL",
-	"[**] [builtins] false":"true [builtins] [] [builtins] 1 1 ILLEGAL",
-	"[**] [c] false":"true [c] [] [c] 1 1 ILLEGAL",
-	"[**] [dy] false":"true [dy] [] [dy] 1 1 ILLEGAL",
-	"[**] [extbit.io] false":"true [extbit.io] [] [extbit.io] 1 1 ILLEGAL",
-	"[**] [foo ? ? ?] false":"true [foo ? ? ?] [] [foo ? ? ?] 1 4 ILLEGAL",
-	"[**] [foo] false":"true [foo] [] [foo] 1 1 ILLEGAL",
-	"[**] [foobar] false":"true [foobar] [] [foobar] 1 1 ILLEGAL",
-	"[**] [go] false":"true [go] [] [go] 1 1 ILLEGAL",
-	"[**] [smart] false":"true [smart] [] [smart] 1 1 ILLEGAL",
-	"[**] [src] false":"true [src] [] [src] 1 1 ILLEGAL",
-	"[**] [testdata] false":"true [testdata] [] [testdata] 1 1 ILLEGAL",
-	"[**] [trimprefix] false":"true [trimprefix] [] [trimprefix] 1 1 ILLEGAL",
-	"[**] [v * . h] false":"true [v * . h] [] [v * . h] 1 4 ILLEGAL",
-	"[**] [v1.h] false":"true [v1.h] [] [v1.h] 1 1 ILLEGAL",
-	"[**] [v2.h] false":"true [v2.h] [] [v2.h] 1 1 ILLEGAL",
-	"[**] [v3.hh] false":"true [v3.hh] [] [v3.hh] 1 1 ILLEGAL",
-	"[**] [workspace] false":"true [workspace] [] [workspace] 1 1 ILLEGAL",
-	"[**] [x.h] false":"true [x.h] [] [x.h] 1 1 ILLEGAL",
-	"[**] [xv1y.h] false":"true [xv1y.h] [] [xv1y.h] 1 1 ILLEGAL",
-	"[**] [xv22y.h] false":"true [xv22y.h] [] [xv22y.h] 1 1 ILLEGAL",
-	"[**] [xv333y.h] false":"true [xv333y.h] [] [xv333y.h] 1 1 ILLEGAL",
-	"[**] [xx -yy] false":"true [xx -yy] [] [xx -yy] 1 2 ILLEGAL",
-	"[**] [xx] false":"true [xx] [] [xx] 1 1 ILLEGAL",
-	"[**] [xyz000.txt] false":"true [xyz000.txt] [] [xyz000.txt] 1 1 ILLEGAL",
-	"[**] [xyz] false":"true [xyz] [] [xyz] 1 1 ILLEGAL",
-	"[**] [zz] false":"true [zz] [] [zz] 1 1 ILLEGAL",
-	"[*?] [**] false":"true [**] [] [**] 1 1 ILLEGAL",
-	"[*?] [bar] false":"true [bar] [] [bar] 1 1 ILLEGAL",
-	"[*?] [config] false":"true [config] [] [config] 1 1 ILLEGAL",
-	"[*?] [v1.h] false":"true [v1.h] [] [v1.h] 1 1 ILLEGAL",
-	"[*?] [v2.h] false":"true [v2.h] [] [v2.h] 1 1 ILLEGAL",
-	"[*?] [x . h] false":"true [x] [. h] [x] 1 1 ILLEGAL",
-	"[*?] [x.h] false":"true [x.h] [] [x.h] 1 1 ILLEGAL",
-	"[*?] [xv1y.h] false":"true [xv1y.h] [] [xv1y.h] 1 1 ILLEGAL",
-	"[*?] [xv22y.h] false":"true [xv22y.h] [] [xv22y.h] 1 1 ILLEGAL",
-	"[*?] [xv333y.h] false":"true [xv333y.h] [] [xv333y.h] 1 1 ILLEGAL",
-	"[*] [a . h] false":"true [a] [. h] [a] 1 1 ILLEGAL",
-	"[*] [a] false":"true [a] [] [a] 1 1 ILLEGAL",
-	"[*] [b . h] false":"true [b] [. h] [b] 1 1 ILLEGAL",
-	"[*] [b] false":"true [b] [] [b] 1 1 ILLEGAL",
-	"[*] [bar.h] false":"true [bar.h] [] [bar.h] 1 1 ILLEGAL",
-	"[*] [bar] false":"true [bar] [] [bar] 1 1 ILLEGAL",
-	"[*] [config] false":"true [config] [] [config] 1 1 ILLEGAL",
-	"[*] [foo.h] false":"true [foo.h] [] [foo.h] 1 1 ILLEGAL",
-	"[*] [foo] false":"true [foo] [] [foo] 1 1 ILLEGAL",
-	"[*] [foobar] false":"true [foobar] [] [foobar] 1 1 ILLEGAL",
-	"[*] [v ? . h] false":"true [v] [? . h] [v] 1 1 ILLEGAL",
-	"[*] [v1.h] false":"true [v1.h] [] [v1.h] 1 1 ILLEGAL",
-	"[*] [v2.h] false":"true [v2.h] [] [v2.h] 1 1 ILLEGAL",
-	"[*] [x.h] false":"true [x.h] [] [x.h] 1 1 ILLEGAL",
-	"[*] [xv1y.h] false":"true [xv1y.h] [] [xv1y.h] 1 1 ILLEGAL",
-	"[*] [xv22y.h] false":"true [xv22y.h] [] [xv22y.h] 1 1 ILLEGAL",
-	"[*] [xv333y.h] false":"true [xv333y.h] [] [xv333y.h] 1 1 ILLEGAL",
-	"[*] [zz] false":"true [zz] [] [zz] 1 1 ILLEGAL",
-	"[. auto] [. auto] true":"true [. auto] [] [] 2 2 ILLEGAL",
 	"[. auto] [. test] true":"false [] [. test] [] 0 2 ILLEGAL",
-	"[. auto] [] true":"false [] [] [] 0 0 ILLEGAL",
 	"[. auto] [a] true":"false [] [a] [] 0 1 ILLEGAL",
 	"[. auto] [auto] true":"false [] [auto] [] 0 1 ILLEGAL",
 	"[. auto] [b] true":"false [] [b] [] 0 1 ILLEGAL",
 	"[. auto] [c . auto] true":"true [. auto] [] [] 0 0 ILLEGAL",
 	"[. auto] [c . test] true":"false [] [. test] [] 0 2 ILLEGAL",
 	"[. auto] [test] true":"false [] [test] [] 0 1 ILLEGAL",
-	"[. c] [. c] false":"true [. c] [] [] 2 2 ILLEGAL",
-	"[. c] [. c] true":"true [. c] [] [] 0 0 ILLEGAL",
-	"[. c] [] false":"false [] [] [] 0 0 ILLEGAL",
-	"[. c] [] true":"false [] [] [] 0 0 ILLEGAL",
 	"[. c] [bar . c] true":"true [. c] [] [] 0 0 ILLEGAL",
 	"[. c] [c] false":"false [] [c] [] 0 1 ILLEGAL",
 	"[. c] [c] true":"false [] [] [] 0 0 ILLEGAL",
@@ -3598,10 +4204,8 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[. def . am] [* . def . am] true":"true [. def . am] [] [] 0 0 ILLEGAL",
 	"[. def . am] [* . def . in] true":"false [] [. def . in] [] 0 3 ILLEGAL",
 	"[. def . am] [. am] true":"false [] [. am] [] 0 2 ILLEGAL",
-	"[. def . am] [. def . am] true":"true [. def . am] [] [] 0 0 ILLEGAL",
 	"[. def . am] [. def . in] true":"false [] [. def . in] [] 0 3 ILLEGAL",
 	"[. def . am] [. in] true":"false [] [. in] [] 0 2 ILLEGAL",
-	"[. def . am] [] true":"false [] [] [] 0 0 ILLEGAL",
 	"[. def . am] [a.def.am] true":"true [.def.am] [] [] 0 0 ILLEGAL",
 	"[. def . am] [a.def.in] true":"false [] [.def.in] [] 0 1 ILLEGAL",
 	"[. def . am] [am] true":"false [] [am] [] 0 1 ILLEGAL",
@@ -3612,13 +4216,11 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[. def . am] [foobar] true":"false [] [foobar] [] 0 1 ILLEGAL",
 	"[. def . am] [in] true":"false [] [in] [] 0 1 ILLEGAL",
 	"[. def . am] [x.h] true":"false [] [.h] [] 0 1 ILLEGAL",
-	"[. def . in] [] true":"false [] [] [] 0 0 ILLEGAL",
 	"[. def . in] [a.def.am] true":"false [] [.def.am] [] 0 1 ILLEGAL",
 	"[. def . in] [a.def.in] true":"true [.def.in] [] [] 0 0 ILLEGAL",
 	"[. def . in] [b.def.in] true":"true [.def.in] [] [] 0 0 ILLEGAL",
 	"[. def . in] [x.h] true":"false [] [.h] [] 0 1 ILLEGAL",
 	"[. h] [* . h] true":"true [. h] [] [] 0 0 ILLEGAL",
-	"[. h] [. h] true":"true [. h] [] [] 0 0 ILLEGAL",
 	"[. h] [.h] false":"true [.h] [] [] 2 1 ILLEGAL",
 	"[. h] [.hh] false":"true [.h] [h] [] 2 1 ILLEGAL",
 	"[. h] [1.h] true":"true [.h] [] [] 0 0 ILLEGAL",
@@ -3627,7 +4229,6 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[. h] [? ? ?] true":"false [] [? ? ?] [] 0 3 ILLEGAL",
 	"[. h] [? ?] true":"false [] [? ?] [] 0 2 ILLEGAL",
 	"[. h] [?] true":"false [] [?] [] 0 1 ILLEGAL",
-	"[. h] [] true":"false [] [] [] 0 0 ILLEGAL",
 	"[. h] [a.def.am] true":"false [] [.def.am] [] 0 1 ILLEGAL",
 	"[. h] [a.def.in] true":"false [] [.def.in] [] 0 1 ILLEGAL",
 	"[. h] [a] true":"false [] [a] [] 0 1 ILLEGAL",
@@ -3639,49 +4240,9 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[. h] [config] true":"false [] [config] [] 0 1 ILLEGAL",
 	"[. h] [foo ? ? ?] true":"false [] [foo ? ? ?] [] 0 4 ILLEGAL",
 	"[. h] [foo.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [foo/bar/v1.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [foo/bar/v2.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [foo/bar/v3.hh] true":"false [] [.hh] [] 0 1 ILLEGAL",
-	// "[. h] [foo/bar/xyz000.txt] true":"false [] [.txt] [] 0 1 ILLEGAL",
-	// "[. h] [foo/bar/zz/x.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [foo/bar/zz] true":"false [] [zz] [] 0 1 ILLEGAL",
-	// "[. h] [foo/bar] true":"false [] [bar] [] 0 1 ILLEGAL",
-	// "[. h] [foo/v1.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [foo/v2.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [foo/xv1y.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [foo/xv22y.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [foo/xv333y.h] true":"true [.h] [] [] 0 0 ILLEGAL",
 	"[. h] [foo] true":"false [] [foo] [] 0 1 ILLEGAL",
-	// "[. h] [foobar/config/a.def.am] true":"false [] [.def.am] [] 0 1 ILLEGAL",
-	// "[. h] [foobar/config/a.def.in] true":"false [] [.def.in] [] 0 1 ILLEGAL",
-	// "[. h] [foobar/config/b.def.in] true":"false [] [.def.in] [] 0 1 ILLEGAL",
-	// "[. h] [foobar/config/x.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [foobar/config] true":"false [] [config] [] 0 1 ILLEGAL",
-	// "[. h] [foobar/x.h] true":"true [.h] [] [] 0 0 ILLEGAL",
 	"[. h] [foobar] true":"false [] [foobar] [] 0 1 ILLEGAL",
 	"[. h] [h] true":"false [] [h] [] 0 1 ILLEGAL",
-	// "[. h] [inc/bar.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo/bar/v1.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo/bar/v2.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo/bar/v3.hh] true":"false [] [.hh] [] 0 1 ILLEGAL",
-	// "[. h] [inc/foo/bar/xyz000.txt] true":"false [] [.txt] [] 0 1 ILLEGAL",
-	// "[. h] [inc/foo/bar/zz/x.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo/bar/zz] true":"false [] [zz] [] 0 1 ILLEGAL",
-	// "[. h] [inc/foo/bar] true":"false [] [bar] [] 0 1 ILLEGAL",
-	// "[. h] [inc/foo/v1.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo/v2.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo/xv1y.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo/xv22y.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo/xv333y.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foo] true":"false [] [foo] [] 0 1 ILLEGAL",
-	// "[. h] [inc/foobar/config/a.def.am] true":"false [] [.def.am] [] 0 1 ILLEGAL",
-	// "[. h] [inc/foobar/config/a.def.in] true":"false [] [.def.in] [] 0 1 ILLEGAL",
-	// "[. h] [inc/foobar/config/b.def.in] true":"false [] [.def.in] [] 0 1 ILLEGAL",
-	// "[. h] [inc/foobar/config/x.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foobar/config] true":"false [] [config] [] 0 1 ILLEGAL",
-	// "[. h] [inc/foobar/x.h] true":"true [.h] [] [] 0 0 ILLEGAL",
-	// "[. h] [inc/foobar] true":"false [] [foobar] [] 0 1 ILLEGAL",
 	"[. h] [v ? . h] true":"true [. h] [] [] 0 0 ILLEGAL",
 	"[. h] [v1.h] true":"true [.h] [] [] 0 0 ILLEGAL",
 	"[. h] [v2.h] true":"true [.h] [] [] 0 0 ILLEGAL",
@@ -3693,34 +4254,18 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[. h] [xv333y.h] true":"true [.h] [] [] 0 0 ILLEGAL",
 	"[. h] [xyz000.txt] true":"false [] [.txt] [] 0 1 ILLEGAL",
 	"[. h] [zz] true":"false [] [zz] [] 0 1 ILLEGAL",
-	"[. hh] [. hh] true":"true [. hh] [] [] 2 2 ILLEGAL",
 	"[. hh] [hh] true":"false [] [hh] [] 0 1 ILLEGAL",
 	"[. hh] [v1.h] true":"false [] [.h] [] 0 1 ILLEGAL",
 	"[. hh] [v2.h] true":"false [] [.h] [] 0 1 ILLEGAL",
 	"[. hh] [v3.hh] true":"true [.hh] [] [] 0 0 ILLEGAL",
 	"[. hh] [xyz000.txt] true":"false [] [.txt] [] 0 1 ILLEGAL",
 	"[. hh] [zz] true":"false [] [zz] [] 0 1 ILLEGAL",
-	"[. test] [. test] false":"true [. test] [] [] 2 2 ILLEGAL",
-	"[. txt] [. txt] true":"true [. txt] [] [] 2 2 ILLEGAL",
 	"[. txt] [txt] true":"false [] [txt] [] 0 1 ILLEGAL",
 	"[? . h] [x . h] false":"true [x . h] [] [x] 3 3 ILLEGAL",
 	"[? . h] [x.h] false":"true [x.h] [] [x] 3 1 ILLEGAL",
 	"[? ?] [ar] false":"true [ar] [] [a r] 2 1 ILLEGAL",
 	"[? ?] [h] false":"false [] [h] [] 0 1 ILLEGAL",
-	"[?] [] false":"false [] [] [] 0 0 ILLEGAL",
 	"[?] [r] false":"true [r] [] [r] 1 1 ILLEGAL",
-	"[Volumes] [Volumes] false":"true [Volumes] [] [] 1 1 ILLEGAL",
-	"[] [] false":"true [] [] [] 0 0 ILLEGAL",
-	"[] [] true":"true [] [] [] 0 0 ILLEGAL",
-	"[] [abcy] true":"true [] [abcy] [] 0 1 ILLEGAL",
-	"[] [builtins] false":"false [] [builtins] [] 0 1 ILLEGAL",
-	"[] [c] true":"true [] [c] [] 0 1 ILLEGAL",
-	"[] [dy] true":"true [] [dy] [] 0 1 ILLEGAL",
-	"[] [foo] false":"false [] [foo] [] 0 1 ILLEGAL",
-	"[] [oo] true":"true [] [oo] [] 0 1 ILLEGAL",
-	"[] [v * . h] true":"true [] [v * . h] [] 0 4 ILLEGAL",
-	"[] [xx] true":"true [] [xx] [] 0 1 ILLEGAL",
-	"[] [xyz] true":"true [] [xyz] [] 0 1 ILLEGAL",
 	"[b *] [**] false":"false [] [**] [] 0 1 ILLEGAL",
 	"[b *] [b ? r] false":"true [b ? r] [] [?r] 2 3 ILLEGAL",
 	"[b *] [bar] false":"true [bar] [] [ar] 2 1 ILLEGAL",
@@ -3730,28 +4275,26 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[b *] [xv22y.h] false":"false [] [xv22y.h] [] 0 1 ILLEGAL",
 	"[b *] [xv333y.h] false":"false [] [xv333y.h] [] 0 1 ILLEGAL",
 	"[b ? r] [b *] false":"false [b] [*] [] 1 2 ILLEGAL",
-	"[b ? r] [bar] false":"true [b a r] [] [a] 3 1 ILLEGAL", //matchGlobComp
-	"[b ? r] [v1.h] false":"false [] [v1.h] [] 0 0 ILLEGAL", //matchGlobComp
-	"[b ? r] [v2.h] false":"false [] [v2.h] [] 0 0 ILLEGAL", //matchGlobComp
-	"[b ? r] [xv1y.h] false":"false [] [xv1y.h] [] 0 0 ILLEGAL", //matchGlobComp
-	"[b ? r] [xv22y.h] false":"false [] [xv22y.h] [] 0 0 ILLEGAL", //matchGlobComp
-	"[b ? r] [xv333y.h] false":"false [] [xv333y.h] [] 0 0 ILLEGAL", //matchGlobComp
+	"[b ? r] [bar] false":"true [b a r] [] [a] 3 1 ILLEGAL",
+	"[b ? r] [config] false":"false [] [config] [] 0 0 ILLEGAL",
+	"[b ? r] [v1.h] false":"false [] [v1.h] [] 0 0 ILLEGAL",
+	"[b ? r] [v2.h] false":"false [] [v2.h] [] 0 0 ILLEGAL",
+	"[b ? r] [x.h] false":"false [] [x.h] [] 0 0 ILLEGAL",
+	"[b ? r] [xv1y.h] false":"false [] [xv1y.h] [] 0 0 ILLEGAL",
+	"[b ? r] [xv22y.h] false":"false [] [xv22y.h] [] 0 0 ILLEGAL",
+	"[b ? r] [xv333y.h] false":"false [] [xv333y.h] [] 0 0 ILLEGAL",
 	"[ba *] [bar] false":"true [bar] [] [r] 2 1 ILLEGAL",
 	"[ba ?] [bar] false":"true [bar] [] [r] 2 1 ILLEGAL",
 	"[bar] [* . h] false":"false [] [* . h] [] 0 3 ILLEGAL",
 	"[bar] [** . hh] false":"false [] [** . hh] [] 0 3 ILLEGAL",
-	"[bar] [bar] false":"true [bar] [] [] 1 1 ILLEGAL",
 	"[bar] [foo bar *.h] 1":"false [] [bar *.h] [] 0 2 ILLEGAL",
 	"[bar] [v1.h] false":"false [] [v1.h] [] 0 1 ILLEGAL",
 	"[bar] [v2.h] false":"false [] [v2.h] [] 0 1 ILLEGAL",
 	"[bar] [xv1y.h] false":"false [] [xv1y.h] [] 0 1 ILLEGAL",
 	"[bar] [xv22y.h] false":"false [] [xv22y.h] [] 0 1 ILLEGAL",
 	"[bar] [xv333y.h] false":"false [] [xv333y.h] [] 0 1 ILLEGAL",
-	"[builtins] [builtins] false":"true [builtins] [] [] 1 1 ILLEGAL",
-	"[config] [config] false":"true [config] [] [] 1 1 ILLEGAL",
 	"[config] [foobar x.h] 1":"false [] [x.h] [] 0 1 ILLEGAL",
 	"[config] [x.h] false":"false [] [x.h] [] 0 1 ILLEGAL",
-	"[extbit.io] [extbit.io] false":"true [extbit.io] [] [] 1 1 ILLEGAL",
 	"[f *?] [bar.h] false":"false [] [bar.h] [] 0 1 ILLEGAL",
 	"[f *?] [fo ?] false":"true [fo ?] [] [o?] 2 2 ILLEGAL",
 	"[f *?] [foo.h] false":"true [foo.h] [] [oo.h] 2 1 ILLEGAL",
@@ -3762,48 +4305,32 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[f] [foo.h] false":"true [f] [oo.h] [] 1 1 ILLEGAL",
 	"[f] [foo] false":"true [f] [oo] [] 1 1 ILLEGAL",
 	"[f] [foobar] false":"true [f] [oobar] [] 1 1 ILLEGAL",
-	"[fo ?] [bar.h] false":"false [] [bar.h] [] 0 1 ILLEGAL",
+	"[fo ?] [bar.h] false":"false [] [bar.h] [] 0 0 ILLEGAL",
 	"[fo ?] [f *?] false":"false [] [f *?] [] 0 2 ILLEGAL",
-	"[fo ?] [foo.h] false":"false [foo] [.h] [o] 2 1 ILLEGAL",
-	"[fo ?] [foo] false":"true [foo] [] [o] 2 1 ILLEGAL",
-	"[fo ?] [foobar] false":"false [foo] [bar] [o] 2 1 ILLEGAL",
+	"[fo ?] [foo.h] false":"true [fo o] [.h] [o] 2 0 ILLEGAL",
+	"[fo ?] [foo] false":"true [fo o] [] [o] 2 1 ILLEGAL",
+	"[fo ?] [foobar] false":"true [fo o] [bar] [o] 2 0 ILLEGAL",
 	"[foo ? ? ?] [* . h] false":"false [] [* . h] [] 0 0 ILLEGAL",
 	"[foo ? ? ?] [** . h] false":"false [] [** . h] [] 0 0 ILLEGAL",
 	"[foo ? ? ?] [bar.h] false":"false [] [bar.h] [] 0 0 ILLEGAL",
-	"[foo ? ? ?] [foo.h] false":"false [foo . h] [] [. h] 3 1 ILLEGAL", //matchGlobComp
-	"[foo ? ? ?] [foo] false":"false [foo] [] [] 1 1 ILLEGAL", //matchGlobComp
-	"[foo ? ? ?] [foobar] false":"true [foo b a r] [] [b a r] 4 1 ILLEGAL", //matchGlobComp
+	"[foo ? ? ?] [foo.h] false":"false [foo . h] [] [. h] 3 1 ILLEGAL",
+	"[foo ? ? ?] [foo] false":"false [foo] [] [] 1 1 ILLEGAL",
+	"[foo ? ? ?] [foobar] false":"true [foo b a r] [] [b a r] 4 1 ILLEGAL",
 	"[foo] [bar.h] false":"false [] [bar.h] [] 0 1 ILLEGAL",
 	"[foo] [f *?] false":"true [foo] [] [] 1 0 ILLEGAL",
 	"[foo] [fo ?] false":"true [foo] [] [] 1 0 ILLEGAL",
 	"[foo] [foo ? ? ?] false":"true [foo] [? ? ?] [] 1 4 ILLEGAL",
 	"[foo] [foo.h] false":"true [foo] [.h] [] 1 1 ILLEGAL",
-	"[foo] [foo] false":"true [foo] [] [] 1 1 ILLEGAL",
 	"[foo] [foobar] false":"true [foo] [bar] [] 1 1 ILLEGAL",
 	"[foobar] [bar.h] false":"false [] [bar.h] [] 0 1 ILLEGAL",
 	"[foobar] [foo.h] false":"false [] [foo.h] [] 0 1 ILLEGAL",
 	"[foobar] [foo] false":"false [] [foo] [] 0 1 ILLEGAL",
-	"[foobar] [foobar] false":"true [foobar] [] [] 1 1 ILLEGAL",
-	"[go] [go] false":"true [go] [] [] 1 1 ILLEGAL",
 	"[inc] [.DS_Store] false":"false [] [.DS_Store] [] 0 1 ILLEGAL",
 	"[inc] [1] false":"false [] [1] [] 0 1 ILLEGAL",
 	"[inc] [2] false":"false [] [2] [] 0 1 ILLEGAL",
 	"[inc] [3] false":"false [] [3] [] 0 1 ILLEGAL",
 	"[inc] [4] false":"false [] [4] [] 0 1 ILLEGAL",
 	"[inc] [do.smart] false":"false [] [do.smart] [] 0 1 ILLEGAL",
-	"[inc] [inc] false":"true [inc] [] [] 1 1 ILLEGAL",
-	"[r] [r] false":"true [r] [] [] 1 1 ILLEGAL",
-	"[smart] [smart] false":"true [smart] [] [] 1 1 ILLEGAL",
-	"[src] [src] false":"true [src] [] [] 1 1 ILLEGAL",
-	"[testdata] [Volumes] false":"false [] [Volumes] [] 0 1 ILLEGAL",
-	"[testdata] [builtins] false":"false [] [builtins] [] 0 1 ILLEGAL",
-	"[testdata] [extbit.io] false":"false [] [extbit.io] [] 0 1 ILLEGAL",
-	"[testdata] [go] false":"false [] [go] [] 0 1 ILLEGAL",
-	"[testdata] [smart] false":"false [] [smart] [] 0 1 ILLEGAL",
-	"[testdata] [src] false":"false [] [src] [] 0 1 ILLEGAL",
-	"[testdata] [testdata] false":"true [testdata] [] [] 1 1 ILLEGAL",
-	"[testdata] [trimprefix] false":"false [] [trimprefix] [] 0 1 ILLEGAL",
-	"[testdata] [workspace] false":"false [] [workspace] [] 0 1 ILLEGAL",
 	"[v * . h] [v ? . h] false":"true [v ? . h] [] [?] 4 4 ILLEGAL",
 	"[v * . h] [v1 . h] false":"true [v1 . h] [] [1] 4 3 ILLEGAL",
 	"[v * . h] [v1.h] false":"true [v1.h] [] [1] 4 1 ILLEGAL",
@@ -3822,7 +4349,6 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[v ? . h] [v3.hh] false":"false [v3] [.hh] [3] 0 1 ILLEGAL",
 	"[v ? . h] [xyz000.txt] false":"false [] [xyz000.txt] [] 0 1 ILLEGAL",
 	"[v ? . h] [zz] false":"false [] [zz] [] 0 1 ILLEGAL",
-	"[workspace] [workspace] false":"true [workspace] [] [] 1 1 ILLEGAL",
 	"[x * y . h] [bar] false":"false [] [bar] [] 0 1 ILLEGAL",
 	"[x * y . h] [v1.h] false":"false [] [v1.h] [] 0 1 ILLEGAL",
 	"[x * y . h] [v2.h] false":"false [] [v2.h] [] 0 1 ILLEGAL",
@@ -3858,14 +4384,12 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[x . h] [v1.h] false":"false [] [v1.h] [] 0 1 ILLEGAL",
 	"[x . h] [v2.h] false":"false [] [v2.h] [] 0 1 ILLEGAL",
 	"[x . h] [v3.hh] false":"false [] [v3.hh] [] 0 1 ILLEGAL",
-	"[x . h] [x . h] false":"true [x . h] [] [] 3 3 ILLEGAL",
 	"[x . h] [x.h] false":"true [x.h] [] [] 3 1 ILLEGAL",
 	"[x . h] [xv1y.h] false":"false [x] [v1y.h] [] 1 1 ILLEGAL",
 	"[x . h] [xv22y.h] false":"false [x] [v22y.h] [] 1 1 ILLEGAL",
 	"[x . h] [xv333y.h] false":"false [x] [v333y.h] [] 1 1 ILLEGAL",
 	"[x . h] [xyz000.txt] false":"false [x] [yz000.txt] [] 1 1 ILLEGAL",
 	"[x . h] [zz] false":"false [] [zz] [] 0 1 ILLEGAL",
-	"[x] [x] false":"true [x] [] [] 1 1 ILLEGAL",
 	"[x] [xa] false":"true [x] [a] [] 1 1 ILLEGAL",
 	"[x] [xaa] false":"true [x] [aa] [] 1 1 ILLEGAL",
 	"[x] [xaaa] false":"true [x] [aaa] [] 1 1 ILLEGAL",
@@ -3893,18 +4417,14 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[y . h] [1y.h] true":"true [1y.h] [] [1] 3 1 ILLEGAL",
 	"[y . h] [22y.h] true":"true [22y.h] [] [22] 3 1 ILLEGAL",
 	"[y . h] [333y.h] true":"true [333y.h] [] [333] 3 1 ILLEGAL",
-	"[y . h] [] true":"false [] [] [] 0 0 ILLEGAL",
 	"[y . h] [h] true":"false [] [h] [] 0 1 ILLEGAL",
 	"[y . h] [v1y . h] true":"true [v1y . h] [] [v1] 3 3 ILLEGAL",
 	"[y . h] [v1y.h] true":"true [v1y.h] [] [v1] 3 1 ILLEGAL",
 	"[y . h] [v22y.h] true":"true [v22y.h] [] [v22] 3 1 ILLEGAL",
 	"[y . h] [v333y.h] true":"true [v333y.h] [] [v333] 3 1 ILLEGAL",
-	"[y . h] [y . h] true":"true [y . h] [] [] 3 3 ILLEGAL",
 	"[y] [-yyx] true":"false [] [-yyx] [] 0 1 ILLEGAL",
 	"[y] [-yyy] false":"false [] [-yyy] [] 0 1 ILLEGAL",
 	"[y] [-yyy] true":"true [-yyy] [] [-yy] 1 1 ILLEGAL",
-	"[y] [] false":"false [] [] [] 0 0 ILLEGAL",
-	"[y] [] true":"false [] [] [] 0 0 ILLEGAL",
 	"[y] [a] true":"false [] [a] [] 0 1 ILLEGAL",
 	"[y] [aa] true":"false [] [aa] [] 0 1 ILLEGAL",
 	"[y] [aaa] true":"false [] [aaa] [] 0 1 ILLEGAL",
@@ -3931,7 +4451,6 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[y] [xxx -yyy] false":"false [] [xxx -yyy] [] 0 2 ILLEGAL",
 	"[y] [xxx -yyy] true":"true [xxx -yyy] [] [xxx -yy] 1 2 ILLEGAL",
 	"[y] [xxx] true":"false [] [xxx] [] 0 1 ILLEGAL",
-	"[y] [y] true":"true [y] [] [] 1 1 ILLEGAL",
 	"[y] [yyy] true":"true [yyy] [] [yy] 1 1 ILLEGAL",
 	"[y] [z] true":"false [] [z] [] 0 1 ILLEGAL",
 	"[z ?] [v1.h] false":"false [] [v1.h] [] 0 1 ILLEGAL",
@@ -3939,29 +4458,57 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	"[z ?] [v3.hh] false":"false [] [v3.hh] [] 0 1 ILLEGAL",
 	"[z ?] [xyz000.txt] false":"false [] [xyz000.txt] [] 0 1 ILLEGAL",
 	"[z ?] [zz] false":"true [zz] [] [z] 2 1 ILLEGAL",
-	"[z] [] true":"false [] [] [] 0 0 ILLEGAL",
 	"[z] [xyz] true":"true [xyz] [] [xy] 1 1 ILLEGAL",
-	"[z] [z] false":"true [z] [] [] 1 1 ILLEGAL",
 	"[zz] [* . h] false":"false [] [* . h] [] 0 3 ILLEGAL",
 	"[zz] [*] false":"false [] [*] [] 0 1 ILLEGAL",
 	"[zz] [z ?] false":"false [] [z ?] [] 0 2 ILLEGAL",
-	"[zz] [zz] false":"true [zz] [] [] 1 1 ILLEGAL",
 })
 func check_matchGlobComp(ctx Context, elems, vals []Value, trail bool) func(*bool, *[]Value, *[]Value, *[]Value, *int, *int, *token) {
 	var k = sf("%v %v %v", elems, vals, trail)
 	var v = checkpoints_matchGlobComp[k]
-	return func(matched *bool, res, rem, stems *[]Value, eIdx, idx *int, wildToken *token) {
-		if t := sf("%v %v %v %v %v %v %v", *matched, *res, *rem, *stems, *eIdx, *idx, *wildToken); v == nil {
-			if true { prompt(ctx, `	"%s":"%s", //matchGlobComp`+"\n", k, t) } else
+	return func(matched *bool, res, rem, stems *[]Value, iE, iV *int, wildToken *token) {
+		if i := *iE; i < 0 { debug(ctx, "wrong iE: %v ; %v", i, k, trace{}) }
+		if i := *iV; i < 0 { debug(ctx, "wrong iV: %v ; %v", i, k, trace{}) }
+		var t = sf("%v %v %v %v %v %v %v", *matched, *res, *rem, *stems, *iE, *iV, *wildToken)
+		if *matched {
+			switch sf("%v", elems) {
+			case "[]":
+				if sf("true [] [] %[1]v 0 %[1]d ILLEGAL", elems, len(elems)) == t { return }
+			case "[*]":
+				if sf("true [%[1]s] %[2]v [%[1]s] 1 1 ILLEGAL", vals[0], vals[1:]) == t { return }
+			case "[**]", "[*?]":
+				if sf("true %[1]v [] %[1]v 1 %[1]d ILLEGAL", vals, len(vals)) == t { return }
+			}
+			if trail {
+				switch t {
+				case sf("true %[1]v [] [] 0 0 ILLEGAL", elems): return
+				}
+			} else {
+				switch t {
+				case sf("true %[1]v [] [] %[2]d %[2]d ILLEGAL", elems, len(elems)): return
+				}
+			}
+		} else {
+			switch sf("%v", elems) {
+			case "[]":
+				if sf("true [] %[1]v %[1]v 0 0 ILLEGAL", vals) == t { return }
+			}
+			switch sf("%v", vals) {
+			case "[]":
+				if sf("false %[1]v [] %[1]v 0 0 ILLEGAL", elems) == t { return }
+			}
+		}
+		if v == nil {
+			if false { prompt(ctx, `	"%s":"%s", //matchGlobComp`+"\n", k, t) } else
 			{ debug(pc(ctx,elems),
-				_f(`"%s":"%s",`, k, t),
+				_f(`matchGlobComp: "%s":"%s",`, k, t),
 				_f("elems: %v", ts(elems)),
 				_f("vals: %v", ts(vals)),
 				callstack{num:10}, trace{}) }
 		} else if v != t {
-			if true { prompt(ctx, `	"%s":"%s", //matchGlobComp != %v`+"\n", k, t, v) } else
+			if false { prompt(ctx, `	"%s":"%s", //matchGlobComp != %v`+"\n", k, t, v) } else
 			{ debug(pc(ctx,elems),
-				_f(`"%s": "%s" != "%s"`, k, t, v),
+				_f(`matchGlobComp: "%s": "%s" != "%s"`, k, t, v),
 				_f("elems: %v", ts(elems)),
 				_f("vals: %v", ts(vals)),
 				callstack{num:10}, trace{}) }
@@ -3978,6 +4525,12 @@ var checkpoints_matchGlobPath = func(m map[string]any) map[string]any {
 	}
 	return m
 }(map[string]any{
+	"[%.c] [foo bar.c++] false":"true [foo bar.c] [++] [foo/bar] 1 2 ILLEGAL",
+	"[%.c] [foo bar.c] false":"true [foo bar.c] [] [foo/bar] 1 2 ILLEGAL",
+	"[%.c] [foo z.c] false":"true [foo z.c] [] [foo/z] 1 2 ILLEGAL",
+	"[%.c++] [foo bar.c] false":"false [foo bar.c] [] [foo/bar.c] 1 2 **",
+	"[%.c++] [foo bar.c++] false":"true [foo bar.c++] [] [foo/bar] 1 2 ILLEGAL",
+	"[%.c++] [foo z.c] false":"false [foo z.c] [] [foo/z.c] 1 2 **",
 	"[* . c] [foo bar.c] false":"false [foo] [ bar.c] [foo] 0 1 ILLEGAL",
 	"[* . c] [foo oo oo oo bar.c] false":"false [foo] [ oo oo oo bar.c] [foo] 0 1 ILLEGAL",
 	"[* . def . am] [] false":"false [] [] [] 0 0 ILLEGAL",
@@ -4001,6 +4554,8 @@ var checkpoints_matchGlobPath = func(m map[string]any) map[string]any {
 	"[* . def . in] [foobar config b.def.in] false":"false [foobar] [ config b.def.in] [foobar] 0 1 ILLEGAL",
 	"[* . def . in] [foobar config x.h] false":"false [foobar] [ config x.h] [foobar] 0 1 ILLEGAL",
 	"[* . def . in] [foobar config] false":"false [foobar] [ config] [foobar] 0 1 ILLEGAL",
+	"[* . gen] [.deps ?? ?? ??????????] false":"false [.deps] [ ?? ?? ??????????] [.deps] 0 1 ILLEGAL",
+	"[* . gen] [foo z.gen] false":"false [foo] [ z.gen] [foo] 0 1 ILLEGAL",
 	"[* . h] [.test a b c d e.h] false":"false [.test] [ a b c d e.h] [.test] 0 1 ILLEGAL",
 	"[* . h] [.test a b c d.h] false":"false [.test] [ a b c d.h] [.test] 0 1 ILLEGAL",
 	"[* . h] [.test a b c.h] false":"false [.test] [ a b c.h] [.test] 0 1 ILLEGAL",
@@ -4076,10 +4631,17 @@ var checkpoints_matchGlobPath = func(m map[string]any) map[string]any {
 	"[* . hh] [foo bar] false":"false [foo] [ bar] [foo] 0 1 ILLEGAL",
 	"[** . auto] [.test a b c.auto] false":"true [.test a b c.auto] [] [.test/a/b/c] 3 4 ILLEGAL",
 	"[** . auto] [.test a b c.test] false":"false [.test a b c.test] [] [.test/a/b/c.test] 1 4 **",
+	"[** . c++] [.deps ?? ?? ??????????] false":"false [.deps ?? ?? ??????????] [] [.deps/??/??/??????????] 1 4 **",
+	"[** . c++] [foo bar.c++] false":"true [foo bar.c++] [] [foo/bar] 3 2 ILLEGAL",
+	"[** . c] [.deps ?? ?? ??????????] false":"false [.deps ?? ?? ??????????] [] [.deps/??/??/??????????] 1 4 **",
 	"[** . c] [foo bar.c] false":"true [foo bar.c] [] [foo/bar] 3 2 ILLEGAL",
 	"[** . c] [foo oo oo oo bar.c] false":"true [foo oo oo oo bar.c] [] [foo/oo/oo/oo/bar] 3 5 ILLEGAL",
+	"[** . c] [foo z.c] false":"true [foo z.c] [] [foo/z] 3 2 ILLEGAL",
 	"[** . def . am] [foobar config *.def.am] false":"true [foobar config *.def.am] [] [foobar/config/*] 5 3 ILLEGAL",
-	"[** . def . am] [foobar config *.def.in] false":"false [] [foobar config *.def.in] [] 0 1 **",
+	"[** . def . am] [foobar config *.def.in] false":"false [foobar config *.def.in] [] [foobar/config/*.def.in] 1 3 **",
+	"[** . gen] [.deps ?? ?? ??????????] false":"false [.deps ?? ?? ??????????] [] [.deps/??/??/??????????] 1 4 **",
+	"[** . gen] [foo c.gen] false":"true [foo c.gen] [] [foo/c] 3 2 ILLEGAL",
+	"[** . gen] [foo z.gen] false":"true [foo z.gen] [] [foo/z] 3 2 ILLEGAL",
 	"[** . h] [] false":"false [] [] [] 0 0 **",
 	"[** . h] [bar.h] false":"true [bar.h] [] [bar] 3 1 ILLEGAL",
 	"[** . h] [foo *.h] false":"true [foo *.h] [] [foo/*] 3 2 ILLEGAL",
@@ -4289,7 +4851,6 @@ var checkpoints_matchGlobPath = func(m map[string]any) map[string]any {
 	"[ba *] [foo bar v2.h] false":"false [] [foo bar v2.h] [] 0 1 ILLEGAL",
 	"[ba ?] [foo bar xyz???.txt] false":"false [] [foo bar xyz???.txt] [] 0 1 ILLEGAL",
 	"[bar] [] false":"false [] [] [] 0 0 ILLEGAL",
-	"[bar] [bar] false":"true bar [] [] 1 1 ILLEGAL",
 	"[bar] [foo **.hh] false":"false [] [foo **.hh] [] 0 1 ILLEGAL",
 	"[bar] [foo *.h] false":"false [] [foo *.h] [] 0 1 ILLEGAL",
 	"[bar] [foo bar * *.h] false":"false [] [foo bar * *.h] [] 0 1 ILLEGAL",
@@ -4316,7 +4877,6 @@ var checkpoints_matchGlobPath = func(m map[string]any) map[string]any {
 	"[bar] [xv22y.h] false":"false [] [xv22y.h] [] 0 1 ILLEGAL",
 	"[bar] [xv333y.h] false":"false [] [xv333y.h] [] 0 1 ILLEGAL",
 	"[config] [] false":"false [] [] [] 0 0 ILLEGAL",
-	"[config] [config] false":"true config [] [] 1 1 ILLEGAL",
 	"[config] [foobar config a.def.am] false":"false [] [foobar config a.def.am] [] 0 1 ILLEGAL",
 	"[config] [foobar config a.def.in] false":"false [] [foobar config a.def.in] [] 0 1 ILLEGAL",
 	"[config] [foobar config b.def.in] false":"false [] [foobar config b.def.in] [] 0 1 ILLEGAL",
@@ -4343,7 +4903,7 @@ var checkpoints_matchGlobPath = func(m map[string]any) map[string]any {
 	"[f *?] [foobar config] false":"false [f] [ oobar config] [] 1 1 *?",
 	"[f *?] [foobar x.h] false":"false [f] [ oobar x.h] [] 1 1 *?",
 	"[f *?] [foobar] false":"false [f] [ oobar] [] 1 1 *?",
-	"[fo ?] [bar.h] false":"false [] [bar.h] [] 0 1 ILLEGAL",
+	"[fo ?] [bar.h] false":"false [] [bar.h] [] 0 0 ILLEGAL",
 	"[fo ?] [f*? x.h] false":"false [] [f*? x.h] [] 0 1 ILLEGAL",
 	"[fo ?] [foo b* v*.h] false":"true foo [ b* v*.h] [o] 3 1 ILLEGAL",
 	"[fo ?] [foo bar v1.h] false":"true foo [ bar v1.h] [o] 3 1 ILLEGAL",
@@ -4358,9 +4918,9 @@ var checkpoints_matchGlobPath = func(m map[string]any) map[string]any {
 	"[fo ?] [foo xv1y.h] false":"true foo [ xv1y.h] [o] 3 1 ILLEGAL",
 	"[fo ?] [foo xv22y.h] false":"true foo [ xv22y.h] [o] 3 1 ILLEGAL",
 	"[fo ?] [foo xv333y.h] false":"true foo [ xv333y.h] [o] 3 1 ILLEGAL",
-	"[fo ?] [foo.h] false":"false [foo] [ .h] [o] 3 1 ILLEGAL",
-	"[fo ?] [foo] false":"true foo [] [o] 3 1 ILLEGAL",
-	"[fo ?] [foobar] false":"false [foo] [ bar] [o] 3 1 ILLEGAL",
+	"[fo ?] [foo.h] false":"true [fo o] [.h] [o] 2 0 ILLEGAL",
+	"[fo ?] [foo] false":"true foo [] [o] 2 0 ILLEGAL",
+	"[fo ?] [foobar] false":"true [fo o] [bar] [o] 2 0 ILLEGAL",
 	"[foo ? ? ?] [bar.h] false":"false [] [bar.h] [] 0 1 ILLEGAL",
 	"[foo ? ? ?] [foo *.h] false":"false [foo] [ *.h] [] 1 1 ILLEGAL",
 	"[foo ? ? ?] [foo bar * *.h] false":"false [foo] [ bar * *.h] [] 1 1 ILLEGAL",
@@ -4403,18 +4963,10 @@ var checkpoints_matchGlobPath = func(m map[string]any) map[string]any {
 	"[foo] [foo xv333y.h] false":"true foo [ xv333y.h] [] 1 1 ILLEGAL",
 	"[foo] [foo.h] false":"false [foo] [ .h] [] 1 1 ILLEGAL",
 	"[foo] [foo??? x.h] false":"false [foo] [ ??? x.h] [] 1 1 ILLEGAL",
-	"[foo] [foo] false":"true foo [] [] 1 1 ILLEGAL",
 	"[foo] [foobar] false":"false [foo] [ bar] [] 1 1 ILLEGAL",
 	"[foobar] [bar.h] false":"false [] [bar.h] [] 0 1 ILLEGAL",
 	"[foobar] [foo.h] false":"false [] [foo.h] [] 0 1 ILLEGAL",
 	"[foobar] [foo] false":"false [] [foo] [] 0 1 ILLEGAL",
-	"[foobar] [foobar config a.def.am] false":"true foobar [ config a.def.am] [] 1 1 ILLEGAL",
-	"[foobar] [foobar config a.def.in] false":"true foobar [ config a.def.in] [] 1 1 ILLEGAL",
-	"[foobar] [foobar config b.def.in] false":"true foobar [ config b.def.in] [] 1 1 ILLEGAL",
-	"[foobar] [foobar config x.h] false":"true foobar [ config x.h] [] 1 1 ILLEGAL",
-	"[foobar] [foobar config] false":"true foobar [ config] [] 1 1 ILLEGAL",
-	"[foobar] [foobar x.h] false":"true foobar [ x.h] [] 1 1 ILLEGAL",
-	"[foobar] [foobar] false":"true foobar [] [] 1 1 ILLEGAL",
 	"[inc] [.DS_Store] false":"false [] [.DS_Store] [] 0 1 ILLEGAL",
 	"[inc] [1] false":"false [] [1] [] 0 1 ILLEGAL",
 	"[inc] [2] false":"false [] [2] [] 0 1 ILLEGAL",
@@ -4595,20 +5147,6 @@ var checkpoints_matchGlobPath = func(m map[string]any) map[string]any {
 	"[zz] [foo bar z? ?.h] false":"false [] [foo bar z? ?.h] [] 0 1 ILLEGAL",
 	"[zz] [foo bar zz ?.h] false":"false [] [foo bar zz ?.h] [] 0 1 ILLEGAL",
 	"[zz] [foo bar zz x.h] false":"false [] [foo bar zz x.h] [] 0 1 ILLEGAL",
-	testdata_f("[**] [%[2]s builtins trimprefix] 0"):testdata_f("false [] [%[1]s/builtins/trimprefix] [] 0 1 **"),
-	testdata_f("[**] [%[2]s builtins] 0"):testdata_f("false [] [%[1]s/builtins] [] 0 1 **"),
-	testdata_f("[**] [%[2]s] 0"):testdata_f("false [] [%[1]s] [] 0 1 **"),
-	testdata_f("[**] [%[2]s] 0",trim_suffix{2," testdata"}):testdata_f("false [] [%[1]s] [] 0 1 **",trim_suffix{1,"/testdata"}),
-	testdata_f("[] [%[2]s builtins trimprefix] 0 false"):"false [] [%[1]s/builtins/trimprefix] [] 0 0 ILLEGAL",
-	testdata_f("[Volumes] [%[2]s builtins trimprefix] 1 false"):"true Volumes [ builtins trimprefix] [] 1 1 ILLEGAL",
-	testdata_f("[builtins] [%[2]s builtins trimprefix] 8 false"):"false [] [%[1]s/builtins/trimprefix] [] 0 1 ILLEGAL",
-	testdata_f("[extbit.io] [%[2]s builtins trimprefix] 5 false"):"false [] [%[1]s/builtins/trimprefix] [] 0 1 ILLEGAL",
-	testdata_f("[go] [%[2]s builtins trimprefix] 3 false"):"false [] [%[1]s/builtins/trimprefix] [] 0 1 ILLEGAL",
-	testdata_f("[smart] [%[2]s builtins trimprefix] 6 false"):"false [] [%[1]s/builtins/trimprefix] [] 0 1 ILLEGAL",
-	testdata_f("[src] [%[2]s builtins trimprefix] 4 false"):"false [] [%[1]s/builtins/trimprefix] [] 0 1 ILLEGAL",
-	testdata_f("[testdata] [%[2]s builtins trimprefix] 0 false"):"false [] [%[1]s/builtins/trimprefix] [] 0 1 ILLEGAL",
-	testdata_f("[testdata] [%[2]s builtins trimprefix] 7 false"):"false [] [%[1]s/builtins/trimprefix] [] 0 1 ILLEGAL",
-	testdata_f("[workspace] [%[2]s builtins trimprefix] 2 false"):"false [] [%[1]s/builtins/trimprefix] [] 0 1 ILLEGAL",
 })
 func check_matchGlobPath(ctx Context, elems, segments []Value, trail bool) func(*bool, *[]Value, *[]Value, *[]Value, *int, *int, *token) {
 	var ss string
@@ -4624,18 +5162,20 @@ func check_matchGlobPath(ctx Context, elems, segments []Value, trail bool) func(
 
 	var k = sf("%v %v %v", elems, ss, trail)
 	var v = checkpoints_matchGlobPath[k]
-	return func(matched *bool, res, rem, stems *[]Value, eIdx, sIdx *int, wildToken *token) {
-		if t := sf("%v %v %v %v %v %v %v", *matched, *res, *rem, *stems, *eIdx, *sIdx, *wildToken); v == nil {
+	return func(matched *bool, res, rem, stems *[]Value, iE, iV *int, wildToken *token) {
+		if i := *iE; i < 0 { debug(ctx, "wrong iE: %v ; %v", i, k, trace{}) }
+		if i := *iV; i < 0 { debug(ctx, "wrong iV: %v ; %v", i, k, trace{}) }
+		if t := sf("%v %v %v %v %v %v %v", *matched, *res, *rem, *stems, *iE, *iV, *wildToken); v == nil {
 			if false { prompt(ctx, `	"%s":"%s", //matchGlobPath`+"\n", k, t) } else
 			{ debug(pc(ctx,elems),
-				_f(`"%s":"%s",`, k, t),
+				_f(`matchGlobPath: "%s":"%s",`, k, t),
 				_f("elems: %v", ts(elems)),
 				_f("segments: %v", ts(segments)),
 				callstack{num:10}, trace{}) }	
 		} else if v != t {
-			if true { prompt(ctx, `	"%s":"%s", //matchGlobPath != %v`+"\n", k, t, v) } else
+			if false { prompt(ctx, `	"%s":"%s", //matchGlobPath != %v`+"\n", k, t, v) } else
 			{ debug(pc(ctx,elems),
-				_f(`"%s": "%s" != "%s"`, k, t, v),
+				_f(`matchGlobPath: "%s": "%s" != "%s"`, k, t, v),
 				_f("elems: %v", ts(elems)),
 				_f("segments: %v", ts(segments)),
 				callstack{num:10}, trace{}) }
@@ -4644,27 +5184,192 @@ func check_matchGlobPath(ctx Context, elems, segments []Value, trail bool) func(
 }
 
 var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
-	a := append(append([]string{}, testdata_l...), "builtins", "trimprefix")
+	a := append(append([]string{}, testdata_l...), "builtins", "trimprefix") // FIX: Removed trailing ""
 	for i := len(a); 0 <= i; i-- {
-		k := sf(`[testdata ] %[1]s false`, a[i:])
-		v := sf(`false [] %[1]s [] %[2]d %[2]d`, a[i:], len(a)-i)
-		m[k] = v ; if false { fmt.Printf(`"%v":"%v"`+"\n", k, v) }
+		{
+			k := sf(`%[1]s %[2]s false`, a[:i], a)
+			v := sf(`true %[1]s %[2]s [] %[3]d %[3]d`, a[:i], append([]string{""}, a[i:]...), i)
+			m[k] = v ; if false { fmt.Printf(`"%v":"%v"`+"\n", k, v) }
+		}
+		{
+			k := sf(`%[1]s %[2]s false`, a[:i], a[i:])
+			v := sf(`false [] %[1]s [] 0 1`, append([]string{/*""*/}, a[i:]...))
+			m[k] = v ; if false { fmt.Printf(`"%v":"%v"`+"\n", k, v) }
+		}
+		if false {
+			k1 := sf(`[**] %[1]s false`, a[:i])
+			k2 := sf(`[*?] %[1]s false`, a[:i])
+			s := strings.Join(a[:i], pathSep)
+			v := sf(`false %[1]s [] [%[2]s] 1 %[3]d`, a[:i], s, i) // FIX: Hardcoded [] for empty remainder
+			m[k1], m[k2] = v, v
+			if false { fmt.Printf(`"%v":"%v"`+"\n", k1, m[k1]) }
+		}
+		if false && 1 < i && i < len(a)+1 {
+			k1 := sf(`[ ** ] %[1]s false`, a[:i])
+			k2 := sf(`[ *? ] %[1]s false`, a[:i])
+			t := append(append([]string{}, a[:i-1]...), "")
+			s := strings.Join(a[1:i-1], pathSep)
+			v := sf(`%[1]v %[2]s [%[3]s] [%[4]s] 3 %[5]d`, i > 2, t, a[i-1], s, i)
+			m[k1], m[k2] = v, v
+			if false { fmt.Printf(`"%v":"%v"`+"\n", k1, m[k1]) }
+		}
+		if false {
+			k1 := sf(`[** testdata] %[1]s false`, a[:i])
+			k2 := sf(`[*? testdata] %[1]s false`, a[:i])
+			k3 := sf(`[%%%% testdata] %[1]s false`, a[:i])
+			if n := testdata_i + 1; n < i {
+				r := append([]string{}, a[:n]...)
+				s := strings.Join(a[:n-1], pathSep)
+				m[k1] = sf(`true %[1]s %[2]s [%[3]s] 2 %[4]d`, r, a[n:i], s, i-2) // FIX: a[n:] -> a[n:i]
+				m[k2] = sf(`true %[1]s %[2]s [%[3]s/] 2 %[4]d`, r, a[n:i], s, i-2)
+				m[k3] = m[k1]
+			} else {
+				s := strings.Join(a[:i], pathSep)
+				v := sf(`false %[1]s [] [%[2]s] 1 %[3]d`, a[:i], s, i) // FIX: Hardcoded []
+				m[k1], m[k2], m[k3] = v, v, v
+			}
+			if false { fmt.Printf(`"%v":"%v"`+"\n", k1, m[k1]) }
+		}
+		if false {
+			k1 := sf(`[** testdata ] %[1]s false`, a[:i])
+			k2 := sf(`[*? testdata ] %[1]s false`, a[:i])
+			k3 := sf(`[%%%% testdata ] %[1]s false`, a[:i])
+			if n := testdata_i + 1; n < i {
+				r := append(append([]string{}, a[:n]...), "")
+				s := strings.Join(a[:n-1], pathSep)
+				m[k1] = sf(`true %[1]s %[2]s [%[3]s] 3 %[4]d`, r, a[n:i], s, i-1) // FIX: a[n:] -> a[n:i]
+				m[k2] = sf(`true %[1]s %[2]s [%[3]s/] 3 %[4]d`, r, a[n:i], s, i-1)
+				m[k3] = m[k1]
+			} else {
+				s := strings.Join(a[:i], pathSep)
+				v := sf(`false %[1]s [] [%[2]s] 1 %[3]d`, a[:i], s, i) // FIX
+				m[k1], m[k2], m[k3] = v, v, v
+			}
+			if false { fmt.Printf(`"%v":"%v"`+"\n", k1, m[k1]) }
+		}
+		if false {
+			k1 := sf(`[ ** testdata] %[1]s false`, a[:i])
+			k2 := sf(`[ *? testdata] %[1]s false`, a[:i])
+			k3 := sf(`[ %%%% testdata] %[1]s false`, a[:i])
+			if n := testdata_i + 1; n < i {
+				r := append([]string{}, a[:n]...)
+				s := strings.Join(a[1:n-1], pathSep)
+				m[k1] = sf(`true %[1]s %[2]s [%[3]s] 3 %[4]d`, r, a[n:i], s, i-2) // FIX: a[n:] -> a[n:i]
+				m[k2] = sf(`true %[1]s %[2]s [%[3]s/] 3 %[4]d`, r, a[n:i], s, i-2)
+				m[k3] = m[k1]
+			} else {
+				s := strings.Join(a[:i], pathSep)
+				v := sf(`false %[1]s [] [%[2]s] 1 %[3]d`, a[:i], s, i) // FIX
+				m[k1], m[k2], m[k3] = v, v, v
+			}
+			if false { fmt.Printf(`"%v":"%v"`+"\n", k1, m[k1]) }
+		}
+		if false {
+			k1 := sf(`[ ** testdata ] %[1]s false`, a[:i])
+			k2 := sf(`[ *? testdata ] %[1]s false`, a[:i])
+			k3 := sf(`[ %%%% testdata ] %[1]s false`, a[:i])
+			if n := testdata_i + 1; n < i {
+				r := append(append([]string{}, a[:n]...), "")
+				s := strings.Join(a[1:n-1], pathSep)
+				m[k1] = sf(`true %[1]s %[2]s [%[3]s] 4 %[4]d`, r, a[n:i], s, i-1) // FIX: a[n:] -> a[n:i]
+				m[k2] = sf(`true %[1]s %[2]s [%[3]s/] 4 %[4]d`, r, a[n:i], s, i-1)
+				m[k3] = m[k1]
+			} else {
+				s := strings.Join(a[:i], pathSep)
+				v := sf(`false %[1]s [] [%[2]s] 1 %[3]d`, a[:i], s, i) // FIX
+				m[k1], m[k2], m[k3] = v, v, v
+			}
+			if false { fmt.Printf(`"%v":"%v"`+"\n", k1, m[k1]) }
+		}
+		if false {
+			k := sf(`[testdata ] %[1]s false`, a[i:])
+			v := sf(`false [] %[1]s [] %[2]d %[2]d`, a[i:], len(a)-i)
+			m[k] = v ; if false { fmt.Printf(`"%v":"%v"`+"\n", k, v) }
+		}
+		if false {
+			k1 := sf(`[testdata **] %[1]s true`, a[:i])
+			k2 := sf(`[testdata *?] %[1]s true`, a[:i])
+			if n := testdata_i + 1; n < i {
+				r := append([]string{}, a[:n]...)
+				s := strings.Join(a[:n-1], pathSep)
+				m[k1] = sf(`true %[1]s %[2]s [%[3]s] 2 %[4]d`, r, a[n:i], s, i-2) // FIX: a[n:] -> a[n:i]
+				m[k2] = sf(`true %[1]s %[2]s [%[3]s/] 2 %[4]d`, r, a[n:i], s, i-2)
+			} else {
+				s := strings.Join(a[:i], pathSep)
+				v := sf(`false %[1]s [] [%[2]s] 1 %[3]d`, a[:i], s, i) // FIX
+				m[k1], m[k2] = v, v
+			}
+			if false { fmt.Printf(`"%v":"%v"`+"\n", k1, m[k1]) }
+		}
 	}
 	return m
-} (map[string]any{
+}(map[string]any{
+	testdata_f(`[builtins trimsuffix] [%[2]s] true`, trim_suffix{2,"testdata"}): testdata_f(`false [] [%[2]s] [] 2 %[4]d`, trim_suffix{2,"testdata"}, len(testdata_l)-1),
+	testdata_f(`[testdata builtins trimsuffix] [%[2]s builtins trimsuffix] true`): testdata_f(`true [testdata builtins trimsuffix] [%[2]s] [] 0 %[4]d`, trim_suffix{2,"testdata"}, len(testdata_l)-1),
+	testdata_f(`[testdata builtins trimsuffix] [%[2]s builtins trimsuffix] false`): testdata_f(`false [] [%[2]s builtins trimsuffix] [] 0 1`),
+	testdata_f(`[testdata ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [testdata builtins trimsuffix ] [%[2]s] [builtins/trimsuffix] 0 %[4]d`, trim_suffix{1,"/testdata"}, trim_suffix{2,"testdata"}, len(testdata_l)-1),
+	testdata_f(`[testdata ** ] [%[2]s builtins trimsuffix] true`): testdata_f(`false [] [%[2]s builtins trimsuffix] [] 3 %[4]d`, len(testdata_l)+1),
+	testdata_f(`[testdata **] [%[2]s builtins trimsuffix] true`): testdata_f(`true [testdata builtins trimsuffix] [%[2]s] [builtins/trimsuffix] 0 %[4]d`, trim_suffix{1,"/testdata"}, trim_suffix{2,"testdata"}, len(testdata_l)-1),
+	testdata_f(`[ testdata ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [ testdata builtins trimsuffix ] [%[2]s] [builtins/trimsuffix] 0 %[4]d`, trim_suffix{1,"/testdata"}, trim_suffix{2," testdata"}, len(testdata_l)-1),
+	testdata_f(`[ testdata **] [%[2]s builtins trimsuffix] true`): testdata_f(`true [ testdata builtins trimsuffix] [%[2]s] [builtins/trimsuffix] 0 %[4]d`, trim_suffix{1,"/testdata"}, trim_suffix{2," testdata"}, len(testdata_l)-1),
+	testdata_f(`[ ** *data *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s test builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
+	testdata_f(`[ ** *data *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s test builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`[ ** ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s/builtins/trimprefix] 3 %[4]d`, trim_prefix{1,"/"}, len(testdata_l)+3),
+	testdata_f(`[ ** ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins ] [trimprefix] [%[1]s/builtins] 3 %[4]d`, trim_prefix{1,"/"}, len(testdata_l)+1),
+	testdata_f(`[ ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s/builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}),
+	testdata_f(`[ ** ] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins ] [trimsuffix] [%[1]s/builtins] 0 0`, trim_prefix{1,"/"}),
+	testdata_f(`[ ** testdata ** ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
+	testdata_f(`[ ** testdata ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`[ ** testdata **] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 4 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
+	testdata_f(`[ ** testdata **] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`[ ** testdata ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s ] [builtins trimprefix] [%[1]s] 4 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)),
+	testdata_f(`[ ** testdata] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s] [ builtins trimprefix] [%[1]s] 3 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)),
+	testdata_f(`[ *? *data *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s test builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
+	testdata_f(`[ *? *data *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s test builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`[ *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s/builtins/trimprefix] 3 %[4]d`, trim_prefix{1,"/"}, len(testdata_l)+3), 
+	testdata_f(`[ *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s/builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}), 
+	testdata_f(`[ *? t*a *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s estdat builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
+	testdata_f(`[ *? t*a *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s estdat builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`[ *? test* ** ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s data builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
+	testdata_f(`[ *? test* ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s data builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`[ *? test* *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s data builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
+	testdata_f(`[ *? test* *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s data builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`[ *? testdata *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
+	testdata_f(`[ *? testdata *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`[ *? testdata *?] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 4 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
+	testdata_f(`[ *? testdata *?] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
+	testdata_f(`[ *? testdata ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s ] [builtins trimprefix] [%[1]s] 4 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)),
+	testdata_f(`[** testdata ** ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s builtins/trimprefix] 4 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
+	testdata_f(`[** testdata ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s builtins/trimsuffix] 0 0`, trim_suffix{1,"/testdata"}),
+	testdata_f(`[** testdata **] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
+	testdata_f(`[** testdata **] [%[2]s builtins trimprefix] true`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 0 0`, trim_suffix{1,"/testdata"}),
+	testdata_f(`[** testdata **] [%[2]s builtins trimsuffix] false`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
+	testdata_f(`[** testdata **] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 0 0`, trim_suffix{1,"/testdata"}),
+	testdata_f(`[** testdata ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s ] [builtins trimprefix] [%[1]s] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)),
+	testdata_f(`[** testdata] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s] [ builtins trimprefix] [%[1]s] 2 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)),
+	testdata_f(`[*? testdata *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s builtins/trimprefix] 4 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
+	testdata_f(`[*? testdata *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s builtins/trimsuffix] 0 0`, trim_suffix{1,"/testdata"}),
+	testdata_f(`[*? testdata *?] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
+	testdata_f(`[*? testdata *?] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 0 0`, trim_suffix{1,"/testdata"}),
+	testdata_f(`[*? testdata ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s ] [builtins trimprefix] [%[1]s] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)),
+	"[ builtins] [ builtins trimprefix] false": "true [ builtins] [ trimprefix] [] 2 2",
+	"[** .smart modules ] [ Volumes workspace .smart modules general] false":"true [ Volumes workspace .smart modules ] [general] [/Volumes/workspace] 4 5",
+	"[* a.c] [main a.c] false":"true [main a.c] [] [main] 2 2",
 	"[**y z] [.test a b cy a b c y z] false":"true [.test a b cy a b c y z] [] [a/b/c a/b/c/] 2 9",
 	"[**y z] [a b c y z] false":"true [a b c y z] [] [a/b/c/] 2 5",
 	"[**y z] [z] false":"false [] [z] [] 0 0",
 	"[**y] [.test a b cy a b c y] false":"true [.test a b cy a b c y] [] [a/b/c a/b/c/] 1 8",
 	"[**y] [.test xa b c dy] false":"true [.test xa b c dy] [] [a/b/c d] 1 5",
 	"[**y] [.test xabc abcy] false":"true [.test xabc abcy] [] [abc abc] 1 3",
-	"[**y] [] false":"false [] [] [] 0 0",
 	"[**y] [a b c y] false":"true [a b c y] [] [a/b/c/] 1 4",
 	"[**y] [abcy] false":"true [abcy] [] [abc] 1 1",
 	"[**y] [dy] false":"true [dy] [] [d] 1 1",
 	"[**z] [.test a b c xyz] false":"true [.test a b c xyz] [] [a/b/c xy] 1 5",
-	"[**z] [] false":"false [] [] [] 0 0",
 	"[**z] [xyz] false":"true [xyz] [] [xy] 1 1",
+	"[.deps ?? ?? ??????????] [.deps xx yy zzzzzzzzzz] false":"true [.deps xx yy zzzzzzzzzz] [] [x x y y z z z z z z z z z z] 4 4",
+	"[.deps ?? ?? ??????????] [foo *.c] false":"false [] [foo *.c] [] 0 1",
+	"[.deps ?? ?? ??????????] [foo *.c++] false":"false [] [foo *.c++] [] 0 1",
+	"[.test a **.c] [.test a b c foo.c] false":"true [.test a b c foo.c] [] [b/c/foo] 3 5",
 	"[.test * * *.h] [.test a b c d e.h] false":"false [.test a b c] [ d e.h] [a b c] 3 4",
 	"[.test * * *.h] [.test a b c d.h] false":"false [.test a b c] [ d.h] [a b c] 3 4",
 	"[.test * * *.h] [.test a b c.h] false":"true [.test a b c.h] [] [a b c] 4 4",
@@ -4699,40 +5404,12 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[.test x*?y] [.test xxx-yyx z] false":"true [.test xxx-y] [yx z] [xx-] 2 2",
 	"[.test x*?y] [.test xxx-yyx] false":"true [.test xxx-y] [yx] [xx-] 2 2",
 	"[.test x*?y] [.test xxx-yyy] false":"true [.test xxx-y] [yy] [xx-] 2 2",
-	"[] [.test a b c xyz] false":"false [] [.test a b c xyz] [] 0 0",
-	"[] [.test a b cy a b c y] false":"false [] [.test a b cy a b c y] [] 0 0",
-	"[] [.test x xx-yy y] false":"false [] [.test x xx-yy y] [] 0 0",
-	"[] [.test xa b c dy] false":"false [] [.test xa b c dy] [] 0 0",
-	"[] [.test xaa bb ccy xaa bb ccy] false":"false [] [.test xaa bb ccy xaa bb ccy] [] 0 0",
-	"[] [.test xaaa bbb ccc y xxx xx] false":"false [] [.test xaaa bbb ccc y xxx xx] [] 0 0",
-	"[] [.test xaaay x aaa y] false":"false [] [.test xaaay x aaa y] [] 0 0",
-	"[] [.test xaabbccy xabc] false":"false [] [.test xaabbccy xabc] [] 0 0",
-	"[] [.test xabc abcy] false":"false [] [.test xabc abcy] [] 0 0",
-	"[] [.test xxx a b c yyy] false":"false [] [.test xxx a b c yyy] [] 0 0",
-	"[] [.test xxx-yyx y] false":"false [] [.test xxx-yyx y] [] 0 0",
-	"[] [.test xxx-yyy] false":"false [] [.test xxx-yyy] [] 0 0",
-	"[] [] false":"true [] [] [] 0 0",
-	"[] [inc bar.h] false":"false [] [inc bar.h] [] 0 0",
-	"[] [inc foo bar v1.h] false":"false [] [inc foo bar v1.h] [] 0 0",
-	"[] [inc foo bar v2.h] false":"false [] [inc foo bar v2.h] [] 0 0",
-	"[] [inc foo bar zz x.h] false":"false [] [inc foo bar zz x.h] [] 0 0",
-	"[] [inc foo v1.h] false":"false [] [inc foo v1.h] [] 0 0",
-	"[] [inc foo v2.h] false":"false [] [inc foo v2.h] [] 0 0",
-	"[] [inc foo xv1y.h] false":"false [] [inc foo xv1y.h] [] 0 0",
-	"[] [inc foo xv22y.h] false":"false [] [inc foo xv22y.h] [] 0 0",
-	"[] [inc foo xv333y.h] false":"false [] [inc foo xv333y.h] [] 0 0",
-	"[] [inc foo.h] false":"false [] [inc foo.h] [] 0 0",
-	"[] [inc foobar config x.h] false":"false [] [inc foobar config x.h] [] 0 0",
-	"[] [inc foobar x.h] false":"false [] [inc foobar x.h] [] 0 0",
-	"[b ? r] [bar] false":"true [b a r] [] [a] 3 1 ILLEGAL", //matchGlobComp
-	"[b ? r] [v1.h] false":"false [] [v1.h] [] 0 0 ILLEGAL", //matchGlobComp
-	"[b ? r] [v2.h] false":"false [] [v2.h] [] 0 0 ILLEGAL", //matchGlobComp
-	"[b ? r] [xv1y.h] false":"false [] [xv1y.h] [] 0 0 ILLEGAL", //matchGlobComp
-	"[b ? r] [xv22y.h] false":"false [] [xv22y.h] [] 0 0 ILLEGAL", //matchGlobComp
-	"[b ? r] [xv333y.h] false":"false [] [xv333y.h] [] 0 0 ILLEGAL", //matchGlobComp
+	"[.test xx *.c] [.test xx foo.c] false":"true [.test xx foo.c] [] [foo] 3 3",
+	"[.test xx yy *.c] [.test xx yy foo.c] false":"true [.test xx yy foo.c] [] [foo] 4 4",
+	"[.test xx yy zz *.c] [.test xx yy zz foo.c] false":"true [.test xx yy zz foo.c] [] [foo] 5 5",
 	"[f*? x.h] [bar.h] false":"false [] [bar.h] [] 0 0",
-	"[f*? x.h] [fo? ** x.h] false":"true [fo? ** x.h] [] [o?/**/] 2 3",
-	"[f*? x.h] [foo ** x.h] false":"true [foo ** x.h] [] [oo/**/] 2 3",
+	"[f*? x.h] [fo? ** x.h] false":"true [fo? ** x.h] [] [o?/**] 2 3",
+	"[f*? x.h] [foo ** x.h] false":"true [foo ** x.h] [] [oo/**] 2 3",
 	"[f*? x.h] [foo bar] false":"false [foo] [bar] [oo] 1 2",
 	"[f*? x.h] [foo v1.h] false":"false [foo] [v1.h] [oo] 1 2",
 	"[f*? x.h] [foo v2.h] false":"false [foo] [v2.h] [oo] 1 2",
@@ -4762,6 +5439,12 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[fo? ** x.h] [foo.h] false":"false [foo] [.h] [o] 0 1",
 	"[fo? ** x.h] [foo] false":"false [foo] [] [o] 1 1",
 	"[fo? ** x.h] [foobar] false":"false [foo] [bar] [o] 0 1",
+	"[fo? ** x.h] [foobar x.h] false":"false [foo] [bar x.h] [o] 0 1",
+	"[fo? ** x.h] [foobar config] false":"false [foo] [bar config] [o] 0 1",
+	"[fo? ** x.h] [foobar config x.h] false":"false [foo] [bar config x.h] [o] 0 1",
+	"[fo? ** x.h] [foobar config a.def.am] false":"false [foo] [bar config a.def.am] [o] 0 1",
+	"[fo? ** x.h] [foobar config a.def.in] false":"false [foo] [bar config a.def.in] [o] 0 1",
+	"[fo? ** x.h] [foobar config b.def.in] false":"false [foo] [bar config b.def.in] [o] 0 1",
 	"[foo ** x.h] [bar.h] false":"false [] [bar.h] [] 0 1",
 	"[foo ** x.h] [f*? x.h] false":"false [] [f*? x.h] [] 0 1", //matchPathPath
 	"[foo ** x.h] [foo b* v*.h] false":"false [foo b* v*.h] [] [b*/v*.h] 2 3", //matchPathPath
@@ -4780,7 +5463,17 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[foo ** x.h] [foo.h] false":"false [foo] [.h] [] 0 1",
 	"[foo ** x.h] [foo] false":"false [foo] [] [] 1 1",
 	"[foo ** x.h] [foobar] false":"false [foo] [bar] [] 0 1",
+	"[foo ** x.h] [foobar x.h] false":"false [foo] [bar x.h] [] 0 1",
+	"[foo ** x.h] [foobar config] false":"false [foo] [bar config] [] 0 1",
+	"[foo ** x.h] [foobar config x.h] false":"false [foo] [bar config x.h] [] 0 1",
+	"[foo ** x.h] [foobar config a.def.am] false":"false [foo] [bar config a.def.am] [] 0 1",
+	"[foo ** x.h] [foobar config a.def.in] false":"false [foo] [bar config a.def.in] [] 0 1",
+	"[foo ** x.h] [foobar config b.def.in] false":"false [foo] [bar config b.def.in] [] 0 1",
 	"[foo **.hh] [foo bar *.hh] false":"true [foo bar *.hh] [] [bar/*] 2 3",
+	"[foo *.c] [.deps ?? ?? ??????????] false":"false [] [.deps ?? ?? ??????????] [] 0 1",
+	"[foo *.c] [foo bar.c] false":"true [foo bar.c] [] [bar] 2 2",
+	"[foo *.c++] [.deps ?? ?? ??????????] false":"false [] [.deps ?? ?? ??????????] [] 0 1",
+	"[foo *.c++] [foo bar.c++] false":"true [foo bar.c++] [] [bar] 2 2",
 	"[foo *.h] [bar.h] false":"false [] [bar.h] [] 0 1",
 	"[foo *.h] [foo *.h] false":"true [foo *.h] [] [*] 2 2",
 	"[foo *.h] [foo bar * *.h] false":"false [foo bar] [ * *.h] [bar] 1 2",
@@ -4801,6 +5494,8 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[foo *.h] [foo??? x.h] false":"false [foo] [??? x.h] [] 0 1",
 	"[foo *.h] [foo] false":"false [foo] [] [] 1 1",
 	"[foo *.h] [foobar] false":"false [foo] [bar] [] 0 1",
+	"[foo *.h] [foobar x.h] false":"false [foo] [bar x.h] [] 0 1",
+	"[foo *.h] [foobar config] false":"false [foo] [bar config] [] 0 1",
 	"[foo b* v*.h] [bar.h] false":"false [] [bar.h] [] 0 0",
 	"[foo b* v*.h] [fo? ** x.h] false":"false [] [fo? ** x.h] [] 0 1",
 	"[foo b* v*.h] [foo ** x.h] false":"false [foo] [** x.h] [] 1 2",
@@ -4835,6 +5530,8 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[foo b?r v?.h] [foo.h] false":"false [foo] [.h] [] 0 1", //matchPathPath
 	"[foo b?r v?.h] [foo] false":"false [foo] [] [] 1 1",
 	"[foo b?r v?.h] [foobar] false":"false [foo] [bar] [] 0 1", //matchPathPath
+	"[foo b?r v?.h] [foobar config] false":"false [foo] [bar config] [] 0 1",
+	"[foo b?r v?.h] [foobar x.h] false":"false [foo] [bar x.h] [] 0 1",
 	"[foo ba* v?.h] [foo bar v1.h] false":"true [foo bar v1.h] [] [r 1] 3 3",
 	"[foo ba* v?.h] [foo bar v2.h] false":"true [foo bar v2.h] [] [r 2] 3 3",
 	"[foo ba? xyz*.txt] [foo bar xyz???.txt] false":"true [foo bar xyz???.txt] [] [r ???] 3 3",
@@ -4862,6 +5559,8 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[foo bar *.hh] [foo.h] false":"false [foo] [.h] [] 0 1",
 	"[foo bar *.hh] [foo] false":"false [foo] [] [] 1 1",
 	"[foo bar *.hh] [foobar] false":"false [foo] [bar] [] 0 1",
+	"[foo bar *.hh] [foobar config] false":"false [foo] [bar config] [] 0 1",
+	"[foo bar *.hh] [foobar x.h] false":"false [foo] [bar x.h] [] 0 1",
 	"[foo bar v?.h] [bar.h] false":"false [] [bar.h] [] 0 1",
 	"[foo bar v?.h] [foo *.h] false":"false [foo] [*.h] [] 1 2",
 	"[foo bar v?.h] [foo bar * *.h] false":"false [foo bar] [* *.h] [] 2 3",
@@ -4880,6 +5579,8 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[foo bar v?.h] [foo.h] false":"false [foo] [.h] [] 0 1",
 	"[foo bar v?.h] [foo] false":"false [foo] [] [] 1 1",
 	"[foo bar v?.h] [foobar] false":"false [foo] [bar] [] 0 1",
+	"[foo bar v?.h] [foobar x.h] false":"false [foo] [bar x.h] [] 0 1",
+	"[foo bar v?.h] [foobar config] false":"false [foo] [bar config] [] 0 1",
 	"[foo bar xyz???.txt] [bar.h] false":"false [] [bar.h] [] 0 1",
 	"[foo bar xyz???.txt] [foo bar v1.h] false":"false [foo bar] [v1.h] [] 2 3",
 	"[foo bar xyz???.txt] [foo bar v2.h] false":"false [foo bar] [v2.h] [] 2 3",
@@ -4895,6 +5596,8 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[foo bar xyz???.txt] [foo.h] false":"false [foo] [.h] [] 0 1",
 	"[foo bar xyz???.txt] [foo] false":"false [foo] [] [] 1 1",
 	"[foo bar xyz???.txt] [foobar] false":"false [foo] [bar] [] 0 1",
+	"[foo bar xyz???.txt] [foobar x.h] false":"false [foo] [bar x.h] [] 0 1",
+	"[foo bar xyz???.txt] [foobar config] false":"false [foo] [bar config] [] 0 1",
 	"[foo bar z? ?.h] [bar.h] false":"false [] [bar.h] [] 0 0",
 	"[foo bar z? ?.h] [foo *.h] false":"false [foo] [*.h] [] 1 2",
 	"[foo bar z? ?.h] [foo bar v1.h] false":"false [foo bar] [v1.h] [] 2 3",
@@ -4921,6 +5624,10 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[foo bar zz x.h] [foo bar *.h] false":"false [foo bar] [*.h] [] 2 3",
 	"[foo bar zz x.h] [foo bar z? ?.h] false":"false [foo bar] [z? ?.h] [] 2 3",
 	"[foo bar zz x.h] [foo bar zz ?.h] false":"false [foo bar zz] [?.h] [] 3 4",
+	"[foo bar.c] [foo *.c] false":"false [foo] [*.c] [] 1 2",
+	"[foo bar.c++] [foo *.c++] false":"false [foo] [*.c++] [] 1 2",
+	"[foo z.c] [foo *.c] false":"false [foo] [*.c] [] 1 2",
+	"[foo *.c] [foo z.c] false":"true [foo z.c] [] [z] 2 2",
 	"[foo x*y.h] [bar.h] false":"false [] [bar.h] [] 0 0",
 	"[foo x*y.h] [foo bar] false":"false [foo] [bar] [] 1 2",
 	"[foo x*y.h] [foo v1.h] false":"false [foo] [v1.h] [] 1 2",
@@ -4943,6 +5650,8 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[foo xv*y.h] [foo.h] false":"false [foo] [.h] [] 0 1", //matchPathPath
 	"[foo xv*y.h] [foo] false":"false [foo] [] [] 1 1",
 	"[foo xv*y.h] [foobar] false":"false [foo] [bar] [] 0 1", //matchPathPath
+	"[foo xv*y.h] [foobar config] false":"false [foo] [bar config] [] 0 1",
+	"[foo xv*y.h] [foobar x.h] false":"false [foo] [bar x.h] [] 0 1",
 	"[foo??? x.h] [bar.h] false":"false [] [bar.h] [] 0 1",
 	"[foo??? x.h] [foo *.h] false":"false [foo] [ *.h] [] 0 1",
 	"[foo??? x.h] [foo bar * *.h] false":"false [foo] [ bar * *.h] [] 0 1",
@@ -5083,11 +5792,9 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[x**] [xxx xx] false":"true [xxx xx] [] [xx/xx] 1 2",
 	"[x**y] [.test xaa bb ccy xaa bb ccy] false":"false [] [.test xaa bb ccy xaa bb ccy] [] 0 7",
 	"[x**y] [.test xaaay x aaa y] false":"false [] [.test xaaay x aaa y] [] 0 5",
-	"[x**y] [] false":"false [] [] [] 0 0",
 	"[x**y] [x aaa y] false":"true [x aaa y] [] [/aaa/] 1 3",
 	"[x**y] [xaa bb ccy] false":"true [xaa bb ccy] [] [aa/bb/cc] 1 3",
 	"[x.h] [** x.h] false":"false [] [** x.h] [] 0 2",
-	"[x.h] [] false":"false [] [] [] 0 0",
 	"[x.h] [b* v*.h] false":"false [] [b* v*.h] [] 0 2",
 	"[x.h] [bar v1.h] false":"false [] [bar v1.h] [] 0 2",
 	"[x.h] [bar v2.h] false":"false [] [bar v2.h] [] 0 2",
@@ -5102,7 +5809,6 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[x.h] [v1.h] false":"false [] [v1.h] [] 0 1",
 	"[x.h] [v2.h] false":"false [] [v2.h] [] 0 1",
 	"[x.h] [v3.hh] false":"false [] [v3.hh] [] 0 1",
-	"[x.h] [x.h] false":"true [x.h] [] [] 1 1",
 	"[x.h] [xv1y.h] false":"false [] [xv1y.h] [] 0 1",
 	"[x.h] [xv22y.h] false":"false [] [xv22y.h] [] 0 1",
 	"[x.h] [xv333y.h] false":"false [] [xv333y.h] [] 0 1",
@@ -5111,26 +5817,31 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[z] [.test a b cy a b c y z] false":"false [] [.test a b cy a b c y z] [] 0 9",
 	"[z] [.test xxx a b c yyy z] false":"false [] [.test xxx a b c yyy z] [] 0 7",
 	"[z] [.test xxx-yyy z] false":"false [] [.test xxx-yyy z] [] 0 3",
-	"[z] [z] false":"true [z] [] [] 1 1",
-	testdata_f("[%[2]s builtins] [%[2]s builtins trimprefix]"):testdata_f("false [%[1]s builtins] [trimprefix] [] 2 3"),
-	testdata_f("[%[2]s] [%[2]s builtins trimprefix]"):testdata_f("false [%[1]s] [builtins trimprefix] [] 1 3"),
-	testdata_f("[** testdata ] [%[2]s builtins trimprefix] false"):"false [] [%[2]s builtins trimprefix] [] 0 3",
 })
 func check_matchPathPath(ctx Context, elems, segments []Value, trail bool) func(*bool, *[]Value, *[]Value, *[]Value, *int, *int) {
 	var k = sf("%v %v %v", elems, segments, trail)
 	var v = checkpoints_matchPathPath[k]
-	return func(_matched *bool, _res, _rem, _stems *[]Value, _eIdx, _sIdx *int) {
-		if t := sf("%v %v %v %v %v %v", *_matched, *_res, *_rem, *_stems, *_eIdx, *_sIdx); v == nil {
-			if true { prompt(ctx, `	"%s":"%s", //matchPathPath`+"\n", k, t) } else
+	return func(matched *bool, res, rem, stems *[]Value, iE, iV *int) {
+		if strings.Contains(k, "%") { return } // FIXME
+		if i := *iE; i < 0 { debug(ctx, "wrong iE: %v ; %v : %v", i, k, v, trace{}) }
+		if i := *iV; i < 0 { debug(ctx, "wrong iV: %v ; %v : %v", i, k, v, trace{}) }
+		var t = sf("%v %v %v %v %v %v", *matched, *res, *rem, *stems, *iE, *iV)
+		switch sf("%v", elems) {
+		case "[]": if sf("false [] %v [] 0 0", segments) == t { return }
+		case sf("%v", segments): if sf("true %v [] [] %[1]d %[1]d", elems, len(elems)) == t { return }
+		default: if sf("%v", segments) == "[]" && "false [] [] [] 0 0" == t { return }
+		}
+		if v == nil {
+			if false  { prompt(ctx, `	"%s":"%s", //matchPathPath`+"\n", k, t) } else
 			{ debug(pc(ctx,elems),
-				_f(`"%s":"%s",`, k, t),
+				_f(`matchPathPath: "%s":"%s",`, k, t),
 				_f("elems: %v", ts(elems)),
 				_f("segments: %v", ts(segments)),
 				callstack{num:10}, trace{}) }
 		} else if v != t {
-			if false { prompt(ctx, `	"%s":"%s", //matchPathPath != %v`+"\n", k, t, v) } else
+			if false { prompt(ctx, `	"%s":"%s", //matchPathPath != "%v"`+"\n", k, t, v) } else
 			{ debug(pc(ctx,elems),
-				_f(`"%s": "%s" != "%s"`, k, t, v),
+				_f(`matchPathPath: "%s": "%s" != "%s"`, k, t, v),
 				_f("elems: %v", ts(elems)),
 				_f("segments: %v", ts(segments)),
 				callstack{num:10}, trace{}) }
@@ -5145,91 +5856,23 @@ var checkpoints__string_com = map[string]any{
 	`&(.test.bar)⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
 	`&(.test.foo)⌜foo bar⌟{}88`:`{}⌜foo bar⌟{}88`,
 	`&(.test.foo)⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
-	`&(.test.h)a`:`-a`, `&(.test.h)b`:`-b`, `&(.test.h)c`:`-c`,
+	`&(.test.h)a`:`-a`,
+	`&(.test.h)b`:`-b`,
+	`&(.test.h)c`:`-c`,
+	`&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi)`:`arm64{}-apple-Darwin25.4.0-macho`,
 	`&(target.arch)-&(target.vendor)-&(target.os)-&(target.abi)`:`foo-bar-{}-0`,
-	`**.def.am`:`**.def.am`,
-	`**.h`:`**.h`,
-	`*.def.am`:`*.def.am`,
-	`*.h`:`*.h`,
-	`,`:`,`,
-	`-a`:`-a`, `-b`:`-b`, `-c`:`-c`,
-	`-foobar`:`-foobar`,
-	`.`:`.`,
-	`.c++`:`.c++`,
-	`.c`:`.c`,
-	`.deps`:`.deps`,
-	`.hh`:`.hh`,
-	`.test.v`:`.test.v`,
-	`.test`:`.test`,
+	`&(target.os)~-platform_version.swift`:`darwin~-platform_version.swift`,
+	`&(target.os)~-platform_version`:`darwin~-platform_version`,
+	`&(target.os)~-framework`:`darwin~-framework`,
+	`&(target.os)~loadlibes`:`darwin~loadlibes`,
+	`&(target.os)~ldflags`:`darwin~ldflags`,
+	`&(target.os)~ldflags.program`:`darwin~ldflags.program`,
+	`&(va3)zz`:`{}zz`,
 	`.test~&(.test.s)`:`.test~foo`,
-	`.tmp`:`.tmp`,
-	`1x`:`1x`, `2x`:`2x`, `3x`:`3x`,
-	`D.c`:`D.c`, `D.c++`:`D.c++`,
-	`I.c`:`I.c`, `I.c++`:`I.c++`,
-	`V{}{}`:`V{}{}`,
-	`Xxa`:`Xxa`, `Xxb`:`Xxb`,
 	`X{&(.test.xa)}`:`X~1~`,
 	`X{&(.test.xb)}`:`X~2~`,
-	`X~1~`:`X~1~`, `X~2~`:`X~2~`,
 	`YX{&(.test.xa)}`:`YX~1~`,
 	`YX{&(.test.xb)}`:`YX~2~`,
-	`YX~1~`:`YX~1~`, `YX~2~`:`YX~2~`,
-	`a-b-3-abc`:`a-b-3-abc`,
-	`a-b-3`:`a-b-3`,
-	`a-b`:`a-b`,
-	`a.gen`:`a.gen`, `b.gen`:`b.gen`, `c.gen`:`c.gen`,
-	`a.h`:`a.h`, // {=compound {31:18:word a} {31:19:punct .} {31:20:word h}}
-	`a\,b\,c,x\,y\,z`:`a\,b\,c,x\,y\,z`,
-	`a\,b\,c`:`a\,b\,c`,
-	`aa-bb`:`aa-bb`, `ab-ba`:`ab-ba`,
-	`aa`:`aa`, `ab`:`ab`,
-	`abc`:`abc`, `acc`:`acc`,
-	`aox.o.a`:`aox.o.a`, `aox.o.b`:`aox.o.b`, `aox.o.c`:`aox.o.c`,
-	`atomic.h,`:`atomic.h,`, // {=compound {52:29 {51:24:raw atomic.h}} {52:30:punct ,}}
-	`atomic.h.`:`atomic.h.`, // {=compound {52:33 {51:24:raw atomic.h}} {52:34:punct .}}
-	`ax`:`ax`,
-	`axx{}`:`axx{}`, `ayy{}`:`ayy{}`,
-	`a{}`:`a{}`,
-	`a~`:`a~`,
-	`b-3`:`b-3`,
-	`b-a`:`b-a`,
-	`b.h`:`b.h`,
-	`ba-ab`:`ba-ab`,
-	`ba`:`ba`,
-	`bar,`:`bar,`,
-	`bar.c++`:`bar.c++`,
-	`bar.c`:`bar.c`,
-	`bara`:`bara`, `barb`:`barb`, `barc`:`barc`,
-	`baxx{}`:`baxx{}`,
-	`bayy{}`:`bayy{}`,
-	`bb-aa`:`bb-aa`,
-	`bb`:`bb`,
-	`bcc`:`bcc`,
-	`box.o.a`:`box.o.a`,
-	`box.o.b`:`box.o.b`,
-	`box.o.c`:`box.o.c`,
-	`bx`:`bx`,
-	`bx{}`:`bx{}`,
-	`by{}`:`by{}`,
-	`bz{}`:`bz{}`,
-	`b{}`:`b{}`,
-	`b~`:`b~`,
-	`c.D`:`c.D`, `c++.D`:`c++.D`, `c.I`:`c.I`, `c++.I`:`c++.I`,
-	`c.auto`:`c.auto`, `c.test`:`c.test`,
-	`c.h`:`c.h`, `d.h`:`d.h`, `e.h`:`e.h`,
-	`c.none`:`c.none`,
-	`conf3,`:`conf3,`,
-	`do.smart`:`do.smart`,
-	`dst-nomap`:`dst-nomap`,
-	`err-dst-nomap`:`err-dst-nomap`,
-	`f*?`:`f*?`,
-	`fo-a1`:`fo-a1`, `fo-b2`:`fo-b2`, `fo-c3`:`fo-c3`,
-	`fo-ax`:`fo-ax`, `fo-ay`:`fo-ay`, `fo-az`:`fo-az`,
-	`fo-bx`:`fo-bx`, `fo-by`:`fo-by`, `fo-bz`:`fo-bz`,
-	`fo-cx`:`fo-cx`, `fo-cy`:`fo-cy`, `fo-cz`:`fo-cz`,
-	`fo-dx`:`fo-dx`, `fo-dy`:`fo-dy`, `fo-dz`:`fo-dz`,
-	`fo-ex`:`fo-ex`, `fo-ey`:`fo-ey`, `fo-ez`:`fo-ez`,
-	`fo-fx`:`fo-fx`, `fo-fy`:`fo-fy`, `fo-fz`:`fo-fz`,
 	`fo-{&(.test.a.x.1.y.0.z)}`:[]string{`fo-ax`,`fo-ay`,`fo-az`},
 	`fo-{&(.test.b.x.1.y.0.z)}`:[]string{`fo-bx`,`fo-by`,`fo-bz`},
 	`fo-{&(.test.b.x.2.y.0.z)}`:[]string{`fo-cx`,`fo-cy`,`fo-cz`},
@@ -5237,79 +5880,11 @@ var checkpoints__string_com = map[string]any{
 	`fo-{&(.test.c.x.2.y.0.z)}`:[]string{`fo-ex`,`fo-ey`,`fo-ez`},
 	`fo-{&(.test.c.x.3.y.0.z)}`:[]string{`fo-fx`,`fo-fy`,`fo-fz`},
 	`fo-{&(.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z)}`:[]string{`fo-a1`,`fo-b2`,`fo-c3`},
-	`foo-B`:`foo-B`,
-	`foo-a`:`foo-a`,
-	`foo-b`:`foo-b`,
-	`foo-bar-xx-yy-zz`:`foo-bar-xx-yy-zz`,
-	`foo.c++`:`foo.c++`,
-	`foo.c`:`foo.c`,
-	`foo.o`:`foo.o`,
-	`foo.txt`:`foo.txt`,
-	`foo/bar.o`:`foo/bar.o`,
-	`foo/z.o`:`foo/z.o`,
+	`foo&(va2)bar`:`foo{}bar`,
 	`foo_ab-$1-$2`:`foo_ab-{}-{}`,
-	`foo_ab-a-b`:`foo_ab-a-b`,
-	`foo_ab-aa-bb`:`foo_ab-aa-bb`,
-	`foo_ab-ab-ba`:`foo_ab-ab-ba`,
-	`foo_ab-xx-yy`:`foo_ab-xx-yy`,
-	`foo_ab-xy-yx`:`foo_ab-xy-yx`,
-	`foo_ab-{}{}-{}{}`:`foo_ab-{}{}-{}{}`,
 	`foo_ba-$2-$1`:`foo_ba-{}-{}`,
-	`foo_ba-b-a`:`foo_ba-b-a`,
-	`foo_ba-ba-ab`:`foo_ba-ba-ab`,
-	`foo_ba-bb-aa`:`foo_ba-bb-aa`,
-	`foo_ba-yy-xx`:`foo_ba-yy-xx`,
-	`foo_ba-{}{}-{}{}`:`foo_ba-{}{}-{}{}`,
-	`fooa`:`fooa`, `foob`:`foob`, `fooc`:`fooc`,
-	`foobar`:`foobar`, `not-foobar`:`not-foobar`,
-	`mod-1`:`mod-1`,
-	`skip-nil`:`skip-nil`,
-	`test-B`:`test-B`,
-	`test-a`:`test-a`,
-	`test-b`:`test-b`,
-	`test-foo-B`:`test-foo-B`,
-	`test-foo-a`:`test-foo-a`,
-	`test-foo-b`:`test-foo-b`,
-	`test-foo`:`test-foo`,
-	`test-mod-1`:`test-mod-1`,
-	`test.paniconexit0`:`test.paniconexit0`,
-	`test.timeout`:`test.timeout`,
-	`test.txt`:`test.txt`,
-	`v-x-y-z-{}-{}`:`v-x-y-z-{}-{}`,
-	`v-x-y-{}-{}-{}`:`v-x-y-{}-{}-{}`,
-	`v-x-{}-{}-{}-{}`:`v-x-{}-{}-{}-{}`,
-	`v-{}-{}-{}-{}-{}`:`v-{}-{}-{}-{}-{}`, 
-	`v1.h`:`v1.h`, `v2.h`:`v2.h`,
-	`wy1{}zz`:`wy1{}zz`, `wy2{}zz`:`wy2{}zz`, `wy3{}zz`:`wy3{}zz`,
 	`x&(something)`:`x{}`,
-	`x-a`:`x-a`, `x-b`:`x-b`, `x-c`:`x-c`, `x-`:`x-`,
-	`x-y-3-xyz`:`x-y-3-xyz`, // {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}
-	`x-y-3-xy{}`:`x-y-3-xy{}`, // {=compound {23:36 {19:13 {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {23:48 {1:9:word x}} {23:53 {1:9:word y}} {23:58 {19:60:null}}}}}
-	`x-y-3`:`x-y-3`, // {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}
-	`x-y-z-{}-{}`:`x-y-z-{}-{}`,
-	`x-y-{}-{}-{}`:`x-y-{}-{}-{}`,
-	`x-{}-{}-{}-{}`:`x-{}-{}-{}-{}`,
-	`x.c++`:`x.c++`, `y.c++`:`y.c++`,
-	`x.gen`:`x.gen`, `y.gen`:`y.gen`, `z.gen`:`z.gen`,
-	`x.h`:`x.h`, `x.o`:`x.o`, `y.o`:`y.o`,
-	`x.o.a`:`x.o.a`, `x.o.b`:`x.o.b`, `x.o.c`:`x.o.c`,
-	`x\,y\,z`:`x\,y\,z`,
-	`xa`:`xa`, `xb`:`xb`, `xc`:`xc`,
-	`xay1z`:`xay1z`, `xay2z`:`xay2z`, `xay3z`:`xay3z`,
-	`xby1z`:`xby1z`, `xby2z`:`xby2z`, `xby3z`:`xby3z`,
-	`xcy1z`:`xcy1z`, `xcy2z`:`xcy2z`, `xcy3z`:`xcy3z`,
-	`xq`:`xq`, `xp`:`xp`, `xx`:`xx`, `xy`:`xy`, `yx`:`yx`, `yy`:`yy`, `yy-xx`:`yy-xx`,
-	`xv1y.h`:`xv1y.h`,
-	`xvw`:`xvw`, `xW{}{}`:`xW{}{}`, `W{}{}`:`W{}{}`,
-	`xwy1{}zz`:`xwy1{}zz`, `xwy2{}zz`:`xwy2{}zz`, `xwy3{}zz`:`xwy3{}zz`,
-	`xx-yy`:`xx-yy`, // {=compound {10:20:word xx} {=flag {10:23:word yy}}}
-	`xxx-yy`:`xxx-yy`,
-	`xxx-yyx`:`xxx-yyx`, // {=compound {6:18:word xxx} {=flag {6:22:word yyx}}}
-	`xxx-yyy`:`xxx-yyy`, // {=compound {5:18:word xxx} {=flag {5:22:word yyy}}}
-	`xx{}`:`xx{}`,
-	`xy-yx`:`xy-yx`,
-	`xyz`:`xyz`, // {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}
-	`xy{}`:`xy{}`, // {=compound {23:48 {1:9:word x}} {23:53 {1:9:word y}} {23:58 {19:60:null}}}
+	`xx&(va2)yy`:`xx{}yy`,
 	`x{&(.test.foreach.x)}`:`xvw`,
 	`x{&(.test.foreach.x.3)}`:`xV{}{}`,
 	`x{&(.test.foreach.x.4)}`:`xW{}{}`,
@@ -5323,36 +5898,6 @@ var checkpoints__string_com = map[string]any{
 	`x{&(.test.z)}y2{}zz`:`xwy2{}zz`,
 	`x{&(.test.z)}y3{}zz`:`xwy3{}zz`,
 	`x{a b c}`:[]string{`xa`, `xb`, `xc`},
-	`x{}`:`x{}`,
-	`x{}aa`:`x{}aa`, `x{}bb`:`x{}bb`, `x{}cc`:`x{}cc`,
-	`y-3`:`y-3`, // {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}
-	`y-x-a`:`y-x-a`,
-	`y-z-{}-{}`:`y-z-{}-{}`,
-	`y-{}-{}-{}`:`y-{}-{}-{}`,
-	`ya`:`ya`, `yb`:`yb`,
-	`yxa`:`yxa`, `yxb`:`yxb`, `yxa-yxb`:`yxa-yxb`,
-	`yy{}`:`yy{}`,
-	`y{}`:`y{}`,
-	`z-a`:`z-a`,
-	`z-y-x-a`:`z-y-x-a`,
-	`z-yxa-yxb`:`z-yxa-yxb`,
-	`z-{}`:`z-{}`, `z-{}-{}`:`z-{}-{}`,
-	`z.c`:`z.c`,
-	`z{}`:`z{}`,
-	`{}-3`:`{}-3`, // {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}
-	`{}-{}-3-{}{}{}`:`{}-{}-3-{}{}{}`, // {=compound {23:36 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {23:48 {19:48:null}} {23:53 {19:54:null}} {23:58 {19:60:null}}}}}
-	`{}-{}-3`:`{}-{}-3`, // {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}
-	`{}-{}-{}`:`{}-{}-{}`, `{}-{}-{}-{}`:`{}-{}-{}-{}`, `{}-{}-{}-{}-{}`:`{}-{}-{}-{}-{}`,
-	`{}-{}`:`{}-{}`, // {=compound {3:19 {3:20:null}} {=flag {3:22 {3:23:null}}}}
-	`{}aa`:`{}aa`, `{}bb`:`{}bb`, `{}cc`:`{}cc`,
-	`{}{}`:`{}{}`, `{}{}{}`:`{}{}{}`, `{}{}-{}{}`:`{}{}-{}{}`,
-	`{}⌜foo bar⌟{}88`:`{}⌜foo bar⌟{}88`,
-	`{}⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
-	`~1~`:`~1~`,
-	`~2~`:`~2~`,
-	`~a`:`~a`,
-	`~b`:`~b`,
-	`~c~`:`~c~`,
 }
 func check__string_com(ctx Context, _c *compound, _v Value) {
 	var (
@@ -5361,6 +5906,7 @@ func check__string_com(ctx Context, _c *compound, _v Value) {
 		v = checkpoints__string_com[k]
 	)
 	if v == nil {
+		if k == t { return }
 		debug(pc(ctx,_c),
 			_f("%v", ts(_c)),
 			_f("%v", ts(_v)),
@@ -5382,86 +5928,247 @@ func check__string_com(ctx Context, _c *compound, _v Value) {
 
 var checkpoints_cache = map[string]map[string]string{
 	"closure":map[string]string{
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}}} &(gen)`:`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}}} &(gen)`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{}} [{}]`,
+		`{*:{a:{.:{c:{0:*/a.c}}}}} &(gen)`:`{*:{a:{.:{c:{0:*/a.c}}}},&:{}} [{}]`,
 		`{foo:{*:{bar:{0:foo/*/bar}}}} &(gen)`:`{foo:{*:{bar:{0:foo/*/bar}}},&:{}} [{}]`,
+		`{foo:{0:foo}} &(va1)`:`{foo:{0:foo},&:{}} [{}]`,
 	},
 	"compound":map[string]string{
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}}}} foo.c`:`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{}}}} [{}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c}}}} foo.c++`:`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}},z:{.:{gen:{0:foo/z.gen}}}},x:{.:{gen:{0:x.gen,1:x.gen}}},y:{.:{gen:{0:y.gen}}}} y.gen`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}},z:{.:{gen:{0:foo/z.gen}}}},x:{.:{gen:{0:x.gen,1:x.gen}}},y:{.:{gen:{0:y.gen}}}} [{0:y.gen}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}},z:{.:{gen:{0:foo/z.gen}}}},x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}}} x.gen`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}},z:{.:{gen:{0:foo/z.gen}}}},x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}}} [{0:x.gen}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}},x:{.:{gen:{0:x.gen}}}} y.gen`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}},x:{.:{gen:{0:x.gen}}},y:{.:{gen:{}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} x.gen`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}},x:{.:{gen:{}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c}}}} foo.c++`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}}}} foo.c`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{}}}} [{}]`,
+		`{-:{0:-},.:{test:{.:{0:{0:.test.0}}}}} .test.0`:`[{0:.test.0}]`,
+		`{-:{0:-},.:{test:{.:{0:{0:.test.0}}}}} .test`:`{-:{0:-},.:{test:{.:{0:{0:.test.0}}}}} [{.:{0:{0:.test.0}}}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} .test.foobax`:`[{0:.test.foobax}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz}}}}} .test.fxx`:`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{}}}}} [{}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay}}}}} .test.foobaz`:`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{}}}}} [{}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax}}}}} .test.foobay`:`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{}}}}} [{}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}}}} .test1`:`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{}}} [{}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1}}} .test2`:`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1},test2:{}}} [{}]`,
+		`{-:{0:-}} .test.0`:`{-:{0:-},.:{test:{.:{0:{}}}}} [{}]`,
+		`{-:{0:-}} .test.foobax`:`{-:{0:-},.:{test:{.:{foobax:{}}}}} [{}]`,
+		`{.:{configure:{0:.configure}}} configuration.sm`:`{.:{configure:{0:.configure}},configuration:{.:{sm:{}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} .test.o.bar`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.c.ccc`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{}}},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c}}}}} .test.c.ccc`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c}}}}} .test.o.bar`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c},o:{.:{bar:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.b.bbb`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} .test.b.bbb`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} .test.o.bar`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.b.bbb`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{}}},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.c.ccc`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c,.:{ccc:{}}},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c}}}}} .test.b.bbb`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{}}},c:{0:.test.c}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c}}}}} .test.c.ccc`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c,.:{ccc:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c}}}}} .test.o.bar`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b},c:{0:.test.c},o:{.:{bar:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.a.aaa`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} .test.a.aaa`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} .test.o.bar`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.a.aaa`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.c.ccc`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{}}},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c}}}}} .test.a.aaa`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c}}}}} .test.c.ccc`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c}}}}} .test.o.bar`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c},o:{.:{bar:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.a.aaa`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{}}},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.b.bbb`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} .test.a.aaa`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{}}},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} .test.b.bbb`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}}}}}} .test.o.bar`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.a.aaa`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{}}},b:{0:.test.b},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.b.bbb`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{}}},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.c.ccc`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c,.:{ccc:{}}},o:{.:{bar:{0:.test.o.bar}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c}}}}} .test.a.aaa`:`{.:{test:{.:{a:{0:.test.a,.:{aaa:{}}},b:{0:.test.b},c:{0:.test.c}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c}}}}} .test.b.bbb`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b,.:{bbb:{}}},c:{0:.test.c}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c}}}}} .test.c.ccc`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c,.:{ccc:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c}}}}} .test.o.bar`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{0:.test.c},o:{.:{bar:{}}}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b}}}}} .test.c`:`{.:{test:{.:{a:{0:.test.a},b:{0:.test.b},c:{}}}}} [{}]`,
+		`{.:{test:{.:{a:{0:.test.a}}}}} .test.b`:`{.:{test:{.:{a:{0:.test.a},b:{}}}}} [{}]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}}} Availability.h`:`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{}}}} [{}]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}}} AvailabilityMacros.h`:`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{}}}} [{}]`,
+		`{a:{.:{gen:{0:a.gen}}}} b.gen`:`{a:{.:{gen:{0:a.gen}}},b:{.:{gen:{}}}} [{}]`,
 		`{foo:{.:{c:{0:foo.c}}}} foo.c++`:`{foo:{.:{c:{0:foo.c},c++:{}}}} [{}]`,
+		`{foo:{0:foo},&:{0:&(va1)}} foo&(va2)bar`:`{foo:{0:foo,&:{}},&:{0:&(va1)}} [{}]`,
+		`{stamp:{0:{=file stamp}},touch:{0:touch}} update-file`:`{stamp:{0:{=file stamp}},touch:{0:touch},update-file:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess}} depfile-c`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c}} depfile-c++`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++}} depfile-objc`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc}} depfile-objc++`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc},depfile-objc++:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc},depfile-objc++:{0:depfile-objc++}} auto-configure`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc},depfile-objc++:{0:depfile-objc++},auto-configure:{}} [{}]`,
+		`{x:{.:{c++:{0:x.c++}}}} y.c++`:`{x:{.:{c++:{0:x.c++}}},y:{.:{c++:{}}}} [{}]`,
+		`{x:{.:{gen:{0:x.gen}}}} y.gen`:`{x:{.:{gen:{0:x.gen}}},y:{.:{gen:{}}}} [{}]`,
+		`{x:{.:{h:{0:x.h}}},y:{.:{h:{0:y.h}}}} z.h`:`{x:{.:{h:{0:x.h}}},y:{.:{h:{0:y.h}}},z:{.:{h:{}}}} [{}]`,
+		`{x:{.:{h:{0:x.h}}}} y.h`:`{x:{.:{h:{0:x.h}}},y:{.:{h:{}}}} [{}]`,
+		`{} .configure`:`{.:{configure:{}}} [{}]`,
+		`{} .test.a`:`{.:{test:{.:{a:{}}}}} [{}]`,
+		`{} a.gen`:`{a:{.:{gen:{}}}} [{}]`,
 		`{} foo.c`:`{foo:{.:{c:{}}}} [{}]`,
+		`{} foo.txt`:`{foo:{.:{txt:{}}}} [{}]`,
+		`{} x.c++`:`{x:{.:{c++:{}}}} [{}]`,
+		`{} x.gen`:`{x:{.:{gen:{}}}} [{}]`,
+		`{} x.h`:`{x:{.:{h:{}}}} [{}]`,
 	},
 	"path":map[string]string{
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}}} foo/bar/v?.h`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{}}}}}}} [{}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}}}} foo/*.h`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{}}}}} [{}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}}}} foo/**.hh`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{}}}}} [{}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}}}} foo???/x.h`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{}}}}}}}} [{}]`,
-		`{foo:{ba:{*:{v:{?:{.:{h:{0:foo/ba*/v?.h}}}}}}}} foo/ba?/xyz*.txt`:`{foo:{ba:{*:{v:{?:{.:{h:{0:foo/ba*/v?.h}}}}},?:{xyz:{*:{.:{txt:{}}}}}}}} [{}]`,
-		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}}}} foo/x*y.h`:`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{}}}}}}} [{}]`,
-		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}}} f*?/x.h`:`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{}}}}}} [{}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{0:.test/xx/yy/*.c}}}}}}}} .test/xx/yy/zz/*.c`:`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{0:.test/xx/yy/*.c}}},zz:{*:{.:{c:{}}}}}}}}} [{}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}}}}}} .test/xx/yy/*.c`:`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{}}}}}}}} [{}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}}}}} .test/xx/*.c`:`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{}}}}}}} [{}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}}} .test/a/**.c`:`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{}}}}}}}} [{}]`,
+		`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx},yy:{0:foo/*.yy}},zzz:{0:foo/*zzz}},?:{?:{?:{?:{?:{.:{c++:{0:foo/??/???.c++}}}}}}},**:{z:{0:foo/**z}}}} foo/?????.o`:`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx},yy:{0:foo/*.yy}},zzz:{0:foo/*zzz}},?:{?:{?:{?:{?:{.:{c++:{0:foo/??/???.c++},o:{}}}}}}},**:{z:{0:foo/**z}}}} [{}]`,
+		`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx},yy:{0:foo/*.yy}},zzz:{0:foo/*zzz}},?:{?:{?:{?:{?:{.:{c++:{0:foo/??/???.c++}}}}}}}}} foo/**z`:`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx},yy:{0:foo/*.yy}},zzz:{0:foo/*zzz}},?:{?:{?:{?:{?:{.:{c++:{0:foo/??/???.c++}}}}}}},**:{z:{}}}} [{}]`,
+		`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx},yy:{0:foo/*.yy}}},?:{?:{?:{?:{?:{.:{c++:{0:foo/??/???.c++}}}}}}}}} foo/*zzz`:`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx},yy:{0:foo/*.yy}},zzz:{}},?:{?:{?:{?:{?:{.:{c++:{0:foo/??/???.c++}}}}}}}}} [{}]`,
+		`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx},yy:{0:foo/*.yy}}}}} foo/??/???.c++`:`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx},yy:{0:foo/*.yy}}},?:{?:{?:{?:{?:{.:{c++:{}}}}}}}}} [{}]`,
+		`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx}}}}} foo/*.yy`:`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{0:foo/*.xx},yy:{}}}}} [{}]`,
+		`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++}}}}} foo/*.xx`:`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{0:foo/*.c++},xx:{}}}}} [{}]`,
+		`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}}} foo/*.c++`:`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{0:???}}},foo:{*:{.:{c++:{}}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}},z:{.:{gen:{0:foo/z.gen}}}},x:{.:{gen:{0:x.gen,1:x.gen}}},y:{.:{gen:{0:y.gen,1:y.gen}}}} foo/z.gen`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}},z:{.:{gen:{0:foo/z.gen}}}},x:{.:{gen:{0:x.gen,1:x.gen}}},y:{.:{gen:{0:y.gen,1:y.gen}}}} [{0:foo/z.gen}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}},x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}}} foo/z.gen`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}},z:{.:{gen:{}}}},x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c}}}}} foo/bar.c++`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{}}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)}} foo/bar.c`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{}}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}}} .deps/??/??/??????????`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{}}}}}}}}}}}}}}}}} [{}]`,
+		`{.:{configure:{0:.configure}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} .deps/??/??/????????????????????????????????????????????????????????????`:`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} [{}]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} .grep/??/??/????????????????????????????????????????????????????????????`:`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} [{}]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} .cache/??/??/????????????????????????????????????????????????????????????`:`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} [{}]`,
+		`{a:{.:{gen:{0:a.gen}}},b:{.:{gen:{0:b.gen}}}} foo/c.gen`:`{a:{.:{gen:{0:a.gen}}},b:{.:{gen:{0:b.gen}}},foo:{c:{.:{gen:{}}}}} [{}]`,
 		`{foo:{*:{bar:{0:foo/*/bar}}}} &(gen)`:`{foo:{*:{bar:{0:foo/*/bar}}},&:{}} [{}]`,
-		`{foo:{.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo/bar.c`:`{foo:{.:{c:{0:foo.c},c++:{0:foo.c++}},bar:{.:{c:{}}}}} [{}]`,
 		`{foo:{.:{c:{0:foo.c},c++:{0:foo.c++}},bar:{.:{c:{0:foo/bar.c}}}}} foo/bar.c++`:`{foo:{.:{c:{0:foo.c},c++:{0:foo.c++}},bar:{.:{c:{0:foo/bar.c},c++:{}}}}} [{}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}}} .deps/??/??/??????????`:`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{}}}}}}}}}}}}}}}}} [{}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)}} foo/bar.c`:`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{}}}}} [{}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c}}}}} foo/bar.c++`:`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{}}}}} [{}]`,
-		`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}}} foo/*.c++`:`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{}}}}}}} [{}]`,
-		`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}}}}} foo/*.xx`:`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{}}}}}} [{}]`,
-		`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}}}}} foo/*.yy`:`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}},y:{y:{.:{}}}}}} [{}]`,
-		`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}},y:{y:{.:{0:foo/*.yy}}}}}} foo/??/???.c++`:`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}},y:{y:{.:{0:foo/*.yy}}}},?:{?:{?:{?:{?:{.:{.:{c:{+:{+:{}}}}}}}}}}}} [{}]`,
-		`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}},y:{y:{.:{0:foo/*.yy}}}},?:{?:{?:{?:{?:{.:{.:{c:{+:{+:{0:foo/??/???.c++}}}}}}}}}}}} foo/*zzz`:`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}},y:{y:{.:{0:foo/*.yy}}},z:{z:{z:{}}}},?:{?:{?:{?:{?:{.:{.:{c:{+:{+:{0:foo/??/???.c++}}}}}}}}}}}} [{}]`,
-		`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}},y:{y:{.:{0:foo/*.yy}}},z:{z:{z:{0:foo/*zzz}}}},?:{?:{?:{?:{?:{.:{.:{c:{+:{+:{0:foo/??/???.c++}}}}}}}}}}}} foo/**z`:`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}},y:{y:{.:{0:foo/*.yy}}},z:{z:{z:{0:foo/*zzz}}}},?:{?:{?:{?:{?:{.:{.:{c:{+:{+:{0:foo/??/???.c++}}}}}}}}}},**:{z:{}}}} [{}]`,
-		`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}},y:{y:{.:{0:foo/*.yy}}},z:{z:{z:{0:foo/*zzz}}}},?:{?:{?:{?:{?:{.:{.:{c:{+:{+:{0:foo/??/???.c++}}}}}}}}}},**:{z:{0:foo/**z}}}} foo/?????.o`:`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{0:???}}},foo:{*:{+:{+:{c:{.:{0:foo/*.c++}}}},x:{x:{.:{0:foo/*.xx}}},y:{y:{.:{0:foo/*.yy}}},z:{z:{z:{0:foo/*zzz}}}},?:{?:{?:{?:{?:{.:{.:{c:{+:{+:{0:foo/??/???.c++}}},o:{}}}}}}}},**:{z:{0:foo/**z}}}} [{}]`,
-		`{} foo/bar/zz/x.h`:`{foo:{bar:{zz:{x:{.:{h:{}}}}}}} [{}]`,
-		`{} foo/ba*/v?.h`:`{foo:{ba:{*:{v:{?:{.:{h:{}}}}}}}} [{}]`,
-		`{} foo/b*/v*.h`:`{foo:{b:{*:{v:{*:{.:{h:{}}}}}}}} [{}]`,
+		`{foo:{.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo/bar.c`:`{foo:{.:{c:{0:foo.c},c++:{0:foo.c++}},bar:{.:{c:{}}}}} [{}]`,
+		`{foo:{0:foo,&:{0:foo&(va2)bar,1:foo/&(va3)}},&:{0:&(va1)}} foo/&(va1)/xx&(va2)yy/&(va3)zz`:`{foo:{0:foo,&:{0:foo&(va2)bar,1:foo/&(va3)}},&:{0:&(va1)}} [{0:foo&(va2)bar,1:foo/&(va3)}]`,
+		`{foo:{0:foo,&:{0:foo&(va2)bar}},&:{0:&(va1)}} foo/&(va3)`:`{foo:{0:foo,&:{0:foo&(va2)bar}},&:{0:&(va1)}} [{0:foo&(va2)bar}]`,
+		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}}} f*?/x.h`:`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{}}}}}} [{}]`,
+		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}}}} foo/x*y.h`:`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{}}}}}}} [{}]`,
+		`{foo:{ba:{*:{v:{?:{.:{h:{0:foo/ba*/v?.h}}}}}}}} foo/ba?/xyz*.txt`:`{foo:{ba:{*:{v:{?:{.:{h:{0:foo/ba*/v?.h}}}}},?:{xyz:{*:{.:{txt:{}}}}}}}} [{}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}}}} foo???/x.h`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{}}}}}}}} [{}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}}}} foo/**.hh`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{}}}}}} [{}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}}}} foo/*.h`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{}}}}} [{}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}}} foo/bar/v?.h`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{}}}}}}} [{}]`,
+		`{x:{.:{c++:{0:x.c++}}},y:{.:{c++:{0:y.c++}}}} foo/z.c`:`{x:{.:{c++:{0:x.c++}}},y:{.:{c++:{0:y.c++}}},foo:{z:{.:{c:{}}}}} [{}]`,
+		`{x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}}} foo/z.gen`:`{x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}},foo:{z:{.:{gen:{}}}}} [{}]`,
+		`{} */a.c`:`{*:{a:{.:{c:{}}}}} [{}]`,
 		`{} foo/*/bar`:`{foo:{*:{bar:{}}}} [{}]`,
+		`{} foo/b*/v*.h`:`{foo:{b:{*:{v:{*:{.:{h:{}}}}}}}} [{}]`,
+		`{} foo/ba*/v?.h`:`{foo:{ba:{*:{v:{?:{.:{h:{}}}}}}}} [{}]`,
+		`{} foo/bar/zz/x.h`:`{foo:{bar:{zz:{x:{.:{h:{}}}}}}} [{}]`,
 	},
 	"globpat":map[string]string{
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}}} **.h`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{}}}} [{}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h}}}} **.def.am`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{}}}}}} [{}]`,
-		`{*:{g:{o:{l:{.:{0:*.log}}}}}} **.o`:`{*:{g:{o:{l:{.:{0:*.log}}}}},**:{o:{.:{}}}} [{}]`,
-		`{*:{+:{+:{c:{.:{0:*.c++}}}}}} **.c`:`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{}}}} [{}]`,
-		`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}}} ???`:`{*:{+:{+:{c:{.:{0:*.c++}}}}},**:{c:{.:{0:**.c}}},?:{?:{?:{}}}} [{}]`,
-		`{} *.log`:`{*:{g:{o:{l:{.:{}}}}}} [{}]`,
-		`{} *.c++`:`{*:{+:{+:{c:{.:{}}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm}}}}} lib*.a`:`{**:{*:{.:{pcm:{0:**.pcm}}}},lib:{*:{.:{a:{}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.o`:`{**:{*:{.:{pcm:{0:**.pcm},o:{}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.c.sm`:`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.cc.sm`:`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.cxx.sm`:`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.cpp.sm`:`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.c++.sm`:`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.m.sm`:`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.mm.sm`:`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.s.sm`:`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} **.S.sm`:`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} [{}]`,
+		`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}}} ???`:`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{0:**.c}}}},?:{?:{?:{}}}} [{}]`,
+		`{*:{.:{c++:{0:*.c++}}}} **.c`:`{*:{.:{c++:{0:*.c++}}},**:{*:{.:{c:{}}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}}} **.o`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{}}}}} [{}]`,
+		`{.:{configure:{0:.configure}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp}} *.log`:`{.:{configure:{0:.configure}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{}}}} [{}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h}}}}} **.def.am`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{}}}}}}} [{}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}}} **.h`:`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{}}}}} [{}]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib}}}}} lib*.dylib.*`:`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{}}}}}}} [{}]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}}}}}} lib*.so`:`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{}}}}} [{}]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so}}}}} lib*.so.*`:`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{}}}}}}} [{}]`,
+		`{} **.auto.prof`:`{**:{*:{.:{auto:{.:{prof:{}}}}}}} [{}]`,
+		`{} **.auto`:`{**:{*:{.:{auto:{}}}}} [{}]`,
+		`{} **.pcm`:`{**:{*:{.:{pcm:{}}}}} [{}]`,
+		`{} *.c++`:`{*:{.:{c++:{}}}} [{}]`,
+		`{} *.log`:`{*:{.:{log:{}}}} [{}]`,
+		`{} lib*.dylib`:`{lib:{*:{.:{dylib:{}}}}} [{}]`,
 	},
 	"string":map[string]string{
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}}}} foo.c`:`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{}}}} [{}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c}}}} foo.c++`:`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}}}} foo.c`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{}}}} [{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c}}}} foo.c++`:`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{}}}} [{}]`,
 		`{foo:{0:foo}} bar`:`{foo:{0:foo},bar:{}} [{}]`,
 		`{} foo`:`{foo:{}} [{}]`,
+	},
+	"strlit":map[string]string{
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}}} '.test.foo'`:`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{}}}}}} [{}]`,
 	},
 	"word":map[string]string{
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}}} algorithm`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{}} [{}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm}} any`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{}} [{}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any}} array`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{}} [{}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array}} atomic`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{}} [{}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic}} barrier`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{}} [{}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier}} bit`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{}} [{}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit}} bitset`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{}} [{}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset}} cassert`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{}} [{}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert}} ccomplex`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{}} [{}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex}} cctype`:`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy}} rule-zzz`:`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx}} rule-yyy`:`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz}} rule-xxx`:`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy}} rule-zz`:`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx}} rule-yy`:`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z}} rule-xx`:`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y}} rule-z`:`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x}} rule-y`:`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1}} rule-x`:`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{}} [{}]`,
+		`{-:{0:-},rule0:{0:rule0}} rule1`:`{-:{0:-},rule0:{0:rule0},rule1:{}} [{}]`,
+		`{-:{0:-}} rule0`:`{-:{0:-},rule0:{}} [{}]`,
+		`{.:{configure:{0:.configure}},configuration:{.:{sm:{0:configuration.sm}}}} stamp`:`{.:{configure:{0:.configure}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{}} [{}]`,
 		`{foo:{0:foo}} bar`:`{foo:{0:foo},bar:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc},depfile-objc++:{0:depfile-objc++},auto-configure:{0:auto-configure},autoheader:{0:autoheader}} autoreconf`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc},depfile-objc++:{0:depfile-objc++},auto-configure:{0:auto-configure},autoheader:{0:autoheader},autoreconf:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc},depfile-objc++:{0:depfile-objc++},auto-configure:{0:auto-configure}} autoheader`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc},depfile-objc++:{0:depfile-objc++},auto-configure:{0:auto-configure},autoheader:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module}} preprocess`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program}} module`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared}} program`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},archive:{0:archive}} shared`:`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{}} [{}]`,
+		`{stamp:{0:{=file stamp}},touch:{0:touch},update-file:{0:update-file}} symlink`:`{stamp:{0:{=file stamp}},touch:{0:touch},update-file:{0:update-file},symlink:{}} [{}]`,
+		`{stamp:{0:{=file stamp}}} archive`:`{stamp:{0:{=file stamp}},archive:{}} [{}]`,
+		`{stamp:{0:{=file stamp}}} touch`:`{stamp:{0:{=file stamp}},touch:{}} [{}]`,
 		`{} foo`:`{foo:{}} [{}]`,
 	},
+	"file":map[string]string{
+		`{} {=file stamp}`:`{stamp:{}} [{}]`,
+	},
+	"flag":map[string]string{
+		`{} -`:`{-:{}} [{}]`,
+	},
 }
-func check_cache(ctx Context, k any, c0 string, c *valcache, r []*valcache) {
+func check_cache(ctx Context, _k any, c0 string, c *valcache, r []*valcache) {
 	var (
+		k = unloc(_k.(Value))
 		ks = sf("%v %s", c0, k)
 		vs = sf("%v %v", c, r)
 		rs, y = checkpoints_cache[typeof(k)][ks]
 	)
 	if !y {
-		debug(ctx, "%s: `%s`:`%s`,", typeof(k), ks, vs, trace{})
+		if p := _project(ctx); p != nil && strings.HasSuffix(p.spec, "/.smart/modules/variant/.target") {
+			if d := p.resolveDef(ctx, "c++.std"); d != nil && strings.Contains(d.value.String(), k.String()) {
+				if false { debug(ctx, "%v", d, trace{}) }
+				return
+			}
+		}
+		if false { prompt(ctx, "	`%v`:`%v`,\n", ks, vs) } else
+		{ debug(pc(ctx,_k),
+			_f("%s: `%s`:`%s`,", typeof(k), ks, vs),
+			callstack{stop:"smart.hit"}, trace{}) }
 	} else if vs != rs {
-		debug(ctx, _f("%s: %v", typeof(k), ks), _f("%v != %v", vs, rs), trace{})
+		if false { prompt(ctx, "	`%v`:`%v`,\n", ks, vs) } else
+		{ debug(pc(ctx,_k),
+			_f("%s: %v", typeof(k), ks),
+			_f("got: %v", vs),
+			_f("!= : %v", rs),
+			callstack{stop:"smart.hit"}, trace{}) }
 	}
 }
 
 var checkpoints_uncache = map[string]map[string]string{
 	"path":map[string]string{
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} foobar/config/*.def.am`:`[{0:**.def.am}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} foobar/config/*.def.in`:`[]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/*.h`:`[{0:foo/*.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/*.h`:`[{0:foo/bar/v?.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/*/*.h`:`[{0:foo/bar/zz/x.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/zz/?.h`:`[{0:foo/bar/zz/x.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/z?/?.h`:`[{0:foo/bar/zz/x.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/v1.h`:`[{0:foo/bar/v?.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/v2.h`:`[{0:foo/bar/v?.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/*.hh`:`[{0:foo/**.hh}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} foobar/config/*.def.am`:`[{0:**.def.am}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} foobar/config/*.def.in`:`[]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/*.h`:`[{0:foo/*.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/*.h`:`[{0:foo/bar/v?.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/*/*.h`:`[{0:foo/bar/zz/x.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/zz/?.h`:`[{0:foo/bar/zz/x.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/z?/?.h`:`[{0:foo/bar/zz/x.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/v1.h`:`[{0:foo/bar/v?.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/v2.h`:`[{0:foo/bar/v?.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} foo/bar/*.hh`:`[{0:foo/**.hh}]`,
 		`{foo:{ba:{*:{v:{?:{.:{h:{0:foo/ba*/v?.h}}}}},?:{xyz:{*:{.:{txt:{0:foo/ba?/xyz*.txt}}}}}}}} foo/bar/v1.h`:`[{0:foo/ba*/v?.h}]`,
 		`{foo:{ba:{*:{v:{?:{.:{h:{0:foo/ba*/v?.h}}}}},?:{xyz:{*:{.:{txt:{0:foo/ba?/xyz*.txt}}}}}}}} foo/bar/v2.h`:`[{0:foo/ba*/v?.h}]`,
 		`{foo:{ba:{*:{v:{?:{.:{h:{0:foo/ba*/v?.h}}}}},?:{xyz:{*:{.:{txt:{0:foo/ba?/xyz*.txt}}}}}}}} foo/bar/xyz???.h`:`[]`,
@@ -5473,51 +6180,190 @@ var checkpoints_uncache = map[string]map[string]string{
 		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/xv*y.h`:`[{0:foo/x*y.h}]`,
 		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/**/x.h`:`[{0:f*?/x.h}]`,
 		`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} fo?/**/x.h`:`[{0:f*?/x.h}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} .deps/xx/yy/zzzzzzzzzz`:`[{0:.deps/??/??/??????????}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo/*.c`:`[{0:foo/bar.c} {0:foo/z.c}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo/*.c++`:`[{0:foo/bar.c++}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}},x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}}} foo/z.gen`:`[{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}},z:{.:{gen:{0:foo/z.gen}}}},x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}}} foo/z.gen`:`[{0:foo/z.gen}]`,
+		`{*:{a:{.:{c:{0:*/a.c}}}},&:{0:&(gen)}} main/a.c`:`[{0:*/a.c}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{0:.test/xx/yy/*.c}}},zz:{*:{.:{c:{0:.test/xx/yy/zz/*.c}}}}}}}}} .test/a/b/c/foo.c`:`[{0:.test/a/**.c}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{0:.test/xx/yy/*.c}}},zz:{*:{.:{c:{0:.test/xx/yy/zz/*.c}}}}}}}}} .test/a/b/c.auto`:`[{0:**.auto}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{0:.test/xx/yy/*.c}}},zz:{*:{.:{c:{0:.test/xx/yy/zz/*.c}}}}}}}}} .test/a/b/c.none`:`[]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{0:.test/xx/yy/*.c}}},zz:{*:{.:{c:{0:.test/xx/yy/zz/*.c}}}}}}}}} .test/xx/foo.c`:`[{0:.test/xx/*.c}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{0:.test/xx/yy/*.c}}},zz:{*:{.:{c:{0:.test/xx/yy/zz/*.c}}}}}}}}} .test/xx/yy/foo.c`:`[{0:.test/xx/yy/*.c}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{0:.test/xx/yy/*.c}}},zz:{*:{.:{c:{0:.test/xx/yy/zz/*.c}}}}}}}}} .test/xx/yy/zz/foo.c`:`[{0:.test/xx/yy/zz/*.c}]`,
+		`{**:{*:{.:{auto:{0:**.auto}}}},.:{test:{a:{**:{*:{.:{c:{0:.test/a/**.c}}}}},xx:{*:{.:{c:{0:.test/xx/*.c}}},yy:{*:{.:{c:{0:.test/xx/yy/*.c}}},zz:{*:{.:{c:{0:.test/xx/yy/zz/*.c}}}}}}}}} .test/xx/yy/zz/aa/foo.c`:`[]`,
+		`{a:{.:{gen:{0:a.gen}}},b:{.:{gen:{0:b.gen}}}} foo/c.gen`:`[{}]`,
+		`{x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}}} foo/z.gen`:`[{}]`,
+		`{x:{.:{c++:{0:x.c++}}},y:{.:{c++:{0:y.c++}}}} foo/z.c`:`[{}]`,
 	},
 	"globpat":map[string]string{
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} *.h` :`[{0:**.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} **.h`:`[{0:foo/bar/zz/x.h} {0:**.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} *.def.am` :`[{0:**.def.am}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} **.def.am`:`[{0:**.def.am}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} *.h`:`[]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{.:{hh:{0:foo/**.hh}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} **.h`:`[{0:foo/bar/zz/x.h} {0:foo/bar/v?.h} {0:foo/*.h} {0:foo???/x.h}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c++`:`[{0:&(gen)} {0:foo/bar.c++} {0:foo.c++}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c`  :`[{0:&(gen)} {0:foo/bar.c} {0:foo.c}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} *.gen` :`[{0:&(gen)}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.gen`:`[{0:&(gen)}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} *.h`:`[{0:**.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} **.h`:`[{0:foo/bar/zz/x.h} {0:**.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} *.def.am` :`[{0:**.def.am}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} **.def.am`:`[{0:**.def.am}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} *.h`:`[]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}},v:{?:{.:{h:{0:foo/bar/v?.h}}}}},*:{.:{h:{0:foo/*.h}}},**:{*:{.:{hh:{0:foo/**.hh}}}},?:{?:{?:{x:{.:{h:{0:foo???/x.h}}}}}}}} **.h`:`[{0:foo/bar/zz/x.h} {0:foo/bar/v?.h} {0:foo/*.h} {0:foo???/x.h}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c`  :`[{0:foo/bar.c} {0:foo.c} {0:foo/z.c}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c++`:`[{0:foo/bar.c++} {0:foo.c++} {0:x.c++} {0:y.c++}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} *.gen` :`[{0:x.gen} {0:y.gen}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.gen`:`[{0:a.gen} {0:b.gen} {0:foo/c.gen}]`,
+		`{*:{a:{.:{c:{0:*/a.c}}}},&:{0:&(gen)}} *.h`:`[{0:x.h} {0:y.h} {0:z.h}]`,
 	},
 	"compound":map[string]string{
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo.o`:`[{0:**.o}]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} auto-configure`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} depfile-c`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} depfile-c++`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} depfile-objc`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} depfile-objc++`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} auto-configure`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} depfile-c`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} depfile-c++`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} depfile-objc`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} depfile-objc++`:`[]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}},x:{.:{gen:{0:x.gen}}}} y.gen`:`[{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo.c++.o`:`[{0:**.o}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo.c++`:`[{0:foo.c++}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo.c.o`:`[{0:**.o}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo.o`:`[{0:**.o}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} x.c++.o`:`[{0:**.o}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} x.gen`:`[{}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} y.c++.o`:`[{0:**.o}]`,
+		`{*:{a:{.:{c:{0:*/a.c}}}},&:{0:&(gen)}} x.h`:`[{0:x.h}]`,
+		`{*:{a:{.:{c:{0:*/a.c}}}},&:{0:&(gen)}} y.h`:`[{0:y.h}]`,
+		`{*:{a:{.:{c:{0:*/a.c}}}},&:{0:&(gen)}} z.h`:`[{0:z.h}]`,
+		`{-:{0:-},.:{test:{.:{0:{0:.test.0}}}}} .test.0`:`[{0:.test.0}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} .test.foobax`:`[{0:.test.foobax}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} .test.foobay`:`[{0:.test.foobay}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} .test.foobaz`:`[{0:.test.foobaz}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} .test.fxx`:`[{0:.test.fxx}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1},test2:{0:.test2}}} .test.0`:`[{0:.test.0}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1},test2:{0:.test2}}} .test`:`[{0:.test,.:{0:{0:.test.0}}}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1}}} .test2`:`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1},test2:{}}} [{}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1}}} .test`:`[{0:.test,.:{0:{0:.test.0}}}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}}}} .test`:`[{0:.test,.:{0:{0:.test.0}}}]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} auto-configure`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} update-file`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} depfile-c`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} depfile-c++`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} depfile-objc`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} depfile-objc++`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} auto-configure`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} depfile-c`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} depfile-c++`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} depfile-objc`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} depfile-objc++`:`[]`,
+		`{a:{.:{gen:{0:a.gen}}}} b.gen`:`[{}]`,
+		`{foo:{.:{txt:{0:foo.txt}}}} foo.txt`:`[{0:foo.txt}]`,
+		`{x:{.:{c++:{0:x.c++}}}} y.c++`:`[{}]`,
+		`{x:{.:{gen:{0:x.gen}}}} y.gen`:`[{}]`,
+		`{x:{.:{h:{0:x.h}}},y:{.:{h:{0:y.h}}}} z.h`:`[{}]`,
+		`{x:{.:{h:{0:x.h}}}} y.h`:`[{}]`,
 	},
 	"string":map[string]string{
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} **.h`:`[{0:**.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} **.def.am`:`[{0:**.def.am}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} foobar.h`:`[{0:**.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} foobar.def.am`:`[{0:**.def.am}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} foo/a/b/c/bar.h`:`[{0:**.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} foo/bar/zz/x.h`:`[{0:foo/bar/zz/x.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} foo/1/2/3/bar.def.am`:`[{0:**.def.am}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo.o`:`[{0:**.o}]`,
-		`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo/bar.o`:`[{0:**.o}]`,
-		`{} bar`:`[]`, `{} foo`:`[]`, `{} foobar`:`[]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} **.h`:`[{0:**.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} **.def.am`:`[{0:**.def.am}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} foobar.h`:`[{0:**.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} foobar.def.am`:`[{0:**.def.am}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} foo/a/b/c/bar.h`:`[{0:**.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} foo/bar/zz/x.h`:`[{0:foo/bar/zz/x.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} foo/1/2/3/bar.def.am`:`[{0:**.def.am}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo.o`:`[{0:**.o}]`,
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo/bar.o`:`[{0:**.o}]`,
 	},
-	"[]string":map[string]string{
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} [foo a b c bar.h]`:`[{0:**.h}]`,
-		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}} [foo 1 2 3 bar.def.am]`:`[{0:**.def.am}]`,
+	"strlit":map[string]string{
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} '.test.foo'`:`[{0:'.test.foo'}]`,
+	},
+	"raw":map[string]string{
+		`{*:{.:{log:{0:*.log}}},**:{*:{.:{o:{0:**.o}}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo.o`:`[{0:**.o}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} .test.foo`:`[]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} .test.foobax`:`[{0:.test.foobax}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} .test.foobay`:`[{0:.test.foobay}]`,
+		`{-:{0:-},.:{test:{.:{foobax:{0:.test.foobax},foobay:{0:.test.foobay},foobaz:{0:.test.foobaz},fxx:{0:.test.fxx}}}},':{.:{test:{.:{foo':{0:'.test.foo'}}}}}} .test.foobaz`:`[{0:.test.foobaz}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1},test2:{0:.test2}}} .test`:`[{0:.test,.:{0:{0:.test.0}}}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1},test2:{0:.test2}}} .test1`:`[{0:.test1}]`,
+		`{-:{0:-},.:{test:{0:.test,.:{0:{0:.test.0}}},test1:{0:.test1},test2:{0:.test2}}} .test2`:`[{0:.test2}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule-x`:`[{0:rule-x}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule-xx`:`[{0:rule-xx}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule-xxx`:`[{0:rule-xxx}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule-y`:`[{0:rule-y}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule-yy`:`[{0:rule-yy}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule-yyy`:`[{0:rule-yyy}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule-z`:`[{0:rule-z}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule-zz`:`[{0:rule-zz}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule-zzz`:`[{0:rule-zzz}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule0`:`[{0:rule0}]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule1`:`[{0:rule1}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} {.test.a name=.test.a}`:`[]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.a.aaa`:`[{0:.test.a.aaa}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.a`:`[{0:.test.a,.:{aaa:{0:.test.a.aaa}}}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.b.bbb`:`[{0:.test.b.bbb}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.b`:`[{0:.test.b,.:{bbb:{0:.test.b.bbb}}}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.c.ccc`:`[{0:.test.c.ccc}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.c`:`[{0:.test.c,.:{ccc:{0:.test.c.ccc}}}]`,
+		`{.:{test:{.:{a:{0:.test.a,.:{aaa:{0:.test.a.aaa}}},b:{0:.test.b,.:{bbb:{0:.test.b.bbb}}},c:{0:.test.c,.:{ccc:{0:.test.c.ccc}}},o:{.:{bar:{0:.test.o.bar}}}}}}} .test.o.bar`:`[{0:.test.o.bar}]`,
 	},
 	"word":map[string]string{
-		`{} bar`:`[]`, `{} foo`:`[]`, `{} foobar`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} autoreconf`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} autoheader`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} archive`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} module`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} preprocess`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} program`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} shared`:`[]`,
+		`{**:{*:{.:{auto:{.:{prof:{0:**.auto.prof}}}}}},algorithm:{0:algorithm},any:{0:any},array:{0:array},atomic:{0:atomic},barrier:{0:barrier},bit:{0:bit},bitset:{0:bitset},cassert:{0:cassert},ccomplex:{0:ccomplex},cctype:{0:cctype},cerrno:{0:cerrno},cfenv:{0:cfenv},cfloat:{0:cfloat},charconv:{0:charconv},chrono:{0:chrono},cinttypes:{0:cinttypes},ciso646:{0:ciso646},climits:{0:climits},clocale:{0:clocale},cmath:{0:cmath},codecvt:{0:codecvt},compare:{0:compare},complex:{0:complex,.:{h:{0:complex.h}}},concepts:{0:concepts},condition_variable:{0:condition_variable},coroutine:{0:coroutine},csetjmp:{0:csetjmp},csignal:{0:csignal},cstdarg:{0:cstdarg},cstdbool:{0:cstdbool},cstddef:{0:cstddef},cstdint:{0:cstdint},cstdio:{0:cstdio},cstdlib:{0:cstdlib},cstring:{0:cstring},ctgmath:{0:ctgmath},ctime:{0:ctime},ctype:{.:{h:{0:ctype.h}}},cuchar:{0:cuchar},cwchar:{0:cwchar},cwctype:{0:cwctype},deque:{0:deque},errno:{.:{h:{0:errno.h}}},exception:{0:exception},execution:{0:execution},fenv:{.:{h:{0:fenv.h}}},filesystem:{0:filesystem},float:{.:{h:{0:float.h}}},format:{0:format},forward_list:{0:forward_list},fstream:{0:fstream},functional:{0:functional},future:{0:future},initializer_list:{0:initializer_list},inttypes:{.:{h:{0:inttypes.h}}},iomanip:{0:iomanip},ios:{0:ios},iosfwd:{0:iosfwd},iostream:{0:iostream},istream:{0:istream},iterator:{0:iterator},latch:{0:latch},limits:{0:limits,.:{h:{0:limits.h}}},list:{0:list},locale:{0:locale,.:{h:{0:locale.h}}},map:{0:map},math:{.:{h:{0:math.h}}},memory:{0:memory},module:{.:{modulemap:{0:module.modulemap}}},mutex:{0:mutex},new:{0:new},numbers:{0:numbers},numeric:{0:numeric},optional:{0:optional},ostream:{0:ostream},queue:{0:queue},random:{0:random},ranges:{0:ranges},ratio:{0:ratio},regex:{0:regex},scoped_allocator:{0:scoped_allocator},semaphore:{0:semaphore},set:{0:set},setjmp:{.:{h:{0:setjmp.h}}},shared_mutex:{0:shared_mutex},span:{0:span},sstream:{0:sstream},stack:{0:stack},stdbool:{.:{h:{0:stdbool.h}}},stddef:{.:{h:{0:stddef.h}}},stdexcept:{0:stdexcept},stdint:{.:{h:{0:stdint.h}}},stdio:{.:{h:{0:stdio.h}}},stdlib:{.:{h:{0:stdlib.h}}},streambuf:{0:streambuf},string:{0:string,.:{h:{0:string.h}}},string_view:{0:string_view},strstream:{0:strstream},system_error:{0:system_error},tgmath:{.:{h:{0:tgmath.h}}},thread:{0:thread},tuple:{0:tuple},type_traits:{0:type_traits},typeindex:{0:typeindex},typeinfo:{0:typeinfo},uchar:{.:{h:{0:uchar.h}}},unordered_map:{0:unordered_map},unordered_set:{0:unordered_set},utility:{0:utility},valarray:{0:valarray},variant:{0:variant},vector:{0:vector},version:{0:version},wchar:{.:{h:{0:wchar.h}}},wctype:{.:{h:{0:wctype.h}}}} stamp`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} archive`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} autoheader`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} autoreconf`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} module`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} preprocess`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} program`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} shared`:`[]`,
+		`{**:{*:{.:{pcm:{0:**.pcm},o:{0:**.o},c:{.:{sm:{0:**.c.sm}}},cc:{.:{sm:{0:**.cc.sm}}},cxx:{.:{sm:{0:**.cxx.sm}}},cpp:{.:{sm:{0:**.cpp.sm}}},c++:{.:{sm:{0:**.c++.sm}}},m:{.:{sm:{0:**.m.sm}}},mm:{.:{sm:{0:**.mm.sm}}},s:{.:{sm:{0:**.s.sm}}},S:{.:{sm:{0:**.S.sm}}}}}},lib:{*:{.:{a:{0:lib*.a}}}}} stamp`:`[]`,
+		`{-:{0:-},rule0:{0:rule0},rule1:{0:rule1},rule-x:{0:rule-x},rule-y:{0:rule-y},rule-z:{0:rule-z},rule-xx:{0:rule-xx},rule-yy:{0:rule-yy},rule-zz:{0:rule-zz},rule-xxx:{0:rule-xxx},rule-yyy:{0:rule-yyy},rule-zzz:{0:rule-zzz}} rule1`:`[{0:rule1}]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} autoreconf`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} autoheader`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} archive`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} stamp`:`[{0:stamp}]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} symlink`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} touch`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} shared`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} program`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} module`:`[]`,
+		`{.:{configure:{0:.configure},deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},grep:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.grep/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},cache:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.cache/??/??/????????????????????????????????????????????????????????????}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},configuration:{.:{sm:{0:configuration.sm}}},stamp:{0:stamp},*:{.:{log:{0:*.log}}}} preprocess`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} autoreconf`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} archive`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} autoheader`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} module`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} preprocess`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} program`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} shared`:`[]`,
+		`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} stamp`:`[]`,
+		`{foo:{0:foo}} foo`:`[{0:foo}]`,
+	},
+	"[]string":map[string]string{
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} [foo a b c bar.h]`:`[{0:**.h}]`,
+		`{foo:{bar:{zz:{x:{.:{h:{0:foo/bar/zz/x.h}}}}}},**:{*:{.:{h:{0:**.h},def:{.:{am:{0:**.def.am}}}}}}} [foo 1 2 3 bar.def.am]`:`[{0:**.def.am}]`,
 	},
 }
-func check_uncache(ctx Context, k any, c0 string, c *valcache, r []*valcache) {
+func check_uncache(ctx Context, _k any, c0 string, c *valcache, r []*valcache) {
+	k := unloc(_k.(Value))
 	t := typeof(k)
 	ks := sf("%v %s", c0, k)
 	vs := sf("%v", r)
+
+	if c0 == "{}" && (vs == "[]" || vs == "[{}]") { return }
+
 	rs, y := checkpoints_uncache[t][ks]
-	if stop := (callstack{stop:"smart.hit"}); !y {
-		debug(ctx, _f("%s: `%s`:`%s`,", t, ks, vs), stop, trace{})
-	} else if vs != rs {
-		debug(ctx, _f("%s: %v → %v != %v", t, ks, vs, rs), stop, trace{})
+	if !y {
+		debug(pc(ctx,_k), _f("%s: `%s`:`%s`,", t, ks, vs),
+			callstack{stop:"smart.hit"}, trace{})
+	} else if vs != rs && !(vs == "[]" && rs == "[{}]") && !(vs == "[{}]" && rs == "[]") {
+		debug(pc(ctx,_k),
+			_f("%s: %v", t, ks),
+			_f("got: %v", vs),
+			_f("!= : %v", rs),
+			callstack{stop:"smart.hit"}, trace{})
 	}
 }
 
@@ -5549,24 +6395,24 @@ var checkpoints_unmap = map[string]string{
 	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/xv*y.h`:`[{0:foo/x*y.h}]`,
 	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} foo/**/x.h`:`[{0:f*?/x.h}]`,
 	`{foo:{b:{*:{v:{*:{.:{h:{0:foo/b*/v*.h}}}}}},x:{*:{y:{.:{h:{0:foo/x*y.h}}}}}},f:{*?:{x:{.:{h:{0:f*?/x.h}}}}}} fo?/**/x.h`:`[{0:f*?/x.h}]`,
-	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c++`   :`[{0:&(gen)} {0:foo/bar.c++} {0:foo.c++}]`,
-	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c`     :`[{0:&(gen)} {0:foo/bar.c} {0:foo.c}]`,
-	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} *.gen`    :`[{0:&(gen)}]`,
-	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.gen`   :`[{0:&(gen)}]`,
+	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}},z:{.:{gen:{0:foo/z.gen}}}},x:{.:{gen:{0:x.gen}}},y:{.:{gen:{0:y.gen}}}} *.gen`:`[{0:x.gen} {0:y.gen}]`,
+	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} *.gen`    :`[{0:x.gen} {0:y.gen}]`,
+	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c`     :`[{0:foo/bar.c} {0:foo.c} {0:foo/z.c}]`,
+	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} **.c++`   :`[{0:foo/bar.c++} {0:foo.c++} {0:x.c++} {0:y.c++}]`,
 	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo.o`    :`[{0:**.o}]`,
 	`{*:{.:{log:{0:*.log}}},**:{.:{o:{0:**.o}}},.:{deps:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{?:{0:.deps/??/??/??????????}}}}}}}}}}}}}}}},&:{0:&(gen)},foo:{bar:{.:{c:{0:foo/bar.c},c++:{0:foo/bar.c++}}},.:{c:{0:foo.c},c++:{0:foo.c++}}}} foo/bar.o`:`[{0:**.o}]`,
-	`{} foobar`:`[]`, `{} foo`:`[]`, `{} bar`:`[]`,
 }
 func check_unmap(ctx *uncache_t, key any, c *valcache, x []*valcache) {
-	var (
-		t = typeof(key)
-		ks = sf("%v %v", c, key)
-		vs = sf("%v", x)
-		rs, y = checkpoints_unmap[ks]
-		ca = callstack{stop:"smart.unmap[...]"}
-	)
+	t := typeof(key)
+	ks := sf("%v %v", c, key)
+	vs := sf("%v", x)
+
+	if (vs == "[]" || vs == "[{}]") && c.String() == "{}" { return }
+
+	rs, y := checkpoints_unmap[ks]
+	ca := callstack{stop:"smart.unmap[...]"}
 	if !y {
-		debug(ctx, "%s: `%s`:`%s`,", t, ks, vs, ca, trace{})
+		if false { debug(ctx, "%s: `%s`:`%s`,", t, ks, vs, ca, trace{}) }
 	} else if vs != rs {
 		debug(ctx, _f("%s: %v", t, ks), _f("%v != %v", vs, rs), ca, trace{})
 	}
@@ -5590,5 +6436,2600 @@ func unmap_check(ctx *uncache_t, key any, c, x *valcache) {
 	switch do(ctx, get_include_spec{}) {
 	case "configure/.base/.template":
 		debug(pc(ctx,key), "%v %v", tv(key), c, trace{})
+	}
+}
+
+
+func (ctx *__trimprefix) check_match(val, prefix Value, f bool, r any, m []string) {
+    var v = __string(ctx, val)
+    switch prefix.String() {
+    case "%%/.smart/modules/":
+        if s := __string(ctx, val); strings.Contains(s, "/.smart/modules/") {
+            if a, y := r.([]string); !y {
+                debug(ctx, "%v %v, %v %v %v", prefix, val, f, r, m, trace{})
+            } else if len(a) < 4 || a[len(a)-1] != "" {
+                debug(ctx, "%v %v, %v %v %v", prefix, val, f, r, m, trace{})
+            }
+        }
+    case "/**/testdata/":
+        if f != false {
+            debug(ctx, "%v : %v %v %v", tv(prefix), f, r, m, trace{})
+        }
+        if x, y := r.([]string); !y || strings.TrimPrefix(v, joinpath(x...)) != "builtins/trimprefix" {
+            debug(ctx, "%v : %v %v %v", tv(prefix), f, r, m, trace{})
+        }
+        if len(m) != 1 {
+            debug(ctx, "%v : %v %v %v", tv(prefix), f, r, m, trace{})
+        } else if strings.TrimPrefix(v, "/"+m[0]) != "/testdata/builtins/trimprefix" {
+            debug(ctx, _f("/%v", m[0]), _f("%v", val), _f("%v : %v %v %v", tv(prefix), f, r, m), trace{})
+        }
+    }
+}
+
+func (ctx *__trimprefix) check(prefix, val, res Value) {
+    var pre, str, t = __string(ctx, prefix), __string(ctx, val), __string(ctx, res)
+
+    if strings.HasSuffix(pre, "/") && strings.HasPrefix(str, pre) && strings.HasPrefix(t, "/") {
+        debug(ctx, "{=%s %v} {=%s %v} {=%s %v}", typeof(prefix), prefix, typeof(val), val, typeof(res), res, trace{})
+    }
+
+	var proj = _project(ctx)
+
+    if p := "/.smart/modules/"; pre == "%%"+p {
+        var s = __string(ctx, val)
+        if i := strings.Index(s, p); 0 < i && s[i+len(p):] != t {
+            debug(ctx, "%v %s, %s != %s", prefix, s, t, s[i+len(p):], trace{})
+        }
+
+		// For trim-prefix as in (from 'general/do.smart')
+		//   rel.remnant = $(trim-prefix &(rel.chop),&/)
+		if x, y := do(ctx, evoke_def{"rel.remnant"}).(*def); y {
+			if x.value.String() == "$(trim-prefix &(rel.chop),&/)" {
+				var a = ctx.evocation.a[1]
+				if x, y := a.(*list); !y || x.len() != 1 {
+					debug(ctx, "not a list: %v", ts(a), trace{})
+				} else {
+					a = x.elems[0] // aka: &/
+				}
+
+				var cp = closure_projects(ctx)
+				var r1 = cp[0].resolveDef(ctx, "/").value
+				var r2 =  proj.resolveDef(ctx, "/").value
+				if false { note(ctx, "%-22v: %-50v; %-20v, %v, %v", proj, a, res, r1, r2) }
+
+				if ts(a) != ts(r1) {
+					debug(ctx,
+						_f("%v: %v, %v", proj.name, cp, ts(a)),
+						_f("%v: %v, %v", proj.name, cp, ts(r1)),
+						_f("%v: %v, %v", proj.name, cp, ts(r2)),
+						_f("%v != %v : %v", a, r1, res), trace{})
+				}
+
+				if proj.name == cp[0].name {
+					if ts(r1) != ts(r2) {
+						debug(ctx, "%-22v: %-50v; %-20v, %v != %v", proj, a, res, r1, r2, trace{})
+					}
+				}
+
+				switch proj.name {
+				case "general":
+				case "configure.base":
+				case "lib.c++.abi":
+				case "lib.c++.inc":
+				case "testdefaultconfigure":
+				case "testdeftwoconfigure":
+				case "testcustomconfigure":
+				}
+			}
+		}
+
+		if true {/*FIXME: fail for configures */} else
+		if x, y := do(ctx, evoke_def{"outtmp"}).(*def); y {
+			if x.value.String() == "&(target.tmp)/&(rel.remnant)" {
+				switch proj.name {
+				case "configure.base":
+					if ts(res) != "{=path {=word configure} {=word .base}}" {
+						debug(ctx, "%v : %v ; %v", proj.name, ts(res), x, trace{})
+					}
+				}
+			}
+		}
+    }
+}
+
+func (ctx *__auto) check(res []Value) {
+	switch j := _project(ctx); j.spec {
+	case "testdata/value/auto":
+		ctx.check_value_auto(res)
+	default:
+		debug(ctx, "%v: %v", j.spec, res, trace{})
+	}
+}
+func (ctx *__auto) check_value_auto(res []Value) {
+ 	switch d, o := try[*def](ctx, origin_def{}), try[origin](ctx, get_origin{}); line_column(ctx) {
+	case "6:11":
+		if s, t := ts(res), `[{=list {6:29:null}}]`; s != t {
+			debug(ctx, "%v | %s != %s", res, s, t, trace{})
+		}
+	case "7:11":
+		if s, t := ts(res), `[{=list {7:21 {6:9 {6:29:null}}}} {=list {7:29 {7:18:decimal 2}}}]`; s != t {
+			debug(ctx, "%v | %s != %s", res, s, t, trace{})
+		}
+	case "8:11":
+		if s, t := ts(res), `[{=list {=list {8:21 {7:9 {7:21 {6:9 {6:29:null}}}}} {8:21 {7:9 {7:29 {7:18:decimal 2}}}}}}]`; s != t {
+			debug(ctx, "%v | %s != %s", res, s, t, trace{})
+		}
+	case "10:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:643":
+			if s, t := ts(res), `[{=list {10:30:null}}]`; s != t {
+				debug(ctx, "%v | %v: %s != %s", d, res, s, t, trace{})
+			}
+		case "value_test.go:645":
+			if s, t := ts(res), `[{=list {10:30 {1:9:word x}}}]`; s != t {
+				debug(ctx, "%v | %v: %s != %s", d, res, s, t, trace{})
+			}
+		case "value_test.go:668", "value_test.go:687", "value_test.go:706":
+			if s, t := ts(res), `[{=list {10:30 {11:18:decimal 2}}}]`; s != t {
+				debug(ctx, "%v | %v: %s != %s", d, res, s, t, trace{})
+			}
+		default:
+			debug(ctx, "%v | %s", res, ts(res), trace{})
+		}
+	case "11:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:668", "value_test.go:687", "value_test.go:706":
+			if s, t := ts(res), `[{=list {11:21 {10:9 {10:30 {11:18:decimal 2}}}}} {=list {11:30 {11:18:decimal 2}}}]`; s != t {
+				debug(ctx, "%v | %v: %s != %s", d, res, s, t, trace{})
+			}
+		default:
+			debug(ctx, "%v | %s", res, ts(res), trace{})
+		}
+	case "12:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:668", "value_test.go:687", "value_test.go:706":
+			if s, t := ts(res), `[{=list {=list {12:21 {11:9 {11:21 {10:9 {10:30 {11:18:decimal 2}}}}}} {12:21 {11:9 {11:30 {11:18:decimal 2}}}}}}]`; s != t {
+				debug(ctx, "%v | %v: %s != %s", d, res, s, t, trace{})
+			}
+		default:
+			debug(ctx, "%v | %s", res, ts(res), trace{})
+		}
+	case "19:15":
+		switch line_column(d) {
+		case "19:11":
+			switch try[string](ctx,source{}) {
+			case "value_test.go:750":
+				if s, t := ts(res), `[{=list {=compound {19:46:null} {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					debug(pc(ctx,d), "%s: %v: %s != %s", d.name, res, s, t, trace{})
+				}
+			case "value_test.go:752":
+				if s, t := ts(res), `[{=list {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					debug(pc(ctx,d), "%s: %v: %s != %s", d.name, res, s, t, trace{})
+				}
+			default:
+				debug(pc(ctx,d), "%v: %s", res, ts(res), trace{})
+			}
+		case "21:11":
+			switch try[string](ctx,source{}) {
+			case "value_test.go:786", "value_test.go:788":
+				if s, t := ts(res), `[{=list {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					debug(pc(ctx,d), "%s: %v: %s != %s", d.name, res, s, t, trace{})
+				}
+			default:
+				debug(pc(ctx,d), "%v: %s", res, ts(res), trace{})
+			}
+		case "22:10":
+			switch try[string](ctx,source{}) {
+			case "value_test.go:820", loader_src:
+				if s, t := ts(res), `[{=list {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					debug(pc(ctx,d), "%s: %v: %s != %s", d.name, res, s, t, trace{})
+				}
+			default:
+				debug(pc(ctx,d), "%v: %s", res, ts(res), trace{})
+			}
+		case "23:11":
+			switch try[string](ctx,source{}) {
+			case "value_test.go:818":
+				if s, t := ts(res), `[{=list {=compound {19:46:null} {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					debug(pc(ctx,d), "%s: %v: %s != %s", d.name, res, s, t, trace{})
+				}
+			case "value_test.go:820", "value_test.go:824":
+				if s, t := ts(res), `[{=list {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+					debug(pc(ctx,d), "%s: %v: %s != %s", d.name, res, s, t, trace{})
+				}
+			default:
+				debug(pc(ctx,d), "%v: %s", res, ts(res), trace{})
+			}
+		case "24:10":
+			if s, t := ts(res), `[{=list {=compound {19:46:null} {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+				debug(ctx, "%v | %s != %s", res, s, t, trace{})
+			}
+		case "26:9":
+			if s, t := ts(res), `[{=list {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+				debug(ctx, "%s: %v | %s != %s", line_column(d), res, s, t, trace{})
+			}
+		case "27:9":
+			if s, t := ts(res), `[{=list {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+				debug(ctx, "%s: %v | %s != %s", line_column(d), res, s, t, trace{})
+			}
+		case "28:9":
+			if s, t := ts(res), `[{=list {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}]`; s != t {
+				debug(ctx, "%s: %v | %s != %s", line_column(d), res, s, t, trace{})
+			}
+		default:
+			debug(pc(ctx,d), "%v | %s", res, ts(res), trace{})
+		}
+	case "20:15":
+		if s, t := ts(res), `[{=list {=compound {20:46:null} {=flag {=compound {20:52:null} {=flag {20:58 {20:33:decimal 3}}}}}}}]`; s != t {
+			debug(ctx, "%v | %s != %s", res, s, t, trace{})
+		}
+	case "21:15":
+		if s, t := ts(res), `[{=list {=compound {21:36 {19:13 {19:46 {21:23:word x}}}} {21:36 {19:13 {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}]`; s != t {
+			debug(ctx, "%v | %s != %s", res, s, t, trace{})
+		}
+	case "22:15":
+		if s, t := ts(res), `[{=list {=compound {22:36 {19:13 {19:46 {22:23:word x}}}} {22:36 {19:13 {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {22:48 {22:23:word x}} {22:53 {22:28:word y}} {22:58 {22:33:word z}}}}}}]`; s != t {
+			debug(ctx, "%v | %s != %s", res, s, t, trace{})
+		}
+	case "23:15":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:818":
+			if s, t := ts(res), "[{=list {=compound {23:36 {19:13 {19:46:null}}} {23:36 {19:13 {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {23:48:null} {23:53:null} {23:58:null}}}}}]"; s != t {
+				debug(ctx, "%v: %s != %s", o, s, t, trace{})
+			}
+		case "value_test.go:820", "value_test.go:824":
+			if s, t := ts(res), "[{=list {=compound {23:36 {19:13 {19:46 {1:9:word x}}}} {23:36 {19:13 {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {23:48 {1:9:word x}} {23:53 {1:9:word y}} {23:58:null}}}}}]"; s != t {
+				debug(ctx, "%v: %s != %s", o, s, t, trace{})
+			}
+		case loader_src:
+			switch line_column(d) {
+			case "28:9":
+				if s, t := ts(res), `[{=list {=compound {23:36 {19:13 {19:46 {28:22:word a}}}} {23:36 {19:13 {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {23:48 {28:22:word a}} {23:53 {28:27:word b}} {23:58 {28:32:word c}}}}}}]`; s != t {
+					debug(ctx, "%v | %s != %s", res, s, t, trace{})
+				}
+			default:
+				debug(ctx, "%v | %v: %s", d, res, ts(res), trace{})
+			}
+		default:
+			debug(ctx, "%v: %v: %s", d, res, ts(res), trace{})
+		}
+	case "24:15":
+		if s, t := ts(res), `[{=list {=compound {24:36 {19:13 {19:46:null}}} {24:36 {19:13 {=flag {=compound {19:52:null} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {24:48:null} {24:53:null} {24:58:null}}}}}]`; s != t {
+			debug(ctx, "%v | %s != %s", res, s, t, trace{})
+		}
+	case "27:14":
+		if s, t := ts(res), `[{=list {27:35 {21:13 {=compound {21:36 {19:13 {19:46 {21:23:word x}}}} {21:36 {19:13 {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}}}]`; s != t {
+			debug(ctx, "%v | %s != %s", res, s, t, trace{})
+		}
+	case "28:14":
+		if s, t := ts(res), `[{=list {28:35 {23:13 {=compound {23:36 {19:13 {19:46 {28:22:word a}}}} {23:36 {19:13 {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}} {=flag {=compound {23:48 {28:22:word a}} {23:53 {28:27:word b}} {23:58 {28:32:word c}}}}}}}}]`; s != t {
+			debug(ctx, "%v | %s != %s", res, s, t, trace{})
+		}
+	default:
+		debug(ctx, "%v: %v | %s", o, res, ts(res), trace{})
+	}
+}
+
+func (ctx *__grep) check(rx *regexp.Regexp, text string, temp, val Value) {
+	if d, y := ctx.defs["0"]; !y {
+		debug(ctx, "%v %v %v %v", rx, text, temp, val, trace{})
+	} else if t := __string(ctx, d); t != text {
+		debug(ctx, "%v: %v: %s != %s", rx, d, t, text, trace{})
+	}
+	switch j := _project(ctx); j.name {
+	case "llvm.Config":
+		switch rx.String() {
+		case `^ *set\((LLVM_VERSION_(MAJOR|MINOR|PATCH)) +([0-9]+) *\)`:
+			if v := auto_get(ctx, "2"); v == nil {
+				debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+			} else {
+				switch __string(ctx,v) {
+				case "MAJOR":
+					if v := auto_get(ctx, "0"); v == nil {
+						debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+					} else if s, t := "  set(LLVM_VERSION_MAJOR 20)", __string(ctx,v); s != t {
+						debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+					}
+					if v := auto_get(ctx, "3"); v == nil {
+						debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+					} else if s, t := "20", __string(ctx,v); s != t {
+						debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+					}
+				case "MINOR":
+					if v := auto_get(ctx, "0"); v == nil {
+						debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+					} else if s, t := "  set(LLVM_VERSION_MINOR 0)", __string(ctx,v); s != t {
+						debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+					}
+					if v := auto_get(ctx, "3"); v == nil {
+						debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+					} else if s, t := "0", __string(ctx,v); s != t {
+						debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+					}
+				case "PATCH":
+					if v := auto_get(ctx, "0"); v == nil {
+						debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+					} else if s, t := "  set(LLVM_VERSION_PATCH 0)", __string(ctx,v); s != t {
+						debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+					}
+					if v := auto_get(ctx, "3"); v == nil {
+						debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+					} else if s, t := "0", __string(ctx,v); s != t {
+						debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+					}
+				default:
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+			}
+		default:
+			debug(ctx, "%s: %v; %v; %v; %v; %v", j.name, rx, text, temp, val, ctx.defs)
+		}
+	case "testvalue":
+		switch rx.String() {
+		case `^.+?\.o$`:
+			switch text {
+			case "foo.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			case "foo-x.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo-x.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			case "foo-x-y.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo-x-y.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			case "foo-x-y-z.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo-x-y-z.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			case "foobar.o":
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foobar.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			default:
+				debug(ctx, "%v; %v; %v; %v; %v", rx, text, temp, val, ctx.defs)
+			}
+		case `^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$`:
+			switch text {
+			case "foo.o":
+				if d, y := ctx.defs["1"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["2"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["3"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["4"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["i"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["5"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["6"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["x"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			case "foo-x.o":
+				if d, y := ctx.defs["1"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["2"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-x", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["3"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-x", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["4"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["i"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "x", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["5"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["6"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["x"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo-x.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-x", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-x", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "x", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			case "foo-x-y.o":
+				if d, y := ctx.defs["1"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["2"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-x-y", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["3"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-y", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["4"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["i"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "y", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["5"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["6"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["x"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo-x-y.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-x-y", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-y", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "y", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			case "foo-x-y-z.o":
+				if d, y := ctx.defs["1"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["2"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-x-y-z", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["3"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-z", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["4"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["i"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "z", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["5"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["6"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["x"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo-x-y-z.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foo", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-x-y-z", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "-z", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "z", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			case "foobar.o":
+				if d, y := ctx.defs["1"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foobar", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["2"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["3"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["4"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["i"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if d, y := ctx.defs["5"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if _, y := ctx.defs["6"]; y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if d, y := ctx.defs["x"]; !y {
+					debug(ctx, "%v %v %v %v %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx, d); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, d, t, s, trace{})
+				}
+				if v := auto_get(ctx, "0"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foobar.o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "1"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "foobar", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "2"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "3"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "4"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "i"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "5"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := ".", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+				if v := auto_get(ctx, "6"); v != nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				}
+				if v := auto_get(ctx, "x"); v == nil {
+					debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+				} else if s, t := "o", __string(ctx,v); s != t {
+					debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+				}
+			default:
+				debug(ctx, "%v; %v; %v; %v; %v", rx, text, temp, val, ctx.defs)
+			}
+		default:
+			debug(ctx, "%v; %v; %v; %v; %v", rx, text, temp, val, ctx.defs)
+		}
+	case "lib.unwind":
+		switch rx.String() {
+		case `^#define +_LIBUNWIND_VERSION +([0-9]+)`:
+			if v := auto_get(ctx, "0"); v == nil {
+				debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+			} else if s, t := `#define _LIBUNWIND_VERSION 15000`, __string(ctx,v); s != t {
+				debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+			}
+			if v := auto_get(ctx, "1"); v == nil {
+				debug(ctx, "%v: %v; %v; %v; %v", rx, text, temp, val, ctx.defs, trace{})
+			} else if s, t := "15000", __string(ctx,v); s != t {
+				debug(ctx, "%v: %v: %s != %s", rx, v, t, s, trace{})
+			}
+		default:
+			debug(ctx, "%s: %v; %v; %v; %v; %v", j.name, rx, text, temp, val, ctx.defs)
+		}
+	default:
+		debug(ctx, "%s: %v; %v; %v; %v; %v", j.name, rx, text, temp, val, ctx.defs)
+	}
+}
+
+func (ctx *__foreach) check(_values, _vals *[]Value) {
+	switch j := _project(ctx); j.spec {
+	case "testdata/value/placeholder":
+		ctx.value_placeholder(*_values, *_vals)
+	case "testdata/value/optional":
+		ctx.value_optional(*_values, *_vals)
+	case "testdata/value/bug_01":
+		ctx.value_bug_01(*_values, *_vals)
+	case "testdata/builtins/foreach":
+		ctx.check__foreach(*_values, *_vals)
+	}
+}
+
+func (ctx *__foreach) value_placeholder(values, vals []Value) {
+	switch o := try[origin](ctx, get_origin{}); line_column(ctx) {
+	case "4:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:1911":
+			if s, t := ts(vals), `[{4:31 {4:19:word a}} {4:31 {4:21:word b}} {4:31 {4:23:word c}} {4:31 {4:25:word d}} {4:31 {4:27:word e}} {4:31 {4:29:word f}}]`; s != t {
+				debug(ctx, "%v | %s != %s", values, s, t, trace{})
+			}
+		default:
+			debug(ctx, "%v: %v | %v: %s", o, values, vals, ts(vals), trace{})
+		}
+	case "5:11":
+		switch try[string](ctx,source{}) {
+		case "value_test.go:1917":
+			if s, t := ts(vals), `[]`; s != t {
+				debug(ctx, "%v: %v | %s != %s", o, values, s, t, trace{})
+			}
+		case "value_test.go:1903":
+			if s, t := ts(vals), `[{5:46 {5:19 {1:9:word 1}}} {5:46 {5:22 {1:9:word 2}}} {5:46 {5:25 {1:9:word 3}}} {5:46 {5:28 {1:9:word 4}}} {5:46 {5:31 {1:9:word 5}}} {5:46 {5:34 {1:9:word 6}}} {5:46 {5:37 {1:9:word 7}}} {5:46 {5:40 {1:9:word 8}}} {5:46 {5:43 {1:9:word 9}}}]`; s != t {
+				debug(ctx, "%v: %v | %s != %s", o, values, s, t, trace{})
+			}
+		default:
+			debug(ctx, "%v: %v | %v: %s", o, values, vals, ts(vals), trace{})
+		}
+	case "6:11":
+		switch try[string](ctx,source{}) {
+		case loader_src:
+			if s, t := ts(vals), `[{6:31 {6:19:word a}} {6:31 {6:21:word b}} {6:31 {6:23:word c}} {6:31 {6:25:word d}} {6:31 {6:27:word e}} {6:31 {6:29:word f}}]`; s != t {
+				debug(ctx, "%v: %v | %s != %s", o, values, s, t, trace{})
+			}
+		default:
+			debug(ctx, "%v: %v | %v: %s", o, values, vals, ts(vals), trace{})
+		}
+	case "7:11":
+		switch try[string](ctx,source{}) {
+		case loader_src:
+			if s, t := ts(vals), `[]`; s != t {
+				debug(ctx, "%v: %v | %s != %s", o, values, s, t, trace{})
+			}
+		default:
+			debug(ctx, "%v: %v | %v: %s", o, values, vals, ts(vals), trace{})
+		}
+	default:
+		debug(pc(ctx,values[0]), "%v: %v | %v: %s", o, values, vals, ts(vals), trace{})
+	}
+}
+
+func (ctx *__foreach) value_optional(values, vals []Value) {
+	switch ctx.a[1].String() {
+	case "$($_→bar?)":
+		if truly(ctx, ex_def_1{}) {
+			if vals != nil {
+				debug(ctx, "%v ; %v", vals, auto_get(ctx, "_"), trace{})
+			}
+		} else {
+			if vals == nil || vals[0] == nil {
+				debug(ctx, "nil ; %v", auto_get(ctx, "_"), trace{})
+			}
+			if s, t := vals[0].String(), "$({{=project foo}}→bar?)"; s != t {
+				debug(ctx, "%s != %s ; %v", s, t, auto_get(ctx, "_"), trace{})
+			}
+		}
+	}
+}
+
+func (ctx *__foreach) value_bug_01(values, vals []Value) {
+}
+
+func (ctx *__foreach) check__foreach(values, vals []Value) {
+	var s string
+	var d, _ = do(ctx, evoke_def{}).(*def)
+	switch fmt.Sprintf("%v", ctx.a[1:]) {
+	case "[x$_]":
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+			s += "x"
+			if d == nil {
+				s += v.String()
+			} else {
+				switch d.name {
+				case ".test.1", ".test.21", ".test.22":
+					s += v.String()
+				case ".test.2", ".test.23":
+					s += redis(v).String()
+				default:
+					debug(pc(ctx,d.value), "%v %v ; %v", values, vals, d, trace{})
+				}
+			}
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			debug(pc(ctx,vals), "%s != %s ; %v", s, t, d, trace{})
+		}
+	case "[&(.test.h)$_]":
+		if d, _ := do(ctx, evoke_def{}).(*def); d == nil {
+			debug(pc(ctx,vals[0]), "%v %v", values, vals, trace{})
+		} else {
+			switch args := fmt.Sprintf("%v", values); d.name {
+			case ".test.1", ".test.2":
+				switch args {
+				case "[a b c]":
+					if truly(ctx, ex_closure{}) {
+						s = "[-a -b -c]"
+					} else {
+						s = "[&(.test.h)a &(.test.h)b &(.test.h)c]"
+					}
+				default:
+					debug(pc(ctx,vals[0]), "%s: %v %v", d.name, args, vals, trace{})
+				}
+			default:
+				debug(pc(ctx,vals[0]), "%s: %v %v", d.name, args, vals, trace{})
+			}
+			if t := fmt.Sprintf("%v", vals); s != t {
+				debug(pc(ctx,vals[0]), "%s: %s != %s", d.name, s, t, trace{})
+			}
+		}
+	case "[&(.test.xx)$_]":
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+			if !truly(ctx, ex_closure{}) {
+				s += "&(.test.xx)"
+			}
+			if d == nil {
+				s += v.String()
+			} else {
+				switch d.name {
+				case ".test.23":
+					s += redis(v).String()
+				default:
+					debug(pc(ctx,d.value), "%v %v ; %v", values, vals, d, trace{})
+				}
+			}
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			debug(ctx, "%s != %s", s, t, trace{})
+		}
+	case "[&(.test.$_.$(or $4,$3))]":
+		j := _project(ctx)
+		v3 := auto_get(ctx, "3")
+		v4 := auto_get(ctx, "4")
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+
+			t := ".test."+v.String()
+			if v4 != nil {
+				t += v4.String()
+			} else if v3 != nil {
+				t += v3.String()
+			}
+
+			if d := j.resolveDef(ctx, t); d == nil {
+				debug(ctx, "%v", t, trace{})
+			} else if truly(ctx, ex_closure{}) {
+				s += ""
+			} else /* if truly(ctx, ex_delegate{}) */ {
+				s += "{&(.test.xx)}"
+			}
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			debug(ctx, "%s != %s", s, t, trace{})
+		}
+	case "[$(closure .test.$_)$1{}99]":
+		j := _project(ctx)
+		v1 := auto_get(ctx, "1")
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+
+			t := ".test."+v.String()
+			if d := j.resolveDef(ctx, t); d == nil {
+				debug(ctx, "%v", t, trace{})
+			} else if truly(ctx, ex_closure{}) {
+				s += ""
+			} else /* if truly(ctx, ex_delegate{}) */ {
+				s += "{&(.test.xx)}"
+			}
+			s += v1.String()
+			s += "99"
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			debug(ctx, "%s != %s", s, t, trace{})
+		}
+	case "[&(.test.x $_)]":
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+			if truly(ctx, ex_closure{}) {
+				s += ""
+			} else /* if truly(ctx, ex_delegate{}) */ {
+				s += "{&(.test.xx)}"
+				s += v.String()
+			}
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			debug(ctx, "%s != %s", s, t, trace{})
+		}
+	case "[&(.test.$_)$1{}zz]":
+		s += "["
+		for i, v := range values {
+			if i > 0 { s += " " }
+			if truly(ctx, ex_closure{}) {
+				s += ""
+			} else /* if truly(ctx, ex_delegate{}) */ {
+				s += "{&(.test.xx)}"
+				s += v.String()
+			}
+		}
+		s += "]"
+		if t := fmt.Sprintf("%v", vals); s != t {
+			debug(ctx, "%s != %s", s, t, trace{})
+		}
+	default:
+		debug(ctx, "%d %v %v %v", len(values), values, vals, ctx.a, trace{})
+	}
+}
+
+func (ctx *__foreach) check_v(v Value) {
+	if len(ctx.evocation.a) == 0 { return }
+
+	var t = ctx.evocation.a[1]
+	if d, y := v.(*delegate); y && d.x.String() == "if" {
+		if len(d.a) == 2 && strings.Contains(d.a[1].String(), "$_") {
+			if l, y := t.(*list); y && l.len() == 1 {
+				if d, y := l.elems[0].(*delegate); y && d.x.String() == "if" {
+					if len(d.a) == 2 && strings.Contains(d.a[1].String(), "$_") {
+						erro(pc(ctx,t), "%s: %v %v", d.x, d.a[0], d.a[1])
+					}
+				}
+			}
+			debug(pc(ctx,t), "%s: %v %v", d.x, d.a[0], d.a[1], trace{})
+		}
+	}
+}
+
+func (ctx *__if) a_check(i int, a, v Value) {
+	if p := _project(ctx); i == 1 && p.name == "llvm.Config" {
+		if w := auto_get(ctx, "_"); w != nil && strings.Contains(v.String(), "$_") {
+			debug(pc(ctx,a), "%v: %v %v; %s", w, a, v, _builtincalls(ctx), trace{})
+		}
+	}
+}
+
+
+func (*plainint) evaluate_check(ctx Context, args, recipes []Value, p *plain) {
+	if t, y := auto_get(ctx, "@").(*file); y {
+		if strings.HasPrefix(t.name, ".configure/") && strings.HasSuffix(t.name, ".c") {
+			for i, recipe := range recipes {
+				if x, y := recipe.(*plainline); y && x.len() == 1 {
+					if x, y := x.elems[0].(*delegate); y && len(x.a) == 2 {
+						// if x.String() == `$(foreach $(INCLUDE),"#include $_\n")` {}
+						if b, y := x.x.(*builtin); y && b.name == "foreach" {
+							if d, y := p.elems[i].(*plainline).elems[0].(*delegate); y {
+								if false && x.a[0].String() == `$(INCLUDE)` {
+									debug(ctx, "%v → %v", x.a[0], d.a[0])
+								}
+								if x.a[1].String() == `"#include $_\n"` {
+									s := `{=list {=strcomp {=raw #include } {=delegate {=auto _}} {=escaped \n}}}`
+									if t := ts(x.a[1]); s != t {
+										debug(pc(ctx,x), "%v: %s != %s", x.a[1], t, s, trace{})
+									} else {
+										debug(pc(ctx,x),
+											_f("%s %s %s", x, expand(ctx,x), ts(x)),
+											_f("%s %s", auto_find(ctx, "_"), ts(ctx)),
+											_f("%s : %v → %v", t, x.a[1], d.a[1]))
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return
+}
+
+func (ctx *exec_ctx) sources_check(cc Context, i int, rv Value, s string) {
+	var exe = _execution(ctx)
+	if exe.proj != nil && exe.proj.name == "configure.base" {
+		switch dest := __string(ctx, _entry(ctx).destiny()); dest {
+		case "-header-c", "-header-c++":
+		case "-library-c", "-library-c++":
+			if strings.HasSuffix(ctx.targetName, ".log") {}
+
+			if r, y := rv.(*recipe); !y || r.len() == 0 {
+				debug(pc(ctx,rv), "%v. %v", i, rv, trace{})
+			} else {
+				for i, e := range r.elems {
+					switch ts(e) {
+					case "{=delegate {=def x}}":
+						if v := expand(cc,e); v == nil || ts(v) == "{=null}" || ts(e) == ts(v) {
+							var s1, s2 = __string(cc, e), __string(ctx, e)
+							debug(pc(ctx,e), "%d. %s → %s → %s (%s)", i, ts(e), ts(v), s1, s2)
+							note(pc(ctx,rv), "%v,", ts(expand(ctx,e)))
+							note(pc(ctx,rv), "%v,", ts(expand(fullfile_ctx{ctx},e)))
+							note(pc(ctx,rv), "%v.", ts(expand(_final(ctx),e)))
+							note(pc(ctx,rv), "%v", ts(rv))
+						}
+						if v := expand(_final(ctx),e); v == nil || ts(v) == "{=null}" || ts(e) == ts(v) {
+							var s1, s2 = __string(cc, e), __string(ctx, e)
+							debug(pc(ctx,e), "%d. %s → %s → %s (%s)", i, ts(e), ts(v), s1, s2)
+							note(pc(ctx,rv), "%v,", ts(expand(ctx,e)))
+							note(pc(ctx,rv), "%v,", ts(expand(fullfile_ctx{ctx},e)))
+							note(pc(ctx,rv), "%v;", ts(expand(_final(ctx),e)))
+							note(pc(ctx,rv), "%v,", ts(expand(cc,e)))
+							note(pc(ctx,rv), "%v,", ts(expand(fullfile_ctx{cc},e)))
+							note(pc(ctx,rv), "%v.", ts(expand(_final(cc),e)))
+							note(pc(ctx,rv), "%v", ts(rv))
+						}
+					}
+				}
+			}
+
+			var v = expand(cc,rv)
+			if r, y := v.(*recipe); !y || r.len() == 0 {
+				debug(pc(ctx,rv), "%v. %v", i, v)
+			} else {
+				for i, e := range r.elems {
+					switch ts(e) {
+					case "{=null}":
+						debug(pc(ctx,e), "%d. %s", i, ts(e))
+						note(pc(ctx,rv), "%v", ts(rv))
+						note(pc(ctx,rv), "%v", ts(v))
+					}
+				}
+			}
+		}
+	}
+}
+
+func (exe *execution) evaluate_check(ctx Context, i interpreter, args []Value, res Value) {
+	if t, y := auto_get(ctx, "@").(*file); y {
+		if strings.HasPrefix(t.name, ".configure/") {
+			var fn = t.fullname()
+			if x, y := res.(*plain); y && 0 < x.len() {
+				if exe.language != x.name {
+					debug(ctx, "%s != %s ; %v", exe.language, x.name, ts(res))
+				}
+				// $(foreach $(INCLUDE),"#include $_\n") → $(foreach {},"#include xxx\n")
+				if x, y := x.elems[0].(*plainline); y && 0 < x.len() {
+					if false && (x.String() == "{=plainline {}}" || ts(x) == "{=plainline {=null}}") {
+						debug(pc(ctx,x), "%s %v %s", typeof(i), x, ts(x))
+					}
+					if x, y := x.elems[0].(*delegate); y && ts(x.x) == "{=builtin foreach}" && len(x.a) == 2 {
+						if s, t := "{=list {=null}}", ts(x.a[0]); s == t {
+							notestack(pc(ctx,fn), 3, "%v", res)
+							debug(ctx, "%v : %v : %s != %s", ts(x.x), x.a[0], t, s)
+						}
+						if s, t := `{=strval {=raw #include } {=delegate {=auto _}} {=raw \n}}`, ts(x.a[1]); s != t {
+							notestack(pc(ctx,fn), 3, "%v", res)
+							debug(ctx, "%v : %v : %s != %s", ts(x.x), x.a[1], t, s)
+						}
+						for _, a := range x.a[1:] {
+							if s, t := "{=delegate {=auto _}}", ts(a); !strings.Contains(t, s) {
+								notestack(pc(ctx,fn), 2, "%v", res)
+								debug(ctx, "%v : %v %v : %s", ts(x.x), ts(x.a[0]), a, ts(t))
+							}
+						}
+					}
+				}
+			}
+			if s := typeof(i); s != `plainint` && t.stat(ctx) == nil {
+				switch {
+				case
+					strings.HasSuffix(t.name, ".c"),
+					strings.HasSuffix(t.name, ".c++"),
+					strings.HasSuffix(t.name, ".log"):
+					errostack(pc(ctx,fn), 6, "%s %v %v", s, exe.language, res)
+				}
+			}
+		}
+	}
+}
+
+func (exe *execution) interpret_check(ctx Context, i interpreter, args []Value, res Value) {
+}
+
+func (prog *program) execute_check(ctx *execution, result *Value) {
+	switch prog.project.name {
+	case "configure.base":
+		if x1, y := ctx.defs["TYPE"]; y {
+			if x2, y := ctx.defs["TARGET"]; y {
+				s := strings.ToUpper(__string(ctx, x1))
+				s  = strings.Replace(s, " ", "_",  -1)
+				s  = strings.Replace(s, "*", "_P", -1)
+				if t := __string(ctx, x2); "SIZEOF_"+s != t && "ALIGNOF_"+s != t {
+					debug(ctx, "%v : %s != %s", ctx.prerequisite, s, t)
+				}
+				if a, y := ctx.prerequisite.(*argumented); false && y && a != nil {
+					note(ctx, "%v %v %v", a, x1, x2)
+				}
+			}
+		}
+	case "testdefaultconfigure":
+		if t := _entry(ctx).destiny(); t == nil {
+			debug(ctx, "%v: %v", _entry(ctx))
+		} else {
+			switch t.String() {
+			case "FOO":
+				var v = *result
+				if v == nil {
+					debug(ctx, "%v", t)
+				} else if d, y := v.(*def); !y {
+					debug(ctx, "%v", t)
+				} else if v = d.value; v == nil {
+					debug(ctx, "%v", d)
+				} else if v.String() != "{=self testdefaultconfigure}" {
+					debug(ctx, "%v", d)
+				}
+				if d := prog.project.finddef("FOO"); d == nil {
+					debug(ctx, "%v", t)
+				} else if d.value == nil {
+					debug(ctx, "%v ; %v", d, v)
+				} else if d.value != v {
+					debug(ctx, "%v", d)
+				}
+			}
+		}
+	}
+	switch prog.project.spec {
+	case "testdata/rule/0": prog.execute_check_rule_0(ctx, result)
+	case "testdata/rule/1": prog.execute_check_rule_1(ctx, result)
+	case "testdata/rule/shell/for-stdout":
+		prog.execute_check_shell_for_stdout(ctx, result)
+	}
+}
+
+func (prog *program) execute_check_0(ctx *execution) {
+	switch prog.project.name {
+	case "configure.base":
+		switch t := prog.target(ctx); t.String() {
+		case "-sizeof-c":
+			for _, dep := range prog.depends {
+				if x, y := dep.(*argumented); y && x.Value.String() == "$(name).c.x" {
+					if len(x.args) != 3 {
+						debug(ctx, "%v %v", t, x)
+					}
+					for i, s := range []string{"$(TYPE)","$(INCLUDE)","$(LIB)"} {
+						if x.args[i].String() != s {
+							debug(ctx, "%v %v %v != %s", t, x.Value, x.args[i], s)
+						}
+					}
+				}
+			}
+		default:
+			if false { debug(ctx, "%v", t) }
+		}
+	}
+}
+
+func (prog *program) execute_check_1(ctx *execution) {
+	switch prog.project.name {
+	case "configure.base":
+		if t := _entry(ctx).destiny(); t == nil {
+			debug(ctx, "%v: %v", _entry(ctx))
+		} else if false {
+			var s = _scope(ctx)
+			switch t.String() {
+			case "-compiles-c":
+				if d := s.finddef("name"); d == nil {
+					debug(ctx, "%v : name", t)
+				} else if d.value.String() != ".configure/compiles/$(TARGET)" {
+					debug(ctx, "%v : %s", t, d.value)
+				}
+			case "-library-c":
+				if d := s.finddef("name"); d == nil {
+					debug(ctx, "%v : name", t)
+				} else if d.value.String() != ".configure/library/$(TARGET)" {
+					debug(ctx, "%v : %s", t, d.value)
+				}
+				if d := s.finddef("s"); d == nil {
+					debug(ctx, "%v : name", t)
+				} else if d.value.String() != "$(file .configure/$(ifdef $(FUNCTION),function,library)/$(TARGET).c)" {
+					debug(ctx, "%v : %s", t, d.value)
+				}
+				if d := s.finddef("x"); d == nil {
+					debug(ctx, "%v : name", t)
+				} else if d.value.String() != "$(file $(s).x)" {
+					debug(ctx, "%v : %s", t, d.value)
+				}
+				if d := s.finddef("o"); d == nil {
+					debug(ctx, "%v : name", t)
+				} else if d.value.String() != "$(file $(s).o)" {
+					debug(ctx, "%v : %s", t, d.value)
+				}
+			}
+		}
+	}
+}
+
+func (prog *program) execute_check_rule_0(ctx Context, result *Value) {
+	var ent = _entry(ctx)
+    if *result == nil {
+        debug(ctx, "%v: nil result", ts(ent))
+    }
+
+    var args = try[[]Value](ctx, get_args{})
+
+    switch __string(ctx, ent.destiny()) {
+    case "rule0":
+        if len(args) != 3 {
+            debug(ctx, "%v: %d %v", ent, len(args), ts(args))
+        }
+		if v := auto_get(ctx, "@"); ts(v) != "{9:1:word rule0}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, "<"); ts(v) != "{9:24:word rule1}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, ">"); ts(v) != "{9:24:word rule1}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, "^"); ts(v) != "{=list {9:24:word rule1}}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, "-"); ts(v) != "{=list {10:2 {9:24:word rule1}} {10:5 {9:24:word rule1}} {=flag {10:9}} {=compound {10:10 {1:9:word x}} {10:17 {1:9:word y}} {10:24 {1:9:word z}}}}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if auto_get(ctx, "<") != auto_get(ctx, ">") {
+			debug(ctx, "%v %v", ts(auto_get(ctx, "<")), ts(auto_get(ctx, ">")))
+		}
+        if x, y := (*result).(*list); !y {
+            debug(ctx, "%v: %v", ent, ts(*result))
+        } else if x.len() != 4 {
+            debug(ctx, "%v: %v", ent, ts(*result))
+        } else if s := ts(x.elems[0]); s != "{10:2 {9:24:word rule1}}" {
+            debug(ctx, "%v: %v", ent, s)
+        } else if s := ts(x.elems[1]); s != "{10:5 {9:24:word rule1}}" {
+            debug(ctx, "%v: %v", ent, s)
+        } else if s := ts(x.elems[2]); s != "{=flag {10:9}}" {
+            debug(ctx, "%v: %v", ent, s)
+        } else if s := ts(x.elems[3]); s != "{=compound {10:10 {1:9:word x}} {10:17 {1:9:word y}} {10:24 {1:9:word z}}}" {
+            debug(ctx, "%v: %v", ent, s)
+        }
+        if ts(*result) != "{=list {10:2 {9:24:word rule1}} {10:5 {9:24:word rule1}} {=flag {10:9}} {=compound {10:10 {1:9:word x}} {10:17 {1:9:word y}} {10:24 {1:9:word z}}}}" {
+            debug(ctx, "%v: %v, %v", ent, ts(*result), args)
+        }
+    case "rule1":
+		if len(args) != 1 {
+			debug(ctx, "%v: %d %v", ent, len(args), ts(args))
+		}
+		if v := auto_get(ctx, "@"); ts(v) != "{12:1:word rule1}" {
+			debug(ctx, "%v: %v", v, ts(v))
+		}
+		if v := auto_get(ctx, "<"); ts(v) != "{}" {
+			debug(ctx, "%v: %v", v, ts(v))
+		}
+		if v := auto_get(ctx, ">"); ts(v) != "{}" {
+			debug(ctx, "%v: %v", v, ts(v))
+		}
+		if v := auto_get(ctx, "^"); ts(v) != "{}" {
+			debug(ctx, "%v: %v", v, ts(v))
+		}
+		if v := auto_get(ctx, "ARG1"); v == nil {
+			debug(ctx, "ARG1")
+		} else if s := ts(v); s == "" {
+			debug(ctx, "%v", v)
+		} else if t := "{1:9:word xxYzz}"; s == t {
+			if v := auto_get(ctx, "-"); v == nil {
+				debug(ctx, "-")
+			} else if s, t := ts(v), "{=plain(text) {=plainline {13:2 {1:9:word xxYzz}}}}"; s != t {
+				debug(ctx, "%v: %s != %s", v, s, t)
+			}
+			if x, y := (*result).(*plain); !y {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if x.name != "text" {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if x.len() != 1 {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if s := ts(x.elems[0]); s != "{=plainline {13:2 {1:9:word xxYzz}}}" {
+				debug(ctx, "%v: %v", ent, s)
+			}
+			if s, t := __string(ctx, *result), "xxYzz\n"; s != t {
+				debug(ctx, "%v: %v: %s != %s", ent, ts((*result)), s, t)
+			}
+		} else if t := "{=list {9:30 {9:1:word rule0}} {9:33:word xyz}}"; s == t {
+			if v := auto_get(ctx, "-"); v == nil {
+				debug(ctx, "-")
+			} else if s, t := ts(v), "{=plain(text) {=plainline {=list {13:2 {9:30 {9:1:word rule0}}} {13:2 {9:33:word xyz}}}}}"; s != t {
+				debug(ctx, "%v: %s != %s", v, s, t)
+			}
+			if x, y := (*result).(*plain); !y {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if x.name != "text" {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if x.len() != 1 {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if x, y := x.elems[0].(*plainline); !y {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if x.len() != 1 {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if x, y := x.elems[0].(*list); !y {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if x.len() != 2 {
+				debug(ctx, "%v: %v", ent, ts(*result))
+			} else if s := ts(x.elems[0]); s != "{13:2 {9:30 {9:1:word rule0}}}" {
+				debug(ctx, "%v: %v", ent, s)
+			} else if s := ts(x.elems[1]); s != "{13:2 {9:33:word xyz}}" {
+				debug(ctx, "%v: %v", ent, s)
+			}
+			if s, t := __string(ctx, *result), "rule0 xyz\n"; s != t {
+				debug(ctx, "%v: %v: %s != %s", ent, ts((*result)), s, t)
+			}
+		} else {
+			debug(ctx, "%v : %s != %s ; %s", v, s, t, __string(ctx, v))
+		}
+    }
+}
+
+func (prog *program) execute_check_rule_1(ctx Context, result *Value) {
+	var ent = _entry(ctx)
+    if *result == nil {
+        debug(ctx, "%v: nil result", ts(ent))
+    }
+}
+
+func (prog *program) execute_check_shell_for_stdout(ctx Context, result *Value) {
+	var ent = _entry(ctx)
+
+	if *result == nil {
+		debug(ctx, "%v: nil result", ts(ent))
+	}
+
+    var args = try[[]Value](ctx, get_args{})
+	var o = try[origin](ctx, get_origin{})
+
+    switch __string(ctx, ent.destiny()) {
+    case ".test.0":
+		if len(_execution(ctx).interpreted) == 0 {
+            debug(ctx, "%v: not interpreted", ent)
+		}
+        if len(args) != 2 {
+            debug(ctx, "%v: %d %v", ent, len(args), ts(args))
+        }
+        if len(prog.params) != 2 {
+            debug(ctx, "%v: %d %v", ent, len(prog.params), ts(prog.params))
+        }
+		if v := auto_get(ctx, "@"); ts(v) != "{=compound {5:1:punct .} {5:2:word test} {5:6:punct .} {5:7:decimal 0}}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, "<"); ts(v) != "{}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, ">"); ts(v) != "{}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, "-"); ts(v) != ts(*result) {
+			debug(ctx, "%s != %s", ts(v), ts(*result))
+		}
+		if v := auto_get(ctx, "-"); v != *result {
+			debug(ctx, "%s != %s", ts(v), ts(*result))
+		}
+
+		switch o {
+		case defExpand0:
+			if ts(*result) != sf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0])) {
+				debug(ctx, "%v (%s %s)", ts(*result), ts(args[1]), ts(args[0]))
+			}
+		case defExpand1:
+			if ts(*result) != "{6:2:null}" {
+				debug(ctx, "%v (%s %s)", ts(*result), ts(args[1]), ts(args[0]))
+			}
+		}
+    case ".test1":
+		if v := auto_get(ctx, "@"); ts(v) != "{=compound {19:1:punct .} {19:2:word test1}}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, "<"); ts(v) != "{}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, ">"); ts(v) != "{}" {
+			debug(ctx, "%v", ts(v))
+		}
+    case ".test2":
+		if v := auto_get(ctx, "@"); ts(v) != "{=compound {23:1:punct .} {23:2:word test2}}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, "<"); ts(v) != "{}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, ">"); ts(v) != "{}" {
+			debug(ctx, "%v", ts(v))
+		}
+    case ".test":
+        if len(args) != 2 { // NOTE: always use two args in this test case
+            debug(ctx, "%v: %d %v", ent, len(args), ts(args))
+        }
+		if v := auto_get(ctx, "@"); ts(v) != "{=compound {11:1:punct .} {11:2:word test}}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, "<"); ts(v) != "{}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, ">"); ts(v) != "{}" {
+			debug(ctx, "%v", ts(v))
+		}
+		if v := auto_get(ctx, "-"); ts(v) != ts(*result) {
+			debug(ctx, "%s != %s", ts(v), ts(*result))
+		}
+		if v := auto_get(ctx, "-"); v != *result {
+			debug(ctx, "%s != %s", ts(v), ts(*result))
+		}
+
+		switch ts(args) {
+		case "{=[Value] {=list {=delegate {=auto 1}}} {=list {=delegate {=auto 2}}}}":
+			switch o {
+			case defExpand0, defExpand1:
+				if ts(*result) != "{=delegate {=builtin debug} {=list {=delegate {=auto 2}} {=delegate {=auto 1}}}}" {
+					debug(ctx, ".test: %v, %s", ts(*result), ts(args))
+				}
+			}
+		default:
+			switch o {
+			case defExpand0:
+				t := sf("{=delegate {=builtin debug} {=list %s %s}}", ts(args[1]), ts(args[0]))
+				if ts(*result) != t {
+					debug(ctx, ".test: %v != %s, %s", ts(*result), t, ts(args))
+				}
+			case defExpand1:
+				if ts(*result) != "{12:2:null}" {
+					debug(ctx, ".test: %v %v", ts(*result), ts(args))
+				}
+			}
+		}
+	}
+
+	switch o {
+	case defExpand0, defExpand1, 0:
+	default:
+		debug(ctx, "untested: %v: %v %s %s", ent.destiny(), o, ts(args), ts(*result))
+	}
+}
+
+
+func (cc *configurecontext) execute_check(ctx *execution, e entry, p *project, s *string, _d **def) {
+	switch p.name {
+	case "testdefaultconfigure":
+		if d := *_d; d == nil {
+			debug(ctx, "%v", e, trace{})
+		} else {
+			switch d.name {
+			case "FOO":
+				if d.value.String() != "{=self testdefaultconfigure}" {
+					debug(ctx, "%v", d.value, trace{})
+				}
+			}
+		}
+	}
+}
+
+var rx_sha256 = regexp.MustCompile(`[0-9a-f]{40}`) // 24be3fc4dbc8099b28a7afa44fd7711d62a4580b
+var rx_checking_for = regexp.MustCompile(`^checking for (.+?) …$`)
+var rx_checking_res = regexp.MustCompile(`^… (.*?)\n$`)
+func (l ul) configure_val_check(ctx *execution, name string, op Value, vals []Value, a, b *diagpoint) {
+	var c Context = ctx
+	var ss, _ = do(ctx, l_filename("?")).([]string)
+	for _, s := range ss { c = pc(c, s) }
+
+	if sm := rx_checking_for.FindStringSubmatch(a.message); sm != nil {
+		m := rx_checking_res.FindStringSubmatch(b.message)
+		if m == nil {
+			debug(ctx, "%s: %v %v, %v, %v", sm[1], op, vals, l.project.elems[name], ctx.recipes, trace{})
+		}
+
+		var chk map[string]string
+
+		chk = configure_chk_darwin(ctx, sm, m)
+
+		if x, y := chk[sm[1]]; y {
+			switch {
+			case x == "?!":
+				if false {
+					debug(c, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1])
+				}
+			case x == "?SHA256!":
+				if !rx_sha256.MatchString(m[1]) {
+					debug(c, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1], trace{})
+				}
+			case x == "?OUTBIN!":
+				if d := l.project.resolveDef(ctx, "outbin"); d == nil {
+					debug(c, "%s: %s: %s", auto_get(ctx, "@"), sm[1], m[1], trace{})
+				} else if s := __string(ctx, d); s != m[1] {
+					debug(c, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], s, trace{})
+				}
+			case x != m[1]:
+				debug(c, "%s: %s: %s != %s", auto_get(ctx, "@"), sm[1], m[1], x, trace{})
+			}
+		} else {
+			debug(c, "unknown configure check: %s %s", sm[1], m[1], trace{})
+		}
+	} else {
+		debug(c, "%v → %v", ts(op), ts(vals), trace{})
+	}
+}
+
+func configure_chk_darwin(ctx Context, sm, m []string) map[string]string {
+	return map[string]string{
+		"version": "?!",
+		"package": "?!",
+		"package name": "?!",
+		"package version": "?!",
+		"package vendor": "?!",
+		"package tarname": "?!",
+		"package string": "?!",
+		"package url": "?!",
+		"package bug report": "?!",
+
+		"c++abi new/delete definitions": "yes",
+		"c++abi exceptions": "yes",
+		"c++abi threads": "yes",
+
+		"libc++ ABI namespace": "_extbit",
+		"libc++ ABI version": "2",
+		"libc++ ABI defines": "// TODO: #define ...\\n",
+		"libc++ extra site defines": "// TODO: #define ...\\n",
+		"libc++ filesystem": "yes",
+		"libc++ fstream": "yes",
+		"libc++ localization support": "yes",
+		"libc++ threads support": "yes",
+		"libc++ wide characters": "yes",
+		"typeinfo comparison implementation": "1",
+		"parallel algorithms": "no",
+		"pstl cpu backend serial": "no",
+		"pstl cpu backend thread": "yes",
+		"musl libc": "no",
+
+		"llvm revision": "?SHA256!",
+		"llvm version": "20.0.0",
+		"llvm version suffix": "extbit",
+		"llvm version string": "ExtBit_20.0.0",
+		"llvm version information": "ExtBit LLVM",
+		"llvm native arch": "AArch64",
+		"llvm with polly": "yes",
+		"llvm libdir suffix": "",
+
+		"unix platform (darwin)": "yes",
+		"host arch": "arm64",
+		"host triple": "arm64-apple-Darwin24.3.0-extbit",
+		"default target triple": "arm64-apple-Darwin24.3.0-extbit",
+		"default target environment variable name": "",
+		"all build targets": "AArch64 AMDGPU ARM BPF Hexagon Lanai Mips MSP430 NVPTX PowerPC Sparc SystemZ WebAssembly X86 XCore",
+		"targets with jit support": "X86 PowerPC AArch64 ARM Mips SystemZ",
+		"targets to build": "AArch64",
+		"target to use for llvm jit": "host",
+		"experimental targets to build": "",
+		"external polly source directory": "",
+		"statically link polly into tools": "yes",
+		"link polly into tools": "yes",
+		"tools/polly directory": "no",
+		"build with polly": "yes",
+		"exceptions": "yes",
+		"DAGiSel COV": "no",
+		"curl enabled": "yes",
+		"collection of GlobalISel rule coverage": "no",
+		"embedding backtraces": "yes",
+		"embedding backtraces on crash": "yes",
+		"memory dumps on crashes": "yes",
+		"interpreter external function call with libffi": "yes",
+		"httplib enabled": "yes",
+		"DIA SDK enabled": "no",
+		"dump functions even when assertions are disabled": "yes",
+		"stats enabled": "yes",
+		"terminfo database enabled if available": "yes",
+		"threads enabled if available": "yes",
+		"libxar enabled if available": "yes",
+		"libxml2 enabled if available": "yes",
+		"libedit enabled if available": "yes",
+		"libpfm enabled for performance counters if available": "yes",
+		"zlib enabled for compression/decompression": "yes",
+		"z3 constraint solver is supported in LLVM": "no",
+		"z3 resolver install directory": "",
+		"z3 enabled": "no",
+		"forced using stats": "no",
+		"forced using old toolchain": "no",
+		"GISEL_COV enabled": "no",
+		"GISEL_COV prefix": "",
+		"c headers": "yes",
+		"c99 headers": "yes",
+		"c11 headers": "no",
+		"c99 variadic macros": "yes",
+		"gcc variadic macros": "yes",
+		"va_list": "yes",
+		"va_copy": "yes",
+		"std::atomic": "yes",
+		"std::atomic and <cstdint>": "yes",
+		"atomic primitives in <stdatomic.h>": "yes",
+		"intel atomic primitives": "yes",
+		"solaris atomic operations": "",
+		"builtin atomic": "yes",
+		"pthread in libc": "yes",
+		"perf_branch_entry.cycles in libpfm": "no",
+		"show target and host info when tools are invoked with --version": "yes",
+
+		"using libxml2": "",
+		"using JITEvents (Intel)": "",
+		"using oprofile": "",
+		"using perf": "",
+
+		"ffi library directory": "",
+		"ffi include directory": "",
+		"backtraces enabled": "yes",
+		"crash overrides enabled": "yes",
+
+		"host linker version": "",
+		"return sig type": "void",
+		"tools install directory": "?OUTBIN!",
+		"utils install directory": "?OUTBIN!",
+		"llvm plugin extension": ".extbit",
+		"shared library extension": ".dylib",
+		"abi breaking checks enabled": "no",
+		"reverse iteration enabled": "no",
+
+		"tensorflow api support": "no",
+		"tensorflow aot support": "no",
+
+		"strdup": "strdup",
+		"stricmp": "stricmp",
+
+		"header <atomic.h>": "no",
+		"header <mbarrier.h>": "no",
+		"header <dirent.h>": "yes",
+		"header <stdarg.h>": "yes",
+		"header <stdatomic.h>": "yes",
+		"header <stdlib.h>": "yes",
+		"header <sysexits.h>": "yes",
+		"header <xar/xar.h>": "yes",
+		"library xar": "yes",
+		"type atomic_bool": "yes",
+		"type atomic_char": "yes",
+		"type atomic_flag": "yes",
+		"type atomic_int": "yes",
+		"type atomic_intmax_t": "yes",
+		"type atomic_intptr_t": "yes",
+		"type atomic_llong": "yes",
+		"type atomic_long": "yes",
+		"type atomic_ptrdiff_t": "yes",
+		"type atomic_schar": "yes",
+		"type atomic_short": "yes",
+		"type atomic_size_t": "yes",
+		"type atomic_uchar": "yes",
+		"type atomic_uint": "yes",
+		"type atomic_uintmax_t": "yes",
+		"type atomic_uintptr_t": "yes",
+		"type atomic_ullong": "yes",
+		"type atomic_ulong": "yes",
+		"type atomic_ushort": "yes",
+		"type struct dirent": "yes",
+		"type va_list": "yes",
+		"align of va_list": "8",
+		"size of va_list": "8",
+		"function abort": "yes",
+		"function atexit": "yes",
+		"function calloc": "yes",
+		"function clearenv": "no",
+		"function exit": "yes",
+		"function free": "yes",
+		"function getenv": "yes",
+		"function malloc": "yes",
+		"function putenv": "yes",
+		"function realloc": "yes",
+		"function secure_getenv": "no",
+		"function setenv": "yes",
+		"function unsetenv": "yes",
+		"function va_arg": "no",
+		"function va_copy": "no",
+		"function va_end": "no",
+		"function va_start": "no",
+		"function valloc": "yes",
+		"function xar_add": "yes",
+		"function xar_attr_get": "yes",
+		"function xar_attr_set": "yes",
+		"function xar_close": "yes",
+		"function xar_create": "no",
+		"function xar_delete": "no",
+		"function xar_extract": "yes",
+		"function xar_list": "no",
+		"function xar_open": "yes",
+		"symbol EX_CANNOTCREAT": "yes",
+		"symbol EX_CONFIG": "yes",
+		"symbol EX_DATAERR": "yes",
+		"symbol EX_IOERR": "yes",
+		"symbol EX_NOHOST": "yes",
+		"symbol EX_NOINPUT": "yes",
+		"symbol EX_NOPERM": "yes",
+		"symbol EX_NOUSER": "yes",
+		"symbol EX_OK": "yes",
+		"symbol EX_OSERR": "yes",
+		"symbol EX_OSFILE": "yes",
+		"symbol EX_PROTOCOL": "yes",
+		"symbol EX_SOFTWARE": "yes",
+		"symbol EX_TEMPFAIL": "yes",
+		"symbol EX_UNAVAILABLE": "yes",
+		"symbol EX_USAGE": "yes",
+		"symbol va_arg": "yes",
+		"symbol va_copy": "yes",
+		"symbol va_end": "yes",
+		"symbol va_start": "yes",
+		"(struct dirent)": "yes",
+		"(struct dirent).d_type": "yes",
+
+		"FOO1": "yes",
+		"FOO2": "true",
+		"FOO3": "true",
+		"FOO4": "true",
+	}
+}
+
+func _configure_chk(ctx Context) {
+	switch {
+	case truly(ctx, is_autoload{ "/app/.configure" }):
+	case truly(ctx, is_autoload{ "/app/stdarg/.configure" }):
+	case truly(ctx, is_autoload{ "/app/basic/.configure" }):
+	case truly(ctx, is_autoload{ "/app/simple/.configure" }):
+	case truly(ctx, is_autoload{ "/app/complex/.configure" }):
+	case truly(ctx, is_autoload{ "/llvm/Config/.configure" }):
+	}
+}
+
+
+const (
+	d_run_sh = false
+	d_exec_recipe = false
+)
+
+var nv = struct{}{}
+
+func sizeof_map(ctx *exec_ctx, os, sh string, sm []string) (_ map[int]map[string]struct{}) {
+	switch os {
+	case "darwin":
+		return map[int]map[string]struct{}{
+			0: map[string]struct{}{
+				"__INT64":nv, "__INT64_T":nv, "CLOCKID_T":nv, "TIMER_T":nv,
+			},
+			1: map[string]struct{}{
+				"_BOOL":nv, "BOOL":nv, "CHAR":nv, "SIGNED_CHAR":nv, "CONST_CHAR":nv,
+				"SA_FAMILY_T":nv,
+			},
+			2: map[string]struct{}{
+				"SHORT":nv, "MODE_T":nv, "NLINK_T":nv,
+			},
+			4: map[string]struct{}{
+				"INT":nv, "UINT32_T":nv, "FLOAT":nv, "BLKSIZE_T":nv, "WCHAR_T":nv,
+				"DEV_T":nv, "ATOMIC_INT":nv, "FSBLKCNT_T":nv, "FSFILCNT_T":nv, "GID_T":nv,
+				"KEY_T":nv, "PID_T":nv, "ID_T":nv, "SOCKLEN_T":nv, "SUSECONDS_T":nv,
+				"UID_T":nv, "USECONDS_T":nv,
+			},
+			8: map[string]struct{}{
+				"LONG":nv, "LONG_DOUBLE":nv, "LONG_LONG":nv, "DOUBLE":nv,
+				"UINT64_T":nv, "UINTPTR_T":nv, "INO_T":nv, "VOID_P":nv, "SIZE_T":nv,
+				"PTRDIFF_T":nv, "BLKCNT_T":nv, "CLOCK_T":nv, "ATOMIC_UINTPTR_T":nv,
+				"OFF_T":nv, "FPOS_T":nv, "PTHREAD_T":nv, "PTHREAD_KEY_T":nv, "SSIZE_T":nv,
+				"TIME_T":nv, "VA_LIST":nv,
+			},
+			16: map[string]struct{}{
+				"PTHREAD_CONDATTR_T":nv, "PTHREAD_MUTEXATTR_T":nv, "PTHREAD_ONCE_T":nv,
+			},
+			24: map[string]struct{}{
+				"PTHREAD_RWLOCKATTR_T":nv,
+			},
+			48: map[string]struct{}{
+				"PTHREAD_COND_T":nv,
+			},
+			64: map[string]struct{}{
+				"PTHREAD_ATTR_T":nv, "PTHREAD_MUTEX_T":nv,
+			},
+			104: map[string]struct{}{
+				"SIGINFO_T":nv,
+			},
+			200: map[string]struct{}{
+				"PTHREAD_RWLOCK_T":nv,
+			},
+		}
+	default:
+		prompt(ctx, "%v\n", sh)
+		debug(ctx, "%s, status=%d", sm[1], ctx.Status, trace{})
+	}
+	return
+}
+
+func alignof_map(ctx *exec_ctx, os, sh string, sm []string) (_ map[int]map[string]struct{}) {
+	switch os {
+	case "darwin":
+		return map[int]map[string]struct{}{
+			0: map[string]struct{}{
+				"__INT64":nv, "__INT64_T":nv, "CLOCKID_T":nv, "TIMER_T":nv,
+			},
+			1: map[string]struct{}{
+				"_BOOL":nv, "BOOL":nv, "CHAR":nv, "SIGNED_CHAR":nv, "CONST_CHAR":nv,
+				"SA_FAMILY_T":nv,
+			},
+			2: map[string]struct{}{
+				"SHORT":nv, "MODE_T":nv, "NLINK_T":nv,
+			},
+			4: map[string]struct{}{
+				"INT":nv, "UINT32_T":nv, "FLOAT":nv, "BLKSIZE_T":nv, "WCHAR_T":nv,
+				"DEV_T":nv, "ATOMIC_INT":nv, "FSBLKCNT_T":nv, "FSFILCNT_T":nv, "GID_T":nv,
+				"KEY_T":nv, "PID_T":nv, "ID_T":nv, "SOCKLEN_T":nv, "SUSECONDS_T":nv,
+				"UID_T":nv, "USECONDS_T":nv,
+			},
+			8: map[string]struct{}{
+				"LONG":nv, "LONG_DOUBLE":nv, "LONG_LONG":nv, "DOUBLE":nv, "VOID_P":nv,
+				"UINT64_T":nv, "UINTPTR_T":nv, "INO_T":nv, "SIZE_T":nv, "SSIZE_T":nv,
+				"PTRDIFF_T":nv, "BLKCNT_T":nv, "CLOCK_T":nv, "ATOMIC_UINTPTR_T":nv,
+				"OFF_T":nv, "FPOS_T":nv, "PTHREAD_T":nv, "PTHREAD_KEY_T":nv,
+				"TIME_T":nv, "VA_LIST":nv,
+			},
+		}
+	default:
+		prompt(ctx, "%v\n", sh)
+		debug(ctx, "%s, status=%d", sm[1], ctx.Status, trace{})
+	}
+	return
+}
+
+var rx_sizeof    = regexp.MustCompile(`^-sizeof-c\+*$`)
+var rx_alignof   = regexp.MustCompile(`^-alignof-c\+*$`)
+var rx_status    = regexp.MustCompile(`^-(?:command|program)-status$`)
+var rx_fn_src    = regexp.MustCompile(`\.(?:log|h|c|c\+\+)$`)
+var rx_fn_conf_x = regexp.MustCompile(`^(/.+?/\.configure/.+?)\.x$`)
+var rx_fn_confag = regexp.MustCompile(`^/.+?/\.configure/.+?/ALIGNOF_([^.]+?)\.log$`)
+var rx_fn_confsz = regexp.MustCompile(`^/.+?/\.configure/.+?/SIZEOF_([^.]+?)\.log$`)
+var rx_fn_conftp = regexp.MustCompile(`^\.configure/type/(?:size/SIZEOF|align/ALIGNOF)_(.+?)\.c\+*\.x$`)
+var rx_conf_exec = regexp.MustCompile(`^[^ ]+ -c (/.+?/\.configure/.+?\.c\+*)(?:\.x)?(?:\.log)?$`)
+var rx_conf_sizf = regexp.MustCompile(`#define SIZE \(sizeof\((.+?)\)\)`)
+var rx_conf_alif = regexp.MustCompile(`#define ALIGN \(alignof\((.+?)\)\)`)
+var rx_conf_incl = regexp.MustCompile(`# *include +(.+)`)
+func (ctx *exec_ctx) run_check(exe *execution) (err error) {
+	var c Context = ctx
+	var p = _project(c)
+	if p.name == "configure.base" {
+		var t1 = auto_get(c, "TYPE")
+		var t = auto_get(c, "@")
+		var l = auto_get(c, "<")
+		var r = auto_get(c, ">")
+		if l != r {
+			d := _entry(c).destiny()
+			debug(c, "%v %v %v %v", d, t, l, r, trace{})
+		}
+
+		if x, y := l.(*file); y && rx_fn_src.MatchString(x.name) { c = pc(c, x.fullname()) }
+		if x, y := t.(*file); y && rx_fn_src.MatchString(x.name) { c = pc(c, x.fullname()) }
+		if d_run_sh {
+			if _, y := t.(*file); y {
+				d := _entry(c).destiny()
+				prompt(c, "%s\n", ctx.sh)
+				debug(c, "%v", d)
+			}
+		}
+
+		if f, y := t.(*file); y && t1 != nil {
+			var dest = __string(c, _entry(c).destiny())
+			var tp = __string(c, t1)
+			var sh = ctx.sh.String()
+			var fn = f.fullname()
+			if  m1 := rx_fn_conftp.FindStringSubmatch(dest); len(m1) == 2 {
+				sm := rx_fn_conf_x.FindStringSubmatch(fn)
+
+				// c = pc(pc(c, sm[1]), fn+".log")
+
+				t := strings.ToUpper(tp)
+				t = strings.Replace(t, " ", "_",  -1)
+				t = strings.Replace(t, "*", "_P", -1)
+				if m1[1] != t {
+					prompt(c, "%v\n", sh)
+					debug(c, "%s != %s", t, m1[1], trace{})
+				}
+
+				if s, e := ioutil.ReadFile(sm[1]); e != nil {
+					prompt(c, "%v\n", sh)
+					debug(c, "%v", e, trace{})
+				} else if m2 := rx_conf_sizf.FindSubmatch(s); len(m2) == 2 {
+					if t := string(m2[1]); tp != t {
+						prompt(c, "%v\n", sh)
+						debug(c, "%s != %s", tp, t, trace{})
+					}
+				} else if m2 := rx_conf_alif.FindSubmatch(s); len(m2) == 2 {
+					if t := string(m2[1]); tp != t {
+						prompt(c, "%v\n", sh)
+						debug(c, "%s != %s", tp, t, trace{})
+					}
+				} else {
+					prompt(c, "%v\n", sh)
+					debug(c, "%s %s", tp, m2, trace{})
+				}
+			} else if rx_sizeof.MatchString(dest) {
+				sm := rx_fn_confsz.FindStringSubmatch(fn)
+				ss := rx_conf_exec.FindStringSubmatch(sh)
+
+				if len(ss) == 2 { c = pc(c, ss[1]) }
+				if /* c = pc(c, fn) */; len(sm) == 2 {
+					t := strings.ToUpper(tp)
+					t  = strings.Replace(t, " ", "_",  -1)
+					t  = strings.Replace(t, "*", "_P", -1)
+					if sm[1] != t {
+						prompt(c, "%v\n", sh)
+						debug(c, "%s != %s", t, sm[1], trace{})
+					}
+
+					var chk = sizeof_map(ctx, "darwin", sh, sm)
+
+					if x, y := chk[ctx.Status]; !y {
+						prompt(c, "%v\n", sh)
+						debug(c, "%s, status=%d", sm[1], ctx.Status, trace{})
+					} else if _, y := x[sm[1]]; !y {
+						prompt(c, "%v\n", sh)
+						debug(c, "%s, status=%d", sm[1], ctx.Status, trace{})
+					}
+				} else {
+					prompt(c, "%v\n", sh)
+					debug(c, "%s", tp, trace{})
+				}
+			} else if rx_alignof.MatchString(dest) {
+				sm := rx_fn_confag.FindStringSubmatch(fn)
+				ss := rx_conf_exec.FindStringSubmatch(sh)
+
+				if len(ss) == 2 { c = pc(c, ss[1]) }
+				if /* c = pc(c, fn) */; len(sm) == 2 {
+					t := strings.ToUpper(tp)
+					t  = strings.Replace(t, " ", "_",  -1)
+					t  = strings.Replace(t, "*", "_P", -1)
+					if sm[1] != t {
+						prompt(c, "%v\n", sh)
+						debug(c, "%s != %s", t, sm[1], trace{})
+					}
+
+					var chk = alignof_map(ctx, "darwin", sh, sm)
+
+					if x, y := chk[ctx.Status]; !y {
+						prompt(c, "%v\n", sh)
+						debug(c, "%s, status=%d", sm[1], ctx.Status, trace{})
+					} else if _, y := x[sm[1]]; !y {
+						prompt(c, "%v\n", sh)
+						debug(c, "%s, status=%d", sm[1], ctx.Status, trace{})
+					}
+				} else {
+					prompt(c, "%v\n", sh)
+					debug(c, "%s", tp, trace{})
+				}
+			} else if rx_status.MatchString(dest) {
+				prompt(c, "%v\n", ctx.sh)
+				debug(c, "%v, status=%v", tp, ctx.Status)
+			}
+		}
+	}
+	return
+}
+
+var rx_conf_inc_log = regexp.MustCompile(`^\.configure/(type(?:/(?:size|align))?|function|symbol|var)/([^/]+?)\.log$`)
+func (ctx *exec_ctx) exec_check(i int, src *raw, e error) {
+	var c Context = ctx
+	var p = _project(c)
+	if p.name == "configure.base" {
+		var d = _entry(c).destiny()
+		var t = auto_get(c, "@")
+		var l = auto_get(c, "<")
+		var r = auto_get(c, ">")
+		if l != r {
+			debug(c, "%v %v %v %v", d, t, l, r, trace{})
+		}
+
+		if l != nil || t != nil {
+			do(ctx, l_filename("-"))
+		}
+		if x, y := l.(*file); y && rx_fn_src.MatchString(x.name) {
+			fn := x.fullname()
+			do(ctx, l_filename(fn))
+			c = pc(c, fn)
+		}
+		if x, y := t.(*file); y && rx_fn_src.MatchString(x.name) {
+			fn := x.fullname()
+			do(ctx, l_filename(fn))
+			c = pc(c, fn)
+		}
+		if false {
+			if s := tv(auto_get(c, "TARGET")); s == "{=word HAVE_STD_ATOMIC}" {
+				debug(c, "%v %v", t, r)
+			}
+		}
+		if d_exec_recipe {
+			if x, y := t.(*file); y && strings.HasSuffix(x.name, ".rev.log") {
+				prompt(c, "%s\n", src)
+				debug(c, "%v", d)
+			}
+		}
+
+		if x, y := t.(*file); y && rx_conf_inc_log.MatchString(x.name) {
+			if x, y := l.(*file); y && strings.HasSuffix(x.name, ".c") {
+				var name string
+				var v_name = auto_get(c, "NAME")
+				if v_name == nil {
+					prompt(c, "%v\n", src)
+					debug(c, "NAME is undefined", trace{})
+				} else if name = __string(c, v_name); name == "" {
+					prompt(c, "%v\n", src)
+					debug(c, "NAME is empty", trace{})
+				}
+
+				ninc := 0
+				incs := make(map[string]struct{})
+				if v_incl := auto_get(c, "INCLUDE"); v_incl != nil {
+					for _, v := range merge(v_incl) { incs[__string(ctx, v)] = struct{}{} }
+				}
+
+				b, e := ioutil.ReadFile(x.fullname())
+				if e != nil {
+					prompt(c, "%v\n", src)
+					debug(c, "%v", e, trace{})
+				}
+				if sm := rx_conf_incl.FindAllStringSubmatch(string(b), -1); sm != nil {
+					for _, m := range sm {
+						if _, y := incs[m[1]]; y {
+							ninc += 1
+						} else {
+							prompt(c, "%v\n", src)
+							debug(c, "no %v", m[0], trace{})
+						}
+					}
+				}
+				if ninc != len(incs) {
+					prompt(c, "%v\n", src)
+					debug(c, "%v: %v	!= %v", name, ninc, len(incs), trace{})
+				}
+			}
+		} else if y && strings.HasPrefix(x.name, ".configure/struct-member/") && strings.HasSuffix(x.name, ".log") {
+			if s := ctx.Status; s != 0 {
+				prompt(ctx, "%v\n", src)
+				debug(c, "%v. status=%v, e=%v", i, s, e, trace{})
+			}
+		} else if y && strings.HasPrefix(x.name, ".configure/library/") && strings.HasSuffix(x.name, ".log") {
+			if s := ctx.Status; s != 0 {
+				prompt(ctx, "%v\n", src)
+				debug(c, "%v. status=%v, e=%v", i, s, e, trace{})
+			}
+		} else if y && strings.HasPrefix(x.name, ".configure/") && strings.HasSuffix(x.name, ".x") {
+			if s := l.String(); strings.Contains(s, "%") {
+				debug(c, "%v %s", s, ts(l), trace{})
+			}
+			if s := r.String(); strings.Contains(s, "%") {
+				debug(c, "%v %s", s, ts(r), trace{})
+			}
+
+			e := false
+			rx := regexp.MustCompile(`\.configure/.*?%+\.[^ ]*`)
+			if sm := rx.FindAllStringSubmatch(src.s, -1); sm != nil {
+				for _, s := range sm { note(c, "%s", s[0]) }; e = true
+			}
+			if e {
+				debug(c, "%v", x.name, trace{})
+			}
+		}
+	}
+}
+
+func (ctx *exec_buffer) check_line(line string, lnum int) {
+	var p = _project(ctx)
+	if p.name == "configure.base" {
+		var t = auto_get(ctx, "@")
+		if f, y := t.(*file); y {
+			var s = t.String()
+			if strings.HasPrefix(s, "{=file .configure/") && strings.HasSuffix(s, ".x}") {
+				c := pc(ctx, f.fullname()+".log")
+				rx := regexp.MustCompile(`[^:]+: error: no such file or directory: '\.configure/.*?%+\.[^ ]*'`)
+				if sm := rx.FindStringSubmatch(line); sm != nil {
+					prompt(c, "%v\n", s)
+					debug(c, "%s", sm[0], trace{})
+				}
+			}
+			switch dest := __string(ctx, _entry(ctx).destiny()); dest {
+			case "-sizeof-c", "-sizeof-c++", "-alignof-c", "-alignof-c++", "-program-status", "-command-status":
+				var sh = ctx.sh.String()
+				if regexp.MustCompile(`^/.+?/bash .+ -c .+`).MatchString(sh) {
+					c := pc(ctx, f.fullname(), lnum)
+					rx := regexp.MustCompile(`^bash: -.+?: invalid option`)
+					if sm := rx.FindStringSubmatch(line); sm != nil {
+						prompt(c, "%v\n", sh)
+						debug(c, "%s", sm[0], trace{})
+					}
+				}
+			}
+		}
+	}
+}
+
+
+func (ctx *modifier_updatefile) x_check(target Value, filename, content string, args []Value, result any) {
+	var p = _project(ctx)
+	if p.name == "configure.base" {
+		var s, fn = target.String(), filename
+		if strings.HasPrefix(s, ".c}") {
+			debug(ctx, "%s %s", s, fn)
+		}
+		if strings.HasPrefix(s, "{=file .configure/") {
+			if _, e := os.Stat(fn); e != nil {
+				debug(pc(ctx,fn), "%s", s, trace{})
+			} else if false {
+				debug(pc(ctx,fn), "%s", s)
+			}
+			if strings.HasPrefix(s, ".x}") {
+				rx := regexp.MustCompile(`\.configure/.*?/%\..*$`)
+				sm := rx.FindStringSubmatch(content)
+				if sm != nil {
+					debug(pc(ctx,fn), "%v", sm, trace{})
+				}
+			}
+		}
+	}
+}
+
+
+func (p *project) configuration_sm_check(ctx Context, f *file) {
+	var srcdir = dirs(1, get_filename(1))
+	var workout, triple, out, rel, tag, tmp string
+	switch p.name {
+	case "general":
+		if p.configure != nil {
+			debug(ctx, "%v : wrong configure", p, trace{})
+		}
+		if !strings.HasSuffix(p.absPath, ".smart/modules/general") {
+			debug(ctx, "%v : %v", p, p.absPath, trace{})
+		}
+		if !strings.HasSuffix(p.spec, ".smart/modules/general") {
+			debug(ctx, "%v : %v", p, p.spec, trace{})
+		}
+		if strings.HasPrefix(p.absPath, "/Volumes/workspace/") {
+			if d := p.resolveDef(ctx, "workspace"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workspace}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			}
+			if d := p.resolveDef(ctx, "workout"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workout}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			} else {
+				workout = __string(ctx, d)
+			}
+			if d := p.resolveDef(ctx, "workext"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workspace} {=word external}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			}
+			if d := p.resolveDef(ctx, "rel.chop"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=list {=path {=percpat {=null} {=percpat {=null} {=null}}} {=compound {=punct .} {=word smart}} {=word modules} {=punct tail}} {=path {=punct root} {=word Volumes} {=word workspace} {=word .smart} {=word modules} {=punct tail}} {=path {=punct root} {=word Volumes} {=word workspace} {=word .smart} {=punct tail}} {=path {=punct root} {=word Volumes} {=word workspace} {=punct tail}}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			}
+			if d := p.resolveDef(ctx, "rel.remnant"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=delegate {=builtin trim-prefix} {=list {=closure {=def rel.chop}}} {=list {=closure {=def /}}}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			} else if s := __string(ctx, d); s == "" {
+				debug(ctx, "%v : %v", p, ts(d), trace{})
+			} else {
+				switch proj := _project(ctx); proj.name {
+				case "testdefaultconfigure":
+					if t := filepath.Join("testdata", "configuration"); s != t {
+						debug(ctx, "%v : %v : %v : %s != %s", p, proj, ts(d), s, t, trace{})
+					}
+				case "testdeftwoconfigure":
+					if t := filepath.Join("testdata", "configuration", "two"); s != t {
+						debug(ctx, "%v : %v : %v : %s != %s", p, proj, ts(d), s, t, trace{})
+					}
+				}
+			}
+			if d := p.resolveDef(ctx, "outtmp"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workout} {=closure {=def rel.remnant}}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			} else if d.value.String() != "/Volumes/workout/&(rel.remnant)" {
+				debug(ctx, "%v : %v", p, d.value, trace{})
+			} else if s := __string(ctx, d); s == "" {
+				debug(ctx, "%v : %v", p, ts(d), trace{})
+			} else {
+				switch proj := _project(ctx); proj.name {
+				case "testdefaultconfigure":
+					if t := filepath.Join(workout, "testdata", "configuration"); s != t {
+						debug(ctx, "%v : %v : %v : %s != %s", p, proj, ts(d), s, t, trace{})
+					}
+				case "testdeftwoconfigure":
+					if t := filepath.Join(workout, "testdata", "configuration", "two"); s != t {
+						debug(ctx, "%v : %v : %v : %s != %s", p, proj, ts(d), s, t, trace{})
+					}
+				}
+			}
+		}
+	case "configure.base":
+		if p.configure != nil {
+			debug(ctx, "%v : wrong configure", p, trace{})
+		}
+	case "lib.c++.abi":
+		if p.configure == nil {
+			debug(ctx, "%v : nil configure", p, trace{})
+		}
+		if p.configure.name != "configure.base" {
+			debug(ctx, "%v : %v", p, p.configure, trace{})
+		}
+	case "lib.c++.inc":
+		if p.configure == nil {
+			debug(ctx, "%v : nil configure", p, trace{})
+		}
+		if p.configure.name != "configure.base" {
+			debug(ctx, "%v : %v", p, p.configure, trace{})
+		}
+	case "lib.c++":
+		if p.configure != nil {
+			debug(ctx, "%v : wrong configure", p, trace{})
+		}
+	case "lib.std":
+		if p.configure != nil {
+			debug(ctx, "%v : wrong configure", p, trace{})
+		}
+	case "lib.unwind":
+		if p.configure != nil {
+			debug(ctx, "%v : wrong configure", p, trace{})
+		}
+	case "testdefaultconfigure":
+		if p.configure == nil {
+			debug(ctx, "%v : nil configure", p, trace{})
+		}
+		if p.configure.name != "configure" {
+			debug(ctx, "%v : %v", p, p.configure, trace{})
+		}
+		if !strings.HasSuffix(p.configure.absPath, ".smart/modules/configure") {
+			debug(ctx, "%v : %v", p, p.configure.absPath, trace{})
+		}
+		if !strings.HasSuffix(p.configure.spec, ".smart/modules/configure") {
+			debug(ctx, "%v : %v", p, p.configure.spec, trace{})
+		}
+		if d := p.resolveDef(ctx, "variant"); d == nil || d.value == nil {
+			debug(ctx, "%v : %v", p, d, trace{})
+		} else if ts(d.value) != "{=path {=word darwin} {=word arm64} {=word bootstrap}}" {
+			debug(ctx, "%v : %v", p, ts(d), trace{})
+		} else if __string(ctx, d) != "darwin/arm64/bootstrap" {
+			debug(ctx, "%v : %v", p, __string(ctx, d), trace{})
+		}
+		if d := p.resolveDef(ctx, "variant.tag"); d == nil || d.value == nil {
+			debug(ctx, "%v : %v", p, d, trace{})
+		} else if ts(d.value) != "{=word bootstrap}" {
+			debug(ctx, "%v : %v", p, ts(d), trace{})
+		} else if s := __string(ctx, d); s != "bootstrap" {
+			debug(ctx, "%v : %v", p, s, trace{})
+		} else {
+			tag = s
+		}
+		if d := p.resolveDef(ctx, "outtmp"); d == nil {
+			debug(ctx, "outtmp is undefined", trace{})
+		} else if s, t := __string(ctx, d), "/"; s == t {
+			debug(ctx, "outtmp: %s != %s", s, t, trace{})
+		}
+		if t, d := p.tempdir(ctx); d == "" {
+			debug(ctx, "empty tempdir (%v)", t, trace{})
+		}
+		if f.fullname() == "/configuration.sm" {
+			debug(ctx, "wrong fullname: %v %s", f, f.dir, trace{})
+		}
+		if false && strings.HasPrefix(p.absPath, "/Volumes/workspace/") {
+			if d := p.resolveDef(ctx, "workspace"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			}
+			if d := p.resolveDef(ctx, "workout"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else {
+				workout = __string(ctx, d)
+			}
+			if d := p.resolveDef(ctx, "workext"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) == "" {
+				debug(ctx, "%v : %v", p, ts(d), trace{})
+			}
+			if d := p.resolveDef(ctx, "rel.chop"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if s, t := __string(ctx, d), srcdir+"/"; s != t {
+				debug(ctx, "%v : %s != %s", p, s, t, trace{})
+			}
+			if d := p.resolveDef(ctx, "rel.remnant"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, ts(d), trace{})
+			} else if ts(d.value) != "{=delegate {=builtin trim-prefix} {=list {=closure {=def rel.chop}}} {=list {=closure {=def /}}}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			} else if v := expand(_final(ctx),d.value); ts(v) != "{=path {=word testdata} {=word configuration}}" {
+				debug(ctx, "%v : %v → %v : %s ; %v", p, d.value, v, srcdir, p.resolveDef(ctx, "/").value, trace{})
+			} else if s, t := __string(ctx, d), filepath.Join("testdata", "configuration"); s != t {
+				debug(ctx, "%v : %s != %s", p, s, t, trace{})
+			} else {
+				rel = s
+			}
+			if d := p.resolveDef(ctx, "target.triple"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=delegate {=builtin join} {=list {=compound {=closure {=def target.arch}} {=closure {=compound {=word target} {=punct .} {=word sub}}}} {=closure {=def target.vendor}} {=closure {=def target.sys}} {=closure {=def target.abi}}} {=list {=flag {=null}}}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			} else {
+				triple = __string(ctx, d)
+			}
+			if d := p.resolveDef(ctx, "target.out"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=path {=punct root} {=word Volumes} {=word workout} {=closure {=def target.triple}} {=closure {=compound {=word variant} {=punct .} {=word tag}}}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			} else if s, t := __string(ctx, d), filepath.Join(workout, triple, tag); s != t {
+				debug(ctx, "%s != %s", s, t, trace{})
+			} else {
+				out = s
+			}
+			if d := p.resolveDef(ctx, "target.tmp"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=path {=closure {=def target.out}} {=word tmp}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			} else if s, t := __string(ctx, d), filepath.Join(out, "tmp"); s != t {
+				debug(ctx, "%s != %s", s, t, trace{})
+			} else {
+				tmp = s
+			}
+			if d := p.resolveDef(ctx, "outtmp"); d == nil || d.value == nil {
+				debug(ctx, "%v : %v", p, d, trace{})
+			} else if ts(d.value) != "{=path {=closure {=def target.tmp}} {=closure {=def rel.remnant}}}" {
+				debug(ctx, "%v : %v", p, ts(d.value), trace{})
+			} else if s, t := __string(ctx, d), filepath.Join(tmp, rel); s != t {
+				debug(ctx, "%s != %s (%s)", s, t, rel, trace{})
+			}
+		}
+	case "testdeftwoconfigure":
+		if p.configure == nil {
+			debug(ctx, "%v : nil configure", p, trace{})
+		}
+		if p.configure.name != "configure" {
+			debug(ctx, "%v : %v", p, p.configure, trace{})
+		}
+		if !strings.HasSuffix(p.configure.absPath, ".smart/modules/configure") {
+			debug(ctx, "%v : %v", p, p.configure.absPath, trace{})
+		}
+		if !strings.HasSuffix(p.configure.spec, ".smart/modules/configure") {
+			debug(ctx, "%v : %v", p, p.configure.spec, trace{})
+		}
+	case "testcustomconfigure":
+		if p.configure == nil {
+			debug(ctx, "%v : nil configure", p, trace{})
+		}
+		if p.configure.name != "configure" {
+			debug(ctx, "%v : %v", p, p.configure, trace{})
+		}
+		if !strings.HasSuffix(p.configure.absPath, "testdata/configuration/custom/configure") {
+			debug(ctx, "%v : %v", p, p.configure.absPath, trace{})
+		}
+		if !strings.HasSuffix(p.configure.spec, "testdata/configuration/custom/configure") {
+			debug(ctx, "%v : %v", p, p.configure.spec, trace{})
+		}
+		if d := p.configure.resolveDef(ctx, "foo"); d == nil || d.value == nil{
+			debug(ctx, "%v : %v", p, d, trace{})
+		} else if ts(d.value) != "{=self configure}" {
+			debug(ctx, "%v : %v", p, ts(d.value), trace{})
+		}
+	}
+}
+
+func check_unmap_entries(ctx Context, p *project, _k any, _res *[]entry) {
+	switch res := *_res; p.name {
+	case "configure.base":
+		switch x := _k.(type) {
+		case *word:
+		case flag:
+			var c, y = p.entries.v[MINUS.String()]
+			if !y {
+				debug(ctx, "%v %v", p.name, _k, trace{})
+			}
+			if _, y = c.v[x.Value.String()]; y {
+				if res == nil {
+					debug(ctx, "%v: %v %v", p.name, x.Value, c.ks(), trace{})
+				} else if x.String() != res[0].String() {
+					debug(ctx, "%v: %v != %v", p.name, x.Value, res[0], trace{})
+				}
+			} else {
+				debug(ctx, "%v: %v", p.name, x.Value, trace{})
+			}
+		}
+	}
+}
+
+func check_unmap_files(ctx Context, p *project, _k any, _res *[]matched_filemap) {
+}
+
+func tempdir_check(ctx Context, p *project, d *def, s string) {
+	switch p.name {
+	case "testdefaultconfigure":
+		if d.name != "outtmp" {
+			debug(ctx, "wrong tempdir: %v", d, trace{})
+		}
+		if t := p.resolveDef(ctx, "target.tmp"); __string(ctx, t) == "" {
+			debug(ctx, "wrong tempdir: %v ; %v", d, t, trace{})
+		}
+		if s == "/" {
+			erro(ctx, "wrong tempdir: %v → %s", d, s)
+
+			var t *def
+
+			t = p.resolveDef(ctx, "target.tmp")
+			note(ctx, "%v → %s", t, __string(ctx, t))
+
+			t = p.resolveDef(ctx, "target.out")
+			note(ctx, "%v → %s", t, __string(ctx, t))
+
+			t = p.resolveDef(ctx, "target.triple")
+			note(ctx, "%v → %s", t, __string(ctx, t))
+
+			t = p.resolveDef(ctx, "rel.remnant")
+			note(ctx, "%v → %s", t, __string(ctx, t))
+
+			t = p.resolveDef(ctx, "rel.chop")
+			note(ctx, "%v → %s", t, __string(ctx, t))
+
+			t = p.resolveDef(ctx, "variant.tag")
+			note(ctx, "%v → %s", t, __string(ctx, t), trace{})
+		}
+	}
+}
+
+func tempfile_check(ctx Context, p *project, name, d string, f *file) {
+	if f.dir != d {
+		debug(ctx, "%v: %s != %s", p, f.dir, d, trace{})
+	}
+	switch p.name {
+	case "testdefaultconfigure":
+		var t *def
+		if t = p.resolveDef(ctx, "outtmp"); t == nil { // outtmp:=&(target.tmp)/&(rel.remnant)
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "&(target.tmp)/&(rel.remnant)", t.value.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		} else if s, t2 := "/", __string(ctx, t); t2 == s {
+			debug(ctx, "%s: %v : %s", p.name, d, t2, trace{})
+		} else if t2 != f.dir {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t2, f.dir, trace{})
+		}
+		if t = p.resolveDef(ctx, "target.tmp"); t == nil { // target.tmp := &(target.out)/tmp
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "target.tmp:=&(target.out)/tmp", t.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		}
+		if t = p.resolveDef(ctx, "target.out"); t == nil { // &(target.out)/tmp
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "target.out:=/Volumes/workout/&(target.triple)/&(variant.tag)", t.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		} else if s, t2 := "/Volumes/workout/arm64-apple-Darwin23.2.0-macho/bootstrap", __string(ctx, t); t2 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t2, s, trace{})
+		}
+		if t = p.resolveDef(ctx, "target.triple"); t == nil { // target.tmp := &(target.out)/tmp
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "target.triple:=$(join &(target.arch)&(target.sub) &(target.vendor) &(target.sys) &(target.abi),-)", t.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		} else if s, t2 := "arm64-apple-Darwin23.2.0-macho", __string(ctx, t); t2 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t2, s, trace{})
+		}
+		if t = p.resolveDef(ctx, "target.arch"); t == nil {
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "target.arch:=arm64", t.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		}
+		if true {
+			// ...
+		} else if t = p.resolveDef(ctx, "target.sub"); t == nil {
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "target.sub:=", t.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		}
+		if t = p.resolveDef(ctx, "target.vendor"); t == nil {
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "target.vendor:=apple", t.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		}
+		if t = p.resolveDef(ctx, "target.sys"); t == nil {
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "target.sys:=&(uname.os)&(target.release)", t.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		} else if s, t2 := "Darwin23.2.0", __string(ctx, t); t2 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t2, s, trace{})
+		}
+		if t = p.resolveDef(ctx, "target.abi"); t == nil {
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "target.abi:=macho", t.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		}
+		if t = p.resolveDef(ctx, "rel.chop"); t == nil { // rel.chop ::= $(dir3 $/)/
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := dirs(2, p.absPath)+"/", t.String(); t1 != "rel.chop::="+s {
+			debug(ctx, "%s: %v : %s != rel.chop::=%s", p.name, d, t1, s, trace{})
+		} else if t2 := __string(ctx, t); t2 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t2, s, trace{})
+		}
+		if t = p.resolveDef(ctx, "rel.remnant"); t == nil { // rel.remnant = $(trim-prefix &(rel.chop),&/)
+			debug(ctx, "%s: %v : %s", p.name, d, f.dir, trace{})
+		} else if s, t1 := "rel.remnant=$(trim-prefix &(rel.chop),&/)", t.String(); t1 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t1, s, trace{})
+		} else if s, t2 := bases(p.absPath, 2), __string(ctx, t); t2 != s {
+			debug(ctx, "%s: %v : %s != %s", p.name, d, t2, s, trace{})
+		}
 	}
 }

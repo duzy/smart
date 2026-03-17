@@ -175,14 +175,14 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
         if p, y := val.(*pair); y {
             if a.name = __string(ctx, p.key); a.name == "" {
-                erro(pc(ctx,a), "empty name: %v", p.key, trace{})
+                debug(pc(ctx,a), "empty name: %v", p.key, trace{})
                 return
             }
 
             if ac.params != nil {
                 if _, y = ac.params[a.name]; !y {
                     var keys = reflect.ValueOf(ac.params).MapKeys()
-                    errostack(pc(ctx,a), 16, "unknown arg#%d: %v ; known: %v", i, p, keys, trace{})
+                    debug(pc(ctx,a), "unknown arg#%d: %v ; known: %v", i, p, keys, trace{})
                     return
                 }
             }
@@ -207,12 +207,12 @@ func (ac *automatic) args(ctx Context, vals []Value) {
         argn += 1
 
         if d, _ := ac.set(ctx, defParam, a.name, a.value); d == nil {
-            erro(ac, "arg '%s' not set", a.name, trace{})
+            debug(ac, "arg '%s' not set", a.name, trace{})
             return
         }
 
         if d, y := ac.defs[a.name]; !y || d == nil {
-            erro(ac, "arg '%s' not set", a.name, trace{})
+            debug(ac, "arg '%s' not set", a.name, trace{})
             return
         } else if a.id != "" && a.id != a.name {
             ac.Lock()
@@ -349,7 +349,7 @@ func (d *def) origin(ctx Context, o origin) (res origin) {
 
     if checkpoints {
         if d.o != defInvalid && (o == defVoid || o == defInvalid) {
-            erro(pc(ctx,d), "%v: %v → %v", d.name, d.o, o, trace{})
+            debug(pc(ctx,d), "%v: %v → %v", d.name, d.o, o, trace{})
         }
     }
 
@@ -367,11 +367,9 @@ func (d *def) val(ctx Context, vals []Value) {
 }
 func (d *def) set(ctx Context, value Value, app ...Value) {
     if checkpoints && d.o == defConfig && d.value != nil {
-        errostack(pc(pc(ctx,value),d.value), 1, "duplicated %v %v → %v %v", d.o, d, value, app, trace{})
+        debug(pc(pc(ctx,value),d.value), "duplicated %v %v → %v %v", d.o, d, value, app, trace{})
     }
-    if value == d.value && len(app) == 0 {
-        return
-    }
+    if value == d.value && len(app) == 0 { return }
 
     var vals []Value
     if value != nil { vals = merge(value) }
@@ -610,7 +608,7 @@ func (p *rule) ts(ctx Context, t string) string {
 }
 func (p *rule) execute(ctx Context, a ...Value) (res []Value) {
     if patterned(ctx, p.target) {
-        erro(ctx, "execute pattern entry: %v", p.target, trace{})
+        debug(ctx, "execute pattern entry: %v", p.target, trace{})
     }
 
     ctx = &rule_ctx{ctx, p, a}

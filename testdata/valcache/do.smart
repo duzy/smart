@@ -23,4 +23,5 @@ _exists2 := $(wildcard(-sort)          **.gen)
 
 gen := x.c++ y.c++ foo/z.c
 sources := $(wildcard(-sort -missing) **.c **.c++)
-objects := $(patsubst(-err-dst-nomap) %.c %.c++,%.o,$(sources))
+objects1 := $(patsubst(-nomap) %.c,%.o,$(sources))
+objects2 := $(patsubst(-nomap -filter) %.c++,%.o,$(sources))

@@ -1,0 +1,5 @@
+project testvalcache
+
+files (
+    (foo &(va1) foo&(va2)bar foo/&(va3) foo/&(va1)/xx&(va2)yy/&(va3)zz) ⇒ src
+)

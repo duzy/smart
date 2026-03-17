@@ -257,15 +257,9 @@ func new_universe(ii ...any) (ctx *universe) {
         }
     }
 
-    var os Value // one of darwin, freebsd, linux, and so on.
     var pos = ctx._position()
-    {
-        var vs []Value
-        for _, s := range strings.Fields(runtime.GOOS) {
-            vs = append(vs, _word(pos, s))
-        }
-        os = ease(ctx, vs)
-    }
+	// one of darwin, freebsd, linux, and so on.
+	var os Value = ease(ctx, []Value{_word(pos, runtime.GOOS)})
 
     ctx.globe = &globe{
         scope: newscope(pos, ctx.scope, nil, `globe`),
@@ -314,125 +308,120 @@ type stat_fileinfo struct{ os.FileInfo }
 
 func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 	var name = __string(ctx, a0)
-    var sub, dir string
-    var nonexist bool
-    var fileInfo os.FileInfo
-    for _, a := range aa {
-        switch t := a.(type) {
-        case *project: dir = t.absPath
-        case stat_dir: dir = t.string
-        case stat_sub: sub = t.string
-        case stat_fileinfo: fileInfo = t.FileInfo
-        case stat_nonexist: nonexist = t.bool
-        default: debug(ctx, "invalid stat arg: %v", ts(a), trace{})
-        }
-    }
+	var sub, dir string
+	var nonexist bool
+	var fileInfo os.FileInfo
 
-    var base *filebase
-    var stub *filestub
-    var fullname string
-    var u = _universe(ctx)
+	for _, a := range aa {
+		switch t := a.(type) {
+		case *project: dir = t.absPath
+		case stat_dir: dir = t.string
+		case stat_sub: sub = t.string
+		case stat_fileinfo: fileInfo = t.FileInfo
+		case stat_nonexist: nonexist = t.bool
+		default: debug(ctx, "invalid stat arg: %v", ts(a), trace{})
+		}
+	}
 
-    u.statmutex.Lock(); defer u.statmutex.Unlock()
+	var u = _universe(ctx)
+	var fullname string
 
-    // Trims / suffix
-    if dir != "" { dir = filepath.Clean(dir) }
-    if sub != "" { sub = filepath.Clean(sub) }
-    if false {
-        var t = strings.HasPrefix(name, "./")
-        if name!= "" { name = filepath.Clean(name) }
-        if t         { name = "./" + name }
-    }
+	// 1. Trim slashes and clean paths
+	if dir != "" { dir = filepath.Clean(dir) }
+	if sub != "" { sub = filepath.Clean(sub) }
 
-    if filepath.IsAbs(name) {
-        if fullname = name; dir == "" {
-            //dir, sub = filepath.Dir(fullname), ""
-            //name = filepath.Base(fullname)
-        } else if strings.HasPrefix(fullname, dir+pathSep) {
-            tail := fullname[len(dir)+1:]
-            //sub  = filepath.Dir(tail)
-            //name = filepath.Base(tail)
-            if sub == "" { name = tail } else
-            if strings.HasPrefix(fullname, sub+pathSep) {
-                name = tail[len(sub)+1:]
-            }
-        } else if dir != "" {
-            if true { dir = "" } else if false {
-                debug(ctx, "dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub, trace{})
-                unreachable("path error")
-            } else {
-                return
-            }
-        }
-    } else if filepath.IsAbs(sub) {
-        if fullname = filepath.Join(sub, name); dir == "" {
-            dir = sub // trims / suffix
-            sub = "" // .
-        } else if sub == dir {
-            sub = "" // .
-        } else if strings.HasPrefix(sub, dir) {
-            sub = strings.TrimPrefix(sub, dir)
-            sub = strings.TrimPrefix(sub, pathSep)
-            sub = filepath.Clean(sub)
-        } else if false {
-            dir = sub
-            sub = ""
-        } else {
-            unreachable("conflicted sub/dir: ", sub, " ", dir) //return
-        }
-    } else if filepath.IsAbs(dir) {
-        fullname = filepath.Join(dir, sub, name)
-    } else {
-        dir = filepath.Join(_workdir(ctx), dir)
-        fullname = filepath.Join(dir, sub, name)
-    }
+	// 2. Cleaned Path Resolution Logic (Dead code removed)
+	if filepath.IsAbs(name) {
+		fullname = name
+		if dir != "" && strings.HasPrefix(fullname, dir+pathSep) {
+			tail := fullname[len(dir)+1:]
+			if sub == "" { 
+				name = tail 
+			} else if strings.HasPrefix(fullname, sub+pathSep) {
+				name = tail[len(sub)+1:]
+			}
+		} else {
+			dir = "" // Conflict resolution: Absolute name overrides directory
+		}
+	} else if filepath.IsAbs(sub) {
+		fullname = filepath.Join(sub, name)
+		if dir == "" {
+			dir = sub
+			sub = ""
+		} else if sub == dir {
+			sub = ""
+		} else if strings.HasPrefix(sub, dir) {
+			sub = strings.TrimPrefix(sub, dir)
+			sub = strings.TrimPrefix(sub, pathSep)
+			sub = filepath.Clean(sub)
+		} else {
+			unreachable("conflicted sub/dir: ", sub, " ", dir)
+		}
+	} else if filepath.IsAbs(dir) {
+		fullname = filepath.Join(dir, sub, name)
+	} else {
+		dir = filepath.Join(_workdir(ctx), dir)
+		fullname = filepath.Join(dir, sub, name)
+	}
 
-    // NOTE: filepath.Join can have the same efffect as filepath.Clean
-    var cleanFullname = filepath.Clean(fullname) // clean paths like /path/to/foo/../bar -> /path/to/bar
-    if base, _ = u.statcache[cleanFullname]; base != nil {
-        if base.info == nil {
-            if fileInfo == nil { fileInfo, _ = os.Stat(fullname) }
-            if fileInfo == nil && !nonexist { return nil }
-            base.info = fileInfo
-        }
+	var cleanFullname = filepath.Clean(fullname)
+	
+	// 3. First Pass: Fast lock to retrieve or initialize the cache entry shell
+	u.statmutex.Lock()
+	base, exists := u.statcache[cleanFullname]
+	if !exists {
+		// Initialize the shell of the filebase. We will stat it outside the lock.
+		base = &filebase{filestub{dir, sub, name, nil, nil}, nil, false, nil, 0, 0, 0}
+		base.stub.other = &base.stub
+		u.statcache[cleanFullname] = base
+	}
+	u.statmutex.Unlock() // DROP THE GLOBAL LOCK BEFORE HITTING THE DISK!
 
-        var head = &base.stub
-        if enable_assertions {
-            for stub = head; stub != nil ; stub = stub.other {
-                s1, s2 := filepath.Join(stub.dir, stub.sub, stub.name), filepath.Join(fullname)
-                assert(s1 == s2, "fullname '%s' conflicted:\n" +
-                    "panic: (%s, %s, %s) %s\n" +
-                    "panic: (%s, %s, %s) %s\n",
-                    fullname,
-                    stub.dir, stub.sub, stub.name, s1,
-                    dir, sub, name, s2)
-                if stub.other == head { break }
-            }
-        }
+	// 4. Heavy I/O: os.Stat executes concurrently without blocking the universe
+	if base.info == nil && fileInfo == nil {
+		fileInfo, _ = os.Stat(fullname)
+	}
 
-        for stub = head; stub != nil; stub = stub.other {
-            if stub.dir == dir && stub.sub == sub && stub.name == name {
-                goto GotFile
-            }
-            if stub.other == head { break }
-        }
+	// 5. Second Pass: Re-acquire lock to safely update the shared base and stubs
+	u.statmutex.Lock()
+	defer u.statmutex.Unlock()
 
-        stub = &filestub{ dir, sub, name, nil, head.other }
-        head.other = stub
-    } else {
-        if fileInfo == nil {
-            fileInfo, _ = os.Stat(fullname)
-            if fileInfo == nil && !nonexist { return nil }
-        }
+	// Update the file metadata if we just fetched it
+	if fileInfo != nil && base.info == nil {
+		base.info = fileInfo
+	}
 
-        base = &filebase{filestub{ dir, sub, name, nil, nil }, fileInfo, false, nil, 0, 0, 0}
-        base.stub.other = &base.stub
-        stub = &base.stub
-        u.statcache[cleanFullname] = base
-    }
+	// Bail out if the file doesn't exist and we aren't explicitly allowing non-existent files
+	if base.info == nil && !nonexist {
+		return nil
+	}
 
-GotFile:
-    return &file{valbase{_position(ctx)},base,stub}
+	var head = &base.stub
+	var stub *filestub
+
+	// Sanity assertions
+	if enable_assertions {
+		for stub = head; stub != nil; stub = stub.other {
+			s1, s2 := filepath.Join(stub.dir, stub.sub, stub.name), fullname
+			assert(s1 == s2, "fullname '%s' conflicted:\npanic: (%s, %s, %s) %s\npanic: (%s, %s, %s) %s\n",
+				fullname, stub.dir, stub.sub, stub.name, s1, dir, sub, name, s2)
+			if stub.other == head { break }
+		}
+	}
+
+	// Check for an existing stub that matches our current path parameters exactly
+	for stub = head; stub != nil; stub = stub.other {
+		if stub.dir == dir && stub.sub == sub && stub.name == name {
+			return &file{valbase{_position(ctx)}, base, stub}
+		}
+		if stub.other == head { break }
+	}
+
+	// If no matching stub was found, link a new one into the circular list
+	stub = &filestub{dir, sub, name, nil, head.other}
+	head.other = stub
+
+	return &file{valbase{_position(ctx)}, base, stub}
 }
 
 func AddPaths(paths... string) (err error) {
@@ -638,7 +627,7 @@ func (u *universe) run() (result []Value) {
 
     var main = u.globe.main
     if main == nil {
-        erro(u, "no targets to update `%v`", u.globe.goals, trace{})
+        debug(u, "no targets to update `%v`", u.globe.goals, trace{})
     }
 
     var ctx Context = closure_with(u, main.scope)

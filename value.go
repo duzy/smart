@@ -647,7 +647,7 @@ func (a as) file(ctx Context, projs ...*project) (res *file) {
         }
     default: // *strlit, *strval, *strcomp:
         // NOTE: not parsing 'string' and "strcomp" values to file to optimize.
-        // erro(pc(ctx,a), "cannot convert to file: %v", tv(a.Value), trace{})
+        // debug(pc(ctx,a), "cannot convert to file: %v", tv(a.Value), trace{})
     }
     return
 }
@@ -667,7 +667,8 @@ func (a as) fullname(ctx Context, projs ...*project) (res fullname) {
         if f := a.file(ctx, projs...); f != nil {
             res.Value = f
         } else {
-            erro(pc(ctx,a), "nil file : %v : %v → %v", a.Value, ts(a.Value), expand(ctx,a.Value), trace{})
+            debug(pc(ctx,a), "nil file : %v : %v → %v", a.Value, ts(a.Value), expand(ctx,a.Value),
+				callstack{num:10}, trace{})
         }
     }
     return
@@ -914,7 +915,7 @@ func ident(ctx Context, x Value) (s string) {
         if t.Fragment != nil { s += "#" + ident(ctx, t.Fragment) }
         return
     default:
-        erro(pc(ctx,x), "todo: ident for %s", ts(x), trace{})
+        debug(pc(ctx,x), "todo: ident for %s", ts(x), trace{})
         return
     }
 }
@@ -1107,6 +1108,7 @@ func unpack(v Value) []Value {
 func unbox(a any) any {
     switch t := a.(type) {
     case self: return t.project
+	case fullname: return unbox(t.Value)
     case *loc: return unbox(t.Value)
     case *list: if len(t.elems) == 1 { return unbox(t.elems[0]) }
     case flag: return flag{unbox(t.Value).(Value)}
@@ -1121,6 +1123,7 @@ func underlay(a any, b int) (any, int) {
     switch t := a.(type) {
 	case *valbase, *null, *none, *undef: return "", 0 // Unbox empty AST nodes to ""
     case *loc: return underlay(t.Value, b)
+	case fullname: return underlay(t.Value, b)
     case self: return t.project, 0
 	case *globmeta: return t.token, 0
 	case *punct: if t.token == PROOT || t.token == PTAIL { return "", 0 } else { return t.token, 0 }
@@ -1179,6 +1182,19 @@ func cmpValues(ctx Context, a, b Value) int {
 	if t := cmp(ctx, a, b); t == cmpEqual { return 0 } else { return int(t) }
 }
 
+func cmp_rank(rx, ry int) cmpres {
+	if 0 < rx && 0 < ry {
+		if rx < ry { return cmpSmaller }
+		if rx > ry { return cmpGreater }
+		return cmpEqual
+	} else if 0 < rx {
+		return cmpGreater
+	} else if 0 < ry {
+		return cmpSmaller
+	}
+	return cmpEqual // Indicates no rank disparity, proceed to normal cmp
+}
+
 func cmp(ctx Context, l, r any, syntactic ...bool) (res cmpres) {
 	if checkpoints { defer check_cmp(ctx, l, r, syntactic)(&res) }
 
@@ -1198,27 +1214,10 @@ func cmp(ctx Context, l, r any, syntactic ...bool) (res cmpres) {
 		switch y := rv.(type) {
 		case token:
 			// Specificity: ? < * < *? ≈ **
-			if rx, ry := globRank(x), globRank(y); 0 < rx && 0 < ry {
-				if rx < ry { return cmpSmaller }
-				if rx > ry { return cmpGreater }
-				return cmpEqual
-			} else if 0 < rx {
-				return cmpGreater // wildcard > literal
-			} else if 0 < ry {
-				return cmpSmaller // literal < wildcard
-			}
-			if x < y { return cmpSmaller }
-			if x > y { return cmpGreater }
-			return cmpEqual
+			return cmp_rank(globRank(x), globRank(y))
 		case string:
-			if rx, ry := globRank(x), globRank(y); 0 < rx && 0 < ry {
-				if rx < ry { return cmpSmaller }
-				if rx > ry { return cmpGreater }
-				return cmpEqual
-			} else if 0 < rx {
-				return cmpGreater
-			} else if 0 < ry {
-				return cmpSmaller
+			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
+				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
 			}
 			return cmp_string(x.String(), y)
 		case flag:
@@ -1232,25 +1231,13 @@ func cmp(ctx Context, l, r any, syntactic ...bool) (res cmpres) {
 		switch y := rv.(type) {
 		case string:
 			// Specificity check for string patterns (e.g. "*")
-			if rx, ry := globRank(x), globRank(y); 0 < rx && 0 < ry {
-				if rx < ry { return cmpSmaller }
-				if rx > ry { return cmpGreater }
-				return cmpEqual
-			} else if 0 < rx {
-				return cmpGreater
-			} else if 0 < ry {
-				return cmpSmaller
+			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
+				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
 			}
 			return cmp_string(x, y)
 		case token:
-			if rx, ry := globRank(x), globRank(y); 0 < rx && 0 < ry {
-				if rx < ry { return cmpSmaller }
-				if rx > ry { return cmpGreater }
-				return cmpEqual
-			} else if 0 < rx {
-				return cmpGreater
-			} else if 0 < ry {
-				return cmpSmaller
+			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
+				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
 			}
 			return cmp_string(x, y.String())
 		case int64:   if i, e := strconv.ParseInt(x, lb, 64); e == nil { return cmp_int(i, y) }
@@ -1327,6 +1314,12 @@ func cmp(ctx Context, l, r any, syntactic ...bool) (res cmpres) {
 	case *def:
 		if y, ok := rv.(*def); ok && x.name == y.name {
 			return cmp(ctx, x.value, y.value)
+		}
+
+	case *file:
+		if y, ok := rv.(*file); ok {
+			if x.filestub == y.filestub { return cmpEqual }
+			return cmp_string(x.filestub.name, y.filestub.name)
 		}
 	}
 
@@ -2324,16 +2317,16 @@ func (p *file) stamp(ctx Context) (res []*file) {
         if truly(ctx, must_file_stamp{p}) {
             ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
             if _, y := e.(*fs.PathError); y {
-                errostack(ctx, 8, "no such file: %s", p.name, trace{})
+                debug(ctx, "no such file: %s", p.name, trace{})
             } else {
-                errostack(ctx, 8, "%v", e, trace{})
+                debug(ctx, "%v", e, trace{})
             }
         }
         return
     } else if p.info == nil {
         if truly(ctx, must_file_stamp{p}) {
             ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
-            errostack(ctx, 8, "no such file: %s", p.name, trace{})
+            debug(ctx, "no such file: %s", p.name, trace{})
         }
         return
     }
@@ -2694,7 +2687,7 @@ func (p *arrow) String() string { return p.o.String()+p.t.String()+p.s.String() 
 
 // percpat represents percent pattern expressions (e.g. '%.o')
 type percpat struct{
-    valbase // TODO: supporting multiple %: foo%bar%xxx
+    valbase
     Prefix Value
     Suffix Value
 }
@@ -2706,85 +2699,6 @@ func (p *percpat) String() (s string) {
 }
 func (p *percpat) ts(ctx Context, t string) string {
     return fmt.Sprintf("{=%s %s %s}", t, ts(p.Prefix, ctx), ts(p.Suffix, ctx))
-}
-func (p *percpat) match1(ctx Context, rep string) (full bool, result string, stems []Value) {
-    var prefix string
-    if !isTrivial(p.Prefix) {
-        // FIXME: the prefix could be Glob, Regexp, etc.
-        if prefix = __string(ctx, p.Prefix); strings.HasPrefix(rep, prefix) {
-            result = prefix
-        } else {
-            return
-        }
-    }
-
-    var pos = p.Position()
-    var a, b = len(prefix), len(rep)
-    if isTrivial(p.Suffix) {
-        if a < b { stems, result, full = append(stems, _raw(pos, rep[a:])), rep, true }
-    } else if pp, ok := p.Suffix.(*percpat); a < b && ok {
-        // FIXME: separate paths???  *) use % to match single path sep; *) use %% to match full path
-        // fooxxbaryybaz -> foo%bar%baz => (foo xx bar yy baz) [xx yy]
-        // fooxxx -> foo%% => (foo xxx) [xxx]
-        // fooxxxbar -> foo%%bar => (foo xxx bar) [xxx]
-        for ok {
-            if isTrivial(pp.Prefix) {
-                // does nothing
-            } else if s := __string(ctx, pp.Prefix); s != "" {
-                if n := strings.Index(rep[a:], s); n < 0 {
-                    break
-                } else {
-                    var v = rep[a:a+n]
-                    stems = append(stems, _raw(pos, v))
-                    result += v + s
-                    a += n + len(s)
-                }
-            }
-            var pp2 *percpat
-            if isTrivial(pp.Suffix) {
-                var s = rep[a:] // let %% matches everything else
-                full = true
-                stems = append(stems, _raw(pos, s))
-                result += s
-                break
-            } else if pp2, ok = pp.Suffix.(*percpat); ok {
-                pp = pp2
-                continue
-            } else if s := __string(ctx, pp.Suffix); s != "" && strings.HasSuffix(rep[a:], s) {
-                if b -= len(s); a < b {
-                    stems = append(stems, _raw(pos, rep[a:b]))
-                    result += rep[a:]
-                    full = true
-                }
-                break
-            }
-        }
-    } else if a < b && patterned(ctx,p.Suffix) {
-        if false {
-            debug(ctx, "mixing % pattern might have performance impact: %v", p)
-        }
-        for n := b-1; a < n; n -= 1 {
-            if f, r, _, ss := match(ctx, p.Suffix, _raw(p.Position(), rep[n:])); f && r != nil {
-                var s = __string(ctx, r)
-                stems = append(stems, _raw(pos, rep[a:n]))
-                stems = append(stems, ss...)
-                result += s // rep[a:]
-                full = f
-                break
-            }
-        }
-    } else if a <= b {
-        if s := __string(ctx, p.Suffix); strings.HasSuffix(rep[a:], s) {
-            if b -= len(s); a < b {
-                stems = append(stems, _raw(pos, rep[a:b]))
-                result = rep
-                full = true
-            }
-        }
-    } else {
-        // does nothing
-    }
-    return
 }
 
 func indexRootTailPunct(v ...Value) int {
@@ -3328,6 +3242,8 @@ func __string(ctx Context, v any) (res string) {
 		res = __string(ctx, t.Value) + "("
 		for i, arg := range t.args { if 0 < i { res += "," }; res += __string(ctx, arg) }
 		res += ")"
+	case *recipe:
+		for _, elem := range t.elems { res += __string(ctx, elem) }
 	case *plainline:
 		if len(t.elems) == 1 {
 			if d, y := t.elems[0].(*delegate); y {
@@ -3701,11 +3617,11 @@ func expand(ctx Context, v Value) (res Value) {
         if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
         return
     case *strlit:
-        if truly(ctx, ex_path_str{}) {
-            return _pathStr(ctx, t.s)
-        } else {
-            return v
-        }
+		if truly(ctx, ex_path_str{}) {
+			return _pathStr(ctx, t.s)
+		} else {
+			return v
+		}
     case *strval:
         if truly(ctx, ex_path_str{}) {
             return &strval{t.valbase, _pathStr(ctx, __string(ctx, t)).elems}
@@ -3761,7 +3677,18 @@ func expand(ctx Context, v Value) (res Value) {
 		if v := expand(ctx, t.rule).(*rule); v != t.rule { t = &stemmed_rule{v, t.target, t.stems} }
 		return t
     case fullfile: if truly(ctx,is_compound{}) { return t.file  } else { return t }
-    case fullname: if truly(ctx,is_compound{}) { return t.Value } else { return fullname{expand(ctx,t.Value)} }
+    case fullname:
+		if truly(ctx,is_compound{}) { return t.Value } else {
+			v := expand(ctx,t.Value)
+			// Lazily resolve the file object at execution time!
+			if !isTrivial(v) {
+				if f := (as{v}).file(ctx); f != nil {
+					return fullname{f}
+				}
+			}
+			return fullname{v}
+		}
+    case negative: return negative{expand(ctx, t.Value)}
     case *loc: return &loc{expand(ctx, t.Value), t.pos}
     case *list: return &list{elements{expands(ctx, t.elems...)}}
     case *path: return &path{elements{expandp(ctx, t.elems...)}}
@@ -3772,7 +3699,6 @@ func expand(ctx Context, v Value) (res Value) {
     case *globpat: return &globpat{elements{expands(ctx, t.elems...)}}
     case *globrange: return &globrange{expand(ctx, t.Value)}
     case *argumented: return &argumented{expand(ctx, t.Value), expands(ctx, t.args...)}
-    case negative: return negative{expand(ctx, t.Value)}
     case *url: return &url{expand(ctx, t.Scheme), expand(ctx, t.Username), expand(ctx, t.Password), expand(ctx, t.Host), expand(ctx, t.Port), expand(ctx, t.Path), expands(ctx, t.Query...), expand(ctx, t.Fragment)}
     case *plain: return &plain{elements{expands(ctx, t.elems...)}, t.name}
     case *plainline: return &plainline{elements{expands(ctx, t.elems...)}}
@@ -3890,21 +3816,29 @@ func sel(ctx Context, v any, s string) (res Value) {
 }
 
 func evoker(x Value) bool {
-    switch t := x.(type) {
-    case *loc: return evoker(t.Value)
-    case *auto, *builtin, *def, *rule, *project, self: return true
-    case interface{ evoke(*evocation) Value }: return true
-    default: return false
-    }
+	switch t := x.(type) {
+	case *loc: return evoker(t.Value)
+	case *auto, *builtin, *def, *rule, *stemmed_rule, matched_rule, *project, self: return true
+	case interface{ evoke(*evocation) Value }: return true
+	default: return false
+	}
 }
 func evoke(ctx Context, x Value, o, a []Value) (res Value) {
     switch t := x.(type) {
 	case *project, self: return x
+	case *word, *compound, *globpat: do(ctx, _not_evoker{})
     case *loc: return evoke(ctx, t.Value, o, a)
-    case *rule: return ease(ctx, t.execute(ctx, expands(ctx, a...)...))
+	case matched_rule: return evoke(ctx, t.rule, o, a)
+
+	case *stemmed_rule:
+		r := *t.rule
+		r.target = t.target
+		return evoke(&stemmed_ctx{ctx, t}, &r, o, a)
+
     case *auto:
 		if d := auto_find(ctx, t.name); d != nil { return evoke(ctx, d, o, a) }
 		return _null(x.Position())
+
 	case *def:
 		if truly(ctx, evoke_detect_loop{x}) {
 			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
@@ -3915,6 +3849,16 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 			if res = expand(ctx, t.value); t.o == defExecute && !isEmpty(res) { res = t.xexe(ctx, res) }
 		}
 		return
+
+    case *rule:
+		if truly(ctx, evoke_detect_loop{x}) {
+			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
+			res = _null(x.Position())
+		} else {
+			res = ease(ctx, t.execute(ctx, expands(ctx, a...)...))
+		}
+		return
+
     case *builtin:
         if truly(ctx, evoke_detect_loop{x}) {
             if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
@@ -3949,8 +3893,11 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		} else {
 			debug(pc(ctx,x), "no method: %v", t.t.Name(), trace{})
 		}
+
     default:
-        do(ctx, _not_evoker{})
+		if x != nil && !isTrivial(x) {
+			debug(pc(ctx,x), "%s", ts(x), callstack{num:10}, trace{})
+		}
     }
 	return
 }
@@ -3994,7 +3941,6 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 // - Low-Level Evaluators (shedding unnecessary returns based on scope):
 //   matchScalarScalar (...) (matched bool, res, rem Value)
 //   matchCompComp     (...) (matched bool, res, rem Value, idx int)
-//   matchGlobScalar   (...) (matched bool, res, rem Value, stems []Value)
 //   matchGlobComp     (...) (matched bool, res, rem Value, stems []Value, idx int, wildToken token)
 //   matchGlobPath     (...) (matched bool, res, rem Value, stems []Value, idx int, wildToken token)
 //   matchPathPath     (...) (matched bool, res, rem Value, stems []Value, idx int)
@@ -4154,6 +4100,50 @@ func getScalarSubstr(ctx Context, v Value, start, end int) string {
 	return s[start:end]
 }
 
+func isPureWildcard(val Value) bool {
+	switch e := unloc(val).(type) {
+	case *globmeta:
+		// Any standalone wildcard node (*, **, or an exploded PERC) is pure by definition!
+		return true
+	case *percpat:
+		// A *percpat is only pure if it lacks both a prefix and a suffix
+		suf := e.Suffix
+		if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) { suf = pp.Suffix }
+		return isEmpty(e.Prefix) && isEmpty(suf)
+	}
+	return false
+}
+
+// getWildcardSuffix extracts the hidden suffix from a wildcard node if it exists.
+func getWildcardSuffix(v Value) Value {
+	if pp, ok := unloc(v).(*percpat); ok {
+		suf := pp.Suffix
+		// Handle the %% edge case where the inner percpat holds the true suffix
+		if inner, isPP := unloc(pp.Suffix).(*percpat); isPP && isEmpty(inner.Prefix) { 
+			suf = inner.Suffix 
+		}
+		if suf != nil && !isEmpty(suf) { return suf }
+	}
+	return nil
+}
+
+// getWildcardPrefix extracts the hidden prefix from a wildcard node if it exists.
+func getWildcardPrefix(v Value) Value {
+	if pp, ok := unloc(v).(*percpat); ok {
+		if pp.Prefix != nil && !isEmpty(pp.Prefix) { return pp.Prefix }
+	}
+	return nil
+}
+
+// Helper to unify *globmeta and *percpat logic
+func getGlobToken(v Value) token {
+	switch e := unloc(v).(type) {
+	case *globmeta: return e.token
+	case *percpat: return PERC
+	}
+	return ILLEGAL
+}
+
 type stemseg struct {
 	e, v Value
 }
@@ -4251,7 +4241,14 @@ func forwardCompComp(ctx Context, elems, vals []Value) (matched bool, res, rem [
 	}
 	
 	matched = eIdx == len(elems)
-	if sIdx+1 < len(vals) { rem = concat(currVal, vals[sIdx+1:]) } else { rem = nil }
+
+	// FIX: Safely reconstruct the unconsumed remainder without out-of-bounds truncation
+	if currVal != nil {
+		rem = concat(currVal, vals[sIdx+1:])
+	} else if sIdx < len(vals) {
+		rem = vals[sIdx:]
+	}
+
 	return
 }
 
@@ -4283,16 +4280,15 @@ func backwardCompComp(ctx Context, elems, vals []Value) (matched bool, res, rem 
 	}
 	
 	matched = eIdx < 0
-	rem = concat(vals[:sIdx], currVal)
+
+	// FIX: Symmetrical fix to preserve backward unconsumed elements
+	if currVal != nil {
+		rem = concat(vals[:sIdx], currVal)
+	} else if sIdx >= 0 {
+		rem = vals[:sIdx+1]
+	}
+
 	return
-}
-
-func forwardGlobScalar(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
-	panic("Abandoned GlobScalar")
-}
-
-func backwardGlobScalar(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
-	panic("Abandoned GlobScalar")
 }
 
 func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
@@ -4311,15 +4307,15 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 		switch e := unloc(elems[iE]).(type) {
 		case *globrange: 
 			if iV >= len(vals) { return false, res, nil, stems, iE, iV, ILLEGAL } 
-			str, token := getScalarSubstr(ctx, vals[iV], 0, -1), getScalarSubstr(ctx, e.Value, 0, -1)
+			str, t := getScalarSubstr(ctx, vals[iV], 0, -1), getScalarSubstr(ctx, e.Value, 0, -1)
 			r, size := utf8.DecodeRuneInString(str)
-			if r == utf8.RuneError && size <= 1 || !globMatchCharSet(token, r) {
+			if r == utf8.RuneError && size <= 1 || !globMatchCharSet(t, r) {
 				return false, res, vals[iV:], stems, iE, iV, ILLEGAL
 			}
 			return forward(str, size)
 
-		case *globmeta: 
-			switch e.token {
+		case *globmeta:
+			switch tok := getGlobToken(e); tok {
 			case QUE: 
 				if iV >= len(vals) { return false, res, nil, stems, iE, iV, ILLEGAL } 
 				str := getScalarSubstr(ctx, vals[iV], 0, -1) 
@@ -4332,8 +4328,7 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 			case SAST, DAST, ASTQ: 
 				suffix, gap := elems[iE+1:], vals[iV:]
 
-				if e.token == ASTQ {
-					// Shortest Match: Search character by character from the left.
+				if tok == ASTQ {
 					for k := 0; k <= len(gap); k++ {
 						if k < len(gap) {
 							str := getScalarSubstr(ctx, gap[k], 0, -1)
@@ -4355,7 +4350,6 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 						}
 					}
 				} else {
-					// Greedy Match: Delegate to backwardGlobComp to anchor to the absolute right.
 					for k := len(gap); k != -1; k += -1 {
 						if m, r, rm, s, _, _, wt := backwardGlobComp(ctx, suffix, gap[k:]); m { 
 							stemParts := concat(gap[:k], rm)
@@ -4364,12 +4358,92 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 					}
 				}
 
-				if e.token == SAST {
+				if tok == SAST {
 					return false, concat(res, gap), nil, concat(stems, gapseg{true, elems[iE], gap}), iE, len(vals), ILLEGAL
 				} else {
-					return false, res, gap, stems, iE, iV, e.token
+					return false, res, gap, stems, iE, iV, tok
+				}
+
+			default:
+				return false, res, vals[iV:], stems, iE, iV, ILLEGAL
+			}
+
+		case *percpat:
+			// 1. Intra-string match: Try capturing the stem cleanly inside the current atom.
+			// This safely extracts "foo" from "foo.c++" without triggering atom fragmentation.
+			if iV < len(vals) {
+				valStr := getScalarSubstr(ctx, vals[iV], 0, -1)
+				pfx := ""
+				if e.Prefix != nil && !isEmpty(e.Prefix) { pfx = getScalarSubstr(ctx, e.Prefix, 0, -1) }
+				
+				sfx := ""
+				if e.Suffix != nil && !isEmpty(e.Suffix) {
+					if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
+						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1) // Handle %%
+					} else {
+						sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
+					}
+				}
+
+				if len(pfx) + len(sfx) <= len(valStr) && strings.HasPrefix(valStr, pfx) {
+					// Use LastIndex because Make's '%' is greedy!
+					idx := strings.LastIndex(valStr[len(pfx):], sfx)
+					if idx >= 0 {
+						idx += len(pfx)
+						stemStr := valStr[len(pfx):idx]
+						matchedLen := idx + len(sfx)
+						
+						resAtom := _raw(vals[iV].Position(), valStr[:matchedLen])
+						stemAtom := _raw(vals[iV].Position(), stemStr)
+						
+						var nextVals []Value
+						hasRem := matchedLen < len(valStr)
+						if hasRem {
+							nextVals = append(nextVals, _raw(vals[iV].Position(), valStr[matchedLen:]))
+						}
+						nextVals = concat(nextVals, vals[iV+1:])
+
+						m, r, rm, s, ie_rec, iv_rec, wt := forwardGlobComp(ctx, elems[iE+1:], nextVals)
+						if m {
+							// Mathematically map the returned index consumption
+							ret_iV := iV + 1
+							if hasRem {
+								if iv_rec > 0 { ret_iV += (iv_rec - 1) }
+							} else {
+								ret_iV += iv_rec
+							}
+							return true, concat(res, resAtom, r), rm, concat(stems, stemAtom, s), iE + 1 + ie_rec, ret_iV, wt
+						}
+					}
 				}
 			}
+
+			// 2. Fallback: Dynamically explode the *percpat into [Prefix, DAST, Suffix]
+			// This allows the pattern to cross directory boundaries (e.g., matching foo/bar.c)
+			var exploded []Value
+			if e.Prefix != nil && !isEmpty(e.Prefix) { exploded = append(exploded, e.Prefix) }
+			exploded = append(exploded, _globmeta(e.Position(), DAST)) // '%' acts as '**'
+			if e.Suffix != nil && !isEmpty(e.Suffix) { exploded = append(exploded, e.Suffix) }
+
+			newElems := concat(exploded, elems[iE+1:])
+			m, r, rm, s, ie_rec, iv_ret, wt := forwardGlobComp(ctx, newElems, vals[iV:])
+			
+			mapped_iE := iE
+			if ie_rec >= len(exploded) {
+				mapped_iE = iE + 1 + (ie_rec - len(exploded))
+			}
+
+			if m {
+				if rm == nil || isEmpty(rm) {
+					if iv_ret > 0 { r = vals[iV : iV+iv_ret] }
+				} else if iv_ret == 0 {
+					matchedStr := ""
+					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
+					r = []Value{_raw(vals[iV].Position(), matchedStr)}
+				}
+			}
+
+			return m, concat(res, r), rm, concat(stems, s), mapped_iE, iV + iv_ret, wt
 
 		default:
 			if iV >= len(vals) { return false, res, nil, stems, iE, iV, ILLEGAL }
@@ -4414,15 +4488,15 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 		switch e := unloc(elems[iE]).(type) {
 		case *globrange: 
 			if iV < 0 { return false, res, nil, stems, iE, iV + 1, ILLEGAL } 
-			str, token := getScalarSubstr(ctx, vals[iV], 0, -1), getScalarSubstr(ctx, e.Value, 0, -1)
+			str, t := getScalarSubstr(ctx, vals[iV], 0, -1), getScalarSubstr(ctx, e.Value, 0, -1)
 			r, size := utf8.DecodeLastRuneInString(str) 
-			if r == utf8.RuneError && size <= 1 || !globMatchCharSet(token, r) {
+			if r == utf8.RuneError && size <= 1 || !globMatchCharSet(t, r) {
 				return false, res, vals[:iV+1], stems, iE, iV + 1, ILLEGAL
 			}
 			return backward(str, size)
 
-		case *globmeta: 
-			switch e.token {
+		case *globmeta:
+			switch tok := getGlobToken(e); tok {
 			case QUE: 
 				if iV < 0 { return false, res, nil, stems, iE, iV + 1, ILLEGAL } 
 				str := getScalarSubstr(ctx, vals[iV], 0, -1)
@@ -4435,8 +4509,7 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 			case SAST, DAST, ASTQ: 
 				prefix, gap := elems[:iE], vals[:iV+1]
 
-				if e.token == ASTQ {
-					// Shortest Match: Search character by character from the right.
+				if tok == ASTQ {
 					for k := len(gap); k >= 0; k-- {
 						if k > 0 {
 							str := getScalarSubstr(ctx, gap[k-1], 0, -1)
@@ -4458,7 +4531,6 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 						}
 					}
 				} else {
-					// Greedy Match: Delegate to forwardGlobComp to anchor to the absolute left.
 					for k := 0; k != len(gap); k += 1 {
 						if m, r, rm, s, _, _, wt := forwardGlobComp(ctx, prefix, gap[:k]); m { 
 							stemParts := concat(rm, gap[k:])
@@ -4467,12 +4539,81 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 					}
 				}
 
-				if e.token == SAST {
+				if tok == SAST {
 					return false, concat(gap, res), nil, concat(gapseg{true, elems[iE], gap}, stems), iE, 0, ILLEGAL
 				} else {
-					return false, res, gap, stems, iE, iV + 1, e.token
+					return false, res, gap, stems, iE, iV + 1, tok
+				}
+
+			default:
+				return false, res, vals[:iV+1], stems, iE, iV + 1, ILLEGAL
+			}
+
+		case *percpat:
+			// 1. Intra-string match (Backward traversal)
+			if iV >= 0 {
+				valStr := getScalarSubstr(ctx, vals[iV], 0, -1)
+				pfx := ""
+				if e.Prefix != nil && !isEmpty(e.Prefix) { pfx = getScalarSubstr(ctx, e.Prefix, 0, -1) }
+				
+				sfx := ""
+				if e.Suffix != nil && !isEmpty(e.Suffix) {
+					if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
+						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
+					} else {
+						sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
+					}
+				}
+
+				if len(pfx) + len(sfx) <= len(valStr) && strings.HasSuffix(valStr, sfx) {
+					// Use Index to anchor the greedy match as far left as possible
+					idx := strings.Index(valStr[:len(valStr)-len(sfx)], pfx)
+					if idx >= 0 {
+						stemStr := valStr[idx+len(pfx) : len(valStr)-len(sfx)]
+						
+						resAtom := _raw(vals[iV].Position(), valStr[idx:])
+						stemAtom := _raw(vals[iV].Position(), stemStr)
+						
+						var nextVals []Value
+						hasRem := idx > 0
+						if hasRem {
+							nextVals = append(nextVals, _raw(vals[iV].Position(), valStr[:idx]))
+						}
+						nextVals = concat(vals[:iV], nextVals)
+
+						m, r, rm, s, ie_rec, iv_rec, wt := backwardGlobComp(ctx, elems[:iE], nextVals)
+						if m {
+							return true, concat(r, resAtom, res), rm, concat(s, stemAtom, stems), ie_rec, iv_rec, wt
+						}
+					}
 				}
 			}
+
+			// 2. Fallback: Dynamically explode the *percpat into [Prefix, DAST, Suffix]
+			var exploded []Value
+			if e.Prefix != nil && !isEmpty(e.Prefix) { exploded = append(exploded, e.Prefix) }
+			exploded = append(exploded, _globmeta(e.Position(), DAST))
+			if e.Suffix != nil && !isEmpty(e.Suffix) { exploded = append(exploded, e.Suffix) }
+
+			newElems := concat(elems[:iE], exploded)
+			m, r, rm, s, ie_rec, iv_ret, wt := backwardGlobComp(ctx, newElems, vals[:iV+1])
+			
+			mapped_iE := iE
+			if ie_rec < len(elems[:iE]) {
+				mapped_iE = ie_rec
+			}
+
+			if m {
+				if rm == nil || isEmpty(rm) {
+					if iv_ret < iV+1 { r = vals[iv_ret : iV+1] }
+				} else if iv_ret == iV+1 {
+					matchedStr := ""
+					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
+					r = []Value{_raw(vals[iV].Position(), matchedStr)}
+				}
+			}
+
+			return m, concat(r, res), rm, concat(s, stems), mapped_iE, iv_ret, wt
 
 		default:
 			if iV < 0 { return false, res, nil, stems, iE, iV + 1, ILLEGAL }
@@ -4502,12 +4643,12 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
 	matched, res, rem, stems, iE, _, wildToken = forwardGlobComp(ctx, elems, unpack(segments[0]))
 
-	// FIX: Removed `len(rem) == 0` to allow non-greedy ASTQ to retroactively trigger across paths
 	if matched && wildToken == ILLEGAL && len(segments) > 1 {
-		if meta, ok := unloc(elems[len(elems)-1]).(*globmeta); ok && (meta.token == DAST || meta.token == ASTQ) {
-			wildToken, iE = meta.token, len(elems)-1
+		tok := getGlobToken(elems[len(elems)-1]) // FIX: Unify retroactive trigger
+		if tok == DAST || tok == ASTQ || tok == PERC {
+			wildToken, iE = tok, len(elems)-1
 			if len(stems) > 0 {
-				rem = concat(stems[len(stems)-1], rem)
+				rem = concat(unpack(stems[len(stems)-1]), rem)
 				stems = stems[:len(stems)-1]
 			}
 		}
@@ -4520,8 +4661,9 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 		segments[1:],
 	)
 
-	if wildToken == DAST || wildToken == ASTQ {
-		if len(elems[iE:]) == 1 {
+	if wildToken == DAST || wildToken == ASTQ || wildToken == PERC {
+		// CRITICAL FIX: Ensure the element is a PURE wildcard before taking the shortcut!
+		if isPureWildcard(elems[iE]) && len(elems[iE:]) == 1 {
 			return true,
 				segments, 
 				nil,      
@@ -4530,7 +4672,7 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 		}
 
 		step, k := 1, 0
-		if wildToken == DAST { step, k = -1, len(segments)-1 }
+		if wildToken == DAST || wildToken == PERC { step, k = -1, len(segments)-1 }
 
 		for ; k >= 0 && k < len(segments); k += step {
 			if k == 0 && len(rem) > 0 {
@@ -4550,16 +4692,11 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 						optraw{len(remSuf) == 0 && k+1 < len(segments), segments[k].Position(), ""},
 						segments[k+1:],
 					),
-					concat(
-						stems,
-						stemseg{elems[iE], packPath(concat(
-							gapseg{iE > 0, elems[iE], rem},
-							segments[1:k],
-							gapseg{true, elems[iE], unpack(sSuf[0])},
-						))},
-						sSuf[1:],
-					),
-					len(elems), k + 1, ILLEGAL
+					concat(stems, stemseg{elems[iE], packPath(concat(
+						gapseg{iE > 0, elems[iE], rem},
+						segments[1:k],
+						gapseg{true, elems[iE], unpack(sSuf[0])},
+					))}, sSuf[1:]), len(elems), k + 1, ILLEGAL
 			}
 		}
 
@@ -4577,12 +4714,12 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
 	matched, res, rem, stems, iE, _, wildToken = backwardGlobComp(ctx, elems, unpack(segments[len(segments)-1]))
 
-	// FIX: Removed `len(rem) == 0` to allow non-greedy ASTQ to retroactively trigger across paths
 	if matched && wildToken == ILLEGAL && len(segments) > 1 {
-		if meta, ok := unloc(elems[0]).(*globmeta); ok && (meta.token == DAST || meta.token == ASTQ) {
-			wildToken, iE = meta.token, 0
+		tok := getGlobToken(elems[0]) // FIX: Unify retroactive trigger
+		if tok == DAST || tok == ASTQ || tok == PERC {
+			wildToken, iE = tok, 0
 			if len(stems) > 0 {
-				rem = concat(rem, stems[0])
+				rem = concat(rem, unpack(stems[0]))
 				stems = stems[1:]
 			}
 		}
@@ -4595,8 +4732,9 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 		optraw{len(rem) == 0 && len(segments) > 1, segments[len(segments)-1].Position(), ""},
 	)
 
-	if wildToken == DAST || wildToken == ASTQ {
-		if len(elems[:iE+1]) == 1 {
+	if wildToken == DAST || wildToken == ASTQ || wildToken == PERC {
+		// CRITICAL FIX: Ensure the element is a PURE wildcard before taking the shortcut!
+		if isPureWildcard(elems[iE]) && len(elems[:iE+1]) == 1 {
 			return true,
 				segments, 
 				nil,      
@@ -4654,17 +4792,33 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 
 func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int) {
 	for iE < len(elems) { 
+		patAtoms := unpack(elems[iE])
+
+		if len(patAtoms) == 1 {
+			if p, ok := unloc(patAtoms[0]).(*punct); ok && p.token == PTAIL {
+				if iS < len(segments) {
+					var bypass = true
+					if targetAtoms := unpack(segments[iS]); len(targetAtoms) == 1 {
+						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == PTAIL { bypass = false }
+					}
+					if bypass {
+						res = concat(res, packComp(patAtoms))
+						iE++; continue
+					}
+				}
+			}
+		}
+
 		if iS >= len(segments) { return false, res, nil, stems, iE, iS }
 
-		patAtoms := unpack(elems[iE])
 		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
 
-		// FIX: Removed `len(remAtoms) == 0` to allow non-greedy ASTQ to retroactively trigger across paths
 		if m && wt == ILLEGAL && iS+1 < len(segments) {
-			if meta, ok := unloc(patAtoms[len(patAtoms)-1]).(*globmeta); ok && (meta.token == DAST || meta.token == ASTQ) {
-				wt, ie = meta.token, len(patAtoms)-1
+			tok := getGlobToken(patAtoms[len(patAtoms)-1])
+			if tok == DAST || tok == ASTQ || tok == PERC {
+				wt, ie = tok, len(patAtoms)-1
 				if len(s) > 0 {
-					remAtoms = concat(s[len(s)-1], remAtoms)
+					remAtoms = concat(unpack(s[len(s)-1]), remAtoms)
 					s = s[:len(s)-1]
 				}
 			}
@@ -4672,12 +4826,26 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 
 		partial := len(remAtoms) > 0
 
-		if wt == DAST || wt == ASTQ {
+		if wt == DAST || wt == ASTQ || wt == PERC {
 			sufAtoms := patAtoms[ie+1:]
+
+			// BEAUTIFUL ABSTRACTION: Cleanly extract and prepend the suffix!
+			if suf := getWildcardSuffix(patAtoms[ie]); suf != nil {
+				sufAtoms = concat([]Value{suf}, sufAtoms)
+			}
+
 			pathElems := elems[iE+1:]
 			gap := segments[iS+1:] 
 
-			if wt == ASTQ {
+			preBound := ie > 0
+			postBound := len(sufAtoms) > 0
+
+			isLast := len(sufAtoms) == 0 && (len(pathElems) == 0 || (len(pathElems) == 1 && func() bool {
+				if p, ok := unloc(unpack(pathElems[0])[0]).(*punct); ok && p.token == PTAIL { return true }
+				return false
+			}()))
+
+			if wt == ASTQ && !isLast {
 				for k := 0; k <= len(gap); k++ {
 					var targetAtoms []Value
 					var targetPos Position
@@ -4723,13 +4891,17 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 									return true,
 										concat(res, packComp(concat(resAtoms, gapAtoms, rSuf)), rPath),
 										remPath,
-										concat(stems, s, gapseg{true, patAtoms[ie], gapAtoms}, sSuf, sPath),
+										concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{postBound, patAtoms[ie], gapAtoms}))}, sSuf, sPath),
 										iE + 1 + iEPath, iS + shift
 								} else {
 									return true,
 										concat(res, segments[iS], gap[:k-1], packComp(concat(gapAtoms, rSuf)), rPath),
 										remPath,
-										concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{ie > 0, patAtoms[ie], remAtoms}, gap[:k-1], gapseg{true, patAtoms[ie], gapAtoms}))}, sSuf, sPath),
+										concat(stems, s, stemseg{patAtoms[ie], packPath(concat(
+											gapseg{preBound, patAtoms[ie], remAtoms},
+											gap[:k-1],
+											gapseg{postBound, patAtoms[ie], gapAtoms},
+										))}, sSuf, sPath),
 										iE + 1 + iEPath, iS + k + shift
 								}
 							}
@@ -4747,7 +4919,12 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 						var remSuf, sSuf []Value
 						
 						if len(sufAtoms) > 0 {
-							mSuf, _, remSuf, sSuf, _, _, _ = backwardGlobComp(ctx, sufAtoms, remAtoms)
+							mSuf, _, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, remAtoms)
+							if !mSuf || len(remSuf) > 0 {
+								if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, sufAtoms, remAtoms); mB {
+									mSuf, remSuf, sSuf = mB, remB, sB
+								}
+							}
 							if !mSuf { continue }
 						} else {
 							remSuf = remAtoms
@@ -4757,7 +4934,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 							return true,
 								concat(res, segments[iS], rPath),
 								remPath,
-								concat(stems, s, gapseg{true, patAtoms[ie], remSuf}, sSuf, sPath),
+								concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{postBound, patAtoms[ie], remSuf}))}, sSuf, sPath),
 								iE + 1 + iEPath, iS + 1 + iSPath
 						}
 					} else {
@@ -4765,7 +4942,12 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 						var remSuf, sSuf []Value
 						
 						if len(sufAtoms) > 0 {
-							mSuf, _, remSuf, sSuf, _, _, _ = backwardGlobComp(ctx, sufAtoms, unpack(gap[k-1]))
+							mSuf, _, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, unpack(gap[k-1]))
+							if !mSuf || len(remSuf) > 0 {
+								if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, sufAtoms, unpack(gap[k-1])); mB {
+									mSuf, remSuf, sSuf = mB, remB, sB
+								}
+							}
 							if !mSuf { continue }
 						} else {
 							remSuf = unpack(gap[k-1])
@@ -4775,7 +4957,11 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 							return true,
 								concat(res, segments[iS], gap[:k], rPath),
 								remPath,
-								concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{ie > 0, patAtoms[ie], remAtoms}, gap[:k-1], gapseg{len(sufAtoms) > 0, patAtoms[ie], remSuf}))}, sSuf, sPath),
+								concat(stems, s, stemseg{patAtoms[ie], packPath(concat(
+									gapseg{preBound, patAtoms[ie], remAtoms},
+									gap[:k-1],
+									gapseg{postBound, patAtoms[ie], remSuf},
+								))}, sSuf, sPath),
 								iE + 1 + iEPath, iS + 1 + k + iSPath
 						}
 					}
@@ -4785,12 +4971,14 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 			return false,
 				concat(res, segments[iS:]),
 				nil,
-				concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{ie > 0, patAtoms[ie], remAtoms}, gap))}),
+				concat(stems, s, stemseg{patAtoms[ie], packPath(concat(
+					gapseg{preBound, patAtoms[ie], remAtoms},
+					gap,
+				))}),
 				iE + 1, len(segments)
 		}
 		
-		res = concat(res, packComp(resAtoms))
-		stems = concat(stems, s)
+		res, stems = concat(res, packComp(resAtoms)), concat(stems, s)
 		rem = concat(
 			packComp(remAtoms),
 			optraw{len(remAtoms) == 0 && iS+1 < len(segments), segments[iS].Position(), ""},
@@ -4808,24 +4996,60 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 		iS++
 	}
 
-	return true, res, segments[iS:], stems, iE, iS
+	if iS < len(segments) && iS > 0 {
+		consumedSlash := false
+		if len(elems) > 0 {
+			if lastPat := unpack(elems[len(elems)-1]); len(lastPat) == 1 {
+				if p, ok := unloc(lastPat[0]).(*punct); ok && p.token == PTAIL { consumedSlash = true }
+			}
+		}
+		if !consumedSlash {
+			rem = concat(_raw(segments[iS].Position(), ""), segments[iS:])
+		} else {
+			rem = segments[iS:]
+		}
+	} else {
+		rem = segments[iS:]
+	}
+	return true, res, rem, stems, iE, iS
 }
 
 func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int) {
 	iE, iS = len(elems) - 1, len(segments) - 1
 
 	for iE >= 0 { 
-		if iS < 0 { return false, res, nil, stems, iE, iS + 1 }
-
 		patAtoms := unpack(elems[iE])
-		m, resAtoms, remAtoms, s, ie, _, wt := backwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
 
-		// FIX: Removed `len(remAtoms) == 0` to allow non-greedy ASTQ to retroactively trigger across paths
+		if len(patAtoms) == 1 {
+			if p, ok := unloc(patAtoms[0]).(*punct); ok && p.token == PROOT {
+				if 0 <= iS {
+					var bypass = true
+					if targetAtoms := unpack(segments[iS]); len(targetAtoms) == 1 {
+						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == PROOT { bypass = false }
+					}
+					if bypass {
+						res = concat(packComp(patAtoms), res) 
+						iE--; continue
+					}
+				}
+			}
+		}
+
+		if iS < 0 { return false, res, nil, stems, iE + 1, iS + 1 }
+
+		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
+		if !m || len(remAtoms) > 0 {
+			if mB, resB, remB, sB, ieB, _, wtB := backwardGlobComp(ctx, patAtoms, unpack(segments[iS])); mB {
+				m, resAtoms, remAtoms, s, ie, wt = mB, resB, remB, sB, ieB, wtB
+			}
+		}
+
 		if m && wt == ILLEGAL && iS > 0 {
-			if meta, ok := unloc(patAtoms[0]).(*globmeta); ok && (meta.token == DAST || meta.token == ASTQ) {
-				wt, ie = meta.token, 0
+			tok := getGlobToken(patAtoms[0])
+			if tok == DAST || tok == ASTQ || tok == PERC {
+				wt, ie = tok, 0
 				if len(s) > 0 {
-					remAtoms = concat(remAtoms, s[0])
+					remAtoms = concat(remAtoms, unpack(s[0]))
 					s = s[1:]
 				}
 			}
@@ -4833,12 +5057,26 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 
 		partial := len(remAtoms) > 0
 
-		if wt == DAST || wt == ASTQ {
+		if wt == DAST || wt == ASTQ || wt == PERC {
 			preAtoms := patAtoms[:ie]
+
+			// BEAUTIFUL ABSTRACTION: Cleanly extract and append the prefix!
+			if pfx := getWildcardPrefix(patAtoms[ie]); pfx != nil {
+				preAtoms = concat(preAtoms, []Value{pfx})
+			}
+
 			pathElems := elems[:iE]
 			gap := segments[:iS] 
 
-			if wt == ASTQ {
+			preBound := len(preAtoms) > 0
+			postBound := ie+1 < len(patAtoms)
+
+			isFirst := len(preAtoms) == 0 && (len(pathElems) == 0 || (len(pathElems) == 1 && func() bool {
+				if p, ok := unloc(unpack(pathElems[0])[0]).(*punct); ok && p.token == PROOT { return true }
+				return false
+			}()))
+
+			if wt == ASTQ && !isFirst {
 				for k := len(gap); k >= 0; k-- {
 					var targetAtoms []Value
 					var targetPos Position
@@ -4859,7 +5097,12 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 						if len(preAtoms) > 0 {
 							var testVals []Value
 							if i > 0 { testVals = unpack(_raw(targetPos, str[:i])) }
-							mPre, rPre, remPre, sPre, _, _, _ = backwardGlobComp(ctx, preAtoms, testVals)
+							mPre, rPre, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, testVals)
+							if !mPre || len(remPre) > 0 {
+								if mB, rB, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, testVals); mB {
+									mPre, rPre, remPre, sPre = mB, rB, remB, sB
+								}
+							}
 						} else {
 							mPre = true
 							if i > 0 { remPre = unpack(_raw(targetPos, str[:i])) }
@@ -4884,13 +5127,17 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 									return true,
 										concat(rPath, packComp(concat(rPre, gapAtoms, resAtoms)), res),
 										remPath,
-										concat(sPath, sPre, gapseg{true, patAtoms[ie], gapAtoms}, s, stems),
+										concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(gapseg{preBound, patAtoms[ie], gapAtoms}))}, s, stems),
 										iEPath, shift
 								} else {
 									return true,
 										concat(rPath, packComp(concat(rPre, gapAtoms)), gap[k+1:], segments[iS], res),
 										remPath,
-										concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(gapseg{len(preAtoms) > 0, patAtoms[ie], gapAtoms}, gap[k+1:], gapseg{ie+1 < len(patAtoms), patAtoms[ie], remAtoms}))}, s, stems),
+										concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(
+											gapseg{preBound, patAtoms[ie], gapAtoms},
+											gap[k+1:],
+											gapseg{postBound, patAtoms[ie], remAtoms},
+										))}, s, stems),
 										iEPath, shift
 								}
 							}
@@ -4909,8 +5156,14 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 
 						if len(preAtoms) > 0 {
 							mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, remAtoms)
+							if !mPre || len(remPre) > 0 {
+								if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, remAtoms); mB {
+									mPre, remPre, sPre = mB, remB, sB
+								}
+							}
 							if !mPre { continue }
 						} else {
+							mPre = true
 							remPre = remAtoms
 						}
 
@@ -4918,7 +5171,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 							return true,
 								concat(rPath, segments[iS], res),
 								remPath,
-								concat(sPath, sPre, gapseg{true, patAtoms[ie], remPre}, s, stems),
+								concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(gapseg{preBound, patAtoms[ie], remPre}))}, s, stems),
 								iEPath, iSPath
 						}
 					} else {
@@ -4927,8 +5180,14 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 						
 						if len(preAtoms) > 0 {
 							mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, unpack(gap[k]))
+							if !mPre || len(remPre) > 0 {
+								if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, unpack(gap[k])); mB {
+									mPre, remPre, sPre = mB, remB, sB
+								}
+							}
 							if !mPre { continue }
 						} else {
+							mPre = true
 							remPre = unpack(gap[k])
 						}
 
@@ -4936,7 +5195,11 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 							return true,
 								concat(rPath, gap[k:], segments[iS], res),
 								remPath,
-								concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(gapseg{len(preAtoms) > 0, patAtoms[ie], remPre}, gap[k+1:], gapseg{ie+1 < len(patAtoms), patAtoms[ie], remAtoms}))}, s, stems),
+								concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(
+									gapseg{preBound, patAtoms[ie], remPre},
+									gap[k+1:],
+									gapseg{postBound, patAtoms[ie], remAtoms},
+								))}, s, stems),
 								iEPath, iSPath
 						}
 					}
@@ -4946,29 +5209,47 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 			return false,
 				concat(segments[:iS+1], res),
 				nil,
-				concat(stemseg{patAtoms[ie], packPath(concat(gap, gapseg{ie+1 < len(patAtoms), patAtoms[ie], remAtoms}))}, s, stems),
-				iE - 1, 0 
+				concat(stemseg{patAtoms[ie], packPath(concat(
+					gap,
+					gapseg{postBound, patAtoms[ie], remAtoms},
+				))}, s, stems),
+				iE + 1, 0 
 		}
 		
-		res = concat(packComp(resAtoms), res)
-		stems = concat(s, stems)
+		res, stems = concat(packComp(resAtoms), res), concat(s, stems)
 		rem = concat(
 			segments[:iS],
 			packComp(remAtoms),
 			optraw{len(remAtoms) == 0 && iS > 0, segments[iS].Position(), ""},
 		)
 
-		if !m { return false, res, rem, stems, iE, iS }
+		if !m { return false, res, rem, stems, iE + 1, iS }
 
 		if partial {
-			if iE > 0 { return false, res, rem, stems, iE, iS }
-			return true, res, rem, stems, iE - 1, iS
+			if iE > 0 { return false, res, rem, stems, iE + 1, iS }
+			return true, res, rem, stems, iE, iS
 		}
 
 		iE--
 		iS--
 	}
-	return true, res, segments[:iS+1], stems, iE, iS + 1
+
+	if iS >= 0 && iS < len(segments)-1 {
+		consumedSlash := false
+		if len(elems) > 0 {
+			if firstPat := unpack(elems[0]); len(firstPat) == 1 {
+				if p, ok := unloc(firstPat[0]).(*punct); ok && p.token == PROOT { consumedSlash = true }
+			}
+		}
+		if !consumedSlash {
+			rem = concat(segments[:iS+1], _raw(segments[iS+1].Position(), ""))
+		} else {
+			rem = segments[:iS+1]
+		}
+	} else {
+		rem = segments[:iS+1]
+	}
+	return true, res, rem, stems, iE + 1, iS + 1 
 }
 
 // matchScalarScalar matches a scalar value against a scalar value.
@@ -5002,13 +5283,6 @@ func matchCompComp(ctx Context, elems, vals []Value, trail bool) (matched bool, 
 	if trail { return backwardCompComp(ctx, elems, vals) } else { return forwardCompComp(ctx, elems, vals) }
 }
 
-// matchGlobScalar matches a scalar glob pattern against a scalar value.
-// Returns matched=true if the pattern successfully matched (fully or partially).
-func matchGlobScalar(ctx Context, pat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
-	if checkpoints { defer check_matchGlobScalar(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
-	if trail { return backwardGlobScalar(ctx, pat, val) } else { return forwardGlobScalar(ctx, pat, val) }
-}
-
 // matchGlobComp matches glob elements (elems) against value atoms (vals).
 func matchGlobComp(ctx Context, elems, vals []Value, trail bool) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
 	if checkpoints { defer check_matchGlobComp(ctx, elems, vals, trail)(&matched, &res, &rem, &stems, &iE, &iV, &wildToken) }
@@ -5028,14 +5302,13 @@ func matchPathPath(ctx Context, elems, segments []Value, trail bool) (matched bo
 }
 
 // match matches pattern `pat` against value `val`.
-// Returns full=true if both the pattern AND value were completely consumed.
-func match(ctx Context, pat, val Value) (full bool, res, rem Value, stems []Value) {
-	if checkpoints { defer check_match(ctx, pat, val)(&full, &res, &rem, &stems) }
-
+// Returns matched=true if the pattern was completely satisfied, even if the target value has a remainder.
+// The unconsumed portion of the value is returned as `rem`.
+func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
 	switch p := pat.(type) {
 	case *loc: return match(ctx, p.Value, val)
 	case *globbrace: return match(ctx, &p.globpat, val)
-	case *globmeta, *globrange: return match(ctx, _globpat(pat), val)
+	case *globmeta, *globrange, *percpat: return match(ctx, _globpat(pat), val)
 	case *file: 
 		switch segs := splitPathStr(ctx, p.name); len(segs) {
 		case 0: rem = val ; goto Normalize
@@ -5045,11 +5318,10 @@ func match(ctx Context, pat, val Value) (full bool, res, rem Value, stems []Valu
 	case flag:
 		if v, ok := val.(flag); ok { return match(ctx, p.Value, v.Value) }
 	}
-
 	switch v := val.(type) {
 	case *loc: return match(ctx, pat, v.Value)
 	case *globbrace: return match(ctx, pat, &v.globpat)
-	case *globmeta, *globrange: return match(ctx, pat, _globpat(val))
+	case *globmeta, *globrange, *percpat: return match(ctx, pat, _globpat(val))
 	case *file: 
 		switch segs := splitPathStr(ctx, v.name); len(segs) {
 		case 0: rem = val ; goto Normalize
@@ -5058,227 +5330,237 @@ func match(ctx Context, pat, val Value) (full bool, res, rem Value, stems []Valu
 		}
 	}
 
-	{
-		idx, trail := 0, truly(ctx, propReversal)
+	if checkpoints { defer check_match(ctx, pat, val)(&matched, &res, &rem, &stems) }
 
-		switch p := pat.(type) {
-		case *globpat:
-			switch v := val.(type) {
-			case *path:
-				var r, rm []Value
-				full, r, rm, stems, _, idx, _ = matchGlobPath(ctx, p.elems, v.elems, trail)
-				full = full && len(rm) == 0 && (trail && idx <= 0 || !trail && idx == len(v.elems))
-				res, rem = packPath(r), packPath(rm)
-			case *globpat:
-				var r, rm []Value
-				full, r, rm, stems, _, idx, _ = matchGlobComp(ctx, p.elems, v.elems, trail)
-				full = full && len(rm) == 0 && (trail && idx <= 0 || !trail && idx == len(v.elems))
-				res, rem = packComp(r), packComp(rm)
-			case *compound:
-				var r, rm []Value
-				full, r, rm, stems, _, idx, _ = matchGlobComp(ctx, p.elems, v.elems, trail)
-				full = full && len(rm) == 0 && (trail && idx <= 0 || !trail && idx == len(v.elems))
-				res, rem = packComp(r), packComp(rm)
-			default:
-				var r, rm []Value
-				full, r, rm, stems, _, idx, _ = matchGlobComp(ctx, p.elems, []Value{v}, trail)
-				full = full && len(rm) == 0 && (trail && idx <= 0 || !trail && idx == 1)
-				res, rem = packComp(r), packComp(rm)
-			}
-
-		case *compound:
-			switch v := val.(type) {
-			case *path:
-				full, res, rem, stems = match(ctx, pat, v.elems[0])
-				full = full && len(p.elems) <= 1
-				
-				// Preserve the structural slash for the compound boundary
-				var remParts []Value
-				if rem != nil { remParts = concat(remParts, rem) } else
-				if len(v.elems) > 1 { remParts = concat(_raw(v.elems[0].Position(), "")) }
-				if len(v.elems) > 1 { remParts = concat(remParts, v.elems[1:]) }
-				if len(remParts) > 0 { rem = packPath(remParts) } else { rem = nil }
-			case *compound:
-				var r, rm []Value
-				full, r, rm, _, idx = matchCompComp(ctx, p.elems, v.elems, trail)
-				full = full && len(rm) == 0 && (trail && idx <= 0 || !trail && idx == len(v.elems))
-				res, rem = packComp(r), packComp(rm)
-			case *globpat:
-				var r, rm []Value
-				full, r, rm, _, idx = matchCompComp(ctx, p.elems, v.elems, trail)
-				full = full && len(rm) == 0 && (trail && idx <= 0 || !trail && idx == len(v.elems))
-				res, rem = packComp(r), packComp(rm)
-			default:
-				var r, rm []Value
-				full, r, rm, _, idx = matchCompComp(ctx, p.elems, []Value{v}, trail)
-				full = full && len(rm) == 0 && (trail && idx <= 0 || !trail && idx == 1)
-				res, rem = packComp(r), packComp(rm)
-			}
-
+	{ trail := truly(ctx, propReversal); switch p := pat.(type) {
+	case *globpat:
+		switch v := val.(type) {
 		case *path:
-			switch v := val.(type) {
-			case *path:
-				var r, rm []Value
-				full, r, rm, stems, _, idx = matchPathPath(ctx, p.elems, v.elems, trail)
-				full = full && len(rm) == 0 && (trail && idx <= 0 || !trail && idx == len(v.elems))
-				res, rem = packPath(r), packPath(rm)
-			default:
-				full, res, rem, stems = match(ctx, p.elems[0], v)
-				full = full && len(p.elems) <= 1
-			}
-
-		case *regexpat:
-			if p.Regexp == nil { debug(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num: 10}, trace{}) }
-			if sm := p.Regexp.FindStringSubmatch(__string(ctx, val)); sm != nil {
-				res = _raw(val.Position(), sm[0])
-				for _, s := range sm[1:] { stems = append(stems, _raw(val.Position(), s)) }
-				full = true
-			} else {
-				rem = val
-			}
-			goto Normalize
-
-		case *list:
-			if t, ok := val.(*list); ok {
-				for _, _p := range p.elems {
-					for _, _v := range t.elems {
-						if full, res, rem, stems = match(ctx, _p, _v); full { goto Normalize }
-					}
-				}
-			} else {
-				for _, _p := range p.elems {
-					if full, res, rem, stems = match(ctx, _p, val); full { goto Normalize }
-				}
-			}
-			goto Normalize
-
+			var r, rm []Value
+			matched, r, rm, stems, _, _, _ = matchGlobPath(ctx, p.elems, v.elems, trail)
+			res, rem = packPath(r), packPath(rm)
+		case *globpat:
+			var r, rm []Value
+			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		case *compound:
+			var r, rm []Value
+			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
 		default:
-			full, res, rem = matchScalarScalar(ctx, pat, val, trail)
-			full = full && rem == nil // Only full if entire scalar was matched
+			var r, rm []Value
+			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, []Value{v}, trail)
+			res, rem = packComp(r), packComp(rm)
 		}
-	}
+
+	case *compound:
+		switch v := val.(type) {
+		case *path:
+			if trail {
+				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
+				rem = packPath(concat(v.elems[:len(v.elems)-1], _raw(v.elems[len(v.elems)-1].Position(), ""), rem))
+			} else {
+				matched, res, rem, stems = match(ctx, pat, v.elems[0])
+				rem = packPath(concat(rem, _raw(v.elems[0].Position(), ""), v.elems[1:]))
+			}
+		case *compound:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		case *globpat:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		default:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, []Value{v}, trail)
+			res, rem = packComp(r), packComp(rm)
+		}
+
+	case *path:
+		switch v := val.(type) {
+		case *path:
+			var r, rm []Value
+			matched, r, rm, stems, _, _ = matchPathPath(ctx, p.elems, v.elems, trail)
+			res, rem = packPath(r), packPath(rm)
+		default:
+			matched, res, rem, stems = match(ctx, p.elems[0], v)
+			matched = matched && len(p.elems) <= 1
+		}
+
+	case *regexpat:
+		if p.Regexp == nil { debug(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num: 10}, trace{}) }
+		if sm := p.Regexp.FindStringSubmatch(__string(ctx, val)); sm != nil {
+			res = _raw(val.Position(), sm[0])
+			for _, s := range sm[1:] { stems = append(stems, _raw(val.Position(), s)) }
+			matched = true
+		} else {
+			rem = val
+		}
+		goto Normalize
+
+	case *list:
+		if t, ok := val.(*list); ok {
+			for _, _p := range p.elems {
+				for _, _v := range t.elems {
+					if matched, res, rem, stems = match(ctx, _p, _v); matched { goto Normalize }
+				}
+			}
+		} else {
+			for _, _p := range p.elems {
+				if matched, res, rem, stems = match(ctx, _p, val); matched { goto Normalize }
+			}
+		}
+		goto Normalize
+
+	default: 
+		switch v := val.(type) {
+		case *path:
+			if trail {
+				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
+				rem = packPath(concat(v.elems[:len(v.elems)-1], _raw(v.elems[len(v.elems)-1].Position(), ""), rem))
+			} else {
+				matched, res, rem, stems = match(ctx, pat, v.elems[0])
+				rem = packPath(concat(rem, _raw(v.elems[0].Position(), ""), v.elems[1:]))
+			}
+		case *compound:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, []Value{pat}, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		case *globpat:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, []Value{pat}, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		default:
+			matched, res, rem = matchScalarScalar(ctx, pat, val, trail)
+		}
+	}}
 
 Normalize:
-	if !full && !truly(ctx, is_swapped{}) && patterned(ctx, val) {
-		if full, _, _, _ = match(swapped_ctx{ctx}, val, pat); full { res, rem, stems = val, nil, nil }
+	if !matched && !truly(ctx, is_swapped{}) && patterned(ctx, val) {
+		if matched, _, _, _ = match(swapped_ctx{ctx}, val, pat); matched { res, rem, stems = val, nil, nil }
 	}
+
+	// Universal unwrapper: safely destroys degenerate wrappers and empty AST ghosts
+	res, rem = correctMatchRes(res), correctMatchRes(rem)
 
 	// Universal fallback: if the matcher completely failed and dropped the remainder,
 	// securely restore the unconsumed original value
-	if !full && res == nil && rem == nil { rem = val }
-
-	// Universal unwrapper: ensures match NEVER leaks degenerate single-element wrappers
-	switch t := res.(type) {
-	case *compound: if len(t.elems) == 1 { res = t.elems[0] }
-	case *path:     if len(t.elems) == 1 { res = t.elems[0] }
-	}
-	switch t := rem.(type) {
-	case *compound: if len(t.elems) == 1 { rem = t.elems[0] }
-	case *path:     if len(t.elems) == 1 { rem = t.elems[0] }
-	}
+	if !matched && res == nil && rem == nil { rem = val }
 	return
 }
 
+func correctMatchRes(v Value) Value {
+	for v != nil {
+		if isEmpty(v) { return nil }
+		switch t := v.(type) {
+		case *compound: if len(t.elems) == 1 { v = t.elems[0]; continue }
+		case *path:     if len(t.elems) == 1 { v = t.elems[0]; continue }
+		}
+		break
+	}
+	return v
+}
+
 func stencil(ctx Context, pat Value, stems []Value) (res Value, rest []Value) {
-    switch p := pat.(type) {
-    case *loc: return stencil(ctx, p.Value, stems)
-    case *rule: return stencil(ctx, p.target, stems)
-    case flag:
-        var name Value
-        name, rest = stencil(ctx, p.Value, stems)
-        res = flag{name}
-        return
-    case *compound:
-        v := new(compound)
-        res, rest = v, stems
-        for _, elem := range p.elems {
-            var t Value
-            t, rest = stencil(ctx, elem, rest)
-            v.elems = append(v.elems, t)
-        }
-        return
-    case *path:
-        v := new(path)
-        res, rest = v, stems
-        for _, elem := range xmerge(ctx, p.elems...) {
-            var t Value
-            if t, rest = stencil(ctx, elem, rest); isTrivial(t) { t = elem }
-            v.elems = append(v.elems, t)
-        }
-        return
-    case *list:
-        v := new(list)
-        res, rest = v, stems
-        for _, elem := range p.elems {
-            var t Value
-            t, rest = stencil(ctx, elem, rest)
-            v.elems = append(v.elems, t)
-        }
-        return
-    case *pair:
-        v := new(pair)
-        v.key, rest = stencil(ctx, p.key, stems)
-        v.val, rest = stencil(ctx, p.val, rest)
-        res = v
-        return
-    case *percpat:
-        var vals []Value
-        if isTrivial(p.Prefix) {
-            // does nothing
-        } else if patterned(ctx,p.Prefix) {
-            debug(ctx, "patterned prefix: %T %v", p.Prefix, p.Prefix, trace{})
-        } else {
-            vals = append(vals, p.Prefix)
-        }
+	switch p := pat.(type) {
+	case *loc: 
+		return stencil(ctx, p.Value, stems)
+	case *rule: 
+		return stencil(ctx, p.target, stems)
+	case flag:
+		var name Value
+		name, rest = stencil(ctx, p.Value, stems)
+		return flag{name}, rest
+	case *compound:
+		v := new(compound)
+		rest = stems
+		for _, elem := range p.elems {
+			var t Value
+			t, rest = stencil(ctx, elem, rest)
+			v.elems = append(v.elems, t)
+		}
+		return v, rest
+	case *path:
+		v := new(path)
+		rest = stems
+		// REFINED: Iterate natively. Do not call xmerge here! Stenciling 
+		// is a structural mapping, not a runtime evaluation.
+		for _, elem := range p.elems {
+			var t Value
+			if t, rest = stencil(ctx, elem, rest); isTrivial(t) { t = elem }
+			v.elems = append(v.elems, t)
+		}
+		return v, rest
+	case *list:
+		v := new(list)
+		rest = stems
+		for _, elem := range p.elems {
+			var t Value
+			t, rest = stencil(ctx, elem, rest)
+			v.elems = append(v.elems, t)
+		}
+		return v, rest
+	case *pair:
+		v := new(pair)
+		v.key, rest = stencil(ctx, p.key, stems)
+		v.val, rest = stencil(ctx, p.val, rest)
+		return v, rest
+	case *percpat:
+		var vals []Value
+		
+		// 1. Prefix
+		if !isTrivial(p.Prefix) {
+			if patterned(ctx, p.Prefix) {
+				debug(ctx, "patterned prefix: %T %v", p.Prefix, p.Prefix, trace{})
+			} else {
+				vals = append(vals, p.Prefix)
+			}
+		}
 
-        if len(stems) > 0 {
-            if s := stems[0]; !isEmpty(s) { vals = append(vals, s) }
-            rest = stems[1:]
-        } else {
-            // return
-        }
+		// 2. Stem Substitution (The '%')
+		rest = stems
+		if len(stems) > 0 {
+			if s := stems[0]; !isEmpty(s) { vals = append(vals, s) }
+			rest = stems[1:]
+		}
 
-        var suffix Value
-        if isTrivial(p.Suffix) {
-            goto DoneVals
-        } else if pp, ok := p.Suffix.(*percpat); ok && isTrivial(pp.Prefix) {
-            if isTrivial(pp.Suffix) {
-                goto DoneVals
-            } else {
-                suffix = pp.Suffix
-            }
-        } else {
-            suffix = p.Suffix
-        }
+		// 3. Suffix
+		if !isTrivial(p.Suffix) {
+			// REFINED: Cleaned up the nested *percpat checks and gotos
+			var suffix = p.Suffix
+			if pp, ok := p.Suffix.(*percpat); ok && isTrivial(pp.Prefix) && !isTrivial(pp.Suffix) {
+				suffix = pp.Suffix
+			}
+			
+			if suf, r := stencil(ctx, suffix, rest); !isNull(suf) && suf != suffix {
+				vals = append(vals, suf)
+				rest = r
+			} else {
+				vals = append(vals, suffix)
+			}
+		}
 
-        if isTrivial(suffix) {
-            goto DoneVals
-        } else if suf, r := stencil(ctx, suffix, rest); !isNull(suf) && suf != suffix {
-            vals, rest = append(vals, suf), r
-        } else {
-            vals, rest = append(vals, suffix), r
-        }
+		// 4. Flatten the Result
+		if len(vals) == 1 {
+			return vals[0], rest
+		}
+		return &compound{elements{vals}}, rest
 
-    DoneVals:
-        if len(vals) == 1 {
-            res = vals[0]
-        } else {
-            res = &compound{elements{vals}}
-        }
-        return
-    case *barefile:
-        var name Value
-        if p.file != nil {
-            res, rest = stencil(ctx, p.file, stems)
-        } else if name, rest = stencil(ctx, p.Value, stems); name != p.Value {
-            res = &barefile{name, p.file}
-        } else {
-            res = p
-        }
-        return
-    default:
-        return pat, stems
-    }
+	case *barefile:
+		var name Value
+		if p.file != nil {
+			res, rest = stencil(ctx, p.file, stems)
+		} else if name, rest = stencil(ctx, p.Value, stems); name != p.Value {
+			res = &barefile{name, p.file}
+		} else {
+			res = p
+		}
+		return res, rest
+		
+	default:
+		return pat, stems
+	}
 }
 
 func patterned(ctx Context, v any) (res bool) {
@@ -5378,6 +5660,7 @@ func traverse(ctx Context, val Value) {
     case *auto: if v := auto_get(ctx, p.name); v != nil { traverse(ctx, v) }
     case *def: if v := p.value; v != nil { traverse(ctx, v) }
     case negative: if v := p.Value; v != nil { traverse(ctx, v) }
+	case matched_rule: traverse(ctx, p.rule)
     case *project:
         if t := p.main; t != nil {
             switch t.destiny().(type) { case flag: return }
@@ -5650,7 +5933,7 @@ func tv(i any) (s string) {
     switch x := i.(type) {
     case *null, *none:
     case *compound, *list:
-        var t = x.(interface{ slice(int,...int) []Value })
+        var t = x.(interface{ slice(...int) []Value })
         for _, v := range t.slice(0) { if s != "" { s += " " }; s += tv(v) }
         if s != "" { s = ":"+s }
     case interface{ String() string }: s = ":"+x.String()

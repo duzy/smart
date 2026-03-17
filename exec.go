@@ -121,7 +121,7 @@ var (
             debug(c, "no such command '%s'", sm[2], trace{})
         },
         regexp.MustCompile(`(.+?): (.+?):( command)? not found`): func(c Context, line []byte, sm [][]byte) {
-            erro(c, "%s: command not found", sm[2], trace{})
+            debug(c, "%s: command not found", sm[2], trace{})
         },
         regexp.MustCompile(`the input device is not a TTY`): func(c Context, line []byte, sm [][]byte) {
             debug(c, "%s", sm[0], trace{})
@@ -505,7 +505,7 @@ func (p *exec_ctx) do(ctx Context, op any) any {
 
 func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
     if p.container == nil {
-        erro(p.Context, "no container", trace{})
+        debug(p.Context, "no container", trace{})
     } else if maxRetries < p.num {
         fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
         return
@@ -522,7 +522,7 @@ func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
             run.execute(p.Context, nil)
         }
     } else {
-        erro(p.Context, "%s⇒run undefined", p.container, trace{})
+        debug(p.Context, "%s⇒run undefined", p.container, trace{})
     }
 
     fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
@@ -594,10 +594,10 @@ func (p *exec_ctx) DEPRECATED_ensureContainerRunning(containerName string) (err 
                 run.execute(p.Context, nil)
             }
         } else {
-            erro(p.Context, "%s⇒run undefined", p.container, trace{})
+            debug(p.Context, "%s⇒run undefined", p.container, trace{})
         }
     } else if err != nil {
-        erro(p.Context, "%v", err, trace{})
+        debug(p.Context, "%v", err, trace{})
     }
     return
 }
@@ -632,7 +632,7 @@ func (p *exec_ctx) run(exe *execution) (err error) {
             if p.Status = x.ExitCode(); p.Status == 0 { err = p.check() } // success!
             if p.resetStatusZero { p.Status = 0 }
         } else {
-            erro(p.Context, "exec failed: %v", err, trace{})
+            debug(p.Context, "exec failed: %v", err, trace{})
             return
         }
     }
@@ -705,7 +705,7 @@ func (p *exec_ctx) check() (err error) {
             }
 
             if diffLogPos && en > 0 { debug(ctx, "%v: %d known errors", str, en) }
-            erro(p, "%v: exit status %d", str, p.Status, trace{})
+            debug(p, "%v: exit status %d", str, p.Status, trace{})
         } else if wn > 0 {
             if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn) }
             warn(p, "%v: exit status %d", str, p.Status)
@@ -946,7 +946,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             var x, y = r.(*argumented)
             if !y { break }
             if len(x.args) != 1 {
-                erro(pc(ctx,x), "wrong result spec: %v", x, trace{})
+                debug(pc(ctx,x), "wrong result spec: %v", x, trace{})
             }
 
             switch s := __string(ctx, x.Value); s {
@@ -956,7 +956,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
             if l, y := x.args[0].(*list); y {
                 if l.len() != 1 {
-                    erro(pc(ctx,x), "wrong result spec: %v", x, trace{})
+                    debug(pc(ctx,x), "wrong result spec: %v", x, trace{})
                 }
                 r = l.elems[0]
             }

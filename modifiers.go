@@ -138,20 +138,20 @@ func modify(ctx Context, g *group, hyphen bool) (res Value) {
         var fy modifier_y
         if !hyphen {
             if fv, _ = mi.(modifier_v); fv == nil {
-                errostack(ctx, 3, "%v: no method: (*%s).v(...)", name, typeof(mi), trace{})
+                debug(ctx, "%v: no method: (*%s).v(...)", name, typeof(mi), trace{})
             }
         } else if fx, _ = mi.(modifier_x); fx == nil {
             if fy, _ = mi.(modifier_y); fy == nil {
-                errostack(ctx, 3, "%v: no method: (*%s).x(...)", name, typeof(mi), trace{})
+                debug(ctx, "%v: no method: (*%s).x(...)", name, typeof(mi), trace{})
             } else if exe == nil {
-                errostack(ctx, 3, "%v: nil execution: (*%s).x(...)", name, typeof(mi), trace{})
+                debug(ctx, "%v: nil execution: (*%s).x(...)", name, typeof(mi), trace{})
             }
         }
 
         if c := mv.Elem().FieldByName("Context"); c.IsValid() {
             c.Set(reflect.ValueOf(modify_ctx{pc(ctx, g)})) // c.Type().String() == "smart.Context"
         } else {
-            errostack(ctx, 3, "%v: no field: %s.Context", name, typeof(mi), trace{})
+            debug(ctx, "%v: no field: %s.Context", name, typeof(mi), trace{})
         }
 
         args = _opts(ctx, mv, args)
@@ -170,7 +170,7 @@ func modify(ctx Context, g *group, hyphen bool) (res Value) {
     } else if res == nil {
         res = _null(g.position) // $- remains too
     } else if name == "defer" || name == "set" || name == "var" {
-        errostack(ctx, 3, "invalid result: (set ...) ⇒ %v", res, trace{})
+        debug(ctx, "invalid result: (set ...) ⇒ %v", res, trace{})
     } else if a := _automatic(ctx); a != nil {
         a.amend(ctx, "-", res)
     }
@@ -351,7 +351,7 @@ func (ctx *modifier_disclose) v(args ...Value) (result any) {
 type modifier_select struct { modifier_ }
 func (ctx *modifier_select) x(args ...Value) (_ any) {
     if h := auto_get(ctx, "-"); h == nil {
-        erro(ctx, "no pipe value $-", trace{})
+        debug(ctx, "no pipe value $-", trace{})
     } else if x, y := h.(*group); y {
         var vals []Value
         for _, a := range xmerge(ctx, args...) {
@@ -371,7 +371,7 @@ func (ctx *modifier_env) x(args ...Value) (result any) {
             if p, y := a.(*pair); y {
                 exe._env = append(exe._env, p)
             } else {
-                erro(ctx, "env: not a pair value: %s", ts(a), trace{})
+                debug(ctx, "env: not a pair value: %s", ts(a), trace{})
             }
         }
     }
@@ -382,7 +382,7 @@ type modifier_var struct { modifier_ }
 func (ctx *modifier_var) x(args ...Value) (_ any) {
     if checkpoints {
         if args != nil {
-            erro(ctx, "%v", args, trace{})
+            debug(ctx, "%v", args, trace{})
         }
         switch p := _project(ctx); p.name {
         case "configure.base":
@@ -409,12 +409,12 @@ func (ctx *modifier_set) x(args ...Value) (_ any) {
             name, value = __string(ctx, a.Value), _null(a.Position())
             if name == "" { name = "-" }
         default:
-            erro(ctx, "%v is unsupported (try: foo=value)", ts(arg), trace{})
+            debug(ctx, "%v is unsupported (try: foo=value)", ts(arg), trace{})
         }
 
         var d, _ = auto_set(ctx, defVoid, name, value)
         if d == nil {
-            erro(ctx, "no auto set: %v : %v", name, ts(ctx), trace{})
+            debug(ctx, "no auto set: %v : %v", name, ts(ctx), trace{})
         }
 
         if name == "@" {
@@ -455,7 +455,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
     exe.Context = closure_with(cc)
 
     if false && cast[*term](ctx) != exe.Context {
-        erro(ctx, "wrong closure_with", trace{})
+        debug(ctx, "wrong closure_with", trace{})
     }
 
     var proj = _project(ctx)
@@ -464,7 +464,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
         if v, y := val.(*boolean); y {
             if !v.bool { noop = true }
         } else if isTrivial(val) {
-            errostack(ctx, 3, "trivial target: %T %v", val, val, trace{})
+            debug(ctx, "trivial target: %T %v", val, val, trace{})
         } else if true {
             t = expand(ctx,val) //, plain
         } else {
@@ -477,7 +477,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
         if t != nil {
             auto_set(ctx, defVoid, name, t) // aka (set @=&@)
         } else if !noop {
-            errostack(ctx, 3, "%v: %s is nil", proj, name, trace{})
+            debug(ctx, "%v: %s is nil", proj, name, trace{})
         }
         return
     }
@@ -511,7 +511,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
         }
 
         // FIXME: if isInnerauto_get(ctx, t.Value) {
-        //     errostack(ctx, 16, "loop: %v", t, trace{})
+        //     debug(ctx, "loop: %v", t, trace{})
         //     return
         // }
     }
@@ -1697,7 +1697,7 @@ func (ctx *modifier_check) x(args ...Value) (_ any) {
     var values []Value
     var checkfile = func (val Value, dir bool) {
         if val == nil {
-            erro(pc(ctx, val), "nil file value to check", trace{})
+            debug(pc(ctx, val), "nil file value to check", trace{})
         } else if x, y := val.(*boolean); y {
             if x.bool { val = auto_get(ctx, "@") } else { val = nil }
         }
@@ -1723,7 +1723,7 @@ func (ctx *modifier_check) x(args ...Value) (_ any) {
         if makeResult != nil {
             values = append(values, makeResult(res))
         } else if !res {
-            erro(pc(ctx, val), "'%v' is not file", val, trace{})
+            debug(pc(ctx, val), "'%v' is not file", val, trace{})
         }
     }
 
@@ -2180,17 +2180,17 @@ func (ctx *modifier_readfile) x(args ...Value) (result any) {
     }
 
     if isTrivial(target) {
-        errostack(ctx, 3, "target for reading is invalid (%T) (%v)", target.Value, args, trace{})
+        debug(ctx, "target for reading is invalid (%T) (%v)", target.Value, args, trace{})
     } else if file, filename, _ = target.fullname_file(ctx); file == nil {
         if val := auto_get(ctx, ">"); val != nil {
             panic(traveTargetNotDefinedFile)
         } else if true {
             debug(ctx, "not a file: %v (%T)", target.Value, target.Value)
-            errostack(ctx, 8, trace{})
+            debug(ctx, trace{})
         }
         return
     } else if filename == "" {
-        errostack(ctx, 3, "%v: empty fullname", target, trace{})
+        debug(ctx, "%v: empty fullname", target, trace{})
     }
 
     var ( bytes []byte ; err error )
@@ -2398,7 +2398,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
 
             if t := _stat(ctx, filename); t == nil {
                 prompt(ctx, "%s: invalid file\n", filename)
-                errostack(ctx, 6, "%v: invalid file '%s'", _project(ctx), filename, trace{})
+                debug(ctx, "%v: invalid file '%s'", _project(ctx), filename, trace{})
             } else {
                 var fs = t.stamp(must_files_stamp{ctx})
                 if false && ctx.verbose { reportFileUpdates(ctx, fs) }
@@ -2551,9 +2551,9 @@ func (ctx *modifier_assert) z(args ...Value) (_ any) {
         } else if ctx.msg == "" {
             var s string
             if v != nil { s = __string(ctx, v) }
-            erro(pc(ctx,a), "assert: %v → %v → '%s'", a, v, s, trace{})
+            debug(pc(ctx,a), "assert: %v → %v → '%s'", a, v, s, trace{})
         } else {
-            erro(pc(ctx,a), "assert: %v → %v: %s", a, v, ctx.msg, trace{})
+            debug(pc(ctx,a), "assert: %v → %v: %s", a, v, ctx.msg, trace{})
         }
     }
     return

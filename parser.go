@@ -1476,7 +1476,7 @@ func (l ul) identity(ctx Context, tok token, name Value) (obj Value, str string,
 			return
 		}
 
-		errostack(pc(ctx,name), 32, "empty ident: %v (nil=%d) : %s", name, ic.nil, ts(name), trace{})
+		debug(pc(ctx,name), "empty ident: %v (nil=%d) : %s", name, ic.nil, ts(name), trace{})
 	}
 
 	switch tok {
@@ -1498,7 +1498,8 @@ func (l ul) identity(ctx Context, tok token, name Value) (obj Value, str string,
 		}
 	}
 
-	errostack(pc(ctx,name), 32, "undefined %v → %v : %s", name, str, ts(name), trace{})
+	debug(pc(ctx,name), "undefined %v → %v : %s", name, str, ts(name),
+		callstack{num:16}, trace{})
 	return
 }
 
@@ -1510,14 +1511,25 @@ func (l ul) calling(ctx Context) (result Value) {
 	var pos = l.p.Position()
 	var closure = l.p.tok.is_closure()
 
-	l.p.step(ctx) // $ &
+	// CRITICAL FIX: Suspend string modes so bare variables (like $1, $@) scan normally
+	suspended := l.p.scanner.bits & (isStrcompLine | isStrcompString | isBracedPlain | isBraceRaw)
+	if suspended != 0 {
+		l.p.scanner.bits &^= suspended
+	}
+
+	l.p.step(ctx) // skips $ or &
+
+	// Restore string modes after the variable's leading token has been safely consumed
+	if suspended != 0 {
+		l.p.scanner.bits |= suspended
+	}
 
 	switch l.p.tok {
 	case LPAREN, LBRACE: // $(...), ${...}
 		tok = l.p.tok // use LPAREN, LBRACE
 		l.p.step(ctx) // skips LPAREN, LBRACE
 
-		if l.p.tok == SPACE { debug(ctx, "unexpected spaces", trace{}) }
+		if l.p.tok == SPACE { debug(pc(ctx,l.p.Position()), "unexpected spaces", trace{}) }
 
 		name = l.expr(selection{ctx})
 
@@ -1563,10 +1575,14 @@ func (l ul) calling(ctx Context) (result Value) {
 		case LBRACE: l.p.expect(ctx, RBRACE)
 		}
 
-	case INTEGER:
+	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING:
 		tok = l.p.tok
-		name = l.literal(ctx) // $0, $1...
+		name = l.literal(ctx) // $0, $1, $1.2, $0x1...
 		str = name.String()
+
+		// Safety trim: If it evaluated to a float, strip the trailing decimal to get the variable name
+		// str = strings.TrimSuffix(str, ".")
+
 		obj = l.resolve(ctx, name, str)
 
 	case STRING:
@@ -1588,27 +1604,41 @@ func (l ul) calling(ctx Context) (result Value) {
 			l.p.step(ctx)
 
 		default:
-			debug(ctx, "unexpects %v", l.p.lit, trace{})
+			debug(pc(ctx,l.p.Position()), _f("unexpects %v", l.p.lit), trace{})
 		}
 
 	default: // case AT, BAR, DOT, SAST, QUE, MINUS, PLUS, PCON:
-		tok, str = l.p.tok, l.p.tok.String()
-		name = l.punct(ctx) // $@, $?, $*, $/...
+		tok = l.p.tok
+		str = l.p.tok.String()
+		
+		// Fallback guard: In the rare case a RAW token still leaks through, intercept it.
+		if tok == RAW {
+			name = _raw(l.p.Position(), l.p.lit)
+			str = l.p.lit
+			l.p.step(ctx)
+		} else {
+			name = l.punct(ctx) // $@, $?, $*, $/...
+		}
+		
 		if obj = l.resolve(ctx, name, str); obj == nil {
-			debug(ctx, "unexpects %v %v (dialect=%s)", tok, name, l.p.dialect, trace{})
+			debug(pc(ctx,l.p.Position()),
+				_f("unexpects %v %v %v (dialect=%s)", tok, str, name, l.p.dialect),
+				trace{})
 		}
 	}
 
 	if obj == nil && str != "" {
 		if l.project.ext.Plugin != nil {
 			if t, e := l.project.ext.Lookup(str); e == nil && t != nil {
-				debug(ctx, "TODO: convert ext symbol: %v : %v", name, ts(t), trace{})
+				debug(pc(ctx,l.p.Position()),
+					_f("TODO: convert ext symbol: %v : %v", name, ts(t)),
+					trace{})
 			}
 		}
 	}
 
 	if obj == nil {
-		debug(ctx, "%v : nil symbol", tok, trace{})
+		debug(pc(ctx,l.p.Position()), _f("%v : nil symbol", tok), trace{})
 	}
 
 	if closure {
@@ -2165,9 +2195,9 @@ func (l ul) braced_fullname(ctx Context) (res Value) {
 
 	var elems []Value
 	for _, elem := range l.braced_elems(ctx) {
-		var v = expand(_final(ctx),elem)
-		v = as{v}.fullname(ctx, l.project)
-		elems = append(elems, v)
+		// CRITICAL FIX: Do not expand eagerly at parse time! 
+		// Preserve variables like $1 by just building the AST node.
+		elems = append(elems, fullname{elem})
 	}
 	return ease(ctx, elems)
 }
@@ -2974,7 +3004,7 @@ func (l ul) recipe(ctx Context) (recipes []Value) {
 			var a *argumented
 			if a, _ = x.(*argumented); a != nil { x = a.Value }
 			if x == nil {
-				errostack(pc(ctx,p), 16, "parsed nil value, dialect=%s", l.p.dialect, trace{})
+				debug(pc(ctx,p), "parsed nil value, dialect=%s", l.p.dialect, trace{})
 			}
 
 			if l.p.dialect == "value" {
@@ -3151,10 +3181,10 @@ func (l ul) modification(ctx Context) *modification {
 	// l.p.expect(ctx, /* RBRACK */RBRACE)
 
 	if len(elems) == 0 {
-		errostack(ctx, 5, "empty modifier group", trace{})
+		debug(ctx, "empty modifier group", trace{})
 	}
 	if l.p.tok == COLON {
-		errostack(ctx, 5, "unexpected colon after modifer", trace{})
+		debug(ctx, "unexpected colon after modifer", trace{})
 	}
     return &modification{vb, elems}
 }
@@ -3471,7 +3501,7 @@ func (l ul) for_done(ctx Context) {
 				}
 
 			default:
-				errostack(pc(ctx,a), 6, "unexpected %v ; %d. %v", ts(a), i, ac.defs, trace{})
+				debug(pc(ctx,a), "unexpected %v ; %d. %v", ts(a), i, ac.defs, trace{})
 			}
 		}
 	}
@@ -3680,18 +3710,18 @@ func (l ul) configure_save(ctx Context) {
 
 	if checkpoints {
 		if c := l.project.configuration; c != nil && c.fullname() != fn {
-			errostack(pc(pc(ctx,fn),c.fullname()), 3, "%s: configuration already loaded", l.project.name, trace{})
+			debug(pc(pc(ctx,fn),c.fullname()), "%s: configuration already loaded", l.project.name, trace{})
 		}
 	}
 
 	if e := os.MkdirAll(filepath.Dir(fn), os.FileMode(0755)); e != nil {
-		errostack(pc(ctx,fn), 3, "make path %s failed: %v", filepath.Dir(fn), e, trace{})
+		debug(pc(ctx,fn), "make path %s failed: %v", filepath.Dir(fn), e, trace{})
 	}
 
 	var fm = os.O_RDWR | os.O_CREATE | os.O_TRUNC
 	var o, e = os.OpenFile(fn, fm, os.FileMode(0600))
 	if e != nil {
-		errostack(pc(ctx,fn), 3, "%s: %v", l.project.name, e, trace{})
+		debug(pc(ctx,fn), "%s: %v", l.project.name, e, trace{})
 	}
 	defer func() {
 		if o.Close(); 0 < diagCount(ctx, diagError) { os.Remove(fn) }
@@ -3759,7 +3789,7 @@ func (l ul) configure_par(ctx Context, _op Value) (op Value, par map[string]Valu
 		if f, y := x.Value.(flag); y {
 			op = f.Value
 		} else {
-			errostack(pc(ctx,x.Value), 8, "wrong configure word: %v", tv(x.Value), trace{})
+			debug(pc(ctx,x.Value), "wrong configure word: %v", tv(x.Value), trace{})
 		}
 		args = xmerge(_final(ctx), x.args...)
 	}
@@ -3772,7 +3802,7 @@ func (l ul) configure_par(ctx Context, _op Value) (op Value, par map[string]Valu
 			par["INFO"] = &pair{_word(t.Position(),"INFO"), t}
 		default:
 			if !isTrivial(arg) {
-				errostack(pc(ctx,arg), 8, "wrong arg: %s", ts(arg), trace{})
+				debug(pc(ctx,arg), "wrong arg: %s", ts(arg), trace{})
 			}
 		}
 	}
@@ -3796,7 +3826,7 @@ func (p p_configure) do(ctx Context, op any) (_ any) {
 func (l ul) configure_val(ctx *execution, _op, op, val Value, par map[string]Value) (res Value) {
 	var x, y = op.(*word)
 	if !y {
-		errostack(pc(ctx,_op), 8, "wrong configure word: %v %v %v", tv(_op), tv(op), tv(val), trace{})
+		debug(pc(ctx,_op), "wrong configure word: %v %v %v", tv(_op), tv(op), tv(val), trace{})
 	}
 	switch x.s {
 	case "answer":
@@ -3811,12 +3841,12 @@ func (l ul) configure_val(ctx *execution, _op, op, val Value, par map[string]Val
 	}
 
 	if l.project.configure == nil {
-		errostack(pc(ctx,op), 8, "wrong configure: %v %v", tv(op), tv(val), trace{})
+		debug(pc(ctx,op), "wrong configure: %v %v", tv(op), tv(val), trace{})
 	}
 
 	var ops = l.project.configure._entries(ctx, _op, false)
 	if ops == nil {
-		errostack(pc(ctx,_op), 8, "no configure ops: %v", _op, trace{})
+		debug(pc(ctx,_op), "no configure ops: %v", _op, trace{})
 	}
 
 	var vals []Value
@@ -3894,12 +3924,12 @@ minusloop:
 			}
 		case flag:
 			if t.Value.String() == "cond" {
-				errostack(pc(ctx,t), 3, "needs cond value", trace{})
+				debug(pc(ctx,t), "needs cond value", trace{})
 			}
 		}
 
 		if _op != nil {
-			errostack(pc(ctx,t), 3, "configure op already defined: %v", _op, trace{})
+			debug(pc(ctx,t), "configure op already defined: %v", _op, trace{})
 		}
 
 		_op = t
@@ -4023,7 +4053,7 @@ minusloop:
 				if x, y := a.(*group); y {
 					modify(ctx, x, true)
 				} else {
-					errostack(pc(ctx,a), 8, "defer: not a modifier: %s", ts(a), trace{})
+					debug(pc(ctx,a), "defer: not a modifier: %s", ts(a), trace{})
 				}
 			}
 
@@ -4031,9 +4061,9 @@ minusloop:
 		}
 		return
 	} else if l.p.tok.is_assign() {
-		errostack(pc(ctx,l.p), 8, "%v: only '=' can set a configure", op, trace{})
+		debug(pc(ctx,l.p), "%v: only '=' can set a configure", op, trace{})
 	} else {
-		errostack(pc(ctx,l.p), 8, "%v: wrong configure", op, trace{})
+		debug(pc(ctx,l.p), "%v: wrong configure", op, trace{})
 	}
 }
 
@@ -4061,7 +4091,7 @@ func (l ul) clause(ctx Context) {
 	case   FOREACH: l.foreach_done(ctx); return
 	case CONFIGURE: l.configure(ctx)   ; return
 	case USE, TEMPLATE:
-		errostack(ctx, 6, "unexpected %v", t, trace{})
+		debug(ctx, "unexpected %v", t, trace{})
 	}
 
 	var vals []Value
@@ -4110,7 +4140,7 @@ func (l ul) new_declare(ctx Context, pos Position, name, filename string, opts *
     var spec, _ = filepath.Rel(workBaseDir, absPath)
     if x, y := l.globe.loaded[absPath]; y {
         prompt(ctx, "%s: %v : already declared : %s\n", absPath, x, filename)
-        errostack(ctx, 5, "%s %s %s : %v", name, relPath, spec, l.project, trace{})
+        debug(ctx, "%s %s %s : %v", name, relPath, spec, l.project, trace{})
     }
 
     if l.declares == nil { l.declares = make(map[string]*declare) }
@@ -4300,7 +4330,7 @@ func (l ul) proj(ctx Context, filename string, isMainFile bool) (_ Value, _ stri
 	var ident Value
 	var opts project_opts
 	if a := parse_opts(ctx, &opts, vals...); len(a) > 0 {
-		errostack(pc(ctx,filename), 3, "unknown project option %v", ts(a), trace{})
+		debug(pc(ctx,filename), "unknown project option %v", ts(a), trace{})
 	}
 
 	if l.p.tok == LPAREN || l.p.tok == EOF || l.p.tok == LINEND || l.p.lineComment != nil {
@@ -4357,7 +4387,7 @@ func (l ul) proj(ctx Context, filename string, isMainFile bool) (_ Value, _ stri
 	var name = __string(ctx, ident)
 
 	if p := l.project; p != nil && p.name != name {
-		errostack(ctx, 5, "%v: multiple projects in the directory : %v", p, ident, trace{})
+		debug(ctx, "%v: multiple projects in the directory : %v", p, ident, trace{})
 	}
 
 	if name == "-" || name == "_" {
@@ -4446,14 +4476,14 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	var tmp   = joinTmpPath(ctx, l.workdir, rel)
 
 	if s := l.scope(); /* p == nil || */ s == nil {
-		errostack(ctx, 3, "%v: nil scope: %v", l.project, s, trace{})
+		debug(ctx, "%v: nil scope: %v", l.project, s, trace{})
 	}
 
 	defer l.closescope(l.openscope(bases(filename, 2, true)))
 
 	if checkpoints {
 		if s := l.p.scanner.file.Name(); filename != s {
-			errostack(ctx, 3, "%v: %s != %s", l.project, filename, s, trace{})
+			debug(ctx, "%v: %s != %s", l.project, filename, s, trace{})
 		}
 	}
 
