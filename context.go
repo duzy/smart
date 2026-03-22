@@ -9,12 +9,14 @@ import (
     "path/filepath"
     rt_debug "runtime/debug"
     "runtime"
+    "runtime/pprof"
     "strings"
     "reflect"
     "regexp"
     "bufio"
     "bytes"
     "sync"
+    "time"
     "fmt"
     "os"
     "io"
@@ -283,15 +285,8 @@ func _callstack(s string, i, j int, args ...any) (res []byte) {
 }
 
 func debugSyntax(ctx Context, s string) (res bool) {
-    if u := _universe(ctx); u != nil && u.ddd == s {
+    if u := _universe(ctx); u != nil {
         for _, t := range u.debugSyntax { if res = t == s; res { break } }
-    }
-    return
-}
-
-func db(ctx Context, ss ...string) (res bool) {
-    for _, d := range strings.Fields(_universe(ctx).ddd) {
-        for _, s := range ss { if d == s { return true } }
     }
     return
 }
@@ -317,6 +312,8 @@ type too_many_erros       struct{ int }
 type trace_errors         struct{ Context ; int }
 type trace_evoke_loop_err struct{ Context ; Value }
 type trace_evoke_loop     struct{ Context }
+type trace_val            struct{ int ; val Value }
+type trace_ctx            struct{ int }
 type trace                struct{}
 type evoke_loop_null      struct{}
 type evoke_loop_panic     struct{}
@@ -351,7 +348,6 @@ func recovered(ctx Context) {
 
 	for e := recover(); e != nil; e = recover() {
 		switch n += 1 ; t := e.(type) {
-		case              bailout:
 		case              failure: erro(t.Context, t.Error())
 		case                Value: erro(ctx, "trace: %s", ts(t))
 		case               string: erro(ctx, "trace: %s", t)
@@ -387,12 +383,16 @@ func debug(ctx Context, f any, a ...any) {
 	_debug_m.Lock(); defer _debug_m.Unlock()
 
 	var tr = false
+	var trCtx int
+	var trVal int
 	var cs callstack
 	var dias []*diag_point
 	var args []any
 	for _, a := range a {
 		switch t := a.(type) {
 		case trace: tr = true
+		case trace_ctx: trCtx = t.int
+		case trace_val: trVal = t.int
 		case callstack:
 			if 0 < t.num     { cs.num = t.num }
 			if 0 < t.skip    { cs.skip = t.skip }
@@ -423,6 +423,42 @@ func debug(ctx Context, f any, a ...any) {
 	default:
 		p, _ = do(ctx, diag_point{diagPrompt, s+typeof(t)+": %v\n", args}).(*diagpoint)
 	}
+
+	if n := trCtx; n > 0 {
+		var pos = _position(ctx)
+		for c := inner(ctx); c != nil && 0 < n && pos.valid(); c = inner(c) {
+			var _pos = _position(c)
+			if !_pos.valid() || _pos.same(&pos) { continue }
+
+			n -= 1
+			pos = _pos
+
+			proj := _project(c)
+			s := pos.String() + ": " + typeof(c) + ": "
+			if proj == nil {
+				s += "<nil>"
+			} else {
+				s += proj.name
+			}
+
+			if e := _entry(c); e != nil {
+				if t, _, _ := entryIndicator(c, e); t == "" {
+					s += ": " + ident(ctx, e)
+				} else {
+					s += ": " + t
+				}
+			}
+
+			if false { s += " ; " + ts(c) }
+
+			p, _ = do(c, diag_point{diagPrompt, s+"\n", nil}).(*diagpoint)
+		}
+	}
+
+	if n := trVal; n > 0 {
+		p, _ = do(ctx, diag_point{diagError, "TODO: trace value\n", nil}).(*diagpoint)
+	}
+
 	for _, d := range dias {
 		p, _ = do(ctx, diag_point{diagPrompt, s+d.f+"\n", d.a}).(*diagpoint)
 	}
@@ -441,21 +477,6 @@ func debug(ctx Context, f any, a ...any) {
 		}
 		panic(p.panic)
 	}
-}
-
-var _trace_m sync.Mutex
-func trace_err(ctx Context, a ...any) {
-	_trace_m.Lock()
-	defer _trace_m.Unlock()
-	defer recovered(ctx)
-	if a = append(a, frames(-1)); truly(ctx, is_test_mode{}) {
-		note(ctx, "%s: failed", typeof(ctx))
-	} else {
-		note(ctx, "%d errors", diagCount(ctx, diagError))
-	}
-	_callstack("", 5, 0, a...)
-	flush(ctx)
-	runtime.Goexit()
 }
 
 const diagnostic_limit = 10_000
@@ -820,4 +841,757 @@ func Main() {
         }
         fmt.Fprintf(stderr, "\n")
     }
+}
+
+
+var searchPaths searchlist
+var launchTime = time.Now()
+var workBaseDir = func () string {
+    if s, e := os.Getwd(); e == nil { return s } else { panic(e) }
+} ()
+
+type searchlist []string
+func (sl *searchlist) String() string { return fmt.Sprint(*sl) }
+func (sl *searchlist) set(s string) error {
+    *sl = append(*sl, strings.Split(s, ",")...)
+    return nil
+}
+func (sl *searchlist) has(s string) (_ bool) {
+    for _, p := range *sl { if p == s { return true }}
+    return
+}
+
+type hooks struct {
+    assert func(Context, Value, bool) bool
+    debug func(Context, string, []Value)
+}
+
+type packagetype uint8
+
+const (
+    packageUnknown packagetype = iota
+    packageSmart  // smart package
+    packageConfig // pkgconfig
+)
+
+type packageinfo struct {
+    *project
+    t packagetype // smart, pkgconfig, cmake, etc.
+}
+
+func _universe(c Context) *universe { return cast[*universe](c) }
+
+type universe struct {
+    diagnostic
+    commandline
+
+    *scope
+    *globe
+
+    fset *fileset
+
+    workdir string
+    prefix  string // FIXME: prefix for distribution
+    paths   searchlist
+    packages  map[string]packageinfo
+    statcache map[string]*filebase // file.fullname() -> File
+    statmutex sync.Mutex
+
+    hooks hooks
+
+    expand_n int32
+}
+func (ctx *universe) String() string { return "universe" }
+func (ctx *universe) inner() Context { return &ctx.diagnostic }
+func (ctx *universe) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.diagnostic.cast(t)
+}
+func (ctx *universe) _position() (p Position) {
+    if ctx.globe != nil && ctx.globe.main != nil {
+        return ctx.globe.main.position
+    }
+
+    p.Filename, p.Line, p.Column = _workdir(ctx), 0, 0
+    return
+}
+func (ctx *universe) ts(t string) string {
+    var s = ts(ctx.Context)
+    if  s == "{}"  {
+        s, _ = filepath.Rel(workBaseDir, ctx.workdir)
+        s = bases(3, s, "testdata", true)
+        if s == "." || s == "" { return "{="+t+"}" }
+    }
+    return "{="+t+" "+s+"}"
+}
+func (ctx *universe) trimSpecPath(c Context, spec string) string {
+    spec = strings.ReplaceAll(spec, "../", "")
+    for _, s := range ctx.paths {
+        if s += pathSep; strings.HasPrefix(spec, s) {
+            spec = strings.TrimPrefix(spec, s)
+            break
+        }
+    }
+    if s := ctx.workdir+pathSep; strings.HasPrefix(spec, s) {
+        spec = strings.TrimPrefix(spec, s)
+    }
+    return spec
+}
+func (ctx *universe) do(_ctx Context, op any) (res any) {
+    switch t := op.(type) {
+    case on_errors:
+        if ctx.panicFailureOnFlushedErrors && truly(_ctx, is_test_mode{}) {
+            if 0 < t.i { panic(_failure(ctx, "got %d errors", t.i)) }
+            res = true
+        }
+        return
+
+    case get_position:
+        p := Position{}
+        p.Filename = ctx.workdir
+        return
+
+    case get_workdir: return ctx.workdir
+    case get_scope: if ctx.scope != nil { return ctx.scope }
+    case get_project: if ctx.globe != nil { return ctx.globe.main }
+    case no_exec: if ctx.noExec { return ctx.noExec }
+	case is_test_mode: if ctx.testMode { return true }
+    case is_test_univ: return ctx.testMode
+    // case get_closure_scopes:
+    //     if m := ctx.globe.main; m != nil && m.scope != nil && false {
+    //         return []*scope{ m.scope }
+    //     }
+    //     return
+    }
+    return ctx.diagnostic.do(_ctx, op)
+}
+
+type no_exec struct{}
+type commandline struct {
+    help            bool `h,help`
+
+    debug           bool `d,db,debug`
+    debugErrors     bool `de,dberro,debug-errors`
+    debugWarns      bool `dw,dbwarn,debug-warns`
+    debugInfos      bool `di,dbinfo,debug-infos`
+    debugPrompt     bool `dp,dbprom,debug-prompt`
+    debugSyntax []string `ds,dbsyntax,debug-syntax`
+
+    autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
+    cpuProf         string `cpuprof,cpu-profile`
+    memProf         string `memprof,memory-profile`
+
+    printConfig     bool `opts,print-options,printoptions`
+    printFlags      bool `flags,print-flags,printflags`
+
+    buildPlugins    bool `bp,bup,build-plugins,buildplugins`
+
+    silentOptionalArrow bool
+
+    verbose         bool `v,verb,verbose`
+    verboseBreaks   bool `vb,vbrk,verbose-breaks`
+    verboseChecks   bool `vc,vchk,verbose-checks`
+    verboseImport   bool `vi,vimp,verbose-import`
+    verboseParse    bool `vp,vpar,verbose-parsing`
+    verboseUsing    bool `vu,vuse,verbose-using`
+    verboseExecFlags bool `vxf,verbose-exec-flag`
+
+    allowClosureFilemap bool `cf,closure-filemap,closure-files`
+
+    cleanDotCache   bool `clcac,clean-cache,clear-cache;rmc,rm-cache`
+    cleanDotDeps    bool `cldep,clean-deps,clear-deps;rmd,rm-deps`
+    cleanDotGrep    bool `clgrp,clean-grep,clear-grep;rmg,rm-grep`
+    cleanTmpDirs    bool `cltmp,clean-temp,clear-temp;rmt,rm-temp`
+
+    checkLoadGraph  bool `ckld,check-loads`
+
+    reconfigure     bool `rc,reconf,reconfig,reconfigure`
+
+    saveGrepSource  bool `savgs,save-grep-source`
+
+    noRun           bool `nor,no-run`
+    noExec          bool `nox,ne,no-exec,no-execute`  // optionNoExec
+    noDeps          bool `nod,no-deps`
+    noGrep          bool `nog,no-grep`
+    noDepsGrep      bool `nodg,ngd,no-deps-grep,no-grep-deps`
+    noImportFiles   bool `noif,no-import-files`
+
+    parallel        bool `par,para,parallel`
+
+    testMode        bool `test,test-mode`
+    fastMode        bool `fast,fast-mode`
+    errorUncache    bool `eu,error-uncache,error-no-cache`
+    panicFailureOnFlushedErrors bool `foe,fail-on-errors`
+
+    traceLaunch     bool `tl,trace-launch`
+    traceParsing    bool `tp,trace-parse`
+    traceExecutor   bool `te,trace-executor`
+    traceExec       bool `tx,trace-exec`
+    traceEntering   bool `ti,trace-entering`
+    traceConfig     bool `tc,trace-config`
+
+    slow time.Duration `slow` // time.Millisecond
+}
+
+func _commandline() commandline { return commandline{
+    debugPrompt: true,
+    debugErrors: true,
+    debugWarns:  true,
+    debugInfos:  true,
+
+    fastMode: true,
+    parallel: false, // FIXME: program.traverse not working in parallel
+
+    panicFailureOnFlushedErrors: true,
+    silentOptionalArrow: false,
+
+    slow: 2999 * time.Millisecond,
+}}
+
+func new_universe(ii ...any) (ctx *universe) {
+    ctx = &universe{}
+    ctx.paths = searchPaths
+    ctx.workdir = workBaseDir
+    ctx.fset = _fileset()
+    ctx.statcache = make(map[string]*filebase)
+    ctx.scope = newscope(ctx._position(), nil, nil, `universe`)
+
+    var cl = true
+    for _, i := range ii {
+        switch t := i.(type) {
+        case  commandline: ctx.commandline, cl =  t, false
+        case *commandline: ctx.commandline, cl = *t, false
+        case *hooks: ctx.hooks = *t
+        case  hooks: ctx.hooks =  t
+        }
+    }
+    if cl { ctx.commandline = _commandline() }
+
+    var bin  = ease(ctx, os.Args[0])
+    var args = ease(ctx, os.Args[1:])
+    ctx.scope.def(ctx, defVoid, "SMART.ARGS", args)
+    ctx.scope.def(ctx, defVoid, "SMART.BIN",  bin)
+    ctx.scope.def(ctx, defVoid, "SMART",      bin)
+
+    for name, f := range builtins {
+        if _, alt := ctx.scope.builtin(ctx, name, f); alt != nil {
+            panic(fmt.Sprintf("builtin '%s' already defined", name))
+        }
+    }
+
+    var pos = ctx._position()
+	// one of darwin, freebsd, linux, and so on.
+	var os Value = ease(ctx, []Value{_word(pos, runtime.GOOS)})
+
+    ctx.globe = &globe{
+        scope: newscope(pos, ctx.scope, nil, `globe`),
+        flagEntries: make(map[string][]entry),
+        loaded: make(map[string]*project),
+        args: make(map[Value][]Value),
+    }
+
+    // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
+    ctx.globe.os    = ctx.globe.def(ctx, defVoid, ".os",    os)
+    ctx.globe.goals = ctx.globe.def(ctx, defVoid, ".goals", _none(pos))
+    ctx.globe.mode  = ctx.globe.def(ctx, defVoid, ".mode",  _null(pos))
+    return
+}
+
+type filestub struct {
+    dir      string   // full directory where the file was or should be found
+    sub      string   // matched sub path (see project.search), may be Dir (absolete path)
+    name     string   // constant represented name (e.g. relative filename)
+    filemap *filemap  // matched pattern (see 'files' directive)
+    other   *filestub // pointed to another stub (in a different project) of the same file
+}
+func (p *filestub) subname() string {
+    if isAbsOrRel(p.sub) {
+        return p.name
+    } else {
+        return filepath.Join(p.sub, p.name)
+    }
+}
+
+type filebase struct {
+    stub filestub    // cycled-list of file stubs of different projects
+    info os.FileInfo // file info if exists
+    _updated bool // true if this file has been updated by a program
+    _updatedDeps []Value // any updated deps
+    _travin int
+    _traved int
+    _dirty  int
+}
+func (p *filebase) exists() bool { return p != nil && p.info != nil }
+
+type stat_dir struct { string }
+type stat_sub struct { string }
+type stat_nonexist struct { bool }
+type stat_fileinfo struct{ os.FileInfo }
+
+func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
+	var name = __string(ctx, a0)
+	var sub, dir string
+	var nonexist bool
+	var fileInfo os.FileInfo
+
+	for _, a := range aa {
+		switch t := a.(type) {
+		case *project: dir = t.absPath
+		case stat_dir: dir = t.string
+		case stat_sub: sub = t.string
+		case stat_fileinfo: fileInfo = t.FileInfo
+		case stat_nonexist: nonexist = t.bool
+		default: debug(ctx, "invalid stat arg: %v", ts(a), trace{})
+		}
+	}
+
+	var u = _universe(ctx)
+	var fullname string
+
+	// 1. Trim slashes and clean paths
+	if dir != "" { dir = filepath.Clean(dir) }
+	if sub != "" { sub = filepath.Clean(sub) }
+
+	// 2. Cleaned Path Resolution Logic (Dead code removed)
+	if filepath.IsAbs(name) {
+		fullname = name
+		if dir != "" && strings.HasPrefix(fullname, dir+pathSep) {
+			if tail := fullname[len(dir)+1:]; sub == "" {
+				name = tail 
+			} else if strings.HasPrefix(fullname, sub+pathSep) {
+				name = tail[len(sub)+1:]
+			}
+		} else {
+			dir = "" // Conflict resolution: Absolute name overrides directory
+		}
+	} else if filepath.IsAbs(sub) {
+		if fullname = filepath.Join(sub, name); dir == "" {
+			dir = sub
+			sub = ""
+		} else if sub == dir {
+			sub = ""
+		} else if strings.HasPrefix(sub, dir) {
+			sub = strings.TrimPrefix(sub, dir)
+			sub = strings.TrimPrefix(sub, pathSep)
+			sub = filepath.Clean(sub)
+		} else {
+			debug(ctx,
+				_f("conflicted sub/dir: %s", fullname),
+				_f("sub=%s", sub),
+				_f("dir=%s", dir),
+				callstack{num:16}, trace{})
+		}
+	} else if filepath.IsAbs(dir) {
+		fullname = filepath.Join(dir, sub, name)
+	} else {
+		dir = filepath.Join(_workdir(ctx), dir)
+		fullname = filepath.Join(dir, sub, name)
+	}
+
+	var cleanFullname = filepath.Clean(fullname)
+	
+	// 3. First Pass: Fast lock to retrieve or initialize the cache entry shell
+	u.statmutex.Lock()
+	base, exists := u.statcache[cleanFullname]
+	if !exists {
+		// Initialize the shell of the filebase. We will stat it outside the lock.
+		base = &filebase{filestub{dir, sub, name, nil, nil}, nil, false, nil, 0, 0, 0}
+		base.stub.other = &base.stub
+		u.statcache[cleanFullname] = base
+	}
+	u.statmutex.Unlock() // DROP THE GLOBAL LOCK BEFORE HITTING THE DISK!
+
+	// 4. Heavy I/O: os.Stat executes concurrently without blocking the universe
+	if base.info == nil && fileInfo == nil { fileInfo, _ = os.Stat(fullname) }
+
+	// 5. Second Pass: Re-acquire lock to safely update the shared base and stubs
+	u.statmutex.Lock(); defer u.statmutex.Unlock()
+
+	// Update the file metadata if we just fetched it
+	if fileInfo != nil && base.info == nil { base.info = fileInfo }
+
+	// Bail out if the file doesn't exist and we aren't explicitly allowing non-existent files
+	if base.info == nil && !nonexist { return nil }
+
+	var head = &base.stub
+	var stub *filestub
+
+	// Sanity assertions
+	if enable_assertions {
+		for stub = head; stub != nil; stub = stub.other {
+			if s1, s2 := fullname, filepath.Join(stub.dir, stub.sub, stub.name); s1 != s2 {
+				debug(ctx,
+					_f("fullname '%s' conflicted", fullname),
+					_f("panic: (%s, %s, %s) %s", stub.dir, stub.sub, stub.name, s1),
+					_f("panic: (%s, %s, %s) %s", dir, sub, name, s2),
+					callstack{num:16}, trace{})
+			}
+			if stub.other == head { break }
+		}
+	}
+
+	// Check for an existing stub that matches our current path parameters exactly
+	for stub = head; stub != nil; stub = stub.other {
+		if stub.dir == dir && stub.sub == sub && stub.name == name {
+			return &file{valbase{_position(ctx)}, base, stub}
+		}
+		if stub.other == head { break }
+	}
+
+	// If no matching stub was found, link a new one into the circular list
+	stub = &filestub{dir, sub, name, nil, head.other}; head.other = stub
+	return &file{valbase{_position(ctx)}, base, stub}
+}
+
+func AddPaths(paths... string) (err error) {
+    for _, s := range paths {
+        if s, err = filepath.Abs(s); err != nil {
+            break
+        }
+        if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+           searchPaths = append(searchPaths, s)
+        }
+    }
+    return
+}
+
+func (ctx *universe) AddPaths(paths... string) (err error) {
+    for _, s := range paths {
+        if s, err = filepath.Abs(s); err != nil { break }
+        if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+            ctx.paths = append(ctx.paths, s)
+        } else {
+            return fmt.Errorf("path '%s' is not dir", s)
+        }
+    }
+    return nil
+}
+
+func cpu_profile(ctx Context, name string, heap ...bool) (stop func()) {
+    var fn string
+    if filepath.IsAbs(name) { fn = name } else
+    if m := _universe(ctx).globe.main; m == nil {} else
+    if f := m.tempfile(ctx, name); f == nil {
+        fn = filepath.Join(_workdir(ctx), name)
+    } else {
+        fn = f.fullname()
+    }
+
+    f, e := os.Create(fn)
+    if e != nil {
+        debug(ctx, "%T: %v", e, e, trace{})
+    } else if e = pprof.StartCPUProfile(f); e != nil {
+        debug(ctx, "%T: %v", e, e, trace{})
+    }
+    return func() { if f != nil {
+        if e != nil { pprof.StopCPUProfile() }
+        if heap != nil && heap[0] { runtime.GC() // update memory statistics
+            if e = pprof.WriteHeapProfile(f); e != nil {
+                debug(ctx, "WriteHeapProfile: %v", e, trace{})
+            }
+        }
+        f.Close()
+    }}
+}
+
+func heap_profile(ctx Context, name string) (stop func()) {
+    var fn string
+    if filepath.IsAbs(name) { fn = name } else
+    if m := _universe(ctx).globe.main; m == nil {} else
+    if f := m.tempfile(ctx, name); f == nil {
+        fn = filepath.Join(_workdir(ctx), name)
+    } else {
+        fn = f.fullname()
+    }
+
+    f, e := os.Create(fn)
+    if e != nil {
+        debug(ctx, "%T: %v", e, e, trace{})
+    }
+    return func() { if f != nil {
+        if e != nil { pprof.StopCPUProfile() }
+        runtime.GC() // update memory statistics
+        if e = pprof.WriteHeapProfile(f); e != nil {
+            debug(ctx, "WriteHeapProfile: %v", e, trace{})
+        }
+        f.Close()
+    }}
+}
+
+func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
+    switch g := goal.(type) {
+    case *rule:
+        var y bool
+        if result, y = execute_entry(ctx, g, args...); !y {
+            debug(ctx, "update '%v' failed", g, trace{})
+        }
+    default:
+        debug(ctx, "not an entry: %v", ts(goal), trace{})
+    }
+    return
+}
+
+func (l ul) parse_args(base string, a ...string) {
+    var args []Value
+
+	if s := strings.Join(a, " "); s != "" {
+		if v := l.text(l.universe, base, s); v != nil {
+			args = parseOpts(l.universe, &l.commandline, merge(v)...)
+		}
+	}
+
+    if v := l.fastMode; v { // Turn off many things for fast mode:
+        //l.noImportFiles = v
+        l.noDepsGrep = v
+        l.noDeps = v
+        l.noGrep = v
+    }
+
+    var mode = new(word)
+
+    for _, target := range args {
+        switch t := target.(type) {
+        case *pair: l.globe.pairs = append(l.globe.pairs, t)
+        case  flag: l.globe.flags = append(l.globe.flags, t)
+            if s := __string(l.universe, t.Value); s == "clean" {
+                mode.position, mode.s = t.Position(), "clean"
+            }
+        case *argumented:
+            l.globe.args[t.Value] = t.args
+            if f, y := t.Value.(flag); y {
+                l.globe.flags = append(l.globe.flags, f)
+            } else {
+                l.globe.goals.append(l.universe, t/*.Value*/)
+            }
+        default:
+            l.globe.goals.append(l.universe, t)
+        }
+    }
+
+    if mode.s == "" {
+        mode.s = "goals"
+    }
+
+    l.globe.mode.value = mode
+}
+
+func (u *universe) load(ctx Context) {
+    if u.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
+
+    if false { loadGrepCache(ctx) }
+
+    if s := filepath.Join(u.workdir, ".smart", "modules"); s != "" {
+        if _, e := os.Stat(s); e == nil { u.AddPaths(s) }
+    }
+    if s := filepath.Join(u.workdir, mainFileName); s != "" {
+        if _, e := os.Stat(s); e != nil {
+            s = filepath.Join(u.workdir, deprFileName)
+            if _, e := os.Stat(s); e != nil { s = "" }
+        }
+    }
+
+    u.globe.top = &loader{term:term{ctx, u.globe.scope}}
+
+    l := ul{u, u.globe.top}
+    l.parse_args(u.workdir, os.Args[1:]...)
+
+    if u.autoProfs {
+        if f, e := os.Create(filepath.Join(workBaseDir, "load.cpu.auto.prof")); e != nil {
+            debug(ctx, "%v", e, trace{})
+        } else {
+            defer f.Close()
+            if e := pprof.StartCPUProfile(f); e != nil {
+                debug(ctx, "could not start CPU profile: %v", e, trace{})
+            }
+            defer pprof.StopCPUProfile()
+        }
+        defer func() {
+            var prof string //= u.memProf
+            if prof == "" { prof = filepath.Join(workBaseDir, "load.mem.auto.prof") }
+            if f, e := os.Create(prof); e != nil {
+                debug(ctx, "%v", e, trace{})
+            } else {
+                defer f.Close()
+                runtime.GC() // update memory statistics
+                if e := pprof.WriteHeapProfile(f); e != nil {
+                    debug(ctx, "could not start CPU profile: %v", e, trace{})
+                }
+            }
+        } ()
+    }
+
+    if u.verboseImport { prompt(ctx, "┌→%s\n", u.workdir) }
+
+    defer func(t time.Time) {
+        if d := time.Now().Sub(t); u.verboseImport {
+            var name string
+            if p := _project(u.globe.top); p != nil { name = p.name }
+            prompt(ctx, "└·%s … (%s)\n", name, d)
+        } else if false && u.slow < d {
+            debug(pc(ctx, u.workdir), "slow loading (%v)!!\n", d)
+        }
+    } (time.Now())
+
+    spec, _ := filepath.Rel(workBaseDir, u.workdir)
+    l.directory(l.loader, spec, u.workdir, nil)
+
+    if l.globe.main == nil {
+        debug(ctx, "nothing loaded", trace{})
+    }
+    return
+}
+
+func (u *universe) run() (result []Value) {
+    if u.noRun { return }
+
+    var main = u.globe.main
+    if main == nil {
+        debug(u, "no targets to update `%v`", u.globe.goals, trace{})
+    }
+
+    var ctx Context = closure_with(u, main.scope)
+    if u.verbose { debug(ctx, "goal: %v", main) }
+
+    removeTempDirs(ctx)
+
+    if u.cpuProf != "" || u.autoProfs {
+        var name = u.cpuProf
+        if name == "" { name = "run.cpu.auto.prof" }
+        defer cpu_profile(ctx, name, true)()
+    } else if u.memProf != "" || u.autoProfs {
+        var name = u.memProf
+        if name == "" { name = "run.mem.auto.prof" }
+        defer heap_profile(ctx, name)()
+    }
+
+    var done bool
+    for _, flag := range u.globe.flags {
+        if u.verboseExecFlags { info(ctx, "%v", flag) }
+
+        var s = __string(ctx, flag.Value)
+        var args, _ = u.globe.args[flag]
+        var entries, _ = u.globe.flagEntries[s]
+        for _, entry := range entries {
+            if u.verboseExecFlags {
+                info(ctx, "%v", entry)
+                flush(ctx)
+            }
+
+            var res = entry.execute(ctx, args...)
+            result = append(result, res...)
+            done = true
+        }
+    }
+    if done { return }
+
+    var updated int
+    var goals []Value
+    var collect func(proj *project, vals []Value) bool
+    collect = func(proj *project, vals []Value) bool {
+        if len(vals) == 0 {
+            if entry := proj.main; entry != nil {
+                goals = append(goals, entry)
+            } else {
+                // NOTE: ignored project
+            }
+            return true
+        }
+        for _, goal := range vals {
+            switch t := goal.(type) {
+            case *null, *none: // just ignore
+            case *word:
+                if entries := proj._entries(ctx, t.s, true); entries == nil {
+                    debug(ctx, "no such entry `%s`", t.s, trace{})
+                    return false
+                } else {
+                    for _, entry := range entries {
+                        goals = append(goals, entry)
+                    }
+                }
+            case *delegate:
+                var s = __string(ctx, t)
+                if entries := proj._entries(ctx, s, true); entries == nil {
+                    debug(ctx, "no such entry `%s` (via `%v`)", s, t, trace{})
+                    return false
+                } else {
+                    for _, entry := range entries {
+                        goals = append(goals, entry)
+                    }
+                }
+            case flag:
+                var s = __string(ctx, t)
+                if entries := proj._entries(ctx, s, true); entries == nil {
+                    debug(ctx, "no such entry `%s` (via `%v`)", s, t, trace{})
+                    return false
+                } else {
+                    for _, entry := range entries { goals = append(goals, entry) }
+                }
+            case *argumented:
+                {
+                    // For examples:
+                    //     project-name(-clean)
+                    //     project/spec(-clean)
+                    //     xxxx()
+                    var (
+                        s = __string(ctx, t.Value)
+                        args = merge(t.args...)
+                        found int
+                    )
+                    for _, p := range u.globe.loaded {
+                        if p.name == s || p.spec == s { found += 1
+                            if !collect(p, args) { return false }
+                        }
+                    }
+                    if found == 0 {
+                        debug(ctx, `"%s" not loaded: %v`, s, args, trace{})
+                        return false
+                    }
+                }
+            default:
+                debug(ctx, "%v: unknown target: %v (%s)", proj, goal, typeof(goal), trace{})
+                return false
+            }
+        }
+        return true
+    }
+
+    if collect(main, merge(u.globe.goals.value)) {
+        if len(goals) == 0 {
+            if entry := main.main; entry != nil {
+                goals = append(goals, entry)
+            }
+        }
+        for _, goal := range goals {
+            var args, _ = u.globe.args[goal]
+            result = append(result, updateGoal(ctx, goal, args)...)
+            updated += 1
+        }
+    }
+    return
+}
+
+// A globe represents a global execution context.
+type globe struct {
+    *scope
+
+    top    *loader
+    main   *project
+    loaded map[string]*project // loaded projects
+
+    args map[Value][]Value
+    flagEntries map[string][]entry
+    flags []flag
+    pairs []*pair
+
+    os    *def
+    goals *def
+    mode  *def
+}
+
+func (g *globe) SetScopeOuter(scope *scope) { scope.outer = g.scope }
+func (g *globe) AddFlagEntry(name string, entry entry) {
+    flags, _ := g.flagEntries[name]
+    flags     = append(flags, entry)
+    g.flagEntries[name] = flags
+    return
 }

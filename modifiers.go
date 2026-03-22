@@ -439,7 +439,7 @@ type modifier_setDirtyPats struct { modifier_
 }
 func (ctx *modifier_setDirtyPats) x(args ...Value) (result any) {
     var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
-    if y { ctx.pats = parse_opts(_final(ctx), opts, args...) }
+    if y { ctx.pats = parseOpts(_final(ctx), opts, args...) }
     return
 }
 
@@ -621,32 +621,32 @@ func parseDependList(ctx Context, dependList *list) (depends *list) {
 }
 
 type langInfoT struct {
-    rxs []string
-    sys []string
+    rxs []*regexp.Regexp
+    sys []*regexp.Regexp
 }
 
 var langInfos = map[string]*langInfoT{
     "asm": &langInfoT{
-        []string{
-            `^\s*#\s*include\s*"(.+)".*$`,
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*#\s*include\s*"(.+)".*$`),
         },
-        []string{
-            `^\s*#\s*include\s*<(.+)>.*$`,
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*#\s*include\s*<(.+)>.*$`),
         },
     },
     "c": &langInfoT{
-        []string{
-            `^\s*#\s*include\s*"(.+)".*$`,
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*#\s*include\s*"(.+)".*$`),
         },
-        []string{
-            `^\s*#\s*include\s*<(.+)>.*$`,
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*#\s*include\s*<(.+)>.*$`),
         },
     },
     "i": &langInfoT{
-        []string{
-            `^\s*include\s*"(.+)".*$`,
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*include\s*"(.+)".*$`),
         },
-        []string{
+        []*regexp.Regexp{
         },
     },
 }
@@ -687,8 +687,7 @@ type grepctx struct {
     savedGrepFile *file
     save *bufio.Writer
 }
-type greprex struct{ string ; bool ; *regexp.Regexp }
-func (g *greprex) String() string { return g.string }
+type greprex struct{ bool ; *regexp.Regexp }
 func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
     if g.targetInfo == nil {
         debug(ctx, "'%v' not exists", g.target, trace{})
@@ -738,6 +737,10 @@ func loadGrepCache(ctx Context) {
     if err != nil { return } else { defer f.Close() }
     var ( list []Value ; k string )
     scanner := bufio.NewScanner(f)
+	// Allocate a 64KB initial buffer, but allow it to grow up to 10MB per line!
+    const maxCapacity = 10 * 1024 * 1024 
+    buf := make([]byte, 0, 64*1024)
+    scanner.Buffer(buf, maxCapacity)
     scanner.Split(bufio.ScanLines)
     for scanner.Scan() {
         s = scanner.Text()
@@ -979,6 +982,10 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
     gp.Filename = gc.targetFullName
 
     scanner := bufio.NewScanner(savedGrepOSFile)
+	// Allocate a 64KB initial buffer, but allow it to grow up to 10MB per line!
+    const maxCapacity = 10 * 1024 * 1024 
+    buf := make([]byte, 0, 64*1024)
+    scanner.Buffer(buf, maxCapacity)
     scanner.Split(bufio.ScanLines)
     for scanner.Scan() {
         var s = scanner.Text() //gp.Line += 1
@@ -1010,19 +1017,14 @@ func grepTargetFile(ctx Context, gc *grepctx) (err error) {
         debug(ctx, "%v", err, trace{})
     } else { defer func() { err = f.Close() } () }
 
-    for _, x := range gc.rxs {
-        if x.Regexp != nil {
-            continue
-        } else if x.Regexp, err = regexp.Compile(x.string); err != nil {
-            debug(ctx, "%v", err, trace{})
-        }
-    }
-
     var gp Position
     gp.Filename = gc.targetFullName
 
-
     scanner := bufio.NewScanner(f)
+	// Allocate a 64KB initial buffer, but allow it to grow up to 10MB per line!
+    const maxCapacity = 10 * 1024 * 1024 
+    buf := make([]byte, 0, 64*1024)
+    scanner.Buffer(buf, maxCapacity)
     scanner.Split(bufio.ScanLines)
 ForScan:
     for scanner.Scan() {
@@ -1221,12 +1223,12 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
     var gc = grepctx{ modifier_grep:ctx }
     // gc.fileinc = true // grep files by default
     gc.incs = xmerge(ctx, gc.incs...)//, plain
-    for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{s, true , nil}) }
-    for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{s, false, nil}) }
+    for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{true , regexp.MustCompile(s)}) }
+    for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{false, regexp.MustCompile(s)}) }
     for _, s := range gc.langs {
         if info, ok := langInfos[s]; ok && info != nil {
-            for _, re := range info.rxs { gc.rxs = append(gc.rxs, &greprex{re, false, nil}) }
-            for _, re := range info.sys { gc.rxs = append(gc.rxs, &greprex{re, true , nil}) }
+            for _, re := range info.rxs { gc.rxs = append(gc.rxs, &greprex{false, re}) }
+            for _, re := range info.sys { gc.rxs = append(gc.rxs, &greprex{true , re}) }
         } else {
             debug(ctx, "lang '%s' is unknown", s, trace{})
         }
@@ -1310,7 +1312,6 @@ func (ctx *dep_context) cast(t reflect.Type) Context {
 }
 
 func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *file, savedDepsFileName, deps string) (files []Value) {
-    const parallel = true
     var (
         proj = _project(ctx)
         targetFullName, _ = as{targetVal}.fullname_string(ctx)
@@ -1340,13 +1341,10 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *fi
     var (
         missing = make(map[string]Position)
         missMux sync.Mutex
-        jobs sync.WaitGroup
     )
 
     var depFile = func(ctx Context, depPos Position, word string) {
         var dc = dep_context{diagnostic{ Context: ctx }}
-
-        if parallel { jobs.Done() }
 
         ctx = &dc
 
@@ -1428,15 +1426,11 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *fi
                 } else if firstDepFile.info.ModTime().After(savedDepsFile.info.ModTime()) {
                     return nil // requests to update savedDepsFile
                 }
-                if parallel {
-                    // jobs.Add(1); go depFile(ctx.spawn(ctx), depPos, word)
-                } else {
-                    depFile(ctx, depPos, word)
-                }
+				depFile(ctx, depPos, word)
             }
         }
     }
-    if jobs.Wait(); len(missing) > 0 {
+    if len(missing) > 0 {
         prompt(ctx, "%v: %d deps missing, removing deps file\n", savedDepsFileName, len(missing))
         if savedDepsFile == nil || savedDepsFileName == "" {
             // deps files not saved yet
@@ -1954,7 +1948,10 @@ func copyRegular(ctx Context, src, dst string, opts *copyopts) (err error) {
             opts.bytes += int64(n)
         }
         if err == nil {
-            dstBuf.Flush() // flush content
+			if err = dstBuf.Flush(); err != nil {
+                debug(ctx, "flush failed during copy: %v", err)
+                return 
+            }
             opts.copied += 1
         }
     }
@@ -2195,11 +2192,19 @@ func (ctx *modifier_readfile) x(args ...Value) (result any) {
 
     var ( bytes []byte ; err error )
     if bytes, err = ioutil.ReadFile(filename); err == nil {
-        var s string
-        if ctx.head != nil { s = __string(ctx, ctx.head) }
-        if len(bytes) > 0   { s += string(bytes) }
-        if ctx.foot != nil { s = __string(ctx, ctx.foot) }
-        auto_set(ctx.Context, defVoid, "-", _strlit(_position(ctx), s))
+		var b strings.Builder
+        
+        // Pre-grow the buffer to exactly the size we need to prevent re-allocations
+        headStr, footStr := "", ""
+        if ctx.head != nil { headStr = __string(ctx, ctx.head) }
+        if ctx.foot != nil { footStr = __string(ctx, ctx.foot) }
+
+        b.Grow(len(headStr) + len(bytes) + len(footStr))
+        b.WriteString(headStr)
+        b.Write(bytes) // Writes the byte slice directly, no string cast needed!
+        b.WriteString(footStr)
+		
+        auto_set(ctx.Context, defVoid, "-", _strlit(_position(ctx), b.String()))
         auto_set(ctx.Context, defVoid, "-file", file)
     } else {
         debug(ctx, "%v", err, trace{})
@@ -2215,24 +2220,23 @@ func crc64CheckFileModeContent(ctx Context, filename string, content []byte, per
     if f, err = os.Open(filename); err == nil && f != nil {
         defer f.Close()
 
-        if perm != 0 {
-            if s, _ := f.Stat(); s.Mode().Perm() != perm {
-                if err = f.Chmod(perm); err != nil { return }
-            }
+        var s os.FileInfo
+        if s, err = f.Stat(); err != nil { return false, err }
+
+        // Fast Path: If sizes differ, they cannot be the same. Skip hashing!
+        if s.Size() != int64(len(content)) {
+            return false, nil
+        }
+
+        if perm != 0 && s.Mode().Perm() != perm {
+            if err = f.Chmod(perm); err != nil { return }
         }
 
         w1 := crc64.New(crc64Table)
         w2 := crc64.New(crc64Table)
         if _, err = io.Copy(w1, f); err != nil { return }
         if _, err = w2.Write(content); err != nil { return }
-        var a, b = w1.Sum64(), w2.Sum64()
-        if a == b { same = true }
-
-        if false {
-            var s []byte
-            if s, err = ioutil.ReadFile(filename); err != nil { return }
-            prompt(ctx, "crc64CheckFileModeContent: %v %v\n%s\n%s\n", a, b, s, content)
-        }
+        if w1.Sum64() == w2.Sum64() { same = true }
     }
     return
 }

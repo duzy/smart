@@ -6,7 +6,7 @@
 
 package smart
 
-type invoker interface { invoke(Context, []Value, []Value) Value }
+type evaler interface { eval(Context, []Value, []Value) Value }
 type executer interface { execute(Context, ...Value) []Value }
 
 type eval struct { accumulation bool ; o origin }
@@ -18,7 +18,7 @@ func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
 
     var list []Value
     var opts struct { general_opts }
-    args = parse_opts(_final(ctx), &opts, args...)
+    args = parseOpts(_final(ctx), &opts, args...)
 
     for _, recipe := range exe.recipes {
         var vals = merge(recipe)
@@ -36,8 +36,8 @@ func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
         case *returner:
             return ease(ctx, t.vals)
 
-        case invoker:
-            if v := t.invoke(ctx, ov, vals[1:]); v != nil {
+        case evaler:
+            if v := t.eval(ctx, ov, vals[1:]); v != nil {
                 if p.accumulation {
                     list = append(list, v)
                 } else {

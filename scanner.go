@@ -764,7 +764,9 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 
 	if IsLetter(s.ch) {
 		lit = s.scanIdentifier(ctx)
-		if len(lit) > 1 && s.ch != '/' && s.ch != '.' && s.ch != '~' {
+		// CRITICAL FIX: Downgrade keywords to WORD if they are immediately followed by a dash.
+		// This prevents rule targets like `configure-input:` from being hijacked!
+		if len(lit) > 1 && s.ch != '/' && s.ch != '.' && s.ch != '~' && s.ch != '-' {
 			if tok = lookup_keyword(lit) ; !tok.is_keyword() && tok != WORD {
 				debug(pc(ctx,s), "unexpected token '%s' %s", tok, lit, trace{})
 			}

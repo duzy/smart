@@ -257,9 +257,9 @@ func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNe
 	} else if d, y = a.(*def); d != nil {
 		if !d.position.valid() && pos.valid() { d.position = pos }
 	}
-	if o != defInvalid {
+	if o != defInvalid && o != d.o {
 		if d.o == defInvalid { d.o = o } else {
-			debug(ctx, "%v: conflicts origin: %v | %v", ident, d.o, o, trace{})
+			debug(pc(ctx,d), "%v: conflicts origin: %v | %v", id, d.o, o, trace{})
 		}
 	}
 	if vals != nil { d.set(ctx, ease(ctx, vals)) }

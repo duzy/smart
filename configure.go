@@ -182,7 +182,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
         target as
     )
 
-    args = parse_opts(ctx, opts, args...)
+    args = parseOpts(ctx, opts, args...)
 
     if target.Value = auto_get(ctx, "@"); isTrivial(target.Value) {
         debug(ctx, "'@' is not defined", trace{})

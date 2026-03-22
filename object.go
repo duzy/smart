@@ -366,9 +366,11 @@ func (d *def) val(ctx Context, vals []Value) {
     d.set(ctx, val)
 }
 func (d *def) set(ctx Context, value Value, app ...Value) {
-    if checkpoints && d.o == defConfig && d.value != nil {
-        debug(pc(pc(ctx,value),d.value), "duplicated %v %v → %v %v", d.o, d, value, app, trace{})
-    }
+	if checkpoints && d.o == defConfig && d.value != nil {
+		debug(pc(pc(ctx,value),d.value),
+			_f("duplicated %v %v → %v %v", d.o, d, value, app),
+			callstack{num:16}, trace{})
+	}
     if value == d.value && len(app) == 0 { return }
 
     var vals []Value

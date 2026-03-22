@@ -933,7 +933,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     ec.exec_result.position = _position(ctx)
     ec.scanStderr = true
 
-    args = parse_opts(ctx, &ec.exec_opts, args...)
+    args = parseOpts(ctx, &ec.exec_opts, args...)
 
     if !ec.prompt { ec.prompt = ec.cmd != "" }
 

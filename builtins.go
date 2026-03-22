@@ -22,7 +22,7 @@ import (
     "bytes"
     "bufio"
     "time"
-    "sync"
+    // "sync"
 	"slices"
     "fmt"
     "os"
@@ -149,6 +149,8 @@ var builtins = map[string]reflect.Type {
     `split-quote-join`: reflect.TypeOf((*__splitquotejoin)(nil)).Elem(),
     `split-join-quote`: reflect.TypeOf((*__splitjoinquote)(nil)).Elem(),
 
+    `element`:      reflect.TypeOf((*__element)(nil)).Elem(),
+    `field`:        reflect.TypeOf((*__field)(nil)).Elem(),
     `fields`:       reflect.TypeOf((*__fields)(nil)).Elem(),
 
     // `usee`:         reflect.TypeOf((*__usee)(nil)).Elem(),
@@ -401,24 +403,21 @@ outer:
         var f flag
         var value Value
 
-        // skip parsing patterns, e.g. -I%
-        if !patterned(ctx, arg) {
-            switch t := arg.(type) {
-            case        flag: f, value = t, _boolean(t.Position(), true)
-            case       *pair: if f, y = t.key.(flag);   y { value = t.val }
-            case *argumented: if f, y = t.Value.(flag); y { value = ease(ctx, t.args) }
-            }
+        // 1. Extract the flag identity safely FIRST
+        switch t := arg.(type) {
+        case        flag: f, y = t, true; value = _boolean(t.Position(), true)
+        case       *pair: if f, y = t.key.(flag);   y { value = t.val }
+        case *argumented: if f, y = t.Value.(flag); y { value = ease(ctx, t.args) }
         }
 
-        if f.Value == nil {
-            rest = append(rest, arg)
-            continue outer
-        }
-
-        for i := 0; i < len(opts); i += 1 {
-            if _, y = f.opt(ctx, opts[i]); y {
-                _set(ctx, val, value)
-                continue outer
+        // 2. CRITICAL FIX: Only skip if the flag name ITSELF is a pattern (e.g. -I%), 
+        // DO NOT skip if only the arguments contain patterns (like -cond($(depfiles?)))
+        if y && !patterned(ctx, f) {
+            for i := 0; i < len(opts); i += 1 {
+                if _, match := f.opt(ctx, opts[i]); match {
+                    _set(ctx, val, value)
+                    continue outer
+                }
             }
         }
 
@@ -427,7 +426,7 @@ outer:
 
     switch val.Type().String() {
     case "fs.FileMode", "os.FileMode":
-		if val.Uint() == 0 { val.SetUint(0640) }
+        if val.Uint() == 0 { val.SetUint(0640) }
     }
     return
 }
@@ -443,7 +442,7 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
 
     rest = merge(args...)
 
-    var builtin, general, modifier, dots reflect.Value
+    var builtin, general, modifier, clause, dots reflect.Value
     var ot = opts.Type()
     for i := 0; i < ot.NumField(); i += 1 {
         var ft, fv = ot.Field(i), opts.Field(i)
@@ -453,11 +452,20 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
             if ft.Anonymous && ft.Name == "Context" && t.String() == "smart.Context" {
 				continue
             }
+
+			// CRITICAL FIX: Intercept embedded *clause_opts (Pointer)
+            if ft.Anonymous && ft.Name == "clause_opts" && fv.Kind() == reflect.Ptr {
+                if !fv.IsNil() { clause = fv }
+                continue
+            }
+			
             rest = _opt(ctx, ft.Tag, fv, rest...)
         } else if !ft.Anonymous {
             continue
         } else if ft.Name == "general_opts" {
             general = fv.Addr()
+		} else if ft.Name == "clause_opts" {
+			clause = fv.Addr() // Support if it was embedded by value instead of pointer
         } else if strings.HasPrefix(ft.Name, "__") {
             if builtin.IsValid() { debug(ctx, "embedded multiple builtins: %v", ft) }
             builtin = fv.Addr()
@@ -467,6 +475,7 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
         }
     }
     if  general.IsValid() { rest = _opts(ctx,  general, rest) }
+	if   clause.IsValid() { rest = _opts(ctx,   clause, rest) } // Inherit clause_opts!
     if  builtin.IsValid() { rest = _opts(ctx,  builtin, rest) }
     if modifier.IsValid() { rest = _opts(ctx, modifier, rest) }
     if dots.IsValid() && rest != nil {
@@ -475,20 +484,20 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
     }
     return
 }
-func parse_opts(ctx Context, store any, vals ...Value) []Value {
+func parseOpts(ctx Context, store any, vals ...Value) []Value {
     return _opts(ctx, reflect.ValueOf(store), vals)
 }
 
 // see https://go.dev/doc/tutorial/generics
 func _opts_[Opts any](ctx Context, args ...Value) (opts Opts, res []Value) {
-    res = parse_opts(ctx, &opts, args...)
+    res = parseOpts(ctx, &opts, args...)
     return
 }
 
 func _parseHeadArgs(ctx Context, store any, args ...Value) (head, rest []Value) {
     if len(args) == 0 {
         // zero args
-    } else if head = parse_opts(ctx, store, args[0]); len(head) > 0 {
+    } else if head = parseOpts(ctx, store, args[0]); len(head) > 0 {
         rest = args[1:] //xmerge(ctx, args[1:]...)
     } else if len(args) == 1 {
         // done
@@ -1596,7 +1605,7 @@ func (ctx *__append) x() (_ any) {
         } else if ctx.auto {
             d = auto_find(ctx, s)
         } else if ctx.closure {
-            d = closure_finddef(ctx, s)
+            debug(ctx, "closure: %v", a) // d = closure_finddef(ctx, s)
         } else if o := project_resolve(ctx, s); o != nil {
             d, _ = o.(*def)
         }
@@ -1978,28 +1987,78 @@ func (ctx *__splitjoinquote) x() (res any) {
     return
 }
 
+type __element struct { builtinbase }
+func (ctx *__element) inner() Context { return &ctx.builtinbase }
+func (ctx *__element) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__element) x() (res any) {
+	var elems []Value
+	for _, o := range ctx.o {
+		x, ok := unbox(expand(ctx, o)).(Value)
+		if ok && x.kind()&KindInteger != 0 {
+			var i = int(__int(ctx, x))
+			for _, v := range ctx.a {
+				if a := xmerge(ctx, v); 0 <= i && i < len(a) {
+					elems = append(elems, a[i])
+				}
+			}
+		}
+	}
+	return elems
+}
+
+type __field struct { builtinbase }
+func (ctx *__field) inner() Context { return &ctx.builtinbase }
+func (ctx *__field) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__field) x() (res any) {
+	var elems []Value
+	for _, o := range ctx.o {
+		x, ok := unbox(expand(ctx, o)).(Value)
+		if ok && x.kind()&KindInteger != 0 {
+			var i = int(__int(ctx, x))
+			for _, v := range ctx.a {
+				if a := strings.Fields(__string(ctx, v)); 0 < i && i <= len(a) {
+					elems = append(elems, _raw(v.Position(), a[i-1]))
+				}
+			}
+		}
+	}
+	return elems
+}
+
 type __fields struct { builtinbase }
 func (ctx *__fields) inner() Context { return &ctx.builtinbase }
 func (ctx *__fields) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__fields) x() (res any) {
-    if l := len(ctx.a); l >= 2 {
-        var fields []string
-        var s string = __string(ctx, ctx.a[1])
-        var i int64 = __int(ctx, ctx.a[0])
-        if l > 2 {
-            fields = strings.Split(s, __string(ctx, ctx.a[2]))
-        } else {
-            fields = strings.Fields(s)
-        }
-        if n := int(i)-1; 0 <= n && n < len(fields) {
-            s = strings.TrimSpace(fields[n])
-        }
-        return fields
-    }
-    return
+func (ctx *__fields) x() any {
+	var elems []Value
+
+	if len(ctx.a) == 2 {
+		x, ok := unbox(expand(ctx, ctx.a[0])).(Value)
+		if ok && x.kind()&KindInteger != 0 {
+			var i = int(__int(ctx, x))
+			for _, v := range ctx.a[1:] {
+				if a := strings.Fields(__string(ctx, v)); 0 <= i && i < len(a) {
+					elems = append(elems, _raw(v.Position(), a[i]))
+				}
+			}
+			return elems
+		}
+	}
+
+	for _, v := range ctx.a {
+		for _, s := range strings.Fields(__string(ctx, v)) {
+			elems = append(elems, _raw(v.Position(), s))
+		}
+	}
+	return elems
 }
 
 type __usee struct { builtinbase }
@@ -2233,65 +2292,75 @@ func (ctx *__filter) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__filter) _x(pats []Value, values... Value) (result []Value) {
-    defer func(t0 time.Time) {
-        if d := time.Now().Sub(t0); d > 1*time.Second {
-            pos := _position(ctx)
-            prompt(ctx, "%v: slow: %d result, %v\n", pos, len(result), result)
-            prompt(ctx, "%v: slow: %d pats, %v\n", pos, len(pats), pats)
-            debug(ctx, "%v: slow: %v\n", pos, d)
-        }
-    } (time.Now())
 
-    var f = func(v Value) Value {
-        for _, pat := range pats {
-            if full, res, _, stems := match(ctx, pat, v); full {
-                if ctx.neg {
-                    v = nil
-                } else if ctx.stem {
-                    v = ease(ctx, stems)
-                } else if false {
-                    if t, r := stencil(ctx, pat, stems); t != nil && len(r) == 0 {
-                        v = t
-                    } else {
-                        v = ease(ctx, res)
-                    }
-                }
-                return v
-            }
-        }
-        if ctx.neg { return v } else { return nil }
-    }
+func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
+	defer func(t0 time.Time) {
+		if d := time.Since(t0); d > 1*time.Second {
+			debug(ctx,
+				_f("slow: %v\n", d),
+				_f("slow: %d result, %v\n", len(result), result),
+				_f("slow: %d pats, %v\n", len(pats), pats))
+		}
+	} (time.Now())
 
-    for _, v := range values {
-        if t := f(v); t != nil {
-            result = append(result, t)
-        }
-    }
-    return
+	// Optimization: Pre-allocate result capacity if we expect a high retention rate,
+	// though nil slice appending is already very fast in Go.
+	for _, v := range values {
+		var matched bool
+		var matchedVal Value
+
+		// Check the value against all patterns
+		for _, pat := range pats {
+			if full, _, _, stems := match(ctx, pat, v); full {
+				matched = true
+				if ctx.stem {
+					matchedVal = ease(ctx, stems)
+				} else {
+					matchedVal = v
+				}
+				break // Stop checking patterns once we have a match
+			}
+		}
+
+		// Apply filter vs filter-out logic without closure allocations
+		if matched {
+			if !ctx.neg {
+				if matchedVal != nil {
+					result = append(result, matchedVal)
+				}
+			}
+		} else {
+			if ctx.neg {
+				if v != nil {
+					result = append(result, v)
+				}
+			}
+		}
+	}
+	return
 }
+
 func (ctx *__filter) x() (res any) {
-    if len(ctx.a) > 1 {
-        var i int
-        var vals []Value
-        var pats = merge(ctx.a[0])
-        if len(pats) > 0 {
-            i = 1 // good
-        } else if pats = merge(ctx.a[1]); len(pats) == 0 {
-            debug(ctx, "no patterns: %v", ctx.a, trace{})
-        } else {
-            i = 2
-        }
+	if len(ctx.a) > 1 {
+		var i int
+		var pats = merge(expand(ctx, ctx.a[0]))
+		
+		if len(pats) > 0 {
+			i = 1 // good
+		} else if pats = merge(ctx.a[1]); len(pats) == 0 {
+			debug(ctx, "no patterns: %v", ctx.a, trace{})
+			return
+		} else {
+			i = 2
+		}
 
-        if len(ctx.a) < i {
-            debug(ctx, "out of index: %d > %d, %v", i, len(ctx.a), ctx.a, trace{})
-        }
-
-        vals = merge(ctx.a[i:]...)
-        vals = ctx._x(pats, vals...)
-        if len(vals) > 0 { res = vals }
-    }
-    return
+		if i <= len(ctx.a) {
+			res = ctx._x(pats, merge(expands(ctx, ctx.a[i:]...)...)...)
+		} else {
+			debug(ctx, "out of index: %d > %d, %v", i, len(ctx.a), ctx.a, trace{})
+		}
+	}
+	return
 }
 
 // $(filter-out pattern…,text)
@@ -2376,8 +2445,6 @@ func coupleval(ctx Context, v Value, str string) (_ Value) {
 // TODO: support flags -name and -full for name-only and full-name-only matching
 type __patsubst struct { builtinbase
     fullfiles bool `fullfile,fullfiles`
-    mapfiles  bool `map,mapfiles,map-files,files`
-    nofilemap bool `nomap,no-map,nofile,nofiles,no-files,no-filemap`
     filter    bool `filter,filter-unmatched,match-only` // Added filter option
 }
 func (ctx *__patsubst) inner() Context { return &ctx.builtinbase }
@@ -2394,30 +2461,15 @@ func (ctx *__patsubst) matchPats(pats []Value, a Value) (ok bool, pat Value, ste
 	}
 	return false, nil, nil
 }
-func (ctx *__patsubst) srcFile(proj *project, src Value) (srcFile *file, source any, full bool) {
+func (ctx *__patsubst) srcFile(proj *project, src Value) (srcFile *file, full bool) {
 	var ok bool
 	if srcFile, ok = to_file(src); ok {
-		source = srcFile
-	} else if ctx.mapfiles {
-		var s = __string(ctx, src)
-		if srcFile = proj.file(ctx, s); srcFile != nil {
-			source = srcFile
-		} else {
-			source = s
-		}
-	} else if true {
-		source = src
-	} else {
-		debug(ctx, "unexpected %s", ts(src), trace{})
+		if full = ctx.fullfiles; !full { _, full = unbox(src).(fullfile) }
 	}
-	if full = ctx.fullfiles; !full { _, full = src.(fullfile) }
 	return
 }
 func (ctx *__patsubst) x() (_ any) {
-	var (
-		srcPats, dstPats, sources, res []Value
-		proj = _project(ctx)
-	)
+	var srcPats, dstPats, sources, res []Value
 	if nil != ctx.a {
 		var l = len(ctx.a)
 		if 0 < l { srcPats = xmerge(ctx, ctx.a[0]) }
@@ -2425,11 +2477,12 @@ func (ctx *__patsubst) x() (_ any) {
 		if 2 < l { sources = xmerge(ctx, ctx.a[2:]...) }
 	}
 
+	var proj = _project(ctx)
 	for _, src := range sources {
-		var srcFile, source, full = ctx.srcFile(proj, src)
+		var srcFile, full = ctx.srcFile(proj, src)
 		
 		// This now returns an exact, cleanly stripped stem (e.g., "foo")
-		var ok, srcPat, stems = ctx.matchPats(srcPats, src)
+		var ok, /* srcPat */_, stems = ctx.matchPats(srcPats, src)
 		
 		if !ok {
 			// Pass-through unmatched files seamlessly
@@ -2438,42 +2491,44 @@ func (ctx *__patsubst) x() (_ any) {
 		}
 
 		for _, dstPat := range dstPats {
-			// AST-to-AST Structural Mapping!
-			var val, ramnant = stencil(ctx, dstPat, stems)
-			if false { debug(ctx, "%v : %v %v : %v -> %v %v", src, srcPat, stems, dstPat, val, ramnant) }
-			
-			if isNull(val) {
-				debug(ctx, "nil stencil: %s: %v (stems=%v, ramnant=%v)", typeof(dstPat), dstPat, stems, ramnant, trace{})
-				continue
-			} else if 0 < ctx.debug {
-				debug(ctx, "patsubst: %v: %v → %v → %v %v → %v %v", srcPat, src, source, stems, dstPat, val, ramnant)
-			}
+			// Ignore ramnant check to allow static replacements
+			if val, _ := stencil(ctx, dstPat, stems); isNull(val) {
+				debug(ctx, "nil stencil: %v", dstPat, trace{})
+			} else if srcFile != nil {
+				// If the source was a file, we want to maintain its "file-like" identity 
+				// without incurring the cost of a full VFS/trie lookup.
+				dst := proj.file(ctx, val)
 
-			var str string
-			if str = __string(ctx, val); str == "" { continue }
-			
-			if srcFile != nil {
-				var dst *file
-				if ctx.nofilemap {
-					dst = _stat(ctx, str, stat_sub{srcFile.sub}, stat_dir{srcFile.dir}, stat_nonexist{true})
-				} else {
-					// Because we used stencil, `val` is a rich AST node!
-					// proj.file can natively parse it against the valcache trie!
-					dst = proj.file(ctx, val)
-				}
-				
+				var str string
+
+				// TIER 2: If AST mapping failed, flatten to string and force VFS resolution
 				if dst == nil {
-					debug(ctx, "%v %v", srcPat, srcFile)
-				} else if dst.position = srcPat.Position(); full {
+					if str = __string(ctx, val); str != "" {
+						dst = _stat(ctx, str, stat_nonexist{true})
+					}
+				}
+
+				// TIER 3: If VFS totally rejects it, degrade to a pure string substitution
+				if dst == nil {
+					if str != "" {
+						res = append(res, coupleval(pc(ctx, dstPat), src, str))
+					}
+					continue // Safely move to next pattern
+				}
+
+				if dst == nil {
+					debug(ctx, "%v → %v (nil file)", srcFile, val, callstack{num:5}, trace{})
+				} else if dst.position = src.Position(); full {
 					res = append(res, fullfile{dst})
 				} else {
 					res = append(res, dst)
 				}
-				continue
+			} else {
+				if str := __string(ctx, val); str != "" {
+					// Uses the coupleval function for standard string replacements
+					res = append(res, coupleval(pc(ctx, dstPat), src, str))
+				}
 			}
-
-			// Uses your newly hardened coupleval() function!
-			res = append(res, coupleval(pc(ctx, dstPat), src, str))
 		}
 	}
 	return res
@@ -3158,41 +3213,52 @@ func (ctx *__ext) x() (_ any) {
     return
 }
 
-func _bases(s string, a ...any) (d, b string) {
-    if d, b = filepath.Dir(s), filepath.Base(s); a != nil && d != "" && d != "." {
-        var k = 1
-        for _, a := range a {
-            switch t := a.(type) {
-            case bool:
-                if filepath.IsAbs(d) {
-                    b = filepath.Join(d, b)
-                } else if t {
-                    b = filepath.Join("…", b)
-                }
-            case int:
-                for i := t-k; 0 < i; i -= 1 {
-                    b = filepath.Join(filepath.Base(d), b)
-                    d = filepath.Dir(d)
-                }
-            case string:
-                for d != "/" && d != "." && d != "" && len(d)+len(b)<len(s) {
-                    if true { k += 1 }
-                    if s := filepath.Base(d); s == t {
-                        d = filepath.Dir(d)
-                        break
-                    } else {
-                        b = filepath.Join(s, b)
-                        d = filepath.Dir(d)
-                    }
-                }
-            }
-        }
-    }
-    return
+func _bases(n int, s string, a ...any) (d, b string) {
+	d, b = filepath.Dir(s), filepath.Base(s)
+	if d == "" || d == "." {
+		return
+	}
+
+	var k = 1
+
+	// 1. Process the explicit depth 'n' unconditionally
+	for i := n - k; i > 0; i -= 1 {
+		if d == "/" || d == "." || d == "" { break }
+		b = filepath.Join(filepath.Base(d), b)
+		d = filepath.Dir(d)
+		k += 1
+	}
+
+	// 2. Process optional string boundaries or boolean prefixing
+	if a != nil {
+		for _, arg := range a {
+			switch t := arg.(type) {
+			case bool:
+				if filepath.IsAbs(d) {
+					b = filepath.Join(d, b)
+				} else if t {
+					b = filepath.Join("…", b)
+				}
+			case string:
+				for d != "/" && d != "." && d != "" && len(d)+len(b) < len(s) {
+					k += 1
+					if base := filepath.Base(d); base == t {
+						d = filepath.Dir(d)
+						break
+					} else {
+						b = filepath.Join(base, b)
+						d = filepath.Dir(d)
+					}
+				}
+			}
+		}
+	}
+	return
 }
-func bases(s string, a ...any) (b string) {
-    _, b = _bases(s, a...)
-    return
+
+func bases(n int, s string, a ...any) (b string) {
+	_, b = _bases(n, s, a...)
+	return
 }
 
 type __bases struct { builtinbase ; n int `num,size,count` }
@@ -3211,7 +3277,7 @@ func (ctx *__bases) x() any {
 			s = __string(ctx, a)
 		}
 		if s != "" {
-			_, s = _bases(s, ctx.n)
+			_, s = _bases(ctx.n, s)
 			switch t := strings.Split(s, pathSep); len(t) {
 			case 0:
 			case 1: vals = append(vals, _word(a.Position(), s))
@@ -3773,8 +3839,6 @@ func (ctx *__remove) x() (res any) {
         if opts.verbose { prompt(ctx, "removed %s\n", s) }
     }
     var removePat = func(ctx Context, pat Value) {
-        // var val = (&__wildcard{__:__{evocation:?}})._do(pat)
-        // debug(ctx, "TODO: remove: %v → %v", pat, val, trace{})
         debug(ctx, "TODO: remove: %v", ts(pat), trace{})
     }
 
@@ -3976,14 +4040,14 @@ outer:
         case *pair: // symlink srcName=dstName srcName=>dstName...
             srcNameVal, dstNameVal = t.key, t.val
         case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
-            if aa = parse_opts(ctx, &opts, t.elems...); len(aa) != 2 {
+            if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
                 debug(ctx, "expects two values for group", trace{})
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
             }
         case *list: // XXX: symlink old new, old new, ...
-            if aa = parse_opts(ctx, &opts, t.elems...); len(aa) != 2 {
+            if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
                 debug(ctx, "expects two values for list", trace{})
                 return
             } else {
@@ -4311,7 +4375,6 @@ type __wildcard struct {
 	dir            string  `dir,directory`
 	sort           bool    `sort`
 	files []*file
-	m sync.Mutex
 }
 
 func (ctx *__wildcard) inner() Context { return &ctx.builtinbase }
@@ -4322,7 +4385,6 @@ func (ctx *__wildcard) cast(t reflect.Type) Context {
 
 func (ctx *__wildcard) collect(f *file) {
 	if f != nil {
-		ctx.m.Lock()
 		if ctx.sort {
 			i, found := slices.BinarySearchFunc(ctx.files, f, func(a, b *file) int {
 				switch {
@@ -4335,37 +4397,30 @@ func (ctx *__wildcard) collect(f *file) {
 		} else {
 			ctx.files = append(ctx.files, f)
 		}
-		ctx.m.Unlock()
 	}
 }
 
 func (ctx *__wildcard) directory(topDir string, pats ...Value) {
 	var ne = ctx.includeMissing && !ctx.ignoreMissing
-	var g sync.WaitGroup
 
-	sem := make(chan struct{}, 64)
 	pats = merge(pats...)
 
 	var walk func(dir string, currentPats []Value)
-	walk = func(dir string, currentPats []Value) { defer g.Done()
+	walk = func(dir string, currentPats []Value) {
 		names := readDirNames(ctx, filepath.Join(topDir, dir), ctx.errorMissing)
 
+	NamesLoop:
 		for _, name := range names {
 			dn := name
-			if dir != "" && dir != "." {
-				dn = joinpath(dir, name)
-			}
+			if dir != "" && dir != "." { dn = joinpath(dir, name) }
 
 			// 1. Exclude Check (Must be an absolute match!)
-			excluded := false
 			dnPath := _pathStr(ctx, dn)
 			for _, x := range ctx.exclude {
 				if ok, _, rem, _ := match(ctx, x, dnPath); ok && rem == nil {
-					excluded = true
-					break
+					continue NamesLoop
 				}
 			}
-			if excluded { continue }
 
 			// 2. Absolute Match Check (Determines if THIS path is a collected result)
 			matched := false
@@ -4396,12 +4451,20 @@ func (ctx *__wildcard) directory(topDir string, pats ...Value) {
 				nextPats = unique
 			}
 
+			var f *file
 			var isDir bool
 			if matched || len(nextPats) > 0 {
-				if fi, err := os.Stat(filepath.Join(topDir, dn)); err == nil {
-					isDir = fi.IsDir()
-				} else {
-					continue
+				// Fetch the canonical *file object from the engine
+				f = _stat(ctx, dn, stat_dir{topDir}, stat_nonexist{ne})
+				
+				if f == nil {
+					continue // Invalid file state
+				}
+				
+				if f.info != nil {
+					isDir = f.info.IsDir()
+				} else if !ne {
+					continue // File doesn't exist and we aren't explicitly including missing
 				}
 			}
 
@@ -4415,61 +4478,37 @@ func (ctx *__wildcard) directory(topDir string, pats ...Value) {
 				default:          validType = true
 				}
 
-				if validType {
-					ctx.collect(_stat(ctx, dn, stat_dir{topDir}, stat_nonexist{ne}))
-				}
+				if validType { ctx.collect(f) }
 			}
 
 			// 5. Recursive Descent
 			if isDir && len(nextPats) > 0 {
-				g.Add(1)
-				sem <- struct{}{} // acquire
-				go func(d string, np []Value) {
-					walk(d, np)
-					<-sem // release
-				}(dn, nextPats)
+				walk(dn, nextPats)
 			}
 		}
 	}
 
-	g.Add(1)
 	walk("", pats)
-	g.Wait()
 }
 
 func (ctx *__wildcard) project(p *project, pats ...Value) {
 	var ne = ctx.includeMissing && !ctx.ignoreMissing
-	var g sync.WaitGroup
 
 	for _, argPat := range pats {
-		g.Add(1)
-		go func() { defer g.Done()
-			for _, a := range unmap_files(ctx, p, argPat, nil) {
-				for _, mapPat := range a.filemap.patterns(ctx) {
-					var search = _if_cmp(ctx, cmpSmaller, argPat, mapPat)
-					var isSearchPat = patterned(ctx, search)
-					for _, v := range merge(expands(_final(ctx), a.filemap.paths...)...) {
-						if dir := __string(ctx, v); isSearchPat {
-							ctx.directory(dir, search)
-						} else {
-							ctx.collect(_stat(ctx, __string(ctx, search), stat_dir{dir}, stat_nonexist{ne}))
-						}
+		for _, a := range unmap_files(ctx, p, argPat, nil) {
+			for _, mapPat := range a.filemap.patterns(ctx) {
+				var search = _if_cmp(ctx, cmpSmaller, argPat, mapPat)
+				var isSearchPat = patterned(ctx, search)
+				for _, v := range merge(expands(_final(ctx), a.filemap.paths...)...) {
+					if dir := __string(ctx, v); isSearchPat {
+						ctx.directory(dir, search)
+					} else {
+						ctx.collect(_stat(ctx, __string(ctx, search), stat_dir{dir}, stat_nonexist{ne}))
 					}
 				}
 			}
-		} ()
+		}
 	}
-
-	g.Wait()
-}
-
-func (ctx *__wildcard) _do(pats ...Value) []*file {
-	if ctx.dir == "" {
-		ctx.project(_project(ctx), pats...)
-	} else {
-		ctx.directory(ctx.dir, pats...)
-	}
-	return ctx.files
 }
 
 func (ctx *__wildcard) x() any {
@@ -4477,15 +4516,13 @@ func (ctx *__wildcard) x() any {
 		ctx.exclude = xmerge(_final(ctx.Context), ctx.exclude...)
 	}
 
-	var vals []Value
-	for _, f := range ctx._do(merge(ctx.a...)...) {
-		if f == nil {
-			debug(ctx, "nil file: %v", ctx.a, trace{})
-		} else {
-			vals = append(vals, f)
-		}
+	if pats := merge(ctx.a...); ctx.dir == "" {
+		ctx.project(_project(ctx), pats...)
+	} else {
+		ctx.directory(ctx.dir, pats...)
 	}
-	return vals
+
+	return ctx.files
 }
 
 type __readdir struct { builtinbase }

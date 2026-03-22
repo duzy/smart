@@ -91,7 +91,7 @@ func (p *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
     var exe = _execution(ctx)
     var opts struct { general_opts }
 
-    if args = parse_opts(ctx, &opts, args...) ; len(args) > 0 {
+    if args = parseOpts(ctx, &opts, args...) ; len(args) > 0 {
         res.name = __string(ctx, args[0])
         exe.language = res.name
     }

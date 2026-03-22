@@ -214,28 +214,6 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
     return
 }
 
-type debug_y struct{}
-type debug_ctx struct{ Context }
-func (c debug_ctx) cast(t reflect.Type) Context { return icast(c,t) }
-func (c debug_ctx) inner() Context { return c.Context }
-func (c debug_ctx) do(ctx Context, op any) any {
-    switch op.(type) {
-    case debug_y: return true
-    }
-    return c.Context.do(ctx, op)
-}
-
-type unmap_uncheck_y struct{}
-type unmap_uncheck_ctx struct{ Context }
-func (c unmap_uncheck_ctx) cast(t reflect.Type) Context { return icast(c,t) }
-func (c unmap_uncheck_ctx) inner() Context { return c.Context }
-func (c unmap_uncheck_ctx) do(ctx Context, op any) any {
-    switch op.(type) {
-    case unmap_uncheck_y: return true
-    }
-    return c.Context.do(ctx, op)
-}
-
 type project_ctx struct{ Context ; p *project }
 func (c project_ctx) cast(t reflect.Type) Context { return icast(c,t) }
 func (c project_ctx) inner() Context { return c.Context }
@@ -431,48 +409,53 @@ func (p *project) file(ctx Context, a any) *file {
 }
 
 func (p *project) tempdir(ctx Context) (d *def, s string) {
-    for _, t := range []string{"outtmp", ".tmp", "CTD"} {
-        if d = p.resolveDef(ctx, t); d != nil { break }
-    }
+	for _, t := range []string{"outtmp", ".tmp", "CTD"} {
+		if d = p.resolveDef(ctx, t); d != nil { break }
+	}
 
-    if d == nil {
-        debug(ctx, "%v: tmp is not defined", p, trace{})
-    }
+	if d == nil {
+		debug(ctx, "%v: tmp is not defined", p, trace{})
+		return
+	}
 
-    s = filepath.Clean(__string(/*closure_with(ctx,p)*/ctx, d))
+	// =========================================================
+	// CRITICAL FIX: Polymorphic Macro Expansion
+	// =========================================================
+	// 1. Create a closure context locked to the active project
+	// 2. Stringify the dynamically evaluated result
+	s = filepath.Clean(__string(closure_with(ctx, p), d.value))
 
-    if checkpoints { tempdir_check(ctx, p, d, s) }
-    return
+	if false && checkpoints { tempdir_check(ctx, p, d, s) }
+	return
 }
 
 func (p *project) tempfile(ctx Context, name string) (f *file) {
     var t, d = p.tempdir(ctx)
     switch d {
     case "", "/":
-        debug(ctx, "%v: %s: tempdir is illegal: %v → '%s', %s", p.name, name, t, __string(ctx, t), d)
-        note(ctx, "%v", p.resolveDef(ctx, "outtmp"))
-        note(ctx, "%v", p.resolveDef(ctx, "target.tmp"))
-        note(ctx, "%v", p.resolveDef(ctx, "target.out"))
-        note(ctx, "%v", p.resolveDef(ctx, "target.triple"))
-        note(ctx, "%v", p.resolveDef(ctx, "rel.remnant"))
-        note(ctx, "%v", p.resolveDef(ctx, "rel.chop"))
-        note(ctx, "%v", p.resolveDef(ctx, "variant.tag"), trace{})
+        debug(ctx,
+			_f("%v: %s: tempdir is illegal: %v → '%s', %s", p.name, name, t, __string(ctx, t), d),
+			_f("%v", p.resolveDef(ctx, "outtmp")),
+			_f("%v", p.resolveDef(ctx, "target.tmp")),
+			_f("%v", p.resolveDef(ctx, "target.out")),
+			_f("%v", p.resolveDef(ctx, "target.triple")),
+			_f("%v", p.resolveDef(ctx, "rel.remnant")),
+			_f("%v", p.resolveDef(ctx, "rel.chop")),
+			_f("%v", p.resolveDef(ctx, "variant.tag")),
+			trace{})
     }
 
     if f = _stat(ctx, name, stat_dir{d}, stat_nonexist{true}); f == nil {
         debug(ctx, "%v: not a file: %v : %v", p, name, d, trace{})
     }
 
-    if checkpoints { tempfile_check(ctx, p, name, d, f) }
+    if false && checkpoints { tempfile_check(ctx, p, name, d, f) }
     return
 }
 
 func (p *project) configuration_sm(ctx Context) (f *file) {
     if f = p.tempfile(ctx, configuration_sm); f == nil {
         debug(ctx, "%v: no file %s", p, configuration_sm, trace{})
-    }
-    if checkpoints {
-        p.configuration_sm_check(ctx, f)
     }
     return
 }

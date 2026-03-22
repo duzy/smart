@@ -862,7 +862,7 @@ func map_entry(ctx Context, p *project, target Value, prog *program) (entry entr
 		case *barefile, *file, *path, *percpat, *globpat, *regexpat:
 			goto skip_file
 		}
-		if t := p.file(unmap_uncheck_ctx{ctx}, target); t != nil {
+		if t := p.file(ctx, target); t != nil {
 			target, t.position = t, target.Position()
 		}
 	skip_file:

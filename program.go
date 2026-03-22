@@ -406,7 +406,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 
 func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *file) {
 	var mapPrereqFile = func(name Value) {
-		var ms = unmap_files(unmap_uncheck_ctx{ctx}, _project(ctx), name, nil)
+		var ms = unmap_files(ctx, _project(ctx), name, nil)
 		if ms != nil {
 			defer func() {
 				if prereqFile != nil { return }
@@ -557,7 +557,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     t1 := time.Now()
 
     for _, proj := range projs {
-        var entries = proj._entries(unmap_uncheck_ctx{ctx}, prereqValue, false)
+        var entries = proj._entries(ctx, prereqValue, false)
         if len(entries) == 0 { continue }
         concreteList = append(concreteList, entries...)
         for _, entry := range entries {
