@@ -162,7 +162,10 @@ func (n existence) String() (s string) {
 func sortstrs(s []string) []string { sort.Strings(s) ; return s }
 func sf(f string, i ...any) string { return fmt.Sprintf(f, i...) }
 func ssf(ss []string, a ...any) (res []string) {
-    for _, s := range ss { res = append(res, fmt.Sprintf(s, a...)) }
+    for _, s := range ss {
+		if strings.Contains(s, "%") { s = fmt.Sprintf(s, a...) }
+		res = append(res, s)
+	}
     return
 }
 
@@ -2724,18 +2727,18 @@ func (p *delegate) wraps(s string) string {
     }
 }
 func (p *delegate) resolve(ctx Context) (res []Value) {
-    for _, x := range merge(expand(ctx, p.x)) {
-        if x != nil /* && !evoker(x) */ && x.kind()&KindBuiltin == 0 {
-            switch p.l {
-            case LBRACE, STRING, STRCOMP: // ${xxx}  $'xxx'  $"xxx",  else/illegal: $(xxx)
-                if t := project_entry(ctx, x); t != nil { x = t }
-            default:
-                if t := project_resolve(ctx, ident(ctx, x)); t != nil { x = t }
-            }
-        }
-        res = append(res, x)
-    }
-    return
+	for _, x := range merge(expand(ctx, p.x)) {
+		if x != nil && x.kind()&KindBuiltin == 0 {
+			switch p.l {
+			case LBRACE, STRING, STRCOMP: // ${xxx}  $'xxx'  $"xxx",  else/illegal: $(xxx)
+				if t := project_entry(ctx, x); t != nil { x = t }
+			default:
+				if t := project_resolve(ctx, ident(ctx, x)); t != nil { x = t }
+			}
+		}
+		res = append(res, x)
+	}
+	return
 }
 
 type closure struct{ delegate } // polymorphic
@@ -2743,7 +2746,7 @@ func (p *closure) kind() Kind { return p.valbase.kind()|KindClosure }
 func (p *closure) String() (s string) { return p.src("&") }
 func (p *closure) resolve(ctx Context) (res []Value) {
 	for _, x := range merge(expand(ctx, p.x)) {
-		if x != nil /* && !evoker(x) */ && x.kind()&KindBuiltin == 0 {
+		if x != nil && x.kind()&KindBuiltin == 0 {
 			switch p.l {
 			case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
 				if t := closure_entry(ctx, x); t != nil { x = t }
@@ -3605,137 +3608,157 @@ func __float(ctx Context, v Value) (_ float64) {
 	return
 }
 
-func has_unbound_auto_ignore(ctx Context, v Value, ignore map[string]bool) bool {
-	if v == nil { return false }
-	switch t := unloc(v).(type) {
-	case *auto:
-		if ignore != nil && ignore[t.name] { return false }
-		val := t.def(ctx)
-		return val == nil || isTrivial(val)
-	case *delegate:
-		// Check if it's a wrapper for an auto (like $(1) instead of $1)
-		if w, ok := unloc(t.x).(*word); ok {
-			if truly(ctx, is_auto{w.s}) /* || rule_autos_contains(w.s) */ {
-				if ignore != nil && ignore[w.s] { return false }
-				if a := auto_get(ctx, w.s); a != nil {
-					if x, y := a.(*auto); y {
-						val := x.def(ctx)
-						if val == nil || isTrivial(val) { return true }
-					}
-				} else {
-					return true
-				}
+
+// Bubble: Sent by an unbound *auto to request deferral
+type act_defer_macro struct{}
+
+// Bubble: Sent by a *builtin to configure argument evaluation
+type act_macro_scope struct {
+	force_collapse bool
+	auto_binder    bool // NEW: True if the macro binds variables in its options (like `auto`)
+	ignore_autos   map[int]map[string]bool 
+}
+
+// The intercepting context wrapping the delegate/closure expansion
+type collapse_ctx struct {
+	Context
+	good_to_collapse bool
+	force_collapse   bool
+	auto_binder      bool // NEW
+	ignore_autos     map[int]map[string]bool
+	current_arg      int 
+}
+
+func (c *collapse_ctx) inner() Context { return c.Context }
+func (c *collapse_ctx) cast(t reflect.Type) Context { return icast(c, t) }
+func (c *collapse_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case act_defer_macro:
+		if !c.force_collapse {
+			c.good_to_collapse = false
+		}
+		return true
+
+	case act_macro_scope:
+		// Catch the builtin's configuration bubble
+		if t.force_collapse { c.force_collapse = true }
+		if t.ignore_autos != nil { c.ignore_autos = t.ignore_autos }
+		if t.auto_binder { c.auto_binder = true }
+		return true
+
+	case is_auto:
+		// Check if the current argument index specifically whitelists this auto
+		if c.ignore_autos != nil && c.ignore_autos[c.current_arg] != nil {
+			if c.ignore_autos[c.current_arg][t.s] || c.ignore_autos[c.current_arg]["*"] {
+				return true // Whitelisted! Do not defer.
 			}
 		}
-		return has_unbound_auto_ignore(ctx, t.x, ignore) || 
-			   has_unbound_auto_list_ignore(ctx, t.o, ignore) || 
-			   has_unbound_auto_list_ignore(ctx, t.a, ignore)
-	case *closure:
-		return has_unbound_auto_ignore(ctx, t.x, ignore) || 
-			   has_unbound_auto_list_ignore(ctx, t.o, ignore) || 
-			   has_unbound_auto_list_ignore(ctx, t.a, ignore)
-	case *list: return has_unbound_auto_list_ignore(ctx, t.elems, ignore)
-	case *strcomp: return has_unbound_auto_list_ignore(ctx, t.elems, ignore)
-	case *strval: return has_unbound_auto_list_ignore(ctx, t.v, ignore)
-	case *group: return has_unbound_auto_list_ignore(ctx, t.elems, ignore)
-	case *argumented: return has_unbound_auto_ignore(ctx, t.Value, ignore) || has_unbound_auto_list_ignore(ctx, t.args, ignore)
-	case *pair: return has_unbound_auto_ignore(ctx, t.key, ignore) || has_unbound_auto_ignore(ctx, t.val, ignore)
-	case flag: return has_unbound_auto_ignore(ctx, t.Value, ignore)
-	case negative: return has_unbound_auto_ignore(ctx, t.Value, ignore)
-	case *percpat: return has_unbound_auto_ignore(ctx, t.Prefix, ignore) || has_unbound_auto_ignore(ctx, t.Suffix, ignore)
-	case *globpat: return has_unbound_auto_list_ignore(ctx, t.elems, ignore)
-	case *path: return has_unbound_auto_list_ignore(ctx, t.elems, ignore)
-	case fullname: return has_unbound_auto_ignore(ctx, t.Value, ignore)
+		// NEW: If this is an auto_binder, check the universal whitelist (index -1)
+		if c.auto_binder && c.ignore_autos != nil && c.ignore_autos[-1] != nil {
+			if c.ignore_autos[-1][t.s] {
+				return true // Whitelisted by dynamic options!
+			}
+		}
 	}
-	return false
-}
-
-func has_unbound_auto_list_ignore(ctx Context, vals []Value, ignore map[string]bool) bool {
-	for _, v := range vals {
-		if has_unbound_auto_ignore(ctx, v, ignore) { return true }
-	}
-	return false
-}
-
-func has_unbound_auto(ctx Context, v Value) bool {
-	return has_unbound_auto_ignore(ctx, v, nil)
-}
-
-func has_unbound_auto_list(ctx Context, vals []Value) bool {
-	return has_unbound_auto_list_ignore(ctx, vals, nil)
+	return c.Context.do(ctx, op)
 }
 
 func expand(ctx Context, v Value) (res Value) {
     switch t := v.(type) {
+	case *auto:
+		val := t.def(ctx)
+		if val == nil || isTrivial(val) {
+			// Unbound! Bubble the deferral state if not whitelisted.
+			if truly(ctx, keep_autos{}) {
+				if !truly(ctx, is_auto{t.name}) {
+					do(ctx, act_defer_macro{})
+				}
+			}
+		}
+		return t
+
+	case *builtin:
+		// Polymorphic Configuration Bubbling
+		var scope act_macro_scope
+		switch t.name {
+		case "foreach":
+			scope.force_collapse = true
+			scope.ignore_autos = map[int]map[string]bool{
+				1: {"_": true}, // Argument 1 (the body) safely binds $_
+			}
+		case "grep":
+			scope.force_collapse = true
+			scope.ignore_autos = map[int]map[string]bool{
+				1: {"*": true}, // Argument 1 (the replacement string) locally binds regex groups. Ignore all autos!
+			}
+		case "auto":
+			scope.force_collapse = true
+			scope.auto_binder = true // Tell the delegate to scan our options!
+		}
+
+		do(ctx, scope) // Bubble the configuration up!
+		return t
+
 	case *delegate:
-		var c = delegate_x{closure_delegate_x{ctx, 0}}
-		var rx []Value
-		var targetExpanded bool
+		var dx = &delegate_x{closure_delegate_x{ctx, 0}}
+		var c = collapse_ctx{
+			Context:          dx,
+			good_to_collapse: true,
+		}
 
-		// ==========================================================
-		// TRUE PARTIAL EVALUATION: Intelligent AST Deferral
-		// ==========================================================
-		if truly(ctx, keep_autos{}) {
-			var deferExecution bool
-			if has_unbound_auto(ctx, t.x) || has_unbound_auto_list(ctx, t.o) {
-				deferExecution = true
-			} else if has_unbound_auto_list(ctx, t.a) {
-				// Only safely evaluate t.x if it's NOT a macro itself!
-				switch unloc(t.x).(type) {
-				case *closure, *delegate:
-					deferExecution = true
-				default:
-					rx = t.resolve(ctx)
-					targetExpanded = true
+		var rx = t.resolve(&c)
 
-					var isForeach, isGrep bool
-					for _, xv := range rx {
-						if b, ok := xv.(*builtin); ok {
-							if b.name == "foreach" { isForeach = true }
-							if b.name == "grep" { isGrep = true }
-						}
-						if isGrep { debug(ctx, "%v %v", ts(t.x), ts(xv)) }
-					}
+		// Polymorphic Lookahead! 
+		for _, xv := range rx {
+			expand(&c, xv) 
+		}
 
-					for i, a := range t.a {
-						if isForeach {
-							// FOREACH PURE VECTORIZATION
-							// Eagerly evaluate so unbound autos get wrapped by redis()!
-							continue
-						}
-						if isGrep && i == 1 {
-							continue
-						}
-						if has_unbound_auto(ctx, a) {
-							deferExecution = true; break
-						}
+		var o []Value
+		for _, opt := range t.o {
+			c.current_arg = -1
+			o = append(o, expand(&c, opt))
+		}
+
+		// CRITICAL FIX: If this macro binds autos in its options (like `auto`),
+		// populate the universal whitelist (index -1) so its arguments can safely evaluate them!
+		if c.auto_binder {
+			if c.ignore_autos == nil { c.ignore_autos = make(map[int]map[string]bool) }
+			if c.ignore_autos[-1] == nil { c.ignore_autos[-1] = make(map[string]bool) }
+			for _, opt := range o {
+				if pair, ok := unloc(opt).(*pair); ok {
+					if k := quickStr(ctx, pair.key); k != "" {
+						c.ignore_autos[-1][k] = true
 					}
 				}
 			}
-
-			if deferExecution {
-				do(ctx, t) // CRITICAL FIX: Signal parent context that we are deferring!
-				return t
-			}
 		}
-
-		if !targetExpanded {
-			rx = t.resolve(ctx)
+		
+		var a []Value
+		for i, arg := range t.a {
+			c.current_arg = i
+			// CRITICAL FIX: If the builtin specifically whitelisted this entire 
+			// argument index (like grep's arg 1), do NOT expand it! 
+			// Pass the raw AST node directly to the builtin.
+			if c.ignore_autos != nil && c.ignore_autos[i] != nil && c.ignore_autos[i]["*"] {
+				a = append(a, arg)
+			} else {
+				a = append(a, expand(&c, arg))
+			}
 		}
 
 		var vals []Value
 
-		if c.closure_delegate == 0 {
+		if dx.closure_delegate == 0 && (c.good_to_collapse || c.force_collapse) {
 			for _, xv := range rx {
 				cc := expand_closure_delegate{ctx, 0}
-				if rv := evoke(&cc, xv, t.o, t.a); cc.state == not_evoker || rv == nil {
+				if rv := evoke(&cc, xv, o, a); cc.state == not_evoker || rv == nil {
 					vals = append(vals, _null(t.position))
 				} else {
 					vals = append(vals, _loc(rv, t.position))
 				}
 			}
 		} else {
-			var o, a = expands(ctx, t.o...), expands(ctx, t.a...)
+			if !c.good_to_collapse { do(ctx, act_defer_macro{}) }
 			for _, xv := range rx {
 				dv := &delegate{t.valbase, t.l, xv, o, a}
 				vals = append(vals, dv)
@@ -3747,32 +3770,44 @@ func expand(ctx Context, v Value) (res Value) {
 		return
 
 	case *closure:
-		// ==========================================================
-		// TRUE PARTIAL EVALUATION: Strict Deferral for Closures
-		// ==========================================================
-		if truly(ctx, keep_autos{}) {
-			if has_unbound_auto(ctx, t.x) || has_unbound_auto_list(ctx, t.o) || has_unbound_auto_list(ctx, t.a) {
-				do(ctx, t) // CRITICAL FIX: Signal parent context!
-				return t
+		var cx = &closure_x{closure_delegate_x{ctx, 0}}
+		var c = collapse_ctx{
+			Context:          cx,
+			good_to_collapse: true,
+		}
+
+		var rx = t.resolve(&c)
+
+		var o []Value
+		for _, opt := range t.o {
+			c.current_arg = -1
+			o = append(o, expand(&c, opt))
+		}
+
+		var a []Value
+		for i, arg := range t.a {
+			c.current_arg = i
+			// CRITICAL FIX: Skip expansion for whitelisted argument indices
+			if c.ignore_autos != nil && c.ignore_autos[i] != nil && c.ignore_autos[i]["*"] {
+				a = append(a, arg)
+			} else {
+				a = append(a, expand(&c, arg))
 			}
 		}
 
-		var c = closure_x{closure_delegate_x{ctx, 0}}
-		var rx = t.resolve(ctx)
-
 		var vals []Value
 
-		if c.closure_delegate == 0 && truly(ctx, ex_closure{}) {
+		if cx.closure_delegate == 0 && c.good_to_collapse && truly(ctx, ex_closure{}) {
 			for _, xv := range rx {
 				var cc = expand_closure_delegate{ctx, 0}
-				if rv := evoke(&cc, xv, t.o, t.a); cc.state == not_evoker || rv == nil {
+				if rv := evoke(&cc, xv, o, a); cc.state == not_evoker || rv == nil {
 					vals = append(vals, _null(t.position))
 				} else {
 					vals = append(vals, _loc(rv, t.position))
 				}
 			}
 		} else {
-			var o, a = expands(ctx, t.o...), expands(ctx, t.a...)
+			if !c.good_to_collapse { do(ctx, act_defer_macro{}) }
 			for _, xv := range rx {
 				cv := &closure{delegate{t.valbase, t.l, xv, o, a}}
 				vals = append(vals, cv)
@@ -3930,7 +3965,7 @@ func expand(ctx Context, v Value) (res Value) {
 		return ease(ctx, va)
     case *undetermined:
 		return &undetermined{t.token, expand(ctx, t.identifier), expand(ctx, t.value)}
-    case *valbase, *answer, *boolean, *binary, *auto, *builtin, *def, *none, *null, *punct, *qualword, *word, *globmeta, *octal, *decimal, *hexadecimal, *escaped, *raw, *regexpat, *defcaps, *project, *file, self, undef, nil:
+    case *valbase, *answer, *boolean, *binary, *def, *none, *null, *punct, *qualword, *word, *globmeta, *octal, *decimal, *hexadecimal, *escaped, *raw, *regexpat, *defcaps, *project, *file, self, undef, nil:
         if false && v == nil { debug(pc(ctx,v), "%v", v) } //, *modification
         return v
     default:
@@ -4076,28 +4111,27 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 
 		ctx := &evocation{automatic{Context:ctx, defs:make(def_map)}, x, nil, a}
 		_v := reflect.New(t.t)
-		_i := _v.Interface()
 
 		defer t.benchmark(ctx, time.Now(), _v)
 
 		if f := _v.Elem().FieldByName("builtinbase"); !f.IsValid() {
-			debug(pc(ctx,_i), "no such field: %s.builtinbase", _v.Elem().Type(), trace{})
+			debug(ctx, "no such field: %s.builtinbase", _v.Elem().Type(), trace{})
 		} else if f.CanAddr() {
 			b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
 			b.evocation = ctx
 		} else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
-			debug(pc(ctx,_i), "no such field: %s.evocation", _v.Elem().Type(), trace{})
+			debug(ctx, "no such field: %s.evocation", _v.Elem().Type(), trace{})
 		} else if f.CanSet() {
 			f.Set(reflect.ValueOf(ctx))
 		} else if f.CanAddr() && f.Addr().CanSet() {
 			f.Addr().SetPointer(unsafe.Pointer(ctx))
 		} else {
-			debug(pc(ctx,_i), "cannot set field: %s.evocation", _v.Elem().Type(), trace{})
+			debug(ctx, "cannot set field: %s.evocation", _v.Elem().Type(), trace{})
 		}
 
 		if o != nil { ctx.o = _opts(ctx, _v, o) }
 
-		if x, y := _i.(builtin_x); y {
+		if x, y := _v.Interface().(builtin_x); y {
 			res = ease(ctx, x.x())
 		} else {
 			debug(pc(ctx,x), "no method: %v", t.t.Name(), trace{})
