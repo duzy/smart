@@ -161,9 +161,10 @@ func (p selection) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-type is_braced struct{}
+type is_braced  struct{}
+type keep_autos struct{}
 type codeblock      struct{ *automatic ; token }
-type defval        struct{ original ; d *def}
+type defval         struct{ original ; d *def}
 type def_name       struct{ Context }
 type braced         struct{ Context }
 type p_auto_ctx     struct{ Context }
@@ -280,9 +281,10 @@ func (p def_name) do(ctx Context, op any) (_ any) {
 
 func (p defval) inner() Context { return p.Context }
 func (p defval) cast(t reflect.Type) Context { return icast(p,t) }
-func (p defval) do(ctx Context, op any) (_ any) {
+func (p defval) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case is_auto: return t.s != "0" && IsDigits(t.s)
+	case keep_autos: return true
     case origin_def:
         if p.d != nil && (t.name == "" || t.name == p.d.name) { return p.d }
 	}

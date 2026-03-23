@@ -1229,46 +1229,127 @@ func (ctx *__for) x() (res any) {
     return
 }
 
-type __foreach struct { builtinbase
-    empty  bool `allow-empty,empty`
-    unique bool `unique`
+type __foreach struct {
+	builtinbase
+	empty  bool `allow-empty,empty`
+	unique bool `unique`
 }
 func (ctx *__foreach) inner() Context { return &ctx.builtinbase }
 func (ctx *__foreach) cast(t reflect.Type) Context {
-    if reflect.TypeOf(partial{}) == t { return nil }
-    if reflect.TypeOf(ctx) == t { return ctx }
-    return ctx.builtinbase.cast(t)
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
 }
+
 func (ctx *__foreach) x() (res any) {
-    if len(ctx.a) == 0 { return }
+	if len(ctx.a) == 0 {
+		return
+	}
 
-    var vals []Value
-    var um map[uint64]Value
-    if ctx.unique { um = make(map[uint64]Value) }
+	var vals []Value
+	
+	// FIX 1: Use []Value to safely handle hash collisions
+	var um map[uint64][]Value
+	if ctx.unique {
+		um = make(map[uint64][]Value)
+	}
 
-    for _, val := range merge(expand(ctx, ctx.a[0])) {
-        if !ctx.empty && isEmpty(val) {
+	d := ctx.a[0].String() == `$1 $2 $3 $4 $5 $6 $7 $8 $9`
+
+	for _, val := range merge(expand(ctx, ctx.a[0])) {
+		if !ctx.empty && isEmpty(val) {
 			continue
 		} else if ctx.unique {
 			var t = hash(ctx, val)
-			if x, y := um[t]; y {
-				if checkpoints && !equal(ctx, x, val) {
-					debug(ctx, "%v != %v", ts(x), ts(val), trace{})
+			var isDuplicate bool
+			
+			// Resolve potential hash collisions via structural equality
+			if existing, found := um[t]; found {
+				for _, ev := range existing {
+					if equal(ctx, ev, val) {
+						isDuplicate = true
+						break
+					}
 				}
+			}
+			
+			if isDuplicate {
 				continue
-			} else { um[t] = val }
+			}
+			um[t] = append(um[t], val)
 		}
 
-        // NOTE: don't use defStatic (it's for codeblock auto)
-        ctx.set(ctx, defVoid, "_", redis(val))
+		// NOTE: don't use defStatic (it's for codeblock auto)
+		// redis() will now perfectly receive the raw *auto node!
+		ctx.set(ctx, defVoid, "_", redis(val))
 
 		for _, v := range merge(expands(ctx, ctx.a[1:]...)...) {
-			if !ctx.empty && isEmpty(v) { continue }
-			if v == nil { v = _null(v.Position()) }
+			if !ctx.empty && isEmpty(v) {
+				continue
+			}
+			// FIX 2: Safely fallback to the macro's position to avoid nil panic
+			if v == nil {
+				v = _null(_position(ctx))
+			}
 			vals = append(vals, v)
 		}
-    }
-    return vals
+	}
+	if d { debug(ctx, "%v → %v", ctx.a[0], vals) }
+	return vals
+}
+func (ctx *__foreach) _x() (res any) {
+	if len(ctx.a) == 0 {
+		return
+	}
+
+	var vals []Value
+	
+	// FIX 1: Use []Value to safely handle hash collisions
+	var um map[uint64][]Value
+	if ctx.unique {
+		um = make(map[uint64][]Value)
+	}
+
+	d := ctx.a[0].String() == `$1 $2 $3 $4 $5 $6 $7 $8 $9`
+
+	for _, val := range merge(expand(ctx, ctx.a[0])) {
+		if !ctx.empty && isEmpty(val) {
+			continue
+		} else if ctx.unique {
+			var t = hash(ctx, val)
+			var isDuplicate bool
+			
+			// Resolve potential hash collisions via structural equality
+			if existing, found := um[t]; found {
+				for _, ev := range existing {
+					if equal(ctx, ev, val) {
+						isDuplicate = true
+						break
+					}
+				}
+			}
+			
+			if isDuplicate {
+				continue
+			}
+			um[t] = append(um[t], val)
+		}
+
+		// NOTE: don't use defStatic (it's for codeblock auto)
+		ctx.set(ctx, defVoid, "_", redis(val))
+
+		for _, v := range merge(expands(ctx, ctx.a[1:]...)...) {
+			if !ctx.empty && isEmpty(v) {
+				continue
+			}
+			// FIX 2: Safely fallback to the macro's position to avoid nil panic
+			if v == nil {
+				v = _null(_position(ctx))
+			}
+			vals = append(vals, v)
+		}
+	}
+	if d { debug(ctx, "%v → %v", ctx.a[0], vals) }
+	return vals
 }
 
 type __count struct { builtinbase ; vals []Value `value` }
@@ -2301,15 +2382,54 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 				_f("slow: %d result, %v\n", len(result), result),
 				_f("slow: %d pats, %v\n", len(pats), pats))
 		}
-	} (time.Now())
+	}(time.Now())
 
-	// Optimization: Pre-allocate result capacity if we expect a high retention rate,
-	// though nil slice appending is already very fast in Go.
+	if len(values) == 0 {
+		return
+	}
+
+	// 1. OPTIMIZATION: Pre-allocate capacity to eliminate slice growth allocations.
+	// Filter-out (ctx.neg) typically keeps most items, while filter keeps fewer.
+	capacity := len(values) / 2
+	if ctx.neg {
+		capacity = len(values)
+	}
+	result = make([]Value, 0, capacity)
+
+	// 2. OPTIMIZATION: Memoization cache for repetitive AST nodes.
+	// This prevents executing O(N * M) match() calls for duplicate values.
+	type matchResult struct {
+		matched bool
+		val     Value // Stores the stem or the original value
+	}
+	cache := make(map[string]matchResult, capacity)
+
 	for _, v := range values {
+		// Use the string representation as the identity key. Expanded AST nodes 
+		// (like *word or *strlit) that represent the same text will hit the cache.
+		var key string
+		if v != nil {
+			key = v.String()
+		}
+
+		// Fast-path: If we've already matched this exact string against the patterns, reuse it!
+		if cached, exists := cache[key]; exists {
+			if cached.matched {
+				if !ctx.neg && cached.val != nil {
+					result = append(result, cached.val)
+				}
+			} else {
+				if ctx.neg && v != nil {
+					result = append(result, v)
+				}
+			}
+			continue
+		}
+
 		var matched bool
 		var matchedVal Value
 
-		// Check the value against all patterns
+		// Slow-path: Check the value against all patterns
 		for _, pat := range pats {
 			if full, _, _, stems := match(ctx, pat, v); full {
 				matched = true
@@ -2322,7 +2442,13 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 			}
 		}
 
-		// Apply filter vs filter-out logic without closure allocations
+		// Save the computed result into the cache for future identical values
+		cache[key] = matchResult{
+			matched: matched,
+			val:     matchedVal,
+		}
+
+		// Apply filter vs filter-out logic
 		if matched {
 			if !ctx.neg {
 				if matchedVal != nil {
