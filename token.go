@@ -7,8 +7,10 @@ package smart
 
 import (
 	g "go/token"
+	"sort"
 	"strconv"
-	"fmt"
+	"sync"
+	// "unicode/utf8"
 )
 
 type token int
@@ -368,25 +370,6 @@ func (tok token) is_list_delim() bool {
 	return tok.is_rule_delim()
 }
 
-type line_column_s string
-func line_column(a any) string {
-	if a == nil { return "0:0" }
-	switch t := a.(type) {
-	case Position:
-		return fmt.Sprintf("%d:%d", t.Line, t.Column)
-	case positioner:
-		var p = t.Position()
-		return fmt.Sprintf("%d:%d", p.Line, p.Column)
-	case Context:
-		var p = _position(t)
-		return fmt.Sprintf("%d:%d", p.Line, p.Column)
-	case []Value:
-		if len(t) == 0 { return "0:0" }
-		return line_column(t[0])
-	}
-	panic(failureUnreachable(fmt.Sprint(a))) // unreachable(a)
-}
-
 /*
   Struct Position:
 	Filename string  -- filename, if any
@@ -423,18 +406,107 @@ const NoPos Pos = Pos(g.NoPos)
 type Pos g.Pos
 func (p Pos) IsValid() bool { return g.Pos(p).IsValid() }
 
-type tokfile struct { *g.File }
-func (f *tokfile) string() string { return f.Name() }
+// mbInfo stores the byte offset of a multi-byte character and how many "extra" 
+// bytes it consumes compared to a standard 1-byte ASCII character.
+type mbInfo struct {
+	offset int
+	extra  int
+}
+
+type tokfile struct {
+	*g.File
+	sync.RWMutex // Protects the slice during concurrent parsing/tracing
+	mb []mbInfo  // The sparse multibyte index
+}
+
 func (f *tokfile) Offset(p Pos) int { return f.File.Offset(g.Pos(p)) }
 func (f *tokfile) Line(p Pos) int { return f.File.Line(g.Pos(p)) }
 func (f *tokfile) Pos(offset int) Pos { return Pos(f.File.Pos(offset)) }
-func (f *tokfile) Position(p Pos) Position { return Position{f.File.PositionFor(g.Pos(p), true)} }
 
-type fileset struct { *g.FileSet }
-func _fileset() *fileset { return &fileset{ g.NewFileSet() } }
-func (s *fileset) AddFile(filename string, base, size int) *tokfile {
-	return &tokfile{ s.FileSet.AddFile(filename, base, size) }
+// CRITICAL FIX: Mathematical Correction for Rune Columns
+func (f *tokfile) Position(p Pos) Position {
+	gpos := g.Pos(p)
+	pos := f.File.PositionFor(gpos, true)
+
+	// Translate Byte Column to Rune Column using the sparse index
+	if pos.Column > 1 {
+		f.RLock() // Protect slice read
+		if len(f.mb) > 0 {
+			lineStartPos := f.File.LineStart(pos.Line)
+			lineStartOffset := f.File.Offset(lineStartPos)
+			targetOffset := f.File.Offset(gpos)
+
+			// Binary search: Find the first multibyte char on or after this line
+			startIdx := sort.Search(len(f.mb), func(i int) bool {
+				return f.mb[i].offset >= lineStartOffset
+			})
+
+			// Accumulate the extra bytes occurring before our target token
+			extraBytes := 0
+			for i := startIdx; i < len(f.mb); i++ {
+				if f.mb[i].offset >= targetOffset { break }
+				extraBytes += f.mb[i].extra
+			}
+
+			// Mathematically collapse the byte column into a precise rune column!
+			pos.Column -= extraBytes
+		}
+		f.RUnlock()
+	}
+
+	return Position{pos}
 }
+
+// AddSpan registers a multi-byte character during scanning.
+func (f *tokfile) AddSpan(offset, extraBytes int) {
+	f.Lock()
+	f.mb = append(f.mb, mbInfo{offset: offset, extra: extraBytes})
+	f.Unlock()
+}
+
+type fileset struct {
+	*g.FileSet
+	sync.RWMutex
+	files map[*g.File]*tokfile
+}
+
+func _fileset() *fileset {
+	return &fileset{
+		FileSet: g.NewFileSet(),
+		files:   make(map[*g.File]*tokfile),
+	}
+}
+
+func (s *fileset) AddFile(filename string, base, size int) *tokfile {
+	gf := s.FileSet.AddFile(filename, base, size)
+	tf := &tokfile{File: gf}
+	
+	s.Lock()
+	s.files[gf] = tf
+	s.Unlock()
+	
+	return tf
+}
+
 func (s *fileset) Iterate(f func(*tokfile) bool) {
-	s.FileSet.Iterate(func(a *g.File) bool { return f(&tokfile{a}) })
+	s.FileSet.Iterate(func(a *g.File) bool { 
+		s.RLock()
+		tf, ok := s.files[a]
+		s.RUnlock()
+		if ok { return f(tf) }
+		return f(&tokfile{File: a}) 
+	})
+}
+
+func (s *fileset) Position(p Pos) Position {
+	gpos := g.Pos(p)
+	if gf := s.FileSet.File(gpos); gf != nil {
+		s.RLock()
+		tf, ok := s.files[gf]
+		s.RUnlock()
+		if ok {
+			return tf.Position(p)
+		}
+	}
+	return Position{s.FileSet.Position(gpos)}
 }

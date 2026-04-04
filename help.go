@@ -66,7 +66,7 @@ func print_flag_trace(ctx Context) {
         for name, entries := range _universe(ctx).globe.flagEntries {
                 if name == "" { continue }
                 for _, entry := range entries {
-                        prompt(ctx, "%s: %v\n", entry.Position(), entry)
+                        prompt(ctx, "%s: %v\n", entry.Pos(), entry)
                 }
         }
 }

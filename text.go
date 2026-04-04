@@ -33,13 +33,6 @@ func (p plain_ctx) do(ctx Context, op any) (_ any) {
 // Value returned by (plain) modifier.
 type plain struct { elements ; name string }
 func (_ *plain) kind() Kind { return KindPlain }
-func (p *plain) ts(t string) (s string) {
-    s = "{="+t
-    if t := p.name; t != "" { s += "("+t+")" }
-    for _, v := range p.elems { s += " " + ts(v) }
-    s += "}"
-    return
-}
 func (p *plain) String() (s string) {
     s = "{=plain"
     if t := p.name; t != "" { s += "("+t+")" }
@@ -61,12 +54,6 @@ func (p plainline_ctx) do(ctx Context, op any) (_ any) {
 
 type plainline struct { elements }
 func (_ *plainline) kind() Kind { return KindPlainLine }
-func (p *plainline) ts(t string) (s string) {
-    s = "{="+t
-    for _, v := range p.elems { s += " " + ts(v) }
-    s += "}"
-    return
-}
 func (p *plainline) String() (s string) {
     s = "{=plainline"
     if p.elems != nil {
@@ -174,7 +161,7 @@ Converted into:
 */
 func DecodeXML(ctx Context, source string, ws bool) (result Value) {
     var (
-        pos = _position(ctx)
+        pos = _pos(ctx)
         stack []*group
         nodes []*group
         tok enc_xml.Token
@@ -246,7 +233,7 @@ func (p *xml) evaluate(ctx Context, args ...Value) (result Value) {
     if v := DecodeXML(ctx, source, p.whitespace); v != nil {
         return &XML{ v }
     } else {
-        return &XML{ _none(_position(ctx)) }
+        return &XML{ _none(_pos(ctx)) }
     }
 }
 
@@ -283,7 +270,7 @@ const (
  */
 func DecodeJSON(ctx Context, source string) (result Value) {
     var (
-        pos Position = _position(ctx)
+        pos Pos = _pos(ctx)
         stack []*group
         nodes []Value
         node *group
@@ -435,7 +422,7 @@ func (_ *json) evaluate(ctx Context, args ...Value) (result Value) {
     if v := DecodeJSON(ctx, source); v != nil {
         return &JSON{ result }
     } else {
-        return &JSON{ _none(recipes[0].Position()) }
+        return &JSON{ _none(recipes[0].Pos()) }
     }
 }
 
@@ -462,6 +449,6 @@ func (p *yaml) evaluate(ctx Context, args ...Value) (result Value) {
     if v := DecodeYAML(ctx, source, p.whitespace); v != nil {
         return &YAML{ result }
     } else {
-        return &YAML{ _none(_position(ctx)) }
+        return &YAML{ _none(_pos(ctx)) }
     }
 }

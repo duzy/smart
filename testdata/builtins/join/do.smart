@@ -5,7 +5,6 @@ val2  = $(join foo bar xx yy zz,-)
 val3 := $(join &(target.arch) &(target.vendor) &(target.os) &(target.abi),-)
 val4 := $(conjunct &(target.arch) &(XXX) &(target.vendor) &(target.os) &(target.abi),-)
 
+target.abi    := 0
 target.arch   := foo
 target.vendor := bar
-# target.os
-target.abi    := 0

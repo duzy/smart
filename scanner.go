@@ -171,6 +171,10 @@ func (s *scanner) pick(ctx Context, offset int) (ch rune, w int) {
 			debug(pc(ctx,s.pos(offset)), "illegal UTF-8 encoding", trace{})
 		} else if ch == bom && offset > 0 {
 			debug(pc(ctx,s.pos(offset)), "illegal byte order mark", trace{})
+		} else if w > 1 {
+			// CRITICAL FIX: Register the multibyte span instantly during parsing!
+			// We pass the byte offset and the "extra" bytes (width - 1).
+			s.file.AddSpan(offset, w - 1)
 		}
 	}
 	return
@@ -461,7 +465,7 @@ func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string)
 
 	if seenDecimalPoint {
 		offs--
-		tok = FLOAT
+		tok = FLOATING // CRITICAL FIX: Was FLOAT (which is a keyword!)
 		s.scanMantissa(ctx, 10)
 		goto exponent
 	}
@@ -522,24 +526,36 @@ func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string)
 
 fraction:
 	if s.ch == '.' {
-		// Lookahead to see if the character IMMEDIATELY following the dot is a digit.
-		// If it's a '$', '&', or letter, this is not a float (e.g., "1.$2" or "1.foo").
-		if n := s.offset + 1; n < len(s.src) { // <--- FIX: +1 instead of +2
+		// Safety check 1: Must be followed by a digit. Prevents 1.$2 from breaking.
+		if n := s.offset + 1; n < len(s.src) {
 			if ch := rune(s.src[n]); !IsDigit(ch) { 
 				goto exit
 			}
 		} else {
-			// If the dot is the last character in the file, it's not a float
 			goto exit
 		}
-		tok = FLOAT
+		
+		// Safety check 2 (The "+2 Hack"): Must have a second character after the dot 
+		// that is ALSO a digit (or 'e'/'E'). This intentionally prevents 1-digit 
+		// decimals (like .0 or .4) from being floats, forcing them to parse as 
+		// structural qualwords for version strings (e.g., 25.4 or 25.4.0).
+		if n := s.offset + 2; n < len(s.src) {
+			ch := rune(s.src[n])
+			if !IsDigit(ch) && ch != 'e' && ch != 'E' {
+				goto exit
+			}
+		} else {
+			goto exit
+		}
+
+		tok = FLOATING
 		s.next(ctx)
 		s.scanMantissa(ctx, 10)
 	}
 
 exponent:
 	if s.ch == 'e' || s.ch == 'E' {
-		tok = FLOAT
+		tok = FLOATING // CRITICAL FIX: Was FLOAT (which is a keyword!)
 		s.next(ctx)
 		if s.ch == '-' || s.ch == '+' {
 			s.next(ctx)

@@ -12,8 +12,10 @@ project testrules
 v1 := '.test.foo'
 
 c = 0
-foo = $1
+foo = $1$(debug $1 $@ $< $^ $>)
 
 .test.1 := ${.test.foobax}
 .test.2 := ${.test.foobay}
 .test.3 := ${.test.foobaz}
+
+fxx := $(debug ${.test.fxx})

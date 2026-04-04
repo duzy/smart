@@ -46,6 +46,7 @@ type (
     get_closure_scopes struct{}
     get_args       struct{}
     get_workdir    struct{}
+	get_fatpos     struct{ p Pos }
     get_position   struct{}
     get_project    struct{}
     get_scope      struct{}
@@ -204,7 +205,7 @@ func auto_target_valstr(ctx Context) (val Value, str string) {
     if val = auto_target_value(ctx); val == nil {
         if false { erro(ctx, "target is nil") }
     } else {
-        str, _ = as{val}.fullname_string(ctx)
+        str, _ = as_fullname_string(ctx, val)
     }
     return
 }
@@ -398,6 +399,8 @@ func debug(ctx Context, f any, a ...any) {
 			if 0 < t.skip    { cs.skip = t.skip }
 			if 0 != t.frames { cs.frames = t.frames }
 			if "" != t.stop  { cs.stop = t.stop }
+		case []*diag_point:
+			dias = append(dias, t...)
 		case *diag_point:
 			dias = append(dias, t)
 		default:
@@ -673,13 +676,41 @@ func diagstack(ctx Context, n int, dt diagtype, a ...any) (point *diagpoint) {
 }
 
 func _position(ctx Context) (_ Position) {
-    if x, y := do(ctx, get_position{}).(Position); y /* && x.Filename != "" */ {
-        return x
-    } else if true {
-        return
-    } else {
-        panic(no_position{})
-    }
+	switch x := do(ctx, get_position{}).(type) {
+	case Position:
+		// Fast path: Context natively provided a fat Position (e.g., from the universe or *xloc)
+		if x.valid() { return x }
+	case Pos:
+		// Resolution path: Context provided a compact AST Pos. 
+		// We dynamically resolve it into a fat Position using our bridge!
+		if x.IsValid() {
+			if fat, ok := do(ctx, get_fatpos{x}).(Position); ok {
+				return fat
+			}
+		}
+	}
+	
+	// Fallback (matches your `else if true { return }` logic)
+	return 
+}
+
+func _pos(ctx Context) Pos {
+	// 1. Context/Evaluation Path: Extract a compact Pos from the runtime context stack!
+	// This allows posctx and evocation to inject specific AST node positions.
+	switch x := do(ctx, get_position{}).(type) {
+	case Pos:
+		if x.IsValid() { return x }
+	case positioner:
+		if p := x.Pos(); p.IsValid() { return p }
+	}
+
+	// 2. Parse-Time Fallback: Extract the exact compact integer
+	// offset from the active parser if no context explicitly overrides it.
+	if p, ok := do(ctx, get_parser{}).(*parser); ok && p != nil {
+		if p.pos.IsValid() { return p.pos }
+	}
+
+	return 0 // 0 represents NoPos
 }
 
 func walkSmartBaseDirs(ctx Context, cwd string, vis func(string) bool) (s string) {
@@ -864,6 +895,7 @@ func (sl *searchlist) has(s string) (_ bool) {
 type hooks struct {
     assert func(Context, Value, bool) bool
     debug func(Context, string, []Value)
+    error func(Context, string, []Value)
 }
 
 type packagetype uint8
@@ -877,6 +909,39 @@ const (
 type packageinfo struct {
     *project
     t packagetype // smart, pkgconfig, cmake, etc.
+}
+
+// ResolvePosition converts a compact AST 'Pos' back into a human-readable 'Position'
+func ResolvePosition(ctx Context, v Value) Position {
+	if v == nil {
+		return Position{}
+	}
+	
+	// 1. Runtime / Synthetic Position Escape Hatch
+	// If the value is explicitly wrapped in an external location (*xloc), use its fat struct!
+	if l, ok := v.(*xloc); ok {
+		return l.pos 
+	}
+	
+	// (Optional but robust) Check if any other node implements the fat Position interface
+	if p, ok := v.(interface{ Position() Position }); ok {
+		if pos := p.Position(); pos.valid() {
+			return pos
+		}
+	}
+	
+	// 2. Parse-Time Position Resolution
+	pos := v.Pos() // The compact integer
+	if !pos.IsValid() {
+		return Position{} // NoPos
+	}
+	
+	// Safely retrieve the fset from the universe
+	if u := _universe(ctx); u != nil && u.fset != nil {
+		return u.fset.Position(pos)
+	}
+	
+	return Position{}
 }
 
 func _universe(c Context) *universe { return cast[*universe](c) }
@@ -908,11 +973,11 @@ func (ctx *universe) cast(t reflect.Type) Context {
     return ctx.diagnostic.cast(t)
 }
 func (ctx *universe) _position() (p Position) {
-    if ctx.globe != nil && ctx.globe.main != nil {
-        return ctx.globe.main.position
-    }
-
-    p.Filename, p.Line, p.Column = _workdir(ctx), 0, 0
+    if ctx.globe != nil && ctx.globe.main != nil && ctx.fset != nil {
+		p = ctx.fset.Position(ctx.globe.main.pos)
+    } else {
+		p.Filename, p.Line, p.Column = _workdir(ctx), 0, 0
+	}
     return
 }
 func (ctx *universe) ts(t string) string {
@@ -946,6 +1011,11 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
         }
         return
 
+	case get_fatpos:
+		var p Position
+		if ctx.fset != nil && t.p.IsValid() { p = ctx.fset.Position(t.p) } // FIX: Use the receiver 'ctx'
+		return p
+
     case get_position:
         p := Position{}
         p.Filename = ctx.workdir
@@ -957,11 +1027,6 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
     case no_exec: if ctx.noExec { return ctx.noExec }
 	case is_test_mode: if ctx.testMode { return true }
     case is_test_univ: return ctx.testMode
-    // case get_closure_scopes:
-    //     if m := ctx.globe.main; m != nil && m.scope != nil && false {
-    //         return []*scope{ m.scope }
-    //     }
-    //     return
     }
     return ctx.diagnostic.do(_ctx, op)
 }
@@ -1054,7 +1119,7 @@ func new_universe(ii ...any) (ctx *universe) {
     ctx.workdir = workBaseDir
     ctx.fset = _fileset()
     ctx.statcache = make(map[string]*filebase)
-    ctx.scope = newscope(ctx._position(), nil, nil, `universe`)
+    ctx.scope = newscope(nil, nil, `universe`)
 
     var cl = true
     for _, i := range ii {
@@ -1079,12 +1144,12 @@ func new_universe(ii ...any) (ctx *universe) {
         }
     }
 
-    var pos = ctx._position()
+    var pos Pos = 0 //ctx._position()
 	// one of darwin, freebsd, linux, and so on.
 	var os Value = ease(ctx, []Value{_word(pos, runtime.GOOS)})
 
     ctx.globe = &globe{
-        scope: newscope(pos, ctx.scope, nil, `globe`),
+        scope: newscope(ctx.scope, nil, `globe`),
         flagEntries: make(map[string][]entry),
         loaded: make(map[string]*project),
         args: make(map[Value][]Value),
@@ -1233,14 +1298,14 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 	// Check for an existing stub that matches our current path parameters exactly
 	for stub = head; stub != nil; stub = stub.other {
 		if stub.dir == dir && stub.sub == sub && stub.name == name {
-			return &file{valbase{_position(ctx)}, base, stub}
+			return &file{valbase{_pos(ctx)}, base, stub}
 		}
 		if stub.other == head { break }
 	}
 
 	// If no matching stub was found, link a new one into the circular list
 	stub = &filestub{dir, sub, name, nil, head.other}; head.other = stub
-	return &file{valbase{_position(ctx)}, base, stub}
+	return &file{valbase{_pos(ctx)}, base, stub}
 }
 
 func AddPaths(paths... string) (err error) {
@@ -1354,7 +1419,7 @@ func (l ul) parse_args(base string, a ...string) {
         case *pair: l.globe.pairs = append(l.globe.pairs, t)
         case  flag: l.globe.flags = append(l.globe.flags, t)
             if s := __string(l.universe, t.Value); s == "clean" {
-                mode.position, mode.s = t.Position(), "clean"
+                mode.pos, mode.s = t.Pos(), "clean"
             }
         case *argumented:
             l.globe.args[t.Value] = t.args

@@ -46,10 +46,8 @@ type uselist struct {
 }
 func (_ *uselist) kind() Kind { return KindUse }
 func (p *uselist) owner() *project { return p.owner_ }
-func (p *uselist) Position() (pos Position) {
-    if len(p.list) > 0 {
-        pos = p.list[0].Position()
-    }
+func (p *uselist) Pos() (pos Pos) {
+    if len(p.list) > 0 { pos = p.list[0].Pos() }
     return
 }
 func (p *uselist) String() string {
@@ -72,7 +70,7 @@ func (p *uselist) append(ctx Context, proj *project, params []Value, opts useopt
             return
         }
     }
-    p.list = append(p.list, &use{valbase{_position(ctx)},proj,params,opts})
+    p.list = append(p.list, &use{valbase{_pos(ctx)},proj,params,opts})
 }
 
 func (p *uselist) _invoke(ctx Context, o, a []Value) (result Value) {

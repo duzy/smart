@@ -179,23 +179,23 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
         closured = closure_projects(ctx)
         filename string
         f *file
-        target as
+        target Value
     )
 
     args = parseOpts(ctx, opts, args...)
 
-    if target.Value = auto_get(ctx, "@"); isTrivial(target.Value) {
+    if target = auto_get(ctx, "@"); isTrivial(target) {
         debug(ctx, "'@' is not defined", trace{})
-    } else if f, filename, _ = target.fullname_file(ctx, closured...); f == nil {
+    } else if f, filename, _ = as_fullname_file(ctx, target, closured...); f == nil {
         if depend := auto_get(ctx,">"); !isTrivial(depend) {
             panic(traveTargetNotDefinedFile)
         } else if true {
             prompt(ctx, "%v: not defined as file\n", __string(ctx, target))
-            debug(ctx, "%v", ts(target.Value), trace{})
+            debug(ctx, "%v", ts(target), trace{})
         }
         return
     } else if filename == "" {
-        debug(ctx, "%v: empty fullname", target.Value, trace{})
+        debug(ctx, "%v: empty fullname", target, trace{})
     }
 
     if _, prev := auto_set(ctx, defVoid, "@", f); opts.debug>0 {

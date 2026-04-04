@@ -779,6 +779,20 @@ func tokp(ctx Context, c *valcache, p *path) hit_segs {
 	return hit_segs{c, ss}
 }
 
+func _tokq(ctx Context, c *valcache, t *qualword) hit_segs {
+	// 1. unpack(t) correctly interleaves the dots: [word(foo), punct(.), word(c)]
+	// 2. Wrap it in a temporary compound so tokc can natively extract the hit_segs!
+	return tokc(ctx, c, &compound{elements{unpack(t)}})	// Let the universal flattener safely interleave the structural dots!
+}
+func tokq(ctx Context, c *valcache, t *qualword) hit_segs {
+	// Interleave punct(.) on the fly so it hits the cache edges correctly
+	res := make([]Value, 0, len(t.elems)*2-1)
+	for i, e := range t.elems { if i > 0 { res = append(res, implicitDot) }
+		res = append(res, e)
+	}
+	return tokc(ctx, c, &compound{elements{res}})
+}
+
 func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 	if checkpoints { defer func(s string) {
 		if  truly(ctx, propCache)   { check_cache(ctx, k, s, c, r) }
@@ -794,6 +808,7 @@ func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 	case *compound  : r = do_hit(&fullctx{ctx,t}, tokc(ctx, c, t))
 	case *globpat   : r = do_hit(&fullctx{ctx,t}, tokg(ctx, c, t))
 	case *path      : r = do_hit(&fullctx{ctx,t}, tokp(ctx, c, t))
+	case *qualword  : r = do_hit(&fullctx{ctx,t}, tokq(ctx, c, t)) // CRITICAL FIX: Route qualword to tokq
 	case *percpat   : r = do_hit(&fullctx{ctx,t}, toks(ctx, c))
 	case *regexpat  : r = do_hit(&fullctx{ctx,t}, toks(ctx, c))
 	case *strval    : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `{`+__string(ctx,t)+`}`))
@@ -862,9 +877,7 @@ func map_entry(ctx Context, p *project, target Value, prog *program) (entry entr
 		case *barefile, *file, *path, *percpat, *globpat, *regexpat:
 			goto skip_file
 		}
-		if t := p.file(ctx, target); t != nil {
-			target, t.position = t, target.Position()
-		}
+		if t := p.file(ctx, target); t != nil { target, t.pos = t, target.Pos() }
 	skip_file:
 	}
 
@@ -904,10 +917,10 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 			if segs := splitPathStr(ctx, str); len(segs) > 1 {
 				k = packPath(segs)
 			} else {
-				k = _raw(_position(ctx), str)
+				k = _raw(_pos(ctx), str)
 			}
 		} else {
-			k = _raw(_position(ctx), str)
+			k = _raw(_pos(ctx), str)
 		}
 	}
 	

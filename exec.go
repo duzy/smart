@@ -423,7 +423,7 @@ func (p *exec_buffer) covpos(s1, s2, s3 string) (pos Position) {
     return
 }
 func (p *exec_buffer) lpos(column int) Position {
-    var pos = p.position
+    var pos Position
     if p.log != nil {
         pos.Filename, pos.Line, pos.Column = p.log.filename, p.lnum, column
     }
@@ -466,7 +466,7 @@ type exec_ctx struct {
     log *exec_log
     logPos Position
 
-    target as
+    target Value
     targetName string
 
     retried map[string]bool // work with containerToRun
@@ -486,7 +486,6 @@ type exec_ctx struct {
 }
 func (p *exec_ctx) inner() Context { return p.Context }
 func (p *exec_ctx) cast(t reflect.Type) Context { return icast(p,t) }
-// func (p *exec_ctx) String() string { return p.Context.String() }
 func (p *exec_ctx) ts(t string) (s string) {
     s = "{=" + t
     if p.sh != nil {
@@ -741,10 +740,10 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
         ac.args(ac.Context, []Value{a1, a2})
     }
 
-    var pos Position
+    var pos Pos
     var source string
     for i, recipe := range recipes {
-        if !pos.IsValid() { pos = recipe.Position() }
+        if !pos.IsValid() { pos = recipe.Pos() }
 
         var cc Context = _final(pc(ctx, pos))
         var s = __string(cc, recipe)
@@ -776,13 +775,13 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
         sources = append(sources, &raw{valbase{pos}, source})
 
         if ctx.forRecipe != nil {
-            a1.position, a1.s     = pos, source
-            a2.position, a2.int64 = pos, int64(len(sources)+1)
+            a1.pos, a1.s     = pos, source
+            a2.pos, a2.int64 = pos, int64(len(sources)+1)
             ac.Context = ctx
             expand(_final(ac), ctx.forRecipe)
         }
 
-        pos, source = Position{}, ""
+        pos, source = 0, ""
     }
 
     if len(sources) == 0 && 0 < len(recipes) {
@@ -818,7 +817,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         ctx.container = nil
         ctx.sh = nil
 
-        if !ctx.silent && !is_configurecontext(ctx) && ctx.target.Value != nil {
+        if !ctx.silent && !is_configurecontext(ctx) && ctx.target != nil {
             var files = stampFile(must_files_stamp{ctx}, ctx.target)
             if !ctx.prompt && ctx.report { reportFileUpdates(ctx, files) }
         }
@@ -930,7 +929,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
     var cmd = p.cmd
     var ec = &exec_ctx{Context:ctx}
-    ec.exec_result.position = _position(ctx)
+    ec.exec_result.pos = _pos(ctx)
     ec.scanStderr = true
 
     args = parseOpts(ctx, &ec.exec_opts, args...)
@@ -984,9 +983,9 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     if t := auto_target_value(ctx); patterned(ctx,t) {
         debug(ctx, "target is pattern: %v", ec.target, trace{})
     } else {
-        ec.target.Value = t
+        ec.target = t
         if _, y := t.(flag); !y {
-            ec.targetName, _ = ec.target.fullname_string(ctx)
+            ec.targetName, _ = as_fullname_string(ctx, ec.target)
         }
     }
 
@@ -1071,15 +1070,15 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             case "status": s = fmt.Sprintf("%v", ec.Status)
             }
             switch v := __string(ctx, resValue) == s ; resType {
-            case "answer": return _answer(_position(ctx), v)
-            case "option": return _option(_position(ctx), v)
-            default:       return _boolean(_position(ctx), v)
+            case "answer": return _answer(_pos(ctx), v)
+            case "option": return _option(_pos(ctx), v)
+            default:       return _boolean(_pos(ctx), v)
             }
         } else {
             switch resKind {
-            case "stdout": return _raw(_position(ctx), trim(ec.Stdout.Buf.String()))
-            case "stderr": return _raw(_position(ctx), trim(ec.Stderr.Buf.String()))
-            case "status": return _decimal(_position(ctx), int64(ec.Status))
+            case "stdout": return _raw(_pos(ctx), trim(ec.Stdout.Buf.String()))
+            case "stderr": return _raw(_pos(ctx), trim(ec.Stderr.Buf.String()))
+            case "status": return _decimal(_pos(ctx), int64(ec.Status))
             }
         }
     }
